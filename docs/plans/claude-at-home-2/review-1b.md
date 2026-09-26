@@ -1,10 +1,10 @@
 # RV-1B — independent review of Slice 1's Document editor and UI (client side)
 
-**Status at this checkpoint (HEAD `e07470e9`):** the editor/UI review below is complete, with all ten findings
-fixed and the gate run in the summary passing clean. Per the orchestrator, this branch next merges RV-1A's
-parallel engine/server review (`feat/artifacts-s1-review-engine`) and picks up eight further cross-cutting
-fixes that need both sides landed; that work continues below this checkpoint, with its own findings and a final
-gate run appended once done.
+**Status: complete.** The editor/UI review's own ten findings (below) were fixed and gated clean first. This
+branch then merged RV-1A's parallel engine/server review (`feat/artifacts-s1-review-engine`, `4003da51`, 32
+fixes) and picked up eight further cross-cutting fixes the orchestrator assigned once both sides were on one
+branch — see "Coordinator-assigned fixes (post-merge)" below for those, and "Gate summary" for the final run at
+the branch's actual HEAD.
 
 **Scope:** the Document kind's editor and UI only — `src/lib/components/artifacts/document/`,
 `src/lib/components/artifacts/RefusalNotice.svelte`, `src/app.css`'s mobile stylesheet, and the chat page's
@@ -13,7 +13,11 @@ Reviewed against `AGENTS.md` (Artifacts, Svelte 5 rules, icons/tokens, "Artifact
 `docs/plans/claude-at-home-2/slice-1.md` (Global Constraints, Review Focus, UI states, Tasks T7–T11), and
 `decisions.md` rulings 10, 11, 35, 45, 47, 51, 53. The server side (patch protocol, hash guard, versions, routes,
 `@Alfy`, export, the card preview's server projection) is RV-1A's scope in a sibling worktree, not re-litigated
-here except where the client's own correctness depends on it.
+here except where the client's own correctness depends on it. That boundary held for the ten findings above; the
+eight coordinator-assigned items below, picked up after the two branches merged onto this one, correctly reach
+into `blocks.ts`, `patch.ts`-adjacent types, and `comments.ts` where the editor-visible defect's root cause lives
+there (items 2, 3, 4, 5, 7, 8) — each is still an editor-reachable bug, just one this slice's shared/server
+modules also participate in fixing.
 
 **Method:** every defect below was reproduced with a failing test first (the red run is quoted or described with
 its exact numbers), fixed with the smallest change, and re-verified — including, for the two most consequential
@@ -40,6 +44,15 @@ version-history/restore UI was built and unit-tested but never connected to anyt
 10, flagged mid-review by the orchestrator and confirmed reproducible here). All four are fixed here with
 red-then-green proof; the three items flagged as already-known were also root-caused and fixed rather than
 merely un-skipped.
+
+The eight coordinator-assigned items picked up after the merge (below) were, on balance, more severe than this
+half's own ten: an ordinary `![alt](url)` crashed the editor outright (item 1), a `|` typed in a table cell
+silently dropped the cell after it (item 2), a code block containing its own fence-length backticks silently
+split into three blocks (item 3), a task item's own hard break silently split its checked box from its text on
+the very next autosave (item 5), two browser tabs on the same Document could silently overwrite each other
+(item 6), and Undo could leave Alfy's own extra blocks behind forever (item 7) — four of these are silent data
+corruption on ordinary use, not edge cases, and none had any test coverage naming them before this pass. Verdict
+is unchanged: merge, now with all eighteen fixed.
 
 ## Findings
 
@@ -135,10 +148,34 @@ spawned as a follow-up task (`task_2c19c69e`) rather than done mid-review.
    `slice-1.md`), the fix's conservative default (suppress anything that predates this session, full stop) is the
    defensible reading, but it's a product call, not something the spec settles explicitly.
 
+## Coordinator-assigned fixes (post-merge)
+
+Once this branch merged RV-1A's engine/server review (`d4e5047c`, zero conflicts requiring manual resolution
+beyond git's own auto-merge), the orchestrator assigned eight further cross-cutting defects — some from the
+engine review's own "open question for the editor" notes, some new — to close on the combined branch. Same
+method as the ten findings above: a failing test first, the smallest fix, re-verified; for the two most
+structurally risky fixes (item 5's block-splitting and item 7's Undo), an explicit revert-and-retest of the fix
+itself, the same discipline finding 5 and finding 8 above used.
+
+| # | Severity | Where | What breaks, for whom | Test | Commit |
+|---|---|---|---|---|---|
+| 11 (item 1) | **High** | `extensions.ts`'s `buildDocumentExtensions` | This Document registers no Image node — a completely ordinary `![alt](url)` Alfy might write into a body crashed the editor on open (`Invalid content for node doc`), because `@tiptap/markdown`'s fallback parsing for an unrecognised inline token left a bare node with only the alt text sitting directly under `doc`. | `document-editor.test.ts`: three new tests construct `![alt](url)` and `![](url)` bodies directly and load them; failed with the exact crash before the fix. Fixed two ways: a generic orphan-wrapping pass in `buildAbsorbAndMintTransaction` (wraps ANY node the schema's doc content-match rejects in a paragraph, a general safety net for this whole class of bug) plus a specific `ImageAsPlainText` handler for the no-alt-text case, which the generic wrap alone would otherwise turn into a silently blank paragraph. | `dcce614a` |
+| 12 (item 2) | **High** | `document-editor.ts`'s `readMarkdown` | A literal `\|` typed inside a table cell — an ordinary character to the user — is written bare by `@tiptap/markdown`'s table serializer. On the very next parse, `blocks.ts`'s table reader counts it as an extra column, reflows the row, and once padded back to the header's column count, silently **drops** the cell after it. | `document-editor.test.ts`: table-cell round-trip tests, failed with the dropped cell before the fix. Fixed with a sentinel substituted for a cell's own `\|` before `getMarkdown()` runs and turned into the real escape only in the returned string — two more direct approaches (inserting `\|` before serializing; a sentinel containing underscores) were tried and rejected empirically first, both documented in the commit, because `getMarkdown()` itself escapes backslashes and underscores. | `a1dafd90` |
+| 13 (item 3) | **High** | `document-editor.ts`'s `readMarkdown` | A code block whose own content contains a line of 3+ backticks (documentation about fencing, a pasted Markdown snippet) still got a plain 3-backtick outer fence from `getMarkdown()`. CommonMark closes a fence at the first backtick-only line at least as long as the opening one, so the inner line read as the block's own close on the next parse — one code block silently became three (a truncated code block, a paragraph, a stray second code block). | `document-editor.test.ts`: a code block built directly via ProseMirror node construction (a markdown-SOURCE test input would already be ambiguous at the first parse, proving nothing about re-serialization) containing a 3-backtick line, then a 4-backtick line; both failed (split into 3 blocks) before the fix. Fixed by finding, in the LIVE document, every code block whose content needs a longer fence and widening its fence to one backtick more than its longest internal all-backtick line. | `eeaf1907` |
+| 14 (item 4) | **Medium-High** | `document-editor.ts`'s `readMarkdown` | A plain paragraph whose own first line happens to start with an ordered numeral ("2024. ") or a bullet character ("- ") is, in bare Markdown, indistinguishable from a real list — `blocks.ts`'s splitter read either shape as `kind: "list"` on the very next parse, silently changing the block's own kind, its label, and any comment anchor resolved against it. | `document-editor.test.ts`: paragraphs built directly via ProseMirror node construction (again bypassing markdown-source ambiguity) starting "2024. ", "- ", and "1) "; all three reparsed as `kind: "list"` before the fix. Fixed by escaping the look-alike marker in the OUTPUT STRING, after `getMarkdown()` already ran (never by inserting a backslash into the live text first — the same double-escaping trap item 2 already hit), found via the live document's own paragraph nodes so a REAL list's own "- " is never touched. | `ca758f9c` |
+| 15 (item 5) | **High** | `blocks.ts`'s `consumeSingleListItem` | A task item cannot hold a hard break. `keepHardBreaks` already, correctly, trims a task line's hard break flush to the left margin rather than a backslash (the editor's own task-item markdown reader keeps a backslash as literal text — an existing, deliberate, tested trade-off, left untouched). But `consumeSingleListItem`, unlike `consumeListBlock` right below it, had no path at all for an UNINDENTED continuation line — exactly the shape a task's hard break always normalises to. The checked box and its own second line split into two top-level blocks, a fresh id minted for the second, on the very next reopen **or the very next client-side autosave** (`DocumentBody.svelte`'s `currentCanonicalMarkdown` runs the same `parseDocument` pass on every dirty check). | `blocks.test.ts`: a task line followed by an unindented continuation, confirmed red (`["taskList", "paragraph"]` instead of `["taskList"]`) before the fix. Explicitly re-confirmed red by temporarily removing just the new `isLazyContinuation` branch and rerunning, then restored. Fixed by giving `consumeSingleListItem` the same `isLazyContinuation` fallback `consumeListBlock` already has. All existing task/list coverage (indented continuation, nested items, sibling tasks, second paragraph after a blank line) stays green unchanged. | `47f075b3` |
+| 16 (item 6) | **High** | `DocumentBody.svelte`'s `bindAutosave` | The editor's own autosave never sent `baseHash`, so two browser tabs open on the same Document could silently overwrite each other: ruling 47's coalescing lets both tabs' saves legally target the SAME, unmoved version number, so `expectVersion` alone cannot detect the clobber — only a body-hash guard can, and the route already accepted one (RV-1A) that the editor's own save call never sent. | `body.test.ts` (route): new coverage proves `baseHash` reaches `saveDocumentBody`, a stale `baseHash` answers 409, and a document save's response carries its own new `bodyHash` forward. `DocumentBody.test.ts`: proves the load-time hash is sent on the first autosave, a `stale` refusal shows the same conflict notice `version_conflict` already did without touching the user's text, and — the regression this fix exists to prevent — the SECOND autosave sends the hash the FIRST one's response just returned, not the load-time one. Fixed with a `knownBodyHash` tracked from load, every reload that follows someone else's write, `saveCopy`, and this component's own successful saves — which needed `saveDocumentBody`/the body route/the client's `SaveArtifactBodyResult` to thread the new hash back at all, since none of them did. | `b2a0bd4b` |
+| 17 (item 7) | **High** | `marks.ts`'s `undoAlfyChange` | `patch.ts`'s `reblock` already mints a fresh id for every block beyond the first when an applied op's own text reads back as more than one block (a paragraph Alfy split in two, a new section appended), and records them as `PatchInverse.insertedBlockIds` — but nothing between there and the editor ever carried that field forward. Undo only ever replaced the op's own block with its pre-edit text; every block Alfy's op added stayed in the document forever, surviving an "undo" that was supposed to restore what was there before the op ran. | `marks.test.ts`: a `replaceBlock` op whose text reads back as two blocks, undone; the inserted block's id was still present in the reloaded document before the fix. Explicitly re-confirmed red by temporarily removing the new `deleteBlocksById` call and rerunning, then restored. Fixed by carrying `insertedBlockIds` through `AlfyChangeEntry`/`applyAlfyChangeMarks`/`undoAlfyChange`/`document-editor.ts`'s `undoChange` wrapper, and deleting those blocks in the SAME transaction as the text restore. `DocumentBody.svelte` needed no change — it already replays the whole `AlfyChangeEntry` object. | `e674d0f7` |
+| 18 (item 8) | **Medium-High** | `comments.ts`'s `runAlfyCommentReply` | `@Alfy`'s own `ops` field is an array: the model can describe a change as several ops against the SAME anchored block in one comment reply, and a later op can be refused (most commonly `find_not_found`, when a later `replaceRange`'s own `find` text just is not in the block) independently of an earlier op's success. Alfy's "note" only ever describes what it changed, never what it could not — a reply that applied one op and refused another read in the thread as an unqualified success. | `comments.test.ts`: a two-op reply (one valid `replaceRange`, one whose `find` text does not exist) confirmed `applied: 1, refused: 1` with a bare, unqualified note before the fix; a second test confirms an ordinary fully-applied reply gets no suffix. `CommentCard.test.ts`: proves the note and a new notice both render, the raw marker never leaks, the empty-reply marker still resolves under the suffix, and a user's own comment is never mistaken for one. Fixed with a new `ALFY_PARTIAL_REFUSAL_SUFFIX` appended (never replacing, unlike the two existing whole-body markers) to the reply body when the same request both applied and refused at least one op; `CommentCard.svelte` strips it before its existing marker checks and renders a small, separately-styled, localized (English/Hungarian) notice line. | `51b743ec` |
+
+None of the eight required touching a file the OTHER side's review had already fixed for a DIFFERENT reason — the one file both branches touched (`extensions.ts`: RV-1A's duplicate-id fix, this branch's dead-code removal) merged cleanly with git's own auto-merge, confirmed by rereading the merged file afterward rather than trusting a clean exit code alone.
+
 ## Gate summary
 
-Full gate run at final HEAD `e07470e9` (`bash gates.sh …/rv-1b 5630 rv-1b tests/e2e/artifact-document.spec.ts
-tests/e2e/artifact-document-comments.spec.ts tests/e2e/artifacts-panel.spec.ts`):
+### Checkpoint run, at `e07470e9` (this review's own ten findings, pre-merge)
+
+`bash gates.sh …/rv-1b 5630 rv-1b tests/e2e/artifact-document.spec.ts tests/e2e/artifact-document-comments.spec.ts
+tests/e2e/artifacts-panel.spec.ts`:
 
 ```
 gates rv-1b at e07470e9 Fix the card checklist's checkbox not reverting after a refused — start 14:58:21
@@ -152,7 +189,7 @@ playwright exit=0 ::  47 passed (1.5m)
 done 15:02:24
 ```
 
-Every number matches or improves on the slice's own recorded baseline: 0 errors/17 warnings unchanged, biome
+Every number matched or improved on the slice's own recorded baseline: 0 errors/17 warnings unchanged, biome
 clean (was 2 warnings — this review's own dead-code removal, finding 4), build 32/2 unchanged, Fallow
 124/4/+0/+0 unchanged. All 47 Playwright tests (`chat.spec.ts` + `conversation.spec.ts` +
 `artifact-document.spec.ts` + `artifact-document-comments.spec.ts` + `artifacts-panel.spec.ts`) passed, zero
@@ -167,9 +204,42 @@ only this worktree's `.svelte-kit` (never `node_modules/.vite`, which is shared)
 `npx svelte-kit sync`, confirmed with two clean smoke-test runs, then reran the full gate script — the run
 recorded above.
 
+### Final run, at `51b743ec` (after the merge and all eight coordinator-assigned fixes)
+
+Same invocation, same worktree, at the branch's actual final HEAD:
+
+```
+gates rv-1b at 51b743ec Surface a partially-refused @Alfy comment reply in the thread i — start 16:12:31
+check      exit=0 :: COMPLETED 7893 FILES 0 ERRORS 17 WARNINGS 3 FILES_WITH_PROBLEMS
+biome      exit=0 :: Checked 2041 files in 653ms. No fixes applied.
+migrations exit=0 :: All schema tables have corresponding migrations.
+test       exit=0 ::  Test Files 867 passed | 1 skipped (868)  Tests 12925 passed | 2 skipped (12927)
+build      exit=0 :: unused-css=32 aria=2 (baseline 32/2)
+fallow     exit=0 :: total=124 circular=4 new_vs_baseline=0 gone_vs_baseline=0
+playwright exit=0 ::  47 passed (1.5m)
+done 16:16:39
+```
+
+Still clean at the merged, fully-fixed HEAD: 0 errors/17 warnings unchanged, biome clean, build 32/2 unchanged,
+Fallow still 124/4/+0/+0 (RV-1A's engine review and this review's eight post-merge fixes together introduced no
+new circular dependency and closed none of the four already-known ones — expected, since none of the eighteen
+fixes across both reviews touched the shared/server import graph the four known cycles live in). Test Files rose
+865→867 and Tests 12834→12925 (+91) purely from new coverage — RV-1A's own merged tests plus this review's
+post-merge regression tests — with zero failures and zero skips beyond the same two pre-existing skips. The same
+47 Playwright specs passed again, zero failures, zero flakes, no repeat of the stale-`.svelte-kit` issue (already
+fixed for this worktree at the checkpoint run above).
+
 ## Branch
 
-`feat/artifacts-s1-review-editor`, HEAD `e07470e9`, 11 commits on top of `e17c6f09` (10 commits carry the 10
-numbered findings above — findings 2 and 3 share one commit, finding 5 spans two — plus one coverage-only
-addition and this doc). Zero `test.fail()` remain in `tests/e2e/artifact-document.spec.ts`,
-`tests/e2e/artifact-document-comments.spec.ts`, or `tests/e2e/artifacts-panel.spec.ts`.
+`feat/artifacts-s1-review-editor`, on top of `e17c6f09`:
+
+- 11 commits carrying this review's own ten findings (findings 2 and 3 share one commit, finding 5 spans two)
+  plus one coverage-only addition, through checkpoint HEAD `e07470e9`.
+- `4003da51`: RV-1A's own review doc, the tip of the merged `feat/artifacts-s1-review-engine` (32 fixes on top of
+  `e17c6f09`, `7f0f0f15`..`4003da51`).
+- `d4e5047c`: the merge of that branch into this one.
+- 8 commits carrying the coordinator-assigned post-merge fixes above (items 1–8, one commit each, in order).
+- This doc update.
+
+Zero `test.fail()` remain in `tests/e2e/artifact-document.spec.ts`, `tests/e2e/artifact-document-comments.spec.ts`,
+or `tests/e2e/artifacts-panel.spec.ts`.
