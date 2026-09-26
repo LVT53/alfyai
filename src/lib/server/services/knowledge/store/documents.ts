@@ -86,7 +86,9 @@ export interface LogicalDocumentPageResult {
 	countsByKind: Record<KnowledgeDocumentKindFilter, number>;
 }
 
-type LogicalDocumentArtifactRow = Parameters<typeof mapArtifactSummary>[0] & {
+export type LogicalDocumentArtifactRow = Parameters<
+	typeof mapArtifactSummary
+>[0] & {
 	id: string;
 	userId: string;
 	metadataJson?: string | null;
@@ -312,8 +314,12 @@ function parseArtifactFamilyKind(
  * round trip: every field it needs is already on the row selected via
  * `knowledgeArtifactListSelection` (`core.ts`) — everything but
  * `contentText`, which only the Workspace Search candidate loader needs.
+ *
+ * Exported for `workspace-search.ts`'s own artifact-family candidate loader
+ * (Task 2), which needs the exact same mapping — shared behaviour should
+ * exist once, not be copied between the two callers.
  */
-function mapArtifactFamilyRow(
+export function mapArtifactFamilyRow(
 	row: LogicalDocumentArtifactRow,
 	versionNumber: number | null,
 ): KnowledgeDocumentItem {
@@ -352,8 +358,11 @@ function mapArtifactFamilyRow(
  * is batched per page the same way `attachExtractionJobs`
  * (`knowledge.ts`) batches the extraction ledger — one query per page, not
  * one per row.
+ *
+ * Exported for `workspace-search.ts`'s artifact-family candidate loader
+ * (Task 2), which batches the same version lookup for its own candidate set.
  */
-async function getArtifactVersionNumbers(
+export async function getArtifactVersionNumbers(
 	artifactIds: string[],
 ): Promise<Map<string, number>> {
 	if (artifactIds.length === 0) return new Map();
