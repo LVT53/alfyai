@@ -1042,6 +1042,77 @@ describe("deleting a normal conversation's artifact family (Review Focus #2)", (
 	});
 });
 
+// RV-7: the gap the two deletion tests above do not cover. Both seed an
+// artifact with NO outside reference, so `deleteConversationWithCleanup`
+// (cleanup/conversation-cleanup.ts) hard-deletes it via
+// `hardDeleteArtifactsForUser` and it is gone from the `artifacts` table
+// entirely — trivially absent from every read. But that same function's own
+// branch for a `type: "artifact"` row checks
+// `artifactHasReferencesOutsideConversation` first and, when true, PRESERVES
+// the row instead — exactly like it already does for
+// `source_document`/`normalized_document` — whenever something outside the
+// conversation still names it (a fork's copied `artifact_links` row, a
+// cross-conversation evidence link, ...). Preserving does not keep the link
+// alive: `artifacts.conversation_id` is `ON DELETE SET NULL`, so the instant
+// the conversation row itself is deleted a few lines later in the same
+// function, the preserved row's `conversation_id` goes to `null`.
+// `isArtifactCanonicallyOwned` (knowledge/store/core.ts) gives
+// `generated_output` / `work_capsule` no `userId` fallback for exactly this
+// reason ("a working artifact whose conversation is gone must never come back
+// as retrieval context" — detached-artifact-delete.test.ts's own header). A
+// `type: "artifact"` row falls through to the generic
+// `artifact.userId === userId` branch instead, so a preserved incognito
+// artifact comes back through the front door the moment its conversation is
+// gone — the exact containment failure this suite exists to catch.
+describe("an incognito artifact preserved by an outside reference, after its conversation is deleted", () => {
+	it("must not resurface through listLogicalDocumentsPage or Workspace Search once its own conversation link is cleared", async () => {
+		const { documentId } = await seedIncognitoArtifactFamily();
+
+		// The outside reference that makes cleanup PRESERVE rather than
+		// hard-delete the row: some other, still-alive conversation names it —
+		// the same shape a fork's copied `artifact_links` row would leave.
+		memory.db
+			.insert(schema.artifactLinks)
+			.values({
+				id: "link-outside-reference",
+				userId: USER,
+				artifactId: documentId,
+				conversationId: NORMAL,
+				linkType: "attached_to_conversation",
+				createdAt: NOW,
+			})
+			.run();
+
+		await deleteConversationWithCleanup(USER, INCOGNITO);
+
+		// Sanity check on the setup itself: the row must still exist (preserved,
+		// not hard-deleted) with its conversation link cleared — otherwise this
+		// test would be proving nothing.
+		const stored = memory.db
+			.select({
+				id: schema.artifacts.id,
+				conversationId: schema.artifacts.conversationId,
+			})
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, documentId))
+			.all();
+		expect(stored).toEqual([{ id: documentId, conversationId: null }]);
+
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(page.documents.map((item) => item.id)).not.toContain(documentId);
+
+		const found = await searchWorkspace(USER, {
+			query: SECRET_DOCUMENT_TITLE,
+		});
+		expect(found.documents.map((item) => item.displayArtifactId)).not.toContain(
+			documentId,
+		);
+	});
+});
+
 // ── PART B: the guard ──────────────────────────────────────────
 //
 // `getArtifactOwnershipScope` is the boundary. A query that reads `artifacts`
