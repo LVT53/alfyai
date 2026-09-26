@@ -429,4 +429,66 @@ describe("listLogicalDocumentsPage totals", () => {
 			"owned-canvas",
 		);
 	});
+
+	// RV-7: the merged sort hardcodes `compareKnowledgeDocumentItems(...,
+	// "date", "desc")` as the search tie-break whenever `query` is set,
+	// regardless of the caller's own `sortKey`/`sortDirection`. The retired
+	// single-source comparator this slice replaced fell through to the
+	// CALLER's sortKey whenever two scores tied during a search — exactly the
+	// "byte-identical below the new branch" promise this file's own Global
+	// Constraints make — so this silently changed ordering for every row, old
+	// and new alike, the moment two results tie on relevance.
+	it("keeps the caller's own sortKey as the search tie-break, not a hardcoded date order", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seed(db);
+		db.insert(schema.artifacts)
+			.values([
+				// Identical name -> identical relevance score for a "weekly" query
+				// (`scoreArtifactFamilyRowForSearch` reads `name` only), so any
+				// order difference below comes from the TIE-BREAK, not the score.
+				{
+					id: "owned-app",
+					userId: "owner",
+					type: "artifact",
+					retrievalClass: "durable",
+					name: "Weekly board",
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({ artifactType: "app" }),
+					createdAt: new Date(NOW.getTime() - 60_000), // older
+					updatedAt: NOW,
+				},
+				{
+					id: "owned-canvas",
+					userId: "owner",
+					type: "artifact",
+					retrievalClass: "durable",
+					name: "Weekly board",
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({ artifactType: "canvas" }),
+					createdAt: NOW, // newer
+					updatedAt: NOW,
+				},
+			])
+			.run();
+		sqlite.close();
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+
+		const page = await listLogicalDocumentsPage("owner", {
+			includeGeneratedOutputs: true,
+			query: "weekly",
+			sortKey: "type",
+			sortDirection: "asc",
+			offset: 0,
+			limit: 20,
+		});
+
+		// Both rows tie on search score; sorted by TYPE ascending ("app" before
+		// "canvas", per the caller's own request) "owned-app" must lead,
+		// regardless of which of the two is newer.
+		expect(page.documents.map((document) => document.id)).toEqual([
+			"owned-app",
+			"owned-canvas",
+		]);
+	});
 });

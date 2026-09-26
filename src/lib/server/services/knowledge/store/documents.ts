@@ -1036,21 +1036,22 @@ export async function listLogicalDocumentsPage(
 
 	// Same dual-mode rule the old code used, replicated rather than re-derived:
 	// relevance order when searching, plain sortKey/sortDirection order when
-	// not — now applied once, over the union of both sources.
-	const sorted = query
-		? [...kindFiltered].sort(
-				(left, right) =>
-					right.score - left.score ||
-					compareKnowledgeDocumentItems(left.item, right.item, "date", "desc"),
-			)
-		: [...kindFiltered].sort((left, right) =>
-				compareKnowledgeDocumentItems(
-					left.item,
-					right.item,
-					sortKey,
-					sortDirection,
-				),
-			);
+	// not — now applied once, over the union of both sources. The retired
+	// `sortLogicalDocumentRecordEntries` fell through to the CALLER's own
+	// sortKey/sortDirection whenever two scores tied during a search (only an
+	// outright score difference short-circuited it); a hardcoded "date"/"desc"
+	// tie-break here would silently reorder every row, old and new alike, the
+	// moment two results tie on relevance — exactly the behaviour change the
+	// Global Constraints promise not to make.
+	const sorted = [...kindFiltered].sort((left, right) => {
+		if (query && left.score !== right.score) return right.score - left.score;
+		return compareKnowledgeDocumentItems(
+			left.item,
+			right.item,
+			sortKey,
+			sortDirection,
+		);
+	});
 
 	return {
 		documents: sorted.slice(offset, offset + limit).map((entry) => entry.item),
