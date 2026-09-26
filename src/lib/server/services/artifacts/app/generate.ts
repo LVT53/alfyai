@@ -136,7 +136,7 @@ function buildAppRequestMessage(params: {
 
 const FENCE_RE = /```[ \t]*(?:html|HTML)[ \t]*\r?\n([\s\S]*?)```/g;
 
-interface Extraction {
+export interface Extraction {
 	ok: boolean;
 	html: string;
 	strategy: AppExtractionStrategy;
@@ -159,8 +159,13 @@ interface Extraction {
  * `no_fence` failure after the retry, never a success. This function still
  * reports the strategy honestly (for `warnings`/the eval harness's own
  * scoring, which may want the prototype's more lenient reading later).
+ * Exported so the eval harness's `app` suite scorer (A9) reuses this exact
+ * extraction rather than a second copy of the fence regex.
  */
-function extractAppHtml(raw: string, finishReason: string | null): Extraction {
+export function extractAppHtml(
+	raw: string,
+	finishReason: string | null,
+): Extraction {
 	const matches = [...raw.matchAll(FENCE_RE)];
 	const proseOutsideFence = raw.replace(FENCE_RE, "").trim();
 	const truncatedFence = finishReason === "length" && matches.length === 0;
@@ -214,6 +219,23 @@ function extractAppHtml(raw: string, finishReason: string | null): Extraction {
 		fenceCount: 0,
 		truncatedFence,
 	};
+}
+
+/**
+ * Classifies WHY an extraction failed into the product's three failure
+ * reasons (Task A1 Step 1.3/1.5) — factored out of `generateApp`'s retry loop
+ * so the eval harness's `app` suite scorer (A9) applies the exact same rule
+ * a real generation would, rather than a second copy of this three-way
+ * split. See the three-shape note above `extractAppHtml`'s call site.
+ */
+export function classifyAppExtractionFailure(
+	extraction: Pick<Extraction, "strategy" | "truncatedFence">,
+): AppGenerationFailureReason {
+	return extraction.strategy === "fence"
+		? "empty_content"
+		: extraction.strategy === "empty" && extraction.truncatedFence
+			? "too_long"
+			: "no_fence";
 }
 
 /** `<title>`, then `<h1>`, then a truncated prompt — never the word "Artifact" (spec §2.16/ADR-0066). */
@@ -415,11 +437,7 @@ export async function generateApp(
 		//   complete it looks).
 		if (extraction.strategy !== "fence" || !extraction.ok) {
 			const reason: AppGenerationFailureReason =
-				extraction.strategy === "fence"
-					? "empty_content"
-					: extraction.strategy === "empty" && extraction.truncatedFence
-						? "too_long"
-						: "no_fence";
+				classifyAppExtractionFailure(extraction);
 			warnings.push(
 				`attempt ${attempts}: ${extraction.issue ?? "no runnable fence"}`,
 			);

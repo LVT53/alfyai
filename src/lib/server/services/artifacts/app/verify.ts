@@ -126,7 +126,9 @@ A timer, a stopwatch, a colour picker, a drawing canvas, or a game with no factu
 
 Read the app's HTML (given as the user message) and answer strictly as JSON: {"checkable": boolean, "kinds": string[]}. "kinds" is a subset of ["table","answer_key","computed_numbers","dates","unit_conversion","named_facts"] and MUST be empty when "checkable" is false.`;
 
-function buildVerifierPrompt(
+/** Exported so the eval harness's `verification` suite (A9) sends the model
+ * the exact same instructions the product's own verifier does. */
+export function buildVerifierPrompt(
 	hasResearchWeb: boolean,
 	language: "en" | "hu",
 ): string {
@@ -201,7 +203,7 @@ Answer with EXACTLY one fenced code block, tagged json, and nothing outside it:
 
 const FENCE_RE = /```[ \t]*(?:json|JSON)[ \t]*\r?\n([\s\S]*?)```/;
 
-interface VerifierAnswer {
+export interface VerifierAnswer {
 	/** Every distinct claim examined, named by subject (ruling 52) — see `claimListGainedAClaim`. */
 	claims: string[];
 	findings: AppVerificationFinding[];
@@ -209,7 +211,9 @@ interface VerifierAnswer {
 	repairSafe: boolean;
 }
 
-function parseVerifierAnswer(text: string): VerifierAnswer | null {
+/** Exported so the eval harness's `verification` suite (A9) scores the model's
+ * raw answer with the exact same parser the product's verifier uses. */
+export function parseVerifierAnswer(text: string): VerifierAnswer | null {
 	const match = FENCE_RE.exec(text);
 	const jsonText = match?.[1] ?? text;
 	let parsed: unknown;

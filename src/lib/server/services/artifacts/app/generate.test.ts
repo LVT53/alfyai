@@ -49,9 +49,13 @@ vi.mock("$lib/server/services/artifacts", () => ({
 	createArtifact: (params: unknown) => createArtifact(params),
 }));
 
-const { generateApp, APP_THINKING_MODE, APP_MAX_ATTEMPTS } = await import(
-	"./generate"
-);
+const {
+	generateApp,
+	APP_THINKING_MODE,
+	APP_MAX_ATTEMPTS,
+	extractAppHtml,
+	classifyAppExtractionFailure,
+} = await import("./generate");
 const { APP_CONTRACT_PROMPT } = await import("./contract");
 
 const PROVIDER: NormalChatModelRunProvider = {
@@ -578,5 +582,35 @@ describe("generateApp — cost", () => {
 
 		expect(result.ok).toBe(false);
 		expect(recordControlModelUsage).toHaveBeenCalled();
+	});
+});
+
+describe("extractAppHtml / classifyAppExtractionFailure — exported for the eval harness's scorer (A9)", () => {
+	it("extracts the fenced html and classifies a successful fence as needing no failure reason", () => {
+		const extraction = extractAppHtml(
+			"```html\n<!doctype html><html><body>hi</body></html>\n```",
+			"stop",
+		);
+		expect(extraction.ok).toBe(true);
+		expect(extraction.strategy).toBe("fence");
+	});
+
+	it("classifies a blank fence as empty_content, matching generateApp's own policy", () => {
+		const extraction = extractAppHtml("```html\n```", "stop");
+		expect(classifyAppExtractionFailure(extraction)).toBe("empty_content");
+	});
+
+	it("classifies no fence, cut off by the token budget, as too_long", () => {
+		const extraction = extractAppHtml("some partial prose, no fence", "length");
+		expect(classifyAppExtractionFailure(extraction)).toBe("too_long");
+	});
+
+	it("classifies no fence and not truncated as no_fence, even when a whole document was recovered", () => {
+		const extraction = extractAppHtml(
+			"<!doctype html><html><body>no fence around this</body></html>",
+			"stop",
+		);
+		expect(extraction.strategy).toBe("recovered-document");
+		expect(classifyAppExtractionFailure(extraction)).toBe("no_fence");
 	});
 });
