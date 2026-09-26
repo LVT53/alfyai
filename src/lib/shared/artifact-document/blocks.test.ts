@@ -9,6 +9,7 @@ import {
 	normalizeMarkdown,
 	parseDocument,
 	readTaskBlock,
+	splitTableCells,
 } from "./blocks";
 
 // The Document's pure engine (spec §2.6, ruling 12). No Tiptap, no ProseMirror,
@@ -348,5 +349,26 @@ describe("RV-1A: the canonical form never rewrites a code block's content", () =
 		expect(normalizeMarkdown("\n```\nx = 1   \n```\n\n")).toBe(
 			"```\nx = 1\n```",
 		);
+	});
+});
+
+describe("RV-1A: an escaped pipe is cell text, not a column separator", () => {
+	it("keeps `\\|` inside its cell through normalisation, and counts the cells GFM counts", () => {
+		const table = "| a | b |\n| --- | --- |\n| x \\| y | z |";
+		expect(normalizeMarkdown(table)).toBe(table);
+		expect(splitTableCells("| x \\| y | z |").map((c) => c.trim())).toEqual([
+			"x \\| y",
+			"z",
+		]);
+		// An escaped backslash before a real separator is still a separator.
+		expect(splitTableCells("| a \\\\| b |").map((c) => c.trim())).toEqual([
+			"a \\\\",
+			"b",
+		]);
+		// A row whose last cell ends in an escaped pipe keeps it.
+		expect(splitTableCells("| a | b \\|").map((c) => c.trim())).toEqual([
+			"a",
+			"b \\|",
+		]);
 	});
 });

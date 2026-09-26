@@ -136,12 +136,39 @@ function trimBlankEdges(lines: string[]): string[] {
 	return lines.slice(start, end);
 }
 
-/** Split one `| a | b |`-shaped line into cell substrings (not yet trimmed). Shared with the patch engine's `addTableRow`. */
+/**
+ * Split one `| a | b |`-shaped line into cell substrings (not yet trimmed).
+ * Shared with the patch engine's `addTableRow` and the export mapper. A
+ * backslash escapes the character after it, so `\|` is cell text (GFM's
+ * only way to put a pipe in a cell), never a column separator — splitting
+ * on it turned one cell into two on every save (RV-1A).
+ */
 export function splitTableCells(line: string): string[] {
-	let s = line.trim();
-	if (s.startsWith("|")) s = s.slice(1);
-	if (s.endsWith("|")) s = s.slice(0, -1);
-	return s.split("|");
+	const s = line.trim();
+	const cells: string[] = [];
+	let current = "";
+	let endedWithSeparator = false;
+	for (let i = 0; i < s.length; i += 1) {
+		const ch = s[i];
+		endedWithSeparator = false;
+		if (ch === "\\" && i + 1 < s.length) {
+			current += ch + s[i + 1];
+			i += 1;
+			continue;
+		}
+		if (ch === "|") {
+			cells.push(current);
+			current = "";
+			endedWithSeparator = true;
+			continue;
+		}
+		current += ch;
+	}
+	cells.push(current);
+	// The row's opening and closing pipes delimit cells; neither is one.
+	if (s.startsWith("|")) cells.shift();
+	if (endedWithSeparator) cells.pop();
+	return cells;
 }
 
 function isTableDelimiterRow(line: string): boolean {
