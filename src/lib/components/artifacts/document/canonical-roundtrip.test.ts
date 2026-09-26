@@ -120,4 +120,16 @@ describe("RV-1A: the canonical form survives a real reopen", () => {
 			buildIndex(parseDocument(stored).blocks),
 		);
 	});
+
+	it("keeps a hard break inside a list item through open → serialise → reload", () => {
+		const stored = parseDocument(
+			"- item one\\\nitem line two\n- item two\n",
+		).markdown;
+		expect(hardBreaksAfterOpening(stored)).toBe(1);
+		const once = reopen(stored);
+		expect(hardBreaksAfterOpening(once)).toBe(1);
+		expect(buildIndex(parseDocument(once).blocks)).toEqual(
+			buildIndex(parseDocument(stored).blocks),
+		);
+	});
 });

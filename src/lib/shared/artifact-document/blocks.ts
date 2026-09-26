@@ -124,6 +124,11 @@ export function normalizeMarkdown(markdown: string): string {
  */
 function keepHardBreaks(lines: string[]): string[] {
 	if (lines.some((line) => isTableDelimiterRow(line))) return lines;
+	// The editor's task-item reader does not read a hard break back (it keeps
+	// a backslash as literal text), so a task item's trailing spaces are just
+	// trimmed, as before.
+	const first = lines.find((line) => line.trim() !== "") ?? "";
+	if (TASK_LINE_RE.test(first)) return lines;
 	return lines.map((line, i) => {
 		const next = lines[i + 1];
 		if (next === undefined || next.trim() === "") return line;
@@ -501,6 +506,20 @@ function consumeSingleListItem(
 	return { text: collected.join("\n"), next: i };
 }
 
+/**
+ * CommonMark's lazy continuation: a line right after a list item's text that
+ * starts no block of its own continues that text, indented or not. The editor
+ * writes the second line of a Shift+Enter break in a list item exactly so
+ * (`- item one  ` then `item line two`), and reading it as a new paragraph
+ * moved that line out of its item on the next reload (RV-1A). Plain lists
+ * only: the editor's task-item reader handles neither a lazy line nor a hard
+ * break, so a task item keeps its old, stable split (review-1a.md, open
+ * question for the editor).
+ */
+function isLazyContinuation(line: string): boolean {
+	return line.trim() !== "" && !startsNewBlock(line);
+}
+
 /** Consumes a plain list block: its items, indented continuations, and a loose blank line before another item of the SAME family. */
 function consumeListBlock(
 	lines: string[],
@@ -520,7 +539,11 @@ function consumeListBlock(
 			}
 			break;
 		}
-		if (familyRe.test(line) || /^\s+\S/.test(line)) {
+		if (
+			familyRe.test(line) ||
+			/^\s+\S/.test(line) ||
+			isLazyContinuation(line)
+		) {
 			collected.push(line);
 			i += 1;
 			continue;

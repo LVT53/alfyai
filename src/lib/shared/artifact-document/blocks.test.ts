@@ -443,3 +443,23 @@ describe("RV-1A: a hard line break survives the canonical form", () => {
 		expect(normalizeMarkdown("```\na  \nb\n```")).toBe("```\na\nb\n```");
 	});
 });
+
+describe("RV-1A: a list item's lazy continuation line stays in the item", () => {
+	it("keeps the line after a hard break inside its list item, as CommonMark reads it", () => {
+		const list = parseDocument("- item one  \nitem line two\n- item two");
+		expect(list.blocks.map((b) => b.kind)).toEqual(["list"]);
+		expect(list.blocks[0].markdown).toBe(
+			"- item one\\\nitem line two\n- item two",
+		);
+		// A task item is the exception: the editor's task-item reader keeps a
+		// backslash break as literal text, so its trailing spaces are only
+		// trimmed (never turned into a visible "\").
+		expect(
+			normalizeMarkdown("- [ ] book the hotel  \n  near the station"),
+		).toBe("- [ ] book the hotel\n  near the station");
+		// A line that starts a block of its own still ends the list.
+		expect(
+			parseDocument("- item\n# Heading").blocks.map((b) => b.kind),
+		).toEqual(["list", "heading"]);
+	});
+});
