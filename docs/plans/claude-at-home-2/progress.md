@@ -254,6 +254,16 @@ contract/audit/eval half (before its live run); **S2d** (sonnet, in `rv-2a`, por
 the review branch. Then: merge the review branch into `feat/artifacts-s2` after S2c, and RV-2B (sonnet) covers
 generation/verification/eval plus S2d's runtime changes.
 
+**S2d done (2026-09-26 ~08:40).** `feat/artifacts-s2-review-sandbox` HEAD `69a99a4b` (on RV-2A's `0a4cf01d`): ruling 58's runtime
+half. `3ff7c447` sandbox `allow-scripts allow-forms` from one `APP_IFRAME_SANDBOX` constant (CSP derives from it;
+AppFrame's literal pinned equal), `7d712761` the load tripwire + localized notice, `d936b18b` bootstrap replies only
+from `window.parent`, `ccaa0212` same-key ordering + an 8 MiB queued-bytes cap, `c476ec8f` non-string key dropped
++ kv read `no-store`, `c227a100` localized download errors and a "session ended" notice. That notice is a narrow
+branch in `hooks.server.ts`, inside the existing no-user check, for exactly `/api/artifacts/<id>/app` + `Sec-Fetch-Dest:
+iframe`; never public, tested with the route's HTML asserted absent. `69a99a4b` the Code tab loads Shiki on demand.
+12,690 tests (+33), Playwright 37, containment 30, gates clean except the known extra cycle; one MinerU timing flake
+passes alone. Read by the orchestrator. Waiting: S2c → merge this branch into `feat/artifacts-s2` → RV-2B.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
