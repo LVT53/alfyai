@@ -418,6 +418,18 @@ write path), `302e8bfc` e2e with a fake-provider `create_artifact` scenario. 13,
 chat e2e (the create path runs real generation). **RV-SC (sonnet)** dispatched in `rv-sc` (branch
 `feat/artifacts-chatcard-review`, 5670) on the merge and the card.
 
+**Owner decisions (2026-09-26, weekly limit at 74%):** finish Wave 2, deploy it to **dev** with the tool-description trim, give the owner
+sample tasks, then **pause until the weekly reset** (Mon 2026-09-28 ~10:00 IST); Waves 3–4 each run in a **fresh
+orchestrator session** from this file. The campaign waits. Production only on the owner's word (it would need the
+trim, which this wave now includes, plus a campaign). **Trim agent** (sonnet, `art-adv`, branch
+`feat/artifacts-advertise` from `302e8bfc`): the advertised kinds are derived from `CREATE_ARTIFACT_HANDLERS`
+(Document + App), and the three descriptions, the `artifactType` enum and the base-prompt paragraph (`prompts.ts:49`)
+are assembled from per-kind fragments; snapshots regenerated; ceiling lowered.
+**Final integration order:** `feat/artifacts-s1` ← `rv-1a` + `rv-1b` branches; `feat/artifacts-chatcard` ← `rv-sc` branch +
+`feat/artifacts-advertise` + `feat/artifacts-s1`; `feat/artifacts` ← `feat/artifacts-chatcard` + `feat/artifacts-focus-trap`
+(pass one); `npm install` in `art-base` (Tiptap); full gates; `dev` ← `feat/artifacts` in the main checkout, gates in
+`dev-int`, push, deploy, real-model checks on ai.dev.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
