@@ -309,6 +309,76 @@ export function getCategory(
 	return "other";
 }
 
+// ── file families (Documents tab second-tier filter, ruling 60) ────────────
+
+/**
+ * The Knowledge Documents tab's second-tier filter — one level coarser than
+ * `FileTypeCategory`, down to the seven buckets a person recognises at a
+ * glance: PDF · Word · Spreadsheets · Presentations · Images ·
+ * Text & Markdown · Other. This is a NEW fold, not a per-entry table field:
+ * every entry already carries a `category`, and `getFileFamilyForCategory`
+ * below is the one, exhaustive map from category to family, so a family is
+ * never declared twice and an entry can never disagree with its own category.
+ */
+export type FileFamily =
+	| "pdf"
+	| "word"
+	| "spreadsheet"
+	| "presentation"
+	| "image"
+	| "textMarkdown"
+	| "other";
+
+/** Left-to-right chip order for the second-tier row (ruling 60, owner-approved). */
+export const FILE_FAMILY_ORDER: readonly FileFamily[] = [
+	"pdf",
+	"word",
+	"spreadsheet",
+	"presentation",
+	"image",
+	"textMarkdown",
+	"other",
+];
+
+/**
+ * The total map from `FileTypeCategory` to `FileFamily`. Every category has a
+ * row — `code`, `archive`, `media` and the registry's own `other` all fold to
+ * `"other"` here, since ruling 60 names only five document-ish families plus
+ * Text & Markdown, not a family per registry category.
+ */
+const CATEGORY_TO_FILE_FAMILY: Record<FileTypeCategory, FileFamily> = {
+	pdf: "pdf",
+	document: "word",
+	spreadsheet: "spreadsheet",
+	presentation: "presentation",
+	image: "image",
+	text: "textMarkdown",
+	code: "other",
+	archive: "other",
+	media: "other",
+	other: "other",
+};
+
+export function getFileFamilyForCategory(
+	category: FileTypeCategory,
+): FileFamily {
+	return CATEGORY_TO_FILE_FAMILY[category];
+}
+
+/**
+ * `getCategory` plus the family fold — the one function a caller should use
+ * to bucket a file by name/MIME. A Skill Note (no real filename, declared
+ * `mimeType: "text/markdown"`) resolves through the MIME fallback to `"text"`
+ * category and lands on `"textMarkdown"` here with no special-casing; a
+ * produced file resolves the same way through its own output filename.
+ */
+export function getFileFamily(
+	filename: string,
+	mimeType: string | null,
+): FileFamily {
+	return getFileFamilyForCategory(getCategory(filename, mimeType));
+}
+
 // ── upload surfaces ────────────────────────────────────────────────────────
 
 /**

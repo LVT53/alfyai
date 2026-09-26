@@ -14,10 +14,13 @@ import {
 	buildAcceptAttribute,
 	FILE_TYPE_ENTRIES,
 	fileExtension,
+	FILE_FAMILY_ORDER,
 	getAcceptAttribute,
 	getAcceptedExtensions,
 	getEntryByExtension,
 	getEntryByMimeType,
+	getFileFamily,
+	getFileFamilyForCategory,
 	getIntakeFallbackRoute,
 	getIntakeRoute,
 	getMineru4FallbackFileTypeIds,
@@ -613,6 +616,44 @@ describe("file-type registry invariants", () => {
 		expect(buildAcceptAttribute("chat", new Set())).toBe(
 			getAcceptAttribute("chat"),
 		);
+	});
+
+	// Ruling 60 (Documents tab second-tier filter): every entry's category
+	// folds into exactly one of the seven families a person recognises at a
+	// glance. The fold is total over `FileTypeCategory` itself, not per entry —
+	// adding a category (not just an entry) is the only way a future file type
+	// could reach neither a family nor the Other fallback.
+	it("maps every entry's category to exactly one file family, with Other as the catch-all", () => {
+		for (const entry of FILE_TYPE_ENTRIES) {
+			const family = getFileFamilyForCategory(entry.category);
+			expect(FILE_FAMILY_ORDER).toContain(family);
+		}
+
+		// The five named categories keep their obvious identity...
+		expect(getFileFamilyForCategory("pdf")).toBe("pdf");
+		expect(getFileFamilyForCategory("document")).toBe("word");
+		expect(getFileFamilyForCategory("spreadsheet")).toBe("spreadsheet");
+		expect(getFileFamilyForCategory("presentation")).toBe("presentation");
+		expect(getFileFamilyForCategory("image")).toBe("image");
+		// ...prose folds into Text & Markdown...
+		expect(getFileFamilyForCategory("text")).toBe("textMarkdown");
+		// ...and everything ruling 60 does not name falls to Other.
+		expect(getFileFamilyForCategory("code")).toBe("other");
+		expect(getFileFamilyForCategory("archive")).toBe("other");
+		expect(getFileFamilyForCategory("media")).toBe("other");
+		expect(getFileFamilyForCategory("other")).toBe("other");
+	});
+
+	it("resolves a file's family the same way it resolves its category", () => {
+		for (const entry of FILE_TYPE_ENTRIES) {
+			const filename = `sample.${entry.extensions[0]}`;
+			expect(getFileFamily(filename, entry.mimeTypes[0])).toBe(
+				getFileFamilyForCategory(entry.category),
+			);
+		}
+		// An unresolvable file (no extension, no matching MIME) is Other, not a
+		// thrown error or a value outside the union.
+		expect(getFileFamily("no-extension", null)).toBe("other");
 	});
 
 	// `dev`'s `isDirectTextExtractionFile` read ANY file whose declared MIME
