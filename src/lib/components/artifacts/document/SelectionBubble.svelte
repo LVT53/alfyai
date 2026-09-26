@@ -3,9 +3,18 @@
  * The floating "Ask Alfy" / "Comment" bubble a text selection raises (T10.1).
  * Purely presentational and Tiptap-free: `DocumentBody.svelte` computes
  * `position` from the live selection (`document-editor.ts`'s
- * `readSelectionAnchorContext` plus `editor.view.coordsAtPos`) and owns the
- * actual `createArtifactComment` call behind `onSubmit`. This file only knows
- * "the user typed this text and pressed Post."
+ * `readSelectionAnchorContext` plus `editor.view.coordsAtPos`, run through
+ * `bubble-placement.ts`'s `computeBubblePlacement`) and owns the actual
+ * `createArtifactComment` call behind `onSubmit`. This file only knows "the
+ * user typed this text and pressed Post" plus which side of the selection it
+ * was asked to sit on.
+ *
+ * `placement` picks the anchor transform: "above" (the default — matches
+ * this component's original, only behaviour) anchors the bubble's
+ * bottom-center at `position`; "below" (computeBubblePlacement's flip for
+ * when there is no room above — see that module's own header comment) anchors
+ * the top-center instead. Never mutated here — a placement decision is made
+ * ONCE, by the caller, from real geometry; this file only renders it.
  */
 import { MessageSquare, Sparkles } from "@lucide/svelte";
 import { t } from "$lib/i18n";
@@ -15,10 +24,16 @@ let {
 	onSubmit,
 	onDismiss,
 }: {
-	position: { x: number; y: number };
+	position: { x: number; y: number; placement?: "above" | "below" };
 	onSubmit: (body: string) => void | Promise<void>;
 	onDismiss: () => void;
 } = $props();
+
+let anchorTransform = $derived(
+	position.placement === "below"
+		? "translate(-50%, 0%)"
+		: "translate(-50%, -100%)",
+);
 
 let composing = $state(false);
 let draftText = $state("");
@@ -55,7 +70,7 @@ async function submit(): Promise<void> {
 <div
 	class="selection-bubble"
 	data-testid="selection-bubble"
-	style="left: {position.x}px; top: {position.y}px;"
+	style="left: {position.x}px; top: {position.y}px; transform: {anchorTransform};"
 >
 	{#if !composing}
 		<button type="button" class="selection-bubble-action" onclick={openAskAlfy}>
@@ -102,7 +117,8 @@ async function submit(): Promise<void> {
 		border: 1px solid var(--border-default);
 		background-color: var(--surface-overlay);
 		box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
-		transform: translate(-50%, -100%);
+		/* `transform` is set inline (script's `anchorTransform`) so it can flip
+		   between anchoring above vs. below the selection. */
 	}
 
 	.selection-bubble-action {
