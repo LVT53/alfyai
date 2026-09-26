@@ -18,9 +18,8 @@ interface StorageMessage {
  */
 function createSandbox() {
 	const messages: StorageMessage[] = [];
-	const listeners: Array<
-		(event: { data: unknown; source?: unknown }) => void
-	> = [];
+	const listeners: Array<(event: { data: unknown; source?: unknown }) => void> =
+		[];
 	const pendingTimers: Array<() => void> = [];
 
 	const sandboxWindow: Record<string, unknown> = {

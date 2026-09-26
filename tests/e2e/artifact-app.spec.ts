@@ -226,7 +226,10 @@ test.describe("the App kind, in the panel", () => {
 		// Ruling 58: allow-forms joined allow-scripts so a generated app's
 		// <form> submit event can fire; see the dedicated form test below for
 		// proof the submission itself is still refused.
-		await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms");
+		await expect(iframe).toHaveAttribute(
+			"sandbox",
+			"allow-scripts allow-forms",
+		);
 
 		const appFrame = page.frameLocator("iframe.app-frame");
 		await expect(
@@ -248,7 +251,9 @@ test.describe("the App kind, in the panel", () => {
 		await openAppPanel(page);
 
 		const appFrame = page.frameLocator("iframe.app-frame");
-		await expect(appFrame.getByRole("heading", { name: "Form App" })).toBeVisible();
+		await expect(
+			appFrame.getByRole("heading", { name: "Form App" }),
+		).toBeVisible();
 
 		await appFrame.getByRole("button", { name: "Submit" }).click();
 
@@ -256,7 +261,9 @@ test.describe("the App kind, in the panel", () => {
 		// No navigation actually happened: the app's own heading is still
 		// there. If form-action had been dropped along with the sandbox
 		// change, this button would have navigated the frame away from it.
-		await expect(appFrame.getByRole("heading", { name: "Form App" })).toBeVisible();
+		await expect(
+			appFrame.getByRole("heading", { name: "Form App" }),
+		).toBeVisible();
 	});
 
 	// Ruling 58's tripwire, RV-2A open question 2: the CSP cannot stop a
@@ -266,7 +273,10 @@ test.describe("the App kind, in the panel", () => {
 	test("an app that navigates itself trips the tripwire: the frame is torn down and a reload notice appears", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Make me a runaway app");
+		const conversationId = await createConversation(
+			page,
+			"Make me a runaway app",
+		);
 		await seedApp(conversationId, RUNAWAY_APP_HTML, "Runaway App");
 		await openChatAndReload(page, conversationId);
 		await openAppPanel(page);
@@ -281,7 +291,9 @@ test.describe("the App kind, in the panel", () => {
 		// the frame down and shows its own notice in its place.
 		await expect(page.locator("iframe.app-frame")).toHaveCount(0);
 		await expect(
-			page.getByText("This app tried to leave its sandbox, so Alfy stopped it."),
+			page.getByText(
+				"This app tried to leave its sandbox, so Alfy stopped it.",
+			),
 		).toBeVisible();
 
 		await page.getByRole("button", { name: "Reload the app" }).click();

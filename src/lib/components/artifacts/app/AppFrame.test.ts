@@ -657,14 +657,26 @@ describe("AppFrame — same-key sets land in order, and the backlog caps bytes t
 		const source = getIframe(container).contentWindow as Window;
 
 		post(
-			{ v: 1, kind: "alfy.storage", id: 1, method: "set", args: ["notes", "first"] },
+			{
+				v: 1,
+				kind: "alfy.storage",
+				id: 1,
+				method: "set",
+				args: ["notes", "first"],
+			},
 			source,
 		);
 		await flush();
 		expect(writeAppValue).toHaveBeenCalledTimes(1);
 
 		post(
-			{ v: 1, kind: "alfy.storage", id: 2, method: "set", args: ["notes", "second"] },
+			{
+				v: 1,
+				kind: "alfy.storage",
+				id: 2,
+				method: "set",
+				args: ["notes", "second"],
+			},
 			source,
 		);
 		await flush();
@@ -675,8 +687,20 @@ describe("AppFrame — same-key sets land in order, and the backlog caps bytes t
 		resolveFirst({ ok: true });
 		await vi.waitFor(() => expect(writeAppValue).toHaveBeenCalledTimes(2));
 
-		expect(writeAppValue).toHaveBeenNthCalledWith(1, "app-1", "notes", "first", null);
-		expect(writeAppValue).toHaveBeenNthCalledWith(2, "app-1", "notes", "second", null);
+		expect(writeAppValue).toHaveBeenNthCalledWith(
+			1,
+			"app-1",
+			"notes",
+			"first",
+			null,
+		);
+		expect(writeAppValue).toHaveBeenNthCalledWith(
+			2,
+			"app-1",
+			"notes",
+			"second",
+			null,
+		);
 	});
 
 	it("does not serialize sets for DIFFERENT keys against each other", async () => {
@@ -691,9 +715,15 @@ describe("AppFrame — same-key sets land in order, and the backlog caps bytes t
 		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
 		const source = getIframe(container).contentWindow as Window;
 
-		post({ v: 1, kind: "alfy.storage", id: 1, method: "set", args: ["a", 1] }, source);
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "set", args: ["a", 1] },
+			source,
+		);
 		await flush();
-		post({ v: 1, kind: "alfy.storage", id: 2, method: "set", args: ["b", 2] }, source);
+		post(
+			{ v: 1, kind: "alfy.storage", id: 2, method: "set", args: ["b", 2] },
+			source,
+		);
 		await flush();
 
 		// key "b" ran even though key "a" is still pending.

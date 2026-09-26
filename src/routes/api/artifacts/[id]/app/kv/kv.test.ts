@@ -117,7 +117,8 @@ describe("GET /api/artifacts/[id]/app/kv", () => {
 		],
 		[
 			"a refusal",
-			() => mockReadAppValue.mockResolvedValue({ ok: false, reason: "not_found" }),
+			() =>
+				mockReadAppValue.mockResolvedValue({ ok: false, reason: "not_found" }),
 		],
 	] as const)("sends Cache-Control: no-store for %s", async (_label, setup) => {
 		setup();

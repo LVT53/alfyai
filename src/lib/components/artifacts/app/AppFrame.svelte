@@ -183,7 +183,10 @@ function runWaitingCalls(): void {
  */
 const pendingSetByKey = new Map<string, Promise<void>>();
 
-function sequenceSetByKey(key: string, run: () => Promise<void>): Promise<void> {
+function sequenceSetByKey(
+	key: string,
+	run: () => Promise<void>,
+): Promise<void> {
 	const previous = pendingSetByKey.get(key) ?? Promise.resolve();
 	const settled = previous.then(run, run);
 	pendingSetByKey.set(key, settled);
@@ -359,7 +362,10 @@ function handleMessage(event: MessageEvent): void {
 		conversationId,
 	} as const;
 	queuedBytes += estimatedBytes;
-	callsWaiting.push({ run: () => serveStorageCall(call), bytes: estimatedBytes });
+	callsWaiting.push({
+		run: () => serveStorageCall(call),
+		bytes: estimatedBytes,
+	});
 	runWaitingCalls();
 }
 
