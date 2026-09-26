@@ -163,7 +163,10 @@ function jumpFromMobile(id: string) {
 // getFocusableElements still comes from the shared utility, and mount/Escape/
 // cleanup wiring is the same focusTrap() every other migrated dialog uses.
 const mobileSheetFocusTrap = focusTrap({
-	onEscape: () => closeMobileSheet(),
+	onEscape: (event) => {
+		event.preventDefault();
+		closeMobileSheet();
+	},
 	onTab: (event) => {
 		if (!mobileSheetRef) return;
 		const focusables = getFocusableElements(mobileSheetRef);
