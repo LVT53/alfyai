@@ -49,6 +49,7 @@ import {
 	type CreateArtifactModelPayload,
 	createArtifactInputSchema,
 	createArtifactModelInputSchema,
+	MAX_CREATE_ARTIFACT_CALLS_PER_TURN,
 	runCreateArtifactTool,
 } from "./artifact-tools/create";
 import {
@@ -655,6 +656,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// Same, but for the whole turn regardless of what each request was called —
 	// see MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN.
 	let totalProduceFileSubmissions = 0;
+	// Every create_artifact call this turn, whatever kind — see
+	// MAX_CREATE_ARTIFACT_CALLS_PER_TURN (artifact-tools/create.ts).
+	let totalCreateArtifactCalls = 0;
 	// At most one instruction offer per turn (Slice F). The offer is a row the
 	// user has to answer; a second row about the same sentence is a second
 	// decision, so a repeated call is refused rather than recorded.
@@ -1836,12 +1840,35 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						} satisfies CreateArtifactModelPayload;
 					}
 					const safeInput = parsedInput.data;
+					// Counted and refused exactly the way
+					// MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN is: every kind shares one
+					// turn-wide counter, and the call past the cap runs no handler at
+					// all — recorded directly, never through the envelope, mirroring
+					// produce_file's own `refuse(...)` helper.
+					if (totalCreateArtifactCalls >= MAX_CREATE_ARTIFACT_CALLS_PER_TURN) {
+						const message = `create_artifact has already been called ${totalCreateArtifactCalls} times in this turn, which is the limit. Stop creating more, and tell the user what you already made.`;
+						const payload: CreateArtifactModelPayload = {
+							success: false,
+							error: message,
+						};
+						recorder.record({
+							callId: options.toolCallId,
+							name: "create_artifact",
+							input: safeInput,
+							status: "done",
+							outputSummary: message,
+							sourceType: "tool",
+							metadata: { ok: false, error: message },
+						});
+						return payload;
+					}
+					totalCreateArtifactCalls += 1;
 					return executeToolWithEnvelope<CreateArtifactModelPayload>({
 						toolName: "create_artifact",
 						timeoutMs: TOOL_TIMEOUTS_MS.create_artifact,
 						options,
 						recorder,
-						run: async () => {
+						run: async (abortSignal) => {
 							const result = await runCreateArtifactTool({
 								userId: ctx.userId,
 								conversationId: ctx.conversationId,
@@ -1849,6 +1876,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								artifactType: safeInput.artifactType,
 								title: safeInput.title,
 								body: safeInput.body,
+								abortSignal,
 							});
 							return {
 								modelPayload: result.modelPayload,
@@ -1898,12 +1926,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						timeoutMs: TOOL_TIMEOUTS_MS.read_artifact,
 						options,
 						recorder,
-						run: async () => {
+						run: async (abortSignal) => {
 							const result = await runReadArtifactTool({
 								userId: ctx.userId,
 								conversationId: ctx.conversationId,
 								artifactId: input.artifactId,
 								detail: input.detail,
+								abortSignal,
 							});
 							return {
 								modelPayload: result.modelPayload,
@@ -1960,7 +1989,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						timeoutMs: TOOL_TIMEOUTS_MS.edit_artifact,
 						options,
 						recorder,
-						run: async () => {
+						run: async (abortSignal) => {
 							const result = await runEditArtifactTool({
 								userId: ctx.userId,
 								conversationId: ctx.conversationId,
@@ -1969,6 +1998,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								patches: safeInput.patches,
 								ops: safeInput.ops,
 								summary: safeInput.summary,
+								abortSignal,
 							});
 							return {
 								modelPayload: result.modelPayload,

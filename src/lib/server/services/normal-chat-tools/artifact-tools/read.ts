@@ -8,6 +8,7 @@ import {
 	listArtifactCatalogueEntries,
 } from "$lib/server/services/artifacts";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import { MAX_INLINE_TEXT_CHARS } from "../files";
 import { truncateText } from "../shared";
 import type { CreatableArtifactKind } from "./create";
 
@@ -30,6 +31,18 @@ export type ReadArtifactModelPayload =
 			 *  Slides: [{slideId, layout, fields: [{fieldId, hash, text}]}]. */
 			blocks?: Array<Record<string, unknown>>;
 			body?: string;
+			/**
+			 * Set when `body` was clipped or `blocks` was cut short at
+			 * MAX_INLINE_TEXT_CHARS (files.ts's own inline-text budget, reused
+			 * here rather than a second invented cap). `body` and `blocks` are
+			 * bounded independently, so at most one of `omittedChars`/
+			 * `omittedBlocks` is ever present alongside it.
+			 */
+			truncated?: boolean;
+			/** Characters left out of `body` past the cap. */
+			omittedChars?: number;
+			/** Blocks left out of `blocks` past the cap, in original order. */
+			omittedBlocks?: number;
 	  }
 	| {
 			success: false;
@@ -43,6 +56,14 @@ export interface ReadArtifactHandlerParams {
 	artifactId: string;
 	title: string;
 	detail: "blocks" | "full";
+	/**
+	 * Fires on the tool's own timeout (10s, TOOL_TIMEOUTS_MS.read_artifact) or
+	 * the turn's own stop/disconnect. A read has nothing to write, but a
+	 * handler MUST still check it before doing further work and pass it to
+	 * any model call it makes, so that call is cancelled too rather than left
+	 * running unattended after the model was told the read failed.
+	 */
+	abortSignal: AbortSignal;
 }
 
 export interface ReadArtifactHandlerResult {
@@ -87,6 +108,56 @@ export interface ReadArtifactRunResult {
 	metadata: Record<string, string | number | boolean | null>;
 }
 
+/**
+ * Bounds `body`/`blocks` at MAX_INLINE_TEXT_CHARS BEFORE either ever reaches
+ * the model — applied to whatever a caller returns, whether that is the
+ * generic-record fallback below or a registered per-kind handler. A "full"
+ * read had no size bound at all before this (compactModelPayload only strips
+ * EMPTY keys, it never truncates), which was dead code with no creatable
+ * kind registered yet but becomes live the moment a type slice's reader
+ * ships. Not applied to the File short-summary path: FILE_SUMMARY_MAX_CHARS
+ * (280) can never exceed this cap, so there is nothing for it to do there.
+ */
+function boundReadOutput(result: {
+	blocks?: Array<Record<string, unknown>>;
+	body?: string;
+}): {
+	blocks?: Array<Record<string, unknown>>;
+	body?: string;
+	truncated?: boolean;
+	omittedChars?: number;
+	omittedBlocks?: number;
+} {
+	let truncated: boolean | undefined;
+	let omittedChars: number | undefined;
+	let omittedBlocks: number | undefined;
+
+	let body = result.body;
+	if (body !== undefined && body.length > MAX_INLINE_TEXT_CHARS) {
+		omittedChars = body.length - MAX_INLINE_TEXT_CHARS;
+		body = truncateText(body, MAX_INLINE_TEXT_CHARS);
+		truncated = true;
+	}
+
+	let blocks = result.blocks;
+	if (blocks !== undefined) {
+		let usedChars = 0;
+		const kept: Array<Record<string, unknown>> = [];
+		for (const block of blocks) {
+			usedChars += JSON.stringify(block).length;
+			if (usedChars > MAX_INLINE_TEXT_CHARS) break;
+			kept.push(block);
+		}
+		if (kept.length < blocks.length) {
+			omittedBlocks = blocks.length - kept.length;
+			truncated = true;
+		}
+		blocks = kept;
+	}
+
+	return { body, blocks, truncated, omittedChars, omittedBlocks };
+}
+
 async function buildNotFoundResult(params: {
 	userId: string;
 	conversationId: string;
@@ -117,6 +188,7 @@ export async function runReadArtifactTool(params: {
 	conversationId: string;
 	artifactId: string;
 	detail?: "blocks" | "full";
+	abortSignal: AbortSignal;
 }): Promise<ReadArtifactRunResult> {
 	const detail = params.detail ?? "full";
 	const record = await getArtifact({
@@ -163,13 +235,16 @@ export async function runReadArtifactTool(params: {
 		// knows (kind, title, the whole stored body) rather than refusing
 		// outright. What is actually missing is the per-kind `blocks` shape an
 		// edit needs to address — not the ability to see the thing at all.
+		const bounded = boundReadOutput({ body: record.body ?? undefined });
 		return {
 			modelPayload: {
 				success: true,
 				artifactId: record.id,
 				artifactType: record.kind,
 				title: record.title,
-				body: record.body ?? undefined,
+				body: bounded.body,
+				truncated: bounded.truncated,
+				omittedChars: bounded.omittedChars,
 			},
 			outputSummary: `Read ${record.kind} "${record.title}"`,
 			metadata: {
@@ -187,15 +262,20 @@ export async function runReadArtifactTool(params: {
 		artifactId: record.id,
 		title: record.title,
 		detail,
+		abortSignal: params.abortSignal,
 	});
+	const bounded = boundReadOutput({ blocks: result.blocks, body: result.body });
 	return {
 		modelPayload: {
 			success: true,
 			artifactId: record.id,
 			artifactType: record.kind,
 			title: record.title,
-			blocks: result.blocks,
-			body: result.body,
+			blocks: bounded.blocks,
+			body: bounded.body,
+			truncated: bounded.truncated,
+			omittedChars: bounded.omittedChars,
+			omittedBlocks: bounded.omittedBlocks,
 		},
 		outputSummary: `Read ${record.kind} "${record.title}"`,
 		metadata: {

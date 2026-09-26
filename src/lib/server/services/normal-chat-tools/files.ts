@@ -127,7 +127,10 @@ const MAX_SEARCH_RESULTS = 20;
 // reads only); this is a second, much tighter cap on the *text* we inline
 // into the model's context so one large text file can't blow the prompt
 // budget the way research_web's per-source char budgets do.
-const MAX_INLINE_TEXT_CHARS = 100_000;
+// Exported so other tools reuse this ONE inline-text budget rather than
+// inventing a second number for the same concern (e.g. read_artifact's
+// "full" body / blocks bound — see artifact-tools/read.ts).
+export const MAX_INLINE_TEXT_CHARS = 100_000;
 
 // The old TEXT_LIKE_MIME_TYPES set (json, xml, javascript, x-yaml, yaml) is
 // exactly the set of non-"text/" MIMEs the registry marks text-like, so the

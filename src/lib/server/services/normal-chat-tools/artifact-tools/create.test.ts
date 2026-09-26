@@ -64,6 +64,7 @@ describe("runCreateArtifactTool — no kind registered yet (Slice 5a)", () => {
 				title: "Something",
 				body: "content",
 				artifactType,
+				abortSignal: new AbortController().signal,
 			});
 
 			expect(result.modelPayload.success).toBe(false);
@@ -98,6 +99,7 @@ describe("runCreateArtifactTool — a registered handler", () => {
 			title: "Vienna plan",
 			body: "# Plan",
 			artifactType: "document",
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload).toEqual({
@@ -129,6 +131,7 @@ describe("runCreateArtifactTool — a registered handler", () => {
 			title: "Vienna plan",
 			body: "# Plan",
 			artifactType: "document",
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload).toEqual({
@@ -136,5 +139,30 @@ describe("runCreateArtifactTool — a registered handler", () => {
 			error: "The Markdown could not be parsed into blocks.",
 		});
 		expect(result.metadata.ok).toBe(false);
+	});
+
+	it("passes its own abortSignal through to the handler unchanged", async () => {
+		const controller = new AbortController();
+		let seenSignal: AbortSignal | undefined;
+		const handler: CreateArtifactHandler = async (params) => {
+			seenSignal = params.abortSignal;
+			return {
+				ok: true,
+				value: { artifactId: "artifact-1", title: params.title },
+			};
+		};
+		CREATE_ARTIFACT_HANDLERS.document = handler;
+
+		await runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			title: "Vienna plan",
+			body: "# Plan",
+			artifactType: "document",
+			abortSignal: controller.signal,
+		});
+
+		expect(seenSignal).toBe(controller.signal);
 	});
 });
