@@ -281,4 +281,35 @@ describe("AlfyAI Standard Report Markdown renderer", () => {
 
 		expect(markdown.startsWith("# Markdown no-cover report")).toBe(true);
 	});
+
+	// Ruling 36: a checklist item draws a real tick (GFM task-list syntax),
+	// not "[x]" as prose text a reader has to decode.
+	it("draws checklist items as GFM task-list syntax, mixed with a plain item", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Checklist markdown report",
+			blocks: [
+				{
+					type: "list",
+					style: "bullet",
+					items: [
+						{ text: "Book the hotel", checked: true },
+						{ text: "Confirm the flight", checked: false },
+						"Plain reminder",
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const markdown = renderStandardReportMarkdown(
+			validation.source,
+		).content.toString("utf8");
+
+		expect(markdown).toContain("- [x] Book the hotel");
+		expect(markdown).toContain("- [ ] Confirm the flight");
+		expect(markdown).toContain("- Plain reminder");
+	});
 });

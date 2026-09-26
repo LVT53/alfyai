@@ -856,3 +856,56 @@ describe("generated document charts with several series", () => {
 		expect(block.type === "chart" && block.data).toHaveLength(4);
 	});
 });
+
+// Ruling 36: an exported checklist shows ticks, not "[x]" prose — a list
+// item can optionally carry `checked`, on top of the plain string form, so
+// this is an additive shape and the envelope stays version 1.
+describe("checklist list items (ruling 36)", () => {
+	function normalizedItems(items: unknown[]) {
+		const result = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Checklist report",
+			blocks: [{ type: "list", style: "bullet", items }],
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error(result.message);
+		const block = result.source.blocks[0];
+		if (block.type !== "list") throw new Error("expected a list block");
+		return block.items;
+	}
+
+	it("keeps a plain string item exactly as a string", () => {
+		expect(normalizedItems(["Book the hotel"])).toEqual(["Book the hotel"]);
+	});
+
+	it("normalizes { text, checked } into a checklist item", () => {
+		expect(
+			normalizedItems([{ text: "Book the hotel", checked: true }]),
+		).toEqual([{ text: "Book the hotel", checked: true }]);
+	});
+
+	it("normalizes checked: true and checked: false distinctly", () => {
+		expect(
+			normalizedItems([
+				{ text: "Booked", checked: true },
+				{ text: "Not yet", checked: false },
+			]),
+		).toEqual([
+			{ text: "Booked", checked: true },
+			{ text: "Not yet", checked: false },
+		]);
+	});
+
+	it("collapses { text } with no checked field down to a bare string", () => {
+		expect(normalizedItems([{ text: "Just an object-shaped item" }])).toEqual([
+			"Just an object-shaped item",
+		]);
+	});
+
+	it("drops an object item with a non-boolean checked, keeping only its text", () => {
+		expect(normalizedItems([{ text: "Weird input", checked: "yes" }])).toEqual([
+			"Weird input",
+		]);
+	});
+});

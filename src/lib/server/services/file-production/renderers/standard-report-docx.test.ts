@@ -94,4 +94,35 @@ describe("AlfyAI Standard Report DOCX renderer", () => {
 			"No accepted source supports the fallback claim.",
 		);
 	});
+
+	// Ruling 36: a checklist item draws a real tick/box glyph, not "[x]" text.
+	it("draws checklist items with ballot-box glyphs, mixed with a plain item", async () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Checklist DOCX report",
+			blocks: [
+				{
+					type: "list",
+					style: "bullet",
+					items: [
+						{ text: "Book the hotel", checked: true },
+						{ text: "Confirm the flight", checked: false },
+						"Plain reminder",
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const rendered = await renderStandardReportDocx(validation.source);
+		const zip = await JSZip.loadAsync(rendered.content);
+		const documentXml = await zip.file("word/document.xml")?.async("string");
+
+		expect(documentXml).toContain("☑ Book the hotel");
+		expect(documentXml).toContain("☐ Confirm the flight");
+		expect(documentXml).toContain("• Plain reminder");
+		expect(documentXml).not.toContain("[x]");
+	});
 });

@@ -1100,4 +1100,39 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(html).not.toContain("cite-dot cite-dot--");
 		expect(html).toContain('data-source-number="1"');
 	});
+
+	// Ruling 36: a checklist item draws a real (disabled) checkbox, not "[x]"
+	// as visible text.
+	it("draws checklist items as disabled checkboxes, mixed with a plain item", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Checklist HTML report",
+			blocks: [
+				{
+					type: "list",
+					style: "bullet",
+					items: [
+						{ text: "Book the hotel", checked: true },
+						{ text: "Confirm the flight", checked: false },
+						"Plain reminder",
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+		const html = renderStandardReportHtml(validation.source).content.toString(
+			"utf8",
+		);
+
+		expect(html).toContain(
+			'<li class="report-checklist-item"><input type="checkbox" disabled checked /> Book the hotel</li>',
+		);
+		expect(html).toContain(
+			'<li class="report-checklist-item"><input type="checkbox" disabled /> Confirm the flight</li>',
+		);
+		expect(html).toContain("<li>Plain reminder</li>");
+		expect(html).not.toContain("[x]");
+	});
 });
