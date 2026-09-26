@@ -428,3 +428,18 @@ describe("RV-1A: a table's delimiter row is padding too (ruling 12, rule 2)", ()
 		).toBe("| L | R | C |\n| :--- | ---: | :---: |\n| a | b | c |");
 	});
 });
+
+describe("RV-1A: a hard line break survives the canonical form", () => {
+	it("writes the editor's two-space hard break as a backslash break, which rule 1's trim cannot delete", () => {
+		expect(normalizeMarkdown("First line  \nsecond line")).toBe(
+			"First line\\\nsecond line",
+		);
+		expect(normalizeMarkdown("First line\\\nsecond line")).toBe(
+			"First line\\\nsecond line",
+		);
+		// Trailing spaces on a block's last line are not a break: still trimmed.
+		expect(normalizeMarkdown("Only line  ")).toBe("Only line");
+		// Code is content: its trailing spaces are just trimmed, never a break.
+		expect(normalizeMarkdown("```\na  \nb\n```")).toBe("```\na\nb\n```");
+	});
+});

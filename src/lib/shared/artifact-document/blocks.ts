@@ -98,14 +98,38 @@ export function fnv1aHex(input: string): string {
  */
 export function normalizeMarkdown(markdown: string): string {
 	let lines = markdown.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+	if (isFencedCodeBlock(lines)) {
+		return trimBlankEdges(
+			lines.map((line) => line.replace(/[ \t]+$/, "")),
+		).join("\n");
+	}
+	lines = keepHardBreaks(lines);
 	lines = lines.map((line) => line.replace(/[ \t]+$/, ""));
-	if (isFencedCodeBlock(lines)) return trimBlankEdges(lines).join("\n");
 	lines = collapseBlankRuns(lines);
 	lines = trimBlankEdges(lines);
 	lines = normalizeTableLines(lines);
 	lines = normalizeListMarkers(lines);
 	lines = stripStrayLeadingWhitespace(lines);
 	return normalizeChipSyntax(lines.join("\n"));
+}
+
+/**
+ * A line ending in two or more spaces, followed by more text of the same
+ * paragraph, is a CommonMark hard break — and it is the form the editor
+ * writes for Shift+Enter. Rule 1's trailing-space trim deleted it, so every
+ * hard break came back from a reload as a plain space (RV-1A). It is written
+ * as the equivalent backslash break instead, which no trim can remove. Only
+ * where the next line really continues the paragraph: before a new block (a
+ * list item, a heading, a marker…) a trailing backslash would be literal text.
+ */
+function keepHardBreaks(lines: string[]): string[] {
+	if (lines.some((line) => isTableDelimiterRow(line))) return lines;
+	return lines.map((line, i) => {
+		const next = lines[i + 1];
+		if (next === undefined || next.trim() === "") return line;
+		if (startsNewBlock(next) || LIST_ITEM_START_RE.test(next)) return line;
+		return /\S {2,}$/.test(line) ? line.replace(/ +$/, "\\") : line;
+	});
 }
 
 /** `fnv1aHex(normalizeMarkdown(markdown))` — the one hasher, so nothing can bypass the canonicaliser. */

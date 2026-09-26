@@ -14,6 +14,25 @@ import {
 } from "$lib/shared/artifact-document/blocks";
 import { createDocumentEditor, readMarkdown } from "./document-editor";
 
+/** Count the editor's hard-break nodes after opening `stored`. */
+function hardBreaksAfterOpening(stored: string): number {
+	element = document.createElement("div");
+	document.body.appendChild(element);
+	const editor = createDocumentEditor({
+		element,
+		markdown: stored,
+		placeholder: "Write anything, or ask Alfy to.",
+	});
+	let count = 0;
+	editor.state.doc.descendants((node) => {
+		if (node.type.name === "hardBreak") count += 1;
+	});
+	editor.destroy();
+	element.remove();
+	element = null;
+	return count;
+}
+
 let element: HTMLElement | null = null;
 
 afterEach(() => {
@@ -87,6 +106,16 @@ describe("RV-1A: the canonical form survives a real reopen", () => {
 			"| Item | Status |\n| --- | --- |\n| Train tickets to Vienna | booked |\n",
 		).markdown;
 		const once = reopen(stored);
+		expect(buildIndex(parseDocument(once).blocks)).toEqual(
+			buildIndex(parseDocument(stored).blocks),
+		);
+	});
+
+	it("keeps a hard line break (Shift+Enter) through open → serialise → reload", () => {
+		const stored = parseDocument("First line\\\nsecond line\n").markdown;
+		expect(hardBreaksAfterOpening(stored)).toBe(1);
+		const once = reopen(stored);
+		expect(hardBreaksAfterOpening(once)).toBe(1);
 		expect(buildIndex(parseDocument(once).blocks)).toEqual(
 			buildIndex(parseDocument(stored).blocks),
 		);
