@@ -307,6 +307,15 @@ conflicts structurally** (`DocumentBody.svelte` ×6, its test ×8, i18n ×2): ab
 `art-s1`, 5420) as step 0; after it reports, S1d gets the crash, mobile-open and margin placement, and a parallel
 **S1e** gets the live channel (T8) and the card preview (T9.7) from the merge commit.
 
+**Slice 1 merged in its own branch (2026-09-26 ~10:10):** S1d merged S1c into `feat/artifacts-s1` as **`4b4445a1`** (template
+rebuilt so Tabs + the desktop/mobile toolbar pair live inside S1c's `document-main` beside the margin; the test file's
+describe blocks re-assembled from each side; i18n both sides): check 0/17, 544 artifact tests, Playwright 18/18 (7 are
+the known crash under `test.fail()`). Dispatched in parallel from it: **S1d** (resumed, `art-s1`, 5420): the editor
+crash first, mobile open, the margin against each block, the export facade re-export; **S1e** (sonnet, `art-s1e`,
+branch `feat/artifacts-s1-live`, `node_modules` → `art-s1`'s, 5530): T8 live (stream tool parts → "Alfy is writing",
+marks + Keep/Undo from inverses, refusal notice; one `DocumentWorkspace` prop, one `DocumentBody` hook) and T9.7 (a
+bounded server-side Document preview on the card summary, ticking as a user edit).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
