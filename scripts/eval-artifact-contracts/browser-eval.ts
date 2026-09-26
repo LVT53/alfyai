@@ -1,14 +1,34 @@
-// The App suite's browser pass (Feature 2 · Artifacts, decisions.md ruling
-// 56 / slice-2.md Task A9 Step 3): headless-Chromium evaluation of one
+// The App suite's browser pass (Feature 2 · Artifacts, decisions.md rulings
+// 56 and 58 / slice-2.md Task A9 Step 3): headless-Chromium evaluation of one
 // generated app, ported from the P1 prototype's own
 // `.claude/worktrees/agent-afcaa6f617ee84abe/scripts/prototype-artifact-apps/evaluate.ts`
-// rather than reinventing the interception, per the ruling. Behavior is
-// unchanged from the prototype:
+// rather than reinventing the interception, per ruling 56 — then corrected by
+// ruling 58 to run each app "the way users get it":
+//  - the app is loaded inside a CHILD IFRAME carrying the product's exact
+//    `sandbox` attribute, and the iframe's document is served with the
+//    product's exact CSP header — both read from
+//    `artifacts/app/sandbox-response.ts`'s `APP_SANDBOX_CSP`/
+//    `APP_SANDBOX_HEADERS` (reused, never copied — RV-2A's own sandbox
+//    review owns that file, and whatever it lands there is what this harness
+//    measures against, automatically, with no edit here)
+//  - the bootstrap is the REAL one (`artifacts/app/bootstrap.ts`'s
+//    `injectAppBootstrap`), not a test-only mock: it talks to "the parent" by
+//    `postMessage`, exactly as it does in production, so a form's `submit`
+//    not firing, `confirm()` returning false, and `eval` throwing are all
+//    the SAME opaque-origin-sandbox effects the product's own frame has —
+//    this is the whole reason ruling 58 exists (4 of 10 recorded apps had a
+//    dead main action while the P1 harness, which ran top-level with no
+//    sandbox at all, scored them "works")
+//  - this module plays "the parent": it answers the bootstrap's
+//    `alfy.storage` postMessage protocol with an in-memory store, the same
+//    role `AppFrame.svelte` plays for real (kv persistence itself stays
+//    in-memory here, per ruling 56 — only the sandbox/CSP/bootstrap-injection
+//    boundary needed to become production-accurate)
 //  - four page loads: 1280x800 and 390x844, light and dark
-//  - every request except the document itself is aborted (the contract says
-//    "no network")
-//  - window.alfy.storage is injected before any app script runs
-//  - console errors and uncaught exceptions are captured
+//  - every request except the served document itself is aborted (the
+//    contract says "no network")
+//  - console errors and uncaught exceptions are captured (Page-level events
+//    aggregate across all of a page's frames, including the app's)
 //  - one smoke interaction on the light desktop page (type into the first
 //    input, click up to a few enabled buttons, stop at the first one that
 //    changes the DOM)
@@ -20,7 +40,12 @@
 // `score.ts`-shaped verdict rules live in `suites/apps.ts` too, alongside
 // the suite's existing static-audit scorer.
 import { join } from "node:path";
-import type { Browser, Page } from "playwright";
+import type { Browser, Frame, Page } from "playwright";
+import { injectAppBootstrap } from "$lib/server/services/artifacts/app/bootstrap";
+import {
+	APP_SANDBOX_CSP,
+	APP_SANDBOX_HEADERS,
+} from "$lib/server/services/artifacts/app/sandbox-response";
 
 export type PageRun = {
 	label: string;
@@ -70,30 +95,87 @@ export type AppEvaluation = {
 	storageKeys: string[];
 };
 
-const STORAGE_MOCK = () => {
-	type Mem = Record<string, unknown>;
-	const w = window as unknown as {
-		alfy?: unknown;
-		__alfyMem?: Mem;
-		__alfyCalls?: [string, string][];
-	};
-	const mem: Mem = {};
-	w.__alfyMem = mem;
-	w.__alfyCalls = [];
-	w.alfy = {
-		storage: {
-			get(key: string) {
-				w.__alfyCalls?.push(["get", key]);
-				return Promise.resolve(Object.hasOwn(mem, key) ? mem[key] : null);
-			},
-			set(key: string, value: unknown) {
-				w.__alfyCalls?.push(["set", key]);
-				mem[key] = value;
-				return Promise.resolve(true);
-			},
-		},
-	};
-};
+/**
+ * A fake, never-dialed origin: `context.route` fulfills every request to it —
+ * there is no real server, so nothing outside this harness's own routing
+ * ever answers it. Neither path is ever counted as a "blocked" request, the
+ * same way `about:`/`data:`/`blob:` never are.
+ *
+ * The parent shell is served from THIS SAME ORIGIN, not `page.setContent` /
+ * `about:blank`: `APP_SANDBOX_CSP`'s `frame-ancestors 'self'` (ruling 58's
+ * own defense-in-depth, unchanged by this harness) refuses to let the served
+ * app frame into a page of any OTHER origin, exactly as it would refuse a
+ * hostile parent in production — the harness has to satisfy the same rule
+ * the product enforces, not work around it.
+ */
+const SERVED_APP_ORIGIN = "https://app.eval.alfyai.invalid";
+const SERVED_APP_PATH = "/served-app.html";
+const SERVED_APP_URL = `${SERVED_APP_ORIGIN}${SERVED_APP_PATH}`;
+const PARENT_SHELL_PATH = "/parent-shell.html";
+const PARENT_SHELL_URL = `${SERVED_APP_ORIGIN}${PARENT_SHELL_PATH}`;
+
+/**
+ * Reads the iframe `sandbox` attribute's value out of the product's own CSP
+ * string (ruling 58: "read the value from the shared constant so both land
+ * together") — never a hand-typed copy that could drift the moment
+ * RV-2A's sandbox review changes it.
+ */
+function extractSandboxAttribute(csp: string): string {
+	const match = csp.match(/(?:^|;)\s*sandbox\s+([^;]+)/i);
+	if (!match) {
+		throw new Error(
+			"APP_SANDBOX_CSP has no 'sandbox' directive to read the iframe attribute from",
+		);
+	}
+	return match[1].trim();
+}
+
+const IFRAME_SANDBOX_ATTRIBUTE = extractSandboxAttribute(APP_SANDBOX_CSP);
+
+/**
+ * The harness's own parent shell: one iframe, sized to fill the viewport (so
+ * a screenshot of the PAGE still shows the app's full rendered surface), and
+ * the "parent" half of the bootstrap's `alfy.storage` postMessage protocol —
+ * an in-memory store per case, exactly the role `AppFrame.svelte` plays for
+ * real. `event.source.postMessage` replies to whichever frame asked (this
+ * harness only ever embeds the one app frame, so there is no
+ * `event.source`/id check to make — the product's own listener carries that;
+ * this file measures the SANDBOX's effect on the app, not re-implements the
+ * parent's trust boundary).
+ */
+function buildParentShellHtml(sandboxAttribute: string): string {
+	return `<!doctype html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0">
+<iframe id="app" sandbox="${sandboxAttribute}" src="${SERVED_APP_URL}"
+  style="position:fixed;inset:0;width:100%;height:100%;border:0;display:block"></iframe>
+<script>
+(function () {
+  var mem = {};
+  window.__parentAlfyCalls = [];
+  window.addEventListener("message", function (event) {
+    var data = event.data;
+    if (!data || typeof data !== "object") return;
+    if (data.v !== 1 || data.kind !== "alfy.storage") return;
+    window.__parentAlfyCalls.push([data.method, data.args && data.args[0]]);
+    var reply = { v: 1, kind: "alfy.storage.result", id: data.id, ok: true, value: null };
+    if (data.method === "get") {
+      var key = data.args[0];
+      reply.value = Object.prototype.hasOwnProperty.call(mem, key) ? mem[key] : null;
+    } else if (data.method === "set") {
+      mem[data.args[0]] = data.args[1];
+      reply.value = true;
+    } else {
+      reply.ok = false;
+      reply.error = "unknown method";
+    }
+    event.source.postMessage(reply, "*");
+  });
+  window.__parentAlfyMem = mem;
+})();
+</script>
+</body></html>`;
+}
 
 /**
  * How long the smoke interaction watches the DOM after the click. Apps with
@@ -140,6 +222,7 @@ export async function evaluateApp(
 	appId: string,
 	outDir: string,
 ): Promise<AppEvaluation> {
+	const servedHtml = injectAppBootstrap(html);
 	const pages: PageRun[] = [];
 	let interaction: InteractionRun | null = null;
 
@@ -149,11 +232,24 @@ export async function evaluateApp(
 			colorScheme: shot.colorScheme,
 			deviceScaleFactor: 1,
 		});
-		await context.addInitScript(STORAGE_MOCK);
 
 		const blocked: string[] = [];
 		await context.route("**/*", (route) => {
 			const url = route.request().url();
+			if (url === SERVED_APP_URL) {
+				return route.fulfill({
+					status: 200,
+					headers: APP_SANDBOX_HEADERS,
+					body: servedHtml,
+				});
+			}
+			if (url === PARENT_SHELL_URL) {
+				return route.fulfill({
+					status: 200,
+					contentType: "text/html; charset=utf-8",
+					body: buildParentShellHtml(IFRAME_SANDBOX_ATTRIBUTE),
+				});
+			}
 			if (
 				url.startsWith("about:") ||
 				url.startsWith("data:") ||
@@ -174,14 +270,26 @@ export async function evaluateApp(
 			if (message.type() === "error") consoleErrors.push(trim(message.text()));
 		});
 		page.on("pageerror", (error) => pageErrors.push(trim(error.message)));
+		// A sandboxed iframe with no allow-modals suppresses alert/confirm/
+		// prompt outright (confirm() synchronously returns false) — this
+		// handler is a safety net for the harness's OWN parent shell, not the
+		// app; ruling 58's contract/audit changes are what catch a dialog call
+		// in the app's source (see suites/apps.ts's audit-rule folding).
 		page.on("dialog", (dialog) => {
 			dialogs.push(`${dialog.type()}: ${trim(dialog.message())}`);
 			void dialog.dismiss().catch(() => {});
 		});
 
 		let screenshot = "";
+		let frame: Frame | null = null;
 		try {
-			await page.setContent(html, { waitUntil: "load", timeout: 15_000 });
+			await page.goto(PARENT_SHELL_URL, { waitUntil: "load", timeout: 15_000 });
+			const frameElement = await page.waitForSelector("iframe#app", {
+				timeout: 15_000,
+			});
+			frame = await frameElement.contentFrame();
+			if (!frame) throw new Error("the app iframe never attached a document");
+			await frame.waitForLoadState("load", { timeout: 15_000 });
 			await page.waitForTimeout(600);
 			screenshot = `shot-${appId}-${shot.label}.png`;
 			await page.screenshot({
@@ -190,11 +298,11 @@ export async function evaluateApp(
 			});
 		} catch (error) {
 			pageErrors.push(
-				`harness: setContent/screenshot failed: ${(error as Error).message}`,
+				`harness: iframe load/screenshot failed: ${(error as Error).message}`,
 			);
 		}
 
-		const stats = await readStats(page);
+		const stats = await readStats(page, frame);
 		const pageRun: PageRun = {
 			label: shot.label,
 			colorScheme: shot.colorScheme,
@@ -213,9 +321,9 @@ export async function evaluateApp(
 		pages.push(pageRun);
 
 		// The smoke interaction runs on the light desktop page only.
-		if (shot.label === "light-1280") {
-			interaction = await smokeInteraction(page, dialogs);
-			const after = await readStats(page);
+		if (shot.label === "light-1280" && frame) {
+			interaction = await smokeInteraction(page, frame, dialogs);
+			const after = await readStats(page, frame);
 			pageRun.storageGets = after.storageGets;
 			pageRun.storageSets = after.storageSets;
 			pageRun.storageKeys = after.storageKeys;
@@ -240,13 +348,16 @@ export async function evaluateApp(
 	};
 }
 
-async function readBodyHtml(page: Page): Promise<string> {
-	return page.evaluate(() =>
+async function readBodyHtml(frame: Frame): Promise<string> {
+	return frame.evaluate(() =>
 		(document.body?.innerHTML ?? "").length.toString(),
 	);
 }
 
-async function readStats(page: Page): Promise<{
+async function readStats(
+	page: Page,
+	frame: Frame | null,
+): Promise<{
 	textLength: number;
 	textSample: string;
 	controlCount: number;
@@ -254,41 +365,54 @@ async function readStats(page: Page): Promise<{
 	storageSets: number;
 	storageKeys: string[];
 }> {
-	return page.evaluate(() => {
-		const body = document.body;
-		const text = (body?.innerText ?? "").replace(/\s+/g, " ").trim();
-		const controls = body
-			? body.querySelectorAll(
-					"button, input, select, textarea, [role=button], a[href]",
-				).length
-			: 0;
+	const domStats = frame
+		? await frame.evaluate(() => {
+				const body = document.body;
+				const text = (body?.innerText ?? "").replace(/\s+/g, " ").trim();
+				const controls = body
+					? body.querySelectorAll(
+							"button, input, select, textarea, [role=button], a[href]",
+						).length
+					: 0;
+				return {
+					textLength: text.length,
+					textSample: text.slice(0, 220),
+					controlCount: controls,
+				};
+			})
+		: { textLength: 0, textSample: "", controlCount: 0 };
+
+	// The storage log lives on the PARENT shell (this file's own script), not
+	// the app's frame: the bootstrap never exposes a test hook of its own,
+	// exactly like production's real bridge.
+	const storageStats = await page.evaluate(() => {
 		const w = window as unknown as {
-			__alfyCalls?: [string, string][];
-			__alfyMem?: Record<string, unknown>;
+			__parentAlfyCalls?: [string, string][];
+			__parentAlfyMem?: Record<string, unknown>;
 		};
-		const calls = w.__alfyCalls ?? [];
+		const calls = w.__parentAlfyCalls ?? [];
 		return {
-			textLength: text.length,
-			textSample: text.slice(0, 220),
-			controlCount: controls,
 			storageGets: calls.filter((c) => c[0] === "get").length,
 			storageSets: calls.filter((c) => c[0] === "set").length,
-			storageKeys: Object.keys(w.__alfyMem ?? {}).slice(0, 8),
+			storageKeys: Object.keys(w.__parentAlfyMem ?? {}).slice(0, 8),
 		};
 	});
+
+	return { ...domStats, ...storageStats };
 }
 
 async function smokeInteraction(
 	page: Page,
+	frame: Frame,
 	dialogs: string[],
 ): Promise<InteractionRun> {
-	const before = await page.evaluate(() => {
-		const w = window as unknown as { __alfyCalls?: [string, string][] };
-		return {
-			text: (document.body?.innerText ?? "").replace(/\s+/g, " ").trim().length,
-			html: (document.body?.innerHTML ?? "").length,
-			sets: (w.__alfyCalls ?? []).filter((c) => c[0] === "set").length,
-		};
+	const before = await frame.evaluate(() => ({
+		text: (document.body?.innerText ?? "").replace(/\s+/g, " ").trim().length,
+		html: (document.body?.innerHTML ?? "").length,
+	}));
+	const beforeSets = await page.evaluate(() => {
+		const w = window as unknown as { __parentAlfyCalls?: [string, string][] };
+		return (w.__parentAlfyCalls ?? []).filter((c) => c[0] === "set").length;
 	});
 
 	const result: InteractionRun = {
@@ -302,14 +426,14 @@ async function smokeInteraction(
 		textBefore: before.text,
 		textAfter: before.text,
 		htmlChanged: false,
-		storageSetsBefore: before.sets,
-		storageSetsAfter: before.sets,
+		storageSetsBefore: beforeSets,
+		storageSetsAfter: beforeSets,
 		storageKeys: [],
 		dialogs,
 		note: null,
 	};
 
-	const input = page
+	const input = frame
 		.locator(
 			"input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea",
 		)
@@ -333,11 +457,11 @@ async function smokeInteraction(
 	// Click up to SMOKE_CLICK_LIMIT buttons and stop at the first one that does
 	// something. A single "first button" is a coin flip: in the flashcard app it
 	// is the already-active category tab, whose correct behaviour is a no-op.
-	const buttons = page.locator("button:enabled").filter({ visible: true });
+	const buttons = frame.locator("button:enabled").filter({ visible: true });
 	const buttonCount = Math.min(await buttons.count(), SMOKE_CLICK_LIMIT);
 	for (let index = 0; index < buttonCount; index += 1) {
 		const button = buttons.nth(index);
-		const htmlBeforeClick = await readBodyHtml(page);
+		const htmlBeforeClick = await readBodyHtml(frame);
 		let label = "";
 		try {
 			label = trim((await button.innerText()) || "");
@@ -350,24 +474,26 @@ async function smokeInteraction(
 			continue;
 		}
 		await page.waitForTimeout(SMOKE_WAIT_MS);
-		if ((await readBodyHtml(page)) !== htmlBeforeClick) {
+		if ((await readBodyHtml(frame)) !== htmlBeforeClick) {
 			result.domChanged = true;
 			result.domChangedAfter = label;
 			break;
 		}
 	}
 
-	const after = await page.evaluate(() => {
+	const after = await frame.evaluate(() => ({
+		text: (document.body?.innerText ?? "").replace(/\s+/g, " ").trim().length,
+		html: (document.body?.innerHTML ?? "").length,
+	}));
+	const afterStorage = await page.evaluate(() => {
 		const w = window as unknown as {
-			__alfyCalls?: [string, string][];
-			__alfyMem?: Record<string, unknown>;
+			__parentAlfyCalls?: [string, string][];
+			__parentAlfyMem?: Record<string, unknown>;
 		};
-		const calls = w.__alfyCalls ?? [];
+		const calls = w.__parentAlfyCalls ?? [];
 		return {
-			text: (document.body?.innerText ?? "").replace(/\s+/g, " ").trim().length,
-			html: (document.body?.innerHTML ?? "").length,
 			sets: calls.filter((c) => c[0] === "set").length,
-			keys: Object.keys(w.__alfyMem ?? {}),
+			keys: Object.keys(w.__parentAlfyMem ?? {}),
 		};
 	});
 
@@ -377,8 +503,8 @@ async function smokeInteraction(
 		result.domChanged ||
 		after.html !== before.html ||
 		after.text !== before.text;
-	result.storageSetsAfter = after.sets;
-	result.storageKeys = after.keys.slice(0, 8);
+	result.storageSetsAfter = afterStorage.sets;
+	result.storageKeys = afterStorage.keys.slice(0, 8);
 	if (!result.clicked)
 		result.note = `${result.note ? `${result.note}; ` : ""}no enabled button found`;
 
