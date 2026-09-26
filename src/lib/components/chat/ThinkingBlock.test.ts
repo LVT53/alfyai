@@ -579,6 +579,48 @@ describe("ThinkingBlock", () => {
 			await screen.findByTestId("tool-activity-summary");
 			expect(screen.queryByTestId("artifact-card")).not.toBeInTheDocument();
 		});
+
+		it("renders one card per successful call when a turn makes several artifacts", async () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "",
+					thinkingIsDone: true,
+					segments: [
+						createArtifactSegment({
+							name: "create_artifact",
+							input: { artifactType: "document", title: "Weekend plan" },
+							metadata: {
+								ok: true,
+								artifactId: "artifact-1",
+								artifactKind: "document",
+								artifactTitle: "Weekend plan",
+							},
+						}),
+						createArtifactSegment({
+							name: "create_artifact",
+							input: { artifactType: "canvas", title: "Trip board" },
+							metadata: {
+								ok: true,
+								artifactId: "artifact-2",
+								artifactKind: "canvas",
+								artifactTitle: "Trip board",
+							},
+						}),
+					],
+				},
+			});
+
+			const cards = await screen.findAllByTestId("artifact-card");
+			expect(cards).toHaveLength(2);
+			expect(
+				within(cards[0]).queryByText("Weekend plan") ??
+					within(cards[1]).queryByText("Weekend plan"),
+			).toBeTruthy();
+			expect(
+				within(cards[0]).queryByText("Trip board") ??
+					within(cards[1]).queryByText("Trip board"),
+			).toBeTruthy();
+		});
 	});
 
 	describe("cited-aware web sources", () => {

@@ -91,6 +91,20 @@ export function decodeEditArtifactScenarioPayload(
 	};
 }
 
+/**
+ * The in-chat card (Feature 2, the cross-kind task): a real `create_artifact`
+ * call, unlike T8 live's `edit_artifact`, needs no real block ids/hashes
+ * scripted in advance — the model supplies `artifactType`/`title`/`body`
+ * itself, and the real `create_artifact` handler does the rest — so this
+ * scenario carries no encoded payload, just a marker.
+ */
+export const AI_SMOKE_CREATE_ARTIFACT_MARKER =
+	"Fake model step: create the scripted document below.";
+export const AI_SMOKE_CREATE_ARTIFACT_TITLE = "Weekend plan";
+export const AI_SMOKE_CREATE_ARTIFACT_MARKDOWN =
+	"# Weekend plan\n\nBook the museum tickets.";
+export const AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT = "Made the document.";
+
 export const AI_SMOKE_SCENARIOS = {
 	text: "text",
 	plain: "plain",
