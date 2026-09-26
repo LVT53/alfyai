@@ -1251,18 +1251,20 @@ describe("DocumentBody", () => {
 			// Only the FIRST call (`runLoad`'s own initial load) is held open;
 			// `landAlfyActivity` makes its OWN, second `fetchArtifact` call once
 			// it runs, which must resolve normally or this test would be
-			// asserting nothing about the real bug.
-			let resolveFetch:
-				((detail: ReturnType<typeof ARTIFACT_DETAIL>) => void)
-				| null = null;
+			// asserting nothing about the real bug. A holder object (not a bare
+			// reassigned `let`) so the closure assignment below cannot confuse
+			// TypeScript's control-flow narrowing of the resolver's type.
+			const fetchGate: {
+				resolve: ((detail: ReturnType<typeof ARTIFACT_DETAIL>) => void) | null;
+			} = { resolve: null };
 			const editedDetail = ARTIFACT_DETAIL({
 				body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond.",
 				versionNumber: 2,
 			});
 			mockFetchArtifact.mockImplementationOnce(
 				() =>
-					new Promise((resolve) => {
-						resolveFetch = resolve;
+					new Promise<ReturnType<typeof ARTIFACT_DETAIL>>((resolve) => {
+						fetchGate.resolve = resolve;
 					}),
 			);
 			mockFetchArtifact.mockResolvedValue(editedDetail);
@@ -1299,7 +1301,7 @@ describe("DocumentBody", () => {
 			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
 
 			// The initial load now finishes...
-			resolveFetch?.(editedDetail);
+			fetchGate.resolve?.(editedDetail);
 			await waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
