@@ -145,6 +145,32 @@ describe("runReadArtifactTool", () => {
 		});
 	});
 
+	it("reads an App through the same generic fallback — no dedicated reader is registered for it (Task A7)", async () => {
+		// An App has no addressable "blocks" (it is not edited in place — see
+		// edit.ts's App refusal), so there is nothing a per-kind reader would
+		// add over the generic record: the whole point of a dedicated reader is
+		// the blocks shape edit_artifact needs, and App never needs one.
+		expect(READ_ARTIFACT_HANDLERS.app).toBeUndefined();
+		const html = "<!doctype html><html><body>an app</body></html>";
+		getArtifactMock.mockResolvedValue(
+			detail({ kind: "app", title: "Trip cost splitter", body: html }),
+		);
+
+		const result = await runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "artifact-1",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload).toMatchObject({
+			success: true,
+			artifactType: "app",
+			title: "Trip cost splitter",
+			body: html,
+		});
+	});
+
 	it("reads back the block ids and hashes a registered handler returns", async () => {
 		READ_ARTIFACT_HANDLERS.document = async () => ({
 			blocks: [{ blockId: "b1", kind: "text", hash: "h1", text: "Hello" }],

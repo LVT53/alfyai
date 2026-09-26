@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TOOL_TIMEOUTS_MS } from "../shared";
 
 const createAppFromBrief = vi.fn();
 vi.mock("$lib/server/services/artifacts/app/create", () => ({
@@ -177,6 +178,19 @@ describe("runCreateArtifactTool — a registered handler", () => {
 		});
 
 		expect(seenSignal).toBe(controller.signal);
+	});
+});
+
+describe("create_artifact's timeout row (A7.5)", () => {
+	it("clears the real App generation cost: >= 120s, so a missing/short row fails loudly instead of leaving the tool with no timeout at all", () => {
+		// shared.ts:343-350's map lookup yields undefined with no row at all —
+		// Number.isFinite(undefined) is false, no timer is armed, and the tool
+		// silently gets NO timeout. This assertion is the App handler's own
+		// stake in that row: 23s worst measured generation + ~5s classifier +
+		// research_web's own 60s ceiling + ~25s re-verification budget ≈ 113s,
+		// rounded up (decisions.md ruling 40, owned by Slice 5a's registry —
+		// this slice references it rather than restating it).
+		expect(TOOL_TIMEOUTS_MS.create_artifact).toBeGreaterThanOrEqual(120_000);
 	});
 });
 
