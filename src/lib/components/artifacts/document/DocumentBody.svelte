@@ -99,6 +99,7 @@ import MobileToolbar from "./MobileToolbar.svelte";
 import SelectionBubble from "./SelectionBubble.svelte";
 import Tabs from "./Tabs.svelte";
 import type { DocumentToolbarActionId } from "./toolbar-actions";
+import VersionsSheet from "./VersionsSheet.svelte";
 
 let {
 	artifactId,
@@ -571,6 +572,12 @@ function handleSeeChange(): void {
 let downloadSheetOpen = $state(false);
 // ---- end T12 -------------------------------------------------------------
 
+// ---- RV-1B, T6: the versions sheet — VersionsSheet.svelte existed and was
+// unit-tested but had no toolbar action opening it anywhere in the app; see
+// the "history" action in toolbar-actions.ts and its handler below. ---------
+let versionsSheetOpen = $state(false);
+// ---- end T6 ----------------------------------------------------------------
+
 /** The editor's current text, canonicalised through the SERVER's own pipeline (T7.2) — never a second canonicaliser. */
 function currentCanonicalMarkdown(): string | null {
 	if (!editor || !readMarkdownFn) return null;
@@ -651,9 +658,18 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
 }
 
 function handleToolbarAction(id: DocumentToolbarActionId): void {
-	// T12: the one toolbar action that never touches the live editor.
+	// T12/T6: the two toolbar actions that never touch the live editor
+	// directly — they open a sheet instead.
 	if (id === "download") {
+		// Both sheets anchor to the same top-right corner (T12/T6): only one
+		// may be open at a time, or they would visually overlap.
+		versionsSheetOpen = false;
 		downloadSheetOpen = true;
+		return;
+	}
+	if (id === "history") {
+		downloadSheetOpen = false;
+		versionsSheetOpen = true;
 		return;
 	}
 	if (!editor) return;
@@ -1000,6 +1016,24 @@ function saveNoticeText(notice: SaveNotice): string {
 						/>
 					</div>
 				{/if}
+				<!-- RV-1B, T6: the versions sheet, opened from the toolbar's history
+				     action (previously unreachable — see toolbar-actions.ts). A
+				     restore changes the stored body out from under the open editor,
+				     so it reloads through the same retryLoad() the "load failed, try
+				     again" path already uses, rather than a second reload path. -->
+				{#if versionsSheetOpen}
+					<div class="document-versions-anchor">
+						<VersionsSheet
+							artifactId={boundArtifactId}
+							conversationId={panelConversationId}
+							onClose={() => (versionsSheetOpen = false)}
+							onRestored={() => {
+								versionsSheetOpen = false;
+								retryLoad();
+							}}
+						/>
+					</div>
+				{/if}
 				<!-- T8 live: one inline Keep/Undo bar per applied change, positioned
 				     at that change's own mark (never all bunched at a fixed spot —
 				     several ops across different blocks each get their own bar). -->
@@ -1132,6 +1166,15 @@ function saveNoticeText(notice: SaveNotice): string {
 		right: 0.75rem;
 		z-index: 20;
 		min-width: 12rem;
+	}
+
+	/* RV-1B, T6: same corner as the download anchor — handleToolbarAction
+	   ensures only one of the two is ever open at once. */
+	.document-versions-anchor {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.75rem;
+		z-index: 20;
 	}
 
 	.document-notice {

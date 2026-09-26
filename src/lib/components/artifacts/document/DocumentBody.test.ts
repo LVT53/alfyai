@@ -4,6 +4,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -21,6 +22,8 @@ const {
 	mockResolveArtifactComment,
 	mockAskAlfyInComment,
 	mockExportArtifactDocument,
+	mockFetchArtifactVersions,
+	mockRestoreArtifactVersion,
 } = vi.hoisted(() => ({
 	mockFetchArtifact: vi.fn(),
 	mockSaveArtifactBody: vi.fn(),
@@ -30,6 +33,11 @@ const {
 	mockResolveArtifactComment: vi.fn(),
 	mockAskAlfyInComment: vi.fn(),
 	mockExportArtifactDocument: vi.fn(),
+	// RV-1B: VersionsSheet.svelte's own two calls — previously unreachable
+	// from DocumentBody (no toolbar action opened it), so this mock never
+	// needed to exist here before.
+	mockFetchArtifactVersions: vi.fn(),
+	mockRestoreArtifactVersion: vi.fn(),
 }));
 
 vi.mock("$lib/client/api/artifacts", () => ({
@@ -40,6 +48,8 @@ vi.mock("$lib/client/api/artifacts", () => ({
 	createArtifactComment: mockCreateArtifactComment,
 	resolveArtifactComment: mockResolveArtifactComment,
 	askAlfyInComment: mockAskAlfyInComment,
+	fetchArtifactVersions: mockFetchArtifactVersions,
+	restoreArtifactVersion: mockRestoreArtifactVersion,
 	exportArtifactDocument: mockExportArtifactDocument,
 }));
 
@@ -189,6 +199,8 @@ describe("DocumentBody", () => {
 		mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
 		mockSaveArtifactBody.mockResolvedValue({ ok: true, version: 2 });
 		mockSaveDocumentTabs.mockResolvedValue({ ok: true, version: 2 });
+		mockFetchArtifactVersions.mockResolvedValue([]);
+		mockRestoreArtifactVersion.mockResolvedValue(2);
 		mockReadSelectionAnchorContext.mockReturnValue(null);
 		mockApplyAlfyChanges.mockReturnValue([]);
 		mockSummarizeRefusals.mockReturnValue(null);
@@ -1088,6 +1100,86 @@ describe("DocumentBody", () => {
 				"conv-1",
 			);
 			await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		});
+	});
+
+	// RV-1B, T6: VersionsSheet.svelte (version history + restore) was built
+	// and unit-tested on its own (`VersionsSheet.test.ts`), but nothing in the
+	// app ever imported it or `fetchArtifactVersions`/`restoreArtifactVersion`
+	// outside that one test file — no toolbar action opened it anywhere, on
+	// either the desktop or mobile toolbar (both render from the same shared
+	// `DOCUMENT_TOOLBAR_ACTIONS` list). A user had no way to see or restore a
+	// Document's history at all. Wired a "History" action, mirroring exactly
+	// how "download" already opens `DownloadSheet`.
+	describe("version history (T6)", () => {
+		it("opens the versions sheet from the toolbar, and reloads the editor after a restore", async () => {
+			mockFetchArtifactVersions.mockResolvedValue([
+				{
+					id: "v2",
+					versionNumber: 2,
+					author: "user",
+					summary: "Current",
+					createdAt: Date.now(),
+				},
+				{
+					id: "v1",
+					versionNumber: 1,
+					author: "alfy",
+					summary: "First draft",
+					createdAt: Date.now() - 60_000,
+				},
+			]);
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(screen.queryByRole("dialog")).toBeNull();
+
+			await fireEvent.click(screen.getByRole("button", { name: "History" }));
+
+			const dialog = await screen.findByRole("dialog", { name: "Versions" });
+			await waitFor(() =>
+				expect(mockFetchArtifactVersions).toHaveBeenCalledWith(
+					"artifact-1",
+					"conv-1",
+				),
+			);
+			expect(within(dialog).getByText("First draft")).toBeInTheDocument();
+
+			// Restoring reloads the editor's own content — the same "the document
+			// changed under us, reflect it" path a live Alfy edit uses — rather
+			// than leaving stale text on screen after the restore.
+			mockRestoreArtifactVersion.mockResolvedValue(3);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst draft.",
+					versionNumber: 3,
+				}),
+			);
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Restore" }),
+			);
+			// The confirm dialog's own confirm button — NOT scoped by role/name
+			// (ConfirmDialog's title/confirm text are both "Restore" too, the
+			// same as the row's own button), so this uses its fixed testid.
+			await fireEvent.click(screen.getByTestId("confirm-delete"));
+
+			await waitFor(() =>
+				expect(mockRestoreArtifactVersion).toHaveBeenCalledWith(
+					"artifact-1",
+					"v1",
+					"conv-1",
+				),
+			);
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(2),
+			);
 		});
 	});
 
