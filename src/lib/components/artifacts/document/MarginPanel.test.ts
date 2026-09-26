@@ -168,4 +168,104 @@ describe("MarginPanel", () => {
 			screen.queryByTestId("margin-orphaned-group"),
 		).not.toBeInTheDocument();
 	});
+
+	// RV-1B, Review Focus 7 / hunt item 7: "performance with ~50 comments (no
+	// layout thrash on each keystroke)". `measureAnchorTops`'s own comment
+	// claims its one-querySelector-per-anchored-block pass is "cheap enough to
+	// re-run on every edit, since a Document only ever has a handful of open
+	// comment threads at once" — an assumption never checked at the ~50-comment
+	// scale the plan itself names. `DocumentBody.svelte`'s `handleUpdate` runs
+	// on EVERY keystroke and reassigns `blocks`, and the effect that calls
+	// `measureAnchorTops` has no debounce, so — before this test's fix — 10
+	// rapid `blocks` updates (a fast typist's 10 keystrokes) each re-ran the
+	// full pass, forcing 10 x 50 = 500 `getBoundingClientRect` reflows instead
+	// of coalescing into one.
+	describe("re-measurement under rapid edits (~50 comments)", () => {
+		const BLOCK_COUNT = 50;
+
+		function makeManyBlocks(revision: number) {
+			return Array.from({ length: BLOCK_COUNT }, (_, i) =>
+				makeBlock(`p${i}`, "paragraph", `Paragraph ${i} rev ${revision}.`),
+			);
+		}
+
+		function makeManyComments() {
+			return Array.from({ length: BLOCK_COUNT }, (_, i) =>
+				makeRoot({
+					id: `root-${i}`,
+					body: `Comment ${i}`,
+					anchor: {
+						kind: "text",
+						blockId: `p${i}`,
+						quote: `Paragraph ${i}`,
+						prefix: "",
+						suffix: " rev 0.",
+					},
+				}),
+			);
+		}
+
+		function buildContentEl(): HTMLDivElement {
+			const el = document.createElement("div");
+			for (let i = 0; i < BLOCK_COUNT; i += 1) {
+				const child = document.createElement("p");
+				child.dataset.blockId = `p${i}`;
+				el.appendChild(child);
+			}
+			document.body.appendChild(el);
+			return el;
+		}
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("coalesces a burst of rapid blocks updates into one measurement pass instead of one per update", async () => {
+			vi.useFakeTimers();
+			const contentEl = buildContentEl();
+			const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect");
+
+			const { rerender } = render(MarginPanel, {
+				comments: makeManyComments(),
+				blocks: makeManyBlocks(0),
+				contentEl,
+				onResolve: vi.fn(),
+				onSubmitReply: vi.fn(),
+			});
+			// Let the initial mount's own measurement settle before starting the
+			// burst, so only the burst's own calls are counted below.
+			await vi.runAllTimersAsync();
+			rectSpy.mockClear();
+
+			// A burst of 10 rapid `blocks` reassignments — the exact shape of 10
+			// fast keystrokes, each running `DocumentBody.svelte`'s
+			// `handleUpdate` → `updateBlocksFromMarkdown` — with NO idle gap
+			// between them, matching real typing speed (well under the debounce
+			// window between each keystroke).
+			const KEYSTROKES = 10;
+			for (let revision = 1; revision <= KEYSTROKES; revision += 1) {
+				await rerender({
+					comments: makeManyComments(),
+					blocks: makeManyBlocks(revision),
+					contentEl,
+					onResolve: vi.fn(),
+					onSubmitReply: vi.fn(),
+				});
+			}
+
+			// Still coalescing: nothing has measured yet because the debounce
+			// window has not elapsed since the LAST update in the burst.
+			expect(rectSpy).not.toHaveBeenCalled();
+
+			// Once the burst ends and the debounce window elapses, exactly one
+			// measurement pass runs — not one per keystroke. One pass reads
+			// `contentEl`'s own rect once (for `containerTop`) plus one rect per
+			// anchored block, so BLOCK_COUNT + 1 calls total; ten un-coalesced
+			// keystrokes would have cost 10x that (510, asserted red above).
+			await vi.runAllTimersAsync();
+			expect(rectSpy.mock.calls.length).toBeLessThanOrEqual(BLOCK_COUNT + 1);
+
+			contentEl.remove();
+		});
+	});
 });

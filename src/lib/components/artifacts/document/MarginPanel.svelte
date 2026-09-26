@@ -98,7 +98,23 @@ const resolutionByCommentId = $derived(
 	new Map(comments.map((comment) => [comment.id, resolutionFor(comment)])),
 );
 
-/** One querySelector per DISTINCT anchored block, never a full-document walk — cheap enough to re-run on every edit, since a Document only ever has a handful of open comment threads at once. */
+/**
+ * RV-1B: the gap between two coalesced re-measurement passes. `blocks`
+ * reassigns on every keystroke (`DocumentBody.svelte`'s `handleUpdate`), and
+ * without this a fast typist's every character forced its own full
+ * querySelector+`getBoundingClientRect` pass over every anchored block —
+ * measured directly in `MarginPanel.test.ts`'s "re-measurement under rapid
+ * edits" test: 10 rapid updates against 50 open comments cost 510 reflow
+ * reads instead of one. 120 ms is short enough that a paused typist still
+ * sees the margin settle as "instant" (well under the ~200 ms human
+ * perception threshold) and short enough relative to the body's own 800 ms
+ * autosave debounce that the margin never visibly lags behind a save, but
+ * long enough to coalesce consecutive keystrokes (typical inter-keystroke
+ * gaps run 80-200 ms).
+ */
+const MARGIN_REMEASURE_DEBOUNCE_MS = 120;
+
+/** One querySelector per DISTINCT anchored block, never a full-document walk. */
 function measureAnchorTops(): void {
 	if (!contentEl) return;
 	const containerTop = contentEl.getBoundingClientRect().top;
@@ -120,11 +136,17 @@ function measureAnchorTops(): void {
 
 // Re-measure whenever the set of blocks or comments this panel cares about
 // changes — a new comment, an edit that moved or split a block, a resolved
-// thread leaving the list ("re-place them on edit").
+// thread leaving the list ("re-place them on edit") — debounced so a burst
+// of rapid changes (typing) coalesces into one pass instead of one per
+// change; the effect's own cleanup (Svelte calls the previous run's
+// returned function before the next run, and on unmount) cancels a still-
+// pending timer, so a stale measurement can never land after this panel
+// moved on to a different set of blocks/comments or was torn down.
 $effect(() => {
 	void comments;
 	void blocks;
-	measureAnchorTops();
+	const timer = setTimeout(measureAnchorTops, MARGIN_REMEASURE_DEBOUNCE_MS);
+	return () => clearTimeout(timer);
 });
 
 // Keep this panel's own scroll in step with the editor's: without it,
