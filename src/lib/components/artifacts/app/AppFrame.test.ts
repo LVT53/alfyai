@@ -30,12 +30,50 @@ function post(data: unknown, source: Window, origin = "null") {
 	);
 }
 
+/**
+ * A browser keeps one WindowProxy per iframe ELEMENT for its whole life:
+ * navigating the element (a new `src`) swaps the document behind the proxy,
+ * never the proxy itself. jsdom instead hands out a new window object on every
+ * `src` change. This pins the browser's behaviour for the tests that depend on
+ * it: the first window an element reports is the one it keeps reporting.
+ * Returns the restore function.
+ */
+function pinWindowProxyPerElement(): () => void {
+	const original = Object.getOwnPropertyDescriptor(
+		HTMLIFrameElement.prototype,
+		"contentWindow",
+	);
+	if (!original?.get) throw new Error("jsdom changed its iframe shape");
+	const readReal = original.get;
+	const pinned = new WeakMap<HTMLIFrameElement, Window>();
+	Object.defineProperty(HTMLIFrameElement.prototype, "contentWindow", {
+		configurable: true,
+		get(this: HTMLIFrameElement) {
+			const existing = pinned.get(this);
+			if (existing) return existing;
+			const real = readReal.call(this) as Window | null;
+			if (real) pinned.set(this, real);
+			return real;
+		},
+	});
+	return () =>
+		Object.defineProperty(
+			HTMLIFrameElement.prototype,
+			"contentWindow",
+			original,
+		);
+}
+
+let restoreContentWindow: (() => void) | null = null;
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	uiLanguage.set("en");
 });
 
 afterEach(() => {
+	restoreContentWindow?.();
+	restoreContentWindow = null;
 	document.body.innerHTML = "";
 });
 
@@ -358,6 +396,106 @@ describe("AppFrame — the trust boundary", () => {
 		await vi.waitFor(() => expect(onStorageError).toHaveBeenCalled());
 
 		expect(postSpy).not.toHaveBeenCalled();
+	});
+
+	// RV-2A: an iframe keeps ONE WindowProxy across navigations, so while the
+	// frame's `src` moves to another app (the panel's open-documents rail
+	// reuses this component for the next App) the outgoing document is still
+	// alive and its messages still pass `event.source === frame.contentWindow`
+	// — measured in Chromium: 39 of 40 messages the old document posted during
+	// a 150 ms navigation passed the check and were attributed to the new app.
+	// jsdom hands out a NEW window object on every `src` change, which hides
+	// the bug, so these two tests pin the browser's behaviour explicitly
+	// (`pinWindowProxyPerElement`). tests/e2e/artifact-app.spec.ts proves the
+	// same thing in a real browser.
+	it("a message from the previous app's document, arriving after the panel switched apps, is not served against the new app", async () => {
+		restoreContentWindow = pinWindowProxyPerElement();
+		writeAppValue.mockResolvedValue({ ok: true });
+		readAppValue.mockResolvedValue({
+			ok: true,
+			value: "the other app's value",
+		});
+		const { container, rerender } = render(AppFrame, {
+			artifactId: "app-a",
+			version: 1,
+		});
+		const previousDocumentWindow = getIframe(container).contentWindow as Window;
+
+		await rerender({ artifactId: "app-b", version: 1 });
+		post(
+			{
+				v: 1,
+				kind: "alfy.storage",
+				id: 1,
+				method: "set",
+				args: ["notes", "written by app A"],
+			},
+			previousDocumentWindow,
+		);
+		post(
+			{ v: 1, kind: "alfy.storage", id: 2, method: "get", args: ["notes"] },
+			previousDocumentWindow,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(writeAppValue).not.toHaveBeenCalled();
+		expect(readAppValue).not.toHaveBeenCalled();
+	});
+
+	it("a reply to a request the previous version's document made is never delivered to the reloaded document", async () => {
+		restoreContentWindow = pinWindowProxyPerElement();
+		let resolveRead: (value: unknown) => void = () => {};
+		readAppValue.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolveRead = resolve;
+				}),
+		);
+		const { container, rerender } = render(AppFrame, {
+			artifactId: "app-1",
+			version: 1,
+		});
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: ["k"] },
+			getIframe(container).contentWindow as Window,
+		);
+		await vi.waitFor(() => expect(readAppValue).toHaveBeenCalled());
+
+		await rerender({ artifactId: "app-1", version: 2 });
+		const reloadedWindow = getIframe(container).contentWindow as Window;
+		const reloadedPost = vi.spyOn(reloadedWindow, "postMessage");
+		resolveRead({ ok: true, value: "the previous version's answer" });
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		// The reloaded document numbers its own requests from 1 again, so a
+		// stale reply carrying id 1 would resolve ITS first read.
+		expect(reloadedPost).not.toHaveBeenCalled();
+	});
+
+	it("after a new version replaces the frame, the new document's calls are served and answered", async () => {
+		restoreContentWindow = pinWindowProxyPerElement();
+		readAppValue.mockResolvedValue({ ok: true, value: "from version 2" });
+		const { container, rerender } = render(AppFrame, {
+			artifactId: "app-1",
+			version: 1,
+		});
+
+		await rerender({ artifactId: "app-1", version: 2 });
+		expect(container.querySelectorAll("iframe")).toHaveLength(1);
+		const reloadedWindow = getIframe(container).contentWindow as Window;
+		const reloadedPost = vi.spyOn(reloadedWindow, "postMessage");
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: ["k"] },
+			reloadedWindow,
+		);
+
+		await vi.waitFor(() =>
+			expect(reloadedPost).toHaveBeenCalledWith(
+				expect.objectContaining({ id: 1, ok: true, value: "from version 2" }),
+				"*",
+			),
+		);
+		expect(readAppValue).toHaveBeenCalledWith("app-1", "k", null);
 	});
 
 	it("removes its message listener on unmount, so a closed card cannot keep a channel open", async () => {

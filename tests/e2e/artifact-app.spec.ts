@@ -3,6 +3,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
+	artifactKv,
 	artifacts,
 	artifactVersions,
 	users,
@@ -70,6 +71,31 @@ const NETWORK_REACHING_APP_HTML = `<!doctype html>
 <body>
 <h1>Weather widget</h1>
 <script>try { fetch('https://example.com/weather'); } catch (e) {}</script>
+</body>
+</html>`;
+
+/** An app that never touches storage: anything in its kv was written by another app's document. */
+const QUIET_APP_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Quiet App</title></head>
+<body><h1>Quiet App</h1></body>
+</html>`;
+
+/** An app that saves on a short timer, the way a debounced autosave does. */
+const CHATTY_APP_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Chatty App</title></head>
+<body>
+<h1>Chatty App</h1>
+<div data-testid="chatty-count">0</div>
+<script>
+var count = 0;
+setInterval(function () {
+  count += 1;
+  document.querySelector('[data-testid="chatty-count"]').textContent = String(count);
+  if (window.alfy && window.alfy.storage) window.alfy.storage.set('chatty', count);
+}, 5);
+</script>
 </body>
 </html>`;
 
@@ -309,6 +335,81 @@ test.describe("the App kind, in the panel", () => {
 
 		await page.getByRole("button", { name: /Download as \.html/ }).click();
 		await expect.poll(() => requested).toBe(true);
+	});
+
+	// RV-2A. Two Apps open as tabs; switching between them in the open-documents
+	// rail reuses the panel's frame, and an iframe keeps ONE WindowProxy across
+	// navigations — so the app being switched AWAY from is still running during
+	// the navigation, and every storage message it posts passes the parent's
+	// `event.source === frame.contentWindow` check. It must never be served
+	// against the app being switched TO. The quiet app below never calls
+	// storage at all, so any row in its kv came from the other app's document.
+	test("switching apps in the rail never lets the outgoing app write into the incoming app's storage", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"Make me two small apps",
+		);
+		const quietAppId = await seedApp(
+			conversationId,
+			QUIET_APP_HTML,
+			"Quiet App",
+		);
+		const chattyAppId = await seedApp(
+			conversationId,
+			CHATTY_APP_HTML,
+			"Chatty App",
+		);
+		await openChatAndReload(page, conversationId);
+
+		const openFromList = async (title: string) => {
+			await page
+				.getByTestId("artifact-panel-list")
+				.getByTestId("artifact-card")
+				.filter({ hasText: title })
+				.getByRole("button", { name: "Open" })
+				.click();
+		};
+		await page.getByTestId("artifact-count-button").click();
+		await openFromList("Quiet App");
+		await expect(
+			page.frameLocator("iframe.app-frame").getByRole("heading", {
+				name: "Quiet App",
+			}),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Show list" }).click();
+		await openFromList("Chatty App");
+		const chattyFrame = page.frameLocator("iframe.app-frame");
+		await expect(chattyFrame.getByTestId("chatty-count")).not.toHaveText("0");
+
+		// A realistic server round trip for the incoming app's document, so the
+		// outgoing one has time to post while the frame navigates.
+		await page.route(`**/api/artifacts/${quietAppId}/app?**`, async (route) => {
+			await new Promise((resolve) => setTimeout(resolve, 400));
+			await route.continue();
+		});
+		await page
+			.getByTestId("open-documents-rail")
+			.getByRole("tab", { name: /Quiet App/ })
+			.click();
+		await expect(
+			page.frameLocator("iframe.app-frame").getByRole("heading", {
+				name: "Quiet App",
+			}),
+		).toBeVisible();
+		await page.waitForTimeout(300);
+
+		const quietRows = await db
+			.select({ key: artifactKv.key })
+			.from(artifactKv)
+			.where(eq(artifactKv.artifactId, quietAppId));
+		expect(quietRows).toEqual([]);
+		const chattyRows = await db
+			.select({ key: artifactKv.key })
+			.from(artifactKv)
+			.where(eq(artifactKv.artifactId, chattyAppId));
+		expect(chattyRows).toEqual([{ key: "chatty" }]);
 	});
 
 	test("at 390x844 the frame fills the panel and the page never scrolls horizontally", async ({

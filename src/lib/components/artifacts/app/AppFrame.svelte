@@ -201,17 +201,27 @@ $effect(() => {
 });
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_tabindex -- Owner decision 15: reachable by
-     keyboard even when the app's own content has nothing focusable; a user who cannot
-     click cannot otherwise use the app at all. -->
-<iframe
-	bind:this={iframe}
-	class="app-frame"
-	sandbox="allow-scripts"
-	{src}
-	title={$t('artifacts.app.frame.title', { title })}
-	tabindex="0"
-></iframe>
+<!-- One iframe ELEMENT per served document, never a navigated one. A browser
+     keeps an iframe's WindowProxy for the element's whole life, so if `src`
+     changed in place, the outgoing document (still running until the next one
+     commits) would keep passing `event.source === frame.contentWindow`, and
+     its storage calls would be served against the NEW artifact id; replies
+     to its pending calls would reach the next document, whose request ids
+     restart at 1. A new element per `src` gives each document its own
+     WindowProxy, and removing the old element ends the old document at once. -->
+{#key src}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -- Owner decision 15: reachable by
+	     keyboard even when the app's own content has nothing focusable; a user who cannot
+	     click cannot otherwise use the app at all. -->
+	<iframe
+		bind:this={iframe}
+		class="app-frame"
+		sandbox="allow-scripts"
+		{src}
+		title={$t('artifacts.app.frame.title', { title })}
+		tabindex="0"
+	></iframe>
+{/key}
 
 <style>
 	.app-frame {
