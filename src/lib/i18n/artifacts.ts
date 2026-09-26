@@ -94,6 +94,28 @@ const artifactsDict = {
 			"This document was deleted while it was open. Your text is still here.",
 		"artifacts.document.deleted.saveCopy": "Save it as a new document",
 		"artifacts.document.notFound": "This document is not available.",
+		// The inline change mark's bar (Slice 1, T8): "Alfy · Keep · Undo".
+		"artifacts.document.change.alfy": "Alfy",
+		"artifacts.document.change.keep": "Keep",
+		"artifacts.document.change.undo": "Undo",
+		"artifacts.document.change.keptNotice": "Kept.",
+		"artifacts.document.change.undoneNotice": "Undone — your text is back.",
+		"artifacts.document.change.commentCountA11y":
+			"{count} {count, plural, one {comment} other {comments}} on this change",
+		// The visible refusal (Slice 1, T8) — "your words win" is only a
+		// feature if the user can see it happened.
+		"artifacts.document.refused.notice":
+			"{count, plural, one {Alfy left one part alone because you had changed it.} other {Alfy left some parts alone because you had changed them.}}",
+		"artifacts.document.refused.changed":
+			"you changed this after Alfy last read it",
+		"artifacts.document.refused.unseen": "Alfy has not read this part yet",
+		"artifacts.document.refused.missing": "this part no longer exists",
+		"artifacts.document.refused.ambiguous":
+			"the text Alfy wanted to replace is not unique here",
+		"artifacts.document.refused.other": "Alfy could not apply this change",
+		"artifacts.document.refused.seeChange": "See what Alfy did",
+		// The planned-section shimmer while a tool call is in flight (Slice 1, T8).
+		"artifacts.document.planned.writing": "Alfy is writing: {label}",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -164,6 +186,26 @@ const artifactsDict = {
 			"Ezt a dokumentumot törölték, amíg nyitva volt. A szöveged még itt van.",
 		"artifacts.document.deleted.saveCopy": "Mentés új dokumentumként",
 		"artifacts.document.notFound": "Ez a dokumentum nem érhető el.",
+		"artifacts.document.change.alfy": "Alfy",
+		"artifacts.document.change.keep": "Megtartom",
+		"artifacts.document.change.undo": "Visszavonom",
+		"artifacts.document.change.keptNotice": "Megtartva.",
+		"artifacts.document.change.undoneNotice":
+			"Visszavonva — a szöveged visszaállt.",
+		"artifacts.document.change.commentCountA11y":
+			"{count} megjegyzés ehhez a módosításhoz",
+		"artifacts.document.refused.notice":
+			"{count, plural, one {Alfy egy részt nem érintett, mert megváltoztattad.} other {Alfy néhány részt nem érintett, mert megváltoztattad.}}",
+		"artifacts.document.refused.changed":
+			"ezt megváltoztattad, miután Alfy utoljára olvasta",
+		"artifacts.document.refused.unseen": "Alfy még nem olvasta ezt a részt",
+		"artifacts.document.refused.missing": "ez a rész már nincs meg",
+		"artifacts.document.refused.ambiguous":
+			"a szöveg, amit Alfy le akart cserélni, nem egyedi itt",
+		"artifacts.document.refused.other":
+			"Alfy nem tudta alkalmazni ezt a módosítást",
+		"artifacts.document.refused.seeChange": "Nézd meg, mit csinált Alfy",
+		"artifacts.document.planned.writing": "Alfy írja: {label}",
 	},
 } as const;
 

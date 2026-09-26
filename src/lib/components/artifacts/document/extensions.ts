@@ -53,9 +53,15 @@ import {
 	MARKER_PREFIX,
 	mintBlockId,
 } from "$lib/shared/artifact-document/blocks";
+import { BLOCK_ID_ATTR, BLOCK_MARKER_NODE } from "./block-attrs";
+import { AlfyChange } from "./marks";
 
-export const BLOCK_ID_ATTR = "blockId";
-export const BLOCK_MARKER_NODE = "blockMarker";
+// Re-exported for every existing caller (`document-editor.ts`,
+// `document-editor.test.ts`) that already imports these two from this file —
+// `block-attrs.ts` only exists to break the cycle `marks.ts` would otherwise
+// have with this module (see its header comment); it is not a second source
+// of truth.
+export { BLOCK_ID_ATTR, BLOCK_MARKER_NODE };
 
 /**
  * Tiptap's node type name → the shared `BlockKind`, so a minted id carries the
@@ -197,9 +203,7 @@ function buildAbsorbAndMintTransaction(state: EditorState): Transaction | null {
  * minting in isolation from absorption today; widen this back to `export`
  * if a future test genuinely needs that split.
  */
-function buildBlockIdTransaction(
-	state: EditorState,
-): Transaction | null {
+function buildBlockIdTransaction(state: EditorState): Transaction | null {
 	const missing: { pos: number; kind: BlockKind }[] = [];
 	state.doc.forEach((node, offset) => {
 		const id = node.attrs?.[BLOCK_ID_ATTR];
@@ -389,6 +393,11 @@ export function ensureBlockIds(editor: {
  * confirmed present in the installed 3.31.3 packages before use, per
  * AGENTS.md's mandatory docs check (no Context7/Svelte MCP tool in this
  * session; the installed `.d.ts` is the version-exact fallback).
+ *
+ * `AlfyChange` (T8, `marks.ts`) is the one Document-specific piece added on
+ * top of the T7 baseline so far: the change mark never round-trips to
+ * Markdown (it is a purely visual, in-session annotation — see `marks.ts`'s
+ * header comment).
  */
 export function buildDocumentExtensions(placeholder: string) {
 	return [
@@ -402,5 +411,6 @@ export function buildDocumentExtensions(placeholder: string) {
 		Markdown.configure({ indentation: { style: "space", size: 2 } }),
 		BlockIds,
 		BlockMarker,
+		AlfyChange,
 	];
 }
