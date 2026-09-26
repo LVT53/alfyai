@@ -391,7 +391,10 @@ export function ensureBlockIds(editor: {
 }
 
 export const TRACKER_CHIP_NODE = "trackerChip";
-export const CHIP_KIND_ATTR = "kind";
+// Not exported: only this file reads a chip's "kind" attribute by name today
+// (`CHIP_VALUE_ATTR`, just below, IS imported by `extensions.test.ts`, which
+// is why it stays exported).
+const CHIP_KIND_ATTR = "kind";
 export const CHIP_VALUE_ATTR = "value";
 
 /**

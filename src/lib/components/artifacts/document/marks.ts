@@ -37,8 +37,11 @@ import type {
 } from "$lib/shared/artifact-document/patch";
 import { BLOCK_ID_ATTR } from "./block-attrs";
 
-export const ALFY_CHANGE_MARK = "alfyChange";
-export const ALFY_CHANGE_ATTR = "changeId";
+// Not exported: nothing outside this file names the mark/attribute directly
+// today (callers go through the functions below), and Fallow's public-API
+// scan flags an export with no external importer.
+const ALFY_CHANGE_MARK = "alfyChange";
+const ALFY_CHANGE_ATTR = "changeId";
 
 /** One applied op's block, kept alive across the mark → Keep/Undo lifecycle. */
 export interface AlfyChangeEntry {
@@ -211,39 +214,6 @@ export function applyAlfyChangeMarks(
 		editor.view.dispatch(tr);
 	}
 	return entries;
-}
-
-/** Every distinct mark range currently in the document, keyed by changeId — for restoring UI state (e.g. after a remount). */
-export function listAlfyChanges(
-	editor: Editor,
-): { changeId: string; blockId: string; from: number; to: number }[] {
-	const markType = editor.schema.marks[ALFY_CHANGE_MARK];
-	if (!markType) return [];
-	const byChangeId = new Map<
-		string,
-		{ changeId: string; blockId: string; from: number; to: number }
-	>();
-	editor.state.doc.forEach((node, offset) => {
-		const blockId =
-			typeof node.attrs?.[BLOCK_ID_ATTR] === "string"
-				? (node.attrs[BLOCK_ID_ATTR] as string)
-				: "";
-		node.descendants((child, pos) => {
-			const mark = child.marks.find((m) => m.type === markType);
-			if (!mark) return;
-			const changeId = mark.attrs[ALFY_CHANGE_ATTR] as string;
-			const from = offset + 1 + pos;
-			const to = from + child.nodeSize;
-			const existing = byChangeId.get(changeId);
-			if (existing) {
-				existing.from = Math.min(existing.from, from);
-				existing.to = Math.max(existing.to, to);
-			} else {
-				byChangeId.set(changeId, { changeId, blockId, from, to });
-			}
-		});
-	});
-	return Array.from(byChangeId.values());
 }
 
 /** Keep: clears the mark, leaves the text exactly as applied. `true` when a mark was actually found and cleared. */

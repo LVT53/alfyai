@@ -24,7 +24,8 @@ export const STATUS_CHIP_VALUES = [
 	"Paid",
 	"Cancelled",
 ] as const;
-export type StatusChipValue = (typeof STATUS_CHIP_VALUES)[number];
+// Not exported: only this file's own label lookup names the status union today.
+type StatusChipValue = (typeof STATUS_CHIP_VALUES)[number];
 
 /** value → the i18n key suffix under `artifacts.document.chip.status.*` (the token itself is not a valid object-key-safe suffix — "To book" has a space). */
 const STATUS_LABEL_SUFFIX: Record<StatusChipValue, string> = {
