@@ -11,6 +11,8 @@
 // `slides` (Slice 4) — and `getSuiteScorer` is what `run.ts` calls, so the
 // runner never has to know which suites exist. Empty in Slice 5a: every
 // suite falls back to the generic scorer above until its own lands.
+import { scoreAppEval } from "./suites/apps";
+import { scoreVerificationEval } from "./suites/verification";
 import type {
 	EvalAttempt,
 	EvalCase,
@@ -40,11 +42,14 @@ export function scoreArtifactEvalAttempt(
 }
 
 /**
- * The per-suite scorer registry. Empty here on purpose — each type slice
- * appends ONE entry, keyed by its suite name, and only here; `run.ts` never
- * imports a type slice's scorer directly.
+ * The per-suite scorer registry. Each type slice appends ONE entry, keyed by
+ * its suite name, and only here; `run.ts` never imports a type slice's
+ * scorer directly.
  */
-export const SUITE_SCORERS: Partial<Record<string, SuiteScorer>> = {};
+export const SUITE_SCORERS: Partial<Record<string, SuiteScorer>> = {
+	app: scoreAppEval,
+	verification: scoreVerificationEval,
+};
 
 /** What `run.ts` calls for every case: a suite's own scorer when one is
  * registered, else the generic placeholder above. Never throws for an

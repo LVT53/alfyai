@@ -98,7 +98,12 @@ describe("getSuiteScorer", () => {
 
 		expect(getSuiteScorer("document")).toBe(documentScorer);
 		// Registering one suite's scorer never affects another's fallback.
-		expect(getSuiteScorer("app")).toBe(scoreArtifactEvalAttempt);
+		// "app" is no longer a fitting stand-in here (Slice 2 has since
+		// registered its own scorer for it) — a synthetic name keeps this
+		// assertion true regardless of which other suites are registered.
+		expect(getSuiteScorer("nonexistent-suite-name")).toBe(
+			scoreArtifactEvalAttempt,
+		);
 	});
 });
 
