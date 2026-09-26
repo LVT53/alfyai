@@ -197,9 +197,7 @@ function buildAbsorbAndMintTransaction(state: EditorState): Transaction | null {
  * minting in isolation from absorption today; widen this back to `export`
  * if a future test genuinely needs that split.
  */
-function buildBlockIdTransaction(
-	state: EditorState,
-): Transaction | null {
+function buildBlockIdTransaction(state: EditorState): Transaction | null {
 	const missing: { pos: number; kind: BlockKind }[] = [];
 	state.doc.forEach((node, offset) => {
 		const id = node.attrs?.[BLOCK_ID_ATTR];
