@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	askAlfyInComment,
+	createArtifactComment,
 	fetchArtifact,
 	fetchArtifactVersionBody,
 	fetchArtifactVersions,
 	fetchConversationArtifacts,
+	resolveArtifactComment,
 	restoreArtifactVersion,
 	saveArtifactBody,
 } from "./artifacts";
@@ -223,5 +226,184 @@ describe("artifacts client API", () => {
 			const call = fetchMock.mock.calls[0]?.[1];
 			expect(JSON.parse(String(call?.body))).toEqual({ body: "Text." });
 		});
+	});
+});
+
+const TEXT_ANCHOR = {
+	kind: "text" as const,
+	blockId: "p1",
+	quote: "flight",
+	prefix: "Book the ",
+	suffix: ".",
+};
+
+describe("createArtifactComment", () => {
+	it("posts the anchor and body, and returns the created comment", async () => {
+		const comment = {
+			id: "comment-1",
+			artifactId: "artifact-1",
+			parentId: null,
+			anchor: TEXT_ANCHOR,
+			author: "user",
+			body: "Too early?",
+			status: "open",
+			createdAt: 1,
+			replies: [],
+		};
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true, comment }));
+
+		const result = await createArtifactComment(
+			"artifact-1",
+			TEXT_ANCHOR,
+			"Too early?",
+			undefined,
+			null,
+			fetchMock,
+		);
+
+		expect(result).toEqual(comment);
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe("/api/artifacts/artifact-1/comments");
+		expect(JSON.parse(String(init.body))).toEqual({
+			anchor: TEXT_ANCHOR,
+			body: "Too early?",
+		});
+	});
+
+	it("carries parentId for a reply, and the conversation id in the query", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				comment: {
+					id: "comment-2",
+					artifactId: "artifact-1",
+					parentId: "comment-1",
+					anchor: null,
+					author: "user",
+					body: "Moved it to ten.",
+					status: "open",
+					createdAt: 2,
+					replies: [],
+				},
+			}),
+		);
+
+		await createArtifactComment(
+			"artifact-1",
+			null,
+			"Moved it to ten.",
+			"comment-1",
+			"conv 1/2",
+			fetchMock,
+		);
+
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe(
+			"/api/artifacts/artifact-1/comments?conversationId=conv%201%2F2",
+		);
+		expect(JSON.parse(String(init.body))).toEqual({
+			anchor: null,
+			body: "Moved it to ten.",
+			parentId: "comment-1",
+		});
+	});
+
+	it("throws (via requestJson) on a refused comment, never swallowing the failure", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "invalid_request" }, 400),
+		);
+
+		await expect(
+			createArtifactComment(
+				"artifact-1",
+				TEXT_ANCHOR,
+				"",
+				undefined,
+				null,
+				fetchMock,
+			),
+		).rejects.toThrow();
+	});
+});
+
+describe("resolveArtifactComment", () => {
+	it("posts { resolved } to the comment's own resolve route", async () => {
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
+
+		await resolveArtifactComment(
+			"artifact-1",
+			"comment-1",
+			true,
+			null,
+			fetchMock,
+		);
+
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe("/api/artifacts/artifact-1/comments/comment-1/resolve");
+		expect(JSON.parse(String(init.body))).toEqual({ resolved: true });
+	});
+});
+
+describe("askAlfyInComment", () => {
+	it("posts to the alfy route and returns the outcome shape untouched by ok", async () => {
+		const reply = {
+			id: "comment-2",
+			artifactId: "artifact-1",
+			parentId: "comment-1",
+			anchor: null,
+			author: "alfy",
+			body: "Changed it.",
+			status: "open",
+			createdAt: 2,
+			replies: [],
+		};
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				outcome: "applied",
+				applied: 1,
+				refused: 0,
+				version: 3,
+				reply,
+			}),
+		);
+
+		const result = await askAlfyInComment(
+			"artifact-1",
+			"comment-1",
+			"conv-1",
+			fetchMock,
+		);
+
+		expect(result).toEqual({
+			outcome: "applied",
+			applied: 1,
+			refused: 0,
+			version: 3,
+			reply,
+		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/artifacts/artifact-1/comments/comment-1/alfy?conversationId=conv-1",
+			expect.objectContaining({ method: "POST" }),
+		);
+	});
+
+	it("throws on a 404/504 rather than returning a fake outcome", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "not_found" }, 404),
+		);
+
+		await expect(
+			askAlfyInComment("artifact-1", "comment-1", null, fetchMock),
+		).rejects.toThrow();
 	});
 });

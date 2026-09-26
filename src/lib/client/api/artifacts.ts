@@ -10,6 +10,7 @@ import type {
 	ArtifactRecord,
 	ArtifactVersionSummary,
 } from "$lib/server/services/artifacts/types";
+import type { Anchor } from "$lib/shared/artifacts/anchor";
 import { _unwrapList } from "./_utils";
 import { type FetchLike, requestJson } from "./http";
 
@@ -194,4 +195,86 @@ export async function restoreArtifactVersion(
 		fetchImpl,
 	);
 	return payload.version;
+}
+
+/** Creates a root comment (`anchor` set, `parentId` omitted) or a reply (`anchor: null`, `parentId` set). T10.1. */
+export async function createArtifactComment(
+	artifactId: string,
+	anchor: Anchor | null,
+	body: string,
+	parentId?: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<ArtifactComment> {
+	const payload = await requestJson<{ ok: true; comment: ArtifactComment }>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/comments${withConversationQuery(conversationId)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				anchor,
+				body,
+				...(parentId !== undefined ? { parentId } : {}),
+			}),
+		},
+		"Could not post this comment",
+		fetchImpl,
+	);
+	return payload.comment;
+}
+
+/** Resolves or reopens a thread (T10.4). */
+export async function resolveArtifactComment(
+	artifactId: string,
+	commentId: string,
+	resolved: boolean,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<void> {
+	await requestJson<{ ok: true }>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/comments/${encodeURIComponent(commentId)}/resolve${withConversationQuery(conversationId)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ resolved }),
+		},
+		"Could not update this comment",
+		fetchImpl,
+	);
+}
+
+export interface AskAlfyResult {
+	outcome: "applied" | "refused" | "answered";
+	applied: number;
+	refused: number;
+	version: number;
+	reply: ArtifactComment;
+}
+
+/**
+ * The `@Alfy` hook (T10.5). All three outcomes — applied, refused, answered —
+ * come back as a normal resolved value (the route answers `ok: true` for
+ * every one of them, since a refusal is the feature, not an error); this
+ * throws only for the genuine failures (a foreign/missing artifact or
+ * comment, or the call timing out server-side).
+ */
+export async function askAlfyInComment(
+	artifactId: string,
+	commentId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<AskAlfyResult> {
+	const payload = await requestJson<{ ok: true } & AskAlfyResult>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/comments/${encodeURIComponent(commentId)}/alfy${withConversationQuery(conversationId)}`,
+		{ method: "POST" },
+		"Could not reach Alfy for this comment",
+		fetchImpl,
+	);
+	return {
+		outcome: payload.outcome,
+		applied: payload.applied,
+		refused: payload.refused,
+		version: payload.version,
+		reply: payload.reply,
+	};
 }
