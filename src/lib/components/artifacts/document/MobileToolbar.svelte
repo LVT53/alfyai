@@ -78,10 +78,66 @@ function handleSheetAction(id: DocumentToolbarActionId): void {
 	closeSheet();
 }
 
+/**
+ * RV-1B: the sheet renders `role="dialog" aria-modal="true"`, and the UI
+ * states contract says "The More sheet traps focus while open" — but nothing
+ * enforced it, so a keyboard user could Tab straight past a "modal" sheet
+ * into the primary toolbar row sitting behind it. Mirrors
+ * `DialogShell.svelte`'s own `trapTabNavigation`/`getFocusableElements`
+ * (self-contained here rather than imported: this sheet is one small,
+ * self-closing dialog, not the stacking multi-dialog case `DialogShell`
+ * itself guards against with its "topmost dialog" gate).
+ */
+function isRendered(el: HTMLElement): boolean {
+	if (el.getClientRects().length > 0) return true;
+	const style = getComputedStyle(el);
+	return style.display !== "none" && style.visibility !== "hidden";
+}
+
+function getSheetFocusableElements(): HTMLElement[] {
+	return Array.from(
+		sheetEl?.querySelectorAll<HTMLElement>(
+			'button:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
+		) ?? [],
+	).filter(isRendered);
+}
+
+function trapSheetTab(event: KeyboardEvent): void {
+	const focusable = getSheetFocusableElements();
+	if (focusable.length === 0) {
+		event.preventDefault();
+		sheetEl?.focus();
+		return;
+	}
+	const first = focusable[0];
+	const last = focusable[focusable.length - 1];
+	const activeElement = document.activeElement;
+
+	// Focus has escaped the sheet (or was never inside it) — pull it back.
+	if (!(activeElement instanceof Node) || !sheetEl?.contains(activeElement)) {
+		event.preventDefault();
+		first.focus();
+		return;
+	}
+	if (event.shiftKey && activeElement === first) {
+		event.preventDefault();
+		last.focus();
+		return;
+	}
+	if (!event.shiftKey && activeElement === last) {
+		event.preventDefault();
+		first.focus();
+	}
+}
+
 function handleSheetKeydown(event: KeyboardEvent): void {
 	if (event.key === "Escape") {
 		event.preventDefault();
 		closeSheet();
+		return;
+	}
+	if (event.key === "Tab") {
+		trapSheetTab(event);
 	}
 }
 
