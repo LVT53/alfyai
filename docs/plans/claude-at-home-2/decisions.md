@@ -541,6 +541,32 @@ cycle (`artifacts/app/create.ts → … → verify.ts → normal-chat-tools/inde
 and the verifier. It is a pure move (an authorized edit to `index.ts`), and the frozen catalogue snapshots prove the
 tool is unchanged. Fallow's circular count returns to 4.
 
+## 58. Apps work inside their own sandbox, and cannot quietly leave it
+
+*Orchestrator, 2026-09-26, from RV-2A; a security-relevant change the owner may overrule.* Measured under the
+product's exact frame and CSP: a form's `submit` never fires, `confirm()` returns false and `eval` throws. 4 of the 10
+eval apps had a dead main action while the eval scored them "works". An App can also still leak what it holds by
+navigating itself or through WebRTC, which no CSP directive stops in Chromium. `slice-2.md` and spec §5 pin
+`sandbox="allow-scripts"`; this amends them (spec §5 is not a §2 decision).
+- **Forms.** The frame's sandbox becomes exactly `allow-scripts allow-forms`, and the CSP's `sandbox` directive
+  matches. `form-action 'none'` stays, so a submit event fires and the submission itself is still refused
+  (measured). The exact-string tests pin the new value. Still never `allow-modals`, `allow-same-origin`,
+  `allow-popups`, `allow-top-navigation` or `'unsafe-eval'`.
+- **Contract and audit.** The generator is told: handle `submit` with `preventDefault()`; never
+  `alert`/`confirm`/`prompt` (draw an inline confirmation); never `eval`/`new Function`; never navigate (`location`
+  assignment, `window.open`, an external `href`, `<meta http-equiv="refresh">`); never `RTCPeerConnection`. The audit
+  gains matching rules. The dialog/eval rules are glitches. The navigation/WebRTC rules are violations: the
+  generation is retried once with the violation named, then refused with a visible, localized message. The audit's
+  tag regexes are bounded (`[^>]{0,4096}`): same verdicts, linear time.
+- **Tripwire.** The parent tears the frame down and shows a localized notice when the frame fires a `load` the parent
+  did not cause (the App navigated itself). It acts after the fact, but it ends a phishing flow.
+- **The eval runs Apps the way users get them.** The browser pass (ruling 56) loads each App in the product's exact
+  frame attribute and CSP header, read from the shared constants. An app whose main action dies there is `broken`.
+- **Runtime hardening from the same review.** The bootstrap accepts replies only from `window.parent`; saves to one
+  key keep their order; the pending queue also caps bytes; the kv read sends `no-store`; a non-string key is refused;
+  the download error is localized; an expired session inside the frame shows a localized notice, not a dead login
+  form; the Code tab loads its highlighter on demand.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
