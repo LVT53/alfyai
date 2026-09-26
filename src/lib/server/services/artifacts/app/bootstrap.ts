@@ -29,6 +29,12 @@ export const APP_BOOTSTRAP_SCRIPT = `(function () {
     });
   }
   window.addEventListener("message", function (event) {
+    // Ruling 58 (hardening, RV-2A open question 4): unreachable today (this
+    // App's own sandbox lets it open no popup and no nested frame), but the
+    // listener should not depend on that alone. Every real reply comes FROM
+    // the parent, so a message from anything else is never this protocol's,
+    // no matter how well it forges v/kind/id.
+    if (event.source !== window.parent) return;
     var data = event.data;
     if (!data || typeof data !== "object") return;
     if (data.v !== 1 || data.kind !== "alfy.storage.result") return;

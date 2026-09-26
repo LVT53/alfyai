@@ -18,7 +18,9 @@ interface StorageMessage {
  */
 function createSandbox() {
 	const messages: StorageMessage[] = [];
-	const listeners: Array<(event: { data: unknown }) => void> = [];
+	const listeners: Array<
+		(event: { data: unknown; source?: unknown }) => void
+	> = [];
 	const pendingTimers: Array<() => void> = [];
 
 	const sandboxWindow: Record<string, unknown> = {
@@ -54,8 +56,17 @@ function createSandbox() {
 			};
 		},
 		messages,
-		deliverReply: (reply: Record<string, unknown>) => {
-			for (const listener of listeners) listener({ data: reply });
+		// Real replies arrive FROM the parent: inside the iframe document this
+		// script runs in, `event.source` on an incoming message is always the
+		// window that sent it — the parent, i.e. `window.parent` as this
+		// document sees it. The sandbox aliases `parent` to itself, so that is
+		// the default `source` here; a test can pass a different object to
+		// simulate a reply arriving from anything else.
+		deliverReply: (
+			reply: Record<string, unknown>,
+			source: unknown = sandboxWindow.parent,
+		) => {
+			for (const listener of listeners) listener({ data: reply, source });
 		},
 		fireTimers: () => {
 			for (const fn of pendingTimers.splice(0)) fn();
@@ -186,6 +197,38 @@ describe("APP_BOOTSTRAP_SCRIPT — window.alfy.storage", () => {
 		});
 
 		await expect(promise).resolves.toBe("right");
+	});
+
+	// Ruling 58, RV-2A open question 4 (hardening): unreachable today (the App
+	// can open no popup or nested frame under its own sandbox), but the
+	// listener should not rely on that alone — a window holding a reference to
+	// the App's frame must not be able to resolve its pending promises with a
+	// forged value.
+	it("ignores a reply whose source is not window.parent, even with a matching id and kind", async () => {
+		const { window, messages, deliverReply } = createSandbox();
+		const promise = window.alfy.storage.get("my-key");
+		const request = messages[0];
+		const impostor = { not: "the parent" };
+
+		deliverReply(
+			{
+				v: 1,
+				kind: "alfy.storage.result",
+				id: request.id,
+				ok: true,
+				value: "forged",
+			},
+			impostor,
+		);
+		deliverReply({
+			v: 1,
+			kind: "alfy.storage.result",
+			id: request.id,
+			ok: true,
+			value: "from the real parent",
+		});
+
+		await expect(promise).resolves.toBe("from the real parent");
 	});
 
 	it("times out after 5000ms with no reply, and the rejection is fixed text — never the key", async () => {
