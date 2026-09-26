@@ -54,4 +54,20 @@ describe("RV-1A: the canonical form survives a real reopen", () => {
 			buildIndex(parseDocument(stored).blocks),
 		);
 	});
+
+	it("keeps a nested checklist nested, and every hash, through open → serialise → reload", () => {
+		const stored = parseDocument(
+			"- [ ] parent task\n  - [x] child task\n- [ ] second\n",
+		).markdown;
+
+		const once = reopen(stored);
+		const twice = reopen(once);
+		expect(once).toContain("- [ ] parent task\n  - [x] child task");
+		expect(buildIndex(parseDocument(once).blocks)).toEqual(
+			buildIndex(parseDocument(stored).blocks),
+		);
+		expect(buildIndex(parseDocument(twice).blocks)).toEqual(
+			buildIndex(parseDocument(stored).blocks),
+		);
+	});
 });

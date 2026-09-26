@@ -416,18 +416,44 @@ function startsNewBlock(line: string): boolean {
  * list (which has no per-item op and stays one block).
  */
 const LIST_ITEM_START_RE = /^\s*(?:[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/;
+const LIST_MARKER_PREFIX_RE = /^(\s*)([-*+]|\d+[.)])(\s+)/;
 
+/**
+ * The column a list item's content starts at (CommonMark: indent + marker +
+ * the spaces after it, at most 4 of them). A line indented to at least this
+ * column is INSIDE the item — a continuation or a nested list — never a
+ * sibling.
+ */
+function listItemContentColumn(line: string): number {
+	const match = LIST_MARKER_PREFIX_RE.exec(line);
+	if (!match) return 0;
+	return match[1].length + match[2].length + Math.min(match[3].length, 4);
+}
+
+function leadingWhitespace(line: string): number {
+	return line.length - line.trimStart().length;
+}
+
+/**
+ * One task item: its first line, its indented continuation lines, and its
+ * nested items. A nested item is part of its parent's block, not a block of
+ * its own: a marker line between a parent and its child ends the list in
+ * every Markdown reader, so a split-off child came back un-nested on the
+ * next reopen — its text and hash changed with no user edit, which broke
+ * ruling 12's gate for every nested checklist (RV-1A).
+ */
 function consumeSingleListItem(
 	lines: string[],
 	start: number,
 ): { text: string; next: number } {
 	const collected = [lines[start]];
+	const contentColumn = listItemContentColumn(lines[start]);
 	let i = start + 1;
-	while (
-		i < lines.length &&
-		/^\s+\S/.test(lines[i]) &&
-		!LIST_ITEM_START_RE.test(lines[i])
-	) {
+	while (i < lines.length && /^\s+\S/.test(lines[i])) {
+		const nested =
+			LIST_ITEM_START_RE.test(lines[i]) &&
+			leadingWhitespace(lines[i]) >= contentColumn;
+		if (LIST_ITEM_START_RE.test(lines[i]) && !nested) break;
 		collected.push(lines[i]);
 		i += 1;
 	}

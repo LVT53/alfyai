@@ -372,3 +372,28 @@ describe("RV-1A: an escaped pipe is cell text, not a column separator", () => {
 		]);
 	});
 });
+
+describe("RV-1A: a task item's nested items belong to its block", () => {
+	it("keeps nested items (tasks and bullets) with their parent task item, so a reopen cannot un-nest them", () => {
+		const parsed = parseDocument(
+			"- [ ] parent task\n  - [x] child task\n  - plain sub-bullet\n    more text\n- [ ] second",
+		);
+		expect(parsed.blocks.map((block) => block.kind)).toEqual([
+			"taskList",
+			"taskList",
+		]);
+		expect(parsed.blocks[0].markdown).toBe(
+			"- [ ] parent task\n  - [x] child task\n  - plain sub-bullet\n    more text",
+		);
+		expect(readTaskBlock(parsed.blocks[0])).toEqual({
+			checked: false,
+			text: "parent task",
+		});
+		expect(parsed.blocks[1].markdown).toBe("- [ ] second");
+	});
+
+	it("still splits sibling task items, including a 1-space-indented sibling", () => {
+		const parsed = parseDocument("- [ ] one\n - [ ] two\n- [x] three");
+		expect(parsed.blocks).toHaveLength(3);
+	});
+});
