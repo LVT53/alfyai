@@ -3,11 +3,14 @@
 // The artifact-contract eval harness's live orchestration script (Feature 2
 // · Artifacts). Slice 5a lands the harness CORE here, on Slice 0's skeleton
 // (decisions.md ruling 44): the flag table, the known-bad-first refusal, the
-// sequential/one-retry/two-429-stop execution policy, and the "nothing
-// configured" graceful exit. No suite is registered yet (cases.ts is empty),
-// and this file writes NO suite of its own — each type slice appends its own
-// `suites/<suite>.ts`, fixtures and `cases.ts` entry, and runs its own live
-// gate before it is called done.
+// sequential/one-retry/two-429-stop execution policy, and the "no suites
+// registered yet" graceful exit (`0`). No suite is registered yet (cases.ts
+// is empty), and this file writes NO suite of its own — each type slice
+// appends its own `suites/<suite>.ts`, fixtures and `cases.ts` entry, and
+// runs its own live gate before it is called done. A *live* run with no
+// model endpoint configured is a different, harder failure (ruling 54): see
+// client.ts's `resolveEvalArtifactsClient`, which throws instead of quietly
+// doing nothing.
 //
 // The testable core (`parseArgv`, `runSuite`, `recordSuiteResponses`) is
 // exported and takes its dependencies (the case registry, the model client,
@@ -22,7 +25,7 @@
 // Run with: npx tsx scripts/eval-artifact-contracts/run.ts --suite <name>
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { EVAL_CASES } from "./cases";
@@ -489,24 +492,38 @@ export async function main(
 		return 0;
 	}
 
-	const client = replay
-		? null
-		: resolveEvalArtifactsClient({
+	// A live run REQUIRES EVAL_ARTIFACTS_BASE_URL/_MODEL (ruling 54: no more
+	// ~/.config/opencode/opencode.json fallback). resolveEvalArtifactsClient
+	// throws one message naming both, with no network call, when either is
+	// missing; caught here so the harness fails with that one message rather
+	// than the generic "Unexpected error" wrapper below. `--replay` never
+	// reaches this at all.
+	let client: EvalArtifactsModelClient | null = null;
+	if (!replay) {
+		try {
+			client = resolveEvalArtifactsClient({
 				baseUrl: config.baseUrl,
 				model: config.model,
 				apiKey: config.apiKey,
 			});
-	if (!replay && !client) {
-		console.log(
-			"[eval-artifact-contracts] No model endpoint configured " +
-				"(EVAL_ARTIFACTS_BASE_URL/_MODEL, or ~/.config/opencode/opencode.json). " +
-				"Pass --replay to re-score committed responses instead. Exiting 0.",
-		);
-		return 0;
+		} catch (error) {
+			console.error(
+				`[eval-artifact-contracts] ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+			return 1;
+		}
 	}
 
+	// dirname(fileURLToPath(import.meta.url)), NOT
+	// fileURLToPath(new URL(".", import.meta.url)): the latter matches
+	// Vite's own static asset-URL convention, so a test harness that loads
+	// this file through Vite (vitest) — unlike plain `tsx` — would rewrite
+	// it into a dev-server URL instead of resolving the real `file:` path.
+	// See config.ts's `DEFAULT_OUT_DIR` comment for the full story.
 	const fixturesRoot = join(
-		fileURLToPath(new URL(".", import.meta.url)),
+		dirname(fileURLToPath(import.meta.url)),
 		"fixtures",
 	);
 	const log = (message: string) =>
