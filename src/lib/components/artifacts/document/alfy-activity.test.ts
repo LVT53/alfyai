@@ -276,3 +276,68 @@ describe("reconstructDocumentPatch", () => {
 		]);
 	});
 });
+
+// RV-1A (independent review of Slice 1): red before its fix; the review file
+// (docs/plans/claude-at-home-2/review-1a.md) quotes the failing line.
+describe("RV-1A: reconstructDocumentPatch marks ops, not blocks", () => {
+	it("keeps an applied op applied (with its Undo) when another op on the same block was refused", () => {
+		const previous = new Map<string, DocumentBlock>([
+			["b1", block("b1", "Book the flight to Vienna.")],
+		]);
+		const result = reconstructDocumentPatch(
+			{
+				key: "k",
+				artifactId: "a",
+				toolName: "edit_artifact",
+				status: "refused",
+				label: null,
+				patches: [
+					{
+						op: "replaceRange",
+						blockId: "b1",
+						baseHash: "h",
+						find: "Rome",
+						text: "Paris",
+					},
+					{
+						op: "replaceRange",
+						blockId: "b1",
+						baseHash: "h",
+						find: "Vienna",
+						text: "Budapest",
+					},
+				],
+				refusedBlocks: [
+					{ blockId: "b1", reason: "find_not_found", opIndex: 0 },
+				],
+				appliedCount: 1,
+			},
+			previous,
+		);
+		expect(result?.outcomes.map((o) => o.status)).toEqual([
+			"refused",
+			"applied",
+		]);
+		expect(result?.inverses).toHaveLength(1);
+	});
+
+	it("reads each refusal's op index out of the metadata JSON", () => {
+		const activity = buildDocumentAlfyActivity({
+			name: "edit_artifact",
+			status: "done",
+			input: { artifactId: "a", patches: [] },
+			metadata: {
+				ok: true,
+				artifactId: "a",
+				artifactKind: "document",
+				appliedCount: 1,
+				refusedBlocksJson: JSON.stringify([
+					{ blockId: "b1", reason: "find_not_found", opIndex: 0 },
+				]),
+			},
+		});
+		expect(activity?.refusedBlocks).toEqual([
+			{ blockId: "b1", reason: "find_not_found", opIndex: 0 },
+		]);
+	});
+});
