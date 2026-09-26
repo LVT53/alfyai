@@ -31,12 +31,25 @@ export interface EvalCase {
 	thinking?: "on" | "off";
 }
 
+/** The provider's own completion usage, mirrored from `client.ts`'s
+ * `EvalArtifactsUsage` rather than imported from it — `types.ts` has no
+ * runtime dependency on `client.ts` (only `run.ts` and `client.ts` itself do)
+ * and this shape is small enough that duplicating it is cheaper than adding
+ * one. */
+export interface EvalUsage {
+	promptTokens?: number;
+	completionTokens?: number;
+	totalTokens?: number;
+}
+
 /** One case's actual model output, ready for scoring. */
 export interface EvalAttempt {
 	caseId: string;
 	suite: string;
 	response: string;
 	durationMs?: number;
+	/** Absent when the endpoint's response carried no `usage` block. */
+	usage?: EvalUsage;
 }
 
 export type EvalVerdict = "good" | "acceptable" | "bad";
@@ -55,6 +68,7 @@ export interface EvalScoreResult {
 export interface EvalCommittedResponse {
 	response: string;
 	durationMs?: number;
+	usage?: EvalUsage;
 }
 
 /** A committed evaluate-step result for `--replay` (ruling 56), one file per
@@ -100,6 +114,10 @@ export interface EvalCaseOutcome {
 	/** The suite's evaluate step's result, when one ran (ruling 56) — recorded
 	 * next to the response, not folded into `reasons`. */
 	evaluation?: unknown;
+	/** The generation call's own usage, when the endpoint reported one —
+	 * recorded per case so a run's `results.json` can be compared against P1's
+	 * measured 2,486–3,607 completion tokens per app. */
+	usage?: EvalUsage;
 }
 
 export interface EvalSuiteReport {

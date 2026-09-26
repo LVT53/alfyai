@@ -48,6 +48,7 @@ import type {
 	EvalCommittedEvaluation,
 	EvalCommittedResponse,
 	EvalSuiteReport,
+	EvalUsage,
 } from "./types";
 
 const HELP_TEXT = `
@@ -211,6 +212,7 @@ async function attemptCase(
 				suite: evalCase.suite,
 				response: committed.response,
 				durationMs: committed.durationMs,
+				usage: committed.usage,
 			},
 		};
 	}
@@ -218,7 +220,7 @@ async function attemptCase(
 		return { error: new Error("No model client configured") };
 	}
 	const startedAt = Date.now();
-	let result: { text: string };
+	let result: { text: string; usage?: EvalUsage };
 	try {
 		result = await deps.client.send({
 			prompt: evalCase.prompt,
@@ -236,6 +238,7 @@ async function attemptCase(
 			suite: evalCase.suite,
 			response: result.text,
 			durationMs: Date.now() - startedAt,
+			usage: result.usage,
 		},
 	};
 }
@@ -327,6 +330,7 @@ async function runCasesSequentially(
 			...(evaluation !== null && evaluation !== undefined
 				? { evaluation }
 				: {}),
+			...(outcome.attempt.usage ? { usage: outcome.attempt.usage } : {}),
 		});
 	}
 
@@ -437,6 +441,7 @@ export async function recordSuiteResponses(
 			suite: suiteName,
 			response: result.text,
 			durationMs: Date.now() - startedAt,
+			usage: result.usage,
 		};
 		// Recording (EVAL_ARTIFACTS_SKIP_EVAL) is what PRODUCES the committed
 		// evaluation fixtures --replay later reads, so it must run the same
@@ -461,7 +466,11 @@ export function loadCommittedResponseFromDisk(
 			readFileSync(path, "utf8"),
 		) as Partial<EvalCommittedResponse>;
 		if (typeof raw.response !== "string") return null;
-		return { response: raw.response, durationMs: raw.durationMs };
+		return {
+			response: raw.response,
+			durationMs: raw.durationMs,
+			usage: raw.usage,
+		};
 	} catch {
 		return null;
 	}
@@ -477,6 +486,7 @@ export function writeCommittedResponseToDisk(
 	const payload: EvalCommittedResponse = {
 		response: attempt.response,
 		durationMs: attempt.durationMs,
+		usage: attempt.usage,
 	};
 	writeFileSync(path, JSON.stringify(payload, null, 2));
 	return path;
@@ -700,6 +710,19 @@ export async function main(
 					: "") +
 				`, ${badCount} bad.`,
 		);
+		// Completion-token range across this suite's cases, when the endpoint
+		// reported usage — the number P1's own report compares against
+		// (2,486–3,607 per app). Silent when nothing carried a usage block
+		// (an older committed fixture recorded before this field existed).
+		const completionTokenCounts = report.results
+			.map((result) => result.usage?.completionTokens)
+			.filter((value): value is number => typeof value === "number");
+		if (completionTokenCounts.length > 0) {
+			log(
+				`Suite "${suite}": completion tokens ${Math.min(...completionTokenCounts)}–${Math.max(...completionTokenCounts)} ` +
+					`(${completionTokenCounts.length}/${report.results.length} case(s) reported usage).`,
+			);
+		}
 	}
 
 	// resolve (not join): an absolute --out/EVAL_ARTIFACTS_OUT path must be
