@@ -31,7 +31,6 @@
  */
 
 import type {
-	Editor,
 	JSONContent,
 	MarkdownParseHelpers,
 	MarkdownToken,
@@ -82,7 +81,7 @@ const NODE_TYPE_TO_BLOCK_KIND: Record<string, BlockKind> = {
 };
 
 /** Every top-level node type the Document addresses as a block. */
-export const BLOCK_ID_TYPES = Object.keys(NODE_TYPE_TO_BLOCK_KIND);
+const BLOCK_ID_TYPES = Object.keys(NODE_TYPE_TO_BLOCK_KIND);
 
 function blockKindFor(typeName: string): BlockKind | null {
 	return NODE_TYPE_TO_BLOCK_KIND[typeName] ?? null;
@@ -192,11 +191,13 @@ function buildAbsorbAndMintTransaction(state: EditorState): Transaction | null {
 }
 
 /**
- * Exported for `blocks.test.ts`-style unit tests that want the minting rule in
- * isolation; `ensureBlockIds`/the plugin both go through the combined builder
- * above so absorption and minting can never race each other.
+ * The mint-only half, kept internal: `ensureBlockIds`/the plugin both go
+ * through the combined builder above so absorption and minting can never
+ * race each other. Not exported — nothing outside this file addresses
+ * minting in isolation from absorption today; widen this back to `export`
+ * if a future test genuinely needs that split.
  */
-export function buildBlockIdTransaction(
+function buildBlockIdTransaction(
 	state: EditorState,
 ): Transaction | null {
 	const missing: { pos: number; kind: BlockKind }[] = [];
@@ -221,7 +222,7 @@ export function buildBlockIdTransaction(
 }
 
 /** Every top-level block carries a stable `blockId`, filled in after every change (typing, pasting, or a whole-content replace). */
-export const BlockIds = Extension.create({
+const BlockIds = Extension.create({
 	name: "documentBlockIds",
 
 	addGlobalAttributes() {
@@ -272,7 +273,7 @@ export const BlockIds = Extension.create({
  * but nothing in this module ever leaves one sitting in the live document —
  * see `absorbBlockMarkers` below and `document-editor.ts`'s `readMarkdown`.
  */
-export const BlockMarker = Node.create({
+const BlockMarker = Node.create({
 	name: BLOCK_MARKER_NODE,
 
 	group: "block",
@@ -342,13 +343,14 @@ export const BlockMarker = Node.create({
 });
 
 /**
- * Load-time absorption, exposed on its own for callers that only care how
- * many markers a document had (T1.3-style assertions). Internally this is
- * still the SAME combined builder `ensureBlockIds` and the plugin use — see
+ * Load-time absorption on its own, kept internal (nothing outside this file
+ * calls it directly today — `ensureBlockIds` below is the one load-time
+ * entry point other modules use). Internally this is still the SAME
+ * combined builder `ensureBlockIds` and the plugin use — see
  * `buildAbsorbAndMintTransaction`'s comment for why the two steps cannot be
  * split into independently-dispatched transactions.
  */
-export function absorbBlockMarkers(editor: {
+function absorbBlockMarkers(editor: {
 	state: EditorState;
 	view: { dispatch: (tr: Transaction) => void };
 }): number {
@@ -402,5 +404,3 @@ export function buildDocumentExtensions(placeholder: string) {
 		BlockMarker,
 	];
 }
-
-export type { Editor };

@@ -14,7 +14,7 @@
  */
 
 export const MARKER_PREFIX = "<!--b:";
-export const MARKER_RE = /^<!--b:([A-Za-z0-9_.-]+)-->$/;
+const MARKER_RE = /^<!--b:([A-Za-z0-9_.-]+)-->$/;
 
 export type BlockKind =
 	| "paragraph"
