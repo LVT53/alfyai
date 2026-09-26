@@ -227,6 +227,20 @@ factory options, `applyDocumentPatch` returning `versionId`, the Document-only `
 `art-s1`'s, port 5520) T13 re-record + T10 + T12, with a file split and `DocumentBody.svelte` as the one shared
 file; **evalkey fix** in `art-evalkey` (branch `feat/artifacts-evalkey`). S2b told about ruling 54.
 
+**2026-09-26 ~04:30. S2b reported** (`feat/artifacts-s2` HEAD `2d8d0cbf`, 12,643 tests, containment 30, Playwright 34):
+ruling 51 in AppBody/AppFrame (`6776c087`, the kv bridge now carries the conversation too), ruling 52 re-verification
+with a 25 s deadline (`28eea958`), the `app` + `verification` suites (`0256529c`, `15d34f52`; live on qwen3-6-27b via
+the tunnel: app 10/10 by the static audit, verification 3 good + 1 acceptable), the shared generate→verify pipeline
+(`7fb0f681`), **A7 the App create handler** (`00968af4`, abort-aware) and A7.5's timeout assertion (`43975886`); A8's
+tool wording checked, no change. Three gaps → **rulings 55–57**: the handler chose the language with
+`detectLanguage(brief)` (3/10 English prompts gave Hungarian Apps; its hand audit caught it), A9's headless-browser
+pass was skipped, and the verifier's `research_web` import closed a new cycle (Fallow 125 / 5). Its note that the
+harness's default `--out results` lands outside `.gitignore` went to the evalkey agent. Dispatched: **S2c** (sonnet,
+`art-s2`, 5430) for rulings 55–57 + a fresh live run; **RV-2A** (opus, `rv-2a`, branch
+`feat/artifacts-s2-review-sandbox` from `2d8d0cbf`, 5580) on the sandbox/CSP/bridge/kv/export, which S2c does not
+touch. RV-2B (sonnet) follows S2c. **Evalkey fix done** (`1d23ec0c`: explicit endpoint required, fallback and its
+tests removed, README tunnel recipe; 12,374 tests; Fallow 124/4); its `--out` follow-up is pending.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
