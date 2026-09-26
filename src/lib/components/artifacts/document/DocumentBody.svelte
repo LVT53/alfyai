@@ -54,17 +54,24 @@ function loadEditorModule(): Promise<typeof DocumentEditorModule> {
  */
 import { onDestroy, untrack } from "svelte";
 import {
+	askAlfyInComment,
+	createArtifactComment,
 	createDocumentCopy,
 	fetchArtifact,
+	resolveArtifactComment,
 	saveArtifactBody,
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
 import { t } from "$lib/i18n";
+import type { ArtifactComment } from "$lib/server/services/artifacts/types";
+import { makeAnchor } from "$lib/shared/artifact-document/anchor";
 import {
+	type DocumentBlock,
 	parseDocument,
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
+import type { Anchor } from "$lib/shared/artifacts/anchor";
 import {
 	createDocumentAutosave,
 	type DocumentAutosaveHandle,
@@ -72,6 +79,8 @@ import {
 } from "./document-autosave";
 import type { Editor } from "./document-editor";
 import DocumentToolbar from "./DocumentToolbar.svelte";
+import MarginPanel from "./MarginPanel.svelte";
+import SelectionBubble from "./SelectionBubble.svelte";
 import type { DocumentToolbarActionId } from "./toolbar-actions";
 
 let {
@@ -102,6 +111,141 @@ let editor: Editor | null = null;
 let autosave: DocumentAutosaveHandle | null = null;
 let readMarkdownFn: typeof DocumentEditorModule.readMarkdown | null = null;
 let editorReady = $derived(loadState === "ready");
+
+// ---- T10: comments margin and the selection bubble -------------------------
+// Kept to this one block: `loadMarkdownFn`/`readSelectionContextFn` mirror
+// `readMarkdownFn` above (captured once the lazy module resolves, in
+// `runLoad`), `comments`/`blocks` feed `MarginPanel`'s live anchor
+// resolution, and `selectionBubble` is the live selection's own screen
+// position plus its (already-validated) `Anchor`, or `null` when there is
+// nothing to show. `contentEl` is a `$state` ref (Svelte 5: a `bind:this`
+// an effect/handler reads must be) so `updateSelectionBubble` can measure it.
+let loadMarkdownFn: typeof DocumentEditorModule.loadMarkdown | null = null;
+let readSelectionContextFn:
+	| typeof DocumentEditorModule.readSelectionAnchorContext
+	| null = null;
+let comments = $state<ArtifactComment[]>([]);
+let blocks = $state<DocumentBlock[]>([]);
+let selectionBubble = $state<{ x: number; y: number; anchor: Anchor } | null>(
+	null,
+);
+let contentEl = $state<HTMLDivElement | undefined>();
+
+function updateBlocksFromMarkdown(markdown: string): void {
+	blocks = parseDocument(markdown, { mint: false }).blocks;
+}
+
+function updateSelectionBubble(): void {
+	if (!editor || !readSelectionContextFn || !contentEl) {
+		selectionBubble = null;
+		return;
+	}
+	const context = readSelectionContextFn(editor);
+	if (!context) {
+		selectionBubble = null;
+		return;
+	}
+	const anchor = makeAnchor(context);
+	if (!anchor) {
+		selectionBubble = null;
+		return;
+	}
+	const hostRect = contentEl.getBoundingClientRect();
+	selectionBubble = {
+		x: (context.rect.left + context.rect.right) / 2 - hostRect.left,
+		y: context.rect.top - hostRect.top,
+		anchor,
+	};
+}
+
+function dismissSelectionBubble(): void {
+	selectionBubble = null;
+}
+
+/**
+ * Re-fetches this artifact's comments (and, if Alfy's own change bumped the
+ * version, the body too) after any comment mutation. `loadMarkdownFn` swaps
+ * the LIVE editor content the same way an Undo does (Contracts: a fresh
+ * `setContent`, ids re-absorbed) — never a ProseMirror-position-based patch,
+ * so it cannot land in the wrong place.
+ */
+async function refreshAfterCommentChange(): Promise<void> {
+	try {
+		const conversationId = panelConversationId ?? null;
+		const detail = await fetchArtifact(boundArtifactId, conversationId);
+		comments = detail.comments;
+		const newBody = detail.artifact.body ?? "";
+		if (detail.artifact.versionNumber !== versionNumber) {
+			versionNumber = detail.artifact.versionNumber;
+			if (editor && loadMarkdownFn) loadMarkdownFn(editor, newBody);
+		}
+		updateBlocksFromMarkdown(newBody);
+	} catch {
+		// Best-effort: the margin simply shows slightly stale state until the
+		// next successful refresh (the next mutation, or reopening the panel).
+	}
+}
+
+function mentionsAlfy(text: string): boolean {
+	return /@alfy\b/i.test(text);
+}
+
+async function maybeAskAlfy(commentId: string): Promise<void> {
+	const conversationId = panelConversationId ?? null;
+	try {
+		await askAlfyInComment(boundArtifactId, commentId, conversationId);
+	} catch {
+		// The reply (or refusal) already lives in the thread when the call
+		// succeeds; a failed call here just leaves the thread as it was — the
+		// next refresh (another comment, a reload) will show the truth again.
+	} finally {
+		await refreshAfterCommentChange();
+	}
+}
+
+async function postComment(anchor: Anchor, body: string): Promise<void> {
+	const conversationId = panelConversationId ?? null;
+	const created = await createArtifactComment(
+		boundArtifactId,
+		anchor,
+		body,
+		undefined,
+		conversationId,
+	);
+	await refreshAfterCommentChange();
+	if (mentionsAlfy(body)) await maybeAskAlfy(created.id);
+}
+
+async function postReply(parentId: string, body: string): Promise<void> {
+	const conversationId = panelConversationId ?? null;
+	const created = await createArtifactComment(
+		boundArtifactId,
+		null,
+		body,
+		parentId,
+		conversationId,
+	);
+	await refreshAfterCommentChange();
+	if (mentionsAlfy(body)) await maybeAskAlfy(created.id);
+}
+
+async function handleCommentResolve(
+	commentId: string,
+	resolved: boolean,
+): Promise<void> {
+	const conversationId = panelConversationId ?? null;
+	try {
+		await resolveArtifactComment(
+			boundArtifactId,
+			commentId,
+			resolved,
+			conversationId,
+		);
+	} finally {
+		await refreshAfterCommentChange();
+	}
+}
+// ---- end T10 -----------------------------------------------------------
 
 /** The editor's current text, canonicalised through the SERVER's own pipeline (T7.2) — never a second canonicaliser. */
 function currentCanonicalMarkdown(): string | null {
@@ -142,7 +286,18 @@ function handleDirty(): void {
 function handleUpdate(): void {
 	updateActiveActionIds();
 	const canonical = currentCanonicalMarkdown();
-	if (canonical !== null) autosave?.schedule(canonical);
+	if (canonical !== null) {
+		autosave?.schedule(canonical);
+		// Keeps the margin's anchor resolution live as the user types, not just
+		// after the next full reload.
+		updateBlocksFromMarkdown(canonical);
+	}
+}
+
+/** T10: the same selection callback the editor already fires, extended to also raise/hide the bubble. */
+function handleSelectionUpdate(): void {
+	updateActiveActionIds();
+	updateSelectionBubble();
 }
 
 function handleSaveResult(result: DocumentAutosaveResult, markdown: string): void {
@@ -304,7 +459,11 @@ async function runLoad(id: string): Promise<void> {
 		if (myToken !== loadToken || !editorEl) return;
 
 		readMarkdownFn = mod.readMarkdown;
+		loadMarkdownFn = mod.loadMarkdown;
+		readSelectionContextFn = mod.readSelectionAnchorContext;
 		versionNumber = detail.artifact.versionNumber;
+		comments = detail.comments;
+		updateBlocksFromMarkdown(detail.artifact.body ?? "");
 
 		editor?.destroy();
 		editor = mod.createDocumentEditor({
@@ -313,7 +472,7 @@ async function runLoad(id: string): Promise<void> {
 			placeholder: $t("artifacts.document.editor.placeholder"),
 			onDirty: handleDirty,
 			onUpdate: handleUpdate,
-			onSelectionUpdate: updateActiveActionIds,
+			onSelectionUpdate: handleSelectionUpdate,
 		});
 		updateActiveActionIds();
 		bindAutosave(id, conversationId);
@@ -366,55 +525,105 @@ function saveNoticeText(notice: SaveNotice): string {
 </script>
 
 <div class="document-body">
-	<DocumentToolbar
-		{activeActionIds}
-		disabled={!editorReady}
-		onAction={handleToolbarAction}
-	/>
-	<div class="document-content">
-		{#if loadState === "not_found"}
-			<div class="document-notice" role="status">
-				<p>{$t('artifacts.document.notFound')}</p>
+	<div class="document-main">
+		<DocumentToolbar
+			{activeActionIds}
+			disabled={!editorReady}
+			onAction={handleToolbarAction}
+		/>
+		<div class="document-content" bind:this={contentEl}>
+			{#if loadState === "not_found"}
+				<div class="document-notice" role="status">
+					<p>{$t('artifacts.document.notFound')}</p>
+				</div>
+			{:else}
+				{#if loadState === "load_error"}
+					<div class="document-notice" role="alert">
+						<p>{$t('artifacts.document.editor.failedToLoad')}</p>
+						<button type="button" class="btn-secondary" onclick={retryLoad}>
+							{$t('common.retry')}
+						</button>
+					</div>
+				{:else if saveNotice === 'deleted'}
+					<div class="document-notice" role="alert">
+						<p>{$t('artifacts.document.deleted')}</p>
+						<button type="button" class="btn-primary" onclick={handleSaveCopy}>
+							{$t('artifacts.document.deleted.saveCopy')}
+						</button>
+					</div>
+				{/if}
+				<div class="document-editor-host" bind:this={editorEl}></div>
+				{#if loadState === 'loading'}
+					<div class="document-editor-skeleton" aria-hidden="true">
+						<span class="sr-only">{$t('common.loading')}</span>
+					</div>
+				{/if}
+				<!-- T10: the selection bubble, positioned against this same scroll container -->
+				{#if selectionBubble}
+					<SelectionBubble
+						position={selectionBubble}
+						onSubmit={async (body) => {
+							if (!selectionBubble) return;
+							await postComment(selectionBubble.anchor, body);
+							selectionBubble = null;
+						}}
+						onDismiss={dismissSelectionBubble}
+					/>
+				{/if}
+			{/if}
+		</div>
+		{#if saveNotice === 'offline' || saveNotice === 'tooLarge' || saveNotice === 'conflict'}
+			<div class="document-save-banner" role="status">
+				{saveNoticeText(saveNotice)}
 			</div>
-		{:else}
-			{#if loadState === "load_error"}
-				<div class="document-notice" role="alert">
-					<p>{$t('artifacts.document.editor.failedToLoad')}</p>
-					<button type="button" class="btn-secondary" onclick={retryLoad}>
-						{$t('common.retry')}
-					</button>
-				</div>
-			{:else if saveNotice === 'deleted'}
-				<div class="document-notice" role="alert">
-					<p>{$t('artifacts.document.deleted')}</p>
-					<button type="button" class="btn-primary" onclick={handleSaveCopy}>
-						{$t('artifacts.document.deleted.saveCopy')}
-					</button>
-				</div>
-			{/if}
-			<div class="document-editor-host" bind:this={editorEl}></div>
-			{#if loadState === 'loading'}
-				<div class="document-editor-skeleton" aria-hidden="true">
-					<span class="sr-only">{$t('common.loading')}</span>
-				</div>
-			{/if}
 		{/if}
 	</div>
-	{#if saveNotice === 'offline' || saveNotice === 'tooLarge' || saveNotice === 'conflict'}
-		<div class="document-save-banner" role="status">
-			{saveNoticeText(saveNotice)}
-		</div>
-	{/if}
+	<!-- T10: the comment margin -->
+	<div class="document-margin">
+		<MarginPanel
+			{comments}
+			{blocks}
+			onResolve={handleCommentResolve}
+			onSubmitReply={postReply}
+		/>
+	</div>
 </div>
 
 <style>
 	.document-body {
 		display: flex;
-		flex-direction: column;
+		flex-direction: row;
 		height: 100%;
 		min-height: 0;
 		background-color: var(--surface-page);
 		border-radius: var(--radius-md);
+	}
+
+	/* T10: the toolbar/content/banner column, unchanged in substance — only
+	   wrapped so the margin can sit beside it rather than inside it. */
+	.document-main {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-width: 0;
+		min-height: 0;
+	}
+
+	/* T10: the comment margin. A fixed-ish column, collapsing to nothing on
+	   narrow viewports rather than squeezing the document (the mobile
+	   toolbar's own budget is T11's, not this one's to spend). */
+	.document-margin {
+		display: none;
+		width: 18rem;
+		flex-shrink: 0;
+		border-left: 1px solid var(--border-subtle);
+		overflow-y: auto;
+	}
+
+	@media (min-width: 900px) {
+		.document-margin {
+			display: block;
+		}
 	}
 
 	.document-content {

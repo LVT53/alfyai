@@ -11,34 +11,54 @@ import {
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 
-const { mockFetchArtifact, mockSaveArtifactBody, mockCreateDocumentCopy } =
-	vi.hoisted(() => ({
-		mockFetchArtifact: vi.fn(),
-		mockSaveArtifactBody: vi.fn(),
-		mockCreateDocumentCopy: vi.fn(),
-	}));
+const {
+	mockFetchArtifact,
+	mockSaveArtifactBody,
+	mockCreateDocumentCopy,
+	mockCreateArtifactComment,
+	mockResolveArtifactComment,
+	mockAskAlfyInComment,
+} = vi.hoisted(() => ({
+	mockFetchArtifact: vi.fn(),
+	mockSaveArtifactBody: vi.fn(),
+	mockCreateDocumentCopy: vi.fn(),
+	mockCreateArtifactComment: vi.fn(),
+	mockResolveArtifactComment: vi.fn(),
+	mockAskAlfyInComment: vi.fn(),
+}));
 
 vi.mock("$lib/client/api/artifacts", () => ({
 	fetchArtifact: mockFetchArtifact,
 	saveArtifactBody: mockSaveArtifactBody,
 	createDocumentCopy: mockCreateDocumentCopy,
+	createArtifactComment: mockCreateArtifactComment,
+	resolveArtifactComment: mockResolveArtifactComment,
+	askAlfyInComment: mockAskAlfyInComment,
 }));
 
-const { mockCreateDocumentEditor, mockReadMarkdown, editorInstances } =
-	vi.hoisted(() => ({
-		mockCreateDocumentEditor: vi.fn(),
-		mockReadMarkdown: vi.fn(),
-		editorInstances: [] as Array<{
-			options: Record<string, unknown>;
-			destroy: ReturnType<typeof vi.fn>;
-			isActive: ReturnType<typeof vi.fn>;
-		}>,
-	}));
+const {
+	mockCreateDocumentEditor,
+	mockReadMarkdown,
+	mockLoadMarkdown,
+	mockReadSelectionAnchorContext,
+	editorInstances,
+} = vi.hoisted(() => ({
+	mockCreateDocumentEditor: vi.fn(),
+	mockReadMarkdown: vi.fn(),
+	mockLoadMarkdown: vi.fn(),
+	mockReadSelectionAnchorContext: vi.fn(),
+	editorInstances: [] as Array<{
+		options: Record<string, unknown>;
+		destroy: ReturnType<typeof vi.fn>;
+		isActive: ReturnType<typeof vi.fn>;
+	}>,
+}));
 
 vi.mock("./document-editor", () => ({
 	createDocumentEditor: mockCreateDocumentEditor,
 	readMarkdown: mockReadMarkdown,
-	loadMarkdown: vi.fn(),
+	loadMarkdown: mockLoadMarkdown,
+	readSelectionAnchorContext: mockReadSelectionAnchorContext,
 }));
 
 // A fake stands in for the real Tiptap editor: `document-editor.test.ts`
@@ -111,7 +131,10 @@ function simulateTyping(markdown: string) {
 
 import DocumentBody from "./DocumentBody.svelte";
 
-const ARTIFACT_DETAIL = (overrides: Record<string, unknown> = {}) => ({
+const ARTIFACT_DETAIL = (
+	overrides: Record<string, unknown> = {},
+	comments: unknown[] = [],
+) => ({
 	artifact: {
 		id: "artifact-1",
 		userId: "user-1",
@@ -127,7 +150,7 @@ const ARTIFACT_DETAIL = (overrides: Record<string, unknown> = {}) => ({
 		...overrides,
 	},
 	versions: [],
-	comments: [],
+	comments,
 });
 
 describe("DocumentBody", () => {
@@ -137,6 +160,7 @@ describe("DocumentBody", () => {
 		setupCreateDocumentEditor();
 		mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
 		mockSaveArtifactBody.mockResolvedValue({ ok: true, version: 2 });
+		mockReadSelectionAnchorContext.mockReturnValue(null);
 	});
 
 	afterEach(() => {
@@ -465,5 +489,279 @@ describe("DocumentBody", () => {
 		await waitFor(() =>
 			expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 		);
+	});
+
+	// The margin and the selection bubble (Slice 1, T10).
+	describe("comments and @Alfy margin", () => {
+		function commentFixture(overrides: Record<string, unknown> = {}) {
+			return {
+				id: "comment-1",
+				artifactId: "artifact-1",
+				parentId: null,
+				anchor: {
+					kind: "text",
+					blockId: "p1",
+					quote: "Hello",
+					prefix: "",
+					suffix: ".",
+				},
+				author: "user",
+				body: "Too early?",
+				status: "open",
+				createdAt: 1,
+				replies: [],
+				...overrides,
+			};
+		}
+
+		it("shows the margin's empty state with no comments", async () => {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(screen.getByText("No comments yet.")).toBeInTheDocument();
+		});
+
+		it("renders a fetched comment in the margin", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({}, [commentFixture()]),
+			);
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(screen.getByText("Too early?")).toBeInTheDocument(),
+			);
+		});
+
+		it("shows the SelectionBubble once the editor reports a live selection", async () => {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(screen.queryByTestId("selection-bubble")).toBeNull();
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 10, left: 20, right: 40, bottom: 30 },
+			});
+			const { options } = latestEditor();
+			(options.onSelectionUpdate as () => void)();
+
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+		});
+
+		it("posts a comment from the bubble, with the live selection's anchor, and refreshes", async () => {
+			mockCreateArtifactComment.mockResolvedValue(commentFixture());
+			mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
+
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 10, left: 20, right: 40, bottom: 30 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "Too early?" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+
+			await waitFor(() =>
+				expect(mockCreateArtifactComment).toHaveBeenCalledWith(
+					"artifact-1",
+					{
+						kind: "text",
+						blockId: "p1",
+						quote: "Hello",
+						prefix: "",
+						suffix: ".",
+					},
+					"Too early?",
+					undefined,
+					"conv-1",
+				),
+			);
+			// A plain comment never asks Alfy.
+			expect(mockAskAlfyInComment).not.toHaveBeenCalled();
+			// Refreshed at least once after the post (initial load + refresh).
+			expect(mockFetchArtifact).toHaveBeenCalledTimes(2);
+		});
+
+		it("asks Alfy after posting a comment that mentions @Alfy", async () => {
+			mockCreateArtifactComment.mockResolvedValue(
+				commentFixture({ body: "@Alfy change it." }),
+			);
+			mockAskAlfyInComment.mockResolvedValue({
+				outcome: "applied",
+				applied: 1,
+				refused: 0,
+				version: 2,
+				reply: commentFixture({
+					id: "comment-2",
+					author: "alfy",
+					body: "Done.",
+				}),
+			});
+			mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
+
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 0, left: 0, right: 0, bottom: 0 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+			const textbox = screen.getByRole("textbox") as HTMLTextAreaElement;
+			await fireEvent.input(textbox, {
+				target: { value: "@Alfy change it." },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+
+			await waitFor(() =>
+				expect(mockAskAlfyInComment).toHaveBeenCalledWith(
+					"artifact-1",
+					"comment-1",
+					null,
+				),
+			);
+		});
+
+		it("reloads the editor's content once Alfy's reply bumps the version", async () => {
+			mockCreateArtifactComment.mockResolvedValue(
+				commentFixture({ body: "@Alfy change it." }),
+			);
+			mockAskAlfyInComment.mockResolvedValue({
+				outcome: "applied",
+				applied: 1,
+				refused: 0,
+				version: 2,
+				reply: commentFixture({
+					id: "comment-2",
+					author: "alfy",
+					body: "Done.",
+				}),
+			});
+			mockFetchArtifact
+				.mockResolvedValueOnce(ARTIFACT_DETAIL())
+				.mockResolvedValueOnce(ARTIFACT_DETAIL())
+				.mockResolvedValueOnce(
+					ARTIFACT_DETAIL({ body: "<!--b:p1-->\nGoodbye.", versionNumber: 2 }),
+				);
+
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 0, left: 0, right: 0, bottom: 0 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "@Alfy change it." },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+
+			await waitFor(() =>
+				expect(mockLoadMarkdown).toHaveBeenCalledWith(
+					expect.anything(),
+					"<!--b:p1-->\nGoodbye.",
+				),
+			);
+		});
+
+		it("resolves a comment through the margin's own action", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({}, [commentFixture()]),
+			);
+			mockResolveArtifactComment.mockResolvedValue(undefined);
+
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+			});
+			await waitFor(() =>
+				expect(screen.getByText("Too early?")).toBeInTheDocument(),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+
+			await waitFor(() =>
+				expect(mockResolveArtifactComment).toHaveBeenCalledWith(
+					"artifact-1",
+					"comment-1",
+					true,
+					"conv-1",
+				),
+			);
+		});
 	});
 });
