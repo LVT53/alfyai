@@ -501,6 +501,17 @@ and the finding in Alfy's note: never `repaired`, and never a failed create.
   conversation does not reach its parent's artifacts through the tools (they are pinned to
   `artifacts.conversationId`, like the catalogue); revisit only if forks need it.
 
+## 54. The eval harness only talks to an endpoint it is given
+
+*Orchestrator, 2026-09-26, after Slice 1's first document eval.* A live run requires `EVAL_ARTIFACTS_BASE_URL` and
+`EVAL_ARTIFACTS_MODEL`; the key comes only from `EVAL_ARTIFACTS_API_KEY` (the local vLLM needs none). The
+`~/.config/opencode/opencode.json` fallback (`slice-5.md` §Global Constraints, `:710`, `:777`) is **removed**: it
+let a run send prompts to whatever provider that file names, with the owner's key, and it made Slice 1's document
+eval look live while not measuring the production model. The recipe is `working-plan.md` §1.9's tunnel to
+`qwen3-6-27b`, one command, one local port per agent. Recorded replay responses come from `qwen3-6-27b` only;
+Slice 1's document fixtures are re-recorded that way. The key rule is otherwise unchanged: never printed, logged,
+written into `results/` or committed.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
