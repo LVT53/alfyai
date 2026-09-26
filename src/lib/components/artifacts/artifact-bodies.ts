@@ -13,6 +13,7 @@
  * matter how many times its body is shown.
  */
 import type { Component } from "svelte";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 
 export interface ArtifactBodyProps {
@@ -22,6 +23,15 @@ export interface ArtifactBodyProps {
 	body: string | null;
 	/** The conversation the panel is showing; bodies pass it to `fetchArtifact` and any other artifact route so an incognito conversation's artifacts resolve, and it is null outside a conversation. */
 	conversationId?: string | null;
+	/**
+	 * The latest Alfy tool-call activity (`create_artifact`/`edit_artifact`)
+	 * the chat page knows about, derived from the stream's own tool-call
+	 * parts — regardless of which artifact it targets. Only the Document body
+	 * interprets it today (T8 live: the "Alfy is writing" shimmer, change
+	 * marks and refusal notice); every other kind ignores it. `null`/absent
+	 * when nothing is happening.
+	 */
+	alfyActivity?: DocumentAlfyActivity | null;
 	/** Fires when the body's own dirty state changes, so the panel can guard closing. */
 	onDirtyChange?: (dirty: boolean) => void;
 	/** The body hands its serialised form back for versions/refusal. Slice 1 first. */

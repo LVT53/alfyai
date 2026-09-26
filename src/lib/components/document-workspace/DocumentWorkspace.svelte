@@ -18,6 +18,7 @@ import {
 	ARTIFACT_BODIES,
 	type ArtifactBodyLoader,
 } from "$lib/components/artifacts/artifact-bodies";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import {
 	ArrowUpRight,
 	List,
@@ -56,6 +57,7 @@ let {
 	availableDocuments = [],
 	activeDocumentId = null,
 	conversationId = null,
+	alfyActivity = null,
 	list = null,
 	onSelectDocument,
 	onOpenDocument = undefined,
@@ -74,6 +76,8 @@ let {
 	activeDocumentId?: string | null;
 	/** The conversation this panel is showing, so artifact bodies can resolve an incognito conversation's own artifacts. Null outside a conversation. */
 	conversationId?: string | null;
+	/** T8 live: the chat page's own view of the latest Alfy tool-call activity, forwarded to whichever body is open. Only the Document body reads it. */
+	alfyActivity?: DocumentAlfyActivity | null;
 	list?: WorkspaceList;
 	onSelectDocument: (documentId: string) => void;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
@@ -1223,6 +1227,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							title={getDocumentTitle(activeDocument)}
 							body={null}
 							{conversationId}
+							{alfyActivity}
 						/>
 					{/await}
 				{:else if compareMode && comparedDocument}
@@ -1486,6 +1491,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					title={getDocumentTitle(activeDocument)}
 					body={null}
 					{conversationId}
+					{alfyActivity}
 				/>
 			{/await}
 		{:else if compareMode && comparedDocument}
