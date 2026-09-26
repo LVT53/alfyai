@@ -672,6 +672,40 @@ export function makeBlock(
 }
 
 /**
+ * Re-reads the text an edit produced for ONE block as the blocks it really
+ * is — the same splitter `parseDocument` runs, so the result is exactly what
+ * a reload of the stored document will read. The first block keeps `id`;
+ * every further block (a paragraph that became two, a new section) gets a
+ * freshly minted id not in `taken`, which this function adds it to. Marker
+ * lines in the text are dropped, never absorbed: a block's markdown never
+ * carries one, and an id is never chosen by an edit's text. `[]` when the
+ * text holds no block at all.
+ */
+export function reblock(
+	id: string,
+	markdown: string,
+	taken: Set<string>,
+): DocumentBlock[] {
+	const lines = markdown
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n")
+		.split("\n");
+	const blocks: DocumentBlock[] = [];
+	for (const segment of splitIntoSegments(lines)) {
+		if (segment.type !== "block") continue;
+		let blockId = id;
+		if (blocks.length > 0) {
+			do {
+				blockId = mintBlockId(segment.kind);
+			} while (taken.has(blockId));
+			taken.add(blockId);
+		}
+		blocks.push(makeBlock(blockId, segment.kind, segment.text));
+	}
+	return blocks;
+}
+
+/**
  * Parse, then mint or absorb. The mint happens HERE, before any hash is
  * computed, so the returned blocks always have ids. Never hash a document
  * that has not been through this function.

@@ -13,7 +13,7 @@
 import {
 	type BlockKind,
 	type DocumentBlock,
-	makeBlock,
+	reblock,
 	serializeDocument,
 	splitTableCells,
 } from "./blocks";
@@ -76,6 +76,12 @@ export interface PatchInverse {
 	opId: string;
 	blockId: string;
 	previousMarkdown: string;
+	/**
+	 * The blocks this op added after `blockId`, when its text read as more
+	 * than one block (a paragraph that became two, a new section) — an exact
+	 * Undo removes them too. Absent when the op produced exactly one block.
+	 */
+	insertedBlockIds?: string[];
 }
 
 export interface PatchResult {
@@ -155,7 +161,9 @@ export function applyPatchSet(input: {
 	snapshot: Record<string, string>;
 }): PatchResult {
 	const working = [...input.blocks];
-	const indexById = new Map(working.map((block, i) => [block.id, i]));
+	let indexById = new Map(working.map((block, i) => [block.id, i]));
+	/** Every id in the document, so an id minted for a split-off block is new. */
+	const taken = new Set(working.map((block) => block.id));
 	const outcomes: OpOutcome[] = [];
 	const inverses: PatchInverse[] = [];
 
@@ -270,11 +278,27 @@ export function applyPatchSet(input: {
 			continue;
 		}
 
-		working[index] = makeBlock(block.id, block.kind, nextMarkdown as string);
+		// The op's result is re-read as the blocks a reload will read (RV-1A):
+		// text that is really two paragraphs becomes two blocks, the kind is
+		// the one its text now has, and a marker line in the text is dropped
+		// rather than stored inside this block — where the next reload would
+		// have absorbed it and handed another block's id to this text.
+		const rebuilt = reblock(block.id, nextMarkdown as string, taken);
+		if (rebuilt.length === 0) {
+			refuse("empty_text");
+			continue;
+		}
+		working.splice(index, 1, ...rebuilt);
+		if (rebuilt.length > 1) {
+			indexById = new Map(working.map((b, i) => [b.id, i]));
+		}
 		inverses.push({
 			opId: op.opId,
 			blockId: block.id,
 			previousMarkdown: before,
+			...(rebuilt.length > 1
+				? { insertedBlockIds: rebuilt.slice(1).map((b) => b.id) }
+				: {}),
 		});
 		outcomes.push({
 			opId: op.opId,

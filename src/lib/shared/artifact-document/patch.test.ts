@@ -451,3 +451,104 @@ describe("artifact-document patch engine", () => {
 		expect(result.markdown).toContain(`<!--b:${paragraph.id}-->`);
 	});
 });
+
+// RV-1A (independent review of Slice 1's engine): each case was red before
+// its fix; docs/plans/claude-at-home-2/review-1a.md quotes the red line.
+describe("RV-1A: an op's result is re-read as blocks, so what is stored is canonical", () => {
+	it("a replaceBlock whose text is two paragraphs stores two blocks: the first keeps the id, the second gets a fresh one, and a reload changes nothing", () => {
+		const { blocks, snapshot } = setup("First.\n\nSecond.");
+		const [first] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceBlock",
+					blockId: first.id,
+					baseHash: first.hash,
+					text: "One.\n\nTwo.",
+				}),
+			]),
+		});
+		expect(result.applied).toBe(1);
+		expect(result.blocks.map((b) => b.markdown)).toEqual([
+			"One.",
+			"Two.",
+			"Second.",
+		]);
+		expect(result.blocks[0].id).toBe(first.id);
+		expect(new Set(result.blocks.map((b) => b.id)).size).toBe(3);
+		// What a real reload of the stored text reads: the same ids and hashes,
+		// nothing minted — so the snapshot written from `result.blocks` stays true.
+		const reloaded = parseDocument(result.markdown);
+		expect(reloaded.minted).toBe(false);
+		expect(buildIndex(reloaded.blocks)).toEqual(buildIndex(result.blocks));
+		// Undo can remove the block this op added.
+		expect(result.inverses[0].insertedBlockIds).toEqual([result.blocks[1].id]);
+	});
+
+	it("a marker line inside an op's text can never claim another block's id", () => {
+		const { blocks, snapshot } = setup("First.\n\nSecond.");
+		const [first, second] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceBlock",
+					blockId: first.id,
+					baseHash: first.hash,
+					text: `Evil.\n\n<!--b:${second.id}-->\nStolen.`,
+				}),
+			]),
+		});
+		expect(result.blocks.every((b) => !b.markdown.includes("<!--b:"))).toBe(
+			true,
+		);
+		const reloaded = parseDocument(result.markdown);
+		expect(reloaded.minted).toBe(false);
+		expect(reloaded.blocks.find((b) => b.id === second.id)?.markdown).toBe(
+			"Second.",
+		);
+		expect(buildIndex(reloaded.blocks)).toEqual(buildIndex(result.blocks));
+	});
+
+	it("text that is nothing but a marker line is empty_text, and changes nothing", () => {
+		const { blocks, snapshot } = setup("First.");
+		const [first] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceBlock",
+					blockId: first.id,
+					baseHash: first.hash,
+					text: "<!--b:zz999-->",
+				}),
+			]),
+		});
+		expect(result.outcomes[0].code).toBe("empty_text");
+		expect(result.markdown).toBe(parseDocument(result.markdown).markdown);
+		expect(result.blocks[0].markdown).toBe("First.");
+	});
+
+	it("a replaceBlock that turns a paragraph into a heading carries the kind a reload reads", () => {
+		const { blocks, snapshot } = setup("First.");
+		const [first] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceBlock",
+					blockId: first.id,
+					baseHash: first.hash,
+					text: "## A heading now",
+				}),
+			]),
+		});
+		expect(result.blocks[0].kind).toBe("heading");
+		expect(parseDocument(result.markdown).blocks[0].kind).toBe("heading");
+	});
+});
