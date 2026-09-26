@@ -3131,6 +3131,8 @@ function handleDrop(event: DragEvent) {
 						showingLinkedMessage={linkedMessageConversationId === data.conversation.id}
 						readOnly={isConversationReadOnlyForChat}
 						onOpenDocument={openWorkspaceDocument}
+						{artifacts}
+						onToggleDocumentTask={handleToggleDocumentTask}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}

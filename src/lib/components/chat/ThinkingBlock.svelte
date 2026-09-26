@@ -48,6 +48,7 @@ import {
 	buildToolActivitySummary,
 	type ToolActivityItem,
 } from "$lib/utils/tool-activity";
+import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import ToolActivityIcon from "./ToolActivityIcon.svelte";
@@ -112,6 +113,17 @@ let {
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
 	onDismissFileProductionJob = undefined,
+	// Feature 2, the cross-kind in-chat card: a create_artifact/edit_artifact
+	// tool call's own metadata carries just id/kind/title (5a's shape) — the
+	// same live, mid-turn or after a reload. `conversationArtifacts` is the
+	// ONE further thing only a reload (or a later refresh) can add: the
+	// conversation's `ConversationDetail.artifacts`, read for a matching
+	// row's preview (Document's checklist today). `conversationId` lets the
+	// card's Open action resolve an incognito conversation's own item
+	// (ruling 51), exactly like every other artifact open already does.
+	conversationId = null,
+	conversationArtifacts = [],
+	onToggleDocumentTask = undefined,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
@@ -129,7 +141,36 @@ let {
 	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
 	onCancelFileProductionJob?: ((jobId: string) => void) | undefined;
 	onDismissFileProductionJob?: ((jobId: string) => void) | undefined;
+	conversationId?: string | null;
+	conversationArtifacts?: ArtifactCardSummary[];
+	onToggleDocumentTask?:
+		| ((artifactId: string, blockId: string, checked: boolean) => void)
+		| undefined;
 } = $props();
+
+/**
+ * Every live/expanded-rail render site calls `buildToolActivityItem`
+ * directly, inline in the template, rather than mapping a pre-built list —
+ * so this wraps it ONCE, in the one place, rather than repeating the
+ * enrichment at each call site. A create_artifact/edit_artifact card's
+ * `body.artifactId` is looked up in `conversationArtifacts`
+ * (`ConversationDetail.artifacts`, this component's own prop) for its
+ * preview; every other tool call — and an artifact whose id is not in that
+ * list yet, live mid-turn — passes through unchanged.
+ */
+function buildEnrichedToolActivityItem(
+	segment: ToolCallSegment,
+	key: string,
+): ToolActivityItem {
+	const built = buildToolActivityItem(segment, key, $t);
+	const body = built.body;
+	if (body?.kind !== "artifact") return built;
+	const preview = conversationArtifacts.find(
+		(candidate) => candidate.id === body.artifactId,
+	);
+	if (!preview) return built;
+	return { ...built, body: { ...body, preview } };
+}
 
 let expanded = $state(false);
 let container = $state<HTMLDivElement | undefined>(undefined);
@@ -228,7 +269,7 @@ const activityItems: ToolActivityItem[] = $derived(
 	toolStackEntries.map((entry) =>
 		entry.kind === "connector-group"
 			? buildConnectorActivityItem(entry.tools, entry.key, $t)
-			: buildToolActivityItem(entry.tool, entry.key, $t),
+			: buildEnrichedToolActivityItem(entry.tool, entry.key),
 	),
 );
 
@@ -1041,6 +1082,9 @@ function toggleFullReasoning(): void {
 			onToggle={toggleActivityRow}
 			afterItem={connectorPeek}
 			testId="tool-activity-stack"
+			{onOpenDocument}
+			{conversationId}
+			{onToggleDocumentTask}
 		/>
 	{:else if activityItems.length > 0 && !expanded}
 		{#if activitySummary.length > 0}
@@ -1084,6 +1128,9 @@ function toggleFullReasoning(): void {
 					openKeys={openActivityKeys}
 					onToggle={toggleActivityRow}
 					testId="tool-activity-pinned"
+					{onOpenDocument}
+					{conversationId}
+					{onToggleDocumentTask}
 				/>
 			</div>
 		{/if}
@@ -1141,9 +1188,12 @@ function toggleFullReasoning(): void {
 								{@render statusStepEntry(entry.segment)}
 							{:else if entry.kind === 'tool'}
 								<ToolActivityRow
-									item={buildToolActivityItem(entry.segment, entry.key, $t)}
+									item={buildEnrichedToolActivityItem(entry.segment, entry.key)}
 									open={openActivityKeys.has(entry.key)}
 									onToggle={toggleActivityRow}
+									{onOpenDocument}
+									{conversationId}
+									{onToggleDocumentTask}
 								/>
 							{:else if entry.kind === 'thought_step'}
 								{@render thoughtStepEntry(entry.step)}
@@ -1166,9 +1216,12 @@ function toggleFullReasoning(): void {
 					{@render statusStepEntry(entry.segment)}
 					{:else if entry.kind === 'tool'}
 						<ToolActivityRow
-							item={buildToolActivityItem(entry.segment, entry.key, $t)}
+							item={buildEnrichedToolActivityItem(entry.segment, entry.key)}
 							open={openActivityKeys.has(entry.key)}
 							onToggle={toggleActivityRow}
+							{onOpenDocument}
+							{conversationId}
+							{onToggleDocumentTask}
 						/>
 					{:else if entry.kind === 'connector-group'}
 						<ToolActivityRow

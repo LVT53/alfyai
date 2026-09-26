@@ -1,5 +1,6 @@
 <script lang="ts">
 import MessageArea from "$lib/components/chat/MessageArea.svelte";
+import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type {
 	AtlasAction,
 	AtlasJobCard,
@@ -49,6 +50,8 @@ let {
 	writeActionState = {},
 	onConfirmWrite = undefined,
 	onCancelWrite = undefined,
+	artifacts = [],
+	onToggleDocumentTask = undefined,
 }: {
 	messages: ChatMessage[];
 	conversationId: string;
@@ -109,6 +112,13 @@ let {
 	writeActionState?: Record<string, { busy?: boolean; error?: string | null }>;
 	onConfirmWrite?: (writeId: string) => void | Promise<void>;
 	onCancelWrite?: (writeId: string) => void | Promise<void>;
+	/** `ConversationDetail.artifacts` (Feature 2), for every message's in-chat card. */
+	artifacts?: ArtifactCardSummary[];
+	onToggleDocumentTask?: (
+		artifactId: string,
+		blockId: string,
+		checked: boolean,
+	) => void;
 } = $props();
 </script>
 
@@ -152,6 +162,8 @@ let {
 		{writeActionState}
 		{onConfirmWrite}
 		{onCancelWrite}
+		{artifacts}
+		{onToggleDocumentTask}
 	/>
 </div>
 

@@ -21,6 +21,7 @@ import { t } from "$lib/i18n";
 import ArtifactCard, {
 	type ArtifactCardView,
 } from "$lib/components/artifacts/ArtifactCard.svelte";
+import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import {
@@ -28,7 +29,10 @@ import {
 	getFaviconUrl,
 	isCitedSource,
 } from "$lib/utils/tool-evidence-presentation";
-import type { ToolActivityItem } from "$lib/utils/tool-activity";
+import type {
+	ToolActivityBody,
+	ToolActivityItem,
+} from "$lib/utils/tool-activity";
 import RouteItinerary from "./RouteItinerary.svelte";
 import ToolActivityIcon from "./ToolActivityIcon.svelte";
 
@@ -42,6 +46,8 @@ let {
 	onCancelJob = undefined,
 	onDismissJob = undefined,
 	bodyContent = undefined,
+	conversationId = null,
+	onToggleDocumentTask = undefined,
 }: {
 	item: ToolActivityItem;
 	open?: boolean;
@@ -59,7 +65,80 @@ let {
 	 * chevron, open/close slide) stays shared.
 	 */
 	bodyContent?: Snippet | undefined;
+	/**
+	 * The conversation this row's message belongs to (Feature 2, ruling 51):
+	 * a create_artifact/edit_artifact card's Open action needs it to resolve
+	 * an incognito conversation's own item, exactly like `fetchArtifact` does
+	 * elsewhere. Never used by any other body kind.
+	 */
+	conversationId?: string | null;
+	/**
+	 * The Document card's own tick (T9.7's contract, reused rather than a
+	 * second write path): writes through the SAME `toggleDocumentTask` call
+	 * the panel's list uses. Undefined for every other kind's card.
+	 */
+	onToggleDocumentTask?:
+		| ((artifactId: string, blockId: string, checked: boolean) => void)
+		| undefined;
 } = $props();
+
+type ArtifactActivityBody = Extract<ToolActivityBody, { kind: "artifact" }>;
+
+/**
+ * The four new kinds' chat-card view (Feature 2, the cross-kind task): the
+ * Document body reuses Slice 1's own bounded-preview builder verbatim when a
+ * preview rode along on the tool-call's enrichment (`ThinkingBlock`'s
+ * `preview`, attached from `ConversationDetail.artifacts` — never fetched
+ * here); every other kind — and a Document with no preview yet, live mid-turn
+ * — gets the bare header-only view, exactly what "the generic card until
+ * their slices add previews" means for Canvas/Slides today.
+ */
+function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
+	const documentPreview =
+		body.artifactKind === "document"
+			? body.preview?.documentPreview
+			: undefined;
+	if (documentPreview) {
+		return documentArtifactCardViewFromPreview({
+			artifactId: body.artifactId,
+			title: body.artifactTitle,
+			versionNumber: body.preview?.versionNumber ?? 0,
+			subtitle: $t("artifacts.document.cardSubtitle", {
+				count: documentPreview.tabCount,
+			}),
+			preview: documentPreview,
+			onToggleTask: (blockId, checked) =>
+				onToggleDocumentTask?.(body.artifactId, blockId, checked),
+		});
+	}
+	return {
+		id: body.artifactId,
+		kind: body.artifactKind,
+		title: body.artifactTitle,
+		openTargetId: body.artifactId,
+	};
+}
+
+/**
+ * Reuses the chat page's existing panel-open path (`onOpenDocument`, already
+ * threaded here for the File body's per-file Open) rather than a second
+ * callback: a minimal, ready-to-open item built straight from the tool
+ * call's own metadata, mirroring `MessageBubble.svelte`'s
+ * `handleViewAttachment`. Never requires the artifact to already be in any
+ * list — the item this builds IS the thing to open.
+ */
+function handleOpenArtifact(body: ArtifactActivityBody): void {
+	onOpenDocument?.({
+		id: `artifact:${body.artifactId}`,
+		source: "knowledge_artifact",
+		filename: body.artifactTitle,
+		title: body.artifactTitle,
+		mimeType: null,
+		artifactId: body.artifactId,
+		conversationId,
+		kind: body.artifactKind,
+	});
+}
 
 // The mockup's "no chevron yet" on a running row falls out of the data rather
 // than being forced here: a call that has not returned anything has no body to
@@ -267,6 +346,12 @@ function handleToggle() {
 						onDismiss={onDismissJob}
 					/>
 				{/if}
+			{:else if body.kind === 'artifact'}
+				<ArtifactCard
+					view={artifactCardView(body)}
+					chrome="body"
+					onOpen={() => handleOpenArtifact(body)}
+				/>
 			{:else if body.kind === 'atlas'}
 				{@render bodyContent?.()}
 			{:else if body.kind === 'text'}

@@ -21,6 +21,7 @@ import type {
 	AtlasJobCard,
 	AtlasProfile,
 } from "$lib/server/services/atlas/public-types";
+import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
 import type { ConversationForkOrigin } from "$lib/server/services/conversation-forks";
@@ -69,6 +70,8 @@ let {
 	writeActionState = {},
 	onConfirmWrite = undefined,
 	onCancelWrite = undefined,
+	artifacts = [],
+	onToggleDocumentTask = undefined,
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
@@ -166,6 +169,11 @@ let {
 	writeActionState?: Record<string, { busy?: boolean; error?: string | null }>;
 	onConfirmWrite?: ((writeId: string) => void | Promise<void>) | undefined;
 	onCancelWrite?: ((writeId: string) => void | Promise<void>) | undefined;
+	/** `ConversationDetail.artifacts` (Feature 2), forwarded to every message's in-chat card for its preview. See ThinkingBlock's own prop doc. */
+	artifacts?: ArtifactCardSummary[];
+	onToggleDocumentTask?:
+		| ((artifactId: string, blockId: string, checked: boolean) => void)
+		| undefined;
 } = $props();
 
 const flyOut = reducedMotionAware(fly);
@@ -1034,6 +1042,8 @@ async function scrollToMessage(messageId: string) {
 					{writeActionState}
 					{onConfirmWrite}
 					{onCancelWrite}
+					conversationArtifacts={artifacts}
+					{onToggleDocumentTask}
 				/>
 				{#if message.role === "assistant" && !isIncognito}
 					<!-- The rows sit under the reply that prompted them, outside the

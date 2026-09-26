@@ -75,6 +75,15 @@ describe("tool-calls utils", () => {
 		expect(getToolCallIconType("produce_file")).toBe("file-production");
 	});
 
+	// The in-chat card (Feature 2, cross-kind task): create_artifact and
+	// edit_artifact share one icon type — the card body itself (ArtifactCard)
+	// carries the per-kind glyph, so the row only needs to know "this is one
+	// of the two artifact tools", not which of the four kinds.
+	it("maps create_artifact and edit_artifact to the same 'artifact' icon type", () => {
+		expect(getToolCallIconType("create_artifact")).toBe("artifact");
+		expect(getToolCallIconType("edit_artifact")).toBe("artifact");
+	});
+
 	it("maps each connection tool to the SAME icon assignment SettingsConnectionsTab's CAPABILITY_ICONS already uses per capability", () => {
 		expect(getToolCallIconType("calendar")).toBe("calendar");
 		expect(getToolCallIconType("Files")).toBe("files");

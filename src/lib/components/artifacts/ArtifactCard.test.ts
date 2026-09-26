@@ -166,6 +166,39 @@ describe("ArtifactCard", () => {
 		expect(onToggle).toHaveBeenCalledWith("item-0");
 	});
 
+	// The in-chat card for Document/App/Canvas/Slides (cross-kind task, after
+	// Slice 1): unlike File, these four kinds have no host-drawn title of
+	// their own in ToolActivityRow — the row's own line is a generic
+	// "Created/Edited <title>", never "kind · subtitle" — so chrome="body"
+	// renders the SAME markup chrome="full" does for them, icon and all.
+	it("chrome=body renders the full header (icon, title, kind, subtitle, Open) for every kind but File", () => {
+		render(ArtifactCard, {
+			view: view({
+				kind: "document",
+				title: "Weekend checklist",
+				subtitle: "Document · 2 tabs",
+				openTargetId: "artifact-1",
+			}),
+			chrome: "body",
+		});
+
+		expect(screen.getByTestId("artifact-card")).toBeInTheDocument();
+		expect(screen.getByText("Weekend checklist")).toBeInTheDocument();
+		expect(screen.getByText("Document")).toBeInTheDocument();
+		expect(screen.getByText("Document · 2 tabs")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+	});
+
+	it("chrome=body still renders nothing but the lazy File body for kind file", async () => {
+		render(ArtifactCard, {
+			view: view({ kind: "file", title: "Quarterly report" }),
+			job: makeJob({ status: "running" }),
+			chrome: "body",
+		});
+		await screen.findByText("Generating files in the background.");
+		expect(screen.queryByTestId("artifact-card")).not.toBeInTheDocument();
+	});
+
 	it("does not statically import FileProductionCard.svelte", () => {
 		const here = path.dirname(fileURLToPath(import.meta.url));
 		const source = readFileSync(

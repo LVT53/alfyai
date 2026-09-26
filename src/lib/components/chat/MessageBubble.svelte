@@ -32,6 +32,7 @@ import type {
 	AtlasJobCard,
 	AtlasProfile,
 } from "$lib/server/services/atlas/public-types";
+import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -99,6 +100,8 @@ let {
 	writeActionState = {},
 	onConfirmWrite = undefined,
 	onCancelWrite = undefined,
+	conversationArtifacts = [],
+	onToggleDocumentTask = undefined,
 }: {
 	message: ChatMessage;
 	isLast?: boolean;
@@ -173,6 +176,11 @@ let {
 	writeActionState?: Record<string, { busy?: boolean; error?: string | null }>;
 	onConfirmWrite?: ((writeId: string) => void | Promise<void>) | undefined;
 	onCancelWrite?: ((writeId: string) => void | Promise<void>) | undefined;
+	/** Forwarded to ThinkingBlock's in-chat artifact card (Feature 2). See its own prop doc. */
+	conversationArtifacts?: ArtifactCardSummary[];
+	onToggleDocumentTask?:
+		| ((artifactId: string, blockId: string, checked: boolean) => void)
+		| undefined;
 } = $props();
 
 let copied = $state(false);
@@ -978,6 +986,9 @@ function sendFollowUp(question: string) {
 			{onRetryFileProductionJob}
 			{onCancelFileProductionJob}
 			{onDismissFileProductionJob}
+			{conversationId}
+			{conversationArtifacts}
+			{onToggleDocumentTask}
 		/>
 		{/if}
 		{#if isUser}

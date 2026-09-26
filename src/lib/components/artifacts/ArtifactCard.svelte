@@ -2,15 +2,20 @@
 // The one card every artifact kind renders as, in chat and in the panel's
 // list (Slice 0 Task S6). Two chrome modes share one body-dispatch:
 // "full" draws the header row (icon, title, kind label, version pill, Open)
-// for the panel list and the four new kinds' chat cards; "body" renders
-// ONLY the kind's body, for a host that already draws its own header — today
-// that is ToolActivityRow, whose row chrome already carries the File job's
-// title (`item.object`), so the body must not repeat it.
+// for the panel list; "body" renders only the kind's body, for a host that
+// already draws its own header.
 //
-// The File kind's body is `FileProductionCard.svelte`, moved here from
-// ToolActivityRow: it is imported lazily, the same way the row imported it
-// before, so a chat page with no file-producing turn never pays for its
-// chunk.
+// File is the ONE kind with such a host: ToolActivityRow's row chrome already
+// carries its title (`item.object`), so its body — `FileProductionCard.svelte`,
+// moved here from ToolActivityRow, imported lazily so a chat page with no
+// file-producing turn never pays for its chunk — must not repeat it.
+//
+// The other four kinds have no host-drawn title (a create_artifact/
+// edit_artifact row's own line is a generic "Created/Edited <title>", never
+// "kind · subtitle"), so their chat card (also hosted by ToolActivityRow,
+// also chrome="body") renders the exact same header+body chrome="full"
+// does — "in chat and in the panel's list" is true of every kind now, not
+// only File.
 import {
 	AppWindow,
 	FileText,
@@ -137,7 +142,11 @@ function handleOpen(): void {
 }
 </script>
 
-{#if chrome === 'full'}
+{#if chrome === 'body' && view.kind === 'file'}
+	{#if job && FileProductionBody}
+		<FileProductionBody {job} {onOpenDocument} {onRetry} {onCancel} {onDismiss} />
+	{/if}
+{:else}
 	<div class="artifact-card" data-testid="artifact-card">
 		<div class="artifact-card-header">
 			<span class="artifact-card-icon" aria-hidden="true">
@@ -186,8 +195,6 @@ function handleOpen(): void {
 			</button>
 		{/if}
 	</div>
-{:else if view.kind === 'file' && job && FileProductionBody}
-	<FileProductionBody {job} {onOpenDocument} {onRetry} {onCancel} {onDismiss} />
 {/if}
 
 <style>

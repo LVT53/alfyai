@@ -984,4 +984,129 @@ describe("buildToolActivityItem — journey row", () => {
 			).verb,
 		).toBe("Planning journey");
 	});
+
+	// The in-chat artifact card (cross-kind task, after Slice 1's merge):
+	// create_artifact/edit_artifact render ArtifactCard's body once the tool
+	// call actually made or changed something — never for a call that is
+	// still running, was refused, or came back malformed.
+	describe("create_artifact / edit_artifact — the in-chat card", () => {
+		it("renders a pinned, always-open card from a successful create_artifact's own metadata", () => {
+			const item = buildToolActivityItem(
+				toolCall({
+					name: "create_artifact",
+					input: { artifactType: "document", title: "Weekend plan" },
+					status: "done",
+					metadata: {
+						ok: true,
+						artifactId: "artifact-1",
+						artifactKind: "document",
+						artifactTitle: "Weekend plan",
+					},
+				}),
+				"k-create",
+				translate,
+			);
+
+			expect(item.verb).toBe("Created");
+			expect(item.object).toBe("Weekend plan");
+			expect(item.pinned).toBe(true);
+			expect(item.alwaysOpen).toBe(true);
+			expect(item.body).toEqual({
+				kind: "artifact",
+				artifactId: "artifact-1",
+				artifactKind: "document",
+				artifactTitle: "Weekend plan",
+			});
+		});
+
+		it("renders the same card shape from a successful edit_artifact, with the Edited verb", () => {
+			const item = buildToolActivityItem(
+				toolCall({
+					name: "edit_artifact",
+					input: { artifactId: "artifact-1", summary: "Tightened the intro" },
+					status: "done",
+					metadata: {
+						ok: true,
+						artifactId: "artifact-1",
+						artifactKind: "app",
+						artifactTitle: "Trip budget",
+					},
+				}),
+				"k-edit",
+				translate,
+			);
+
+			expect(item.verb).toBe("Edited");
+			expect(item.object).toBe("Trip budget");
+			expect(item.pinned).toBe(true);
+			expect(item.alwaysOpen).toBe(true);
+			expect(item.body).toEqual({
+				kind: "artifact",
+				artifactId: "artifact-1",
+				artifactKind: "app",
+				artifactTitle: "Trip budget",
+			});
+		});
+
+		it("shows a running create_artifact as 'Creating <title>' from the model's own call arguments, with no card yet", () => {
+			const item = buildToolActivityItem(
+				toolCall({
+					name: "create_artifact",
+					input: { artifactType: "slides", title: "Pitch deck" },
+					status: "running",
+				}),
+				"k-running",
+				translate,
+			);
+
+			expect(item.verb).toBe("Creating");
+			expect(item.object).toBe("Pitch deck");
+			expect(item.body).toBeNull();
+			expect(item.pinned).toBe(false);
+			expect(item.alwaysOpen).toBe(false);
+		});
+
+		it("never renders a card for a refused edit_artifact — the row shows the refusal, not a deliverable", () => {
+			const item = buildToolActivityItem(
+				toolCall({
+					name: "edit_artifact",
+					input: { artifactId: "artifact-1", summary: "Try a rewrite" },
+					status: "done",
+					outputSummary:
+						"Apps are not edited in place — create a new App with the changes instead of patching this one.",
+					metadata: {
+						ok: false,
+						artifactId: "artifact-1",
+						artifactKind: "app",
+					},
+				}),
+				"k-refused",
+				translate,
+			);
+
+			expect(item.body?.kind).not.toBe("artifact");
+			expect(item.pinned).toBe(false);
+			expect(item.alwaysOpen).toBe(false);
+		});
+
+		it("never renders a card when the success metadata is missing a required field", () => {
+			const item = buildToolActivityItem(
+				toolCall({
+					name: "create_artifact",
+					input: { artifactType: "canvas", title: "Roadmap" },
+					status: "done",
+					metadata: {
+						ok: true,
+						artifactKind: "canvas",
+						// artifactId/artifactTitle missing — a malformed payload must
+						// never crash the row or fabricate a card with a blank id.
+					},
+				}),
+				"k-malformed",
+				translate,
+			);
+
+			expect(item.body?.kind).not.toBe("artifact");
+		});
+	});
 });

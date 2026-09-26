@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { fireEvent, render } from "@testing-library/svelte";
+import { fireEvent, render, within } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "$lib/i18n";
@@ -408,5 +408,114 @@ describe("ToolActivityRow", () => {
 		} finally {
 			uiLanguage.set("en");
 		}
+	});
+
+	// The in-chat card for Document/App/Canvas/Slides (cross-kind task, after
+	// Slice 1's merge): a successful create_artifact/edit_artifact renders
+	// ArtifactCard as this row's body, for every kind — a refused or failed
+	// call never does.
+	describe("create_artifact / edit_artifact — the in-chat card", () => {
+		function artifactSegment(overrides: Partial<ToolCallSegment> = {}) {
+			return toolCall({
+				name: "create_artifact",
+				input: { artifactType: "document", title: "Weekend plan" },
+				status: "done",
+				metadata: {
+					ok: true,
+					artifactId: "artifact-1",
+					artifactKind: "document",
+					artifactTitle: "Weekend plan",
+				},
+				...overrides,
+			});
+		}
+
+		it("renders the card, already open, for a successful create_artifact — one card per kind", () => {
+			const kinds: Array<["document" | "app" | "canvas" | "slides", string]> = [
+				["document", "Document"],
+				["app", "App"],
+				["canvas", "Canvas"],
+				["slides", "Slides"],
+			];
+			for (const [kind, label] of kinds) {
+				const { getByTestId, unmount } = render(ToolActivityRow, {
+					item: buildToolActivityItem(
+						artifactSegment({
+							metadata: {
+								ok: true,
+								artifactId: `artifact-${kind}`,
+								artifactKind: kind,
+								artifactTitle: `My ${kind}`,
+							},
+						}),
+						`row-${kind}`,
+						get(t),
+					),
+				});
+				const card = within(getByTestId("artifact-card"));
+				expect(card.getByText(`My ${kind}`)).toBeInTheDocument();
+				expect(card.getByText(label)).toBeInTheDocument();
+				unmount();
+			}
+		});
+
+		it("renders no card for a refused edit_artifact — the row still shows what happened", () => {
+			const { queryByTestId, getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(
+					artifactSegment({
+						name: "edit_artifact",
+						status: "done",
+						outputSummary: "Apps are not edited in place.",
+						metadata: {
+							ok: false,
+							artifactId: "artifact-1",
+							artifactKind: "app",
+						},
+					}),
+					"row-refused",
+					get(t),
+				),
+				open: true,
+			});
+			expect(queryByTestId("artifact-card")).not.toBeInTheDocument();
+			expect(getByTestId("tool-activity-row")).toBeInTheDocument();
+		});
+
+		it("Open builds a minimal ready-to-open item from the card's own metadata and passes the conversation id", async () => {
+			const onOpenDocument = vi.fn();
+			const { getByRole } = render(ToolActivityRow, {
+				item: buildToolActivityItem(artifactSegment(), "row-open", get(t)),
+				onOpenDocument,
+				conversationId: "conv-42",
+			});
+
+			await fireEvent.click(getByRole("button", { name: "Open" }));
+
+			expect(onOpenDocument).toHaveBeenCalledWith(
+				expect.objectContaining({
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Weekend plan",
+					conversationId: "conv-42",
+				}),
+			);
+		});
+
+		it("a reload's persisted segment renders the exact same card — no live-only state involved", () => {
+			// Nothing here distinguishes "live" from "after a reload": both cases
+			// hand the SAME tool-call segment shape to buildToolActivityItem, so
+			// a persisted segment (no different from a freshly-streamed one)
+			// renders identically.
+			const persisted = buildToolActivityItem(
+				artifactSegment(),
+				"row-reload",
+				get(t),
+			);
+			const { getByTestId } = render(ToolActivityRow, {
+				item: persisted,
+			});
+			const card = within(getByTestId("artifact-card"));
+			expect(card.getByText("Weekend plan")).toBeInTheDocument();
+		});
 	});
 });
