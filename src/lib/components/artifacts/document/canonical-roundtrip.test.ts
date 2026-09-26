@@ -81,4 +81,14 @@ describe("RV-1A: the canonical form survives a real reopen", () => {
 		]);
 		expect(once).not.toContain("| --- |");
 	});
+
+	it("keeps a table's hash through open → serialise → reload when a column is wider than its delimiter", () => {
+		const stored = parseDocument(
+			"| Item | Status |\n| --- | --- |\n| Train tickets to Vienna | booked |\n",
+		).markdown;
+		const once = reopen(stored);
+		expect(buildIndex(parseDocument(once).blocks)).toEqual(
+			buildIndex(parseDocument(stored).blocks),
+		);
+	});
 });

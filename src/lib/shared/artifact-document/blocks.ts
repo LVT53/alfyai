@@ -184,9 +184,19 @@ function isTableDelimiterRow(line: string): boolean {
 	return cells.every((cell) => /^:?-+:?$/.test(cell));
 }
 
+/**
+ * One table row with its padding collapsed. A delimiter row's dashes are
+ * padding too: the editor pads them to the column's width (`| ------- |`), so
+ * a table Alfy wrote with `| --- |` changed its hash on a mere reopen as soon
+ * as a cell was wider than three characters (RV-1A). Each delimiter cell
+ * becomes `---`, keeping its alignment colons.
+ */
 function normalizeTableRow(line: string): string {
 	const cells = splitTableCells(line).map((cell) => cell.trim());
-	return `| ${cells.join(" | ")} |`;
+	const normalized = isTableDelimiterRow(line)
+		? cells.map((cell) => cell.replace(/^(:?)-+(:?)$/, "$1---$2"))
+		: cells;
+	return `| ${normalized.join(" | ")} |`;
 }
 
 /** Collapses padding on any contiguous run of table lines (found by their delimiter row). */

@@ -415,3 +415,16 @@ describe("RV-1A: a horizontal rule is not a table", () => {
 		]);
 	});
 });
+
+describe("RV-1A: a table's delimiter row is padding too (ruling 12, rule 2)", () => {
+	it("collapses the delimiter dashes the editor pads to the column width, keeping the alignment colons", () => {
+		expect(
+			normalizeMarkdown("| A | B |\n| ------- | --- |\n| x **y** | z |"),
+		).toBe(normalizeMarkdown("| A | B |\n| --- | --- |\n| x **y** | z |"));
+		expect(
+			normalizeMarkdown(
+				"| L | R | C |\n|:------|------:|:-----:|\n| a | b | c |",
+			),
+		).toBe("| L | R | C |\n| :--- | ---: | :---: |\n| a | b | c |");
+	});
+});
