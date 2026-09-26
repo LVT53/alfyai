@@ -1229,6 +1229,91 @@ describe("DocumentBody", () => {
 			);
 		});
 
+		it("a call that settles before the lazy editor finishes loading still lands once the editor is ready (RV-1B)", async () => {
+			// The live wiring races a REAL browser: a fast (or mocked) model can
+			// resolve `edit_artifact` before `runLoad`'s own
+			// `Promise.all([loadEditorModule(), fetchArtifact(...)])` settles —
+			// `landAlfyActivity` silently no-ops while `editor`/`loadMarkdownFn`/
+			// `applyAlfyChangesFn` are still null. The bug: the OLD effect set
+			// `handledActivityKey` unconditionally, before checking readiness, so
+			// once that guard was tripped the call was marked "handled" forever
+			// and the marks/notice never appeared, even after the editor loaded —
+			// reproduced live in `tests/e2e/artifact-document.spec.ts`'s "T8 live"
+			// suite, intermittently, depending on exactly this race.
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "call-3-0",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			// Only the FIRST call (`runLoad`'s own initial load) is held open;
+			// `landAlfyActivity` makes its OWN, second `fetchArtifact` call once
+			// it runs, which must resolve normally or this test would be
+			// asserting nothing about the real bug.
+			let resolveFetch:
+				((detail: ReturnType<typeof ARTIFACT_DETAIL>) => void)
+				| null = null;
+			const editedDetail = ARTIFACT_DETAIL({
+				body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond.",
+				versionNumber: 2,
+			});
+			mockFetchArtifact.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveFetch = resolve;
+					}),
+			);
+			mockFetchArtifact.mockResolvedValue(editedDetail);
+
+			// The activity is ALREADY settled at the very first render — never
+			// "running" first — matching a call that finished before this body
+			// even mounted its editor.
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "call-3",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: "Add packing list",
+					patches: [
+						{
+							op: "replaceBlock",
+							blockId: "p1",
+							baseHash: "h1",
+							text: "First, edited.",
+						},
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+
+			// The editor has not loaded yet: the call must not be dropped.
+			expect(mockCreateDocumentEditor).not.toHaveBeenCalled();
+			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
+
+			// The initial load now finishes...
+			resolveFetch?.(editedDetail);
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			// ...and the ALREADY-settled call must still land: it is not lost
+			// just because it arrived before the editor was ready.
+			await waitFor(() =>
+				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+			);
+		});
+
 		it("Keep clears the mark and leaves the text; a second patch to the same block then applies", async () => {
 			mockApplyAlfyChanges.mockReturnValue([
 				{

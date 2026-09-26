@@ -400,6 +400,16 @@ async function handleCommentResolve(
  * the chat page — one prop, `slice-1.md`'s "T8 live"). Every branch is
  * idempotent against re-renders: `handledActivityKey` guards the settle
  * branch, and "running" simply re-derives the same label each time.
+ *
+ * RV-1B: a real browser can settle a call (a fast model, or this slice's own
+ * mocked provider) before `runLoad`'s `Promise.all([loadEditorModule(),
+ * fetchArtifact(...)])` resolves, so `editor`/`loadMarkdownFn`/
+ * `applyAlfyChangesFn` are still null when this effect first sees the
+ * settled activity. Reading `editorReady` here — not just inside
+ * `landAlfyActivity` — makes it a tracked dependency, so this effect reruns
+ * the instant the editor becomes ready instead of silently losing the call:
+ * `handledActivityKey` is set only once the call is actually about to be
+ * processed, never as a side effect of merely having been seen.
  */
 $effect(() => {
 	const activity = alfyActivity;
@@ -421,6 +431,9 @@ $effect(() => {
 
 	const key = `${activity.key}:${activity.status}`;
 	if (key === handledActivityKey) return;
+	// The call stays un-handled (and this effect will re-run and retry) until
+	// the editor can actually receive it — see this effect's own comment.
+	if (!editorReady) return;
 	handledActivityKey = key;
 
 	if (activity.status === "failed") return;
