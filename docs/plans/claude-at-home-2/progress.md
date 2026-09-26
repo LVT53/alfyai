@@ -276,6 +276,21 @@ anchor scoring constants are its own; `no-ad-hoc-maps.test.ts` allowlist entries
 Waiting: S1b (T11) → merge `feat/artifacts-s1-comments` into `feat/artifacts-s1` (shared: `DocumentBody.svelte`,
 `toolbar-actions.ts`, i18n) → RV-1A (opus) + RV-1B (sonnet).
 
+**S2c done (2026-09-26 ~09:10).** `feat/artifacts-s2` HEAD `5b5abc99`: `8e95e36c` ruling 55 (handler `language` from
+`ctx.language`; regenerate uses the resolver), `4fd87001` ruling 57 (`research-web-tool.ts` pure move; snapshots
+unchanged without `-u`; Fallow back to 124/4), `c0796775` + `408ecaf8` ruling 56 (the core's optional `evaluate`
+step; the P1 browser pass ported, with a language-mismatch check), `35f000df` + `21936ad8` ruling 58 generation half
+(the browser pass runs inside the real sandbox attribute + CSP + bootstrap; contract rule 11; audit `no-dialogs`/
+`no-eval` glitches and `no-navigate`/`no-webrtc` violations with retry-once-then-refuse; bounded tag regexes),
+`ced83c15` live recordings. **Live on qwen3-6-27b, before the forms change merged:** app 6 good / 4 acceptable / 0 bad
+(P1: 10/10 works). Across 40 page runs: 4 console errors, all "Blocked form submission" (apps 02/03/05/08; 03 and 08
+had a dead main action); 1 uncaught exception (app-09 "labels is not defined", a real model bug); 0 blocked
+requests. Storage used 5/10 (P1 9/10); 12.9–30.5 s. **Language 10/10.** The new ruling-58 rules touched 0/10.
+Verification: 3 good, 1 acceptable, 0 bad. Not captured: completion tokens (`client.ts` returns text only). Gallery
+not built (reporting only, deferred). 12,703 tests, Playwright 34, containment 30. **Merged the review branch
+(`69a99a4b`: RV-2A + S2d) into `feat/artifacts-s2` with no conflicts**; gates on the merge running
+(`/tmp/gates-s2-merged/`). Next: RV-2B (sonnet), which also re-runs the app suite live with forms allowed.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
