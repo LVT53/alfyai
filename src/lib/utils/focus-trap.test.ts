@@ -274,6 +274,22 @@ describe("focusTrap (attachment, called directly)", () => {
 		vi.useRealTimers();
 	});
 
+	it("calls onTab instead of the default wrap logic when provided", () => {
+		const { container, last } = twoButtons();
+		const onTab = vi.fn();
+		const cleanup = focusTrap({ onTab })(container);
+
+		last.focus();
+		pressTab(window);
+
+		expect(onTab).toHaveBeenCalledOnce();
+		expect(onTab.mock.calls[0][1]).toBe(container);
+		// The default trapTabKey wrap did not run: focus is untouched.
+		expect(document.activeElement).toBe(last);
+
+		cleanup?.();
+	});
+
 	it("installs a Tab trap that wraps within the node", () => {
 		const { container, first, last } = twoButtons();
 		const cleanup = focusTrap()(container);

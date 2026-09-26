@@ -161,6 +161,17 @@ export interface FocusTrapOptions {
 	 * deliberately does not.
 	 */
 	restoreFocusOnCleanup?: boolean;
+	/**
+	 * Overrides the default Tab/Shift+Tab handling (`trapTabKey`) for a trap
+	 * whose wrap rule genuinely differs from DialogShell's. The one case
+	 * today: ConversationJumpRail's mobile sheet focuses its own container
+	 * (not a child) on open, so it also has to treat Shift+Tab pressed while
+	 * the container itself is focused as "wrap to the last focusable
+	 * element" — a state DialogShell's algorithm never has to consider,
+	 * because it always prefers a focusable child over the container. Leave
+	 * this unset to get the shared `trapTabKey` behavior.
+	 */
+	onTab?: (event: KeyboardEvent, node: HTMLElement) => void;
 }
 
 /**
@@ -208,7 +219,11 @@ export function focusTrap(
 				return;
 			}
 			if (event.key === "Tab") {
-				trapTabKey(node, event, { selector: options.selector });
+				if (options.onTab) {
+					options.onTab(event, node);
+				} else {
+					trapTabKey(node, event, { selector: options.selector });
+				}
 			}
 		}
 		window.addEventListener("keydown", onKeydown);
