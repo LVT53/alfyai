@@ -488,6 +488,19 @@ edit (applied), 46.6 s. **Defect found: the Alfy edit rewrote version 1 in place
 body holds the edit), against ruling 47. Fix agent (sonnet, `art-fixv`, branch `fix/artifacts-alfy-edit-version`, 5690)
 running, also reading why the first edit was refused. The owner is waiting for the go-ahead to test.
 
+**Correction (2026-09-26):** version 1 was NOT overwritten; the "edit landed" check was fooled because the first Vienna draft already
+held "opera" and "tote bag". The fix agent read the dev DB (read-only): after one `read_artifact`, the model made **7
+`edit_artifact` calls, all refused as malformed**. It guessed `op` names (`insert_after`, `replace`×3, `update`, `edit`,
+`update_block`; once `ops` instead of `patches`), because neither the description, nor the advertised schema, nor the
+refusal names the real ops (`replaceBlock`, `insertText`, `replaceRange`, `toggleTask`, `addTableRow`). Then it
+**created a duplicate Document** with the items merged. So in real use Alfy could not edit Documents; the document eval
+passed 7/7 only because its own prompt gives the model the patch contract. **Lesson for Wave 3 (Canvas ops, Slides
+patches):** the advertised schema must come from the validator's own zod schema, the description needs a real example
+that a test runs through the validator, the refusal must name the valid ops, and each suite's live run must go
+through the real tool description and schema, not a hand-written prompt. The same agent (`art-fixv`) is implementing
+that for Documents (`4058b768` already pins ruling 47 through the tool seam). `/root/verify-artifacts-w2.mjs` hardened:
+items proven absent first, one new version required, no duplicate Document, refused attempts counted.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
