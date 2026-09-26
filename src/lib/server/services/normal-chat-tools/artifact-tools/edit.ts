@@ -459,6 +459,29 @@ export async function runEditArtifactTool(params: {
 			artifactId: record.id,
 			artifactKind: record.kind,
 			artifactTitle: record.title,
+			// Feature 2 · Artifacts, Slice 1, "T8 live": the live tool-call stream
+			// never carries the server's full PatchResult (no inverses, no
+			// per-op outcomes) — only this flat metadata bag reaches the
+			// browser. `appliedCount` and `refusedBlocksJson` (an already-scoped
+			// JSON array, since `metadata` values must stay flat scalars) are
+			// exactly what an open Document panel needs to reconstruct its own
+			// change marks and refusal notice client-side; see
+			// `document/alfy-activity.ts`'s `reconstructDocumentPatch`. Kept
+			// deliberately minimal: no `blockLabel` (the panel already has its
+			// own pre-edit blocks to label from) and no reason text (the panel
+			// localises the `code` itself, the same way the model-facing
+			// `refused` array above only ever carried a code).
+			appliedCount: result.value.applied,
+			...(refusedCount > 0
+				? {
+						refusedBlocksJson: JSON.stringify(
+							result.value.refused.map((item) => ({
+								blockId: item.target ?? "",
+								reason: item.reason,
+							})),
+						),
+					}
+				: {}),
 		},
 	};
 }
