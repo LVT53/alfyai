@@ -173,6 +173,28 @@ export const TASK_LINE_RE = /^(\s*)[-*+]\s+\[([ xX])\](\s+(.*))?$/;
 export const BULLET_LINE_RE = /^(\s*)[-*+](\s+)(.*)$/;
 export const ORDERED_LINE_RE = /^(\s*)(\d+)[.)](\s+)(.*)$/;
 
+/**
+ * A `taskList` block's checked state and visible text, read from its own
+ * first line — the one reader the server's card-preview projection
+ * (`conversation-detail`'s `ArtifactCardSummary.documentPreview`) and the
+ * client's full-body `documentArtifactCardView` (`document/card-view.ts`)
+ * both use, so "is this item checked" and "what does it say" can never drift
+ * between the two. `null` for any block that is not a task line (including a
+ * non-`taskList` block, or a `taskList` block whose first line the shared
+ * regex does not match — defensive, never expected in practice).
+ */
+export function readTaskBlock(
+	block: DocumentBlock,
+): { checked: boolean; text: string } | null {
+	if (block.kind !== "taskList") return null;
+	const match = TASK_LINE_RE.exec(block.markdown.split("\n")[0] ?? "");
+	if (!match) return null;
+	return {
+		checked: match[2].toLowerCase() === "x",
+		text: (match[4] ?? "").trim(),
+	};
+}
+
 function normalizeListMarkers(lines: string[]): string[] {
 	return lines.map((line) => {
 		const task = TASK_LINE_RE.exec(line);

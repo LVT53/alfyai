@@ -41,6 +41,7 @@ import {
 	saveSkillDraft as saveSkillDraftRequest,
 } from "$lib/client/api/skills";
 import { updateInstructionSuggestionStatus } from "$lib/client/api/conversations";
+import { toggleDocumentTask } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import {
 	recordDocumentWorkspaceOpen,
@@ -156,6 +157,7 @@ import {
 	dropPendingFileProductionJobs,
 	failPendingFileProductionJobPlaceholder,
 	finalizeStreamingMessageList,
+	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
 	hasActiveAtlasJobs,
 	hasActiveFileProductionJobs,
@@ -839,6 +841,15 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 let isThinkingActive = $derived(
 	Boolean($messages[$messages.length - 1]?.isThinkingStreaming),
 );
+/**
+ * T8 live: the chat page's own view of "what is Alfy doing to a document
+ * right now" — `DocumentWorkspace`'s `alfyActivity` prop carries this down
+ * to whichever body is open. See `_helpers.ts`'s
+ * `findLiveDocumentAlfyActivity` for the (unit-tested) scan itself.
+ */
+let liveDocumentAlfyActivity = $derived(
+	findLiveDocumentAlfyActivity($messages),
+);
 // Show loading state when waiting for the first response (either from pending message or new send)
 let showInitialLoading = $derived(
 	(isSending || initialStreamPending) && $messages.length === 0,
@@ -912,7 +923,43 @@ function artifactToWorkspaceItem(
 		versionNumber: summary.versionNumber,
 		kind: summary.kind,
 		updatedAt: summary.updatedAt,
+		documentPreview: summary.documentPreview,
 	};
+}
+
+/**
+ * T9.7: the panel list's own tick. Writes through `toggleDocumentTask` (the
+ * same patch path the open editor's toolbar uses), then applies the new
+ * checked state to the LOCAL card so it does not wait for a full
+ * conversation-detail refresh to look right — a refusal leaves the card
+ * exactly as it was (spec: "the card shows the refusal/conflict states
+ * instead of lying"), matching the panel body's own toggle contract.
+ */
+async function handleToggleDocumentTask(
+	artifactId: string,
+	blockId: string,
+	checked: boolean,
+): Promise<void> {
+	const result = await toggleDocumentTask(
+		artifactId,
+		blockId,
+		checked,
+		data.conversation.id,
+	);
+	if (!result.ok) return;
+	artifacts = artifacts.map((row) => {
+		if (row.id !== artifactId || !row.documentPreview) return row;
+		return {
+			...row,
+			versionNumber: result.version,
+			documentPreview: {
+				...row.documentPreview,
+				tasks: row.documentPreview.tasks.map((task) =>
+					task.blockId === blockId ? { ...task, checked } : task,
+				),
+			},
+		};
+	});
 }
 
 let artifactWorkspaceItems = $derived(artifacts.map(artifactToWorkspaceItem));
@@ -3169,11 +3216,13 @@ function handleDrop(event: DragEvent) {
 			availableDocuments={availableWorkspaceDocumentsWithArtifacts}
 			activeDocumentId={activeWorkspaceDocumentId}
 			conversationId={data.conversation.id}
+			alfyActivity={liveDocumentAlfyActivity}
 			list={{
 				open: artifactListOpen,
 				items: artifactWorkspaceItems,
 				title: $t('artifacts.panel.title'),
 			}}
+			onToggleDocumentTask={handleToggleDocumentTask}
 			onListOpenChange={(open) => {
 				artifactListOpen = open;
 			}}

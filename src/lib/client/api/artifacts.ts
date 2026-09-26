@@ -10,6 +10,14 @@ import type {
 	ArtifactRecord,
 	ArtifactVersionSummary,
 } from "$lib/server/services/artifacts/types";
+import {
+	buildIndex,
+	parseDocument,
+} from "$lib/shared/artifact-document/blocks";
+import {
+	applyPatchSet,
+	type PatchSet,
+} from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
 import { _unwrapList } from "./_utils";
 import { type FetchLike, requestJson } from "./http";
@@ -113,6 +121,78 @@ export async function saveArtifactBody(
 		return { ok: false, reason: "not_found" };
 	}
 	return payload;
+}
+
+export type ToggleDocumentTaskResult =
+	| { ok: true; version: number }
+	| {
+			ok: false;
+			reason:
+				| "not_found"
+				| "too_large"
+				| "stale"
+				| "hash_mismatch"
+				| "version_conflict"
+				| "invalid_patch"
+				/** The block is gone, or is no longer a task line — an ordinary race with a concurrent edit, never an error to throw over. */
+				| "block_not_found";
+	  };
+
+/**
+ * The chat card's own tick (T9.7, spec §2.3): "ticking one writes the
+ * document (through the same patch path, not a second write path)". The
+ * card only ever holds the bounded preview (never a full body), so this
+ * reads the current one, applies the toggle through the SAME pure engine
+ * `edit_artifact` and the editor's own toolbar use (`applyPatchSet` —
+ * snapshotted from the read that just happened, so it is never refused as
+ * `block_unseen`/`block_changed`), and saves through the one Document write
+ * path (`saveArtifactBody`, ruling 47's coalescing, the hash guard,
+ * `expectVersion`) — exactly like the open editor's own autosave.
+ */
+export async function toggleDocumentTask(
+	artifactId: string,
+	blockId: string,
+	checked: boolean,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<ToggleDocumentTaskResult> {
+	let detail: ArtifactDetailResponse;
+	try {
+		detail = await fetchArtifact(artifactId, conversationId, fetchImpl);
+	} catch {
+		return { ok: false, reason: "not_found" };
+	}
+
+	const blocks = parseDocument(detail.artifact.body ?? "", {
+		mint: false,
+	}).blocks;
+	const block = blocks.find((candidate) => candidate.id === blockId);
+	if (!block) return { ok: false, reason: "block_not_found" };
+
+	const patch: PatchSet = {
+		patchId: `user-toggle-${blockId}`,
+		label: "Toggled task",
+		ops: [
+			{
+				opId: "toggle",
+				kind: "toggleTask",
+				blockId,
+				baseHash: block.hash,
+				blockLabel: block.label,
+				checked,
+			},
+		],
+	};
+	const result = applyPatchSet({ blocks, patch, snapshot: buildIndex(blocks) });
+	if (result.applied === 0) return { ok: false, reason: "block_not_found" };
+
+	return saveArtifactBody(
+		artifactId,
+		result.markdown,
+		detail.artifact.versionNumber,
+		conversationId,
+		fetchImpl,
+	);
 }
 
 /**

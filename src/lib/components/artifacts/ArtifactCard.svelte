@@ -48,6 +48,14 @@ export interface ArtifactCardView {
 	openTargetId?: string | null;
 	tickable?: {
 		items: ArtifactCardTickableItem[];
+		/**
+		 * How many task items REALLY exist — equal to `items.length` unless the
+		 * caller is working from a bounded subset (the chat card's server
+		 * preview, T9 steps 4/7, never carries more than the first five).
+		 * Falls back to `items.length` when omitted, so a full-body caller
+		 * (the panel) needs no change.
+		 */
+		totalCount?: number;
 		onToggle: (id: string) => void;
 	} | null;
 }
@@ -94,7 +102,11 @@ let visibleTickableItems = $derived(
 	view.tickable?.items.slice(0, TICKABLE_VISIBLE_LIMIT) ?? [],
 );
 let hiddenTickableCount = $derived(
-	Math.max(0, (view.tickable?.items.length ?? 0) - TICKABLE_VISIBLE_LIMIT),
+	Math.max(
+		0,
+		(view.tickable?.totalCount ?? view.tickable?.items.length ?? 0) -
+			TICKABLE_VISIBLE_LIMIT,
+	),
 );
 
 // The File body is lazy: a chat page with no file-producing turn must not

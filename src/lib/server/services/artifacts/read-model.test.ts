@@ -19,8 +19,12 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 
-const { createArtifact, listArtifactsForConversation, updateArtifactBody } =
-	await import("./index");
+const {
+	createArtifact,
+	createDocumentArtifact,
+	listArtifactsForConversation,
+	updateArtifactBody,
+} = await import("./index");
 
 const OWNER = "user-owner";
 const STRANGER = "user-stranger";
@@ -50,6 +54,21 @@ function setUpdatedAt(id: string, at: Date) {
 	memory.sqlite
 		.prepare("UPDATE artifacts SET updated_at = ? WHERE id = ?")
 		.run(Math.floor(at.getTime() / 1000), id);
+}
+
+/** Bypasses `saveDocumentBody`'s own tab-writing format (T9) — this test only needs the STORED metadata shape `documentTabsFromMetadata` reads. */
+function setMetadataTabs(
+	id: string,
+	tabs: { id: string; title: string; startBlockId: string }[],
+) {
+	const row = memory.sqlite
+		.prepare("SELECT metadata_json FROM artifacts WHERE id = ?")
+		.get(id) as { metadata_json: string };
+	const metadata = JSON.parse(row.metadata_json);
+	metadata.tabs = tabs;
+	memory.sqlite
+		.prepare("UPDATE artifacts SET metadata_json = ? WHERE id = ?")
+		.run(JSON.stringify(metadata), id);
 }
 
 beforeEach(() => {
@@ -203,5 +222,141 @@ describe("listArtifactsForConversation", () => {
 				conversationId: CONVERSATION,
 			}),
 		).resolves.toEqual([]);
+	});
+});
+
+// T9 steps 4/7: the chat card's Document preview (subtitle facts + the
+// tickable checklist). Bounded and never the whole body — every assertion
+// here either counts something small or reads through the SAME
+// parse/serializer (`parseDocument`) everything else uses.
+describe("listArtifactsForConversation — documentPreview (T9 steps 4/7)", () => {
+	const TASKS_BODY = [
+		"# Packing",
+		"",
+		"- [x] Passport",
+		"",
+		"- [x] Tickets",
+		"",
+		"- [ ] Charger",
+		"",
+		"- [ ] Sunscreen",
+		"",
+		"- [ ] Umbrella",
+		"",
+		"- [ ] Guidebook",
+		"",
+		"- [ ] Snacks",
+	].join("\n");
+
+	/**
+	 * The generic `createArtifact` stores whatever body it is given verbatim —
+	 * it has no idea a Document's body needs block-id markers minted first.
+	 * `createDocumentArtifact` (the real Document creation path, also what
+	 * `create_artifact`'s tool handler calls) does that minting, so a
+	 * multi-block body here gets the SAME distinct ids the live app would give
+	 * it — using the plain `create()` helper above (backed by `createArtifact`
+	 * directly) here would silently collapse every block onto one id.
+	 */
+	async function createDocumentWithBody(title: string, body: string) {
+		return createDocumentArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			title,
+			markdown: body,
+			author: "user",
+			summary: "Created",
+		});
+	}
+
+	it("bounds tasks to the first five, in order, with the real block ids and checked state", async () => {
+		const doc = await createDocumentWithBody("Packing list", TASKS_BODY);
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.id).toBe(doc.id);
+		expect(row.documentPreview?.tasks).toHaveLength(5);
+		expect(row.documentPreview?.tasks.map((t) => t.text)).toEqual([
+			"Passport",
+			"Tickets",
+			"Charger",
+			"Sunscreen",
+			"Umbrella",
+		]);
+		expect(row.documentPreview?.tasks.map((t) => t.checked)).toEqual([
+			true,
+			true,
+			false,
+			false,
+			false,
+		]);
+		expect(row.documentPreview?.totalTaskCount).toBe(7);
+		// Real, parser-minted block ids — never a synthetic index.
+		expect(new Set(row.documentPreview?.tasks.map((t) => t.blockId)).size).toBe(
+			5,
+		);
+	});
+
+	it("counts the document's tabs", async () => {
+		const doc = await createDocumentWithBody("Trip plan", "# Plan\nGo.");
+		setMetadataTabs(doc.id, [
+			{ id: "t1", title: "Plan", startBlockId: "b1" },
+			{ id: "t2", title: "Budget", startBlockId: "b2" },
+			{ id: "t3", title: "Packing", startBlockId: "b3" },
+		]);
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.documentPreview?.tabCount).toBe(3);
+	});
+
+	it("has an empty (not missing) tasks list for a document with no checklist", async () => {
+		const doc = await createDocumentWithBody("Notes", "# Notes\nJust text.");
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.id).toBe(doc.id);
+		// `createDocumentArtifact` gives every fresh document its one default
+		// tab (T9.3: a document with exactly one tab hides the strip) — the
+		// checklist is what is actually empty here.
+		expect(row.documentPreview).toMatchObject({
+			tabCount: 1,
+			tasks: [],
+			totalTaskCount: 0,
+		});
+	});
+
+	it("never leaks the body itself — only the bounded fields", async () => {
+		const secret = "Sunscreen brand: only the good stuff, don't tell Alfy";
+		await createDocumentWithBody("Packing list", `${TASKS_BODY}\n\n${secret}`);
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row).not.toHaveProperty("body");
+		expect(row).not.toHaveProperty("markdown");
+		expect(JSON.stringify(row)).not.toContain(secret);
+	});
+
+	it("omits documentPreview entirely for a non-document kind", async () => {
+		await create(CONVERSATION, "Trip cost splitter", "app");
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.kind).toBe("app");
+		expect(row.documentPreview).toBeUndefined();
 	});
 });

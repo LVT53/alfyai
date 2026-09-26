@@ -160,7 +160,7 @@ const PRECISE_TEXT_OPS = new Set(["insertText", "replaceRange"]);
  */
 export function applyAlfyChangeMarks(
 	editor: Editor,
-	result: PatchResult,
+	result: Pick<PatchResult, "outcomes" | "inverses">,
 	patch?: PatchSet,
 ): AlfyChangeEntry[] {
 	const markType = editor.schema.marks[ALFY_CHANGE_MARK];
@@ -216,10 +216,18 @@ export function applyAlfyChangeMarks(
 	return entries;
 }
 
-/** Keep: clears the mark, leaves the text exactly as applied. `true` when a mark was actually found and cleared. */
-export function keepAlfyChange(editor: Editor, changeId: string): boolean {
+/**
+ * The one place that searches the live document for a change mark's range —
+ * `keepAlfyChange` and `alfyChangeRect`/`scrollToAlfyChange` (the inline
+ * bar's own positioning, below) all go through this instead of repeating the
+ * `descendants` walk.
+ */
+function findAlfyChangeRange(
+	editor: Editor,
+	changeId: string,
+): { from: number; to: number } | null {
 	const markType = editor.schema.marks[ALFY_CHANGE_MARK];
-	if (!markType) return false;
+	if (!markType) return null;
 
 	let from = Number.POSITIVE_INFINITY;
 	let to = -1;
@@ -233,12 +241,66 @@ export function keepAlfyChange(editor: Editor, changeId: string): boolean {
 			to = Math.max(to, pos + node.nodeSize);
 		}
 	});
-	if (to < 0) return false;
+	return to < 0 ? null : { from, to };
+}
 
-	const tr = editor.state.tr.removeMark(from, to, markType);
+/** Keep: clears the mark, leaves the text exactly as applied. `true` when a mark was actually found and cleared. */
+export function keepAlfyChange(editor: Editor, changeId: string): boolean {
+	const markType = editor.schema.marks[ALFY_CHANGE_MARK];
+	const range = markType ? findAlfyChangeRange(editor, changeId) : null;
+	if (!markType || !range) return false;
+
+	const tr = editor.state.tr.removeMark(range.from, range.to, markType);
 	tr.setMeta("addToHistory", false);
 	editor.view.dispatch(tr);
 	return true;
+}
+
+/**
+ * The change mark's own on-screen rect (`EditorView.coordsAtPos`'s shape,
+ * mirroring `document-editor.ts`'s `readSelectionAnchorContext`), for the
+ * inline `Alfy · Keep · Undo` bar's own positioning — the same "compute a
+ * rect, let the caller convert it to a position relative to its own
+ * container" contract `SelectionBubble` already uses. `null` when the mark
+ * is gone (already Kept/Undone, or the editor reloaded past it).
+ */
+export function alfyChangeRect(
+	editor: Editor,
+	changeId: string,
+): { top: number; left: number; right: number; bottom: number } | null {
+	const range = findAlfyChangeRange(editor, changeId);
+	if (!range) return null;
+	try {
+		const start = editor.view.coordsAtPos(range.from);
+		const end = editor.view.coordsAtPos(range.to);
+		return {
+			top: start.top,
+			left: start.left,
+			right: end.right,
+			bottom: end.bottom,
+		};
+	} catch {
+		// jsdom (unit tests) does not implement real layout — a real browser
+		// always has it (Playwright exercises this for real).
+		return null;
+	}
+}
+
+/** Scrolls the change mark into view — "See what Alfy did" (T8.4). `true` when a mark was found to scroll to. */
+export function scrollToAlfyChange(editor: Editor, changeId: string): boolean {
+	const range = findAlfyChangeRange(editor, changeId);
+	if (!range) return false;
+	try {
+		const dom = editor.view.domAtPos(range.from).node;
+		const element =
+			dom.nodeType === Node.ELEMENT_NODE
+				? (dom as HTMLElement)
+				: dom.parentElement;
+		element?.scrollIntoView({ block: "center", behavior: "smooth" });
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -335,7 +397,9 @@ export interface RefusalSummary {
 }
 
 /** `null` when nothing was refused — the caller renders no notice at all. */
-export function summarizeRefusals(result: PatchResult): RefusalSummary | null {
+export function summarizeRefusals(
+	result: Pick<PatchResult, "outcomes">,
+): RefusalSummary | null {
 	const items = result.outcomes
 		.filter((outcome) => outcome.status === "refused")
 		.map((outcome) => ({

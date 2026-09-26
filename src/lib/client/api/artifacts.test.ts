@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	parseDocument,
+	serializeDocument,
+} from "$lib/shared/artifact-document/blocks";
+import {
 	askAlfyInComment,
 	createArtifactComment,
 	exportArtifactDocument,
@@ -11,6 +15,7 @@ import {
 	restoreArtifactVersion,
 	saveArtifactBody,
 	saveDocumentTabs,
+	toggleDocumentTask,
 } from "./artifacts";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -271,6 +276,132 @@ describe("artifacts client API", () => {
 			await expect(
 				saveDocumentTabs("artifact-1", [], "Text.", undefined, null, fetchMock),
 			).resolves.toEqual({ ok: false, reason: "too_large" });
+		});
+	});
+
+	describe("toggleDocumentTask (T9.7 — the chat card's tick, through the SAME patch path)", () => {
+		function taskDetail(overrides: Record<string, unknown> = {}) {
+			const body = serializeDocument(parseDocument("- [ ] Charger").blocks);
+			const blockId = parseDocument(body, { mint: false }).blocks[0].id;
+			return {
+				body,
+				blockId,
+				artifact: {
+					id: "doc-1",
+					kind: "document",
+					title: "Packing",
+					body,
+					versionNumber: 3,
+					...overrides,
+				},
+			};
+		}
+
+		it("fetches the current body, toggles it through applyPatchSet, and saves through the body route", async () => {
+			const { blockId, artifact } = taskDetail();
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValueOnce(
+					jsonResponse({ ok: true, artifact, versions: [], comments: [] }),
+				)
+				.mockResolvedValueOnce(jsonResponse({ ok: true, version: 4 }));
+
+			const result = await toggleDocumentTask(
+				"doc-1",
+				blockId,
+				true,
+				"conv-1",
+				fetchMock,
+			);
+
+			expect(result).toEqual({ ok: true, version: 4 });
+			expect(fetchMock).toHaveBeenNthCalledWith(
+				1,
+				"/api/artifacts/doc-1?conversationId=conv-1",
+			);
+			const saveCall = fetchMock.mock.calls[1];
+			expect(saveCall[0]).toBe(
+				"/api/artifacts/doc-1/body?conversationId=conv-1",
+			);
+			const savedPayload = JSON.parse(String(saveCall[1].body));
+			expect(savedPayload.expectVersion).toBe(3);
+			// The SAME canonical form the parser/serializer produce for a
+			// checked task — never a hand-rolled string replace.
+			expect(savedPayload.body).toBe(
+				serializeDocument(
+					parseDocument(`<!--b:${blockId}-->\n- [x] Charger`, {
+						mint: false,
+					}).blocks,
+				),
+			);
+		});
+
+		it("is block_not_found (and never calls save) when the block no longer exists", async () => {
+			const fetchMock = vi.fn().mockResolvedValueOnce(
+				jsonResponse({
+					ok: true,
+					artifact: {
+						id: "doc-1",
+						kind: "document",
+						title: "Packing",
+						body: "Nothing here.",
+						versionNumber: 1,
+					},
+					versions: [],
+					comments: [],
+				}),
+			);
+
+			const result = await toggleDocumentTask(
+				"doc-1",
+				"missing-block",
+				true,
+				null,
+				fetchMock,
+			);
+
+			expect(result).toEqual({ ok: false, reason: "block_not_found" });
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		});
+
+		it("is not_found when the artifact itself cannot be read", async () => {
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValueOnce(
+					jsonResponse({ ok: false, reason: "not_found" }, 404),
+				);
+
+			const result = await toggleDocumentTask(
+				"doc-1",
+				"b1",
+				true,
+				null,
+				fetchMock,
+			);
+
+			expect(result).toEqual({ ok: false, reason: "not_found" });
+		});
+
+		it("passes through the body route's own refusal (e.g. a version conflict)", async () => {
+			const { blockId, artifact } = taskDetail();
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValueOnce(
+					jsonResponse({ ok: true, artifact, versions: [], comments: [] }),
+				)
+				.mockResolvedValueOnce(
+					jsonResponse({ ok: false, reason: "version_conflict" }, 409),
+				);
+
+			const result = await toggleDocumentTask(
+				"doc-1",
+				blockId,
+				true,
+				null,
+				fetchMock,
+			);
+
+			expect(result).toEqual({ ok: false, reason: "version_conflict" });
 		});
 	});
 });

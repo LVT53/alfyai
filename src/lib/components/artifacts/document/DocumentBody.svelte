@@ -64,6 +64,7 @@ import {
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
+import RefusalNotice from "$lib/components/artifacts/RefusalNotice.svelte";
 import { t } from "$lib/i18n";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
@@ -74,13 +75,23 @@ import {
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import {
+	reconstructDocumentPatch,
+	type DocumentAlfyActivity,
+} from "./alfy-activity";
+import AlfyWriting from "./AlfyWriting.svelte";
 import { documentTabsFromCardMetadata } from "./card-view";
+import ChangeBar from "./ChangeBar.svelte";
 import {
 	createDocumentAutosave,
 	type DocumentAutosaveHandle,
 	type DocumentAutosaveResult,
 } from "./document-autosave";
-import type { Editor } from "./document-editor";
+// `DocumentEditorModule` itself (the `typeof import("./document-editor")`
+// namespace every `...Fn` closure below is typed against) comes from the
+// `<script module>` block above — it is already visible here, and importing
+// it a second time in this instance script is a duplicate-identifier error.
+import type { AlfyChangeEntry, Editor } from "./document-editor";
 import DocumentToolbar from "./DocumentToolbar.svelte";
 import DownloadSheet from "./DownloadSheet.svelte";
 import MarginPanel from "./MarginPanel.svelte";
@@ -93,6 +104,7 @@ let {
 	artifactId,
 	title,
 	conversationId: panelConversationId,
+	alfyActivity = null,
 	onDirtyChange,
 	onBodyChange,
 }: ArtifactBodyProps = $props();
@@ -127,6 +139,20 @@ let autosave: DocumentAutosaveHandle | null = null;
 let readMarkdownFn: typeof DocumentEditorModule.readMarkdown | null = null;
 let editorReady = $derived(loadState === "ready");
 
+// ---- T8 live: marks.ts's surface, reached only through document-editor.ts's
+// lazy re-exports (never a static "./marks" import from this file). ---------
+let applyAlfyChangesFn: typeof DocumentEditorModule.applyAlfyChanges | null =
+	null;
+let keepChangeFn: typeof DocumentEditorModule.keepChange | null = null;
+let undoChangeFn: typeof DocumentEditorModule.undoChange | null = null;
+let changeMarkRectFn: typeof DocumentEditorModule.changeMarkRect | null = null;
+let scrollToChangeFn: typeof DocumentEditorModule.scrollToChange | null = null;
+let summarizeRefusalsFn: typeof DocumentEditorModule.summarizeRefusals | null =
+	null;
+let refusalReasonI18nKeyFn:
+	| typeof DocumentEditorModule.refusalReasonI18nKey
+	| null = null;
+
 // ---- T10: comments margin and the selection bubble -------------------------
 // Kept to this one block: `loadMarkdownFn`/`readSelectionContextFn` mirror
 // `readMarkdownFn` above (captured once the lazy module resolves, in
@@ -145,6 +171,32 @@ let selectionBubble = $state<{ x: number; y: number; anchor: Anchor } | null>(
 	null,
 );
 let contentEl = $state<HTMLDivElement | undefined>();
+
+// ---- T8 live: Alfy's chat-turn edits appear in the open Document ----------
+// `alfyWritingLabel` drives the shimmer; `pendingChanges`/`changePositions`
+// drive the inline Keep/Undo bars (one per applied op, keyed by `changeId`);
+// `refusalNotice` is `null` until a landed call actually refused something.
+// `handledActivityKey` guards against reprocessing the SAME settled call
+// twice (an unrelated re-render must not re-apply marks or re-open a notice
+// that Keep/Undo already resolved) — the "loadedArtifactId" guard above is
+// this block's own model.
+interface PendingAlfyChange {
+	entry: AlfyChangeEntry;
+	status: "pending" | "kept" | "undone";
+}
+let alfyWritingLabel = $state<string | null>(null);
+let pendingChanges = $state<Map<string, PendingAlfyChange>>(new Map());
+let changePositions = $state<Map<string, { x: number; y: number }>>(
+	new Map(),
+);
+let refusalNotice = $state<{
+	message: string;
+	items: { label: string; reason: string }[];
+	seeChangeLabel: string | null;
+	firstAppliedChangeId: string | null;
+} | null>(null);
+let handledActivityKey = "";
+// ---- end T8 live -----------------------------------------------------
 
 function updateBlocksFromMarkdown(markdown: string): void {
 	blocks = parseDocument(markdown, { mint: false }).blocks;
@@ -205,10 +257,51 @@ function mentionsAlfy(text: string): boolean {
 	return /@alfy\b/i.test(text);
 }
 
-async function maybeAskAlfy(commentId: string): Promise<void> {
+/** `Anchor` is a union across the whole family (text/node/point) — a Document comment's is always `"text"`, the only kind that names a block. */
+function textAnchorBlockId(anchor: Anchor | null | undefined): string | null {
+	return anchor?.kind === "text" ? anchor.blockId : null;
+}
+
+/** The block an `@Alfy` reply's own thread is anchored to — a reply carries no anchor of its own, only its thread root does. */
+function findThreadBlockId(commentId: string): string | null {
+	for (const comment of comments) {
+		if (comment.id === commentId) return textAnchorBlockId(comment.anchor);
+		for (const reply of comment.replies) {
+			if (reply.id === commentId) return textAnchorBlockId(comment.anchor);
+		}
+	}
+	return null;
+}
+
+/**
+ * T8 live: "`@Alfy` comment replies that apply a change go through the same
+ * marks path." The comment route never returns the ops it tried (only
+ * `{outcome, applied, refused, version}` — `comments.ts`'s
+ * `AlfyCommentReplyResult`), but every `@Alfy` patch is scoped to exactly
+ * ONE block (the thread's own anchor), so a synthetic single-op `PatchSet`
+ * targeting that block, run through the SAME `reconstructDocumentPatch` +
+ * `applyAlfyChangesFn` the tool-call path uses, marks it correctly — as
+ * `replaceBlock` (never `insertText`/`replaceRange`, the two ops
+ * `applyAlfyChangeMarks` would try to mark PRECISELY): the browser was never
+ * told which of the three op kinds the server actually chose, so marking the
+ * whole block is the honest, always-correct representation of "this block
+ * changed," not a guess at a narrower range.
+ */
+async function maybeAskAlfy(
+	commentId: string,
+	blockId: string | null,
+): Promise<void> {
 	const conversationId = panelConversationId ?? null;
+	const previousBlocksById = new Map(blocks.map((b) => [b.id, b]));
+	let outcome: Awaited<ReturnType<typeof askAlfyInComment>>["outcome"] | null =
+		null;
 	try {
-		await askAlfyInComment(boundArtifactId, commentId, conversationId);
+		const result = await askAlfyInComment(
+			boundArtifactId,
+			commentId,
+			conversationId,
+		);
+		outcome = result.outcome;
 	} catch {
 		// The reply (or refusal) already lives in the thread when the call
 		// succeeds; a failed call here just leaves the thread as it was — the
@@ -216,6 +309,41 @@ async function maybeAskAlfy(commentId: string): Promise<void> {
 	} finally {
 		await refreshAfterCommentChange();
 	}
+
+	if (outcome !== "applied" || !blockId || !editor || !applyAlfyChangesFn) {
+		return;
+	}
+	const previous = previousBlocksById.get(blockId);
+	const reconstructed = reconstructDocumentPatch(
+		{
+			key: `alfy-comment-${commentId}`,
+			artifactId: boundArtifactId,
+			toolName: "edit_artifact",
+			status: "applied",
+			label: null,
+			patches: [{ op: "replaceBlock", blockId, baseHash: previous?.hash ?? "" }],
+			refusedBlocks: [],
+			appliedCount: 1,
+		},
+		previousBlocksById,
+	);
+	if (!reconstructed) return;
+	const entries = applyAlfyChangesFn(editor, reconstructed, reconstructed.patch);
+	const nextPending = new Map(pendingChanges);
+	const nextPositions = new Map(changePositions);
+	for (const entry of entries) {
+		nextPending.set(entry.changeId, { entry, status: "pending" });
+		const rect = changeMarkRectFn?.(editor, entry.changeId);
+		if (rect && contentEl) {
+			const hostRect = contentEl.getBoundingClientRect();
+			nextPositions.set(entry.changeId, {
+				x: rect.left - hostRect.left,
+				y: rect.bottom - hostRect.top,
+			});
+		}
+	}
+	pendingChanges = nextPending;
+	changePositions = nextPositions;
 }
 
 async function postComment(anchor: Anchor, body: string): Promise<void> {
@@ -228,7 +356,9 @@ async function postComment(anchor: Anchor, body: string): Promise<void> {
 		conversationId,
 	);
 	await refreshAfterCommentChange();
-	if (mentionsAlfy(body)) await maybeAskAlfy(created.id);
+	if (mentionsAlfy(body)) {
+		await maybeAskAlfy(created.id, textAnchorBlockId(anchor));
+	}
 }
 
 async function postReply(parentId: string, body: string): Promise<void> {
@@ -241,7 +371,9 @@ async function postReply(parentId: string, body: string): Promise<void> {
 		conversationId,
 	);
 	await refreshAfterCommentChange();
-	if (mentionsAlfy(body)) await maybeAskAlfy(created.id);
+	if (mentionsAlfy(body)) {
+		await maybeAskAlfy(created.id, findThreadBlockId(parentId));
+	}
 }
 
 async function handleCommentResolve(
@@ -261,6 +393,166 @@ async function handleCommentResolve(
 	}
 }
 // ---- end T10 -----------------------------------------------------------
+
+// ---- T8 live: reacting to a chat-turn edit_artifact/create_artifact call ---
+/**
+ * The one place that reacts to `alfyActivity` (this body's only channel from
+ * the chat page — one prop, `slice-1.md`'s "T8 live"). Every branch is
+ * idempotent against re-renders: `handledActivityKey` guards the settle
+ * branch, and "running" simply re-derives the same label each time.
+ */
+$effect(() => {
+	const activity = alfyActivity;
+	if (!activity || activity.artifactId !== boundArtifactId) {
+		// Fully derived, not just "nothing to do": a document switch (or the
+		// activity moving on to a different artifact) must not leave a stale
+		// shimmer from whatever was showing a moment ago.
+		alfyWritingLabel = null;
+		return;
+	}
+
+	if (activity.status === "running") {
+		alfyWritingLabel = activity.label ?? title;
+		return;
+	}
+	// Settled (applied/refused/failed): the shimmer never outlives its call
+	// (T8.6), whatever else this activity turns out to mean.
+	alfyWritingLabel = null;
+
+	const key = `${activity.key}:${activity.status}`;
+	if (key === handledActivityKey) return;
+	handledActivityKey = key;
+
+	if (activity.status === "failed") return;
+	void landAlfyActivity(activity);
+});
+
+/**
+ * `edit_artifact` landed (applied or partially/fully refused): reloads the
+ * new version, then marks exactly the applied ops using inverses
+ * reconstructed from THIS body's own pre-edit blocks (never a full server
+ * `PatchResult` — the live stream does not carry one; see
+ * `alfy-activity.ts`'s header comment). `create_artifact` has no prior
+ * version to diff against, so `reconstructDocumentPatch` returns `null` and
+ * this is a no-op beyond the reload the version-number check below already
+ * does.
+ */
+async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
+	if (!editor || !loadMarkdownFn || !applyAlfyChangesFn) return;
+	const previousBlocksById = new Map(blocks.map((b) => [b.id, b]));
+
+	try {
+		const conversationId = panelConversationId ?? null;
+		const detail = await fetchArtifact(boundArtifactId, conversationId);
+		const newBody = detail.artifact.body ?? "";
+		if (detail.artifact.versionNumber !== versionNumber) {
+			versionNumber = detail.artifact.versionNumber;
+			loadMarkdownFn(editor, newBody);
+		}
+		updateBlocksFromMarkdown(newBody);
+		comments = detail.comments;
+
+		const reconstructed = reconstructDocumentPatch(activity, previousBlocksById);
+		if (!reconstructed) {
+			refusalNotice = null;
+			return;
+		}
+
+		const entries = applyAlfyChangesFn(editor, reconstructed, reconstructed.patch);
+		const nextPending = new Map(pendingChanges);
+		const nextPositions = new Map(changePositions);
+		for (const entry of entries) {
+			nextPending.set(entry.changeId, { entry, status: "pending" });
+			const rect = changeMarkRectFn?.(editor, entry.changeId);
+			if (rect && contentEl) {
+				const hostRect = contentEl.getBoundingClientRect();
+				nextPositions.set(entry.changeId, {
+					x: rect.left - hostRect.left,
+					y: rect.bottom - hostRect.top,
+				});
+			}
+		}
+		pendingChanges = nextPending;
+		changePositions = nextPositions;
+
+		const summary = summarizeRefusalsFn?.(reconstructed) ?? null;
+		if (summary && refusalReasonI18nKeyFn) {
+			refusalNotice = {
+				message: $t("artifacts.document.refused.notice", {
+					count: summary.count,
+				}),
+				items: summary.items.map((item) => ({
+					label: item.blockLabel,
+					reason: $t(refusalReasonI18nKeyFn?.(item.code) as never),
+				})),
+				seeChangeLabel:
+					entries.length > 0
+						? $t("artifacts.document.refused.seeChange")
+						: null,
+				firstAppliedChangeId: entries[0]?.changeId ?? null,
+			};
+		} else {
+			refusalNotice = null;
+		}
+	} catch {
+		// Best-effort, mirroring `refreshAfterCommentChange`: the panel shows
+		// slightly stale state until the next successful refresh rather than
+		// surfacing a second, unrelated error path here.
+	}
+}
+
+/** Keep: clears exactly this change's mark, leaves the text. */
+function handleKeepChange(changeId: string): void {
+	if (!editor || !keepChangeFn) return;
+	keepChangeFn(editor, changeId);
+	const pending = pendingChanges.get(changeId);
+	if (!pending) return;
+	pendingChanges = new Map(pendingChanges).set(changeId, {
+		...pending,
+		status: "kept",
+	});
+	setTimeout(() => removePendingChange(changeId), 1500);
+}
+
+/**
+ * Undo: restores exactly this change's pre-edit text and treats that as a
+ * USER edit — scheduled through the normal autosave path (T8's own rule),
+ * not a second, silent write.
+ */
+function handleUndoChange(changeId: string): void {
+	if (!editor || !undoChangeFn) return;
+	const pending = pendingChanges.get(changeId);
+	if (!pending) return;
+	undoChangeFn(editor, pending.entry);
+	pendingChanges = new Map(pendingChanges).set(changeId, {
+		...pending,
+		status: "undone",
+	});
+	const canonical = currentCanonicalMarkdown();
+	if (canonical !== null) {
+		autosave?.schedule(canonical);
+		updateBlocksFromMarkdown(canonical);
+	}
+	setTimeout(() => removePendingChange(changeId), 1500);
+}
+
+function removePendingChange(changeId: string): void {
+	const nextPending = new Map(pendingChanges);
+	nextPending.delete(changeId);
+	pendingChanges = nextPending;
+	const nextPositions = new Map(changePositions);
+	nextPositions.delete(changeId);
+	changePositions = nextPositions;
+}
+
+/** "See what Alfy did" — scrolls to the first change the same patch actually applied. */
+function handleSeeChange(): void {
+	if (!editor || !scrollToChangeFn || !refusalNotice?.firstAppliedChangeId) {
+		return;
+	}
+	scrollToChangeFn(editor, refusalNotice.firstAppliedChangeId);
+}
+// ---- end T8 live ---------------------------------------------------------
 
 // ---- T12: the download sheet -----------------------------------------------
 let downloadSheetOpen = $state(false);
@@ -522,6 +814,21 @@ async function runLoad(id: string): Promise<void> {
 		readMarkdownFn = mod.readMarkdown;
 		loadMarkdownFn = mod.loadMarkdown;
 		readSelectionContextFn = mod.readSelectionAnchorContext;
+		applyAlfyChangesFn = mod.applyAlfyChanges;
+		keepChangeFn = mod.keepChange;
+		undoChangeFn = mod.undoChange;
+		changeMarkRectFn = mod.changeMarkRect;
+		scrollToChangeFn = mod.scrollToChange;
+		summarizeRefusalsFn = mod.summarizeRefusals;
+		refusalReasonI18nKeyFn = mod.refusalReasonI18nKey;
+		// A fresh document (a new id, or a retry of this one) starts with no
+		// leftover marks or notice from whatever was open before (the shimmer
+		// itself is fully derived by the `alfyActivity` effect above, so it
+		// is not reset here — doing so would race that effect on first mount).
+		pendingChanges = new Map();
+		changePositions = new Map();
+		refusalNotice = null;
+		handledActivityKey = "";
 		versionNumber = detail.artifact.versionNumber;
 		tabs = documentTabsFromCardMetadata(detail.artifact.metadata);
 		activeTabId = tabs[0]?.id ?? "";
@@ -615,6 +922,21 @@ function saveNoticeText(notice: SaveNotice): string {
 				onAction={handleToolbarAction}
 			/>
 		</div>
+		<!-- T8 live: the planned-section shimmer while a matching create_artifact/
+		     edit_artifact call is in flight, and the refusal notice once a landed
+		     call left something untouched. Both sit above the scroll container so
+		     neither depends on — or fights with — the editor's own layout. -->
+		{#if alfyWritingLabel !== null}
+			<AlfyWriting label={alfyWritingLabel} />
+		{/if}
+		{#if refusalNotice}
+			<RefusalNotice
+				message={refusalNotice.message}
+				items={refusalNotice.items}
+				seeChangeLabel={refusalNotice.seeChangeLabel ?? undefined}
+				onSeeChange={refusalNotice.seeChangeLabel ? handleSeeChange : undefined}
+			/>
+		{/if}
 		<div class="document-content" bind:this={contentEl}>
 			{#if loadState === "not_found"}
 				<div class="document-notice" role="status">
@@ -665,6 +987,24 @@ function saveNoticeText(notice: SaveNotice): string {
 						/>
 					</div>
 				{/if}
+				<!-- T8 live: one inline Keep/Undo bar per applied change, positioned
+				     at that change's own mark (never all bunched at a fixed spot —
+				     several ops across different blocks each get their own bar). -->
+				{#each [...pendingChanges.entries()] as [changeId, pending] (changeId)}
+					{@const position = changePositions.get(changeId)}
+					<div
+						class="document-change-anchor"
+						style={position
+							? `left: ${position.x}px; top: ${position.y}px;`
+							: "left: 0.75rem; top: 0.5rem;"}
+					>
+						<ChangeBar
+							status={pending.status}
+							onKeep={() => handleKeepChange(changeId)}
+							onUndo={() => handleUndoChange(changeId)}
+						/>
+					</div>
+				{/each}
 			{/if}
 		</div>
 		{#if saveNotice === 'offline' || saveNotice === 'tooLarge' || saveNotice === 'conflict'}
@@ -743,6 +1083,16 @@ function saveNoticeText(notice: SaveNotice): string {
 		inset: 0;
 		background-color: var(--surface-elevated);
 		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	/* T8 live: one change's own mark position, computed via
+	   `changeMarkRect`/`getBoundingClientRect` in script and applied through
+	   an inline style — the position is per-change data, not something a
+	   static class can express. */
+	.document-change-anchor {
+		position: absolute;
+		z-index: 15;
+		transform: translateY(0.25rem);
 	}
 
 	/* T12: anchored under the toolbar's download button, at the top of the

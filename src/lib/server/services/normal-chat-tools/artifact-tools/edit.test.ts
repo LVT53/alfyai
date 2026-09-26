@@ -235,7 +235,38 @@ describe("runEditArtifactTool — a registered handler", () => {
 			artifactId: "artifact-1",
 			artifactKind: "document",
 			artifactTitle: "Vienna plan",
+			appliedCount: 2,
+			refusedBlocksJson: JSON.stringify([
+				{ blockId: "block-3", reason: "unsupported_kind" },
+			]),
 		});
+	});
+
+	// T8 live: the browser never sees the full server PatchResult (no
+	// inverses, no per-op outcomes) for a live edit_artifact call — only this
+	// metadata bag. `refusedBlocksJson` is what an open Document panel
+	// reconstructs its refusal notice from (see `document/alfy-activity.ts`),
+	// so its shape (an array of plain `{blockId, reason}`, JSON-encoded
+	// because `metadata` values must stay flat scalars) is load-bearing.
+	it("omits refusedBlocksJson when nothing was refused", async () => {
+		getArtifactMock.mockResolvedValue(detail());
+		EDIT_ARTIFACT_HANDLERS.document = async () => ({
+			ok: true,
+			value: { versionId: "version-2", applied: 3, refused: [] },
+		});
+
+		const result = await runEditArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			artifactId: "artifact-1",
+			patches: [{ op: "a" }, { op: "b" }, { op: "c" }],
+			summary: "Moved the errand block",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.metadata.appliedCount).toBe(3);
+		expect(result.metadata).not.toHaveProperty("refusedBlocksJson");
 	});
 
 	it("records the summary is passed through to the handler as the version's description", async () => {

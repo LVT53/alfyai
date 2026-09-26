@@ -1,3 +1,7 @@
+import {
+	buildDocumentAlfyActivity,
+	type DocumentAlfyActivity,
+} from "$lib/components/artifacts/document/alfy-activity";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import type { I18nKey } from "$lib/i18n";
@@ -1006,4 +1010,34 @@ export function markPendingSkillUnavailable(payload: SendPayload): SendPayload {
 			unavailable: true,
 		},
 	};
+}
+
+/**
+ * T8 live: the most recent Document-relevant `create_artifact`/
+ * `edit_artifact` tool-call segment across the WHOLE message list, mapped
+ * through `alfy-activity.ts`'s pure boundary — the page's own view of "what
+ * is Alfy doing to a document right now" that `DocumentWorkspace`'s
+ * `alfyActivity` prop carries down to the open body. The open Document
+ * itself filters by artifactId, so a call for a document the panel does not
+ * currently show is simply ignored downstream; this scan does not need to
+ * know which document (if any) is open.
+ */
+export function findLiveDocumentAlfyActivity(
+	messages: ChatMessage[],
+): DocumentAlfyActivity | null {
+	for (let i = messages.length - 1; i >= 0; i -= 1) {
+		const segments = messages[i]?.thinkingSegments ?? [];
+		for (let j = segments.length - 1; j >= 0; j -= 1) {
+			const segment = segments[j];
+			if (
+				segment.type !== "tool_call" ||
+				(segment.name !== "create_artifact" && segment.name !== "edit_artifact")
+			) {
+				continue;
+			}
+			const activity = buildDocumentAlfyActivity(segment);
+			if (activity) return activity;
+		}
+	}
+	return null;
 }

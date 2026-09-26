@@ -7,6 +7,10 @@
  */
 import { Editor } from "@tiptap/core";
 import { ANCHOR_CONTEXT_CHARS } from "$lib/shared/artifact-document/anchor";
+import type {
+	PatchResult,
+	PatchSet,
+} from "$lib/shared/artifact-document/patch";
 import {
 	BLOCK_ID_ATTR,
 	BLOCK_MARKER_NODE,
@@ -15,6 +19,16 @@ import {
 	ensureBlockIds,
 	SKIP_BLOCK_ID_PLUGIN,
 } from "./extensions";
+import {
+	type AlfyChangeEntry,
+	alfyChangeRect,
+	applyAlfyChangeMarks,
+	keepAlfyChange,
+	refusalReasonI18nKey,
+	scrollToAlfyChange,
+	summarizeRefusals,
+	undoAlfyChange,
+} from "./marks";
 
 export interface CreateDocumentEditorOptions {
 	element: HTMLElement;
@@ -231,6 +245,61 @@ export function readSelectionAnchorContext(editor: Editor): {
 			bottom: startCoords.bottom,
 		},
 	};
+}
+
+// ---------------------------------------------------------------------------
+// T8 live: marks.ts's whole surface, reachable only through this boundary
+// (marks.ts's own header comment) — `DocumentBody.svelte` never imports
+// "./marks" directly, so mounting a Document body without any Alfy activity
+// yet never pays for this module's `@tiptap/*` imports beyond what loading
+// the editor itself already costs.
+// ---------------------------------------------------------------------------
+
+// `RefusalSummary` itself is not re-exported: every caller (DocumentBody.svelte)
+// only ever holds a value returned by `summarizeRefusals` below, inferred
+// rather than named — an unused re-export is exactly what Fallow's
+// unused-types check exists to catch.
+export type { AlfyChangeEntry };
+export { refusalReasonI18nKey, summarizeRefusals };
+
+/** Marks an applied patch's changed text/blocks. See `marks.ts`'s `applyAlfyChangeMarks`. */
+export function applyAlfyChanges(
+	editor: Editor,
+	result: Pick<PatchResult, "outcomes" | "inverses">,
+	patch?: PatchSet,
+): AlfyChangeEntry[] {
+	return applyAlfyChangeMarks(editor, result, patch);
+}
+
+/** Clears one change's mark, leaving its text. */
+export function keepChange(editor: Editor, changeId: string): boolean {
+	return keepAlfyChange(editor, changeId);
+}
+
+/**
+ * Restores exactly one change's pre-edit text. Builds its own fresh
+ * extension list per call (`marks.ts`'s `undoAlfyChange` doc comment: two
+ * editors must never share one resolved list), so the caller never has to
+ * know `Extensions`/`buildDocumentExtensions` exist.
+ */
+export function undoChange(
+	editor: Editor,
+	entry: { blockId: string; previousMarkdown: string },
+): boolean {
+	return undoAlfyChange(editor, entry, buildDocumentExtensions(""));
+}
+
+/** The change mark's on-screen rect, for the inline bar's own positioning. */
+export function changeMarkRect(
+	editor: Editor,
+	changeId: string,
+): { top: number; left: number; right: number; bottom: number } | null {
+	return alfyChangeRect(editor, changeId);
+}
+
+/** Scrolls a change's mark into view ("See what Alfy did", T8.4). */
+export function scrollToChange(editor: Editor, changeId: string): boolean {
+	return scrollToAlfyChange(editor, changeId);
 }
 
 export type { Editor };

@@ -10,6 +10,7 @@ import {
 	parseDocument,
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
+import type { DocumentAlfyActivity } from "./alfy-activity";
 
 const {
 	mockFetchArtifact,
@@ -47,12 +48,26 @@ const {
 	mockReadMarkdown,
 	mockLoadMarkdown,
 	mockReadSelectionAnchorContext,
+	mockApplyAlfyChanges,
+	mockKeepChange,
+	mockUndoChange,
+	mockChangeMarkRect,
+	mockScrollToChange,
+	mockSummarizeRefusals,
+	mockRefusalReasonI18nKey,
 	editorInstances,
 } = vi.hoisted(() => ({
 	mockCreateDocumentEditor: vi.fn(),
 	mockReadMarkdown: vi.fn(),
 	mockLoadMarkdown: vi.fn(),
 	mockReadSelectionAnchorContext: vi.fn(),
+	mockApplyAlfyChanges: vi.fn(),
+	mockKeepChange: vi.fn(),
+	mockUndoChange: vi.fn(),
+	mockChangeMarkRect: vi.fn(),
+	mockScrollToChange: vi.fn(),
+	mockSummarizeRefusals: vi.fn(),
+	mockRefusalReasonI18nKey: vi.fn(),
 	editorInstances: [] as Array<{
 		options: Record<string, unknown>;
 		destroy: ReturnType<typeof vi.fn>;
@@ -65,6 +80,13 @@ vi.mock("./document-editor", () => ({
 	readMarkdown: mockReadMarkdown,
 	loadMarkdown: mockLoadMarkdown,
 	readSelectionAnchorContext: mockReadSelectionAnchorContext,
+	applyAlfyChanges: mockApplyAlfyChanges,
+	keepChange: mockKeepChange,
+	undoChange: mockUndoChange,
+	changeMarkRect: mockChangeMarkRect,
+	scrollToChange: mockScrollToChange,
+	summarizeRefusals: mockSummarizeRefusals,
+	refusalReasonI18nKey: mockRefusalReasonI18nKey,
 }));
 
 // A fake stands in for the real Tiptap editor: `document-editor.test.ts`
@@ -168,6 +190,18 @@ describe("DocumentBody", () => {
 		mockSaveArtifactBody.mockResolvedValue({ ok: true, version: 2 });
 		mockSaveDocumentTabs.mockResolvedValue({ ok: true, version: 2 });
 		mockReadSelectionAnchorContext.mockReturnValue(null);
+		mockApplyAlfyChanges.mockReturnValue([]);
+		mockSummarizeRefusals.mockReturnValue(null);
+		mockChangeMarkRect.mockReturnValue(null);
+		mockKeepChange.mockReturnValue(true);
+		mockUndoChange.mockReturnValue(true);
+		mockScrollToChange.mockReturnValue(true);
+		// A real, always-resolvable key by default; the refusal-notice test
+		// below overrides this to prove the CODE (not just presence) reaches
+		// the rendered reason text.
+		mockRefusalReasonI18nKey.mockReturnValue(
+			"artifacts.document.refused.other",
+		);
 	});
 
 	afterEach(() => {
@@ -851,6 +885,132 @@ describe("DocumentBody", () => {
 			);
 		});
 
+		it("marks the thread's own anchored block once an @Alfy reply applies (T8 live, the same marks path)", async () => {
+			mockCreateArtifactComment.mockResolvedValue(
+				commentFixture({ body: "@Alfy change it." }),
+			);
+			mockAskAlfyInComment.mockResolvedValue({
+				outcome: "applied",
+				applied: 1,
+				refused: 0,
+				version: 2,
+				reply: commentFixture({
+					id: "comment-2",
+					author: "alfy",
+					body: "Done.",
+				}),
+			});
+			mockFetchArtifact
+				.mockResolvedValueOnce(ARTIFACT_DETAIL())
+				.mockResolvedValueOnce(ARTIFACT_DETAIL())
+				.mockResolvedValueOnce(
+					ARTIFACT_DETAIL({ body: "<!--b:p1-->\nGoodbye.", versionNumber: 2 }),
+				);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "alfy-comment-comment-1",
+					blockId: "p1",
+					blockLabel: "Hello.",
+					previousMarkdown: "Hello.",
+				},
+			]);
+
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 0, left: 0, right: 0, bottom: 0 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "@Alfy change it." },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+
+			await waitFor(() =>
+				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
+			);
+			// The comment's OWN anchored block (p1, from `commentFixture()`) is
+			// what gets marked, as a whole-block `replaceBlock` — the browser is
+			// never told which of the three op kinds the server actually ran.
+			const [, reconstructed, patchSet] = mockApplyAlfyChanges.mock.calls[0];
+			expect(patchSet.ops).toEqual([
+				expect.objectContaining({ kind: "replaceBlock", blockId: "p1" }),
+			]);
+			expect(reconstructed.outcomes).toEqual([
+				expect.objectContaining({ blockId: "p1", status: "applied" }),
+			]);
+			await waitFor(() =>
+				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+			);
+		});
+
+		it("never asks for marks when the @Alfy reply only answered (nothing changed)", async () => {
+			mockCreateArtifactComment.mockResolvedValue(
+				commentFixture({ body: "@Alfy is this a good idea?" }),
+			);
+			mockAskAlfyInComment.mockResolvedValue({
+				outcome: "answered",
+				applied: 0,
+				refused: 0,
+				version: 1,
+				reply: commentFixture({
+					id: "comment-2",
+					author: "alfy",
+					body: "Yes, looks good.",
+				}),
+			});
+			mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
+
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 0, left: 0, right: 0, bottom: 0 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "@Alfy is this a good idea?" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+
+			await waitFor(() =>
+				expect(mockAskAlfyInComment).toHaveBeenCalledTimes(1),
+			);
+			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
+			expect(screen.queryByTestId("alfy-change-bar")).not.toBeInTheDocument();
+		});
+
 		it("resolves a comment through the margin's own action", async () => {
 			mockFetchArtifact.mockResolvedValue(
 				ARTIFACT_DETAIL({}, [commentFixture()]),
@@ -928,6 +1088,355 @@ describe("DocumentBody", () => {
 				"conv-1",
 			);
 			await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		});
+	});
+
+	describe("T8 live — Alfy's chat-turn edits appear in the open panel", () => {
+		const TWO_BLOCK_BODY = "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.";
+
+		function runningActivity(
+			overrides: Partial<DocumentAlfyActivity> = {},
+		): DocumentAlfyActivity {
+			return {
+				key: "call-1",
+				artifactId: "artifact-1",
+				toolName: "edit_artifact",
+				status: "running",
+				label: "Add packing list",
+				patches: [],
+				refusedBlocks: [],
+				appliedCount: 0,
+				...overrides,
+			};
+		}
+
+		beforeEach(() => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TWO_BLOCK_BODY }),
+			);
+		});
+
+		it("shows 'Alfy is writing: {label}' while a matching edit_artifact call is running", async () => {
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: runningActivity(),
+			});
+
+			expect(
+				screen.getByText("Alfy is writing: Add packing list"),
+			).toBeInTheDocument();
+		});
+
+		it("never shows the shimmer for a call targeting a DIFFERENT artifact", async () => {
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: runningActivity({ artifactId: "some-other-artifact" }),
+			});
+
+			expect(screen.queryByText(/Alfy is writing/)).not.toBeInTheDocument();
+		});
+
+		it("clears the shimmer and applies change marks once a matching call lands applied", async () => {
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "call-2-0",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: runningActivity({ key: "call-2" }),
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(
+				screen.getByText("Alfy is writing: Add packing list"),
+			).toBeInTheDocument();
+
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond.",
+					versionNumber: 2,
+				}),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					...runningActivity({ key: "call-2" }),
+					status: "applied",
+					patches: [
+						{
+							op: "replaceBlock",
+							blockId: "p1",
+							baseHash: "h1",
+							text: "First, edited.",
+						},
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+
+			await waitFor(() =>
+				expect(screen.queryByText(/Alfy is writing/)).not.toBeInTheDocument(),
+			);
+			await waitFor(() =>
+				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
+			);
+			expect(mockLoadMarkdown).toHaveBeenCalledWith(
+				expect.anything(),
+				"<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond.",
+			);
+			await waitFor(() =>
+				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+			);
+		});
+
+		it("Keep clears the mark and leaves the text; a second patch to the same block then applies", async () => {
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-1",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					...runningActivity(),
+					status: "applied",
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					appliedCount: 1,
+				},
+			});
+			await waitFor(() =>
+				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+			);
+
+			await fireEvent.click(screen.getByText("Keep"));
+
+			expect(mockKeepChange).toHaveBeenCalledWith(
+				expect.anything(),
+				"change-1",
+			);
+			expect(screen.getByText("Kept.")).toBeInTheDocument();
+		});
+
+		it("Undo restores the previous text through undoChange and schedules an autosave", async () => {
+			vi.useFakeTimers();
+			try {
+				mockApplyAlfyChanges.mockReturnValue([
+					{
+						changeId: "change-2",
+						blockId: "p1",
+						blockLabel: "First.",
+						previousMarkdown: "First.",
+					},
+				]);
+				const { rerender } = render(DocumentBody, {
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: null,
+				});
+				await vi.waitFor(() =>
+					expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+				);
+
+				await rerender({
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: {
+						...runningActivity(),
+						status: "applied",
+						patches: [
+							{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+						],
+						appliedCount: 1,
+					},
+				});
+				await vi.waitFor(() =>
+					expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+				);
+
+				mockReadMarkdown.mockReturnValue(TWO_BLOCK_BODY);
+				await fireEvent.click(screen.getByText("Undo"));
+
+				expect(mockUndoChange).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({
+						blockId: "p1",
+						previousMarkdown: "First.",
+					}),
+				);
+				expect(
+					screen.getByText("Undone — your text is back."),
+				).toBeInTheDocument();
+
+				vi.advanceTimersByTime(800);
+				await vi.waitFor(() =>
+					expect(mockSaveArtifactBody).toHaveBeenCalledTimes(1),
+				);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("shows the refusal notice naming the block's label and reason, with a working 'See what Alfy did'", async () => {
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-applied",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			mockSummarizeRefusals.mockReturnValue({
+				count: 1,
+				items: [
+					{ blockId: "p2", blockLabel: "Second.", code: "block_changed" },
+				],
+			});
+			mockRefusalReasonI18nKey.mockImplementation((code: string) =>
+				code === "block_changed"
+					? "artifacts.document.refused.changed"
+					: "artifacts.document.refused.other",
+			);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					...runningActivity(),
+					status: "refused",
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+						{ op: "replaceBlock", blockId: "p2", baseHash: "h2", text: "y" },
+					],
+					refusedBlocks: [{ blockId: "p2", reason: "block_changed" }],
+					appliedCount: 1,
+				},
+			});
+
+			await waitFor(() =>
+				expect(screen.getByTestId("refusal-notice")).toBeInTheDocument(),
+			);
+			expect(screen.getByText("Second.")).toBeInTheDocument();
+			// The reason is a trailing text node beside `<strong>{label}</strong>`
+			// inside one `<li>` (`RefusalNotice.svelte`'s own markup) — matched
+			// with a substring pattern rather than `<li>`'s own concatenated text.
+			expect(
+				screen.getByText(/you changed this after Alfy last read it/),
+			).toBeInTheDocument();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "See what Alfy did" }),
+			);
+			expect(mockScrollToChange).toHaveBeenCalledWith(
+				expect.anything(),
+				"change-applied",
+			);
+		});
+
+		it("a failed call clears the shimmer without leaving any notice behind", async () => {
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: runningActivity(),
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(
+				screen.getByText("Alfy is writing: Add packing list"),
+			).toBeInTheDocument();
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: { ...runningActivity(), status: "failed" },
+			});
+
+			await waitFor(() =>
+				expect(screen.queryByText(/Alfy is writing/)).not.toBeInTheDocument(),
+			);
+			expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument();
+			expect(screen.queryByTestId("alfy-change-bar")).not.toBeInTheDocument();
+			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
 		});
 	});
 });
