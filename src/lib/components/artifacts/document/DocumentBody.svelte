@@ -80,6 +80,7 @@ import {
 	type DocumentAlfyActivity,
 } from "./alfy-activity";
 import AlfyWriting from "./AlfyWriting.svelte";
+import { computeBubblePlacement, localizePoint } from "./bubble-placement";
 import { documentTabsFromCardMetadata } from "./card-view";
 import ChangeBar from "./ChangeBar.svelte";
 import {
@@ -180,9 +181,10 @@ let readSelectionContextFn:
 	| null = null;
 let comments = $state<ArtifactComment[]>([]);
 let blocks = $state<DocumentBlock[]>([]);
-let selectionBubble = $state<{ x: number; y: number; anchor: Anchor } | null>(
-	null,
-);
+let selectionBubble = $state<
+	| { x: number; y: number; placement: "above" | "below"; anchor: Anchor }
+	| null
+>(null);
 let contentEl = $state<HTMLDivElement | undefined>();
 
 // ---- T8 live: Alfy's chat-turn edits appear in the open Document ----------
@@ -230,12 +232,24 @@ function updateSelectionBubble(): void {
 		selectionBubble = null;
 		return;
 	}
+	// `computeBubblePlacement` (bubble-placement.ts) converts the selection's
+	// VIEWPORT rect into this scroll container's own local coordinate space —
+	// scroll offset included — and clamps/flips it into the container's
+	// currently visible window. `null` means the selection has scrolled fully
+	// out of view: hide the bubble rather than pin it to nothing visible.
 	const hostRect = contentEl.getBoundingClientRect();
-	selectionBubble = {
-		x: (context.rect.left + context.rect.right) / 2 - hostRect.left,
-		y: context.rect.top - hostRect.top,
-		anchor,
-	};
+	const placement = computeBubblePlacement(context.rect, {
+		hostRect,
+		scrollLeft: contentEl.scrollLeft,
+		scrollTop: contentEl.scrollTop,
+		clientWidth: contentEl.clientWidth,
+		clientHeight: contentEl.clientHeight,
+	});
+	if (!placement) {
+		selectionBubble = null;
+		return;
+	}
+	selectionBubble = { ...placement, anchor };
 }
 
 function dismissSelectionBubble(): void {
@@ -349,11 +363,21 @@ async function maybeAskAlfy(
 		nextPending.set(entry.changeId, { entry, status: "pending" });
 		const rect = changeMarkRectFn?.(editor, entry.changeId);
 		if (rect && contentEl) {
+			// Same scroll container, same viewport-to-local conversion the
+			// selection bubble needs (bubble-placement.ts's own header comment) —
+			// this one omitted the container's own scroll offset too.
 			const hostRect = contentEl.getBoundingClientRect();
-			nextPositions.set(entry.changeId, {
-				x: rect.left - hostRect.left,
-				y: rect.bottom - hostRect.top,
-			});
+			nextPositions.set(
+				entry.changeId,
+				localizePoint(
+					{ x: rect.left, y: rect.bottom },
+					{
+						hostRect,
+						scrollLeft: contentEl.scrollLeft,
+						scrollTop: contentEl.scrollTop,
+					},
+				),
+			);
 		}
 	}
 	pendingChanges = nextPending;
@@ -493,11 +517,21 @@ async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
 			nextPending.set(entry.changeId, { entry, status: "pending" });
 			const rect = changeMarkRectFn?.(editor, entry.changeId);
 			if (rect && contentEl) {
+				// Same scroll container, same viewport-to-local conversion the
+				// selection bubble needs (bubble-placement.ts's own header comment) —
+				// this one omitted the container's own scroll offset too.
 				const hostRect = contentEl.getBoundingClientRect();
-				nextPositions.set(entry.changeId, {
-					x: rect.left - hostRect.left,
-					y: rect.bottom - hostRect.top,
-				});
+				nextPositions.set(
+					entry.changeId,
+					localizePoint(
+						{ x: rect.left, y: rect.bottom },
+						{
+							hostRect,
+							scrollLeft: contentEl.scrollLeft,
+							scrollTop: contentEl.scrollTop,
+						},
+					),
+				);
 			}
 		}
 		pendingChanges = nextPending;
