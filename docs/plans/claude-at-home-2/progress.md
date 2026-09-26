@@ -430,6 +430,13 @@ are assembled from per-kind fragments; snapshots regenerated; ceiling lowered.
 (pass one); `npm install` in `art-base` (Tiptap); full gates; `dev` ← `feat/artifacts` in the main checkout, gates in
 `dev-int`, push, deploy, real-model checks on ai.dev.
 
+**RV-SC done (2026-09-26).** Verdict "merge": the Docs×Apps merge verified clean (both parents diffed against the result, nothing
+lost, all three eval suites register, coalescing composes with `metadataPatch`, no Alfy write or restore coalesces);
+one card defect fixed test-first (`7b67b293`): `chrome="body"` drew the title and icon a second time under the tool
+row's own line, the regression slice-0 S6 had pinned, so the no-header rule is restored. Streaming cost measured ~0.18 ms
+per re-render at 300×300. `feat/artifacts-chatcard` fast-forwarded to `7453b2f1` (13,226 tests, Playwright 63/63 with
+one load flake that passes alone). Its open question (a refused tick may not revert the checkbox) was sent to RV-1B.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
