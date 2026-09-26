@@ -1,4 +1,4 @@
 {
-	"response": "```json\n{\n  \"claims\": [\n    \"the correct answer to the quiz question\",\n    \"the option letter corresponding to the correct answer\"\n  ],\n  \"findings\": [\n    {\n      \"claim\": \"the correct answer to the quiz question\",\n      \"problem\": \"The app marks 'Bukarest' as the correct answer, but Bucharest is not located on the Danube (it is on the Dâmbovița). The correct answer should be Belgrade (C).\",\n      \"class\": \"wrong_key\",\n      \"location\": \"ol > li:nth-child(4)[data-correct] and p:last-child\",\n      \"settled\": false\n    }\n  ],\n  \"repairedHtml\": null,\n  \"repairSafe\": false\n}\n```",
-	"durationMs": 1250
+  "response": "```json\n{\n  \"claims\": [\n    \"A kvíz kérdése: melyik főváros fekszik a Duna mentén a legkeletebbre\",\n    \"A helyes válasz a D) Bukarest\"\n  ],\n  \"findings\": [\n    {\n      \"claim\": \"A helyes válasz a D) Bukarest\",\n      \"problem\": \"A Bukarest nem fekszik a Duna mentén (a Duna nem folyik át rajta). A négy közül a legkeletebbi Duna-parti főváros a C) Belgrád.\",\n      \"class\": \"wrong_key\",\n      \"location\": \"ol li[data-correct=\\\"true\\\"] és p: 'Helyes válasz: D) Bukarest'\",\n      \"settled\": false\n    }\n  ],\n  \"repairedHtml\": null,\n  \"repairSafe\": false\n}\n```",
+  "durationMs": 1322
 }
