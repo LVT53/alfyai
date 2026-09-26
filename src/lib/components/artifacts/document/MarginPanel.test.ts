@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import { makeBlock } from "$lib/shared/artifact-document/blocks";
@@ -114,5 +120,52 @@ describe("MarginPanel", () => {
 		});
 		await fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
 		expect(onResolve).toHaveBeenCalledWith("root-9", true);
+	});
+
+	// Margin placement follow-up: orphaned threads (nowhere to sit beside)
+	// render in their own clearly-labelled group, never mixed into the main
+	// list the way a plain flat list used to show them.
+	it("puts an orphaned comment in its own labelled group, separate from a resolved one", () => {
+		render(MarginPanel, {
+			comments: [
+				makeRoot({
+					id: "found",
+					body: "Still relevant",
+					anchor: {
+						kind: "text",
+						blockId: "p1",
+						quote: "the flight",
+						prefix: "Book ",
+						suffix: " to Vienna.",
+					},
+				}),
+				makeRoot({ id: "gone", body: "Where did this go?", anchor: null }),
+			],
+			blocks: [makeBlock("p1", "paragraph", "Book the flight to Vienna.")],
+			onResolve: vi.fn(),
+			onSubmitReply: vi.fn(),
+		});
+
+		const orphanedGroup = screen.getByTestId("margin-orphaned-group");
+		expect(orphanedGroup).toBeInTheDocument();
+		expect(
+			within(orphanedGroup).getByText("Where did this go?"),
+		).toBeInTheDocument();
+		expect(
+			within(orphanedGroup).queryByText("Still relevant"),
+		).not.toBeInTheDocument();
+		expect(screen.getByText("Still relevant")).toBeInTheDocument();
+	});
+
+	it("shows no orphaned group at all when every comment resolves cleanly", () => {
+		render(MarginPanel, {
+			comments: [makeRoot()],
+			blocks: [makeBlock("p1", "paragraph", "Book the flight to Vienna.")],
+			onResolve: vi.fn(),
+			onSubmitReply: vi.fn(),
+		});
+		expect(
+			screen.queryByTestId("margin-orphaned-group"),
+		).not.toBeInTheDocument();
 	});
 });

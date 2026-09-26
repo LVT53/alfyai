@@ -678,6 +678,7 @@ function saveNoticeText(notice: SaveNotice): string {
 		<MarginPanel
 			{comments}
 			{blocks}
+			{contentEl}
 			onResolve={handleCommentResolve}
 			onSubmitReply={postReply}
 		/>

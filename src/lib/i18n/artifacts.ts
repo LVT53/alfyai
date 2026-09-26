@@ -156,6 +156,10 @@ const artifactsDict = {
 		"artifacts.document.comment.postError": "Could not post this comment.",
 		"artifacts.document.margin.title": "Comments",
 		"artifacts.document.margin.empty": "No comments yet.",
+		// The orphaned-comment group (margin placement follow-up): threads whose
+		// anchored text is gone have nowhere to sit beside, so they render in
+		// their own labelled section below the position-synced ones.
+		"artifacts.document.margin.orphanedGroup": "No longer in the document",
 		// The download sheet (Slice 1, T12).
 		"artifacts.document.export.title": "Download {title}",
 		"artifacts.document.export.pdf": "PDF",
@@ -293,6 +297,7 @@ const artifactsDict = {
 			"Nem sikerült elküldeni a megjegyzést.",
 		"artifacts.document.margin.title": "Megjegyzések",
 		"artifacts.document.margin.empty": "Még nincs megjegyzés.",
+		"artifacts.document.margin.orphanedGroup": "Már nincs a dokumentumban",
 		"artifacts.document.export.title": "{title} letöltése",
 		"artifacts.document.export.pdf": "PDF",
 		"artifacts.document.export.docx": "Word",

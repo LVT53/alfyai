@@ -227,4 +227,107 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 		await expect(shell.getByText("Seeded margin comment")).toBeVisible();
 		await expect(shell.getByText("Exact")).toBeVisible();
 	});
+
+	// Margin placement follow-up ("the margin shows it against the right
+	// block"): two comments on two DIFFERENT blocks, seeded in the OPPOSITE
+	// order from how they read in the document, must still appear in
+	// DOCUMENT order and never overlap on screen — and a third comment whose
+	// anchor no longer exists must land in its own, separately labelled
+	// group rather than among the two live ones.
+	test("places two comments in document order without overlapping, and puts an orphaned one in its own group", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Margin placement");
+		const markdown = "Book the hotel by Friday.\n\nConfirm the flight to Vienna.";
+		const userId = await testUserId();
+		const artifact = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Trip notes",
+			markdown,
+			author: "user",
+			summary: "Created",
+		});
+		const [firstBlock, secondBlock] = parseDocument(artifact.body ?? "", {
+			mint: false,
+		}).blocks;
+		if (!firstBlock || !secondBlock) {
+			throw new Error("the seeded document must parse to two blocks");
+		}
+
+		// Seeded SECOND block first, on purpose: placement must follow the
+		// DOCUMENT'S order, never comment creation order.
+		await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor: anchorFor(secondBlock.id, secondBlock.markdown, "flight"),
+			author: "user",
+			body: "On the second block",
+		});
+		await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor: anchorFor(firstBlock.id, firstBlock.markdown, "hotel"),
+			author: "user",
+			body: "On the first block",
+		});
+		await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor: {
+				kind: "text",
+				blockId: firstBlock.id,
+				quote: "a phrase that was never here",
+				prefix: "before ",
+				suffix: " after",
+			},
+			author: "user",
+			body: "This anchor is gone",
+		});
+
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByRole("button", { name: "Open" })
+			.click();
+
+		const shell = page.getByRole("complementary", {
+			name: "Document workspace",
+		});
+		await expect(shell).toBeVisible();
+
+		const items = shell.getByTestId("margin-comment");
+		await expect(items).toHaveCount(2);
+		const firstItem = shell
+			.getByTestId("margin-comment")
+			.filter({ hasText: "On the first block" });
+		const secondItem = shell
+			.getByTestId("margin-comment")
+			.filter({ hasText: "On the second block" });
+		await expect(firstItem).toBeVisible();
+		await expect(secondItem).toBeVisible();
+
+		const firstBox = await firstItem.boundingBox();
+		const secondBox = await secondItem.boundingBox();
+		expect(firstBox).not.toBeNull();
+		expect(secondBox).not.toBeNull();
+		// Document order: the first block's comment sits above the second
+		// block's comment.
+		expect(firstBox?.y ?? 0).toBeLessThan(secondBox?.y ?? 0);
+		// Never overlapping: the first one's box ends before the second one's
+		// box begins.
+		expect((firstBox?.y ?? 0) + (firstBox?.height ?? 0)).toBeLessThanOrEqual(
+			secondBox?.y ?? 0,
+		);
+
+		// The orphaned comment is grouped separately, not among the two
+		// position-synced ones above.
+		const orphanedGroup = shell.getByTestId("margin-orphaned-group");
+		await expect(orphanedGroup).toBeVisible();
+		await expect(orphanedGroup.getByText("This anchor is gone")).toBeVisible();
+		await expect(
+			orphanedGroup.getByText("On the first block"),
+		).not.toBeAttached();
+	});
 });
