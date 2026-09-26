@@ -101,6 +101,12 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// offer cannot be persisted from inside the tool), and moved on in place by
 	// `updateAssistantMessageInstructionSuggestionStatus` below.
 	instructionSuggestions?: InstructionSuggestion[];
+	// Slice 1 (Artifacts) — "Open as document" links this assistant message to
+	// the Document it was kept as, so asking twice opens the SAME artifact
+	// instead of creating a second one. The link lives here, beside every other
+	// per-message fact, rather than a new table (AGENTS.md: messages.ts owns
+	// persisted assistant-message metadata; no route-local shadow storage).
+	documentArtifactId?: string;
 	wasStopped?: boolean;
 	// E2 — persisted mirror of E1's completionWarningCodes (written alongside
 	// wasStopped by finalize's assistantMetadata; see stream-completion.ts).
@@ -968,6 +974,74 @@ export async function getAssistantMessageSkillDraft(params: {
 		? metadata.skillDrafts
 		: [];
 	return drafts.find((draft) => draft.id === params.draftId) ?? null;
+}
+
+/**
+ * "Open as document" (Feature 2 · Artifacts, Slice 1): the message's visible
+ * text — `content` is already the normalized visible text by the time it is
+ * persisted (send/stream apply `normalizeAssistantOutput` before the write),
+ * so this reads it straight off the row rather than re-deriving it — and any
+ * document this message was already kept as, for idempotency. `null` for a
+ * missing message, a message in a different conversation, or a non-assistant
+ * one: "Open as document" only ever applies to an assistant reply.
+ */
+export async function getMessageForDocumentKeep(params: {
+	conversationId: string;
+	messageId: string;
+}): Promise<{ content: string; documentArtifactId: string | null } | null> {
+	const [row] = await db
+		.select({
+			content: messages.content,
+			role: messages.role,
+			metadataJson: messages.metadataJson,
+		})
+		.from(messages)
+		.where(
+			and(
+				eq(messages.id, params.messageId),
+				eq(messages.conversationId, params.conversationId),
+				eq(messages.role, "assistant"),
+			),
+		)
+		.limit(1);
+	if (!row) return null;
+	const metadata = parseMetadata(row.metadataJson);
+	return {
+		content: row.content,
+		documentArtifactId:
+			typeof metadata?.documentArtifactId === "string"
+				? metadata.documentArtifactId
+				: null,
+	};
+}
+
+/**
+ * Records which Document a message was kept as. Additive, same paved road as
+ * `updateMessageRailSummary`: read, merge, write back. Never overwritten once
+ * set — the route checks `getMessageForDocumentKeep` first and only calls
+ * this on a fresh creation, so a message never points at two documents in
+ * sequence just because "Open as document" was clicked twice.
+ */
+export async function updateMessageDocumentLink(
+	messageId: string,
+	artifactId: string,
+): Promise<void> {
+	const [row] = await db
+		.select({ metadataJson: messages.metadataJson })
+		.from(messages)
+		.where(eq(messages.id, messageId))
+		.limit(1);
+	if (!row) return;
+
+	const next: PersistedMessageMetadata = {
+		...(parseMetadata(row.metadataJson) ?? {}),
+		documentArtifactId: artifactId,
+	};
+
+	await db
+		.update(messages)
+		.set({ metadataJson: JSON.stringify(next) })
+		.where(eq(messages.id, messageId));
 }
 
 export async function isAssistantMessageForkCopy(params: {

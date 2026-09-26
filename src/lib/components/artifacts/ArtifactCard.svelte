@@ -2,15 +2,22 @@
 // The one card every artifact kind renders as, in chat and in the panel's
 // list (Slice 0 Task S6). Two chrome modes share one body-dispatch:
 // "full" draws the header row (icon, title, kind label, version pill, Open)
-// for the panel list and the four new kinds' chat cards; "body" renders
-// ONLY the kind's body, for a host that already draws its own header — today
-// that is ToolActivityRow, whose row chrome already carries the File job's
-// title (`item.object`), so the body must not repeat it.
+// for the panel list; "body" renders only the kind's body — no title, icon,
+// kind label or version pill of its own — for a host that already draws its
+// own header.
 //
-// The File kind's body is `FileProductionCard.svelte`, moved here from
-// ToolActivityRow: it is imported lazily, the same way the row imported it
-// before, so a chat page with no file-producing turn never pays for its
-// chunk.
+// Every kind hosted by ToolActivityRow is such a host: the row chrome always
+// renders its own icon and its own verb+object line (`item.object`) before
+// the body ever opens — a produced file's ("Produced budget.xlsx") exactly
+// as much as a create_artifact/edit_artifact call's ("Created Weekend
+// plan"). chrome="body" must never repeat that line: the File body
+// (`FileProductionCard.svelte`, moved here from ToolActivityRow, imported
+// lazily so a chat page with no file-producing turn never pays for its
+// chunk) never has, and the other four kinds' chat card follows the same
+// rule — subtitle, tickable items and Open still render under chrome="body",
+// only the header does not. Asserted by ArtifactCard.test.ts and
+// ToolActivityRow.test.ts: the composed row+body markup shows a title
+// exactly once, for every kind.
 import {
 	AppWindow,
 	FileText,
@@ -34,6 +41,13 @@ export interface ArtifactCardView {
 	id: string;
 	kind: ArtifactKind;
 	title: string;
+	/**
+	 * A second line under the title, e.g. the Document's "Document · 3 tabs"
+	 * (T9.4, `documentArtifactCardView` in `document/card-view.ts`) —
+	 * already-localised by the caller, exactly like `madeBy`. `null`/omitted
+	 * renders nothing, so every other kind is unaffected by this field.
+	 */
+	subtitle?: string | null;
 	/** Rendered as "made by Alfy {when}"; the caller supplies the already-localised time. */
 	madeBy?: string | null;
 	versionNumber?: number | null;
@@ -41,6 +55,14 @@ export interface ArtifactCardView {
 	openTargetId?: string | null;
 	tickable?: {
 		items: ArtifactCardTickableItem[];
+		/**
+		 * How many task items REALLY exist — equal to `items.length` unless the
+		 * caller is working from a bounded subset (the chat card's server
+		 * preview, T9 steps 4/7, never carries more than the first five).
+		 * Falls back to `items.length` when omitted, so a full-body caller
+		 * (the panel) needs no change.
+		 */
+		totalCount?: number;
 		onToggle: (id: string) => void;
 	} | null;
 }
@@ -87,7 +109,11 @@ let visibleTickableItems = $derived(
 	view.tickable?.items.slice(0, TICKABLE_VISIBLE_LIMIT) ?? [],
 );
 let hiddenTickableCount = $derived(
-	Math.max(0, (view.tickable?.items.length ?? 0) - TICKABLE_VISIBLE_LIMIT),
+	Math.max(
+		0,
+		(view.tickable?.totalCount ?? view.tickable?.items.length ?? 0) -
+			TICKABLE_VISIBLE_LIMIT,
+	),
 );
 
 // The File body is lazy: a chat page with no file-producing turn must not
@@ -118,18 +144,28 @@ function handleOpen(): void {
 }
 </script>
 
-{#if chrome === 'full'}
+{#if chrome === 'body' && view.kind === 'file'}
+	{#if job && FileProductionBody}
+		<FileProductionBody {job} {onOpenDocument} {onRetry} {onCancel} {onDismiss} />
+	{/if}
+{:else}
 	<div class="artifact-card" data-testid="artifact-card">
-		<div class="artifact-card-header">
-			<span class="artifact-card-icon" aria-hidden="true">
-				<KindIcon size={16} strokeWidth={1.75} aria-hidden="true" />
-			</span>
-			<span class="artifact-card-title">{view.title}</span>
-			<span class="artifact-card-kind">{$t(`artifacts.type.${view.kind}` as I18nKey)}</span>
-			{#if view.versionNumber}
-				<span class="artifact-card-version">{$t('artifacts.card.version', { n: view.versionNumber })}</span>
-			{/if}
-		</div>
+		{#if chrome === 'full'}
+			<div class="artifact-card-header">
+				<span class="artifact-card-icon" aria-hidden="true">
+					<KindIcon size={16} strokeWidth={1.75} aria-hidden="true" />
+				</span>
+				<span class="artifact-card-title">{view.title}</span>
+				<span class="artifact-card-kind">{$t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+				{#if view.versionNumber}
+					<span class="artifact-card-version">{$t('artifacts.card.version', { n: view.versionNumber })}</span>
+				{/if}
+			</div>
+		{/if}
+
+		{#if view.subtitle}
+			<div class="artifact-card-subtitle">{view.subtitle}</div>
+		{/if}
 
 		{#if view.madeBy}
 			<div class="artifact-card-madeby">{view.madeBy}</div>
@@ -143,7 +179,21 @@ function handleOpen(): void {
 							<input
 								type="checkbox"
 								checked={tickItem.done}
-								onchange={() => view.tickable?.onToggle(tickItem.id)}
+								onclick={(event) => {
+									// A checkbox's native click default action flips its own
+									// `.checked` property immediately, independent of the
+									// `checked={tickItem.done}` binding above — which only
+									// re-syncs the DOM when `done`'s VALUE changes. A caller
+									// that (correctly) leaves `done` untouched after a refused
+									// toggle (a version conflict, a network failure) gives
+									// Svelte no reason to touch the checkbox again, so the box
+									// would stay visually ticked while the stored document
+									// still says otherwise. Preventing the native default makes
+									// `checked` the ONLY thing that ever moves this checkbox, so
+									// a no-op `done` genuinely means a no-op checkbox.
+									event.preventDefault();
+									view.tickable?.onToggle(tickItem.id);
+								}}
 							/>
 							<span class:artifact-card-tick-done={tickItem.done}>{tickItem.text}</span>
 						</label>
@@ -163,8 +213,6 @@ function handleOpen(): void {
 			</button>
 		{/if}
 	</div>
-{:else if view.kind === 'file' && job && FileProductionBody}
-	<FileProductionBody {job} {onOpenDocument} {onRetry} {onCancel} {onDismiss} />
 {/if}
 
 <style>
@@ -208,6 +256,7 @@ function handleOpen(): void {
 		font-weight: 600;
 	}
 
+	.artifact-card-subtitle,
 	.artifact-card-madeby {
 		color: var(--text-muted);
 		font-size: var(--text-xs);

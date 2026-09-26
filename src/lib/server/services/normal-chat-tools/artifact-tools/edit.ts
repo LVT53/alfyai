@@ -3,41 +3,65 @@
 // concurrent edit wins, and the model is told why so it can act rather than
 // retry blind. See docs/plans/claude-at-home-2/slice-5.md §The three tools
 // and decisions.md ruling 43.
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+	applyDocumentPatch,
 	getArtifact,
 	listArtifactCatalogueEntries,
 } from "$lib/server/services/artifacts";
+import { parseDocument } from "$lib/shared/artifact-document/blocks";
+import type {
+	RefusalReason as DocumentRefusalReason,
+	PatchOp,
+	PatchSet,
+} from "$lib/shared/artifact-document/patch";
 import { truncateText } from "../shared";
-import type { CreatableArtifactKind } from "./create";
+import {
+	editArtifactOpsFieldDescription,
+	editArtifactPatchesFieldDescription,
+} from "./kind-prose";
+import {
+	advertisedArtifactKinds,
+	type CreatableArtifactKind,
+} from "./kind-registry";
 
-/** Advertised to the model. `patches`/`ops` stay permissive on purpose (below). */
-export const editArtifactModelInputSchema = z.object({
-	artifactId: z
-		.string()
-		.min(1)
-		.describe(
-			"The id from create_artifact, read_artifact or the artifact catalogue.",
-		),
-	patches: z
-		.array(z.unknown())
-		.optional()
-		.describe(
-			"Documents and Slides only: [{op, blockId|slideId, fieldId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
-		),
-	ops: z
-		.array(z.unknown())
-		.optional()
-		.describe(
-			"Canvas only: [{op:'add_frame'|'add_node'|'move'|'add_edge'|'remove_edge'|'update_node'|'remove_node'|'highlight', ...}], at most 40.",
-		),
-	summary: z
-		.string()
-		.min(1)
-		.max(200)
-		.optional()
-		.describe("One short line shown next to Keep/Undo."),
-});
+/**
+ * Advertised to the model. `patches`/`ops` stay permissive on purpose
+ * (below) — but each is only DESCRIBED while a kind that actually uses it is
+ * advertised (kind-registry.ts's advertisedArtifactKinds()); an undescribed
+ * field for a kind nobody can create yet would just be a token cost with
+ * nothing to point at. Built fresh from `kinds` for the same reason
+ * buildCreateArtifactModelInputSchema (create.ts) is: a newly registered
+ * handler must be reflected the next time this is called, not frozen at
+ * module load.
+ */
+export function buildEditArtifactModelInputSchema(
+	kinds: readonly CreatableArtifactKind[] = advertisedArtifactKinds(),
+) {
+	const patches = z.array(z.unknown()).optional();
+	const patchesDescription = editArtifactPatchesFieldDescription(kinds);
+	const ops = z.array(z.unknown()).optional();
+	const opsDescription = editArtifactOpsFieldDescription(kinds);
+	return z.object({
+		artifactId: z
+			.string()
+			.min(1)
+			.describe(
+				"The id from create_artifact, read_artifact or the artifact catalogue.",
+			),
+		patches: patchesDescription
+			? patches.describe(patchesDescription)
+			: patches,
+		ops: opsDescription ? ops.describe(opsDescription) : ops,
+		summary: z
+			.string()
+			.min(1)
+			.max(200)
+			.optional()
+			.describe("One short line shown next to Keep/Undo."),
+	});
+}
 
 /** Executed against: the caps are the server's, and they are enforced here. */
 export const editArtifactInputSchema = z.object({
@@ -61,7 +85,11 @@ export type EditArtifactToolInput = z.infer<typeof editArtifactInputSchema>;
  * yet). Each type slice widens this union with `|` when it appends its
  * handler below; nobody redeclares it.
  */
-export type ArtifactRefusalReason = "unsupported_kind";
+// Slice 1 is the first type slice to land: the union now carries 5a's own
+// member plus the Document engine's ten reasons
+// ($lib/shared/artifact-document/patch's RefusalReason). Each later type
+// slice widens this with `|` when it appends its handler below.
+export type ArtifactRefusalReason = "unsupported_kind" | DocumentRefusalReason;
 
 export interface ArtifactRefusal {
 	/** Document: blockId. Canvas: the op's target id. Slides: slideId. Unset for a whole-artifact refusal (e.g. `unsupported_kind`). */
@@ -69,6 +97,12 @@ export interface ArtifactRefusal {
 	/** Document: blockLabel. Slides: the SlideTarget. */
 	label?: string;
 	reason: ArtifactRefusalReason;
+	/**
+	 * Document: the refused op's index in this call's `patches`. Two ops can
+	 * target one block with different outcomes, so a block id alone cannot
+	 * say which one was refused (RV-1A).
+	 */
+	opIndex?: number;
 }
 
 export type EditArtifactModelPayload =
@@ -140,9 +174,147 @@ export type EditArtifactHandler = (
  * here — and only here. No type slice edits `normal-chat-tools/index.ts` or
  * `shared.ts`.
  */
+// Slice 1's wire shape for one Document patch op, matching this tool's own
+// advertised `[{op, blockId|slideId, fieldId, baseHash, text}]` shape with
+// Document's own `op` vocabulary (mirrors $lib/shared/artifact-document/patch's
+// PatchOpKind so the engine's five kinds are the model's five `op` values,
+// never a second naming). All fields beyond `op`/`blockId`/`baseHash` are
+// optional here; the engine itself refuses an op whose kind needs a field
+// that is missing (`not_a_text_block`, `empty_text`, …).
+const documentPatchOpSchema = z.object({
+	op: z.enum([
+		"replaceBlock",
+		"insertText",
+		"replaceRange",
+		"toggleTask",
+		"addTableRow",
+	]),
+	blockId: z.string().min(1),
+	baseHash: z.string().min(1),
+	text: z.string().optional(),
+	find: z.string().optional(),
+	at: z.enum(["start", "end"]).optional(),
+	checked: z.boolean().optional(),
+	cells: z
+		.array(
+			z.union([
+				z.string(),
+				z.object({
+					chip: z.object({
+						kind: z.enum(["status", "date"]),
+						value: z.string(),
+					}),
+				}),
+			]),
+		)
+		.optional(),
+});
+
+const documentPatchOpsSchema = z.array(documentPatchOpSchema).min(1);
+
 export const EDIT_ARTIFACT_HANDLERS: Partial<
 	Record<CreatableArtifactKind, EditArtifactHandler>
-> = {};
+> = {
+	document: async (params) => {
+		if (params.abortSignal.aborted) {
+			return { ok: false, error: "The request was cancelled." };
+		}
+		if (params.ops) {
+			return { ok: false, error: "Documents use patches, not ops." };
+		}
+		const parsed = documentPatchOpsSchema.safeParse(params.patches ?? []);
+		if (!parsed.success) {
+			return {
+				ok: false,
+				error:
+					"One or more patch ops were malformed. Re-read the document and try again with the exact op/blockId/baseHash shape.",
+			};
+		}
+
+		// Labels for the refusal notice, read WITHOUT touching the snapshot
+		// (readDocumentForAlfy would refresh it to the CURRENT state and erase
+		// the very evidence "your words win" depends on for this same call).
+		const artifact = await getArtifact({
+			userId: params.userId,
+			artifactId: params.artifactId,
+			conversationId: params.conversationId,
+		});
+		const labelByBlockId = new Map<string, string>();
+		if (artifact?.body) {
+			for (const block of parseDocument(artifact.body, { mint: false })
+				.blocks) {
+				labelByBlockId.set(block.id, block.label);
+			}
+		}
+
+		const ops: PatchOp[] = parsed.data.map((op) => ({
+			opId: `alfy-${randomUUID()}`,
+			kind: op.op,
+			blockId: op.blockId,
+			baseHash: op.baseHash,
+			blockLabel: labelByBlockId.get(op.blockId) ?? op.blockId,
+			text: op.text,
+			find: op.find,
+			at: op.at,
+			checked: op.checked,
+			cells: op.cells,
+		}));
+
+		const patch: PatchSet = {
+			patchId: `alfy-${params.turnId}`,
+			label: params.summary ?? "Alfy's edit",
+			ops,
+		};
+
+		if (params.abortSignal.aborted) {
+			return { ok: false, error: "The request was cancelled." };
+		}
+
+		const result = await applyDocumentPatch({
+			userId: params.userId,
+			artifactId: params.artifactId,
+			conversationId: params.conversationId,
+			patch,
+		});
+		if (!result.ok) {
+			const error =
+				result.reason === "not_a_document"
+					? "This item is not a document."
+					: "This document could not be found.";
+			return { ok: false, error };
+		}
+
+		// One outcome per op, in the order of `patches` — so an outcome's
+		// position is the op's index.
+		const refused: ArtifactRefusal[] = result.result.outcomes.flatMap(
+			(outcome, opIndex) =>
+				outcome.status === "refused"
+					? [
+							{
+								target: outcome.blockId,
+								label: outcome.blockLabel,
+								reason: (outcome.code ??
+									"block_missing") as ArtifactRefusalReason,
+								opIndex,
+							},
+						]
+					: [],
+		);
+
+		return {
+			ok: true,
+			value: {
+				// versionId is only ever null for a document with no version row at
+				// all, which createDocumentArtifact never leaves behind — the
+				// artifactId is a safe, always-valid fallback string for that
+				// theoretical case, never actually read as a real version id.
+				versionId: result.versionId ?? params.artifactId,
+				applied: result.result.applied,
+				refused,
+			},
+		};
+	},
+};
 
 // English only (see create.ts's identical note): App gets its own framing
 // because "edited in place" will never be true for it even once Slice 2
@@ -318,6 +490,34 @@ export async function runEditArtifactTool(params: {
 			artifactId: record.id,
 			artifactKind: record.kind,
 			artifactTitle: record.title,
+			// Feature 2 · Artifacts, Slice 1, "T8 live": the live tool-call stream
+			// never carries the server's full PatchResult (no inverses, no
+			// per-op outcomes) — only this flat metadata bag reaches the
+			// browser. `appliedCount` and `refusedBlocksJson` (an already-scoped
+			// JSON array, since `metadata` values must stay flat scalars) are
+			// exactly what an open Document panel needs to reconstruct its own
+			// change marks and refusal notice client-side; see
+			// `document/alfy-activity.ts`'s `reconstructDocumentPatch`. Kept
+			// deliberately minimal: no `blockLabel` (the panel already has its
+			// own pre-edit blocks to label from) and no reason text (the panel
+			// localises the `code` itself, the same way the model-facing
+			// `refused` array above only ever carried a code).
+			appliedCount: result.value.applied,
+			...(refusedCount > 0
+				? {
+						refusedBlocksJson: JSON.stringify(
+							result.value.refused.map((item) => ({
+								blockId: item.target ?? "",
+								reason: item.reason,
+								// Which op, not just which block: one block can carry an
+								// applied op and a refused one in the same call (RV-1A).
+								...(item.opIndex !== undefined
+									? { opIndex: item.opIndex }
+									: {}),
+							})),
+						),
+					}
+				: {}),
 		},
 	};
 }

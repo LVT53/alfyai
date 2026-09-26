@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-
 import {
 	ALFYAI_NEMOTRON_PROMPT,
 	getSystemPrompt,
@@ -7,6 +6,48 @@ import {
 	normalizeSystemPromptReference,
 	stripDeprecatedPreserveProtocol,
 } from "./prompts";
+// From create.ts (not kind-registry.ts): this test wants the REAL registry
+// state, and create.ts is what registers document/app's handlers as a side
+// effect of being imported. prompts.ts itself never imports create.ts — see
+// its own comment on ARTIFACT_KINDS_PARAGRAPH for why.
+import { advertisedArtifactKinds } from "./services/normal-chat-tools/artifact-tools/create";
+import { artifactKindListEn } from "./services/normal-chat-tools/artifact-tools/kind-prose";
+
+// "Alfy must only be told about the artifact kinds that actually exist."
+// ALFYAI_NEMOTRON_PROMPT is the cached system prompt (ADR-0055): its
+// artifact-kinds paragraph is assembled ONCE, at module load, from
+// advertisedArtifactKinds() — never per turn or per conversation — so it
+// must stay byte-identical for the life of the process, exactly like every
+// other part of this prompt.
+describe("artifact-kinds paragraph (only advertise kinds that exist)", () => {
+	it("today, names only Document and App — not Canvas or Slides, which have no create handler yet", () => {
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
+			"You can also keep something as a Document or App item beside the chat",
+		);
+		expect(ALFYAI_NEMOTRON_PROMPT).not.toContain("Canvas");
+		expect(ALFYAI_NEMOTRON_PROMPT).not.toContain("Slides");
+	});
+
+	it("matches what kind-prose.ts's assembler produces for today's advertised kinds (the one source, not a second hand-kept string)", () => {
+		const freshlyAssembled = `You can also keep something as a ${artifactKindListEn(advertisedArtifactKinds())} item beside the chat, so the user can come back to it and edit it with you. Offer one when they will return to the work; the tool descriptions say when, and which type.`;
+
+		expect(ALFYAI_NEMOTRON_PROMPT).toContain(freshlyAssembled);
+	});
+
+	// The base prompt is a plain module-level constant, computed once — this
+	// is what makes it safe as a cached prefix. Simulate two different turns
+	// in two different conversations the only way that is meaningful here:
+	// two independent reads of the resolved built-in prompt, exactly how
+	// normal-chat-context.ts resolves it for every turn of every conversation.
+	it("is byte-identical across two simulated turns in two simulated conversations", () => {
+		const conversationATurnOne = getSystemPrompt("alfyai-nemotron");
+		const conversationBTurnFive = getSystemPrompt("alfyai-nemotron");
+
+		expect(conversationATurnOne).toBe(ALFYAI_NEMOTRON_PROMPT);
+		expect(conversationBTurnFive).toBe(ALFYAI_NEMOTRON_PROMPT);
+		expect(conversationATurnOne).toBe(conversationBTurnFive);
+	});
+});
 
 describe("prompts", () => {
 	it("leaves an empty prompt unset", () => {

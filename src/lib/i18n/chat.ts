@@ -11,6 +11,14 @@ const chatDict = {
 		"chat.allFilesTooLarge":
 			"All files exceed the {max}MB maximum upload size.",
 		"chat.answerNow": "Answer now",
+		// "Open as document" (Feature 2 · Artifacts, Slice 1): the message-row
+		// action, and its own narrow prefix in AUDITED_PREFIXES — `chat.` as a
+		// whole carries pre-existing drift, so `chat.artifacts.` is what makes
+		// the parity test watch this one (i18n.test-helpers.ts).
+		"chat.artifacts.keepAsDocument": "Open as document",
+		"chat.artifacts.keepAsDocumentBusy": "Opening…",
+		"chat.artifacts.keepAsDocumentError": "Could not open this as a document.",
+		"chat.artifacts.openExistingDocument": "Open document",
 		"chat.attachmentLabel": "Attach file",
 		"chat.checkingPrivacy": "Checking privacy…",
 		"chat.delete": "Delete",
@@ -954,6 +962,8 @@ const chatDict = {
 		"toolActivity.routing": "Routing",
 		"toolActivity.created": "Created",
 		"toolActivity.creating": "Creating",
+		"toolActivity.edited": "Edited",
+		"toolActivity.editing": "Editing",
 		"toolActivity.usedSkill": "Used skill",
 		"toolActivity.usingSkill": "Using skill",
 		"toolActivity.recalled": "Recalled",
@@ -1173,6 +1183,11 @@ const chatDict = {
 		"chat.allFilesTooLarge":
 			"Minden fájl meghaladja a {max} MB-os maximális feltöltési méretet.",
 		"chat.answerNow": "Válasz most",
+		"chat.artifacts.keepAsDocument": "Megnyitás dokumentumként",
+		"chat.artifacts.keepAsDocumentBusy": "Megnyitás…",
+		"chat.artifacts.keepAsDocumentError":
+			"Ezt nem sikerült dokumentumként megnyitni.",
+		"chat.artifacts.openExistingDocument": "Dokumentum megnyitása",
 		"chat.attachmentLabel": "Fájl csatolása",
 		"chat.checkingPrivacy": "Adatvédelem ellenőrzése…",
 		"chat.delete": "Törlés",
@@ -2064,6 +2079,8 @@ const chatDict = {
 		"toolActivity.routing": "Útvonaltervezés",
 		"toolActivity.created": "Létrehozva",
 		"toolActivity.creating": "Létrehozás",
+		"toolActivity.edited": "Szerkesztve",
+		"toolActivity.editing": "Szerkesztés",
 		"toolActivity.usedSkill": "Használt képesség",
 		"toolActivity.usingSkill": "Képesség betöltése",
 		"toolActivity.recalled": "Felidézve",

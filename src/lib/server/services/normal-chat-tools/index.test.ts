@@ -4821,13 +4821,22 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 		return { tools, getToolCalls };
 	}
 
+	// The real Slice 1 handler, captured before any test in this file gets a
+	// chance to overwrite it. Restoring THIS (rather than deleting the key)
+	// after a test fakes it matters now that create_artifact's advertised
+	// schema is built fresh from advertisedArtifactKinds() on every call
+	// (kind-registry.ts): leaving the key deleted would silently drop
+	// "document" from every later test's schema/description in this file,
+	// including the tool-catalogue snapshot and token-budget tests below.
+	const realDocumentHandler = CREATE_ARTIFACT_HANDLERS.document;
+
 	// Ruling 55: the create closure threads ctx.language to the per-kind
 	// handler instead of each kind re-detecting it from the model's body.
 	// "document" stands in for any kind here — the wiring is in the shared
 	// create_artifact closure, not in a specific kind's own handler.
 	describe("create_artifact threads ctx.language to the handler (ruling 55)", () => {
 		afterEach(() => {
-			delete CREATE_ARTIFACT_HANDLERS.document;
+			CREATE_ARTIFACT_HANDLERS.document = realDocumentHandler;
 		});
 
 		it("passes the turn's own resolved language through unchanged", async () => {
@@ -4870,7 +4879,7 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 	});
 
 	afterEach(() => {
-		delete CREATE_ARTIFACT_HANDLERS.document;
+		CREATE_ARTIFACT_HANDLERS.document = realDocumentHandler;
 	});
 
 	it("advertises a trimmed create_artifact schema and validates with the full one", async () => {
@@ -5109,6 +5118,80 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 	});
 });
 
+// Task: "Alfy must only be told about the artifact kinds that actually
+// exist." Exercises the REAL wiring (createNormalChatTools), not just
+// kind-prose.ts's fragment functions directly, so a regression anywhere in
+// the assembly path — the schemas in create.ts/edit.ts, or the descriptions
+// built in index.ts — is caught here, in both languages.
+describe("advertised artifact kinds match the registry (only tell the model what exists)", () => {
+	function buildArtifactTools(lang: "en" | "hu") {
+		return createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			language: lang,
+		}).tools;
+	}
+
+	function schemaJson(inputSchema: unknown): string {
+		return JSON.stringify(
+			(inputSchema as { jsonSchema?: unknown })?.jsonSchema ?? inputSchema,
+		);
+	}
+
+	const CANVAS_SLIDES_MARKERS = {
+		en: ["canvas", "Canvas", "slides", "Slides"],
+		hu: ["Tábla", "tábla", "Diasor", "diasor"],
+	} as const;
+
+	it.each([
+		"en",
+		"hu",
+	] as const)("with today's registry, no create_artifact/read_artifact/edit_artifact %s text mentions canvas or slides", (lang) => {
+		const tools = buildArtifactTools(lang);
+		const surfaces = [
+			tools.create_artifact.description,
+			schemaJson(tools.create_artifact.inputSchema),
+			tools.read_artifact.description,
+			schemaJson(tools.read_artifact.inputSchema),
+			tools.edit_artifact.description,
+			schemaJson(tools.edit_artifact.inputSchema),
+		];
+
+		for (const surface of surfaces) {
+			for (const marker of CANVAS_SLIDES_MARKERS[lang]) {
+				expect(surface, `${lang} marker "${marker}"`).not.toContain(marker);
+			}
+		}
+	});
+
+	it("registering a fake canvas create handler makes its create_artifact fragment and enum value appear, through the real wiring", () => {
+		try {
+			CREATE_ARTIFACT_HANDLERS.canvas = async () => ({
+				ok: false,
+				reason: "not used by this test",
+			});
+
+			const tools = buildArtifactTools("en");
+
+			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("canvas");
+			expect(tools.create_artifact.description).toContain(
+				"canvas for a board of things arranged in space",
+			);
+		} finally {
+			delete CREATE_ARTIFACT_HANDLERS.canvas;
+		}
+	});
+
+	it("removing canvas's handler again drops it from create_artifact's schema and description", () => {
+		const before = buildArtifactTools("en");
+		expect(schemaJson(before.create_artifact.inputSchema)).not.toContain(
+			"canvas",
+		);
+		expect(before.create_artifact.description).not.toContain("canvas for");
+	});
+});
+
 describe("tool description hygiene", () => {
 	const ALL_CONNECTION_CAPABILITIES = [
 		"files",
@@ -5200,17 +5283,29 @@ describe("tool description hygiene", () => {
 	// ceiling rather than a cut elsewhere (decisions.md ruling 23 allows
 	// exactly one such raise, measured, in the commit that adds the
 	// descriptions). Re-measured with them in the catalogue: 4,804 en /
-	// 7,823 hu. The ceiling below is set to that measurement plus a small
-	// margin (26 en / 27 hu), not a round number, so it stays a tripwire: the
-	// three new tools spent real headroom, and anything past this is cut from
-	// the catalogue again, the same discipline as every raise before it.
+	// 7,823 hu.
+	//
+	// "Only advertise the artifact kinds that actually exist" then LOWERED
+	// this ceiling instead of raising it: create_artifact/read_artifact/
+	// edit_artifact's descriptions, create_artifact's `artifactType` enum and
+	// `body` field, and edit_artifact's `patches`/`ops` fields are now
+	// assembled from per-kind fragments (kind-prose.ts) for only the kinds
+	// with a registered create handler (advertisedArtifactKinds() in
+	// kind-registry.ts) — today document and app, not canvas/slides, which
+	// have no handler yet. Dropping their words from the catalogue re-measured
+	// at 4,720 en / 7,700 hu (84 en / 123 hu freed). The ceiling below is that
+	// new measurement plus the SAME small margin as before (26 en / 27 hu),
+	// not a round number, so it stays a tripwire: registering canvas's or
+	// slides's handler will spend real headroom back, measured and paid for
+	// like any other raise, not by moving this number further than the
+	// registration itself costs.
 	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
 	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 4830, hu: 7850 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 4746, hu: 7727 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);

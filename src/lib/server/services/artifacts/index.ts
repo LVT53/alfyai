@@ -17,12 +17,28 @@ export {
 	resolveArtifactCatalogueBlock,
 } from "./catalogue";
 export {
+	type AlfyCommentOutcome,
+	type AlfyCommentReplyResult,
 	createComment,
 	deleteComment,
+	getComment,
 	listComments,
 	parseArtifactAnchor,
 	resolveComment,
+	runAlfyCommentReply,
 } from "./comments";
+export {
+	applyDocumentPatch,
+	createDocumentArtifact,
+	DocumentOperationError,
+	documentTabsFromMetadata,
+	readDocumentForAlfy,
+	saveDocumentBody,
+} from "./document-ops";
+export {
+	buildGeneratedDocumentSource,
+	sanitizeDocumentFilename,
+} from "./export";
 export { hashArtifactBody } from "./hash";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
 export { listArtifactsForConversation } from "./read-model";

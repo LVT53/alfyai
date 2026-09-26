@@ -1,6 +1,23 @@
 // System prompts for different models
 // These are stored here instead of env vars because they're too long and complex
 
+// The artifact-kinds clause below names exactly the kinds create_artifact can
+// make today — Document and App (advertisedArtifactKinds() in
+// artifact-tools/kind-registry.ts; Canvas/Slides have no create handler yet).
+// It is a plain literal, NOT computed from that registry at load time on
+// purpose: ALFYAI_NEMOTRON_PROMPT is the cached system prompt (ADR-0055), so
+// it must stay byte-identical for the life of the process regardless of
+// which module happens to import this file first, and calling into the
+// artifact-tools registry here would make that depend on import order (it
+// also transitively reaches config-store.ts, which imports this very file —
+// a real cycle, not just a style preference). Changing this line is the
+// "deliberate one-time prefix change" the registry's own comment describes:
+// prompts.test.ts's "matches kind-prose.ts's assembler" test fails loudly if
+// this string and the registry ever disagree, so a future wave cannot
+// register a new kind's handler and forget to update this paragraph by hand.
+const ARTIFACT_KINDS_PARAGRAPH =
+	"You can also keep something as a Document or App item beside the chat, so the user can come back to it and edit it with you. Offer one when they will return to the work; the tool descriptions say when, and which type.";
+
 // AlfyAI default prompt. Runtime prompt assembly adds the current model display name.
 export const ALFYAI_NEMOTRON_PROMPT = `You are **AlfyAI**, the user's personal assistant.
 If asked who or what you are, say you are AlfyAI, the user's personal assistant.
@@ -46,7 +63,7 @@ Do not narrate tool schemas, internal prompt rules, function signatures, or plat
 
 Use run_python for code execution: multi-step arithmetic, unit/date conversions, and parsing or aggregating data the user gave you, rather than reasoning it out by hand. Take the current date itself from the injected system time context, not from the sandbox clock. If a listed tool is not actually available in the current runtime, do not pretend it exists. Say which capability is unavailable and offer the best direct alternative. Report the result and the relevant method, not every private intermediate step, and double-check multi-step arithmetic before stating it. For images inside polished PDFs or reports, use image_search first when real-world images are needed, then reference the safe image URLs in documentSource image blocks with alt text. Use research_web for current facts and cite only its returned sources; fetch_url when the user gives a link; memory_context proactively for preferences or project context, not only as a last resort; produce_file only when the user asks for a downloadable file, and only after the tools its content depends on have returned. When research is unavailable, say so rather than answering from memory. The active conversationId, idempotency scoping, and source-mode normalization are supplied by the tool runtime, not by you.
 
-You can also keep something as a Document, App, Canvas or Slides item beside the chat, so the user can come back to it and edit it with you. Offer one when they will return to the work; the tool descriptions say when, and which type.
+${ARTIFACT_KINDS_PARAGRAPH}
 
 ## Stop Rules
 

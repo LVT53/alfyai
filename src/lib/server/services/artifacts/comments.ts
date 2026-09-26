@@ -9,9 +9,24 @@
 // a comment is exactly as private as the artifact it is on.
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "$lib/server/db";
 import { artifactComments } from "$lib/server/db/schema";
+import {
+	ALFY_EMPTY_REPLY_MARKER,
+	ALFY_PARTIAL_REFUSAL_SUFFIX,
+	ALFY_REFUSED_MARKER,
+} from "$lib/shared/artifact-document/alfy-reply";
+import { resolveTextAnchor } from "$lib/shared/artifact-document/anchor";
+import type { DocumentBlock } from "$lib/shared/artifact-document/blocks";
+import type { PatchOp, PatchSet } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import { sendJsonControlMessage } from "../normal-chat-control-model";
+import {
+	applyDocumentPatch,
+	DocumentOperationError,
+	readDocumentForAlfy,
+} from "./document-ops";
 import { ARTIFACT_COMMENT_BODY_MAX_CHARS } from "./limits";
 import { readScopedArtifactRow } from "./record";
 import type {
@@ -36,11 +51,17 @@ function toAnchor(value: unknown): Anchor | null {
 	switch (candidate.kind) {
 		case "text": {
 			const { blockId, quote, prefix, suffix } = candidate;
+			// The context may be EMPTY: the editor captures it inside the
+			// block, so a selection at a block's start has no prefix and one at
+			// its end has no suffix — a whole heading, a first word, a whole
+			// task line. Requiring both non-empty refused every such comment
+			// with a 400 (RV-1A). An empty context is still a valid anchor: the
+			// quote and its block carry it.
 			if (
 				!isNonEmptyString(blockId) ||
 				!isNonEmptyString(quote) ||
-				!isNonEmptyString(prefix) ||
-				!isNonEmptyString(suffix)
+				typeof prefix !== "string" ||
+				typeof suffix !== "string"
 			) {
 				return null;
 			}
@@ -231,4 +252,372 @@ export async function deleteComment(
 		)
 		.run();
 	return result.changes > 0;
+}
+
+/** One comment, scoped exactly like every read above — the `/alfy` and future single-comment routes' own lookup. */
+export async function getComment(
+	params: CommentTarget & { commentId: string },
+): Promise<ArtifactComment | null> {
+	const artifact = await readScopedArtifactRow(params);
+	if (!artifact) return null;
+	const [row] = await db
+		.select()
+		.from(artifactComments)
+		.where(
+			and(
+				eq(artifactComments.id, params.commentId),
+				eq(artifactComments.artifactId, artifact.id),
+				eq(artifactComments.userId, params.userId),
+			),
+		)
+		.limit(1);
+	return row ? mapComment(row) : null;
+}
+
+// ── The @Alfy hook (Slice 1, Task T10) ──────────────────────────────────────
+// Ruling 11 assigns this hook to comments.ts alongside threads/status/replies
+// ("the whole family shares one comment layer"). Today it is Document-only:
+// a comment's own kind is read straight off the artifact, and there is only
+// one branch. A later type (Canvas, Slice 3) that wants its own @Alfy
+// behavior adds its own dispatch here rather than reusing the Document's
+// resolve-and-patch call, the same way `EDIT_ARTIFACT_HANDLERS` dispatches by
+// kind for the model's own edit_artifact tool.
+
+const ALFY_COMMENT_MAX_TOKENS = 4000;
+
+const alfyCommentPatchOpSchema = z.object({
+	op: z.enum([
+		"replaceBlock",
+		"insertText",
+		"replaceRange",
+		"toggleTask",
+		"addTableRow",
+	]),
+	text: z.string().optional(),
+	find: z.string().optional(),
+	at: z.enum(["start", "end"]).optional(),
+	checked: z.boolean().optional(),
+	cells: z
+		.array(
+			z.union([
+				z.string(),
+				z.object({
+					chip: z.object({
+						kind: z.enum(["status", "date"]),
+						value: z.string(),
+					}),
+				}),
+			]),
+		)
+		.optional(),
+});
+
+const alfyCommentReplySchema = z.object({
+	note: z.string(),
+	ops: z.array(alfyCommentPatchOpSchema),
+});
+
+/**
+ * `blockId`/`baseHash` are never model-facing here (unlike `edit_artifact`,
+ * which reads them off the model because the model chose which block to
+ * touch): a comment is already scoped to ONE block by its own anchor, so the
+ * server supplies both from a fresh read and the model only ever describes
+ * the change itself. This is what makes "scoped to the anchored block" a
+ * server guarantee rather than a prompt request.
+ */
+const ALFY_COMMENT_REPLY_JSON_SCHEMA = {
+	name: "alfy_comment_reply",
+	schema: {
+		type: "object",
+		properties: {
+			note: { type: "string" },
+			ops: {
+				type: "array",
+				items: {
+					type: "object",
+					properties: {
+						op: {
+							type: "string",
+							enum: [
+								"replaceBlock",
+								"insertText",
+								"replaceRange",
+								"toggleTask",
+								"addTableRow",
+							],
+						},
+						text: { type: "string" },
+						find: { type: "string" },
+						at: { type: "string", enum: ["start", "end"] },
+						checked: { type: "boolean" },
+					},
+					required: ["op"],
+				},
+			},
+		},
+		required: ["note", "ops"],
+	},
+} as const;
+
+function buildAlfyCommentSystemPrompt(params: {
+	blockText: string;
+	quote: string;
+	commentBody: string;
+}): string {
+	return [
+		"You are Alfy, replying inside a comment thread attached to one passage of a shared document.",
+		"The user quoted this passage and left a comment mentioning you.",
+		"",
+		`Passage: ${params.blockText}`,
+		`Quoted text: ${params.quote}`,
+		`Comment: ${params.commentBody}`,
+		"",
+		"If the comment asks for a text change, describe it with one or more ops against ONLY this passage:",
+		'- replaceRange: {"op":"replaceRange","find":"<exact text in the passage>","text":"<replacement>"}',
+		'- replaceBlock: {"op":"replaceBlock","text":"<the whole new passage>"}',
+		'- insertText: {"op":"insertText","text":"<text>","at":"start"|"end"}',
+		'- toggleTask: {"op":"toggleTask","checked":true|false}',
+		"If the comment is a question, an observation, or needs no change, leave ops empty.",
+		'Always write a short "note": your answer if it was a question, or one short line about what you changed. Write it in the same language as the comment.',
+		'Respond with JSON only, in the shape {"note": string, "ops": [...]}.',
+	].join("\n");
+}
+
+export type AlfyCommentOutcome = "applied" | "refused" | "answered";
+
+export interface AlfyCommentReplyResult {
+	outcome: AlfyCommentOutcome;
+	applied: number;
+	refused: number;
+	/** The version this reply's own change landed in, or the CURRENT version when nothing changed. */
+	version: number;
+	reply: ArtifactComment;
+}
+
+function parseAlfyReplyJson(text: string): unknown {
+	try {
+		return JSON.parse(text);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The `@Alfy` hook (T10.5): one patch attempt scoped to the comment's
+ * anchored block, through the SAME engine and hash guard `edit_artifact` uses
+ * (`applyDocumentPatch` — never a second one), abort-aware end to end (the
+ * envelope's signal fires on the caller's own timeout or the user
+ * disconnecting; nothing is written once it has), and always ending with a
+ * reply in the thread — applied, refused, or an answer, never silence.
+ */
+export async function runAlfyCommentReply(
+	params: CommentTarget & { commentId: string; abortSignal: AbortSignal },
+): Promise<
+	| { ok: true; value: AlfyCommentReplyResult }
+	| { ok: false; reason: "not_found" | "not_a_document" | "aborted" }
+> {
+	if (params.abortSignal.aborted) return { ok: false, reason: "aborted" };
+
+	// readDocumentForAlfy is Alfy's own read (Contracts: "read_artifact writes
+	// [the snapshot] in the same transaction as the read") — calling it here,
+	// rather than a second ad hoc read, is what makes the block this function
+	// resolves against one the guard below actually recognizes as "just seen".
+	// Without it every op would refuse `block_unseen`, the correct answer for
+	// a block with no snapshot entry at all.
+	let alfyRead: Awaited<ReturnType<typeof readDocumentForAlfy>>;
+	try {
+		alfyRead = await readDocumentForAlfy({
+			userId: params.userId,
+			artifactId: params.artifactId,
+			conversationId: params.conversationId,
+			includeIncognito: params.includeIncognito,
+		});
+	} catch (error) {
+		if (error instanceof DocumentOperationError) {
+			return {
+				ok: false,
+				reason: error.reason as "not_found" | "not_a_document",
+			};
+		}
+		throw error;
+	}
+
+	const target = await getComment(params);
+	if (!target) return { ok: false, reason: "not_found" };
+
+	const rootId = target.parentId ?? target.id;
+	const anchor = target.parentId
+		? parseArtifactAnchor(
+				(
+					await db
+						.select({ anchorJson: artifactComments.anchorJson })
+						.from(artifactComments)
+						.where(eq(artifactComments.id, target.parentId))
+						.limit(1)
+				)[0]?.anchorJson ?? null,
+			)
+		: target.anchor;
+
+	async function reply(body: string): Promise<ArtifactComment> {
+		const created = await createComment({
+			userId: params.userId,
+			artifactId: alfyRead.artifactId,
+			conversationId: params.conversationId,
+			includeIncognito: params.includeIncognito,
+			anchor: null,
+			author: "alfy",
+			body,
+			parentId: rootId,
+		});
+		if (!created)
+			throw new Error("alfy's own reply to a valid thread was refused");
+		return created;
+	}
+
+	async function refused(): Promise<AlfyCommentReplyResult> {
+		return {
+			outcome: "refused",
+			applied: 0,
+			refused: 0,
+			version: alfyRead.version,
+			reply: await reply(ALFY_REFUSED_MARKER),
+		};
+	}
+
+	if (!anchor || anchor.kind !== "text") {
+		return { ok: true, value: await refused() };
+	}
+
+	// The SAME read that just wrote the snapshot feeds resolution too, so the
+	// block applyDocumentPatch checks below is exactly the one the anchor
+	// resolved against — never a second, later read that could disagree.
+	const blocksForResolution: DocumentBlock[] = alfyRead.blocks.map((b) => ({
+		id: b.blockId,
+		kind: b.kind,
+		markdown: b.text,
+		hash: b.hash,
+		label: b.label,
+	}));
+	const resolution = resolveTextAnchor(anchor, blocksForResolution);
+	if (resolution.state === "orphaned" || !resolution.blockId) {
+		return { ok: true, value: await refused() };
+	}
+	const block = blocksForResolution.find(
+		(candidate) => candidate.id === resolution.blockId,
+	);
+	if (!block) return { ok: true, value: await refused() };
+
+	if (params.abortSignal.aborted) return { ok: false, reason: "aborted" };
+
+	const modelResult = await sendJsonControlMessage(target.body, undefined, {
+		systemPrompt: buildAlfyCommentSystemPrompt({
+			blockText: block.markdown,
+			quote: anchor.quote,
+			commentBody: target.body,
+		}),
+		thinkingMode: "off",
+		maxTokens: ALFY_COMMENT_MAX_TOKENS,
+		jsonSchema: ALFY_COMMENT_REPLY_JSON_SCHEMA,
+		signal: params.abortSignal,
+	}).catch(() => null);
+
+	// The model ran, so the call is paid for — whatever happens next, abort
+	// included (RV-1A: it was never recorded, so the conversation's cost
+	// display left out every @Alfy reply). Attributed to the artifact's own
+	// conversation: the knowledge page's panel names none.
+	if (modelResult) {
+		const { recordControlModelUsage } = await import("../analytics");
+		await recordControlModelUsage({
+			userId: params.userId,
+			conversationId: alfyRead.conversationId,
+			feature: "artifact_comment_alfy",
+			modelId: modelResult.modelId,
+			modelDisplayName: modelResult.modelDisplayName,
+			promptTokens: modelResult.usage?.promptTokens,
+			completionTokens: modelResult.usage?.completionTokens,
+			totalTokens: modelResult.usage?.totalTokens,
+			cachedInputTokens: modelResult.usage?.cachedInputTokens,
+			cacheHitTokens: modelResult.usage?.cacheHitTokens,
+			cacheMissTokens: modelResult.usage?.cacheMissTokens,
+		});
+	}
+
+	if (params.abortSignal.aborted) return { ok: false, reason: "aborted" };
+	if (!modelResult) return { ok: true, value: await refused() };
+
+	const parsedReply = alfyCommentReplySchema.safeParse(
+		parseAlfyReplyJson(modelResult.text),
+	);
+	if (!parsedReply.success) return { ok: true, value: await refused() };
+
+	const note = parsedReply.data.note.trim();
+
+	if (parsedReply.data.ops.length === 0) {
+		return {
+			ok: true,
+			value: {
+				outcome: "answered",
+				applied: 0,
+				refused: 0,
+				version: alfyRead.version,
+				reply: await reply(note || ALFY_EMPTY_REPLY_MARKER),
+			},
+		};
+	}
+
+	if (params.abortSignal.aborted) return { ok: false, reason: "aborted" };
+
+	const ops: PatchOp[] = parsedReply.data.ops.map((op) => ({
+		opId: `alfy-comment-${randomUUID()}`,
+		kind: op.op,
+		blockId: block.id,
+		baseHash: block.hash,
+		blockLabel: block.label,
+		text: op.text,
+		find: op.find,
+		at: op.at,
+		checked: op.checked,
+		cells: op.cells,
+	}));
+	const patch: PatchSet = {
+		patchId: `alfy-comment-${rootId}`,
+		label: "Alfy's comment reply",
+		ops,
+	};
+
+	const patchResult = await applyDocumentPatch({
+		userId: params.userId,
+		artifactId: alfyRead.artifactId,
+		conversationId: params.conversationId,
+		includeIncognito: params.includeIncognito,
+		patch,
+	});
+	if (!patchResult.ok) return { ok: false, reason: patchResult.reason };
+
+	if (patchResult.result.applied === 0) {
+		return { ok: true, value: await refused() };
+	}
+
+	// RV-1B, coordinator item 8: this SAME request can both apply and refuse
+	// ops (every op in `ops` shares the block's ORIGINAL baseHash, so an
+	// earlier op that changes the block routinely leaves a later one refused
+	// `block_changed`) — the model's own `note` only ever describes what it
+	// changed, never what it could not, so without this suffix a
+	// partially-refused reply reads in the thread as an unqualified success.
+	const noteBody = note || ALFY_EMPTY_REPLY_MARKER;
+	const replyBody =
+		patchResult.result.refused > 0
+			? `${noteBody}${ALFY_PARTIAL_REFUSAL_SUFFIX}`
+			: noteBody;
+
+	return {
+		ok: true,
+		value: {
+			outcome: "applied",
+			applied: patchResult.result.applied,
+			refused: patchResult.result.refused,
+			version: patchResult.version,
+			reply: await reply(replyBody),
+		},
+	};
 }

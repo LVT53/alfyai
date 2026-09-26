@@ -188,6 +188,10 @@ export type ToolCallIconType =
 	| "run-python"
 	| "map-route"
 	| "use-skill"
+	// The in-chat artifact card (Feature 2, cross-kind task) — create_artifact
+	// and edit_artifact share this one icon type; ArtifactCard's own per-kind
+	// glyph (Document/App/Canvas/Slides) lives in the card body, not the row.
+	| "artifact"
 	| "calendar"
 	| "contacts"
 	| "email"
@@ -219,6 +223,9 @@ export function getToolCallIconType(name: string): ToolCallIconType {
 	if (normalized === "run_python") return "run-python";
 	if (normalized === "map_route") return "map-route";
 	if (normalized === "use_skill") return "use-skill";
+	if (normalized === "create_artifact" || normalized === "edit_artifact") {
+		return "artifact";
+	}
 	if (isFetchOrBrowseToolName(normalized)) return "fetch-url";
 	if (isFileProductionToolName(name)) return "file-production";
 	const connectionIconType = CONNECTION_TOOL_ICON_TYPES[normalized];

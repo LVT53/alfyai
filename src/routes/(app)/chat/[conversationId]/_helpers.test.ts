@@ -17,10 +17,12 @@ import {
 	dropPendingFileProductionJobs,
 	failPendingFileProductionJobPlaceholder,
 	finalizeStreamingMessageList,
+	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
 	hasActiveFileProductionJobs,
 	isConversationReadOnly,
 	isPendingSkillUnavailableError,
+	liveDocumentAlfyActivityExcluding,
 	markPendingSkillUnavailable,
 	mergeFileProductionJob,
 	patchInstructionSuggestionInMessageList,
@@ -1474,5 +1476,186 @@ describe("patchInstructionSuggestionInMessageList", () => {
 				suggestion: makeSuggestion({ status: "reviewed" }),
 			}),
 		).toEqual([assistantMessage]);
+	});
+});
+
+describe("findLiveDocumentAlfyActivity", () => {
+	it("returns null with no tool-call segments at all", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+	});
+
+	it("finds an in-flight edit_artifact call targeting a document", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "doc-1", summary: "Add packing list", patches: [] },
+			status: "running",
+			details: { callId: "call-1" },
+		});
+
+		const activity = findLiveDocumentAlfyActivity(list);
+		expect(activity).toEqual(
+			expect.objectContaining({
+				artifactId: "doc-1",
+				status: "running",
+				label: "Add packing list",
+			}),
+		);
+	});
+
+	it("ignores a tool call for a non-document kind", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "canvas-1", patches: [] },
+			status: "done",
+			details: {
+				callId: "call-1",
+				metadata: { ok: true, artifactId: "canvas-1", artifactKind: "canvas" },
+			},
+		});
+
+		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+	});
+
+	it("ignores unrelated tool calls (e.g. research_web) even when present", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "research_web",
+			input: { query: "Vienna" },
+			status: "done",
+		});
+
+		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+	});
+
+	it("picks the MOST RECENT Document call across the whole message list", () => {
+		let list = [
+			createAssistantPlaceholder("assistant-1"),
+			createAssistantPlaceholder("assistant-2"),
+		];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "doc-old", patches: [] },
+			status: "done",
+			details: {
+				callId: "call-old",
+				metadata: { ok: true, artifactId: "doc-old", artifactKind: "document" },
+			},
+		});
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-2",
+			name: "edit_artifact",
+			input: { artifactId: "doc-new", patches: [] },
+			status: "running",
+			details: { callId: "call-new" },
+		});
+
+		expect(findLiveDocumentAlfyActivity(list)?.artifactId).toBe("doc-new");
+	});
+});
+
+describe("liveDocumentAlfyActivityExcluding", () => {
+	// `applyToolCallUpdateToMessageList`'s "done"/"failed" branch only
+	// UPDATES an existing "running" segment for the same callId (see its own
+	// `lastRunningIndex` search) — it never creates one from a bare "done"
+	// call, matching how a real stream always runs "running" before "done".
+	// A test fixture that skips the "running" step silently produces no
+	// tool_call segment at all, so this seeds both steps.
+	function seedDoneEditArtifactCall(
+		list: ChatMessage[],
+		placeholderId: string,
+		callId: string,
+		artifactId: string,
+	): ChatMessage[] {
+		let next = applyToolCallUpdateToMessageList(list, {
+			placeholderId,
+			name: "edit_artifact",
+			input: { artifactId, patches: [] },
+			status: "running",
+			details: { callId },
+		});
+		next = applyToolCallUpdateToMessageList(next, {
+			placeholderId,
+			name: "edit_artifact",
+			input: { artifactId, patches: [] },
+			status: "done",
+			details: {
+				callId,
+				metadata: { ok: true, artifactId, artifactKind: "document" },
+			},
+		});
+		return next;
+	}
+
+	// RV-1B: a page reload re-fetches the WHOLE conversation history fresh —
+	// including a Document edit that already settled (and may already have
+	// been Kept/Undone by the user) in a PREVIOUS session. Without exclusion,
+	// re-observing that same history for the first time this session would
+	// make `findLiveDocumentAlfyActivity` report it as brand new, and
+	// `DocumentBody.svelte` would replay its Keep/Undo mark and refusal
+	// notice as if Alfy had just made the change.
+	it("suppresses exactly the key that was already there when first observed", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = seedDoneEditArtifactCall(
+			list,
+			"assistant-1",
+			"call-historical",
+			"doc-1",
+		);
+
+		// The FIRST observation of this history (a fresh page load) captures
+		// "call-historical" as the key to suppress.
+		const suppressKey = findLiveDocumentAlfyActivity(list)?.key ?? null;
+		expect(suppressKey).toBe("call-historical");
+
+		// Re-observing the SAME (unchanged) history must not report it live.
+		expect(liveDocumentAlfyActivityExcluding(list, suppressKey)).toBeNull();
+	});
+
+	it("still reports a NEW call that settles after the suppressed snapshot", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = seedDoneEditArtifactCall(
+			list,
+			"assistant-1",
+			"call-historical",
+			"doc-1",
+		);
+		const suppressKey = findLiveDocumentAlfyActivity(list)?.key ?? null;
+
+		// A live edit happens WHILE this page is open — a fresh callId, never
+		// seen in the suppressed snapshot.
+		list = [...list, createAssistantPlaceholder("assistant-2")];
+		list = seedDoneEditArtifactCall(list, "assistant-2", "call-live", "doc-1");
+
+		const activity = liveDocumentAlfyActivityExcluding(list, suppressKey);
+		expect(activity?.key).toBe("call-live");
+	});
+
+	it("does not suppress anything when there was nothing to suppress (suppressKey null)", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = seedDoneEditArtifactCall(list, "assistant-1", "call-1", "doc-1");
+
+		expect(liveDocumentAlfyActivityExcluding(list, null)?.key).toBe("call-1");
+	});
+
+	it("passes through a running call even if its eventual key happens to match (a running call never has a settled key to collide with)", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "doc-1", summary: "In progress", patches: [] },
+			status: "running",
+			details: { callId: "call-1" },
+		});
+
+		// Nothing to suppress yet (no prior settled activity in this session).
+		const activity = liveDocumentAlfyActivityExcluding(list, null);
+		expect(activity?.status).toBe("running");
 	});
 });

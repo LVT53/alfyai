@@ -309,7 +309,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "create_artifact",
-      "description": "Keep something beside the chat that the user will return to, open and edit with you. Do not use it for an answer that is already complete in your reply, or when the user asked for a downloadable file — that is produce_file's job, not this one. Use it for a checklist, plan, itinerary, letter, draft, tracker, board or small interactive tool the user keeps working on. Choose artifactType by what you are keeping: document for rich text read and edited over time — plans, checklists, itineraries, letters, drafts, trackers; app for an interactive tool with inputs and results — a calculator, splitter, quiz; canvas for a board of things arranged in space — frames, notes, arrows, blocks; slides for a small ordered deck to present, with a beginning and an end. There is no artifactType \"file\": anything the user asked to download is produce_file's job, and it shows up as a File. Make at most one per request — say what you made and offer to open it, and do not also paste the same content into your reply. Example: {\"artifactType\":\"document\",\"title\":\"Vienna weekend plan\",\"body\":\"# Vienna weekend\\n- [ ] Book train\"}. Never invent an id afterward — read_artifact returns the one you edit against. On a refusal, read the reason, fix that one thing, and retry at most once.",
+      "description": "Keep something beside the chat that the user will return to, open and edit with you. Do not use it for an answer that is already complete in your reply, or when the user asked for a downloadable file — that is produce_file's job, not this one. Use it for a checklist, plan, itinerary, letter, draft, tracker or small interactive tool the user keeps working on. Choose artifactType by what you are keeping: document for rich text read and edited over time — plans, checklists, itineraries, letters, drafts, trackers; app for an interactive tool with inputs and results — a calculator, splitter, quiz. There is no artifactType \"file\": anything the user asked to download is produce_file's job, and it shows up as a File. Make at most one per request — say what you made and offer to open it, and do not also paste the same content into your reply. Example: {\"artifactType\":\"document\",\"title\":\"Vienna weekend plan\",\"body\":\"# Vienna weekend\\n- [ ] Book train\"}. Never invent an id afterward — read_artifact returns the one you edit against. On a refusal, read the reason, fix that one thing, and retry at most once.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -317,11 +317,9 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             "type": "string",
             "enum": [
               "document",
-              "app",
-              "canvas",
-              "slides"
+              "app"
             ],
-            "description": "document, app, canvas or slides"
+            "description": "document or app"
           },
           "title": {
             "type": "string",
@@ -329,7 +327,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
           },
           "body": {
             "type": "string",
-            "description": "Documents: Markdown. Slides: the deck JSON. Canvas: the board JSON, or empty for a new board. Apps: the HTML document."
+            "description": "Documents: Markdown. Apps: the HTML document."
           }
         },
         "required": [
@@ -344,7 +342,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "read_artifact",
-      "description": "See a Document, App, Canvas, Slides or File item's current content and structure, addressed by the id from create_artifact, a prior call, or the artifact catalogue. Do not use it to guess at an id — read the catalogue first, and never invent one. Pass detail:\"blocks\" to get the addressable ids and hashes edit_artifact needs (read this before every edit_artifact call: baseHash always comes from here, never guessed); omit detail, or pass \"full\", for the whole body. An unknown id returns the conversation's own candidates instead of a body — pick one of those rather than retrying the same id.",
+      "description": "See a Document, App or File item's current content and structure, addressed by the id from create_artifact, a prior call, or the artifact catalogue. Do not use it to guess at an id — read the catalogue first, and never invent one. Pass detail:\"blocks\" to get the addressable ids and hashes edit_artifact needs (read this before every edit_artifact call: baseHash always comes from here, never guessed); omit detail, or pass \"full\", for the whole body. An unknown id returns the conversation's own candidates instead of a body — pick one of those rather than retrying the same id.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -369,7 +367,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "edit_artifact",
-      "description": "Change a Document, App, Canvas or Slides item you already made, addressed by the id from create_artifact or read_artifact. Do not use it before reading the item first — call read_artifact and use the baseHash it just gave you; a refusal usually means the user edited that part since you last read it, so tell them rather than retrying the same patch. Documents and Slides: send patches, one op per block or slide field, each with the baseHash you read. Canvas: send ops (add_frame, add_node, move, add_edge, remove_edge, update_node, remove_node, highlight), at most 40. Apps are not edited here — make a new App with the changes instead. A batch applies partially: whatever it can, it does, and each refused op comes back with its own reason, so tell the user what changed and what did not rather than assuming the whole thing landed.",
+      "description": "Change a Document or App item you already made, addressed by the id from create_artifact or read_artifact. Do not use it before reading the item first — call read_artifact and use the baseHash it just gave you; a refusal usually means the user edited that part since you last read it, so tell them rather than retrying the same patch. Documents: send patches, one op per block, each with the baseHash you read. Apps are not edited here — make a new App with the changes instead. A batch applies partially: whatever it can, it does, and each refused op comes back with its own reason, so tell the user what changed and what did not rather than assuming the whole thing landed.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -378,12 +376,11 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             "description": "The id from create_artifact, read_artifact or the artifact catalogue."
           },
           "patches": {
-            "description": "Documents and Slides only: [{op, blockId|slideId, fieldId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
+            "description": "Documents only: [{op, blockId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
             "type": "array",
             "items": {}
           },
           "ops": {
-            "description": "Canvas only: [{op:'add_frame'|'add_node'|'move'|'add_edge'|'remove_edge'|'update_node'|'remove_node'|'highlight', ...}], at most 40.",
             "type": "array",
             "items": {}
           },

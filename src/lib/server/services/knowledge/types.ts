@@ -5,6 +5,7 @@
 // former src/lib/types.ts god-module (architecture-deepening T1); this
 // file carries no behavior change, only a new home.
 
+import type { DocumentCardPreview } from "$lib/server/services/artifacts/types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { AttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
@@ -292,4 +293,11 @@ export interface DocumentWorkspaceItem {
 	 * reads it), so this is not a behaviour change for them.
 	 */
 	updatedAt?: number;
+	/**
+	 * `ArtifactCardSummary.documentPreview`, carried through so the panel
+	 * list's card can show the Document's subtitle/tickable checklist without
+	 * fetching a full body (T9 steps 4/7). Only ever set for a `kind:
+	 * "document"` item; every other caller/kind leaves it unset.
+	 */
+	documentPreview?: DocumentCardPreview;
 }

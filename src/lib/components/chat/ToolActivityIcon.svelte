@@ -18,6 +18,7 @@ import {
 	Globe,
 	Image as ImageIcon,
 	Images,
+	LayoutGrid,
 	Link,
 	ListTodo,
 	Mail,
@@ -49,6 +50,8 @@ let { iconType, size = 14 }: { iconType: ToolCallIconType; size?: number } =
 	<MapPin class="tool-activity-icon" data-tool-icon="map-route" {size} strokeWidth={2} aria-hidden="true" />
 {:else if iconType === 'use-skill'}
 	<Sparkles class="tool-activity-icon" data-tool-icon="use-skill" {size} strokeWidth={2} aria-hidden="true" />
+{:else if iconType === 'artifact'}
+	<LayoutGrid class="tool-activity-icon" data-tool-icon="artifact" {size} strokeWidth={2} aria-hidden="true" />
 {:else if iconType === 'calendar'}
 	<Calendar class="tool-activity-icon" data-tool-icon="calendar" {size} strokeWidth={2} aria-hidden="true" />
 {:else if iconType === 'contacts'}

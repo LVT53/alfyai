@@ -804,7 +804,14 @@ function renderBlock(
 			return renderParagraph(block, options.sourceIndex, options.chrome);
 		case "list": {
 			const tag = block.style === "numbered" ? "ol" : "ul";
-			return `<${tag}>${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</${tag}>`;
+			// Ruling 36: a checklist item draws a real (disabled) checkbox input,
+			// not "[x]" as visible text.
+			const items = block.items.map((item) => {
+				if (typeof item === "string") return `<li>${escapeHtml(item)}</li>`;
+				const checkedAttr = item.checked ? " checked" : "";
+				return `<li class="report-checklist-item"><input type="checkbox" disabled${checkedAttr} /> ${escapeHtml(item.text)}</li>`;
+			});
+			return `<${tag}>${items.join("")}</${tag}>`;
 		}
 		case "callout":
 			return `<aside class="callout ${block.tone}" title="${escapeHtml([block.title ?? block.tone, block.text].join("\n"))}"><span class="callout-pill"><span aria-hidden="true">${block.tone === "warning" ? "!" : "i"}</span>${block.title ? `<strong>${escapeHtml(block.title)}</strong>` : `<strong>${escapeHtml(block.tone)}</strong>`}</span><p>${escapeHtml(block.text)}</p></aside>`;

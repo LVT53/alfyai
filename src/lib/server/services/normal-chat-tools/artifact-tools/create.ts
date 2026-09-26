@@ -4,19 +4,39 @@
 // ruling 43 (this tool's shell, registration and the family-wide TOOL_I18N
 // descriptions are Slice 5a's; each type slice appends ONLY its own entry to
 // CREATE_ARTIFACT_HANDLERS below, in this file).
+//
+// CREATABLE_ARTIFACT_KINDS, CreatableArtifactKind, the handler types, the
+// CREATE_ARTIFACT_HANDLERS dict itself, and advertisedArtifactKinds() live in
+// the dependency-free kind-registry.ts, not here, and are re-exported below
+// for every existing caller of this file. This file is where they get
+// WRITTEN (createDocumentArtifact/createAppFromBrief need the artifacts
+// service, sandbox config, and eventually config-store.ts — see
+// kind-registry.ts's own header for the real circular import that chain
+// caused when advertisedArtifactKinds() lived here instead).
 import { z } from "zod";
+import { createDocumentArtifact } from "$lib/server/services/artifacts";
 import { createAppFromBrief } from "$lib/server/services/artifacts/app/create";
 import { truncateText } from "../shared";
+import { artifactKindEnumPhrase, createArtifactBodyFormat } from "./kind-prose";
+import {
+	advertisedArtifactKinds,
+	CREATE_ARTIFACT_HANDLERS,
+	type CreatableArtifactKind,
+	type CreateArtifactHandlerParams,
+} from "./kind-registry";
 
-/** The four types Alfy may create. "file" is produce_file's, not this tool's. */
-export const CREATABLE_ARTIFACT_KINDS = [
-	"document",
-	"app",
-	"canvas",
-	"slides",
-] as const;
-
-export type CreatableArtifactKind = (typeof CREATABLE_ARTIFACT_KINDS)[number];
+// Used locally above; re-exported too, alongside the rest of kind-registry.ts's
+// public surface that this file only passes through for its existing callers.
+export {
+	advertisedArtifactKinds,
+	// Not used locally in this file — re-export only.
+	CREATABLE_ARTIFACT_KINDS,
+	CREATE_ARTIFACT_HANDLERS,
+	type CreatableArtifactKind,
+	type CreateArtifactHandler,
+	type CreateArtifactHandlerParams,
+	type CreateArtifactHandlerSuccess,
+} from "./kind-registry";
 
 /**
  * Counted and refused exactly the way produce_file's own per-turn cap is
@@ -29,33 +49,53 @@ export type CreatableArtifactKind = (typeof CREATABLE_ARTIFACT_KINDS)[number];
  */
 export const MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3;
 
-/** Advertised to the model: trimmed descriptions, no server-only bounds. */
-export const createArtifactModelInputSchema = z.object({
-	artifactType: z
-		.enum(CREATABLE_ARTIFACT_KINDS)
-		.describe("document, app, canvas or slides"),
-	title: z
-		.string()
-		.min(1)
-		.describe("What the user will see in the card and the panel."),
-	body: z
-		.string()
-		.min(1)
-		.describe(
-			"Documents: Markdown. Slides: the deck JSON. Canvas: the board JSON, or empty for a new board. Apps: the HTML document.",
-		),
-});
+/**
+ * Zod's enum needs a non-empty tuple type, but the advertised set is only
+ * known at runtime (whichever kinds have a registered create handler right
+ * now) — `advertisedArtifactKinds()` below always returns at least
+ * `["document"]`, so this cast is safe in practice.
+ */
+type NonEmptyKinds = [CreatableArtifactKind, ...CreatableArtifactKind[]];
+
+/**
+ * Advertised to the model: trimmed descriptions, no server-only bounds.
+ * Built fresh from `kinds` (default: `advertisedArtifactKinds()`) rather
+ * than once at module load, so a newly registered handler — in production or
+ * in a test that pokes CREATE_ARTIFACT_HANDLERS directly — is reflected the
+ * next time this is called, exactly like `createNormalChatTools` itself.
+ */
+export function buildCreateArtifactModelInputSchema(
+	kinds: readonly CreatableArtifactKind[] = advertisedArtifactKinds(),
+) {
+	return z.object({
+		artifactType: z
+			.enum(kinds as NonEmptyKinds)
+			.describe(artifactKindEnumPhrase(kinds)),
+		title: z
+			.string()
+			.min(1)
+			.describe("What the user will see in the card and the panel."),
+		body: z.string().min(1).describe(createArtifactBodyFormat(kinds)),
+	});
+}
 
 /** Executed against: the same fields, with the server's bounds applied. */
-export const createArtifactInputSchema = z.object({
-	artifactType: z.enum(CREATABLE_ARTIFACT_KINDS),
-	title: z.string().min(1).max(200),
-	/** Documents: Markdown with `<!--b:id-->` markers. Slides: the deck JSON.
-	 *  Canvas: the board JSON, or empty for a new board. Apps: the HTML document. */
-	body: z.string().min(1),
-});
+export function buildCreateArtifactInputSchema(
+	kinds: readonly CreatableArtifactKind[] = advertisedArtifactKinds(),
+) {
+	return z.object({
+		artifactType: z.enum(kinds as NonEmptyKinds),
+		title: z.string().min(1).max(200),
+		/** Documents: Markdown with `<!--b:id-->` markers. Apps: the HTML
+		 *  document. Canvas/Slides join this once they have a handler — see
+		 *  advertisedArtifactKinds() below and kind-prose.ts's own comment. */
+		body: z.string().min(1),
+	});
+}
 
-export type CreateArtifactToolInput = z.infer<typeof createArtifactInputSchema>;
+export type CreateArtifactToolInput = z.infer<
+	ReturnType<typeof buildCreateArtifactInputSchema>
+>;
 
 export type CreateArtifactModelPayload =
 	| {
@@ -76,69 +116,34 @@ const ARTIFACT_KIND_LABELS: Record<CreatableArtifactKind, string> = {
 	slides: "Slides",
 };
 
-export interface CreateArtifactHandlerParams {
-	userId: string;
-	conversationId: string;
-	turnId: string;
-	title: string;
-	body: string;
-	/**
-	 * The turn's own reply language (decisions.md ruling 55), resolved ONCE by
-	 * `resolveTurnResponseLanguage` and carried on `CreateNormalChatToolsContext.language`
-	 * — never re-detected per kind. The App handler uses this instead of running
-	 * `detectLanguage` on its own brief, which read an English brief full of
-	 * Hungarian-looking letter pairs as Hungarian. A kind with no language-
-	 * sensitive output (Document, Canvas, Slides today) may ignore this field.
-	 */
-	language: "en" | "hu";
-	/**
-	 * Fires on the tool's own timeout (120s, TOOL_TIMEOUTS_MS.create_artifact)
-	 * or the turn's own stop/disconnect — whichever comes first, the same
-	 * combined signal executeToolWithEnvelope already builds for every other
-	 * tool. A handler MUST check `abortSignal.aborted` before any write (the
-	 * model was already told the call failed once either fires, so a write
-	 * after that point is an orphan the user never asked for and a duplicate
-	 * when the model retries), and pass it to any model call it makes so that
-	 * call is cancelled too rather than left running unattended.
-	 */
-	abortSignal: AbortSignal;
-}
-
-export interface CreateArtifactHandlerSuccess {
-	artifactId: string;
-	title: string;
-	/** Omitted when the kind's handler does not produce a version row (rare). */
-	versionId?: string;
-}
-
-/**
- * A registered handler owns everything about making its kind: validating and
- * transforming the model's raw `body` (Document mints block ids immediately
- * after parsing — see decisions.md's global constraints; Canvas/Slides
- * validate their JSON; App runs its own thinking-off generation + a
- * verification pass, see plan.md §Global Constraints), then writes the row
- * through `createArtifact` (`$lib/server/services/artifacts`) with
- * `author: "alfy"` — the model made this, not the user. Returns `ok: false`
- * with a model-safe reason on any domain refusal; never throws for an
- * expected refusal (a throw is for the envelope's timeout/abort path only).
- */
-export type CreateArtifactHandler = (
-	params: CreateArtifactHandlerParams,
-) => Promise<
-	| { ok: true; value: CreateArtifactHandlerSuccess }
-	| { ok: false; reason: string }
->;
-
-/**
- * The per-kind dispatch seam (decisions.md rulings 43/44). Empty in Slice 5a:
- * no type slice has landed yet, so every kind refuses with a model-safe "not
- * yet" message. Slice 1 (document), Slice 2 (app), Slice 3 (canvas) and
- * Slice 4 (slides) each append ONE entry here — and only here. No type slice
- * edits `normal-chat-tools/index.ts` or `shared.ts` (ruling 43).
- */
-export const CREATE_ARTIFACT_HANDLERS: Partial<
-	Record<CreatableArtifactKind, CreateArtifactHandler>
-> = {};
+// Slice 1: mint-before-hash happens INSIDE createDocumentArtifact's own
+// createBody call (parseDocument runs before anything is hashed or stored —
+// decisions.md's global constraints), so this handler is a thin envelope:
+// validate the abort signal, write the row, report back. CREATE_ARTIFACT_HANDLERS
+// itself (the per-kind dispatch seam, decisions.md rulings 43/44) lives in
+// kind-registry.ts, starting empty; each type slice appends ONE entry here —
+// and only here.
+CREATE_ARTIFACT_HANDLERS.document = async (params) => {
+	if (params.abortSignal.aborted) {
+		return { ok: false, reason: "The request was cancelled." };
+	}
+	try {
+		const artifact = await createDocumentArtifact({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			title: params.title,
+			markdown: params.body,
+			author: "alfy",
+			summary: "Alfy wrote the first draft",
+		});
+		return {
+			ok: true,
+			value: { artifactId: artifact.id, title: artifact.title },
+		};
+	} catch {
+		return { ok: false, reason: "Could not create the document." };
+	}
+};
 
 /**
  * The App branch (Task A7): a thin adapter over

@@ -41,6 +41,70 @@ export const AI_SMOKE_READ_PROJECT_FILE_TOOL_NAME = "read_generated_file";
 export const AI_SMOKE_READ_PROJECT_FILE_FINAL_TEXT =
 	"Looked it up in the project's catalogue.";
 
+/**
+ * T8 live: a real `edit_artifact` call, scripted with the exact block ids
+ * and hashes a REAL seeded Document has (the test's own setup calls
+ * `runReadArtifactTool` directly, the same snapshot-writing side effect a
+ * live `read_artifact` call would have, and reads the result's per-block
+ * hashes) — the fake model cannot know those ahead of time, so the test
+ * embeds them in the message itself and this marker's payload encoder makes
+ * that embedding round-trip cleanly through a JSON request body (colons and
+ * pipes need no escaping, unlike quotes would).
+ */
+export const AI_SMOKE_EDIT_ARTIFACT_MARKER =
+	"Fake model step: apply the scripted patch below.";
+export const AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT =
+	"Applied the patch — one block changed, one left alone.";
+
+export interface EditArtifactScenarioPayload {
+	artifactId: string;
+	/** Its hash is CORRECT (matches the snapshot AND the current block) — this op applies. */
+	applyBlockId: string;
+	applyBaseHash: string;
+	/** Its hash is deliberately wrong — this op is refused as `block_changed`. */
+	refuseBlockId: string;
+}
+
+export function encodeEditArtifactScenarioPayload(
+	payload: EditArtifactScenarioPayload,
+): string {
+	return [
+		`aid:${payload.artifactId}`,
+		`applyId:${payload.applyBlockId}`,
+		`applyHash:${payload.applyBaseHash}`,
+		`refuseId:${payload.refuseBlockId}`,
+	].join("|");
+}
+
+export function decodeEditArtifactScenarioPayload(
+	text: string,
+): EditArtifactScenarioPayload | null {
+	const match = text.match(
+		/aid:([\w-]+)\|applyId:([\w-]+)\|applyHash:([\w-]+)\|refuseId:([\w-]+)/,
+	);
+	if (!match) return null;
+	return {
+		artifactId: match[1],
+		applyBlockId: match[2],
+		applyBaseHash: match[3],
+		refuseBlockId: match[4],
+	};
+}
+
+/**
+ * The in-chat card (Feature 2, the cross-kind task): a real `create_artifact`
+ * call, unlike T8 live's `edit_artifact`, needs no real block ids/hashes
+ * scripted in advance — the model supplies `artifactType`/`title`/`body`
+ * itself, and the real `create_artifact` handler does the rest — so this
+ * scenario carries no encoded payload, just a marker.
+ */
+export const AI_SMOKE_CREATE_ARTIFACT_MARKER =
+	"Fake model step: create the scripted document below.";
+export const AI_SMOKE_CREATE_ARTIFACT_TITLE = "Weekend plan";
+export const AI_SMOKE_CREATE_ARTIFACT_MARKDOWN =
+	"# Weekend plan\n\nBook the museum tickets.";
+export const AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT = "Made the document.";
+
 export const AI_SMOKE_SCENARIOS = {
 	text: "text",
 	plain: "plain",

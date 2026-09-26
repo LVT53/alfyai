@@ -58,3 +58,12 @@ export const ARTIFACT_KV_VALUE_MAX_BYTES = 256 * 1024;
  * constant rather than restating it (a test pins the equality).
  */
 export const ARTIFACT_KV_TOTAL_MAX_BYTES = 512 * 1024;
+
+/**
+ * Ruling 47: a user-authored save coalesces into the latest version (same
+ * version number, body/hash/timestamp updated in place) when that latest
+ * version is also the user's and was created within this window. Every Alfy
+ * change, restore and creation still always appends. Ten minutes is the
+ * ruling's own number — one editing burst, not a rolling debounce.
+ */
+export const ARTIFACT_USER_VERSION_COALESCE_MS = 10 * 60 * 1000;

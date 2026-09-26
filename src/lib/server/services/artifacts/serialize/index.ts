@@ -7,6 +7,7 @@
 // A kind with no entry resolves to `null`, never a throw, so a caller that
 // meets a kind whose slice has not landed can say so instead of crashing.
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import { documentSerializer } from "./document";
 
 export interface ArtifactSerializer<TBody> {
 	readonly kind: ArtifactKind;
@@ -82,6 +83,7 @@ const fileArtifactSerializer: ArtifactSerializer<FileArtifactDescriptor> = {
 const SERIALIZERS: Partial<Record<ArtifactKind, ArtifactSerializer<unknown>>> =
 	{
 		file: fileArtifactSerializer as ArtifactSerializer<unknown>,
+		document: documentSerializer as ArtifactSerializer<unknown>,
 	};
 
 export function getArtifactSerializer(
