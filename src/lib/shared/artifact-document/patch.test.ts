@@ -643,3 +643,49 @@ describe("RV-1A: replaceRange writes its text literally", () => {
 		);
 	});
 });
+
+describe("RV-1A: insertText at the start stays inside the block's own markup", () => {
+	it("inserts after a heading's # and a quote's >, so the block is still a heading and a quote", () => {
+		const { blocks, snapshot } = setup(
+			"# Title\n\n> quoted line\n\nPlain text.",
+		);
+		const [heading, quote, paragraph] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "insertText",
+					blockId: heading.id,
+					baseHash: heading.hash,
+					at: "start",
+					text: "New",
+				}),
+				op({
+					kind: "insertText",
+					blockId: quote.id,
+					baseHash: quote.hash,
+					at: "start",
+					text: "Note:",
+				}),
+				op({
+					kind: "insertText",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					at: "start",
+					text: "Some",
+				}),
+			]),
+		});
+		expect(result.blocks.map((b) => b.markdown)).toEqual([
+			"# New Title",
+			"> Note: quoted line",
+			"Some Plain text.",
+		]);
+		expect(parseDocument(result.markdown).blocks.map((b) => b.kind)).toEqual([
+			"heading",
+			"blockquote",
+			"paragraph",
+		]);
+	});
+});

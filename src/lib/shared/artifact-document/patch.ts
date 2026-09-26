@@ -138,6 +138,24 @@ function toggleTaskItem(
 	return lines.join("\n");
 }
 
+/**
+ * The markup that makes a heading a heading (`## `) or a quote a quote (`> `),
+ * which `insertText` at the start must keep IN FRONT of the new text. Text
+ * put before it turned `# Title` into the paragraph `New # Title` (RV-1A).
+ * Empty for every other kind: a paragraph's first character is its text.
+ */
+function leadingBlockMarkup(kind: BlockKind, markdown: string): string {
+	if (kind === "heading") {
+		const match = /^(\s{0,3}#{1,6})(?:[ \t]+|$)/.exec(markdown);
+		return match ? `${match[1]} ` : "";
+	}
+	if (kind === "blockquote") {
+		const match = /^\s{0,3}(?:>[ \t]?)+/.exec(markdown);
+		return match ? match[0] : "";
+	}
+	return "";
+}
+
 function countOccurrences(haystack: string, needle: string): number {
 	if (needle.length === 0) return 0;
 	let count = 0;
@@ -234,8 +252,12 @@ export function applyPatchSet(input: {
 					refusalCode = "empty_text";
 					break;
 				}
-				nextMarkdown =
-					op.at === "start" ? `${text} ${before}` : `${before} ${text}`;
+				if (op.at === "start") {
+					const markup = leadingBlockMarkup(block.kind, before);
+					nextMarkdown = `${markup}${text} ${before.slice(markup.length).replace(/^\s+/, "")}`;
+				} else {
+					nextMarkdown = `${before} ${text}`;
+				}
 				break;
 			}
 			case "replaceRange": {
