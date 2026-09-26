@@ -785,4 +785,86 @@ describe("RV-1A: the Document's writes on a real database", () => {
 		expect(editorSave.ok).toBe(false);
 		expect(rawContentText(created.id)).toContain("- [x] Book hotel");
 	});
+
+	it("ruling 47: a user's save right after a restore is a version of its own — the restore is never merged into", async () => {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Trip",
+			markdown: "First draft.",
+			author: "alfy",
+			summary: "x",
+		});
+		const v1Body = rawContentText(created.id);
+		const edited = await saveDocumentBody({
+			userId,
+			artifactId: created.id,
+			conversationId,
+			body: { markdown: v1Body.replace("First", "Second"), tabs: [] },
+			author: "user",
+			summary: "Edited",
+			coalesceUserEdits: true,
+		});
+		expect(edited).toMatchObject({ ok: true, version: 2 });
+		const v1 = db
+			.select({
+				id: artifactVersions.id,
+				versionNumber: artifactVersions.versionNumber,
+			})
+			.from(artifactVersions)
+			.where(eq(artifactVersions.artifactId, created.id))
+			.all()
+			.find((row) => row.versionNumber === 1);
+		const restored = await restoreVersion({
+			userId,
+			artifactId: created.id,
+			versionId: v1?.id ?? "",
+			conversationId,
+		});
+		expect(restored).toMatchObject({ ok: true, versionNumber: 3 });
+
+		const typing = await saveDocumentBody({
+			userId,
+			artifactId: created.id,
+			conversationId,
+			body: { markdown: v1Body.replace("First", "Typed after"), tabs: [] },
+			author: "user",
+			summary: "Edited",
+			expectVersion: 3,
+			coalesceUserEdits: true,
+		});
+		expect(typing).toMatchObject({ ok: true, version: 4 });
+		const restoreRow = db
+			.select({ body: artifactVersions.body })
+			.from(artifactVersions)
+			.where(eq(artifactVersions.artifactId, created.id))
+			.all()
+			.find((row) => row.body === v1Body);
+		expect(versionCount(created.id)).toBe(4);
+		expect(restoreRow).toBeDefined();
+	});
+
+	it("ruling 47: a document the user created keeps its creation version when the user's first save lands", async () => {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Copy",
+			markdown: "Kept text.",
+			author: "user",
+			summary: "Saved as a new document",
+		});
+		const createdBody = rawContentText(created.id);
+		const typing = await saveDocumentBody({
+			userId,
+			artifactId: created.id,
+			conversationId,
+			body: { markdown: createdBody.replace("Kept", "Changed"), tabs: [] },
+			author: "user",
+			summary: "Edited",
+			expectVersion: 1,
+			coalesceUserEdits: true,
+		});
+		expect(typing).toMatchObject({ ok: true, version: 2 });
+		expect(versionCount(created.id)).toBe(2);
+	});
 });
