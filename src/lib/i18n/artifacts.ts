@@ -130,6 +130,9 @@ const artifactsDict = {
 		"artifacts.document.chip.status.ToBook": "To book",
 		"artifacts.document.chip.status.Paid": "Paid",
 		"artifacts.document.chip.status.Cancelled": "Cancelled",
+		// The mobile toolbar's overflow sheet (Slice 1, T11). `toolbar.more`
+		// already exists (T7) as the trigger button's own label.
+		"artifacts.document.toolbar.moreSheetTitle": "More formatting",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -232,6 +235,7 @@ const artifactsDict = {
 		"artifacts.document.chip.status.ToBook": "Lefoglalandó",
 		"artifacts.document.chip.status.Paid": "Kifizetve",
 		"artifacts.document.chip.status.Cancelled": "Lemondva",
+		"artifacts.document.toolbar.moreSheetTitle": "További formázás",
 	},
 } as const;
 

@@ -161,9 +161,14 @@ describe("DocumentBody", () => {
 		await waitFor(() =>
 			expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 		);
-		expect(
-			screen.getByRole("toolbar", { name: "Document" }),
-		).toBeInTheDocument();
+		// T11: the desktop and mobile toolbars are both in the DOM at once (CSS
+		// alone decides which one is visible — jsdom applies no CSS, so both
+		// `role="toolbar"` landmarks are present here; a real browser's
+		// `display: none` also removes the hidden one from the accessibility
+		// tree, which jsdom cannot verify).
+		expect(screen.getAllByRole("toolbar", { name: "Document" })).toHaveLength(
+			2,
+		);
 
 		await rerender({
 			artifactId: "artifact-1",

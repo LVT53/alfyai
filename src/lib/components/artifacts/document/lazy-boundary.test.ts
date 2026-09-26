@@ -21,8 +21,17 @@ const IMPORT_LINE_RE = /^\s*(import|export)\b.*$/gm;
 const CLEAN_FILES = [
 	"src/lib/components/artifacts/document/DocumentBody.svelte",
 	"src/lib/components/artifacts/document/DocumentToolbar.svelte",
+	"src/lib/components/artifacts/document/MobileToolbar.svelte",
 	"src/lib/components/artifacts/document/toolbar-actions.ts",
 	"src/lib/components/artifacts/document/document-autosave.ts",
+	"src/lib/components/artifacts/document/ChangeBar.svelte",
+	"src/lib/components/artifacts/document/AlfyWriting.svelte",
+	"src/lib/components/artifacts/document/Tabs.svelte",
+	"src/lib/components/artifacts/document/chips.ts",
+	"src/lib/components/artifacts/document/card-view.ts",
+	"src/lib/components/artifacts/document/block-attrs.ts",
+	"src/lib/components/artifacts/ArtifactCard.svelte",
+	"src/lib/components/artifacts/RefusalNotice.svelte",
 	"src/lib/components/artifacts/artifact-bodies.ts",
 ];
 
@@ -38,7 +47,12 @@ describe("Document editor lazy boundary", () => {
 		}
 	});
 
-	it("document-editor.ts and extensions.ts are the only files under document/ that import @tiptap", () => {
+	// T8 added `marks.ts` (the AlfyChange mark + its Keep/Undo mechanics)
+	// reachable only from `extensions.ts`'s registration — never imported by
+	// `DocumentBody.svelte`, the toolbars, `Tabs.svelte` or the chips module
+	// directly (Review Focus 5: a static import anywhere in that set would
+	// pull `@tiptap/core` into the panel shell's own chunk).
+	it("document-editor.ts, extensions.ts and marks.ts are the only files under document/ that import @tiptap", () => {
 		const editorSource = readFileSync(
 			"src/lib/components/artifacts/document/document-editor.ts",
 			"utf8",
@@ -47,8 +61,13 @@ describe("Document editor lazy boundary", () => {
 			"src/lib/components/artifacts/document/extensions.ts",
 			"utf8",
 		);
+		const marksSource = readFileSync(
+			"src/lib/components/artifacts/document/marks.ts",
+			"utf8",
+		);
 		expect(editorSource).toContain("@tiptap");
 		expect(extensionsSource).toContain("@tiptap");
+		expect(marksSource).toContain("@tiptap");
 	});
 
 	it("DocumentBody.svelte reaches the editor only through a dynamic import", () => {

@@ -75,6 +75,7 @@ import {
 } from "./document-autosave";
 import type { Editor } from "./document-editor";
 import DocumentToolbar from "./DocumentToolbar.svelte";
+import MobileToolbar from "./MobileToolbar.svelte";
 import Tabs from "./Tabs.svelte";
 import type { DocumentToolbarActionId } from "./toolbar-actions";
 
@@ -302,6 +303,14 @@ async function handleSaveCopy(): Promise<void> {
 		const created = await createDocumentCopy(conversationId, title, canonical);
 		boundArtifactId = created.id;
 		versionNumber = created.versionNumber;
+		// The new artifact's own tabs are unknown here (`createDocumentCopy`'s
+		// response does not carry them) — clearing rather than leaving the OLD
+		// document's tab ids/labels on screen, which would point at sections
+		// that do not exist in the new row. `Tabs.svelte` treats an empty list
+		// as "one section" and simply hides the strip (T9.3), which is exactly
+		// what a brand-new copy actually has.
+		tabs = [];
+		activeTabId = "";
 		saveNotice = null;
 		bindAutosave(created.id, conversationId);
 		onDirtyChange?.(false);
@@ -418,11 +427,24 @@ function saveNoticeText(notice: SaveNotice): string {
 			onChange={handleTabsChange}
 		/>
 	{/if}
-	<DocumentToolbar
-		{activeActionIds}
-		disabled={!editorReady}
-		onAction={handleToolbarAction}
-	/>
+	<!-- T11: the phone gets its own toolbar (its row stays inside a 48 px
+	     budget, `tests/e2e/artifact-document.spec.ts`) instead of the desktop's
+	     full row; both are built from `toolbar-actions.ts`'s one action list,
+	     and only one is ever visible/reachable at a time. -->
+	<div class="hidden md:block">
+		<DocumentToolbar
+			{activeActionIds}
+			disabled={!editorReady}
+			onAction={handleToolbarAction}
+		/>
+	</div>
+	<div class="md:hidden">
+		<MobileToolbar
+			{activeActionIds}
+			disabled={!editorReady}
+			onAction={handleToolbarAction}
+		/>
+	</div>
 	<div class="document-content">
 		{#if loadState === "not_found"}
 			<div class="document-notice" role="status">
