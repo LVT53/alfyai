@@ -28,6 +28,11 @@ vi.mock("../normal-chat-control-model", () => ({
 	sendJsonControlMessage: sendJsonControlMessageMock,
 }));
 
+const recordControlModelUsageMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("../analytics", () => ({
+	recordControlModelUsage: recordControlModelUsageMock,
+}));
+
 function mockAlfyResponse(payload: { note: string; ops?: unknown[] }): void {
 	sendJsonControlMessageMock.mockResolvedValueOnce({
 		text: JSON.stringify({ note: payload.note, ops: payload.ops ?? [] }),
@@ -752,5 +757,56 @@ describe("RV-1A: @Alfy on a passage with formatting", () => {
 		if (!result.ok) throw new Error(result.reason);
 		expect(sendJsonControlMessageMock).toHaveBeenCalledTimes(1);
 		expect(result.value.outcome).toBe("applied");
+	});
+});
+
+describe("RV-1A: the @Alfy model call is paid for", () => {
+	it("records the call's tokens against the artifact's own conversation, even when the caller named none", async () => {
+		recordControlModelUsageMock.mockClear();
+		const artifact = await createDocumentArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			title: "Trip",
+			markdown: "Book the flight to Vienna.",
+			author: "user",
+			summary: "Created",
+		});
+		const [block] = parseDocument(artifact.body ?? "", { mint: false }).blocks;
+		const root = await comment(artifact.id, "@Alfy is this right?", {
+			anchor: {
+				kind: "text",
+				blockId: block.id,
+				quote: "Vienna",
+				prefix: "flight to ",
+				suffix: ".",
+			},
+		});
+		sendJsonControlMessageMock.mockResolvedValueOnce({
+			text: JSON.stringify({ note: "Yes, Vienna.", ops: [] }),
+			rawResponse: {},
+			modelId: "model1",
+			modelDisplayName: "Test Model",
+			usage: { promptTokens: 120, completionTokens: 8, totalTokens: 128 },
+		});
+
+		// The knowledge page's panel names no conversation.
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(recordControlModelUsageMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				modelId: "model1",
+				promptTokens: 120,
+				completionTokens: 8,
+				totalTokens: 128,
+			}),
+		);
 	});
 });

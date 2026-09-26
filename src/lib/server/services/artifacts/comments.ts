@@ -520,6 +520,27 @@ export async function runAlfyCommentReply(
 		signal: params.abortSignal,
 	}).catch(() => null);
 
+	// The model ran, so the call is paid for — whatever happens next, abort
+	// included (RV-1A: it was never recorded, so the conversation's cost
+	// display left out every @Alfy reply). Attributed to the artifact's own
+	// conversation: the knowledge page's panel names none.
+	if (modelResult) {
+		const { recordControlModelUsage } = await import("../analytics");
+		await recordControlModelUsage({
+			userId: params.userId,
+			conversationId: alfyRead.conversationId,
+			feature: "artifact_comment_alfy",
+			modelId: modelResult.modelId,
+			modelDisplayName: modelResult.modelDisplayName,
+			promptTokens: modelResult.usage?.promptTokens,
+			completionTokens: modelResult.usage?.completionTokens,
+			totalTokens: modelResult.usage?.totalTokens,
+			cachedInputTokens: modelResult.usage?.cachedInputTokens,
+			cacheHitTokens: modelResult.usage?.cacheHitTokens,
+			cacheMissTokens: modelResult.usage?.cacheMissTokens,
+		});
+	}
+
 	if (params.abortSignal.aborted) return { ok: false, reason: "aborted" };
 	if (!modelResult) return { ok: true, value: await refused() };
 

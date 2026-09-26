@@ -221,6 +221,8 @@ export async function readDocumentForAlfy(
 	params: { userId: string; artifactId: string } & ArtifactScopeOptions,
 ): Promise<{
 	artifactId: string;
+	/** The artifact's own conversation — who pays for a model call made about it. */
+	conversationId: string | null;
 	title: string;
 	version: number;
 	tabs: { id: string; title: string }[];
@@ -264,6 +266,7 @@ export async function readDocumentForAlfy(
 
 		return {
 			artifactId: scoped.id,
+			conversationId: scoped.conversationId ?? null,
 			title,
 			version: snapshot.docVersion,
 			tabs,
