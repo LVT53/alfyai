@@ -133,12 +133,22 @@ export async function writeAppValue(
 	const query = conversationId
 		? `?conversationId=${encodeURIComponent(conversationId)}`
 		: "";
+	// The value arrives through postMessage's structured clone, which carries a
+	// BigInt and a cycle intact; JSON cannot encode either and throws. That is
+	// the route's own `not_serialisable`, answered here without a request —
+	// a throw would reach the frame as a timeout instead.
+	let body: string;
+	try {
+		body = JSON.stringify({ key, value });
+	} catch {
+		return { ok: false, reason: "not_serialisable" };
+	}
 	const response = await requestResponse(
 		`/api/artifacts/${encodeURIComponent(artifactId)}/app/kv${query}`,
 		{
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ key, value }),
+			body,
 		},
 		fetchImpl,
 	);
