@@ -230,6 +230,32 @@ describe("injectAppBootstrap", () => {
 		expect(injected.startsWith("<script>")).toBe(true);
 	});
 
+	// RV-2A. `<head>` and `<body>` start tags are optional in HTML, so a valid
+	// document can have neither — and `<header>` is not `<head>`.
+	it("is not fooled by <header>: a head-less document's own script still runs after the bootstrap", () => {
+		const html =
+			"<!doctype html><html><body><script>var hasBridge = !!window.alfy;</script><header><h1>x</h1></header></body></html>";
+		const injected = injectAppBootstrap(html);
+
+		expect(injected.indexOf(APP_BOOTSTRAP_SCRIPT)).toBeLessThan(
+			injected.indexOf("var hasBridge"),
+		);
+	});
+
+	it("keeps a leading doctype first, so a document with implied <head>/<body> is not thrown into quirks mode", () => {
+		const html =
+			'<!DOCTYPE html>\n<html lang="en"><meta charset="utf-8"><title>t</title><script>var hasBridge = !!window.alfy;</script><h1>x</h1>';
+		const injected = injectAppBootstrap(html);
+
+		// Anything but whitespace or a comment before the doctype makes the
+		// parser ignore it and render in quirks mode (Chromium's compatMode
+		// reads "BackCompat").
+		expect(injected.startsWith("<!DOCTYPE html>")).toBe(true);
+		expect(injected.indexOf(APP_BOOTSTRAP_SCRIPT)).toBeLessThan(
+			injected.indexOf("var hasBridge"),
+		);
+	});
+
 	it("is a pure string splice: it never reads anything out of the artifact's own html to build the tag", () => {
 		const html =
 			"<head><script>window.parent = null;</script></head><body></body>";
@@ -237,5 +263,24 @@ describe("injectAppBootstrap", () => {
 		// The bootstrap tag itself is byte-identical regardless of what the
 		// artifact's own document contains.
 		expect(injected).toContain(`<script>${APP_BOOTSTRAP_SCRIPT}</script>`);
+	});
+
+	// RV-2A. This runs on EVERY request for an App, over model-authored text:
+	// a splice point found by backtracking lets one stored body stall the
+	// server's event loop each time anyone opens it. Both inputs below are
+	// finished in well under a millisecond by a linear scan; the thresholds
+	// are hundreds of times that, so a slow shared machine cannot flip them.
+	it("finds its splice point without backtracking over a run of comments", () => {
+		const html = `${"<!---->".repeat(36)}x`;
+		const started = performance.now();
+		injectAppBootstrap(html);
+		expect(performance.now() - started).toBeLessThan(250);
+	});
+
+	it("finds its splice point without rescanning the document for every unclosed tag", () => {
+		const html = "<head ".repeat(32_000);
+		const started = performance.now();
+		injectAppBootstrap(html);
+		expect(performance.now() - started).toBeLessThan(250);
 	});
 });
