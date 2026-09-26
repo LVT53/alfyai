@@ -20,9 +20,9 @@ function checkFor(checks: ReturnType<typeof auditAppHtml>, rule: string) {
 }
 
 describe("auditAppHtml", () => {
-	it("runs all fifteen rules, always, in APP_CONTRACT_RULES order", () => {
+	it("runs all nineteen rules, always, in APP_CONTRACT_RULES order", () => {
 		const checks = auditAppHtml("<html></html>");
-		expect(checks).toHaveLength(15);
+		expect(checks).toHaveLength(19);
 		expect(checks.map((check) => check.rule)).toEqual(
 			APP_CONTRACT_RULES.map((rule) => rule.id),
 		);
@@ -186,6 +186,142 @@ describe("auditAppHtml", () => {
 			expect(checkFor(auditAppHtml(long), "size").passed).toBe(false);
 			const short = Array.from({ length: 10 }, () => "x").join("\n");
 			expect(checkFor(auditAppHtml(short), "size").passed).toBe(true);
+		});
+	});
+
+	// Ruling 58 (RV-2A's sandbox review): dialogs and eval are glitches (the
+	// app still works, degraded by the real sandbox); navigation and WebRTC
+	// are violations (a sandbox-escape attempt, handled by generate.ts's
+	// retry-then-refuse, not just a card line).
+	describe("ruling 58's four sandbox rules", () => {
+		it.each([
+			"alert(",
+			"confirm(",
+			"prompt(",
+		])("no-dialogs flags %s", (call) => {
+			const check = checkFor(
+				auditAppHtml(`<script>${call}'x');</script>`),
+				"no-dialogs",
+			);
+			expect(check.passed).toBe(false);
+			expect(check.severity).toBe("glitch");
+		});
+
+		it("no-dialogs does not flag an unrelated identifier containing the word", () => {
+			expect(
+				checkFor(
+					auditAppHtml("<script>promptText('x');</script>"),
+					"no-dialogs",
+				).passed,
+			).toBe(true);
+		});
+
+		it.each(["eval(", "eval ("])("no-eval flags %s", (call) => {
+			const check = checkFor(
+				auditAppHtml(`<script>${call}'1+1');</script>`),
+				"no-eval",
+			);
+			expect(check.passed).toBe(false);
+			expect(check.severity).toBe("glitch");
+		});
+
+		it("no-eval flags new Function(...) and does not flag a plain function call", () => {
+			expect(
+				checkFor(
+					auditAppHtml("<script>new Function('return 1')();</script>"),
+					"no-eval",
+				).passed,
+			).toBe(false);
+			expect(
+				checkFor(
+					auditAppHtml("<script>evaluate(x); myEval(x);</script>"),
+					"no-eval",
+				).passed,
+			).toBe(true);
+		});
+
+		it.each([
+			["location = 'https://x.example'", "location assignment"],
+			["window.location = 'https://x.example'", "location assignment"],
+			["location.href = 'https://x.example'", "location assignment"],
+			["location.assign('https://x.example')", "location.assign/replace("],
+			["location.replace('https://x.example')", "location.assign/replace("],
+			["window.open('https://x.example')", "window.open("],
+		])("no-navigate flags %s", (script) => {
+			const check = checkFor(
+				auditAppHtml(`<script>${script};</script>`),
+				"no-navigate",
+			);
+			expect(check.passed).toBe(false);
+			expect(check.severity).toBe("violation");
+		});
+
+		it("no-navigate flags an external <a href> but not an in-page anchor", () => {
+			expect(
+				checkFor(
+					auditAppHtml('<a href="https://example.com">go</a>'),
+					"no-navigate",
+				).passed,
+			).toBe(false);
+			expect(
+				checkFor(auditAppHtml('<a href="//example.com">go</a>'), "no-navigate")
+					.passed,
+			).toBe(false);
+			expect(
+				checkFor(auditAppHtml('<a href="#section">go</a>'), "no-navigate")
+					.passed,
+			).toBe(true);
+		});
+
+		it('no-navigate flags <meta http-equiv="refresh">', () => {
+			expect(
+				checkFor(
+					auditAppHtml('<meta http-equiv="refresh" content="0;url=x">'),
+					"no-navigate",
+				).passed,
+			).toBe(false);
+		});
+
+		it("no-navigate does not flag a comparison (location === x) or an unrelated variable", () => {
+			expect(
+				checkFor(
+					auditAppHtml("<script>if (location === x) {}</script>"),
+					"no-navigate",
+				).passed,
+			).toBe(true);
+		});
+
+		it("no-webrtc flags RTCPeerConnection", () => {
+			const check = checkFor(
+				auditAppHtml("<script>new RTCPeerConnection();</script>"),
+				"no-webrtc",
+			);
+			expect(check.passed).toBe(false);
+			expect(check.severity).toBe("violation");
+		});
+
+		it("a clean document passes all four new rules", () => {
+			const checks = auditAppHtml(PASSING_FIXTURE);
+			for (const rule of [
+				"no-dialogs",
+				"no-eval",
+				"no-navigate",
+				"no-webrtc",
+			]) {
+				expect(checkFor(checks, rule).passed).toBe(true);
+			}
+		});
+
+		// Ruling 58: the tag regexes are bounded to 4096 chars so a pathological
+		// answer with no closing `>` cannot cost catastrophic backtracking time
+		// (measured ~0.65s unbounded). A generous 200ms ceiling proves the
+		// bound is in effect without making the test flaky on a loaded CI box.
+		it("audits a pathological 96 KB tag-like document well under the old unbounded cost", () => {
+			const pathological = `<script src="${"a".repeat(96_000)}`; // no closing '>' at all
+			const startedAt = performance.now();
+			expect(() => auditAppHtml(pathological)).not.toThrow();
+			const elapsedMs = performance.now() - startedAt;
+			expect(elapsedMs).toBeLessThan(200);
 		});
 	});
 

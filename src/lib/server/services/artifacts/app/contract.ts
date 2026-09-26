@@ -105,20 +105,32 @@ Hard rules for the document:
 8. Language: the whole UI is in the language of the user's request (a Hungarian request means Hungarian labels, buttons, empty states and error messages). Keep code identifiers in English.
 9. Keep the document under about 400 lines, and skip comments that only restate the code.
 10. Put the app name in <title> and in an <h1>, and show a short usage hint when the interaction is not obvious. When the app stores data, render a useful empty state that says what to add first.
+11. The document runs inside a sandboxed frame with no dialogs and no navigation of its own. If you use a <form>, handle its submit event with event.preventDefault() (the submission itself never leaves the frame, but your own script still runs and must not assume otherwise). Never call alert, confirm or prompt — draw an inline confirmation UI instead when an action needs one. Never use eval or new Function. Never navigate the page: no assigning location or location.href, no location.assign/replace, no window.open, no <a href> pointing outside the document, no <meta http-equiv="refresh">. Never use RTCPeerConnection.
 
 The app must work the moment it is opened: no placeholder functions, no TODO, no code that throws, no dead buttons. Walk through the main interaction mentally before you answer.`;
 
 export interface AppContractRule {
 	id: string;
 	label: string;
-	severity: "glitch" | "note";
+	/**
+	 * "glitch": user-visible, non-fatal (a line on the card, spec Contracts).
+	 * "note": dev/eval-only, never shown (Owner decision 9).
+	 * "violation" (ruling 58): a sandbox-escape attempt (self-navigation,
+	 * WebRTC) rather than a quality miss. Generation retries once with the
+	 * violation named, then refuses with a visible, localized message —
+	 * never just a card-line glitch, because these are the ones that can
+	 * still leak what the app holds despite the sandbox (spec §5/ruling 58).
+	 */
+	severity: "glitch" | "note" | "violation";
 }
 
 /**
- * The fifteen static checks `audit.ts` runs against a generated document,
- * ported from the prototype's `extract.ts` (`contractChecks`). Order matches
- * the prototype's, since the eval harness and this list must agree on "one
- * entry per rule, in this order" (A2).
+ * The nineteen static checks `audit.ts` runs against a generated document:
+ * the prototype's original fifteen (`extract.ts`'s `contractChecks`) plus
+ * four from ruling 58's sandbox review (`no-dialogs`, `no-eval`,
+ * `no-navigate`, `no-webrtc`). Order matches the prototype's for the
+ * original fifteen, since the eval harness and this list must agree on "one
+ * entry per rule, in this order" (A2); the four new ones are appended.
  */
 export const APP_CONTRACT_RULES = [
 	{
@@ -168,6 +180,22 @@ export const APP_CONTRACT_RULES = [
 		severity: "note",
 	},
 	{ id: "size", label: "Under ~400 lines", severity: "note" },
+	// Ruling 58 (RV-2A's sandbox review): a form's submit never fires, confirm()
+	// returns false and eval throws inside the product's real sandboxed frame —
+	// dialogs and eval are glitches (the app still works, degraded); navigation
+	// and WebRTC are violations (a sandbox-escape attempt, not a quality miss).
+	{ id: "no-dialogs", label: "No alert/confirm/prompt", severity: "glitch" },
+	{ id: "no-eval", label: "No eval or new Function", severity: "glitch" },
+	{
+		id: "no-navigate",
+		label: "Never navigates the page",
+		severity: "violation",
+	},
+	{
+		id: "no-webrtc",
+		label: "No RTCPeerConnection",
+		severity: "violation",
+	},
 ] as const satisfies readonly AppContractRule[];
 
 export type AppContractRuleId = (typeof APP_CONTRACT_RULES)[number]["id"];
@@ -176,10 +204,21 @@ export type AppContractSeverity =
 
 /**
  * The rule ids a passing app must not trip — used by both `audit.ts` (the
- * three user-visible glitch messages, Contracts) and the eval scorer.
+ * user-visible glitch messages, Contracts) and the eval scorer.
  */
 export const APP_GLITCH_RULE_IDS: readonly AppContractRuleId[] =
 	APP_CONTRACT_RULES.filter((rule) => rule.severity === "glitch").map(
+		(rule) => rule.id,
+	);
+
+/**
+ * The rule ids that make generation retry once (naming the violation) and
+ * then refuse rather than ship a card (ruling 58). Read by `generate.ts`;
+ * kept beside `APP_GLITCH_RULE_IDS` since both are the audit's own severity
+ * split, not a second classification.
+ */
+export const APP_VIOLATION_RULE_IDS: readonly AppContractRuleId[] =
+	APP_CONTRACT_RULES.filter((rule) => rule.severity === "violation").map(
 		(rule) => rule.id,
 	);
 

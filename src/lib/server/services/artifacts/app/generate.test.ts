@@ -266,7 +266,7 @@ describe("generateApp — extraction", () => {
 			expect(result.extraction).toBe("fence");
 			expect(result.fences).toBe(1);
 			expect(result.title).toBe("Trip cost splitter");
-			expect(result.checks.length).toBe(15);
+			expect(result.checks.length).toBe(19);
 		}
 	});
 
@@ -582,6 +582,73 @@ describe("generateApp — cost", () => {
 
 		expect(result.ok).toBe(false);
 		expect(recordControlModelUsage).toHaveBeenCalled();
+	});
+});
+
+// Ruling 58 (RV-2A's sandbox review): a violation-severity audit rule
+// (self-navigation, WebRTC) retries once with the violation named, then
+// refuses — never shipped, even as a glitch.
+describe("generateApp — a contract violation retries once, then refuses (ruling 58)", () => {
+	const VIOLATING_HTML =
+		'<!doctype html><html><head><title>x</title></head><body><script>location.href = "https://exfiltrate.invalid";</script></body></html>';
+
+	it("retries with the violation named when attempt 1 violates, and succeeds if attempt 2 is clean", async () => {
+		runStreamingNormalChatModelRun
+			.mockReturnValueOnce(asAsyncIterable(fenceEvents(VIOLATING_HTML)))
+			.mockReturnValueOnce(asAsyncIterable(fenceEvents(MINIMAL_APP_HTML)));
+
+		const result = await generateApp(baseRequest());
+
+		expect(runStreamingNormalChatModelRun).toHaveBeenCalledTimes(2);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.html).toBe(MINIMAL_APP_HTML);
+			expect(result.attempts).toBe(2);
+			expect(result.warnings.join(" ")).toMatch(/contract violation/);
+			expect(result.warnings.join(" ")).toMatch(/no-navigate/);
+		}
+
+		// The retry's own user message names the violation, still as a single
+		// fresh turn (A1.6 — never chat history: exactly one message either way).
+		const secondCallArgs = runStreamingNormalChatModelRun.mock.calls[1][0];
+		expect(secondCallArgs.messages).toHaveLength(1);
+		expect(secondCallArgs.messages[0].content).toMatch(
+			/not allowed inside this app's sandboxed frame/,
+		);
+		expect(secondCallArgs.messages[0].content).toMatch(/no-navigate/);
+	});
+
+	it("refuses with contract_violation when both attempts violate, never shipping the html", async () => {
+		runStreamingNormalChatModelRun.mockImplementation(() =>
+			asAsyncIterable(fenceEvents(VIOLATING_HTML)),
+		);
+
+		const result = await generateApp(baseRequest());
+
+		expect(runStreamingNormalChatModelRun).toHaveBeenCalledTimes(2);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.reason).toBe("contract_violation");
+			expect(result.detail).toMatch(/no-navigate/);
+			expect(result.attempts).toBe(2);
+		}
+	});
+
+	it("does not retry on a dialog or eval glitch — those ship as a card-line glitch, not a refusal", async () => {
+		const glitchyHtml =
+			'<!doctype html><html><head><title>x</title></head><body><button onclick="alert(1)">go</button></body></html>';
+		runStreamingNormalChatModelRun.mockReturnValueOnce(
+			asAsyncIterable(fenceEvents(glitchyHtml)),
+		);
+
+		const result = await generateApp(baseRequest());
+
+		expect(runStreamingNormalChatModelRun).toHaveBeenCalledTimes(1);
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			const dialogsCheck = result.checks.find((c) => c.rule === "no-dialogs");
+			expect(dialogsCheck?.passed).toBe(false);
+		}
 	});
 });
 

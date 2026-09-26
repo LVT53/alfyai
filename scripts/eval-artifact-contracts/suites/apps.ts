@@ -18,6 +18,7 @@ import { auditAppHtml } from "$lib/server/services/artifacts/app/audit";
 import {
 	APP_CONTRACT_PROMPT,
 	APP_GLITCH_RULE_IDS,
+	APP_VIOLATION_RULE_IDS,
 } from "$lib/server/services/artifacts/app/contract";
 import {
 	buildAppRequestMessage,
@@ -344,12 +345,34 @@ export function scoreAppEval(
 	}
 
 	const checks = auditAppHtml(extraction.html);
+
+	// Ruling 58: a violation (self-navigation, WebRTC) is what production
+	// retries once and then REFUSES — never a card-line glitch and never a
+	// silent note. The eval mirrors that: a violation on the FINAL answer
+	// scores bad outright, same as production never shipping it.
+	const violationIds = new Set<string>(APP_VIOLATION_RULE_IDS);
+	const violations = checks.filter(
+		(check) => !check.passed && violationIds.has(check.rule),
+	);
+	if (violations.length > 0) {
+		return {
+			verdict: "bad",
+			reasons: violations.map(
+				(v) =>
+					`case ${evalCase.id}: contract violation — ${v.rule}: ${v.detail}`,
+			),
+		};
+	}
+
 	const glitchIds = new Set<string>(APP_GLITCH_RULE_IDS);
 	const staticGlitches = checks.filter(
 		(check) => !check.passed && glitchIds.has(check.rule),
 	);
 	const notes = checks.filter(
-		(check) => !check.passed && !glitchIds.has(check.rule),
+		(check) =>
+			!check.passed &&
+			!glitchIds.has(check.rule) &&
+			!violationIds.has(check.rule),
 	);
 	const browserGlitches = app ? collectBrowserGlitches(app) : [];
 

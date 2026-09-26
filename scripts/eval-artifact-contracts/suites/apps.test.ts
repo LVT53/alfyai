@@ -171,6 +171,38 @@ describe("scoreAppEval", () => {
 		});
 	});
 
+	// Ruling 58: a violation (self-navigation, WebRTC) scores bad outright —
+	// production never ships one even as a glitch (retry-then-refuse), so the
+	// eval must not either.
+	describe("contract violations score bad, never a glitch or a silent note (ruling 58)", () => {
+		it("a self-navigating app scores bad", () => {
+			const html = CLEAN_APP_HTML.replace(
+				"<script>",
+				'<script>location.href = "https://exfiltrate.invalid";',
+			);
+			const result = scoreAppEval(baseCase, {
+				caseId: baseCase.id,
+				suite: "app",
+				response: fence(html),
+			});
+			expect(result.verdict).toBe("bad");
+			expect(result.reasons.some((r) => r.includes("no-navigate"))).toBe(true);
+		});
+
+		it("a dialog or eval glitch stays acceptable, not bad", () => {
+			const html = CLEAN_APP_HTML.replace(
+				"<script>",
+				"<script>document.addEventListener('click', () => alert('hi'));",
+			);
+			const result = scoreAppEval(baseCase, {
+				caseId: baseCase.id,
+				suite: "app",
+				response: fence(html),
+			});
+			expect(result.verdict).toBe("acceptable");
+		});
+	});
+
 	// Ruling 56: the browser pass's own fatal/glitch signals fold into the
 	// same good/acceptable/bad verdict the static audit already produces,
 	// ported from the P1 prototype's score.ts rules.

@@ -24,7 +24,11 @@ import {
 	runStreamingNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
 import { auditAppHtml, type ContractCheck } from "./audit";
-import { APP_CONTRACT_PROMPT, APP_MAX_OUTPUT_TOKENS } from "./contract";
+import {
+	APP_CONTRACT_PROMPT,
+	APP_MAX_OUTPUT_TOKENS,
+	APP_VIOLATION_RULE_IDS,
+} from "./contract";
 
 export interface AppGenerationRequest {
 	userId: string;
@@ -48,7 +52,10 @@ export type AppGenerationFailureReason =
 	| "no_fence"
 	| "tool_call"
 	| "too_long"
-	| "provider_error";
+	| "provider_error"
+	/** Ruling 58: a violation-severity audit rule (self-navigation, WebRTC)
+	 * fired on both attempts — refused rather than shipped, even repaired. */
+	| "contract_violation";
 
 export type AppGenerationResult =
 	| {
@@ -353,7 +360,10 @@ export async function generateApp(
 		APP_MAX_OUTPUT_TOKENS,
 		provider.maxOutputTokens ?? APP_MAX_OUTPUT_TOKENS,
 	);
-	const userMessage = buildAppRequestMessage(request);
+	// Reassigned, not const: a violation on attempt 1 (ruling 58) retries with
+	// the violation named appended to the SAME single-turn message — still no
+	// chat history (A1.6), just different text for the one user turn.
+	let currentUserMessage = buildAppRequestMessage(request);
 
 	let topKRetried = false;
 	let finalizeFailure: AppGenerationResult | null = null;
@@ -366,7 +376,7 @@ export async function generateApp(
 			outcome = await runOneAttempt({
 				provider,
 				modelId,
-				userMessage,
+				userMessage: currentUserMessage,
 				maxOutputTokens,
 				abortSignal: request.abortSignal,
 			});
@@ -455,6 +465,33 @@ export async function generateApp(
 		if (extraction.issue)
 			warnings.push(`attempt ${attempts}: ${extraction.issue}`);
 
+		const checks = auditAppHtml(extraction.html);
+
+		// Ruling 58: a violation (self-navigation, WebRTC) is not a card-line
+		// glitch — it is a sandbox-escape attempt the product must not ship.
+		// Retry once with the violation named (still a single fresh user turn,
+		// A1.6 — never chat history); a second violation is refused, never
+		// silently degraded to a glitch.
+		const violations = checks.filter(
+			(check) => !check.passed && APP_VIOLATION_RULE_IDS.includes(check.rule),
+		);
+		if (violations.length > 0) {
+			const named = violations.map((v) => `${v.rule} (${v.detail})`).join("; ");
+			warnings.push(`attempt ${attempts}: contract violation — ${named}`);
+			if (attempts < APP_MAX_ATTEMPTS) {
+				currentUserMessage = `${currentUserMessage}\n\nYour previous answer is not allowed inside this app's sandboxed frame: ${named}. Do not do that. Rewrite the app without it — handle the interaction entirely inside the document, with no navigation and no WebRTC.`;
+				continue;
+			}
+			finalizeFailure = {
+				ok: false,
+				reason: "contract_violation",
+				detail: `the app tried to leave its sandbox: ${named}`,
+				usage,
+				attempts,
+			};
+			break;
+		}
+
 		success = {
 			ok: true,
 			html: extraction.html,
@@ -463,7 +500,7 @@ export async function generateApp(
 				deriveAppTitle(extraction.html, request.prompt),
 			extraction: "fence",
 			fences: extraction.fenceCount,
-			checks: auditAppHtml(extraction.html),
+			checks,
 			usage,
 			attempts,
 			warnings,

@@ -75,6 +75,8 @@ const artifactsDict = {
 			"Alfy tried to look around instead of writing the app. Try again.",
 		"artifacts.app.failed.tooLong":
 			"The app grew past what can run here. Ask for something smaller.",
+		"artifacts.app.failed.contractViolation":
+			"Alfy's answer tried to leave the app's sandbox, so it was not shown. Try again, or ask for something simpler.",
 		"artifacts.app.verify.checking": "Alfy is checking the facts in this app…",
 		"artifacts.app.verify.clean": "Alfy checked the facts in this app.",
 		"artifacts.app.verify.repaired":
@@ -157,6 +159,8 @@ const artifactsDict = {
 			"Alfy írás helyett körülnézni próbált. Próbáld újra.",
 		"artifacts.app.failed.tooLong":
 			"Az alkalmazás nagyobb lett, mint ami itt futtatható. Kérj valami kisebbet.",
+		"artifacts.app.failed.contractViolation":
+			"Alfy válasza megpróbálta elhagyni az alkalmazás védett területét, ezért nem jelent meg. Próbáld újra, vagy kérj valami egyszerűbbet.",
 		"artifacts.app.verify.checking": "Alfy ellenőrzi az alkalmazás adatait…",
 		"artifacts.app.verify.clean": "Alfy ellenőrizte az alkalmazás adatait.",
 		"artifacts.app.verify.repaired":

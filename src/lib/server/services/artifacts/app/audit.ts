@@ -32,25 +32,41 @@ function firstMatches(html: string, regex: RegExp, limit = 3): string[] {
 	return [...html.matchAll(regex)].map((match) => match[1]).slice(0, limit);
 }
 
+// Bounded to 4096 chars between `<` and `>` (ruling 58): an unbounded
+// `[^>]*` backtracks catastrophically against a pathological ~96 KB document
+// with no `>` at all (measured ~0.65s before this bound; audit.test.ts's own
+// timing test keeps it fast). No real tag attribute list approaches 4096
+// chars, so this changes no verdict on any real document.
+const MAX_TAG_TAIL = 4096;
+
 const RULE_EVALUATORS: Record<AppContractRuleId, RuleEvaluator> = {
 	"no-script-src": (html) => {
 		const found = firstMatches(
 			html,
-			/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi,
+			new RegExp(
+				`<script\\b[^>]{0,${MAX_TAG_TAIL}}\\bsrc\\s*=\\s*["']([^"']+)["']`,
+				"gi",
+			),
 		);
 		return { passed: found.length === 0, detail: found.join(", ") || "none" };
 	},
 	"no-link-href": (html) => {
 		const found = firstMatches(
 			html,
-			/<link\b[^>]*\bhref\s*=\s*["'](https?:\/\/[^"']+)["']/gi,
+			new RegExp(
+				`<link\\b[^>]{0,${MAX_TAG_TAIL}}\\bhref\\s*=\\s*["'](https?:\\/\\/[^"']+)["']`,
+				"gi",
+			),
 		);
 		return { passed: found.length === 0, detail: found.join(", ") || "none" };
 	},
 	"no-remote-img": (html) => {
 		const found = firstMatches(
 			html,
-			/<img\b[^>]*\bsrc\s*=\s*["'](https?:\/\/[^"']+)["']/gi,
+			new RegExp(
+				`<img\\b[^>]{0,${MAX_TAG_TAIL}}\\bsrc\\s*=\\s*["'](https?:\\/\\/[^"']+)["']`,
+				"gi",
+			),
 		);
 		return { passed: found.length === 0, detail: found.join(", ") || "none" };
 	},
@@ -117,7 +133,10 @@ const RULE_EVALUATORS: Record<AppContractRuleId, RuleEvaluator> = {
 		return { passed: found.length === 0, detail: found.join(", ") || "none" };
 	},
 	viewport: (html) => {
-		const present = /<meta\b[^>]*name\s*=\s*["']viewport["']/i.test(html);
+		const present = new RegExp(
+			`<meta\\b[^>]{0,${MAX_TAG_TAIL}}name\\s*=\\s*["']viewport["']`,
+			"i",
+		).test(html);
 		return { passed: present, detail: present ? "present" : "missing" };
 	},
 	fluid: (html) => {
@@ -133,6 +152,68 @@ const RULE_EVALUATORS: Record<AppContractRuleId, RuleEvaluator> = {
 	size: (html) => {
 		const lines = html.split("\n").length;
 		return { passed: lines <= 460, detail: `${lines} lines` };
+	},
+	// Ruling 58: measured under the product's real sandboxed frame — a dialog
+	// call never shows anything (no allow-modals; confirm()/prompt() resolve
+	// falsy/null synchronously, alert() is a no-op) and the app's own script
+	// keeps running past it, so this is a glitch, not a crash.
+	"no-dialogs": (html) => {
+		const found = [
+			...new Set(
+				(html.match(/\b(alert|confirm|prompt)\s*\(/g) ?? []).map((call) =>
+					call.replace(/\s*\($/, ""),
+				),
+			),
+		];
+		return { passed: found.length === 0, detail: found.join(", ") || "none" };
+	},
+	// eval/new Function throw under the real CSP (script-src has no
+	// 'unsafe-eval') — a glitch (the surrounding try/catch, if any, still
+	// runs), not a violation: it cannot itself leak data outside the frame.
+	"no-eval": (html) => {
+		const found: string[] = [];
+		if (/\beval\s*\(/.test(html)) found.push("eval(");
+		if (/\bnew\s+Function\s*\(/.test(html)) found.push("new Function(");
+		return { passed: found.length === 0, detail: found.join(", ") || "none" };
+	},
+	// A violation (ruling 58): the sandbox does not stop a frame navigating
+	// ITSELF (only a hostile parent framing it, or the frame navigating
+	// something else), so an app that tries can still leak what it holds —
+	// exactly the "still leak by navigating itself" gap the ruling names.
+	"no-navigate": (html) => {
+		const found: string[] = [];
+		if (/\b(?:window\.)?location(?:\.href)?\s*=[^=]/.test(html)) {
+			found.push("location assignment");
+		}
+		if (/\blocation\s*\.\s*(?:assign|replace)\s*\(/.test(html)) {
+			found.push("location.assign/replace(");
+		}
+		if (/\bwindow\s*\.\s*open\s*\(/.test(html)) {
+			found.push("window.open(");
+		}
+		if (
+			new RegExp(
+				`<a\\b[^>]{0,${MAX_TAG_TAIL}}\\bhref\\s*=\\s*["'](?:https?:)?\\/\\/`,
+				"i",
+			).test(html)
+		) {
+			found.push("an external <a href>");
+		}
+		if (
+			new RegExp(
+				`<meta\\b[^>]{0,${MAX_TAG_TAIL}}http-equiv\\s*=\\s*["']refresh["']`,
+				"i",
+			).test(html)
+		) {
+			found.push('<meta http-equiv="refresh">');
+		}
+		return { passed: found.length === 0, detail: found.join(", ") || "none" };
+	},
+	// A violation (ruling 58): no CSP directive stops WebRTC, so a data
+	// channel is a second, unblockable way to leak what the app holds.
+	"no-webrtc": (html) => {
+		const found = html.includes("RTCPeerConnection");
+		return { passed: !found, detail: found ? "RTCPeerConnection" : "none" };
 	},
 };
 

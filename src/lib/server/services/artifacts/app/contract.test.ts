@@ -9,6 +9,7 @@ import {
 	APP_MAX_OUTPUT_TOKENS,
 	APP_SAMPLING_DEFAULTS,
 	APP_TOKENS,
+	APP_VIOLATION_RULE_IDS,
 } from "./contract";
 
 const APP_CSS_PATH = path.resolve(
@@ -130,16 +131,16 @@ describe("APP_CONTRACT_PROMPT", () => {
 });
 
 describe("APP_CONTRACT_RULES", () => {
-	it("has fifteen rules, each with a stable id and a severity", () => {
-		expect(APP_CONTRACT_RULES).toHaveLength(15);
+	it("has nineteen rules (the prototype's fifteen plus ruling 58's four), each with a stable id and a severity", () => {
+		expect(APP_CONTRACT_RULES).toHaveLength(19);
 		const ids = new Set(APP_CONTRACT_RULES.map((rule) => rule.id));
-		expect(ids.size).toBe(15);
+		expect(ids.size).toBe(19);
 		for (const rule of APP_CONTRACT_RULES) {
-			expect(["glitch", "note"]).toContain(rule.severity);
+			expect(["glitch", "note", "violation"]).toContain(rule.severity);
 		}
 	});
 
-	it("maps exactly the five glitch-severity rules into APP_GLITCH_RULE_IDS", () => {
+	it("maps exactly the seven glitch-severity rules into APP_GLITCH_RULE_IDS", () => {
 		expect([...APP_GLITCH_RULE_IDS].sort()).toEqual(
 			[
 				"no-script-src",
@@ -147,8 +148,25 @@ describe("APP_CONTRACT_RULES", () => {
 				"no-remote-img",
 				"no-network-api",
 				"no-web-storage",
+				"no-dialogs",
+				"no-eval",
 			].sort(),
 		);
+	});
+
+	it("maps exactly the two violation-severity rules into APP_VIOLATION_RULE_IDS (ruling 58)", () => {
+		expect([...APP_VIOLATION_RULE_IDS].sort()).toEqual(
+			["no-navigate", "no-webrtc"].sort(),
+		);
+	});
+
+	it("the contract prompt names every ruling-58 restriction", () => {
+		expect(APP_CONTRACT_PROMPT).toMatch(/preventDefault/);
+		expect(APP_CONTRACT_PROMPT).toMatch(/alert, confirm or prompt/);
+		expect(APP_CONTRACT_PROMPT).toMatch(/eval or new Function/);
+		expect(APP_CONTRACT_PROMPT).toMatch(/location/);
+		expect(APP_CONTRACT_PROMPT).toMatch(/window\.open/);
+		expect(APP_CONTRACT_PROMPT).toMatch(/RTCPeerConnection/);
 	});
 });
 
