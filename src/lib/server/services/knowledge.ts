@@ -8,6 +8,7 @@ import type {
 	WorkCapsule,
 } from "$lib/server/services/knowledge/types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import type { FileFamily } from "$lib/shared/file-types";
 import { getExtractionJobsForArtifacts } from "./extraction";
 import { mapWorkCapsuleFromArtifactRow } from "./knowledge/capsules";
 import type { KnowledgeDocumentKindFilter } from "./knowledge/store";
@@ -120,6 +121,8 @@ export interface KnowledgeLibraryPageOptions {
 	page?: number | null;
 	pageSize?: number | null;
 	kindFilter?: KnowledgeDocumentKindFilter | null;
+	/** Ruling 60: narrows the Files bucket to one file-type family. */
+	fileFamilyFilter?: FileFamily | null;
 }
 
 export interface KnowledgeLibraryPage {
@@ -136,6 +139,8 @@ export interface KnowledgeLibraryPage {
 		totalPages: number;
 	};
 	countsByKind: Record<KnowledgeDocumentKindFilter, number>;
+	/** Ruling 60: the Files bucket's own file-type family breakdown. */
+	countsByFileFamily: Record<FileFamily, number>;
 }
 
 const KNOWLEDGE_LIBRARY_DEFAULT_PAGE_SIZE = 20;
@@ -255,6 +260,7 @@ export async function getKnowledgeLibraryPage(
 	const requestedPage = resolveLibraryPage(options.page);
 	const requestedOffset = (requestedPage - 1) * pageSize;
 	const kindFilter = options.kindFilter ?? undefined;
+	const fileFamilyFilter = options.fileFamilyFilter ?? undefined;
 
 	let libraryPage = await listLogicalDocumentsPage(userId, {
 		includeGeneratedOutputs: true,
@@ -264,6 +270,7 @@ export async function getKnowledgeLibraryPage(
 		offset: requestedOffset,
 		limit: pageSize,
 		kindFilter,
+		fileFamilyFilter,
 	});
 	const totalItems = libraryPage.totalItems;
 	const totalPages = Math.ceil(totalItems / pageSize);
@@ -279,6 +286,7 @@ export async function getKnowledgeLibraryPage(
 			offset,
 			limit: pageSize,
 			kindFilter,
+			fileFamilyFilter,
 		});
 	}
 
@@ -296,6 +304,7 @@ export async function getKnowledgeLibraryPage(
 			totalPages,
 		},
 		countsByKind: libraryPage.countsByKind,
+		countsByFileFamily: libraryPage.countsByFileFamily,
 	};
 }
 

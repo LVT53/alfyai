@@ -10,7 +10,9 @@ import {
 import { UPLOAD_REJECT_I18N_KEYS } from "$lib/utils/clipboard-attachments";
 import {
 	buildAcceptAttribute,
+	FILE_FAMILY_ORDER,
 	fileExtension,
+	type FileFamily,
 	getCategory,
 	getEntryByFilename,
 	getEntryByMimeType,
@@ -143,6 +145,15 @@ interface DocumentsListProps {
 	/** Counted server-side, independent of pagination and of `typeFilter`
 	 *  itself — see `LogicalDocumentPageResult.countsByKind`. */
 	countsByKind?: Record<KnowledgeDocumentKindFilter, number>;
+	/**
+	 * Ruling 60's second-tier filter, live only while `typeFilter === "uploaded"`.
+	 * `null`/absent means "All files" — no family chip is ever drawn active for
+	 * that state, since the second row has no "All" chip of its own.
+	 */
+	fileFamilyFilter?: FileFamily | null;
+	onFileFamilyFilterChange?: (family: FileFamily | null) => void;
+	/** The Files bucket's own breakdown — see `LogicalDocumentPageResult.countsByFileFamily`. */
+	countsByFileFamily?: Record<FileFamily, number>;
 }
 
 let {
@@ -174,6 +185,9 @@ let {
 	typeFilter = "all",
 	onTypeFilterChange,
 	countsByKind,
+	fileFamilyFilter = null,
+	onFileFamilyFilterChange,
+	countsByFileFamily,
 }: DocumentsListProps = $props();
 
 /**
@@ -208,6 +222,48 @@ function chipCount(filter: DocumentTypeFilter): number {
 
 function chipLabelKey(filter: DocumentTypeFilter) {
 	return `knowledge.documents.filter.${filter}` as const;
+}
+
+// ── The file family row (ruling 60, second tier, Files only) ─────────────
+//
+// Unlike the kind row above, a zero-count family is HIDDEN rather than shown
+// at 0 — the owner's own design calls for that asymmetry, and the row itself
+// only ever appears while the Files chip is active.
+
+function fileFamilyLabelKey(family: FileFamily) {
+	return `knowledge.documents.fileFamily.${family}` as const;
+}
+
+/** Every family with at least one row, in `FILE_FAMILY_ORDER`. Empty when the
+ *  page hasn't given counts at all (e.g. the big empty state, which never
+ *  shows this row anyway — see `showFileFamilyRow`). */
+const visibleFileFamilies = $derived(
+	countsByFileFamily
+		? FILE_FAMILY_ORDER.filter((family) => countsByFileFamily[family] > 0)
+		: [],
+);
+
+/** Live only under the Files chip, and only once there is something to narrow. */
+const showFileFamilyRow = $derived(
+	typeFilter === "uploaded" && visibleFileFamilies.length > 0,
+);
+
+/** Clicking the already-active family clears it back to "All files"; any
+ *  other click selects that family. There is no "All files" chip of its own
+ *  at this tier — clearing is how a person returns to it. */
+function handleFileFamilyChipClick(family: FileFamily) {
+	onFileFamilyFilterChange?.(fileFamilyFilter === family ? null : family);
+}
+
+/** The top row's own click handler: switching to any chip other than Files
+ *  clears a live family selection in the SAME gesture, so a page that reacts
+ *  to `onFileFamilyFilterChange` never has to infer it from `onTypeFilterChange`
+ *  on its own. */
+function handleTypeFilterChipClick(filter: DocumentTypeFilter) {
+	if (filter !== "uploaded" && fileFamilyFilter) {
+		onFileFamilyFilterChange?.(null);
+	}
+	onTypeFilterChange?.(filter);
 }
 
 /** The summary line's own bucket order (mockup: "12 uploaded · 6 documents ·
@@ -1318,12 +1374,40 @@ async function handleBulkDelete(): Promise<boolean> {
 					count: chipCount(filter),
 				})}
 				data-testid="documents-filter-chip-{filter}"
-				onclick={() => onTypeFilterChange?.(filter)}
+				onclick={() => handleTypeFilterChipClick(filter)}
 			>
 				{$t(chipLabelKey(filter))} {chipCount(filter)}
 			</button>
 		{/each}
 	</div>
+	{#if showFileFamilyRow}
+		<div
+			class="documents-filter-chips documents-filter-chips-secondary"
+			role="group"
+			aria-label={$t('knowledge.documents.fileFamily.groupLabel')}
+			data-testid="documents-file-family-chips"
+		>
+			<span class="documents-filter-group-label">
+				{$t('knowledge.documents.fileFamily.groupLabel')}
+			</span>
+			{#each visibleFileFamilies as family (family)}
+				<button
+					type="button"
+					class="documents-filter-chip documents-filter-chip-secondary"
+					class:active={fileFamilyFilter === family}
+					aria-pressed={fileFamilyFilter === family}
+					aria-label={$t('knowledge.documents.filter.optionA11y', {
+						label: $t(fileFamilyLabelKey(family)),
+						count: countsByFileFamily?.[family] ?? 0,
+					})}
+					data-testid="documents-file-family-chip-{family}"
+					onclick={() => handleFileFamilyChipClick(family)}
+				>
+					{$t(fileFamilyLabelKey(family))} {countsByFileFamily?.[family] ?? 0}
+				</button>
+			{/each}
+		</div>
+	{/if}
 	{#if showInitialEmptyState}
 		{#if onUpload}
 			<button
@@ -2736,6 +2820,24 @@ async function handleBulkDelete(): Promise<boolean> {
 	.documents-filter-chip:focus-visible {
 		outline: 2px solid var(--focus-ring);
 		outline-offset: 2px;
+	}
+
+	/* The file family row (ruling 60): a visually subordinate second tier,
+	   live only under the Files chip. Same wrap-not-scroll rule as the row
+	   above it, so it never overflows at narrow widths either. */
+	.documents-filter-chips-secondary {
+		align-items: center;
+	}
+
+	.documents-filter-group-label {
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		margin-right: var(--space-xs);
+	}
+
+	.documents-filter-chip-secondary {
+		padding: 0.1875rem var(--space-sm);
+		font-size: 0.6875rem;
 	}
 
 	.documents-table td.col-size,

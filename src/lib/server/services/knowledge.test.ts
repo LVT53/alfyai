@@ -298,6 +298,73 @@ describe("knowledge service getKnowledgeLibraryPage", () => {
 			"canvas-1",
 		]);
 	});
+
+	// Ruling 60: the Documents tab's second-tier file-family filter threads
+	// through the same facade the kindFilter test above proves.
+	it("threads fileFamilyFilter to listLogicalDocumentsPage and returns its countsByFileFamily", async () => {
+		mockListLogicalDocumentsPage.mockResolvedValue({
+			documents: [
+				{
+					id: "report-1",
+					displayArtifactId: "report-1",
+					promptArtifactId: null,
+					familyArtifactIds: ["report-1"],
+					name: "report.docx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					sizeBytes: 500,
+					conversationId: "conv-1",
+					summary: null,
+					normalizedAvailable: false,
+					documentOrigin: "uploaded",
+					createdAt: 300,
+					updatedAt: 300,
+				},
+			],
+			totalItems: 1,
+			countsByKind: {
+				document: 0,
+				app: 0,
+				canvas: 0,
+				slides: 0,
+				uploaded: 1,
+			},
+			countsByFileFamily: {
+				pdf: 0,
+				word: 1,
+				spreadsheet: 0,
+				presentation: 0,
+				image: 0,
+				textMarkdown: 0,
+				other: 0,
+			},
+		});
+
+		const result = await getKnowledgeLibraryPage("user-1", {
+			kindFilter: "uploaded",
+			fileFamilyFilter: "word",
+		});
+
+		expect(mockListLogicalDocumentsPage).toHaveBeenCalledWith(
+			"user-1",
+			expect.objectContaining({
+				kindFilter: "uploaded",
+				fileFamilyFilter: "word",
+			}),
+		);
+		expect(result.countsByFileFamily).toEqual({
+			pdf: 0,
+			word: 1,
+			spreadsheet: 0,
+			presentation: 0,
+			image: 0,
+			textMarkdown: 0,
+			other: 0,
+		});
+		expect(result.documents.map((document) => document.id)).toEqual([
+			"report-1",
+		]);
+	});
 });
 
 import {

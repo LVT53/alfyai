@@ -42,6 +42,7 @@ import type {
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { KnowledgeMemoryOverviewPayload } from "$lib/server/services/memory-types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import { FILE_FAMILY_ORDER, type FileFamily } from "$lib/shared/file-types";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { createExtractionPoller } from "$lib/client/extraction-poll";
 import { toWorkspaceDocument } from "./_helpers";
@@ -157,6 +158,12 @@ let documentTypeFilter = $state<DocumentTypeFilter>(
 let documentCountsByKind = $state<
 	Record<KnowledgeDocumentKindFilter, number> | undefined
 >(initialLibrary?.countsByKind);
+let documentFileFamilyFilter = $state<FileFamily | null>(
+	getFileFamilyFilterFromUrl(kitPage.url),
+);
+let documentCountsByFileFamily = $state<Record<FileFamily, number> | undefined>(
+	initialLibrary?.countsByFileFamily,
+);
 let documentDeleteCandidateId = $state<string | null>(null);
 let bulkDeleteCandidateIds = $state<string[] | null>(null);
 let bulkDeleteSuccessVersion = $state(0);
@@ -198,7 +205,8 @@ function getKnowledgeTabFromUrl(url: URL): KnowledgeTab {
 		searchParams.has("dir") ||
 		searchParams.has("page") ||
 		searchParams.has("pageSize") ||
-		searchParams.has("type");
+		searchParams.has("type") ||
+		searchParams.has("family");
 	return requestedTab === "documents" || hasDocumentQuery
 		? "documents"
 		: "memory";
@@ -219,6 +227,16 @@ function getDocumentTypeFilterFromUrl(url: URL): DocumentTypeFilter {
 	return type && KIND_FILTER_VALUES.has(type as DocumentTypeFilter)
 		? (type as DocumentTypeFilter)
 		: "all";
+}
+
+const FILE_FAMILY_FILTER_VALUES = new Set<FileFamily>(FILE_FAMILY_ORDER);
+
+/** Mirrors `+page.server.ts`'s own `parseFileFamilyFilter` (ruling 60). */
+function getFileFamilyFilterFromUrl(url: URL): FileFamily | null {
+	const family = url.searchParams.get("family");
+	return family && FILE_FAMILY_FILTER_VALUES.has(family as FileFamily)
+		? (family as FileFamily)
+		: null;
 }
 
 function syncSearchParam(
@@ -243,6 +261,7 @@ function syncDocumentUrlState(
 		page: number;
 		pageSize: number;
 		typeFilter: DocumentTypeFilter;
+		fileFamilyFilter: FileFamily | null;
 	},
 ) {
 	if (params.tab === "memory") {
@@ -253,6 +272,7 @@ function syncDocumentUrlState(
 		searchParams.delete("page");
 		searchParams.delete("pageSize");
 		searchParams.delete("type");
+		searchParams.delete("family");
 		return;
 	}
 
@@ -287,6 +307,7 @@ function syncDocumentUrlState(
 		"type",
 		params.typeFilter === "all" ? null : params.typeFilter,
 	);
+	syncSearchParam(searchParams, "family", params.fileFamilyFilter);
 }
 
 function buildKnowledgeLibraryUrl(params: {
@@ -297,6 +318,11 @@ function buildKnowledgeLibraryUrl(params: {
 	pageSize?: number;
 	tab?: KnowledgeTab;
 	typeFilter?: DocumentTypeFilter;
+	/** `undefined` keeps the current family; `null` explicitly clears it — the
+	 *  same "not passed" vs "pass null to clear" distinction `fileFamilyFilter`
+	 *  needs everywhere else, since unlike `typeFilter` it has no "all" value
+	 *  of its own to pass instead. */
+	fileFamilyFilter?: FileFamily | null;
 }): string {
 	const searchParams = new URLSearchParams(kitPage.url.search);
 	const query = params.query ?? documentSearchQuery;
@@ -306,6 +332,10 @@ function buildKnowledgeLibraryUrl(params: {
 	const pageSize = params.pageSize ?? documentPaginationLimit;
 	const tab = params.tab ?? activeTab;
 	const typeFilter = params.typeFilter ?? documentTypeFilter;
+	const fileFamilyFilter =
+		params.fileFamilyFilter !== undefined
+			? params.fileFamilyFilter
+			: documentFileFamilyFilter;
 
 	syncDocumentUrlState(searchParams, {
 		tab,
@@ -315,6 +345,7 @@ function buildKnowledgeLibraryUrl(params: {
 		page,
 		pageSize,
 		typeFilter,
+		fileFamilyFilter,
 	});
 
 	const queryString = searchParams.toString();
@@ -328,6 +359,7 @@ async function updateKnowledgeLibraryParams(params: {
 	page?: number;
 	pageSize?: number;
 	typeFilter?: DocumentTypeFilter;
+	fileFamilyFilter?: FileFamily | null;
 }) {
 	if (!browser) return;
 	documentsNavigating = true;
@@ -387,7 +419,22 @@ function handleDocumentSortChange(
 function handleDocumentTypeFilterChange(filter: DocumentTypeFilter) {
 	documentTypeFilter = filter;
 	documentCurrentPage = 1;
-	void updateKnowledgeLibraryParams({ typeFilter: filter, page: 1 });
+	// Ruling 60: a family only ever means something under Files — switching to
+	// any other chip clears it in the SAME navigation (not a second `goto`),
+	// so the URL never has a moment of `type=document&family=pdf` in between.
+	const clearsFamily = filter !== "uploaded";
+	if (clearsFamily) documentFileFamilyFilter = null;
+	void updateKnowledgeLibraryParams({
+		typeFilter: filter,
+		fileFamilyFilter: clearsFamily ? null : undefined,
+		page: 1,
+	});
+}
+
+function handleDocumentFileFamilyFilterChange(family: FileFamily | null) {
+	documentFileFamilyFilter = family;
+	documentCurrentPage = 1;
+	void updateKnowledgeLibraryParams({ fileFamilyFilter: family, page: 1 });
 }
 
 function handleDocumentSelect(document: KnowledgeDocumentItem) {
@@ -915,6 +962,10 @@ $effect(() => {
 });
 
 $effect(() => {
+	documentFileFamilyFilter = getFileFamilyFilterFromUrl(kitPage.url);
+});
+
+$effect(() => {
 	if (activeTab !== "memory") {
 		lastMemoryProfileTabState = activeTab;
 		return;
@@ -960,6 +1011,7 @@ $effect(() => {
 	documentSortKey = library.sort.key;
 	documentSortDirection = library.sort.direction;
 	documentCountsByKind = library.countsByKind;
+	documentCountsByFileFamily = library.countsByFileFamily;
 });
 </script>
 
@@ -1037,6 +1089,9 @@ $effect(() => {
 						typeFilter={documentTypeFilter}
 						countsByKind={documentCountsByKind}
 						onTypeFilterChange={handleDocumentTypeFilterChange}
+						fileFamilyFilter={documentFileFamilyFilter}
+						countsByFileFamily={documentCountsByFileFamily}
+						onFileFamilyFilterChange={handleDocumentFileFamilyFilterChange}
 						bulkDeleteSuccessVersion={bulkDeleteSuccessVersion}
 						onPaginationLimitChange={handleDocumentPaginationLimitChange}
 						onPageChange={handleDocumentPageChange}
