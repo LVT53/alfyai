@@ -452,3 +452,74 @@ describe("seedArtifactTourDrafts", () => {
 		expect(slides[1]?.titleEn).toBe("A board for anything");
 	});
 });
+
+describe("artifact_tour_states table (Task T1)", () => {
+	let sqlite: Database.Database;
+	let db: ReturnType<typeof drizzle<typeof schema>>;
+
+	beforeEach(() => {
+		sqlite = new Database(":memory:");
+		sqlite.pragma("foreign_keys = ON");
+		db = drizzle(sqlite, { schema });
+		migrate(db, { migrationsFolder: "./drizzle" });
+
+		db.insert(schema.users)
+			.values({
+				id: "user-1",
+				email: "user1@example.com",
+				passwordHash: "hash",
+			})
+			.run();
+	});
+
+	afterEach(() => {
+		sqlite.close();
+	});
+
+	it("enforces the unique index on (user_id, artifact_type, content_key)", () => {
+		const row = {
+			id: "state-1",
+			userId: "user-1",
+			artifactType: "canvas" as const,
+			contentKey: "default:1",
+			status: "completed",
+			slideCount: 3,
+			lastSlide: 2,
+		};
+		db.insert(schema.artifactTourStates).values(row).run();
+
+		expect(() =>
+			db
+				.insert(schema.artifactTourStates)
+				.values({ ...row, id: "state-2" })
+				.run(),
+		).toThrow(/UNIQUE constraint failed/);
+
+		// A different content key for the same (user, kind) is a distinct row —
+		// this is exactly how a new campaign snapshot re-shows the tour once.
+		expect(() =>
+			db
+				.insert(schema.artifactTourStates)
+				.values({ ...row, id: "state-3", contentKey: "default:2" })
+				.run(),
+		).not.toThrow();
+	});
+
+	it("cascades the row when the user is deleted", () => {
+		db.insert(schema.artifactTourStates)
+			.values({
+				id: "state-1",
+				userId: "user-1",
+				artifactType: "canvas",
+				contentKey: "default:1",
+				status: "completed",
+				slideCount: 3,
+				lastSlide: 2,
+			})
+			.run();
+
+		db.delete(schema.users).where(eq(schema.users.id, "user-1")).run();
+
+		expect(db.select().from(schema.artifactTourStates).all()).toHaveLength(0);
+	});
+});
