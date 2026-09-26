@@ -6,6 +6,11 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	saveArtifactBody,
+	toggleDocumentTask,
+} from "$lib/client/api/artifacts";
+import type { FetchLike } from "$lib/client/api/http";
 import { db } from "$lib/server/db";
 import {
 	artifactKv,
@@ -31,6 +36,8 @@ import {
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 import type { PatchOp, PatchSet } from "$lib/shared/artifact-document/patch";
+import { GET as getArtifactRoute } from "../../src/routes/api/artifacts/[id]/+server";
+import { PATCH as patchBodyRoute } from "../../src/routes/api/artifacts/[id]/body/+server";
 
 const NOW = new Date("2026-09-25T10:00:00.000Z");
 
@@ -672,5 +679,110 @@ describe("RV-1A: the Document's writes on a real database", () => {
 		expect(save.ok).toBe(true);
 		expect(edit.ok && edit.result.outcomes[0].code).toBe("block_changed");
 		expect(rawContentText(created.id)).toContain("Beta, as the user wrote it.");
+	});
+
+	/**
+	 * The browser's own calls (`saveArtifactBody`, `toggleDocumentTask`)
+	 * against the REAL routes and database: a fetch that dispatches to the
+	 * route handlers. `afterGet` runs once a GET has been answered, which is
+	 * how a test lands a write between the card's read and its write.
+	 */
+	function routedFetch(hooks?: { afterGet?: () => Promise<void> }): FetchLike {
+		return async (input, init) => {
+			const url = new URL(String(input), "http://localhost");
+			const match = /^\/api\/artifacts\/([^/]+)(\/body)?$/.exec(url.pathname);
+			if (!match) throw new Error(`unrouted ${url.pathname}`);
+			const event = {
+				params: { id: decodeURIComponent(match[1]) },
+				url,
+				locals: { user: { id: userId, role: "user" } },
+				request: {
+					json: async () => JSON.parse(String(init?.body ?? "null")),
+				},
+			} as never;
+			if (match[2]) return patchBodyRoute(event);
+			const response = await getArtifactRoute(event);
+			await hooks?.afterGet?.();
+			return response;
+		};
+	}
+
+	async function userBurstDocument() {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Weekend",
+			markdown: "- [ ] Book hotel\n\nNotes.",
+			author: "alfy",
+			summary: "x",
+		});
+		const task = parseDocument(rawContentText(created.id), { mint: false })
+			.blocks[0];
+		// The open editor's first autosave: version 2, the user's own burst.
+		const typed = rawContentText(created.id).replace(
+			"Notes.",
+			"Notes: pack light.",
+		);
+		const first = await saveArtifactBody(
+			created.id,
+			typed,
+			1,
+			conversationId,
+			routedFetch(),
+		);
+		expect(first).toMatchObject({ ok: true, version: 2 });
+		return { created, task, typed };
+	}
+
+	it("a card tick never overwrites an autosave it did not see (the save landed between the tick's read and write)", async () => {
+		const { created, task, typed } = await userBurstDocument();
+		const moreTyping = typed.replace("pack light.", "pack light, bring boots.");
+
+		const tick = await toggleDocumentTask(
+			created.id,
+			task.id,
+			true,
+			conversationId,
+			routedFetch({
+				afterGet: async () => {
+					const autosave = await saveArtifactBody(
+						created.id,
+						moreTyping,
+						2,
+						conversationId,
+						routedFetch(),
+					);
+					expect(autosave.ok).toBe(true);
+				},
+			}),
+		);
+
+		expect(tick.ok).toBe(false);
+		expect(rawContentText(created.id)).toContain("bring boots");
+	});
+
+	it("an open editor's autosave never overwrites a card tick it did not see", async () => {
+		const { created, task, typed } = await userBurstDocument();
+
+		const tick = await toggleDocumentTask(
+			created.id,
+			task.id,
+			true,
+			conversationId,
+			routedFetch(),
+		);
+		expect(tick.ok).toBe(true);
+
+		// The editor still holds its own text (no tick) and the version number
+		// it last saved at.
+		const editorSave = await saveArtifactBody(
+			created.id,
+			typed.replace("pack light.", "pack light, bring boots."),
+			2,
+			conversationId,
+			routedFetch(),
+		);
+		expect(editorSave.ok).toBe(false);
+		expect(rawContentText(created.id)).toContain("- [x] Book hotel");
 	});
 });

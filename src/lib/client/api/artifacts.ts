@@ -102,6 +102,14 @@ export async function saveArtifactBody(
 	expectVersion?: number,
 	conversationId?: string | null,
 	fetchImpl: FetchLike = fetch,
+	/**
+	 * For a writer that is NOT the editor's autosave (the card's tick):
+	 * `baseHash` is the body hash it read (a save over a body that moved since
+	 * is refused `stale`), and `coalesce: false` makes the save a version of
+	 * its own, so an open editor holding the old version number is refused
+	 * rather than saving over it. See the body route.
+	 */
+	guard?: { baseHash?: string; coalesce?: boolean },
 ): Promise<SaveArtifactBodyResult> {
 	const response = await fetchImpl(
 		`/api/artifacts/${encodeURIComponent(artifactId)}/body${withConversationQuery(conversationId)}`,
@@ -111,6 +119,8 @@ export async function saveArtifactBody(
 			body: JSON.stringify({
 				body,
 				...(expectVersion !== undefined ? { expectVersion } : {}),
+				...(guard?.baseHash !== undefined ? { baseHash: guard.baseHash } : {}),
+				...(guard?.coalesce !== undefined ? { coalesce: guard.coalesce } : {}),
 			}),
 		},
 	);
@@ -186,12 +196,15 @@ export async function toggleDocumentTask(
 	const result = applyPatchSet({ blocks, patch, snapshot: buildIndex(blocks) });
 	if (result.applied === 0) return { ok: false, reason: "block_not_found" };
 
+	// The tick is a second writer beside any open editor: it says which body it
+	// changed, and takes a version of its own (RV-1A) — see saveArtifactBody.
 	return saveArtifactBody(
 		artifactId,
 		result.markdown,
 		detail.artifact.versionNumber,
 		conversationId,
 		fetchImpl,
+		{ baseHash: detail.artifact.bodyHash ?? undefined, coalesce: false },
 	);
 }
 

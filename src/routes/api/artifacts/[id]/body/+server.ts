@@ -37,9 +37,10 @@ function parseSuppliedTabs(value: unknown): DocumentTab[] | undefined {
 // PATCH /api/artifacts/[id]/body — the one write route every kind's body goes
 // through (ruling 13: the field is `body` for every type, never `markdown`,
 // since Canvas and Slides write JSON through this same shape). The panel's
-// autosave is the only caller in this slice, so this route always opts into
-// ruling 47's coalescing (`coalesceUserEdits: true`) — a burst of keystrokes
-// updates the latest version in place rather than minting one per debounce.
+// autosave is its main caller, so this route opts into ruling 47's coalescing
+// (`coalesceUserEdits: true`) unless the caller says `coalesce: false` — a
+// burst of keystrokes updates the latest version in place rather than
+// minting one per debounce.
 //
 // A Document's tabs are carried forward UNCHANGED on an ordinary body save
 // (typing never touches the tab strip): this route reads the artifact's
@@ -59,6 +60,8 @@ export const PATCH: RequestHandler = async (event) => {
 		body?: unknown;
 		expectVersion?: unknown;
 		tabs?: unknown;
+		baseHash?: unknown;
+		coalesce?: unknown;
 	} | null;
 	if (!payload || typeof payload.body !== "string") {
 		return json({ ok: false, reason: "invalid_patch" }, { status: 400 });
@@ -67,6 +70,17 @@ export const PATCH: RequestHandler = async (event) => {
 		typeof payload.expectVersion === "number"
 			? payload.expectVersion
 			: undefined;
+	// Ruling 47 coalesces a burst of saves into one version WITHOUT moving the
+	// version number, so `expectVersion` alone cannot tell a second writer's
+	// save from the editor's own previous one. A writer that is not the
+	// editor's autosave — the card's tick, which reads, changes one line and
+	// writes — says what it read (`baseHash`, refused as `stale` when the body
+	// moved since) and asks for a version of its own (`coalesce: false`), so
+	// the number moves and an open editor still holding the old one is refused
+	// (`version_conflict`) instead of saving over the tick (RV-1A).
+	const baseHash =
+		typeof payload.baseHash === "string" ? payload.baseHash : undefined;
+	const coalesceUserEdits = payload.coalesce !== false;
 
 	const artifact = await getArtifact({
 		userId: user.id,
@@ -91,7 +105,8 @@ export const PATCH: RequestHandler = async (event) => {
 					author: "user",
 					summary: "Edited",
 					expectVersion,
-					coalesceUserEdits: true,
+					baseHash,
+					coalesceUserEdits,
 				})
 			: await updateArtifactBody({
 					userId: user.id,
@@ -101,7 +116,8 @@ export const PATCH: RequestHandler = async (event) => {
 					author: "user",
 					summary: "Edited",
 					expectVersion,
-					coalesceUserEdits: true,
+					baseHash,
+					coalesceUserEdits,
 				}).then((r) =>
 					r.ok ? { ok: true as const, version: r.versionNumber } : r,
 				);

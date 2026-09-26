@@ -432,6 +432,8 @@ export async function saveDocumentBody(
 		author: ArtifactAuthor;
 		summary: string;
 		expectVersion?: number;
+		/** The body hash the caller read; a save over a body that moved since is `stale`. */
+		baseHash?: string;
 		coalesceUserEdits?: boolean;
 	} & ArtifactScopeOptions,
 ): Promise<
@@ -456,6 +458,7 @@ export async function saveDocumentBody(
 		summary: params.summary,
 		metadataPatch: { tabs: params.body.tabs },
 		expectVersion: params.expectVersion,
+		baseHash: params.baseHash,
 		coalesceUserEdits: params.coalesceUserEdits,
 	});
 	if (!result.ok) return { ok: false, reason: result.reason };
