@@ -17,6 +17,7 @@ import {
 	dropPendingFileProductionJobs,
 	failPendingFileProductionJobPlaceholder,
 	finalizeStreamingMessageList,
+	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
 	hasActiveFileProductionJobs,
 	isConversationReadOnly,
@@ -1474,5 +1475,86 @@ describe("patchInstructionSuggestionInMessageList", () => {
 				suggestion: makeSuggestion({ status: "reviewed" }),
 			}),
 		).toEqual([assistantMessage]);
+	});
+});
+
+describe("findLiveDocumentAlfyActivity", () => {
+	it("returns null with no tool-call segments at all", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+	});
+
+	it("finds an in-flight edit_artifact call targeting a document", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "doc-1", summary: "Add packing list", patches: [] },
+			status: "running",
+			details: { callId: "call-1" },
+		});
+
+		const activity = findLiveDocumentAlfyActivity(list);
+		expect(activity).toEqual(
+			expect.objectContaining({
+				artifactId: "doc-1",
+				status: "running",
+				label: "Add packing list",
+			}),
+		);
+	});
+
+	it("ignores a tool call for a non-document kind", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "canvas-1", patches: [] },
+			status: "done",
+			details: {
+				callId: "call-1",
+				metadata: { ok: true, artifactId: "canvas-1", artifactKind: "canvas" },
+			},
+		});
+
+		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+	});
+
+	it("ignores unrelated tool calls (e.g. research_web) even when present", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "research_web",
+			input: { query: "Vienna" },
+			status: "done",
+		});
+
+		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+	});
+
+	it("picks the MOST RECENT Document call across the whole message list", () => {
+		let list = [
+			createAssistantPlaceholder("assistant-1"),
+			createAssistantPlaceholder("assistant-2"),
+		];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "doc-old", patches: [] },
+			status: "done",
+			details: {
+				callId: "call-old",
+				metadata: { ok: true, artifactId: "doc-old", artifactKind: "document" },
+			},
+		});
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-2",
+			name: "edit_artifact",
+			input: { artifactId: "doc-new", patches: [] },
+			status: "running",
+			details: { callId: "call-new" },
+		});
+
+		expect(findLiveDocumentAlfyActivity(list)?.artifactId).toBe("doc-new");
 	});
 });

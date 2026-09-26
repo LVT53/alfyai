@@ -156,6 +156,7 @@ import {
 	dropPendingFileProductionJobs,
 	failPendingFileProductionJobPlaceholder,
 	finalizeStreamingMessageList,
+	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
 	hasActiveAtlasJobs,
 	hasActiveFileProductionJobs,
@@ -838,6 +839,15 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 
 let isThinkingActive = $derived(
 	Boolean($messages[$messages.length - 1]?.isThinkingStreaming),
+);
+/**
+ * T8 live: the chat page's own view of "what is Alfy doing to a document
+ * right now" — `DocumentWorkspace`'s `alfyActivity` prop carries this down
+ * to whichever body is open. See `_helpers.ts`'s
+ * `findLiveDocumentAlfyActivity` for the (unit-tested) scan itself.
+ */
+let liveDocumentAlfyActivity = $derived(
+	findLiveDocumentAlfyActivity($messages),
 );
 // Show loading state when waiting for the first response (either from pending message or new send)
 let showInitialLoading = $derived(
@@ -3169,6 +3179,7 @@ function handleDrop(event: DragEvent) {
 			availableDocuments={availableWorkspaceDocumentsWithArtifacts}
 			activeDocumentId={activeWorkspaceDocumentId}
 			conversationId={data.conversation.id}
+			alfyActivity={liveDocumentAlfyActivity}
 			list={{
 				open: artifactListOpen,
 				items: artifactWorkspaceItems,
