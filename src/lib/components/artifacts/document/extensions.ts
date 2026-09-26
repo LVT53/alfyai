@@ -378,7 +378,14 @@ function absorbBlockMarkers(editor: {
  * still missing, as one transaction (never two — see
  * `buildAbsorbAndMintTransaction`). Dispatches with `addToHistory: false`, so
  * opening a document never gives the user a first Undo step that does
- * nothing visible. A no-op (already fully identified) dispatches nothing.
+ * nothing visible, and `preventUpdate: true` (Tiptap's own `Editor.
+ * dispatchTransaction` checks this exact meta key before emitting `update`),
+ * because absorbing/minting ids is bookkeeping, never a user edit — without
+ * it, this dispatch fires `DocumentBody.svelte`'s `onUpdate` (`handleUpdate`),
+ * which calls `readMarkdown`, whose OWN throwaway marker transactions would
+ * then re-enter `onUpdate` again, recursing until the call stack overflows
+ * (the T7 crash T8/T9/T11's e2e suite found; see `readMarkdown`'s matching
+ * comment). A no-op (already fully identified) dispatches nothing.
  */
 export function ensureBlockIds(editor: {
 	state: EditorState;
@@ -387,6 +394,7 @@ export function ensureBlockIds(editor: {
 	const tr = buildAbsorbAndMintTransaction(editor.state);
 	if (!tr) return;
 	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
 	editor.view.dispatch(tr);
 }
 

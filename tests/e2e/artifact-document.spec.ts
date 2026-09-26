@@ -20,24 +20,33 @@ import { createConversation, login } from "./helpers";
 // The "Ask Alfy" / "Comment" selection bubble is T10's surface, covered by
 // `tests/e2e/artifact-document-comments.spec.ts`.
 //
-// CRITICAL, PRE-EXISTING FINDING (not introduced by T8/T9/T11, found while
-// writing this file): against a REAL browser, any edit that reaches
-// `DocumentBody.svelte`'s `currentCanonicalMarkdown()` — typing a character,
-// clicking "Add a tab", choosing a chip option — eventually throws
-// `RangeError: Maximum call stack size exceeded` inside ProseMirror's
-// `Fragment.nodesBetween`, reached either through `readMarkdown` →
-// `EditorView.dispatch` → `@tiptap/extension-table`'s `fixTables`
-// `appendTransaction`, or later through a plain `editor.isActive(...)` call
-// in `updateActiveActionIds`. `document-editor.test.ts`'s own round-trip
-// test (T7.5) never catches this because it calls `readMarkdown` only twice
-// on static content with no typing in between and runs under jsdom, which
-// does not lay out tables the way `fixTables` inspects them — so nothing
-// before this file ever drove `readMarkdown` through many REAL, live
-// keystroke-triggered calls in a real browser. This is `document-editor.ts`/
-// `readMarkdown`'s territory (T7, not owned by this slice's T8/T9/T11), so it
-// is reported rather than fixed here; the affected tests below are marked
-// `test.fail()` with a pointer to this comment so a real fix shows up as an
-// "expected to fail but passed" flag instead of silently going green.
+// FIXED, formerly CRITICAL finding (not introduced by T8/T9/T11, found while
+// writing this file, root-caused and fixed in `document-editor.ts`): against
+// a REAL browser, any edit that reached `DocumentBody.svelte`'s
+// `currentCanonicalMarkdown()` — typing a character, clicking "Add a tab",
+// choosing a chip option — eventually threw `RangeError: Maximum call stack
+// size exceeded` inside ProseMirror's `Fragment.nodesBetween`, reached either
+// through `readMarkdown` → `EditorView.dispatch` → `@tiptap/extension-table`'s
+// `fixTables` `appendTransaction`, or later through a plain
+// `editor.isActive(...)` call in `updateActiveActionIds`. Neither of those was
+// the actual cause: `readMarkdown`'s two throwaway marker-insert/-delete
+// transactions dispatched without Tiptap's `preventUpdate` meta flag, so each
+// one fired `Editor`'s `update` event, which is wired to
+// `DocumentBody.svelte`'s `handleUpdate` — which calls
+// `currentCanonicalMarkdown()`, which calls `readMarkdown` again, whose two
+// dispatches fired `update` again, unboundedly, synchronously, until the call
+// stack overflowed; whichever tree-walk (`fixTables`, `isActive`) happened to
+// be running when the limit was hit is what the stack trace showed, not the
+// cause. `document-editor.test.ts`'s own round-trip test (T7.5) never caught
+// this because it calls `createDocumentEditor`/`loadMarkdown`/`readMarkdown`
+// without wiring an `onUpdate` callback at all, so Tiptap's `update` event had
+// nothing to re-enter. Fixed by marking every internal, non-user-edit
+// dispatch in `document-editor.ts`/`extensions.ts` (`readMarkdown`'s two
+// transactions, `ensureBlockIds`, `loadMarkdown`'s `setContent`) with
+// `preventUpdate: true` / `emitUpdate: false`. Regression coverage: "sustained
+// edits — typing, a table cell, adding a tab, and a chip change — never crash
+// the editor" below drives all four triggers back to back in one open editor
+// and asserts no `pageerror` fired.
 
 async function testUserId(): Promise<string> {
 	const [user] = await db
@@ -172,13 +181,6 @@ test.describe("the Document panel", () => {
 	test("editing text autosaves through the body route, and the change survives a reload", async ({
 		page,
 	}) => {
-		// See this file's header comment: typing triggers `currentCanonicalMarkdown`
-		// → `readMarkdown` on every keystroke, which hits a pre-existing
-		// `document-editor.ts` recursion bug against a real browser.
-		test.fail(
-			true,
-			"pre-existing readMarkdown/fixTables recursion — see header comment",
-		);
 		const conversationId = await createConversation(page, "Plan a trip");
 		const artifactId = await seedDocument({
 			conversationId,
@@ -224,16 +226,6 @@ test.describe("the Document panel", () => {
 	test("shows every tab from a multi-section document, first one active, and adding one persists", async ({
 		page,
 	}) => {
-		// See this file's header comment: "Add a tab" also calls
-		// `currentCanonicalMarkdown` to carry the current text along with the
-		// tab write, which hits the same pre-existing recursion bug. The tab
-		// strip's own client-side update (asserted below, before the
-		// persistence check) is unaffected — only the write-through-to-storage
-		// half is.
-		test.fail(
-			true,
-			"pre-existing readMarkdown/fixTables recursion — see header comment",
-		);
 		const conversationId = await createConversation(page, "Plan a trip");
 		const artifactId = await seedDocument({
 			conversationId,
@@ -270,14 +262,6 @@ test.describe("the Document panel", () => {
 	test("a status chip renders as a listbox with the localized label, and choosing another option writes the canonical token", async ({
 		page,
 	}) => {
-		// The listbox itself (rendering, localized labels, its own value) is
-		// asserted below and is NOT part of this — only the write-through the
-		// `change` handler triggers (`currentCanonicalMarkdown` → `readMarkdown`)
-		// hits the same pre-existing bug this file's header comment describes.
-		test.fail(
-			true,
-			"pre-existing readMarkdown/fixTables recursion — see header comment",
-		);
 		const conversationId = await createConversation(page, "Plan a trip");
 		const artifactId = await seedDocument({
 			conversationId,
@@ -296,6 +280,69 @@ test.describe("the Document panel", () => {
 		await expect
 			.poll(() => readStoredBody(artifactId), { timeout: 15_000 })
 			.toContain('value="To book"');
+	});
+
+	// Regression test for the header comment's crash: a sustained run of real
+	// edits — several keystrokes, a table cell, "Add a tab", and a chip change
+	// — each reaches `currentCanonicalMarkdown` → `readMarkdown`, which used to
+	// re-enter `handleUpdate` through its own throwaway marker-insert/-delete
+	// dispatches and recurse until the stack overflowed. No single assertion
+	// above exercises all four triggers back to back in one still-open editor,
+	// which is exactly the shape a real editing session has.
+	test("sustained edits — typing, a table cell, adding a tab, and a chip change — never crash the editor", async ({
+		page,
+	}) => {
+		const pageErrors: string[] = [];
+		page.on("pageerror", (error) => pageErrors.push(error.message));
+
+		const conversationId = await createConversation(page, "Plan a trip");
+		const artifactId = await seedDocument({
+			conversationId,
+			title: "Trip",
+			markdown: [
+				"# Plan",
+				"",
+				"Some notes.",
+				"",
+				"| a | b |",
+				"| - | - |",
+				"| 1 | 2 |",
+				"",
+				'Hotel: [chip kind="status" value="Booked"]',
+			].join("\n"),
+			tabs: [{ id: "tab-plan", title: "Plan", startBlockId: "" }],
+		});
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+
+		const editor = page.locator(".document-editor-host .document-content");
+		await editor.click();
+		await editor.pressSequentially("Typed once. ");
+		await editor.pressSequentially("Typed twice. ");
+		await editor.pressSequentially("Typed a third time.");
+
+		const cell = page.locator("table td").first();
+		await cell.click();
+		await page.keyboard.type("edited ");
+
+		await page.getByRole("button", { name: "Add a tab" }).click();
+		await expect(page.getByRole("tab")).toHaveCount(2);
+
+		const select = page.locator(".tracker-chip-select");
+		await select.selectOption("To book");
+		await expect(select).toHaveValue("To book");
+
+		// The ground truth that every trigger above actually reached the
+		// server, not just the live DOM — the same poll-the-row pattern the
+		// tests above use, now for the LAST edit in the sequence.
+		await expect
+			.poll(() => readStoredBody(artifactId), { timeout: 15_000 })
+			.toContain("Typed a third time.");
+		await expect
+			.poll(() => readStoredBody(artifactId), { timeout: 15_000 })
+			.toContain("edited");
+
+		expect(pageErrors).toEqual([]);
 	});
 });
 

@@ -59,7 +59,16 @@ export function createDocumentEditor(
  * markers and mints anything missing, exactly like the initial load.
  */
 export function loadMarkdown(editor: Editor, markdown: string): void {
-	editor.commands.setContent(markdown, { contentType: "markdown" });
+	// `emitUpdate: false` (Tiptap's own `setContent` option) for the same
+	// reason `ensureBlockIds` below sets `preventUpdate` on its dispatch:
+	// replacing the whole document (Alfy's patch result, or an Undo) is a
+	// programmatic content sync, not a user edit, so it must not fire
+	// `DocumentBody.svelte`'s `onUpdate`/`onDirty` — see `readMarkdown`'s
+	// comment for what happens when an internal dispatch fires `onUpdate`.
+	editor.commands.setContent(markdown, {
+		contentType: "markdown",
+		emitUpdate: false,
+	});
 	ensureBlockIds(editor);
 }
 
@@ -74,6 +83,26 @@ export function loadMarkdown(editor: Editor, markdown: string): void {
  * `addToHistory: false`, so calling this never adds a step to the user's own
  * Undo stack, and the live document is byte-for-byte the same before and
  * after the call — verified by a two-call idempotency test (T7.5).
+ *
+ * CRITICAL: both transactions also carry `preventUpdate: true` (Tiptap's own
+ * `Editor.dispatchTransaction` checks this meta key and skips emitting
+ * `update` when it is set). Without it, each dispatch below fires Tiptap's
+ * `update` event, which `document-editor.ts`'s caller wires straight to
+ * `DocumentBody.svelte`'s `handleUpdate` — which calls
+ * `currentCanonicalMarkdown()`, which calls `readMarkdown` again, whose two
+ * dispatches would fire `update` again, and so on: unbounded synchronous
+ * re-entrant recursion that overflows the call stack on the very first real
+ * edit (typing, a toolbar action, a chip change — anything that reaches
+ * `currentCanonicalMarkdown`). This was previously reported as a ProseMirror
+ * bug ("Maximum call stack size exceeded" inside `Fragment.nodesBetween`,
+ * reached through `fixTables`'s `appendTransaction` or `Editor.isActive`) —
+ * that stack trace is real, but it is a SYMPTOM: whichever tree-walk happens
+ * to run at the moment the recursion finally exhausts the stack is what the
+ * trace shows, not the cause. `preventUpdate` marks these two transactions as
+ * bookkeeping, not a user edit, which stops `handleUpdate` from ever being
+ * re-entered from inside itself. Regression coverage: `tests/e2e/
+ * artifact-document.spec.ts`'s "sustained edits" test drives typing, a table
+ * cell, "Add a tab" and a chip change back to back in one open editor.
  */
 export function readMarkdown(editor: Editor): string {
 	const identified: { pos: number; id: string }[] = [];
@@ -98,6 +127,10 @@ export function readMarkdown(editor: Editor): string {
 	// marker anyway as routine cleanup — before `getMarkdown()` below ever
 	// runs. The output-only marker would never survive to be serialised.
 	insertTr.setMeta(blockIdPluginKey, SKIP_BLOCK_ID_PLUGIN);
+	// See this function's own header comment: without this, dispatching below
+	// fires Tiptap's `update` event and recurses back into this very function
+	// through `DocumentBody.svelte`'s `onUpdate` wiring.
+	insertTr.setMeta("preventUpdate", true);
 	editor.view.dispatch(insertTr);
 
 	const markdown = editor.getMarkdown();
@@ -113,6 +146,7 @@ export function readMarkdown(editor: Editor): string {
 	}
 	deleteTr.setMeta("addToHistory", false);
 	deleteTr.setMeta(blockIdPluginKey, SKIP_BLOCK_ID_PLUGIN);
+	deleteTr.setMeta("preventUpdate", true);
 	editor.view.dispatch(deleteTr);
 
 	return markdown;
