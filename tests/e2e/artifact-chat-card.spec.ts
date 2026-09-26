@@ -244,9 +244,9 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			// on this very first open, which can outrun the default 5s
 			// assertion timeout under load — the same reason the two waits
 			// around it already carry an explicit 30s budget.
-			await expect(
-				workspace.getByText("Book the museum tickets."),
-			).toBeVisible({ timeout: 30_000 });
+			await expect(workspace.getByText("Book the museum tickets.")).toBeVisible(
+				{ timeout: 30_000 },
+			);
 
 			// Survives a reload: the identical card renders again from the
 			// persisted tool-call segment, enriched with ConversationDetail's own
