@@ -7,16 +7,20 @@ import { t, type I18nKey } from "$lib/i18n";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import { reducedMotionAware } from "$lib/utils/motion";
 import {
+	AppWindow,
 	ChevronRight,
 	ExternalLink,
 	FileText,
 	FileUp,
 	Folder,
+	LayoutDashboard,
 	Library,
 	MessageSquare,
 	NotebookText,
+	Presentation,
 	Search,
 	Sparkles,
+	SquarePen,
 	TextSearch,
 	X,
 } from "@lucide/svelte";
@@ -573,6 +577,10 @@ function conversationMeta(conversation: WorkspaceSearchConversationResult) {
 }
 
 function documentBadgeKey(document: WorkspaceSearchDocumentResult) {
+	// The artifact family (Feature 2, ADR-0066) reuses `artifacts.type.*` — the
+	// app's one kind-label vocabulary (ruling 22) — instead of a second badge-
+	// key family for the same five words.
+	if (document.kind) return `artifacts.type.${document.kind}` as I18nKey;
 	if (document.documentOrigin === "generated")
 		return "searchModal.badgeGenerated";
 	if (document.documentOrigin === "skill_note")
@@ -845,7 +853,15 @@ onDestroy(() => {
 													onclick={() => openDocument(row.document)}
 												>
 													<div class="search-result-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-md">
-														{#if row.document.documentOrigin === 'generated'}
+														{#if row.document.kind === 'app'}
+															<AppWindow size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
+														{:else if row.document.kind === 'canvas'}
+															<LayoutDashboard size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
+														{:else if row.document.kind === 'slides'}
+															<Presentation size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
+														{:else if row.document.kind === 'document'}
+															<SquarePen size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
+														{:else if row.document.documentOrigin === 'generated'}
 															<Sparkles size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
 														{:else if row.document.documentOrigin === 'skill_note'}
 															<NotebookText size={15} strokeWidth={2.1} class="text-icon-muted" aria-hidden="true" />
