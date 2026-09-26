@@ -30,6 +30,7 @@ const CLEAN_FILES = [
 	"src/lib/components/artifacts/document/chips.ts",
 	"src/lib/components/artifacts/document/card-view.ts",
 	"src/lib/components/artifacts/document/block-attrs.ts",
+	"src/lib/components/artifacts/document/alfy-activity.ts",
 	"src/lib/components/artifacts/ArtifactCard.svelte",
 	"src/lib/components/artifacts/RefusalNotice.svelte",
 	"src/lib/components/artifacts/artifact-bodies.ts",

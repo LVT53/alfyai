@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	buildIndex,
 	parseDocument,
@@ -15,9 +15,11 @@ import {
 } from "./document-editor";
 import { buildDocumentExtensions } from "./extensions";
 import {
+	alfyChangeRect,
 	applyAlfyChangeMarks,
 	keepAlfyChange,
 	refusalReasonI18nKey,
+	scrollToAlfyChange,
 	summarizeRefusals,
 	undoAlfyChange,
 } from "./marks";
@@ -340,5 +342,71 @@ describe("marks: summarizeRefusals / refusalReasonI18nKey", () => {
 		expect(refusalReasonI18nKey("not_a_text_block")).toBe(
 			"artifacts.document.refused.other",
 		);
+	});
+});
+
+describe("marks: alfyChangeRect / scrollToAlfyChange (the inline bar's positioning)", () => {
+	it("returns null for a changeId with no mark, without throwing", () => {
+		const { editor } = setup("First paragraph.");
+		expect(() => alfyChangeRect(editor, "no-such-change")).not.toThrow();
+		expect(alfyChangeRect(editor, "no-such-change")).toBeNull();
+		expect(scrollToAlfyChange(editor, "no-such-change")).toBe(false);
+	});
+
+	it("combines the mark's start/end coords into one rect", () => {
+		const { editor, blocks, snapshot } = setup(
+			"First paragraph.\n\nSecond paragraph.",
+		);
+		const target = blocks[0];
+		const insertOp = op({
+			kind: "insertText",
+			blockId: target.id,
+			baseHash: target.hash,
+			at: "end",
+			text: "Extra.",
+		});
+		const patch = patchOf([insertOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+
+		let call = 0;
+		editor.view.coordsAtPos = (() => {
+			call += 1;
+			// First call is the range's `from`, second is `to` — distinct
+			// values on each side prove the function combines both, not just
+			// one repeated coordinate.
+			return call === 1
+				? { top: 10, left: 20, right: 21, bottom: 40 }
+				: { top: 11, left: 29, right: 30, bottom: 41 };
+		}) as typeof editor.view.coordsAtPos;
+
+		const rect = alfyChangeRect(editor, entries[0].changeId);
+		// top/left come from the range's start coords, right/bottom from its end.
+		expect(rect).toEqual({ top: 10, left: 20, right: 30, bottom: 41 });
+	});
+
+	it("scrolls the mark's DOM node into view when one exists", () => {
+		const { editor, blocks, snapshot } = setup(
+			"First paragraph.\n\nSecond paragraph.",
+		);
+		const target = blocks[0];
+		const insertOp = op({
+			kind: "insertText",
+			blockId: target.id,
+			baseHash: target.hash,
+			at: "end",
+			text: "Extra.",
+		});
+		const patch = patchOf([insertOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+
+		const scrollIntoView = vi.fn();
+		Element.prototype.scrollIntoView = scrollIntoView;
+
+		expect(scrollToAlfyChange(editor, entries[0].changeId)).toBe(true);
+		expect(scrollIntoView).toHaveBeenCalled();
 	});
 });
