@@ -202,6 +202,83 @@ describe("AppBody — conversation scoping (ruling 51)", () => {
 	});
 });
 
+// RV-2A. The panel reuses this body when its open-documents rail switches
+// from one App to another (same kind, same loader), so `artifactId` changes
+// under a live component. The card's trust lines and its Code tab must follow
+// the App whose frame is showing, never the one the panel just left.
+describe("AppBody — switching Apps in the same panel", () => {
+	function detailFor(id: string, verdict: "clean" | "unavailable") {
+		return {
+			...baseDetail({
+				id,
+				body: `<!doctype html><title>${id}</title>`,
+				metadata: {
+					artifactType: "app",
+					title: id,
+					verification: { checked: true, verdict, reason: null },
+				},
+			}),
+		};
+	}
+
+	function deferred<T>() {
+		let resolve: (value: T) => void = () => {};
+		const promise = new Promise<T>((settle) => {
+			resolve = settle;
+		});
+		return { promise, resolve };
+	}
+
+	it("does not show the previous App's verification line under the next App's frame while it loads", async () => {
+		const nextDetail = deferred<ReturnType<typeof detailFor>>();
+		fetchArtifact.mockResolvedValueOnce(detailFor("app-a", "clean"));
+		fetchArtifact.mockReturnValueOnce(nextDetail.promise);
+		const { rerender } = render(AppBody, {
+			artifactId: "app-a",
+			kind: "app",
+			title: "A",
+			body: null,
+		});
+		await screen.findByText(en.verifyClean);
+
+		await rerender({
+			artifactId: "app-b",
+			kind: "app",
+			title: "B",
+			body: null,
+		});
+
+		expect(screen.queryByText(en.verifyClean)).toBeNull();
+		nextDetail.resolve(detailFor("app-b", "unavailable"));
+		await screen.findByText(en.verifyUnavailable);
+	});
+
+	it("a slow answer for the previous App never replaces the current App's detail", async () => {
+		const slowA = deferred<ReturnType<typeof detailFor>>();
+		fetchArtifact.mockReturnValueOnce(slowA.promise);
+		fetchArtifact.mockResolvedValueOnce(detailFor("app-b", "unavailable"));
+		const { rerender } = render(AppBody, {
+			artifactId: "app-a",
+			kind: "app",
+			title: "A",
+			body: null,
+		});
+
+		await rerender({
+			artifactId: "app-b",
+			kind: "app",
+			title: "B",
+			body: null,
+		});
+		await screen.findByText(en.verifyUnavailable);
+		slowA.resolve(detailFor("app-a", "clean"));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(screen.queryByText(en.verifyClean)).toBeNull();
+		expect(screen.getByText(en.verifyUnavailable)).toBeInTheDocument();
+	});
+});
+
 describe("AppBody — verification line", () => {
 	it("shows nothing when checked is false", async () => {
 		fetchArtifact.mockResolvedValue(

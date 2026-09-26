@@ -18,6 +18,7 @@ import {
 	RefreshCw,
 	TriangleAlert,
 } from "@lucide/svelte";
+import { untrack } from "svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import { isDark } from "$lib/stores/theme";
@@ -57,11 +58,24 @@ let regeneratePromptText = $state("");
 let regenerateBusy = $state(false);
 let regenerateError = $state<string | null>(null);
 
+// The panel reuses this body when its rail switches from one App to another,
+// so `artifactId` can change under a live component. Another App's detail is
+// dropped at once (the card shows the loading state, never the last App's
+// verification line or code under the next App's frame), and an answer that
+// arrives for an App the card has already left is discarded. A reload of the
+// SAME App (after a regenerate) keeps the old detail until the new one lands.
+// The read of `detail` is untracked: `load` runs inside the effect below, and
+// a tracked read would re-run that effect on every detail it writes.
 async function load(id: string): Promise<void> {
 	loadFailed = false;
+	const shown = untrack(() => detail);
+	if (shown && shown.artifact.id !== id) detail = null;
 	try {
-		detail = await fetchArtifact(id, conversationId);
+		const next = await fetchArtifact(id, conversationId);
+		if (id !== artifactId) return;
+		detail = next;
 	} catch {
+		if (id !== artifactId) return;
 		loadFailed = true;
 	}
 }
