@@ -255,12 +255,16 @@ test.describe("the chat header's artifact count button and panel", () => {
 	// Regression test: this spec's own 390×844 test above never proceeded past
 	// the list (see the file's header comment on scope). Opening a specific
 	// item from the MOBILE list used to leave the workspace unreachable —
-	// `DocumentWorkspace.svelte`'s mobile shell had no `role="complementary"`
-	// (only an `aria-label`, giving it "region" instead) and its content div
-	// had no `page-scroll-container` testid at all, so nothing could ever
-	// confirm the transition landed, no matter how correctly the underlying
-	// state changed. Fixed in `DocumentWorkspace.svelte`; this proves the full
-	// mobile list→document transition now works end to end, not just the list.
+	// `DocumentWorkspace.svelte`'s mobile shell had no distinguishing test
+	// hook at all, so nothing could ever confirm the transition landed, no
+	// matter how correctly the underlying state changed. Fixed in
+	// `DocumentWorkspace.svelte` by giving the mobile shell its own
+	// `data-testid="document-workspace-mobile-shell"` (not the desktop
+	// `<aside>`'s role="complementary", which stayed desktop-only — reusing it
+	// on mobile broke dozens of desktop-only component tests in jsdom, which
+	// does not filter accessibility queries by computed style); this proves
+	// the full mobile list→document transition now works end to end, not just
+	// the list.
 	test("opens the File's preview from the MOBILE list, reaching the same workspace desktop reaches", async ({
 		page,
 	}) => {
@@ -278,11 +282,11 @@ test.describe("the chat header's artifact count button and panel", () => {
 			.getByRole("button", { name: "Open" })
 			.click();
 
-		const shell = page.getByRole("complementary", {
-			name: "Document workspace",
-		});
+		const shell = page.getByTestId("document-workspace-mobile-shell");
 		await expect(shell).toBeVisible();
-		await expect(shell.getByTestId("page-scroll-container")).toBeVisible();
+		await expect(
+			shell.getByTestId("page-scroll-container-mobile"),
+		).toBeVisible();
 
 		await shell
 			.getByRole("button", { name: "Close document workspace" })

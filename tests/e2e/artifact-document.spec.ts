@@ -143,16 +143,24 @@ async function openDocumentFromPanel(page: Page) {
 	// workspace becoming visible is the SAME one-time cost (it waits on the
 	// same lazy import), so it gets the same generous budget.
 	await list.getByRole("button", { name: "Open" }).click({ timeout: 30_000 });
-	const shell = page.getByRole("complementary", { name: "Document workspace" });
+	// The desktop shell is a real `<aside>` (role="complementary" for free);
+	// the mobile shell is a `<section>` with its own dedicated testid instead
+	// — NOT the same role/name pair, on purpose. Both shells are always real
+	// DOM nodes at every viewport (CSS, not a conditional, decides which one
+	// is visible), and jsdom's component tests do not filter `getByRole` by
+	// computed style the way a real browser's accessibility tree does; giving
+	// the mobile shell the identical role/name broke dozens of desktop-only
+	// component tests that (correctly, for a real browser) assume that pair
+	// is unique. Distinct identifiers side-step that entirely.
+	const shell = isMobile
+		? page.getByTestId("document-workspace-mobile-shell")
+		: page.getByRole("complementary", { name: "Document workspace" });
 	await expect(shell).toBeVisible({ timeout: 30_000 });
-	// Scoped to `shell`, not `page`: the mobile and desktop shells both carry
-	// this testid (each is a real DOM node at every viewport — CSS, not a
-	// conditional, decides which one is visible), so an unscoped page-wide
-	// query is ambiguous. `getByRole` above already resolved to the one
-	// shell the accessibility tree exposes at the current viewport (the
-	// other is `display: none`, so browsers drop it from that tree), and
-	// scoping to it here keeps this check correct at any width.
-	await expect(shell.getByTestId("page-scroll-container")).toBeVisible();
+	await expect(
+		shell.getByTestId(
+			isMobile ? "page-scroll-container-mobile" : "page-scroll-container",
+		),
+	).toBeVisible();
 	return shell;
 }
 
@@ -370,12 +378,17 @@ test.describe("the Document panel", () => {
 // ...)` could never match it, no matter how correctly the state transition
 // itself worked. Separately, the desktop shell's inner
 // `data-testid="page-scroll-container"` div had no mobile counterpart at all.
-// Fixed by adding `role="complementary"` and the matching testid to the
-// mobile shell's own content div in `DocumentWorkspace.svelte`, and by
-// scoping `openDocumentFromPanel`'s (and `artifacts-panel.spec.ts`'s
-// equivalent) `page-scroll-container` check to the resolved `shell` locator
-// rather than the whole page — the testid now legitimately exists on both
-// shells at once, so an unscoped, page-wide query is ambiguous by design.
+// Fixed by giving the mobile shell its own dedicated identifiers instead —
+// `data-testid="document-workspace-mobile-shell"` on the section itself and
+// `data-testid="page-scroll-container-mobile"` on its content div — rather
+// than reusing the desktop's role/name pair or testid. Reusing them was the
+// first fix tried here; it broke dozens of desktop-only component tests
+// across `DocumentWorkspace.test.ts` and its dependents, because jsdom does
+// not filter `getByRole`/`querySelectorAll` by computed style the way a real
+// browser's accessibility tree does, so BOTH shells matched every query those
+// tests assumed was uniquely the desktop one. `openDocumentFromPanel` (and
+// `artifacts-panel.spec.ts`'s equivalent) now picks the right pair of
+// identifiers by viewport instead.
 test.describe("the Document mobile toolbar", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
