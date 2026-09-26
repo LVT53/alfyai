@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
-import { getArtifact } from "$lib/server/services/artifacts";
 import {
 	buildGeneratedDocumentSource,
+	getArtifact,
 	sanitizeDocumentFilename,
-} from "$lib/server/services/artifacts/export";
+} from "$lib/server/services/artifacts";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
 import { parseDocument } from "$lib/shared/artifact-document/blocks";
 import type { RequestHandler } from "./$types";

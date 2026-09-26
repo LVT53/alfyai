@@ -35,6 +35,10 @@ export {
 	readDocumentForAlfy,
 	saveDocumentBody,
 } from "./document-ops";
+export {
+	buildGeneratedDocumentSource,
+	sanitizeDocumentFilename,
+} from "./export";
 export { hashArtifactBody } from "./hash";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
 export { listArtifactsForConversation } from "./read-model";

@@ -1,8 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("$lib/server/services/artifacts", () => ({
-	getArtifact: vi.fn(),
-}));
+// Partial mock: only `getArtifact` is stubbed. `buildGeneratedDocumentSource`/
+// `sanitizeDocumentFilename` (imported from this same facade now that the
+// route no longer reaches past it into `./export` directly) keep their real
+// implementations via `importOriginal`, since several assertions below check
+// their REAL computed output (the document source's template, a sanitized
+// filename), not a mocked stand-in.
+vi.mock("$lib/server/services/artifacts", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/server/services/artifacts")>();
+	return {
+		...actual,
+		getArtifact: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/file-production", () => ({
 	submitFileProductionIntake: vi.fn(),
 }));
