@@ -1,5 +1,6 @@
 <script module lang="ts">
 import { fade, fly, scale } from "svelte/transition";
+import { createFocusTrapStack } from "$lib/utils/focus-trap";
 import { reducedMotionAware } from "$lib/utils/motion";
 
 // Backdrop/panel transitions, wrapped once per module (not per instance) so
@@ -38,24 +39,27 @@ export type PanelTransitionParams = {
 // window keydown listener, so a containment/descendant check cannot tell
 // which one owns an Escape press. This shared stack lets every instance ask
 // "am I the topmost?" so a single Escape closes only the top layer.
-const openDialogStack: symbol[] = [];
+//
+// Backed by the same stack primitive src/lib/utils/focus-trap.ts hands to
+// every migrated trap, but kept as its OWN instance here rather than a
+// shared default: CampaignModal.svelte imports these three functions
+// directly to join this exact stack (it is not a DialogShell but nests
+// inside/beside one), so this module-level singleton has to stay the one
+// source of truth for "is a dialog topmost" — moving it elsewhere would
+// fork the stack and let a DialogShell and CampaignModal fight over focus
+// again.
+const dialogStack = createFocusTrapStack();
 
 export function registerDialog(id: symbol): void {
-	openDialogStack.push(id);
+	dialogStack.register(id);
 }
 
 export function deregisterDialog(id: symbol): void {
-	const index = openDialogStack.indexOf(id);
-	if (index !== -1) {
-		openDialogStack.splice(index, 1);
-	}
+	dialogStack.deregister(id);
 }
 
 export function isTopmostDialog(id: symbol): boolean {
-	return (
-		openDialogStack.length > 0 &&
-		openDialogStack[openDialogStack.length - 1] === id
-	);
+	return dialogStack.isTopmost(id);
 }
 </script>
 
@@ -63,6 +67,7 @@ export function isTopmostDialog(id: symbol): boolean {
 import { onMount, onDestroy } from "svelte";
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
+import { focusTrap } from "$lib/utils/focus-trap";
 import {
 	type DialogPresentation,
 	isPhoneViewport,
@@ -139,9 +144,6 @@ const dialogId = Symbol("dialog-shell");
 // across SSR and hydration, which a module-level counter is not.
 const titleId = $props.id();
 
-let dialogRef: HTMLDivElement | null = $state(null);
-let previousFocus: HTMLElement | null = null;
-let focusTimer: ReturnType<typeof setTimeout> | null = null;
 let stopWatchingViewport: (() => void) | null = null;
 
 // Re-evaluated whenever the viewport crosses the breakpoint (a rotation, or a
@@ -175,91 +177,37 @@ let dialogSizeClass = $derived(
 			: `${maxWidthClass} rounded-lg border`,
 );
 
-// A focusable element counts for the trap only if it is actually rendered.
-// The selector matches by attribute alone, so a display:none focusable — e.g.
-// ImportChatGPTModal's hidden `<input type="file">` upload proxy — would be
-// counted as the "last" element the Tab-wrap keys on, letting focus escape the
-// dialog for one press. getClientRects() is the ideal browser signal (empty for
-// display:none / detached elements), but jsdom has no layout engine and reports
-// an empty list for *every* element, so fall back to a computed-style check
-// there: it flags display:none / visibility:hidden (and the [hidden] attribute)
-// in both real browsers and jsdom.
-function isRendered(el: HTMLElement): boolean {
-	if (el.getClientRects().length > 0) return true;
-	const style = getComputedStyle(el);
-	return style.display !== "none" && style.visibility !== "hidden";
-}
-
-function getFocusableElements(): HTMLElement[] {
-	return Array.from(
-		dialogRef?.querySelectorAll<HTMLElement>(
-			'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
-		) ?? [],
-	).filter(isRendered);
-}
-
-function trapTabNavigation(e: KeyboardEvent) {
-	const focusable = getFocusableElements();
-	if (focusable.length === 0) {
-		e.preventDefault();
-		dialogRef?.focus();
-		return;
-	}
-
-	const first = focusable[0];
-	const last = focusable[focusable.length - 1];
-	const activeElement = document.activeElement;
-
-	// Focus has escaped the dialog (e.g. it was on the trigger behind the
-	// backdrop, or nowhere) — pull it back to the first focusable element.
-	if (
-		!(activeElement instanceof Node) ||
-		!dialogRef?.contains(activeElement)
-	) {
-		e.preventDefault();
-		first.focus();
-		return;
-	}
-
-	if (e.shiftKey && activeElement === first) {
-		e.preventDefault();
-		last.focus();
-		return;
-	}
-
-	if (!e.shiftKey && activeElement === last) {
-		e.preventDefault();
-		first.focus();
-	}
-}
-
-function handleKeydown(e: KeyboardEvent) {
-	if (e.key === "Escape") {
+// Tab/Shift+Tab wrapping, the "focus escaped -> pull back to the first
+// element" rule, and the topmost-only gate all live in the shared utility
+// now (src/lib/utils/focus-trap.ts) — DialogShell's algorithm was the
+// original source of that code. `dialogFocusTrap` below is attached to the
+// dialog panel in the markup; only the Escape close (which needs `onClose`)
+// and the body-scroll lock (a DialogShell-only concern, not a focus-trap
+// one) stay here.
+const dialogFocusTrap = focusTrap({
+	isTopmost: () => isTopmostDialog(dialogId),
+	onEscape: (e) => {
 		// Only the topmost dialog owns Escape. A dialog below the top returns
-		// without touching the event so it still reaches the topmost instance's
-		// listener (which may have been registered *after* this one). The
-		// topmost instance stops immediate propagation so a sibling/parent
-		// dialog's listener — and any other window keydown handler — does not
-		// also react to the same press.
-		if (!isTopmostDialog(dialogId)) return;
+		// (via the `isTopmost` gate above) without touching the event so it
+		// still reaches the topmost instance's listener (which may have been
+		// registered *after* this one). The topmost instance stops immediate
+		// propagation so a sibling/parent dialog's listener — and any other
+		// window keydown handler — does not also react to the same press.
 		e.preventDefault();
 		e.stopImmediatePropagation();
 		onClose?.();
-		return;
-	}
-
-	if (e.key === "Tab") {
-		// Only the topmost dialog runs the focus trap. Without this gate a parent
-		// DialogShell and a nested one (e.g. a sibling ConfirmDialog) would both
-		// trap Tab and fight over focus, breaking navigation inside the nested
-		// dialog. Mirrors the Escape gate above.
-		if (!isTopmostDialog(dialogId)) return;
-		trapTabNavigation(e);
-	}
-}
+	},
+	// Move focus into the dialog on open so keyboard/Escape/Tab act on it
+	// immediately instead of the trigger behind the backdrop. Deferred a tick
+	// (the utility's default) so the dialog content (and any focusable child)
+	// is mounted first. `skipIfAlreadyInside` covers a descendant that already
+	// moved focus inside the dialog itself (e.g. ConfirmDialog's `$effect`
+	// focuses its confirm button) so we don't override its target.
+	focus: { skipIfAlreadyInside: true },
+	restoreFocusOnCleanup: true,
+});
 
 onMount(() => {
-	previousFocus = document.activeElement as HTMLElement;
 	registerDialog(dialogId);
 	stopWatchingViewport = watchPhoneViewport((phone) => {
 		isPhone = phone;
@@ -269,35 +217,21 @@ onMount(() => {
 	// already locked, so re-setting overflow here would be redundant — and,
 	// paired with the "last out unlocks" check in onDestroy, this stops a nested
 	// dialog's close from clearing the lock while its parent is still open.
-	if (openDialogStack.length === 1) {
+	if (dialogStack.size() === 1) {
 		document.body.style.overflow = "hidden";
 	}
-	// Move focus into the dialog on open so keyboard/Escape/Tab act on it
-	// immediately instead of the trigger behind the backdrop. Deferred a tick
-	// so the dialog content (and any focusable child) is mounted first. Skip if
-	// a descendant already moved focus inside the dialog (e.g. ConfirmDialog's
-	// $effect focuses its confirm button) so we don't override its target.
-	focusTimer = setTimeout(() => {
-		if (dialogRef && !dialogRef.contains(document.activeElement)) {
-			(getFocusableElements()[0] ?? dialogRef).focus();
-		}
-	}, 0);
 });
 
 onDestroy(() => {
-	if (focusTimer !== null) clearTimeout(focusTimer);
 	stopWatchingViewport?.();
 	deregisterDialog(dialogId);
-	if (previousFocus) previousFocus.focus();
 	// Release the lock only once the LAST dialog closes. A nested dialog closing
 	// while its parent is still open must leave the page locked behind the parent.
-	if (openDialogStack.length === 0) {
+	if (dialogStack.size() === 0) {
 		document.body.style.overflow = "";
 	}
 });
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 <div
   class={`fixed inset-0 ${zIndexClass} flex justify-center ${isSheet ? 'items-end p-0' : 'items-center'} ${isSheet ? '' : fullScreen ? 'p-0 sm:p-lg' : 'p-md'}`}
@@ -322,7 +256,7 @@ onDestroy(() => {
   ></button>
 
   <div
-    bind:this={dialogRef}
+    {@attach dialogFocusTrap}
     role="dialog"
     aria-modal="true"
     aria-labelledby={titleId}

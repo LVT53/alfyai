@@ -4,6 +4,7 @@ import { fade } from "svelte/transition";
 import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 import { t, type I18nKey } from "$lib/i18n";
+import { getFocusableElements } from "$lib/utils/focus-trap";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import { reducedMotionAware } from "$lib/utils/motion";
 import {
@@ -113,8 +114,6 @@ let latestRequestId = 0;
 let lastStartedQuery: string | null = null;
 
 const SEARCH_DEBOUNCE_MS = 180;
-const focusableSelector =
-	'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 const trimmedSearchQuery = $derived(searchQuery.trim());
 const requestedSearchQuery = $derived(
@@ -436,9 +435,14 @@ function handleKeydown(event: KeyboardEvent) {
 	}
 
 	if (event.key === "Tab") {
-		const focusableElements =
-			modalRef?.querySelectorAll<HTMLElement>(focusableSelector);
-		if (!focusableElements || focusableElements.length === 0) return;
+		// The rendered-only filtering and canonical selector are shared with
+		// every other migrated trap (src/lib/utils/focus-trap.ts); the wrap
+		// decision below stays local because it differs from the shared
+		// trapTabKey in one deliberate way — Tab/Shift+Tab starting from
+		// OUTSIDE the modal goes to the element in the direction of travel
+		// (Shift+Tab -> last, Tab -> first), not always to the first element.
+		const focusableElements = getFocusableElements(modalRef);
+		if (focusableElements.length === 0) return;
 
 		const firstElement = focusableElements[0];
 		const lastElement = focusableElements[focusableElements.length - 1];

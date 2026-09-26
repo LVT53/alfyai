@@ -1,6 +1,7 @@
 <script lang="ts">
-import { onMount, untrack } from "svelte";
+import { untrack } from "svelte";
 import { t } from "$lib/i18n";
+import { focusTrap } from "$lib/utils/focus-trap";
 import { portalToBody } from "$lib/utils/portal";
 import {
 	isPromptReadyWorkingDocument,
@@ -31,7 +32,6 @@ let {
 } = $props();
 
 let searchInput = $state<HTMLInputElement | null>(null);
-let dialog = $state<HTMLElement | null>(null);
 let query = $state(untrack(() => initialQuery));
 let selected = $state<LinkedContextSource[]>(
 	untrack(() => canonicalizeSelectedSources(selectedSources)),
@@ -165,49 +165,12 @@ function handleBackdropPointerDown(event: PointerEvent) {
 	}
 }
 
-function handleWindowKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") {
-		onCancel();
-		return;
-	}
-	if (event.key === "Tab") {
-		trapTabNavigation(event);
-	}
-}
-
-function getFocusableElements(): HTMLElement[] {
-	if (!dialog) return [];
-	return Array.from(
-		dialog.querySelectorAll<HTMLElement>(
-			'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-		),
-	);
-}
-
-function trapTabNavigation(event: KeyboardEvent) {
-	const focusableElements = getFocusableElements();
-	if (focusableElements.length === 0) return;
-	const first = focusableElements[0];
-	const last = focusableElements[focusableElements.length - 1];
-	const activeElement = document.activeElement;
-	if (!(activeElement instanceof Node) || !dialog?.contains(activeElement)) {
-		event.preventDefault();
-		first.focus();
-		return;
-	}
-	if (event.shiftKey && activeElement === first) {
-		event.preventDefault();
-		last.focus();
-		return;
-	}
-	if (!event.shiftKey && activeElement === last) {
-		event.preventDefault();
-		first.focus();
-	}
-}
-
-onMount(() => {
-	setTimeout(() => searchInput?.focus(), 0);
+// Tab/Shift+Tab wrapping and the "focus escaped -> pull back to the first
+// element" rule now live in the shared utility; this dialog never restores
+// focus on close (it never has), so `restoreFocusOnCleanup` is left unset.
+const dialogFocusTrap = focusTrap({
+	onEscape: () => onCancel(),
+	focus: { target: () => searchInput },
 });
 
 $effect(() => {
@@ -218,8 +181,6 @@ $effect(() => {
 	}
 });
 </script>
-
-<svelte:window onkeydown={handleWindowKeydown} />
 
 <!-- Moved to <body>, like every other full-viewport surface in the composer.
      `position: fixed` is only fixed to the VIEWPORT while no ancestor is
@@ -237,7 +198,7 @@ $effect(() => {
 	onpointerdown={handleBackdropPointerDown}
 >
 	<div
-		bind:this={dialog}
+		{@attach dialogFocusTrap}
 		class="linked-document-picker"
 		role="dialog"
 		aria-modal="true"
