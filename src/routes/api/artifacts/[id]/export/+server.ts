@@ -75,13 +75,14 @@ export const POST: RequestHandler = async (event) => {
 					sourceMode: "inline_text" as const,
 					inlineText: {
 						// The stored body already IS canonical Markdown with
-						// `<!--b:id-->` markers (spec §3) — strip them; they are
-						// addressing, never content (T12.4), the same rule T12.3
-						// pins for the document_source path below.
-						content: (artifact.body ?? "")
-							.split("\n")
-							.filter((line) => !line.startsWith("<!--b:"))
-							.join("\n")
+						// `<!--b:id-->` markers (spec §3) — they are addressing,
+						// never content (T12.4). The blocks' own Markdown never
+						// carries one, so the file is the blocks joined: a line
+						// that merely looks like a marker inside a code block is
+						// content and stays (a line filter dropped it, RV-1A).
+						content: blocks
+							.map((block) => block.markdown)
+							.join("\n\n")
 							.trim(),
 						files: [{ filename: `${filename}.md`, outputType: "md" }],
 					},
