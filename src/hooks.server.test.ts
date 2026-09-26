@@ -742,6 +742,28 @@ describe("hooks.server.ts", () => {
 			});
 		});
 
+		// A trailing slash is not a different route to the browser embedding the
+		// iframe, or to the App's own frame (which never adds one) — but until
+		// this is fixed it IS a different string to APP_SERVED_ROUTE_PATTERN's
+		// exact `$` anchor, so it falls through to "unchanged behaviour": the
+		// real 303 to /login. Loaded inside the App's own opaque-origin,
+		// sandboxed iframe, that renders the REAL login form in a hostile
+		// framing context — exactly the "dead form the user cannot explain"
+		// scenario this whole branch exists to prevent, reachable by an
+		// attacker who simply appends "/" to the src they put in their iframe.
+		it("still answers the localized notice for a trailing slash on the served route", async () => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent("/api/artifacts/app-1/app/", undefined, {
+				"sec-fetch-dest": "iframe",
+			});
+
+			const response = await handle({ event, resolve: vi.fn() });
+
+			expect(response.status).toBe(401);
+			const body = await response.text();
+			expect(body).toContain("Your session ended");
+		});
+
 		it.each([
 			"/api/artifacts/app-1/app/kv",
 			"/api/artifacts/app-1/app/download",

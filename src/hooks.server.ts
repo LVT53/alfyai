@@ -76,8 +76,19 @@ const PUBLIC_PATHS = [
  * for it — the branch below still requires `!event.locals.user` to fire, it
  * only changes the SHAPE of the refusal for this one route+destination
  * combination, the same way the API-vs-navigation branch already does below.
+ *
+ * The trailing `\/?` tolerates one trailing slash: this hook runs BEFORE
+ * SvelteKit's own routing (`resolve()`, which is where the framework's
+ * `trailingSlash` normalization would otherwise turn `/app/` into `/app`),
+ * so an unauthenticated request never reaches that normalization at all — it
+ * is decided here, from the raw pathname, or not at all. Without the `\/?`,
+ * an iframe `src` with one extra "/" fell through to "unchanged behaviour"
+ * (the real 303 to `/login`), which an attacker's page can embed just as
+ * easily as the exact path — rendering the REAL login form inside this
+ * route's opaque-origin sandboxed frame, exactly the phishing-shaped outcome
+ * this whole branch exists to prevent.
  */
-const APP_SERVED_ROUTE_PATTERN = /^\/api\/artifacts\/[^/]+\/app$/;
+const APP_SERVED_ROUTE_PATTERN = /^\/api\/artifacts\/[^/]+\/app\/?$/;
 
 /**
  * Every endpoint in this app lives under `/api/` — there is no `+server.ts`
