@@ -612,13 +612,19 @@ describe("ThinkingBlock", () => {
 
 			const cards = await screen.findAllByTestId("artifact-card");
 			expect(cards).toHaveLength(2);
+			// The title lives on each card's own row (chrome="body" draws no
+			// title of its own — ArtifactCard.svelte, slice-0.md Task S6 Step
+			// 1.1), so distinct cards are told apart by their rows, not by text
+			// repeated inside the card body.
+			const rows = screen.getAllByTestId("tool-activity-row");
+			expect(rows).toHaveLength(2);
 			expect(
-				within(cards[0]).queryByText("Weekend plan") ??
-					within(cards[1]).queryByText("Weekend plan"),
+				within(rows[0]).queryByText("Weekend plan") ??
+					within(rows[1]).queryByText("Weekend plan"),
 			).toBeTruthy();
 			expect(
-				within(cards[0]).queryByText("Trip board") ??
-					within(cards[1]).queryByText("Trip board"),
+				within(rows[0]).queryByText("Trip board") ??
+					within(rows[1]).queryByText("Trip board"),
 			).toBeTruthy();
 		});
 	});

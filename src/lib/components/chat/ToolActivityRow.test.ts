@@ -431,13 +431,13 @@ describe("ToolActivityRow", () => {
 		}
 
 		it("renders the card, already open, for a successful create_artifact — one card per kind", () => {
-			const kinds: Array<["document" | "app" | "canvas" | "slides", string]> = [
-				["document", "Document"],
-				["app", "App"],
-				["canvas", "Canvas"],
-				["slides", "Slides"],
+			const kinds: Array<"document" | "app" | "canvas" | "slides"> = [
+				"document",
+				"app",
+				"canvas",
+				"slides",
 			];
-			for (const [kind, label] of kinds) {
+			for (const kind of kinds) {
 				const { getByTestId, unmount } = render(ToolActivityRow, {
 					item: buildToolActivityItem(
 						artifactSegment({
@@ -452,11 +452,33 @@ describe("ToolActivityRow", () => {
 						get(t),
 					),
 				});
-				const card = within(getByTestId("artifact-card"));
-				expect(card.getByText(`My ${kind}`)).toBeInTheDocument();
-				expect(card.getByText(label)).toBeInTheDocument();
+				expect(getByTestId("artifact-card")).toBeInTheDocument();
+				// The title lives on the row's own line — chrome="body" draws no
+				// title of its own (see the "does not repeat the title" test
+				// below), so the card is identified by its testid, not by text
+				// that would otherwise be duplicated.
+				expect(getByTestId("tool-activity-row")).toHaveTextContent(
+					`My ${kind}`,
+				);
 				unmount();
 			}
+		});
+
+		it("does not repeat the title inside the body — the row's own line already names it (slice 0's chrome=body contract: no title of its own)", () => {
+			const { container, getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(artifactSegment(), "row-title", get(t)),
+			});
+			// The row's own line already reads "Created Weekend plan" (verb +
+			// object) — ToolActivityRow's rowContents() always renders it.
+			expect(getByTestId("tool-activity-row")).toHaveTextContent(
+				"Weekend plan",
+			);
+			// chrome="body" renders no title of its own (slice-0.md Task S6 Step
+			// 1.1 — this predates the in-chat card and still governs it): the
+			// composed row+body markup must show the artifact's title exactly
+			// once. A naive split that reintroduces the header duplicates both
+			// the title and the kind icon in the same row.
+			expect(within(container).getAllByText("Weekend plan")).toHaveLength(1);
 		});
 
 		it("renders no card for a refused edit_artifact — the row still shows what happened", () => {
@@ -514,8 +536,10 @@ describe("ToolActivityRow", () => {
 			const { getByTestId } = render(ToolActivityRow, {
 				item: persisted,
 			});
-			const card = within(getByTestId("artifact-card"));
-			expect(card.getByText("Weekend plan")).toBeInTheDocument();
+			expect(getByTestId("artifact-card")).toBeInTheDocument();
+			expect(getByTestId("tool-activity-row")).toHaveTextContent(
+				"Weekend plan",
+			);
 		});
 	});
 });

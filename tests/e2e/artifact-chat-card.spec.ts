@@ -219,10 +219,17 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			// and no separate fetch of ConversationDetail.artifacts either.
 			const card = page.getByTestId("artifact-card");
 			await expect(card).toBeVisible();
-			await expect(
-				card.getByText(AI_SMOKE_CREATE_ARTIFACT_TITLE),
-			).toBeVisible();
-			await expect(card.getByText("Document")).toBeVisible();
+			// The title lives on the row's own line ("Created Weekend plan") —
+			// chrome="body" renders no title of its own (slice-0.md Task S6 Step
+			// 1.1), so the card must not repeat it. Asserted on the row, and as
+			// an exact count on the page, so a regression that reintroduces the
+			// header (duplicating the title) fails loudly here too.
+			const row = page.getByTestId("tool-activity-row");
+			await expect(row).toBeVisible();
+			await expect(row.getByText(AI_SMOKE_CREATE_ARTIFACT_TITLE)).toBeVisible();
+			await expect(page.getByText(AI_SMOKE_CREATE_ARTIFACT_TITLE)).toHaveCount(
+				1,
+			);
 
 			// Open reaches the real panel on this exact item (the chat page's
 			// existing panel-open path, ruling 51's conversationId included).
@@ -233,9 +240,13 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 				name: "Document workspace",
 			});
 			await expect(workspace).toBeVisible({ timeout: 30_000 });
+			// A cold dev-server run compiles the workspace's lazy preview chunk
+			// on this very first open, which can outrun the default 5s
+			// assertion timeout under load — the same reason the two waits
+			// around it already carry an explicit 30s budget.
 			await expect(
 				workspace.getByText("Book the museum tickets."),
-			).toBeVisible();
+			).toBeVisible({ timeout: 30_000 });
 
 			// Survives a reload: the identical card renders again from the
 			// persisted tool-call segment, enriched with ConversationDetail's own
@@ -243,9 +254,17 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			await page.reload({ waitUntil: "networkidle" });
 			const cardAfterReload = page.getByTestId("artifact-card");
 			await expect(cardAfterReload).toBeVisible();
+			const rowAfterReload = page.getByTestId("tool-activity-row");
 			await expect(
-				cardAfterReload.getByText(AI_SMOKE_CREATE_ARTIFACT_TITLE),
+				rowAfterReload.getByText(AI_SMOKE_CREATE_ARTIFACT_TITLE),
 			).toBeVisible();
+			// (No page-wide "exactly once" count here: the workspace panel from
+			// the Open above legitimately persists across the reload and shows
+			// the same title again in its own, distinct region — the "no title
+			// of its own" rule this spec guards is about the CARD's body, never
+			// about a separately-opened panel. The card-scoped, single-title
+			// contract is already the "during the turn" assertion above and the
+			// component tests in ArtifactCard.test.ts/ToolActivityRow.test.ts.)
 			await cardAfterReload
 				.getByRole("button", { name: "Open" })
 				.click({ timeout: 30_000 });

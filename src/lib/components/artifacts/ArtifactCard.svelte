@@ -2,20 +2,22 @@
 // The one card every artifact kind renders as, in chat and in the panel's
 // list (Slice 0 Task S6). Two chrome modes share one body-dispatch:
 // "full" draws the header row (icon, title, kind label, version pill, Open)
-// for the panel list; "body" renders only the kind's body, for a host that
-// already draws its own header.
+// for the panel list; "body" renders only the kind's body — no title, icon,
+// kind label or version pill of its own — for a host that already draws its
+// own header.
 //
-// File is the ONE kind with such a host: ToolActivityRow's row chrome already
-// carries its title (`item.object`), so its body — `FileProductionCard.svelte`,
-// moved here from ToolActivityRow, imported lazily so a chat page with no
-// file-producing turn never pays for its chunk — must not repeat it.
-//
-// The other four kinds have no host-drawn title (a create_artifact/
-// edit_artifact row's own line is a generic "Created/Edited <title>", never
-// "kind · subtitle"), so their chat card (also hosted by ToolActivityRow,
-// also chrome="body") renders the exact same header+body chrome="full"
-// does — "in chat and in the panel's list" is true of every kind now, not
-// only File.
+// Every kind hosted by ToolActivityRow is such a host: the row chrome always
+// renders its own icon and its own verb+object line (`item.object`) before
+// the body ever opens — a produced file's ("Produced budget.xlsx") exactly
+// as much as a create_artifact/edit_artifact call's ("Created Weekend
+// plan"). chrome="body" must never repeat that line: the File body
+// (`FileProductionCard.svelte`, moved here from ToolActivityRow, imported
+// lazily so a chat page with no file-producing turn never pays for its
+// chunk) never has, and the other four kinds' chat card follows the same
+// rule — subtitle, tickable items and Open still render under chrome="body",
+// only the header does not. Asserted by ArtifactCard.test.ts and
+// ToolActivityRow.test.ts: the composed row+body markup shows a title
+// exactly once, for every kind.
 import {
 	AppWindow,
 	FileText,
@@ -148,16 +150,18 @@ function handleOpen(): void {
 	{/if}
 {:else}
 	<div class="artifact-card" data-testid="artifact-card">
-		<div class="artifact-card-header">
-			<span class="artifact-card-icon" aria-hidden="true">
-				<KindIcon size={16} strokeWidth={1.75} aria-hidden="true" />
-			</span>
-			<span class="artifact-card-title">{view.title}</span>
-			<span class="artifact-card-kind">{$t(`artifacts.type.${view.kind}` as I18nKey)}</span>
-			{#if view.versionNumber}
-				<span class="artifact-card-version">{$t('artifacts.card.version', { n: view.versionNumber })}</span>
-			{/if}
-		</div>
+		{#if chrome === 'full'}
+			<div class="artifact-card-header">
+				<span class="artifact-card-icon" aria-hidden="true">
+					<KindIcon size={16} strokeWidth={1.75} aria-hidden="true" />
+				</span>
+				<span class="artifact-card-title">{view.title}</span>
+				<span class="artifact-card-kind">{$t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+				{#if view.versionNumber}
+					<span class="artifact-card-version">{$t('artifacts.card.version', { n: view.versionNumber })}</span>
+				{/if}
+			</div>
+		{/if}
 
 		{#if view.subtitle}
 			<div class="artifact-card-subtitle">{view.subtitle}</div>
