@@ -856,6 +856,29 @@ export function inlinePlainText(
 export function blockVisibleText(
 	block: Pick<DocumentBlock, "kind" | "markdown">,
 ): string {
+	const key = `${block.kind}\n${block.markdown}`;
+	const cached = visibleTextCache.get(key);
+	if (cached !== undefined) return cached;
+	const text = computeBlockVisibleText(block);
+	if (visibleTextCache.size >= VISIBLE_TEXT_CACHE_LIMIT)
+		visibleTextCache.clear();
+	visibleTextCache.set(key, text);
+	return text;
+}
+
+/**
+ * The margin re-resolves every comment against every block on every change,
+ * and a block's visible text is a pure function of its kind and Markdown —
+ * so it is computed once per distinct block, not once per render (a
+ * 1 000-block document with ten threads cost ~22 ms a render without it).
+ * Bounded: cleared when it reaches the cap.
+ */
+const VISIBLE_TEXT_CACHE_LIMIT = 4096;
+const visibleTextCache = new Map<string, string>();
+
+function computeBlockVisibleText(
+	block: Pick<DocumentBlock, "kind" | "markdown">,
+): string {
 	const lines = block.markdown.split("\n");
 	switch (block.kind) {
 		case "hr":

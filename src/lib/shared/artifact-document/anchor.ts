@@ -40,6 +40,8 @@ const SUFFIX_POINTS = 1;
  * `anchorStateFor` "exact" threshold (T10.2's "edited nearby" case).
  */
 const SAME_BLOCK_BONUS = 2;
+const PERFECT_SCORE =
+	QUOTE_POINTS + PREFIX_POINTS + SUFFIX_POINTS + SAME_BLOCK_BONUS;
 
 /**
  * Builds a `text` anchor from a selection's quote and the plain-text context
@@ -141,6 +143,10 @@ export function resolveTextAnchor(
 			}
 			searchFrom = idx + 1;
 		}
+		// Nothing can beat a full-context match in the anchor's own block (it
+		// is scanned first): stop there, instead of reading every other block
+		// of the document for each comment on each render.
+		if (best?.score === PERFECT_SCORE) break;
 		if (scanned >= MAX_CANDIDATES) break;
 	}
 

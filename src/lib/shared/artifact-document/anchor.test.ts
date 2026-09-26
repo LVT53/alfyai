@@ -231,3 +231,29 @@ describe("RV-1A: an anchor resolves against the text the user sees, not the Mark
 		expect(resolveTextAnchor(anchor, [after]).state).toBe("moved");
 	});
 });
+
+describe("RV-1A: resolving an exact anchor reads only its own block", () => {
+	it("stops at a full-context match in the anchor's own block instead of reading every other block", () => {
+		const [own] = parseDocument("Book the flight to Vienna soon.").blocks;
+		const anchor = makeAnchor({
+			blockId: own.id,
+			quote: "the flight",
+			prefix: "Book ",
+			suffix: " to Vienna soon.",
+		});
+		if (!anchor) throw new Error("fixture anchor must build");
+		// A block the resolver must never need to read once the anchor's own
+		// block matched in full (the margin resolves every thread on every
+		// change, so reading the whole document per thread is the cost).
+		const untouchable = {
+			id: "other",
+			kind: "paragraph" as const,
+			hash: "h",
+			label: "other",
+			get markdown(): string {
+				throw new Error("read a block after a perfect own-block match");
+			},
+		};
+		expect(resolveTextAnchor(anchor, [own, untouchable]).state).toBe("exact");
+	});
+});
