@@ -263,7 +263,7 @@ async function performSet(call: {
 }
 
 /**
- * The whole trust boundary. A request is served ONLY when all five clauses
+ * The whole trust boundary. A request is served ONLY when all six clauses
  * below hold; anything else is dropped WITHOUT a reply — the frame's own
  * bootstrap-side timeout is what a legitimate caller sees in that case, and
  * that is deliberate: an attacker gets no signal telling them which clause
@@ -280,6 +280,9 @@ async function performSet(call: {
  *   typeof data.id === "number"            — stops a non-numeric reply id.
  *   one args array of length 1–2           — stops extra arguments reaching
  *                                            the server side.
+ *   typeof data.args[0] === "string"       — stops a non-string key (ruling
+ *                                            58): REFUSED, never coerced with
+ *                                            String(...) into a plausible one.
  *
  * The artifact id is NEVER read from `event.data` — it is the component's
  * OWN `artifactId` prop, always. There is no code path in this function that
@@ -326,6 +329,14 @@ function handleMessage(event: MessageEvent): void {
 		countRejection("wrong_args");
 		return;
 	}
+	// Ruling 58 (RV-2A open question 8): a non-string key is REFUSED, never
+	// coerced. `String(42)` and `String({})` used to turn a malformed key into
+	// a plausible-looking one instead of dropping the message like every other
+	// shape violation here does.
+	if (typeof data.args[0] !== "string") {
+		countRejection("wrong_key_type");
+		return;
+	}
 
 	// A `set`'s value is the only part of a call that can be large; a `get`
 	// carries none (args.length === 1), so it always estimates as zero here.
@@ -343,7 +354,7 @@ function handleMessage(event: MessageEvent): void {
 		requestId: data.id,
 		method: data.method,
 		artifactId, // THE PROP. Never event.data.artifactId — there is no such read.
-		key: String(data.args[0]),
+		key: data.args[0], // validated above: already a string, never coerced.
 		value: data.args[1],
 		conversationId,
 	} as const;

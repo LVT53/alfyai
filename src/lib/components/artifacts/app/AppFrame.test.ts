@@ -219,6 +219,14 @@ describe("AppFrame — the trust boundary", () => {
 		],
 		[null, "null payload"],
 		["a string", "non-object payload"],
+		[
+			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: [42] },
+			"non-string key (a number)",
+		],
+		[
+			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: [{ a: 1 }] },
+			"non-string key (an object)",
+		],
 	] as const)("drops a malformed message: %s", async (payload, _description) => {
 		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
 		const iframe = getIframe(container);
