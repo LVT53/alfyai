@@ -335,6 +335,18 @@ S6 `1777140000112` (journal idx 125); later slices take 113, 114, … in merge o
 before dispatch. Still running: S1d (crash, mobile open, margin), S1e (live marks, card preview). Next: when both
 report, merge `feat/artifacts-s1-live` into `feat/artifacts-s1`, then RV-1A (opus) + RV-1B (sonnet).
 
+**S1d done (2026-09-26 ~11:30).** `feat/artifacts-s1` HEAD `dfbd1575`. **The crash's root cause:** `readMarkdown`'s two marker
+transactions (and `ensureBlockIds`/`loadMarkdown`) dispatched without Tiptap's `preventUpdate`, so each fired
+`update` → `handleUpdate` → `currentCanonicalMarkdown()` → `readMarkdown` again, synchronously, until the stack
+overflowed (`fixTables`/`isActive` were only where it happened to break); `document-editor.test.ts` never mounted an
+`onUpdate`. Fixed at the source (`840300dd`) + a sustained-edit e2e (typing, a table cell, a tab, a chip). Mobile
+open fixed (`f6118c95` + `faa28950`, own identifiers for the mobile shell), margin threads placed beside their block
+in document order without overlap, orphans grouped (`932865ec`; a pure `margin-layout.ts`; caught a
+content-box-vs-border-box overlap), export through the facade (`b792e962`). 12,772 tests, Playwright 43, Fallow
+124/4, containment 28. Left for RV-1B: the mobile toolbar measures 53 px against its 48 px budget (one `test.fail()`),
+and two dead functions in `extensions.ts` (the 2 biome warnings). A stale `node_modules/.vite` cache once failed
+every e2e with a hydration error; clearing `.vite` + `.svelte-kit` fixed it (worth remembering).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
