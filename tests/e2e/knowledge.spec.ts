@@ -219,7 +219,12 @@ test.describe("Knowledge page", () => {
 		// The hint row is gone; the limit rides on the Upload button, which
 		// sits at the right end of the toolbar beside Sort.
 		await expect(page.getByTestId("drop-hint")).toHaveCount(0);
-		const upload = page.getByRole("button", { name: "Upload" }).first();
+		// exact: true — the Documents-tab filter chip row (Slice 7) renders
+		// before this toolbar in DOM order once rows exist, and its "Uploaded"
+		// chip's accessible name ("Filter: Uploaded, N items") otherwise also
+		// matches "Upload" as a substring, so a non-exact `.first()` can
+		// resolve to the chip instead of the real upload button.
+		const upload = page.getByRole("button", { name: "Upload", exact: true });
 		await expect(upload).toHaveAttribute("title", /100 MB/);
 
 		// The direction toggle actually re-sorts: the server-managed list
