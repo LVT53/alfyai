@@ -58,7 +58,7 @@ export type RefusalReason =
 	| "find_ambiguous" // replaceRange: `find` occurs more than once
 	| "not_a_task_block"
 	| "not_a_table_block"
-	| "bad_row"; // cells length does not match the table's columns
+	| "bad_row"; // cells length does not match the table's columns, or a chip value its token cannot hold
 
 export interface OpOutcome {
 	opId: string;
@@ -106,8 +106,20 @@ const TEXT_BLOCK_KINDS: ReadonlySet<BlockKind> = new Set([
 	"other",
 ]);
 
-function renderCell(spec: NonNullable<PatchOp["cells"]>[number]): string {
-	if (typeof spec === "string") return spec;
+/**
+ * One cell of an added row, written so the row keeps its columns (RV-1A): a
+ * raw `|` split the cell into two and a line break cut the table in half, so
+ * a pipe is escaped (`\|`, GFM's cell pipe) and a line break becomes a
+ * space. A chip value its token cannot hold — a `"` ends the value, a `]`
+ * ends the token — is `null`, and the row is refused rather than stored cut.
+ */
+function renderCell(
+	spec: NonNullable<PatchOp["cells"]>[number],
+): string | null {
+	if (typeof spec === "string") {
+		return spec.replace(/\r?\n|\r/g, " ").replace(/(?<!\\)\|/g, "\\|");
+	}
+	if (/["\]\r\n]/.test(spec.chip.value)) return null;
 	return `[chip kind="${spec.chip.kind}" value="${spec.chip.value}"]`;
 }
 
@@ -120,7 +132,9 @@ function appendTableRow(
 	if (lines.length === 0) return null;
 	const headerCells = splitTableCells(lines[0]);
 	if (cells.length !== headerCells.length) return null;
-	const rowLine = `| ${cells.map(renderCell).join(" | ")} |`;
+	const rendered = cells.map(renderCell);
+	if (rendered.some((cell) => cell === null)) return null;
+	const rowLine = `| ${rendered.join(" | ")} |`;
 	return [...lines, rowLine].join("\n");
 }
 

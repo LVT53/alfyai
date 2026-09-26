@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildIndex, type DocumentBlock, parseDocument } from "./blocks";
+import {
+	buildIndex,
+	type DocumentBlock,
+	parseDocument,
+	splitTableCells,
+} from "./blocks";
 import { applyPatchSet, type PatchOp, type PatchSet } from "./patch";
 
 function setup(markdown: string) {
@@ -687,5 +692,56 @@ describe("RV-1A: insertText at the start stays inside the block's own markup", (
 			"blockquote",
 			"paragraph",
 		]);
+	});
+});
+
+describe("RV-1A: addTableRow never breaks the table it adds to", () => {
+	it("escapes a pipe and folds a line break inside a cell, so the row keeps its columns through a reload", () => {
+		const { blocks, snapshot } = setup(
+			"| Item | Status |\n| --- | --- |\n| Hotel | done |",
+		);
+		const [table] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "addTableRow",
+					blockId: table.id,
+					baseHash: table.hash,
+					cells: ["Train | bus", "line one\nline two"],
+				}),
+			]),
+		});
+		expect(result.applied).toBe(1);
+		const reloaded = parseDocument(result.markdown);
+		expect(reloaded.minted).toBe(false);
+		expect(reloaded.blocks).toHaveLength(1);
+		const lastRow = reloaded.blocks[0].markdown.split("\n").at(-1) ?? "";
+		expect(splitTableCells(lastRow).map((cell) => cell.trim())).toEqual([
+			"Train \\| bus",
+			"line one line two",
+		]);
+	});
+
+	it("refuses a chip value its token cannot hold (a quote or a closing bracket) as bad_row", () => {
+		const { blocks, snapshot } = setup(
+			"| Item | Status |\n| --- | --- |\n| Hotel | done |",
+		);
+		const [table] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "addTableRow",
+					blockId: table.id,
+					baseHash: table.hash,
+					cells: ["Train", { chip: { kind: "status", value: 'said "done"]' } }],
+				}),
+			]),
+		});
+		expect(result.outcomes[0].code).toBe("bad_row");
+		expect(result.blocks[0].markdown).toBe(table.markdown);
 	});
 });
