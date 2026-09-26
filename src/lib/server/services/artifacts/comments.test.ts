@@ -7,6 +7,7 @@ import {
 import * as schema from "$lib/server/db/schema";
 import {
 	ALFY_EMPTY_REPLY_MARKER,
+	ALFY_PARTIAL_REFUSAL_SUFFIX,
 	ALFY_REFUSED_MARKER,
 } from "$lib/shared/artifact-document/alfy-reply";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
@@ -542,6 +543,75 @@ describe("runAlfyCommentReply", () => {
 		expect(updatedRoot?.replies.map((r) => r.body)).toContain(
 			"Changed the destination to Budapest.",
 		);
+	});
+
+	// RV-1B, coordinator item 8: `ops` is an array — the SAME `@Alfy` request
+	// can apply one op and refuse another, and every op in it shares the
+	// block's ORIGINAL baseHash (`comments.ts` supplies it, never the model),
+	// so a second op whose own `find` text does not exist in the block is
+	// refused on its own content, with no bearing on the first op's success.
+	// Before this fix, Alfy's note ("Changed the destination.") was the WHOLE
+	// reply — nothing said the second change never happened.
+	it("appends a partial-refusal note when the SAME reply both applies and refuses an op", async () => {
+		const { artifact, block } = await createDocumentWithBlock(
+			"Book the flight to Vienna.",
+		);
+		const root = await comment(
+			artifact.id,
+			"@Alfy change Vienna to Budapest, and fix the typo too.",
+			{ anchor: textAnchorFor(block, "Vienna") },
+		);
+		mockAlfyResponse({
+			note: "Changed the destination to Budapest.",
+			ops: [
+				{ op: "replaceRange", find: "Vienna", text: "Budapest" },
+				{
+					op: "replaceRange",
+					find: "this text is not in the block anywhere",
+					text: "Budapest",
+				},
+			],
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.value.outcome).toBe("applied");
+		expect(result.value.applied).toBe(1);
+		expect(result.value.refused).toBe(1);
+		expect(result.value.reply.body).toBe(
+			`Changed the destination to Budapest.${ALFY_PARTIAL_REFUSAL_SUFFIX}`,
+		);
+	});
+
+	it("still writes the plain empty-reply marker (no suffix) when everything in the reply applied", async () => {
+		const { artifact, block } = await createDocumentWithBlock(
+			"Book the flight to Vienna.",
+		);
+		const root = await comment(artifact.id, "@Alfy change Vienna to Prague.", {
+			anchor: textAnchorFor(block, "Vienna"),
+		});
+		mockAlfyResponse({
+			note: "Changed the destination to Prague.",
+			ops: [{ op: "replaceRange", find: "Vienna", text: "Prague" }],
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.value.refused).toBe(0);
+		expect(result.value.reply.body).toBe("Changed the destination to Prague.");
+		expect(result.value.reply.body.includes("[[alfy:")).toBe(false);
 	});
 
 	it("falls back to a fixed note when Alfy applies a change but writes nothing", async () => {

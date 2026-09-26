@@ -14,6 +14,7 @@ import { db } from "$lib/server/db";
 import { artifactComments } from "$lib/server/db/schema";
 import {
 	ALFY_EMPTY_REPLY_MARKER,
+	ALFY_PARTIAL_REFUSAL_SUFFIX,
 	ALFY_REFUSED_MARKER,
 } from "$lib/shared/artifact-document/alfy-reply";
 import { resolveTextAnchor } from "$lib/shared/artifact-document/anchor";
@@ -597,6 +598,18 @@ export async function runAlfyCommentReply(
 		return { ok: true, value: await refused() };
 	}
 
+	// RV-1B, coordinator item 8: this SAME request can both apply and refuse
+	// ops (every op in `ops` shares the block's ORIGINAL baseHash, so an
+	// earlier op that changes the block routinely leaves a later one refused
+	// `block_changed`) — the model's own `note` only ever describes what it
+	// changed, never what it could not, so without this suffix a
+	// partially-refused reply reads in the thread as an unqualified success.
+	const noteBody = note || ALFY_EMPTY_REPLY_MARKER;
+	const replyBody =
+		patchResult.result.refused > 0
+			? `${noteBody}${ALFY_PARTIAL_REFUSAL_SUFFIX}`
+			: noteBody;
+
 	return {
 		ok: true,
 		value: {
@@ -604,7 +617,7 @@ export async function runAlfyCommentReply(
 			applied: patchResult.result.applied,
 			refused: patchResult.result.refused,
 			version: patchResult.version,
-			reply: await reply(note || ALFY_EMPTY_REPLY_MARKER),
+			reply: await reply(replyBody),
 		},
 	};
 }

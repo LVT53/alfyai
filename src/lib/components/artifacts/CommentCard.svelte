@@ -15,6 +15,7 @@ import { t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import {
 	ALFY_EMPTY_REPLY_MARKER,
+	ALFY_PARTIAL_REFUSAL_SUFFIX,
 	ALFY_REFUSED_MARKER,
 } from "$lib/shared/artifact-document/alfy-reply";
 import { formatRelativeTime } from "$lib/utils/time";
@@ -36,20 +37,38 @@ let authorLabel = $derived(
 );
 
 /**
+ * RV-1B, coordinator item 8: `runAlfyCommentReply` appends this suffix (never
+ * replacing the note, unlike the two whole-body markers below) when the SAME
+ * `@Alfy` reply both applied and refused at least one op — stripped off
+ * BEFORE the two `===` marker checks below, so a partial refusal on an
+ * otherwise-empty note still matches `ALFY_EMPTY_REPLY_MARKER` and renders
+ * its own localized text rather than leaking the raw marker.
+ */
+let hasPartialRefusal = $derived(
+	comment.author === "alfy" &&
+		comment.body.endsWith(ALFY_PARTIAL_REFUSAL_SUFFIX),
+);
+let bodyWithoutPartialRefusalSuffix = $derived(
+	hasPartialRefusal
+		? comment.body.slice(0, -ALFY_PARTIAL_REFUSAL_SUFFIX.length)
+		: comment.body,
+);
+
+/**
  * The two fixed markers `runAlfyCommentReply` writes instead of literal text
  * (T10.5) resolve to their localized notice here — the ONE place a comment
  * body is rendered, so a marker can never reach the user as raw text.
  */
 let displayBody = $derived.by(() => {
 	if (comment.author === "alfy") {
-		if (comment.body === ALFY_REFUSED_MARKER) {
+		if (bodyWithoutPartialRefusalSuffix === ALFY_REFUSED_MARKER) {
 			return $t("artifacts.document.comment.alfyRefused");
 		}
-		if (comment.body === ALFY_EMPTY_REPLY_MARKER) {
+		if (bodyWithoutPartialRefusalSuffix === ALFY_EMPTY_REPLY_MARKER) {
 			return $t("artifacts.document.comment.alfyDone");
 		}
 	}
-	return comment.body;
+	return bodyWithoutPartialRefusalSuffix;
 });
 
 let isRefusal = $derived(
@@ -66,6 +85,11 @@ let isRefusal = $derived(
 		{/if}
 	</header>
 	<p class="comment-card-body">{displayBody}</p>
+	{#if hasPartialRefusal}
+		<p class="comment-card-partial-refusal">
+			{$t('artifacts.document.comment.alfyPartialRefusal')}
+		</p>
+	{/if}
 	{#if onResolve || onReplyClick}
 		<div class="comment-card-actions">
 			{#if onReplyClick}
@@ -130,6 +154,16 @@ let isRefusal = $derived(
 		color: var(--text-primary);
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
+	}
+
+	/* RV-1B, coordinator item 8: a lighter-weight note than `.comment-card-refused`
+	   — this reply mostly succeeded, so it never changes the card's own background,
+	   it just makes the partial refusal readable instead of silent. */
+	.comment-card-partial-refusal {
+		margin: 0;
+		font-size: 0.75rem;
+		font-style: italic;
+		color: var(--text-muted);
 	}
 
 	.comment-card-actions {
