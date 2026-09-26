@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { login, waitForHydration } from "./helpers";
+import { eq } from "drizzle-orm";
+import { db } from "../../src/lib/server/db";
+import {
+	artifacts,
+	conversations,
+	users,
+} from "../../src/lib/server/db/schema";
+import { login, TEST_EMAIL, waitForHydration } from "./helpers";
 
 test.describe("Search Modal Visual Tests", () => {
 	test.beforeEach(async ({ page }) => {
@@ -189,5 +196,90 @@ test.describe("Search Modal Visual Tests", () => {
 		await expect(footer).toContainText("close");
 		// Before anything is typed the footer carries the keys and nothing else.
 		await expect(modal.getByTestId("search-result-count")).toHaveCount(0);
+	});
+
+	// Slice 7 (Feature 2, ADR-0066): the artifact family joins Workspace
+	// Search. This spec's own coverage was structural only before this slice
+	// (no document was ever seeded) — direct db writes, matching the repo's
+	// existing E2E seeding convention.
+	test("finds a seeded artifact-family row by name, labelled with its kind, and opens it", async ({
+		page,
+	}) => {
+		// A bare conversation row, seeded directly like several other E2E specs
+		// already do (see conversation-title-refresh.spec.ts) — no messages, no
+		// live chat round trip, just an id for the artifact's ownership scope.
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const conversationId = `e2e-search-conv-${Date.now()}`;
+		const artifactId = `e2e-search-document-${Date.now()}`;
+		const artifactName = "Saturday plan zz-e2e-search";
+		const now = new Date();
+		await db.insert(conversations).values({
+			id: conversationId,
+			userId: user.id,
+			title: "Seeded for the search modal e2e case",
+			createdAt: now,
+			updatedAt: now,
+		});
+		await db.insert(artifacts).values({
+			id: artifactId,
+			userId: user.id,
+			conversationId,
+			type: "artifact",
+			retrievalClass: "durable",
+			name: artifactName,
+			metadataJson: JSON.stringify({
+				artifactType: "document",
+				title: artifactName,
+			}),
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const pageErrors: string[] = [];
+		page.on("pageerror", (error) => {
+			pageErrors.push(error.message);
+		});
+
+		try {
+			await page
+				.getByRole("button", { name: "Search conversations and documents" })
+				.click();
+			const modal = page.getByRole("dialog", { name: "Search workspace" });
+			await modal.waitFor({ state: "visible" });
+
+			await modal.locator("input").first().fill("zz-e2e-search");
+			const row = modal.getByText(artifactName);
+			await expect(row).toBeVisible();
+			await expect(
+				row.locator("xpath=ancestor::*[contains(@class, 'search-result')][1]"),
+			).toContainText("Document");
+
+			// Reachable and keyboard-activatable like every other result row.
+			// The handoff URL (?open_artifact=...) is a one-shot signal
+			// KnowledgeWorkspaceCoordinator clears via replaceState as soon as it
+			// opens the document (src/routes/(app)/knowledge/_components/
+			// KnowledgeWorkspaceCoordinator.svelte), so the assertion here is on
+			// landing back on the Knowledge page without a runtime error, not on
+			// the transient query string. Slice 1's Document editor is not on
+			// this branch yet, so the panel may fall back to its own
+			// "no loader registered" state per slice 0's contract — that is
+			// expected here, not a failure.
+			await page.keyboard.press("ArrowDown");
+			await page.keyboard.press("Enter");
+			await expect(page).toHaveURL(/\/knowledge/);
+			await page
+				.getByTestId("workspace-main")
+				.waitFor({ state: "visible", timeout: 10000 })
+				.catch(() => {});
+			expect(pageErrors).toEqual([]);
+		} finally {
+			await db.delete(artifacts).where(eq(artifacts.id, artifactId));
+			await db
+				.delete(conversations)
+				.where(eq(conversations.id, conversationId));
+		}
 	});
 });
