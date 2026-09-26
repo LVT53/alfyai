@@ -393,6 +393,12 @@ The containment suite covers it (34). `4865aa24`: the merged search sort's tie-b
 12,806 tests, Playwright 51. Open: the chip row's exact position vs the mockup (check in the Phase 4 walk). Gates on
 `feat/artifacts` running (`/tmp/gates-fa-s7/`).
 
+**Gates on `feat/artifacts` at the Slice 7 merge `d1364b54`:** check 0/17, biome clean, **12,806 tests**, build 32/2, Fallow 124/4
+with 0 new, containment 34; Playwright 60/61. The one failure (`knowledge.spec.ts:222`) was order-dependent: a
+substring `name: "Upload"` locator with `.first()` hit the new "Filter: Uploaded" chip whenever the library had rows.
+It passed alone, and was reproduced deliberately by a fix agent → `78cad9af` (`exact: true`), fast-forwarded onto
+`feat/artifacts`. No other ambiguous locators found.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
