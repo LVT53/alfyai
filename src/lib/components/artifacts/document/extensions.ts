@@ -16,7 +16,7 @@
  *   stack.
  * - `BlockMarker` is the `<!--b:id-->` marker as a real (but invisible) node,
  *   so Tiptap's own Markdown tokenizer/renderer can produce and consume it.
- *   It is never left in the LIVE document: `absorbBlockMarkers` (on load)
+ *   It is never left in the LIVE document: `ensureBlockIds` (on load)
  *   moves each marker's id onto the block that follows it and deletes the
  *   marker node itself, and `document-editor.ts`'s `readMarkdown` re-inserts
  *   markers in a throwaway transaction only for the instant it takes to call
@@ -199,35 +199,6 @@ function buildAbsorbAndMintTransaction(state: EditorState): Transaction | null {
 	return tr;
 }
 
-/**
- * The mint-only half, kept internal: `ensureBlockIds`/the plugin both go
- * through the combined builder above so absorption and minting can never
- * race each other. Not exported — nothing outside this file addresses
- * minting in isolation from absorption today; widen this back to `export`
- * if a future test genuinely needs that split.
- */
-function buildBlockIdTransaction(state: EditorState): Transaction | null {
-	const missing: { pos: number; kind: BlockKind }[] = [];
-	state.doc.forEach((node, offset) => {
-		const id = node.attrs?.[BLOCK_ID_ATTR];
-		if (typeof id === "string" && id.length > 0) return;
-		const kind = blockKindFor(node.type.name);
-		if (kind) missing.push({ pos: offset, kind });
-	});
-	if (missing.length === 0) return null;
-
-	const tr = state.tr;
-	for (const entry of missing) {
-		const node = tr.doc.nodeAt(entry.pos);
-		if (!node) continue;
-		tr.setNodeMarkup(entry.pos, undefined, {
-			...node.attrs,
-			[BLOCK_ID_ATTR]: mintBlockId(entry.kind),
-		});
-	}
-	return tr;
-}
-
 /** Every top-level block carries a stable `blockId`, filled in after every change (typing, pasting, or a whole-content replace). */
 const BlockIds = Extension.create({
 	name: "documentBlockIds",
@@ -278,7 +249,7 @@ const BlockIds = Extension.create({
  * parses `<!--b:id-->` and whose renderer writes it back. It is a real schema
  * node (not a text hack) so the Markdown manager can produce and consume it,
  * but nothing in this module ever leaves one sitting in the live document —
- * see `absorbBlockMarkers` below and `document-editor.ts`'s `readMarkdown`.
+ * see `ensureBlockIds` below and `document-editor.ts`'s `readMarkdown`.
  */
 const BlockMarker = Node.create({
 	name: BLOCK_MARKER_NODE,
@@ -348,30 +319,6 @@ const BlockMarker = Node.create({
 	renderMarkdown: (node: JSONContent) =>
 		`${MARKER_PREFIX}${(node.attrs?.id as string) ?? ""}-->`,
 });
-
-/**
- * Load-time absorption on its own, kept internal (nothing outside this file
- * calls it directly today — `ensureBlockIds` below is the one load-time
- * entry point other modules use). Internally this is still the SAME
- * combined builder `ensureBlockIds` and the plugin use — see
- * `buildAbsorbAndMintTransaction`'s comment for why the two steps cannot be
- * split into independently-dispatched transactions.
- */
-function absorbBlockMarkers(editor: {
-	state: EditorState;
-	view: { dispatch: (tr: Transaction) => void };
-}): number {
-	let markerCount = 0;
-	editor.state.doc.forEach((node) => {
-		if (node.type.name === BLOCK_MARKER_NODE) markerCount += 1;
-	});
-	const tr = buildAbsorbAndMintTransaction(editor.state);
-	if (tr) {
-		tr.setMeta("addToHistory", false);
-		editor.view.dispatch(tr);
-	}
-	return markerCount;
-}
 
 /**
  * Load-time id pass: absorb any hand-written markers and mint whatever is
