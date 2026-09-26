@@ -237,3 +237,59 @@ describe("RV-1A: an empty list item survives a save and a reopen", () => {
 		expect(shape.slice(0, 2)).toEqual(["orderedList:2", "taskList:1"]);
 	});
 });
+
+describe("RV-1A: a list item with two paragraphs keeps both", () => {
+	it("brings a list item's and a task item's second paragraph back inside the item after a reopen", () => {
+		const paragraph = (text: string) => ({
+			type: "paragraph",
+			content: [{ type: "text", text }],
+		});
+		element = document.createElement("div");
+		document.body.appendChild(element);
+		const editor = createDocumentEditor({
+			element,
+			markdown: "",
+			placeholder: "Write anything, or ask Alfy to.",
+		});
+		editor.commands.setContent({
+			type: "doc",
+			content: [
+				{
+					type: "bulletList",
+					content: [
+						{
+							type: "listItem",
+							content: [paragraph("first para"), paragraph("second para")],
+						},
+					],
+				},
+				{
+					type: "taskList",
+					content: [
+						{
+							type: "taskItem",
+							attrs: { checked: true },
+							content: [paragraph("first"), paragraph("second")],
+						},
+					],
+				},
+			],
+		});
+		const saved = serializeDocument(parseDocument(readMarkdown(editor)).blocks);
+		editor.destroy();
+		element.remove();
+		element = document.createElement("div");
+		document.body.appendChild(element);
+		const reopened = createDocumentEditor({
+			element,
+			markdown: saved,
+			placeholder: "Write anything, or ask Alfy to.",
+		});
+		// The paragraphs inside each list's first item, after the reopen.
+		const items = [0, 1].map(
+			(index) => reopened.state.doc.child(index).firstChild?.childCount ?? 0,
+		);
+		reopened.destroy();
+		expect(items).toEqual([2, 2]);
+	});
+});

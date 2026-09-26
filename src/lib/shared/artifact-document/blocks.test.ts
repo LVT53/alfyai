@@ -534,3 +534,18 @@ describe("RV-1A: an empty list item stays a list item", () => {
 		expect(readTaskBlock(task)).toEqual({ checked: false, text: "" });
 	});
 });
+
+describe("RV-1A: a list item's second paragraph stays in the item", () => {
+	it("keeps an indented paragraph after a blank line inside its list item and task item, as CommonMark reads it", () => {
+		const list = parseDocument("- first para\n\n  second para\n- next item");
+		expect(list.blocks.map((b) => b.kind)).toEqual(["list"]);
+		expect(list.blocks[0].markdown).toBe(
+			"- first para\n\n  second para\n- next item",
+		);
+		const task = parseDocument("- [x] first\n\n  second\n\nAfter the list.");
+		expect(task.blocks.map((b) => b.markdown)).toEqual([
+			"- [x] first\n\n  second",
+			"After the list.",
+		]);
+	});
+});

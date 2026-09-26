@@ -560,15 +560,52 @@ function consumeSingleListItem(
 	const collected = [lines[start]];
 	const contentColumn = listItemContentColumn(lines[start]);
 	let i = start + 1;
-	while (i < lines.length && /^\s+\S/.test(lines[i])) {
+	while (i < lines.length) {
+		const line = lines[i];
+		if (line.trim() === "") {
+			// A blank line followed by more of THIS item (indented to its
+			// content column): a second paragraph, which the editor writes so.
+			const next = nextNonBlankLine(lines, i + 1);
+			if (next === undefined || !continuesItemAfterBlank(next, contentColumn)) {
+				break;
+			}
+			collected.push(line);
+			i += 1;
+			continue;
+		}
+		if (!/^\s+\S/.test(line)) break;
 		const nested =
-			LIST_ITEM_START_RE.test(lines[i]) &&
-			leadingWhitespace(lines[i]) >= contentColumn;
-		if (LIST_ITEM_START_RE.test(lines[i]) && !nested) break;
-		collected.push(lines[i]);
+			LIST_ITEM_START_RE.test(line) && leadingWhitespace(line) >= contentColumn;
+		if (LIST_ITEM_START_RE.test(line) && !nested) break;
+		collected.push(line);
 		i += 1;
 	}
+	// Blank lines are only kept before more of the item, never at its end.
+	while (
+		collected.length > 1 &&
+		collected[collected.length - 1].trim() === ""
+	) {
+		collected.pop();
+		i -= 1;
+	}
 	return { text: collected.join("\n"), next: i };
+}
+
+/** The first non-blank line at or after `from`, without copying the array (a slice per blank line was quadratic on a long loose list). */
+function nextNonBlankLine(lines: string[], from: number): string | undefined {
+	for (let j = from; j < lines.length; j += 1) {
+		if (lines[j].trim() !== "") return lines[j];
+	}
+	return undefined;
+}
+
+/**
+ * After a blank line, a line indented to the item's content column carries
+ * on that item — a second paragraph or a nested list (CommonMark). Reading it
+ * as a block of its own moved it out of the list on the next reload (RV-1A).
+ */
+function continuesItemAfterBlank(line: string, contentColumn: number): boolean {
+	return contentColumn > 0 && leadingWhitespace(line) >= contentColumn;
 }
 
 /**
@@ -592,12 +629,16 @@ function consumeListBlock(
 	familyRe: RegExp,
 ): { text: string; next: number } {
 	const collected: string[] = [lines[start]];
+	const contentColumn = listItemContentColumn(lines[start]);
 	let i = start + 1;
 	while (i < lines.length) {
 		const line = lines[i];
 		if (line.trim() === "") {
-			const next = lines.slice(i + 1).find((l) => l.trim() !== "");
-			if (next !== undefined && familyRe.test(next)) {
+			const next = nextNonBlankLine(lines, i + 1);
+			if (
+				next !== undefined &&
+				(familyRe.test(next) || continuesItemAfterBlank(next, contentColumn))
+			) {
 				collected.push(line);
 				i += 1;
 				continue;
