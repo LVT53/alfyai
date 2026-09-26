@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/services/artifacts", () => ({
 	createDocumentArtifact: vi.fn(),
+	DocumentOperationError: class DocumentOperationError extends Error {
+		constructor(public readonly reason: string) {
+			super(reason);
+		}
+	},
 }));
 
 import { createDocumentArtifact } from "$lib/server/services/artifacts";

@@ -1,6 +1,9 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
-import { createDocumentArtifact } from "$lib/server/services/artifacts";
+import {
+	createDocumentArtifact,
+	DocumentOperationError,
+} from "$lib/server/services/artifacts";
 import type { RequestHandler } from "./$types";
 
 // POST /api/artifacts/document — a bare "create a Document" entry point,
@@ -29,14 +32,29 @@ export const POST: RequestHandler = async (event) => {
 	const markdown =
 		typeof payload.markdown === "string" ? payload.markdown : undefined;
 
-	const artifact = await createDocumentArtifact({
-		userId: user.id,
-		conversationId,
-		title: payload.title,
-		markdown,
-		author: "user",
-		summary: "Saved as a new document",
-	});
+	let artifact: Awaited<ReturnType<typeof createDocumentArtifact>>;
+	try {
+		artifact = await createDocumentArtifact({
+			userId: user.id,
+			conversationId,
+			title: payload.title,
+			markdown,
+			author: "user",
+			summary: "Saved as a new document",
+		});
+	} catch (error) {
+		// createDocumentArtifact throws its refusal (its contract has no union);
+		// uncaught, it was a 500. Ruling 49's shape instead — and one answer for
+		// "missing" and "someone else's" conversation, as everywhere (RV-1A).
+		if (!(error instanceof DocumentOperationError)) throw error;
+		if (error.reason === "too_large") {
+			return json({ ok: false, reason: "too_large" }, { status: 413 });
+		}
+		if (error.reason === "conversation_not_found") {
+			return json({ ok: false, reason: "not_found" }, { status: 404 });
+		}
+		return json({ ok: false, reason: "invalid_patch" }, { status: 400 });
+	}
 
 	return json({ ok: true, artifact });
 };

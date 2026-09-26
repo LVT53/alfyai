@@ -38,6 +38,7 @@ import {
 import type { PatchOp, PatchSet } from "$lib/shared/artifact-document/patch";
 import { GET as getArtifactRoute } from "../../src/routes/api/artifacts/[id]/+server";
 import { PATCH as patchBodyRoute } from "../../src/routes/api/artifacts/[id]/body/+server";
+import { POST as saveAsNewRoute } from "../../src/routes/api/artifacts/document/+server";
 
 const NOW = new Date("2026-09-25T10:00:00.000Z");
 
@@ -866,5 +867,46 @@ describe("RV-1A: the Document's writes on a real database", () => {
 		});
 		expect(typing).toMatchObject({ ok: true, version: 2 });
 		expect(versionCount(created.id)).toBe(2);
+	});
+
+	it("'Save as new' answers ruling 49's shape, never a 500: a foreign or missing conversation is not_found, an oversize body too_large", async () => {
+		const strangerConversation = `conv-stranger-${randomUUID()}`;
+		seedConversation(strangerConversation, strangerId);
+		const call = (payload: unknown) =>
+			saveAsNewRoute({
+				request: { json: async () => payload },
+				locals: { user: { id: userId, role: "user" } },
+			} as never);
+
+		for (const conversation of [strangerConversation, "conv-that-never-was"]) {
+			const response = await call({
+				conversationId: conversation,
+				title: "Copy",
+				markdown: "Text.",
+			});
+			expect(response.status).toBe(404);
+			await expect(response.json()).resolves.toEqual({
+				ok: false,
+				reason: "not_found",
+			});
+		}
+		const tooLarge = await call({
+			conversationId,
+			title: "Copy",
+			markdown: "x".repeat(3 * 1024 * 1024),
+		});
+		expect(tooLarge.status).toBe(413);
+		await expect(tooLarge.json()).resolves.toEqual({
+			ok: false,
+			reason: "too_large",
+		});
+		// Nothing was written into the stranger's conversation.
+		expect(
+			db
+				.select({ id: artifacts.id })
+				.from(artifacts)
+				.where(eq(artifacts.conversationId, strangerConversation))
+				.all(),
+		).toEqual([]);
 	});
 });
