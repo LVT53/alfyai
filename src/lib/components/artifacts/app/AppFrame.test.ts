@@ -1,5 +1,6 @@
 import { render } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { APP_IFRAME_SANDBOX } from "$lib/server/services/artifacts/app/sandbox-response";
 import { uiLanguage } from "$lib/stores/settings";
 import AppFrame from "./AppFrame.svelte";
 
@@ -78,18 +79,26 @@ afterEach(() => {
 });
 
 describe("AppFrame — the sandbox and the served route", () => {
-	it("renders the iframe with the sandbox attribute EXACTLY allow-scripts", () => {
+	// Ruling 58: the sandbox widens by exactly one token, `allow-forms`, so a
+	// generated app's <form> submit EVENT fires (open question 1) while
+	// `form-action 'none'` in the CSP still refuses the submission itself.
+	it("renders the iframe with the sandbox attribute EXACTLY allow-scripts allow-forms", () => {
 		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
 		const iframe = getIframe(container);
-		expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
+		expect(iframe.getAttribute("sandbox")).toBe("allow-scripts allow-forms");
+		// Pinned against the one shared constant sandbox-response.ts exports, so
+		// the frame's literal and the served route's CSP directive cannot drift
+		// apart from each other.
+		expect(iframe.getAttribute("sandbox")).toBe(APP_IFRAME_SANDBOX);
 	});
 
-	it("never carries allow-same-origin or any other sandbox token", () => {
+	it("never carries allow-same-origin or any other sandbox token beyond scripts and forms", () => {
 		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
 		const iframe = getIframe(container);
 		expect(iframe.getAttribute("sandbox")).not.toMatch(/allow-same-origin/);
 		expect(iframe.getAttribute("sandbox")?.split(/\s+/)).toEqual([
 			"allow-scripts",
+			"allow-forms",
 		]);
 	});
 

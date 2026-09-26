@@ -9,10 +9,10 @@
 // `window.alfy.storage.get/set` into a `postMessage` call to the parent, and
 // listens for the parent's reply to resolve or reject that call's promise.
 // `postMessage(..., "*")` is deliberate and safe here — the frame this script
-// runs in is opaque-origin (`<iframe sandbox="allow-scripts">`, no
-// `allow-same-origin`), so it HAS no origin to name as the target, and the
-// parent is where every trust decision is made (AppFrame.svelte's message
-// listener).
+// runs in is opaque-origin (`<iframe sandbox="allow-scripts allow-forms">`,
+// ruling 58; still no `allow-same-origin`), so it HAS no origin to name as
+// the target, and the parent is where every trust decision is made
+// (AppFrame.svelte's message listener).
 export const APP_BOOTSTRAP_SCRIPT = `(function () {
   var seq = 0, waiting = {};
   function call(method, args) {

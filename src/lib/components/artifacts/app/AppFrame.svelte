@@ -1,9 +1,15 @@
 <script lang="ts">
 // The App's sandboxed frame and the parent half of its storage bridge
 // (Feature 2 · Artifacts, Slice 2). This is the one component that runs a
-// generated app: `<iframe sandbox="allow-scripts">`, exactly that string,
-// forever — see the long trust-boundary note on the message listener below
-// before touching either the sandbox attribute or the validation order.
+// generated app: `<iframe sandbox="allow-scripts allow-forms">`, exactly that
+// string, forever (ruling 58: `allow-forms` is the one addition, so a
+// generated app's <form> submit event fires — the CSP's `form-action 'none'`
+// still refuses the submission itself) — see the long trust-boundary note on
+// the message listener below before touching either the sandbox attribute or
+// the validation order. The literal here is a plain string, not an import of
+// `sandbox-response.ts`'s `APP_IFRAME_SANDBOX`: a client component cannot
+// import `$lib/server/*` without breaking the build, so the two are kept in
+// sync by AppFrame.test.ts asserting this literal equals that constant.
 import {
 	readAppValue,
 	writeAppValue,
@@ -278,7 +284,7 @@ $effect(() => {
 	<iframe
 		bind:this={iframe}
 		class="app-frame"
-		sandbox="allow-scripts"
+		sandbox="allow-scripts allow-forms"
 		{src}
 		title={$t('artifacts.app.frame.title', { title })}
 		tabindex="0"

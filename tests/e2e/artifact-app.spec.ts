@@ -81,6 +81,32 @@ const QUIET_APP_HTML = `<!doctype html>
 <body><h1>Quiet App</h1></body>
 </html>`;
 
+/**
+ * A fixture with a <form> whose submit handler does NOT call
+ * preventDefault() — proves ruling 58's two halves in one place: the
+ * `allow-forms` sandbox token lets the `submit` EVENT fire (the handler runs
+ * and marks the DOM), while the CSP's `form-action 'none'` still refuses the
+ * actual submission, so the app's own heading is still there afterwards.
+ */
+const FORM_APP_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Form App</title></head>
+<body>
+<h1>Form App</h1>
+<form id="f" action="/should-not-navigate">
+  <button type="submit">Submit</button>
+</form>
+<div data-testid="submit-marker"></div>
+<script>
+document.getElementById('f').addEventListener('submit', function () {
+  document.querySelector('[data-testid="submit-marker"]').textContent = 'submitted';
+  // Deliberately NOT calling preventDefault(): the CSP, not the app, must be
+  // what stops the navigation.
+});
+</script>
+</body>
+</html>`;
+
 /** An app that saves on a short timer, the way a debounced autosave does. */
 const CHATTY_APP_HTML = `<!doctype html>
 <html lang="en">
@@ -179,12 +205,40 @@ test.describe("the App kind, in the panel", () => {
 
 		const iframe = page.locator("iframe.app-frame");
 		await expect(iframe).toBeVisible();
-		await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
+		// Ruling 58: allow-forms joined allow-scripts so a generated app's
+		// <form> submit event can fire; see the dedicated form test below for
+		// proof the submission itself is still refused.
+		await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms");
 
 		const appFrame = page.frameLocator("iframe.app-frame");
 		await expect(
 			appFrame.getByRole("heading", { name: "Test Notes App" }),
 		).toBeVisible();
+	});
+
+	// Ruling 58, open question 1: without allow-forms a <form> submit EVENT
+	// never fires at all under this product's exact sandbox — several recorded
+	// eval apps put their primary action on one. Proves both halves in the
+	// real browser: the handler runs, and the submission itself still goes
+	// nowhere because form-action 'none' is unchanged.
+	test("a form's submit handler runs under allow-forms, and the CSP still refuses the submission itself", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Make me a form app");
+		await seedApp(conversationId, FORM_APP_HTML, "Form App");
+		await openChatAndReload(page, conversationId);
+		await openAppPanel(page);
+
+		const appFrame = page.frameLocator("iframe.app-frame");
+		await expect(appFrame.getByRole("heading", { name: "Form App" })).toBeVisible();
+
+		await appFrame.getByRole("button", { name: "Submit" }).click();
+
+		await expect(appFrame.getByTestId("submit-marker")).toHaveText("submitted");
+		// No navigation actually happened: the app's own heading is still
+		// there. If form-action had been dropped along with the sandbox
+		// change, this button would have navigated the frame away from it.
+		await expect(appFrame.getByRole("heading", { name: "Form App" })).toBeVisible();
 	});
 
 	test("saved state survives a reload — the real postMessage bridge round-tripping through the real kv route", async ({
