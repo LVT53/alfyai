@@ -70,6 +70,30 @@ const artifactsDict = {
 		"artifacts.document.versions.restoreError":
 			"Could not restore this version.",
 		"artifacts.document.versions.empty": "No earlier versions yet.",
+		// The lazy editor's shell and toolbar (Slice 1, T7).
+		"artifacts.document.editor.placeholder": "Write anything, or ask Alfy to.",
+		"artifacts.document.editor.failedToLoad": "The editor could not be loaded.",
+		"artifacts.document.toolbar.bold": "Bold",
+		"artifacts.document.toolbar.italic": "Italic",
+		"artifacts.document.toolbar.strike": "Strikethrough",
+		"artifacts.document.toolbar.heading": "Heading {n}",
+		"artifacts.document.toolbar.bullets": "Bulleted list",
+		"artifacts.document.toolbar.numbers": "Numbered list",
+		"artifacts.document.toolbar.tasks": "Checklist",
+		"artifacts.document.toolbar.quote": "Quote",
+		"artifacts.document.toolbar.code": "Code",
+		"artifacts.document.toolbar.table": "Table",
+		"artifacts.document.toolbar.link": "Link",
+		"artifacts.document.toolbar.undo": "Undo",
+		"artifacts.document.toolbar.redo": "Redo",
+		"artifacts.document.toolbar.more": "More",
+		"artifacts.document.save.offline":
+			"Not saved yet — you are offline. Your text is safe here.",
+		"artifacts.document.save.tooLarge": "This document is too long to save.",
+		"artifacts.document.deleted":
+			"This document was deleted while it was open. Your text is still here.",
+		"artifacts.document.deleted.saveCopy": "Save it as a new document",
+		"artifacts.document.notFound": "This document is not available.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -115,6 +139,31 @@ const artifactsDict = {
 		"artifacts.document.versions.restoreError":
 			"Nem sikerült visszaállítani ezt a változatot.",
 		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
+		"artifacts.document.editor.placeholder": "Írj bármit, vagy kérd meg Alfyt.",
+		"artifacts.document.editor.failedToLoad":
+			"A szerkesztőt nem sikerült betölteni.",
+		"artifacts.document.toolbar.bold": "Félkövér",
+		"artifacts.document.toolbar.italic": "Dőlt",
+		"artifacts.document.toolbar.strike": "Áthúzott",
+		"artifacts.document.toolbar.heading": "Címsor {n}",
+		"artifacts.document.toolbar.bullets": "Felsorolás",
+		"artifacts.document.toolbar.numbers": "Számozott lista",
+		"artifacts.document.toolbar.tasks": "Feladatlista",
+		"artifacts.document.toolbar.quote": "Idézet",
+		"artifacts.document.toolbar.code": "Kód",
+		"artifacts.document.toolbar.table": "Táblázat",
+		"artifacts.document.toolbar.link": "Hivatkozás",
+		"artifacts.document.toolbar.undo": "Visszavonás",
+		"artifacts.document.toolbar.redo": "Újra",
+		"artifacts.document.toolbar.more": "Több",
+		"artifacts.document.save.offline":
+			"Még nincs elmentve — nincs kapcsolat. A szöveged itt biztonságban van.",
+		"artifacts.document.save.tooLarge":
+			"Ez a dokumentum túl hosszú ahhoz, hogy elmentsük.",
+		"artifacts.document.deleted":
+			"Ezt a dokumentumot törölték, amíg nyitva volt. A szöveged még itt van.",
+		"artifacts.document.deleted.saveCopy": "Mentés új dokumentumként",
+		"artifacts.document.notFound": "Ez a dokumentum nem érhető el.",
 	},
 } as const;
 

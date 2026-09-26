@@ -69,7 +69,9 @@ export const PATCH: RequestHandler = async (event) => {
 					summary: "Edited",
 					expectVersion,
 					coalesceUserEdits: true,
-				}).then((r) => (r.ok ? { ok: true, version: r.versionNumber } : r));
+				}).then((r) =>
+					r.ok ? { ok: true as const, version: r.versionNumber } : r,
+				);
 
 	if (!result.ok) {
 		const status =

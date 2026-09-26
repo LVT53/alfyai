@@ -381,7 +381,18 @@ export async function saveDocumentBody(
 		expectVersion?: number;
 		coalesceUserEdits?: boolean;
 	} & ArtifactScopeOptions,
-): Promise<{ ok: boolean; reason?: string; version?: number }> {
+): Promise<
+	| { ok: true; version: number }
+	| {
+			ok: false;
+			reason:
+				| "not_found"
+				| "too_large"
+				| "stale"
+				| "hash_mismatch"
+				| "version_conflict";
+	  }
+> {
 	const result = await updateArtifactBody({
 		userId: params.userId,
 		artifactId: params.artifactId,

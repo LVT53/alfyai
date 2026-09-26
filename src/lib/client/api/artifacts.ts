@@ -7,6 +7,7 @@ import type {
 	ArtifactCardSummary,
 	ArtifactComment,
 	ArtifactDetail,
+	ArtifactRecord,
 	ArtifactVersionSummary,
 } from "$lib/server/services/artifacts/types";
 import { _unwrapList } from "./_utils";
@@ -111,6 +112,32 @@ export async function saveArtifactBody(
 		return { ok: false, reason: "not_found" };
 	}
 	return payload;
+}
+
+/**
+ * The Document's one direct-create call (`slice-1.md` T7.10's "deleted while
+ * open" escape hatch): the artifact the panel had open is gone, so there is
+ * no id to PATCH against — this posts the editor's own text as a brand-new
+ * Document instead. Every other kind is created only through Alfy's
+ * `create_artifact` tool, never from the browser.
+ */
+export async function createDocumentCopy(
+	conversationId: string | null,
+	title: string,
+	markdown: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<ArtifactRecord> {
+	const payload = await requestJson<{ ok: true; artifact: ArtifactRecord }>(
+		"/api/artifacts/document",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ conversationId, title, markdown }),
+		},
+		"Could not save this as a new document",
+		fetchImpl,
+	);
+	return payload.artifact;
 }
 
 function withConversationQuery(conversationId?: string | null): string {

@@ -213,14 +213,15 @@ describe("artifacts client API", () => {
 		});
 
 		it("omits expectVersion from the body when not given", async () => {
-			const fetchMock = vi.fn(async () =>
-				jsonResponse({ ok: true, version: 1 }),
+			const fetchMock = vi.fn(
+				async (_input: RequestInfo | URL, _init?: RequestInit) =>
+					jsonResponse({ ok: true, version: 1 }),
 			);
 
 			await saveArtifactBody("artifact-1", "Text.", undefined, null, fetchMock);
 
-			const call = fetchMock.mock.calls[0]?.[1] as RequestInit;
-			expect(JSON.parse(String(call.body))).toEqual({ body: "Text." });
+			const call = fetchMock.mock.calls[0]?.[1];
+			expect(JSON.parse(String(call?.body))).toEqual({ body: "Text." });
 		});
 	});
 });
