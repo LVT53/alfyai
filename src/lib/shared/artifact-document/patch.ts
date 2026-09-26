@@ -164,6 +164,15 @@ export function applyPatchSet(input: {
 	let indexById = new Map(working.map((block, i) => [block.id, i]));
 	/** Every id in the document, so an id minted for a split-off block is new. */
 	const taken = new Set(working.map((block) => block.id));
+	/**
+	 * What each block said BEFORE this patch — what the user left. The guard
+	 * compares against this, not against `working`: an earlier op in this same
+	 * patch changing a block is Alfy's own edit, and blaming it on the user
+	 * ("you changed this block") refused every second op on one block (RV-1A).
+	 */
+	const hashBeforePatch = new Map(
+		input.blocks.map((block) => [block.id, block.hash]),
+	);
 	const outcomes: OpOutcome[] = [];
 	const inverses: PatchInverse[] = [];
 
@@ -187,14 +196,16 @@ export function applyPatchSet(input: {
 		const block = working[index];
 
 		// The guard, in this order — all three must agree. `snapshot` is what
-		// Alfy last read; `block.hash` is what the document says now;
-		// `op.baseHash` is what the model claims it read.
+		// Alfy last read; `hashBeforePatch` is what the document says now (the
+		// user's side, before any op of this patch); `op.baseHash` is what the
+		// model claims it read.
 		const seenHash = input.snapshot[op.blockId];
 		if (seenHash === undefined) {
 			refuse("block_unseen");
 			continue;
 		}
-		if (seenHash !== block.hash || seenHash !== op.baseHash) {
+		const currentHash = hashBeforePatch.get(op.blockId) ?? block.hash;
+		if (seenHash !== currentHash || seenHash !== op.baseHash) {
 			refuse("block_changed");
 			continue;
 		}

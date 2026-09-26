@@ -552,3 +552,71 @@ describe("RV-1A: an op's result is re-read as blocks, so what is stored is canon
 		expect(parseDocument(result.markdown).blocks[0].kind).toBe("heading");
 	});
 });
+
+describe("RV-1A: the guard compares against the document before this patch", () => {
+	it("applies two ops on the same block in order, instead of blaming the user for Alfy's own first op", () => {
+		const { blocks, snapshot } = setup("Teh quick brwn fox.");
+		const [paragraph] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceRange",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					find: "Teh",
+					text: "The",
+				}),
+				op({
+					kind: "replaceRange",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					find: "brwn",
+					text: "brown",
+				}),
+			]),
+		});
+		expect(result.outcomes.map((o) => o.code ?? o.status)).toEqual([
+			"applied",
+			"applied",
+		]);
+		expect(result.blocks[0].markdown).toBe("The quick brown fox.");
+		// Undo in reverse still restores the exact pre-patch text.
+		expect(result.inverses.map((inverse) => inverse.previousMarkdown)).toEqual([
+			"Teh quick brwn fox.",
+			"The quick brwn fox.",
+		]);
+	});
+
+	it("still refuses every op on a block the USER changed, however many there are", () => {
+		const { blocks, snapshot } = setup("Teh quick brwn fox.");
+		const edited = parseDocument(
+			blocks.map((b) => `<!--b:${b.id}-->\nThe user rewrote this.`).join(""),
+		).blocks;
+		const [paragraph] = blocks;
+		const result = applyPatchSet({
+			blocks: edited,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceBlock",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					text: "Alfy 1",
+				}),
+				op({
+					kind: "replaceBlock",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					text: "Alfy 2",
+				}),
+			]),
+		});
+		expect(result.outcomes.map((o) => o.code)).toEqual([
+			"block_changed",
+			"block_changed",
+		]);
+		expect(result.blocks[0].markdown).toBe("The user rewrote this.");
+	});
+});
