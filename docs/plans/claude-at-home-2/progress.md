@@ -437,6 +437,17 @@ row's own line, the regression slice-0 S6 had pinned, so the no-header rule is r
 per re-render at 300×300. `feat/artifacts-chatcard` fast-forwarded to `7453b2f1` (13,226 tests, Playwright 63/63 with
 one load flake that passes alone). Its open question (a refused tick may not revert the checkbox) was sent to RV-1B.
 
+**Focus-trap pass one merged as `8c45ae03` (2026-09-26).** `src/lib/utils/focus-trap.ts` (a Svelte 5 attachment, `{@attach focusTrap(…)}`,
+chosen per the docs; `getFocusableElements`, `trapTabKey`, `createFocusTrapStack`, options `selector/isTopmost/onEscape/
+focus/restoreFocusOnCleanup/onTab`). Migrated DialogShell (its own stack instance, since CampaignModal joins it),
+LinkedDocumentPicker, KnowledgeMemoryModal, KnowledgeMemoryView (three dialogs), ConversationJumpRail (custom `onTab`);
+SearchModal shares only the lookup (its wrap is direction-sensitive). Skipped with reasons: MessageInput (autocomplete),
+ProfilePictureEditor/ProviderForm (already DialogShell), ModelList. Every existing dialog test passed unmodified; +31
+tests; gates at baseline (12,837 on its base). **Pass two** (after Wave 3 starts or earlier): the Feature 2 sheets
+(Document mobile "More" sheet, download sheet) plus `campaigns/CampaignModal.svelte` and
+`campaign-admin/CampaignCropModal.svelte` (the agent's task chip was withdrawn in favour of this). Not independently
+reviewed yet: include it in the final review.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
