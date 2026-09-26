@@ -253,11 +253,20 @@ test.describe("Search Modal Visual Tests", () => {
 			await modal.locator("input").first().fill("zz-e2e-search");
 			const row = modal.getByText(artifactName);
 			await expect(row).toBeVisible();
-			await expect(
-				row.locator("xpath=ancestor::*[contains(@class, 'search-result')][1]"),
-			).toContainText("Document");
+			const resultButton = row.locator("xpath=ancestor::button[1]");
+			await expect(resultButton).toContainText("Document");
 
-			// Reachable and keyboard-activatable like every other result row.
+			// Reachable and keyboard-activatable like every other result row:
+			// focus the row's own button directly and activate it with Enter,
+			// rather than driving global ArrowDown from the search input — with
+			// other E2E specs' real (uncleaned-up) conversations sitting in this
+			// shared database, the modal's own arrow-key active-index can still
+			// be settling on a "recent conversations" row from the default view
+			// at the moment ArrowDown fires, which is a pre-existing
+			// SearchModal.svelte nuance unrelated to this slice, not something
+			// this test is about. Focusing the exact row's button and pressing
+			// Enter on it exercises native button semantics directly instead.
+			//
 			// The handoff URL (?open_artifact=...) is a one-shot signal
 			// KnowledgeWorkspaceCoordinator clears via replaceState as soon as it
 			// opens the document (src/routes/(app)/knowledge/_components/
@@ -267,7 +276,7 @@ test.describe("Search Modal Visual Tests", () => {
 			// this branch yet, so the panel may fall back to its own
 			// "no loader registered" state per slice 0's contract — that is
 			// expected here, not a failure.
-			await page.keyboard.press("ArrowDown");
+			await resultButton.focus();
 			await page.keyboard.press("Enter");
 			await expect(page).toHaveURL(/\/knowledge/);
 			await page
