@@ -559,3 +559,118 @@ describe("the Document type on a real database", () => {
 		expect(kv).toBeUndefined();
 	});
 });
+
+// RV-1A (independent review of Slice 1's engine and server side): each case
+// was red before its fix; docs/plans/claude-at-home-2/review-1a.md quotes it.
+describe("RV-1A: the Document's writes on a real database", () => {
+	it("two Alfy edits running at once both land: neither writes over a body it did not read", async () => {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Trip",
+			markdown: "Alpha.\n\nBeta.",
+			author: "alfy",
+			summary: "x",
+		});
+		const read = await readDocumentForAlfy({
+			userId,
+			artifactId: created.id,
+			conversationId,
+		});
+		const [alpha, beta] = read.blocks;
+		const patchFor = (
+			block: (typeof read.blocks)[number],
+			text: string,
+		): PatchSet => ({
+			patchId: `patch-${block.blockId}`,
+			label: "Edit",
+			ops: [
+				op({
+					kind: "replaceBlock",
+					blockId: block.blockId,
+					baseHash: block.hash,
+					text,
+				}),
+			],
+		});
+
+		// The AI SDK runs a step's tool calls concurrently: two edit_artifact
+		// calls in one step reach applyDocumentPatch in the same tick.
+		const [first, second] = await Promise.all([
+			applyDocumentPatch({
+				userId,
+				artifactId: created.id,
+				conversationId,
+				patch: patchFor(alpha, "Alpha changed."),
+			}),
+			applyDocumentPatch({
+				userId,
+				artifactId: created.id,
+				conversationId,
+				patch: patchFor(beta, "Beta changed."),
+			}),
+		]);
+		expect(first.ok && first.result.applied).toBe(1);
+		expect(second.ok && second.result.applied).toBe(1);
+
+		const stored = parseDocument(rawContentText(created.id), { mint: false });
+		expect(stored.blocks.map((block) => block.markdown)).toEqual([
+			"Alpha changed.",
+			"Beta changed.",
+		]);
+		expect(versionCount(created.id)).toBe(3);
+	});
+
+	it("a user's save landing inside an Alfy edit's read→write window wins: the edit is re-checked, never written over it", async () => {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Trip",
+			markdown: "Alpha.\n\nBeta.",
+			author: "alfy",
+			summary: "x",
+		});
+		const read = await readDocumentForAlfy({
+			userId,
+			artifactId: created.id,
+			conversationId,
+		});
+		const beta = read.blocks[1];
+		const userBody = rawContentText(created.id).replace(
+			"Beta.",
+			"Beta, as the user wrote it.",
+		);
+
+		const [save, edit] = await Promise.all([
+			saveDocumentBody({
+				userId,
+				artifactId: created.id,
+				conversationId,
+				body: { markdown: userBody, tabs: [] },
+				author: "user",
+				summary: "Edited",
+				coalesceUserEdits: true,
+			}),
+			applyDocumentPatch({
+				userId,
+				artifactId: created.id,
+				conversationId,
+				patch: {
+					patchId: "p",
+					label: "Alfy",
+					ops: [
+						op({
+							kind: "replaceBlock",
+							blockId: beta.blockId,
+							baseHash: beta.hash,
+							text: "Beta, as Alfy wrote it.",
+						}),
+					],
+				},
+			}),
+		]);
+		expect(save.ok).toBe(true);
+		expect(edit.ok && edit.result.outcomes[0].code).toBe("block_changed");
+		expect(rawContentText(created.id)).toContain("Beta, as the user wrote it.");
+	});
+});

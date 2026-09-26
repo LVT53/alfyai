@@ -28,6 +28,7 @@ import {
 	type PatchResult,
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
+import { hashArtifactBody } from "./hash";
 import {
 	ALFY_SNAPSHOT_KV_KEY,
 	createArtifact,
@@ -278,12 +279,27 @@ export async function readDocumentForAlfy(
 }
 
 /**
+ * How many times a patch re-reads and re-applies when its write finds the
+ * body changed since its read. Each retry reads the new body, so this only
+ * runs out if that many writers land inside one patch's read→write window.
+ */
+const PATCH_WRITE_ATTEMPTS = 5;
+
+/**
  * Applies a model patch against the CURRENT stored state (never a stale copy)
  * and, if anything applied, persists the result as a new version (Alfy writes
  * always append — ruling 47) with a fresh snapshot in the same transaction as
  * the body, so Alfy's next edit is checked against exactly what it just wrote.
  * A patch that applies nothing still returns `ok: true` with the (all-refused)
  * result: a refusal is the feature, not an error (spec §4).
+ *
+ * The write only lands over the body this patch read (`baseHash`): between
+ * the read and the write there are awaits, and two edit_artifact calls in one
+ * model step run concurrently, so without the guard the later write replaced
+ * the earlier one's body with its own, built from the older text — an applied
+ * edit (or a user's save) vanished while its tool result said "applied"
+ * (RV-1A). A write that finds the body changed re-reads and re-applies, so
+ * the guard re-checks every op against what is really there now.
  */
 export async function applyDocumentPatch(
 	params: {
@@ -301,65 +317,75 @@ export async function applyDocumentPatch(
 	  }
 	| { ok: false; reason: "not_found" | "not_a_document" }
 > {
-	let scoped: Awaited<ReturnType<typeof readScopedDocumentRow>>;
-	try {
-		scoped = await readScopedDocumentRow(params);
-	} catch (error) {
-		if (error instanceof DocumentOperationError) {
+	for (let attempt = 0; attempt < PATCH_WRITE_ATTEMPTS; attempt += 1) {
+		let scoped: Awaited<ReturnType<typeof readScopedDocumentRow>>;
+		try {
+			scoped = await readScopedDocumentRow(params);
+		} catch (error) {
+			if (error instanceof DocumentOperationError) {
+				return {
+					ok: false,
+					reason: error.reason as "not_found" | "not_a_document",
+				};
+			}
+			throw error;
+		}
+
+		const currentBody = scoped.contentText ?? "";
+		const parsedNow = parseDocument(currentBody, { mint: false });
+		const snapshot = readSnapshot(db, scoped.id);
+
+		const patchResult = applyPatchSet({
+			blocks: parsedNow.blocks,
+			patch: params.patch,
+			snapshot: snapshot?.index ?? {},
+		});
+
+		if (patchResult.applied === 0) {
 			return {
-				ok: false,
-				reason: error.reason as "not_found" | "not_a_document",
+				ok: true,
+				result: patchResult,
+				version:
+					snapshot?.docVersion ?? readCurrentVersionNumber(db, scoped.id),
+				versionId: readCurrentVersionId(db, scoped.id),
 			};
 		}
-		throw error;
-	}
 
-	const currentBody = scoped.contentText ?? "";
-	const parsedNow = parseDocument(currentBody, { mint: false });
-	const snapshot = readSnapshot(db, scoped.id);
+		const writeResult = await updateArtifactBody({
+			userId: params.userId,
+			artifactId: scoped.id,
+			conversationId: params.conversationId,
+			includeIncognito: params.includeIncognito,
+			body: patchResult.markdown,
+			author: "alfy",
+			summary: params.patch.label,
+			baseHash: hashArtifactBody(currentBody),
+			snapshot: {
+				at: Date.now(),
+				docVersion: 0,
+				index: buildIndex(patchResult.blocks),
+			},
+		});
+		if (!writeResult.ok) {
+			// Someone wrote between this read and this write: go again against
+			// what they wrote, never over it.
+			if (writeResult.reason === "stale") continue;
+			// The only other realistic failure is the row disappearing between
+			// the read above and this write (a delete raced in) — `not_found` is
+			// the one answer this function promises for that.
+			return { ok: false, reason: "not_found" };
+		}
 
-	const patchResult = applyPatchSet({
-		blocks: parsedNow.blocks,
-		patch: params.patch,
-		snapshot: snapshot?.index ?? {},
-	});
-
-	if (patchResult.applied === 0) {
 		return {
 			ok: true,
 			result: patchResult,
-			version: snapshot?.docVersion ?? readCurrentVersionNumber(db, scoped.id),
-			versionId: readCurrentVersionId(db, scoped.id),
+			version: writeResult.versionNumber,
+			versionId: writeResult.versionId,
 		};
 	}
-
-	const writeResult = await updateArtifactBody({
-		userId: params.userId,
-		artifactId: scoped.id,
-		conversationId: params.conversationId,
-		includeIncognito: params.includeIncognito,
-		body: patchResult.markdown,
-		author: "alfy",
-		summary: params.patch.label,
-		snapshot: {
-			at: Date.now(),
-			docVersion: 0,
-			index: buildIndex(patchResult.blocks),
-		},
-	});
-	if (!writeResult.ok) {
-		// The only realistic failure here is the row disappearing between the
-		// read above and this write (a delete raced in) — `not_found` is the
-		// one answer this function promises for that.
-		return { ok: false, reason: "not_found" };
-	}
-
-	return {
-		ok: true,
-		result: patchResult,
-		version: writeResult.versionNumber,
-		versionId: writeResult.versionId,
-	};
+	// PATCH_WRITE_ATTEMPTS writers landed inside this patch's window: nothing
+	// was written over any of them, and there is no honest "applied" to report.
+	return { ok: false, reason: "not_found" };
 }
 
 /**
