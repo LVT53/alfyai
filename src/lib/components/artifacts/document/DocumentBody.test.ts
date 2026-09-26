@@ -184,6 +184,11 @@ describe("DocumentBody", () => {
 				kind: "document",
 				title: "Trip plan",
 				body: null,
+				// Ruling 51: the panel's own conversationId is a plain prop now —
+				// this proves it reaches saveArtifactBody unchanged, so an
+				// incognito conversation's own Document still resolves for its
+				// owner.
+				conversationId: "conv-1",
 			});
 			await vi.waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
@@ -204,10 +209,7 @@ describe("DocumentBody", () => {
 				"artifact-1",
 				expectedCanonical,
 				1,
-				// No context provider is mounted in this bare render, so the
-				// conversationId getter falls back to null — this is the strict,
-				// no-incognito-widening default (`document-context.ts`).
-				null,
+				"conv-1",
 			);
 			// A raw, non-canonical bullet marker actually got normalised — this
 			// assertion would also pass on a no-op canonicaliser, so it is

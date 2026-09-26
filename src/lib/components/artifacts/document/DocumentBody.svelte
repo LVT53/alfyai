@@ -52,7 +52,7 @@ function loadEditorModule(): Promise<typeof DocumentEditorModule> {
  * one tears down the first editor and mounts a fresh one against the new id
  * — the module stays cached (above), only the per-document state reloads.
  */
-import { getContext, onDestroy, untrack } from "svelte";
+import { onDestroy, untrack } from "svelte";
 import {
 	createDocumentCopy,
 	fetchArtifact,
@@ -60,10 +60,6 @@ import {
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
-import {
-	DOCUMENT_CONVERSATION_ID_CONTEXT,
-	type DocumentConversationIdGetter,
-} from "$lib/components/artifacts/document-context";
 import { t } from "$lib/i18n";
 import {
 	parseDocument,
@@ -78,21 +74,13 @@ import type { Editor } from "./document-editor";
 import DocumentToolbar from "./DocumentToolbar.svelte";
 import type { DocumentToolbarActionId } from "./toolbar-actions";
 
-let { artifactId, title, onDirtyChange, onBodyChange }: ArtifactBodyProps =
-	$props();
-
-/**
- * See `document-context.ts`: `ArtifactBodyProps` has no `conversationId`
- * field, so an incognito conversation's own Document would 404 for its own
- * creator without this. Falls back to a getter that always answers `null`
- * when no provider is mounted (a bare unit-test render of this component,
- * for instance), which is the strict "no incognito widening" default
- * `fetchArtifact`/the body routes already apply on their own.
- */
-const getConversationId: DocumentConversationIdGetter =
-	getContext<DocumentConversationIdGetter | undefined>(
-		DOCUMENT_CONVERSATION_ID_CONTEXT,
-	) ?? (() => null);
+let {
+	artifactId,
+	title,
+	conversationId: panelConversationId,
+	onDirtyChange,
+	onBodyChange,
+}: ArtifactBodyProps = $props();
 
 type LoadState = "loading" | "ready" | "load_error" | "not_found";
 type SaveNotice = "offline" | "tooLarge" | "conflict" | "deleted" | null;
@@ -268,7 +256,7 @@ async function handleSaveCopy(): Promise<void> {
 	const canonical = currentCanonicalMarkdown();
 	if (canonical === null) return;
 	try {
-		const conversationId = getConversationId();
+		const conversationId = panelConversationId ?? null;
 		const created = await createDocumentCopy(conversationId, title, canonical);
 		boundArtifactId = created.id;
 		versionNumber = created.versionNumber;
@@ -308,7 +296,7 @@ async function runLoad(id: string): Promise<void> {
 	loadState = "loading";
 	saveNotice = null;
 	try {
-		const conversationId = getConversationId();
+		const conversationId = panelConversationId ?? null;
 		const [mod, detail] = await Promise.all([
 			loadEditorModule(),
 			fetchArtifact(id, conversationId),

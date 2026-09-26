@@ -1,7 +1,5 @@
 <script lang="ts">
-import { setContext } from "svelte";
 import { browser } from "$app/environment";
-import { DOCUMENT_CONVERSATION_ID_CONTEXT } from "$lib/components/artifacts/document-context";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
 import {
 	computeSideBySideDiff,
@@ -105,16 +103,6 @@ let activeDocument: WorkspaceDocument | null = $derived.by(() => {
 let activeArtifactKind: ArtifactKind = $derived(activeDocument?.kind ?? "file");
 let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 	ARTIFACT_BODIES[activeArtifactKind],
-);
-
-// A getter, not a plain value: the panel keeps ONE Document body instance
-// alive across activeDocument swaps (see the body registry below), so a
-// snapshot taken once at setContext time would go stale the moment the user
-// switches to a different open document. See document-context.ts for why
-// this exists instead of widening ArtifactBodyProps.
-setContext(
-	DOCUMENT_CONVERSATION_ID_CONTEXT,
-	() => activeDocument?.conversationId ?? null,
 );
 
 // One cached module promise per kind, mirroring
