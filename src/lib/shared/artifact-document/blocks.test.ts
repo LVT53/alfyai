@@ -464,6 +464,55 @@ describe("RV-1A: a list item's lazy continuation line stays in the item", () => 
 	});
 });
 
+describe("RV-1B, coordinator item 5: a task item's hard break stays in the item", () => {
+	// keepHardBreaks already trims a task line's hard break flush to the left
+	// margin instead of turning it into a backslash the editor cannot read
+	// back ("RV-1A: a list item's lazy continuation line stays in the item",
+	// above). consumeSingleListItem — unlike consumeListBlock, which already
+	// has this same isLazyContinuation fallback for a plain list — had no
+	// path for an UNINDENTED continuation line, so exactly the shape
+	// keepHardBreaks produces read back as a brand new top-level block: the
+	// checked box split from its own second line on the very next reopen (or
+	// the very next client-side autosave canonicalisation, which runs the
+	// same parseDocument pass — DocumentBody.svelte's
+	// currentCanonicalMarkdown).
+	it("keeps the line after a hard break inside its task item, instead of splitting it into a new block", () => {
+		const parsed = parseDocument("- [ ] book the hotel  \nnear the station");
+		expect(parsed.blocks.map((b) => b.kind)).toEqual(["taskList"]);
+		expect(parsed.blocks[0].markdown).toBe(
+			"- [ ] book the hotel\nnear the station",
+		);
+	});
+
+	it("is idempotent: reparsing the canonical form does not re-split it", () => {
+		const first = parseDocument("- [ ] book the hotel  \nnear the station");
+		const second = parseDocument(first.markdown, { mint: false });
+		expect(second.blocks.map((b) => b.kind)).toEqual(["taskList"]);
+		expect(second.blocks[0].markdown).toBe(first.blocks[0].markdown);
+	});
+
+	it("still ends the item at a following sibling task, a blank line, or a line that starts a new block", () => {
+		const siblings = parseDocument(
+			"- [ ] book the hotel  \nnear the station\n- [ ] pack bags",
+		);
+		expect(siblings.blocks.map((b) => b.kind)).toEqual([
+			"taskList",
+			"taskList",
+		]);
+		expect(siblings.blocks[0].markdown).toBe(
+			"- [ ] book the hotel\nnear the station",
+		);
+
+		const blank = parseDocument(
+			"- [ ] book the hotel  \nnear the station\n\nAfter the list.",
+		);
+		expect(blank.blocks.map((b) => b.kind)).toEqual(["taskList", "paragraph"]);
+
+		const heading = parseDocument("- [ ] book the hotel\n# Heading");
+		expect(heading.blocks.map((b) => b.kind)).toEqual(["taskList", "heading"]);
+	});
+});
+
 describe("RV-1A: a task's card text is the text the user sees", () => {
 	it("reads bold, links, entities and chips out of the task line, as the card and the preview show it", () => {
 		const [task] = parseDocument(

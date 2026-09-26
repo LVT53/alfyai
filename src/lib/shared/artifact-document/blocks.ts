@@ -552,6 +552,22 @@ function leadingWhitespace(line: string): number {
  * every Markdown reader, so a split-off child came back un-nested on the
  * next reopen — its text and hash changed with no user edit, which broke
  * ruling 12's gate for every nested checklist (RV-1A).
+ *
+ * RV-1B, coordinator item 5: also accepts an UNINDENTED lazy continuation
+ * line, the same CommonMark rule `consumeListBlock` below already applies to
+ * a plain list. This is not an edge case for a task item specifically:
+ * `keepHardBreaks` deliberately trims a task line's hard break flush to the
+ * left margin instead of turning it into a backslash break, because the
+ * editor's own task-item markdown reader keeps a backslash as literal text
+ * ("RV-1A: a list item's lazy continuation line stays in the item",
+ * blocks.test.ts) — so a hard break the user types inside a task item
+ * ALWAYS normalises to exactly this unindented shape. Without this branch,
+ * that is also the ONE shape this function did not recognise as a
+ * continuation: the checked box and its own second line split into two
+ * top-level blocks — a new id minted for the second one — on the very next
+ * reopen, or the very next client-side autosave (`DocumentBody.svelte`'s
+ * `currentCanonicalMarkdown` runs this same `parseDocument` pass on every
+ * dirty check, not just on a real reload).
  */
 function consumeSingleListItem(
 	lines: string[],
@@ -573,10 +589,16 @@ function consumeSingleListItem(
 			i += 1;
 			continue;
 		}
-		if (!/^\s+\S/.test(line)) break;
-		const nested =
-			LIST_ITEM_START_RE.test(line) && leadingWhitespace(line) >= contentColumn;
-		if (LIST_ITEM_START_RE.test(line) && !nested) break;
+		if (/^\s+\S/.test(line)) {
+			const nested =
+				LIST_ITEM_START_RE.test(line) &&
+				leadingWhitespace(line) >= contentColumn;
+			if (LIST_ITEM_START_RE.test(line) && !nested) break;
+			collected.push(line);
+			i += 1;
+			continue;
+		}
+		if (!isLazyContinuation(line)) break;
 		collected.push(line);
 		i += 1;
 	}
