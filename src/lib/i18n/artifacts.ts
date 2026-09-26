@@ -87,6 +87,7 @@ const artifactsDict = {
 		"artifacts.document.toolbar.undo": "Undo",
 		"artifacts.document.toolbar.redo": "Redo",
 		"artifacts.document.toolbar.more": "More",
+		"artifacts.document.toolbar.download": "Download",
 		"artifacts.document.save.offline":
 			"Not saved yet — you are offline. Your text is safe here.",
 		"artifacts.document.save.tooLarge": "This document is too long to save.",
@@ -133,6 +134,41 @@ const artifactsDict = {
 		// The mobile toolbar's overflow sheet (Slice 1, T11). `toolbar.more`
 		// already exists (T7) as the trigger button's own label.
 		"artifacts.document.toolbar.moreSheetTitle": "More formatting",
+		// Comments and @Alfy (Slice 1, T10). CommentCard reuses
+		// artifacts.document.versions.byUser/byAlfy for the author name rather
+		// than a second pair of the same two words.
+		"artifacts.document.anchor.exact": "Exact",
+		"artifacts.document.anchor.moved": "Moved",
+		"artifacts.document.anchor.orphaned": "Orphaned",
+		"artifacts.document.comment.ask": "Ask Alfy",
+		"artifacts.document.comment.add": "Comment",
+		"artifacts.document.comment.placeholder": "Write a comment…",
+		"artifacts.document.comment.submit": "Post",
+		"artifacts.document.comment.cancel": "Cancel",
+		"artifacts.document.comment.reply": "Reply",
+		"artifacts.document.comment.resolve": "Resolve",
+		"artifacts.document.comment.reopen": "Reopen",
+		"artifacts.document.comment.resolved": "Resolved",
+		"artifacts.document.comment.askingAlfy": "Asking Alfy…",
+		"artifacts.document.comment.alfyRefused":
+			"I left the text as it is — this comment didn't lead to a change I could make safely.",
+		"artifacts.document.comment.alfyDone": "Done.",
+		"artifacts.document.comment.postError": "Could not post this comment.",
+		"artifacts.document.margin.title": "Comments",
+		"artifacts.document.margin.empty": "No comments yet.",
+		// The download sheet (Slice 1, T12).
+		"artifacts.document.export.title": "Download {title}",
+		"artifacts.document.export.pdf": "PDF",
+		"artifacts.document.export.docx": "Word",
+		"artifacts.document.export.markdown": "Markdown",
+		"artifacts.document.export.preparing": "Preparing your file…",
+		"artifacts.document.export.failed": "Could not create this file.",
+		"artifacts.document.export.tooLarge":
+			"This document is too long to export.",
+		"artifacts.document.export.noConversation":
+			"This document isn't in a conversation yet, so it can't be exported.",
+		"artifacts.document.export.tryAgain": "Try again",
+		"artifacts.document.export.close": "Close",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -195,6 +231,7 @@ const artifactsDict = {
 		"artifacts.document.toolbar.undo": "Visszavonás",
 		"artifacts.document.toolbar.redo": "Újra",
 		"artifacts.document.toolbar.more": "Több",
+		"artifacts.document.toolbar.download": "Letöltés",
 		"artifacts.document.save.offline":
 			"Még nincs elmentve — nincs kapcsolat. A szöveged itt biztonságban van.",
 		"artifacts.document.save.tooLarge":
@@ -236,6 +273,38 @@ const artifactsDict = {
 		"artifacts.document.chip.status.Paid": "Kifizetve",
 		"artifacts.document.chip.status.Cancelled": "Lemondva",
 		"artifacts.document.toolbar.moreSheetTitle": "További formázás",
+		"artifacts.document.anchor.exact": "Pontos",
+		"artifacts.document.anchor.moved": "Elmozdult",
+		"artifacts.document.anchor.orphaned": "Elárvult",
+		"artifacts.document.comment.ask": "Alfy megkérdezése",
+		"artifacts.document.comment.add": "Megjegyzés",
+		"artifacts.document.comment.placeholder": "Írj egy megjegyzést…",
+		"artifacts.document.comment.submit": "Küldés",
+		"artifacts.document.comment.cancel": "Mégse",
+		"artifacts.document.comment.reply": "Válasz",
+		"artifacts.document.comment.resolve": "Lezárás",
+		"artifacts.document.comment.reopen": "Újranyitás",
+		"artifacts.document.comment.resolved": "Lezárva",
+		"artifacts.document.comment.askingAlfy": "Alfy válaszol…",
+		"artifacts.document.comment.alfyRefused":
+			"A szöveget változatlanul hagytam — ez a megjegyzés nem vezetett biztonságosan végrehajtható módosításhoz.",
+		"artifacts.document.comment.alfyDone": "Kész.",
+		"artifacts.document.comment.postError":
+			"Nem sikerült elküldeni a megjegyzést.",
+		"artifacts.document.margin.title": "Megjegyzések",
+		"artifacts.document.margin.empty": "Még nincs megjegyzés.",
+		"artifacts.document.export.title": "{title} letöltése",
+		"artifacts.document.export.pdf": "PDF",
+		"artifacts.document.export.docx": "Word",
+		"artifacts.document.export.markdown": "Markdown",
+		"artifacts.document.export.preparing": "A fájl előkészítése…",
+		"artifacts.document.export.failed": "Nem sikerült létrehozni ezt a fájlt.",
+		"artifacts.document.export.tooLarge":
+			"Ez a dokumentum túl hosszú az exportáláshoz.",
+		"artifacts.document.export.noConversation":
+			"Ez a dokumentum még nincs beszélgetéshez rendelve, ezért nem exportálható.",
+		"artifacts.document.export.tryAgain": "Újrapróbálom",
+		"artifacts.document.export.close": "Bezárás",
 	},
 } as const;
 

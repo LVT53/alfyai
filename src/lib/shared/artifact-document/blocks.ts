@@ -166,9 +166,12 @@ function normalizeTableLines(lines: string[]): string[] {
 	return out;
 }
 
-const TASK_LINE_RE = /^(\s*)[-*+]\s+\[([ xX])\](\s+(.*))?$/;
-const BULLET_LINE_RE = /^(\s*)[-*+](\s+)(.*)$/;
-const ORDERED_LINE_RE = /^(\s*)(\d+)[.)](\s+)(.*)$/;
+// Exported (Slice 1, T12): the export builder (services/artifacts/export.ts)
+// reads a task/bullet/ordered line the exact same way this parser does,
+// rather than a second, possibly-drifting copy of the same three patterns.
+export const TASK_LINE_RE = /^(\s*)[-*+]\s+\[([ xX])\](\s+(.*))?$/;
+export const BULLET_LINE_RE = /^(\s*)[-*+](\s+)(.*)$/;
+export const ORDERED_LINE_RE = /^(\s*)(\d+)[.)](\s+)(.*)$/;
 
 function normalizeListMarkers(lines: string[]): string[] {
 	return lines.map((line) => {

@@ -106,6 +106,14 @@ const PERMANENT_ALLOWLIST = new Map<string, string>([
 		"src/lib/services/markdown-blocks.ts",
 		"markdown fence kinds (mermaid/chart/csv/html), not file classification",
 	],
+	[
+		"src/routes/api/artifacts/[id]/export/+server.ts",
+		"the three Document export formats Slice 1/T12 offers (pdf/docx/markdown), a fixed product choice rather than a file-type table; each request still goes through file-production's own submitFileProductionIntake, which validates the real output type against the registry",
+	],
+	[
+		"src/lib/components/artifacts/document/DownloadSheet.svelte",
+		"the UI half of the same T12 export choice; 'ts' here is this file's own <script lang=\"ts\">, not a file-type literal",
+	],
 ]);
 
 interface TransitionalBudget {

@@ -1,3 +1,4 @@
+import type { Editor } from "@tiptap/core";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	buildIndex,
@@ -8,8 +9,25 @@ import {
 	createDocumentEditor,
 	loadMarkdown,
 	readMarkdown,
+	readSelectionAnchorContext,
 } from "./document-editor";
 import { BLOCK_MARKER_NODE } from "./extensions";
+
+/** Selects the first occurrence of `substring` inside whichever top-level block contains it. */
+function selectSubstring(editor: Editor, substring: string): void {
+	let from = -1;
+	let to = -1;
+	editor.state.doc.forEach((node, offset) => {
+		if (from !== -1) return;
+		const idx = node.textContent.indexOf(substring);
+		if (idx === -1) return;
+		from = offset + 1 + idx;
+		to = from + substring.length;
+	});
+	if (from === -1)
+		throw new Error(`fixture substring "${substring}" not found`);
+	editor.commands.setTextSelection({ from, to });
+}
 
 let element: HTMLElement | null = null;
 
@@ -166,5 +184,48 @@ describe("document-editor", () => {
 		expect(markdown).toContain("<!--b:p1-->");
 		expect(markdown).toContain("Replaced text.");
 		editor.destroy();
+	});
+
+	// T10.1: the SelectionBubble's own data source, and the one place the
+	// live selection is ever read out of ProseMirror — everything downstream
+	// (makeAnchor, resolveTextAnchor) stays plain strings and DocumentBlock[].
+	describe("readSelectionAnchorContext", () => {
+		it("is null when the selection is empty (a caret, not a range)", () => {
+			const editor = mountEditor("<!--b:p1-->\nBook the flight to Vienna.");
+			editor.commands.setTextSelection(5);
+			expect(readSelectionAnchorContext(editor)).toBeNull();
+			editor.destroy();
+		});
+
+		it("reads the containing block's id, the selected text, and its surrounding context", () => {
+			const editor = mountEditor("<!--b:p1-->\nBook the flight to Vienna.");
+			selectSubstring(editor, "flight");
+			const context = readSelectionAnchorContext(editor);
+			// jsdom has no real layout, so `rect` (from `coordsAtPos`) is only
+			// asserted to exist with the right shape, never exact pixel values —
+			// that belongs to a real-browser Playwright check.
+			expect(context).toMatchObject({
+				blockId: "p1",
+				quote: "flight",
+				prefix: "Book the ",
+				suffix: " to Vienna.",
+			});
+			expect(context?.rect).toEqual({
+				top: expect.any(Number),
+				left: expect.any(Number),
+				right: expect.any(Number),
+				bottom: expect.any(Number),
+			});
+			editor.destroy();
+		});
+
+		it("finds the right block id when the selection is in the second block", () => {
+			const editor = mountEditor(
+				"<!--b:p1-->\nFirst paragraph.\n\n<!--b:p2-->\nSecond paragraph.",
+			);
+			selectSubstring(editor, "Second");
+			expect(readSelectionAnchorContext(editor)?.blockId).toBe("p2");
+			editor.destroy();
+		});
 	});
 });

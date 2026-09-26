@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	askAlfyInComment,
+	createArtifactComment,
+	exportArtifactDocument,
 	fetchArtifact,
 	fetchArtifactVersionBody,
 	fetchArtifactVersions,
 	fetchConversationArtifacts,
+	resolveArtifactComment,
 	restoreArtifactVersion,
 	saveArtifactBody,
 	saveDocumentTabs,
@@ -268,5 +272,227 @@ describe("artifacts client API", () => {
 				saveDocumentTabs("artifact-1", [], "Text.", undefined, null, fetchMock),
 			).resolves.toEqual({ ok: false, reason: "too_large" });
 		});
+	});
+});
+
+const TEXT_ANCHOR = {
+	kind: "text" as const,
+	blockId: "p1",
+	quote: "flight",
+	prefix: "Book the ",
+	suffix: ".",
+};
+
+describe("createArtifactComment", () => {
+	it("posts the anchor and body, and returns the created comment", async () => {
+		const comment = {
+			id: "comment-1",
+			artifactId: "artifact-1",
+			parentId: null,
+			anchor: TEXT_ANCHOR,
+			author: "user",
+			body: "Too early?",
+			status: "open",
+			createdAt: 1,
+			replies: [],
+		};
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true, comment }));
+
+		const result = await createArtifactComment(
+			"artifact-1",
+			TEXT_ANCHOR,
+			"Too early?",
+			undefined,
+			null,
+			fetchMock,
+		);
+
+		expect(result).toEqual(comment);
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe("/api/artifacts/artifact-1/comments");
+		expect(JSON.parse(String(init.body))).toEqual({
+			anchor: TEXT_ANCHOR,
+			body: "Too early?",
+		});
+	});
+
+	it("carries parentId for a reply, and the conversation id in the query", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				comment: {
+					id: "comment-2",
+					artifactId: "artifact-1",
+					parentId: "comment-1",
+					anchor: null,
+					author: "user",
+					body: "Moved it to ten.",
+					status: "open",
+					createdAt: 2,
+					replies: [],
+				},
+			}),
+		);
+
+		await createArtifactComment(
+			"artifact-1",
+			null,
+			"Moved it to ten.",
+			"comment-1",
+			"conv 1/2",
+			fetchMock,
+		);
+
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe(
+			"/api/artifacts/artifact-1/comments?conversationId=conv%201%2F2",
+		);
+		expect(JSON.parse(String(init.body))).toEqual({
+			anchor: null,
+			body: "Moved it to ten.",
+			parentId: "comment-1",
+		});
+	});
+
+	it("throws (via requestJson) on a refused comment, never swallowing the failure", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "invalid_request" }, 400),
+		);
+
+		await expect(
+			createArtifactComment(
+				"artifact-1",
+				TEXT_ANCHOR,
+				"",
+				undefined,
+				null,
+				fetchMock,
+			),
+		).rejects.toThrow();
+	});
+});
+
+describe("resolveArtifactComment", () => {
+	it("posts { resolved } to the comment's own resolve route", async () => {
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
+
+		await resolveArtifactComment(
+			"artifact-1",
+			"comment-1",
+			true,
+			null,
+			fetchMock,
+		);
+
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe("/api/artifacts/artifact-1/comments/comment-1/resolve");
+		expect(JSON.parse(String(init.body))).toEqual({ resolved: true });
+	});
+});
+
+describe("askAlfyInComment", () => {
+	it("posts to the alfy route and returns the outcome shape untouched by ok", async () => {
+		const reply = {
+			id: "comment-2",
+			artifactId: "artifact-1",
+			parentId: "comment-1",
+			anchor: null,
+			author: "alfy",
+			body: "Changed it.",
+			status: "open",
+			createdAt: 2,
+			replies: [],
+		};
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				outcome: "applied",
+				applied: 1,
+				refused: 0,
+				version: 3,
+				reply,
+			}),
+		);
+
+		const result = await askAlfyInComment(
+			"artifact-1",
+			"comment-1",
+			"conv-1",
+			fetchMock,
+		);
+
+		expect(result).toEqual({
+			outcome: "applied",
+			applied: 1,
+			refused: 0,
+			version: 3,
+			reply,
+		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/artifacts/artifact-1/comments/comment-1/alfy?conversationId=conv-1",
+			expect.objectContaining({ method: "POST" }),
+		);
+	});
+
+	it("throws on a 404/504 rather than returning a fake outcome", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "not_found" }, 404),
+		);
+
+		await expect(
+			askAlfyInComment("artifact-1", "comment-1", null, fetchMock),
+		).rejects.toThrow();
+	});
+});
+
+describe("exportArtifactDocument", () => {
+	it("posts the format and returns the created job, never throwing on success", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: true, job: { id: "job-1" } }),
+		);
+
+		const result = await exportArtifactDocument(
+			"artifact-1",
+			"pdf",
+			"conv-1",
+			fetchMock,
+		);
+
+		expect(result).toEqual({ ok: true, job: { id: "job-1" } });
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe("/api/artifacts/artifact-1/export?conversationId=conv-1");
+		expect(JSON.parse(String(init.body))).toEqual({ format: "pdf" });
+	});
+
+	// Mirrors saveArtifactBody (T7.3/T7.10): a documented refusal is a normal
+	// return value, never a thrown ApiError, so the sheet can react to it.
+	it("never throws on a documented refusal — returns { ok: false, reason }", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "source_too_large" }, 422),
+		);
+
+		await expect(
+			exportArtifactDocument("artifact-1", "pdf", null, fetchMock),
+		).resolves.toEqual({ ok: false, reason: "source_too_large" });
+	});
+
+	it("answers not_found rather than throwing when the response has no JSON body at all", async () => {
+		const fetchMock = vi.fn(async () => new Response(null, { status: 500 }));
+
+		await expect(
+			exportArtifactDocument("artifact-1", "markdown", null, fetchMock),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
 	});
 });

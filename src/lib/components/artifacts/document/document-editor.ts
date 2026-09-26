@@ -6,6 +6,7 @@
  * Document never pays for Tiptap/ProseMirror's bytes.
  */
 import { Editor } from "@tiptap/core";
+import { ANCHOR_CONTEXT_CHARS } from "$lib/shared/artifact-document/anchor";
 import {
 	BLOCK_ID_ATTR,
 	BLOCK_MARKER_NODE,
@@ -115,6 +116,87 @@ export function readMarkdown(editor: Editor): string {
 	editor.view.dispatch(deleteTr);
 
 	return markdown;
+}
+
+/** Viewport coordinates (`EditorView.coordsAtPos`'s own shape) spanning the selection, for the bubble's own placement. */
+export interface SelectionScreenRect {
+	top: number;
+	left: number;
+	right: number;
+	bottom: number;
+}
+
+/**
+ * The SelectionBubble's own data source (T10.1) — the ONE place the live
+ * selection is ever read out of ProseMirror, including where it sits on
+ * screen (`rect`), so `DocumentBody.svelte` never has to touch
+ * `editor.state`/`editor.view` itself just to position the bubble. Returns
+ * plain strings, a block id and a plain rect — never a ProseMirror position
+ * or node — so everything downstream (`makeAnchor`, the margin) stays free of
+ * this module's import. `null` for an empty selection (a caret, not a range)
+ * or one that falls outside any identified top-level block.
+ */
+export function readSelectionAnchorContext(editor: Editor): {
+	blockId: string;
+	quote: string;
+	prefix: string;
+	suffix: string;
+	rect: SelectionScreenRect;
+} | null {
+	const { from, to, empty } = editor.state.selection;
+	if (empty) return null;
+
+	let blockId: string | null = null;
+	let blockStart = 0;
+	let blockEnd = 0;
+	editor.state.doc.forEach((node, offset) => {
+		if (blockId !== null) return;
+		const nodeEnd = offset + node.nodeSize;
+		if (offset > from || from >= nodeEnd) return;
+		const id = node.attrs?.[BLOCK_ID_ATTR];
+		if (typeof id !== "string" || id.length === 0) return;
+		blockId = id;
+		blockStart = offset;
+		blockEnd = nodeEnd;
+	});
+	if (blockId === null) return null;
+
+	const quote = editor.state.doc.textBetween(from, to, "\n");
+	if (!quote.trim()) return null;
+
+	// `coordsAtPos` measures real layout (`Range.getClientRects`), which a
+	// test environment with no real rendering (jsdom) does not implement — a
+	// zeroed rect there is harmless (the bubble just renders at the origin,
+	// exercised for real by Playwright); a real browser always has it.
+	let startCoords = { top: 0, left: 0, bottom: 0, right: 0 };
+	let endCoords = { top: 0, left: 0, bottom: 0, right: 0 };
+	try {
+		startCoords = editor.view.coordsAtPos(from);
+		endCoords = editor.view.coordsAtPos(to);
+	} catch {
+		// See above — measurement is best-effort.
+	}
+
+	return {
+		blockId,
+		quote,
+		prefix: editor.state.doc.textBetween(
+			Math.max(blockStart, from - ANCHOR_CONTEXT_CHARS),
+			from,
+			"\n",
+		),
+		suffix: editor.state.doc.textBetween(
+			to,
+			Math.min(blockEnd, to + ANCHOR_CONTEXT_CHARS),
+			"\n",
+		),
+		rect: {
+			top: startCoords.top,
+			left: startCoords.left,
+			right: endCoords.right,
+			bottom: startCoords.bottom,
+		},
+	};
 }
 
 export type { Editor };
