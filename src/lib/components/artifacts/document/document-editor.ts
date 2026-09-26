@@ -487,7 +487,11 @@ export function keepChange(editor: Editor, changeId: string): boolean {
  */
 export function undoChange(
 	editor: Editor,
-	entry: { blockId: string; previousMarkdown: string },
+	entry: {
+		blockId: string;
+		previousMarkdown: string;
+		insertedBlockIds?: string[];
+	},
 ): boolean {
 	return undoAlfyChange(editor, entry, buildDocumentExtensions(""));
 }
