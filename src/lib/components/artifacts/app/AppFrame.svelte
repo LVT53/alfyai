@@ -267,6 +267,47 @@ $effect(() => {
 	window.addEventListener("message", listener);
 	return () => window.removeEventListener("message", listener);
 });
+
+/**
+ * Ruling 58's tripwire (RV-2A open question 2). The CSP cannot stop a
+ * sandboxed frame from navigating ITSELF — no `allow-top-navigation` is
+ * needed for that, only for navigating the TOP page — so a hostile app can
+ * still swap its own document for a fake "sign in again" form drawn inside
+ * the panel. The parent cannot tell a load apart from the network response
+ * alone, but it knows exactly which loads IT asked for: the initial `src`,
+ * a version reload, and the `{#key src}` remount above are all the SAME
+ * event from the DOM's point of view — a fresh iframe element being
+ * inserted — so tracking "has THIS element's first load already happened"
+ * covers all three at once with no separate counter needed. Any load after
+ * that first one, on the SAME element, was not asked for: the app navigated
+ * itself. It acts after the fact (the app already ran once), but it ends a
+ * phishing flow before the fake form can be interacted with for long.
+ */
+let tripwireTripped = $state(false);
+
+function trackFrameLoad(node: HTMLIFrameElement) {
+	let expectingLoad = true;
+	function onLoad(): void {
+		if (expectingLoad) {
+			expectingLoad = false;
+			return;
+		}
+		// Tearing the element down (below) ends the runaway document
+		// immediately; there is nothing further for it to say to the bridge.
+		tripwireTripped = true;
+	}
+	node.addEventListener("load", onLoad);
+	return {
+		destroy(): void {
+			node.removeEventListener("load", onLoad);
+		},
+	};
+}
+
+/** Re-enters the `{#if}` branch below, which mounts a brand-new iframe element (its own fresh WindowProxy and its own free first load) at the same src. */
+function reloadAfterTripwire(): void {
+	tripwireTripped = false;
+}
 </script>
 
 <!-- One iframe ELEMENT per served document, never a navigated one. A browser
@@ -277,19 +318,33 @@ $effect(() => {
      to its pending calls would reach the next document, whose request ids
      restart at 1. A new element per `src` gives each document its own
      WindowProxy, and removing the old element ends the old document at once. -->
-{#key src}
-	<!-- svelte-ignore a11y_no_noninteractive_tabindex -- Owner decision 15: reachable by
-	     keyboard even when the app's own content has nothing focusable; a user who cannot
-	     click cannot otherwise use the app at all. -->
-	<iframe
-		bind:this={iframe}
-		class="app-frame"
-		sandbox="allow-scripts allow-forms"
-		{src}
-		title={$t('artifacts.app.frame.title', { title })}
-		tabindex="0"
-	></iframe>
-{/key}
+{#if tripwireTripped}
+	<div class="app-frame-tripwire" role="alert">
+		<p>{$t('artifacts.app.frame.tripwire')}</p>
+		<button
+			type="button"
+			class="app-frame-tripwire-reload"
+			onclick={reloadAfterTripwire}
+		>
+			{$t('artifacts.app.frame.reload')}
+		</button>
+	</div>
+{:else}
+	{#key src}
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex -- Owner decision 15: reachable by
+		     keyboard even when the app's own content has nothing focusable; a user who cannot
+		     click cannot otherwise use the app at all. -->
+		<iframe
+			bind:this={iframe}
+			use:trackFrameLoad
+			class="app-frame"
+			sandbox="allow-scripts allow-forms"
+			{src}
+			title={$t('artifacts.app.frame.title', { title })}
+			tabindex="0"
+		></iframe>
+	{/key}
+{/if}
 
 <style>
 	.app-frame {
@@ -298,5 +353,30 @@ $effect(() => {
 		height: 100%;
 		border: 0;
 		background: var(--surface-page);
+	}
+
+	.app-frame-tripwire {
+		display: flex;
+		width: 100%;
+		height: 100%;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-sm);
+		padding: var(--space-md, 1rem);
+		text-align: center;
+		color: var(--text-muted);
+		font-size: var(--text-sm);
+		background: var(--surface-page);
+	}
+
+	.app-frame-tripwire-reload {
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-elevated);
+		padding: 0.35rem 0.7rem;
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		cursor: pointer;
 	}
 </style>

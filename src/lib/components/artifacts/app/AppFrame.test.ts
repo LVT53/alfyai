@@ -1,4 +1,5 @@
 import { render } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_IFRAME_SANDBOX } from "$lib/server/services/artifacts/app/sandbox-response";
 import { uiLanguage } from "$lib/stores/settings";
@@ -602,5 +603,106 @@ describe("AppFrame — a flood from the frame is bounded", () => {
 		expect(served).toBeGreaterThanOrEqual(200);
 		expect(served).toBeLessThanOrEqual(300);
 		expect(postSpy).toHaveBeenCalledTimes(served);
+	});
+});
+
+// Ruling 58's tripwire. jsdom never fires a `load` event on its own for a
+// bare iframe (confirmed by spike: 200ms after setting `src`, the listener
+// has not run), so every `load` here is dispatched by the test itself — this
+// makes the unit tests fully deterministic about which load is "the one we
+// caused" versus "a second, uncaused one", while tests/e2e/artifact-app.spec.ts
+// proves the real trigger (a fixture app setting `location.href`) in a real
+// browser, where the browser fires `load` for real.
+describe("AppFrame — the tripwire", () => {
+	function fireLoad(iframe: HTMLIFrameElement): void {
+		iframe.dispatchEvent(new Event("load"));
+	}
+
+	it("does not trip on the load it caused: the initial src", async () => {
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const iframe = getIframe(container);
+
+		fireLoad(iframe);
+		await tick();
+
+		expect(container.querySelector("iframe")).not.toBeNull();
+		expect(container.querySelector(".app-frame-tripwire")).toBeNull();
+	});
+
+	it("trips on a SECOND load for the same element — the app navigated itself: the frame is removed and a localized notice appears", async () => {
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const iframe = getIframe(container);
+
+		fireLoad(iframe); // the load AppFrame itself caused
+		fireLoad(iframe); // the app's own self-navigation completing
+		await tick();
+
+		expect(container.querySelector("iframe")).toBeNull();
+		const notice = container.querySelector(".app-frame-tripwire");
+		expect(notice?.textContent).toContain(
+			"This app tried to leave its sandbox, so Alfy stopped it.",
+		);
+	});
+
+	it("serves no bridge message once tripped, even from the torn-down document's own window", async () => {
+		readAppValue.mockResolvedValue({ ok: true, value: "leaked" });
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const iframe = getIframe(container);
+		const formerWindow = iframe.contentWindow as Window;
+
+		fireLoad(iframe);
+		fireLoad(iframe);
+		await tick();
+		expect(container.querySelector("iframe")).toBeNull();
+
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: ["k"] },
+			formerWindow,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(readAppValue).not.toHaveBeenCalled();
+	});
+
+	it("does not trip across a legitimate version reload: the new element's first load is its own free pass", async () => {
+		const { container, rerender } = render(AppFrame, {
+			artifactId: "app-1",
+			version: 1,
+		});
+		fireLoad(getIframe(container));
+		await tick();
+
+		await rerender({ artifactId: "app-1", version: 2 });
+		const reloaded = getIframe(container);
+		fireLoad(reloaded);
+		await tick();
+
+		expect(container.querySelector("iframe")).not.toBeNull();
+		expect(container.querySelector(".app-frame-tripwire")).toBeNull();
+	});
+
+	it("offers a reload action that remounts a fresh frame with its own free pass", async () => {
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const iframe = getIframe(container);
+		fireLoad(iframe);
+		fireLoad(iframe);
+		await tick();
+		expect(container.querySelector("iframe")).toBeNull();
+
+		const reloadButton = container.querySelector(
+			".app-frame-tripwire-reload",
+		) as HTMLButtonElement | null;
+		expect(reloadButton).not.toBeNull();
+		reloadButton?.click();
+		await tick();
+
+		const freshIframe = container.querySelector("iframe");
+		expect(freshIframe).not.toBeNull();
+		expect(container.querySelector(".app-frame-tripwire")).toBeNull();
+
+		// The fresh element's own first load is expected, not a trip.
+		fireLoad(freshIframe as HTMLIFrameElement);
+		await tick();
+		expect(container.querySelector("iframe")).not.toBeNull();
 	});
 });

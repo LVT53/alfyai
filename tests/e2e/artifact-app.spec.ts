@@ -107,6 +107,24 @@ document.getElementById('f').addEventListener('submit', function () {
 </body>
 </html>`;
 
+/**
+ * A fixture that navigates ITSELF shortly after loading — no
+ * allow-top-navigation is needed for this, since a sandboxed frame without it
+ * can still navigate its OWN contents (only navigating the TOP page is
+ * blocked). This is exactly the phishing-flow shape ruling 58's tripwire
+ * exists for: a fake "sign in again" form drawn after a self-navigation.
+ */
+const RUNAWAY_APP_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Runaway App</title></head>
+<body>
+<h1>Runaway App</h1>
+<script>
+setTimeout(function () { window.location.href = "/login"; }, 800);
+</script>
+</body>
+</html>`;
+
 /** An app that saves on a short timer, the way a debounced autosave does. */
 const CHATTY_APP_HTML = `<!doctype html>
 <html lang="en">
@@ -239,6 +257,35 @@ test.describe("the App kind, in the panel", () => {
 		// there. If form-action had been dropped along with the sandbox
 		// change, this button would have navigated the frame away from it.
 		await expect(appFrame.getByRole("heading", { name: "Form App" })).toBeVisible();
+	});
+
+	// Ruling 58's tripwire, RV-2A open question 2: the CSP cannot stop a
+	// sandboxed frame from navigating itself. Proves the real trigger (a real
+	// `load` event firing after a real self-navigation) in a real browser,
+	// where the unit suite's manually-dispatched events cannot reach.
+	test("an app that navigates itself trips the tripwire: the frame is torn down and a reload notice appears", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Make me a runaway app");
+		await seedApp(conversationId, RUNAWAY_APP_HTML, "Runaway App");
+		await openChatAndReload(page, conversationId);
+		await openAppPanel(page);
+
+		await expect(
+			page.frameLocator("iframe.app-frame").getByRole("heading", {
+				name: "Runaway App",
+			}),
+		).toBeVisible();
+
+		// The fixture navigates itself ~50ms after loading; the parent tears
+		// the frame down and shows its own notice in its place.
+		await expect(page.locator("iframe.app-frame")).toHaveCount(0);
+		await expect(
+			page.getByText("This app tried to leave its sandbox, so Alfy stopped it."),
+		).toBeVisible();
+
+		await page.getByRole("button", { name: "Reload the app" }).click();
+		await expect(page.locator("iframe.app-frame")).toBeVisible();
 	});
 
 	test("saved state survives a reload — the real postMessage bridge round-tripping through the real kv route", async ({

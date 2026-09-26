@@ -101,6 +101,11 @@ const artifactsDict = {
 		"artifacts.app.frame.loading": "Loading the app…",
 		"artifacts.app.frame.blocked": "Apps are not run in this context.",
 		"artifacts.app.serve.failed": "This app could not be opened.",
+		// Ruling 58's tripwire: the parent tears the frame down when it fires a
+		// load the parent did not cause (the app navigated itself).
+		"artifacts.app.frame.tripwire":
+			"This app tried to leave its sandbox, so Alfy stopped it.",
+		"artifacts.app.frame.reload": "Reload the app",
 		"artifacts.app.tabs.a11y": "Preview and code",
 		"artifacts.app.code.copy": "Copy code",
 		"artifacts.app.code.copied": "Copied",
@@ -185,6 +190,9 @@ const artifactsDict = {
 		"artifacts.app.frame.blocked":
 			"Ebben a környezetben az alkalmazások nem futnak.",
 		"artifacts.app.serve.failed": "Ezt az alkalmazást nem sikerült megnyitni.",
+		"artifacts.app.frame.tripwire":
+			"Ez az alkalmazás megpróbálta elhagyni a homokozóját, ezért Alfy leállította.",
+		"artifacts.app.frame.reload": "Alkalmazás újratöltése",
 		"artifacts.app.tabs.a11y": "Előnézet és kód",
 		"artifacts.app.code.copy": "Kód másolása",
 		"artifacts.app.code.copied": "Másolva",
