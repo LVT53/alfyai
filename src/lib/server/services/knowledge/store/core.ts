@@ -209,13 +209,21 @@ export function buildArtifactCanonicalOwnershipCondition(params: {
 				)
 			: sql`0 = 1`;
 
-	// A row WITHOUT one falls back to the user stamp, except for the two
-	// working types, which require a live conversation link and so are never
-	// owned once it is gone.
+	// A row WITHOUT one falls back to the user stamp, except for the three
+	// conversation-scoped working types, which require a live conversation
+	// link and so are never owned once it is gone. The artifact family
+	// (Feature 2's Document/App/Canvas/Slides rows, `type: "artifact"`) lives
+	// beside one conversation the same way a `generated_output` row does — see
+	// `isArtifactCanonicallyOwned` below — so it belongs in this exclusion
+	// too, not just the two original working types.
 	const throughUserStamp = and(
 		isNull(artifacts.conversationId),
 		eq(artifacts.userId, params.userId),
-		notInArray(artifacts.type, ["generated_output", "work_capsule"]),
+		notInArray(artifacts.type, [
+			"generated_output",
+			"work_capsule",
+			"artifact",
+		]),
 	);
 
 	return or(throughConversation, throughUserStamp);
@@ -230,7 +238,20 @@ export function isArtifactCanonicallyOwned(params: {
 
 	if (
 		artifact.type === "generated_output" ||
-		artifact.type === "work_capsule"
+		artifact.type === "work_capsule" ||
+		// Feature 2's artifact family (Document/App/Canvas/Slides): it is
+		// created inside, and belongs beside, exactly one conversation — the
+		// mockup's own "what this chat made" framing, echoed throughout
+		// AGENTS.md's Artifacts section. Falling through to the generic
+		// `artifact.userId === userId` stamp below would let a row cleanup
+		// preserved (kept because of an outside reference, e.g. a fork's
+		// copied link) resurface for its owner the instant its own
+		// conversation is deleted and `conversation_id` is cleared by the
+		// `ON DELETE SET NULL` FK — including one made inside an incognito
+		// conversation. Retrieval must stay closed even though the row itself
+		// may still exist; see `isArtifactDeletableByUser` for why that is
+		// still safe to delete.
+		artifact.type === "artifact"
 	) {
 		return Boolean(
 			artifact.conversationId &&

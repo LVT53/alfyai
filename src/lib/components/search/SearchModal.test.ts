@@ -651,4 +651,141 @@ describe("SearchModal", () => {
 			).not.toBeInTheDocument();
 		});
 	});
+
+	// Slice 7 (Feature 2, ADR-0066): a Document/App/Canvas/Slides row is
+	// labelled with its real kind, in the app's one vocabulary
+	// (`artifacts.type.*`), and gets its own icon — never a new badge-key
+	// family for the same five words.
+	describe("an artifact-family row", () => {
+		function makeArtifactFamilyDocument(
+			overrides: Partial<{
+				id: string;
+				name: string;
+				kind: "document" | "app" | "canvas" | "slides";
+			}>,
+		) {
+			const id = overrides.id ?? "art-1";
+			return {
+				id,
+				displayArtifactId: id,
+				promptArtifactId: null,
+				familyArtifactIds: [id],
+				name: overrides.name ?? "Vienna trip board",
+				mimeType: null,
+				sizeBytes: null,
+				conversationId: "conv-1",
+				summary: null,
+				documentOrigin: undefined,
+				documentFamilyStatus: null,
+				documentLabel: null,
+				kind: overrides.kind ?? "canvas",
+				updatedAt: Date.now(),
+				href: `/knowledge?open_artifact=${id}`,
+				sourceHref: null,
+				match: { type: "recent", snippet: null },
+			};
+		}
+
+		it("labels a kind-bearing row with artifacts.type.<kind>, not a searchModal badge key", async () => {
+			fetchWorkspaceSearch.mockResolvedValue({
+				mode: "default",
+				query: "",
+				conversations: [],
+				documents: [
+					makeArtifactFamilyDocument({
+						kind: "canvas",
+						name: "Vienna trip board",
+					}),
+				],
+				documentOverflow: false,
+				knowledgeHref: "/knowledge",
+			});
+
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Vienna trip board");
+			expect(screen.getByText("Canvas")).toBeInTheDocument();
+			// None of the pre-existing badge words leak onto this row.
+			expect(screen.queryByText("Generated")).not.toBeInTheDocument();
+			expect(screen.queryByText("Uploaded")).not.toBeInTheDocument();
+		});
+
+		it("picks the right Lucide icon per kind", async () => {
+			fetchWorkspaceSearch.mockResolvedValue({
+				mode: "default",
+				query: "",
+				conversations: [],
+				documents: [
+					makeArtifactFamilyDocument({
+						id: "art-doc",
+						kind: "document",
+						name: "Saturday plan",
+					}),
+					makeArtifactFamilyDocument({
+						id: "art-app",
+						kind: "app",
+						name: "Trip cost splitter",
+					}),
+					makeArtifactFamilyDocument({
+						id: "art-canvas",
+						kind: "canvas",
+						name: "Vienna trip board",
+					}),
+					makeArtifactFamilyDocument({
+						id: "art-slides",
+						kind: "slides",
+						name: "Trip recap",
+					}),
+				],
+				documentOverflow: false,
+				knowledgeHref: "/knowledge",
+			});
+
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Saturday plan");
+			const iconFor = (title: string) =>
+				screen
+					.getByText(title)
+					.closest(".search-result-document")
+					?.querySelector(".search-result-icon svg");
+
+			expect(iconFor("Saturday plan")?.getAttribute("class")).toContain(
+				"lucide-square-pen",
+			);
+			expect(iconFor("Trip cost splitter")?.getAttribute("class")).toContain(
+				"lucide-app-window",
+			);
+			expect(iconFor("Vienna trip board")?.getAttribute("class")).toContain(
+				"lucide-layout-dashboard",
+			);
+			expect(iconFor("Trip recap")?.getAttribute("class")).toContain(
+				"lucide-presentation",
+			);
+		});
+
+		it("is reachable and keyboard-activatable like every other result row", async () => {
+			fetchWorkspaceSearch.mockResolvedValue({
+				mode: "default",
+				query: "",
+				conversations: [],
+				documents: [
+					makeArtifactFamilyDocument({
+						kind: "canvas",
+						name: "Vienna trip board",
+					}),
+				],
+				documentOverflow: false,
+				knowledgeHref: "/knowledge",
+			});
+
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Vienna trip board");
+			await fireEvent.keyDown(window, { key: "ArrowDown" });
+			await fireEvent.keyDown(window, { key: "Enter" });
+
+			expect(goto).toHaveBeenCalledWith("/knowledge?open_artifact=art-1");
+		});
+	});
 });

@@ -1,6 +1,10 @@
-import { and, asc, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { artifactLinks, artifacts } from "$lib/server/db/schema";
+import {
+	artifactLinks,
+	artifacts,
+	artifactVersions,
+} from "$lib/server/db/schema";
 import type {
 	Artifact,
 	ArtifactSummary,
@@ -8,6 +12,7 @@ import type {
 	KnowledgeDocumentItem,
 } from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { computeDecayScore } from "../../../utils/artifact-decay";
 import { shortlistSemanticMatchesBySubject } from "../../semantic-ranking";
 import {
@@ -18,8 +23,8 @@ import {
 } from "../../tei-observability";
 import { canUseTeiReranker, rerankItems } from "../../tei-reranker";
 import { scoreMatch } from "../../working-set";
+import type { ArtifactOwnershipScope } from "./core";
 import {
-	buildArtifactCanonicalOwnershipCondition,
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
 	isArtifactCanonicallyOwned,
@@ -47,6 +52,18 @@ export interface RankedArtifactMatch {
 export type LogicalDocumentSortKey = "name" | "size" | "type" | "date";
 export type LogicalDocumentSortDirection = "asc" | "desc";
 
+/**
+ * The five buckets the Documents tab can filter by (orchestrator amendment to
+ * ruling 46, 2026-09-25: six chips total with "All", no "file" chip — a
+ * produced file groups under "uploaded" with its own format pill, exactly
+ * like an uploaded document). "all" is a client-only concept
+ * (`documents-table.ts`'s `DocumentTypeFilter`) — passing it here is a bug,
+ * not a no-op.
+ */
+export type KnowledgeDocumentKindFilter =
+	| Exclude<ArtifactKind, "file">
+	| "uploaded";
+
 export interface LogicalDocumentPageOptions {
 	includeGeneratedOutputs?: boolean;
 	query?: string;
@@ -54,14 +71,24 @@ export interface LogicalDocumentPageOptions {
 	sortDirection?: LogicalDocumentSortDirection;
 	offset?: number;
 	limit?: number;
+	/** Narrow to one kind bucket. Omitted means every kind. */
+	kindFilter?: KnowledgeDocumentKindFilter;
 }
 
 export interface LogicalDocumentPageResult {
 	documents: KnowledgeDocumentItem[];
 	totalItems: number;
+	/**
+	 * Counted after the current `query` is applied (so the numbers move as the
+	 * user types) but BEFORE `kindFilter` is applied (so switching chips never
+	 * changes the other chips' own numbers).
+	 */
+	countsByKind: Record<KnowledgeDocumentKindFilter, number>;
 }
 
-type LogicalDocumentArtifactRow = Parameters<typeof mapArtifactSummary>[0] & {
+export type LogicalDocumentArtifactRow = Parameters<
+	typeof mapArtifactSummary
+>[0] & {
 	id: string;
 	userId: string;
 	metadataJson?: string | null;
@@ -247,75 +274,265 @@ function compareLogicalDocumentText(left: string, right: string): number {
 	});
 }
 
-function sortLogicalDocumentRecordEntries(
-	entries: Array<{ record: LogicalDocumentRecord; score: number }>,
-	options: {
-		query: string;
-		sortKey: LogicalDocumentSortKey;
-		sortDirection: LogicalDocumentSortDirection;
-	},
-): LogicalDocumentRecord[] {
-	const direction = options.sortDirection === "asc" ? 1 : -1;
-	const sorted = [...entries];
+// ── The artifact family (Feature 2, ADR-0066): Document/App/Canvas/Slides ──
+//
+// A `type: "artifact"` row has no source/normalized pairing and no derived-
+// link walk — one row in, one row (or null) out. Rather than forcing it
+// through the four-type machinery above, it gets its own small read path,
+// merged with the legacy set at the `KnowledgeDocumentItem` level. See
+// `slice-7.md §Contracts` for the full design.
 
-	sorted.sort((leftEntry, rightEntry) => {
-		const left = leftEntry.record;
-		const right = rightEntry.record;
+/**
+ * Reads `metadata_json.artifactType` for a `type: "artifact"` row, validated
+ * against the four family kinds. Never throws, and deliberately never
+ * returns "file": that kind exists only for `generated_output` rows on the
+ * pre-existing path above (`getLogicalDocumentKind`) — a `type: "artifact"`
+ * row is always one of the four family kinds, or unrecognised.
+ *
+ * Not imported from `$lib/server/services/artifacts`: that facade's
+ * `kindForArtifactRow` exists, but it defaults an unparseable row to `"file"`
+ * — the right fallback for its own row-type-agnostic callers, but wrong here,
+ * since this function already knows the row is `type: "artifact"` and its
+ * caller's fallback (`mapArtifactFamilyRow`'s `?? "document"`) must never be
+ * `"file"` (there is no "file" chip for this family — ruling 46, corrected).
+ */
+function parseArtifactFamilyKind(
+	metadataJson: string | null,
+): ArtifactKind | null {
+	const metadata = parseJsonRecord(metadataJson ?? null);
+	const value = metadata?.artifactType;
+	return value === "document" ||
+		value === "app" ||
+		value === "canvas" ||
+		value === "slides"
+		? value
+		: null;
+}
 
-		if (options.query && leftEntry.score !== rightEntry.score) {
-			return rightEntry.score - leftEntry.score;
-		}
+/**
+ * The artifact-family row → `KnowledgeDocumentItem` mapper. No second DB
+ * round trip: every field it needs is already on the row selected via
+ * `knowledgeArtifactListSelection` (`core.ts`) — everything but
+ * `contentText`, which only the Workspace Search candidate loader needs.
+ *
+ * Exported for `workspace-search.ts`'s own artifact-family candidate loader
+ * (Task 2), which needs the exact same mapping — shared behaviour should
+ * exist once, not be copied between the two callers.
+ */
+export function mapArtifactFamilyRow(
+	row: LogicalDocumentArtifactRow,
+	versionNumber: number | null,
+): KnowledgeDocumentItem {
+	// Never throws; "document" is the honest default for a row this slice
+	// cannot classify — it still lists and opens, just with a guessed chip
+	// (see slice-7.md's failure-mode table).
+	const kind = parseArtifactFamilyKind(row.metadataJson ?? null) ?? "document";
+	return {
+		id: row.id,
+		type: "artifact",
+		displayArtifactId: row.id,
+		// No "What AI sees" duality for this family — see DocumentsList §Contracts.
+		promptArtifactId: null,
+		// Itself only; no source/normalized pairing.
+		familyArtifactIds: [row.id],
+		name: row.name,
+		mimeType: null,
+		// "Size" is not a meaningful concept for a live-edited artifact.
+		sizeBytes: null,
+		conversationId: row.conversationId,
+		summary: null,
+		normalizedAvailable: false,
+		kind,
+		artifactVersionNumber: versionNumber,
+		createdAt: row.createdAt.getTime(),
+		updatedAt: row.updatedAt.getTime(),
+	};
+}
 
-		if (options.sortKey === "name") {
-			const byName =
-				compareLogicalDocumentText(
-					left.displayArtifact.name,
-					right.displayArtifact.name,
-				) * direction;
-			if (byName !== 0) return byName;
-		}
+/**
+ * Batches the artifact family's own version counter —
+ * `ArtifactCardSummary.versionNumber`'s equivalent, sourced from the newest
+ * `artifact_versions` row per artifact id. Not a second reader of the
+ * `artifacts/` service's own tables in spirit: this is the one place the
+ * Knowledge listing needs a version NUMBER (not a body, not a diff), and it
+ * is batched per page the same way `attachExtractionJobs`
+ * (`knowledge.ts`) batches the extraction ledger — one query per page, not
+ * one per row.
+ *
+ * Exported for `workspace-search.ts`'s artifact-family candidate loader
+ * (Task 2), which batches the same version lookup for its own candidate set.
+ */
+export async function getArtifactVersionNumbers(
+	artifactIds: string[],
+): Promise<Map<string, number>> {
+	if (artifactIds.length === 0) return new Map();
+	const rows = await db
+		.select({
+			artifactId: artifactVersions.artifactId,
+			maxVersion: sql<number>`max(${artifactVersions.versionNumber})`,
+		})
+		.from(artifactVersions)
+		.where(inArray(artifactVersions.artifactId, artifactIds))
+		.groupBy(artifactVersions.artifactId);
 
-		if (options.sortKey === "size") {
-			const bySize =
-				((left.displayArtifact.sizeBytes ?? 0) -
-					(right.displayArtifact.sizeBytes ?? 0)) *
-				direction;
-			if (bySize !== 0) return bySize;
-		}
+	return new Map(
+		rows
+			.filter(
+				(row): row is { artifactId: string; maxVersion: number } =>
+					typeof row.maxVersion === "number",
+			)
+			.map((row) => [row.artifactId, row.maxVersion]),
+	);
+}
 
-		if (options.sortKey === "type") {
-			const byType =
-				compareLogicalDocumentText(
-					getLogicalDocumentRecordKind(left),
-					getLogicalDocumentRecordKind(right),
-				) * direction;
-			if (byType !== 0) return byType;
-		}
+/**
+ * Which of the six chips (five plus "all", client-side) a row belongs under.
+ * Skill Notes fold into "uploaded" here too, and — per the orchestrator
+ * amendment correcting ruling 46 — so does every legacy row regardless of
+ * `documentOrigin`: a produced file is a file row like an upload, grouped
+ * under Uploaded with its own file-format pill, never a separate "file"
+ * chip. This is the server-side twin of `documents-table.ts`'s
+ * `documentTypeFilterFor` (a browser file, never imported from here).
+ */
+function resolveDocumentKindFilterBucket(
+	item: KnowledgeDocumentItem,
+): KnowledgeDocumentKindFilter {
+	// `item.kind` is typed as the full `ArtifactKind` (it includes "file" for
+	// other callers' sake), but `mapArtifactFamilyRow` never sets it to "file"
+	// — this guard keeps the return type honest without a cast.
+	return item.kind && item.kind !== "file" ? item.kind : "uploaded";
+}
 
-		if (options.sortKey === "date") {
-			const byDate =
-				((left.displayArtifact.createdAt ?? 0) -
-					(right.displayArtifact.createdAt ?? 0)) *
-				direction;
-			if (byDate !== 0) return byDate;
-		}
+function tallyCountsByKind(
+	items: KnowledgeDocumentItem[],
+): Record<KnowledgeDocumentKindFilter, number> {
+	const counts: Record<KnowledgeDocumentKindFilter, number> = {
+		document: 0,
+		app: 0,
+		canvas: 0,
+		slides: 0,
+		uploaded: 0,
+	};
+	for (const item of items) {
+		counts[resolveDocumentKindFilterBucket(item)] += 1;
+	}
+	return counts;
+}
 
-		const byNameTie = compareLogicalDocumentText(
-			left.displayArtifact.name,
-			right.displayArtifact.name,
-		);
-		if (byNameTie !== 0) return byNameTie;
-		const byDateTie =
-			(right.displayArtifact.createdAt ?? 0) -
-			(left.displayArtifact.createdAt ?? 0);
-		if (byDateTie !== 0) return byDateTie;
-		return compareLogicalDocumentText(
-			left.displayArtifact.id,
-			right.displayArtifact.id,
-		);
-	});
+/**
+ * A new, deliberately shallow scorer for the artifact family: checks `name`
+ * only, matching the Documents tab's existing search depth for every other
+ * kind (title/label/role/summary, never body content —
+ * `scoreLogicalDocumentRecordForSearch` doesn't read `contentText` either).
+ * This slice does not deepen the Documents tab's own search, only widens
+ * which kinds it covers. Never reads an App's body — Review Focus #3's
+ * concern is about `workspace-search.ts`'s content-scoring loop, which this
+ * function has no equivalent of.
+ */
+function scoreArtifactFamilyRowForSearch(
+	item: KnowledgeDocumentItem,
+	query: string,
+): number {
+	const normalizedQuery = normalizeLogicalDocumentQuery(query);
+	if (!normalizedQuery) return 1;
 
-	return sorted.map((entry) => entry.record);
+	const name = normalizeLogicalDocumentQuery(item.name);
+	let score = 0;
+	if (name.includes(normalizedQuery)) score += 70;
+	score += scoreLogicalDocumentTermMatches(
+		name,
+		tokenizeLogicalDocumentQuery(normalizedQuery),
+		18,
+	);
+	return score;
+}
+
+/**
+ * The merged-set sibling of `sortLogicalDocumentRecordEntries`'s tie-break
+ * discipline (name → newest → id), generalised to read `KnowledgeDocumentItem`
+ * fields directly since both the legacy and artifact-family sets are already
+ * mapped to that shape before this runs. Not a `documents-table.ts` import —
+ * that module is browser-only; this is a small, server-side twin.
+ *
+ * The "type" sort key preserves the EXACT three-way legacy distinction
+ * (generated/skill_note/uploaded) via `getLogicalDocumentKind`, falling back
+ * to it only when `item.kind` is unset — mirroring `documents-table.ts`'s own
+ * widened `getDocumentKind`. This is deliberately NOT the same grouping as
+ * `resolveDocumentKindFilterBucket` (which coarsens every legacy row to
+ * "uploaded" for the chip/count concern only) — sorting keeps every existing
+ * distinction it already had.
+ */
+function compareKnowledgeDocumentItems(
+	left: KnowledgeDocumentItem,
+	right: KnowledgeDocumentItem,
+	sortKey: LogicalDocumentSortKey,
+	sortDirection: LogicalDocumentSortDirection,
+): number {
+	const direction = sortDirection === "asc" ? 1 : -1;
+
+	if (sortKey === "name") {
+		const byName =
+			compareLogicalDocumentText(left.name, right.name) * direction;
+		if (byName !== 0) return byName;
+	}
+
+	if (sortKey === "size") {
+		const bySize = ((left.sizeBytes ?? 0) - (right.sizeBytes ?? 0)) * direction;
+		if (bySize !== 0) return bySize;
+	}
+
+	if (sortKey === "type") {
+		const leftKind = left.kind ?? getLogicalDocumentKind(left);
+		const rightKind = right.kind ?? getLogicalDocumentKind(right);
+		const byType = compareLogicalDocumentText(leftKind, rightKind) * direction;
+		if (byType !== 0) return byType;
+	}
+
+	if (sortKey === "date") {
+		const byDate = ((left.createdAt ?? 0) - (right.createdAt ?? 0)) * direction;
+		if (byDate !== 0) return byDate;
+	}
+
+	const byNameTie = compareLogicalDocumentText(left.name, right.name);
+	if (byNameTie !== 0) return byNameTie;
+	const byDateTie = (right.createdAt ?? 0) - (left.createdAt ?? 0);
+	if (byDateTie !== 0) return byDateTie;
+	return compareLogicalDocumentText(left.id, right.id);
+}
+
+/**
+ * Selects the one `type: "artifact"` row for this id, scoped exactly like
+ * every other query in this file (`buildArtifactVisibilityCondition` in SQL,
+ * `isArtifactCanonicallyOwned` in JS — the same two-step ownership pattern,
+ * not a new one). Returns `null` on no match or a failed ownership check.
+ */
+async function selectSingleArtifactFamilyRow(params: {
+	artifactId: string;
+	userId: string;
+	ownershipScope: ArtifactOwnershipScope;
+}): Promise<KnowledgeDocumentItem | null> {
+	const { artifactId, ownershipScope, userId } = params;
+	const rows = await db
+		.select(knowledgeArtifactListSelection)
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.id, artifactId),
+				eq(artifacts.type, "artifact"),
+				buildArtifactVisibilityCondition({ userId, ownershipScope }),
+			),
+		)
+		.limit(1);
+	const row = rows[0];
+	if (
+		!row ||
+		!isArtifactCanonicallyOwned({ userId, ownershipScope, artifact: row })
+	) {
+		return null;
+	}
+
+	const versionNumbers = await getArtifactVersionNumbers([row.id]);
+	return mapArtifactFamilyRow(row, versionNumbers.get(row.id) ?? null);
 }
 
 async function buildLogicalDocumentRecordsFromRows(params: {
@@ -513,38 +730,6 @@ function buildGeneratedFileArtifactCondition() {
 	);
 }
 
-function buildLatestGeneratedFamilyArtifactCondition() {
-	return and(
-		buildGeneratedFileArtifactCondition(),
-		sql`NOT EXISTS (
-			SELECT 1
-			FROM artifacts newer
-			WHERE newer.type = 'generated_output'
-				AND newer.retrieval_class = 'durable'
-				AND json_extract(newer.metadata_json, '$.sourceChatFileId') IS NOT NULL
-				AND coalesce(json_extract(newer.metadata_json, '$.documentFamilyId'), newer.id) = coalesce(json_extract(${artifacts.metadataJson}, '$.documentFamilyId'), ${artifacts.id})
-				AND (
-					newer.updated_at > ${artifacts.updatedAt}
-					OR (newer.updated_at = ${artifacts.updatedAt} AND newer.id > ${artifacts.id})
-				)
-		)`,
-	);
-}
-
-function buildLogicalDocumentDisplayArtifactCondition(
-	includeGeneratedOutputs: boolean,
-) {
-	if (!includeGeneratedOutputs) {
-		return eq(artifacts.type, "source_document");
-	}
-
-	return or(
-		eq(artifacts.type, "source_document"),
-		eq(artifacts.type, "skill_note"),
-		buildLatestGeneratedFamilyArtifactCondition(),
-	);
-}
-
 async function selectRowsByArtifactIds(
 	ids: string[],
 ): Promise<LogicalDocumentArtifactRow[]> {
@@ -563,18 +748,6 @@ function uniqueLogicalDocumentRows(
 		byId.set(row.id, row);
 	}
 	return Array.from(byId.values());
-}
-
-function readCountValue(row: { total?: unknown } | undefined): number {
-	const total = row?.total;
-	if (typeof total === "number" && Number.isFinite(total)) {
-		return total;
-	}
-	if (typeof total === "string" && total.trim()) {
-		const parsed = Number(total);
-		return Number.isFinite(parsed) ? parsed : 0;
-	}
-	return 0;
 }
 
 async function expandLogicalDocumentCandidateRows(params: {
@@ -716,75 +889,27 @@ export async function listLogicalDocuments(
 	return records.map(mapLogicalDocumentItem);
 }
 
-export async function listLogicalDocumentsPage(
-	userId: string,
-	options: LogicalDocumentPageOptions = {},
-): Promise<LogicalDocumentPageResult> {
-	const includeGeneratedOutputs = options.includeGeneratedOutputs ?? false;
-	const query = normalizeLogicalDocumentQuery(options.query);
-	const sortKey = options.sortKey ?? "date";
-	const sortDirection = options.sortDirection ?? "desc";
-	const offset = Math.max(0, Math.floor(options.offset ?? 0));
-	const limit = Math.max(1, Math.floor(options.limit ?? 20));
-	const ownershipScope = await getArtifactOwnershipScope(userId);
-
-	if (!query && sortKey === "date") {
-		const displayArtifactCondition =
-			buildLogicalDocumentDisplayArtifactCondition(includeGeneratedOutputs);
-		// ONE predicate for the count and for the rows. The count used to run
-		// with only `buildArtifactVisibilityCondition`, which is strictly wider
-		// than the `isArtifactCanonicallyOwned` the rows are then filtered by,
-		// so a linked or non-owned artifact was counted and never shown and
-		// `totalItems` advertised pages the user could not reach.
-		const whereCondition = and(
-			buildArtifactCanonicalOwnershipCondition({ userId, ownershipScope }),
-			displayArtifactCondition,
-		);
-		const [countRow, rows] = await Promise.all([
-			db
-				.select({
-					total: sql<number>`cast(count(${artifacts.id}) as integer)`,
-				})
-				.from(artifacts)
-				.where(whereCondition)
-				.get(),
-			db
-				.select(knowledgeArtifactListSelection)
-				.from(artifacts)
-				.where(whereCondition)
-				.orderBy(
-					sortDirection === "asc"
-						? asc(artifacts.createdAt)
-						: desc(artifacts.createdAt),
-					asc(artifacts.id),
-				)
-				.limit(limit)
-				.offset(offset),
-		]);
-		const detailRows = await expandLogicalDocumentCandidateRows({
-			userId,
-			rows,
-			includeGeneratedOutputs,
-			ownershipScope,
-		});
-		const records = await buildLogicalDocumentRecordsFromRows({
-			userId,
-			rows: detailRows,
-			includeGeneratedOutputs,
-		});
-		const sortedRecords = sortLogicalDocumentRecordEntries(
-			records.map((record) => ({ record, score: 1 })),
-			{ query, sortKey, sortDirection },
-		);
-
-		return {
-			documents: sortedRecords.map(mapLogicalDocumentItem),
-			totalItems: readCountValue(countRow),
-		};
-	}
-
-	// Search relevance, non-date sort keys, and full generated-family grouping need
-	// the complete logical-document set before slicing.
+/**
+ * Fetches, scores and maps the legacy four-type candidate set — unchanged
+ * query, unchanged scope, unchanged per-record score — but maps each record
+ * to a `KnowledgeDocumentItem` immediately rather than after sorting, so a
+ * single comparator can order it alongside the artifact-family set below.
+ * This retires the old SQL-side LIMIT/OFFSET fast path for the no-query
+ * date-sort case (`slice-7.md §Contracts`): once a second source must be
+ * merged, a SQL LIMIT/OFFSET on only one of the two sources cannot produce a
+ * correct page of the union, so this now always fetches the full
+ * ownership-scoped candidate set and sorts/slices in memory — exactly what
+ * this function already did for the search-relevance case, just applied
+ * unconditionally. AlfyAI is self-hosted, single-account-scale; see the
+ * slice's Risks note for the fallback if this is ever measured to matter.
+ */
+async function loadLegacyDocumentEntries(params: {
+	userId: string;
+	ownershipScope: ArtifactOwnershipScope;
+	includeGeneratedOutputs: boolean;
+	query: string;
+}): Promise<Array<{ item: KnowledgeDocumentItem; score: number }>> {
+	const { includeGeneratedOutputs, ownershipScope, query, userId } = params;
 	const rows = await db
 		.select(knowledgeArtifactListSelection)
 		.from(artifacts)
@@ -819,24 +944,119 @@ export async function listLogicalDocumentsPage(
 		rows: scopedRows,
 		includeGeneratedOutputs,
 	});
-	const searchedDocuments = logicalDocumentRecords
+
+	return logicalDocumentRecords
 		.filter((record) => record.displayArtifact.type !== "normalized_document")
 		.map((record) => ({
-			record,
+			item: mapLogicalDocumentItem(record),
 			score: scoreLogicalDocumentRecordForSearch(record, query),
-		}))
-		.filter((entry) => !query || entry.score > 0);
-	const sortedRecords = sortLogicalDocumentRecordEntries(searchedDocuments, {
-		query,
-		sortKey,
-		sortDirection,
+		}));
+}
+
+/**
+ * Fetches, scores and maps the artifact-family candidate set: no family
+ * bundling, no derived-link walk, the same two-step ownership pattern every
+ * other query in this file already uses.
+ */
+async function loadArtifactFamilyDocumentEntries(params: {
+	userId: string;
+	ownershipScope: ArtifactOwnershipScope;
+	query: string;
+}): Promise<Array<{ item: KnowledgeDocumentItem; score: number }>> {
+	const { ownershipScope, query, userId } = params;
+	const rows = await db
+		.select(knowledgeArtifactListSelection)
+		.from(artifacts)
+		.where(
+			and(
+				buildArtifactVisibilityCondition({ userId, ownershipScope }),
+				eq(artifacts.type, "artifact"),
+			),
+		)
+		.orderBy(desc(artifacts.updatedAt));
+
+	const scopedRows = rows.filter((row) =>
+		isArtifactCanonicallyOwned({ userId, ownershipScope, artifact: row }),
+	);
+	const versionNumbers = await getArtifactVersionNumbers(
+		scopedRows.map((row) => row.id),
+	);
+
+	return scopedRows.map((row) => {
+		const item = mapArtifactFamilyRow(row, versionNumbers.get(row.id) ?? null);
+		return { item, score: scoreArtifactFamilyRowForSearch(item, query) };
+	});
+}
+
+export async function listLogicalDocumentsPage(
+	userId: string,
+	options: LogicalDocumentPageOptions = {},
+): Promise<LogicalDocumentPageResult> {
+	const includeGeneratedOutputs = options.includeGeneratedOutputs ?? false;
+	const query = normalizeLogicalDocumentQuery(options.query);
+	const sortKey = options.sortKey ?? "date";
+	const sortDirection = options.sortDirection ?? "desc";
+	const offset = Math.max(0, Math.floor(options.offset ?? 0));
+	const limit = Math.max(1, Math.floor(options.limit ?? 20));
+	const ownershipScope = await getArtifactOwnershipScope(userId);
+
+	const [legacyEntries, familyEntries] = await Promise.all([
+		loadLegacyDocumentEntries({
+			userId,
+			ownershipScope,
+			includeGeneratedOutputs,
+			query,
+		}),
+		loadArtifactFamilyDocumentEntries({ userId, ownershipScope, query }),
+	]);
+
+	// Drop every zero-score entry from BOTH sets when searching (mirrors the
+	// existing `.filter((entry) => !query || entry.score > 0)` rule).
+	const queryFilteredLegacy = query
+		? legacyEntries.filter((entry) => entry.score > 0)
+		: legacyEntries;
+	const queryFilteredFamily = query
+		? familyEntries.filter((entry) => entry.score > 0)
+		: familyEntries;
+
+	// Tallied on the query-filtered, NOT-yet-kindFilter-filtered union — a
+	// chip's own count must never move when that same chip is clicked.
+	const countsByKind = tallyCountsByKind([
+		...queryFilteredLegacy.map((entry) => entry.item),
+		...queryFilteredFamily.map((entry) => entry.item),
+	]);
+
+	const combined = [...queryFilteredLegacy, ...queryFilteredFamily];
+	const kindFiltered = options.kindFilter
+		? combined.filter(
+				(entry) =>
+					resolveDocumentKindFilterBucket(entry.item) === options.kindFilter,
+			)
+		: combined;
+
+	// Same dual-mode rule the old code used, replicated rather than re-derived:
+	// relevance order when searching, plain sortKey/sortDirection order when
+	// not — now applied once, over the union of both sources. The retired
+	// `sortLogicalDocumentRecordEntries` fell through to the CALLER's own
+	// sortKey/sortDirection whenever two scores tied during a search (only an
+	// outright score difference short-circuited it); a hardcoded "date"/"desc"
+	// tie-break here would silently reorder every row, old and new alike, the
+	// moment two results tie on relevance — exactly the behaviour change the
+	// Global Constraints promise not to make.
+	const sorted = [...kindFiltered].sort((left, right) => {
+		if (query && left.score !== right.score) return right.score - left.score;
+		return compareKnowledgeDocumentItems(
+			left.item,
+			right.item,
+			sortKey,
+			sortDirection,
+		);
 	});
 
 	return {
-		documents: sortedRecords
-			.slice(offset, offset + limit)
-			.map(mapLogicalDocumentItem),
-		totalItems: sortedRecords.length,
+		documents: sorted.slice(offset, offset + limit).map((entry) => entry.item),
+		totalItems: sorted.length,
+		countsByKind,
 	};
 }
 
@@ -848,6 +1068,17 @@ export async function getLogicalDocumentForArtifact(
 	if (!trimmedArtifactId) return null;
 
 	const ownershipScope = await getArtifactOwnershipScope(userId);
+
+	// The artifact family has no source/normalized pairing and no derived-link
+	// walk — one row in, one row (or null) out. Tried BEFORE the legacy
+	// four-type lookup so that lookup stays untouched below.
+	const familyDocument = await selectSingleArtifactFamilyRow({
+		artifactId: trimmedArtifactId,
+		userId,
+		ownershipScope,
+	});
+	if (familyDocument) return familyDocument;
+
 	const targetRows = await db
 		.select(knowledgeArtifactListSelection)
 		.from(artifacts)

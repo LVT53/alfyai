@@ -9,7 +9,11 @@
 // saying "Current" about it would be inventing a fact.
 
 import type { I18nKey } from "$lib/i18n";
-import type { KnowledgeLibraryDocumentItem } from "$lib/server/services/knowledge";
+import type {
+	KnowledgeDocumentKindFilter,
+	KnowledgeLibraryDocumentItem,
+} from "$lib/server/services/knowledge";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type {
 	DocumentExtractionJobDTO,
 	DocumentExtractionStatus,
@@ -155,7 +159,69 @@ export function canCancelExtraction(document: KnowledgeDocumentItem): boolean {
 	return document.extraction?.cancelable === true;
 }
 
-export type DocumentKind = "generated" | "skill_note" | "uploaded";
+export type DocumentKind =
+	| "generated"
+	| "skill_note"
+	| "uploaded"
+	| ArtifactKind;
+
+/**
+ * The chip-filter vocabulary (orchestrator amendment to ruling 46,
+ * 2026-09-25): "all" plus the five buckets `KnowledgeDocumentKindFilter`
+ * already names server-side. There is no "file" chip — a produced file
+ * groups under "uploaded" with its own format pill.
+ */
+export type DocumentTypeFilter = "all" | KnowledgeDocumentKindFilter;
+
+/** Chip order, matching the mockup's left-to-right reading order exactly:
+ *  All · Documents · Canvas · Apps · Slides · Uploaded. */
+export const DOCUMENT_TYPE_FILTER_ORDER: readonly DocumentTypeFilter[] = [
+	"all",
+	"document",
+	"canvas",
+	"app",
+	"slides",
+	"uploaded",
+];
+
+/**
+ * Which chip a row belongs under. Skill Notes fold into "uploaded" for this
+ * purpose — ruling 46 is about "all five kinds" plus what predates them, and
+ * a sixth chip for an internal, rare kind is scope the mockup doesn't show.
+ * A produced file folds into "uploaded" too (corrected ruling 46: it groups
+ * with its own format pill, exactly like an upload — there is no "file"
+ * chip). The Type COLUMN still renders "Skill note"/"Generated" distinctly
+ * (`getDocumentKind`, unchanged) — only the chip grouping coarsens it.
+ */
+export function documentTypeFilterFor(
+	document: KnowledgeDocumentItem,
+): Exclude<DocumentTypeFilter, "all"> {
+	// `document.kind` is typed as the full `ArtifactKind` (it includes "file"
+	// for other callers' sake), but the artifact family never sets it to
+	// "file" in practice — this guard keeps the return type honest.
+	return document.kind && document.kind !== "file" ? document.kind : "uploaded";
+}
+
+export type ArtifactFamilyVersionBadge =
+	| { kind: "artifact-version"; versionNumber: number }
+	| { kind: "none" };
+
+/**
+ * The Version cell for a `kind`-bearing row. Never reads `versionNumber`/
+ * `documentFamilyId`/`isOriginal` — those belong to the unrelated
+ * extraction-quality re-parse family (Review Focus #7).
+ */
+export function deriveArtifactVersionBadge(
+	document: KnowledgeDocumentItem,
+): ArtifactFamilyVersionBadge {
+	if (!document.kind || document.artifactVersionNumber == null) {
+		return { kind: "none" };
+	}
+	return {
+		kind: "artifact-version",
+		versionNumber: document.artifactVersionNumber,
+	};
+}
 
 /**
  * The Version cell. "Original" for the first member of a family, "v3" for a
@@ -200,6 +266,7 @@ export function deriveDocumentStatus(
 }
 
 export function getDocumentKind(document: KnowledgeDocumentItem): DocumentKind {
+	if (document.kind) return document.kind;
 	if (
 		document.documentOrigin === "skill_note" ||
 		document.type === "skill_note"

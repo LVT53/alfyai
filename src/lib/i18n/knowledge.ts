@@ -34,6 +34,24 @@ const knowledgeDict = {
 		"knowledge.documentType": "Document type",
 		"knowledge.documentCount": "{count} documents",
 		"knowledge.documents": "Documents",
+		// Slice 7 (Feature 2, ADR-0066): the Documents tab's chip row and
+		// summary line. "All"/"Uploaded" plus the mockup's four category
+		// nouns — never the singular `artifacts.type.*` word a row's own Type
+		// pill uses. No "file" chip: a produced file groups under Uploaded
+		// with its own format pill (ruling 46, corrected).
+		"knowledge.documents.filter.all": "All",
+		"knowledge.documents.filter.document": "Documents",
+		"knowledge.documents.filter.canvas": "Canvas",
+		"knowledge.documents.filter.app": "Apps",
+		"knowledge.documents.filter.slides": "Slides",
+		"knowledge.documents.filter.uploaded": "Uploaded",
+		"knowledge.documents.filter.optionA11y": "Filter: {label}, {count} items",
+		"knowledge.documents.count.uploaded": "{count} uploaded",
+		"knowledge.documents.count.document": "{count} documents",
+		"knowledge.documents.count.app": "{count} apps",
+		"knowledge.documents.count.canvas": "{count} canvas",
+		"knowledge.documents.count.slides": "{count} slides",
+		"knowledge.documents.totalLabel": "{count} items",
 		"knowledge.dropFileTooLarge":
 			"Some files are larger than {limit} and were skipped.",
 		"knowledge.dropFiles": "Drop files here to upload (max {max}MB per file)",
@@ -517,6 +535,19 @@ const knowledgeDict = {
 		"knowledge.documentType": "Dokumentum típus",
 		"knowledge.documentCount": "{count} dokumentum",
 		"knowledge.documents": "Dokumentumok",
+		"knowledge.documents.filter.all": "Összes",
+		"knowledge.documents.filter.document": "Dokumentumok",
+		"knowledge.documents.filter.canvas": "Táblák",
+		"knowledge.documents.filter.app": "Alkalmazások",
+		"knowledge.documents.filter.slides": "Diasorok",
+		"knowledge.documents.filter.uploaded": "Feltöltött",
+		"knowledge.documents.filter.optionA11y": "Szűrő: {label}, {count} elem",
+		"knowledge.documents.count.uploaded": "{count} feltöltött",
+		"knowledge.documents.count.document": "{count} dokumentum",
+		"knowledge.documents.count.app": "{count} alkalmazás",
+		"knowledge.documents.count.canvas": "{count} tábla",
+		"knowledge.documents.count.slides": "{count} diasor",
+		"knowledge.documents.totalLabel": "{count} elem",
 		"knowledge.dropFileTooLarge":
 			"Néhány fájl nagyobb, mint {limit}, és ki lett hagyva.",
 		"knowledge.dropFiles":

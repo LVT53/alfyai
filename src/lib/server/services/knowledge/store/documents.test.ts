@@ -83,6 +83,10 @@ vi.mock("$lib/server/db/schema", () => ({
 		userId: { name: "userId" },
 		linkType: { name: "linkType" },
 	},
+	artifactVersions: {
+		artifactId: { name: "artifactId" },
+		versionNumber: { name: "versionNumber" },
+	},
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -495,7 +499,13 @@ describe("knowledge documents store", () => {
 		expect(normalizedDocs).toHaveLength(0);
 	});
 
-	it("bounds the no-query date-sorted page in the database before building logical document details", async () => {
+	// Slice 7 retires the old SQL-side LIMIT/OFFSET fast path for the no-query
+	// date-sort case: once a second source (the artifact family) has to be
+	// merged, a SQL LIMIT/OFFSET on only one of the two sources cannot produce
+	// a correct page of the union, so the full ownership-scoped candidate set
+	// is always fetched and sorted/sliced in memory now — a deliberate,
+	// reasoned trade (`slice-7.md §Contracts`/`§Risks`), not an oversight.
+	it("orders the merged candidate set by date and slices it in memory when there is no query", async () => {
 		const pageRows = [
 			makeArtifactRow({
 				id: "source-new",
@@ -524,51 +534,27 @@ describe("knowledge documents store", () => {
 				updatedAt: new Date("2026-04-04T10:00:00Z"),
 			}),
 		];
-		const limitSpy = vi.fn(() => ({
-			offset: vi.fn(async () => pageRows),
-		}));
-		const unboundedOrderBySpy = vi.fn(() => {
-			throw new Error("full logical document scan should not run");
-		});
 
+		// Call order: (1) getArtifactOwnershipScope's conversations query, (2)
+		// the legacy four-type candidate set, (3) the artifact-family candidate
+		// set (empty in this fixture — no `type: "artifact"` rows).
 		let selectCall = 0;
-		mockSelect.mockImplementation((selection?: Record<string, unknown>) => {
+		mockSelect.mockImplementation(() => {
 			selectCall += 1;
 			if (selectCall === 1) {
+				return { from: vi.fn(() => ({ where: vi.fn(async () => []) })) };
+			}
+			if (selectCall === 2) {
 				return {
 					from: vi.fn(() => ({
-						where: vi.fn(async () => []),
+						where: vi.fn(() => ({ orderBy: vi.fn(async () => pageRows) })),
 					})),
 				};
 			}
-
-			if (selection && "normalizedArtifactId" in selection) {
-				return {
-					from: vi.fn(() => ({
-						where: vi.fn(async () => []),
-					})),
-				};
-			}
-
-			if (selection && "total" in selection) {
-				return {
-					from: vi.fn(() => ({
-						where: vi.fn(() => ({
-							get: vi.fn(async () => ({ total: 5 })),
-						})),
-					})),
-				};
-			}
-
 			return {
 				from: vi.fn(() => ({
-					where: vi.fn(() => ({
-						orderBy: vi.fn(() => ({
-							limit: limitSpy,
-						})),
-					})),
+					where: vi.fn(() => ({ orderBy: vi.fn(async () => []) })),
 				})),
-				orderBy: unboundedOrderBySpy,
 			};
 		});
 
@@ -577,15 +563,13 @@ describe("knowledge documents store", () => {
 			includeGeneratedOutputs: true,
 			sortKey: "date",
 			sortDirection: "desc",
-			offset: 20,
-			limit: 2,
+			offset: 0,
+			limit: 1,
 		});
 
-		expect(limitSpy).toHaveBeenCalledWith(2);
-		expect(result.totalItems).toBe(5);
+		expect(result.totalItems).toBe(2);
 		expect(result.documents.map((document) => document.id)).toEqual([
 			"source-new",
-			"source-old",
 		]);
 	});
 
@@ -922,5 +906,170 @@ describe("knowledge documents store", () => {
 		expect(emptyScope.map((entry) => entry.artifact.id)).toEqual(
 			withoutScope.map((entry) => entry.artifact.id),
 		);
+	});
+});
+
+// Slice 7 (Feature 2, ADR-0066): Document/App/Canvas/Slides rows
+// (`type: "artifact"`) get their own simple read path — no source/normalized
+// pairing, no derived-link walk — merged with the legacy family at the
+// `KnowledgeDocumentItem` level. `getLogicalDocumentForArtifact`'s new branch
+// is exercised here; `listLogicalDocumentsPage`'s merge/kindFilter/
+// countsByKind behaviour is exercised end to end against a real migrated
+// SQLite database in `logical-document-page-total.test.ts` instead of
+// hand-mocked here — reproducing the exact multi-source `db.select` call
+// sequence this file's fully-mocked `drizzle-orm` style would need is fragile
+// and adds little over exercising the real query.
+describe("artifact-family rows", () => {
+	beforeEach(() => {
+		mockRows.length = 0;
+		mockDerivedRows.length = 0;
+		mockSelect.mockReset();
+	});
+
+	it("resolves a bare artifact row to a KnowledgeDocumentItem with kind and artifactVersionNumber set", async () => {
+		const artifactRow = makeArtifactRow({
+			id: "art-canvas-1",
+			userId: "user-1",
+			type: "artifact",
+			retrievalClass: "durable",
+			name: "Vienna trip board",
+			conversationId: "conv-1",
+			metadataJson: JSON.stringify({
+				artifactType: "canvas",
+				title: "Vienna trip board",
+			}),
+			createdAt: new Date("2026-04-05T10:00:00Z"),
+			updatedAt: new Date("2026-04-06T10:00:00Z"),
+		});
+
+		let selectCall = 0;
+		mockSelect.mockImplementation(() => {
+			selectCall += 1;
+			if (selectCall === 1) {
+				// getArtifactOwnershipScope's conversations query — "conv-1" is
+				// the user's own, non-incognito conversation.
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(async () => [
+							{ id: "conv-1", memoryIncognito: false },
+						]),
+					})),
+				};
+			}
+			if (selectCall === 2) {
+				// selectSingleArtifactFamilyRow.
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(() => ({
+							limit: vi.fn(async () => [artifactRow]),
+						})),
+					})),
+				};
+			}
+			// getArtifactVersionNumbers.
+			return {
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						groupBy: vi.fn(async () => [
+							{ artifactId: "art-canvas-1", maxVersion: 3 },
+						]),
+					})),
+				})),
+			};
+		});
+
+		const { getLogicalDocumentForArtifact } = await import("./documents");
+		const document = await getLogicalDocumentForArtifact(
+			"user-1",
+			"art-canvas-1",
+		);
+
+		expect(document).toMatchObject({
+			id: "art-canvas-1",
+			type: "artifact",
+			displayArtifactId: "art-canvas-1",
+			promptArtifactId: null,
+			familyArtifactIds: ["art-canvas-1"],
+			name: "Vienna trip board",
+			kind: "canvas",
+			artifactVersionNumber: 3,
+			normalizedAvailable: false,
+		});
+	});
+
+	it("falls back to kind 'document' — never 'file' — when metadata is malformed, so the row still lists rather than vanishing", async () => {
+		const artifactRow = makeArtifactRow({
+			id: "art-broken-1",
+			userId: "user-1",
+			type: "artifact",
+			retrievalClass: "durable",
+			name: "Untitled",
+			conversationId: "conv-1",
+			metadataJson: "not valid json",
+			createdAt: new Date("2026-04-05T10:00:00Z"),
+			updatedAt: new Date("2026-04-05T10:00:00Z"),
+		});
+
+		let selectCall = 0;
+		mockSelect.mockImplementation(() => {
+			selectCall += 1;
+			if (selectCall === 1) {
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(async () => [
+							{ id: "conv-1", memoryIncognito: false },
+						]),
+					})),
+				};
+			}
+			if (selectCall === 2) {
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(() => ({
+							limit: vi.fn(async () => [artifactRow]),
+						})),
+					})),
+				};
+			}
+			return {
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({ groupBy: vi.fn(async () => []) })),
+				})),
+			};
+		});
+
+		const { getLogicalDocumentForArtifact } = await import("./documents");
+		const document = await getLogicalDocumentForArtifact(
+			"user-1",
+			"art-broken-1",
+		);
+
+		expect(document?.kind).toBe("document");
+		expect(document?.artifactVersionNumber).toBeNull();
+	});
+
+	it("is absent when the row belongs to a conversation outside the caller's ownership scope", async () => {
+		let selectCall = 0;
+		mockSelect.mockImplementation(() => {
+			selectCall += 1;
+			if (selectCall === 1) {
+				return { from: vi.fn(() => ({ where: vi.fn(async () => []) })) };
+			}
+			// Ownership-scoped WHERE excludes the row before it ever reaches
+			// isArtifactCanonicallyOwned, so no matching row comes back.
+			return {
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+				})),
+			};
+		});
+
+		const { getLogicalDocumentForArtifact } = await import("./documents");
+		const document = await getLogicalDocumentForArtifact(
+			"user-1",
+			"art-foreign-1",
+		);
+
+		expect(document).toBeNull();
 	});
 });

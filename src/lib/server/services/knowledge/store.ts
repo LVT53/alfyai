@@ -55,12 +55,18 @@ export {
 	resolveGeneratedDocumentFamilyStatus,
 	selectLatestGeneratedDocumentCandidatesByFamily,
 } from "./store/document-metadata";
+export type {
+	KnowledgeDocumentKindFilter,
+	LogicalDocumentArtifactRow,
+} from "./store/documents";
 export {
 	findRelevantArtifactsByTypes,
 	findRelevantArtifactsByTypesDetailed,
+	getArtifactVersionNumbers,
 	getLogicalDocumentForArtifact,
 	listLogicalDocuments,
 	listLogicalDocumentsPage,
+	mapArtifactFamilyRow,
 } from "./store/documents";
 export type {
 	LinkedContextSourceIdentityInput,

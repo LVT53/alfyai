@@ -64,6 +64,10 @@ vi.mock("$lib/server/services/task-state/control-model", () => ({
 const { listKnowledgeArtifacts } = await import(
 	"$lib/server/services/knowledge"
 );
+// Slice 7: the artifact-family merge this suite's PART A now covers.
+const { listLogicalDocumentsPage } = await import(
+	"$lib/server/services/knowledge/store"
+);
 const { findRelevantKnowledgeArtifacts, getConversationWorkingSet } =
 	await import("$lib/server/services/knowledge/context");
 const { readGeneratedFileContent } = await import(
@@ -715,6 +719,37 @@ describe("an incognito conversation's artifact family, from outside it", () => {
 		expect(JSON.stringify(found)).not.toContain(SECRET_DOCUMENT_TITLE);
 		expect(JSON.stringify(found)).not.toContain("agreement");
 	});
+
+	// Slice 7: the merged listing (Documents tab) and the typed-query search
+	// path (Workspace Search) are two separate new code paths onto the same
+	// artifact-family row — each needs its own proof, not just the read
+	// above (`listKnowledgeArtifacts`, which does not exercise either).
+	it("is not in listLogicalDocumentsPage's merged listing, nor found by name in a typed search query", async () => {
+		await seedIncognitoArtifactFamily();
+		seedUpload(
+			NORMAL,
+			"public-notes.md",
+			`A ${SECRET_WORD} note from an ordinary chat.`,
+		);
+
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(JSON.stringify(page)).not.toContain(SECRET_DOCUMENT_TITLE);
+		expect(page.documents.map((document) => document.name)).toContain(
+			"public-notes.md",
+		);
+
+		// A typed query for the DOCUMENT'S OWN NAME (not the shared secret word,
+		// which the earlier assertion already covers via content) must not
+		// resolve it either. The response echoes the query string itself, so
+		// this checks the actual results rather than the raw JSON.
+		const byTitle = await searchWorkspace(USER, {
+			query: SECRET_DOCUMENT_TITLE,
+		});
+		expect(byTitle.documents).toEqual([]);
+	});
 });
 
 describe("inside the incognito conversation, its artifact family still works", () => {
@@ -804,6 +839,34 @@ describe("a normal conversation's own artifact family is unaffected", () => {
 			"Trip cost splitter",
 			"Weekend plan",
 		]);
+	});
+
+	// The positive half of the exclusion proven above: the same merge and
+	// search paths must still surface a normal conversation's own row, so the
+	// incognito refusal is the scope working, not a broken query.
+	it("is found in listLogicalDocumentsPage and by name in Workspace Search", async () => {
+		await seedIncognitoArtifactFamily();
+		const document = await createArtifact({
+			userId: USER,
+			conversationId: NORMAL,
+			kind: "canvas",
+			title: "Weekend plan board",
+			body: "- [ ] Naschmarkt",
+		});
+		if (!document.ok) throw new Error("create refused");
+
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(page.documents.map((item) => item.id)).toContain(
+			document.artifact.id,
+		);
+
+		const found = await searchWorkspace(USER, { query: "Weekend plan" });
+		expect(found.documents.map((item) => item.displayArtifactId)).toContain(
+			document.artifact.id,
+		);
 	});
 });
 
@@ -935,6 +998,118 @@ describe("deleting an incognito conversation, with artifacts", () => {
 		expect(memory.db.select().from(schema.artifactVersions).all()).toEqual([]);
 		expect(memory.db.select().from(schema.artifactComments).all()).toEqual([]);
 		expect(memory.db.select().from(schema.artifactKv).all()).toEqual([]);
+
+		// Slice 7: gone from the merged listing and search too, not just the
+		// raw table — the two new surfaces this slice adds.
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(page.documents.map((item) => item.id)).not.toContain(documentId);
+		expect(page.documents.map((item) => item.id)).not.toContain(appId);
+	});
+});
+
+// Slice 7, Review Focus #2: "an artifact whose owning conversation has been
+// deleted must become invisible, exactly like a generated_output row does
+// today" — verified here against a NORMAL (non-incognito) conversation, since
+// this is the general lifecycle rule, not an incognito-specific one.
+describe("deleting a normal conversation's artifact family (Review Focus #2)", () => {
+	it("removes the row from listLogicalDocumentsPage and Workspace Search once its conversation is gone", async () => {
+		const document = await createArtifact({
+			userId: USER,
+			conversationId: NORMAL,
+			kind: "document",
+			title: "Doomed plan",
+			body: "- [ ] Nothing",
+		});
+		if (!document.ok) throw new Error("create refused");
+
+		await deleteConversationWithCleanup(USER, NORMAL);
+
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(page.documents.map((item) => item.id)).not.toContain(
+			document.artifact.id,
+		);
+
+		const found = await searchWorkspace(USER, { query: "Doomed plan" });
+		expect(found.documents.map((item) => item.displayArtifactId)).not.toContain(
+			document.artifact.id,
+		);
+	});
+});
+
+// RV-7: the gap the two deletion tests above do not cover. Both seed an
+// artifact with NO outside reference, so `deleteConversationWithCleanup`
+// (cleanup/conversation-cleanup.ts) hard-deletes it via
+// `hardDeleteArtifactsForUser` and it is gone from the `artifacts` table
+// entirely — trivially absent from every read. But that same function's own
+// branch for a `type: "artifact"` row checks
+// `artifactHasReferencesOutsideConversation` first and, when true, PRESERVES
+// the row instead — exactly like it already does for
+// `source_document`/`normalized_document` — whenever something outside the
+// conversation still names it (a fork's copied `artifact_links` row, a
+// cross-conversation evidence link, ...). Preserving does not keep the link
+// alive: `artifacts.conversation_id` is `ON DELETE SET NULL`, so the instant
+// the conversation row itself is deleted a few lines later in the same
+// function, the preserved row's `conversation_id` goes to `null`.
+// `isArtifactCanonicallyOwned` (knowledge/store/core.ts) gives
+// `generated_output` / `work_capsule` no `userId` fallback for exactly this
+// reason ("a working artifact whose conversation is gone must never come back
+// as retrieval context" — detached-artifact-delete.test.ts's own header). A
+// `type: "artifact"` row falls through to the generic
+// `artifact.userId === userId` branch instead, so a preserved incognito
+// artifact comes back through the front door the moment its conversation is
+// gone — the exact containment failure this suite exists to catch.
+describe("an incognito artifact preserved by an outside reference, after its conversation is deleted", () => {
+	it("must not resurface through listLogicalDocumentsPage or Workspace Search once its own conversation link is cleared", async () => {
+		const { documentId } = await seedIncognitoArtifactFamily();
+
+		// The outside reference that makes cleanup PRESERVE rather than
+		// hard-delete the row: some other, still-alive conversation names it —
+		// the same shape a fork's copied `artifact_links` row would leave.
+		memory.db
+			.insert(schema.artifactLinks)
+			.values({
+				id: "link-outside-reference",
+				userId: USER,
+				artifactId: documentId,
+				conversationId: NORMAL,
+				linkType: "attached_to_conversation",
+				createdAt: NOW,
+			})
+			.run();
+
+		await deleteConversationWithCleanup(USER, INCOGNITO);
+
+		// Sanity check on the setup itself: the row must still exist (preserved,
+		// not hard-deleted) with its conversation link cleared — otherwise this
+		// test would be proving nothing.
+		const stored = memory.db
+			.select({
+				id: schema.artifacts.id,
+				conversationId: schema.artifacts.conversationId,
+			})
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, documentId))
+			.all();
+		expect(stored).toEqual([{ id: documentId, conversationId: null }]);
+
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(page.documents.map((item) => item.id)).not.toContain(documentId);
+
+		const found = await searchWorkspace(USER, {
+			query: SECRET_DOCUMENT_TITLE,
+		});
+		expect(found.documents.map((item) => item.displayArtifactId)).not.toContain(
+			documentId,
+		);
 	});
 });
 

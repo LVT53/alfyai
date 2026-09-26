@@ -190,3 +190,29 @@ describe("summariseScopedResults", () => {
 		expect(summariseScopedResults([])).toEqual({ results: 0, kinds: 0 });
 	});
 });
+
+// Slice 7 (Feature 2, ADR-0066): the mockup's own legend says "no new search
+// scope needed" — a Document/App/Canvas/Slides row's `documentOrigin` is
+// unset (`mapArtifactFamilyRow` never sets it), so `isReportRow` already
+// returns false for it and it already lands in "documents", never "reports",
+// with zero code change to this file. This is a regression test proving that
+// claim rather than assuming it — kept isolated from the shared `rows`
+// fixture above so it does not shift any of that block's exact counts.
+describe("an artifact-family row (Feature 2, ADR-0066) needs no new scope", () => {
+	const artifactFamilyRow: ScopeableRow = { id: "art-1", kind: "document" };
+
+	it("lands in the documents scope", () => {
+		expect(rowMatchesScope(artifactFamilyRow, "documents")).toBe(true);
+	});
+
+	it("never lands in the reports scope", () => {
+		expect(rowMatchesScope(artifactFamilyRow, "reports")).toBe(false);
+	});
+
+	it("is counted under documents, not reports, by the chip row", () => {
+		const chips = buildSearchScopeChips([artifactFamilyRow]);
+		const byId = Object.fromEntries(chips.map((chip) => [chip.id, chip]));
+		expect(byId.documents.count).toBe(1);
+		expect(byId.reports.count).toBe(0);
+	});
+});

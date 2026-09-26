@@ -13,6 +13,24 @@ import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-i
 export function toWorkspaceDocument(
 	document: KnowledgeDocumentItem,
 ): DocumentWorkspaceItem {
+	// The artifact family (Feature 2, ADR-0066) has no source/normalized
+	// pairing and no "What AI sees" duality, so it skips
+	// `resolveWorkingDocumentIdentity` entirely — one row, one artifact id.
+	// This is the entire client-side "open" change this slice needs: the
+	// panel itself dispatches on `kind` per slice 0's own contract.
+	if (document.kind) {
+		return {
+			id: `artifact:${document.displayArtifactId}`,
+			source: "knowledge_artifact",
+			filename: document.name,
+			title: document.name,
+			kind: document.kind,
+			mimeType: null,
+			artifactId: document.displayArtifactId,
+			conversationId: document.conversationId,
+		};
+	}
+
 	const identity = resolveWorkingDocumentIdentity(document);
 	const artifactId = identity.preview.artifactId;
 	return {

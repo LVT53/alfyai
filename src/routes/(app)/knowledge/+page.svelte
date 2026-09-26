@@ -35,13 +35,17 @@ import type {
 	MemoryProfilePublicPayload,
 	MemoryTimelineReport,
 } from "$lib/memory-profile-types";
-import type { KnowledgeLibraryDocumentItem } from "$lib/server/services/knowledge";
+import type {
+	KnowledgeDocumentKindFilter,
+	KnowledgeLibraryDocumentItem,
+} from "$lib/server/services/knowledge";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { KnowledgeMemoryOverviewPayload } from "$lib/server/services/memory-types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { createExtractionPoller } from "$lib/client/extraction-poll";
 import { toWorkspaceDocument } from "./_helpers";
+import type { DocumentTypeFilter } from "./_components/documents-table";
 import type { PageProps } from "./$types";
 
 type KnowledgeDocumentItem = KnowledgeLibraryDocumentItem;
@@ -147,6 +151,12 @@ let documentSortKey = $state<DocumentSortKey>(
 let documentSortDirection = $state<SortDirection>(
 	initialLibrary?.sort.direction ?? "desc",
 );
+let documentTypeFilter = $state<DocumentTypeFilter>(
+	getDocumentTypeFilterFromUrl(kitPage.url),
+);
+let documentCountsByKind = $state<
+	Record<KnowledgeDocumentKindFilter, number> | undefined
+>(initialLibrary?.countsByKind);
 let documentDeleteCandidateId = $state<string | null>(null);
 let bulkDeleteCandidateIds = $state<string[] | null>(null);
 let bulkDeleteSuccessVersion = $state(0);
@@ -187,10 +197,28 @@ function getKnowledgeTabFromUrl(url: URL): KnowledgeTab {
 		searchParams.has("sort") ||
 		searchParams.has("dir") ||
 		searchParams.has("page") ||
-		searchParams.has("pageSize");
+		searchParams.has("pageSize") ||
+		searchParams.has("type");
 	return requestedTab === "documents" || hasDocumentQuery
 		? "documents"
 		: "memory";
+}
+
+const KIND_FILTER_VALUES = new Set<DocumentTypeFilter>([
+	"document",
+	"canvas",
+	"app",
+	"slides",
+	"uploaded",
+]);
+
+/** Mirrors `+page.server.ts`'s own `parseKindFilter` — an unrecognised value
+ *  is silently ignored, same rule as sort/dir. */
+function getDocumentTypeFilterFromUrl(url: URL): DocumentTypeFilter {
+	const type = url.searchParams.get("type");
+	return type && KIND_FILTER_VALUES.has(type as DocumentTypeFilter)
+		? (type as DocumentTypeFilter)
+		: "all";
 }
 
 function syncSearchParam(
@@ -214,6 +242,7 @@ function syncDocumentUrlState(
 		sortDirection: SortDirection;
 		page: number;
 		pageSize: number;
+		typeFilter: DocumentTypeFilter;
 	},
 ) {
 	if (params.tab === "memory") {
@@ -223,6 +252,7 @@ function syncDocumentUrlState(
 		searchParams.delete("dir");
 		searchParams.delete("page");
 		searchParams.delete("pageSize");
+		searchParams.delete("type");
 		return;
 	}
 
@@ -252,6 +282,11 @@ function syncDocumentUrlState(
 		"pageSize",
 		params.pageSize !== 20 ? String(params.pageSize) : null,
 	);
+	syncSearchParam(
+		searchParams,
+		"type",
+		params.typeFilter === "all" ? null : params.typeFilter,
+	);
 }
 
 function buildKnowledgeLibraryUrl(params: {
@@ -261,6 +296,7 @@ function buildKnowledgeLibraryUrl(params: {
 	page?: number;
 	pageSize?: number;
 	tab?: KnowledgeTab;
+	typeFilter?: DocumentTypeFilter;
 }): string {
 	const searchParams = new URLSearchParams(kitPage.url.search);
 	const query = params.query ?? documentSearchQuery;
@@ -269,6 +305,7 @@ function buildKnowledgeLibraryUrl(params: {
 	const page = params.page ?? documentCurrentPage;
 	const pageSize = params.pageSize ?? documentPaginationLimit;
 	const tab = params.tab ?? activeTab;
+	const typeFilter = params.typeFilter ?? documentTypeFilter;
 
 	syncDocumentUrlState(searchParams, {
 		tab,
@@ -277,6 +314,7 @@ function buildKnowledgeLibraryUrl(params: {
 		sortDirection,
 		page,
 		pageSize,
+		typeFilter,
 	});
 
 	const queryString = searchParams.toString();
@@ -289,6 +327,7 @@ async function updateKnowledgeLibraryParams(params: {
 	sortDirection?: SortDirection;
 	page?: number;
 	pageSize?: number;
+	typeFilter?: DocumentTypeFilter;
 }) {
 	if (!browser) return;
 	documentsNavigating = true;
@@ -343,6 +382,12 @@ function handleDocumentSortChange(
 	documentSortDirection = sortDirection;
 	documentCurrentPage = 1;
 	void updateKnowledgeLibraryParams({ sortKey, sortDirection, page: 1 });
+}
+
+function handleDocumentTypeFilterChange(filter: DocumentTypeFilter) {
+	documentTypeFilter = filter;
+	documentCurrentPage = 1;
+	void updateKnowledgeLibraryParams({ typeFilter: filter, page: 1 });
 }
 
 function handleDocumentSelect(document: KnowledgeDocumentItem) {
@@ -866,6 +911,10 @@ $effect(() => {
 });
 
 $effect(() => {
+	documentTypeFilter = getDocumentTypeFilterFromUrl(kitPage.url);
+});
+
+$effect(() => {
 	if (activeTab !== "memory") {
 		lastMemoryProfileTabState = activeTab;
 		return;
@@ -910,6 +959,7 @@ $effect(() => {
 	documentSearchQuery = library.query;
 	documentSortKey = library.sort.key;
 	documentSortDirection = library.sort.direction;
+	documentCountsByKind = library.countsByKind;
 });
 </script>
 
@@ -984,6 +1034,9 @@ $effect(() => {
 						sortKey={documentSortKey}
 						sortDirection={documentSortDirection}
 						serverManaged={true}
+						typeFilter={documentTypeFilter}
+						countsByKind={documentCountsByKind}
+						onTypeFilterChange={handleDocumentTypeFilterChange}
 						bulkDeleteSuccessVersion={bulkDeleteSuccessVersion}
 						onPaginationLimitChange={handleDocumentPaginationLimitChange}
 						onPageChange={handleDocumentPageChange}
