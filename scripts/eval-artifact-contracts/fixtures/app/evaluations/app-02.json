@@ -1,109 +1,101 @@
 {
-  "evaluation": {
-    "pages": [
-      {
-        "label": "light-1280",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-02-light-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 291,
-        "textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
-        "controlCount": 7,
-        "storageGets": 1,
-        "storageSets": 1,
-        "storageKeys": [
-          "shopping-list-v1"
-        ]
-      },
-      {
-        "label": "dark-1280",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-02-dark-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 291,
-        "textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
-        "controlCount": 7,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "light-390",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-02-light-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 291,
-        "textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
-        "controlCount": 7,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-390",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-02-dark-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 291,
-        "textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
-        "controlCount": 7,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      }
-    ],
-    "interaction": {
-      "inputSelector": "input[type=text]",
-      "inputValue": "teszt",
-      "buttonText": "Hozzáad",
-      "clickedButtons": [
-        "Hozzáad"
-      ],
-      "domChangedAfter": "Hozzáad",
-      "clicked": true,
-      "domChanged": true,
-      "textBefore": 291,
-      "textAfter": 270,
-      "htmlChanged": true,
-      "storageSetsBefore": 0,
-      "storageSetsAfter": 1,
-      "storageKeys": [
-        "shopping-list-v1"
-      ],
-      "dialogs": [],
-      "note": null
-    },
-    "consoleErrors": [],
-    "pageErrors": [],
-    "blockedRequests": [],
-    "storageGets": 1,
-    "storageSets": 1,
-    "storageKeys": [
-      "shopping-list-v1"
-    ]
-  }
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-02-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 291,
+				"textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
+				"controlCount": 7,
+				"storageGets": 1,
+				"storageSets": 1,
+				"storageKeys": ["shopping-list-v1"]
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-02-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 291,
+				"textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
+				"controlCount": 7,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-02-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 291,
+				"textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
+				"controlCount": 7,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-02-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 291,
+				"textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
+				"controlCount": 7,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": "input[type=text]",
+			"inputValue": "teszt",
+			"buttonText": "Hozzáad",
+			"clickedButtons": ["Hozzáad"],
+			"domChangedAfter": "Hozzáad",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 291,
+			"textAfter": 270,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 1,
+			"storageKeys": ["shopping-list-v1"],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 1,
+		"storageKeys": ["shopping-list-v1"]
+	}
 }

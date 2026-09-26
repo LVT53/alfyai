@@ -1,109 +1,101 @@
 {
-  "evaluation": {
-    "pages": [
-      {
-        "label": "light-1280",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-08-light-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 599,
-        "textSample": "NAPI NYOMON KÖVETÉS Szokáskövető Kattints egy napra, hogy jelöld a teljesítést. A sorozat azt mutatja, hány egymást követő nap ment egyben. 0 Leghosszabb sorozat (nap) 0% Mai teljesítés Edzés Nincs sorozat × H 21 K 22 Sz",
-        "controlCount": 42,
-        "storageGets": 1,
-        "storageSets": 1,
-        "storageKeys": [
-          "habit-tracker-v1"
-        ]
-      },
-      {
-        "label": "dark-1280",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-08-dark-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 599,
-        "textSample": "NAPI NYOMON KÖVETÉS Szokáskövető Kattints egy napra, hogy jelöld a teljesítést. A sorozat azt mutatja, hány egymást követő nap ment egyben. 0 Leghosszabb sorozat (nap) 0% Mai teljesítés Edzés Nincs sorozat × H 21 K 22 Sz",
-        "controlCount": 42,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "light-390",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-08-light-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 599,
-        "textSample": "NAPI NYOMON KÖVETÉS Szokáskövető Kattints egy napra, hogy jelöld a teljesítést. A sorozat azt mutatja, hány egymást követő nap ment egyben. 0 Leghosszabb sorozat (nap) 0% Mai teljesítés Edzés Nincs sorozat × H 21 K 22 Sz",
-        "controlCount": 42,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-390",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-08-dark-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 599,
-        "textSample": "NAPI NYOMON KÖVETÉS Szokáskövető Kattints egy napra, hogy jelöld a teljesítést. A sorozat azt mutatja, hány egymást követő nap ment egyben. 0 Leghosszabb sorozat (nap) 0% Mai teljesítés Edzés Nincs sorozat × H 21 K 22 Sz",
-        "controlCount": 42,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      }
-    ],
-    "interaction": {
-      "inputSelector": "input[type=text]",
-      "inputValue": "teszt",
-      "buttonText": "×",
-      "clickedButtons": [
-        "×"
-      ],
-      "domChangedAfter": "×",
-      "clicked": true,
-      "domChanged": true,
-      "textBefore": 599,
-      "textAfter": 553,
-      "htmlChanged": true,
-      "storageSetsBefore": 0,
-      "storageSetsAfter": 1,
-      "storageKeys": [
-        "habit-tracker-v1"
-      ],
-      "dialogs": [],
-      "note": null
-    },
-    "consoleErrors": [],
-    "pageErrors": [],
-    "blockedRequests": [],
-    "storageGets": 1,
-    "storageSets": 1,
-    "storageKeys": [
-      "habit-tracker-v1"
-    ]
-  }
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-08-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 599,
+				"textSample": "NAPI NYOMON KÖVETÉS Szokáskövető Kattints egy napra, hogy jelöld a teljesítést. A sorozat azt mutatja, hány egymást követő nap ment egyben. 0 Leghosszabb sorozat (nap) 0% Mai teljesítés Edzés Nincs sorozat × H 21 K 22 Sz",
+				"controlCount": 42,
+				"storageGets": 1,
+				"storageSets": 1,
+				"storageKeys": ["habit-tracker-v1"]
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-08-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 599,
+				"textSample": "NAPI NYOMON KÖVETÉS Szokáskövető Kattints egy napra, hogy jelöld a teljesítést. A sorozat azt mutatja, hány egymást követő nap ment egyben. 0 Leghosszabb sorozat (nap) 0% Mai teljesítés Edzés Nincs sorozat × H 21 K 22 Sz",
+				"controlCount": 42,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-08-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 599,
+				"textSample": "NAPI NYOMON KÖVETÉS Szokáskövető Kattints egy napra, hogy jelöld a teljesítést. A sorozat azt mutatja, hány egymást követő nap ment egyben. 0 Leghosszabb sorozat (nap) 0% Mai teljesítés Edzés Nincs sorozat × H 21 K 22 Sz",
+				"controlCount": 42,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-08-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 599,
+				"textSample": "NAPI NYOMON KÖVETÉS Szokáskövető Kattints egy napra, hogy jelöld a teljesítést. A sorozat azt mutatja, hány egymást követő nap ment egyben. 0 Leghosszabb sorozat (nap) 0% Mai teljesítés Edzés Nincs sorozat × H 21 K 22 Sz",
+				"controlCount": 42,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": "input[type=text]",
+			"inputValue": "teszt",
+			"buttonText": "×",
+			"clickedButtons": ["×"],
+			"domChangedAfter": "×",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 599,
+			"textAfter": 553,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 1,
+			"storageKeys": ["habit-tracker-v1"],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 1,
+		"storageKeys": ["habit-tracker-v1"]
+	}
 }

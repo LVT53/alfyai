@@ -1,9 +1,9 @@
 {
-  "response": "```json\n{\n  \"claims\": [\n    \"A kvíz kérdése: melyik főváros fekszik a Duna mentén a legkeletebbre?\",\n    \"A helyes válasz D) Bukarest\"\n  ],\n  \"findings\": [\n    {\n      \"claim\": \"A helyes válasz D) Bukarest\",\n      \"problem\": \"Bukarest nem fekszik a Duna mentén (a Duna nem halad át Bukaresten, a legközelebbi nagyobb folyó a Dâmbovița, amely a Duna mellékfolyója, de Bukarest nem partváros). A Duna mentén legkeletebbre fekvő főváros Belgrád (34.4°K), míg Bukarest kb. 21 km-re van a Dunától.\",\n      \"class\": \"wrong_key\",\n      \"location\": \"data-correct=\\\"true\\\" attribute on <li> and text 'Helyes válasz: D) Bukarest'\",\n      \"settled\": true\n    }\n  ],\n  \"repairedHtml\": \"<!doctype html>\\n<html lang=\\\"hu\\\">\\n<head><meta charset=\\\"utf-8\\\"><title>Duna kvíz</title></head>\\n<body>\\n<h1>Duna kvíz</h1>\\n<p>Melyik főváros fekszik a Duna mentén a legkeletebbre?</p>\\n<ol type=\\\"A\\\">\\n<li>Bécs</li>\\n<li>Pozsony</li>\\n<li data-correct=\\\"true\\\">Belgrád</li>\\n<li>Bukarest</li>\\n</ol>\\n<p>Helyes válasz: C) Belgrád</p>\\n</body>\\n</html>\",\n  \"repairSafe\": true\n}\n```",
-  "durationMs": 2559,
-  "usage": {
-    "promptTokens": 664,
-    "completionTokens": 400,
-    "totalTokens": 1064
-  }
+	"response": "```json\n{\n  \"claims\": [\n    \"A kvíz kérdése: melyik főváros fekszik a Duna mentén a legkeletebbre?\",\n    \"A helyes válasz D) Bukarest\"\n  ],\n  \"findings\": [\n    {\n      \"claim\": \"A helyes válasz D) Bukarest\",\n      \"problem\": \"Bukarest nem fekszik a Duna mentén (a Duna nem halad át Bukaresten, a legközelebbi nagyobb folyó a Dâmbovița, amely a Duna mellékfolyója, de Bukarest nem partváros). A Duna mentén legkeletebbre fekvő főváros Belgrád (34.4°K), míg Bukarest kb. 21 km-re van a Dunától.\",\n      \"class\": \"wrong_key\",\n      \"location\": \"data-correct=\\\"true\\\" attribute on <li> and text 'Helyes válasz: D) Bukarest'\",\n      \"settled\": true\n    }\n  ],\n  \"repairedHtml\": \"<!doctype html>\\n<html lang=\\\"hu\\\">\\n<head><meta charset=\\\"utf-8\\\"><title>Duna kvíz</title></head>\\n<body>\\n<h1>Duna kvíz</h1>\\n<p>Melyik főváros fekszik a Duna mentén a legkeletebbre?</p>\\n<ol type=\\\"A\\\">\\n<li>Bécs</li>\\n<li>Pozsony</li>\\n<li data-correct=\\\"true\\\">Belgrád</li>\\n<li>Bukarest</li>\\n</ol>\\n<p>Helyes válasz: C) Belgrád</p>\\n</body>\\n</html>\",\n  \"repairSafe\": true\n}\n```",
+	"durationMs": 2559,
+	"usage": {
+		"promptTokens": 664,
+		"completionTokens": 400,
+		"totalTokens": 1064
+	}
 }
