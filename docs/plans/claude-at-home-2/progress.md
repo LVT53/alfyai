@@ -264,6 +264,18 @@ iframe`; never public, tested with the route's HTML asserted absent. `69a99a4b` 
 12,690 tests (+33), Playwright 37, containment 30, gates clean except the known extra cycle; one MinerU timing flake
 passes alone. Read by the orchestrator. Waiting: S2c → merge this branch into `feat/artifacts-s2` → RV-2B.
 
+**S1c done (2026-09-26 ~09:00).** `feat/artifacts-s1-comments` HEAD `e73c7003`, 20 commits on `bb398b5e`: the document
+eval **re-recorded from qwen3-6-27b** via the tunnel (`98e0c6af`; live 7/7 good, known-bad failed as it must, replay
+7/7); T10 (shared anchor vocabulary + the Document's text resolver, comments + `@Alfy` routes, the margin/thread/card/
+bubble, `@Alfy` reads through `readDocumentForAlfy` first so its patches meet the same snapshot guard as
+`edit_artifact`); T12 (block → `GeneratedDocumentSource`, the export route, the download sheet, ruling 36's ticks in
+all four renderers, proven per renderer). 12,686 tests, Fallow 124/4 0 new, Playwright 31, containment 28.
+For review: the margin is a flat scrollable list of threads, not placed against each block ("the margin shows it
+against the right block", T10 step 1) → RV-1B compares with the prototype editor; Resolve/Reopen is a toggle (fine);
+anchor scoring constants are its own; `no-ad-hoc-maps.test.ts` allowlist entries for the export route/sheet.
+Waiting: S1b (T11) → merge `feat/artifacts-s1-comments` into `feat/artifacts-s1` (shared: `DocumentBody.svelte`,
+`toolbar-actions.ts`, i18n) → RV-1A (opus) + RV-1B (sonnet).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
