@@ -506,3 +506,15 @@ describe("RV-1A: a hard break inside a quote survives too", () => {
 		);
 	});
 });
+
+describe("RV-1A: a block's label names it the way the user sees it", () => {
+	it("names a code block by its first line of code, and a formatted line without its Markdown", () => {
+		const [code, bold, table] = parseDocument(
+			'```js\nconst total = 1;\n```\n\n**Budget** for the *trip* [chip kind="status" value="Booked"]\n\n| Item | Cost |\n| --- | --- |\n| Hotel | 90 |',
+		).blocks;
+		// The refusal notice names the block by this label: an empty one named nothing.
+		expect(code.label).toBe("const total = 1;");
+		expect(bold.label).toBe("Budget for the trip");
+		expect(table.label).toBe("Item | Cost");
+	});
+});

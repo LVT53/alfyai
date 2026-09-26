@@ -927,19 +927,27 @@ function computeBlockVisibleText(
 
 /** The first line of visible text, stripped of block-level markup, for a model's `blockLabel` and the UI's refusal notice. */
 function deriveLabel(markdown: string): string {
-	const firstLine = markdown.split("\n").find((l) => l.trim().length > 0) ?? "";
-	let text = firstLine.trim();
+	const lines = markdown.split("\n").filter((l) => l.trim().length > 0);
+	// A code block is named by its first line of code: its fence line alone
+	// left the label empty, and the refusal notice then named nothing (RV-1A).
+	if (FENCE_RE.test(lines[0]?.trim() ?? "")) {
+		const code = lines.slice(1).find((l) => !FENCE_RE.test(l.trim())) ?? "";
+		return clampLabel(code.trim());
+	}
+	let text = (lines[0] ?? "").trim();
 	text = text.replace(/^#{1,6}\s*/, "");
-	text = text.replace(/^>\s?/, "");
+	text = text.replace(/^(?:>\s?)+/, "");
 	text = text.replace(/^[-*+]\s+(\[[ xX]\]\s+)?/, "");
 	text = text.replace(/^\d+[.)]\s+/, "");
-	text = text.replace(/^`{3,}.*$/, "");
 	if (text.startsWith("|")) text = text.slice(1);
-	if (text.endsWith("|")) text = text.slice(0, -1);
-	text = text.replace(/\[chip[^\]]*\]/g, "");
-	text = text.replace(/\s+/g, " ").trim();
-	if (text.length > 80) text = `${text.slice(0, 79)}…`;
-	return text;
+	if (text.endsWith("|") && !text.endsWith("\\|")) text = text.slice(0, -1);
+	// The label is what the user sees, not the Markdown: "**Bold** start"
+	// was named with its asterisks (RV-1A). Chips have no text of their own.
+	return clampLabel(inlinePlainText(text).replace(/\s+/g, " ").trim());
+}
+
+function clampLabel(text: string): string {
+	return text.length > 80 ? `${text.slice(0, 79)}…` : text;
 }
 
 /**
