@@ -534,6 +534,77 @@ describe("AppBody — download", () => {
 			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", null),
 		);
 	});
+
+	// Ruling 58: the download error must be a localized sentence, never a raw
+	// reason code or intake error code shown straight to the user.
+	it("shows a localized message for an unrecognised reason code, never the raw code", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockResolvedValue({ ok: false, reason: "rate_limited" });
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(screen.queryByText("rate_limited")).not.toBeInTheDocument(),
+		);
+		expect(
+			screen.getByText("Could not prepare this app for download."),
+		).toBeInTheDocument();
+	});
+
+	it("reuses the download-unavailable copy for the server's conversation_required backstop", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockResolvedValue({
+			ok: false,
+			reason: "conversation_required",
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(screen.getByText(en.downloadUnavailable)).toBeInTheDocument(),
+		);
+	});
+
+	it("shows the same localized message, never the word 'failed', when the request itself throws", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockRejectedValue(new Error("network down"));
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(
+				screen.getByText("Could not prepare this app for download."),
+			).toBeInTheDocument(),
+		);
+		expect(screen.queryByText("failed")).not.toBeInTheDocument();
+	});
 });
 
 describe("AppBody — regenerate", () => {

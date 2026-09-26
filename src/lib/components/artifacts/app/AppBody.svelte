@@ -206,6 +206,23 @@ const REGENERATE_FAILURE_KEYS: Record<string, I18nKey> = {
 	tool_call: "artifacts.app.failed.toolCall",
 	too_long: "artifacts.app.failed.tooLong",
 };
+
+/**
+ * Ruling 58: the download error is always a localized sentence, never
+ * `result.reason` (a wire-level reason/intake-error code) or the bare word
+ * "failed" shown straight to the user. `conversation_required` is the
+ * server's own backstop for the same case the disabled button already
+ * explains proactively (no conversation), so it reuses that copy; every
+ * other reason — a race where the artifact vanished, a file-production
+ * intake failure, the request itself throwing — falls back to one generic
+ * "could not prepare this for download" sentence.
+ */
+const DOWNLOAD_FAILURE_KEYS: Partial<Record<string, I18nKey>> = {
+	conversation_required: "artifacts.app.download.unavailable",
+};
+function localizeDownloadFailure(reason: string): string {
+	return $t(DOWNLOAD_FAILURE_KEYS[reason] ?? "artifacts.app.download.failed");
+}
 </script>
 
 <div class="app-body">
@@ -333,7 +350,9 @@ const REGENERATE_FAILURE_KEYS: Record<string, I18nKey> = {
 			<p class="app-body-hint">{$t('artifacts.app.download.unavailable')}</p>
 		{/if}
 		{#if downloadError}
-			<p class="app-body-hint app-body-error-text">{downloadError}</p>
+			<p class="app-body-hint app-body-error-text">
+				{localizeDownloadFailure(downloadError)}
+			</p>
 		{/if}
 	{/if}
 </div>
