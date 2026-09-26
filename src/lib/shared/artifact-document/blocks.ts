@@ -697,6 +697,157 @@ function splitIntoSegments(lines: string[]): Segment[] {
 	return segments;
 }
 
+// ---------------------------------------------------------------------------
+// Visible text — what the reader sees of a block: the editor's own text
+// (ProseMirror's `textBetween` over the block, marks stripped, "\n" between
+// the text blocks inside a list, quote or table). A comment's anchor is
+// captured from that text, so it has to be resolved against it too, never
+// against the Markdown source (RV-1A); an export renders it, since the report
+// renderers print text verbatim.
+// ---------------------------------------------------------------------------
+
+const NAMED_ENTITIES: Record<string, string> = {
+	amp: "&",
+	lt: "<",
+	gt: ">",
+	quot: '"',
+	apos: "'",
+	nbsp: "\u00a0",
+};
+
+function decodeEntities(text: string): string {
+	return text.replace(
+		/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi,
+		(match, name: string) => {
+			if (name.startsWith("#")) {
+				const code =
+					name[1].toLowerCase() === "x"
+						? Number.parseInt(name.slice(2), 16)
+						: Number.parseInt(name.slice(1), 10);
+				return code > 0 && code <= 0x10ffff
+					? String.fromCodePoint(code)
+					: match;
+			}
+			return NAMED_ENTITIES[name.toLowerCase()] ?? match;
+		},
+	);
+}
+
+/**
+ * Inline Markdown as the text it shows: code spans verbatim, backslash
+ * escapes resolved, emphasis/strong/strike delimiters dropped (a lone `*`
+ * between spaces, and an underscore inside a word, are literal), a link
+ * or autolink as its text, an image or a tracker chip as nothing (both are
+ * atoms with no text in the editor), inline HTML tags dropped, entities
+ * decoded, and a hard break as nothing. A soft line break stays "\n".
+ */
+export function inlinePlainText(markdown: string): string {
+	const codeSpans: string[] = [];
+	let text = markdown.replace(
+		/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g,
+		(_match, _ticks: string, body: string) => {
+			codeSpans.push(/^ .* $/.test(body) ? body.slice(1, -1) : body);
+			return `\uE000${codeSpans.length - 1}\uE000`;
+		},
+	);
+	const escapes: string[] = [];
+	text = text.replace(/\\([!-/:-@[-`{-~])/g, (_match, ch: string) => {
+		escapes.push(ch);
+		return `\uE001${escapes.length - 1}\uE001`;
+	});
+	text = text.replace(/\\\n[ \t]*/g, "").replace(/ {2,}\n[ \t]*/g, "");
+	text = text
+		.replace(/\[chip\s+[^\]]*\]/g, "")
+		.replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+		.replace(/<((?:https?|mailto|ftp):[^>\s]*)>/gi, "$1")
+		.replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*)?\/?>/gi, "")
+		.replace(/~~/g, "");
+	text = text.replace(
+		/\*+|_+/g,
+		(run: string, offset: number, whole: string) => {
+			const before = whole[offset - 1] ?? " ";
+			const after = whole[offset + run.length] ?? " ";
+			const leftFlanking = !/\s/.test(after);
+			const rightFlanking = !/\s/.test(before);
+			if (!leftFlanking && !rightFlanking) return run;
+			if (
+				run[0] === "_" &&
+				/[\p{L}\p{N}]/u.test(before) &&
+				/[\p{L}\p{N}]/u.test(after)
+			) {
+				return run;
+			}
+			return "";
+		},
+	);
+	text = decodeEntities(text);
+	text = text.replace(
+		/\uE001(\d+)\uE001/g,
+		(_m, i: string) => escapes[Number(i)],
+	);
+	return text.replace(
+		/\uE000(\d+)\uE000/g,
+		(_m, i: string) => codeSpans[Number(i)],
+	);
+}
+
+/**
+ * A block's visible text: the block's own markup (heading hashes, quote
+ * markers, list markers and checkboxes, table pipes and delimiter row, code
+ * fences) removed, its inline Markdown read by `inlinePlainText`, and "\n"
+ * between the text blocks inside it (list items, table cells), exactly where
+ * the editor puts one.
+ */
+export function blockVisibleText(
+	block: Pick<DocumentBlock, "kind" | "markdown">,
+): string {
+	const lines = block.markdown.split("\n");
+	switch (block.kind) {
+		case "hr":
+			return "";
+		case "code": {
+			const inner = lines.slice(1);
+			if (inner.length > 0 && FENCE_RE.test(inner[inner.length - 1].trim())) {
+				inner.pop();
+			}
+			return inner.join("\n");
+		}
+		case "table":
+			return lines
+				.filter((line) => !isTableDelimiterRow(line))
+				.flatMap((line) =>
+					splitTableCells(line).map((cell) => inlinePlainText(cell.trim())),
+				)
+				.join("\n");
+		case "heading": {
+			const text = lines[0]
+				.replace(/^\s{0,3}#{1,6}[ \t]*/, "")
+				.replace(/[ \t]+#+[ \t]*$/, "");
+			return inlinePlainText(text);
+		}
+		default: {
+			// A hard break joins its two lines into one text; the line after it
+			// carries no marker of its own.
+			const joined = block.markdown
+				.replace(/\\\n[ \t]*/g, "\uE002")
+				.replace(/ {2,}\n[ \t]*/g, "\uE002");
+			return joined
+				.split("\n")
+				.map((line) =>
+					inlinePlainText(
+						line
+							.replace(/^\s{0,3}(?:>[ \t]?)+/, "")
+							.replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s*)?/, "")
+							.replace(/^\s+/, "")
+							.replace(/\uE002/g, ""),
+					),
+				)
+				.join("\n");
+		}
+	}
+}
+
 /** The first line of visible text, stripped of block-level markup, for a model's `blockLabel` and the UI's refusal notice. */
 function deriveLabel(markdown: string): string {
 	const firstLine = markdown.split("\n").find((l) => l.trim().length > 0) ?? "";

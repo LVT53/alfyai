@@ -713,3 +713,44 @@ describe("RV-1A: a comment on a selection at a block's edge", () => {
 		expect(parseArtifactAnchor(JSON.stringify(wholeBlock))).toEqual(wholeBlock);
 	});
 });
+
+describe("RV-1A: @Alfy on a passage with formatting", () => {
+	it("reaches the model and applies: the editor's visible-text anchor resolves on a bold passage", async () => {
+		sendJsonControlMessageMock.mockClear();
+		const artifact = await createDocumentArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			title: "Trip",
+			markdown: "Book **the** train to Vienna.",
+			author: "user",
+			summary: "Created",
+		});
+		const [block] = parseDocument(artifact.body ?? "", { mint: false }).blocks;
+		// Exactly what the editor sends for a selection of "the train to
+		// Vienna": ProseMirror's text, where the bold mark has no asterisks.
+		const root = await comment(artifact.id, "@Alfy make it Budapest.", {
+			anchor: {
+				kind: "text",
+				blockId: block.id,
+				quote: "the train to Vienna",
+				prefix: "Book ",
+				suffix: ".",
+			},
+		});
+		mockAlfyResponse({
+			note: "Changed it to Budapest.",
+			ops: [{ op: "replaceRange", find: "Vienna", text: "Budapest" }],
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(sendJsonControlMessageMock).toHaveBeenCalledTimes(1);
+		expect(result.value.outcome).toBe("applied");
+	});
+});

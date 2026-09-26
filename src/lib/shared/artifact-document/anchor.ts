@@ -20,7 +20,7 @@ import {
 	anchorStateFor,
 	ORPHANED_ANCHOR_RESOLUTION,
 } from "$lib/shared/artifacts/anchor";
-import type { DocumentBlock } from "./blocks";
+import { blockVisibleText, type DocumentBlock } from "./blocks";
 
 /** How much surrounding text a text anchor carries on each side of its quote. */
 export const ANCHOR_CONTEXT_CHARS = 24;
@@ -102,7 +102,11 @@ export function resolveTextAnchor(
 	let scanned = 0;
 
 	for (const block of candidateBlockOrder(blocks, anchor.blockId)) {
-		const text = block.markdown;
+		// The editor captured the anchor from the block's VISIBLE text (marks
+		// stripped), so it is matched against that, never against the
+		// Markdown: "the train" is not a substring of "**the** train", and a
+		// comment on any formatted passage was orphaned at birth (RV-1A).
+		const text = blockVisibleText(block);
 		let searchFrom = 0;
 		for (;;) {
 			if (scanned >= MAX_CANDIDATES) break;
@@ -110,13 +114,26 @@ export function resolveTextAnchor(
 			if (idx === -1) break;
 			scanned += 1;
 
-			const before = text.slice(Math.max(0, idx - anchor.prefix.length), idx);
 			const afterEnd = idx + anchor.quote.length;
-			const after = text.slice(afterEnd, afterEnd + anchor.suffix.length);
-
 			let score = QUOTE_POINTS;
-			if (before === anchor.prefix) score += PREFIX_POINTS;
-			if (after === anchor.suffix) score += SUFFIX_POINTS;
+			// An empty context was captured at the block's edge (the editor's
+			// context stops there), so it matches only at that edge.
+			if (
+				anchor.prefix === ""
+					? idx === 0
+					: text.slice(Math.max(0, idx - anchor.prefix.length), idx) ===
+						anchor.prefix
+			) {
+				score += PREFIX_POINTS;
+			}
+			if (
+				anchor.suffix === ""
+					? afterEnd === text.length
+					: text.slice(afterEnd, afterEnd + anchor.suffix.length) ===
+						anchor.suffix
+			) {
+				score += SUFFIX_POINTS;
+			}
 			if (block.id === anchor.blockId) score += SAME_BLOCK_BONUS;
 
 			if (!best || score > best.score) {
@@ -151,7 +168,7 @@ export function reanchor(anchor: Anchor, blocks: DocumentBlock[]): Anchor {
 	const block = blocks.find((candidate) => candidate.id === resolution.blockId);
 	if (!block) return anchor;
 
-	const text = block.markdown;
+	const text = blockVisibleText(block);
 	const prefix = text.slice(
 		Math.max(0, resolution.from - ANCHOR_CONTEXT_CHARS),
 		resolution.from,

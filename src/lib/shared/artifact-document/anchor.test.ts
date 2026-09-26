@@ -6,7 +6,7 @@ import {
 	reanchor,
 	resolveTextAnchor,
 } from "./anchor";
-import { makeBlock } from "./blocks";
+import { makeBlock, parseDocument } from "./blocks";
 
 describe("makeAnchor", () => {
 	it("builds a text anchor from a selection's quote and its surrounding context", () => {
@@ -172,5 +172,62 @@ describe("reanchor", () => {
 			makeBlock("p1", "paragraph", "Everything is already packed."),
 		];
 		expect(reanchor(anchor, blocks)).toEqual(anchor);
+	});
+});
+
+// RV-1A (independent review of Slice 1): red before its fix; the review file
+// (docs/plans/claude-at-home-2/review-1a.md) quotes the failing line.
+describe("RV-1A: an anchor resolves against the text the user sees, not the Markdown", () => {
+	// The editor builds an anchor from ProseMirror's visible text
+	// (`readSelectionAnchorContext`: textBetween, marks stripped, "\n" between
+	// the blocks inside a list or table). These are the exact shapes it sends.
+	it("is exact at birth on formatted text: bold, italic, a link, an escape and an entity around the quote", () => {
+		const [block] = parseDocument(
+			"Book **the** train, *maybe* [the bus](https://x.y) at 5 &lt; 6 \\* more.",
+		).blocks;
+		const anchor = makeAnchor({
+			blockId: block.id,
+			quote: "the train",
+			prefix: "Book ",
+			suffix: ", maybe the bus at 5 < 6 ",
+		});
+		if (!anchor) throw new Error("fixture anchor must build");
+		expect(resolveTextAnchor(anchor, [block]).state).toBe("exact");
+	});
+
+	it("is exact at birth on a whole heading, a task item's text and a table cell", () => {
+		const [heading, task, table] = parseDocument(
+			"## Day **one**\n\n- [x] Book *the* hotel\n\n| Item | Status |\n| --- | --- |\n| Train | booked |",
+		).blocks;
+		const cases = [
+			{ block: heading, quote: "Day one", prefix: "", suffix: "" },
+			{ block: task, quote: "the hotel", prefix: "Book ", suffix: "" },
+			{ block: table, quote: "booked", prefix: "Status\nTrain\n", suffix: "" },
+		];
+		for (const { block, quote, prefix, suffix } of cases) {
+			const anchor = makeAnchor({ blockId: block.id, quote, prefix, suffix });
+			if (!anchor) throw new Error("fixture anchor must build");
+			expect(resolveTextAnchor(anchor, [heading, task, table]).state).toBe(
+				"exact",
+			);
+		}
+	});
+
+	it("an empty context means the block's edge: a whole-block quote that gained text around it reads as moved", () => {
+		const [before] = parseDocument("Pack the bags").blocks;
+		const anchor = makeAnchor({
+			blockId: before.id,
+			quote: "Pack the bags",
+			prefix: "",
+			suffix: "",
+		});
+		if (!anchor) throw new Error("fixture anchor must build");
+		expect(resolveTextAnchor(anchor, [before]).state).toBe("exact");
+		const after = makeBlock(
+			before.id,
+			"paragraph",
+			"Tonight: Pack the bags and go.",
+		);
+		expect(resolveTextAnchor(anchor, [after]).state).toBe("moved");
 	});
 });
