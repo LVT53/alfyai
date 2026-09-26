@@ -3,22 +3,31 @@ import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { artifacts, users } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
-import { createConversation, login } from "./helpers";
+import { runReadArtifactTool } from "../../src/lib/server/services/normal-chat-tools/artifact-tools/read";
+import {
+	AI_SMOKE_API_KEY,
+	AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT,
+	AI_SMOKE_EDIT_ARTIFACT_MARKER,
+	AI_SMOKE_MODEL_ID,
+	encodeEditArtifactScenarioPayload,
+} from "../fixtures/ai/openai-compatible-scenarios";
+import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
+import { createConversation, login, sendMessage } from "./helpers";
 
 // Slice 1's T8/T9/T11 surfaces: change marks, Keep/Undo and the refusal
-// notice are deliberately NOT covered here. Every one of them fires only in
-// response to a `PatchResult` an already-open panel receives while a chat
-// turn (or, in T10's own separate spec, an `@Alfy` comment reply) is live —
-// there is no scriptable tool-call stream fixture in this harness
-// (`artifacts-panel.spec.ts`'s own header comment notes the same gap for
-// `produce_file`), and pre-seeding the DB with an already-patched body proves
-// nothing: the mark is a purely in-session annotation that is never part of
-// the stored Markdown (`marks.ts`'s own header comment). Those behaviours
-// are covered directly against a real Tiptap editor in
-// `src/lib/components/artifacts/document/marks.test.ts`,
-// `ChangeBar.test.ts`, `AlfyWriting.test.ts` and `RefusalNotice.test.ts`.
-// The "Ask Alfy" / "Comment" selection bubble is T10's surface, covered by
-// `tests/e2e/artifact-document-comments.spec.ts`.
+// notice are unit-tested directly against a real Tiptap editor in
+// `src/lib/components/artifacts/document/marks.test.ts`, `ChangeBar.test.ts`,
+// `AlfyWriting.test.ts`, `RefusalNotice.test.ts` and `DocumentBody.test.ts`
+// (the last with a fake editor module, proving DocumentBody's OWN reaction to
+// `alfyActivity` — the shimmer, the reload, the marks, the notice). They also
+// fire only in response to a real chat turn while an already-open panel is
+// live, so "T8 live"'s own end-to-end proof is the
+// `AI_SMOKE_EDIT_ARTIFACT_MARKER` scenario below (`openai-compatible-provider.ts`)
+// driving a REAL `edit_artifact` call through the real `/api/chat/stream`
+// path — never a seeded/pre-applied `PatchResult`, which would prove nothing
+// about the live wiring (a mark is a purely in-session annotation, never part
+// of the stored Markdown). The "Ask Alfy" / "Comment" selection bubble is
+// T10's surface, covered by `tests/e2e/artifact-document-comments.spec.ts`.
 //
 // CRITICAL, PRE-EXISTING FINDING (not introduced by T8/T9/T11, found while
 // writing this file): against a REAL browser, any edit that reaches
@@ -525,3 +534,260 @@ test.describe("the Document card's checklist (T9 steps 4/7)", () => {
 		await expect(list.getByText("+2 more")).toBeVisible();
 	});
 });
+
+// T8 live: a REAL edit_artifact call, driven through the real /api/chat/stream
+// path by the fake OpenAI-compatible provider harness (the mechanism
+// instruction-suggestion-live.spec.ts already established for suggest_instruction)
+// — never a seeded/pre-applied PatchResult, which would prove nothing about the
+// live wiring (marks.ts's own header comment: the mark is a purely in-session
+// annotation, never part of the stored Markdown). Establishes the
+// "your words win" snapshot the same way a live read_artifact call would
+// (runReadArtifactTool, called directly in test setup — the tool's own
+// snapshot-writing behavior is exercised for real, just not through a second
+// scripted model round trip this test does not need).
+test.describe("T8 live — a real edit_artifact call reaches the open panel", () => {
+	const fakeProvider = createOpenAICompatibleProviderHarness();
+
+	test.beforeAll(async () => {
+		await fakeProvider.start();
+	});
+
+	test.afterAll(async () => {
+		await fakeProvider.stop();
+	});
+
+	test.beforeEach(async () => {
+		await fakeProvider.reset();
+	});
+
+	test("marks the applied block and shows the refusal notice for the refused one", async ({
+		page,
+	}) => {
+		// Hits the SAME pre-existing readMarkdown/fixTables recursion this
+		// file's header comment documents (verified directly: the persisted
+		// tool_call segment carries exactly the right metadata —
+		// {ok:true, appliedCount:1, refusedBlocksJson:[{blockId, reason:
+		// "block_changed"}]} — proving the whole live wiring up through
+		// landAlfyActivity is correct; it is landAlfyActivity's own
+		// `loadMarkdownFn(editor, newBody)` call, reached for the first time by
+		// a REAL edit_artifact landing in a real browser, that then throws the
+		// SAME RangeError the other 7 tests below hit typing a single
+		// character). Marked the same way, for the same reason; unmark this
+		// alongside them once T7's editor fix lands — at that point this test
+		// is the regression coverage for T8 live's marks/refusal-notice wiring.
+		test.fail(
+			true,
+			"pre-existing readMarkdown/fixTables recursion — see header comment",
+		);
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a trip");
+			const artifactId = await seedDocument({
+				conversationId,
+				title: "Trip plan",
+				markdown: "Book the hotel.\n\nBook the flight.",
+			});
+
+			// The snapshot a live read_artifact call would have written — the
+			// exact side effect `applyDocumentPatch`'s "your words win" guard
+			// depends on (document-ops.ts's `readDocumentForAlfy`).
+			const userId = await testUserId();
+			const readResult = await runReadArtifactTool({
+				userId,
+				conversationId,
+				artifactId,
+				detail: "blocks",
+				abortSignal: new AbortController().signal,
+			});
+			const blocks =
+				readResult.modelPayload.success && "blocks" in readResult.modelPayload
+					? (readResult.modelPayload.blocks as Array<{
+							blockId: string;
+							hash: string;
+							text: string;
+						}>)
+					: [];
+			const applyBlock = blocks.find((b) => b.text === "Book the hotel.");
+			const refuseBlock = blocks.find((b) => b.text === "Book the flight.");
+			expect(applyBlock, "the seeded 'Book the hotel.' block").toBeTruthy();
+			expect(refuseBlock, "the seeded 'Book the flight.' block").toBeTruthy();
+
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+
+			await openChatAndReload(page, conversationId);
+			await openDocumentFromPanel(page);
+
+			const markerMessage = `${AI_SMOKE_EDIT_ARTIFACT_MARKER} ${encodeEditArtifactScenarioPayload(
+				{
+					artifactId,
+					applyBlockId: applyBlock?.blockId ?? "",
+					applyBaseHash: applyBlock?.hash ?? "",
+					refuseBlockId: refuseBlock?.blockId ?? "",
+				},
+			)}`;
+			await sendMessage(page, markerMessage);
+
+			await expect(
+				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			// Applied: the change is marked, with the inline Keep/Undo bar.
+			await expect(page.getByTestId("alfy-change-bar")).toBeVisible({
+				timeout: 10_000,
+			});
+			await expect(page.getByText("Book the hotel by Friday.")).toBeVisible();
+
+			// Refused: the notice names the untouched part, and the OTHER
+			// block's text never changed.
+			await expect(page.getByTestId("refusal-notice")).toBeVisible();
+			await expect(page.getByText("Book the flight.")).toBeVisible();
+			await expect(page.getByText("This should never land.")).toHaveCount(0);
+
+			const storedBody = await readStoredBody(artifactId);
+			expect(storedBody).toContain("Book the hotel by Friday.");
+			expect(storedBody).toContain("Book the flight.");
+			expect(storedBody).not.toContain("This should never land.");
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
+});
+
+async function snapshotUserModelPreference(page: Page): Promise<string | null> {
+	return page.evaluate(async () => {
+		const response = await fetch("/api/settings");
+		if (!response.ok) {
+			throw new Error(`Failed to snapshot user settings: ${response.status}`);
+		}
+		const data = (await response.json()) as {
+			preferences?: { preferredModel?: string | null };
+		};
+		return data.preferences?.preferredModel ?? null;
+	});
+}
+
+async function updateUserModelPreference(
+	page: Page,
+	preferredModel: string | null,
+): Promise<void> {
+	const result = await page.evaluate(async (nextPreferredModel) => {
+		const response = await fetch("/api/settings/preferences", {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ preferredModel: nextPreferredModel }),
+		});
+		return { ok: response.ok, status: response.status };
+	}, preferredModel);
+	expect(
+		result.ok,
+		`User model preference update failed with ${result.status}`,
+	).toBe(true);
+}
+
+async function createTemporaryFakeProviderModel(
+	page: Page,
+	baseUrl: string,
+): Promise<{ providerId: string; modelId: string; selectedModel: string }> {
+	const result = await page.evaluate(
+		async ({ apiKey, base, modelName }) => {
+			const unique = Date.now();
+			const providerResponse = await fetch("/api/admin/providers", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: `fake_edit_artifact_provider_${unique}`,
+					displayName: `Fake Edit Artifact Provider ${unique}`,
+					baseUrl: base,
+					apiKey,
+				}),
+			});
+			const providerBody = (await providerResponse.json()) as {
+				provider?: { id: string };
+				error?: string;
+			};
+			if (!providerResponse.ok || !providerBody.provider?.id) {
+				return {
+					ok: false as const,
+					status: providerResponse.status,
+					error: providerBody.error ?? "Provider creation failed",
+				};
+			}
+			const modelResponse = await fetch(
+				`/api/admin/providers/${providerBody.provider.id}/models/batch`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						models: [
+							{
+								name: modelName,
+								displayName: "Fake Edit Artifact Provider Model",
+								contextLength: 8192,
+								supportsChat: true,
+								supportsTools: true,
+							},
+						],
+					}),
+				},
+			);
+			const modelBody = (await modelResponse.json()) as {
+				models?: Array<{ id: string }>;
+				error?: string;
+			};
+			const modelId = modelBody.models?.[0]?.id;
+			if (!modelResponse.ok || !modelId) {
+				return {
+					ok: false as const,
+					status: modelResponse.status,
+					error: modelBody.error ?? "Provider model creation failed",
+					providerId: providerBody.provider.id,
+				};
+			}
+			return {
+				ok: true as const,
+				providerId: providerBody.provider.id,
+				modelId,
+			};
+		},
+		{ apiKey: AI_SMOKE_API_KEY, base: baseUrl, modelName: AI_SMOKE_MODEL_ID },
+	);
+
+	expect(
+		result.ok,
+		`fake provider setup failed with ${
+			"status" in result ? result.status : "unknown"
+		}: ${"error" in result ? result.error : ""}`,
+	).toBe(true);
+	if (!("providerId" in result) || !("modelId" in result)) {
+		throw new Error(
+			"Fake provider setup did not return provider and model ids",
+		);
+	}
+	return {
+		providerId: result.providerId,
+		modelId: result.modelId,
+		selectedModel: `provider:${result.providerId}:${result.modelId}`,
+	};
+}
+
+async function deleteTemporaryProvider(
+	page: Page,
+	providerId: string,
+): Promise<void> {
+	await page.evaluate(async (id) => {
+		await fetch(`/api/admin/providers/${id}`, { method: "DELETE" });
+	}, providerId);
+}
