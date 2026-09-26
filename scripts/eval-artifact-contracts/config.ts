@@ -44,8 +44,11 @@ export interface EvalArtifactsConfig {
 	 * switch exists so a suite can request either mode explicitly. */
 	thinking: EvalArtifactsThinkingMode;
 	outDir: string;
-	/** Provider override; falls back to `~/.config/opencode/opencode.json`
-	 * (client.ts only) when unset. */
+	/** Both required for a live (non-`--replay`) run — `client.ts`'s
+	 * `resolveEvalArtifactsClient` throws naming both if either is unset.
+	 * Ruling 54 removed the `~/.config/opencode/opencode.json` fallback, so
+	 * there is no other source for these two. `apiKey` stays optional even
+	 * for a live run: a local server may need no auth. */
 	baseUrl: string | null;
 	model: string | null;
 	apiKey: string | null;

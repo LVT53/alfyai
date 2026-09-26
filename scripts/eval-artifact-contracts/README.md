@@ -21,8 +21,10 @@ everything a type slice's own suite plugs into, but no suite itself:
   constants (temperature 0.6, top_p 0.95, top_k 20, max_tokens 24000) and the
   retry/circuit-breaker constants.
 - `client.ts` — the **only** module that reads an API key. Resolves an
-  endpoint from `EVAL_ARTIFACTS_BASE_URL`/`_MODEL`/`_API_KEY` first, then
-  falls back to `~/.config/opencode/opencode.json`; works with **no key** at
+  endpoint from `EVAL_ARTIFACTS_BASE_URL` + `_MODEL` only — both are required
+  for a live run, and `resolveEvalArtifactsClient` throws one message naming
+  both (no network call made) if either is missing, rather than falling back
+  to anything. `_API_KEY` stays optional; works with **no key** at
   all against a local OpenAI-compatible server (no `Authorization` header is
   sent when there is no key, rather than one carrying an empty token). Sends
   `chat_template_kwargs: { enable_thinking: false }` when a suite needs
@@ -32,12 +34,14 @@ everything a type slice's own suite plugs into, but no suite itself:
 - `run.ts` — the runner: the full `--suite`/`--replay`/`--skip-model`/
   `--limit`/`--only`/`--out`/`--help` flag table (see below), the
   known-bad-first refusal, strictly sequential execution with one retry per
-  case and a stop after two consecutive 429/5xx failures, and the "nothing
-  configured" graceful exit (`0`, never a crash). `parseArgv`, `runSuite` and
-  `recordSuiteResponses` are exported and take their dependencies (the case
-  registry, the model client, the scorer, a committed-response loader) as
-  parameters, so `run.test.ts` proves all of this against a **fake** suite
-  and fixture set — this slice ships no real suite, and writes none.
+  case and a stop after two consecutive 429/5xx failures, and the "no suites
+  registered yet" graceful exit (`0`, never a crash). A *live* run with no
+  model endpoint configured is a harder failure, not a graceful one — see
+  below. `parseArgv`, `runSuite` and `recordSuiteResponses` are exported and
+  take their dependencies (the case registry, the model client, the scorer, a
+  committed-response loader) as parameters, so `run.test.ts` proves all of
+  this against a **fake** suite and fixture set — this slice ships no real
+  suite, and writes none.
 - `scoring.ts` — `SUITE_SCORERS`, the per-suite scorer dispatch table (empty
   today; `getSuiteScorer` falls back to the Slice 0 generic scorer for any
   suite with nothing registered), plus the results-leak test (below).
@@ -103,15 +107,26 @@ after a prompt or contract change, before committing them for `--replay`.
 
 ### What has to be configured for a real (non-`--replay`) run
 
-- **An OpenAI-compatible endpoint.** Either `EVAL_ARTIFACTS_BASE_URL` +
-  `EVAL_ARTIFACTS_MODEL` (and optionally `EVAL_ARTIFACTS_API_KEY`), or a
-  `~/.config/opencode/opencode.json` with at least one `provider.<name>`
-  entry carrying `options.baseURL` and a non-empty `models` map — `client.ts`
-  reads the first one it finds. Neither is required for `--replay`.
+- **An OpenAI-compatible endpoint — both required, no fallback.**
+  `EVAL_ARTIFACTS_BASE_URL` and `EVAL_ARTIFACTS_MODEL` must both be set;
+  `EVAL_ARTIFACTS_API_KEY` stays optional (the local vLLM needs none).
+  `resolveEvalArtifactsClient` throws one message naming both variables, and
+  makes no network call, if either is missing — there is no longer a
+  `~/.config/opencode/opencode.json` fallback. That file let a run silently
+  talk to whatever provider it names, under the owner's own key, and one
+  slice's "live" eval ended up measuring that provider instead of the
+  production model (ruling 54). Neither variable, nor a key, is required for
+  `--replay`.
 
-If neither is configured, the script exits `0` and explains what is
-missing — this is expected off-box (e.g. accidentally in CI) and is never a
-hard dependency of `npm test` or `npm run build`.
+  Reach the production model through a tunnel that opens and closes in one
+  command, on the runner's own local port:
+
+  ```bash
+  ssh -N -o ExitOnForwardFailure=yes -L 30000:192.168.1.96:30000 alfyroot & T=$!; sleep 2; EVAL_ARTIFACTS_BASE_URL=http://127.0.0.1:30000/v1 EVAL_ARTIFACTS_MODEL=qwen3-6-27b npm run eval:artifacts -- --suite <suite>; kill $T
+  ```
+
+  Runs stay sequential — the model is shared — and recorded responses under
+  `fixtures/<suite>/responses/` come from `qwen3-6-27b` only.
 
 ## Adding a fixture (for a type slice)
 
@@ -139,7 +154,7 @@ a contract or prompt change is exactly when responses are expected to move.
 ## The key rule, in one place
 
 `client.ts` is the only module that reads an API key — from
-`EVAL_ARTIFACTS_API_KEY`, else `~/.config/opencode/opencode.json` — and it
+`EVAL_ARTIFACTS_API_KEY` only, optional, with no config-file fallback — and it
 never returns or logs it: the key lives only inside `send`'s closure, never
 as a property of the returned client object. `scoring.test.ts`'s
 "no API-key shape reaches a results file" suite greps a results-shaped
@@ -155,6 +170,6 @@ writes `results/results.json` (generation timestamp + every suite's report);
 a screenshot gallery, where a suite wants one (Canvas's arrangement
 screenshots, named in slice-5.md), is that suite's own addition, not part of
 this core. Nothing here is a dependency of `npm test` or `npm run build`; CI
-runs `config.test.ts`, `client.test.ts` (pure `parseOpencodeConfig` only —
-no real disk/network access), `scoring.test.ts` and `run.test.ts` (the fake
-suite described above), plus `--replay --suite all` once suites exist.
+runs `config.test.ts`, `client.test.ts` (pure — no real disk/network
+access), `scoring.test.ts` and `run.test.ts` (the fake suite described
+above), plus `--replay --suite all` once suites exist.
