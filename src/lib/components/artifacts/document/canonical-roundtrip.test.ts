@@ -70,4 +70,15 @@ describe("RV-1A: the canonical form survives a real reopen", () => {
 			buildIndex(parseDocument(stored).blocks),
 		);
 	});
+
+	it("keeps a horizontal rule a horizontal rule through open → serialise → reload", () => {
+		const stored = parseDocument("Above.\n\n---\n\nBelow.\n").markdown;
+		const once = reopen(stored);
+		expect(parseDocument(once).blocks.map((block) => block.kind)).toEqual([
+			"paragraph",
+			"hr",
+			"paragraph",
+		]);
+		expect(once).not.toContain("| --- |");
+	});
 });

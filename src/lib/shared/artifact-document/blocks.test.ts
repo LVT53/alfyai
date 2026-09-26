@@ -397,3 +397,21 @@ describe("RV-1A: a task item's nested items belong to its block", () => {
 		expect(parsed.blocks).toHaveLength(3);
 	});
 });
+
+describe("RV-1A: a horizontal rule is not a table", () => {
+	it("keeps `---` a horizontal rule through normalisation and a reload, instead of the text `| --- |`", () => {
+		expect(normalizeMarkdown("---")).toBe("---");
+		const parsed = parseDocument("Above.\n\n---\n\nBelow.");
+		expect(parsed.blocks.map((b) => `${b.kind}:${b.markdown}`)).toEqual([
+			"paragraph:Above.",
+			"hr:---",
+			"paragraph:Below.",
+		]);
+		const reloaded = parseDocument(parsed.markdown);
+		expect(reloaded.blocks.map((b) => `${b.kind}:${b.markdown}`)).toEqual([
+			"paragraph:Above.",
+			"hr:---",
+			"paragraph:Below.",
+		]);
+	});
+});

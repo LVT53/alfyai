@@ -171,7 +171,14 @@ export function splitTableCells(line: string): string[] {
 	return cells;
 }
 
+/**
+ * A GFM delimiter row: pipe-separated cells of `-` with optional alignment
+ * colons. The pipe is required — a bare `---` line is a horizontal rule (or a
+ * setext underline), and reading it as a one-cell delimiter row rewrote every
+ * horizontal rule into the paragraph text `| --- |` on its first save (RV-1A).
+ */
 function isTableDelimiterRow(line: string): boolean {
+	if (!line.includes("|")) return false;
 	const cells = splitTableCells(line).map((c) => c.trim());
 	if (cells.length === 0) return false;
 	return cells.every((cell) => /^:?-+:?$/.test(cell));
