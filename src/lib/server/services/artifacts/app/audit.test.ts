@@ -291,6 +291,44 @@ describe("auditAppHtml", () => {
 			).toBe(true);
 		});
 
+		it("no-navigate does not flag an app's OWN 'location' field (an address, a city) on an unrelated object", () => {
+			// A trip-cost app, an expense tracker, a contact form: "location" is a
+			// completely ordinary field name that has nothing to do with
+			// window.location. Flagging it makes generation retry-then-refuse an
+			// app that never tried to navigate anywhere.
+			expect(
+				checkFor(
+					auditAppHtml(
+						"<script>expense.location = input.value; state.location = 'Budapest';</script>",
+					),
+					"no-navigate",
+				).passed,
+			).toBe(true);
+		});
+
+		it("no-navigate flags bracket-notation self-navigation, not just dot notation", () => {
+			// window['location'] = ... is the same self-navigation attempt as
+			// window.location = ..., just spelled with a computed member access.
+			// A rule the model (or an obfuscated payload) can bypass by rewriting
+			// `.location` as `['location']` is not the rule the spec asks for.
+			expect(
+				checkFor(
+					auditAppHtml(
+						"<script>window['location'] = 'https://evil.example/steal';</script>",
+					),
+					"no-navigate",
+				).passed,
+			).toBe(false);
+			expect(
+				checkFor(
+					auditAppHtml(
+						`<script>self["location"] = 'https://evil.example/steal';</script>`,
+					),
+					"no-navigate",
+				).passed,
+			).toBe(false);
+		});
+
 		it("no-webrtc flags RTCPeerConnection", () => {
 			const check = checkFor(
 				auditAppHtml("<script>new RTCPeerConnection();</script>"),

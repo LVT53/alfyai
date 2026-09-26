@@ -39,6 +39,26 @@ function firstMatches(html: string, regex: RegExp, limit = 3): string[] {
 // chars, so this changes no verdict on any real document.
 const MAX_TAG_TAIL = 4096;
 
+// `no-navigate`'s "location" checks (below): scoped to a reference that can
+// actually navigate this document, never an arbitrary object's OWN property
+// of the same name (an address field, a "location" column). A bare
+// `location` identifier always resolves to the global (excluded from being
+// someone else's property by the negative lookbehind), and the alias list is
+// every global that can name this document's own window from inside it.
+const NAV_GLOBAL_ALIASES =
+	"(?:window|self|top|parent|document|globalThis|frames)";
+const LOCATION_ACCESS = `(?:(?<![.\\w])location|\\b${NAV_GLOBAL_ALIASES}\\s*(?:\\.\\s*location|\\[\\s*["']location["']\\s*\\]))`;
+const HREF_ACCESS = `(?:\\.\\s*href|\\[\\s*["']href["']\\s*\\])`;
+// `window['location'] = url` is the same self-navigation as
+// `window.location = url` with a computed member access — the bracket form
+// is not a second, weaker check, so both must reach the same regex.
+const LOCATION_ASSIGN_RE = new RegExp(
+	`${LOCATION_ACCESS}\\s*(?:${HREF_ACCESS})?\\s*=[^=]`,
+);
+const LOCATION_CALL_RE = new RegExp(
+	`${LOCATION_ACCESS}\\s*(?:\\.\\s*|\\[\\s*["'])?(?:assign|replace)(?:["']\\s*\\])?\\s*\\(`,
+);
+
 const RULE_EVALUATORS: Record<AppContractRuleId, RuleEvaluator> = {
 	"no-script-src": (html) => {
 		const found = firstMatches(
@@ -180,12 +200,27 @@ const RULE_EVALUATORS: Record<AppContractRuleId, RuleEvaluator> = {
 	// ITSELF (only a hostile parent framing it, or the frame navigating
 	// something else), so an app that tries can still leak what it holds —
 	// exactly the "still leak by navigating itself" gap the ruling names.
+	//
+	// `LOCATION_ACCESS` deliberately scopes "location" to a reference that can
+	// actually navigate the document: a bare `location` identifier (never
+	// someone else's property — the negative lookbehind excludes `x.location`)
+	// or `<global-alias>.location` / `<global-alias>['location']` for the
+	// handful of names that can refer to this document's own window. Two
+	// measured failure modes this guards against:
+	//   - false negative: `window['location'] = url` is the exact same
+	//     self-navigation as `window.location = url`, just spelled with a
+	//     computed member access — the old dot-only regex missed it entirely.
+	//   - false positive: the old regex matched ANY object's `.location`
+	//     property (`expense.location = 'Budapest'`, an address field on the
+	//     app's own data), which is not navigation at all. A rule that
+	//     refuses ordinary apps for using a common English field name is a
+	//     worse bug than the one it is trying to catch.
 	"no-navigate": (html) => {
 		const found: string[] = [];
-		if (/\b(?:window\.)?location(?:\.href)?\s*=[^=]/.test(html)) {
+		if (LOCATION_ASSIGN_RE.test(html)) {
 			found.push("location assignment");
 		}
-		if (/\blocation\s*\.\s*(?:assign|replace)\s*\(/.test(html)) {
+		if (LOCATION_CALL_RE.test(html)) {
 			found.push("location.assign/replace(");
 		}
 		if (/\bwindow\s*\.\s*open\s*\(/.test(html)) {
