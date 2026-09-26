@@ -4,9 +4,11 @@ import type { Attachment } from "svelte/attachments";
  * The set of elements the focus trap treats as tab stops. This is the
  * selector DialogShell has always used: interactive elements, minus disabled
  * ones, minus anything explicitly pulled out of tab order with
- * `tabindex="-1"`, plus any element that opts in with a `tabindex`.
+ * `tabindex="-1"`, plus any element that opts in with a `tabindex`. Module-
+ * private: every caller either uses this default or supplies its own
+ * selector string, so there is nothing to import it for.
  */
-export const FOCUSABLE_SELECTOR =
+const FOCUSABLE_SELECTOR =
 	'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])';
 
 /**
@@ -19,8 +21,11 @@ export const FOCUSABLE_SELECTOR =
  * engine and reports an empty list for *every* element, so fall back to a
  * computed-style check there: it flags display:none / visibility:hidden (and
  * the [hidden] attribute) in both real browsers and jsdom.
+ *
+ * Module-private: only getFocusableElements needs it directly; exercised by
+ * this file's tests through that function rather than in isolation.
  */
-export function isRendered(el: HTMLElement): boolean {
+function isRendered(el: HTMLElement): boolean {
 	if (el.getClientRects().length > 0) return true;
 	const style = getComputedStyle(el);
 	return style.display !== "none" && style.visibility !== "hidden";
