@@ -35,7 +35,8 @@ export type RegenerateAppResult =
 	  }
 	| { ok: false; reason: "not_found" }
 	| { ok: false; reason: "version_conflict"; version: number }
-	| { ok: false; reason: AppGenerationFailureReason; detail: string };
+	| { ok: false; reason: AppGenerationFailureReason; detail: string }
+	| { ok: false; reason: "aborted"; detail: string };
 
 /**
  * Runs the App contract's generation + verification pipeline against an
@@ -43,10 +44,23 @@ export type RegenerateAppResult =
  * Nothing is written until both calls have finished — "verified before the
  * card appears" (spec §2.10) applies to a regeneration exactly as it does to
  * the first draft.
+ *
+ * Abort-aware exactly like `createAppFromBrief` (ruling 53): checked before
+ * generation starts AND again after generation/verification finish, before
+ * `updateArtifactBody`. Generation and verification can together take tens of
+ * seconds (Task A7's own arithmetic — up to ~113s with a repair), and a
+ * caller whose own request was cancelled in that window (the panel's fetch
+ * aborted, the tab closed) must not have a version written after the fact:
+ * the caller already moved on, and a write past that point is an orphan
+ * nobody asked for, or a duplicate if the user simply retried.
  */
 export async function regenerateApp(
 	input: RegenerateAppInput & ArtifactScopeOptions,
 ): Promise<RegenerateAppResult> {
+	if (input.abortSignal?.aborted) {
+		return { ok: false, reason: "aborted", detail: "the call was aborted" };
+	}
+
 	const current = await getArtifact({
 		userId: input.userId,
 		artifactId: input.artifactId,
@@ -82,6 +96,14 @@ export async function regenerateApp(
 	if (!outcome.ok) {
 		return { ok: false, reason: outcome.reason, detail: outcome.detail };
 	}
+
+	if (input.abortSignal?.aborted) {
+		// Generation and verification both finished, but the caller already
+		// gave up on this call — never write a version past that point
+		// (ruling 53, the same rule createAppFromBrief applies).
+		return { ok: false, reason: "aborted", detail: "the call was aborted" };
+	}
+
 	const { html, glitchRuleIds, verification, findings } = outcome.value;
 
 	const written = await updateArtifactBody({

@@ -26,6 +26,7 @@ function makeEvent(
 	userId: string | null,
 	body: unknown,
 	userOverrides: Record<string, unknown> = {},
+	requestSignal: AbortSignal = new AbortController().signal,
 ) {
 	return {
 		params: { id: "app-1" },
@@ -35,7 +36,7 @@ function makeEvent(
 				? { id: userId, role: "user", uiLanguage: "en", ...userOverrides }
 				: undefined,
 		},
-		request: { json: async () => body },
+		request: { json: async () => body, signal: requestSignal },
 	} as never;
 }
 
@@ -148,6 +149,34 @@ describe("POST /api/artifacts/[id]/app/regenerate", () => {
 				expectVersion: 3,
 				language: "hu",
 			}),
+		);
+	});
+
+	// Ruling 53: generation+verification can run for tens of seconds, and if
+	// the caller (the panel's own fetch) disconnects mid-flight, the pipeline
+	// must be told — otherwise regenerateApp has no way to know the call was
+	// abandoned and a version gets written nobody is waiting for. SvelteKit
+	// surfaces that as the request's own AbortSignal.
+	it("passes the request's own AbortSignal through as abortSignal", async () => {
+		mockRegenerateApp.mockResolvedValue({
+			ok: true,
+			version: 2,
+			title: "x",
+			verification: { checked: false, verdict: "clean", reason: null },
+		});
+		const controller = new AbortController();
+
+		await POST(
+			makeEvent(
+				"owner-user",
+				{ prompt: "add a currency switch" },
+				{},
+				controller.signal,
+			),
+		);
+
+		expect(mockRegenerateApp).toHaveBeenCalledWith(
+			expect.objectContaining({ abortSignal: controller.signal }),
 		);
 	});
 

@@ -313,3 +313,54 @@ describe("regenerateApp", () => {
 		expect(versions[1].body).toBe(repaired);
 	});
 });
+
+// Ruling 53: create.ts's App path already refuses to write once its envelope
+// aborts mid-flight (createAppFromBrief's own "writes nothing after an
+// abort" tests); regeneration runs the identical generate-then-verify
+// pipeline and must not write a version the caller was already told failed
+// either — an app that regenerates AFTER the caller gave up on the request
+// is a version the user never asked to keep, and a duplicate on retry.
+describe("regenerateApp — ruling 53: writes nothing after an abort", () => {
+	it("does not call generateApp when the signal is already aborted before generation starts", async () => {
+		const app = await createApp();
+		const controller = new AbortController();
+		controller.abort(new Error("request cancelled"));
+
+		const result = await regenerateApp({
+			userId: OWNER,
+			artifactId: app.id,
+			conversationId: CONVERSATION,
+			prompt: "add a currency switch",
+			language: "en",
+			abortSignal: controller.signal,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(generateApp).not.toHaveBeenCalled();
+		expect(versionRows(app.id)).toHaveLength(1);
+	});
+
+	it("does not write a new version when the signal aborts AFTER generation/verification succeed but before the write", async () => {
+		const app = await createApp();
+		const controller = new AbortController();
+		verifyApp.mockImplementation(async () => {
+			// The client disconnected (or the route's own request was cancelled)
+			// while verification was still running — the caller was already told
+			// this regenerate failed by the time this resolves.
+			controller.abort(new Error("request cancelled"));
+			return cleanVerification();
+		});
+
+		const result = await regenerateApp({
+			userId: OWNER,
+			artifactId: app.id,
+			conversationId: CONVERSATION,
+			prompt: "add a currency switch",
+			language: "en",
+			abortSignal: controller.signal,
+		});
+
+		expect(result.ok).toBe(false);
+		expect(versionRows(app.id)).toHaveLength(1);
+	});
+});

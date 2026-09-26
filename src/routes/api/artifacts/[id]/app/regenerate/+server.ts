@@ -70,6 +70,11 @@ export const POST: RequestHandler = async (event) => {
 		language,
 		expectVersion,
 		conversationId: scopedConversationId,
+		// Ruling 53: generation + verification can run for tens of seconds: if
+		// the caller disconnects (the panel navigates away, the fetch is
+		// aborted) before that finishes, regenerateApp must find out, so it
+		// does not write a version for a call nobody is waiting on anymore.
+		abortSignal: event.request.signal,
 	});
 
 	if (!result.ok) {
