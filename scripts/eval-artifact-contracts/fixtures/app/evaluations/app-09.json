@@ -1,106 +1,109 @@
 {
-	"evaluation": {
-		"pages": [
-			{
-				"label": "light-1280",
-				"colorScheme": "light",
-				"viewport": {
-					"width": 1280,
-					"height": 800
-				},
-				"screenshot": "shot-app-09-light-1280.png",
-				"consoleErrors": [],
-				"pageErrors": ["labels is not defined", "labels is not defined"],
-				"blockedRequests": [],
-				"textLength": 1219,
-				"textSample": "Cooking Unit Converter Type a number to convert between metric and US kitchen units. Conversions update as you type. Weight FROM UNIT grams (g) kilograms (kg) ounces (oz) pounds (lb) EQUALS 100 grams (g) 0.417 cups · 6.6",
-				"controlCount": 23,
-				"storageGets": 1,
-				"storageSets": 1,
-				"storageKeys": ["cookconv"]
-			},
-			{
-				"label": "dark-1280",
-				"colorScheme": "dark",
-				"viewport": {
-					"width": 1280,
-					"height": 800
-				},
-				"screenshot": "shot-app-09-dark-1280.png",
-				"consoleErrors": [],
-				"pageErrors": ["labels is not defined"],
-				"blockedRequests": [],
-				"textLength": 1219,
-				"textSample": "Cooking Unit Converter Type a number to convert between metric and US kitchen units. Conversions update as you type. Weight FROM UNIT grams (g) kilograms (kg) ounces (oz) pounds (lb) EQUALS 100 grams (g) 0.417 cups · 6.6",
-				"controlCount": 23,
-				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
-			},
-			{
-				"label": "light-390",
-				"colorScheme": "light",
-				"viewport": {
-					"width": 390,
-					"height": 844
-				},
-				"screenshot": "shot-app-09-light-390.png",
-				"consoleErrors": [],
-				"pageErrors": ["labels is not defined"],
-				"blockedRequests": [],
-				"textLength": 1219,
-				"textSample": "Cooking Unit Converter Type a number to convert between metric and US kitchen units. Conversions update as you type. Weight FROM UNIT grams (g) kilograms (kg) ounces (oz) pounds (lb) EQUALS 100 grams (g) 0.417 cups · 6.6",
-				"controlCount": 23,
-				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
-			},
-			{
-				"label": "dark-390",
-				"colorScheme": "dark",
-				"viewport": {
-					"width": 390,
-					"height": 844
-				},
-				"screenshot": "shot-app-09-dark-390.png",
-				"consoleErrors": [],
-				"pageErrors": ["labels is not defined"],
-				"blockedRequests": [],
-				"textLength": 1219,
-				"textSample": "Cooking Unit Converter Type a number to convert between metric and US kitchen units. Conversions update as you type. Weight FROM UNIT grams (g) kilograms (kg) ounces (oz) pounds (lb) EQUALS 100 grams (g) 0.417 cups · 6.6",
-				"controlCount": 23,
-				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
-			}
-		],
-		"interaction": {
-			"inputSelector": "input[type=number]",
-			"inputValue": "42",
-			"buttonText": "1 cups = —",
-			"clickedButtons": [
-				"1 millilitres (mL) = —",
-				"1 litres (L) = —",
-				"1 decilitres (dL) = —",
-				"1 cups = —"
-			],
-			"domChangedAfter": null,
-			"clicked": true,
-			"domChanged": true,
-			"textBefore": 1219,
-			"textAfter": 1220,
-			"htmlChanged": true,
-			"storageSetsBefore": 0,
-			"storageSetsAfter": 1,
-			"storageKeys": ["cookconv"],
-			"dialogs": [],
-			"note": null
-		},
-		"consoleErrors": [],
-		"pageErrors": ["labels is not defined"],
-		"blockedRequests": [],
-		"storageGets": 1,
-		"storageSets": 1,
-		"storageKeys": ["cookconv"]
-	}
+  "evaluation": {
+    "pages": [
+      {
+        "label": "light-1280",
+        "colorScheme": "light",
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "screenshot": "shot-app-09-light-1280.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 803,
+        "textSample": "Kitchen Unit Converter Type an amount, pick your units, and get the result instantly. Conversions are saved automatically. AMOUNT ⇆ Swap FROM Grams Kilograms Ounces (weight) Pounds (weight) Millilitres Decilitres Litres ",
+        "controlCount": 12,
+        "storageGets": 1,
+        "storageSets": 2,
+        "storageKeys": [
+          "kitchen-converter"
+        ]
+      },
+      {
+        "label": "dark-1280",
+        "colorScheme": "dark",
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "screenshot": "shot-app-09-dark-1280.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 803,
+        "textSample": "Kitchen Unit Converter Type an amount, pick your units, and get the result instantly. Conversions are saved automatically. AMOUNT ⇆ Swap FROM Grams Kilograms Ounces (weight) Pounds (weight) Millilitres Decilitres Litres ",
+        "controlCount": 12,
+        "storageGets": 1,
+        "storageSets": 0,
+        "storageKeys": []
+      },
+      {
+        "label": "light-390",
+        "colorScheme": "light",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "screenshot": "shot-app-09-light-390.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 803,
+        "textSample": "Kitchen Unit Converter Type an amount, pick your units, and get the result instantly. Conversions are saved automatically. AMOUNT ⇆ Swap FROM Grams Kilograms Ounces (weight) Pounds (weight) Millilitres Decilitres Litres ",
+        "controlCount": 12,
+        "storageGets": 1,
+        "storageSets": 0,
+        "storageKeys": []
+      },
+      {
+        "label": "dark-390",
+        "colorScheme": "dark",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "screenshot": "shot-app-09-dark-390.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 803,
+        "textSample": "Kitchen Unit Converter Type an amount, pick your units, and get the result instantly. Conversions are saved automatically. AMOUNT ⇆ Swap FROM Grams Kilograms Ounces (weight) Pounds (weight) Millilitres Decilitres Litres ",
+        "controlCount": 12,
+        "storageGets": 1,
+        "storageSets": 0,
+        "storageKeys": []
+      }
+    ],
+    "interaction": {
+      "inputSelector": "input[type=number]",
+      "inputValue": "42",
+      "buttonText": "⇆ Swap",
+      "clickedButtons": [
+        "⇆ Swap"
+      ],
+      "domChangedAfter": "⇆ Swap",
+      "clicked": true,
+      "domChanged": true,
+      "textBefore": 803,
+      "textAfter": 929,
+      "htmlChanged": true,
+      "storageSetsBefore": 0,
+      "storageSetsAfter": 2,
+      "storageKeys": [
+        "kitchen-converter"
+      ],
+      "dialogs": [],
+      "note": null
+    },
+    "consoleErrors": [],
+    "pageErrors": [],
+    "blockedRequests": [],
+    "storageGets": 1,
+    "storageSets": 2,
+    "storageKeys": [
+      "kitchen-converter"
+    ]
+  }
 }

@@ -1,105 +1,109 @@
 {
-	"evaluation": {
-		"pages": [
-			{
-				"label": "light-1280",
-				"colorScheme": "light",
-				"viewport": {
-					"width": 1280,
-					"height": 800
-				},
-				"screenshot": "shot-app-05-light-1280.png",
-				"consoleErrors": [
-					"Blocked form submission to '' because the form's frame is sandboxed and the 'allow-forms' permission is not set."
-				],
-				"pageErrors": [],
-				"blockedRequests": [],
-				"textLength": 523,
-				"textSample": "Sketch Budget Log your monthly income and spending by category. A hand-drawn bar chart shows where your money goes. Monthly income Currency symbol Income this month Spending by category Category Amount Add category Add N",
-				"controlCount": 7,
-				"storageGets": 1,
-				"storageSets": 1,
-				"storageKeys": ["sketch-budget-v1"]
-			},
-			{
-				"label": "dark-1280",
-				"colorScheme": "dark",
-				"viewport": {
-					"width": 1280,
-					"height": 800
-				},
-				"screenshot": "shot-app-05-dark-1280.png",
-				"consoleErrors": [],
-				"pageErrors": [],
-				"blockedRequests": [],
-				"textLength": 523,
-				"textSample": "Sketch Budget Log your monthly income and spending by category. A hand-drawn bar chart shows where your money goes. Monthly income Currency symbol Income this month Spending by category Category Amount Add category Add N",
-				"controlCount": 7,
-				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
-			},
-			{
-				"label": "light-390",
-				"colorScheme": "light",
-				"viewport": {
-					"width": 390,
-					"height": 844
-				},
-				"screenshot": "shot-app-05-light-390.png",
-				"consoleErrors": [],
-				"pageErrors": [],
-				"blockedRequests": [],
-				"textLength": 523,
-				"textSample": "Sketch Budget Log your monthly income and spending by category. A hand-drawn bar chart shows where your money goes. Monthly income Currency symbol Income this month Spending by category Category Amount Add category Add N",
-				"controlCount": 7,
-				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
-			},
-			{
-				"label": "dark-390",
-				"colorScheme": "dark",
-				"viewport": {
-					"width": 390,
-					"height": 844
-				},
-				"screenshot": "shot-app-05-dark-390.png",
-				"consoleErrors": [],
-				"pageErrors": [],
-				"blockedRequests": [],
-				"textLength": 523,
-				"textSample": "Sketch Budget Log your monthly income and spending by category. A hand-drawn bar chart shows where your money goes. Monthly income Currency symbol Income this month Spending by category Category Amount Add category Add N",
-				"controlCount": 7,
-				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
-			}
-		],
-		"interaction": {
-			"inputSelector": "input[type=text]",
-			"inputValue": "teszt",
-			"buttonText": "Redraw sketch",
-			"clickedButtons": ["Add", "Redraw sketch"],
-			"domChangedAfter": "Redraw sketch",
-			"clicked": true,
-			"domChanged": true,
-			"textBefore": 523,
-			"textAfter": 558,
-			"htmlChanged": true,
-			"storageSetsBefore": 0,
-			"storageSetsAfter": 1,
-			"storageKeys": ["sketch-budget-v1"],
-			"dialogs": [],
-			"note": null
-		},
-		"consoleErrors": [
-			"Blocked form submission to '' because the form's frame is sandboxed and the 'allow-forms' permission is not set."
-		],
-		"pageErrors": [],
-		"blockedRequests": [],
-		"storageGets": 1,
-		"storageSets": 1,
-		"storageKeys": ["sketch-budget-v1"]
-	}
+  "evaluation": {
+    "pages": [
+      {
+        "label": "light-1280",
+        "colorScheme": "light",
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "screenshot": "shot-app-05-light-1280.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 425,
+        "textSample": "Hand-Drawn Budget Tracker Enter your monthly income and your spending by category — then watch the sketchy bar chart draw itself. Monthly income Income for the month Spending by category Category Amount Add spending No s",
+        "controlCount": 4,
+        "storageGets": 1,
+        "storageSets": 1,
+        "storageKeys": [
+          "budget-tracker-v1"
+        ]
+      },
+      {
+        "label": "dark-1280",
+        "colorScheme": "dark",
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "screenshot": "shot-app-05-dark-1280.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 425,
+        "textSample": "Hand-Drawn Budget Tracker Enter your monthly income and your spending by category — then watch the sketchy bar chart draw itself. Monthly income Income for the month Spending by category Category Amount Add spending No s",
+        "controlCount": 4,
+        "storageGets": 1,
+        "storageSets": 0,
+        "storageKeys": []
+      },
+      {
+        "label": "light-390",
+        "colorScheme": "light",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "screenshot": "shot-app-05-light-390.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 425,
+        "textSample": "Hand-Drawn Budget Tracker Enter your monthly income and your spending by category — then watch the sketchy bar chart draw itself. Monthly income Income for the month Spending by category Category Amount Add spending No s",
+        "controlCount": 4,
+        "storageGets": 1,
+        "storageSets": 0,
+        "storageKeys": []
+      },
+      {
+        "label": "dark-390",
+        "colorScheme": "dark",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "screenshot": "shot-app-05-dark-390.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 425,
+        "textSample": "Hand-Drawn Budget Tracker Enter your monthly income and your spending by category — then watch the sketchy bar chart draw itself. Monthly income Income for the month Spending by category Category Amount Add spending No s",
+        "controlCount": 4,
+        "storageGets": 1,
+        "storageSets": 0,
+        "storageKeys": []
+      }
+    ],
+    "interaction": {
+      "inputSelector": "input[type=number]",
+      "inputValue": "42",
+      "buttonText": "Add spending",
+      "clickedButtons": [
+        "Add spending"
+      ],
+      "domChangedAfter": "Add spending",
+      "clicked": true,
+      "domChanged": true,
+      "textBefore": 425,
+      "textAfter": 457,
+      "htmlChanged": true,
+      "storageSetsBefore": 0,
+      "storageSetsAfter": 1,
+      "storageKeys": [
+        "budget-tracker-v1"
+      ],
+      "dialogs": [],
+      "note": null
+    },
+    "consoleErrors": [],
+    "pageErrors": [],
+    "blockedRequests": [],
+    "storageGets": 1,
+    "storageSets": 1,
+    "storageKeys": [
+      "budget-tracker-v1"
+    ]
+  }
 }

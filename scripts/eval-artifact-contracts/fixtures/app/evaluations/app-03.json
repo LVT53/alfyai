@@ -1,105 +1,110 @@
 {
-	"evaluation": {
-		"pages": [
-			{
-				"label": "light-1280",
-				"colorScheme": "light",
-				"viewport": {
-					"width": 1280,
-					"height": 800
-				},
-				"screenshot": "shot-app-03-light-1280.png",
-				"consoleErrors": [
-					"Blocked form submission to '' because the form's frame is sandboxed and the 'allow-forms' permission is not set."
-				],
-				"pageErrors": [],
-				"blockedRequests": [],
-				"textLength": 486,
-				"textSample": "Hitelkalkulátor Add meg a hitelösszeget, az éves kamatot és a futamidőt — a havi törlesztőrészletet és a tőke–kamat bontást itt kapod meg. Hitelösszeg (Ft) Éves kamat (%) Futamidő (hónap) Számolás Még nincs számítás. Add",
-				"controlCount": 4,
-				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
-			},
-			{
-				"label": "dark-1280",
-				"colorScheme": "dark",
-				"viewport": {
-					"width": 1280,
-					"height": 800
-				},
-				"screenshot": "shot-app-03-dark-1280.png",
-				"consoleErrors": [],
-				"pageErrors": [],
-				"blockedRequests": [],
-				"textLength": 486,
-				"textSample": "Hitelkalkulátor Add meg a hitelösszeget, az éves kamatot és a futamidőt — a havi törlesztőrészletet és a tőke–kamat bontást itt kapod meg. Hitelösszeg (Ft) Éves kamat (%) Futamidő (hónap) Számolás Még nincs számítás. Add",
-				"controlCount": 4,
-				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
-			},
-			{
-				"label": "light-390",
-				"colorScheme": "light",
-				"viewport": {
-					"width": 390,
-					"height": 844
-				},
-				"screenshot": "shot-app-03-light-390.png",
-				"consoleErrors": [],
-				"pageErrors": [],
-				"blockedRequests": [],
-				"textLength": 486,
-				"textSample": "Hitelkalkulátor Add meg a hitelösszeget, az éves kamatot és a futamidőt — a havi törlesztőrészletet és a tőke–kamat bontást itt kapod meg. Hitelösszeg (Ft) Éves kamat (%) Futamidő (hónap) Számolás Még nincs számítás. Add",
-				"controlCount": 4,
-				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
-			},
-			{
-				"label": "dark-390",
-				"colorScheme": "dark",
-				"viewport": {
-					"width": 390,
-					"height": 844
-				},
-				"screenshot": "shot-app-03-dark-390.png",
-				"consoleErrors": [],
-				"pageErrors": [],
-				"blockedRequests": [],
-				"textLength": 486,
-				"textSample": "Hitelkalkulátor Add meg a hitelösszeget, az éves kamatot és a futamidőt — a havi törlesztőrészletet és a tőke–kamat bontást itt kapod meg. Hitelösszeg (Ft) Éves kamat (%) Futamidő (hónap) Számolás Még nincs számítás. Add",
-				"controlCount": 4,
-				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
-			}
-		],
-		"interaction": {
-			"inputSelector": "input[type=number]",
-			"inputValue": "42",
-			"buttonText": "Számolás",
-			"clickedButtons": ["Számolás"],
-			"domChangedAfter": null,
-			"clicked": true,
-			"domChanged": false,
-			"textBefore": 486,
-			"textAfter": 486,
-			"htmlChanged": false,
-			"storageSetsBefore": 0,
-			"storageSetsAfter": 0,
-			"storageKeys": [],
-			"dialogs": [],
-			"note": null
-		},
-		"consoleErrors": [
-			"Blocked form submission to '' because the form's frame is sandboxed and the 'allow-forms' permission is not set."
-		],
-		"pageErrors": [],
-		"blockedRequests": [],
-		"storageGets": 1,
-		"storageSets": 0,
-		"storageKeys": []
-	}
+  "evaluation": {
+    "pages": [
+      {
+        "label": "light-1280",
+        "colorScheme": "light",
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "screenshot": "shot-app-03-light-1280.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 299,
+        "textSample": "Hitelkalkulátor Add meg a hitelösszeget, az éves kamatot és a futamidőt – a kalkulátor kiszámolja a havi törlesztőt és a tőke–kamat bontást évek szerint. Hitelösszeg Ft Éves kamat % Futamidő hónap Számolás Alaphelyzet Mé",
+        "controlCount": 5,
+        "storageGets": 1,
+        "storageSets": 2,
+        "storageKeys": [
+          "loan-calc"
+        ]
+      },
+      {
+        "label": "dark-1280",
+        "colorScheme": "dark",
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "screenshot": "shot-app-03-dark-1280.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 299,
+        "textSample": "Hitelkalkulátor Add meg a hitelösszeget, az éves kamatot és a futamidőt – a kalkulátor kiszámolja a havi törlesztőt és a tőke–kamat bontást évek szerint. Hitelösszeg Ft Éves kamat % Futamidő hónap Számolás Alaphelyzet Mé",
+        "controlCount": 5,
+        "storageGets": 1,
+        "storageSets": 0,
+        "storageKeys": []
+      },
+      {
+        "label": "light-390",
+        "colorScheme": "light",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "screenshot": "shot-app-03-light-390.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 299,
+        "textSample": "Hitelkalkulátor Add meg a hitelösszeget, az éves kamatot és a futamidőt – a kalkulátor kiszámolja a havi törlesztőt és a tőke–kamat bontást évek szerint. Hitelösszeg Ft Éves kamat % Futamidő hónap Számolás Alaphelyzet Mé",
+        "controlCount": 5,
+        "storageGets": 1,
+        "storageSets": 0,
+        "storageKeys": []
+      },
+      {
+        "label": "dark-390",
+        "colorScheme": "dark",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "screenshot": "shot-app-03-dark-390.png",
+        "consoleErrors": [],
+        "pageErrors": [],
+        "blockedRequests": [],
+        "textLength": 299,
+        "textSample": "Hitelkalkulátor Add meg a hitelösszeget, az éves kamatot és a futamidőt – a kalkulátor kiszámolja a havi törlesztőt és a tőke–kamat bontást évek szerint. Hitelösszeg Ft Éves kamat % Futamidő hónap Számolás Alaphelyzet Mé",
+        "controlCount": 5,
+        "storageGets": 1,
+        "storageSets": 0,
+        "storageKeys": []
+      }
+    ],
+    "interaction": {
+      "inputSelector": "input[type=number]",
+      "inputValue": "42",
+      "buttonText": "Alaphelyzet",
+      "clickedButtons": [
+        "Számolás",
+        "Alaphelyzet"
+      ],
+      "domChangedAfter": "Alaphelyzet",
+      "clicked": true,
+      "domChanged": true,
+      "textBefore": 299,
+      "textAfter": 314,
+      "htmlChanged": true,
+      "storageSetsBefore": 0,
+      "storageSetsAfter": 2,
+      "storageKeys": [
+        "loan-calc"
+      ],
+      "dialogs": [],
+      "note": null
+    },
+    "consoleErrors": [],
+    "pageErrors": [],
+    "blockedRequests": [],
+    "storageGets": 1,
+    "storageSets": 2,
+    "storageKeys": [
+      "loan-calc"
+    ]
+  }
 }
