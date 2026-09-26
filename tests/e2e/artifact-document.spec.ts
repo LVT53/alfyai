@@ -775,6 +775,21 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			expect(storedBody).toContain("Book the hotel by Friday.");
 			expect(storedBody).toContain("Book the flight.");
 			expect(storedBody).not.toContain("This should never land.");
+
+			// RV-1B: a page reload must not replay this same, now-historical
+			// edit_artifact call as if it just happened again.
+			// `findLiveDocumentAlfyActivity` deliberately scans the WHOLE
+			// message history for the most recent Document call with no regard
+			// for age, so without `liveDocumentAlfyActivityExcluding`'s
+			// suppression this call would resurface its Keep/Undo mark and
+			// refusal notice on every fresh load of this conversation forever.
+			await page.reload({ waitUntil: "networkidle" });
+			await openDocumentFromPanel(page);
+			await expect(
+				editorContent.getByText("Book the hotel by Friday."),
+			).toBeVisible();
+			await expect(page.getByTestId("alfy-change-bar")).toHaveCount(0);
+			await expect(page.getByTestId("refusal-notice")).toHaveCount(0);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (temporaryProvider) {

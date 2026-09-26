@@ -1041,3 +1041,33 @@ export function findLiveDocumentAlfyActivity(
 	}
 	return null;
 }
+
+/**
+ * RV-1B: `findLiveDocumentAlfyActivity` deliberately scans the WHOLE message
+ * list with no regard for how long ago a call settled ("picks the MOST
+ * RECENT Document call across the whole message list", this file's own
+ * test) — necessary so a call that finishes while this tab is backgrounded
+ * is still found. But that same breadth means a fresh page load (or the
+ * first moment a conversation's history is observed this session) finds
+ * whatever Document call happened last, even if it settled in a PREVIOUS
+ * session and the user already Kept/Undid it there — replaying its
+ * Keep/Undo marks and refusal notice as if it just happened, on text the
+ * user may have changed further since.
+ *
+ * `suppressKey` names the one activity key (if any) that must never be
+ * reported live: the key `findLiveDocumentAlfyActivity` already returned the
+ * FIRST time this conversation's message list was observed this session,
+ * before any live update could have produced a NEWER key. A live call that
+ * settles WHILE this page is open always has a different key (a fresh
+ * `callId`) and is never suppressed — only the one snapshot-time key is.
+ */
+export function liveDocumentAlfyActivityExcluding(
+	messages: ChatMessage[],
+	suppressKey: string | null,
+): DocumentAlfyActivity | null {
+	const activity = findLiveDocumentAlfyActivity(messages);
+	if (activity && suppressKey !== null && activity.key === suppressKey) {
+		return null;
+	}
+	return activity;
+}
