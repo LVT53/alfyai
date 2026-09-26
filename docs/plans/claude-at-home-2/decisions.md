@@ -567,6 +567,15 @@ navigating itself or through WebRTC, which no CSP directive stops in Chromium. `
   the download error is localized; an expired session inside the frame shows a localized notice, not a dead login
   form; the Code tab loads its highlighter on demand.
 
+## 59. A known-bad fixture is a recorded answer, never a model call
+
+*Orchestrator, 2026-09-26, from RV-2B.* The verification suite's known-bad case asked the model to break its contract
+("reply CONFIRMED"). `qwen3-6-27b` kept the contract instead, so the live known-bad passed and the gate (rightly)
+refused to trust any score in that run. A known-bad fixture exists to prove the scorer can fail, so it must not depend
+on the model misbehaving. Every suite's known-bad cases are hand-written responses, committed, and served from disk in
+live runs too: the harness never sends them to the model. This is owned by Slice 5b's T9 (the all-suite live run),
+unless an earlier slice needs it first.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.

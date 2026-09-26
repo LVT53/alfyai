@@ -316,6 +316,17 @@ branch `feat/artifacts-s1-live`, `node_modules` → `art-s1`'s, 5530): T8 live (
 marks + Keep/Undo from inverses, refusal notice; one `DocumentWorkspace` prop, one `DocumentBody` hook) and T9.7 (a
 bounded server-side Document preview on the card summary, ticking as a user edit).
 
+**RV-2B done → Slice 2 merged into `feat/artifacts` as `f91addb8` (2026-09-26 ~10:30).** Verdict "ship with the four
+fixes": `469b6fe4` the `no-navigate` audit rule missed `window['location']=` and flagged any object's `.location`
+(an address field would be refused); `e9e19bce` an app with an unrelated unsettled claim could ship as "repaired";
+`0cfe0734` a trailing slash slipped past the "session ended" branch and rendered the real login form in the sandbox;
+`c1d3288f` regenerate ignored aborts. Harness: `client.ts` now returns `usage`, cases record `durationMs`. **Live on
+qwen3-6-27b, forms allowed:** committed recordings 10 good / 0 bad, 0/0/0 console/uncaught/blocked over 40 runs,
+storage 7/10, 16.4–23.8 s, 3,088–4,512 completion tokens (P1 2,486–3,607); a second live run 8 good / 2 acceptable
+/ 0 bad. The storage gap is the one-click smoke test's variance (accepted). The verification suite's known-bad was
+model-driven and passed live → **ruling 59** (known-bad fixtures are recorded answers, never model calls; S5b's T9).
+`feat/artifacts-s2` fast-forwarded to `9110c4cc` and merged. Gates on `feat/artifacts` running (`/tmp/gates-fa-s2/`).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
