@@ -272,7 +272,12 @@ export function readTaskBlock(
 	if (!match) return null;
 	return {
 		checked: match[2].toLowerCase() === "x",
-		text: (match[4] ?? "").trim(),
+		// The text a reader sees: the card showed "**deposit**" and raw chip
+		// tokens otherwise (RV-1A). The whitespace a removed chip leaves is
+		// folded.
+		text: inlinePlainText(match[4] ?? "")
+			.replace(/\s+/g, " ")
+			.trim(),
 	};
 }
 

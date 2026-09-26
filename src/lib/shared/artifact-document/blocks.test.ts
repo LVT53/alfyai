@@ -463,3 +463,15 @@ describe("RV-1A: a list item's lazy continuation line stays in the item", () => 
 		).toEqual(["list", "heading"]);
 	});
 });
+
+describe("RV-1A: a task's card text is the text the user sees", () => {
+	it("reads bold, links, entities and chips out of the task line, as the card and the preview show it", () => {
+		const [task] = parseDocument(
+			'- [x] Pay the **deposit** at [the hotel](https://x.y) &amp; bank [chip kind="status" value="Booked"]',
+		).blocks;
+		expect(readTaskBlock(task)).toEqual({
+			checked: true,
+			text: "Pay the deposit at the hotel & bank",
+		});
+	});
+});
