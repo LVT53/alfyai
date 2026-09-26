@@ -20,7 +20,9 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "seed:mock": "tsx scripts/seed-mock-conversation.ts"
+    "seed:mock": "tsx scripts/seed-mock-conversation.ts",
+    "eval:artifacts": "tsx scripts/eval-artifact-contracts/run.ts",
+    "eval:artifacts:replay": "tsx scripts/eval-artifact-contracts/run.ts --replay --suite all"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",

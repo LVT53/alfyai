@@ -3,6 +3,7 @@ import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
+import { resolveArtifactCatalogueBlock } from "$lib/server/services/artifacts";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import {
 	selectNormalChatToolsForRequest,
@@ -399,6 +400,17 @@ export async function prepareOutboundContext(
 		params.userId,
 		resolvedResponseLanguage,
 	);
+	// The "## In this chat" artifact catalogue: a fact about the conversation
+	// (what it has already made), resolved here for the same reason the skill
+	// catalogue is — it needs a DB read prepareOutboundChatContext does not
+	// perform. Fails open (see resolveArtifactCatalogueBlock) so a lookup
+	// error never blocks a turn.
+	const artifactCatalogueBlock = params.userId
+		? await resolveArtifactCatalogueBlock({
+				userId: params.userId,
+				conversationId: params.conversationId,
+			})
+		: null;
 	// Standing guidance is resolved here, once per turn, and passed in as
 	// data: prompt assembly renders it and never reads for it. Unlike the
 	// catalogue block these do NOT ride the user packet — short messages skip
@@ -442,6 +454,7 @@ export async function prepareOutboundContext(
 		historyToolMessages: resolveHistoryToolMessagesMode(runtime.provider),
 		skillCatalogueBlock,
 		pendingSkillInstructions: params.pendingSkillInstructions,
+		artifactCatalogueBlock,
 		onContextPreparationActivity:
 			createNormalChatContextPreparationActivityHandler(params),
 		logLabel,

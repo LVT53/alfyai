@@ -9,6 +9,14 @@
 // tables directly (the account data archive, which reads everything a user
 // owns on purpose, is the one named exception — see its own header).
 export {
+	ARTIFACT_CATALOGUE_MAX,
+	ARTIFACT_CATALOGUE_TITLE_MAX_CHARS,
+	type ArtifactCatalogueEntry,
+	buildArtifactCatalogueBlock,
+	listArtifactCatalogueEntries,
+	resolveArtifactCatalogueBlock,
+} from "./catalogue";
+export {
 	createComment,
 	deleteComment,
 	listComments,

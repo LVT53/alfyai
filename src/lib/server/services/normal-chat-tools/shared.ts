@@ -232,6 +232,16 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	// Two indexed reads (which project this conversation is in, and that
 	// project's name) and an in-memory record; nothing leaves the process.
 	suggest_instruction: 10_000,
+	// The name covers all five kinds, so it is sized for the most expensive
+	// one: an App is generated and then fact-verified inside the call, a model
+	// round trip rather than a database write (decisions.md ruling 40). This
+	// is the ONE row for create_artifact; no type slice writes a second one.
+	create_artifact: 120_000,
+	// A validation pass (the same validator the type's ops route uses) and one
+	// version row.
+	edit_artifact: 20_000,
+	// The same as read_generated_file: a read, not a computation.
+	read_artifact: 10_000,
 };
 
 export async function withTimeout<T>(

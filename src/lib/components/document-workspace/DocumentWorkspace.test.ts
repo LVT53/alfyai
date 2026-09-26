@@ -1545,6 +1545,56 @@ describe("DocumentWorkspace artifact-kind dispatch", () => {
 		expect(loader).toHaveBeenCalledTimes(1);
 	});
 
+	// An artifact made inside an incognito conversation only resolves for its
+	// owner when the read names that conversation (fetchArtifact's
+	// conversationId widens ownership scope). The panel does not know the
+	// conversation on its own, so it must forward its own conversationId prop
+	// into the body so a body that calls fetchArtifact can pass it through.
+	it("passes the panel's conversationId prop through to the body", async () => {
+		const loader = vi.fn(
+			() => import("./__fixtures__/FakeArtifactBody.svelte"),
+		);
+		ARTIFACT_BODIES.document = loader;
+
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "doc-1",
+					kind: "document",
+					title: "My Document",
+					mimeType: null,
+				}),
+			],
+			activeDocumentId: "doc-1",
+			conversationId: "c-1",
+		});
+
+		const body = await screen.findByTestId("fake-artifact-body");
+		expect(body).toHaveAttribute("data-conversation-id", "c-1");
+	});
+
+	it("passes null to the body when the panel has no conversationId", async () => {
+		const loader = vi.fn(
+			() => import("./__fixtures__/FakeArtifactBody.svelte"),
+		);
+		ARTIFACT_BODIES.document = loader;
+
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "doc-1",
+					kind: "document",
+					title: "My Document",
+					mimeType: null,
+				}),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		const body = await screen.findByTestId("fake-artifact-body");
+		expect(body).toHaveAttribute("data-conversation-id", "null");
+	});
+
 	it("renders today's preview stack for a kind with no registered loader", async () => {
 		const { container } = renderWorkspace({
 			documents: [

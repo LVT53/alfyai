@@ -1424,6 +1424,73 @@ describe("prepareOutboundChatContext", () => {
 		expect(appendTurnGuidance("Hello", "")).toBe("Hello");
 	});
 
+	// Slice 5a: the artifact catalogue rides the turn guidance (a fact about
+	// the conversation), never the cached system prompt (a decision about
+	// which guidance applies) — see artifacts/catalogue.ts and ruling 5/ADR-0055.
+	describe("artifact catalogue block", () => {
+		const CATALOGUE_BLOCK =
+			'## In this chat\n- a1f3kq · Document · "Vienna plan" (updated 2 h ago)\n\nUse read_artifact to see one before editing it. Never invent an id.';
+
+		it("renders the artifact catalogue in the turn guidance when provided", () => {
+			const guidance = buildTurnGuidance({
+				message: "Anything new?",
+				artifactCatalogueBlock: CATALOGUE_BLOCK,
+			});
+
+			expect(guidance).toContain("## In this chat");
+			expect(guidance).toContain("Vienna plan");
+		});
+
+		it("omits the artifact catalogue section when there is nothing to say", () => {
+			const guidance = buildTurnGuidance({
+				message: "Anything new?",
+				artifactCatalogueBlock: null,
+			});
+
+			expect(guidance).not.toContain("## In this chat");
+		});
+
+		it("changes the turn guidance when the conversation's artifacts change", () => {
+			const before = buildTurnGuidance({
+				message: "Anything new?",
+				artifactCatalogueBlock: null,
+			});
+			const after = buildTurnGuidance({
+				message: "Anything new?",
+				artifactCatalogueBlock: CATALOGUE_BLOCK,
+			});
+
+			expect(before).not.toBe(after);
+		});
+
+		it("leaves the turn guidance's catalogue section unchanged when only the message changes", () => {
+			const first = buildTurnGuidance({
+				message: "Hi!",
+				responseLanguage: "en",
+				artifactCatalogueBlock: CATALOGUE_BLOCK,
+			});
+			const second = buildTurnGuidance({
+				message:
+					"Can you help me plan a much longer weekend trip with several stops?",
+				responseLanguage: "en",
+				artifactCatalogueBlock: CATALOGUE_BLOCK,
+			});
+
+			expect(first).toContain(CATALOGUE_BLOCK);
+			expect(second).toContain(CATALOGUE_BLOCK);
+		});
+
+		it("never lets the artifact catalogue reach the cached system prompt", () => {
+			const system = buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue: "Anything new?",
+			});
+
+			expect(system).not.toContain("## In this chat");
+			expect(system).not.toContain("Vienna plan");
+		});
+	});
+
 	// Language review (2026-09-25), hunt item 3: a request like "Translate
 	// this to German: Guten Tag" or "Write an email to my landlord in
 	// Hungarian" asks for specific CONTENT in one language while the
