@@ -367,7 +367,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "edit_artifact",
-      "description": "Módosíts egy már elkészített Dokumentumot vagy Alkalmazást, a create_artifact vagy a read_artifact által adott azonosítóval. Ne használd anélkül, hogy előbb elolvasnád az elemet — hívd meg a read_artifact-ot, és használd az onnan kapott baseHash-t; egy elutasítás általában azt jelenti, hogy a felhasználó azóta szerkesztette azt a részt, hogy utoljára olvastad, ezért mondd el neki, ne próbáld újra ugyanazt a javítást. Dokumentumoknál: küldj patches-t, blokkonként egy műveletet, mindegyikhez az általad olvasott baseHash-sel. Az Alkalmazásokat itt nem szerkesztjük — készíts helyette egy új Alkalmazást a változtatásokkal. Egy köteg részlegesen is alkalmazódik: amit lehet, megteszi, és minden elutasított művelet a saját okával tér vissza, ezért mondd el a felhasználónak, mi változott és mi nem, ahelyett hogy feltételeznéd, hogy az egész megtörtént.",
+      "description": "Módosíts egy már elkészített Dokumentumot vagy Alkalmazást, a create_artifact vagy a read_artifact által adott azonosítóval. Ne használd anélkül, hogy előbb elolvasnád az elemet — hívd meg a read_artifact-ot, és használd az onnan kapott baseHash-t; egy elutasítás általában azt jelenti, hogy a felhasználó azóta szerkesztette azt a részt, hogy utoljára olvastad, ezért mondd el neki, ne próbáld újra ugyanazt a javítást. Dokumentumoknál: küldj patches-t, blokkonként egy műveletet, mindegyikhez az általad olvasott baseHash-sel. Az Alkalmazásokat itt nem szerkesztjük — készíts helyette egy új Alkalmazást a változtatásokkal. Példa: {\"artifactId\":\"a1\",\"patches\":[{\"op\":\"replaceBlock\",\"blockId\":\"b3\",\"baseHash\":\"9f2c1a04\",\"text\":\"New text for this block.\"}]}. Egy köteg részlegesen is alkalmazódik: amit lehet, megteszi, és minden elutasított művelet a saját okával tér vissza, ezért mondd el a felhasználónak, mi változott és mi nem, ahelyett hogy feltételeznéd, hogy az egész megtörtént. Elutasított szerkesztés megkerülésére soha ne hozz létre új elemet — mondd el inkább a felhasználónak.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -376,9 +376,195 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             "description": "The id from create_artifact, read_artifact or the artifact catalogue."
           },
           "patches": {
-            "description": "Documents only: [{op, blockId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
+            "description": "Documents only, one op per block — each op's exact fields are in this array's own schema. Read the artifact first; baseHash must be the hash you last read.",
+            "minItems": 1,
+            "maxItems": 40,
             "type": "array",
-            "items": {}
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "replaceBlock"
+                    },
+                    "blockId": {
+                      "type": "string",
+                      "description": "The block id from read_artifact."
+                    },
+                    "baseHash": {
+                      "type": "string",
+                      "description": "The block's hash from read_artifact's last read."
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "The block's new full text."
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "blockId",
+                    "baseHash",
+                    "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "insertText"
+                    },
+                    "blockId": {
+                      "type": "string",
+                      "description": "The block id from read_artifact."
+                    },
+                    "baseHash": {
+                      "type": "string",
+                      "description": "The block's hash from read_artifact's last read."
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "Text to add to the block."
+                    },
+                    "at": {
+                      "description": "Where to add it inside the block; default \"end\".",
+                      "type": "string",
+                      "enum": [
+                        "start",
+                        "end"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "blockId",
+                    "baseHash",
+                    "text"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "replaceRange"
+                    },
+                    "blockId": {
+                      "type": "string",
+                      "description": "The block id from read_artifact."
+                    },
+                    "baseHash": {
+                      "type": "string",
+                      "description": "The block's hash from read_artifact's last read."
+                    },
+                    "find": {
+                      "type": "string",
+                      "description": "The exact text inside the block to replace — must occur exactly once."
+                    },
+                    "text": {
+                      "description": "The replacement text; omit to delete `find`.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "blockId",
+                    "baseHash",
+                    "find"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "toggleTask"
+                    },
+                    "blockId": {
+                      "type": "string",
+                      "description": "The block id from read_artifact."
+                    },
+                    "baseHash": {
+                      "type": "string",
+                      "description": "The block's hash from read_artifact's last read."
+                    },
+                    "checked": {
+                      "description": "Set the checkbox to this; omit to flip its current state.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "blockId",
+                    "baseHash"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "addTableRow"
+                    },
+                    "blockId": {
+                      "type": "string",
+                      "description": "The block id from read_artifact."
+                    },
+                    "baseHash": {
+                      "type": "string",
+                      "description": "The block's hash from read_artifact's last read."
+                    },
+                    "cells": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "chip": {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "status",
+                                      "date"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "value"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "chip"
+                            ]
+                          }
+                        ]
+                      },
+                      "description": "One cell per column, in the table's column order."
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "blockId",
+                    "baseHash",
+                    "cells"
+                  ]
+                }
+              ]
+            }
           },
           "ops": {
             "type": "array",

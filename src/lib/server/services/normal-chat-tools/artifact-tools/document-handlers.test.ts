@@ -12,7 +12,13 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "$lib/server/db";
-import { artifactKv, conversations, users } from "$lib/server/db/schema";
+import {
+	artifactKv,
+	artifacts,
+	artifactVersions,
+	conversations,
+	users,
+} from "$lib/server/db/schema";
 import { getArtifact, saveDocumentBody } from "$lib/server/services/artifacts";
 import {
 	parseDocument,
@@ -227,6 +233,57 @@ describe("edit_artifact.document", () => {
 		expect(result?.ok).toBe(false);
 	});
 
+	// The dev live check (2026-09-26): the real model tried "insert_after"
+	// (and, in the same conversation, "replace", "update", "edit",
+	// "update_block") for `op`, none of them real, and the refusal never named
+	// what WAS real — so it kept guessing seven times, then gave up and
+	// duplicated the document with create_artifact. The refusal now names the
+	// five valid ops, through the SAME tool-handler seam the model calls.
+	it("names the valid op values when the model guesses one that does not exist (the exact dev incident)", async () => {
+		const artifactId = await createDoc("Book the flight to Vienna.");
+		const read = await READ_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			artifactId,
+			title: "Saturday plan",
+			detail: "blocks",
+			abortSignal: abortSignal(),
+		});
+		const [block] = read?.blocks ?? [];
+
+		const handler = EDIT_ARTIFACT_HANDLERS.document;
+		const result = await handler?.({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			artifactId,
+			title: "Saturday plan",
+			patches: [
+				{
+					op: "insert_after",
+					blockId: block?.blockId,
+					baseHash: block?.hash,
+					text: "Opera tickets",
+				},
+			],
+			abortSignal: abortSignal(),
+		});
+
+		expect(result?.ok).toBe(false);
+		if (result && !result.ok) {
+			for (const kind of [
+				"replaceBlock",
+				"insertText",
+				"replaceRange",
+				"toggleTask",
+				"addTableRow",
+			]) {
+				expect(result.error).toContain(kind);
+			}
+			expect(result.error).toContain("patches");
+		}
+	});
+
 	// [trap] "your words win", proven through the SAME seam the model calls —
 	// not just through document-ops.ts directly (tests/integration and
 	// editor-server-refusal.test.ts already prove the engine and the real
@@ -411,5 +468,214 @@ describe("RV-1A: read_artifact on a Document writes nothing once aborted", () =>
 				.where(eq(artifactKv.artifactId, artifactId))
 				.all(),
 		).toEqual([]);
+	});
+});
+
+// Ruling 47 through the SAME seam the model calls: every Alfy change always
+// appends a new version, never merges into the latest one — proven here at
+// the create_artifact/read_artifact/edit_artifact registry level, not just
+// through document-ops.ts (tests/integration/artifact-document.test.ts) or
+// updateArtifactBody directly (record.test.ts). A dev incident reported the
+// stored body moving to the edited text while `artifact_versions` still held
+// only one row; these pin the version count and each row's author/body so a
+// regression here fails loudly instead of only showing up as a lost History
+// entry.
+describe("ruling 47: edit_artifact always appends, through the tool-handler seam", () => {
+	function rawContentText(artifactId: string): string {
+		return (
+			db
+				.select({ contentText: artifacts.contentText })
+				.from(artifacts)
+				.where(eq(artifacts.id, artifactId))
+				.get()?.contentText ?? ""
+		);
+	}
+
+	function versionRows(artifactId: string) {
+		return db
+			.select({
+				versionNumber: artifactVersions.versionNumber,
+				author: artifactVersions.author,
+				body: artifactVersions.body,
+			})
+			.from(artifactVersions)
+			.where(eq(artifactVersions.artifactId, artifactId))
+			.orderBy(artifactVersions.versionNumber)
+			.all();
+	}
+
+	async function createDoc(markdown: string) {
+		const created = await CREATE_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			title: "Vienna weekend packing checklist",
+			body: markdown,
+			language: "en",
+			abortSignal: abortSignal(),
+		});
+		if (!created?.ok) throw new Error("setup: create failed");
+		return created.value.artifactId;
+	}
+
+	it("create_artifact -> read_artifact -> edit_artifact with a valid patch appends v2; v1's body is untouched", async () => {
+		const artifactId = await createDoc("Alpha.\n\nBeta.");
+		const originalBody = rawContentText(artifactId);
+
+		const read = await READ_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			artifactId,
+			title: "Vienna weekend packing checklist",
+			detail: "blocks",
+			abortSignal: abortSignal(),
+		});
+		const [block] = read?.blocks ?? [];
+
+		const result = await EDIT_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			turnId: "turn-2",
+			artifactId,
+			title: "Vienna weekend packing checklist",
+			patches: [
+				{
+					op: "replaceBlock",
+					blockId: block?.blockId,
+					baseHash: block?.hash,
+					text: "Alpha, edited by Alfy.",
+				},
+			],
+			abortSignal: abortSignal(),
+		});
+		expect(result?.ok).toBe(true);
+
+		const rows = versionRows(artifactId);
+		expect(rows).toHaveLength(2);
+		expect(rows[0]).toMatchObject({
+			versionNumber: 1,
+			author: "alfy",
+			body: originalBody,
+		});
+		expect(rows[1].versionNumber).toBe(2);
+		expect(rows[1].author).toBe("alfy");
+		expect(rows[1].body).toContain("Alpha, edited by Alfy.");
+		// v1's body must never move once v2 exists.
+		expect(rows[0].body).toBe(originalBody);
+	});
+
+	it("a stale-body retry inside the guarded write still appends exactly one new version per edit", async () => {
+		const artifactId = await createDoc("Alpha.\n\nBeta.");
+		const read = await READ_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			artifactId,
+			title: "Vienna weekend packing checklist",
+			detail: "blocks",
+			abortSignal: abortSignal(),
+		});
+		const [alpha, beta] = read?.blocks ?? [];
+
+		// Two edit_artifact calls landing together (the AI SDK runs a step's
+		// tool calls concurrently): the second write to actually land finds the
+		// body it read is now stale and must re-read/re-apply/re-write inside
+		// applyDocumentPatch's guarded loop (de36f4ce) rather than clobbering
+		// the first edit or minting two versions for one logical call.
+		const [first, second] = await Promise.all([
+			EDIT_ARTIFACT_HANDLERS.document?.({
+				userId,
+				conversationId,
+				turnId: "turn-2",
+				artifactId,
+				title: "Vienna weekend packing checklist",
+				patches: [
+					{
+						op: "replaceBlock",
+						blockId: alpha?.blockId,
+						baseHash: alpha?.hash,
+						text: "Alpha changed.",
+					},
+				],
+				abortSignal: abortSignal(),
+			}),
+			EDIT_ARTIFACT_HANDLERS.document?.({
+				userId,
+				conversationId,
+				turnId: "turn-2",
+				artifactId,
+				title: "Vienna weekend packing checklist",
+				patches: [
+					{
+						op: "replaceBlock",
+						blockId: beta?.blockId,
+						baseHash: beta?.hash,
+						text: "Beta changed.",
+					},
+				],
+				abortSignal: abortSignal(),
+			}),
+		]);
+
+		expect(first?.ok && first.value.applied).toBe(1);
+		expect(second?.ok && second.value.applied).toBe(1);
+
+		// v1 (create) + one version per edit_artifact call — never fewer (a
+		// clobber) and never more (a retry double-appending).
+		const rows = versionRows(artifactId);
+		expect(rows).toHaveLength(3);
+		expect(rows.map((r) => r.author)).toEqual(["alfy", "alfy", "alfy"]);
+		const finalBody = rawContentText(artifactId);
+		expect(finalBody).toContain("Alpha changed.");
+		expect(finalBody).toContain("Beta changed.");
+	});
+
+	it("a user's save followed by an Alfy edit appends a version of its own — it never merges into the user's", async () => {
+		const artifactId = await createDoc("Alpha.\n\nBeta.");
+
+		const userSave = await saveDocumentBody({
+			userId,
+			artifactId,
+			conversationId,
+			body: { markdown: "Alpha, as the user wrote it.\n\nBeta.", tabs: [] },
+			author: "user",
+			summary: "Edited",
+			coalesceUserEdits: true,
+		});
+		expect(userSave.ok && userSave.version).toBe(2);
+
+		const read = await READ_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			artifactId,
+			title: "Vienna weekend packing checklist",
+			detail: "blocks",
+			abortSignal: abortSignal(),
+		});
+		const beta = read?.blocks?.[1];
+
+		const edit = await EDIT_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			turnId: "turn-2",
+			artifactId,
+			title: "Vienna weekend packing checklist",
+			patches: [
+				{
+					op: "replaceBlock",
+					blockId: beta?.blockId,
+					baseHash: beta?.hash,
+					text: "Beta, edited by Alfy.",
+				},
+			],
+			abortSignal: abortSignal(),
+		});
+		expect(edit?.ok).toBe(true);
+
+		const rows = versionRows(artifactId);
+		expect(rows).toHaveLength(3);
+		expect(rows[1]).toMatchObject({ versionNumber: 2, author: "user" });
+		expect(rows[1].body).toContain("Alpha, as the user wrote it.");
+		expect(rows[2]).toMatchObject({ versionNumber: 3, author: "alfy" });
+		expect(rows[2].body).toContain("Beta, edited by Alfy.");
 	});
 });

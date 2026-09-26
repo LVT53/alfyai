@@ -59,6 +59,7 @@ import {
 	artifactKindListHuAccusative,
 	createArtifactChoiceClause,
 	createArtifactUseCasePhrase,
+	editArtifactExampleClause,
 	editArtifactRuleClause,
 } from "./artifact-tools/kind-prose";
 import {
@@ -526,9 +527,23 @@ function buildEditArtifactDescription(
 	lang: "en" | "hu",
 ): string {
 	if (lang === "hu") {
-		return `Módosíts egy már elkészített ${artifactKindListHuAccusative(kinds)}, a create_artifact vagy a read_artifact által adott azonosítóval. Ne használd anélkül, hogy előbb elolvasnád az elemet — hívd meg a read_artifact-ot, és használd az onnan kapott baseHash-t; egy elutasítás általában azt jelenti, hogy a felhasználó azóta szerkesztette azt a részt, hogy utoljára olvastad, ezért mondd el neki, ne próbáld újra ugyanazt a javítást. ${editArtifactRuleClause(kinds, "hu")} Egy köteg részlegesen is alkalmazódik: amit lehet, megteszi, és minden elutasított művelet a saját okával tér vissza, ezért mondd el a felhasználónak, mi változott és mi nem, ahelyett hogy feltételeznéd, hogy az egész megtörtént.`;
+		return [
+			`Módosíts egy már elkészített ${artifactKindListHuAccusative(kinds)}, a create_artifact vagy a read_artifact által adott azonosítóval. Ne használd anélkül, hogy előbb elolvasnád az elemet — hívd meg a read_artifact-ot, és használd az onnan kapott baseHash-t; egy elutasítás általában azt jelenti, hogy a felhasználó azóta szerkesztette azt a részt, hogy utoljára olvastad, ezért mondd el neki, ne próbáld újra ugyanazt a javítást.`,
+			editArtifactRuleClause(kinds, "hu"),
+			editArtifactExampleClause(kinds, "hu"),
+			`Egy köteg részlegesen is alkalmazódik: amit lehet, megteszi, és minden elutasított művelet a saját okával tér vissza, ezért mondd el a felhasználónak, mi változott és mi nem, ahelyett hogy feltételeznéd, hogy az egész megtörtént. Elutasított szerkesztés megkerülésére soha ne hozz létre új elemet — mondd el inkább a felhasználónak.`,
+		]
+			.filter(Boolean)
+			.join(" ");
 	}
-	return `Change a ${artifactKindListEn(kinds)} item you already made, addressed by the id from create_artifact or read_artifact. Do not use it before reading the item first — call read_artifact and use the baseHash it just gave you; a refusal usually means the user edited that part since you last read it, so tell them rather than retrying the same patch. ${editArtifactRuleClause(kinds, "en")} A batch applies partially: whatever it can, it does, and each refused op comes back with its own reason, so tell the user what changed and what did not rather than assuming the whole thing landed.`;
+	return [
+		`Change a ${artifactKindListEn(kinds)} item you already made, addressed by the id from create_artifact or read_artifact. Do not use it before reading the item first — call read_artifact and use the baseHash it just gave you; a refusal usually means the user edited that part since you last read it, so tell them rather than retrying the same patch.`,
+		editArtifactRuleClause(kinds, "en"),
+		editArtifactExampleClause(kinds, "en"),
+		`A batch applies partially: whatever it can, it does, and each refused op comes back with its own reason, so tell the user what changed and what did not rather than assuming the whole thing landed. Never make a new item to work around a refused edit — tell the user instead.`,
+	]
+		.filter(Boolean)
+		.join(" ");
 }
 
 // ── suggest_instruction scope ──────────────────────────────────
@@ -1830,9 +1845,22 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		edit_artifact: asExecutableTool(
 			tool({
 				description: artifactToolI18n.edit_artifact.description,
-				inputSchema: buildEditArtifactModelInputSchema(advertisedKinds),
+				// The model is SHOWN the real Document op union (`patches`'s type in
+				// buildEditArtifactModelInputSchema, once Document is advertised —
+				// the same schema EDIT_ARTIFACT_HANDLERS.document validates every
+				// call against, artifact-tools/edit.ts), but what actually GATES
+				// `execute` below stays editArtifactInputSchema's existing, generic
+				// envelope check: a per-kind handler's own refusal message (naming
+				// the valid ops, artifact-tools/edit.ts) is more actionable for the
+				// model than however the AI SDK would format a raw schema-validation
+				// failure, and this way that message is what the model always sees
+				// for a malformed patch, never bypassed by framework-level rejection.
+				inputSchema: compactToolInputSchema(
+					editArtifactInputSchema,
+					buildEditArtifactModelInputSchema(advertisedKinds),
+				),
 				execute: async (
-					input: z.infer<ReturnType<typeof buildEditArtifactModelInputSchema>>,
+					input: z.infer<typeof editArtifactInputSchema>,
 					options: ToolExecutionOptions,
 				) => {
 					const parsedInput = editArtifactInputSchema.safeParse(input);
