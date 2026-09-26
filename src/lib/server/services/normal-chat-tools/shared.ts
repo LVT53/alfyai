@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import { asSchema } from "@ai-sdk/provider-utils";
-import type { ToolExecutionOptions } from "ai";
+import type { Tool, ToolExecutionOptions } from "ai";
 import { jsonSchema } from "ai";
 import { z } from "zod";
 
@@ -232,6 +232,16 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	// Two indexed reads (which project this conversation is in, and that
 	// project's name) and an in-memory record; nothing leaves the process.
 	suggest_instruction: 10_000,
+	// The name covers all five kinds, so it is sized for the most expensive
+	// one: an App is generated and then fact-verified inside the call, a model
+	// round trip rather than a database write (decisions.md ruling 40). This
+	// is the ONE row for create_artifact; no type slice writes a second one.
+	create_artifact: 120_000,
+	// A validation pass (the same validator the type's ops route uses) and one
+	// version row.
+	edit_artifact: 20_000,
+	// The same as read_generated_file: a read, not a computation.
+	read_artifact: 10_000,
 };
 
 export async function withTimeout<T>(
@@ -433,4 +443,23 @@ export function compactToolInputSchema<T>(
 				: { success: false, error: parsed.error };
 		},
 	});
+}
+
+// ── Tool-shape narrowing ──────────────────────────────────────────
+//
+// Moved here from index.ts (decisions.md ruling 57): a pure type-narrowing
+// cast with no runtime behavior, needed by every tool `index.ts` builds AND
+// by `research-web-tool.ts`, which could no longer import it from index.ts
+// once that import became the other half of a circular dependency (verify.ts
+// -> normal-chat-tools/index.ts -> artifact-tools/create.ts -> ... ->
+// verify.ts). `shared.ts` is a leaf module with no such risk.
+
+export type RequiredExecuteTool<TInput, TOutput> = Tool<TInput, TOutput> & {
+	execute: NonNullable<Tool<TInput, TOutput>["execute"]>;
+};
+
+export function asExecutableTool<TInput, TOutput>(
+	toolDefinition: Tool<TInput, TOutput>,
+): RequiredExecuteTool<TInput, TOutput> {
+	return toolDefinition as RequiredExecuteTool<TInput, TOutput>;
 }

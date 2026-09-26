@@ -1,0 +1,118 @@
+<!--
+  Copied from the prototype's committed evidence
+  (.claude/worktrees/agent-afcaa6f617ee84abe/scripts/prototype-artifact-apps/fixtures/raw-01.txt,
+  the html fence's contents only, unmodified) — one of the ten one-shot apps
+  the P1 prototype run produced, used here as "a real generated app passes
+  the audit" evidence rather than a fixture invented for the test.
+
+  It still uses the PROTOTYPE's shorthand token names (--pg/--el/--tx/--mu/
+  --bd/--ac), because it predates this slice's token rename. Under the real
+  contract's audit (audit.ts, checking the real names) it is therefore
+  expected to fail exactly the "tokens" NOTE-severity check (0/6 real names
+  defined) while passing all five GLITCH checks and every other note — which
+  is the fixture proving the rename does what it is supposed to: an app
+  written to the old, shorthand contract is flagged, quietly, not rejected.
+
+  Two mechanical edits from the raw prototype output, both required by this
+  repo's Biome lint gate and neither changing behaviour: `window.alfy &&
+  window.alfy.storage` became `window.alfy?.storage` in two places
+  (lint/complexity/useOptionalChain). Editing biome.json instead to exclude
+  this one file was tried and reverted: this worktree's biome.json diverging
+  even slightly from the main checkout's — which lives one directory up,
+  since a git worktree is still nested on disk — makes Biome report a
+  "nested root configuration" error across the WHOLE repo, not just this
+  file. See the slice report.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trip cost splitter</title>
+<style>
+:root{--pg:#fafaf8;--el:#f4f3ee;--tx:#1a1a1a;--mu:#6b6b6b;--bd:rgba(0,0,0,.08);--ac:#c15f3c}
+@media (prefers-color-scheme:dark){:root{--pg:#1a1a1a;--el:#242424;--tx:#ececec;--mu:#a0a0a0;--bd:rgba(255,255,255,.08);--ac:#d4836b}}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--pg);color:var(--tx);font:15px/1.5 Helvetica,Arial,sans-serif}
+main{max-width:720px;margin:0 auto;display:grid;gap:14px}
+h1{font:400 22px Georgia,'Times New Roman',serif;margin:0}
+.card{background:var(--el);border:1px solid var(--bd);border-radius:10px;padding:12px;display:grid;gap:8px}
+label{display:grid;gap:4px;font-size:13px;color:var(--mu)}
+input,select{min-height:40px;padding:6px 8px;border:1px solid var(--bd);border-radius:8px;background:var(--pg);color:var(--tx);font:inherit}
+button{min-height:40px;padding:8px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--pg);color:var(--tx);font:inherit;cursor:pointer}
+button:hover{border-color:var(--ac)}
+table{width:100%;border-collapse:collapse}
+td,th{padding:6px 4px;border-bottom:1px solid var(--bd);text-align:left}
+</style>
+</head>
+<body>
+<main>
+<h1>Trip cost splitter</h1>
+<section class="card">
+<form id="form">
+<label>Who paid
+<select id="who"><option>Levente</option><option>Anna</option><option>Peti</option></select>
+</label>
+<label>Amount (Ft)
+<input id="amount" type="number" min="0" step="1" value="1000">
+</label>
+<label>What for
+<input id="what" type="text" placeholder="fuel, dinner…">
+</label>
+<button type="submit">Add</button>
+</form>
+</section>
+<section class="card">
+<h2 style="font:400 17px Georgia,serif;margin:0">Balances</h2>
+<div id="balances" aria-live="polite"></div>
+</section>
+<section class="card">
+<h2 style="font:400 17px Georgia,serif;margin:0">Expenses</h2>
+<table><tbody id="list"></tbody></table>
+</section>
+</main>
+<script>
+const people = ["Levente", "Anna", "Peti"];
+let expenses = [];
+
+function totals() {
+  const paid = Object.fromEntries(people.map((p) => [p, 0]));
+  for (const e of expenses) paid[e.who] += e.amount;
+  const share = expenses.reduce((s, e) => s + e.amount, 0) / people.length;
+  return Object.fromEntries(people.map((p) => [p, paid[p] - share]));
+}
+
+function render() {
+  const balance = totals();
+  document.getElementById("balances").innerHTML = people
+    .map((p) => `<div>${p}: <b>${balance[p] >= 0 ? "+" : ""}${Math.round(balance[p])} Ft</b></div>`)
+    .join("");
+  document.getElementById("list").innerHTML = expenses
+    .map((e) => `<tr><td>${e.who}</td><td>${e.what || "—"}</td><td>${e.amount} Ft</td></tr>`)
+    .join("");
+}
+
+async function save() {
+  if (window.alfy?.storage) await window.alfy.storage.set("trip-expenses", expenses);
+}
+
+document.getElementById("form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const amount = Number(document.getElementById("amount").value);
+  if (!amount) return;
+  expenses.push({ who: document.getElementById("who").value, amount, what: document.getElementById("what").value });
+  document.getElementById("what").value = "";
+  render();
+  save();
+});
+
+(async function start() {
+  if (window.alfy?.storage) {
+    const saved = await window.alfy.storage.get("trip-expenses");
+    if (Array.isArray(saved)) expenses = saved;
+  }
+  render();
+})();
+</script>
+</body>
+</html>

@@ -24,6 +24,7 @@ type WorkspaceRenderOptions = {
 	documents?: DocumentWorkspaceItem[];
 	availableDocuments?: DocumentWorkspaceItem[];
 	activeDocumentId?: string | null;
+	conversationId?: string | null;
 	list?: WorkspaceList;
 	onSelectDocument?: SelectDocumentCallback;
 	onOpenDocument?: OpenDocumentCallback;
@@ -32,6 +33,11 @@ type WorkspaceRenderOptions = {
 	onJumpToSource?: JumpToSourceCallback;
 	onPresentationChange?: PresentationChangeCallback;
 	onListOpenChange?: ListOpenChangeCallback;
+	onToggleDocumentTask?: (
+		artifactId: string,
+		blockId: string,
+		checked: boolean,
+	) => void;
 };
 
 export function makeWorkspaceDocument(

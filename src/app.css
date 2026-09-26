@@ -763,6 +763,19 @@ body {
 		min-height: 44px !important;
 		min-width: 44px !important;
 	}
+
+	/* The Document's mobile toolbar (Feature 2, Slice 1, T11) packs 7 icon
+	   buttons plus its own padding/border into a deliberate 48px-tall row
+	   (`MobileToolbar.svelte`'s own comment: 2×4px padding + 1px border +
+	   36px button = 45px). The 44px rule above applied to these buttons too
+	   (same `.btn-icon-bare` class) and pushed the row to 53px, blowing the
+	   budget — confirmed live in `tests/e2e/artifact-document.spec.ts`. Opt
+	   this toolbar's buttons back out to their own 36px, which still clears
+	   WCAG 2.5.8's 24px minimum target size. */
+	.mobile-toolbar .btn-icon-bare {
+		min-height: 36px !important;
+		min-width: 36px !important;
+	}
 }
 
 /* Drop zone overlay for OS file drag-and-drop (Task 4) */

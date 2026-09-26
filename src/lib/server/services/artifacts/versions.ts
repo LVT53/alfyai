@@ -88,7 +88,7 @@ export async function getVersionBody(
 export async function restoreVersion(
 	params: VersionTarget & { versionId: string },
 ): Promise<
-	| { ok: true; versionId: string }
+	| { ok: true; versionId: string; versionNumber: number }
 	| { ok: false; reason: "not_found" | "no_body" }
 > {
 	const version = await findVersion(params);
@@ -108,5 +108,9 @@ export async function restoreVersion(
 	// The old body was under every cap when it was written, and there is no
 	// base hash to go stale, so the one refusal left is the row disappearing.
 	if (!result.ok) return { ok: false, reason: "not_found" };
-	return { ok: true, versionId: result.versionId };
+	return {
+		ok: true,
+		versionId: result.versionId,
+		versionNumber: result.versionNumber,
+	};
 }

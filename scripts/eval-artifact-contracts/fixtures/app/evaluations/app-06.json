@@ -1,0 +1,101 @@
+{
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-06-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 277,
+				"textSample": "Pomodoro Work for 25 minutes, then take a 5 minute break. Work · 25:00 Break · 5:00 WORK 25:00 Press Start to begin a work session. Start Reset Skip Progress No rounds completed yet. Finish a work session to earn your fi",
+				"controlCount": 6,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-06-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 277,
+				"textSample": "Pomodoro Work for 25 minutes, then take a 5 minute break. Work · 25:00 Break · 5:00 WORK 25:00 Press Start to begin a work session. Start Reset Skip Progress No rounds completed yet. Finish a work session to earn your fi",
+				"controlCount": 6,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-06-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 277,
+				"textSample": "Pomodoro Work for 25 minutes, then take a 5 minute break. Work · 25:00 Break · 5:00 WORK 25:00 Press Start to begin a work session. Start Reset Skip Progress No rounds completed yet. Finish a work session to earn your fi",
+				"controlCount": 6,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-06-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 277,
+				"textSample": "Pomodoro Work for 25 minutes, then take a 5 minute break. Work · 25:00 Break · 5:00 WORK 25:00 Press Start to begin a work session. Start Reset Skip Progress No rounds completed yet. Finish a work session to earn your fi",
+				"controlCount": 6,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": null,
+			"inputValue": null,
+			"buttonText": "Break · 5:00",
+			"clickedButtons": ["Work · 25:00", "Break · 5:00"],
+			"domChangedAfter": "Break · 5:00",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 277,
+			"textAfter": 271,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 0,
+			"storageKeys": [],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 0,
+		"storageKeys": []
+	}
+}

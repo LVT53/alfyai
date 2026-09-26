@@ -9,12 +9,36 @@
 // tables directly (the account data archive, which reads everything a user
 // owns on purpose, is the one named exception — see its own header).
 export {
+	ARTIFACT_CATALOGUE_MAX,
+	ARTIFACT_CATALOGUE_TITLE_MAX_CHARS,
+	type ArtifactCatalogueEntry,
+	buildArtifactCatalogueBlock,
+	listArtifactCatalogueEntries,
+	resolveArtifactCatalogueBlock,
+} from "./catalogue";
+export {
+	type AlfyCommentOutcome,
+	type AlfyCommentReplyResult,
 	createComment,
 	deleteComment,
+	getComment,
 	listComments,
 	parseArtifactAnchor,
 	resolveComment,
+	runAlfyCommentReply,
 } from "./comments";
+export {
+	applyDocumentPatch,
+	createDocumentArtifact,
+	DocumentOperationError,
+	documentTabsFromMetadata,
+	readDocumentForAlfy,
+	saveDocumentBody,
+} from "./document-ops";
+export {
+	buildGeneratedDocumentSource,
+	sanitizeDocumentFilename,
+} from "./export";
 export { hashArtifactBody } from "./hash";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
 export { listArtifactsForConversation } from "./read-model";

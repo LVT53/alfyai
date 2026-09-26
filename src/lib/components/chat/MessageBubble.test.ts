@@ -1727,6 +1727,149 @@ describe("MessageBubble", () => {
 		).not.toBeInTheDocument();
 	});
 
+	// "Open as document" (Feature 2 · Artifacts, Slice 1, spec §2.1): every
+	// finished, non-empty assistant text answer offers it; a tool-only or
+	// empty answer, or one still in flight, does not (T5.1).
+	describe("Open as document", () => {
+		const openAsDocumentLabel = chatDict.en["chat.artifacts.keepAsDocument"];
+
+		it("appears on a completed text answer and calls onKeepAsDocument with the message id", async () => {
+			const onKeepAsDocument = vi.fn().mockResolvedValue(undefined);
+			const message: ChatMessage = {
+				id: "assistant-keep-1",
+				role: "assistant",
+				content: "Here is the plan.",
+				timestamp: Date.now(),
+			};
+
+			render(MessageBubble, { message, onKeepAsDocument });
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: openAsDocumentLabel }),
+			);
+			expect(onKeepAsDocument).toHaveBeenCalledWith({
+				messageId: "assistant-keep-1",
+			});
+		});
+
+		it("does not appear without a handler, on a user message, or on an empty/tool-only/streaming answer", async () => {
+			const onKeepAsDocument = vi.fn();
+			const base: ChatMessage = {
+				id: "assistant-keep-2",
+				role: "assistant",
+				content: "Here is the plan.",
+				timestamp: Date.now(),
+			};
+
+			const { rerender } = render(MessageBubble, { message: base });
+			expect(
+				screen.queryByRole("button", { name: openAsDocumentLabel }),
+			).not.toBeInTheDocument();
+
+			await rerender({
+				message: { ...base, role: "user" },
+				onKeepAsDocument,
+			});
+			expect(
+				screen.queryByRole("button", { name: openAsDocumentLabel }),
+			).not.toBeInTheDocument();
+
+			await rerender({
+				message: { ...base, content: "" },
+				onKeepAsDocument,
+			});
+			expect(
+				screen.queryByRole("button", { name: openAsDocumentLabel }),
+			).not.toBeInTheDocument();
+
+			await rerender({
+				message: { ...base, content: "   " },
+				onKeepAsDocument,
+			});
+			expect(
+				screen.queryByRole("button", { name: openAsDocumentLabel }),
+			).not.toBeInTheDocument();
+
+			await rerender({
+				message: { ...base, isStreaming: true },
+				onKeepAsDocument,
+			});
+			expect(
+				screen.queryByRole("button", { name: openAsDocumentLabel }),
+			).not.toBeInTheDocument();
+
+			await rerender({
+				message: { ...base, id: "client-only", renderKey: "client-only" },
+				onKeepAsDocument,
+			});
+			expect(
+				screen.queryByRole("button", { name: openAsDocumentLabel }),
+			).not.toBeInTheDocument();
+		});
+
+		it("shows a busy label while the create-or-open call is in flight and disables the button", async () => {
+			let resolveKeep: (() => void) | undefined;
+			const onKeepAsDocument = vi.fn(
+				() =>
+					new Promise<void>((resolve) => {
+						resolveKeep = resolve;
+					}),
+			);
+			const message: ChatMessage = {
+				id: "assistant-keep-3",
+				role: "assistant",
+				content: "Here is the plan.",
+				timestamp: Date.now(),
+			};
+
+			render(MessageBubble, { message, onKeepAsDocument });
+			const button = screen.getByRole("button", { name: openAsDocumentLabel });
+			await fireEvent.click(button);
+
+			await waitFor(() => {
+				expect(
+					screen.getByRole("button", {
+						name: chatDict.en["chat.artifacts.keepAsDocumentBusy"],
+					}),
+				).toBeDisabled();
+			});
+
+			resolveKeep?.();
+			await waitFor(() => {
+				expect(
+					screen.getByRole("button", { name: openAsDocumentLabel }),
+				).not.toBeDisabled();
+			});
+		});
+
+		it("shows an error toast and recovers when the create-or-open call fails", async () => {
+			const onKeepAsDocument = vi.fn().mockRejectedValue(new Error("boom"));
+			const message: ChatMessage = {
+				id: "assistant-keep-4",
+				role: "assistant",
+				content: "Here is the plan.",
+				timestamp: Date.now(),
+			};
+
+			render(MessageBubble, { message, onKeepAsDocument });
+			await fireEvent.click(
+				screen.getByRole("button", { name: openAsDocumentLabel }),
+			);
+
+			await waitFor(() => {
+				const entries = get(toasts);
+				expect(entries).toHaveLength(1);
+				expect(entries[0]).toMatchObject({
+					type: "error",
+					message: chatDict.en["chat.artifacts.keepAsDocumentError"],
+				});
+			});
+			expect(
+				screen.getByRole("button", { name: openAsDocumentLabel }),
+			).not.toBeDisabled();
+		});
+	});
+
 	it("reveals the assistant action row on keyboard focus (focus-within)", () => {
 		// ADR-0043: the action row is quiet-by-default on desktop
 		// (opacity-0, reveal on group-hover) but must ALSO reveal when any

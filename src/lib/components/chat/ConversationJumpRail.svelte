@@ -19,6 +19,7 @@
  * turn. No new store — props come from MessageArea.
  */
 import { t } from "$lib/i18n";
+import { focusTrap, getFocusableElements } from "$lib/utils/focus-trap";
 import { viewportStore } from "$lib/utils/viewport.svelte";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { buildJumpRailTurns, type JumpRailTurn } from "./jump-rail";
@@ -152,31 +153,23 @@ function jumpFromMobile(id: string) {
 	closeMobileSheet();
 }
 
-// Focus-in on open: move focus INTO the dialog once the sheet mounts. Paired
-// with the return-focus in closeMobileSheet, this is the aria-modal focus
-// contract. Runs when the sheet opens and its element is bound.
-$effect(() => {
-	if (mobileSheetOpen && mobileSheetRef) {
-		mobileSheetRef.focus();
-	}
-});
-
-// Escape-to-close + Tab focus trap, active only while the sheet is open. The
-// window binding is torn down when the component unmounts; the open guard makes
-// it inert whenever the sheet is closed (so it can't hijack app-wide keys).
-function handleSheetKeydown(event: KeyboardEvent) {
-	if (!mobileSheetOpen) return;
-
-	if (event.key === "Escape") {
+// Escape-to-close, plus a Tab trap that (unlike DialogShell's) has to treat
+// the CONTAINER itself as a valid "at the start" position: focus goes to the
+// sheet div itself on open (see `focus` below), not to a focusable child, so
+// Shift+Tab pressed right away must also wrap to the last element or it would
+// escape the sheet. That is a real, deliberate difference from the shared
+// trapTabKey's rule (DialogShell always prefers a focusable child over its
+// container), so this passes its own `onTab` rather than the default.
+// getFocusableElements still comes from the shared utility, and mount/Escape/
+// cleanup wiring is the same focusTrap() every other migrated dialog uses.
+const mobileSheetFocusTrap = focusTrap({
+	onEscape: (event) => {
 		event.preventDefault();
 		closeMobileSheet();
-		return;
-	}
-
-	if (event.key === "Tab" && mobileSheetRef) {
-		const focusables = mobileSheetRef.querySelectorAll<HTMLElement>(
-			'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-		);
+	},
+	onTab: (event) => {
+		if (!mobileSheetRef) return;
+		const focusables = getFocusableElements(mobileSheetRef);
 		if (focusables.length === 0) return;
 		const first = focusables[0];
 		const last = focusables[focusables.length - 1];
@@ -192,11 +185,14 @@ function handleSheetKeydown(event: KeyboardEvent) {
 			first.focus();
 			event.preventDefault();
 		}
-	}
-}
+	},
+	// Focus-in on open: move focus INTO the dialog once the sheet mounts,
+	// synchronously (not the utility's default deferred timing) — paired with
+	// the return-focus in closeMobileSheet, this is the aria-modal focus
+	// contract this sheet has always used.
+	focus: { target: () => mobileSheetRef, defer: false },
+});
 </script>
-
-<svelte:window onkeydown={handleSheetKeydown} />
 
 {#if turns.length >= 6}
 	<nav
@@ -271,6 +267,7 @@ function handleSheetKeydown(event: KeyboardEvent) {
 			class="jr-mobile-sheet"
 			data-testid="jump-rail-mobile-sheet"
 			bind:this={mobileSheetRef}
+			{@attach mobileSheetFocusTrap}
 			role="dialog"
 			aria-modal="true"
 			aria-label={$t("chat.jumpRailMobileTitle")}

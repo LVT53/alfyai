@@ -5,6 +5,7 @@ import {
 	deleteConversationMessages,
 	fetchConversationDetail,
 	fetchConversationMarkdownExport,
+	keepMessageAsDocument,
 	persistConversationLinkedSources,
 	savePinnedConversationSidebarOrder,
 	setConversationSidebarPinned,
@@ -38,6 +39,52 @@ describe("conversationExists", () => {
 		);
 
 		await expect(conversationExists("conv-1", fetchMock)).resolves.toBeNull();
+	});
+});
+
+describe("keepMessageAsDocument", () => {
+	it("posts to the message's document route and returns the artifact summary", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						ok: true,
+						artifactId: "artifact-1",
+						title: "Vienna trip",
+						created: true,
+					}),
+					{ status: 200 },
+				),
+		);
+
+		const result = await keepMessageAsDocument(
+			"conv-1",
+			"message-1",
+			fetchMock,
+		);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/messages/message-1/document",
+			expect.objectContaining({ method: "POST" }),
+		);
+		expect(result).toEqual({
+			artifactId: "artifact-1",
+			title: "Vienna trip",
+			created: true,
+		});
+	});
+
+	it("throws when the message cannot be kept as a document", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ ok: false, reason: "not_found" }), {
+					status: 404,
+				}),
+		);
+
+		await expect(
+			keepMessageAsDocument("conv-1", "message-1", fetchMock),
+		).rejects.toThrow();
 	});
 });
 

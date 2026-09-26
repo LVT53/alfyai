@@ -15,12 +15,8 @@ import { getFileProductionWorkerConfig } from "$lib/server/services/file-product
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
-import {
-	type ToolEvidenceCandidate,
-	toolReadArtifactIdsMetadata,
-} from "$lib/server/services/message-evidence";
+import { toolReadArtifactIdsMetadata } from "$lib/server/services/message-evidence";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
-import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
 import {
 	getConversationProjectId,
@@ -37,14 +33,39 @@ import { resolveSkillInstructionsForUse } from "$lib/server/services/skills/prom
 import { getCachedToolHealthSnapshot } from "$lib/server/services/tool-health";
 import {
 	buildGroundedWebModelPayload,
-	buildGroundedWebPageFromFetch,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
-	type GroundedWebPage,
-	selectTopDistinctSourceUrls,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
+import {
+	advertisedArtifactKinds,
+	buildCreateArtifactInputSchema,
+	buildCreateArtifactModelInputSchema,
+	type CreatableArtifactKind,
+	type CreateArtifactModelPayload,
+	MAX_CREATE_ARTIFACT_CALLS_PER_TURN,
+	runCreateArtifactTool,
+} from "./artifact-tools/create";
+import {
+	buildEditArtifactModelInputSchema,
+	type EditArtifactModelPayload,
+	editArtifactInputSchema,
+	runEditArtifactTool,
+} from "./artifact-tools/edit";
+import {
+	artifactKindListEn,
+	artifactKindListHu,
+	artifactKindListHuAccusative,
+	createArtifactChoiceClause,
+	createArtifactUseCasePhrase,
+	editArtifactRuleClause,
+} from "./artifact-tools/kind-prose";
+import {
+	type ReadArtifactModelPayload,
+	readArtifactInputSchema,
+	runReadArtifactTool,
+} from "./artifact-tools/read";
 import {
 	calendarToolInputSchema,
 	runCalendarTool,
@@ -143,10 +164,7 @@ import {
 	runReposTool,
 	sanitizeReposToolInput,
 } from "./repos";
-import {
-	researchWebInputSchema,
-	sanitizeResearchWebInput,
-} from "./research-web";
+import { createResearchWebTool, RESEARCH_WEB_I18N } from "./research-web-tool";
 import {
 	routingToolInputSchema,
 	routingToolModelSchema,
@@ -160,6 +178,7 @@ import {
 	summarizeRunPythonResult,
 } from "./run-python";
 import {
+	asExecutableTool,
 	compactToolInputSchema,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
@@ -194,11 +213,6 @@ import {
 	setCachedToolResult,
 } from "./tool-result-cache";
 
-// Per-result excerpt budget (chars) requested from Parallel for research_web.
-// Keeps each source's excerpt short enough to fit several sources into the
-// model payload without crowding out the answer brief.
-const RESEARCH_WEB_EXCERPT_MAX_CHARS = 2000;
-
 const useSkillInputSchema = z.object({
 	name: z
 		.string()
@@ -210,16 +224,6 @@ const useSkillInputSchema = z.object({
 type UseSkillModelPayload =
 	| { found: true; error: null; displayName: string; instructions: string }
 	| { found: false; error: string; displayName: null; instructions: null };
-
-type RequiredExecuteTool<TInput, TOutput> = Tool<TInput, TOutput> & {
-	execute: NonNullable<Tool<TInput, TOutput>["execute"]>;
-};
-
-function asExecutableTool<TInput, TOutput>(
-	toolDefinition: Tool<TInput, TOutput>,
-): RequiredExecuteTool<TInput, TOutput> {
-	return toolDefinition as RequiredExecuteTool<TInput, TOutput>;
-}
 
 // ── Public re-exports ──────────────────────────────────────────
 
@@ -279,11 +283,9 @@ type ToolI18n = Record<string, { description: string; errorPrefix: string }>;
 
 const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 	en: {
-		research_web: {
-			description:
-				'Search the web for current or verifiable facts: prices, specs, news, policies, comparisons. Call with {"query": "the exact research question"}; optionally `objective` and 2-3 short keyword `searchQueries` (no site: operators, no years unless historical). Set `readPages` to 1-2 when the answer needs page-level detail (an exact price, a spec, official documentation, one named article), so it finishes here rather than in a separate fetch_url step; else 0. Do not use it for a URL the user already gave (fetch_url), for distance, route or travel time (map_route), for pictures to show (image_search), or when this turn already has web research results. Returns `evidence` snippets and an `answerBriefMarkdown`, plus `pages` (url, title, contentMarkdown) when `readPages` was set; prefer primary sources when they conflict.',
-			errorPrefix: "Web research failed",
-		},
+		// Moved to research-web-tool.ts (ruling 57) alongside the tool itself;
+		// re-imported here so the assembled catalogue is byte-identical.
+		research_web: RESEARCH_WEB_I18N.en,
 		fetch_url: {
 			description:
 				'Read named web pages: {"urls": ["https://example.com"]} (always an array, at most 5) plus an optional `objective` saying what to extract. Call for a link the user gave, or a detail only that page has. Do not use it to find pages you have no URL for (research_web finds them, and its `readPages` returns page text), nor for stored files or files in this conversation (files, read_generated_file). Returns `evidence` snippets and an `answerBriefMarkdown`.',
@@ -376,11 +378,9 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 	},
 	hu: {
-		research_web: {
-			description:
-				'Keresés az interneten aktuális vagy ellenőrizhető tényekért: árak, specifikációk, hírek, szabályzatok, összehasonlítások. Hívd így: {"query": "a pontos kutatási kérdés"}; opcionálisan `objective` és 2-3 rövid kulcsszavas `searchQueries` (site: operátor nélkül, évszám nélkül, hacsak nem történeti a kérdés). A `readPages`-t állítsd 1-2-re, ha a válaszhoz oldal-szintű részlet kell (pontos ár, specifikáció, hivatalos dokumentáció, egy megnevezett cikk), így a kutatás itt fejeződik be egy külön fetch_url lépés helyett; egyébként 0. Ne használd olyan URL-hez, amelyet a felhasználó már megadott (fetch_url), távolsághoz, útvonalhoz vagy menetidőhöz (map_route), megmutatandó képekhez (image_search), és akkor sem, ha ebben a körben már vannak webes kutatási eredmények. `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza, valamint `pages` tömböt (url, title, contentMarkdown), ha a `readPages` be volt állítva; ellentmondás esetén az elsődleges forrást részesítsd előnyben.',
-			errorPrefix: "A webes kutatás sikertelen",
-		},
+		// Moved to research-web-tool.ts (ruling 57) alongside the tool itself;
+		// re-imported here so the assembled catalogue is byte-identical.
+		research_web: RESEARCH_WEB_I18N.hu,
 		fetch_url: {
 			description:
 				'Megnevezett weboldalak elolvasása: {"urls": ["https://example.com"]} (mindig tömb, legfeljebb 5) és opcionális `objective`, hogy mit keresel. Akkor hívd, ha a felhasználó linket adott, vagy ha egy részlet csak azon az oldalon található meg. Ne használd oldalak megkeresésére, amelyeknek nincs URL-je (a research_web keresi meg őket, és a `readPages`-szel oldalszöveget is ad), sem tárolt fájlokhoz vagy a beszélgetés fájljaihoz (files, read_generated_file). `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza.',
@@ -473,6 +473,63 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 	},
 };
+
+// ── create_artifact / read_artifact / edit_artifact i18n ────────
+//
+// These three live outside TOOL_I18N (unlike every other tool) because their
+// descriptions name the artifact KINDS the model may create, and that set
+// changes at runtime as type slices register a create handler
+// (advertisedArtifactKinds() in artifact-tools/kind-registry.ts — Canvas and Slides
+// are not registered yet). A static string here would either lie about
+// unavailable kinds or go stale the moment a new one is registered, so these
+// are assembled fresh from artifact-tools/kind-prose.ts's per-kind fragments
+// every time createNormalChatTools runs, the same way the tool set itself is
+// rebuilt per turn. errorPrefix carries no kind names, so it stays static.
+const ARTIFACT_TOOL_ERROR_PREFIX: Record<
+	"en" | "hu",
+	{ create_artifact: string; read_artifact: string; edit_artifact: string }
+> = {
+	en: {
+		create_artifact: "Create failed",
+		read_artifact: "Read failed",
+		edit_artifact: "Edit failed",
+	},
+	hu: {
+		create_artifact: "A létrehozás nem sikerült",
+		read_artifact: "Az olvasás nem sikerült",
+		edit_artifact: "A szerkesztés nem sikerült",
+	},
+};
+
+function buildCreateArtifactDescription(
+	kinds: readonly CreatableArtifactKind[],
+	lang: "en" | "hu",
+): string {
+	if (lang === "hu") {
+		return `Tarts meg valamit a beszélgetés mellett, amihez a felhasználó visszatér, amit megnyit és veled együtt szerkeszt. Ne használd olyan válaszhoz, amely már teljes a válaszodban, se akkor, ha a felhasználó letölthető fájlt kért — az a produce_file dolga, nem ezé. Használd ${createArtifactUseCasePhrase(kinds, "hu")}, amin a felhasználó tovább dolgozik. Az artifactType-ot aszerint válaszd, mit őrzöl meg: ${createArtifactChoiceClause(kinds, "hu")} Nincs artifactType "file": amit a felhasználó letölteni kért, az a produce_file dolga, és Fájlként jelenik meg. Kérésenként legfeljebb egyet készíts — mondd el, mit csináltál, és ajánld fel a megnyitását, és ne írd bele ugyanazt a tartalmat a válaszodba is. Példa: {"artifactType":"document","title":"Bécsi hétvégi terv","body":"# Bécsi hétvége\\n- [ ] Vonatjegy foglalása"}. Utólag soha ne találj ki azonosítót — a read_artifact adja vissza azt, amivel szerkeszteni fogsz. Elutasítás esetén olvasd el az okát, javítsd ki azt az egy dolgot, és legfeljebb egyszer próbáld újra.`;
+	}
+	return `Keep something beside the chat that the user will return to, open and edit with you. Do not use it for an answer that is already complete in your reply, or when the user asked for a downloadable file — that is produce_file's job, not this one. Use it for a ${createArtifactUseCasePhrase(kinds, "en")} the user keeps working on. Choose artifactType by what you are keeping: ${createArtifactChoiceClause(kinds, "en")} There is no artifactType "file": anything the user asked to download is produce_file's job, and it shows up as a File. Make at most one per request — say what you made and offer to open it, and do not also paste the same content into your reply. Example: {"artifactType":"document","title":"Vienna weekend plan","body":"# Vienna weekend\\n- [ ] Book train"}. Never invent an id afterward — read_artifact returns the one you edit against. On a refusal, read the reason, fix that one thing, and retry at most once.`;
+}
+
+function buildReadArtifactDescription(
+	kinds: readonly CreatableArtifactKind[],
+	lang: "en" | "hu",
+): string {
+	if (lang === "hu") {
+		return `Egy ${artifactKindListHu(kinds, { withFile: true })} elem jelenlegi tartalmát és szerkezetét nézd meg vele, a create_artifact-tól, egy korábbi hívástól vagy a beszélgetés katalógusától kapott azonosítóval. Ne használd azonosító kitalálására — előbb nézd meg a katalógust, és soha ne találj ki egyet. A detail:"blocks" a szerkeszthető azonosítókat és hasheket adja vissza, amelyekre az edit_artifact-nak szüksége van (minden edit_artifact hívás előtt olvasd el ezt: a baseHash mindig innen származik, sosem kitalálva); hagyd el a detail mezőt, vagy add meg "full"-ként, a teljes tartalomhoz. Ismeretlen azonosítóra a beszélgetés saját jelöltjeit kapod vissza tartalom helyett — ezek közül válassz, ne próbáld ugyanazt az azonosítót újra.`;
+	}
+	return `See a ${artifactKindListEn(kinds, { withFile: true })} item's current content and structure, addressed by the id from create_artifact, a prior call, or the artifact catalogue. Do not use it to guess at an id — read the catalogue first, and never invent one. Pass detail:"blocks" to get the addressable ids and hashes edit_artifact needs (read this before every edit_artifact call: baseHash always comes from here, never guessed); omit detail, or pass "full", for the whole body. An unknown id returns the conversation's own candidates instead of a body — pick one of those rather than retrying the same id.`;
+}
+
+function buildEditArtifactDescription(
+	kinds: readonly CreatableArtifactKind[],
+	lang: "en" | "hu",
+): string {
+	if (lang === "hu") {
+		return `Módosíts egy már elkészített ${artifactKindListHuAccusative(kinds)}, a create_artifact vagy a read_artifact által adott azonosítóval. Ne használd anélkül, hogy előbb elolvasnád az elemet — hívd meg a read_artifact-ot, és használd az onnan kapott baseHash-t; egy elutasítás általában azt jelenti, hogy a felhasználó azóta szerkesztette azt a részt, hogy utoljára olvastad, ezért mondd el neki, ne próbáld újra ugyanazt a javítást. ${editArtifactRuleClause(kinds, "hu")} Egy köteg részlegesen is alkalmazódik: amit lehet, megteszi, és minden elutasított művelet a saját okával tér vissza, ezért mondd el a felhasználónak, mi változott és mi nem, ahelyett hogy feltételeznéd, hogy az egész megtörtént.`;
+	}
+	return `Change a ${artifactKindListEn(kinds)} item you already made, addressed by the id from create_artifact or read_artifact. Do not use it before reading the item first — call read_artifact and use the baseHash it just gave you; a refusal usually means the user edited that part since you last read it, so tell them rather than retrying the same patch. ${editArtifactRuleClause(kinds, "en")} A batch applies partially: whatever it can, it does, and each refused op comes back with its own reason, so tell the user what changed and what did not rather than assuming the whole thing landed.`;
+}
 
 // ── suggest_instruction scope ──────────────────────────────────
 
@@ -594,6 +651,25 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	const recorder = ctx.recorder ?? createToolCallRecorder();
 	const lang = ctx.language ?? "en";
 	const i18n = TOOL_I18N[lang];
+	// Recomputed every call (never cached at module load) so a newly
+	// registered create handler — in production, or in a test that pokes
+	// CREATE_ARTIFACT_HANDLERS directly — is reflected the next time the tool
+	// set is built, exactly like the schemas in artifact-tools/{create,edit}.ts.
+	const advertisedKinds = advertisedArtifactKinds();
+	const artifactToolI18n = {
+		create_artifact: {
+			description: buildCreateArtifactDescription(advertisedKinds, lang),
+			errorPrefix: ARTIFACT_TOOL_ERROR_PREFIX[lang].create_artifact,
+		},
+		read_artifact: {
+			description: buildReadArtifactDescription(advertisedKinds, lang),
+			errorPrefix: ARTIFACT_TOOL_ERROR_PREFIX[lang].read_artifact,
+		},
+		edit_artifact: {
+			description: buildEditArtifactDescription(advertisedKinds, lang),
+			errorPrefix: ARTIFACT_TOOL_ERROR_PREFIX[lang].edit_artifact,
+		},
+	};
 	// Verdict (not intake receipt) of every produce_file call this turn, keyed
 	// by the requested artifact AND its content. A repeated identical call replays the verdict
 	// instead of queueing a second job — but a FAILED verdict is deliberately
@@ -608,6 +684,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// Same, but for the whole turn regardless of what each request was called —
 	// see MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN.
 	let totalProduceFileSubmissions = 0;
+	// Every create_artifact call this turn, whatever kind — see
+	// MAX_CREATE_ARTIFACT_CALLS_PER_TURN (artifact-tools/create.ts).
+	let totalCreateArtifactCalls = 0;
 	// At most one instruction offer per turn (Slice F). The offer is a row the
 	// user has to answer; a second row about the same sentence is a second
 	// decision, so a repeated call is refused rather than recorded.
@@ -695,196 +774,20 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		// "Parallel search failed: 401 …" provider error.
 		...(parallelConfigured
 			? {
-					research_web: asExecutableTool(
-						tool({
-							description: i18n.research_web.description,
-							inputSchema: researchWebInputSchema,
-							execute: async (
-								input: z.infer<typeof researchWebInputSchema>,
-								options: ToolExecutionOptions,
-							) => {
-								const safeInput = sanitizeResearchWebInput(input);
-								// readPages is consumed here, not forwarded to Parallel search —
-								// strip it before building the search request.
-								const { readPages, ...researchRequest } = safeInput;
-								return executeToolWithEnvelope({
-									toolName: "research_web",
-									timeoutMs: TOOL_TIMEOUTS_MS.research_web,
-									options,
-									recorder,
-									run: async (abortSignal) => {
-										const { parallelApiKey, parallelBaseUrl } = getConfig();
-										const parallelDeps = {
-											fetch,
-											config: { parallelApiKey, parallelBaseUrl },
-											signal: abortSignal,
-										};
-										// Per-conversation cache: an identical query/objective/searchQueries
-										// (and readPages) this conversation already paid Parallel for is
-										// served from memory, pages included, instead of paying and waiting
-										// twice (see tool-result-cache.ts).
-										type ResearchCacheEntry = {
-											result: GroundedWebResult;
-											pages: GroundedWebPage[];
-											pageCandidates: ToolEvidenceCandidate[];
-										};
-										const cacheKey = buildToolResultCacheKey({
-											conversationId: ctx.conversationId,
-											toolName: "research_web",
-											input: safeInput,
-										});
-										const cachedEntry =
-											getCachedToolResult<ResearchCacheEntry>(cacheKey);
-										const cached = Boolean(cachedEntry);
-										let result: GroundedWebResult;
-										let pages: GroundedWebPage[] = [];
-										let pageCandidates: ToolEvidenceCandidate[] = [];
-										if (cachedEntry) {
-											({ result, pages, pageCandidates } = cachedEntry);
-										} else {
-											result = await researchWebViaParallel(
-												researchRequest,
-												parallelDeps,
-												{
-													sessionId: ctx.turnId,
-													excerptMaxChars: RESEARCH_WEB_EXCERPT_MAX_CHARS,
-												},
-											);
-											// Fire-and-forget Parallel Turbo usage tracking; never block or
-											// alter the tool result on analytics failure. Skipped entirely on
-											// a cache hit — a repeated identical call must not bill twice.
-											void recordParallelUsage({
-												userId: ctx.userId,
-												conversationId: ctx.conversationId,
-												tool: "research_web",
-											}).catch(() => {});
-											// readPages: fetch the top N distinct result URLs in the
-											// SAME call, so a question needing page-level detail (an
-											// exact price, a spec, official documentation) doesn't need
-											// a separate fetch_url step. Best-effort: any failure here
-											// (a single page, or the whole batch) is swallowed — the
-											// search result already succeeded and stands on its own.
-											if (readPages && readPages > 0) {
-												const topUrls = selectTopDistinctSourceUrls(
-													result.sources,
-													readPages,
-												);
-												if (topUrls.length > 0) {
-													const contextTokens = await resolveModelContextTokens(
-														ctx.modelId,
-													).catch(() => null);
-													// Divide the shared char-cap ceiling across the pages
-													// being read, so N pages together never exceed the
-													// same total budget a single fetch_url call would get.
-													const perPageCap = Math.max(
-														1,
-														Math.floor(
-															resolveFetchContentCharCap(contextTokens) /
-																topUrls.length,
-														),
-													);
-													const settled = await Promise.allSettled(
-														topUrls.map((url) =>
-															fetchUrlViaParallel(
-																{ urls: [url] },
-																parallelDeps,
-																{
-																	sessionId: ctx.turnId,
-																	maxCharsTotal: perPageCap,
-																},
-															),
-														),
-													);
-													for (const outcome of settled) {
-														if (outcome.status !== "fulfilled") continue;
-														const pageResult = outcome.value;
-														const page =
-															buildGroundedWebPageFromFetch(pageResult);
-														if (!page) continue;
-														pages.push(page);
-														pageCandidates.push(
-															...createGroundedWebCandidates(pageResult),
-														);
-														// Same usage-tracking shape as fetch_url's own
-														// call: fire-and-forget, never blocks the result.
-														void recordParallelUsage({
-															userId: ctx.userId,
-															conversationId: ctx.conversationId,
-															tool: "fetch_url",
-														}).catch(() => {});
-													}
-												}
-											}
-
-											// Same discipline as fetch_url below: a search that came
-											// back with no sources found nothing and is worth
-											// re-running, so it is never pinned for the TTL.
-											if (result.sources.length > 0) {
-												setCachedToolResult(cacheKey, {
-													result,
-													pages,
-													pageCandidates,
-												});
-											}
-										}
-
-										const modelPayload = {
-											...buildGroundedWebModelPayload(result),
-											...(pages.length > 0 ? { pages } : {}),
-											...(cached ? { cached: true as const } : {}),
-										};
-										const candidates = [
-											...createGroundedWebCandidates(result),
-											...pageCandidates,
-										];
-										return {
-											modelPayload,
-											entry: {
-												callId: options.toolCallId,
-												name: "research_web",
-												input: safeInput,
-												status: "done",
-												outputSummary: summarizeGroundedWebResult(result),
-												sourceType: "web",
-												candidates,
-												metadata: {
-													...createGroundedWebMetadata(result),
-													...(cached ? { cached: true as const } : {}),
-												},
-											},
-										};
-									},
-									onError: (error) => {
-										const message = modelSafeToolError(
-											error,
-											i18n.research_web.errorPrefix,
-										);
-										const modelPayload = {
-											success: false as const,
-											error: message,
-										};
-										return {
-											modelPayload,
-											entry: {
-												callId: options.toolCallId,
-												name: "research_web",
-												input: safeInput,
-												status: "done",
-												outputSummary: modelPayload.error,
-												sourceType: "web",
-												candidates: [],
-												metadata: {
-													ok: false,
-													evidenceReady: false,
-													error: modelPayload.error,
-												},
-											},
-										};
-									},
-								});
-							},
-						}),
-					),
+					// Moved to research-web-tool.ts (ruling 57): the App verifier
+					// (artifacts/app/verify.ts) needed this ONE tool without pulling in
+					// this whole factory, which closed a cycle back to the App's own
+					// generation path through artifact-tools/create.ts's per-kind
+					// dispatch. Exact same tool — the frozen catalogue snapshot tests
+					// below prove it.
+					research_web: createResearchWebTool({
+						userId: ctx.userId,
+						conversationId: ctx.conversationId,
+						turnId: ctx.turnId,
+						modelId: ctx.modelId,
+						language: lang,
+						recorder,
+					}),
 					fetch_url: asExecutableTool(
 						tool({
 							description: i18n.fetch_url.description,
@@ -1754,6 +1657,235 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										found: false,
 										error: message,
 									},
+								},
+							};
+						},
+					});
+				},
+			}),
+		),
+		// The three artifact tools (Feature 2 · Artifacts, decisions.md ruling
+		// 43): registered unconditionally, like read_generated_file above — the
+		// tool set sits inside the cached prompt prefix, so a per-turn decision
+		// about which tools exist would cost the cache. Schemas, payload
+		// shaping and the per-kind dispatch registries live beside this file in
+		// ./artifact-tools/{create,read,edit}.ts; each type slice appends ONLY
+		// its kind's entry to those registries, never here.
+		create_artifact: asExecutableTool(
+			tool({
+				description: artifactToolI18n.create_artifact.description,
+				inputSchema: buildCreateArtifactModelInputSchema(advertisedKinds),
+				execute: async (
+					input: z.infer<
+						ReturnType<typeof buildCreateArtifactModelInputSchema>
+					>,
+					options: ToolExecutionOptions,
+				) => {
+					// Parsed again with the EXECUTION schema (the server's bounds),
+					// mirroring read_generated_file's split: a validation failure is
+					// answered directly, never through the timeout/abort envelope.
+					const parsedInput =
+						buildCreateArtifactInputSchema(advertisedKinds).safeParse(input);
+					if (!parsedInput.success) {
+						const error =
+							parsedInput.error.issues[0]?.message ?? "Invalid input";
+						return {
+							success: false,
+							error,
+						} satisfies CreateArtifactModelPayload;
+					}
+					const safeInput = parsedInput.data;
+					// Counted and refused exactly the way
+					// MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN is: every kind shares one
+					// turn-wide counter, and the call past the cap runs no handler at
+					// all — recorded directly, never through the envelope, mirroring
+					// produce_file's own `refuse(...)` helper.
+					if (totalCreateArtifactCalls >= MAX_CREATE_ARTIFACT_CALLS_PER_TURN) {
+						const message = `create_artifact has already been called ${totalCreateArtifactCalls} times in this turn, which is the limit. Stop creating more, and tell the user what you already made.`;
+						const payload: CreateArtifactModelPayload = {
+							success: false,
+							error: message,
+						};
+						recorder.record({
+							callId: options.toolCallId,
+							name: "create_artifact",
+							input: safeInput,
+							status: "done",
+							outputSummary: message,
+							sourceType: "tool",
+							metadata: { ok: false, error: message },
+						});
+						return payload;
+					}
+					totalCreateArtifactCalls += 1;
+					return executeToolWithEnvelope<CreateArtifactModelPayload>({
+						toolName: "create_artifact",
+						timeoutMs: TOOL_TIMEOUTS_MS.create_artifact,
+						options,
+						recorder,
+						run: async (abortSignal) => {
+							const result = await runCreateArtifactTool({
+								userId: ctx.userId,
+								conversationId: ctx.conversationId,
+								turnId: ctx.turnId,
+								artifactType: safeInput.artifactType,
+								title: safeInput.title,
+								body: safeInput.body,
+								// The turn's own resolved language (ruling 55), never
+								// re-detected per kind — see CreateArtifactHandlerParams.
+								language: ctx.language ?? "en",
+								abortSignal,
+							});
+							return {
+								modelPayload: result.modelPayload,
+								entry: {
+									callId: options.toolCallId,
+									name: "create_artifact",
+									input: safeInput,
+									status: "done",
+									outputSummary: result.outputSummary,
+									sourceType: "tool",
+									metadata: result.metadata,
+								},
+							};
+						},
+						onError: (error) => {
+							const message = modelSafeToolError(
+								error,
+								artifactToolI18n.create_artifact.errorPrefix,
+							);
+							return {
+								modelPayload: { success: false, error: message },
+								entry: {
+									callId: options.toolCallId,
+									name: "create_artifact",
+									input: safeInput,
+									status: "done",
+									outputSummary: message,
+									sourceType: "tool",
+									metadata: { ok: false, error: message },
+								},
+							};
+						},
+					});
+				},
+			}),
+		),
+		read_artifact: asExecutableTool(
+			tool({
+				description: artifactToolI18n.read_artifact.description,
+				inputSchema: readArtifactInputSchema,
+				execute: async (
+					input: z.infer<typeof readArtifactInputSchema>,
+					options: ToolExecutionOptions,
+				) => {
+					return executeToolWithEnvelope<ReadArtifactModelPayload>({
+						toolName: "read_artifact",
+						timeoutMs: TOOL_TIMEOUTS_MS.read_artifact,
+						options,
+						recorder,
+						run: async (abortSignal) => {
+							const result = await runReadArtifactTool({
+								userId: ctx.userId,
+								conversationId: ctx.conversationId,
+								artifactId: input.artifactId,
+								detail: input.detail,
+								abortSignal,
+							});
+							return {
+								modelPayload: result.modelPayload,
+								entry: {
+									callId: options.toolCallId,
+									name: "read_artifact",
+									input,
+									status: "done",
+									outputSummary: result.outputSummary,
+									sourceType: "tool",
+									metadata: result.metadata,
+								},
+							};
+						},
+						onError: (error) => {
+							const message = modelSafeToolError(
+								error,
+								artifactToolI18n.read_artifact.errorPrefix,
+							);
+							return {
+								modelPayload: { success: false, error: message },
+								entry: {
+									callId: options.toolCallId,
+									name: "read_artifact",
+									input,
+									status: "done",
+									outputSummary: message,
+									sourceType: "tool",
+									metadata: { ok: false, found: false, error: message },
+								},
+							};
+						},
+					});
+				},
+			}),
+		),
+		edit_artifact: asExecutableTool(
+			tool({
+				description: artifactToolI18n.edit_artifact.description,
+				inputSchema: buildEditArtifactModelInputSchema(advertisedKinds),
+				execute: async (
+					input: z.infer<ReturnType<typeof buildEditArtifactModelInputSchema>>,
+					options: ToolExecutionOptions,
+				) => {
+					const parsedInput = editArtifactInputSchema.safeParse(input);
+					if (!parsedInput.success) {
+						const error =
+							parsedInput.error.issues[0]?.message ?? "Invalid input";
+						return { success: false, error } satisfies EditArtifactModelPayload;
+					}
+					const safeInput = parsedInput.data;
+					return executeToolWithEnvelope<EditArtifactModelPayload>({
+						toolName: "edit_artifact",
+						timeoutMs: TOOL_TIMEOUTS_MS.edit_artifact,
+						options,
+						recorder,
+						run: async (abortSignal) => {
+							const result = await runEditArtifactTool({
+								userId: ctx.userId,
+								conversationId: ctx.conversationId,
+								turnId: ctx.turnId,
+								artifactId: safeInput.artifactId,
+								patches: safeInput.patches,
+								ops: safeInput.ops,
+								summary: safeInput.summary,
+								abortSignal,
+							});
+							return {
+								modelPayload: result.modelPayload,
+								entry: {
+									callId: options.toolCallId,
+									name: "edit_artifact",
+									input: safeInput,
+									status: "done",
+									outputSummary: result.outputSummary,
+									sourceType: "tool",
+									metadata: result.metadata,
+								},
+							};
+						},
+						onError: (error) => {
+							const message = modelSafeToolError(
+								error,
+								artifactToolI18n.edit_artifact.errorPrefix,
+							);
+							return {
+								modelPayload: { success: false, error: message },
+								entry: {
+									callId: options.toolCallId,
+									name: "edit_artifact",
+									input: safeInput,
+									status: "done",
+									outputSummary: message,
+									sourceType: "tool",
+									metadata: { ok: false, error: message },
 								},
 							};
 						},

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { fireEvent, render } from "@testing-library/svelte";
+import { fireEvent, render, within } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "$lib/i18n";
@@ -408,5 +408,138 @@ describe("ToolActivityRow", () => {
 		} finally {
 			uiLanguage.set("en");
 		}
+	});
+
+	// The in-chat card for Document/App/Canvas/Slides (cross-kind task, after
+	// Slice 1's merge): a successful create_artifact/edit_artifact renders
+	// ArtifactCard as this row's body, for every kind — a refused or failed
+	// call never does.
+	describe("create_artifact / edit_artifact — the in-chat card", () => {
+		function artifactSegment(overrides: Partial<ToolCallSegment> = {}) {
+			return toolCall({
+				name: "create_artifact",
+				input: { artifactType: "document", title: "Weekend plan" },
+				status: "done",
+				metadata: {
+					ok: true,
+					artifactId: "artifact-1",
+					artifactKind: "document",
+					artifactTitle: "Weekend plan",
+				},
+				...overrides,
+			});
+		}
+
+		it("renders the card, already open, for a successful create_artifact — one card per kind", () => {
+			const kinds: Array<"document" | "app" | "canvas" | "slides"> = [
+				"document",
+				"app",
+				"canvas",
+				"slides",
+			];
+			for (const kind of kinds) {
+				const { getByTestId, unmount } = render(ToolActivityRow, {
+					item: buildToolActivityItem(
+						artifactSegment({
+							metadata: {
+								ok: true,
+								artifactId: `artifact-${kind}`,
+								artifactKind: kind,
+								artifactTitle: `My ${kind}`,
+							},
+						}),
+						`row-${kind}`,
+						get(t),
+					),
+				});
+				expect(getByTestId("artifact-card")).toBeInTheDocument();
+				// The title lives on the row's own line — chrome="body" draws no
+				// title of its own (see the "does not repeat the title" test
+				// below), so the card is identified by its testid, not by text
+				// that would otherwise be duplicated.
+				expect(getByTestId("tool-activity-row")).toHaveTextContent(
+					`My ${kind}`,
+				);
+				unmount();
+			}
+		});
+
+		it("does not repeat the title inside the body — the row's own line already names it (slice 0's chrome=body contract: no title of its own)", () => {
+			const { container, getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(artifactSegment(), "row-title", get(t)),
+			});
+			// The row's own line already reads "Created Weekend plan" (verb +
+			// object) — ToolActivityRow's rowContents() always renders it.
+			expect(getByTestId("tool-activity-row")).toHaveTextContent(
+				"Weekend plan",
+			);
+			// chrome="body" renders no title of its own (slice-0.md Task S6 Step
+			// 1.1 — this predates the in-chat card and still governs it): the
+			// composed row+body markup must show the artifact's title exactly
+			// once. A naive split that reintroduces the header duplicates both
+			// the title and the kind icon in the same row.
+			expect(within(container).getAllByText("Weekend plan")).toHaveLength(1);
+		});
+
+		it("renders no card for a refused edit_artifact — the row still shows what happened", () => {
+			const { queryByTestId, getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(
+					artifactSegment({
+						name: "edit_artifact",
+						status: "done",
+						outputSummary: "Apps are not edited in place.",
+						metadata: {
+							ok: false,
+							artifactId: "artifact-1",
+							artifactKind: "app",
+						},
+					}),
+					"row-refused",
+					get(t),
+				),
+				open: true,
+			});
+			expect(queryByTestId("artifact-card")).not.toBeInTheDocument();
+			expect(getByTestId("tool-activity-row")).toBeInTheDocument();
+		});
+
+		it("Open builds a minimal ready-to-open item from the card's own metadata and passes the conversation id", async () => {
+			const onOpenDocument = vi.fn();
+			const { getByRole } = render(ToolActivityRow, {
+				item: buildToolActivityItem(artifactSegment(), "row-open", get(t)),
+				onOpenDocument,
+				conversationId: "conv-42",
+			});
+
+			await fireEvent.click(getByRole("button", { name: "Open" }));
+
+			expect(onOpenDocument).toHaveBeenCalledWith(
+				expect.objectContaining({
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Weekend plan",
+					conversationId: "conv-42",
+				}),
+			);
+		});
+
+		it("a reload's persisted segment renders the exact same card — no live-only state involved", () => {
+			// Nothing here distinguishes "live" from "after a reload": both cases
+			// hand the SAME tool-call segment shape to buildToolActivityItem, so
+			// a persisted segment (no different from a freshly-streamed one)
+			// renders identically.
+			const persisted = buildToolActivityItem(
+				artifactSegment(),
+				"row-reload",
+				get(t),
+			);
+			const { getByTestId } = render(ToolActivityRow, {
+				item: persisted,
+			});
+			expect(getByTestId("artifact-card")).toBeInTheDocument();
+			expect(getByTestId("tool-activity-row")).toHaveTextContent(
+				"Weekend plan",
+			);
+		});
 	});
 });

@@ -1545,6 +1545,56 @@ describe("DocumentWorkspace artifact-kind dispatch", () => {
 		expect(loader).toHaveBeenCalledTimes(1);
 	});
 
+	// An artifact made inside an incognito conversation only resolves for its
+	// owner when the read names that conversation (fetchArtifact's
+	// conversationId widens ownership scope). The panel does not know the
+	// conversation on its own, so it must forward its own conversationId prop
+	// into the body so a body that calls fetchArtifact can pass it through.
+	it("passes the panel's conversationId prop through to the body", async () => {
+		const loader = vi.fn(
+			() => import("./__fixtures__/FakeArtifactBody.svelte"),
+		);
+		ARTIFACT_BODIES.document = loader;
+
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "doc-1",
+					kind: "document",
+					title: "My Document",
+					mimeType: null,
+				}),
+			],
+			activeDocumentId: "doc-1",
+			conversationId: "c-1",
+		});
+
+		const body = await screen.findByTestId("fake-artifact-body");
+		expect(body).toHaveAttribute("data-conversation-id", "c-1");
+	});
+
+	it("passes null to the body when the panel has no conversationId", async () => {
+		const loader = vi.fn(
+			() => import("./__fixtures__/FakeArtifactBody.svelte"),
+		);
+		ARTIFACT_BODIES.document = loader;
+
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "doc-1",
+					kind: "document",
+					title: "My Document",
+					mimeType: null,
+				}),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		const body = await screen.findByTestId("fake-artifact-body");
+		expect(body).toHaveAttribute("data-conversation-id", "null");
+	});
+
 	it("renders today's preview stack for a kind with no registered loader", async () => {
 		const { container } = renderWorkspace({
 			documents: [
@@ -1696,5 +1746,96 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 				name: "Document workspace",
 			}).length,
 		).toBeGreaterThan(0);
+	});
+
+	// T9 steps 4/7: a Document row with a server preview gets the subtitle
+	// and tickable checklist through documentArtifactCardViewFromPreview —
+	// the SAME builder/data the chat card uses, never a full-body fetch.
+	describe("a Document row's preview (T9 steps 4/7)", () => {
+		it("shows the tab-count subtitle and the first-five tickable items", async () => {
+			renderWorkspace({
+				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+				activeDocumentId: "doc-1",
+				list: {
+					open: true,
+					items: [
+						listItem({
+							id: "doc-1",
+							title: "Packing list",
+							kind: "document",
+							documentPreview: {
+								tabCount: 3,
+								tasks: [
+									{ blockId: "b1", text: "Passport", checked: true },
+									{ blockId: "b2", text: "Charger", checked: false },
+								],
+								totalTaskCount: 7,
+							},
+						}),
+					],
+				},
+			});
+
+			const list = await screen.findByTestId("artifact-panel-list");
+			expect(within(list).getByText("Document · 3 tabs")).toBeInTheDocument();
+			expect(within(list).getByText("Passport")).toBeInTheDocument();
+			expect(within(list).getByText("Charger")).toBeInTheDocument();
+			// totalTaskCount (7) minus the 5-item visible cap.
+			expect(within(list).getByText("+2 more")).toBeInTheDocument();
+		});
+
+		it("ticking a row's item calls onToggleDocumentTask with the artifact id, block id and flipped state", async () => {
+			const onToggleDocumentTask = vi.fn();
+			renderWorkspace({
+				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+				activeDocumentId: "doc-1",
+				onToggleDocumentTask,
+				list: {
+					open: true,
+					items: [
+						listItem({
+							id: "doc-1",
+							title: "Packing list",
+							kind: "document",
+							documentPreview: {
+								tabCount: 1,
+								tasks: [{ blockId: "b1", text: "Passport", checked: false }],
+								totalTaskCount: 1,
+							},
+						}),
+					],
+				},
+			});
+
+			const list = await screen.findByTestId("artifact-panel-list");
+			await fireEvent.click(within(list).getByRole("checkbox"));
+
+			expect(onToggleDocumentTask).toHaveBeenCalledExactlyOnceWith(
+				"doc-1",
+				"b1",
+				true,
+			);
+		});
+
+		it("falls back to the plain card for a Document row with no preview", async () => {
+			renderWorkspace({
+				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+				activeDocumentId: "doc-1",
+				list: {
+					open: true,
+					items: [
+						listItem({
+							id: "doc-1",
+							title: "Old cached row",
+							kind: "document",
+						}),
+					],
+				},
+			});
+
+			const list = await screen.findByTestId("artifact-panel-list");
+			expect(within(list).getByText("Old cached row")).toBeInTheDocument();
+			expect(within(list).queryByRole("checkbox")).not.toBeInTheDocument();
+		});
 	});
 });

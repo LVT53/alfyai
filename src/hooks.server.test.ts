@@ -660,6 +660,147 @@ describe("hooks.server.ts", () => {
 		});
 	});
 
+	// Ruling 58: this route is the ONE place the product ever loads inside a
+	// sandboxed, opaque-origin iframe (AppFrame.svelte), so `Sec-Fetch-Dest:
+	// iframe` here can only mean the App's own frame. A redirect to /login
+	// would land the login form INSIDE that same sandboxed browsing context —
+	// dead, with no cookie to submit it with — so this one route+destination
+	// combination gets a small localized notice instead.
+	describe("the App's served route, framed, with no session left", () => {
+		it("answers a localized notice instead of a redirect, with the App's own strict CSP", async () => {
+			const { handle } = await import("./hooks.server");
+			const { APP_SANDBOX_CSP } = await import(
+				"$lib/server/services/artifacts/app/sandbox-response"
+			);
+			const resolve = vi.fn();
+			const event = makeHookEvent("/api/artifacts/app-1/app", undefined, {
+				"sec-fetch-dest": "iframe",
+			});
+
+			const response = await handle({ event, resolve });
+
+			expect(response.status).toBe(401);
+			expect(response.headers.get("content-type")).toBe(
+				"text/html; charset=utf-8",
+			);
+			expect(response.headers.get("content-security-policy")).toBe(
+				APP_SANDBOX_CSP,
+			);
+			expect(response.headers.get("cache-control")).toBe("no-store");
+			const body = await response.text();
+			expect(body).toContain("Your session ended");
+		});
+
+		// The hard rule: this path is NEVER added to PUBLIC_PATHS and auth is
+		// NEVER skipped for it. The route itself (its own requireApiUser) is a
+		// second, independent gate, but the hook must not even reach it — an
+		// unauthenticated framed request gets ONLY the small notice, never any
+		// part of the real served route (its actual artifact body, its
+		// bootstrap script, or a fall-through to whatever `resolve` would have
+		// answered).
+		it("never reaches the route handler and never serves any part of the App itself", async () => {
+			const { handle } = await import("./hooks.server");
+			const realAppHtml =
+				"<!doctype html><html><head><script>window.alfy={storage:{}}</script></head><body>Trip cost splitter</body></html>";
+			const resolve = vi.fn(async () => new Response(realAppHtml));
+			const event = makeHookEvent("/api/artifacts/app-1/app", undefined, {
+				"sec-fetch-dest": "iframe",
+			});
+
+			const response = await handle({ event, resolve });
+
+			expect(resolve).not.toHaveBeenCalled();
+			const body = await response.text();
+			expect(body).not.toContain("window.alfy");
+			expect(body).not.toContain("Trip cost splitter");
+			expect(body).not.toContain("app-1");
+		});
+
+		it("answers in Hungarian when the frame's Accept-Language ranks it first", async () => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent("/api/artifacts/app-1/app", undefined, {
+				"sec-fetch-dest": "iframe",
+				"accept-language": "hu-HU,hu;q=0.9,en;q=0.1",
+			});
+
+			const response = await handle({ event, resolve: vi.fn() });
+
+			const body = await response.text();
+			expect(body).toContain("Lejárt a munkameneted");
+		});
+
+		it("still redirects the SAME route when it is not loaded as a frame (e.g. pasted into the address bar)", async () => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent(
+				"/api/artifacts/app-1/app",
+				undefined,
+				NAVIGATION_HEADERS,
+			);
+
+			await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
+				status: 303,
+			});
+		});
+
+		// A trailing slash is not a different route to the browser embedding the
+		// iframe, or to the App's own frame (which never adds one) — but until
+		// this is fixed it IS a different string to APP_SERVED_ROUTE_PATTERN's
+		// exact `$` anchor, so it falls through to "unchanged behaviour": the
+		// real 303 to /login. Loaded inside the App's own opaque-origin,
+		// sandboxed iframe, that renders the REAL login form in a hostile
+		// framing context — exactly the "dead form the user cannot explain"
+		// scenario this whole branch exists to prevent, reachable by an
+		// attacker who simply appends "/" to the src they put in their iframe.
+		it("still answers the localized notice for a trailing slash on the served route", async () => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent("/api/artifacts/app-1/app/", undefined, {
+				"sec-fetch-dest": "iframe",
+			});
+
+			const response = await handle({ event, resolve: vi.fn() });
+
+			expect(response.status).toBe(401);
+			const body = await response.text();
+			expect(body).toContain("Your session ended");
+		});
+
+		it.each([
+			"/api/artifacts/app-1/app/kv",
+			"/api/artifacts/app-1/app/download",
+			"/api/artifacts/app-1/app/regenerate",
+			"/api/artifacts/app-1",
+		])("does not intercept %s, even framed — only the served route itself", async (path) => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent(path, undefined, {
+				"sec-fetch-dest": "iframe",
+			});
+
+			await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
+				status: 303,
+			});
+		});
+
+		it("does not apply to an authenticated request for the same route", async () => {
+			const { handle } = await import("./hooks.server");
+			mockValidateSession.mockResolvedValue({
+				id: "user-1",
+				email: "test@example.com",
+				displayName: "Test User",
+				role: "user",
+				profilePicture: null,
+			});
+			const resolve = vi.fn(async () => new Response("<html></html>"));
+			const event = makeHookEvent("/api/artifacts/app-1/app", "session-token", {
+				"sec-fetch-dest": "iframe",
+			});
+
+			const response = await handle({ event, resolve });
+
+			expect(resolve).toHaveBeenCalledOnce();
+			expect(response.status).toBe(200);
+		});
+	});
+
 	it("marks the login redirect when the browser arrived with a dead session", async () => {
 		const { handle } = await import("./hooks.server");
 		// A cookie was sent and the session behind it is gone: the user was

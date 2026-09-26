@@ -64,6 +64,10 @@ vi.mock("$lib/server/services/task-state/control-model", () => ({
 const { listKnowledgeArtifacts } = await import(
 	"$lib/server/services/knowledge"
 );
+// Slice 7: the artifact-family merge this suite's PART A now covers.
+const { listLogicalDocumentsPage } = await import(
+	"$lib/server/services/knowledge/store"
+);
 const { findRelevantKnowledgeArtifacts, getConversationWorkingSet } =
 	await import("$lib/server/services/knowledge/context");
 const { readGeneratedFileContent } = await import(
@@ -498,12 +502,20 @@ const {
 	createComment,
 	getKv,
 	getVersionBody,
+	listArtifactCatalogueEntries,
 	listArtifactsForConversation,
 	listComments,
 	listKv,
 	listVersions,
+	resolveArtifactCatalogueBlock,
 	setKv,
+	createDocumentArtifact,
+	readDocumentForAlfy,
+	applyDocumentPatch,
+	saveDocumentBody,
+	runAlfyCommentReply,
 } = await import("$lib/server/services/artifacts");
+const { parseDocument } = await import("$lib/shared/artifact-document/blocks");
 
 const SECRET_DOCUMENT_TITLE = "Severance checklist";
 
@@ -555,6 +567,28 @@ describe("an incognito conversation's artifact family, from outside it", () => {
 		});
 
 		expect(listed).toEqual([]);
+	});
+
+	// slice-5.md's file table names this suite as gaining "the catalogue
+	// read" (the "## In this chat" turn-guidance block Slice 5a built on top
+	// of listArtifactsForConversation). It is a thin passthrough with no
+	// query of its own, so it inherits the scope above mechanically — but
+	// that is exactly the kind of claim this suite exists to prove rather
+	// than assume.
+	it("is not in another conversation's model-facing catalogue, and never reaches the prompt from there", async () => {
+		await seedIncognitoArtifactFamily();
+
+		const entries = await listArtifactCatalogueEntries({
+			userId: USER,
+			conversationId: NORMAL,
+		});
+		expect(entries).toEqual([]);
+
+		const block = await resolveArtifactCatalogueBlock({
+			userId: USER,
+			conversationId: NORMAL,
+		});
+		expect(block).toBeNull();
 	});
 
 	it("has no readable versions or comments with the default scope", async () => {
@@ -615,6 +649,62 @@ describe("an incognito conversation's artifact family, from outside it", () => {
 		).resolves.toBe(JSON.stringify({ note: SECRET_WORD }));
 	});
 
+	// Slice 2's three App-specific readers: the served route and the kv route
+	// both resolve through `getArtifact`/`storage.ts` before touching anything,
+	// and the download path reads the same artifact row a third time. Each is
+	// tested here through the exact service function its route calls, not a
+	// re-derived stand-in, so a scope regression in any of the three is caught
+	// in the one file that already holds this feature's incognito promise.
+	it("refuses the App storage bridge's read/write from outside — the kv route's own engine", async () => {
+		const { appId } = await seedIncognitoArtifactFamily();
+		const { readAppValue, writeAppValue } = await import(
+			"$lib/server/services/artifacts/app/storage"
+		);
+
+		await expect(
+			readAppValue({ userId: USER, artifactId: appId, key: "salary" }),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+		await expect(
+			writeAppValue({
+				userId: USER,
+				artifactId: appId,
+				key: "salary",
+				value: "leaked",
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+
+		// The positive half: from inside the incognito conversation itself, the
+		// same functions read the real stored value.
+		await expect(
+			readAppValue({
+				userId: USER,
+				artifactId: appId,
+				key: "salary",
+				conversationId: INCOGNITO,
+			}),
+		).resolves.toEqual({ ok: true, value: { note: SECRET_WORD } });
+	});
+
+	it("refuses the served App route and the download path's underlying read — getArtifact, kind app", async () => {
+		const { getArtifact } = await import("$lib/server/services/artifacts");
+		const { appId } = await seedIncognitoArtifactFamily();
+
+		await expect(
+			getArtifact({ userId: USER, artifactId: appId }),
+		).resolves.toBeNull();
+		await expect(
+			getArtifact({ userId: USER, artifactId: appId, conversationId: NORMAL }),
+		).resolves.toBeNull();
+
+		await expect(
+			getArtifact({
+				userId: USER,
+				artifactId: appId,
+				conversationId: INCOGNITO,
+			}),
+		).resolves.toMatchObject({ id: appId, kind: "app" });
+	});
+
 	it("is not in the Knowledge library or workspace search", async () => {
 		await seedIncognitoArtifactFamily();
 		// A normal upload with the same word, so the search is seen to find
@@ -634,6 +724,182 @@ describe("an incognito conversation's artifact family, from outside it", () => {
 		expect(names).toContain("public-notes.md");
 		expect(JSON.stringify(found)).not.toContain(SECRET_DOCUMENT_TITLE);
 		expect(JSON.stringify(found)).not.toContain("agreement");
+	});
+
+	// Slice 7: the merged listing (Documents tab) and the typed-query search
+	// path (Workspace Search) are two separate new code paths onto the same
+	// artifact-family row — each needs its own proof, not just the read
+	// above (`listKnowledgeArtifacts`, which does not exercise either).
+	it("is not in listLogicalDocumentsPage's merged listing, nor found by name in a typed search query", async () => {
+		await seedIncognitoArtifactFamily();
+		seedUpload(
+			NORMAL,
+			"public-notes.md",
+			`A ${SECRET_WORD} note from an ordinary chat.`,
+		);
+
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(JSON.stringify(page)).not.toContain(SECRET_DOCUMENT_TITLE);
+		expect(page.documents.map((document) => document.name)).toContain(
+			"public-notes.md",
+		);
+
+		// A typed query for the DOCUMENT'S OWN NAME (not the shared secret word,
+		// which the earlier assertion already covers via content) must not
+		// resolve it either. The response echoes the query string itself, so
+		// this checks the actual results rather than the raw JSON.
+		const byTitle = await searchWorkspace(USER, {
+			query: SECRET_DOCUMENT_TITLE,
+		});
+		expect(byTitle.documents).toEqual([]);
+	});
+});
+
+// Slice 1's Document reads and writes (RV-1A): Alfy's read (which writes the
+// last-read snapshot), a patch, a body save and the @Alfy hook each resolve
+// the artifact through the same scope, and the card preview travels only in
+// the conversation's own list. Negative half from outside, positive half
+// from inside, so a pass measures the scope, not a broken accessor.
+describe("an incognito conversation's Document, through the Document's own reads and writes", () => {
+	async function seedIncognitoDocument() {
+		const document = await createDocumentArtifact({
+			userId: USER,
+			conversationId: INCOGNITO,
+			title: SECRET_DOCUMENT_TITLE,
+			markdown: `- [ ] Sign the ${SECRET_WORD} agreement`,
+			author: "alfy",
+			summary: "Alfy wrote the first draft",
+		});
+		const body = document.body ?? "";
+		const [task] = parseDocument(body, { mint: false }).blocks;
+		const comment = await createComment({
+			userId: USER,
+			artifactId: document.id,
+			conversationId: INCOGNITO,
+			anchor: {
+				kind: "text",
+				blockId: task.id,
+				quote: "agreement",
+				prefix: `Sign the ${SECRET_WORD} `,
+				suffix: "",
+			},
+			author: "user",
+			body: "@Alfy is this final?",
+		});
+		if (!comment) throw new Error("seeding refused");
+		return { documentId: document.id, body, task, commentId: comment.id };
+	}
+
+	function snapshotRows(artifactId: string) {
+		return memory.db
+			.select({ id: schema.artifactKv.id })
+			.from(schema.artifactKv)
+			.where(eq(schema.artifactKv.artifactId, artifactId))
+			.all();
+	}
+
+	it("answers not_found from outside and writes nothing: Alfy's read, a patch, a save, @Alfy", async () => {
+		const { documentId, body, task, commentId } = await seedIncognitoDocument();
+
+		for (const outside of [{}, { conversationId: NORMAL }]) {
+			const scope = { userId: USER, artifactId: documentId, ...outside };
+			await expect(readDocumentForAlfy(scope)).rejects.toMatchObject({
+				reason: "not_found",
+			});
+			await expect(
+				applyDocumentPatch({
+					...scope,
+					patch: {
+						patchId: "p",
+						label: "Alfy",
+						ops: [
+							{
+								opId: "o",
+								kind: "toggleTask",
+								blockId: task.id,
+								baseHash: task.hash,
+								blockLabel: task.label,
+								checked: true,
+							},
+						],
+					},
+				}),
+			).resolves.toEqual({ ok: false, reason: "not_found" });
+			await expect(
+				saveDocumentBody({
+					...scope,
+					body: { markdown: "Overwritten.", tabs: [] },
+					author: "user",
+					summary: "Edited",
+				}),
+			).resolves.toEqual({ ok: false, reason: "not_found" });
+			await expect(
+				runAlfyCommentReply({
+					...scope,
+					commentId,
+					abortSignal: new AbortController().signal,
+				}),
+			).resolves.toEqual({ ok: false, reason: "not_found" });
+		}
+
+		expect(snapshotRows(documentId)).toEqual([]);
+		const stored = memory.db
+			.select({ contentText: schema.artifacts.contentText })
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, documentId))
+			.get();
+		expect(stored?.contentText).toBe(body);
+	});
+
+	it("works from inside: Alfy's read writes its snapshot, a patch lands, and the card preview is in its own list only", async () => {
+		const { documentId, task } = await seedIncognitoDocument();
+		const inside = {
+			userId: USER,
+			artifactId: documentId,
+			conversationId: INCOGNITO,
+		};
+
+		const read = await readDocumentForAlfy(inside);
+		expect(read.blocks.map((block) => block.blockId)).toEqual([task.id]);
+		expect(snapshotRows(documentId)).toHaveLength(1);
+		const patched = await applyDocumentPatch({
+			...inside,
+			patch: {
+				patchId: "p",
+				label: "Alfy",
+				ops: [
+					{
+						opId: "o",
+						kind: "toggleTask",
+						blockId: task.id,
+						baseHash: task.hash,
+						blockLabel: task.label,
+						checked: true,
+					},
+				],
+			},
+		});
+		expect(patched.ok && patched.result.applied).toBe(1);
+
+		const [own] = await listArtifactsForConversation({
+			userId: USER,
+			conversationId: INCOGNITO,
+		});
+		expect(own.documentPreview?.tasks).toEqual([
+			{
+				blockId: task.id,
+				text: `Sign the ${SECRET_WORD} agreement`,
+				checked: true,
+			},
+		]);
+		const elsewhere = await listArtifactsForConversation({
+			userId: USER,
+			conversationId: NORMAL,
+		});
+		expect(JSON.stringify(elsewhere)).not.toContain(SECRET_WORD);
 	});
 });
 
@@ -656,6 +922,22 @@ describe("inside the incognito conversation, its artifact family still works", (
 		await expect(
 			getKv({ ...inside, artifactId: appId, key: "salary" }),
 		).resolves.toBe(JSON.stringify({ note: SECRET_WORD }));
+	});
+
+	it("still builds its own model-facing catalogue", async () => {
+		const { documentId } = await seedIncognitoArtifactFamily();
+
+		const entries = await listArtifactCatalogueEntries({
+			userId: USER,
+			conversationId: INCOGNITO,
+		});
+		expect(entries.map((entry) => entry.artifactId)).toContain(documentId);
+
+		const block = await resolveArtifactCatalogueBlock({
+			userId: USER,
+			conversationId: INCOGNITO,
+		});
+		expect(block).toContain(SECRET_DOCUMENT_TITLE);
 	});
 });
 
@@ -709,6 +991,146 @@ describe("a normal conversation's own artifact family is unaffected", () => {
 			"Weekend plan",
 		]);
 	});
+
+	// The positive half of the exclusion proven above: the same merge and
+	// search paths must still surface a normal conversation's own row, so the
+	// incognito refusal is the scope working, not a broken query.
+	it("is found in listLogicalDocumentsPage and by name in Workspace Search", async () => {
+		await seedIncognitoArtifactFamily();
+		const document = await createArtifact({
+			userId: USER,
+			conversationId: NORMAL,
+			kind: "canvas",
+			title: "Weekend plan board",
+			body: "- [ ] Naschmarkt",
+		});
+		if (!document.ok) throw new Error("create refused");
+
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(page.documents.map((item) => item.id)).toContain(
+			document.artifact.id,
+		);
+
+		const found = await searchWorkspace(USER, { query: "Weekend plan" });
+		expect(found.documents.map((item) => item.displayArtifactId)).toContain(
+			document.artifact.id,
+		);
+	});
+});
+
+// Slice 5a: read_artifact/edit_artifact must treat an id from a DIFFERENT
+// (still normal, still the same user's) conversation exactly like an id that
+// does not exist at all — the catalogue that hands out ids is scoped to ONE
+// conversation (listArtifactsForConversation's `eq(artifacts.conversationId,
+// …)`), so the tools that consume those ids must refuse just as tightly.
+// getArtifact/readScopedArtifactRow is deliberately WIDER for its other
+// caller (GET /api/artifacts/[id], which opens any of the user's own
+// artifacts by id regardless of which conversation is being served) — see
+// that route's own comment — so this scoping has to be the tool layer's own
+// responsibility, not something to fix in getArtifact.
+describe("the model tool layer (read_artifact / edit_artifact), across two normal conversations of the same user", () => {
+	const OTHER_NORMAL = "conv-normal-other";
+	const OTHER_SECRET_TITLE = "Severance negotiation notes";
+
+	beforeEach(() => {
+		seedConversation(OTHER_NORMAL, false);
+	});
+
+	it("read_artifact answers an id from a different normal conversation as not found, with only the calling conversation's candidates", async () => {
+		const created = await createArtifact({
+			userId: USER,
+			conversationId: OTHER_NORMAL,
+			kind: "document",
+			title: OTHER_SECRET_TITLE,
+			body: `- [ ] Ask about the ${SECRET_WORD} clause`,
+		});
+		if (!created.ok) throw new Error("seed refused");
+		const ownDocument = await createArtifact({
+			userId: USER,
+			conversationId: NORMAL,
+			kind: "document",
+			title: "Weekend plan",
+			body: "- [ ] Naschmarkt",
+		});
+		if (!ownDocument.ok) throw new Error("seed refused");
+
+		const { runReadArtifactTool } = await import(
+			"$lib/server/services/normal-chat-tools/artifact-tools/read"
+		);
+		const result = await runReadArtifactTool({
+			userId: USER,
+			conversationId: NORMAL,
+			artifactId: created.artifact.id,
+		});
+
+		expect(result.modelPayload.success).toBe(false);
+		const serialized = JSON.stringify(result.modelPayload);
+		expect(serialized).not.toContain(SECRET_WORD);
+		expect(serialized).not.toContain(OTHER_SECRET_TITLE);
+		expect(serialized).not.toContain(created.artifact.id);
+		if (!result.modelPayload.success) {
+			expect(result.modelPayload.candidates).toEqual([
+				{ artifactId: ownDocument.artifact.id, title: "Weekend plan" },
+			]);
+		}
+	});
+
+	it("edit_artifact refuses an id from a different normal conversation as not found, and applies nothing", async () => {
+		const created = await createArtifact({
+			userId: USER,
+			conversationId: OTHER_NORMAL,
+			kind: "document",
+			title: OTHER_SECRET_TITLE,
+			body: `- [ ] Ask about the ${SECRET_WORD} clause`,
+		});
+		if (!created.ok) throw new Error("seed refused");
+
+		const { runEditArtifactTool } = await import(
+			"$lib/server/services/normal-chat-tools/artifact-tools/edit"
+		);
+		const result = await runEditArtifactTool({
+			userId: USER,
+			conversationId: NORMAL,
+			turnId: "turn-1",
+			artifactId: created.artifact.id,
+			patches: [
+				{ op: "replace_text", blockId: "b1", baseHash: "x", text: "y" },
+			],
+		});
+
+		expect(result.modelPayload.success).toBe(false);
+		const serialized = JSON.stringify(result.modelPayload);
+		expect(serialized).not.toContain(SECRET_WORD);
+		expect(serialized).not.toContain(OTHER_SECRET_TITLE);
+		// The "not found" path (buildNotFoundResult) never sets `refused`, only
+		// `candidates`; the "found but this kind can't be edited yet" path
+		// (unsupported_kind) sets `refused` and reveals the kind in metadata.
+		// A cross-conversation id must take the FIRST path — existence and kind
+		// are exactly what "must look exactly like not found" rules out.
+		if (!result.modelPayload.success) {
+			expect(result.modelPayload.refused).toBeUndefined();
+			expect(result.modelPayload).toHaveProperty("candidates");
+		}
+		expect(result.metadata).not.toHaveProperty("artifactKind");
+		expect(result.outputSummary).toBe("Not found");
+
+		// Nothing was applied: the other conversation's document is untouched.
+		const stillThere = await getVersionBody({
+			userId: USER,
+			artifactId: created.artifact.id,
+			versionId: (
+				await listVersions({
+					userId: USER,
+					artifactId: created.artifact.id,
+					conversationId: OTHER_NORMAL,
+				})
+			)[0].id,
+		});
+		expect(stillThere).toBe(`- [ ] Ask about the ${SECRET_WORD} clause`);
+	});
 });
 
 describe("deleting an incognito conversation, with artifacts", () => {
@@ -727,6 +1149,118 @@ describe("deleting an incognito conversation, with artifacts", () => {
 		expect(memory.db.select().from(schema.artifactVersions).all()).toEqual([]);
 		expect(memory.db.select().from(schema.artifactComments).all()).toEqual([]);
 		expect(memory.db.select().from(schema.artifactKv).all()).toEqual([]);
+
+		// Slice 7: gone from the merged listing and search too, not just the
+		// raw table — the two new surfaces this slice adds.
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(page.documents.map((item) => item.id)).not.toContain(documentId);
+		expect(page.documents.map((item) => item.id)).not.toContain(appId);
+	});
+});
+
+// Slice 7, Review Focus #2: "an artifact whose owning conversation has been
+// deleted must become invisible, exactly like a generated_output row does
+// today" — verified here against a NORMAL (non-incognito) conversation, since
+// this is the general lifecycle rule, not an incognito-specific one.
+describe("deleting a normal conversation's artifact family (Review Focus #2)", () => {
+	it("removes the row from listLogicalDocumentsPage and Workspace Search once its conversation is gone", async () => {
+		const document = await createArtifact({
+			userId: USER,
+			conversationId: NORMAL,
+			kind: "document",
+			title: "Doomed plan",
+			body: "- [ ] Nothing",
+		});
+		if (!document.ok) throw new Error("create refused");
+
+		await deleteConversationWithCleanup(USER, NORMAL);
+
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(page.documents.map((item) => item.id)).not.toContain(
+			document.artifact.id,
+		);
+
+		const found = await searchWorkspace(USER, { query: "Doomed plan" });
+		expect(found.documents.map((item) => item.displayArtifactId)).not.toContain(
+			document.artifact.id,
+		);
+	});
+});
+
+// RV-7: the gap the two deletion tests above do not cover. Both seed an
+// artifact with NO outside reference, so `deleteConversationWithCleanup`
+// (cleanup/conversation-cleanup.ts) hard-deletes it via
+// `hardDeleteArtifactsForUser` and it is gone from the `artifacts` table
+// entirely — trivially absent from every read. But that same function's own
+// branch for a `type: "artifact"` row checks
+// `artifactHasReferencesOutsideConversation` first and, when true, PRESERVES
+// the row instead — exactly like it already does for
+// `source_document`/`normalized_document` — whenever something outside the
+// conversation still names it (a fork's copied `artifact_links` row, a
+// cross-conversation evidence link, ...). Preserving does not keep the link
+// alive: `artifacts.conversation_id` is `ON DELETE SET NULL`, so the instant
+// the conversation row itself is deleted a few lines later in the same
+// function, the preserved row's `conversation_id` goes to `null`.
+// `isArtifactCanonicallyOwned` (knowledge/store/core.ts) gives
+// `generated_output` / `work_capsule` no `userId` fallback for exactly this
+// reason ("a working artifact whose conversation is gone must never come back
+// as retrieval context" — detached-artifact-delete.test.ts's own header). A
+// `type: "artifact"` row falls through to the generic
+// `artifact.userId === userId` branch instead, so a preserved incognito
+// artifact comes back through the front door the moment its conversation is
+// gone — the exact containment failure this suite exists to catch.
+describe("an incognito artifact preserved by an outside reference, after its conversation is deleted", () => {
+	it("must not resurface through listLogicalDocumentsPage or Workspace Search once its own conversation link is cleared", async () => {
+		const { documentId } = await seedIncognitoArtifactFamily();
+
+		// The outside reference that makes cleanup PRESERVE rather than
+		// hard-delete the row: some other, still-alive conversation names it —
+		// the same shape a fork's copied `artifact_links` row would leave.
+		memory.db
+			.insert(schema.artifactLinks)
+			.values({
+				id: "link-outside-reference",
+				userId: USER,
+				artifactId: documentId,
+				conversationId: NORMAL,
+				linkType: "attached_to_conversation",
+				createdAt: NOW,
+			})
+			.run();
+
+		await deleteConversationWithCleanup(USER, INCOGNITO);
+
+		// Sanity check on the setup itself: the row must still exist (preserved,
+		// not hard-deleted) with its conversation link cleared — otherwise this
+		// test would be proving nothing.
+		const stored = memory.db
+			.select({
+				id: schema.artifacts.id,
+				conversationId: schema.artifacts.conversationId,
+			})
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, documentId))
+			.all();
+		expect(stored).toEqual([{ id: documentId, conversationId: null }]);
+
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(page.documents.map((item) => item.id)).not.toContain(documentId);
+
+		const found = await searchWorkspace(USER, {
+			query: SECRET_DOCUMENT_TITLE,
+		});
+		expect(found.documents.map((item) => item.displayArtifactId)).not.toContain(
+			documentId,
+		);
 	});
 });
 

@@ -1,0 +1,101 @@
+{
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-07-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 249,
+				"textSample": "Duna-kvíz 10 kérdés Európa legismertebb folyójáról. Válassz egy választ a négy közül, majd lépj a következőre. Készen állsz? Ez a kvíz 10 kérdést tartalmaz a Dunáról, mindegyikhez négy válaszlehetőséggel. A végén megkapo",
+				"controlCount": 1,
+				"storageGets": 1,
+				"storageSets": 1,
+				"storageKeys": ["duna-quiz"]
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-07-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 249,
+				"textSample": "Duna-kvíz 10 kérdés Európa legismertebb folyójáról. Válassz egy választ a négy közül, majd lépj a következőre. Készen állsz? Ez a kvíz 10 kérdést tartalmaz a Dunáról, mindegyikhez négy válaszlehetőséggel. A végén megkapo",
+				"controlCount": 1,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-07-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 249,
+				"textSample": "Duna-kvíz 10 kérdés Európa legismertebb folyójáról. Válassz egy választ a négy közül, majd lépj a következőre. Készen állsz? Ez a kvíz 10 kérdést tartalmaz a Dunáról, mindegyikhez négy válaszlehetőséggel. A végén megkapo",
+				"controlCount": 1,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-07-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 249,
+				"textSample": "Duna-kvíz 10 kérdés Európa legismertebb folyójáról. Válassz egy választ a négy közül, majd lépj a következőre. Készen állsz? Ez a kvíz 10 kérdést tartalmaz a Dunáról, mindegyikhez négy válaszlehetőséggel. A végén megkapo",
+				"controlCount": 1,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": null,
+			"inputValue": null,
+			"buttonText": "Kvíz indítása",
+			"clickedButtons": ["Kvíz indítása"],
+			"domChangedAfter": "Kvíz indítása",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 249,
+			"textAfter": 347,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 1,
+			"storageKeys": ["duna-quiz"],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 1,
+		"storageKeys": ["duna-quiz"]
+	}
+}

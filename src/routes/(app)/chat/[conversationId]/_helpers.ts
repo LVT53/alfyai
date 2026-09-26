@@ -1,3 +1,7 @@
+import {
+	buildDocumentAlfyActivity,
+	type DocumentAlfyActivity,
+} from "$lib/components/artifacts/document/alfy-activity";
 import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import type { I18nKey } from "$lib/i18n";
@@ -1006,4 +1010,64 @@ export function markPendingSkillUnavailable(payload: SendPayload): SendPayload {
 			unavailable: true,
 		},
 	};
+}
+
+/**
+ * T8 live: the most recent Document-relevant `create_artifact`/
+ * `edit_artifact` tool-call segment across the WHOLE message list, mapped
+ * through `alfy-activity.ts`'s pure boundary — the page's own view of "what
+ * is Alfy doing to a document right now" that `DocumentWorkspace`'s
+ * `alfyActivity` prop carries down to the open body. The open Document
+ * itself filters by artifactId, so a call for a document the panel does not
+ * currently show is simply ignored downstream; this scan does not need to
+ * know which document (if any) is open.
+ */
+export function findLiveDocumentAlfyActivity(
+	messages: ChatMessage[],
+): DocumentAlfyActivity | null {
+	for (let i = messages.length - 1; i >= 0; i -= 1) {
+		const segments = messages[i]?.thinkingSegments ?? [];
+		for (let j = segments.length - 1; j >= 0; j -= 1) {
+			const segment = segments[j];
+			if (
+				segment.type !== "tool_call" ||
+				(segment.name !== "create_artifact" && segment.name !== "edit_artifact")
+			) {
+				continue;
+			}
+			const activity = buildDocumentAlfyActivity(segment);
+			if (activity) return activity;
+		}
+	}
+	return null;
+}
+
+/**
+ * RV-1B: `findLiveDocumentAlfyActivity` deliberately scans the WHOLE message
+ * list with no regard for how long ago a call settled ("picks the MOST
+ * RECENT Document call across the whole message list", this file's own
+ * test) — necessary so a call that finishes while this tab is backgrounded
+ * is still found. But that same breadth means a fresh page load (or the
+ * first moment a conversation's history is observed this session) finds
+ * whatever Document call happened last, even if it settled in a PREVIOUS
+ * session and the user already Kept/Undid it there — replaying its
+ * Keep/Undo marks and refusal notice as if it just happened, on text the
+ * user may have changed further since.
+ *
+ * `suppressKey` names the one activity key (if any) that must never be
+ * reported live: the key `findLiveDocumentAlfyActivity` already returned the
+ * FIRST time this conversation's message list was observed this session,
+ * before any live update could have produced a NEWER key. A live call that
+ * settles WHILE this page is open always has a different key (a fresh
+ * `callId`) and is never suppressed — only the one snapshot-time key is.
+ */
+export function liveDocumentAlfyActivityExcluding(
+	messages: ChatMessage[],
+	suppressKey: string | null,
+): DocumentAlfyActivity | null {
+	const activity = findLiveDocumentAlfyActivity(messages);
+	if (activity && suppressKey !== null && activity.key === suppressKey) {
+		return null;
+	}
+	return activity;
 }

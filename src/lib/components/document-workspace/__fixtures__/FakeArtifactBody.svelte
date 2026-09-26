@@ -7,9 +7,14 @@
 <script lang="ts">
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
 
-let { artifactId, kind, title }: ArtifactBodyProps = $props();
+let { artifactId, kind, title, conversationId }: ArtifactBodyProps = $props();
 </script>
 
-<div data-testid="fake-artifact-body" data-artifact-id={artifactId} data-kind={kind}>
+<div
+	data-testid="fake-artifact-body"
+	data-artifact-id={artifactId}
+	data-kind={kind}
+	data-conversation-id={String(conversationId)}
+>
 	{title}
 </div>

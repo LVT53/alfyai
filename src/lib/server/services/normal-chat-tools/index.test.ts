@@ -1,6 +1,6 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText, type ToolSet } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig } from "$lib/server/config-store";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
@@ -48,6 +48,10 @@ import {
 } from "$lib/server/services/skills/prompt-context";
 import { resetToolHealthCacheForTests } from "$lib/server/services/tool-health";
 import { INSTRUCTIONS_MAX_CHARS } from "$lib/shared/instructions";
+import {
+	CREATE_ARTIFACT_HANDLERS,
+	MAX_CREATE_ARTIFACT_CALLS_PER_TURN,
+} from "./artifact-tools/create";
 import {
 	createNormalChatTools,
 	isProduceFileRequest,
@@ -4797,6 +4801,397 @@ describe("createNormalChatTools", () => {
 // languages and keep the catalogue inside its token budget, because the Qwen
 // chat template renders every description verbatim into the prompt on every
 // single turn.
+// Feature 2 · Artifacts (Slice 5a, decisions.md ruling 43). The domain logic
+// (per-kind dispatch, refusal shaping) is unit-tested directly against
+// artifact-tools/{create,read,edit}.ts; this block proves the REAL wiring
+// through createNormalChatTools — the advertised/executed schema split, the
+// tool-call recorder, and that a call with no seeded data degrades to a
+// model-safe "not found" rather than a throw. It relies on no external
+// service and does not mock $lib/server/db, so it runs against the shared
+// throwaway per-suite database (src/vitest-setup.ts) with nothing seeded —
+// exactly the "an id this conversation does not have" case.
+describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () => {
+	function artifactTools(overrides: { language?: "en" | "hu" } = {}) {
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			...overrides,
+		});
+		return { tools, getToolCalls };
+	}
+
+	// The real Slice 1 handler, captured before any test in this file gets a
+	// chance to overwrite it. Restoring THIS (rather than deleting the key)
+	// after a test fakes it matters now that create_artifact's advertised
+	// schema is built fresh from advertisedArtifactKinds() on every call
+	// (kind-registry.ts): leaving the key deleted would silently drop
+	// "document" from every later test's schema/description in this file,
+	// including the tool-catalogue snapshot and token-budget tests below.
+	const realDocumentHandler = CREATE_ARTIFACT_HANDLERS.document;
+
+	// Ruling 55: the create closure threads ctx.language to the per-kind
+	// handler instead of each kind re-detecting it from the model's body.
+	// "document" stands in for any kind here — the wiring is in the shared
+	// create_artifact closure, not in a specific kind's own handler.
+	describe("create_artifact threads ctx.language to the handler (ruling 55)", () => {
+		afterEach(() => {
+			CREATE_ARTIFACT_HANDLERS.document = realDocumentHandler;
+		});
+
+		it("passes the turn's own resolved language through unchanged", async () => {
+			let receivedLanguage: string | undefined;
+			CREATE_ARTIFACT_HANDLERS.document = async (params) => {
+				receivedLanguage = params.language;
+				return {
+					ok: true,
+					value: { artifactId: "artifact-1", title: params.title },
+				};
+			};
+			const { tools } = artifactTools({ language: "hu" });
+
+			await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "Terv", body: "tartalom" },
+				{ toolCallId: "call-1", messages: [] },
+			);
+
+			expect(receivedLanguage).toBe("hu");
+		});
+
+		it('defaults to "en" when the turn context carries no language', async () => {
+			let receivedLanguage: string | undefined;
+			CREATE_ARTIFACT_HANDLERS.document = async (params) => {
+				receivedLanguage = params.language;
+				return {
+					ok: true,
+					value: { artifactId: "artifact-1", title: params.title },
+				};
+			};
+			const { tools } = artifactTools();
+
+			await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "Plan", body: "content" },
+				{ toolCallId: "call-1", messages: [] },
+			);
+
+			expect(receivedLanguage).toBe("en");
+		});
+	});
+
+	afterEach(() => {
+		CREATE_ARTIFACT_HANDLERS.document = realDocumentHandler;
+	});
+
+	it("advertises a trimmed create_artifact schema and validates with the full one", async () => {
+		const { tools } = artifactTools();
+
+		// The advertised schema has no server-only title bound — only the
+		// EXECUTED schema (createArtifactInputSchema) enforces .max(200).
+		const advertisedJson = JSON.stringify(
+			(tools.create_artifact.inputSchema as { jsonSchema?: unknown })
+				?.jsonSchema ?? tools.create_artifact.inputSchema,
+		);
+		expect(advertisedJson).not.toContain("maxLength");
+
+		const result = (await tools.create_artifact.execute?.(
+			{ artifactType: "document", title: "x".repeat(201), body: "b" },
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean; error?: string };
+
+		expect(result.success).toBe(false);
+	});
+
+	it("refuses to create an artifact with an empty body", async () => {
+		const { tools } = artifactTools();
+
+		const result = (await tools.create_artifact.execute?.(
+			{ artifactType: "document", title: "Plan", body: "" },
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean };
+
+		expect(result.success).toBe(false);
+	});
+
+	it("records create_artifact's refusal as a tool-call entry with duration metadata", async () => {
+		const { tools, getToolCalls } = artifactTools();
+
+		await tools.create_artifact.execute?.(
+			{ artifactType: "document", title: "Plan", body: "content" },
+			{ toolCallId: "call-1", messages: [] },
+		);
+
+		const [entry] = getToolCalls();
+		expect(entry.name).toBe("create_artifact");
+		expect(entry.metadata?.ok).toBe(false);
+		expect(typeof entry.metadata?.durationMs).toBe("number");
+	});
+
+	it("answers a model-safe failure, not a throw, for an id this conversation does not have", async () => {
+		// The shared per-suite test database (vitest-setup.ts) has nothing
+		// seeded, so `candidates` comes back empty and the envelope's payload
+		// compaction (shared.ts's compactModelPayload) drops it — proven with a
+		// real, non-empty candidate list in read.test.ts instead. This is the
+		// end-to-end proof that an unknown id degrades to `success: false`
+		// through the real tool wiring rather than rejecting.
+		const { tools } = artifactTools();
+
+		const result = (await tools.read_artifact.execute?.(
+			{ artifactId: "unseeded-id" },
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean };
+
+		expect(result.success).toBe(false);
+	});
+
+	it("refuses edit_artifact when neither patches nor ops is present", async () => {
+		const { tools } = artifactTools();
+
+		const result = (await tools.edit_artifact.execute?.(
+			{ artifactId: "unseeded-id" },
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean };
+
+		expect(result.success).toBe(false);
+	});
+
+	it("refuses edit_artifact when both patches and ops are present", async () => {
+		const { tools } = artifactTools();
+
+		const result = (await tools.edit_artifact.execute?.(
+			{ artifactId: "unseeded-id", patches: [{}], ops: [{}] },
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean };
+
+		expect(result.success).toBe(false);
+	});
+
+	it("refuses edit_artifact over the 40-op cap without applying part of it", async () => {
+		const { tools } = artifactTools();
+
+		const result = (await tools.edit_artifact.execute?.(
+			{
+				artifactId: "unseeded-id",
+				ops: Array.from({ length: 41 }, () => ({})),
+			},
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean; error?: string };
+
+		// The cap lives on the EXECUTED schema, so a batch over it never even
+		// reaches the artifact lookup — it fails validation up front.
+		expect(result.success).toBe(false);
+	});
+
+	// A real defect found after the shell shipped: the three `run: async () =>`
+	// closures ignored executeToolWithEnvelope's own combined abort signal, so
+	// an App generation (up to 120s) could outlive its timeout or the user's
+	// Stop and still write an artifact after the model was told the call
+	// failed — an orphan, and a duplicate on retry. Both triggers of that
+	// combined signal are proven against the REAL registered tool, not a
+	// mock of the envelope.
+	describe("abort signal propagation (a real defect, now fixed)", () => {
+		it("a slow handler observes the tool's own timeout firing", async () => {
+			const originalTimeout = TOOL_TIMEOUTS_MS.create_artifact;
+			// A short-lived override so this test does not wait out the real
+			// 120s cap; restored in the finally below regardless of outcome.
+			TOOL_TIMEOUTS_MS.create_artifact = 20;
+			let observedAborted = false;
+			try {
+				CREATE_ARTIFACT_HANDLERS.document = async ({ abortSignal }) => {
+					await new Promise<void>((resolve) => {
+						const timer = setTimeout(resolve, 200);
+						abortSignal.addEventListener(
+							"abort",
+							() => {
+								observedAborted = abortSignal.aborted;
+								clearTimeout(timer);
+								resolve();
+							},
+							{ once: true },
+						);
+					});
+					return {
+						ok: true,
+						value: { artifactId: "artifact-1", title: "Slow" },
+					};
+				};
+				const { tools } = artifactTools();
+
+				await tools.create_artifact.execute?.(
+					{ artifactType: "document", title: "Slow", body: "content" },
+					{ toolCallId: "call-1", messages: [] },
+				);
+
+				expect(observedAborted).toBe(true);
+			} finally {
+				TOOL_TIMEOUTS_MS.create_artifact = originalTimeout;
+			}
+		});
+
+		it("a slow handler observes the turn's own abort signal (a user stop) firing", async () => {
+			let observedAborted = false;
+			CREATE_ARTIFACT_HANDLERS.document = async ({ abortSignal }) => {
+				await new Promise<void>((resolve) => {
+					abortSignal.addEventListener(
+						"abort",
+						() => {
+							observedAborted = abortSignal.aborted;
+							resolve();
+						},
+						{ once: true },
+					);
+				});
+				return { ok: true, value: { artifactId: "artifact-1", title: "Slow" } };
+			};
+			const controller = new AbortController();
+			const { tools } = artifactTools();
+
+			const pending = tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "Slow", body: "content" },
+				{ toolCallId: "call-1", messages: [], abortSignal: controller.signal },
+			);
+			controller.abort();
+			await pending;
+
+			expect(observedAborted).toBe(true);
+		});
+	});
+
+	// A gap found after the shell shipped: unlike produce_file
+	// (MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS /
+	// MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN), create_artifact had no per-turn
+	// cap at all — harmless while every kind instant-refuses, but once a real
+	// handler runs a 120s App generation, an unbounded loop of calls in one
+	// turn has no guard.
+	describe("per-turn create_artifact cap", () => {
+		it("refuses the call past the cap without running the handler", async () => {
+			const handler = vi.fn(async (params: { title: string }) => ({
+				ok: true as const,
+				value: { artifactId: `artifact-${params.title}`, title: params.title },
+			}));
+			CREATE_ARTIFACT_HANDLERS.document = handler;
+			const { tools } = artifactTools();
+
+			for (let i = 1; i <= MAX_CREATE_ARTIFACT_CALLS_PER_TURN; i += 1) {
+				const result = (await tools.create_artifact.execute?.(
+					{ artifactType: "document", title: `Plan ${i}`, body: "content" },
+					{ toolCallId: `call-${i}`, messages: [] },
+				)) as { success: boolean };
+				expect(result.success).toBe(true);
+			}
+			expect(handler).toHaveBeenCalledTimes(MAX_CREATE_ARTIFACT_CALLS_PER_TURN);
+
+			const overLimit = (await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "One too many", body: "content" },
+				{ toolCallId: "call-over", messages: [] },
+			)) as { success: boolean; error?: string };
+
+			expect(overLimit.success).toBe(false);
+			// The call past the cap never reaches the handler at all.
+			expect(handler).toHaveBeenCalledTimes(MAX_CREATE_ARTIFACT_CALLS_PER_TURN);
+		});
+
+		it("starts at zero for a new tool set (a new turn)", async () => {
+			const handler = vi.fn(async (params: { title: string }) => ({
+				ok: true as const,
+				value: { artifactId: `artifact-${params.title}`, title: params.title },
+			}));
+			CREATE_ARTIFACT_HANDLERS.document = handler;
+
+			const firstTurn = artifactTools();
+			for (let i = 1; i <= MAX_CREATE_ARTIFACT_CALLS_PER_TURN; i += 1) {
+				await firstTurn.tools.create_artifact.execute?.(
+					{ artifactType: "document", title: `Plan ${i}`, body: "content" },
+					{ toolCallId: `call-${i}`, messages: [] },
+				);
+			}
+
+			// A fresh createNormalChatTools() call is a fresh turn's closure —
+			// its own counter must not inherit the previous turn's count.
+			const secondTurn = artifactTools();
+			const result = (await secondTurn.tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "Fresh turn", body: "content" },
+				{ toolCallId: "call-fresh", messages: [] },
+			)) as { success: boolean };
+
+			expect(result.success).toBe(true);
+		});
+	});
+});
+
+// Task: "Alfy must only be told about the artifact kinds that actually
+// exist." Exercises the REAL wiring (createNormalChatTools), not just
+// kind-prose.ts's fragment functions directly, so a regression anywhere in
+// the assembly path — the schemas in create.ts/edit.ts, or the descriptions
+// built in index.ts — is caught here, in both languages.
+describe("advertised artifact kinds match the registry (only tell the model what exists)", () => {
+	function buildArtifactTools(lang: "en" | "hu") {
+		return createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			language: lang,
+		}).tools;
+	}
+
+	function schemaJson(inputSchema: unknown): string {
+		return JSON.stringify(
+			(inputSchema as { jsonSchema?: unknown })?.jsonSchema ?? inputSchema,
+		);
+	}
+
+	const CANVAS_SLIDES_MARKERS = {
+		en: ["canvas", "Canvas", "slides", "Slides"],
+		hu: ["Tábla", "tábla", "Diasor", "diasor"],
+	} as const;
+
+	it.each([
+		"en",
+		"hu",
+	] as const)("with today's registry, no create_artifact/read_artifact/edit_artifact %s text mentions canvas or slides", (lang) => {
+		const tools = buildArtifactTools(lang);
+		const surfaces = [
+			tools.create_artifact.description,
+			schemaJson(tools.create_artifact.inputSchema),
+			tools.read_artifact.description,
+			schemaJson(tools.read_artifact.inputSchema),
+			tools.edit_artifact.description,
+			schemaJson(tools.edit_artifact.inputSchema),
+		];
+
+		for (const surface of surfaces) {
+			for (const marker of CANVAS_SLIDES_MARKERS[lang]) {
+				expect(surface, `${lang} marker "${marker}"`).not.toContain(marker);
+			}
+		}
+	});
+
+	it("registering a fake canvas create handler makes its create_artifact fragment and enum value appear, through the real wiring", () => {
+		try {
+			CREATE_ARTIFACT_HANDLERS.canvas = async () => ({
+				ok: false,
+				reason: "not used by this test",
+			});
+
+			const tools = buildArtifactTools("en");
+
+			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("canvas");
+			expect(tools.create_artifact.description).toContain(
+				"canvas for a board of things arranged in space",
+			);
+		} finally {
+			delete CREATE_ARTIFACT_HANDLERS.canvas;
+		}
+	});
+
+	it("removing canvas's handler again drops it from create_artifact's schema and description", () => {
+		const before = buildArtifactTools("en");
+		expect(schemaJson(before.create_artifact.inputSchema)).not.toContain(
+			"canvas",
+		);
+		expect(before.create_artifact.description).not.toContain("canvas for");
+	});
+});
+
 describe("tool description hygiene", () => {
 	const ALL_CONNECTION_CAPABILITIES = [
 		"files",
@@ -4883,12 +5278,34 @@ describe("tool description hygiene", () => {
 	// ADR-0055, in both locales. Re-measured with it in the catalogue:
 	// 4,128 en / 6,721 hu.
 	//
-	// NOTE for whoever edits a description next: en is 32 tokens under its
-	// ceiling, where hu has 129 to spare. That is a tripwire, not a budget.
+	// Slice 5a (Feature 2 · Artifacts) added three tool descriptions —
+	// create_artifact, read_artifact, edit_artifact — the first raise of this
+	// ceiling rather than a cut elsewhere (decisions.md ruling 23 allows
+	// exactly one such raise, measured, in the commit that adds the
+	// descriptions). Re-measured with them in the catalogue: 4,804 en /
+	// 7,823 hu.
+	//
+	// "Only advertise the artifact kinds that actually exist" then LOWERED
+	// this ceiling instead of raising it: create_artifact/read_artifact/
+	// edit_artifact's descriptions, create_artifact's `artifactType` enum and
+	// `body` field, and edit_artifact's `patches`/`ops` fields are now
+	// assembled from per-kind fragments (kind-prose.ts) for only the kinds
+	// with a registered create handler (advertisedArtifactKinds() in
+	// kind-registry.ts) — today document and app, not canvas/slides, which
+	// have no handler yet. Dropping their words from the catalogue re-measured
+	// at 4,720 en / 7,700 hu (84 en / 123 hu freed). The ceiling below is that
+	// new measurement plus the SAME small margin as before (26 en / 27 hu),
+	// not a round number, so it stays a tripwire: registering canvas's or
+	// slides's handler will spend real headroom back, measured and paid for
+	// like any other raise, not by moving this number further than the
+	// registration itself costs.
+	//
+	// NOTE for whoever edits a description next: en is 26 tokens under its
+	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
-	// catalogue — moving this number up is how the headroom got spent, twice.
+	// catalogue — moving this number up is how the headroom got spent.
 	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 4160, hu: 6850 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 4746, hu: 7727 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);
@@ -5007,7 +5424,9 @@ describe("tool description hygiene", () => {
 			[
 				"calendar",
 				"contacts",
+				"create_artifact",
 				"done",
+				"edit_artifact",
 				"email",
 				"fetch_url",
 				"files",
@@ -5018,6 +5437,7 @@ describe("tool description hygiene", () => {
 				"memory_context",
 				"photos",
 				"produce_file",
+				"read_artifact",
 				"read_generated_file",
 				"repos",
 				"research_web",
@@ -5027,6 +5447,19 @@ describe("tool description hygiene", () => {
 				"use_skill",
 			].sort(),
 		);
+	});
+
+	// Decisions.md ruling 40's own hazard: `executeToolWithEnvelope` applies NO
+	// timeout when TOOL_TIMEOUTS_MS lacks the tool's key (shared.ts), so a
+	// missing row is not a safe default — it is an unbounded call. `done` is
+	// the one deliberate exception: it never reaches the envelope at all (a
+	// bare synchronous `tool()`, no async work to bound).
+	it("has a TOOL_TIMEOUTS_MS row for every enveloped tool in the full catalogue", () => {
+		const ENVELOPE_EXEMPT_TOOLS = new Set(["done"]);
+		for (const { name } of buildFullToolCatalogue("en")) {
+			if (ENVELOPE_EXEMPT_TOOLS.has(name)) continue;
+			expect(TOOL_TIMEOUTS_MS[name], name).toBeGreaterThan(0);
+		}
 	});
 
 	it.each([

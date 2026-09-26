@@ -5,6 +5,7 @@
 // former src/lib/types.ts god-module (architecture-deepening T1); this
 // file carries no behavior change, only a new home.
 
+import type { DocumentCardPreview } from "$lib/server/services/artifacts/types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { AttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
@@ -129,6 +130,23 @@ export interface KnowledgeDocumentItem {
 	extractionProducer?: string;
 	/** `metadata.extractionTier` — the REAL per-file tier, not the job's. */
 	extractionTier?: string;
+	/**
+	 * Set only for the new artifact family (Document/App/Canvas/Slides — never
+	 * "file": a produced file stays on the existing generated/uploaded path
+	 * above, ruling 18). Undefined for every row this app already knew about.
+	 * Read from `metadata_json.artifactType` via a local, defensive parse in
+	 * `store/documents.ts` — never re-derived elsewhere.
+	 */
+	kind?: ArtifactKind;
+	/**
+	 * The artifact family's OWN version counter — sourced from the newest
+	 * `artifact_versions` row for this artifact id. Populated only when `kind`
+	 * is set. This is NOT the same concept as `versionNumber` above (the
+	 * pre-existing extraction-quality re-parse family, paired with
+	 * `documentFamilyId`/`isOriginal`) — the two must never be read
+	 * interchangeably.
+	 */
+	artifactVersionNumber?: number | null;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -275,4 +293,11 @@ export interface DocumentWorkspaceItem {
 	 * reads it), so this is not a behaviour change for them.
 	 */
 	updatedAt?: number;
+	/**
+	 * `ArtifactCardSummary.documentPreview`, carried through so the panel
+	 * list's card can show the Document's subtitle/tickable checklist without
+	 * fetching a full body (T9 steps 4/7). Only ever set for a `kind:
+	 * "document"` item; every other caller/kind leaves it unset.
+	 */
+	documentPreview?: DocumentCardPreview;
 }

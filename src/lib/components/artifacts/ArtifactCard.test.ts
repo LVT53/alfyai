@@ -131,6 +131,20 @@ describe("ArtifactCard", () => {
 		}
 	});
 
+	// T9.4: the Document's "Document · 3 tabs" line, a generic optional slot
+	// so every other kind (which never sets `subtitle`) is unaffected.
+	it("renders the subtitle under the title when one is given", () => {
+		render(ArtifactCard, {
+			view: view({ subtitle: "Document · 3 tabs" }),
+		});
+		expect(screen.getByText("Document · 3 tabs")).toBeInTheDocument();
+	});
+
+	it("renders no subtitle line when none is given", () => {
+		const { container } = render(ArtifactCard, { view: view() });
+		expect(container.querySelector(".artifact-card-subtitle")).toBeNull();
+	});
+
 	it("renders a tickable view's first five items and '+N more'", async () => {
 		const onToggle = vi.fn();
 		const items = Array.from({ length: 7 }, (_, index) => ({
@@ -150,6 +164,92 @@ describe("ArtifactCard", () => {
 
 		await fireEvent.click(screen.getByRole("checkbox", { name: "Task 0" }));
 		expect(onToggle).toHaveBeenCalledWith("item-0");
+	});
+
+	// The in-chat card for Document/App/Canvas/Slides (cross-kind task, after
+	// Slice 1): like File, these four kinds ALSO have a host-drawn title in
+	// ToolActivityRow — the row's own line is a generic "Created/Edited
+	// <title>" rather than "kind · subtitle", but it is still the artifact's
+	// title. chrome="body" must not draw a second one (slice-0.md Task S6
+	// Step 1.1: "chrome='body' renders no title of its own" — a rule that
+	// predates this card and still governs it); the body content the header
+	// does NOT own — subtitle, tickable items, Open — still renders.
+	it("chrome=body renders no title/icon/kind-label/version header, but still renders the body (subtitle, Open)", () => {
+		render(ArtifactCard, {
+			view: view({
+				kind: "document",
+				title: "Weekend checklist",
+				subtitle: "Document · 2 tabs",
+				versionNumber: 3,
+				openTargetId: "artifact-1",
+			}),
+			chrome: "body",
+		});
+
+		expect(screen.getByTestId("artifact-card")).toBeInTheDocument();
+		expect(screen.queryByText("Weekend checklist")).not.toBeInTheDocument();
+		expect(screen.queryByText("Document")).not.toBeInTheDocument();
+		expect(screen.queryByText("v3")).not.toBeInTheDocument();
+		expect(screen.getByText("Document · 2 tabs")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+	});
+
+	it("chrome=full still renders the icon, title, kind label and version pill (the panel list)", () => {
+		render(ArtifactCard, {
+			view: view({
+				kind: "document",
+				title: "Weekend checklist",
+				subtitle: "Document · 2 tabs",
+				versionNumber: 3,
+				openTargetId: "artifact-1",
+			}),
+			chrome: "full",
+		});
+
+		expect(screen.getByText("Weekend checklist")).toBeInTheDocument();
+		expect(screen.getByText("Document")).toBeInTheDocument();
+		expect(screen.getByText("v3")).toBeInTheDocument();
+		expect(screen.getByText("Document · 2 tabs")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+	});
+
+	it("chrome=body still renders nothing but the lazy File body for kind file", async () => {
+		render(ArtifactCard, {
+			view: view({ kind: "file", title: "Quarterly report" }),
+			job: makeJob({ status: "running" }),
+			chrome: "body",
+		});
+		await screen.findByText("Generating files in the background.");
+		expect(screen.queryByTestId("artifact-card")).not.toBeInTheDocument();
+	});
+
+	// Coordinator, from the in-chat card's review: a refusal or version
+	// conflict must not leave the checkbox visually ticked while the stored
+	// document still says otherwise. `checked={tickItem.done}` only re-syncs
+	// the DOM when `done`'s VALUE changes; a caller that (correctly) leaves
+	// `done` untouched after a refused/failed toggle gives Svelte no reason to
+	// touch the checkbox again, but the browser's own native click already
+	// flipped its `.checked` property as the click's default action — so the
+	// box shows checked while the data model still says unchecked.
+	it("reverts the checkbox when the caller's onToggle does not change `done` (a refusal)", async () => {
+		const onToggle = vi.fn();
+		const items = [{ id: "item-0", text: "Book the hotel", done: false }];
+		render(ArtifactCard, {
+			view: view({ tickable: { items, onToggle } }),
+		});
+
+		const checkbox = screen.getByRole("checkbox", {
+			name: "Book the hotel",
+		}) as HTMLInputElement;
+		expect(checkbox.checked).toBe(false);
+
+		// Simulates a refusal/conflict: onToggle fires, but the caller does not
+		// update `done` (exactly `handleToggleDocumentTask`'s own
+		// `if (!result.ok) return;` — the card is deliberately left as it was).
+		await fireEvent.click(checkbox);
+		expect(onToggle).toHaveBeenCalledWith("item-0");
+
+		expect(checkbox.checked).toBe(false);
 	});
 
 	it("does not statically import FileProductionCard.svelte", () => {

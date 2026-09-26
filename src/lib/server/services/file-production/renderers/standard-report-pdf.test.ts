@@ -75,6 +75,36 @@ async function extractPdfFillColors(content: Buffer): Promise<string[]> {
 	return colors;
 }
 
+/**
+ * The checklist box's own signal (ruling 36): its BORDER is a stroke, unlike
+ * a bullet/number marker, which only ever fills glyph text. Counting stroke
+ * colors — rather than fill colors, which the marker's own glyph already
+ * uses — isolates "a checkbox was drawn" from "a list marker was drawn".
+ */
+async function extractPdfStrokeColors(content: Buffer): Promise<string[]> {
+	const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+	const document = await pdfjs.getDocument({
+		data: new Uint8Array(content),
+		useSystemFonts: false,
+	}).promise;
+	const opNameByCode = Object.fromEntries(
+		Object.entries(pdfjs.OPS).map(([name, code]) => [code, name]),
+	) as Record<number, string>;
+	const colors: string[] = [];
+	for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+		const page = await document.getPage(pageNumber);
+		const operators = await page.getOperatorList();
+		operators.fnArray.forEach((code: number, index: number) => {
+			if (opNameByCode[code] !== "setStrokeRGBColor") return;
+			const args = operators.argsArray[index] as unknown[];
+			if (typeof args?.[0] === "string") colors.push(args[0].toLowerCase());
+		});
+		page.cleanup();
+	}
+	await document.destroy();
+	return colors;
+}
+
 describe("AlfyAI Standard Report PDF renderer", () => {
 	it("renders core fixture documents as styled A4 PDFs with stable metadata", async () => {
 		for (const filename of [
@@ -775,5 +805,62 @@ describe("AlfyAI Standard Report PDF renderer", () => {
 		const colors = await extractPdfFillColors(rendered.content);
 		expect(colors).not.toContain("#15803d");
 		expect(colors).not.toContain("#b91c1c");
+	});
+
+	// Ruling 36: a checklist item draws a real vector checkbox (a stroked box,
+	// filled only when checked), not "[x]" as text — pdf-lib's standard fonts
+	// have no guaranteed glyph for ☑/☐, so this is drawRectangle, the same
+	// primitive every other shape in this renderer uses. Compared against an
+	// otherwise-identical plain list (same chrome, same accent uses elsewhere
+	// on the page) rather than an absolute count, since the title bar's own
+	// accent rule already contributes one accent fill on every page.
+	it("draws a stroked box per checklist item, filled only when checked", async () => {
+		const buildSource = (
+			items: Array<string | { text: string; checked: boolean }>,
+		) => ({
+			version: 1 as const,
+			template: "alfyai_standard_report" as const,
+			title: "Checklist PDF report",
+			blocks: [{ type: "list" as const, style: "bullet" as const, items }],
+		});
+
+		const plain = await renderStandardReportPdf(
+			buildSource(["Book the hotel", "Confirm the flight", "Plain reminder"]),
+		);
+		const checklist = await renderStandardReportPdf(
+			buildSource([
+				{ text: "Book the hotel", checked: true },
+				{ text: "Confirm the flight", checked: false },
+				"Plain reminder",
+			]),
+		);
+
+		const text = await extractPdfText(checklist.content);
+		expect(text).toContain("Book the hotel");
+		expect(text).toContain("Confirm the flight");
+		expect(text).toContain("Plain reminder");
+		// No literal "[x]"/"[ ]" prose leaks into the rendered page.
+		expect(text).not.toMatch(/\[x\]|\[ \]/);
+
+		const accentStrokes = async (content: Buffer) =>
+			(await extractPdfStrokeColors(content)).filter(
+				(color) => color === "#b65f3d",
+			).length;
+		const accentFills = async (content: Buffer) =>
+			(await extractPdfFillColors(content)).filter(
+				(color) => color === "#b65f3d",
+			).length;
+
+		// Two checklist items each draw a stroked box the plain render has none
+		// of.
+		expect(await accentStrokes(checklist.content)).toBe(
+			(await accentStrokes(plain.content)) + 2,
+		);
+		// Fills net DOWN by one: the two checklist items draw no "•" glyph fill
+		// (unlike the plain render, where all three items do), and only the one
+		// CHECKED item's box adds a fill back — two lost, one gained.
+		expect(await accentFills(checklist.content)).toBe(
+			(await accentFills(plain.content)) - 1,
+		);
 	});
 });

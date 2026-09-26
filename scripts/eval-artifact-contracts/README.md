@@ -7,32 +7,89 @@ split as `scripts/eval/README-option-a-fidelity.md`: a pure scoring module
 that is unit-tested in CI, and a live orchestration script that talks to a
 model and is not.
 
-## What exists today (Slice 0 — the skeleton)
+## What exists today
 
-This slice lands the shape every type slice's suite runs through, and
-nothing else:
+**Slice 0** shipped the shape every type slice's suite runs through:
+`types.ts` (`EvalCase`, `EvalAttempt`, `EvalVerdict`, `EvalScoreResult`), a
+generic placeholder in `scoring.ts`, and an empty case registry in
+`cases.ts`.
 
-- `types.ts` — `EvalCase`, `EvalAttempt`, `EvalVerdict`
-  (`"good" | "acceptable" | "bad"`), `EvalScoreResult`.
-- `scoring.ts` — a pure, generic scorer. It catches the one failure every
-  suite shares (an empty or whitespace-only answer scores `"bad"`); it does
-  not yet grade anything suite-specific, because no suite exists yet.
-- `cases.ts` — an empty per-suite case registry.
-- `run.ts` — resolves `--suite <name>`, looks it up in the registry, and
-  **exits 0 with a clear explanation** whether nothing was asked for, the
-  named suite has no cases yet, or (always, for now) there is no model
-  client to run them against.
+**Slice 5a** (this slice) lands the harness's **core** on that skeleton —
+everything a type slice's own suite plugs into, but no suite itself:
 
-**Nothing here talks to a model yet.** `config.ts` (endpoint resolution) and
-`client.ts` (the one module that reads an API key) are Slice 5a's, per
-decisions.md ruling 44 — the harness core lands there, on this skeleton.
+- `config.ts` — every `EVAL_ARTIFACTS_*` env switch, plus the fixed sampling
+  constants (temperature 0.6, top_p 0.95, top_k 20, max_tokens 24000) and the
+  retry/circuit-breaker constants.
+- `client.ts` — the **only** module that reads an API key. Resolves an
+  endpoint from `EVAL_ARTIFACTS_BASE_URL` + `_MODEL` only — both are required
+  for a live run, and `resolveEvalArtifactsClient` throws one message naming
+  both (no network call made) if either is missing, rather than falling back
+  to anything. `_API_KEY` stays optional; works with **no key** at
+  all against a local OpenAI-compatible server (no `Authorization` header is
+  sent when there is no key, rather than one carrying an empty token). Sends
+  `chat_template_kwargs: { enable_thinking: false }` when a suite needs
+  thinking off (Qwen defaults to thinking on) — the same mechanism the app
+  itself uses, see `normal-chat-model/provider-compatibility.ts`'s
+  `buildThinkingProviderOptions` (the "qwen" case).
+- `run.ts` — the runner: the full `--suite`/`--replay`/`--skip-model`/
+  `--limit`/`--only`/`--out`/`--help` flag table (see below), the
+  known-bad-first refusal, strictly sequential execution with one retry per
+  case and a stop after two consecutive 429/5xx failures, and the "no suites
+  registered yet" graceful exit (`0`, never a crash). A *live* run with no
+  model endpoint configured is a harder failure, not a graceful one — see
+  below. `parseArgv`, `runSuite` and `recordSuiteResponses` are exported and
+  take their dependencies (the case registry, the model client, the scorer, a
+  committed-response loader) as parameters, so `run.test.ts` proves all of
+  this against a **fake** suite and fixture set — this slice ships no real
+  suite, and writes none.
+- `scoring.ts` — `SUITE_SCORERS`, the per-suite scorer dispatch table (empty
+  today; `getSuiteScorer` falls back to the Slice 0 generic scorer for any
+  suite with nothing registered), plus the results-leak test (below).
 
-## What each type slice adds
+**Nothing here talks to a model unless you configure one.** Run
+`npx tsx scripts/eval-artifact-contracts/run.ts --suite <name>` with nothing
+configured and it exits `0`, explaining that no cases are registered yet
+(today, that is every suite except `document`, below).
 
-Per ruling 44, each type slice writes its own `suites/<suite>.ts`,
-`fixtures/<suite>/**` (with a `known-bad/` case set and committed
-`responses/`), its own scorer logic, and one entry in `cases.ts` — and runs
-its own live gate before it is called done:
+**Slice 1** lands the **first real suite** on that core: `document`, scoring
+the `edit_artifact` patch contract (`slice-1.md` Task T13) —
+
+- `suites/document.ts` — 8 cases: the six required by the task (a clean
+  patch; a block the user changed since the model's read, which must
+  refuse; a `replaceRange` whose `find` occurs twice, which must refuse
+  rather than guess; a patch that stays inside the block it was asked to
+  touch; a three-op mixed patch; a Hungarian-language request against a
+  Hungarian document) plus a `block_missing` case (Step 1.1's own scorer
+  requirement) and one `knownBad` case (a hand-written answer that ignores
+  the JSON-only instruction and responds in prose).
+- `scoring.ts`'s `documentScorer` runs the model's own patch ops through the
+  REAL engine (`$lib/shared/artifact-document/patch`'s `applyPatchSet`)
+  against each case's fixture, then asks the fixture's own `verify` what
+  that outcome means — refusing correctly (or proactively sending `[]`
+  rather than guessing) counts as `good`, never automatically `bad` just
+  because nothing applied (ruling 25).
+- Run for real against the box's configured endpoint
+  (`npx tsx scripts/eval-artifact-contracts/run.ts --suite document`):
+  **7/7 good, known-bad failed as expected.** One fixture's `verify` was
+  fixed as a direct result of that run — see `suites/document.ts`'s
+  `REFUSES_MISSING_BLOCK` comment for what the first live run caught. The
+  committed `fixtures/document/responses/*.json` are the real model's own
+  recorded answers (`EVAL_ARTIFACTS_SKIP_EVAL=1`), except the known-bad one,
+  which stays hand-written on purpose (the model does not naturally ignore
+  the format — that fixture exists to prove the SCORER catches it if it
+  ever does, not to reproduce a failure this model actually has).
+
+## What each type slice adds (ruling 44)
+
+Per `decisions.md` ruling 44, each type slice writes:
+
+- `suites/<suite>.ts` — the suite's own prompts/scenarios.
+- `fixtures/<suite>/**` — its fixtures, with a `known-bad/` set (at least one
+  fixture that **must** score "bad") and committed `responses/*.json` (one
+  file per case id, `{ "response": "...", "durationMs": 1234 }`) so
+  `--replay` works in CI with no model call.
+- Its own scorer, registered as one entry in `scoring.ts`'s `SUITE_SCORERS`.
+- One entry in `cases.ts`'s `EVAL_CASES`.
 
 | Suite | Slice |
 |---|---|
@@ -41,24 +98,106 @@ its own live gate before it is called done:
 | `canvas` | Slice 3 |
 | `slides` | Slice 4 |
 
-No type slice edits `run.ts`, `config.ts` or `client.ts`. Slice 5b's own
-task is the all-suite real run and this README's final numbers.
+**No type slice edits `run.ts`, `config.ts` or `client.ts`.** Slice 5b's own
+task (T9) is the all-suite real run and this README's final numbers.
 
 ## Running it
 
 ```bash
-export PATH=/opt/homebrew/opt/node@22/bin:$PATH
-npx tsx scripts/eval-artifact-contracts/run.ts --suite <name>
+export PATH=/opt/homebrew/opt/node@22/bin:$PATH   # Node 22 only
+
+# The contract gate — re-scores committed responses, no model call, no key:
+npm run eval:artifacts:replay
+# equivalent to: tsx scripts/eval-artifact-contracts/run.ts --replay --suite all
+
+# A live run against a configured endpoint, one suite at a time:
+npm run eval:artifacts -- --suite document
+
+# The flag table:
+npx tsx scripts/eval-artifact-contracts/run.ts --help
 ```
 
-With no suite registered (today, for every suite), this exits `0` and
-explains why. Once a type slice lands its suite and Slice 5a lands the model
-client, this becomes a real run against the configured endpoint (see that
-slice's own README update for exactly what must be configured).
+| Flag | Meaning |
+|---|---|
+| `--suite <name>` | `file`, `document`, `app`, `canvas`, `slides`, `verification`, or `all` |
+| `--replay` | Re-score committed responses under `fixtures/<suite>/responses/`. No model client is constructed; no key is required. |
+| `--skip-model` | Alias of `--replay` — the App prototype's own env-switch spelling (`PROTO_APPS_SKIP_MODEL`), offered as a flag too. |
+| `--limit <n>` | Cap the number of *non-known-bad* fixtures run. The known-bad set always runs in full — limiting the harness's own gate would defeat it. |
+| `--only <ids>` | Comma-separated fixture ids to run, filtering the *regular* set only. The known-bad set always runs in full regardless of `--only` — same reasoning as `--limit`: selecting a fixture to iterate on must not be able to silently disable the gate. |
+| `--out <dir>` | Override the `results/` output directory. |
+| `--help` | Print the switch table. |
+
+Every flag has an `EVAL_ARTIFACTS_*` env-var equivalent (see `config.ts`); a
+flag overrides its env switch. `EVAL_ARTIFACTS_SKIP_EVAL=1` calls the model
+and writes raw responses under `fixtures/<suite>/responses/` **without**
+scoring anything — this is how you (re-)record a suite's committed responses
+after a prompt or contract change, before committing them for `--replay`.
+
+### What has to be configured for a real (non-`--replay`) run
+
+- **An OpenAI-compatible endpoint — both required, no fallback.**
+  `EVAL_ARTIFACTS_BASE_URL` and `EVAL_ARTIFACTS_MODEL` must both be set;
+  `EVAL_ARTIFACTS_API_KEY` stays optional (the local vLLM needs none).
+  `resolveEvalArtifactsClient` throws one message naming both variables, and
+  makes no network call, if either is missing — there is no longer a
+  `~/.config/opencode/opencode.json` fallback. That file let a run silently
+  talk to whatever provider it names, under the owner's own key, and one
+  slice's "live" eval ended up measuring that provider instead of the
+  production model (ruling 54). Neither variable, nor a key, is required for
+  `--replay`.
+
+  Reach the production model through a tunnel that opens and closes in one
+  command, on the runner's own local port:
+
+  ```bash
+  ssh -N -o ExitOnForwardFailure=yes -L 30000:192.168.1.96:30000 alfyroot & T=$!; sleep 2; EVAL_ARTIFACTS_BASE_URL=http://127.0.0.1:30000/v1 EVAL_ARTIFACTS_MODEL=qwen3-6-27b npm run eval:artifacts -- --suite <suite>; kill $T
+  ```
+
+  Runs stay sequential — the model is shared — and recorded responses under
+  `fixtures/<suite>/responses/` come from `qwen3-6-27b` only.
+
+## Adding a fixture (for a type slice)
+
+1. Add a case to `cases.ts`'s `EVAL_CASES[<suite>]` (`{ id, suite,
+   description, prompt }`; set `knownBad: true` for a fixture that must
+   fail).
+2. Record its response — either hand-write
+   `fixtures/<suite>/responses/<id>.json` for a known-bad fixture (you
+   already know what a bad answer looks like), or run
+   `EVAL_ARTIFACTS_SKIP_EVAL=1 npx tsx scripts/eval-artifact-contracts/run.ts --suite <suite> --only <id>`
+   against a real endpoint to record a live one.
+3. Register (or extend) the suite's scorer in `scoring.ts`'s
+   `SUITE_SCORERS`.
+4. `npx tsx scripts/eval-artifact-contracts/run.ts --replay --suite <suite>`
+   should now score it.
+
+## Re-recording a suite
+
+`EVAL_ARTIFACTS_SKIP_EVAL=1 npx tsx scripts/eval-artifact-contracts/run.ts --suite <suite>`
+calls the configured model for every case in the suite (skipping the
+known-bad gate entirely — nothing is being trusted yet) and overwrites
+`fixtures/<suite>/responses/*.json`. Review the diff before committing:
+a contract or prompt change is exactly when responses are expected to move.
+
+## The key rule, in one place
+
+`client.ts` is the only module that reads an API key — from
+`EVAL_ARTIFACTS_API_KEY` only, optional, with no config-file fallback — and it
+never returns or logs it: the key lives only inside `send`'s closure, never
+as a property of the returned client object. `scoring.test.ts`'s
+"no API-key shape reaches a results file" suite greps a results-shaped
+directory for anything matching an opaque-token pattern (32+ alphanumeric/
+dash/underscore characters including a digit) on every run of this file, not
+only when someone remembers to add a fixture for it.
 
 ## Results
 
 `scripts/eval-artifact-contracts/results/` is gitignored — results are not
-source, the same rule `scripts/eval/results/` already follows. Nothing here
-is a dependency of `npm test` or `npm run build`; CI runs `scoring.test.ts`
-and nothing that needs a model.
+source, the same rule `scripts/eval/results/` already follows. `run.ts`
+writes `results/results.json` (generation timestamp + every suite's report);
+a screenshot gallery, where a suite wants one (Canvas's arrangement
+screenshots, named in slice-5.md), is that suite's own addition, not part of
+this core. Nothing here is a dependency of `npm test` or `npm run build`; CI
+runs `config.test.ts`, `client.test.ts` (pure — no real disk/network
+access), `scoring.test.ts` and `run.test.ts` (the fake suite described
+above), plus `--replay --suite all` once suites exist.

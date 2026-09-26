@@ -147,6 +147,333 @@ via env.ts. **In review:** RV-W0-F (sonnet) in `rv-w0f` (5560), also fixing the 
   slice-0.md fixes). Then: merge into `feat/artifacts-s0` → `feat/artifacts` → `dev`, gates, deploy, Wave 2.
 - Owner, 2026-09-25: push only `dev` (feature branches stay local).
 
+**Wave 1 (Slice 0) DONE and deployed (2026-09-25 ~22:45).** Merged: review fixes → `feat/artifacts-s0` `f8f7dd3a` →
+`feat/artifacts` `1a56d92f` → `dev` `2bf644aa` (pushed). Gates on `dev`: check 0/17, biome clean, **12,264 tests**, build 32/2,
+Fallow 124/4 with 0 new, **Playwright 89/89**. ai.dev runs `2bf644aa`: DB backed up, the three artifact tables exist, 0 journal
+errors; live API check (`/root/verify-artifacts-spine.mjs`): a produced PDF lists as a File artifact (`ok: true`), the
+conversation detail carries it, opening it answers `ok: true` with no versions, a missing id is a 404 `{ ok:false,
+reason:"not_found" }`, no session is 401. `feat/artifacts` fast-forwarded to `dev` `2bf644aa`.
+
+**Wave 2 dispatched (sonnet ×3, from `2bf644aa`):** S5a in `art-s5a` (5410) — the three tools as a family shell with a per-kind
+dispatch seam (no creatable kind), the catalogue, descriptions EN+HU, timeouts, the harness core; S1 in `art-s1` (5420) —
+Documents, T4/T10's @Alfy path/T13 blocked on 5a; S2 in `art-s2` (5430) — Apps, A7/A8-tool/A9 blocked on 5a. Blocked agents
+merge `feat/artifacts` themselves once 5a has merged there, else stop and report. Reviews after: RV-5a (sonnet), RV-1A
+(opus, patch protocol), RV-1B (sonnet, editor), RV-2A (opus, sandbox/CSP), RV-2B (sonnet, generation).
+
+**Slice 5a DONE (2026-09-26), in review.** `feat/artifacts-s5a` in `art-s5a`, HEAD `cb9a0775` (4 commits on
+`2bf644aa`: `1b24cf93` catalogue, `05b0f80c` the three tools, `623473b9` harness core, `cb9a0775` retry wiring). Gates:
+check 0/17, biome clean, **12,356 tests**, build 32/2, Fallow 124/4 identical, containment 24 unchanged, Playwright 37/37.
+Catalogue ceiling raised once to `{ en: 4830, hu: 7850 }` (measured 4,804 / 7,823), snapshots regenerated. Its
+deviations are confirmed as **ruling 50** (three per-tool registries, the refusal union widened by type slices,
+candidates on a failed edit, read defaults to "full", per-case circuit breaker, bare `tsx`). Two notes: it built the
+harness from the ADR text because the apps-quality prototype is a folder, not a branch (Slice 2 aligns its suites with
+the folder); and it opened the real `~/.config/opencode/opencode.json` to learn the fallback's shape (it reports no key
+copied anywhere; the owner has been told; RV-5a greps the diff). S1 and S2 were sent the seam API.
+**RV-5a (sonnet) running** in `rv-5a` (branch `feat/artifacts-s5a-review` from `cb9a0775`, port 5570): byte stability,
+scope fields, containment incl. the catalogue read, catalogue text hygiene, EN/HU parity, tool behaviour and caps,
+gating, harness key rule. Findings → `review-5a.md` on its branch.
+
+**Slice 2 unblocked part DONE (2026-09-26), waiting on 5a.** `feat/artifacts-s2` in `art-s2`, 10 commits
+`155d002c`…`ed0b09fc` (A1–A6, A8 route/service, A10, E2E): contract + audit, thinking-off generation, verification,
+the sandboxed frame + bootstrap + exact CSP, App storage with ruling 48's total cap, AppBody (Preview/Code, download,
+regenerate), containment +2, archive escaping, erasure/Clear Memory integration, 7 E2E. Gates: check 0/17, biome clean,
+**12,479 tests**, build 32/2, Fallow 124/4 with 0 new, containment 26, Playwright 34/34. Blocked: A7 (the App create
+handler), A8's tool part, A9 (app + verification suites, live eval). Decisions on its deviations: accepted — dark
+tokens from `.dark`, the stricter fence rule (an unfenced answer is never accepted), `requireApiUser`, the
+`metadataPatch` parameter on `updateArtifactBody` (S1's ruling-47 change lands in the same function: keep both at
+merge), the download route, no UI line for `invalid_key`/`not_found`; **not accepted** — the self-attested repair
+check (**ruling 52**: re-verify, compare claim lists, bounded); its `ArtifactBodyProps` gap becomes **ruling 51**
+(fix agent in `art-bodyprops`, branch `feat/artifacts-bodyprops`, port 5490). Its note that `AGENTS.md` says "five"
+known cycles while the baseline has four goes to S5b's doc fixes (T6). Lesson for every brief: a route file exporting
+anything but its verbs passes `npm run check` and fails `npm run build`.
+
+**RV-5a done → Slice 5a merged into `feat/artifacts` as `20e73213` (2026-09-26).** Verdict "merge with fixes": 4
+defects fixed test-first on `feat/artifacts-s5a-review` (`a2e2d8c4` read/edit reached another of the user's own
+conversations, now pinned to the calling conversation; `c6dfe4bb` catalogue titles collapsed to one line;
+`e4ffe2d6` a failed catalogue read is logged; `5a8778c6` `--only` no longer empties the known-bad gate) plus the
+catalogue-read containment case (`81699f93`); 12,364 tests; live smoke through the tunnel accepted (thinking off, no
+key). The branch was fast-forwarded to `4ba32b9c` and merged. Its open questions and a gap it missed (the handlers
+never received the envelope's abort signal) are **ruling 53**; **S5a resumed** for that follow-up (abort signal,
+read bound, `MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3`). Gates on `feat/artifacts` running (`/tmp/gates-fa-5a/`).
+
+**2026-09-26.** Gates on `feat/artifacts` at the 5a merge `20e73213`: check 0/17, biome clean, **12,364 tests**,
+build 32/2, Fallow 124/4 with 0 new, Playwright 27/27 (chat + conversation + artifacts-panel). The ruling-51 fix
+(`ab0edb85`: `ArtifactBodyProps.conversationId`, `DocumentWorkspace` prop, the chat page supplies it; 2 tests; its own
+gates green, 27/27 Playwright) merged as **`62c4eb55`**. **S2's agent ran out of context** on resume ("Prompt is too
+long"), with nothing uncommitted (`ed0b09fc`, tree clean); **S2b (sonnet)** continues in `art-s2` (5430) from a full
+brief: merge `feat/artifacts`, ruling 51 in AppBody, ruling 52 in verify.ts, A9 suites + live eval (tunnel port
+30430), A8 tool wording, then A7 once 5a's ruling-53 follow-up is merged (else stop, "blocked on 5a follow-up").
+S1 told it is unblocked. Lesson: long-running implementers need a context-economy line in their brief.
+
+**Ruling 53 landed (2026-09-26).** S5a's follow-up `ab29d9f5` (abort signal into all three handlers, proven on
+the real wiring for both the tool timeout and the turn's stop), `7ea8157c` (read bound at `MAX_INLINE_TEXT_CHARS`
+100,000 exported from `files.ts`; `truncated` + `omittedChars`/`omittedBlocks`; catalogue snapshots unchanged),
+`25771975` (`MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3`, checked and counted before the first await, so parallel calls
+cannot pass it); 12,375 tests, gates clean. Read by the orchestrator, merged as **`365083f2`**; check 0/17, the
+tools/artifacts/workspace tests 1,079/1,079. S1 and S2b told; S2b's A7 is unblocked. 5a is complete.
+
+**2026-09-26 (morning).** The API usage limit stopped S1 and S2b mid-task at ~01:30; both resumed at 03:00 (S1 clean
+at `6196e671`; S2b with uncommitted ruling-52 work). **S1 reported (HEAD `bb398b5e`, 12,557 tests, gates clean, containment
+28, Playwright 29/29):** T1–T7, T4 (the three Document handlers, abort-aware) and T13 (the document suite) done;
+**T8–T12 not started** (its context was spent). Its "live" eval ran through the harness's opencode-config fallback, not
+the tunnel, so it measured an unknown provider (the owner was told) → **ruling 54** (fallback removed; explicit
+endpoint only; fixtures re-recorded from qwen3-6-27b). S1 added Tiptap 3.31.3 (7 packages, pinned) and has its own
+real `node_modules`; `art-base`'s install lacks Tiptap, so `npm install` is needed there when S1 merges into
+`feat/artifacts` (do it at a quiet moment: other worktrees symlink it). Accepted deviations: the directory split
+(pure engine in `src/lib/shared/artifact-document/`, editor in `components/artifacts/document/`), Tiptap-named
+factory options, `applyDocumentPatch` returning `versionId`, the Document-only `POST /api/artifacts/document`
+("save as new" after a delete; reviewers check its scope), 8 eval cases. Dispatched (sonnet): **S1b** in `art-s1`
+(5420) T8/T9/T11; **S1c** in `art-s1c` (branch `feat/artifacts-s1-comments` from `bb398b5e`, `node_modules` →
+`art-s1`'s, port 5520) T13 re-record + T10 + T12, with a file split and `DocumentBody.svelte` as the one shared
+file; **evalkey fix** in `art-evalkey` (branch `feat/artifacts-evalkey`). S2b told about ruling 54.
+
+**2026-09-26. S2b reported** (`feat/artifacts-s2` HEAD `2d8d0cbf`, 12,643 tests, containment 30, Playwright 34):
+ruling 51 in AppBody/AppFrame (`6776c087`, the kv bridge now carries the conversation too), ruling 52 re-verification
+with a 25 s deadline (`28eea958`), the `app` + `verification` suites (`0256529c`, `15d34f52`; live on qwen3-6-27b via
+the tunnel: app 10/10 by the static audit, verification 3 good + 1 acceptable), the shared generate→verify pipeline
+(`7fb0f681`), **A7 the App create handler** (`00968af4`, abort-aware) and A7.5's timeout assertion (`43975886`); A8's
+tool wording checked, no change. Three gaps → **rulings 55–57**: the handler chose the language with
+`detectLanguage(brief)` (3/10 English prompts gave Hungarian Apps; its hand audit caught it), A9's headless-browser
+pass was skipped, and the verifier's `research_web` import closed a new cycle (Fallow 125 / 5). Its note that the
+harness's default `--out results` lands outside `.gitignore` went to the evalkey agent. Dispatched: **S2c** (sonnet,
+`art-s2`, 5430) for rulings 55–57 + a fresh live run; **RV-2A** (opus, `rv-2a`, branch
+`feat/artifacts-s2-review-sandbox` from `2d8d0cbf`, 5580) on the sandbox/CSP/bridge/kv/export, which S2c does not
+touch. RV-2B (sonnet) follows S2c. **Evalkey fix done** (`1d23ec0c`: explicit endpoint required, fallback and its
+tests removed, README tunnel recipe; 12,374 tests; Fallow 124/4) plus `719dc60f` (the default `--out` is the harness's own gitignored `results/`; `run.ts`'s `fixturesRoot` no longer uses `new URL('.', import.meta.url)`, which Vite rewrites under vitest); read and merged as **`2e3b19b2`** (harness tests 46/46). S2c told to merge it before touching `run.ts`.
+
+**RV-2A done (opus, 2026-09-26): "merge with these fixes".** Branch `feat/artifacts-s2-review-sandbox` HEAD
+`0a4cf01d`: six fixes on `2d8d0cbf`. `16db33bb` **High**: switching Apps in the rail reused one iframe element, so the
+outgoing App's storage calls hit the incoming App's kv (39/40 in Chromium); now one element per `src`. `36845442`:
+regenerate did not send the conversation (incognito 404). `c13b263c`: no cap on a frame's pending storage requests
+(now 4 at once, queue of 256). `88cea7cd`: BigInt/cyclic values hung the bridge. `be4100cb`: the bootstrap splice
+matched `<header>` and went before a doctype, and was quadratic (2.3 s at 192 KB), now linear. `f9963db8`: stale
+verify/glitch/Code after a switch. 12,657 tests, Playwright 35. Its open questions → **ruling 58** (forms allowed with
+`form-action 'none'`; dialogs/eval forbidden by contract and audit; navigation/WebRTC are violations; a load
+tripwire; the eval runs apps inside the real frame and CSP; runtime hardening). Dispatched: S2c told about the
+contract/audit/eval half (before its live run); **S2d** (sonnet, in `rv-2a`, port 5580) does the runtime half on
+the review branch. Then: merge the review branch into `feat/artifacts-s2` after S2c, and RV-2B (sonnet) covers
+generation/verification/eval plus S2d's runtime changes.
+
+**S2d done (2026-09-26).** `feat/artifacts-s2-review-sandbox` HEAD `69a99a4b` (on RV-2A's `0a4cf01d`): ruling 58's runtime
+half. `3ff7c447` sandbox `allow-scripts allow-forms` from one `APP_IFRAME_SANDBOX` constant (CSP derives from it;
+AppFrame's literal pinned equal), `7d712761` the load tripwire + localized notice, `d936b18b` bootstrap replies only
+from `window.parent`, `ccaa0212` same-key ordering + an 8 MiB queued-bytes cap, `c476ec8f` non-string key dropped
++ kv read `no-store`, `c227a100` localized download errors and a "session ended" notice. That notice is a narrow
+branch in `hooks.server.ts`, inside the existing no-user check, for exactly `/api/artifacts/<id>/app` + `Sec-Fetch-Dest:
+iframe`; never public, tested with the route's HTML asserted absent. `69a99a4b` the Code tab loads Shiki on demand.
+12,690 tests (+33), Playwright 37, containment 30, gates clean except the known extra cycle; one MinerU timing flake
+passes alone. Read by the orchestrator. Waiting: S2c → merge this branch into `feat/artifacts-s2` → RV-2B.
+
+**S1c done (2026-09-26).** `feat/artifacts-s1-comments` HEAD `e73c7003`, 20 commits on `bb398b5e`: the document
+eval **re-recorded from qwen3-6-27b** via the tunnel (`98e0c6af`; live 7/7 good, known-bad failed as it must, replay
+7/7); T10 (shared anchor vocabulary + the Document's text resolver, comments + `@Alfy` routes, the margin/thread/card/
+bubble, `@Alfy` reads through `readDocumentForAlfy` first so its patches meet the same snapshot guard as
+`edit_artifact`); T12 (block → `GeneratedDocumentSource`, the export route, the download sheet, ruling 36's ticks in
+all four renderers, proven per renderer). 12,686 tests, Fallow 124/4 0 new, Playwright 31, containment 28.
+For review: the margin is a flat scrollable list of threads, not placed against each block ("the margin shows it
+against the right block", T10 step 1) → RV-1B compares with the prototype editor; Resolve/Reopen is a toggle (fine);
+anchor scoring constants are its own; `no-ad-hoc-maps.test.ts` allowlist entries for the export route/sheet.
+Waiting: S1b (T11) → merge `feat/artifacts-s1-comments` into `feat/artifacts-s1` (shared: `DocumentBody.svelte`,
+`toolbar-actions.ts`, i18n) → RV-1A (opus) + RV-1B (sonnet).
+
+**S2c done (2026-09-26).** `feat/artifacts-s2` HEAD `5b5abc99`: `8e95e36c` ruling 55 (handler `language` from
+`ctx.language`; regenerate uses the resolver), `4fd87001` ruling 57 (`research-web-tool.ts` pure move; snapshots
+unchanged without `-u`; Fallow back to 124/4), `c0796775` + `408ecaf8` ruling 56 (the core's optional `evaluate`
+step; the P1 browser pass ported, with a language-mismatch check), `35f000df` + `21936ad8` ruling 58 generation half
+(the browser pass runs inside the real sandbox attribute + CSP + bootstrap; contract rule 11; audit `no-dialogs`/
+`no-eval` glitches and `no-navigate`/`no-webrtc` violations with retry-once-then-refuse; bounded tag regexes),
+`ced83c15` live recordings. **Live on qwen3-6-27b, before the forms change merged:** app 6 good / 4 acceptable / 0 bad
+(P1: 10/10 works). Across 40 page runs: 4 console errors, all "Blocked form submission" (apps 02/03/05/08; 03 and 08
+had a dead main action); 1 uncaught exception (app-09 "labels is not defined", a real model bug); 0 blocked
+requests. Storage used 5/10 (P1 9/10); 12.9–30.5 s. **Language 10/10.** The new ruling-58 rules touched 0/10.
+Verification: 3 good, 1 acceptable, 0 bad. Not captured: completion tokens (`client.ts` returns text only). Gallery
+not built (reporting only, deferred). 12,703 tests, Playwright 34, containment 30. **Merged the review branch
+(`69a99a4b`: RV-2A + S2d) into `feat/artifacts-s2` with no conflicts**; gates on the merge running
+(`/tmp/gates-s2-merged/`). Next: RV-2B (sonnet), which also re-runs the app suite live with forms allowed.
+
+**S1b done (2026-09-26).** `feat/artifacts-s1` HEAD `bd0bdc1f`: `61b80e18` T8 (the `AlfyChange` mark, Keep/Undo
+through the engine's inverses against a live editor, `ChangeBar`, `AlfyWriting`, the shared `RefusalNotice`),
+`9c1f734c` T9 (`Tabs`, chips, the `TrackerChip` node storing canonical tokens whatever the UI language, `card-view.ts`,
+tabs saved through the body route), `ad1540a4` T11 (`MobileToolbar` from the same action list; `artifact-document.spec.ts`,
+9 tests), `bd0bdc1f` Fallow cleanup. 12,631 tests, Fallow 124/4, Playwright 36. **Found, marked with `test.fail()` in
+the e2e:** a **critical** crash, `RangeError: Maximum call stack size exceeded` from `readMarkdown` + the table
+extension's `fixTables` under sustained real-browser edits (typing, adding a tab, changing a chip), which jsdom never
+exercised; and opening a Document from the **mobile** panel list does not reliably reach the editor. **Gaps against
+the spec:** T8's live trigger is not wired (no "Alfy is writing: {label}" while an edit is in flight, no marks when a
+chat-turn `edit_artifact` lands; only `@Alfy` has a hook), and T9.7's card preview (subtitle, first five tickable task
+items, ticking writes the document) has no call site because the card summary carries no body. With S1c's flat margin
+("the margin shows it against the right block"), these become Slice 1's integration work. **The S1b/S1c merge
+conflicts structurally** (`DocumentBody.svelte` ×6, its test ×8, i18n ×2): aborted and given to **S1d** (sonnet,
+`art-s1`, 5420) as step 0; after it reports, S1d gets the crash, mobile-open and margin placement, and a parallel
+**S1e** gets the live channel (T8) and the card preview (T9.7) from the merge commit.
+
+**Slice 1 merged in its own branch (2026-09-26):** S1d merged S1c into `feat/artifacts-s1` as **`4b4445a1`** (template
+rebuilt so Tabs + the desktop/mobile toolbar pair live inside S1c's `document-main` beside the margin; the test file's
+describe blocks re-assembled from each side; i18n both sides): check 0/17, 544 artifact tests, Playwright 18/18 (7 are
+the known crash under `test.fail()`). Dispatched in parallel from it: **S1d** (resumed, `art-s1`, 5420): the editor
+crash first, mobile open, the margin against each block, the export facade re-export; **S1e** (sonnet, `art-s1e`,
+branch `feat/artifacts-s1-live`, `node_modules` → `art-s1`'s, 5530): T8 live (stream tool parts → "Alfy is writing",
+marks + Keep/Undo from inverses, refusal notice; one `DocumentWorkspace` prop, one `DocumentBody` hook) and T9.7 (a
+bounded server-side Document preview on the card summary, ticking as a user edit).
+
+**RV-2B done → Slice 2 merged into `feat/artifacts` as `f91addb8` (2026-09-26).** Verdict "ship with the four
+fixes": `469b6fe4` the `no-navigate` audit rule missed `window['location']=` and flagged any object's `.location`
+(an address field would be refused); `e9e19bce` an app with an unrelated unsettled claim could ship as "repaired";
+`0cfe0734` a trailing slash slipped past the "session ended" branch and rendered the real login form in the sandbox;
+`c1d3288f` regenerate ignored aborts. Harness: `client.ts` now returns `usage`, cases record `durationMs`. **Live on
+qwen3-6-27b, forms allowed:** committed recordings 10 good / 0 bad, 0/0/0 console/uncaught/blocked over 40 runs,
+storage 7/10, 16.4–23.8 s, 3,088–4,512 completion tokens (P1 2,486–3,607); a second live run 8 good / 2 acceptable
+/ 0 bad. The storage gap is the one-click smoke test's variance (accepted). The verification suite's known-bad was
+model-driven and passed live → **ruling 59** (known-bad fixtures are recorded answers, never model calls; S5b's T9).
+`feat/artifacts-s2` fast-forwarded to `9110c4cc` and merged. Gates on `feat/artifacts` running (`/tmp/gates-fa-s2/`).
+
+**Gates on `feat/artifacts` at the Slice 2 merge `f91addb8`:** check 0/17, biome clean, **12,760 tests**, build 32/2, Fallow 124/4
+with 0 new, Playwright 37/37 (chat + conversation + artifact-app + artifacts-panel), containment 30/30.
+**Wave 3's independent parts dispatched (sonnet, from `c7c7587f`):** **S7** in `art-s7` (5480), the whole of slice-7 with
+its binding amendment; **S6** in `art-s6` (5460), T1/T2/T5 only, stopping after them. **Migration numbers reserved:**
+S6 `1777140000112` (journal idx 125); later slices take 113, 114, … in merge order, and the orchestrator assigns each
+before dispatch. Still running: S1d (crash, mobile open, margin), S1e (live marks, card preview). Next: when both
+report, merge `feat/artifacts-s1-live` into `feat/artifacts-s1`, then RV-1A (opus) + RV-1B (sonnet).
+
+**S1d done (2026-09-26).** `feat/artifacts-s1` HEAD `dfbd1575`. **The crash's root cause:** `readMarkdown`'s two marker
+transactions (and `ensureBlockIds`/`loadMarkdown`) dispatched without Tiptap's `preventUpdate`, so each fired
+`update` → `handleUpdate` → `currentCanonicalMarkdown()` → `readMarkdown` again, synchronously, until the stack
+overflowed (`fixTables`/`isActive` were only where it happened to break); `document-editor.test.ts` never mounted an
+`onUpdate`. Fixed at the source (`840300dd`) + a sustained-edit e2e (typing, a table cell, a tab, a chip). Mobile
+open fixed (`f6118c95` + `faa28950`, own identifiers for the mobile shell), margin threads placed beside their block
+in document order without overlap, orphans grouped (`932865ec`; a pure `margin-layout.ts`; caught a
+content-box-vs-border-box overlap), export through the facade (`b792e962`). 12,772 tests, Playwright 43, Fallow
+124/4, containment 28. Left for RV-1B: the mobile toolbar measures 53 px against its 48 px budget (one `test.fail()`),
+and two dead functions in `extensions.ts` (the 2 biome warnings). A stale `node_modules/.vite` cache once failed
+every e2e with a hydration error; clearing `.vite` + `.svelte-kit` fixed it (worth remembering).
+
+**S6 T1/T2/T5 done (2026-09-26, 10:29).** `feat/artifacts-s6` HEAD `ff7646f2`: `34205fff` the seen table
+(`drizzle/1777140000112_artifact_tour_states.sql`, idx 125, hand-written like the last ~15 migrations; archived and
+erased through the existing registries), `fd80f5ae` the shared types + shipped defaults + resolver (published snapshot
+wins, archived means no tour), `327ddbd2` the admin seed/edit/publish (`artifact_tour` campaign type, the
+summary-first + three-standard publish rule mirrored in the client checklist), two follow-ups. 12,810 tests, Playwright
+31. Accepted deviations: EN wording "first-open tour" (the i18n test forbids "artifact" in any dictionary value),
+`defaultVersionFor` widened (else the four drafts collided), `seedArtifactTours` in `client/api/campaigns.ts` (T3
+reuses it), the dialog's type picker stays seed-only. Fallow +1 (`ArtifactTourState`, consumed by T3): accepted
+until T3 lands. T3/T4/T6/T7 wait on all four kinds' panels and Slice 5b.
+
+**S1e and S7 done (2026-09-26, before the fourth usage-limit stop).** **S1e** (`feat/artifacts-s1-live`, 15 commits): T8 live:
+`edit_artifact`'s Document handler puts `appliedCount` + `refusedBlocksJson` on the tool-call metadata; the chat page
+maps the latest create/edit segment to an `alfyActivity` prop on `DocumentWorkspace`; the body rebuilds outcomes +
+inverses from the tool's own ops, the refused blocks and its pre-edit blocks, then marks through the lazy boundary;
+`@Alfy` replies use the same pipeline. T9.7: a bounded server `documentPreview` (tabs, first five tasks, total) on the
+card summary, `readTaskBlock` shared by server and client, ticks through `toggleDocumentTask` (the normal body save).
+Its T8-live e2e was `test.fail()` only because of the crash S1d fixed. Deviation: **no in-chat card for any new
+kind exists** (only File has one in `ToolActivityRow`); slice-2 A7.4 ("the card renders during the turn") and spec
+§5 require it; no slice owned it → a cross-kind task after Slice 1 merges, before the Wave 2 deploy.
+**S7** (`feat/artifacts-s7` HEAD `50fffbf9`, 7 commits): the listing merge, typed search for every kind, the Documents
+tab's six chips / Version column / type pill / Delete-only actions, search labels + icons, containment (33), e2e; 12,804
+tests, Playwright 51. It found that `type:"artifact"` rows are not in `core.ts`'s conversation-required ownership set.
+**Merged `feat/artifacts-s1-live` into `feat/artifacts-s1` as `e17c6f09` (no conflicts)**; gates running
+(`/tmp/gates-s1-merged/`). Remaining `test.fail()`: the mobile toolbar at 53 px (RV-1B) and S1e's T8-live test (should
+now pass). **RV-7 (sonnet) dispatched** in `rv-7` (5610), hunting that ownership edge first.
+
+**Slice 1 combined and in review (2026-09-26, 13:07).** Gates on `feat/artifacts-s1` `e17c6f09`: check 0/17, biome 2 warnings
+(dead code), **12,823 tests**, build 32/2, Fallow 124/4 with 0 new, Playwright 46 (the two `test.fail()`s: the 53 px
+mobile toolbar, and S1e's T8-live test, which fails on a strict-mode locator, not the old crash). **RV-1A** (opus,
+`rv-1a`, branch `feat/artifacts-s1-review-engine`, 5620) on the engine/server; **RV-1B** (sonnet, `rv-1b`,
+`feat/artifacts-s1-review-editor`, 5630) on the editor/UI, owning the two `test.fail()`s and the dead code.
+**SC** (sonnet, `art-card`, branch `feat/artifacts-chatcard` from `feat/artifacts` `34fcdaaa`, `node_modules` →
+`art-s1`'s, 5640): step 0 merges `feat/artifacts-s1` into the App line (11 conflicts, found by a trial merge; the one
+needing thought is `record.ts`: ruling-47 coalescing + Slice 2's `metadataPatch` together), step 1 builds the
+in-chat card for every kind. Merge order after the reviews: `feat/artifacts-chatcard` → `feat/artifacts`, then
+`feat/artifacts-s1` (review fixes only; the merge base is `e17c6f09`), then RV-7's S7.
+
+**RV-7 done → Slice 7 merged into `feat/artifacts` as `d1364b54` (2026-09-26).** Verdict "ship with the two fixes":
+`01e1754f` **critical containment leak**: `core.ts`'s canonical ownership exempted only `generated_output`/`work_capsule`
+from the user-stamp fallback, so a `type:"artifact"` row preserved after its conversation's deletion (an outside
+reference, e.g. a fork's link; `conversation_id` SET NULL) resurfaced in the Documents tab and search for its owner,
+**incognito ones included**. Now `artifact` needs a live conversation link too; `isArtifactDeletableByUser` unchanged.
+The containment suite covers it (34). `4865aa24`: the merged search sort's tie-break ignored the caller's sort key.
+12,806 tests, Playwright 51. Open: the chip row's exact position vs the mockup (check in the Phase 4 walk). Gates on
+`feat/artifacts` running (`/tmp/gates-fa-s7/`).
+
+**Gates on `feat/artifacts` at the Slice 7 merge `d1364b54`:** check 0/17, biome clean, **12,806 tests**, build 32/2, Fallow 124/4
+with 0 new, containment 34; Playwright 60/61. The one failure (`knowledge.spec.ts:222`) was order-dependent: a
+substring `name: "Upload"` locator with `.first()` hit the new "Filter: Uploaded" chip whenever the library had rows.
+It passed alone, and was reproduced deliberately by a fix agent → `78cad9af` (`exact: true`), fast-forwarded onto
+`feat/artifacts`. No other ambiguous locators found.
+
+**Owner request (2026-09-26): extract a shared focus-trap utility.** No earlier mention of it in this session; the
+duplication is real: `DialogShell.svelte` has the careful trap (rendered-only focusables, topmost-only), and
+`SearchModal`, `LinkedDocumentPicker`, `KnowledgeMemoryView/Modal` and Slice 1's `MobileToolbar` sheet hand-roll their
+own; Slice 4 will need more. **Pass one** (sonnet, `art-focus`, branch `feat/artifacts-focus-trap` from `92cd7f2e`,
+5660): the utility (from DialogShell's behaviour, attachment or action chosen against the Svelte 5.55 docs) and the
+existing app dialogs, behaviour pinned by tests first. **Pass two** after Slice 1 merges: the Feature 2 sheets.
+
+**SC done (2026-09-26).** `feat/artifacts-chatcard` HEAD `302e8bfc`. Step 0: `27a614e6` merges `feat/artifacts-s1` (`e17c6f09`) into the App
+line (11 conflicts, both sides kept; `record.ts` took Slice 1's `updateArtifactBody`, where the metadataPatch merge runs
+after either branch, with tests for coalesced-save-with-patch and Alfy-with-patch-appends; `client/api/artifacts.ts`
+and `cases.test.ts` rebuilt from both blobs), `220ad0ab` gate fixes. Step 1: `45027cce` the in-chat card for every kind
+(`create_artifact`/`edit_artifact` → a pinned `ArtifactCard` with Created/Edited, "Creating …" while running, nothing
+for a refusal; `chrome="body"` now shows the full header for every kind but File; Open reuses `onOpenDocument` with
+`conversationId`; ThinkingBlock enriches it with the Document preview after a reload; ticks share the panel's
+write path), `302e8bfc` e2e with a fake-provider `create_artifact` scenario. 13,223 tests, Playwright 58/58, Fallow
+124/4, containment 30. Deviations: no App verification subtitle on the card (no App preview field yet), no App
+chat e2e (the create path runs real generation). **RV-SC (sonnet)** dispatched in `rv-sc` (branch
+`feat/artifacts-chatcard-review`, 5670) on the merge and the card.
+
+**Owner decisions (2026-09-26, weekly limit at 74%):** finish Wave 2, deploy it to **dev** with the tool-description trim, give the owner
+sample tasks, then **pause until the weekly reset** (Mon 2026-09-28 ~10:00 IST); Waves 3–4 each run in a **fresh
+orchestrator session** from this file. The campaign waits. Production only on the owner's word (it would need the
+trim, which this wave now includes, plus a campaign). **Trim agent** (sonnet, `art-adv`, branch
+`feat/artifacts-advertise` from `302e8bfc`): the advertised kinds are derived from `CREATE_ARTIFACT_HANDLERS`
+(Document + App), and the three descriptions, the `artifactType` enum and the base-prompt paragraph (`prompts.ts:49`)
+are assembled from per-kind fragments; snapshots regenerated; ceiling lowered.
+**Final integration order:** `feat/artifacts-s1` ← `rv-1a` + `rv-1b` branches; `feat/artifacts-chatcard` ← `rv-sc` branch +
+`feat/artifacts-advertise` + `feat/artifacts-s1`; `feat/artifacts` ← `feat/artifacts-chatcard` + `feat/artifacts-focus-trap`
+(pass one); `npm install` in `art-base` (Tiptap); full gates; `dev` ← `feat/artifacts` in the main checkout, gates in
+`dev-int`, push, deploy, real-model checks on ai.dev.
+
+**RV-SC done (2026-09-26).** Verdict "merge": the Docs×Apps merge verified clean (both parents diffed against the result, nothing
+lost, all three eval suites register, coalescing composes with `metadataPatch`, no Alfy write or restore coalesces);
+one card defect fixed test-first (`7b67b293`): `chrome="body"` drew the title and icon a second time under the tool
+row's own line, the regression slice-0 S6 had pinned, so the no-header rule is restored. Streaming cost measured ~0.18 ms
+per re-render at 300×300. `feat/artifacts-chatcard` fast-forwarded to `7453b2f1` (13,226 tests, Playwright 63/63 with
+one load flake that passes alone). Its open question (a refused tick may not revert the checkbox) was sent to RV-1B.
+
+**Focus-trap pass one merged as `8c45ae03` (2026-09-26).** `src/lib/utils/focus-trap.ts` (a Svelte 5 attachment, `{@attach focusTrap(…)}`,
+chosen per the docs; `getFocusableElements`, `trapTabKey`, `createFocusTrapStack`, options `selector/isTopmost/onEscape/
+focus/restoreFocusOnCleanup/onTab`). Migrated DialogShell (its own stack instance, since CampaignModal joins it),
+LinkedDocumentPicker, KnowledgeMemoryModal, KnowledgeMemoryView (three dialogs), ConversationJumpRail (custom `onTab`);
+SearchModal shares only the lookup (its wrap is direction-sensitive). Skipped with reasons: MessageInput (autocomplete),
+ProfilePictureEditor/ProviderForm (already DialogShell), ModelList. Every existing dialog test passed unmodified; +31
+tests; gates at baseline (12,837 on its base). **Pass two** (after Wave 3 starts or earlier): the Feature 2 sheets
+(Document mobile "More" sheet, download sheet) plus `campaigns/CampaignModal.svelte` and
+`campaign-admin/CampaignCropModal.svelte` (the agent's task chip was withdrawn in favour of this). Not independently
+reviewed yet: include it in the final review.
+
+**RV-1A done (opus, 2026-09-26): "merge with these fixes", 32 defects fixed test-first** on `feat/artifacts-s1-review-engine` (HEAD
+`4003da51`, code ends `21245078`; `review-1a.md`). Worst: `applyDocumentPatch` wrote without a guard (concurrent edits or an
+autosave mid-patch lost an edit that reported "applied"); anchors resolved against Markdown, not visible text (a comment
+on bold/link/`&` orphaned at birth); canonical-form bugs (prose rules on fenced code, `---` read as a table row, multi-
+paragraph op text stored as one block → new ids/false refusals on reload, nested checklists, table padding, hard
+breaks); a second op on the same block refused; `$` patterns in `replaceRange`; card tick vs editor overwrite (the body
+route now takes `baseHash` + `coalesce`); user saves merging into restore/first versions (ruling 47); refusals keyed by
+block instead of `opIndex`; PDF/DOCX exports printing Markdown syntax; `@Alfy` cost not recorded. 12,886 tests, gates
+clean, containment 30. Live document eval 7/7, known-bad failed as it must. **Sent to RV-1B** (merge RV-1A first):
+the image crash, unescaped `|` in cells, the fence-in-code cut, list-looking paragraphs, task hard breaks, autosave
+`baseHash`, Undo ignoring `insertedBlockIds`, invisible partial `@Alfy` refusals. **Open for later (Wave 3 session):**
+Alfy-written Markdown that the editor re-spells gets a new hash on the first user save (canonicalise Alfy's text on
+write?); a full read sends the text twice (~200k chars max); the spec's `…/document/patches` route was never built
+(superseded by the shared body route?). Recipe fix: with SSH `ControlMaster`, close a forward with
+`ssh -O cancel -L <port>:192.168.1.96:30000 alfyroot`. The shared `node_modules/.vite` can be re-optimised by another
+worktree's dev server mid-run (45 spurious e2e failures once).
+
+**Advertised kinds done → merged into `feat/artifacts-chatcard` as `e5f20c37` (2026-09-26).** `ea45a38d`: `advertisedArtifactKinds()` in a
+dependency-free `artifact-tools/kind-registry.ts` (moving the registry there broke a real import cycle through
+`config-store`→`prompts`, which could drop "document" from the catalogue by import order); per-kind EN/HU fragments in
+`kind-prose.ts`; the create/edit schemas and the three descriptions are built from the advertised kinds inside
+`createNormalChatTools`; the base prompt paragraph is a hand-edited literal (ADR-0055) cross-checked against the
+assembler by a test. Catalogue EN 4,804 → 4,720, HU 7,823 → 7,700; ceiling `{ en: 4746, hu: 7727 }`; snapshots
+regenerated. Also fixed a latent `index.test.ts` isolation bug (an `afterEach` deleted the real Document handler).
+13,237 tests, Fallow 124/4. Waiting only on RV-1B.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
@@ -163,5 +490,7 @@ via env.ts. **In review:** RV-W0-F (sonnet) in `rv-w0f` (5560), also fixing the 
 
 ## Next action
 
-Wait for the five agents' reports; review Wave 0 (three Opus reviewers) and merge it into `dev`; deploy the dev
-environment; merge `dev` into `feat/artifacts`; review S0 (two Opus reviewers) before dispatching Wave 2.
+RV-5a reports and the ruling-51 fix lands → merge both into `feat/artifacts` (gates in `art-base`) → resume S2
+(A7, A8 tool part, A9 + ruling 52) and let S1 pick up the merge. Then wait for S1/S2's reports → RV-1A (opus), RV-1B,
+RV-2A (opus), RV-2B → merge wave 2 → `dev` → push → deploy dev → real-model checks. Review ports: RV-5a 5570; next
+free 5580, 5590, 5620, 5630 (5600 is Phase 4's, 5610 was used).

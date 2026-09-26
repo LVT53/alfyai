@@ -7,6 +7,12 @@ import {
 import type { AddressInfo } from "node:net";
 import {
 	AI_SMOKE_ABORT_DELAY_MS,
+	AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT,
+	AI_SMOKE_CREATE_ARTIFACT_MARKDOWN,
+	AI_SMOKE_CREATE_ARTIFACT_MARKER,
+	AI_SMOKE_CREATE_ARTIFACT_TITLE,
+	AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT,
+	AI_SMOKE_EDIT_ARTIFACT_MARKER,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_PLAIN_TEXT,
 	AI_SMOKE_PROJECT_FILE_PROBE_PREFIX,
@@ -24,6 +30,7 @@ import {
 	AI_SMOKE_SUGGEST_INSTRUCTION_TOOL_NAME,
 	AI_SMOKE_TOOL_FINAL_TEXT,
 	AI_SMOKE_TOOL_NAME,
+	decodeEditArtifactScenarioPayload,
 } from "../../fixtures/ai/openai-compatible-scenarios";
 
 const TOOL_CALL_ID = "call_fake_report_1";
@@ -34,6 +41,8 @@ const SUGGEST_INSTRUCTION_CALL_INPUT = {
 	text: AI_SMOKE_STANDING_INSTRUCTION_TEXT,
 	scope: "personal",
 };
+const EDIT_ARTIFACT_CALL_ID = "call_fake_edit_artifact_1";
+const CREATE_ARTIFACT_CALL_ID = "call_fake_create_artifact_1";
 
 export interface CapturedOpenAICompatibleRequest {
 	id: number;
@@ -558,6 +567,189 @@ function buildSuggestInstructionFinalStreamResponse(): Response {
 }
 
 /**
+ * T8 live: a real `edit_artifact` call against a Document the test seeded
+ * directly (never through this fake model — `read_artifact`'s snapshot-write
+ * is exercised by that direct setup call, not scripted here). The message
+ * itself carries the exact block ids/hash the test's setup already resolved
+ * (see the marker's own comment in the fixtures) — this scenario just reads
+ * them back out and forwards them verbatim as the tool call's arguments.
+ */
+function bodyAsksForEditArtifact(body: unknown): boolean {
+	return JSON.stringify(body).includes(AI_SMOKE_EDIT_ARTIFACT_MARKER);
+}
+
+function findEditArtifactPayload(body: unknown) {
+	return decodeEditArtifactScenarioPayload(JSON.stringify(body));
+}
+
+function buildEditArtifactToolCallStreamResponse(
+	payload: NonNullable<ReturnType<typeof findEditArtifactPayload>>,
+): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_edit_artifact_call_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_009,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	const args = {
+		artifactId: payload.artifactId,
+		summary: "Scripted edit",
+		patches: [
+			{
+				op: "replaceBlock",
+				blockId: payload.applyBlockId,
+				baseHash: payload.applyBaseHash,
+				text: "Book the hotel by Friday.",
+			},
+			{
+				op: "replaceBlock",
+				blockId: payload.refuseBlockId,
+				// Deliberately wrong: this op is refused as block_changed —
+				// the fake model has no way to know the real hash, which is
+				// exactly the point (a hash it never read must never apply).
+				baseHash: "stale-hash-the-model-never-actually-read",
+				text: "This should never land.",
+			},
+		],
+	};
+
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						tool_calls: [
+							{
+								index: 0,
+								id: EDIT_ARTIFACT_CALL_ID,
+								type: "function",
+								function: {
+									name: "edit_artifact",
+									arguments: JSON.stringify(args),
+								},
+							},
+						],
+					},
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+			usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+		},
+	]);
+}
+
+function buildEditArtifactFinalStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_edit_artifact_final_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_010,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: { content: AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT },
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+			usage: { prompt_tokens: 21, completion_tokens: 9, total_tokens: 30 },
+		},
+	]);
+}
+
+/**
+ * The in-chat card (Feature 2, the cross-kind task): a real `create_artifact`
+ * call, scripted with a fixed title/body — unlike T8 live's `edit_artifact`,
+ * nothing here depends on ids or hashes the test's own setup resolved first.
+ */
+function bodyAsksForCreateArtifact(body: unknown): boolean {
+	return JSON.stringify(body).includes(AI_SMOKE_CREATE_ARTIFACT_MARKER);
+}
+
+function buildCreateArtifactToolCallStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_create_artifact_call_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_011,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	const args = {
+		artifactType: "document",
+		title: AI_SMOKE_CREATE_ARTIFACT_TITLE,
+		body: AI_SMOKE_CREATE_ARTIFACT_MARKDOWN,
+	};
+
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						tool_calls: [
+							{
+								index: 0,
+								id: CREATE_ARTIFACT_CALL_ID,
+								type: "function",
+								function: {
+									name: "create_artifact",
+									arguments: JSON.stringify(args),
+								},
+							},
+						],
+					},
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+			usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+		},
+	]);
+}
+
+function buildCreateArtifactFinalStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_create_artifact_final_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_012,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: { content: AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT },
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+			usage: { prompt_tokens: 21, completion_tokens: 9, total_tokens: 30 },
+		},
+	]);
+}
+
+/**
  * The read-a-project-file scenario: the model reads a file it found in the
  * prompt's project file list — never a name the user typed — with the app's
  * real `read_generated_file` tool, and the follow-up request, the one carrying
@@ -815,6 +1007,20 @@ export function createOpenAICompatibleProviderHarness(
 						return buildSuggestInstructionFinalStreamResponse();
 					}
 					return buildSuggestInstructionToolCallStreamResponse();
+				}
+				if (bodyAsksForEditArtifact(body)) {
+					if (hasToolResultMessage(body)) {
+						return buildEditArtifactFinalStreamResponse();
+					}
+					const payload = findEditArtifactPayload(body);
+					if (payload) return buildEditArtifactToolCallStreamResponse(payload);
+					return buildTextStreamResponse();
+				}
+				if (bodyAsksForCreateArtifact(body)) {
+					if (hasToolResultMessage(body)) {
+						return buildCreateArtifactFinalStreamResponse();
+					}
+					return buildCreateArtifactToolCallStreamResponse();
 				}
 				if (scenario === AI_SMOKE_SCENARIOS.reasoning) {
 					return buildReasoningStreamResponse();

@@ -308,6 +308,97 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
   {
     "type": "function",
     "function": {
+      "name": "create_artifact",
+      "description": "Tarts meg valamit a beszélgetés mellett, amihez a felhasználó visszatér, amit megnyit és veled együtt szerkeszt. Ne használd olyan válaszhoz, amely már teljes a válaszodban, se akkor, ha a felhasználó letölthető fájlt kért — az a produce_file dolga, nem ezé. Használd feladatlistához, tervhez, útitervhez, levélhez, vázlathoz, nyomkövetőhöz vagy kis interaktív eszközhöz, amin a felhasználó tovább dolgozik. Az artifactType-ot aszerint válaszd, mit őrzöl meg: document gazdag szövegű, idővel olvasott és szerkesztett tartalomhoz — tervek, feladatlisták, útitervek, levelek, vázlatok, nyomkövetők; app interaktív eszközhöz bemenetekkel és eredményekkel — kalkulátor, költségosztó, kvíz. Nincs artifactType \"file\": amit a felhasználó letölteni kért, az a produce_file dolga, és Fájlként jelenik meg. Kérésenként legfeljebb egyet készíts — mondd el, mit csináltál, és ajánld fel a megnyitását, és ne írd bele ugyanazt a tartalmat a válaszodba is. Példa: {\"artifactType\":\"document\",\"title\":\"Bécsi hétvégi terv\",\"body\":\"# Bécsi hétvége\\n- [ ] Vonatjegy foglalása\"}. Utólag soha ne találj ki azonosítót — a read_artifact adja vissza azt, amivel szerkeszteni fogsz. Elutasítás esetén olvasd el az okát, javítsd ki azt az egy dolgot, és legfeljebb egyszer próbáld újra.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "artifactType": {
+            "type": "string",
+            "enum": [
+              "document",
+              "app"
+            ],
+            "description": "document or app"
+          },
+          "title": {
+            "type": "string",
+            "description": "What the user will see in the card and the panel."
+          },
+          "body": {
+            "type": "string",
+            "description": "Documents: Markdown. Apps: the HTML document."
+          }
+        },
+        "required": [
+          "artifactType",
+          "title",
+          "body"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_artifact",
+      "description": "Egy Dokumentum, Alkalmazás vagy Fájl elem jelenlegi tartalmát és szerkezetét nézd meg vele, a create_artifact-tól, egy korábbi hívástól vagy a beszélgetés katalógusától kapott azonosítóval. Ne használd azonosító kitalálására — előbb nézd meg a katalógust, és soha ne találj ki egyet. A detail:\"blocks\" a szerkeszthető azonosítókat és hasheket adja vissza, amelyekre az edit_artifact-nak szüksége van (minden edit_artifact hívás előtt olvasd el ezt: a baseHash mindig innen származik, sosem kitalálva); hagyd el a detail mezőt, vagy add meg \"full\"-ként, a teljes tartalomhoz. Ismeretlen azonosítóra a beszélgetés saját jelöltjeit kapod vissza tartalom helyett — ezek közül válassz, ne próbáld ugyanazt az azonosítót újra.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "blocks",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "artifactId"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "edit_artifact",
+      "description": "Módosíts egy már elkészített Dokumentumot vagy Alkalmazást, a create_artifact vagy a read_artifact által adott azonosítóval. Ne használd anélkül, hogy előbb elolvasnád az elemet — hívd meg a read_artifact-ot, és használd az onnan kapott baseHash-t; egy elutasítás általában azt jelenti, hogy a felhasználó azóta szerkesztette azt a részt, hogy utoljára olvastad, ezért mondd el neki, ne próbáld újra ugyanazt a javítást. Dokumentumoknál: küldj patches-t, blokkonként egy műveletet, mindegyikhez az általad olvasott baseHash-sel. Az Alkalmazásokat itt nem szerkesztjük — készíts helyette egy új Alkalmazást a változtatásokkal. Egy köteg részlegesen is alkalmazódik: amit lehet, megteszi, és minden elutasított művelet a saját okával tér vissza, ezért mondd el a felhasználónak, mi változott és mi nem, ahelyett hogy feltételeznéd, hogy az egész megtörtént.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string",
+            "description": "The id from create_artifact, read_artifact or the artifact catalogue."
+          },
+          "patches": {
+            "description": "Documents only: [{op, blockId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
+            "type": "array",
+            "items": {}
+          },
+          "ops": {
+            "type": "array",
+            "items": {}
+          },
+          "summary": {
+            "description": "One short line shown next to Keep/Undo.",
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "artifactId"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "files",
       "description": "A felhasználó csatlakoztatott fájltárának (Nextcloud vagy OneDrive) listázása, keresése, olvasása és kezelése. A `list` egy mappa tartalmát nézi meg és számolja meg (add meg az útvonalát, vagy hagyd el a gyökérhez); a `search` név alapján keres az egész fában; a `read` egy konkrét fájlt nyit meg útvonal alapján. Minden találat tartalmazza az utolsó módosítás idejét ('a legutóbbi számlám', 'a legújabb fájl'). Ne használd fényképekhez vagy videókhoz (photos), egy ebben a beszélgetésben lévő fájlhoz (read_generated_file), weboldalhoz (fetch_url), sem megjegyzett preferenciákhoz (memory_context). Emellett új fájl mentésére (`save`), áthelyezésére/átnevezésére (`move`, `destinationPath`), törlésére (`delete` — a kukába, visszaállítható), mappa létrehozására (`create_folder`) és NYILVÁNOS megosztási link készítésére (`share_link` — a linkkel bárki megnyithatja a fájlt, szándékos közzététel, óvatosan) is képes: ezekhez az írásnak engedélyezve kell lennie, OneDrive-nál NEM elérhetők (csak olvasható), és SOHA nem lépnek életbe azonnal — mindegyik csak egy függőben lévő műveletet javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia. Találatokat ad vissza útvonallal, mérettel és módosítási idővel; a `read` a szöveget is. Több csatlakoztatott fióknál add meg az `account` mezőt (szolgáltató, címke vagy e-mail).",
       "parameters": {

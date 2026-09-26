@@ -1,6 +1,6 @@
 <script lang="ts">
-import { onDestroy, onMount } from "svelte";
 import { fade, scale } from "svelte/transition";
+import { focusTrap } from "$lib/utils/focus-trap";
 import { reducedMotionAware } from "$lib/utils/motion";
 import type {
 	MemoryProfileActionPayload,
@@ -42,9 +42,7 @@ let {
 
 let statement = $state("");
 let sourcesExpanded = $state(false);
-let dialogRef = $state<HTMLElement | null>(null);
 let statementInputRef = $state<HTMLTextAreaElement | null>(null);
-let previousFocus: HTMLElement | null = null;
 
 let actionKey = $derived(`${item.id}:edit`);
 let deleteKey = $derived(`${item.id}:delete`);
@@ -100,67 +98,21 @@ function submitDelete() {
 	});
 }
 
-function getFocusableElements(): HTMLElement[] {
-	return Array.from(
-		dialogRef?.querySelectorAll<HTMLElement>(
-			'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
-		) ?? [],
-	);
-}
-
-function trapTabNavigation(event: KeyboardEvent) {
-	const focusable = getFocusableElements();
-	if (focusable.length === 0) {
-		event.preventDefault();
-		dialogRef?.focus();
-		return;
-	}
-	const first = focusable[0];
-	const last = focusable[focusable.length - 1];
-	const activeElement = document.activeElement;
-	if (!(activeElement instanceof Node) || !dialogRef?.contains(activeElement)) {
-		event.preventDefault();
-		first.focus();
-		return;
-	}
-	if (event.shiftKey && activeElement === first) {
-		event.preventDefault();
-		last.focus();
-		return;
-	}
-	if (!event.shiftKey && activeElement === last) {
-		event.preventDefault();
-		first.focus();
-	}
-}
-
-function handleWindowKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") {
+// Tab/Shift+Tab wrapping and the "focus escaped -> pull back to the first
+// element" rule now live in the shared utility (the same algorithm this
+// dialog hand-rolled). `statementInputRef` is the initial-focus target when
+// present (an edit-capable item); the utility falls back to the first
+// focusable element, then the dialog itself, exactly as this file's old
+// `getFocusableElements()[0] ?? dialogRef` chain did.
+const dialogFocusTrap = focusTrap({
+	onEscape: (event) => {
 		event.preventDefault();
 		onClose();
-		return;
-	}
-	if (event.key === "Tab") {
-		trapTabNavigation(event);
-	}
-}
-
-onMount(() => {
-	previousFocus = document.activeElement as HTMLElement | null;
-	setTimeout(() => {
-		const initialFocus =
-			statementInputRef ?? getFocusableElements()[0] ?? dialogRef;
-		initialFocus?.focus();
-	}, 0);
-});
-
-onDestroy(() => {
-	previousFocus?.focus?.();
-	previousFocus = null;
+	},
+	focus: { target: () => statementInputRef },
+	restoreFocusOnCleanup: true,
 });
 </script>
-
-<svelte:window onkeydown={handleWindowKeydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 <div
@@ -170,7 +122,7 @@ onDestroy(() => {
 	transition:backdropFade={{ duration: 150 }}
 >
 	<div
-		bind:this={dialogRef}
+		{@attach dialogFocusTrap}
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="memory-profile-item-title"

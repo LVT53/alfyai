@@ -20,6 +20,7 @@ import {
 	parseCspModeEnv,
 	sentryConnectSource,
 } from "$lib/server/security-headers";
+import { renderAppSessionExpiredResponse } from "$lib/server/services/artifacts/app/sandbox-response";
 import { ensureAtlasWorker } from "$lib/server/services/atlas";
 import { validateSession } from "$lib/server/services/auth";
 import { ensureExtractionWorker } from "$lib/server/services/extraction";
@@ -62,6 +63,32 @@ const PUBLIC_PATHS = [
 	// verification URL.
 	"/privacy",
 ];
+
+/**
+ * The App's served route ONLY — `/api/artifacts/<id>/app`, never its `/kv`,
+ * `/download` or `/regenerate` children, and never the family's
+ * `/api/artifacts/[id]` detail route. This is the ONE place the product ever
+ * loads inside a sandboxed, opaque-origin iframe (AppFrame.svelte; `grep` over
+ * `src` confirms it), so an unauthenticated request with `Sec-Fetch-Dest:
+ * iframe` for exactly this path shape can only be that frame.
+ *
+ * This path is never added to PUBLIC_PATHS above and auth is never skipped
+ * for it — the branch below still requires `!event.locals.user` to fire, it
+ * only changes the SHAPE of the refusal for this one route+destination
+ * combination, the same way the API-vs-navigation branch already does below.
+ *
+ * The trailing `\/?` tolerates one trailing slash: this hook runs BEFORE
+ * SvelteKit's own routing (`resolve()`, which is where the framework's
+ * `trailingSlash` normalization would otherwise turn `/app/` into `/app`),
+ * so an unauthenticated request never reaches that normalization at all — it
+ * is decided here, from the raw pathname, or not at all. Without the `\/?`,
+ * an iframe `src` with one extra "/" fell through to "unchanged behaviour"
+ * (the real 303 to `/login`), which an attacker's page can embed just as
+ * easily as the exact path — rendering the REAL login form inside this
+ * route's opaque-origin sandboxed frame, exactly the phishing-shaped outcome
+ * this whole branch exists to prevent.
+ */
+const APP_SERVED_ROUTE_PATTERN = /^\/api\/artifacts\/[^/]+\/app\/?$/;
 
 /**
  * Every endpoint in this app lives under `/api/` — there is no `+server.ts`
@@ -277,6 +304,28 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
 
 	if (!PUBLIC_PATHS.includes(path) && !event.locals.user) {
+		// Ruling 58: the App's served route, loaded in its own sandboxed
+		// iframe, with no session left. A 303 here would follow through to
+		// `/login` rendering INSIDE that same sandboxed browsing context —
+		// sandbox flags apply to every document a frame loads, not only its
+		// first — so the form would run opaque-origin too: no cookie, nothing
+		// to submit it with, a dead form the user cannot explain. This
+		// resolves NEITHER to the real route NOR to the redirect: a small,
+		// static, localized notice, served with the App's own strict headers
+		// because it renders in the same frame. Every other unauthenticated
+		// request — a different path, or this same path NOT framed — falls
+		// through to the unchanged behaviour below.
+		if (
+			APP_SERVED_ROUTE_PATTERN.test(path) &&
+			event.request.headers.get("sec-fetch-dest") === "iframe"
+		) {
+			const notice = renderAppSessionExpiredResponse(
+				event.request.headers.get("accept-language"),
+			);
+			applySecurityHeaders(event, notice);
+			return notice;
+		}
+
 		// An API caller cannot be sent to a login page. `fetch` follows the 303
 		// itself, the public /login route answers 200 with HTML, and the caller
 		// is left parsing a web page as its payload — which is how an expired

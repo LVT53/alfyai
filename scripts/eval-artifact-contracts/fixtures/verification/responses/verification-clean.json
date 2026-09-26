@@ -1,0 +1,9 @@
+{
+	"response": "```json\n{\n  \"claims\": [\n    \"the Fahrenheit value for 0 Celsius\",\n    \"the Fahrenheit value for 37 Celsius\",\n    \"the Fahrenheit value for 100 Celsius\"\n  ],\n  \"findings\": [],\n  \"repairedHtml\": null,\n  \"repairSafe\": true\n}\n```",
+	"durationMs": 560,
+	"usage": {
+		"promptTokens": 649,
+		"completionTokens": 77,
+		"totalTokens": 726
+	}
+}

@@ -112,10 +112,23 @@ function renderBlock(block: GeneratedDocumentBlock): Array<Paragraph | Table> {
 				...(block.basisMarkers ?? []).map(basisNoteParagraph),
 			];
 		case "list":
+			// Ruling 36: a checklist item draws a real tick/box glyph, not "[x]"
+			// as prose. No OOXML form field here (this renderer's whole list is
+			// already one plain TextRun) — the Unicode ballot-box glyphs are the
+			// same "real checkbox" the other three renderers draw with their own
+			// primitives.
 			return [
 				new Paragraph({
 					children: [
-						new TextRun(block.items.map((item) => `• ${item}`).join("\n")),
+						new TextRun(
+							block.items
+								.map((item) =>
+									typeof item === "string"
+										? `• ${item}`
+										: `${item.checked ? "☑" : "☐"} ${item.text}`,
+								)
+								.join("\n"),
+						),
 					],
 				}),
 			];

@@ -14,12 +14,17 @@
 // directly unit-testable with a fake translator.
 
 import type { I18nKey } from "$lib/i18n";
+// Type-only: erased at build time, so this pure browser module never carries
+// the artifacts service's own server code (client/api/artifacts.ts already
+// crosses this same boundary the same way).
+import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type {
 	ThinkingSegment,
 	ToolCallMapData,
 } from "$lib/server/services/messages-types";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { formatByteSize } from "$lib/utils/format";
 import {
 	formatConnectionToolAction,
@@ -44,6 +49,19 @@ import {
 
 export type ToolActivityStatus = "running" | "done" | "failed";
 
+/**
+ * A runtime mirror of `ArtifactKind` (`$lib/shared/artifacts/kinds`, a
+ * type-only import) — narrows a tool-call metadata string field, which
+ * cannot carry the type itself across the wire.
+ */
+const ARTIFACT_KINDS: readonly ArtifactKind[] = [
+	"document",
+	"app",
+	"canvas",
+	"slides",
+	"file",
+];
+
 /** The opened panel under a row. One variant per tool shape in the mockup. */
 export type ToolActivityBody =
 	| { kind: "sources"; sources: FetchedSource[]; citedCount: number }
@@ -66,6 +84,21 @@ export type ToolActivityBody =
 	// reduced, body-only component); the job itself is threaded through the
 	// component prop rather than flattened here.
 	| { kind: "file-job" }
+	// A successful create_artifact/edit_artifact call (Feature 2, the
+	// cross-kind in-chat card): ArtifactCard's own chrome="body" rendering for
+	// every kind but File. `preview` is never computed here — this module is
+	// pure and has no access to ConversationDetail.artifacts — the caller
+	// (ThinkingBlock.svelte) attaches it from the conversation's own artifact
+	// summaries when one exists (after a reload, or once the turn's own
+	// refresh catches up); live, mid-turn, it stays undefined and the card
+	// falls back to its kind's generic body.
+	| {
+			kind: "artifact";
+			artifactId: string;
+			artifactKind: ArtifactKind;
+			artifactTitle: string;
+			preview?: ArtifactCardSummary;
+	  }
 	// Same arrangement for an Atlas report: AtlasActivityBody.svelte renders the
 	// panel (stage line + plan while running, Report/Evidence/Plan tabs when
 	// done), threaded in as a snippet by AtlasActivityRow.svelte.
@@ -120,6 +153,8 @@ const VERB_KEYS = {
 	planningJourney: "toolActivity.planningJourney",
 	created: "toolActivity.created",
 	creating: "toolActivity.creating",
+	edited: "toolActivity.edited",
+	editing: "toolActivity.editing",
 	usedSkill: "toolActivity.usedSkill",
 	usingSkill: "toolActivity.usingSkill",
 	recalled: "toolActivity.recalled",
@@ -665,6 +700,80 @@ function buildSettledToolActivityItem(
 			title: displayName,
 			body: description ? { kind: "text", text: description } : null,
 		};
+	}
+
+	if (iconType === "artifact") {
+		const isEdit = segment.name === "edit_artifact";
+		const metadata = segment.metadata;
+		const rawArtifactKind = metadata?.artifactKind;
+		const artifactKind =
+			typeof rawArtifactKind === "string" &&
+			ARTIFACT_KINDS.includes(rawArtifactKind as ArtifactKind)
+				? (rawArtifactKind as ArtifactKind)
+				: undefined;
+		const artifactId =
+			typeof metadata?.artifactId === "string"
+				? metadata.artifactId
+				: undefined;
+		const artifactTitle =
+			typeof metadata?.artifactTitle === "string"
+				? metadata.artifactTitle
+				: undefined;
+		const hasCard =
+			metadata?.ok === true &&
+			artifactId !== undefined &&
+			artifactKind !== undefined &&
+			artifactTitle !== undefined;
+
+		// While still running, create_artifact's own call arguments already
+		// name the title (the model supplied it); edit_artifact's do not (only
+		// artifactId + patches/ops), so an in-flight edit has no better object
+		// than the row's own generic identity below.
+		const inputTitle =
+			typeof segment.input?.title === "string"
+				? segment.input.title
+				: undefined;
+		const object = artifactTitle ?? inputTitle ?? "";
+		const actionVerb = verb(
+			translate,
+			isEdit ? "editing" : "creating",
+			isEdit ? "edited" : "created",
+			status,
+		);
+
+		if (hasCard) {
+			return {
+				...base,
+				verb: actionVerb,
+				object,
+				meta: elapsed ?? "",
+				summaryLabel: `${actionVerb} ${object}`.trim(),
+				title: object,
+				// A made or changed artifact is a deliverable, exactly like a
+				// produced file: it stays visible with its body open rather than
+				// requiring a click to reveal what Alfy made.
+				pinned: true,
+				alwaysOpen: true,
+				body: { kind: "artifact", artifactId, artifactKind, artifactTitle },
+			};
+		}
+		if (status === "running" && object) {
+			return {
+				...base,
+				verb: actionVerb,
+				object,
+				meta: elapsed ?? "",
+				summaryLabel: actionVerb,
+				title: object,
+				body: null,
+			};
+		}
+		// A refusal (ok: false), or a settled call whose metadata came back
+		// malformed: never fabricate a card for something that did not, in
+		// fact, happen. Falls through to the generic identity/body below,
+		// which already shows the row's own failure — outputSummary carries
+		// the model-facing refusal reason (create.ts/edit.ts's own English
+		// text) into the body's "result" line.
 	}
 
 	if (iconType === "memory") {

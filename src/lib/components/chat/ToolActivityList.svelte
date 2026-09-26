@@ -23,6 +23,8 @@ let {
 	// Rendered directly under a given row — the connector agenda peek / photo
 	// strip, which belong to their group's row rather than to the list.
 	afterItem = undefined,
+	conversationId = null,
+	onToggleDocumentTask = undefined,
 }: {
 	items: ToolActivityItem[];
 	openKeys: Set<string>;
@@ -34,6 +36,11 @@ let {
 	onDismissJob?: ((jobId: string) => void) | undefined;
 	testId?: string;
 	afterItem?: Snippet<[ToolActivityItem]> | undefined;
+	/** Forwarded to each row's create_artifact/edit_artifact card (Feature 2, ruling 51). See ToolActivityRow's own prop doc. */
+	conversationId?: string | null;
+	onToggleDocumentTask?:
+		| ((artifactId: string, blockId: string, checked: boolean) => void)
+		| undefined;
 } = $props();
 </script>
 
@@ -48,6 +55,8 @@ let {
 			{onRetryJob}
 			{onCancelJob}
 			{onDismissJob}
+			{conversationId}
+			{onToggleDocumentTask}
 		/>
 		{@render afterItem?.(item)}
 	{/each}

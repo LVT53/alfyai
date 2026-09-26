@@ -246,6 +246,58 @@ describe("knowledge service getKnowledgeLibraryPage", () => {
 		expect(consoleError).toHaveBeenCalled();
 		consoleError.mockRestore();
 	});
+
+	// Slice 7: the Documents tab's chip row reads its counts from here, and a
+	// chip click threads `kindFilter` straight through.
+	it("threads kindFilter to listLogicalDocumentsPage and returns its countsByKind", async () => {
+		mockListLogicalDocumentsPage.mockResolvedValue({
+			documents: [
+				{
+					id: "canvas-1",
+					displayArtifactId: "canvas-1",
+					promptArtifactId: null,
+					familyArtifactIds: ["canvas-1"],
+					name: "Vienna trip board",
+					mimeType: null,
+					sizeBytes: null,
+					conversationId: "conv-1",
+					summary: null,
+					normalizedAvailable: false,
+					kind: "canvas",
+					artifactVersionNumber: 7,
+					createdAt: 300,
+					updatedAt: 300,
+				},
+			],
+			totalItems: 1,
+			countsByKind: {
+				document: 0,
+				app: 0,
+				canvas: 1,
+				slides: 0,
+				uploaded: 0,
+			},
+		});
+
+		const result = await getKnowledgeLibraryPage("user-1", {
+			kindFilter: "canvas",
+		});
+
+		expect(mockListLogicalDocumentsPage).toHaveBeenCalledWith(
+			"user-1",
+			expect.objectContaining({ kindFilter: "canvas" }),
+		);
+		expect(result.countsByKind).toEqual({
+			document: 0,
+			app: 0,
+			canvas: 1,
+			slides: 0,
+			uploaded: 0,
+		});
+		expect(result.documents.map((document) => document.id)).toEqual([
+			"canvas-1",
+		]);
+	});
 });
 
 import {

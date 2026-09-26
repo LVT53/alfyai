@@ -10,9 +10,12 @@ import type { Conversation } from "$lib/server/services/conversations";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
+	getArtifactVersionNumbers,
 	getLogicalDocumentForArtifact,
 	isArtifactCanonicallyOwned,
+	knowledgeArtifactListSelection,
 	listLogicalDocumentsPage,
+	mapArtifactFamilyRow,
 } from "$lib/server/services/knowledge/store";
 import type {
 	ArtifactType,
@@ -20,11 +23,15 @@ import type {
 	WorkingDocumentFamilyStatus,
 } from "$lib/server/services/knowledge/types";
 import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-identity";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 
 const DEFAULT_LIMIT = 3;
 const QUERY_LIMIT = 6;
 const DOCUMENT_METADATA_CANDIDATE_LIMIT = 24;
 const DOCUMENT_CONTENT_CANDIDATE_LIMIT = 24;
+/** Matches the two existing candidate limits above for symmetry — not a new
+ *  policy decision, a consistency one. */
+const DOCUMENT_FAMILY_CANDIDATE_LIMIT = 24;
 const SNIPPET_RADIUS = 64;
 
 type ConversationRow = {
@@ -484,6 +491,57 @@ async function loadMatchingArtifactMetadataCandidateRows(
 	);
 }
 
+/**
+ * The artifact family's own candidate loader (Feature 2, ADR-0066): unlike
+ * the two loaders above, which return bare id/type candidate rows and need a
+ * second `getLogicalDocumentForArtifact` round trip per id to materialise,
+ * this one already returns full `KnowledgeDocumentItem`s — there is no
+ * family to expand, so that second round trip is not needed here.
+ *
+ * An App's `content_text` is HTML markup, not prose: `<> 'app'` excludes it
+ * from the content/summary half of the match so a CSS class name or a tag
+ * name can never surface an unrelated app (Review Focus #3). A name match
+ * still finds an App by its title, same as every other kind.
+ */
+async function loadMatchingArtifactFamilyCandidateRows(
+	userId: string,
+	query: string,
+	ownershipScope: ArtifactOwnershipScope,
+): Promise<KnowledgeDocumentItem[]> {
+	const likeQuery = `%${escapeLike(query.toLowerCase())}%`;
+	const rows = await db
+		.select(knowledgeArtifactListSelection)
+		.from(artifacts)
+		.where(
+			and(
+				buildArtifactVisibilityCondition({ userId, ownershipScope }),
+				eq(artifacts.type, "artifact"),
+				sql`(
+					lower(${artifacts.name}) like ${likeQuery} escape '\\'
+					or (
+						json_extract(${artifacts.metadataJson}, '$.artifactType') <> 'app'
+						and (
+							lower(${artifacts.contentText}) like ${likeQuery} escape '\\'
+							or lower(${artifacts.summary}) like ${likeQuery} escape '\\'
+						)
+					)
+				)`,
+			),
+		)
+		.orderBy(desc(artifacts.updatedAt), artifacts.id)
+		.limit(DOCUMENT_FAMILY_CANDIDATE_LIMIT);
+
+	const scopedRows = rows.filter((row) =>
+		isArtifactCanonicallyOwned({ userId, ownershipScope, artifact: row }),
+	);
+	const versionNumbers = await getArtifactVersionNumbers(
+		scopedRows.map((row) => row.id),
+	);
+	return scopedRows.map((row) =>
+		mapArtifactFamilyRow(row, versionNumbers.get(row.id) ?? null),
+	);
+}
+
 function rankConversationRows(
 	rows: ConversationRow[],
 	messageRows: MessageMatchRow[],
@@ -587,6 +645,13 @@ function scoreDocument(
 	}
 
 	for (const artifactId of document.familyArtifactIds) {
+		// An App's `contentText` is HTML markup, not prose — never a match
+		// reason. Necessary IN ADDITION to the candidate loader's own
+		// exclusion: a row can become a candidate through its NAME (so it is
+		// still a document by this point), and this loop re-scores it against
+		// every field independently, so without this guard the raw markup
+		// could still win the "best field" comparison (Review Focus #3).
+		if (document.kind === "app") continue;
 		const textRow = textRows.get(artifactId);
 		const contentScore = termScore(textRow?.contentText, query, 10);
 		if (contentScore > best.score) {
@@ -636,6 +701,7 @@ function mapDocumentResult(
 		updatedAt: document.updatedAt,
 		href: buildKnowledgeWorkspaceHref(document),
 		sourceHref: buildDocumentSourceHref(document),
+		kind: document.kind,
 		match,
 	};
 }
@@ -645,11 +711,16 @@ async function searchDocuments(
 	query: string,
 ): Promise<{ results: WorkspaceSearchDocumentResult[]; overflow: boolean }> {
 	const ownershipScope = await getArtifactOwnershipScope(userId);
-	const [metadataRows, contentRows] = await Promise.all([
+	const [metadataRows, contentRows, familyDocuments] = await Promise.all([
 		loadMatchingArtifactMetadataCandidateRows(userId, query, ownershipScope),
 		loadMatchingArtifactTextCandidateRows(userId, query, ownershipScope),
+		loadMatchingArtifactFamilyCandidateRows(userId, query, ownershipScope),
 	]);
-	const candidateDocuments = (
+	// The legacy family's candidates are bare id/type rows and need a second
+	// round trip to materialise into full documents; the artifact family's
+	// candidates are already full `KnowledgeDocumentItem`s (no family to
+	// expand), so they are used directly instead.
+	const legacyDocuments = (
 		await Promise.all(
 			Array.from(
 				new Set([
@@ -660,7 +731,7 @@ async function searchDocuments(
 		)
 	).filter((document): document is KnowledgeDocumentItem => Boolean(document));
 	const documentsByDisplayId = new Map<string, KnowledgeDocumentItem>();
-	for (const document of candidateDocuments) {
+	for (const document of [...legacyDocuments, ...familyDocuments]) {
 		documentsByDisplayId.set(document.displayArtifactId, document);
 	}
 	const documents = Array.from(documentsByDisplayId.values());
@@ -694,7 +765,8 @@ async function searchDocuments(
 		overflow:
 			ranked.length > QUERY_LIMIT ||
 			metadataRows.length >= DOCUMENT_METADATA_CANDIDATE_LIMIT ||
-			contentRows.length >= DOCUMENT_CONTENT_CANDIDATE_LIMIT,
+			contentRows.length >= DOCUMENT_CONTENT_CANDIDATE_LIMIT ||
+			familyDocuments.length >= DOCUMENT_FAMILY_CANDIDATE_LIMIT,
 	};
 }
 
@@ -821,6 +893,9 @@ export interface WorkspaceSearchDocumentResult {
 	updatedAt: number;
 	href: string;
 	sourceHref: string | null;
+	/** The artifact family kind (ADR-0066). Present for a Document/App/Canvas/
+	 *  Slides row, absent for every existing kind. */
+	kind?: ArtifactKind;
 	match: {
 		type: WorkspaceSearchDocumentMatchType;
 		snippet: string | null;

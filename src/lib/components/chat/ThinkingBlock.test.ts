@@ -480,6 +480,155 @@ describe("ThinkingBlock", () => {
 	// the row's opened body: cited (status "selected") sources lead and carry
 	// the accent check; uncited ("reference") sources follow, plain; the
 	// body's eyebrow counts cites and the row's meta counts sources.
+	// The in-chat artifact card (Feature 2, cross-kind task, after Slice 1's
+	// merge): create_artifact/edit_artifact are ordinary, non-filtered tool
+	// calls (unlike produce_file), so they render through the SAME
+	// segments-driven path as any other tool — pinned, body open, once the
+	// block collapses — exactly like a route card.
+	describe("the in-chat artifact card", () => {
+		function createArtifactSegment(
+			overrides: Partial<ThinkingSegment> = {},
+		): ThinkingSegment {
+			return {
+				type: "tool_call",
+				name: "create_artifact",
+				status: "done",
+				input: { artifactType: "document", title: "Weekend plan" },
+				metadata: {
+					ok: true,
+					artifactId: "artifact-1",
+					artifactKind: "document",
+					artifactTitle: "Weekend plan",
+				},
+				...overrides,
+			} as ThinkingSegment;
+		}
+
+		it("renders the card as a pinned deliverable, and Open hands the caller a ready-to-open item with the conversation id", async () => {
+			const onOpenDocument = vi.fn();
+			render(ThinkingBlock, {
+				props: {
+					content: "",
+					thinkingIsDone: true,
+					segments: [createArtifactSegment()],
+					conversationId: "conv-9",
+					onOpenDocument,
+				},
+			});
+
+			expect(await screen.findByTestId("artifact-card")).toBeInTheDocument();
+			await fireEvent.click(screen.getByRole("button", { name: "Open" }));
+			expect(onOpenDocument).toHaveBeenCalledWith(
+				expect.objectContaining({
+					artifactId: "artifact-1",
+					kind: "document",
+					conversationId: "conv-9",
+				}),
+			);
+		});
+
+		it("enriches the card with the Document's bounded checklist from conversationArtifacts", async () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "",
+					thinkingIsDone: true,
+					segments: [createArtifactSegment()],
+					conversationArtifacts: [
+						{
+							id: "artifact-1",
+							kind: "document",
+							title: "Weekend plan",
+							conversationId: null,
+							versionNumber: 2,
+							commentCount: 0,
+							updatedAt: Date.now(),
+							documentPreview: {
+								tabCount: 1,
+								tasks: [{ blockId: "b1", text: "Book museum", checked: false }],
+								totalTaskCount: 1,
+							},
+						},
+					],
+				},
+			});
+
+			expect(await screen.findByText("Book museum")).toBeInTheDocument();
+		});
+
+		it("never renders a card for a refused edit_artifact", async () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "",
+					thinkingIsDone: true,
+					segments: [
+						createArtifactSegment({
+							name: "edit_artifact",
+							outputSummary: "Apps are not edited in place.",
+							metadata: {
+								ok: false,
+								artifactId: "artifact-1",
+								artifactKind: "app",
+							},
+						}),
+					],
+				},
+			});
+
+			// The block still shows something happened (the summary strip), just
+			// never a card for a call that made no change.
+			await screen.findByTestId("tool-activity-summary");
+			expect(screen.queryByTestId("artifact-card")).not.toBeInTheDocument();
+		});
+
+		it("renders one card per successful call when a turn makes several artifacts", async () => {
+			render(ThinkingBlock, {
+				props: {
+					content: "",
+					thinkingIsDone: true,
+					segments: [
+						createArtifactSegment({
+							name: "create_artifact",
+							input: { artifactType: "document", title: "Weekend plan" },
+							metadata: {
+								ok: true,
+								artifactId: "artifact-1",
+								artifactKind: "document",
+								artifactTitle: "Weekend plan",
+							},
+						}),
+						createArtifactSegment({
+							name: "create_artifact",
+							input: { artifactType: "canvas", title: "Trip board" },
+							metadata: {
+								ok: true,
+								artifactId: "artifact-2",
+								artifactKind: "canvas",
+								artifactTitle: "Trip board",
+							},
+						}),
+					],
+				},
+			});
+
+			const cards = await screen.findAllByTestId("artifact-card");
+			expect(cards).toHaveLength(2);
+			// The title lives on each card's own row (chrome="body" draws no
+			// title of its own — ArtifactCard.svelte, slice-0.md Task S6 Step
+			// 1.1), so distinct cards are told apart by their rows, not by text
+			// repeated inside the card body.
+			const rows = screen.getAllByTestId("tool-activity-row");
+			expect(rows).toHaveLength(2);
+			expect(
+				within(rows[0]).queryByText("Weekend plan") ??
+					within(rows[1]).queryByText("Weekend plan"),
+			).toBeTruthy();
+			expect(
+				within(rows[0]).queryByText("Trip board") ??
+					within(rows[1]).queryByText("Trip board"),
+			).toBeTruthy();
+		});
+	});
+
 	describe("cited-aware web sources", () => {
 		it("orders cited sources first and marks them", async () => {
 			const segments: ThinkingSegment[] = [

@@ -62,6 +62,19 @@ export interface ArtifactRecord {
  * document's list row) on purpose — ruling 20: the two are different things
  * and nothing aliases one into the other's place.
  */
+/**
+ * A Document card's subtitle facts and tickable checklist (spec §2.3, T9
+ * steps 4/7) — bounded and NEVER the whole body: `tasks` is at most the
+ * first five `taskList` blocks, and `totalTaskCount` is what lets a card
+ * with more say "+N more" without shipping the rest. Present only on a
+ * `kind: "document"` row; every other kind omits it.
+ */
+export interface DocumentCardPreview {
+	tabCount: number;
+	tasks: { blockId: string; text: string; checked: boolean }[];
+	totalTaskCount: number;
+}
+
 export interface ArtifactCardSummary {
 	id: string;
 	kind: ArtifactKind;
@@ -71,6 +84,7 @@ export interface ArtifactCardSummary {
 	versionNumber: number;
 	commentCount: number;
 	updatedAt: number;
+	documentPreview?: DocumentCardPreview;
 }
 
 export interface ArtifactDetail extends ArtifactCardSummary {

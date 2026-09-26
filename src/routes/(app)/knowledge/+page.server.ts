@@ -1,6 +1,7 @@
 import { redirect } from "@sveltejs/kit";
 import {
 	getKnowledgeLibraryPage,
+	type KnowledgeDocumentKindFilter,
 	type KnowledgeLibrarySortDirection,
 	type KnowledgeLibrarySortKey,
 } from "$lib/server/services/knowledge";
@@ -13,7 +14,16 @@ const SORT_KEYS = new Set<KnowledgeLibrarySortKey>([
 	"date",
 ]);
 const SORT_DIRECTIONS = new Set<KnowledgeLibrarySortDirection>(["asc", "desc"]);
-const DOCUMENT_TAB_PARAMS = ["q", "sort", "dir", "page", "pageSize"];
+// No "file" bucket (ruling 46, corrected): a produced file groups under
+// "uploaded" with its own format pill.
+const KIND_FILTERS = new Set<KnowledgeDocumentKindFilter>([
+	"document",
+	"canvas",
+	"app",
+	"slides",
+	"uploaded",
+]);
+const DOCUMENT_TAB_PARAMS = ["q", "sort", "dir", "page", "pageSize", "type"];
 
 function parsePositiveInteger(value: string | null): number | null {
 	if (!value) return null;
@@ -31,6 +41,14 @@ function parseSortDirection(
 ): KnowledgeLibrarySortDirection | null {
 	const direction = value as KnowledgeLibrarySortDirection | null;
 	return direction && SORT_DIRECTIONS.has(direction) ? direction : null;
+}
+
+function parseKindFilter(
+	value: string | null,
+): KnowledgeDocumentKindFilter | null {
+	const kind = value as KnowledgeDocumentKindFilter | null;
+	// Unrecognised value silently ignored — same rule as sort/dir.
+	return kind && KIND_FILTERS.has(kind) ? kind : null;
 }
 
 function resolveInitialTab(url: URL): "memory" | "documents" {
@@ -54,6 +72,7 @@ export const load: PageServerLoad = async (event) => {
 		sortDirection: parseSortDirection(event.url.searchParams.get("dir")),
 		page: parsePositiveInteger(event.url.searchParams.get("page")),
 		pageSize: parsePositiveInteger(event.url.searchParams.get("pageSize")),
+		kindFilter: parseKindFilter(event.url.searchParams.get("type")),
 	});
 
 	return {

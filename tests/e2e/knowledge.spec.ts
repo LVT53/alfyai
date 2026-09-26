@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
-
-import { login, waitForHydration } from "./helpers";
+import { eq } from "drizzle-orm";
+import { db } from "../../src/lib/server/db";
+import {
+	artifacts,
+	conversations,
+	users,
+} from "../../src/lib/server/db/schema";
+import { login, TEST_EMAIL, waitForHydration } from "./helpers";
 
 test.describe("Knowledge page", () => {
 	test.beforeEach(async ({ page }) => {
@@ -213,7 +219,12 @@ test.describe("Knowledge page", () => {
 		// The hint row is gone; the limit rides on the Upload button, which
 		// sits at the right end of the toolbar beside Sort.
 		await expect(page.getByTestId("drop-hint")).toHaveCount(0);
-		const upload = page.getByRole("button", { name: "Upload" }).first();
+		// exact: true — the Documents-tab filter chip row (Slice 7) renders
+		// before this toolbar in DOM order once rows exist, and its "Uploaded"
+		// chip's accessible name ("Filter: Uploaded, N items") otherwise also
+		// matches "Upload" as a substring, so a non-exact `.first()` can
+		// resolve to the chip instead of the real upload button.
+		const upload = page.getByRole("button", { name: "Upload", exact: true });
 		await expect(upload).toHaveAttribute("title", /100 MB/);
 
 		// The direction toggle actually re-sorts: the server-managed list
@@ -226,5 +237,76 @@ test.describe("Knowledge page", () => {
 		const filter = page.getByRole("searchbox", { name: "Filter memories" });
 		await filter.fill("nextcloud");
 		await expect(filter).toHaveValue("nextcloud");
+	});
+
+	// Slice 7 (Feature 2, ADR-0066): the artifact family (Document/App/Canvas/
+	// Slides) joins the Documents tab. Neither this spec nor any other seeded
+	// a document/generated-file/artifact row before this slice, so this is
+	// real end-to-end pipeline coverage, not a fixture that only proves the
+	// seed worked — direct db writes, matching the repo's existing E2E
+	// seeding convention (see conversation-title-refresh.spec.ts).
+	test("shows a seeded artifact-family row with its chip, type pill and no download action", async ({
+		page,
+	}) => {
+		// A bare conversation row, seeded directly like several other E2E specs
+		// already do (see conversation-title-refresh.spec.ts) — no messages, no
+		// live chat round trip, just an id for the artifact's ownership scope.
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const conversationId = `e2e-canvas-conv-${Date.now()}`;
+		const artifactId = `e2e-canvas-${Date.now()}`;
+		const artifactName = "Vienna trip board (e2e)";
+		const now = new Date();
+		await db.insert(conversations).values({
+			id: conversationId,
+			userId: user.id,
+			title: "Seeded for the Documents tab e2e case",
+			createdAt: now,
+			updatedAt: now,
+		});
+		await db.insert(artifacts).values({
+			id: artifactId,
+			userId: user.id,
+			conversationId,
+			type: "artifact",
+			retrievalClass: "durable",
+			name: artifactName,
+			metadataJson: JSON.stringify({
+				artifactType: "canvas",
+				title: artifactName,
+			}),
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		try {
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			await page.getByRole("tab", { name: "Documents" }).click();
+
+			const row = page.locator("tbody tr", { hasText: artifactName });
+			await expect(row).toBeVisible();
+			await expect(row.locator(".col-type")).toHaveText("Canvas");
+
+			// The "Canvas 1" chip narrows the list down to this row.
+			const canvasChip = page.getByTestId("documents-filter-chip-canvas");
+			await expect(canvasChip).toBeVisible();
+			await canvasChip.click();
+			await expect(page).toHaveURL(/type=canvas/);
+			await expect(row).toBeVisible();
+
+			// Actions column: Delete only, no Download.
+			await expect(row.getByRole("button", { name: /download/i })).toHaveCount(
+				0,
+			);
+			await expect(row.getByRole("button", { name: /delete/i })).toBeVisible();
+		} finally {
+			await db.delete(artifacts).where(eq(artifacts.id, artifactId));
+			await db
+				.delete(conversations)
+				.where(eq(conversations.id, conversationId));
+		}
 	});
 });

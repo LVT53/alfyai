@@ -308,6 +308,97 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
   {
     "type": "function",
     "function": {
+      "name": "create_artifact",
+      "description": "Keep something beside the chat that the user will return to, open and edit with you. Do not use it for an answer that is already complete in your reply, or when the user asked for a downloadable file — that is produce_file's job, not this one. Use it for a checklist, plan, itinerary, letter, draft, tracker or small interactive tool the user keeps working on. Choose artifactType by what you are keeping: document for rich text read and edited over time — plans, checklists, itineraries, letters, drafts, trackers; app for an interactive tool with inputs and results — a calculator, splitter, quiz. There is no artifactType \"file\": anything the user asked to download is produce_file's job, and it shows up as a File. Make at most one per request — say what you made and offer to open it, and do not also paste the same content into your reply. Example: {\"artifactType\":\"document\",\"title\":\"Vienna weekend plan\",\"body\":\"# Vienna weekend\\n- [ ] Book train\"}. Never invent an id afterward — read_artifact returns the one you edit against. On a refusal, read the reason, fix that one thing, and retry at most once.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "artifactType": {
+            "type": "string",
+            "enum": [
+              "document",
+              "app"
+            ],
+            "description": "document or app"
+          },
+          "title": {
+            "type": "string",
+            "description": "What the user will see in the card and the panel."
+          },
+          "body": {
+            "type": "string",
+            "description": "Documents: Markdown. Apps: the HTML document."
+          }
+        },
+        "required": [
+          "artifactType",
+          "title",
+          "body"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_artifact",
+      "description": "See a Document, App or File item's current content and structure, addressed by the id from create_artifact, a prior call, or the artifact catalogue. Do not use it to guess at an id — read the catalogue first, and never invent one. Pass detail:\"blocks\" to get the addressable ids and hashes edit_artifact needs (read this before every edit_artifact call: baseHash always comes from here, never guessed); omit detail, or pass \"full\", for the whole body. An unknown id returns the conversation's own candidates instead of a body — pick one of those rather than retrying the same id.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string",
+            "enum": [
+              "blocks",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "artifactId"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "edit_artifact",
+      "description": "Change a Document or App item you already made, addressed by the id from create_artifact or read_artifact. Do not use it before reading the item first — call read_artifact and use the baseHash it just gave you; a refusal usually means the user edited that part since you last read it, so tell them rather than retrying the same patch. Documents: send patches, one op per block, each with the baseHash you read. Apps are not edited here — make a new App with the changes instead. A batch applies partially: whatever it can, it does, and each refused op comes back with its own reason, so tell the user what changed and what did not rather than assuming the whole thing landed.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string",
+            "description": "The id from create_artifact, read_artifact or the artifact catalogue."
+          },
+          "patches": {
+            "description": "Documents only: [{op, blockId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
+            "type": "array",
+            "items": {}
+          },
+          "ops": {
+            "type": "array",
+            "items": {}
+          },
+          "summary": {
+            "description": "One short line shown next to Keep/Undo.",
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "artifactId"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "files",
       "description": "List, search, read, and manage the user's connected file storage (Nextcloud or OneDrive). `list` counts a folder's contents (pass its path, or omit it for the root); `search` finds files by name across the whole tree; `read` opens one file by its path. Every result carries the last-modified time, so 'my most recent invoice' or 'the newest file' is answerable. Do not use it for photos or videos (photos), for a file in this conversation (read_generated_file), for a web page (fetch_url), or for remembered preferences (memory_context). Can also `save`, `move`/rename (`destinationPath`), `delete` (to trash, recoverable), `create_folder` and `share_link` (a PUBLIC link anyone with the URL can open, a deliberate exposure — use sparingly): these require the user to have enabled writes, are NOT available for OneDrive (read-only), and NEVER apply immediately — each only proposes a pending write the user must confirm. Returns entries with path, size and modified time; `read` adds the text. With several accounts connected, pass `account` (provider, label, or email).",
       "parameters": {

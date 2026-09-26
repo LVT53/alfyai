@@ -11,6 +11,7 @@ import type {
 	MemoryTimelineReport,
 } from "$lib/memory-profile-types";
 import { fade, scale } from "svelte/transition";
+import { focusTrap } from "$lib/utils/focus-trap";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { t, type I18nKey } from "$lib/i18n";
 import { fetchMemoryProfileItemDetail } from "$lib/client/api/knowledge";
@@ -137,11 +138,7 @@ let expandedCategories = $state<Set<MemoryProfileCategory>>(
 let reviewOverflowOpen = $state(false);
 let editingReviewItem = $state<MemoryProfileReviewItem | null>(null);
 let reviewStatement = $state("");
-let reviewOverflowDialog = $state<HTMLElement | null>(null);
-let reviewEditDialog = $state<HTMLElement | null>(null);
 let reviewEditTextarea = $state<HTMLTextAreaElement | null>(null);
-let reviewOverflowPreviousFocus: HTMLElement | null = null;
-let reviewEditPreviousFocus: HTMLElement | null = null;
 
 type RemoveTarget =
 	| {
@@ -153,8 +150,6 @@ type RemoveTarget =
 			item: MemoryProfileReviewItem;
 	  };
 let removeTarget = $state<RemoveTarget | null>(null);
-let removeDialog = $state<HTMLElement | null>(null);
-let removePreviousFocus: HTMLElement | null = null;
 
 let removeCanDelete = $derived(
 	removeTarget?.kind === "profile_item" && removeTarget.item.canDelete,
@@ -350,115 +345,41 @@ async function submitReviewEdit() {
 	closeReviewEditor();
 }
 
-function getFocusableElements(dialog: HTMLElement | null): HTMLElement[] {
-	return Array.from(
-		dialog?.querySelectorAll<HTMLElement>(
-			'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
-		) ?? [],
-	);
-}
-
-function focusDialog(dialog: HTMLElement | null, initial?: HTMLElement | null) {
-	setTimeout(() => {
-		const focusTarget = initial ?? getFocusableElements(dialog)[0] ?? dialog;
-		focusTarget?.focus();
-	}, 0);
-}
-
-function trapTabNavigation(dialog: HTMLElement | null, event: KeyboardEvent) {
-	const focusable = getFocusableElements(dialog);
-	if (focusable.length === 0) {
+// Tab/Shift+Tab wrapping and the "focus escaped -> pull back to the first
+// element" rule now live in the shared utility (the same algorithm this file
+// hand-rolled three times over). Each of the three dialogs below is its own
+// `{#if}` block, so attaching focusTrap() directly to its container gets the
+// install-on-mount/restore-on-unmount timing for free — which is also why the
+// old priority-order dispatch (remove > reviewEdit > reviewOverflow) in a
+// single window keydown handler is gone: only one of the three containers is
+// ever mounted at a time, so only its own attachment's listener is live.
+const removeFocusTrap = focusTrap({
+	onEscape: (event) => {
 		event.preventDefault();
-		dialog?.focus();
-		return;
-	}
-	const first = focusable[0];
-	const last = focusable[focusable.length - 1];
-	const activeElement = document.activeElement;
-	if (!(activeElement instanceof Node) || !dialog?.contains(activeElement)) {
-		event.preventDefault();
-		first.focus();
-		return;
-	}
-	if (event.shiftKey && activeElement === first) {
-		event.preventDefault();
-		last.focus();
-		return;
-	}
-	if (!event.shiftKey && activeElement === last) {
-		event.preventDefault();
-		first.focus();
-	}
-}
+		closeRemove();
+	},
+	focus: {},
+	restoreFocusOnCleanup: true,
+});
 
-function handleWindowKeydown(event: KeyboardEvent) {
-	if (removeTarget) {
-		if (event.key === "Escape") {
-			event.preventDefault();
-			closeRemove();
-			return;
-		}
-		if (event.key === "Tab") {
-			trapTabNavigation(removeDialog, event);
-		}
-		return;
-	}
+const reviewEditFocusTrap = focusTrap({
+	onEscape: (event) => {
+		event.preventDefault();
+		closeReviewEditor();
+	},
+	focus: { target: () => reviewEditTextarea },
+	restoreFocusOnCleanup: true,
+});
 
-	if (editingReviewItem) {
-		if (event.key === "Escape") {
-			event.preventDefault();
-			closeReviewEditor();
-			return;
-		}
-		if (event.key === "Tab") {
-			trapTabNavigation(reviewEditDialog, event);
-		}
-		return;
-	}
-
-	if (!reviewOverflowOpen) return;
-	if (event.key === "Escape") {
+const reviewOverflowFocusTrap = focusTrap({
+	onEscape: (event) => {
 		event.preventDefault();
 		closeReviewOverflow();
-		return;
-	}
-	if (event.key === "Tab") {
-		trapTabNavigation(reviewOverflowDialog, event);
-	}
-}
-
-$effect(() => {
-	if (!reviewOverflowOpen) return;
-	reviewOverflowPreviousFocus = document.activeElement as HTMLElement | null;
-	focusDialog(reviewOverflowDialog);
-	return () => {
-		reviewOverflowPreviousFocus?.focus?.();
-		reviewOverflowPreviousFocus = null;
-	};
-});
-
-$effect(() => {
-	if (!removeTarget) return;
-	removePreviousFocus = document.activeElement as HTMLElement | null;
-	focusDialog(removeDialog);
-	return () => {
-		removePreviousFocus?.focus?.();
-		removePreviousFocus = null;
-	};
-});
-
-$effect(() => {
-	if (!editingReviewItem) return;
-	reviewEditPreviousFocus = document.activeElement as HTMLElement | null;
-	focusDialog(reviewEditDialog, reviewEditTextarea);
-	return () => {
-		reviewEditPreviousFocus?.focus?.();
-		reviewEditPreviousFocus = null;
-	};
+	},
+	focus: {},
+	restoreFocusOnCleanup: true,
 });
 </script>
-
-<svelte:window onkeydown={handleWindowKeydown} />
 
 {#if memoryLoading && !memoryLoaded}
 	<section class="rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm md:px-5">
@@ -697,7 +618,7 @@ $effect(() => {
 		transition:backdropFade={{ duration: 150 }}
 	>
 		<div
-			bind:this={reviewOverflowDialog}
+			{@attach reviewOverflowFocusTrap}
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="memory-review-overflow-title"
@@ -785,7 +706,7 @@ $effect(() => {
 		transition:backdropFade={{ duration: 150 }}
 	>
 		<div
-			bind:this={removeDialog}
+			{@attach removeFocusTrap}
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="memory-remove-title"
@@ -1276,7 +1197,7 @@ $effect(() => {
 		onclick={closeReviewEditor}
 	>
 		<div
-			bind:this={reviewEditDialog}
+			{@attach reviewEditFocusTrap}
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="memory-review-edit-title"

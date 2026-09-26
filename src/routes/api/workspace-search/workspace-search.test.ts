@@ -58,4 +58,44 @@ describe("GET /api/workspace-search", () => {
 			knowledgeHref: null,
 		});
 	});
+
+	// Slice 7: the route is a 15-line pass-through and stays one — `kind` is
+	// an additive JSON field on a document result, not a new route contract.
+	it("passes a document result's kind field straight through to the JSON body", async () => {
+		mockSearchWorkspace.mockResolvedValue({
+			query: "vienna",
+			mode: "query",
+			conversations: [],
+			documents: [
+				{
+					id: "art-canvas-1",
+					displayArtifactId: "art-canvas-1",
+					promptArtifactId: null,
+					familyArtifactIds: ["art-canvas-1"],
+					name: "Vienna trip board",
+					mimeType: null,
+					sizeBytes: null,
+					conversationId: "conv-1",
+					summary: null,
+					updatedAt: 100,
+					href: "/knowledge?open_artifact=art-canvas-1&open_filename=Vienna+trip+board",
+					sourceHref: null,
+					kind: "canvas",
+					match: { type: "name", snippet: null },
+				},
+			],
+			documentOverflow: false,
+			knowledgeHref: null,
+		});
+
+		const response = await GET(
+			makeEvent("http://localhost/api/workspace-search?q=vienna"),
+		);
+		const data = await response.json();
+
+		expect(data.documents[0]).toMatchObject({
+			displayArtifactId: "art-canvas-1",
+			kind: "canvas",
+		});
+	});
 });

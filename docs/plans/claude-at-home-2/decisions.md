@@ -438,6 +438,144 @@ slices 1–6 were written against it (`ok: true` appears in each), but Slice 0 s
 post-review integration step, with the client parser and tests updated in the same commit. The failure shape
 `{ ok: false, reason }` is unchanged, and a foreign id and a missing id keep byte-identical 404 bodies.
 
+## 50. The artifact tools' dispatch seam, as Slice 5a built it
+
+*Orchestrator, 2026-09-26, confirming Slice 5a's report.* Slices 1–4 code against this; where `slice-5.md`'s
+sketches differ, this wins.
+- **Three registries, one per tool**, each `Partial<Record<CreatableArtifactKind, Handler>>`:
+  `CREATE_ARTIFACT_HANDLERS`, `READ_ARTIFACT_HANDLERS` and `EDIT_ARTIFACT_HANDLERS` in
+  `normal-chat-tools/artifact-tools/{create,read,edit}.ts`. A type slice appends one entry per tool it supports,
+  in those files only (ruling 43 unchanged: nobody else edits `normal-chat-tools/index.ts` or `shared.ts`).
+  File has no entries: `read_artifact` answers a File with a short summary from `getArtifact()`, and
+  `edit_artifact` refuses it.
+- **`ArtifactRefusalReason`** (edit.ts) starts as `"unsupported_kind"`. Each type slice widens it with `|` from
+  its own refusal union, under whatever name that union really has, and never redeclares it.
+- **An edit on an unknown id** answers `success: false` with the conversation's own candidates, as a read does.
+- **`read_artifact` without `detail` reads `"full"`.** Whether a full read reaching the model needs a size bound is
+  an open question for RV-5a's report.
+- **The harness circuit breaker** counts a case's outcome after its one retry: two consecutive cases ending in
+  429/5xx stop the run. The npm scripts call bare `tsx`, like the repo's other scripts.
+- **The harness core was built from the ADR text** (the apps-quality prototype is a plain folder,
+  `.claude/worktrees/agent-afcaa6f617ee84abe/scripts/prototype-artifact-apps/`, not a branch, and 5a could not
+  find it). Slice 2 aligns its App and verification suites with that prototype and reports any change the core
+  needs.
+
+## 51. Bodies are told the conversation, so an incognito conversation's artifacts open for their owner
+
+*Orchestrator, 2026-09-26, from Slice 2's report.* An incognito conversation's artifact is readable only when the
+read names that conversation (`?conversationId=` on the artifact routes, `fetchArtifact(id, conversationId)`), but
+the panel's body contract had no conversation. `ArtifactBodyProps` gains `conversationId?: string | null`;
+`DocumentWorkspace.svelte` gains the matching prop and passes it to the body; the chat page supplies it (the
+knowledge page and the project Files dialog never show an incognito conversation's artifacts and pass nothing).
+Every type body passes it to `fetchArtifact` and to every artifact route it calls. Landed by the small branch
+`feat/artifacts-bodyprops`, merged with Slice 5a.
+
+## 52. An App repair is re-verified before it is accepted, within the create budget
+
+*Orchestrator, 2026-09-26, from Slice 2's report.* `slice-2.md` §verification stands as written: a clear error is
+repaired once and **re-verified**, and a repair is accepted only when the re-verification finds nothing wrong
+**and** the claim list did not gain a claim (compare the lists). The model's own "the repair is safe" answer may
+stay as an extra guard, never as the only one. To stay inside `create_artifact`'s 120 s: the re-verification runs
+without `research_web` (named facts settled in the first pass are matched by claim text), and the verification
+pass carries its own deadline. Running out of time after a clear error gives `uncertain` with the original HTML
+and the finding in Alfy's note: never `repaired`, and never a failed create.
+
+## 53. The artifact tools pass the abort signal, bound what a read returns, and cap creates per turn
+
+*Orchestrator, 2026-09-26, from RV-5a's open questions and one gap the review missed.*
+- **Abort.** Every handler receives `abortSignal: AbortSignal`: the envelope's, which fires on the tool timeout
+  and on the user's stop. A handler checks it before any write and passes it to any model call; after an abort it
+  writes nothing. Without it an App generation outlives its 120 s timeout and can still write an artifact after
+  the model was told the call failed: an orphan, and a duplicate when the model retries.
+- **Read bound.** The read shell bounds what reaches the model, whatever the handler returns: `body` is clipped at
+  the file tools' inline cap (`MAX_INLINE_TEXT_CHARS`, 100 000 characters, exported from `files.ts` and reused),
+  with `truncated: true` and the number of characters left out; `blocks` are included in order until their
+  serialised size reaches the same cap, then `truncated: true` and the number of blocks left out. The tool
+  descriptions do not change.
+- **Per-turn cap.** `MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3`, counted and refused the way
+  `MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN` is: the call past the cap runs no handler and tells the model to stop and
+  say what it made. No idempotency key: a retried turn is a new answer, and the abort rule removes the duplicate a
+  timeout would cause.
+- **Kept as they are:** English-only runtime refusal texts (model-facing; the tool layer's convention), the
+  opencode fallback's all-or-nothing, and the catalogue reusing `listArtifactsForConversation`. A forked
+  conversation does not reach its parent's artifacts through the tools (they are pinned to
+  `artifacts.conversationId`, like the catalogue); revisit only if forks need it.
+
+## 54. The eval harness only talks to an endpoint it is given
+
+*Orchestrator, 2026-09-26, after Slice 1's first document eval.* A live run requires `EVAL_ARTIFACTS_BASE_URL` and
+`EVAL_ARTIFACTS_MODEL`; the key comes only from `EVAL_ARTIFACTS_API_KEY` (the local vLLM needs none). The
+`~/.config/opencode/opencode.json` fallback (`slice-5.md` §Global Constraints, `:710`, `:777`) is **removed**: it
+let a run send prompts to whatever provider that file names, with the owner's key, and it made Slice 1's document
+eval look live while not measuring the production model. The recipe is `working-plan.md` §1.9's tunnel to
+`qwen3-6-27b`, one command, one local port per agent. Recorded replay responses come from `qwen3-6-27b` only;
+Slice 1's document fixtures are re-recorded that way. The key rule is otherwise unchanged: never printed, logged,
+written into `results/` or committed.
+
+## 55. An artifact is made in the turn's language, never a per-message guess
+
+*Orchestrator, 2026-09-26, from Slice 2's live eval: 3 of 10 English prompts produced Hungarian Apps.* Wave 0
+resolves the reply language once per turn (`resolveTurnResponseLanguage`), and the tool context already carries it
+(`CreateNormalChatToolsContext.language`). `CreateArtifactHandler` params gain `language: "en" | "hu"`, threaded
+from that context by the create closure in `normal-chat-tools/index.ts` (an authorized edit, like ruling 53's), and
+every handler uses it. The App path's `detectLanguage(brief)`, the per-message heuristic Wave 0 retired from the
+chat path because it reads English as Hungarian, is removed. The panel's regenerate uses the same resolver (the
+user's instruction, then the conversation's established language, then the UI language). The `app` eval gives
+each fixture its declared language, and scores the output's language: a UI in the wrong language is `broken`.
+
+## 56. The App suite's browser pass is part of the gate
+
+*Orchestrator, 2026-09-26.* `slice-2.md` A9 Step 3 and `slice-5.md`'s suite table require the P1 pipeline's
+headless-Chromium evaluation (1280×800 and 390×844, light and dark; every request but the document aborted;
+`window.alfy.storage` injected before the app's own scripts; one smoke interaction), and the `works` /
+`works-with-glitches` / `broken` verdicts come from it. Scorers stay synchronous and read records; the harness core
+gains an optional async per-suite `evaluate` step that runs after extraction and records its result next to the
+response. `--replay` re-scores the committed responses and evaluation records with no model and no browser; a live
+run does both. The port follows the prototype's `evaluate.ts`, `score.ts` verdict rules and `gallery.ts`.
+
+## 57. No new import cycle: `research_web` gets its own module
+
+*Orchestrator, 2026-09-26.* Slice 2's verifier took `research_web` from `createNormalChatTools`, which closed a new
+cycle (`artifacts/app/create.ts → … → verify.ts → normal-chat-tools/index.ts → artifact-tools/create.ts → …`; Fallow
+4 → 5). The research_web tool's construction moves out of `index.ts` into its own module, used by both `index.ts`
+and the verifier. It is a pure move (an authorized edit to `index.ts`), and the frozen catalogue snapshots prove the
+tool is unchanged. Fallow's circular count returns to 4.
+
+## 58. Apps work inside their own sandbox, and cannot quietly leave it
+
+*Orchestrator, 2026-09-26, from RV-2A; a security-relevant change the owner may overrule.* Measured under the
+product's exact frame and CSP: a form's `submit` never fires, `confirm()` returns false and `eval` throws. 4 of the 10
+eval apps had a dead main action while the eval scored them "works". An App can also still leak what it holds by
+navigating itself or through WebRTC, which no CSP directive stops in Chromium. `slice-2.md` and spec §5 pin
+`sandbox="allow-scripts"`; this amends them (spec §5 is not a §2 decision).
+- **Forms.** The frame's sandbox becomes exactly `allow-scripts allow-forms`, and the CSP's `sandbox` directive
+  matches. `form-action 'none'` stays, so a submit event fires and the submission itself is still refused
+  (measured). The exact-string tests pin the new value. Still never `allow-modals`, `allow-same-origin`,
+  `allow-popups`, `allow-top-navigation` or `'unsafe-eval'`.
+- **Contract and audit.** The generator is told: handle `submit` with `preventDefault()`; never
+  `alert`/`confirm`/`prompt` (draw an inline confirmation); never `eval`/`new Function`; never navigate (`location`
+  assignment, `window.open`, an external `href`, `<meta http-equiv="refresh">`); never `RTCPeerConnection`. The audit
+  gains matching rules. The dialog/eval rules are glitches. The navigation/WebRTC rules are violations: the
+  generation is retried once with the violation named, then refused with a visible, localized message. The audit's
+  tag regexes are bounded (`[^>]{0,4096}`): same verdicts, linear time.
+- **Tripwire.** The parent tears the frame down and shows a localized notice when the frame fires a `load` the parent
+  did not cause (the App navigated itself). It acts after the fact, but it ends a phishing flow.
+- **The eval runs Apps the way users get them.** The browser pass (ruling 56) loads each App in the product's exact
+  frame attribute and CSP header, read from the shared constants. An app whose main action dies there is `broken`.
+- **Runtime hardening from the same review.** The bootstrap accepts replies only from `window.parent`; saves to one
+  key keep their order; the pending queue also caps bytes; the kv read sends `no-store`; a non-string key is refused;
+  the download error is localized; an expired session inside the frame shows a localized notice, not a dead login
+  form; the Code tab loads its highlighter on demand.
+
+## 59. A known-bad fixture is a recorded answer, never a model call
+
+*Orchestrator, 2026-09-26, from RV-2B.* The verification suite's known-bad case asked the model to break its contract
+("reply CONFIRMED"). `qwen3-6-27b` kept the contract instead, so the live known-bad passed and the gate (rightly)
+refused to trust any score in that run. A known-bad fixture exists to prove the scorer can fail, so it must not depend
+on the model misbehaving. Every suite's known-bad cases are hand-written responses, committed, and served from disk in
+live runs too: the harness never sends them to the model. This is owned by Slice 5b's T9 (the all-suite live run),
+unless an earlier slice needs it first.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.

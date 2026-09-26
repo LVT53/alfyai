@@ -114,7 +114,31 @@ function makeDocument(
 		...(Object.hasOwn(overrides, "extractionTier") && {
 			extractionTier: overrides.extractionTier,
 		}),
+		...(Object.hasOwn(overrides, "kind") && {
+			kind: overrides.kind,
+		}),
+		...(Object.hasOwn(overrides, "artifactVersionNumber") && {
+			artifactVersionNumber: overrides.artifactVersionNumber,
+		}),
 	};
+}
+
+/** A Document/App/Canvas/Slides artifact-family row (Feature 2, ADR-0066) —
+ *  `mapArtifactFamilyRow`'s own shape: no family pairing, no normalised
+ *  version, size/mimeType always null. */
+function makeArtifactDocument(
+	overrides: Partial<KnowledgeDocumentItem> & { id: string; name: string },
+): KnowledgeDocumentItem {
+	return makeDocument({
+		type: "artifact",
+		mimeType: null,
+		sizeBytes: null,
+		promptArtifactId: null,
+		normalizedAvailable: false,
+		documentOrigin: undefined,
+		familyArtifactIds: [overrides.displayArtifactId ?? overrides.id],
+		...overrides,
+	});
 }
 
 const mockUploadedDocument = makeDocument({
@@ -209,7 +233,10 @@ describe("DocumentsList", () => {
 			const fileInput = screen.getByTestId("file-input") as HTMLInputElement;
 			const clickSpy = vi.spyOn(fileInput, "click");
 
-			const emptyStateButton = screen.getByRole("button", { name: /upload/i });
+			// Exact match: the "Uploaded" filter chip's accessible name also
+			// contains "upload" and would otherwise ambiguously match a loose
+			// /upload/i query too.
+			const emptyStateButton = screen.getByRole("button", { name: "Upload" });
 			await fireEvent.click(emptyStateButton);
 
 			expect(clickSpy).toHaveBeenCalledTimes(1);
@@ -1397,6 +1424,266 @@ describe("DocumentsList", () => {
 				".documents-table tbody .col-version",
 			);
 			expect(version?.textContent?.trim()).toBe("\u2014");
+		});
+	});
+
+	// Slice 7 (Feature 2, ADR-0066): a Document/App/Canvas/Slides row
+	// (`type: "artifact"`, `KnowledgeDocumentItem.kind`) joins the same table.
+	describe("artifact-family rows (kind-bearing)", () => {
+		it("shows the kind pill and its own version counter, never the extraction-family one", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-canvas-1",
+							displayArtifactId: "art-canvas-1",
+							name: "Vienna trip board",
+							kind: "canvas",
+							artifactVersionNumber: 7,
+						}),
+					],
+				},
+			});
+
+			const typeCell = document.querySelector(
+				".documents-table tbody .col-type",
+			);
+			expect(typeCell?.textContent?.trim()).toBe("Canvas");
+			const versionCell = document.querySelector(
+				".documents-table tbody .col-version",
+			);
+			expect(versionCell?.textContent?.trim()).toBe("v7");
+		});
+
+		it("renders an em dash for Version when the artifact has no version written yet", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-doc-1",
+							displayArtifactId: "art-doc-1",
+							name: "Saturday plan",
+							kind: "document",
+							artifactVersionNumber: null,
+						}),
+					],
+				},
+			});
+
+			const versionCell = document.querySelector(
+				".documents-table tbody .col-version",
+			);
+			expect(versionCell?.textContent?.trim()).toBe("\u2014");
+		});
+
+		it("shows the same kind pill and version on the mobile meta line", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-app-1",
+							displayArtifactId: "art-app-1",
+							name: "Trip cost splitter",
+							kind: "app",
+							artifactVersionNumber: 3,
+						}),
+					],
+				},
+			});
+
+			const meta = document.querySelector(".mobile-document-meta");
+			expect(meta?.querySelector(".type-badge")?.textContent?.trim()).toBe(
+				"App",
+			);
+			expect(meta?.querySelector(".version-badge")?.textContent?.trim()).toBe(
+				"v3",
+			);
+		});
+
+		it("offers only Delete in the Actions column \u2014 no What AI sees, no Download", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-slides-1",
+							displayArtifactId: "art-slides-1",
+							name: "Trip recap",
+							kind: "slides",
+							artifactVersionNumber: 2,
+						}),
+					],
+					onDownload: vi.fn(),
+				},
+			});
+
+			const actions = document.querySelector(
+				".documents-table tbody .col-actions",
+			);
+			expect(
+				actions?.querySelector('[data-testid="what-ai-sees-button"]'),
+			).toBeNull();
+			expect(
+				actions?.querySelector('[data-testid="what-ai-sees-disabled"]'),
+			).toBeNull();
+			expect(actions?.querySelector('[aria-label*="Download" i]')).toBeNull();
+			expect(
+				screen.getByRole("button", { name: /delete/i }),
+			).toBeInTheDocument();
+		});
+
+		it("still renders every existing row's Type/Version/Actions unchanged (byte-identical guard)", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument, mockGeneratedDocument],
+					onDownload: vi.fn(),
+				},
+			});
+
+			const actionsCells = document.querySelectorAll(
+				".documents-table tbody .col-actions",
+			);
+			for (const cell of actionsCells) {
+				expect(cell.querySelector('[aria-label*="Download" i]')).not.toBeNull();
+			}
+		});
+	});
+
+	describe("the type filter chip row", () => {
+		it("renders one chip per DOCUMENT_TYPE_FILTER_ORDER entry, with live counts", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					countsByKind: {
+						document: 6,
+						app: 2,
+						canvas: 3,
+						slides: 1,
+						uploaded: 12,
+					},
+				},
+			});
+
+			expect(
+				screen.getByTestId("documents-filter-chip-all").textContent?.trim(),
+			).toBe("All 24");
+			expect(
+				screen
+					.getByTestId("documents-filter-chip-document")
+					.textContent?.trim(),
+			).toBe("Documents 6");
+			expect(
+				screen.getByTestId("documents-filter-chip-canvas").textContent?.trim(),
+			).toBe("Canvas 3");
+			expect(
+				screen.getByTestId("documents-filter-chip-app").textContent?.trim(),
+			).toBe("Apps 2");
+			expect(
+				screen.getByTestId("documents-filter-chip-slides").textContent?.trim(),
+			).toBe("Slides 1");
+			expect(
+				screen
+					.getByTestId("documents-filter-chip-uploaded")
+					.textContent?.trim(),
+			).toBe("Uploaded 12");
+		});
+
+		it("renders a chip at 0 rather than hiding it", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [],
+					countsByKind: {
+						document: 0,
+						app: 0,
+						canvas: 0,
+						slides: 0,
+						uploaded: 0,
+					},
+				},
+			});
+
+			expect(
+				screen.getByTestId("documents-filter-chip-app").textContent?.trim(),
+			).toBe("Apps 0");
+		});
+
+		it("fires onTypeFilterChange and reflects the active chip via aria-pressed", async () => {
+			const onTypeFilterChange = vi.fn();
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					typeFilter: "all",
+					countsByKind: {
+						document: 1,
+						app: 0,
+						canvas: 0,
+						slides: 0,
+						uploaded: 1,
+					},
+					onTypeFilterChange,
+				},
+			});
+
+			const canvasChip = screen.getByTestId("documents-filter-chip-canvas");
+			expect(canvasChip.getAttribute("aria-pressed")).toBe("false");
+			await fireEvent.click(canvasChip);
+			expect(onTypeFilterChange).toHaveBeenCalledWith("canvas");
+
+			const allChip = screen.getByTestId("documents-filter-chip-all");
+			expect(allChip.getAttribute("aria-pressed")).toBe("true");
+		});
+
+		it("still shows the chip row (all at 0) in the big empty state", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [],
+					onUpload: vi.fn(),
+				},
+			});
+
+			expect(screen.getByText(/no documents/i)).toBeInTheDocument();
+			expect(
+				screen.getByTestId("documents-filter-chip-all"),
+			).toBeInTheDocument();
+		});
+	});
+
+	describe("the summary line", () => {
+		it("lists only non-zero buckets, in the mockup's order: uploaded, document, canvas, app, slides", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					countsByKind: {
+						document: 6,
+						app: 2,
+						canvas: 3,
+						slides: 1,
+						uploaded: 12,
+					},
+				},
+			});
+
+			expect(screen.getByTestId("documents-summary-line").textContent).toBe(
+				"12 uploaded \u00b7 6 documents \u00b7 3 canvas \u00b7 2 apps \u00b7 1 slides",
+			);
+		});
+
+		it("omits a zero bucket from the phrase entirely", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					countsByKind: {
+						document: 0,
+						app: 0,
+						canvas: 1,
+						slides: 0,
+						uploaded: 5,
+					},
+				},
+			});
+
+			expect(screen.getByTestId("documents-summary-line").textContent).toBe(
+				"5 uploaded \u00b7 1 canvas",
+			);
 		});
 	});
 

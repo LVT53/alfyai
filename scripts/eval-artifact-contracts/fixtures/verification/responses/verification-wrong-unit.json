@@ -1,0 +1,9 @@
+{
+	"response": "```json\n{\n  \"claims\": [\n    \"the translation of 'cat'\",\n    \"the translation of 'dog'\",\n    \"the translation of 'frog'\"\n  ],\n  \"findings\": [\n    {\n      \"claim\": \"the translation of 'frog'\",\n      \"problem\": \"A 'frog' szó fordítása 'békák' (többes szám), míg a többi kártya egyes számú ('macska', 'kutya'). A 'frog' egyes számban 'béka'.\",\n      \"class\": \"mislabelled_aggregate\",\n      \"location\": \"li:nth-child(3)\",\n      \"settled\": true\n    }\n  ],\n  \"repairedHtml\": \"<!doctype html>\\n<html lang=\\\"hu\\\">\\n<head><meta charset=\\\"utf-8\\\"><title>Angol-magyar kártyák</title></head>\\n<body>\\n<h1>Angol-magyar szókártyák: állatok</h1>\\n<ul>\\n<li>cat — macska</li>\\n<li>dog — kutya</li>\\n<li>frog — béka</li>\\n</ul>\\n</body>\\n</html>\",\n  \"repairSafe\": true\n}\n```",
+	"durationMs": 1778,
+	"usage": {
+		"promptTokens": 607,
+		"completionTokens": 278,
+		"totalTokens": 885
+	}
+}

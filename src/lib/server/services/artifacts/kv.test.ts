@@ -20,6 +20,7 @@ const { createArtifact, deleteKv, getKv, listKv, setKv } = await import(
 const {
 	ARTIFACT_KV_KEY_MAX_CHARS,
 	ARTIFACT_KV_MAX_KEYS,
+	ARTIFACT_KV_TOTAL_MAX_BYTES,
 	ARTIFACT_KV_VALUE_MAX_BYTES,
 } = await import("./limits");
 
@@ -204,6 +205,129 @@ describe("the key-value accessors", () => {
 		).resolves.toBe(true);
 		expect(kvRowCount()).toBe(ARTIFACT_KV_MAX_KEYS);
 		await expect(getKv({ ...base, key: "key-0" })).resolves.toBe('"updated"');
+	});
+
+	// Ruling 48: a per-value cap and a key-count cap alone still allow ~50 MiB
+	// per App (256 KiB × 200 keys); this is the sum bound on top of both,
+	// enforced inside setKv's own transaction with no write on refusal.
+	// ARTIFACT_KV_TOTAL_MAX_BYTES (512 KiB) is exactly twice
+	// ARTIFACT_KV_VALUE_MAX_BYTES (256 KiB), so every fixture below composes
+	// the total from several values that individually stay under the
+	// per-value cap — never one value alone, which would refuse for the
+	// wrong reason first.
+	function jsonStringOfByteLength(totalBytes: number): string {
+		// A JSON string literal "…" costs 2 bytes of quotes; the rest is ASCII
+		// (1 byte each), so this string's own JSON.stringify'd byte length is
+		// exactly `totalBytes` — no off-by-a-few surprises near a boundary.
+		return `"${"x".repeat(totalBytes - 2)}"`;
+	}
+	const AT_PER_VALUE_CAP = jsonStringOfByteLength(ARTIFACT_KV_VALUE_MAX_BYTES);
+
+	it("pins the assumption every fixture below relies on: the total cap is exactly twice the per-value cap", () => {
+		expect(ARTIFACT_KV_TOTAL_MAX_BYTES).toBe(ARTIFACT_KV_VALUE_MAX_BYTES * 2);
+	});
+
+	it("two values exactly at the per-value cap exactly fill the total cap, and are both accepted", async () => {
+		const app = await createApp();
+		const base = { userId: OWNER, artifactId: app.id };
+
+		await expect(
+			setKv({ ...base, key: "a", valueJson: AT_PER_VALUE_CAP }),
+		).resolves.toBe(true);
+		await expect(
+			setKv({ ...base, key: "b", valueJson: AT_PER_VALUE_CAP }),
+		).resolves.toBe(true);
+		expect(kvRowCount()).toBe(2);
+	});
+
+	it("refuses a NEW key that would push the artifact's total value bytes over the cap, with no write", async () => {
+		const app = await createApp();
+		const base = { userId: OWNER, artifactId: app.id };
+		await setKv({ ...base, key: "a", valueJson: AT_PER_VALUE_CAP });
+		await setKv({ ...base, key: "b", valueJson: AT_PER_VALUE_CAP });
+		// The two keys above already sum to EXACTLY ARTIFACT_KV_TOTAL_MAX_BYTES.
+
+		await expect(
+			setKv({ ...base, key: "c", valueJson: jsonStringOfByteLength(3) }),
+		).resolves.toBe(false);
+		expect(kvRowCount()).toBe(2);
+		await expect(getKv({ ...base, key: "c" })).resolves.toBeNull();
+	});
+
+	it("refuses growing an EXISTING key past the total cap, but allows a same-size or smaller update at the cap", async () => {
+		const app = await createApp();
+		const base = { userId: OWNER, artifactId: app.id };
+		// Two other keys hold most of the budget, leaving only a little room —
+		// three keys are needed because two keys at the per-value cap already
+		// exactly consume the total cap, leaving nothing to grow into.
+		await setKv({ ...base, key: "other1", valueJson: AT_PER_VALUE_CAP });
+		await setKv({
+			...base,
+			key: "other2",
+			valueJson: jsonStringOfByteLength(100),
+		});
+		const small = jsonStringOfByteLength(100);
+		await expect(
+			setKv({ ...base, key: "target", valueJson: small }),
+		).resolves.toBe(true);
+
+		// Growing "target" to the per-value cap pushes the SUM past the total
+		// cap (262144 + 100 + 262144 > 524288).
+		await expect(
+			setKv({ ...base, key: "target", valueJson: AT_PER_VALUE_CAP }),
+		).resolves.toBe(false);
+		await expect(getKv({ ...base, key: "target" })).resolves.toBe(small);
+
+		// A same-size update never changes the sum, so it is never refused by
+		// this cap.
+		await expect(
+			setKv({ ...base, key: "target", valueJson: jsonStringOfByteLength(100) }),
+		).resolves.toBe(true);
+
+		const smaller = jsonStringOfByteLength(10);
+		await expect(
+			setKv({ ...base, key: "target", valueJson: smaller }),
+		).resolves.toBe(true);
+		await expect(getKv({ ...base, key: "target" })).resolves.toBe(smaller);
+	});
+
+	it("the total cap is isolated per artifact: a second App's own near-cap values do not refuse the first App's write", async () => {
+		const appA = await createApp();
+		const appB = await createApp();
+
+		await expect(
+			setKv({
+				userId: OWNER,
+				artifactId: appA.id,
+				key: "a",
+				valueJson: AT_PER_VALUE_CAP,
+			}),
+		).resolves.toBe(true);
+		await expect(
+			setKv({
+				userId: OWNER,
+				artifactId: appA.id,
+				key: "b",
+				valueJson: AT_PER_VALUE_CAP,
+			}),
+		).resolves.toBe(true);
+		// appB starts from zero: appA's own full total cap does not touch it.
+		await expect(
+			setKv({
+				userId: OWNER,
+				artifactId: appB.id,
+				key: "a",
+				valueJson: AT_PER_VALUE_CAP,
+			}),
+		).resolves.toBe(true);
+		await expect(
+			setKv({
+				userId: OWNER,
+				artifactId: appB.id,
+				key: "b",
+				valueJson: AT_PER_VALUE_CAP,
+			}),
+		).resolves.toBe(true);
 	});
 });
 

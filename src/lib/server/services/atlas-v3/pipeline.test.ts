@@ -378,7 +378,10 @@ describe("runAtlasV3Pipeline", () => {
 		// The ratio was computed by run_python, not by the model.
 		expect(result.diagnostics.derivedFigures).toBe(1);
 		const computed = (document()?.blocks ?? []).find(
-			(block) => block.type === "list" && block.items[0]?.includes("computed"),
+			(block) =>
+				block.type === "list" &&
+				typeof block.items[0] === "string" &&
+				block.items[0].includes("computed"),
 		);
 		expect(computed).toBeDefined();
 		if (computed?.type !== "list")
@@ -970,7 +973,13 @@ function limitationItems(document: GeneratedDocumentSource | null): string[] {
 			block.text === "What this report could not establish",
 	);
 	const list = blocks[index + 1];
-	return list?.type === "list" ? list.items : [];
+	if (list?.type !== "list") return [];
+	// Atlas never emits a checklist item (ruling 36's object shape is a
+	// Document-export-only concept), but the shared type is a union — plain
+	// strings pass through, and the fixture only ever produces those.
+	return list.items.map((item) =>
+		typeof item === "string" ? item : item.text,
+	);
 }
 
 describe("runAtlasV3Pipeline, local sources", () => {
