@@ -1072,6 +1072,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			bind:this={mobileShellElement}
 			class="workspace-shell workspace-shell-mobile"
 			aria-label={$t('documentWorkspace.documentWorkspace')}
+			role="complementary"
 		>
 			<div class="workspace-header">
 				<div class="workspace-heading">
@@ -1214,7 +1215,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				</div>
 			{/if}
 
-			<div class="workspace-body">
+			<div class="workspace-body" data-testid="page-scroll-container">
 				{#if activeArtifactBodyLoader && shouldRenderMobilePreview}
 					{#await ensureArtifactBodyModule(activeArtifactKind, activeArtifactBodyLoader) then { default: ArtifactBody }}
 						<ArtifactBody

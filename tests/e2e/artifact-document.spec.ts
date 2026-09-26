@@ -145,7 +145,14 @@ async function openDocumentFromPanel(page: Page) {
 	await list.getByRole("button", { name: "Open" }).click({ timeout: 30_000 });
 	const shell = page.getByRole("complementary", { name: "Document workspace" });
 	await expect(shell).toBeVisible({ timeout: 30_000 });
-	await expect(page.getByTestId("page-scroll-container")).toBeVisible();
+	// Scoped to `shell`, not `page`: the mobile and desktop shells both carry
+	// this testid (each is a real DOM node at every viewport — CSS, not a
+	// conditional, decides which one is visible), so an unscoped page-wide
+	// query is ambiguous. `getByRole` above already resolved to the one
+	// shell the accessibility tree exposes at the current viewport (the
+	// other is `display: none`, so browsers drop it from that tree), and
+	// scoping to it here keeps this check correct at any width.
+	await expect(shell.getByTestId("page-scroll-container")).toBeVisible();
 	return shell;
 }
 
@@ -346,20 +353,29 @@ test.describe("the Document panel", () => {
 	});
 });
 
-// SECOND FINDING (independent of the readMarkdown recursion above): opening
-// a Document from the MOBILE panel list (`artifact-panel-list-mobile`) does
-// not reach a visible `role="complementary" name="Document workspace"`
-// within 30s, even though the identical click sequence
-// (`openDocumentFromPanel`) works reliably at desktop width and
-// `artifacts-panel.spec.ts`'s own 390×844 test confirms the mobile LIST
-// itself opens correctly — that spec never proceeds past the list to open a
-// document, so this looks like the first test to exercise the mobile
-// list→document transition specifically. Not chased further here: the
-// remaining budget went to write these tests correctly and to the two
-// findings already reported, rather than to root-causing a third, separate
-// issue in `DocumentWorkspace.svelte`'s mobile shell (not owned by T8/T9/T11
-// either). Layout assertions below are written the way they should run once
-// that transition is fixed.
+// FIXED, formerly SECOND FINDING (independent of the readMarkdown recursion
+// above): opening a Document from the MOBILE panel list
+// (`artifact-panel-list-mobile`) did not reach a visible
+// `role="complementary" name="Document workspace"` within 30s, even though
+// the identical click sequence (`openDocumentFromPanel`) worked reliably at
+// desktop width and `artifacts-panel.spec.ts`'s own 390×844 test confirmed
+// the mobile LIST itself opened correctly. Root cause, found by running this
+// suite's own helper against the real DOM: `DocumentWorkspace.svelte` renders
+// TWO real shells for the "a document is open" state — a mobile `<section>`
+// and a desktop `<aside>` — always both in the DOM at once, with CSS
+// (`display: none` outside each one's own breakpoint) deciding which is
+// actually shown. The desktop `<aside>` gets `role="complementary"` for free
+// from its tag; the mobile `<section>` had only an `aria-label`, which gives
+// it the "region" role, never "complementary" — so `getByRole("complementary",
+// ...)` could never match it, no matter how correctly the state transition
+// itself worked. Separately, the desktop shell's inner
+// `data-testid="page-scroll-container"` div had no mobile counterpart at all.
+// Fixed by adding `role="complementary"` and the matching testid to the
+// mobile shell's own content div in `DocumentWorkspace.svelte`, and by
+// scoping `openDocumentFromPanel`'s (and `artifacts-panel.spec.ts`'s
+// equivalent) `page-scroll-container` check to the resolved `shell` locator
+// rather than the whole page — the testid now legitimately exists on both
+// shells at once, so an unscoped, page-wide query is ambiguous by design.
 test.describe("the Document mobile toolbar", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
@@ -368,9 +384,21 @@ test.describe("the Document mobile toolbar", () => {
 	test("at 390x844 the toolbar stays within its budget and the editor keeps most of the viewport", async ({
 		page,
 	}) => {
+		// A separate, narrower, still-open finding from item 2's fix (the
+		// mobile list→document transition, described above the describe
+		// block): now that the editor is actually reachable at 390×844, the
+		// toolbar measures 53px, 5px over its 48px budget — MobileToolbar.
+		// svelte's own header comment computes 45px (2×4px padding + 1px
+		// border + 36px button), so the live DOM disagrees with that
+		// component's own arithmetic by exactly the same 5px on every
+		// measurement. Not chased further here: this is T11's own CSS budget
+		// (Review Focus 7), unrelated to the ARIA-role/testid gap item 2 was
+		// scoped to fix. The other three tests in this describe block do not
+		// depend on the exact 48px figure and pass now that the transition
+		// works.
 		test.fail(
 			true,
-			"mobile list→document transition — see describe-block comment",
+			"MobileToolbar.svelte measures 53px against its own computed 45px/48px budget — see this test's own comment",
 		);
 		await page.setViewportSize({ width: 390, height: 844 });
 		const conversationId = await createConversation(page, "Plan a trip");
@@ -398,10 +426,6 @@ test.describe("the Document mobile toolbar", () => {
 	test("six primary actions are on the row and the rest open in a More sheet", async ({
 		page,
 	}) => {
-		test.fail(
-			true,
-			"mobile list→document transition — see describe-block comment",
-		);
 		await page.setViewportSize({ width: 390, height: 844 });
 		const conversationId = await createConversation(page, "Plan a trip");
 		await seedDocument({
@@ -425,10 +449,6 @@ test.describe("the Document mobile toolbar", () => {
 	test("the More sheet opens without scrolling the document, and Escape returns focus to its trigger", async ({
 		page,
 	}) => {
-		test.fail(
-			true,
-			"mobile list→document transition — see describe-block comment",
-		);
 		await page.setViewportSize({ width: 390, height: 844 });
 		const conversationId = await createConversation(page, "Plan a trip");
 		await seedDocument({
@@ -461,10 +481,6 @@ test.describe("the Document mobile toolbar", () => {
 	test("the toolbar is not pushed off-screen at 390x420, the viewport with a phone keyboard open", async ({
 		page,
 	}) => {
-		test.fail(
-			true,
-			"mobile list→document transition — see describe-block comment",
-		);
 		await page.setViewportSize({ width: 390, height: 420 });
 		const conversationId = await createConversation(page, "Plan a trip");
 		await seedDocument({
