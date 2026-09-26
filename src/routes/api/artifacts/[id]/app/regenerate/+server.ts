@@ -1,19 +1,27 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import { regenerateApp } from "$lib/server/services/artifacts/app/regenerate";
-import { detectLanguage } from "$lib/server/services/language";
+import { resolveTurnResponseLanguage } from "$lib/server/services/chat-turn";
+import { resolveResponseLanguage } from "$lib/server/services/language";
 import type { RequestHandler } from "./$types";
 
 /**
  * POST /api/artifacts/[id]/app/regenerate — the panel's own App edit path
  * (slice-2.md §The App card). The ONLY App route that writes; it runs the
  * same generator+verifier pipeline the `create_artifact` tool's App branch
- * will use once Slice 5a lands (`regenerateApp`, one implementation, two
- * callers).
+ * uses (`regenerateApp`, one implementation, two callers).
  *
- * There is no chat turn here to inherit a detected response language from,
- * so the request's own prompt text is what `detectLanguage` reads — the same
- * function `chat-turn/` uses for a turn's own language decision.
+ * There is no chat turn here to inherit a resolved response language from
+ * (ruling 55), so this route resolves its own through the SAME policy
+ * `resolveTurnResponseLanguage`/`resolveResponseLanguage` apply to a chat
+ * turn — the request's own prompt, then the conversation's established
+ * language, then the account's UI language — rather than the retired
+ * per-message `detectLanguage(prompt)` guess, which read an English prompt
+ * full of Hungarian-looking letter pairs as Hungarian. A project-linked App
+ * (Task A7's own note: `conversationId` can be null here, unlike the tool's
+ * call) has no conversation history to fall back through, so it resolves the
+ * prompt and the UI language only — still the same policy, just with an
+ * empty history.
  */
 export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
@@ -41,14 +49,27 @@ export const POST: RequestHandler = async (event) => {
 	const expectVersion =
 		typeof expectVersionRaw === "number" ? expectVersionRaw : undefined;
 	const conversationId = (body as { conversationId?: unknown }).conversationId;
+	const scopedConversationId =
+		typeof conversationId === "string" ? conversationId : null;
+
+	const language = scopedConversationId
+		? await resolveTurnResponseLanguage({
+				message: prompt,
+				conversationId: scopedConversationId,
+				user,
+			})
+		: resolveResponseLanguage({
+				latestMessage: prompt,
+				uiLanguage: user.uiLanguage,
+			});
 
 	const result = await regenerateApp({
 		userId: user.id,
 		artifactId: event.params.id,
 		prompt,
-		language: detectLanguage(prompt),
+		language,
 		expectVersion,
-		conversationId: typeof conversationId === "string" ? conversationId : null,
+		conversationId: scopedConversationId,
 	});
 
 	if (!result.ok) {

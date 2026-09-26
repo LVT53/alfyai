@@ -13,7 +13,6 @@
 // there is no such HTML to discard — `generateAndVerifyApp` is the only
 // thing that ever produces it.
 import type { ModelId } from "$lib/model-types";
-import { detectLanguage } from "$lib/server/services/language";
 import { createArtifact } from "../record";
 import type { AppGenerationFailureReason } from "./generate";
 import {
@@ -30,6 +29,14 @@ export interface CreateAppInput {
 	prompt: string;
 	/** The model's own title (create_artifact's `title` field is required) — wins over anything `generateApp` would derive from the html. */
 	title: string;
+	/**
+	 * The turn's own resolved reply language (ruling 55) — `CreateArtifactHandlerParams.language`,
+	 * carried here unchanged. NOT re-detected from `prompt`: `detectLanguage`
+	 * read an English brief full of Hungarian-looking letter pairs as
+	 * Hungarian, which is exactly the per-message heuristic Wave 0 retired
+	 * from the chat path for the same reason.
+	 */
+	language: "en" | "hu";
 	modelId?: ModelId;
 	abortSignal?: AbortSignal;
 }
@@ -65,7 +72,7 @@ export async function createAppFromBrief(
 		userId: input.userId,
 		conversationId: input.conversationId,
 		prompt: input.prompt,
-		language: detectLanguage(input.prompt),
+		language: input.language,
 		title: input.title,
 		modelId: input.modelId,
 		abortSignal: input.abortSignal,

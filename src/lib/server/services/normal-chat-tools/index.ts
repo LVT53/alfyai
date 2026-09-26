@@ -1876,6 +1876,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								artifactType: safeInput.artifactType,
 								title: safeInput.title,
 								body: safeInput.body,
+								// The turn's own resolved language (ruling 55), never
+								// re-detected per kind — see CreateArtifactHandlerParams.
+								language: ctx.language ?? "en",
 								abortSignal,
 							});
 							return {

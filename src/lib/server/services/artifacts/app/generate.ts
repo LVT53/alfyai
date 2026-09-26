@@ -123,7 +123,7 @@ function isTopKRejection(caught: unknown): boolean {
  * the one user message carries the request plus a language instruction. No
  * chat history, no other artifact, no memory, no user display name.
  */
-function buildAppRequestMessage(params: {
+export function buildAppRequestMessage(params: {
 	prompt: string;
 	language: "en" | "hu";
 }): string {

@@ -13,11 +13,6 @@ vi.mock("../record", () => ({
 	createArtifact: (params: unknown) => createArtifact(params),
 }));
 
-const detectLanguage = vi.fn((_text: string): "en" | "hu" => "en");
-vi.mock("$lib/server/services/language", () => ({
-	detectLanguage: (text: string) => detectLanguage(text),
-}));
-
 const { createAppFromBrief } = await import("./create");
 
 function baseInput(
@@ -28,6 +23,7 @@ function baseInput(
 		conversationId: "conv-1",
 		title: "Trip cost splitter",
 		prompt: "Split costs between three friends on a trip.",
+		language: "en" as const,
 		...overrides,
 	};
 }
@@ -48,7 +44,6 @@ function verifiedOutcome(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	detectLanguage.mockReturnValue("en");
 	maybeRecordAppVerificationComment.mockResolvedValue(undefined);
 });
 
@@ -93,17 +88,41 @@ describe("createAppFromBrief — the happy path", () => {
 		);
 	});
 
-	it("detects the language from the model's brief, not a hardcoded default", async () => {
-		detectLanguage.mockReturnValue("hu");
+	it("uses the turn's own resolved language, never re-detecting it from the brief (ruling 55)", async () => {
 		generateAndVerifyApp.mockResolvedValue(verifiedOutcome());
 		createArtifact.mockResolvedValue({
 			ok: true,
 			artifact: { id: "artifact-1", title: "x" },
 		});
 
-		await createAppFromBrief(baseInput({ prompt: "Készíts egy kvízt" }));
+		// "Anna" and "Peti" are exactly the kind of Hungarian-looking letter
+		// pairs/names that the old per-message `detectLanguage(prompt)` guess
+		// misread as Hungarian (ruling 55's whole reason for removing it): a
+		// turn resolved as English must still generate an English app.
+		await createAppFromBrief(
+			baseInput({
+				prompt:
+					"Split the trip costs between Anna and Peti, who paid for what.",
+				language: "en",
+			}),
+		);
 
-		expect(detectLanguage).toHaveBeenCalledWith("Készíts egy kvízt");
+		expect(generateAndVerifyApp).toHaveBeenCalledWith(
+			expect.objectContaining({ language: "en" }),
+		);
+	});
+
+	it("passes a Hungarian-resolved turn through as Hungarian", async () => {
+		generateAndVerifyApp.mockResolvedValue(verifiedOutcome());
+		createArtifact.mockResolvedValue({
+			ok: true,
+			artifact: { id: "artifact-1", title: "x" },
+		});
+
+		await createAppFromBrief(
+			baseInput({ prompt: "Készíts egy kvízt", language: "hu" }),
+		);
+
 		expect(generateAndVerifyApp).toHaveBeenCalledWith(
 			expect.objectContaining({ language: "hu" }),
 		);

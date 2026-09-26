@@ -4811,14 +4811,63 @@ describe("createNormalChatTools", () => {
 // throwaway per-suite database (src/vitest-setup.ts) with nothing seeded —
 // exactly the "an id this conversation does not have" case.
 describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () => {
-	function artifactTools() {
+	function artifactTools(overrides: { language?: "en" | "hu" } = {}) {
 		const { tools, getToolCalls } = createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
+			...overrides,
 		});
 		return { tools, getToolCalls };
 	}
+
+	// Ruling 55: the create closure threads ctx.language to the per-kind
+	// handler instead of each kind re-detecting it from the model's body.
+	// "document" stands in for any kind here — the wiring is in the shared
+	// create_artifact closure, not in a specific kind's own handler.
+	describe("create_artifact threads ctx.language to the handler (ruling 55)", () => {
+		afterEach(() => {
+			delete CREATE_ARTIFACT_HANDLERS.document;
+		});
+
+		it("passes the turn's own resolved language through unchanged", async () => {
+			let receivedLanguage: string | undefined;
+			CREATE_ARTIFACT_HANDLERS.document = async (params) => {
+				receivedLanguage = params.language;
+				return {
+					ok: true,
+					value: { artifactId: "artifact-1", title: params.title },
+				};
+			};
+			const { tools } = artifactTools({ language: "hu" });
+
+			await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "Terv", body: "tartalom" },
+				{ toolCallId: "call-1", messages: [] },
+			);
+
+			expect(receivedLanguage).toBe("hu");
+		});
+
+		it('defaults to "en" when the turn context carries no language', async () => {
+			let receivedLanguage: string | undefined;
+			CREATE_ARTIFACT_HANDLERS.document = async (params) => {
+				receivedLanguage = params.language;
+				return {
+					ok: true,
+					value: { artifactId: "artifact-1", title: params.title },
+				};
+			};
+			const { tools } = artifactTools();
+
+			await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "Plan", body: "content" },
+				{ toolCallId: "call-1", messages: [] },
+			);
+
+			expect(receivedLanguage).toBe("en");
+		});
+	});
 
 	afterEach(() => {
 		delete CREATE_ARTIFACT_HANDLERS.document;

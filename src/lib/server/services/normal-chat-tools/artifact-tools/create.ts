@@ -82,6 +82,15 @@ export interface CreateArtifactHandlerParams {
 	title: string;
 	body: string;
 	/**
+	 * The turn's own reply language (decisions.md ruling 55), resolved ONCE by
+	 * `resolveTurnResponseLanguage` and carried on `CreateNormalChatToolsContext.language`
+	 * — never re-detected per kind. The App handler uses this instead of running
+	 * `detectLanguage` on its own brief, which read an English brief full of
+	 * Hungarian-looking letter pairs as Hungarian. A kind with no language-
+	 * sensitive output (Document, Canvas, Slides today) may ignore this field.
+	 */
+	language: "en" | "hu";
+	/**
 	 * Fires on the tool's own timeout (120s, TOOL_TIMEOUTS_MS.create_artifact)
 	 * or the turn's own stop/disconnect — whichever comes first, the same
 	 * combined signal executeToolWithEnvelope already builds for every other
@@ -158,6 +167,7 @@ CREATE_ARTIFACT_HANDLERS.app = async (params) => {
 		conversationId: params.conversationId,
 		prompt: params.body,
 		title: params.title,
+		language: params.language,
 		abortSignal: params.abortSignal,
 	});
 	if (!result.ok) {
@@ -200,6 +210,7 @@ export async function runCreateArtifactTool(
 		turnId: params.turnId,
 		title: params.title,
 		body: params.body,
+		language: params.language,
 		abortSignal: params.abortSignal,
 	});
 

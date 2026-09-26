@@ -4,16 +4,37 @@ vi.mock("$lib/server/services/artifacts/app/regenerate", () => ({
 	regenerateApp: vi.fn(),
 }));
 
+// resolveTurnResponseLanguage's only DB-touching dependency (messages.ts's
+// listRecentUserMessageTexts) — mocked at this seam, like send.test.ts does,
+// so the route's language resolution runs for REAL (still pure/sync from
+// here down) without a live database.
+const mockListRecentUserMessageTexts = vi.fn().mockResolvedValue([]);
+vi.mock("$lib/server/services/messages", () => ({
+	listRecentUserMessageTexts: (
+		conversationId: string,
+		userId: string,
+		limit?: number,
+	) => mockListRecentUserMessageTexts(conversationId, userId, limit),
+}));
+
 import { regenerateApp } from "$lib/server/services/artifacts/app/regenerate";
 import { POST } from "./+server";
 
 const mockRegenerateApp = regenerateApp as ReturnType<typeof vi.fn>;
 
-function makeEvent(userId: string | null, body: unknown) {
+function makeEvent(
+	userId: string | null,
+	body: unknown,
+	userOverrides: Record<string, unknown> = {},
+) {
 	return {
 		params: { id: "app-1" },
 		url: new URL("http://localhost/api/artifacts/app-1/app/regenerate"),
-		locals: { user: userId ? { id: userId, role: "user" } : undefined },
+		locals: {
+			user: userId
+				? { id: userId, role: "user", uiLanguage: "en", ...userOverrides }
+				: undefined,
+		},
 		request: { json: async () => body },
 	} as never;
 }
@@ -128,5 +149,108 @@ describe("POST /api/artifacts/[id]/app/regenerate", () => {
 				language: "hu",
 			}),
 		);
+	});
+
+	// Ruling 55: the panel's regenerate resolves language through the SAME
+	// policy a chat turn does (prompt -> conversation's established language
+	// -> UI language), not the retired per-message detectLanguage guess.
+	describe("resolves language the same way a chat turn does (ruling 55)", () => {
+		it("falls back to the conversation's established language when the prompt itself is ambiguous", async () => {
+			mockListRecentUserMessageTexts.mockResolvedValueOnce([
+				"Csinálj egy szokáskövetőt",
+			]);
+			mockRegenerateApp.mockResolvedValue({
+				ok: true,
+				version: 2,
+				title: "x",
+				verification: { checked: false, verdict: "clean", reason: null },
+			});
+
+			await POST(
+				makeEvent(
+					"owner-user",
+					// "ok" alone is too short/ambiguous for classifyLanguageSignal to
+					// call on its own — it must fall through to conversation history.
+					{ prompt: "ok", conversationId: "conv-1" },
+					{ uiLanguage: "en" },
+				),
+			);
+
+			expect(mockListRecentUserMessageTexts).toHaveBeenCalledWith(
+				"conv-1",
+				"owner-user",
+				expect.any(Number),
+			);
+			expect(mockRegenerateApp).toHaveBeenCalledWith(
+				expect.objectContaining({ language: "hu", conversationId: "conv-1" }),
+			);
+		});
+
+		it("falls back to the account's UI language when the prompt is ambiguous and there is no conversation history", async () => {
+			mockListRecentUserMessageTexts.mockResolvedValueOnce([]);
+			mockRegenerateApp.mockResolvedValue({
+				ok: true,
+				version: 2,
+				title: "x",
+				verification: { checked: false, verdict: "clean", reason: null },
+			});
+
+			await POST(
+				makeEvent(
+					"owner-user",
+					{ prompt: "ok", conversationId: "conv-1" },
+					{ uiLanguage: "hu" },
+				),
+			);
+
+			expect(mockRegenerateApp).toHaveBeenCalledWith(
+				expect.objectContaining({ language: "hu" }),
+			);
+		});
+
+		it("never looks up conversation history for a project-linked App with no conversationId, and still resolves the UI-language fallback", async () => {
+			mockRegenerateApp.mockResolvedValue({
+				ok: true,
+				version: 2,
+				title: "x",
+				verification: { checked: false, verdict: "clean", reason: null },
+			});
+
+			await POST(
+				makeEvent("owner-user", { prompt: "ok" }, { uiLanguage: "hu" }),
+			);
+
+			expect(mockListRecentUserMessageTexts).not.toHaveBeenCalled();
+			expect(mockRegenerateApp).toHaveBeenCalledWith(
+				expect.objectContaining({ language: "hu", conversationId: null }),
+			);
+		});
+
+		it("an explicit instruction in the prompt wins over both the conversation history and the UI language", async () => {
+			mockListRecentUserMessageTexts.mockResolvedValueOnce([
+				"Segíts egy bevásárlólistát",
+			]);
+			mockRegenerateApp.mockResolvedValue({
+				ok: true,
+				version: 2,
+				title: "x",
+				verification: { checked: false, verdict: "clean", reason: null },
+			});
+
+			await POST(
+				makeEvent(
+					"owner-user",
+					{
+						prompt: "Add a currency switch. Please answer in English.",
+						conversationId: "conv-1",
+					},
+					{ uiLanguage: "hu" },
+				),
+			);
+
+			expect(mockRegenerateApp).toHaveBeenCalledWith(
+				expect.objectContaining({ language: "en" }),
+			);
+		});
 	});
 });

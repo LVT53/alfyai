@@ -77,6 +77,7 @@ describe("runCreateArtifactTool — no kind registered yet (Slice 5a)", () => {
 				turnId: "turn-1",
 				title: "Something",
 				body: "content",
+				language: "en",
 				artifactType,
 				abortSignal: new AbortController().signal,
 			});
@@ -112,6 +113,7 @@ describe("runCreateArtifactTool — a registered handler", () => {
 			turnId: "turn-1",
 			title: "Vienna plan",
 			body: "# Plan",
+			language: "en",
 			artifactType: "document",
 			abortSignal: new AbortController().signal,
 		});
@@ -144,6 +146,7 @@ describe("runCreateArtifactTool — a registered handler", () => {
 			turnId: "turn-1",
 			title: "Vienna plan",
 			body: "# Plan",
+			language: "en",
 			artifactType: "document",
 			abortSignal: new AbortController().signal,
 		});
@@ -173,6 +176,7 @@ describe("runCreateArtifactTool — a registered handler", () => {
 			turnId: "turn-1",
 			title: "Vienna plan",
 			body: "# Plan",
+			language: "en",
 			artifactType: "document",
 			abortSignal: controller.signal,
 		});
@@ -213,6 +217,7 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "Trip cost splitter",
 			body: "Split costs between three friends on a trip.",
+			language: "en",
 			artifactType: "app",
 			abortSignal: new AbortController().signal,
 		});
@@ -223,6 +228,7 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 				conversationId: "conv-1",
 				title: "Trip cost splitter",
 				prompt: "Split costs between three friends on a trip.",
+				language: "en",
 			}),
 		);
 		expect(result.modelPayload).toEqual({
@@ -232,6 +238,30 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			title: "Trip cost splitter",
 			versionId: undefined,
 		});
+	});
+
+	it("threads the turn's resolved language through to createAppFromBrief unchanged (ruling 55)", async () => {
+		createAppFromBrief.mockResolvedValue({
+			ok: true,
+			artifactId: "artifact-1",
+			title: "Kvíz",
+			verification: { checked: false, verdict: "clean", reason: null },
+		});
+
+		await runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			title: "Kvíz",
+			body: "Készíts egy kvízt",
+			language: "hu",
+			artifactType: "app",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(createAppFromBrief).toHaveBeenCalledWith(
+			expect.objectContaining({ language: "hu" }),
+		);
 	});
 
 	it("passes the envelope's abortSignal through unchanged", async () => {
@@ -249,6 +279,7 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "x",
 			body: "a brief",
+			language: "en",
 			artifactType: "app",
 			abortSignal: controller.signal,
 		});
@@ -271,6 +302,7 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "x",
 			body: "a brief",
+			language: "en",
 			artifactType: "app",
 			abortSignal: new AbortController().signal,
 		});
@@ -298,6 +330,7 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 			turnId: "turn-1",
 			title: "x",
 			body: "a brief",
+			language: "en",
 			artifactType: "app",
 			abortSignal: new AbortController().signal,
 		});
