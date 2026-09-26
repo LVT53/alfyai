@@ -517,3 +517,81 @@ describe("AppFrame — the trust boundary", () => {
 		expect(readAppValue).not.toHaveBeenCalled();
 	});
 });
+
+// RV-2A. Every accepted message is an authenticated request to the kv route
+// (three scoped reads and, for a set, a transaction). Without a bound, one
+// app — a buggy save loop or a hostile one — turns a burst of postMessage
+// calls into as many concurrent requests, taking the browser's per-host
+// connections from the chat itself and the server's time from everyone.
+describe("AppFrame — a flood from the frame is bounded", () => {
+	function flush(): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, 0));
+	}
+
+	/** A controllable server: every call waits until the test releases it. */
+	function holdEveryRead() {
+		const waiting: Array<() => void> = [];
+		let live = 0;
+		let peak = 0;
+		readAppValue.mockImplementation(() => {
+			live += 1;
+			peak = Math.max(peak, live);
+			return new Promise((resolve) => {
+				waiting.push(() => {
+					live -= 1;
+					resolve({ ok: true, value: null });
+				});
+			});
+		});
+		return {
+			peak: () => peak,
+			async releaseAll(): Promise<void> {
+				while (waiting.length > 0) {
+					for (const release of waiting.splice(0)) release();
+					await flush();
+				}
+			},
+		};
+	}
+
+	function burst(source: Window, count: number): void {
+		for (let id = 1; id <= count; id += 1) {
+			post(
+				{ v: 1, kind: "alfy.storage", id, method: "get", args: [`key-${id}`] },
+				source,
+			);
+		}
+	}
+
+	it("keeps only a few calls in flight at once, and still answers every call of a startup burst", async () => {
+		const server = holdEveryRead();
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const source = getIframe(container).contentWindow as Window;
+		const postSpy = vi.spyOn(source, "postMessage");
+
+		// An app loading 200 per-item keys at start (the store's own key cap).
+		burst(source, 200);
+		await flush();
+		expect(server.peak()).toBeLessThanOrEqual(8);
+
+		await server.releaseAll();
+		expect(readAppValue).toHaveBeenCalledTimes(200);
+		expect(postSpy).toHaveBeenCalledTimes(200);
+	});
+
+	it("drops what a frame posts past a bounded backlog, with no server call and no reply for it", async () => {
+		const server = holdEveryRead();
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const source = getIframe(container).contentWindow as Window;
+		const postSpy = vi.spyOn(source, "postMessage");
+
+		burst(source, 5_000);
+		await flush();
+		await server.releaseAll();
+
+		const served = readAppValue.mock.calls.length;
+		expect(served).toBeGreaterThanOrEqual(200);
+		expect(served).toBeLessThanOrEqual(300);
+		expect(postSpy).toHaveBeenCalledTimes(served);
+	});
+});

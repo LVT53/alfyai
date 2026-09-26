@@ -107,6 +107,72 @@ function reply(
 }
 
 /**
+ * Every served call is an authenticated request to the kv route, so the frame
+ * gets a bounded share of them: a few at the server at once (the rest of the
+ * browser's per-host connections stay the chat's), then a backlog in arrival
+ * order, sized to hold an app loading every key the store allows at start
+ * (ARTIFACT_KV_MAX_KEYS, 200). A frame posting past the backlog is flooding:
+ * the excess is dropped without a reply, like any other refused message, and
+ * the app's own promise times out in the bootstrap.
+ */
+const MAX_CALLS_IN_FLIGHT = 4;
+const MAX_CALLS_WAITING = 256;
+let callsInFlight = 0;
+const callsWaiting: Array<() => Promise<void>> = [];
+
+function runWaitingCalls(): void {
+	while (callsInFlight < MAX_CALLS_IN_FLIGHT) {
+		const call = callsWaiting.shift();
+		if (!call) return;
+		callsInFlight += 1;
+		void call().finally(() => {
+			callsInFlight -= 1;
+			runWaitingCalls();
+		});
+	}
+}
+
+async function serveStorageCall(call: {
+	source: Window;
+	requestId: number;
+	method: "get" | "set";
+	artifactId: string;
+	key: string;
+	value: unknown;
+	conversationId: string | null;
+}): Promise<void> {
+	try {
+		if (call.method === "get") {
+			reply(
+				call.source,
+				call.requestId,
+				await readAppValue(call.artifactId, call.key, call.conversationId),
+			);
+			return;
+		}
+		const written = await writeAppValue(
+			call.artifactId,
+			call.key,
+			call.value,
+			call.conversationId,
+		);
+		// A set has nothing to echo back; the bootstrap's set() promise
+		// resolves with undefined either way.
+		reply(
+			call.source,
+			call.requestId,
+			written.ok ? { ok: true, value: null } : written,
+		);
+	} catch {
+		// The bridge's own fetch failed (network, server down): the app's
+		// promise is left to the bootstrap's own 5s timeout rather than
+		// answering with a guess. onStorageError still fires so the caller
+		// can note it happened.
+		onStorageError?.($t("artifacts.app.storage.timedOut"));
+	}
+}
+
+/**
  * The whole trust boundary. A request is served ONLY when all five clauses
  * below hold; anything else is dropped WITHOUT a reply — the frame's own
  * bootstrap-side timeout is what a legitimate caller sees in that case, and
@@ -128,9 +194,11 @@ function reply(
  * The artifact id is NEVER read from `event.data` — it is the component's
  * OWN `artifactId` prop, always. There is no code path in this function that
  * could make a message name a different artifact, a conversation, a file, or
- * a user, even if every other field were forged correctly.
+ * a user, even if every other field were forged correctly. The prop and the
+ * scope are read HERE, when the message arrives, so a call that waits in the
+ * backlog is still served for the document that made it.
  */
-async function handleMessage(event: MessageEvent): Promise<void> {
+function handleMessage(event: MessageEvent): void {
 	const frame = iframe;
 	if (!frame?.contentWindow) {
 		countRejection("no_frame");
@@ -169,32 +237,26 @@ async function handleMessage(event: MessageEvent): Promise<void> {
 		return;
 	}
 
-	const id = artifactId; // THE PROP. Never event.data.artifactId — there is no such read.
-	const requestId = data.id;
-	const key = String(data.args[0]);
-	const source = event.source as Window;
-
-	try {
-		if (data.method === "get") {
-			reply(source, requestId, await readAppValue(id, key, conversationId));
-			return;
-		}
-		const written = await writeAppValue(id, key, data.args[1], conversationId);
-		// A set has nothing to echo back; the bootstrap's set() promise
-		// resolves with undefined either way.
-		reply(source, requestId, written.ok ? { ok: true, value: null } : written);
-	} catch {
-		// The bridge's own fetch failed (network, server down): the app's
-		// promise is left to the bootstrap's own 5s timeout rather than
-		// answering with a guess. onStorageError still fires so the caller
-		// can note it happened.
-		onStorageError?.($t("artifacts.app.storage.timedOut"));
+	if (callsWaiting.length >= MAX_CALLS_WAITING) {
+		countRejection("flood");
+		return;
 	}
+	const call = {
+		source: event.source as Window,
+		requestId: data.id,
+		method: data.method,
+		artifactId, // THE PROP. Never event.data.artifactId — there is no such read.
+		key: String(data.args[0]),
+		value: data.args[1],
+		conversationId,
+	} as const;
+	callsWaiting.push(() => serveStorageCall(call));
+	runWaitingCalls();
 }
 
 $effect(() => {
 	function listener(event: MessageEvent): void {
-		void handleMessage(event);
+		handleMessage(event);
 	}
 	window.addEventListener("message", listener);
 	return () => window.removeEventListener("message", listener);
