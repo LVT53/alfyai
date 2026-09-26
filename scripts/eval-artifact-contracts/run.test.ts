@@ -278,6 +278,7 @@ describe("runSuite — the optional per-suite evaluate step (ruling 56)", () => 
 				verdict: "good",
 				reasons: [],
 				evaluation: { works: true },
+				durationMs: expect.any(Number),
 			},
 		]);
 	});
@@ -337,7 +338,12 @@ describe("runSuite — the optional per-suite evaluate step (ruling 56)", () => 
 		// reasons}, with no `evaluation: null` noise for suites that never
 		// asked for this step.
 		expect(report.results).toEqual([
-			{ caseId: "regular-1", verdict: "good", reasons: ["looks fine"] },
+			{
+				caseId: "regular-1",
+				verdict: "good",
+				reasons: ["looks fine"],
+				durationMs: expect.any(Number),
+			},
 		]);
 	});
 });
@@ -367,7 +373,12 @@ describe("runSuite — retry and the two-consecutive-error circuit breaker", () 
 
 		expect(send).toHaveBeenCalledTimes(2);
 		expect(report.results).toEqual([
-			{ caseId: "regular-1", verdict: "good", reasons: [] },
+			{
+				caseId: "regular-1",
+				verdict: "good",
+				reasons: [],
+				durationMs: expect.any(Number),
+			},
 		]);
 	});
 

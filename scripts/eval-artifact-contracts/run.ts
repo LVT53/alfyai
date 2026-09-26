@@ -331,6 +331,9 @@ async function runCasesSequentially(
 				? { evaluation }
 				: {}),
 			...(outcome.attempt.usage ? { usage: outcome.attempt.usage } : {}),
+			...(outcome.attempt.durationMs !== undefined
+				? { durationMs: outcome.attempt.durationMs }
+				: {}),
 		});
 	}
 
@@ -721,6 +724,15 @@ export async function main(
 			log(
 				`Suite "${suite}": completion tokens ${Math.min(...completionTokenCounts)}–${Math.max(...completionTokenCounts)} ` +
 					`(${completionTokenCounts.length}/${report.results.length} case(s) reported usage).`,
+			);
+		}
+		const durations = report.results
+			.map((result) => result.durationMs)
+			.filter((value): value is number => typeof value === "number");
+		if (durations.length > 0) {
+			log(
+				`Suite "${suite}": duration ${(Math.min(...durations) / 1000).toFixed(1)}–${(Math.max(...durations) / 1000).toFixed(1)}s ` +
+					`(${durations.length}/${report.results.length} case(s) timed).`,
 			);
 		}
 	}

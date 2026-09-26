@@ -118,6 +118,11 @@ export interface EvalCaseOutcome {
 	 * recorded per case so a run's `results.json` can be compared against P1's
 	 * measured 2,486–3,607 completion tokens per app. */
 	usage?: EvalUsage;
+	/** Wall-clock time for the winning attempt's call (ms) — the harness
+	 * already measures this per attempt (`attemptCase`/`recordSuiteResponses`)
+	 * but dropped it before it reached the report; recorded here so a run can
+	 * be compared against P1's measured 12.7–23.0s per app. */
+	durationMs?: number;
 }
 
 export interface EvalSuiteReport {
