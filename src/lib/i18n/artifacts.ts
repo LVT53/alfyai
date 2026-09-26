@@ -87,6 +87,7 @@ const artifactsDict = {
 		"artifacts.document.toolbar.undo": "Undo",
 		"artifacts.document.toolbar.redo": "Redo",
 		"artifacts.document.toolbar.more": "More",
+		"artifacts.document.toolbar.download": "Download",
 		"artifacts.document.save.offline":
 			"Not saved yet — you are offline. Your text is safe here.",
 		"artifacts.document.save.tooLarge": "This document is too long to save.",
@@ -116,6 +117,19 @@ const artifactsDict = {
 		"artifacts.document.comment.postError": "Could not post this comment.",
 		"artifacts.document.margin.title": "Comments",
 		"artifacts.document.margin.empty": "No comments yet.",
+		// The download sheet (Slice 1, T12).
+		"artifacts.document.export.title": "Download {title}",
+		"artifacts.document.export.pdf": "PDF",
+		"artifacts.document.export.docx": "Word",
+		"artifacts.document.export.markdown": "Markdown",
+		"artifacts.document.export.preparing": "Preparing your file…",
+		"artifacts.document.export.failed": "Could not create this file.",
+		"artifacts.document.export.tooLarge":
+			"This document is too long to export.",
+		"artifacts.document.export.noConversation":
+			"This document isn't in a conversation yet, so it can't be exported.",
+		"artifacts.document.export.tryAgain": "Try again",
+		"artifacts.document.export.close": "Close",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -178,6 +192,7 @@ const artifactsDict = {
 		"artifacts.document.toolbar.undo": "Visszavonás",
 		"artifacts.document.toolbar.redo": "Újra",
 		"artifacts.document.toolbar.more": "Több",
+		"artifacts.document.toolbar.download": "Letöltés",
 		"artifacts.document.save.offline":
 			"Még nincs elmentve — nincs kapcsolat. A szöveged itt biztonságban van.",
 		"artifacts.document.save.tooLarge":
@@ -202,9 +217,22 @@ const artifactsDict = {
 		"artifacts.document.comment.alfyRefused":
 			"A szöveget változatlanul hagytam — ez a megjegyzés nem vezetett biztonságosan végrehajtható módosításhoz.",
 		"artifacts.document.comment.alfyDone": "Kész.",
-		"artifacts.document.comment.postError": "Nem sikerült elküldeni a megjegyzést.",
+		"artifacts.document.comment.postError":
+			"Nem sikerült elküldeni a megjegyzést.",
 		"artifacts.document.margin.title": "Megjegyzések",
 		"artifacts.document.margin.empty": "Még nincs megjegyzés.",
+		"artifacts.document.export.title": "{title} letöltése",
+		"artifacts.document.export.pdf": "PDF",
+		"artifacts.document.export.docx": "Word",
+		"artifacts.document.export.markdown": "Markdown",
+		"artifacts.document.export.preparing": "A fájl előkészítése…",
+		"artifacts.document.export.failed": "Nem sikerült létrehozni ezt a fájlt.",
+		"artifacts.document.export.tooLarge":
+			"Ez a dokumentum túl hosszú az exportáláshoz.",
+		"artifacts.document.export.noConversation":
+			"Ez a dokumentum még nincs beszélgetéshez rendelve, ezért nem exportálható.",
+		"artifacts.document.export.tryAgain": "Újrapróbálom",
+		"artifacts.document.export.close": "Bezárás",
 	},
 } as const;
 

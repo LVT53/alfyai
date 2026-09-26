@@ -206,7 +206,10 @@ describe("buildAtlasV3DocumentSource", () => {
 	it("lists the computed figures under the table", () => {
 		const result = buildAtlasV3DocumentSource(base);
 		const list = result.documentSource.blocks.find(
-			(block) => block.type === "list" && block.items[0]?.includes("computed"),
+			(block) =>
+				block.type === "list" &&
+				typeof block.items[0] === "string" &&
+				block.items[0].includes("computed"),
 		);
 		expect(list).toBeDefined();
 	});
