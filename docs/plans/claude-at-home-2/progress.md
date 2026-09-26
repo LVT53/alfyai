@@ -406,6 +406,18 @@ own; Slice 4 will need more. **Pass one** (sonnet, `art-focus`, branch `feat/art
 5660): the utility (from DialogShell's behaviour, attachment or action chosen against the Svelte 5.55 docs) and the
 existing app dialogs, behaviour pinned by tests first. **Pass two** after Slice 1 merges: the Feature 2 sheets.
 
+**SC done (2026-09-26).** `feat/artifacts-chatcard` HEAD `302e8bfc`. Step 0: `27a614e6` merges `feat/artifacts-s1` (`e17c6f09`) into the App
+line (11 conflicts, both sides kept; `record.ts` took Slice 1's `updateArtifactBody`, where the metadataPatch merge runs
+after either branch, with tests for coalesced-save-with-patch and Alfy-with-patch-appends; `client/api/artifacts.ts`
+and `cases.test.ts` rebuilt from both blobs), `220ad0ab` gate fixes. Step 1: `45027cce` the in-chat card for every kind
+(`create_artifact`/`edit_artifact` → a pinned `ArtifactCard` with Created/Edited, "Creating …" while running, nothing
+for a refusal; `chrome="body"` now shows the full header for every kind but File; Open reuses `onOpenDocument` with
+`conversationId`; ThinkingBlock enriches it with the Document preview after a reload; ticks share the panel's
+write path), `302e8bfc` e2e with a fake-provider `create_artifact` scenario. 13,223 tests, Playwright 58/58, Fallow
+124/4, containment 30. Deviations: no App verification subtitle on the card (no App preview field yet), no App
+chat e2e (the create path runs real generation). **RV-SC (sonnet)** dispatched in `rv-sc` (branch
+`feat/artifacts-chatcard-review`, 5670) on the merge and the card.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
