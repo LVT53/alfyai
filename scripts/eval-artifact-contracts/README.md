@@ -45,7 +45,35 @@ everything a type slice's own suite plugs into, but no suite itself:
 **Nothing here talks to a model unless you configure one.** Run
 `npx tsx scripts/eval-artifact-contracts/run.ts --suite <name>` with nothing
 configured and it exits `0`, explaining that no cases are registered yet
-(today, that is every suite).
+(today, that is every suite except `document`, below).
+
+**Slice 1** lands the **first real suite** on that core: `document`, scoring
+the `edit_artifact` patch contract (`slice-1.md` Task T13) —
+
+- `suites/document.ts` — 8 cases: the six required by the task (a clean
+  patch; a block the user changed since the model's read, which must
+  refuse; a `replaceRange` whose `find` occurs twice, which must refuse
+  rather than guess; a patch that stays inside the block it was asked to
+  touch; a three-op mixed patch; a Hungarian-language request against a
+  Hungarian document) plus a `block_missing` case (Step 1.1's own scorer
+  requirement) and one `knownBad` case (a hand-written answer that ignores
+  the JSON-only instruction and responds in prose).
+- `scoring.ts`'s `documentScorer` runs the model's own patch ops through the
+  REAL engine (`$lib/shared/artifact-document/patch`'s `applyPatchSet`)
+  against each case's fixture, then asks the fixture's own `verify` what
+  that outcome means — refusing correctly (or proactively sending `[]`
+  rather than guessing) counts as `good`, never automatically `bad` just
+  because nothing applied (ruling 25).
+- Run for real against the box's configured endpoint
+  (`npx tsx scripts/eval-artifact-contracts/run.ts --suite document`):
+  **7/7 good, known-bad failed as expected.** One fixture's `verify` was
+  fixed as a direct result of that run — see `suites/document.ts`'s
+  `REFUSES_MISSING_BLOCK` comment for what the first live run caught. The
+  committed `fixtures/document/responses/*.json` are the real model's own
+  recorded answers (`EVAL_ARTIFACTS_SKIP_EVAL=1`), except the known-bad one,
+  which stays hand-written on purpose (the model does not naturally ignore
+  the format — that fixture exists to prove the SCORER catches it if it
+  ever does, not to reproduce a failure this model actually has).
 
 ## What each type slice adds (ruling 44)
 
