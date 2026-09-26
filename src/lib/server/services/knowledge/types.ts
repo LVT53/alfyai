@@ -129,6 +129,23 @@ export interface KnowledgeDocumentItem {
 	extractionProducer?: string;
 	/** `metadata.extractionTier` — the REAL per-file tier, not the job's. */
 	extractionTier?: string;
+	/**
+	 * Set only for the new artifact family (Document/App/Canvas/Slides — never
+	 * "file": a produced file stays on the existing generated/uploaded path
+	 * above, ruling 18). Undefined for every row this app already knew about.
+	 * Read from `metadata_json.artifactType` via a local, defensive parse in
+	 * `store/documents.ts` — never re-derived elsewhere.
+	 */
+	kind?: ArtifactKind;
+	/**
+	 * The artifact family's OWN version counter — sourced from the newest
+	 * `artifact_versions` row for this artifact id. Populated only when `kind`
+	 * is set. This is NOT the same concept as `versionNumber` above (the
+	 * pre-existing extraction-quality re-parse family, paired with
+	 * `documentFamilyId`/`isOriginal`) — the two must never be read
+	 * interchangeably.
+	 */
+	artifactVersionNumber?: number | null;
 	createdAt: number;
 	updatedAt: number;
 }

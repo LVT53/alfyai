@@ -10,6 +10,7 @@ import type {
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { getExtractionJobsForArtifacts } from "./extraction";
 import { mapWorkCapsuleFromArtifactRow } from "./knowledge/capsules";
+import type { KnowledgeDocumentKindFilter } from "./knowledge/store";
 import {
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
@@ -54,7 +55,10 @@ export {
 	resolveProjectFileMentions,
 	unlinkProjectKnowledge,
 } from "./knowledge/project-knowledge";
-export type { KnowledgeBulkAction } from "./knowledge/store";
+export type {
+	KnowledgeBulkAction,
+	KnowledgeDocumentKindFilter,
+} from "./knowledge/store";
 export {
 	AttachmentReadinessError,
 	artifactHasReferencesOutsideConversation,
@@ -115,6 +119,7 @@ export interface KnowledgeLibraryPageOptions {
 	sortDirection?: KnowledgeLibrarySortDirection | null;
 	page?: number | null;
 	pageSize?: number | null;
+	kindFilter?: KnowledgeDocumentKindFilter | null;
 }
 
 export interface KnowledgeLibraryPage {
@@ -130,6 +135,7 @@ export interface KnowledgeLibraryPage {
 		totalItems: number;
 		totalPages: number;
 	};
+	countsByKind: Record<KnowledgeDocumentKindFilter, number>;
 }
 
 const KNOWLEDGE_LIBRARY_DEFAULT_PAGE_SIZE = 20;
@@ -248,6 +254,7 @@ export async function getKnowledgeLibraryPage(
 	const pageSize = resolveLibraryPageSize(options.pageSize);
 	const requestedPage = resolveLibraryPage(options.page);
 	const requestedOffset = (requestedPage - 1) * pageSize;
+	const kindFilter = options.kindFilter ?? undefined;
 
 	let libraryPage = await listLogicalDocumentsPage(userId, {
 		includeGeneratedOutputs: true,
@@ -256,6 +263,7 @@ export async function getKnowledgeLibraryPage(
 		sortDirection,
 		offset: requestedOffset,
 		limit: pageSize,
+		kindFilter,
 	});
 	const totalItems = libraryPage.totalItems;
 	const totalPages = Math.ceil(totalItems / pageSize);
@@ -270,6 +278,7 @@ export async function getKnowledgeLibraryPage(
 			sortDirection,
 			offset,
 			limit: pageSize,
+			kindFilter,
 		});
 	}
 
@@ -286,6 +295,7 @@ export async function getKnowledgeLibraryPage(
 			totalItems,
 			totalPages,
 		},
+		countsByKind: libraryPage.countsByKind,
 	};
 }
 

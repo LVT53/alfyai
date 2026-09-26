@@ -212,4 +212,221 @@ describe("listLogicalDocumentsPage totals", () => {
 
 		expect(viaSql.map((row) => row.id)).not.toContain("orphan-generated");
 	});
+
+	// Slice 7: a second source (`type: "artifact"`, Feature 2's Document/App/
+	// Canvas/Slides family) is merged into the same page. Merging a second
+	// source is a second chance for the rows/totalItems disagreement this file
+	// exists to prevent, so the mixed-row-type case lives here, not in a new
+	// file.
+	it("counts a mix of an upload, a produced file and two artifact-family rows as one total", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seed(db);
+		db.insert(schema.artifacts)
+			.values([
+				// A produced file: `generated_output`, durable, with the
+				// sourceChatFileId marker `hasGeneratedFileSource` requires.
+				{
+					id: "owned-file",
+					userId: "owner",
+					type: "generated_output",
+					retrievalClass: "durable",
+					name: "report.docx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					sizeBytes: 10,
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({ sourceChatFileId: "chat-file-1" }),
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+				// Two artifact-family rows (Feature 2, slice 0): `type: "artifact"`,
+				// kind carried in `metadata_json.artifactType`.
+				{
+					id: "owned-canvas",
+					userId: "owner",
+					type: "artifact",
+					retrievalClass: "durable",
+					name: "Vienna trip board",
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({
+						artifactType: "canvas",
+						title: "Vienna trip board",
+					}),
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+				{
+					id: "owned-document",
+					userId: "owner",
+					type: "artifact",
+					retrievalClass: "durable",
+					name: "Saturday plan",
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({
+						artifactType: "document",
+						title: "Saturday plan",
+					}),
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+			])
+			.run();
+		sqlite.close();
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+
+		const fullPage = await listLogicalDocumentsPage("owner", {
+			includeGeneratedOutputs: true,
+			offset: 0,
+			limit: 20,
+		});
+		expect(fullPage.totalItems).toBe(4);
+		expect(fullPage.documents).toHaveLength(4);
+		expect(fullPage.documents.map((document) => document.id).sort()).toEqual(
+			["owned-canvas", "owned-document", "owned-file", "owned-source"].sort(),
+		);
+
+		// A limit-1 walk must visit each of the four exactly once — the same
+		// discipline the file's other cases already hold the single-source path
+		// to, now proven across the merged two-source page.
+		const visited: string[] = [];
+		for (let offset = 0; offset < 4; offset += 1) {
+			const page = await listLogicalDocumentsPage("owner", {
+				includeGeneratedOutputs: true,
+				offset,
+				limit: 1,
+			});
+			expect(page.totalItems).toBe(4);
+			expect(page.documents).toHaveLength(1);
+			visited.push(page.documents[0].id);
+		}
+		expect(visited.sort()).toEqual(
+			["owned-canvas", "owned-document", "owned-file", "owned-source"].sort(),
+		);
+	});
+
+	it("tallies countsByKind before kindFilter narrows the page, and never moves the other chips' counts", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seed(db);
+		db.insert(schema.artifacts)
+			.values([
+				{
+					id: "owned-file",
+					userId: "owner",
+					type: "generated_output",
+					retrievalClass: "durable",
+					name: "report.docx",
+					sizeBytes: 10,
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({ sourceChatFileId: "chat-file-1" }),
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+				{
+					id: "owned-canvas",
+					userId: "owner",
+					type: "artifact",
+					retrievalClass: "durable",
+					name: "Vienna trip board",
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({
+						artifactType: "canvas",
+						title: "Vienna trip board",
+					}),
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+				{
+					id: "owned-document",
+					userId: "owner",
+					type: "artifact",
+					retrievalClass: "durable",
+					name: "Saturday plan",
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({
+						artifactType: "document",
+						title: "Saturday plan",
+					}),
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+			])
+			.run();
+		sqlite.close();
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+
+		const unfiltered = await listLogicalDocumentsPage("owner", {
+			includeGeneratedOutputs: true,
+			offset: 0,
+			limit: 20,
+		});
+		// "mine.pdf" (owned-source) and "report.docx" (owned-file) both fold into
+		// "uploaded" — ruling 46 as corrected: a produced file groups under
+		// Uploaded with its file-format pill, there is no "file" bucket.
+		expect(unfiltered.countsByKind).toEqual({
+			uploaded: 2,
+			document: 1,
+			canvas: 1,
+			app: 0,
+			slides: 0,
+		});
+
+		const canvasOnly = await listLogicalDocumentsPage("owner", {
+			includeGeneratedOutputs: true,
+			offset: 0,
+			limit: 20,
+			kindFilter: "canvas",
+		});
+		expect(canvasOnly.documents.map((document) => document.id)).toEqual([
+			"owned-canvas",
+		]);
+		expect(canvasOnly.totalItems).toBe(1);
+		// The chip's own click must never move the OTHER chips' numbers.
+		expect(canvasOnly.countsByKind).toEqual(unfiltered.countsByKind);
+	});
+
+	it("narrows an artifact-family row by name, and a query never matches by its kind alone", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seed(db);
+		db.insert(schema.artifacts)
+			.values({
+				id: "owned-canvas",
+				userId: "owner",
+				type: "artifact",
+				retrievalClass: "durable",
+				name: "Vienna trip board",
+				conversationId: "conv-owner",
+				metadataJson: JSON.stringify({
+					artifactType: "canvas",
+					title: "Vienna trip board",
+				}),
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+		sqlite.close();
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+
+		const byName = await listLogicalDocumentsPage("owner", {
+			includeGeneratedOutputs: true,
+			query: "vienna",
+			offset: 0,
+			limit: 20,
+		});
+		expect(byName.documents.map((document) => document.id)).toEqual([
+			"owned-canvas",
+		]);
+
+		const byKindWord = await listLogicalDocumentsPage("owner", {
+			includeGeneratedOutputs: true,
+			query: "canvas",
+			offset: 0,
+			limit: 20,
+		});
+		expect(byKindWord.documents.map((document) => document.id)).not.toContain(
+			"owned-canvas",
+		);
+	});
 });

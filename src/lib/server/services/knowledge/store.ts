@@ -55,6 +55,7 @@ export {
 	resolveGeneratedDocumentFamilyStatus,
 	selectLatestGeneratedDocumentCandidatesByFamily,
 } from "./store/document-metadata";
+export type { KnowledgeDocumentKindFilter } from "./store/documents";
 export {
 	findRelevantArtifactsByTypes,
 	findRelevantArtifactsByTypesDetailed,
