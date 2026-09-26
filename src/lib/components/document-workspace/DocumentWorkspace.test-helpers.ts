@@ -33,6 +33,11 @@ type WorkspaceRenderOptions = {
 	onJumpToSource?: JumpToSourceCallback;
 	onPresentationChange?: PresentationChangeCallback;
 	onListOpenChange?: ListOpenChangeCallback;
+	onToggleDocumentTask?: (
+		artifactId: string,
+		blockId: string,
+		checked: boolean,
+	) => void;
 };
 
 export function makeWorkspaceDocument(

@@ -19,6 +19,8 @@ import {
 	type ArtifactBodyLoader,
 } from "$lib/components/artifacts/artifact-bodies";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
+import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
+import type { ArtifactCardView } from "$lib/components/artifacts/ArtifactCard.svelte";
 import {
 	ArrowUpRight,
 	List,
@@ -59,6 +61,7 @@ let {
 	conversationId = null,
 	alfyActivity = null,
 	list = null,
+	onToggleDocumentTask = undefined,
 	onSelectDocument,
 	onOpenDocument = undefined,
 	onJumpToSource = undefined,
@@ -79,6 +82,10 @@ let {
 	/** T8 live: the chat page's own view of the latest Alfy tool-call activity, forwarded to whichever body is open. Only the Document body reads it. */
 	alfyActivity?: DocumentAlfyActivity | null;
 	list?: WorkspaceList;
+	/** T9.7: the panel list's own tick — fires with the artifact id, the block id, and the NEW checked state. Absent list items simply show no checkbox row that can be ticked (there is nothing to write through). */
+	onToggleDocumentTask?:
+		| ((artifactId: string, blockId: string, checked: boolean) => void)
+		| undefined;
 	onSelectDocument: (documentId: string) => void;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
 	onJumpToSource?: ((document: DocumentWorkspaceItem) => void) | undefined;
@@ -394,6 +401,46 @@ function formatRoleLabel(role: string | null | undefined): string | null {
 
 function getDocumentTitle(document: DocumentWorkspaceItem): string {
 	return document.documentLabel ?? document.title ?? document.filename;
+}
+
+/**
+ * The panel list row's own card view (T9 steps 4/7): a Document item with a
+ * server preview gets the subtitle/tickable checklist through
+ * `documentArtifactCardViewFromPreview` — the SAME builder the chat card
+ * uses, from the SAME bounded data, never a full-body fetch just to render a
+ * list row. Every other item (including a Document with no preview, e.g. an
+ * older cached list) falls back to the plain card this list has always
+ * shown.
+ */
+function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
+	const madeBy =
+		item.updatedAt != null
+			? $t("artifacts.card.madeBy", {
+					when: formatRelativeTime(item.updatedAt, { t: $t }),
+				})
+			: null;
+	if (item.kind === "document" && item.documentPreview) {
+		return documentArtifactCardViewFromPreview({
+			artifactId: item.id,
+			title: getDocumentTitle(item),
+			versionNumber: item.versionNumber ?? 0,
+			madeBy,
+			subtitle: $t("artifacts.document.cardSubtitle", {
+				count: item.documentPreview.tabCount,
+			}),
+			preview: item.documentPreview,
+			onToggleTask: (blockId, checked) =>
+				onToggleDocumentTask?.(item.id, blockId, checked),
+		});
+	}
+	return {
+		id: item.id,
+		kind: item.kind ?? "file",
+		title: getDocumentTitle(item),
+		versionNumber: item.versionNumber ?? null,
+		openTargetId: item.id,
+		madeBy,
+	};
 }
 
 function getDocumentVersionLabel(
@@ -864,18 +911,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					{#each list.items as item (item.id)}
 						<li>
 							<ArtifactCard
-								view={{
-									id: item.id,
-									kind: item.kind ?? 'file',
-									title: getDocumentTitle(item),
-									versionNumber: item.versionNumber ?? null,
-									openTargetId: item.id,
-									madeBy: item.updatedAt != null
-										? $t('artifacts.card.madeBy', {
-												when: formatRelativeTime(item.updatedAt, { t: $t }),
-											})
-										: null,
-								}}
+								view={artifactCardViewFor(item)}
 								chrome="full"
 								onOpen={() => selectFromList(item)}
 							/>
