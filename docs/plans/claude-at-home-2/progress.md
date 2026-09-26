@@ -384,6 +384,15 @@ needing thought is `record.ts`: ruling-47 coalescing + Slice 2's `metadataPatch`
 in-chat card for every kind. Merge order after the reviews: `feat/artifacts-chatcard` → `feat/artifacts`, then
 `feat/artifacts-s1` (review fixes only; the merge base is `e17c6f09`), then RV-7's S7.
 
+**RV-7 done → Slice 7 merged into `feat/artifacts` as `d1364b54` (2026-09-26).** Verdict "ship with the two fixes":
+`01e1754f` **critical containment leak**: `core.ts`'s canonical ownership exempted only `generated_output`/`work_capsule`
+from the user-stamp fallback, so a `type:"artifact"` row preserved after its conversation's deletion (an outside
+reference, e.g. a fork's link; `conversation_id` SET NULL) resurfaced in the Documents tab and search for its owner,
+**incognito ones included**. Now `artifact` needs a live conversation link too; `isArtifactDeletableByUser` unchanged.
+The containment suite covers it (34). `4865aa24`: the merged search sort's tie-break ignored the caller's sort key.
+12,806 tests, Playwright 51. Open: the chip row's exact position vs the mockup (check in the Phase 4 walk). Gates on
+`feat/artifacts` running (`/tmp/gates-fa-s7/`).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
