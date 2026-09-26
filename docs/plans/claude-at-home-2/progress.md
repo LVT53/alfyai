@@ -347,6 +347,16 @@ content-box-vs-border-box overlap), export through the facade (`b792e962`). 12,7
 and two dead functions in `extensions.ts` (the 2 biome warnings). A stale `node_modules/.vite` cache once failed
 every e2e with a hydration error; clearing `.vite` + `.svelte-kit` fixed it (worth remembering).
 
+**S6 T1/T2/T5 done (2026-09-26, 10:29).** `feat/artifacts-s6` HEAD `ff7646f2`: `34205fff` the seen table
+(`drizzle/1777140000112_artifact_tour_states.sql`, idx 125, hand-written like the last ~15 migrations; archived and
+erased through the existing registries), `fd80f5ae` the shared types + shipped defaults + resolver (published snapshot
+wins, archived means no tour), `327ddbd2` the admin seed/edit/publish (`artifact_tour` campaign type, the
+summary-first + three-standard publish rule mirrored in the client checklist), two follow-ups. 12,810 tests, Playwright
+31. Accepted deviations: EN wording "first-open tour" (the i18n test forbids "artifact" in any dictionary value),
+`defaultVersionFor` widened (else the four drafts collided), `seedArtifactTours` in `client/api/campaigns.ts` (T3
+reuses it), the dialog's type picker stays seed-only. Fallow +1 (`ArtifactTourState`, consumed by T3): accepted
+until T3 lands. T3/T4/T6/T7 wait on all four kinds' panels and Slice 5b.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
