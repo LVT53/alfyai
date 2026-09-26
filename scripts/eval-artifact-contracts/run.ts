@@ -39,10 +39,13 @@ import {
 	type EvalArtifactsThinkingMode,
 	resolveEvalArtifactsConfig,
 } from "./config";
+import { getSuiteEvaluator } from "./evaluators";
 import { getSuiteScorer } from "./scoring";
 import type {
 	EvalAttempt,
 	EvalCase,
+	EvalCaseOutcome,
+	EvalCommittedEvaluation,
 	EvalCommittedResponse,
 	EvalSuiteReport,
 } from "./types";
@@ -157,9 +160,24 @@ export interface RunDeps {
 	score: (
 		evalCase: EvalCase,
 		attempt: EvalAttempt,
+		evaluation?: unknown,
 	) => { verdict: "good" | "acceptable" | "bad"; reasons: string[] };
 	log: (message: string) => void;
 	defaultThinking: EvalArtifactsThinkingMode;
+	/**
+	 * Ruling 56's optional per-suite step: runs (live) after a successful
+	 * attempt, or is skipped under --replay in favor of
+	 * `loadCommittedEvaluation` below. Always callable — a suite with none
+	 * registered (document, canvas, slides, verification today) resolves
+	 * `null`, mirroring how `score` falls back to a generic scorer for an
+	 * unregistered suite rather than making the field itself optional.
+	 */
+	evaluate: (
+		evalCase: EvalCase,
+		attempt: EvalAttempt,
+	) => Promise<unknown | null>;
+	/** The committed counterpart for --replay — no browser, no model. */
+	loadCommittedEvaluation: (suite: string, caseId: string) => unknown | null;
 }
 
 function isRateLimitOrServerError(error: unknown): boolean {
@@ -235,18 +253,10 @@ async function runCasesSequentially(
 	options: { replay: boolean },
 	deps: RunDeps,
 ): Promise<{
-	results: Array<{
-		caseId: string;
-		verdict: "good" | "acceptable" | "bad";
-		reasons: string[];
-	}>;
+	results: EvalCaseOutcome[];
 	stoppedEarly: boolean;
 }> {
-	const results: Array<{
-		caseId: string;
-		verdict: "good" | "acceptable" | "bad";
-		reasons: string[];
-	}> = [];
+	const results: EvalCaseOutcome[] = [];
 	let consecutiveRateLimitErrors = 0;
 
 	for (const evalCase of cases) {
@@ -285,11 +295,32 @@ async function runCasesSequentially(
 		}
 
 		consecutiveRateLimitErrors = 0;
-		const score = deps.score(evalCase, outcome.attempt);
+		// Ruling 56: the evaluate step runs ONCE, on the winning attempt only
+		// (never per retry) — live, or loaded from the committed fixture under
+		// --replay, never both. The (still synchronous) scorer only reads
+		// whatever comes back; it never awaits anything itself. A live
+		// evaluate step that THROWS (a browser crash, a Playwright timeout)
+		// degrades to "no evaluation available" rather than losing every case
+		// after it — the same "never abort the whole run over one case" rule
+		// the retry/circuit-breaker policy already applies to the model call.
+		let evaluation: unknown | null = null;
+		if (options.replay) {
+			evaluation = deps.loadCommittedEvaluation(evalCase.suite, evalCase.id);
+		} else {
+			try {
+				evaluation = await deps.evaluate(evalCase, outcome.attempt);
+			} catch (error) {
+				deps.log(
+					`[${evalCase.suite}] case ${evalCase.id}: evaluate step failed — ${errorMessage(error)}`,
+				);
+			}
+		}
+		const score = deps.score(evalCase, outcome.attempt, evaluation ?? undefined);
 		results.push({
 			caseId: evalCase.id,
 			verdict: score.verdict,
 			reasons: score.reasons,
+			...(evaluation !== null && evaluation !== undefined ? { evaluation } : {}),
 		});
 	}
 
@@ -365,11 +396,19 @@ export async function runSuite(
  * for `--replay` — never gated on the known-bad rule, because nothing here
  * is being trusted yet.
  */
+export interface RecordedAttempt {
+	attempt: EvalAttempt;
+	/** Ruling 56: the evaluate step's result for THIS attempt, recorded next
+	 * to it so both are committed together for --replay. `null` for a suite
+	 * with no evaluate step, exactly like a live run's per-case result. */
+	evaluation: unknown | null;
+}
+
 export async function recordSuiteResponses(
 	suiteName: string,
 	options: { limit: number | null; only: string[] | null },
-	deps: Pick<RunDeps, "cases" | "client" | "defaultThinking">,
-): Promise<EvalAttempt[]> {
+	deps: Pick<RunDeps, "cases" | "client" | "defaultThinking" | "evaluate">,
+): Promise<RecordedAttempt[]> {
 	if (!deps.client) {
 		throw new Error("recordSuiteResponses needs a configured model client");
 	}
@@ -380,21 +419,26 @@ export async function recordSuiteResponses(
 	}
 	if (options.limit !== null) cases = cases.slice(0, options.limit);
 
-	const attempts: EvalAttempt[] = [];
+	const recorded: RecordedAttempt[] = [];
 	for (const evalCase of cases) {
 		const startedAt = Date.now();
 		const result = await deps.client.send({
 			prompt: evalCase.prompt,
 			thinking: evalCase.thinking ?? deps.defaultThinking,
 		});
-		attempts.push({
+		const attempt: EvalAttempt = {
 			caseId: evalCase.id,
 			suite: suiteName,
 			response: result.text,
 			durationMs: Date.now() - startedAt,
-		});
+		};
+		// Recording (EVAL_ARTIFACTS_SKIP_EVAL) is what PRODUCES the committed
+		// evaluation fixtures --replay later reads, so it must run the same
+		// live evaluate step a real scoring run would (ruling 56).
+		const evaluation = await deps.evaluate(evalCase, attempt);
+		recorded.push({ attempt, evaluation });
 	}
-	return attempts;
+	return recorded;
 }
 
 // ── Disk I/O (the CLI's own concern; kept out of the testable core above) ──
@@ -428,6 +472,43 @@ export function writeCommittedResponseToDisk(
 		response: attempt.response,
 		durationMs: attempt.durationMs,
 	};
+	writeFileSync(path, JSON.stringify(payload, null, 2));
+	return path;
+}
+
+/**
+ * Ruling 56's committed counterpart to the response above, under
+ * `fixtures/<suite>/evaluations/<caseId>.json` — read by --replay instead of
+ * running a real browser. Returns `null` (never throws) for a suite/case
+ * with no recorded evaluation, same as `loadCommittedResponseFromDisk`.
+ */
+export function loadCommittedEvaluationFromDisk(
+	fixturesRoot: string,
+	suite: string,
+	caseId: string,
+): unknown | null {
+	const path = join(fixturesRoot, suite, "evaluations", `${caseId}.json`);
+	if (!existsSync(path)) return null;
+	try {
+		const raw = JSON.parse(
+			readFileSync(path, "utf8"),
+		) as Partial<EvalCommittedEvaluation>;
+		return "evaluation" in raw ? (raw.evaluation ?? null) : null;
+	} catch {
+		return null;
+	}
+}
+
+export function writeCommittedEvaluationToDisk(
+	fixturesRoot: string,
+	suite: string,
+	caseId: string,
+	evaluation: unknown,
+): string {
+	const dir = join(fixturesRoot, suite, "evaluations");
+	mkdirSync(dir, { recursive: true });
+	const path = join(dir, `${caseId}.json`);
+	const payload: EvalCommittedEvaluation = { evaluation };
 	writeFileSync(path, JSON.stringify(payload, null, 2));
 	return path;
 }
@@ -538,14 +619,32 @@ export async function main(
 			return 0;
 		}
 		for (const suite of registeredSuites) {
-			const attempts = await recordSuiteResponses(
+			const recorded = await recordSuiteResponses(
 				suite,
 				{ limit, only },
-				{ cases: EVAL_CASES, client, defaultThinking: config.thinking },
+				{
+					cases: EVAL_CASES,
+					client,
+					defaultThinking: config.thinking,
+					evaluate: (evalCase, attempt) =>
+						(getSuiteEvaluator(evalCase.suite) ?? (async () => null))(
+							evalCase,
+							attempt,
+						),
+				},
 			);
-			for (const attempt of attempts) {
+			for (const { attempt, evaluation } of recorded) {
 				const path = writeCommittedResponseToDisk(fixturesRoot, attempt);
 				log(`recorded ${path}`);
+				if (evaluation !== null && evaluation !== undefined) {
+					const evalPath = writeCommittedEvaluationToDisk(
+						fixturesRoot,
+						attempt.suite,
+						attempt.caseId,
+						evaluation,
+					);
+					log(`recorded ${evalPath}`);
+				}
 			}
 		}
 		return 0;
@@ -556,8 +655,15 @@ export async function main(
 		client,
 		loadCommittedResponse: (suite, caseId) =>
 			loadCommittedResponseFromDisk(fixturesRoot, suite, caseId),
-		score: (evalCase, attempt) =>
-			getSuiteScorer(evalCase.suite)(evalCase, attempt),
+		loadCommittedEvaluation: (suite, caseId) =>
+			loadCommittedEvaluationFromDisk(fixturesRoot, suite, caseId),
+		score: (evalCase, attempt, evaluation) =>
+			getSuiteScorer(evalCase.suite)(evalCase, attempt, evaluation),
+		evaluate: (evalCase, attempt) =>
+			(getSuiteEvaluator(evalCase.suite) ?? (async () => null))(
+				evalCase,
+				attempt,
+			),
 		log,
 		defaultThinking: config.thinking,
 	};

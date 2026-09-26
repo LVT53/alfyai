@@ -13,6 +13,14 @@ export interface EvalCase {
 	/** A fixture the suite expects to FAIL, proving the harness can see a failure. */
 	knownBad?: boolean;
 	/**
+	 * The language this case's fixture declares, when the suite is
+	 * language-sensitive (ruling 55 — today, `app`). Generation is asked to
+	 * answer in this language (mirroring how production passes the turn's
+	 * own resolved language, never a per-message guess), and a suite's
+	 * scorer may check the response actually came back in it.
+	 */
+	language?: "en" | "hu";
+	/**
 	 * Qwen defaults to thinking ON; App generation is thinking-off by policy
 	 * (spec §2.9) and a suite may need the same. Defaults to the harness's
 	 * configured `EVAL_ARTIFACTS_THINKING` (client.ts sends
@@ -49,12 +57,38 @@ export interface EvalCommittedResponse {
 	durationMs?: number;
 }
 
+/** A committed evaluate-step result for `--replay` (ruling 56), one file per
+ * case under `fixtures/<suite>/evaluations/<caseId>.json`. Committed
+ * alongside the response so a replay run re-scores both with no model call
+ * and no browser. Absent for a suite/case with no evaluate step. */
+export interface EvalCommittedEvaluation {
+	evaluation: unknown;
+}
+
 /** One suite's pure scorer: `(case, attempt) -> verdict + reasons`, with no
- * model and no browser (decisions.md ruling 25). */
+ * model and no browser (decisions.md ruling 25). The optional third
+ * parameter is a suite's own `evaluate` step's result (ruling 56), when one
+ * ran — the scorer only ever READS it synchronously; it never runs the
+ * evaluate step itself. Suites with no evaluate step (document, canvas,
+ * slides, verification today) simply never receive one. */
 export type SuiteScorer = (
 	evalCase: EvalCase,
 	attempt: EvalAttempt,
+	evaluation?: unknown,
 ) => EvalScoreResult;
+
+/**
+ * One suite's optional ASYNC per-case step (ruling 56 — today, `app`'s
+ * headless-Chromium pass): runs AFTER the model attempt exists, and its
+ * result is recorded next to the response and handed to the (still
+ * synchronous) scorer above. Suite-shaped on purpose — the harness core
+ * never inspects what a suite's evaluation record contains, only that one
+ * exists or not.
+ */
+export type SuiteEvaluator = (
+	evalCase: EvalCase,
+	attempt: EvalAttempt,
+) => Promise<unknown | null>;
 
 /** One case's outcome inside a run report — the score, or a call that never
  * produced an attempt to score (no committed response in replay, no client
@@ -63,6 +97,9 @@ export interface EvalCaseOutcome {
 	caseId: string;
 	verdict: EvalVerdict;
 	reasons: string[];
+	/** The suite's evaluate step's result, when one ran (ruling 56) — recorded
+	 * next to the response, not folded into `reasons`. */
+	evaluation?: unknown;
 }
 
 export interface EvalSuiteReport {

@@ -50,6 +50,12 @@ function baseDeps(overrides: Partial<RunDeps> = {}): RunDeps {
 		score: alwaysGoodScore,
 		log: () => {},
 		defaultThinking: "off",
+		// Ruling 56's optional per-suite step: the fake suite has none, so the
+		// default here mirrors what a real "no evaluator registered" case does
+		// — resolves with nothing to report, same as getSuiteEvaluator's
+		// fallback for an unregistered suite.
+		evaluate: async () => null,
+		loadCommittedEvaluation: () => null,
 		...overrides,
 	};
 }
@@ -229,6 +235,109 @@ describe("runSuite — replay", () => {
 
 		expect(report.results).toEqual([
 			expect.objectContaining({ caseId: "regular-1", verdict: "bad" }),
+		]);
+	});
+});
+
+// Ruling 56: the harness core's optional per-suite evaluate step. Scorers
+// stay synchronous and only ever READ an evaluate step's result; the step
+// itself runs live (a real browser, for the app suite) or is loaded from a
+// committed fixture under --replay, never both.
+describe("runSuite — the optional per-suite evaluate step (ruling 56)", () => {
+	it("runs the evaluate step live after a successful attempt and hands its result to the scorer", async () => {
+		const evaluate = vi.fn(async () => ({ works: true }));
+		const score = vi.fn((_evalCase, _attempt, evaluation) => ({
+			verdict: evaluation ? ("good" as const) : ("bad" as const),
+			reasons: [],
+		}));
+		const deps = baseDeps({
+			cases: { [FAKE_SUITE]: [fakeCase({ id: "regular-1" })] },
+			client: fakeClient(async () => ({ text: "an answer" })),
+			evaluate,
+			score,
+		});
+
+		const report = await runSuite(
+			FAKE_SUITE,
+			{ replay: false, limit: null, only: null },
+			deps,
+		);
+
+		expect(evaluate).toHaveBeenCalledWith(
+			expect.objectContaining({ id: "regular-1" }),
+			expect.objectContaining({ response: "an answer" }),
+		);
+		expect(score).toHaveBeenCalledWith(
+			expect.objectContaining({ id: "regular-1" }),
+			expect.objectContaining({ response: "an answer" }),
+			{ works: true },
+		);
+		expect(report.results).toEqual([
+			{
+				caseId: "regular-1",
+				verdict: "good",
+				reasons: [],
+				evaluation: { works: true },
+			},
+		]);
+	});
+
+	it("never calls the live evaluate step under --replay, loading a committed evaluation instead", async () => {
+		const evaluate = vi.fn(async () => ({ works: true }));
+		const loadCommittedEvaluation = vi.fn(() => ({ works: false }));
+		const score = vi.fn((_evalCase, _attempt, evaluation) => ({
+			verdict: (evaluation as { works: boolean }).works
+				? ("good" as const)
+				: ("bad" as const),
+			reasons: [],
+		}));
+		const deps = baseDeps({
+			cases: { [FAKE_SUITE]: [fakeCase({ id: "regular-1" })] },
+			loadCommittedResponse: () => ({ response: "a committed answer" }),
+			evaluate,
+			loadCommittedEvaluation,
+			score,
+		});
+
+		const report = await runSuite(
+			FAKE_SUITE,
+			{ replay: true, limit: null, only: null },
+			deps,
+		);
+
+		expect(evaluate).not.toHaveBeenCalled();
+		expect(loadCommittedEvaluation).toHaveBeenCalledWith(
+			FAKE_SUITE,
+			"regular-1",
+		);
+		expect(report.results).toEqual([
+			{
+				caseId: "regular-1",
+				verdict: "bad",
+				reasons: [],
+				evaluation: { works: false },
+			},
+		]);
+	});
+
+	it("omits `evaluation` from the outcome entirely when the suite has no evaluate step", async () => {
+		const deps = baseDeps({
+			cases: { [FAKE_SUITE]: [fakeCase({ id: "regular-1" })] },
+			client: fakeClient(async () => ({ text: "an answer" })),
+		});
+
+		const report = await runSuite(
+			FAKE_SUITE,
+			{ replay: false, limit: null, only: null },
+			deps,
+		);
+
+		// The default fake `evaluate` resolves null — the outcome should read
+		// exactly like every pre-ruling-56 test's plain {caseId, verdict,
+		// reasons}, with no `evaluation: null` noise for suites that never
+		// asked for this step.
+		expect(report.results).toEqual([
+			{ caseId: "regular-1", verdict: "good", reasons: ["looks fine"] },
 		]);
 	});
 });
@@ -429,7 +538,7 @@ describe("runSuite — limit and only", () => {
 });
 
 describe("recordSuiteResponses", () => {
-	it("calls the model for every case and returns raw, unscored attempts", async () => {
+	it("calls the model for every case and returns raw, unscored attempts paired with their evaluation (ruling 56)", async () => {
 		const send = vi.fn(async ({ prompt }: { prompt: string }) => ({
 			text: `echo: ${prompt}`,
 		}));
@@ -440,15 +549,19 @@ describe("recordSuiteResponses", () => {
 				cases: { [FAKE_SUITE]: [fakeCase({ id: "regular-1", prompt: "hi" })] },
 				client: fakeClient(send),
 				defaultThinking: "off",
+				evaluate: async () => null,
 			},
 		);
 
 		expect(attempts).toEqual([
-			expect.objectContaining({
-				caseId: "regular-1",
-				suite: FAKE_SUITE,
-				response: "echo: hi",
-			}),
+			{
+				attempt: expect.objectContaining({
+					caseId: "regular-1",
+					suite: FAKE_SUITE,
+					response: "echo: hi",
+				}),
+				evaluation: null,
+			},
 		]);
 	});
 
@@ -461,9 +574,44 @@ describe("recordSuiteResponses", () => {
 					cases: { [FAKE_SUITE]: [fakeCase()] },
 					client: null,
 					defaultThinking: "off",
+					evaluate: async () => null,
 				},
 			),
 		).rejects.toThrow();
+	});
+
+	// Ruling 56: a live recording run (EVAL_ARTIFACTS_SKIP_EVAL) is also what
+	// produces the COMMITTED evaluation fixtures --replay later reads, so it
+	// must run the evaluate step too, not just capture the raw response.
+	it("also runs the evaluate step for each attempt and returns its result alongside it", async () => {
+		const evaluate = vi.fn(async (_evalCase, attempt) => ({
+			sawResponse: attempt.response,
+		}));
+
+		const attempts = await recordSuiteResponses(
+			FAKE_SUITE,
+			{ limit: null, only: null },
+			{
+				cases: { [FAKE_SUITE]: [fakeCase({ id: "regular-1", prompt: "hi" })] },
+				client: fakeClient(async ({ prompt }) => ({ text: `echo: ${prompt}` })),
+				defaultThinking: "off",
+				evaluate,
+			},
+		);
+
+		expect(evaluate).toHaveBeenCalledWith(
+			expect.objectContaining({ id: "regular-1" }),
+			expect.objectContaining({ response: "echo: hi" }),
+		);
+		expect(attempts).toEqual([
+			{
+				attempt: expect.objectContaining({
+					caseId: "regular-1",
+					response: "echo: hi",
+				}),
+				evaluation: { sawResponse: "echo: hi" },
+			},
+		]);
 	});
 });
 
