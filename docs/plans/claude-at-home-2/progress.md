@@ -327,6 +327,14 @@ storage 7/10, 16.4–23.8 s, 3,088–4,512 completion tokens (P1 2,486–3,607);
 model-driven and passed live → **ruling 59** (known-bad fixtures are recorded answers, never model calls; S5b's T9).
 `feat/artifacts-s2` fast-forwarded to `9110c4cc` and merged. Gates on `feat/artifacts` running (`/tmp/gates-fa-s2/`).
 
+**Gates on `feat/artifacts` at the Slice 2 merge `f91addb8`:** check 0/17, biome clean, **12,760 tests**, build 32/2, Fallow 124/4
+with 0 new, Playwright 37/37 (chat + conversation + artifact-app + artifacts-panel), containment 30/30.
+**Wave 3's independent parts dispatched (sonnet, from `c7c7587f`):** **S7** in `art-s7` (5480), the whole of slice-7 with
+its binding amendment; **S6** in `art-s6` (5460), T1/T2/T5 only, stopping after them. **Migration numbers reserved:**
+S6 `1777140000112` (journal idx 125); later slices take 113, 114, … in merge order, and the orchestrator assigns each
+before dispatch. Still running: S1d (crash, mobile open, margin), S1e (live marks, card preview). Next: when both
+report, merge `feat/artifacts-s1-live` into `feat/artifacts-s1`, then RV-1A (opus) + RV-1B (sonnet).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
