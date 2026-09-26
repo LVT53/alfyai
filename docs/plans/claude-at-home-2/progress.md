@@ -448,6 +448,23 @@ tests; gates at baseline (12,837 on its base). **Pass two** (after Wave 3 starts
 `campaign-admin/CampaignCropModal.svelte` (the agent's task chip was withdrawn in favour of this). Not independently
 reviewed yet: include it in the final review.
 
+**RV-1A done (opus, 2026-09-26): "merge with these fixes", 32 defects fixed test-first** on `feat/artifacts-s1-review-engine` (HEAD
+`4003da51`, code ends `21245078`; `review-1a.md`). Worst: `applyDocumentPatch` wrote without a guard (concurrent edits or an
+autosave mid-patch lost an edit that reported "applied"); anchors resolved against Markdown, not visible text (a comment
+on bold/link/`&` orphaned at birth); canonical-form bugs (prose rules on fenced code, `---` read as a table row, multi-
+paragraph op text stored as one block → new ids/false refusals on reload, nested checklists, table padding, hard
+breaks); a second op on the same block refused; `$` patterns in `replaceRange`; card tick vs editor overwrite (the body
+route now takes `baseHash` + `coalesce`); user saves merging into restore/first versions (ruling 47); refusals keyed by
+block instead of `opIndex`; PDF/DOCX exports printing Markdown syntax; `@Alfy` cost not recorded. 12,886 tests, gates
+clean, containment 30. Live document eval 7/7, known-bad failed as it must. **Sent to RV-1B** (merge RV-1A first):
+the image crash, unescaped `|` in cells, the fence-in-code cut, list-looking paragraphs, task hard breaks, autosave
+`baseHash`, Undo ignoring `insertedBlockIds`, invisible partial `@Alfy` refusals. **Open for later (Wave 3 session):**
+Alfy-written Markdown that the editor re-spells gets a new hash on the first user save (canonicalise Alfy's text on
+write?); a full read sends the text twice (~200k chars max); the spec's `…/document/patches` route was never built
+(superseded by the shared body route?). Recipe fix: with SSH `ControlMaster`, close a forward with
+`ssh -O cancel -L <port>:192.168.1.96:30000 alfyroot`. The shared `node_modules/.vite` can be re-optimised by another
+worktree's dev server mid-run (45 spurious e2e failures once).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
