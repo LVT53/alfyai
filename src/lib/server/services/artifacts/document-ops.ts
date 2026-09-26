@@ -153,6 +153,21 @@ function readCurrentVersionNumber(
 	return row?.versionNumber ?? 0;
 }
 
+/** The current newest version's row id — `edit_artifact`'s `versionId` needs a real string even on an all-refused patch (nothing new was written, so it names the version the read stays true of). */
+function readCurrentVersionId(
+	tx: ArtifactTransaction | typeof db,
+	artifactId: string,
+): string | null {
+	const row = tx
+		.select({ id: artifactVersions.id })
+		.from(artifactVersions)
+		.where(eq(artifactVersions.artifactId, artifactId))
+		.orderBy(desc(artifactVersions.versionNumber))
+		.limit(1)
+		.get();
+	return row?.id ?? null;
+}
+
 /**
  * `metadata.tabs`, validated field by field — malformed or missing reads as
  * `[]`, never a throw. Exported (not just used internally) so a caller that
@@ -277,7 +292,13 @@ export async function applyDocumentPatch(
 		patch: PatchSet;
 	} & ArtifactScopeOptions,
 ): Promise<
-	| { ok: true; result: PatchResult; version: number }
+	| {
+			ok: true;
+			result: PatchResult;
+			version: number;
+			/** The version this patch landed in, or the CURRENT version when every op refused (nothing new was written). */
+			versionId: string | null;
+	  }
 	| { ok: false; reason: "not_found" | "not_a_document" }
 > {
 	let scoped: Awaited<ReturnType<typeof readScopedDocumentRow>>;
@@ -308,6 +329,7 @@ export async function applyDocumentPatch(
 			ok: true,
 			result: patchResult,
 			version: snapshot?.docVersion ?? readCurrentVersionNumber(db, scoped.id),
+			versionId: readCurrentVersionId(db, scoped.id),
 		};
 	}
 
@@ -332,7 +354,12 @@ export async function applyDocumentPatch(
 		return { ok: false, reason: "not_found" };
 	}
 
-	return { ok: true, result: patchResult, version: writeResult.versionNumber };
+	return {
+		ok: true,
+		result: patchResult,
+		version: writeResult.versionNumber,
+		versionId: writeResult.versionId,
+	};
 }
 
 /**

@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
 	getArtifact,
 	listArtifactCatalogueEntries,
+	readDocumentForAlfy,
 } from "$lib/server/services/artifacts";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { MAX_INLINE_TEXT_CHARS } from "../files";
@@ -92,7 +93,34 @@ export type ReadArtifactHandler = (
  */
 export const READ_ARTIFACT_HANDLERS: Partial<
 	Record<CreatableArtifactKind, ReadArtifactHandler>
-> = {};
+> = {
+	// Slice 1: readDocumentForAlfy writes the snapshot IN THE SAME
+	// transaction as the read (Contracts) — this is the one call that makes
+	// a later edit_artifact's "your words win" guard possible at all, so
+	// every read_artifact on a Document, "blocks" or "full", goes through it
+	// exactly once, never a lighter read that skips the snapshot.
+	document: async (params) => {
+		const read = await readDocumentForAlfy({
+			userId: params.userId,
+			artifactId: params.artifactId,
+			conversationId: params.conversationId,
+		});
+		const blocks = read.blocks.map((block) => ({
+			blockId: block.blockId,
+			kind: block.kind,
+			label: block.label,
+			hash: block.hash,
+			text: block.text,
+		}));
+		if (params.detail === "blocks") {
+			return { blocks };
+		}
+		// "full": the same blocks, PLUS one concatenated string for a model
+		// that just wants to read the document rather than address a block.
+		const body = read.blocks.map((block) => block.text).join("\n\n");
+		return { blocks, body };
+	},
+};
 
 /**
  * A produced file's content can be long (it is meant for read_generated_file,
