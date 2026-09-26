@@ -326,19 +326,32 @@ function stripStrayLeadingWhitespace(lines: string[]): string[] {
 	return lines.map((line) => line.replace(/^[ \t]+/, ""));
 }
 
+/**
+ * Rule 5: a chip token's attribute order and quoting are fixed. Only a real
+ * token is touched — an unescaped `[chip` whose body is nothing but
+ * `name="value"` / `name='value'` pairs, including `kind` or `value`. The
+ * user's own bracketed words are text: the editor writes a typed "[chip in]"
+ * as `\[chip in\]`, and rewriting that as an empty chip deleted the words
+ * (RV-1A).
+ */
 function normalizeChipSyntax(text: string): string {
-	return text.replace(/\[chip\s+([^\]]*)\]/g, (_match, rawAttrs: string) => {
-		const attrs: Record<string, string> = {};
-		const attrRe = /(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-		let m: RegExpExecArray | null = attrRe.exec(rawAttrs);
-		while (m !== null) {
-			attrs[m[1]] = m[2] !== undefined ? m[2] : (m[3] ?? "");
-			m = attrRe.exec(rawAttrs);
-		}
-		const kind = attrs.kind ?? "";
-		const value = attrs.value ?? "";
-		return `[chip kind="${kind}" value="${value}"]`;
-	});
+	return text.replace(
+		/(?<!\\)\[chip\s+([^\]]*)\]/g,
+		(match, rawAttrs: string) => {
+			if (!/^(?:\s*\w+\s*=\s*(?:"[^"]*"|'[^']*'))+\s*$/.test(rawAttrs)) {
+				return match;
+			}
+			const attrs: Record<string, string> = {};
+			const attrRe = /(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+			let m: RegExpExecArray | null = attrRe.exec(rawAttrs);
+			while (m !== null) {
+				attrs[m[1]] = m[2] !== undefined ? m[2] : (m[3] ?? "");
+				m = attrRe.exec(rawAttrs);
+			}
+			if (attrs.kind === undefined && attrs.value === undefined) return match;
+			return `[chip kind="${attrs.kind ?? ""}" value="${attrs.value ?? ""}"]`;
+		},
+	);
 }
 
 // ---------------------------------------------------------------------------

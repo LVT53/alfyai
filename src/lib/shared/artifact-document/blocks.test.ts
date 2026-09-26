@@ -475,3 +475,22 @@ describe("RV-1A: a task's card text is the text the user sees", () => {
 		});
 	});
 });
+
+describe("RV-1A: chip syntax is only rewritten when it is a chip", () => {
+	it("leaves the user's own bracketed text alone — the editor writes a typed '[chip in]' as '\\[chip in\\]'", () => {
+		expect(normalizeMarkdown("We will \\[chip in\\] later.")).toBe(
+			"We will \\[chip in\\] later.",
+		);
+		expect(normalizeMarkdown("A note [chip in] here.")).toBe(
+			"A note [chip in] here.",
+		);
+		// Two chips side by side are both canonicalised.
+		expect(
+			normalizeMarkdown("[chip value='a' kind='x'][chip value='b' kind='y']"),
+		).toBe('[chip kind="x" value="a"][chip kind="y" value="b"]');
+		// A real chip token is still canonicalised (rule 5).
+		expect(normalizeMarkdown("Hotel [chip value='Booked' kind='status']")).toBe(
+			'Hotel [chip kind="status" value="Booked"]',
+		);
+	});
+});
