@@ -19,7 +19,10 @@ import type {
 	ArtifactCardView,
 } from "$lib/components/artifacts/ArtifactCard.svelte";
 import type { ArtifactMetadata } from "$lib/server/services/artifacts/types";
-import { parseDocument } from "$lib/shared/artifact-document/blocks";
+import {
+	parseDocument,
+	readTaskBlock,
+} from "$lib/shared/artifact-document/blocks";
 
 export interface DocumentCardTabInfo {
 	id: string;
@@ -61,16 +64,6 @@ export function documentCardTabCount(
 	return documentTabsFromCardMetadata(metadata).length;
 }
 
-/** A `taskList` block's checked state — the first line's `[x]`/`[ ]`, mirroring `patch.ts`'s own `toggleTaskItem` reader. */
-function isTaskChecked(blockMarkdown: string): boolean {
-	return /^\s*[-*+]\s+\[[xX]\]/.test(blockMarkdown.split("\n")[0] ?? "");
-}
-
-/** A task item's visible text, stripped of its `- [ ]`/`- [x]` marker. */
-function taskItemText(blockMarkdown: string): string {
-	return blockMarkdown.replace(/^\s*[-*+]\s+\[[ xX]\]\s*/, "").trim();
-}
-
 export interface DocumentCardViewParams {
 	artifactId: string;
 	title: string;
@@ -103,12 +96,11 @@ export function documentArtifactCardView(
 	const blocks = params.body
 		? parseDocument(params.body, { mint: false }).blocks
 		: [];
-	const taskBlocks = blocks.filter((block) => block.kind === "taskList");
-	const items: ArtifactCardTickableItem[] = taskBlocks.map((block) => ({
-		id: block.id,
-		text: taskItemText(block.markdown),
-		done: isTaskChecked(block.markdown),
-	}));
+	const items: ArtifactCardTickableItem[] = [];
+	for (const block of blocks) {
+		const task = readTaskBlock(block);
+		if (task) items.push({ id: block.id, text: task.text, done: task.checked });
+	}
 
 	return {
 		id: params.artifactId,

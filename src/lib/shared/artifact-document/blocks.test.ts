@@ -8,6 +8,7 @@ import {
 	mintBlockId,
 	normalizeMarkdown,
 	parseDocument,
+	readTaskBlock,
 } from "./blocks";
 
 // The Document's pure engine (spec §2.6, ruling 12). No Tiptap, no ProseMirror,
@@ -290,5 +291,28 @@ describe("artifact-document blocks", () => {
 		for (const block of result.blocks) {
 			expect(block.markdown).not.toContain("<!--b:");
 		}
+	});
+});
+
+describe("readTaskBlock — the one checked-state/text reader for card previews", () => {
+	it("reads a checked task's text", () => {
+		const result = parseDocument("- [x] Book flights");
+		expect(readTaskBlock(result.blocks[0])).toEqual({
+			checked: true,
+			text: "Book flights",
+		});
+	});
+
+	it("reads an unchecked task's text", () => {
+		const result = parseDocument("- [ ] Book hotel");
+		expect(readTaskBlock(result.blocks[0])).toEqual({
+			checked: false,
+			text: "Book hotel",
+		});
+	});
+
+	it("is null for a non-task block", () => {
+		const result = parseDocument("Just a paragraph.");
+		expect(readTaskBlock(result.blocks[0])).toBeNull();
 	});
 });
