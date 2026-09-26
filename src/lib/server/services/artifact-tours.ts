@@ -14,6 +14,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import {
 	ARTIFACT_TOUR_CONTENT_VERSION,
 	ARTIFACT_TOUR_DEFAULTS,
+	isArtifactTourType,
 } from "$lib/server/artifact-tour-defaults";
 import { db as defaultDb } from "$lib/server/db";
 import {
@@ -143,8 +144,10 @@ export async function getArtifactTour(params: {
 	artifactType: ArtifactTourType;
 	options?: CampaignServiceOptions;
 }): Promise<ArtifactTourLookup | null> {
-	const hasDefault = params.artifactType in ARTIFACT_TOUR_DEFAULTS;
-	if (!hasDefault) return null;
+	// `isArtifactTourType` (a `Set.has()` check), not `in` — an object literal's
+	// `in` operator also matches inherited `Object.prototype` keys such as
+	// `toString`, which would otherwise read as a "valid" kind.
+	if (!isArtifactTourType(params.artifactType)) return null;
 
 	const db = database(params.options);
 	let tour: ResolvedArtifactTour = defaultTour(params.artifactType);

@@ -246,6 +246,18 @@ describe("artifact tours service", () => {
 		expect(result).toBeNull();
 	});
 
+	it("does not mistake an inherited Object.prototype key for a real kind", async () => {
+		// A plain-object `in` check (unlike `isArtifactTourType`'s `Set.has()`)
+		// would say `"toString" in ARTIFACT_TOUR_DEFAULTS` is true.
+		const result = await getArtifactTour({
+			userId: "user-1",
+			artifactType: "toString" as ArtifactTourType,
+			options: { db },
+		});
+
+		expect(result).toBeNull();
+	});
+
 	it("returns the default when the campaign read throws", async () => {
 		// A broken/missing campaign table must not break the panel — only the
 		// campaign read fails, the seen-state table is untouched and healthy.
