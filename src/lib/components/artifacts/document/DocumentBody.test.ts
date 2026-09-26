@@ -18,6 +18,7 @@ const {
 	mockCreateArtifactComment,
 	mockResolveArtifactComment,
 	mockAskAlfyInComment,
+	mockExportArtifactDocument,
 } = vi.hoisted(() => ({
 	mockFetchArtifact: vi.fn(),
 	mockSaveArtifactBody: vi.fn(),
@@ -25,6 +26,7 @@ const {
 	mockCreateArtifactComment: vi.fn(),
 	mockResolveArtifactComment: vi.fn(),
 	mockAskAlfyInComment: vi.fn(),
+	mockExportArtifactDocument: vi.fn(),
 }));
 
 vi.mock("$lib/client/api/artifacts", () => ({
@@ -34,6 +36,7 @@ vi.mock("$lib/client/api/artifacts", () => ({
 	createArtifactComment: mockCreateArtifactComment,
 	resolveArtifactComment: mockResolveArtifactComment,
 	askAlfyInComment: mockAskAlfyInComment,
+	exportArtifactDocument: mockExportArtifactDocument,
 }));
 
 const {
@@ -762,6 +765,56 @@ describe("DocumentBody", () => {
 					"conv-1",
 				),
 			);
+		});
+	});
+
+	// The download sheet (Slice 1, T12).
+	describe("download", () => {
+		it("opens the download sheet, named after the document, from the toolbar", async () => {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(screen.queryByRole("dialog")).toBeNull();
+
+			await fireEvent.click(screen.getByRole("button", { name: "Download" }));
+
+			expect(
+				screen.getByRole("dialog", { name: /Trip plan/ }),
+			).toBeInTheDocument();
+		});
+
+		it("exports with the artifact's own id and conversation id", async () => {
+			mockExportArtifactDocument.mockResolvedValue({
+				ok: true,
+				job: { id: "job-1" },
+			});
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Download" }));
+			await fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+
+			expect(mockExportArtifactDocument).toHaveBeenCalledWith(
+				"artifact-1",
+				"pdf",
+				"conv-1",
+			);
+			await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 		});
 	});
 });

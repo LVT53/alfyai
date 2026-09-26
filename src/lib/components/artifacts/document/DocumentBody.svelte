@@ -79,6 +79,7 @@ import {
 } from "./document-autosave";
 import type { Editor } from "./document-editor";
 import DocumentToolbar from "./DocumentToolbar.svelte";
+import DownloadSheet from "./DownloadSheet.svelte";
 import MarginPanel from "./MarginPanel.svelte";
 import SelectionBubble from "./SelectionBubble.svelte";
 import type { DocumentToolbarActionId } from "./toolbar-actions";
@@ -247,6 +248,10 @@ async function handleCommentResolve(
 }
 // ---- end T10 -----------------------------------------------------------
 
+// ---- T12: the download sheet -----------------------------------------------
+let downloadSheetOpen = $state(false);
+// ---- end T12 -------------------------------------------------------------
+
 /** The editor's current text, canonicalised through the SERVER's own pipeline (T7.2) — never a second canonicaliser. */
 function currentCanonicalMarkdown(): string | null {
 	if (!editor || !readMarkdownFn) return null;
@@ -327,6 +332,11 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
 }
 
 function handleToolbarAction(id: DocumentToolbarActionId): void {
+	// T12: the one toolbar action that never touches the live editor.
+	if (id === "download") {
+		downloadSheetOpen = true;
+		return;
+	}
 	if (!editor) return;
 	const chain = editor.chain().focus();
 	switch (id) {
@@ -570,6 +580,17 @@ function saveNoticeText(notice: SaveNotice): string {
 						onDismiss={dismissSelectionBubble}
 					/>
 				{/if}
+				<!-- T12: the download sheet, opened from the toolbar's download action -->
+				{#if downloadSheetOpen}
+					<div class="document-download-anchor">
+						<DownloadSheet
+							artifactId={boundArtifactId}
+							{title}
+							conversationId={panelConversationId}
+							onClose={() => (downloadSheetOpen = false)}
+						/>
+					</div>
+				{/if}
 			{/if}
 		</div>
 		{#if saveNotice === 'offline' || saveNotice === 'tooLarge' || saveNotice === 'conflict'}
@@ -647,6 +668,16 @@ function saveNoticeText(notice: SaveNotice): string {
 		inset: 0;
 		background-color: var(--surface-elevated);
 		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	/* T12: anchored under the toolbar's download button, at the top of the
+	   same scroll container the selection bubble uses. */
+	.document-download-anchor {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.75rem;
+		z-index: 20;
+		min-width: 12rem;
 	}
 
 	.document-notice {

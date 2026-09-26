@@ -12,6 +12,7 @@ import type { LucideIcon } from "@lucide/svelte";
 import {
 	Bold,
 	Code,
+	Download,
 	Heading1,
 	Heading2,
 	Italic,
@@ -41,7 +42,10 @@ export type DocumentToolbarActionId =
 	| "table"
 	| "link"
 	| "undo"
-	| "redo";
+	| "redo"
+	// T12: opens DownloadSheet.svelte — a one-shot command like table/undo/
+	// redo, never a pressed toggle state.
+	| "download";
 
 export interface DocumentToolbarAction {
 	id: DocumentToolbarActionId;
@@ -110,6 +114,12 @@ export const DOCUMENT_TOOLBAR_ACTIONS: DocumentToolbarAction[] = [
 		id: "redo",
 		icon: Redo2,
 		labelKey: "artifacts.document.toolbar.redo",
+		momentary: true,
+	},
+	{
+		id: "download",
+		icon: Download,
+		labelKey: "artifacts.document.toolbar.download",
 		momentary: true,
 	},
 ];
