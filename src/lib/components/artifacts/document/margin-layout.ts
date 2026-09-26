@@ -57,7 +57,7 @@ export interface MarginLayoutResult {
 }
 
 /** Minimum breathing room between two stacked threads' boxes, in pixels. */
-export const MARGIN_THREAD_GAP_PX = 8;
+const MARGIN_THREAD_GAP_PX = 8;
 
 /**
  * Computes each anchored thread's final `top`, and separates out the ones

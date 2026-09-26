@@ -238,7 +238,8 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 		page,
 	}) => {
 		const conversationId = await createConversation(page, "Margin placement");
-		const markdown = "Book the hotel by Friday.\n\nConfirm the flight to Vienna.";
+		const markdown =
+			"Book the hotel by Friday.\n\nConfirm the flight to Vienna.";
 		const userId = await testUserId();
 		const artifact = await createDocumentArtifact({
 			userId,
