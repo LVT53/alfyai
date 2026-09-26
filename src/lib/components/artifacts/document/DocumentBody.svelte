@@ -1082,6 +1082,14 @@ function saveNoticeText(notice: SaveNotice): string {
 		flex: 1;
 		min-height: 240px;
 		overflow-y: auto;
+		/* RV-1B: explicit rather than relying on the CSS spec's "overflow-y
+		   auto computes overflow-x to auto too" quirk (real, and already
+		   holding — `tests/e2e/artifact-document.spec.ts`'s "a wide table does
+		   not force horizontal page scroll" passes today — but undocumented
+		   and one `overflow-y` edit away from silently breaking). A wide table
+		   (§2.3's table block) gets its own horizontal scrollbar here instead
+		   of forcing the whole page to scroll sideways at 390 px. */
+		overflow-x: auto;
 	}
 
 	/* `flex: 1` (not just `min-height`) so the editable canvas fills whatever

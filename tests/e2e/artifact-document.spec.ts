@@ -516,6 +516,47 @@ test.describe("the Document mobile toolbar", () => {
 		expect(box?.y).toBeGreaterThanOrEqual(0);
 		expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(420);
 	});
+
+	// RV-1B, hunt item 8: "no horizontal overflow at 390 px". Nothing tested
+	// this for an OPEN document — `artifacts-panel.spec.ts`'s own 390x844
+	// overflow check only covers the panel LIST, never a document with real
+	// content (its own header comment says so explicitly). A wide table is
+	// the one block kind actually likely to force this: verified this
+	// currently holds because `.document-content`'s `overflow-y: auto`
+	// computes `overflow-x` to `auto` too (the CSS spec's "if one axis is
+	// visible and the other is not, visible becomes auto" rule), giving a
+	// wide table its own horizontal scrollbar inside the content area rather
+	// than leaking into the page — but that protection is implicit and
+	// undocumented anywhere in the CSS, so a future refactor of that one
+	// `overflow-y` declaration could silently reintroduce page-level
+	// horizontal scroll with nothing to catch it. This test is that catch.
+	test("a wide table does not force horizontal page scroll at 390x844", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(page, "Plan a trip");
+		const wideTable = [
+			"| Column Alpha | Column Beta | Column Gamma | Column Delta | Column Epsilon |",
+			"| --- | --- | --- | --- | --- |",
+			"| A rather long cell value here | Another long value | Yet more text in this cell | And even more content | The last column's long text |",
+		].join("\n");
+		await seedDocument({
+			conversationId,
+			title: "Wide table",
+			markdown: wideTable,
+		});
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+		// The table itself, not just the shell, must be on screen before an
+		// overflow reading means anything.
+		await expect(page.locator(".document-editor-host table")).toBeVisible();
+
+		const overflow = await page.evaluate(() => ({
+			scrollWidth: document.documentElement.scrollWidth,
+			clientWidth: document.documentElement.clientWidth,
+		}));
+		expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+	});
 });
 
 // T9 steps 4/7: the panel list's own card preview (subtitle + tickable
@@ -727,9 +768,7 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			const refusalNotice = page.getByTestId("refusal-notice");
 			await expect(refusalNotice).toBeVisible();
 			await expect(refusalNotice.getByText("Book the flight.")).toBeVisible();
-			await expect(
-				editorContent.getByText("Book the flight."),
-			).toBeVisible();
+			await expect(editorContent.getByText("Book the flight.")).toBeVisible();
 			await expect(page.getByText("This should never land.")).toHaveCount(0);
 
 			const storedBody = await readStoredBody(artifactId);
