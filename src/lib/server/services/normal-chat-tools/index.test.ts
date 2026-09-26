@@ -47,11 +47,13 @@ import {
 	SKILLS_AVAILABLE_HEADING,
 } from "$lib/server/services/skills/prompt-context";
 import { resetToolHealthCacheForTests } from "$lib/server/services/tool-health";
+import { PATCH_OP_KINDS } from "$lib/shared/artifact-document/patch";
 import { INSTRUCTIONS_MAX_CHARS } from "$lib/shared/instructions";
 import {
 	CREATE_ARTIFACT_HANDLERS,
 	MAX_CREATE_ARTIFACT_CALLS_PER_TURN,
 } from "./artifact-tools/create";
+import { EDIT_ARTIFACT_DOCUMENT_EXAMPLE } from "./artifact-tools/kind-prose";
 import {
 	createNormalChatTools,
 	isProduceFileRequest,
@@ -5192,6 +5194,64 @@ describe("advertised artifact kinds match the registry (only tell the model what
 	});
 });
 
+// A dev live check (2026-09-26): edit_artifact's advertised schema never
+// showed the model the real Document `op` values, so it guessed seven wrong
+// synonyms in a row and gave up, duplicating the document with
+// create_artifact instead of retrying the edit. Through the REAL wiring
+// (createNormalChatTools, both languages), not kind-prose.ts's functions in
+// isolation, so a regression in the assembly path (edit.ts's schema factory,
+// index.ts's description builder) is caught here too.
+describe("edit_artifact's Document op contract is shown to the model, in both languages (dev incident, 2026-09-26)", () => {
+	function buildArtifactTools(lang: "en" | "hu") {
+		return createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			language: lang,
+		}).tools;
+	}
+
+	function schemaJson(inputSchema: unknown): string {
+		return JSON.stringify(
+			(inputSchema as { jsonSchema?: unknown })?.jsonSchema ?? inputSchema,
+		);
+	}
+
+	it("the schema shown to the model carries all five real op values as a discriminated union", () => {
+		const schema = schemaJson(
+			buildArtifactTools("en").edit_artifact.inputSchema,
+		);
+		for (const kind of PATCH_OP_KINDS) {
+			expect(schema).toContain(kind);
+		}
+		// None of the seven wrong guesses the real model made on dev.
+		for (const guess of [
+			"insert_after",
+			'"replace"',
+			'"update"',
+			'"edit"',
+			"update_block",
+		]) {
+			expect(schema).not.toContain(guess);
+		}
+	});
+
+	it.each([
+		"en",
+		"hu",
+	] as const)("the %s description carries the SAME worked example, and its own never-duplicate sentence", (lang) => {
+		const description = buildArtifactTools(lang).edit_artifact.description;
+		expect(description).toContain(
+			JSON.stringify(EDIT_ARTIFACT_DOCUMENT_EXAMPLE),
+		);
+		expect(description).toContain(
+			lang === "en"
+				? "Never make a new item to work around a refused edit"
+				: "Elutasított szerkesztés megkerülésére soha ne hozz létre új elemet",
+		);
+	});
+});
+
 describe("tool description hygiene", () => {
 	const ALL_CONNECTION_CAPABILITIES = [
 		"files",
@@ -5300,12 +5360,33 @@ describe("tool description hygiene", () => {
 	// like any other raise, not by moving this number further than the
 	// registration itself costs.
 	//
+	// A dev live check (2026-09-26) found edit_artifact's Document op contract
+	// was undiscoverable: the field description said only "[{op, blockId,
+	// baseHash, text}]", never the five real `op` values, so the model burned
+	// seven refused calls guessing synonyms (insert_after, replace, update,
+	// edit, update_block) before giving up and duplicating the document with
+	// create_artifact instead. The fix raises this ceiling again, not a cut
+	// elsewhere: `patches` now carries the real discriminated union
+	// ($lib/shared/artifact-document/patch.ts's `patchOpInputSchema`, the SAME
+	// schema EDIT_ARTIFACT_HANDLERS.document validates with — see edit.ts),
+	// and the description gained one compact worked example plus one sentence
+	// against papering over a refusal with a duplicate (kind-prose.ts's
+	// `editArtifactExampleClause`, index.ts's buildEditArtifactDescription).
+	// The union itself is schema, not description text, so it costs nothing
+	// here (this ceiling sums only each tool's description string — see
+	// buildFullToolCatalogue below; the union's real prompt cost shows up in
+	// the frozen catalogue snapshot instead). Re-measured with the new
+	// sentences in the catalogue: 4,773 en / 7,782 hu (53 en / 82 hu spent).
+	// The ceiling below is that measurement plus the SAME small margin as
+	// before (26 en / 27 hu), for the same reason as every earlier raise: a
+	// tripwire, not a round number.
+	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
 	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 4746, hu: 7727 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 4799, hu: 7809 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);

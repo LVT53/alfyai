@@ -10,6 +10,7 @@
  * human sentence is produced where it is shown (the UI's
  * `artifacts.document.refused.*`, or the tool layer's model-facing text).
  */
+import { z } from "zod";
 import {
 	type BlockKind,
 	type DocumentBlock,
@@ -47,6 +48,103 @@ export interface PatchSet {
 	note?: string;
 	ops: PatchOp[];
 }
+
+// ── The wire contract, in the same object as the engine ────────────────────
+//
+// A dev incident (2026-09-26) found the model could not produce a valid
+// Document patch: edit_artifact advertised only a free-text description of
+// the op shape ("[{op, blockId, baseHash, text}]"), never the real `op`
+// values, so seven straight calls guessed synonyms (`insert_after`,
+// `replace`, `update`, `edit`, `update_block`) and all seven were refused
+// before the model gave up and duplicated the document with create_artifact
+// instead. `patchOpInputSchema` is now the ONE schema both sides read:
+// `normal-chat-tools/artifact-tools/edit.ts` advertises it to the model
+// (so the JSON schema itself carries the five real `op` values and, per
+// variant, exactly the fields that op reads below) and validates every
+// incoming patch op against it — the description and the validator cannot
+// drift apart because there is only one definition.
+//
+// Each variant carries `blockId`/`baseHash` (every op needs a block to
+// address and the hash it was last read at) plus only the fields that op's
+// branch in `applyPatchSet` actually reads. A field an op does not read is
+// left off its variant entirely, rather than present-but-ignored, so the
+// schema itself is the answer to "what does this op need".
+const patchOpCommonFields = {
+	blockId: z.string().min(1).describe("The block id from read_artifact."),
+	baseHash: z
+		.string()
+		.min(1)
+		.describe("The block's hash from read_artifact's last read."),
+};
+
+const patchTableCellSchema = z.union([
+	z.string(),
+	z.object({
+		chip: z.object({
+			kind: z.enum(["status", "date"]),
+			value: z.string(),
+		}),
+	}),
+]);
+
+export const patchOpInputSchema = z.discriminatedUnion("op", [
+	z.object({
+		op: z.literal("replaceBlock"),
+		...patchOpCommonFields,
+		text: z.string().min(1).describe("The block's new full text."),
+	}),
+	z.object({
+		op: z.literal("insertText"),
+		...patchOpCommonFields,
+		text: z.string().min(1).describe("Text to add to the block."),
+		at: z
+			.enum(["start", "end"])
+			.optional()
+			.describe('Where to add it inside the block; default "end".'),
+	}),
+	z.object({
+		op: z.literal("replaceRange"),
+		...patchOpCommonFields,
+		find: z
+			.string()
+			.min(1)
+			.describe(
+				"The exact text inside the block to replace — must occur exactly once.",
+			),
+		text: z
+			.string()
+			.optional()
+			.describe("The replacement text; omit to delete `find`."),
+	}),
+	z.object({
+		op: z.literal("toggleTask"),
+		...patchOpCommonFields,
+		checked: z
+			.boolean()
+			.optional()
+			.describe("Set the checkbox to this; omit to flip its current state."),
+	}),
+	z.object({
+		op: z.literal("addTableRow"),
+		...patchOpCommonFields,
+		cells: z
+			.array(patchTableCellSchema)
+			.min(1)
+			.describe("One cell per column, in the table's column order."),
+	}),
+]);
+
+export type PatchOpInput = z.infer<typeof patchOpInputSchema>;
+
+/**
+ * The five valid `op` values, derived from `patchOpInputSchema` itself (never
+ * retyped by hand) so the list a refusal names can never drift from what the
+ * schema actually accepts.
+ */
+export const PATCH_OP_KINDS: readonly PatchOpKind[] =
+	patchOpInputSchema.options.map(
+		(option) => option.shape.op.value as PatchOpKind,
+	);
 
 export type RefusalReason =
 	| "block_missing" // "block no longer exists"
