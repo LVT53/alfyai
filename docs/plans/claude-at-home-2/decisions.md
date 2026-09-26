@@ -512,6 +512,35 @@ eval look live while not measuring the production model. The recipe is `working-
 Slice 1's document fixtures are re-recorded that way. The key rule is otherwise unchanged: never printed, logged,
 written into `results/` or committed.
 
+## 55. An artifact is made in the turn's language, never a per-message guess
+
+*Orchestrator, 2026-09-26, from Slice 2's live eval: 3 of 10 English prompts produced Hungarian Apps.* Wave 0
+resolves the reply language once per turn (`resolveTurnResponseLanguage`), and the tool context already carries it
+(`CreateNormalChatToolsContext.language`). `CreateArtifactHandler` params gain `language: "en" | "hu"`, threaded
+from that context by the create closure in `normal-chat-tools/index.ts` (an authorized edit, like ruling 53's), and
+every handler uses it. The App path's `detectLanguage(brief)`, the per-message heuristic Wave 0 retired from the
+chat path because it reads English as Hungarian, is removed. The panel's regenerate uses the same resolver (the
+user's instruction, then the conversation's established language, then the UI language). The `app` eval gives
+each fixture its declared language, and scores the output's language: a UI in the wrong language is `broken`.
+
+## 56. The App suite's browser pass is part of the gate
+
+*Orchestrator, 2026-09-26.* `slice-2.md` A9 Step 3 and `slice-5.md`'s suite table require the P1 pipeline's
+headless-Chromium evaluation (1280×800 and 390×844, light and dark; every request but the document aborted;
+`window.alfy.storage` injected before the app's own scripts; one smoke interaction), and the `works` /
+`works-with-glitches` / `broken` verdicts come from it. Scorers stay synchronous and read records; the harness core
+gains an optional async per-suite `evaluate` step that runs after extraction and records its result next to the
+response. `--replay` re-scores the committed responses and evaluation records with no model and no browser; a live
+run does both. The port follows the prototype's `evaluate.ts`, `score.ts` verdict rules and `gallery.ts`.
+
+## 57. No new import cycle: `research_web` gets its own module
+
+*Orchestrator, 2026-09-26.* Slice 2's verifier took `research_web` from `createNormalChatTools`, which closed a new
+cycle (`artifacts/app/create.ts → … → verify.ts → normal-chat-tools/index.ts → artifact-tools/create.ts → …`; Fallow
+4 → 5). The research_web tool's construction moves out of `index.ts` into its own module, used by both `index.ts`
+and the verifier. It is a pure move (an authorized edit to `index.ts`), and the frozen catalogue snapshots prove the
+tool is unchanged. Fallow's circular count returns to 4.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
