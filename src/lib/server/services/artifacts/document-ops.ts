@@ -448,12 +448,21 @@ export async function saveDocumentBody(
 				| "version_conflict";
 	  }
 > {
+	// Server authority over what is stored (RV-1A): the body is parsed and
+	// minted here, so every block is stored behind its own marker whatever
+	// the client sent. The editor canonicalises before it saves, making this a
+	// no-op for it; a body that arrives with an unmarked block (an old tab, a
+	// hand-made request) no longer reaches Alfy's read as a block with an
+	// empty — and, for two such blocks, shared — id.
 	const result = await updateArtifactBody({
 		userId: params.userId,
 		artifactId: params.artifactId,
 		conversationId: params.conversationId,
 		includeIncognito: params.includeIncognito,
-		body: serialize(params.body),
+		body: serialize({
+			...params.body,
+			markdown: parseDocument(params.body.markdown).markdown,
+		}),
 		author: params.author,
 		summary: params.summary,
 		metadataPatch: { tabs: params.body.tabs },

@@ -909,4 +909,40 @@ describe("RV-1A: the Document's writes on a real database", () => {
 				.all(),
 		).toEqual([]);
 	});
+
+	it("a saved body is stored canonical: a block that arrives with no marker gets an id, so Alfy's read never hands out an empty or shared one", async () => {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Trip",
+			markdown: "First.",
+			author: "alfy",
+			summary: "x",
+		});
+		// A body that is not canonical: two blocks arrive without a marker
+		// (an old tab, a client bug, a hand-made request).
+		const body = `${rawContentText(created.id)}\nSecond.\n\nThird.\n`;
+		const saved = await saveDocumentBody({
+			userId,
+			artifactId: created.id,
+			conversationId,
+			body: { markdown: body, tabs: [] },
+			author: "user",
+			summary: "Edited",
+			coalesceUserEdits: true,
+		});
+		expect(saved.ok).toBe(true);
+
+		const stored = rawContentText(created.id);
+		expect(parseDocument(stored).markdown).toBe(stored);
+		const read = await readDocumentForAlfy({
+			userId,
+			artifactId: created.id,
+			conversationId,
+		});
+		const ids = read.blocks.map((block) => block.blockId);
+		expect(ids).toHaveLength(3);
+		expect(ids.every((id) => id.length > 0)).toBe(true);
+		expect(new Set(ids).size).toBe(3);
+	});
 });
