@@ -7,11 +7,12 @@ vi.mock("$lib/server/services/artifacts/app/create", () => ({
 }));
 
 import {
+	advertisedArtifactKinds,
+	buildCreateArtifactInputSchema,
+	buildCreateArtifactModelInputSchema,
 	CREATABLE_ARTIFACT_KINDS,
 	CREATE_ARTIFACT_HANDLERS,
 	type CreateArtifactHandler,
-	createArtifactInputSchema,
-	createArtifactModelInputSchema,
 	runCreateArtifactTool,
 } from "./create";
 
@@ -38,8 +39,12 @@ describe("createArtifactModelInputSchema / createArtifactInputSchema", () => {
 			title: "Vienna plan",
 			body: "# Plan",
 		};
-		expect(createArtifactModelInputSchema.safeParse(input).success).toBe(true);
-		expect(createArtifactInputSchema.safeParse(input).success).toBe(true);
+		expect(buildCreateArtifactModelInputSchema().safeParse(input).success).toBe(
+			true,
+		);
+		expect(buildCreateArtifactInputSchema().safeParse(input).success).toBe(
+			true,
+		);
 	});
 
 	it("the executed schema enforces the server's title bound", () => {
@@ -48,17 +53,103 @@ describe("createArtifactModelInputSchema / createArtifactInputSchema", () => {
 			title: "x".repeat(201),
 			body: "b",
 		};
-		expect(createArtifactInputSchema.safeParse(tooLong).success).toBe(false);
+		expect(buildCreateArtifactInputSchema().safeParse(tooLong).success).toBe(
+			false,
+		);
 	});
 
 	it("rejects a kind outside the creatable four, including file", () => {
 		const input = { artifactType: "file", title: "t", body: "b" };
-		expect(createArtifactInputSchema.safeParse(input).success).toBe(false);
+		expect(buildCreateArtifactInputSchema().safeParse(input).success).toBe(
+			false,
+		);
 	});
 
 	it("rejects an empty body", () => {
 		const input = { artifactType: "document", title: "t", body: "" };
-		expect(createArtifactInputSchema.safeParse(input).success).toBe(false);
+		expect(buildCreateArtifactInputSchema().safeParse(input).success).toBe(
+			false,
+		);
+	});
+});
+
+// Task: "Alfy must only be told about the artifact kinds that actually
+// exist." advertisedArtifactKinds() is the ONE source every model-facing
+// surface (these schemas, index.ts's TOOL_I18N descriptions, edit_artifact's
+// advertised schema, and the base prompt paragraph) reads instead of a
+// second hand-kept "which kinds exist" list.
+describe("advertisedArtifactKinds()", () => {
+	afterEach(() => {
+		delete CREATE_ARTIFACT_HANDLERS.canvas;
+	});
+
+	it("today, returns exactly document and app — the two kinds with a registered handler", () => {
+		expect(advertisedArtifactKinds()).toEqual(["document", "app"]);
+	});
+
+	it("every advertised kind has a registered create handler", () => {
+		for (const kind of advertisedArtifactKinds()) {
+			expect(CREATE_ARTIFACT_HANDLERS[kind]).toBeDefined();
+		}
+	});
+
+	it("every kind with a registered create handler is advertised", () => {
+		for (const kind of CREATABLE_ARTIFACT_KINDS) {
+			if (CREATE_ARTIFACT_HANDLERS[kind]) {
+				expect(advertisedArtifactKinds()).toContain(kind);
+			}
+		}
+	});
+
+	it("registering a handler for an otherwise-unregistered kind adds it, in canonical order", () => {
+		expect(advertisedArtifactKinds()).not.toContain("canvas");
+
+		CREATE_ARTIFACT_HANDLERS.canvas = async () => ({
+			ok: false,
+			reason: "not used by this test",
+		});
+
+		// canonical CREATABLE_ARTIFACT_KINDS order is document, app, canvas,
+		// slides — canvas must land between app and slides, not just anywhere.
+		expect(advertisedArtifactKinds()).toEqual(["document", "app", "canvas"]);
+	});
+
+	it("removing a handler drops it from the advertised set", () => {
+		// Uses a fake handler on "slides" rather than touching document/app's
+		// real ones (Slice 1/Task A7) — this file's other describe blocks rely
+		// on those staying registered with their real implementations.
+		CREATE_ARTIFACT_HANDLERS.slides = async () => ({
+			ok: false,
+			reason: "not used by this test",
+		});
+		expect(advertisedArtifactKinds()).toContain("slides");
+
+		delete CREATE_ARTIFACT_HANDLERS.slides;
+
+		expect(advertisedArtifactKinds()).not.toContain("slides");
+	});
+
+	it("the executed schema rejects canvas/slides by default (not advertised today), and accepts canvas once registered", () => {
+		expect(
+			buildCreateArtifactInputSchema().safeParse({
+				artifactType: "canvas",
+				title: "t",
+				body: "b",
+			}).success,
+		).toBe(false);
+
+		CREATE_ARTIFACT_HANDLERS.canvas = async () => ({
+			ok: false,
+			reason: "not used by this test",
+		});
+
+		expect(
+			buildCreateArtifactInputSchema().safeParse({
+				artifactType: "canvas",
+				title: "t",
+				body: "b",
+			}).success,
+		).toBe(true);
 	});
 });
 
