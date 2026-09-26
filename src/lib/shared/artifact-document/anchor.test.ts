@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ORPHANED_ANCHOR_RESOLUTION } from "$lib/shared/artifacts/anchor";
-import { ANCHOR_CONTEXT_CHARS, makeAnchor, reanchor, resolveTextAnchor } from "./anchor";
+import {
+	ANCHOR_CONTEXT_CHARS,
+	makeAnchor,
+	reanchor,
+	resolveTextAnchor,
+} from "./anchor";
 import { makeBlock } from "./blocks";
 
 describe("makeAnchor", () => {
@@ -21,7 +26,9 @@ describe("makeAnchor", () => {
 	});
 
 	it("refuses an empty (whitespace-only) selection rather than anchoring nothing", () => {
-		expect(makeAnchor({ blockId: "p1", quote: "   ", prefix: "", suffix: "" })).toBeNull();
+		expect(
+			makeAnchor({ blockId: "p1", quote: "   ", prefix: "", suffix: "" }),
+		).toBeNull();
 	});
 
 	it("caps prefix/suffix at the shared context length, from the near edge", () => {
@@ -33,10 +40,12 @@ describe("makeAnchor", () => {
 			prefix: longPrefix,
 			suffix: longSuffix,
 		});
-		expect(anchor?.prefix).toBe(longPrefix.slice(-ANCHOR_CONTEXT_CHARS));
-		expect(anchor?.suffix).toBe(longSuffix.slice(0, ANCHOR_CONTEXT_CHARS));
-		expect(anchor?.prefix.length).toBe(ANCHOR_CONTEXT_CHARS);
-		expect(anchor?.suffix.length).toBe(ANCHOR_CONTEXT_CHARS);
+		if (anchor?.kind !== "text")
+			throw new Error("makeAnchor must build a text anchor");
+		expect(anchor.prefix).toBe(longPrefix.slice(-ANCHOR_CONTEXT_CHARS));
+		expect(anchor.suffix).toBe(longSuffix.slice(0, ANCHOR_CONTEXT_CHARS));
+		expect(anchor.prefix.length).toBe(ANCHOR_CONTEXT_CHARS);
+		expect(anchor.suffix.length).toBe(ANCHOR_CONTEXT_CHARS);
 	});
 });
 
@@ -61,7 +70,11 @@ describe("resolveTextAnchor", () => {
 
 	it("reads as moved once the quote's own paragraph is edited around it", () => {
 		const blocks = [
-			makeBlock("p1", "paragraph", "Reserve the flight for our trip to Vienna soon."),
+			makeBlock(
+				"p1",
+				"paragraph",
+				"Reserve the flight for our trip to Vienna soon.",
+			),
 		];
 		const resolution = resolveTextAnchor(anchor, blocks);
 		expect(resolution.state).toBe("moved");
@@ -69,8 +82,12 @@ describe("resolveTextAnchor", () => {
 	});
 
 	it("is orphaned once the quote's text is deleted, with the shared null/-1 shape", () => {
-		const blocks = [makeBlock("p1", "paragraph", "Nothing about travel here now.")];
-		expect(resolveTextAnchor(anchor, blocks)).toEqual(ORPHANED_ANCHOR_RESOLUTION);
+		const blocks = [
+			makeBlock("p1", "paragraph", "Nothing about travel here now."),
+		];
+		expect(resolveTextAnchor(anchor, blocks)).toEqual(
+			ORPHANED_ANCHOR_RESOLUTION,
+		);
 	});
 
 	// [trap] the in-block bonus is what makes this true: without it, scanning
@@ -107,7 +124,10 @@ describe("resolveTextAnchor", () => {
 		const decoys = Array.from({ length: 55 }, (_, i) =>
 			makeBlock(`decoy${i}`, "paragraph", "Some hello nonsense text."),
 		);
-		const blocks = [...decoys, makeBlock("target", "paragraph", "The hello there friend.")];
+		const blocks = [
+			...decoys,
+			makeBlock("target", "paragraph", "The hello there friend."),
+		];
 		const resolution = resolveTextAnchor(targetAnchor, blocks);
 		expect(resolution.state).toBe("exact");
 		expect(resolution.blockId).toBe("target");
@@ -126,7 +146,11 @@ describe("reanchor", () => {
 		// The editor split the original "p1" into two freshly minted blocks —
 		// neither carries the old id, exactly like a real ProseMirror split.
 		const blocksAfterSplit = [
-			makeBlock("m9k2a1", "paragraph", "Remember to pack the bags and passports."),
+			makeBlock(
+				"m9k2a1",
+				"paragraph",
+				"Remember to pack the bags and passports.",
+			),
 			makeBlock("m9k2a2", "paragraph", "Also check the weather."),
 		];
 		const result = reanchor(anchor, blocksAfterSplit);
@@ -144,7 +168,9 @@ describe("reanchor", () => {
 			suffix: " and passports.",
 		});
 		if (!anchor) throw new Error("fixture anchor must build");
-		const blocks = [makeBlock("p1", "paragraph", "Everything is already packed.")];
+		const blocks = [
+			makeBlock("p1", "paragraph", "Everything is already packed."),
+		];
 		expect(reanchor(anchor, blocks)).toEqual(anchor);
 	});
 });

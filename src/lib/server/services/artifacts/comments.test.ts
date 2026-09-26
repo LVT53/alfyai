@@ -5,6 +5,10 @@ import {
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
+import {
+	ALFY_EMPTY_REPLY_MARKER,
+	ALFY_REFUSED_MARKER,
+} from "$lib/shared/artifact-document/alfy-reply";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
 import { seedConversation, seedUser } from "./artifacts.test-helpers";
 
@@ -16,15 +20,36 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 
+// The @Alfy hook's own model call (T10.5) — every comments.ts suite mocks it
+// the same way memory-control-model.test.ts does, since it is the SAME
+// `sendJsonControlMessage` seam, never a second one.
+const sendJsonControlMessageMock = vi.fn();
+vi.mock("../normal-chat-control-model", () => ({
+	sendJsonControlMessage: sendJsonControlMessageMock,
+}));
+
+function mockAlfyResponse(payload: { note: string; ops?: unknown[] }): void {
+	sendJsonControlMessageMock.mockResolvedValueOnce({
+		text: JSON.stringify({ note: payload.note, ops: payload.ops ?? [] }),
+		rawResponse: {},
+		modelId: "model1",
+		modelDisplayName: "Test Model",
+	});
+}
+
 const {
 	createArtifact,
 	createComment,
+	createDocumentArtifact,
 	deleteComment,
+	getComment,
 	listComments,
 	parseArtifactAnchor,
 	resolveComment,
+	runAlfyCommentReply,
 } = await import("./index");
 const { ARTIFACT_COMMENT_BODY_MAX_CHARS } = await import("./limits");
+const { parseDocument } = await import("$lib/shared/artifact-document/blocks");
 
 const OWNER = "user-owner";
 const STRANGER = "user-stranger";
@@ -40,13 +65,16 @@ const TEXT_ANCHOR: Anchor = {
 };
 const NODE_ANCHOR: Anchor = { kind: "node", nodeId: "node-7" };
 
-async function createDocument(conversationId = CONVERSATION) {
+async function createDocument(
+	conversationId = CONVERSATION,
+	body = "Naschmarkt, then the Secession",
+) {
 	const result = await createArtifact({
 		userId: OWNER,
 		conversationId,
 		kind: "document",
 		title: "Saturday plan",
-		body: "Naschmarkt, then the Secession",
+		body,
 	});
 	if (!result.ok) throw new Error(result.reason);
 	return result.artifact;
@@ -84,6 +112,7 @@ function commentRows(artifactId: string) {
 }
 
 beforeEach(() => {
+	sendJsonControlMessageMock.mockReset();
 	memory = createInMemoryDatabase();
 	seedUser(memory, OWNER);
 	seedUser(memory, STRANGER);
@@ -384,5 +413,268 @@ describe("parseArtifactAnchor", () => {
 		]) {
 			expect(parseArtifactAnchor(json)).toBeNull();
 		}
+	});
+});
+
+describe("getComment", () => {
+	it("reads back a single comment scoped to the artifact and its owner", async () => {
+		const artifact = await createDocument();
+		const created = await comment(artifact.id, "Too early?");
+		const found = await getComment({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: created.id,
+		});
+		expect(found?.id).toBe(created.id);
+	});
+
+	it("is null for a stranger, a foreign id, or a wrong artifact id", async () => {
+		const artifact = await createDocument();
+		const created = await comment(artifact.id, "Too early?");
+		expect(
+			await getComment({
+				userId: STRANGER,
+				artifactId: artifact.id,
+				commentId: created.id,
+			}),
+		).toBeNull();
+		expect(
+			await getComment({
+				userId: OWNER,
+				artifactId: artifact.id,
+				commentId: "nope",
+			}),
+		).toBeNull();
+	});
+});
+
+// The @Alfy hook (T10.5): a comment addressed to Alfy runs ONE patch attempt
+// through the SAME engine `edit_artifact` uses (`applyDocumentPatch`), never a
+// second one, and always leaves a reply in the thread.
+describe("runAlfyCommentReply", () => {
+	/** A one-block document, plus the real (minted) id and text of that block. */
+	async function createDocumentWithBlock(markdown: string) {
+		// Ids are minted at creation (T1's rule), which is why this uses
+		// createDocumentArtifact — the Document's own creation path — rather
+		// than the generic createArtifact() the OTHER describe blocks above use
+		// for a plain text body: only the former mints the `<!--b:id-->`
+		// markers a real anchor needs to point at.
+		const artifact = await createDocumentArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			title: "Trip notes",
+			markdown,
+			author: "user",
+			summary: "Created",
+		});
+		const parsed = parseDocument(artifact.body ?? "", { mint: false });
+		const block = parsed.blocks[0];
+		if (!block) throw new Error("fixture must parse to at least one block");
+		return { artifact, block };
+	}
+
+	/**
+	 * `createComment` requires a non-empty prefix AND suffix (Slice 0's
+	 * `toAnchor`), so the quote must be a proper substring with real context on
+	 * both sides — never the block's whole text.
+	 */
+	function textAnchorFor(
+		block: { id: string; markdown: string },
+		quote: string,
+	): Anchor {
+		const idx = block.markdown.indexOf(quote);
+		if (idx === -1) {
+			throw new Error(`fixture quote "${quote}" must appear in the block`);
+		}
+		return {
+			kind: "text",
+			blockId: block.id,
+			quote,
+			prefix: block.markdown.slice(0, idx),
+			suffix: block.markdown.slice(idx + quote.length),
+		};
+	}
+
+	it("applies cleanly: the document changes and Alfy's own note appears as the reply", async () => {
+		const { artifact, block } = await createDocumentWithBlock(
+			"Book the flight to Vienna.",
+		);
+		const root = await comment(
+			artifact.id,
+			"@Alfy change Vienna to Budapest.",
+			{
+				anchor: textAnchorFor(block, "Vienna"),
+			},
+		);
+		mockAlfyResponse({
+			note: "Changed the destination to Budapest.",
+			ops: [{ op: "replaceRange", find: "Vienna", text: "Budapest" }],
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.value.outcome).toBe("applied");
+		expect(result.value.applied).toBe(1);
+		expect(result.value.reply.body).toBe(
+			"Changed the destination to Budapest.",
+		);
+		expect(result.value.reply.author).toBe("alfy");
+		expect(result.value.reply.parentId).toBe(root.id);
+
+		// getComment reads one row and never nests replies (that is
+		// listComments' job) — check the thread itself for the reply.
+		const threads = await listComments({
+			userId: OWNER,
+			artifactId: artifact.id,
+		});
+		const updatedRoot = threads.find((t) => t.id === root.id);
+		expect(updatedRoot?.replies.map((r) => r.body)).toContain(
+			"Changed the destination to Budapest.",
+		);
+	});
+
+	it("falls back to a fixed note when Alfy applies a change but writes nothing", async () => {
+		const { artifact, block } = await createDocumentWithBlock(
+			"Book the flight to Vienna.",
+		);
+		const root = await comment(artifact.id, "@Alfy fix the city.", {
+			anchor: textAnchorFor(block, "Vienna"),
+		});
+		mockAlfyResponse({
+			note: "",
+			ops: [{ op: "replaceRange", find: "Vienna", text: "Budapest" }],
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.value.outcome).toBe("applied");
+		expect(result.value.reply.body).toBe(ALFY_EMPTY_REPLY_MARKER);
+	});
+
+	it("refuses when the engine cannot apply the op, leaving the document untouched", async () => {
+		// "Vienna" occurs twice — replaceRange must refuse an ambiguous find
+		// rather than guess, exactly like edit_artifact (T2.5's own rule).
+		const { artifact, block } = await createDocumentWithBlock(
+			"Vienna is lovely. We booked Vienna for June.",
+		);
+		const root = await comment(artifact.id, "@Alfy change Vienna to Prague.", {
+			anchor: textAnchorFor(block, "lovely"),
+		});
+		mockAlfyResponse({
+			note: "Updated the city.",
+			ops: [{ op: "replaceRange", find: "Vienna", text: "Prague" }],
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.value.outcome).toBe("refused");
+		expect(result.value.applied).toBe(0);
+		expect(result.value.reply.body).toBe(ALFY_REFUSED_MARKER);
+	});
+
+	it("answers a question with no ops and changes nothing", async () => {
+		const { artifact, block } = await createDocumentWithBlock(
+			"Westbahnhof is our base.",
+		);
+		const root = await comment(
+			artifact.id,
+			"@Alfy is Westbahnhof a good base?",
+			{ anchor: textAnchorFor(block, "our base") },
+		);
+		mockAlfyResponse({
+			note: "Yes — it has direct trains to the airport.",
+			ops: [],
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.value.outcome).toBe("answered");
+		expect(result.value.applied).toBe(0);
+		expect(result.value.reply.body).toBe(
+			"Yes — it has direct trains to the airport.",
+		);
+	});
+
+	it("refuses without calling the model at all when the anchor is orphaned", async () => {
+		const { artifact, block } = await createDocumentWithBlock(
+			"Book the flight to Vienna.",
+		);
+		const baseAnchor = textAnchorFor(block, "Vienna");
+		if (baseAnchor.kind !== "text") throw new Error("unreachable");
+		const root = await comment(artifact.id, "@Alfy make this a question.", {
+			anchor: { ...baseAnchor, quote: "a phrase that is not here" },
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.value.outcome).toBe("refused");
+		expect(result.value.reply.body).toBe(ALFY_REFUSED_MARKER);
+		expect(sendJsonControlMessageMock).not.toHaveBeenCalled();
+	});
+
+	it("writes nothing once the request is already aborted", async () => {
+		const { artifact, block } = await createDocumentWithBlock(
+			"Book the flight to Vienna.",
+		);
+		const root = await comment(artifact.id, "@Alfy change it.", {
+			anchor: textAnchorFor(block, "Vienna"),
+		});
+		const controller = new AbortController();
+		controller.abort();
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: controller.signal,
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("unreachable");
+		expect(result.reason).toBe("aborted");
+		expect(sendJsonControlMessageMock).not.toHaveBeenCalled();
+
+		const threads = await listComments({
+			userId: OWNER,
+			artifactId: artifact.id,
+		});
+		expect(threads.find((t) => t.id === root.id)?.replies).toHaveLength(0);
+	});
+
+	it("is not_found for another user's artifact", async () => {
+		const artifact = await createDocument();
+		const root = await comment(artifact.id, "@Alfy change it.");
+		const result = await runAlfyCommentReply({
+			userId: STRANGER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+		expect(result).toEqual({ ok: false, reason: "not_found" });
 	});
 });

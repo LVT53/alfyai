@@ -13,12 +13,13 @@
  * is never redeclared here — Slice 3's node/point resolver will feed the same
  * three states through the same thresholds, not a second vocabulary.
  */
+
+import type { Anchor } from "$lib/shared/artifacts/anchor";
 import {
 	type AnchorResolution,
 	anchorStateFor,
 	ORPHANED_ANCHOR_RESOLUTION,
 } from "$lib/shared/artifacts/anchor";
-import type { Anchor } from "$lib/shared/artifacts/anchor";
 import type { DocumentBlock } from "./blocks";
 
 /** How much surrounding text a text anchor carries on each side of its quote. */
@@ -92,8 +93,12 @@ export function resolveTextAnchor(
 ): AnchorResolution {
 	if (anchor.kind !== "text") return ORPHANED_ANCHOR_RESOLUTION;
 
-	let best: { score: number; blockId: string; from: number; to: number } | null =
-		null;
+	let best: {
+		score: number;
+		blockId: string;
+		from: number;
+		to: number;
+	} | null = null;
 	let scanned = 0;
 
 	for (const block of candidateBlockOrder(blocks, anchor.blockId)) {
@@ -151,7 +156,10 @@ export function reanchor(anchor: Anchor, blocks: DocumentBlock[]): Anchor {
 		Math.max(0, resolution.from - ANCHOR_CONTEXT_CHARS),
 		resolution.from,
 	);
-	const suffix = text.slice(resolution.to, resolution.to + ANCHOR_CONTEXT_CHARS);
+	const suffix = text.slice(
+		resolution.to,
+		resolution.to + ANCHOR_CONTEXT_CHARS,
+	);
 	return {
 		kind: "text",
 		blockId: resolution.blockId,

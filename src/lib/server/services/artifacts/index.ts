@@ -17,11 +17,15 @@ export {
 	resolveArtifactCatalogueBlock,
 } from "./catalogue";
 export {
+	type AlfyCommentOutcome,
+	type AlfyCommentReplyResult,
 	createComment,
 	deleteComment,
+	getComment,
 	listComments,
 	parseArtifactAnchor,
 	resolveComment,
+	runAlfyCommentReply,
 } from "./comments";
 export {
 	applyDocumentPatch,
