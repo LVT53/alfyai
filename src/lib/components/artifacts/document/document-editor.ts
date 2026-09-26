@@ -6,6 +6,7 @@
  * Document never pays for Tiptap/ProseMirror's bytes.
  */
 import { Editor } from "@tiptap/core";
+import { ANCHOR_CONTEXT_CHARS } from "$lib/shared/artifact-document/anchor";
 import {
 	BLOCK_ID_ATTR,
 	BLOCK_MARKER_NODE,
@@ -115,6 +116,57 @@ export function readMarkdown(editor: Editor): string {
 	editor.view.dispatch(deleteTr);
 
 	return markdown;
+}
+
+/**
+ * The SelectionBubble's own data source (T10.1) — the ONE place the live
+ * selection is ever read out of ProseMirror. Returns plain strings and a
+ * block id, never a ProseMirror position or node, so everything downstream
+ * (`makeAnchor`, the margin) stays free of this module's import.
+ * `null` for an empty selection (a caret, not a range) or one that falls
+ * outside any identified top-level block.
+ */
+export function readSelectionAnchorContext(editor: Editor): {
+	blockId: string;
+	quote: string;
+	prefix: string;
+	suffix: string;
+} | null {
+	const { from, to, empty } = editor.state.selection;
+	if (empty) return null;
+
+	let blockId: string | null = null;
+	let blockStart = 0;
+	let blockEnd = 0;
+	editor.state.doc.forEach((node, offset) => {
+		if (blockId !== null) return;
+		const nodeEnd = offset + node.nodeSize;
+		if (offset > from || from >= nodeEnd) return;
+		const id = node.attrs?.[BLOCK_ID_ATTR];
+		if (typeof id !== "string" || id.length === 0) return;
+		blockId = id;
+		blockStart = offset;
+		blockEnd = nodeEnd;
+	});
+	if (blockId === null) return null;
+
+	const quote = editor.state.doc.textBetween(from, to, "\n");
+	if (!quote.trim()) return null;
+
+	return {
+		blockId,
+		quote,
+		prefix: editor.state.doc.textBetween(
+			Math.max(blockStart, from - ANCHOR_CONTEXT_CHARS),
+			from,
+			"\n",
+		),
+		suffix: editor.state.doc.textBetween(
+			to,
+			Math.min(blockEnd, to + ANCHOR_CONTEXT_CHARS),
+			"\n",
+		),
+	};
 }
 
 export type { Editor };
