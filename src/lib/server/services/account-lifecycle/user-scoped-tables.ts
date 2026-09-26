@@ -8,6 +8,7 @@ import {
 	artifactComments,
 	artifactLinks,
 	artifacts,
+	artifactTourStates,
 	artifactVersions,
 	atlasJobs,
 	browserPushSubscriptions,
@@ -426,6 +427,18 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "announcement_campaign_events",
 		table: announcementCampaignEvents,
 		userColumn: announcementCampaignEvents.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	// Slice 6 (first-open tours): "this kind's tour was completed/dismissed",
+	// nothing about a chat. It has a real FK to `users.id`, so the cascade IS
+	// the erasure mechanism, same as its campaign-family neighbors above. No
+	// reset scope: a kind's tour is not conversation/knowledge state a user
+	// would expect "Clear Memory" or "Clear Workspace" to touch.
+	{
+		name: "artifact_tour_states",
+		table: artifactTourStates,
+		userColumn: artifactTourStates.userId,
 		erasure: "cascade",
 		resets: [],
 	},

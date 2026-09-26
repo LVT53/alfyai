@@ -644,6 +644,20 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	db.insert(schema.artifactTourStates)
+		.values({
+			id: p("tour-state"),
+			userId,
+			artifactType: "canvas",
+			contentKey: "default:1",
+			status: "completed",
+			slideCount: 3,
+			lastSlide: 2,
+			completedAt: now,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
 	db.insert(schema.userConnections)
 		.values({
 			id: p("connection"),
@@ -732,6 +746,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"artifact_chunks",
 				"artifact_comments",
 				"artifact_links",
+				"artifact_tour_states",
 				"artifact_versions",
 				"artifacts",
 				"atlas_jobs",
