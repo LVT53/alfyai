@@ -100,6 +100,10 @@ export const READ_ARTIFACT_HANDLERS: Partial<
 	// every read_artifact on a Document, "blocks" or "full", goes through it
 	// exactly once, never a lighter read that skips the snapshot.
 	document: async (params) => {
+		// The read writes the snapshot, so it is a write under ruling 53:
+		// after the envelope's timeout or the user's stop it does nothing
+		// (the envelope already told the model the call failed).
+		if (params.abortSignal.aborted) return {};
 		const read = await readDocumentForAlfy({
 			userId: params.userId,
 			artifactId: params.artifactId,

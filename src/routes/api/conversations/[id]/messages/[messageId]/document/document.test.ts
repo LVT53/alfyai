@@ -181,4 +181,18 @@ describe("POST /api/conversations/[id]/messages/[messageId]/document", () => {
 
 		expect(response.status).toBe(404);
 	});
+
+	// RV-1A: red before its fix (docs/plans/claude-at-home-2/review-1a.md).
+	it("titles the Document with its first line's text, not its Markdown", async () => {
+		seedConversationAndMessage({
+			content: "**Weekend plan** for *Vienna*\n\n- [ ] Book tickets",
+		});
+
+		const response = await postDocument();
+
+		expect(response.body).toMatchObject({
+			ok: true,
+			title: "Weekend plan for Vienna",
+		});
+	});
 });

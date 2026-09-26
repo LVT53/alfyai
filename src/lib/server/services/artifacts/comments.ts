@@ -50,11 +50,17 @@ function toAnchor(value: unknown): Anchor | null {
 	switch (candidate.kind) {
 		case "text": {
 			const { blockId, quote, prefix, suffix } = candidate;
+			// The context may be EMPTY: the editor captures it inside the
+			// block, so a selection at a block's start has no prefix and one at
+			// its end has no suffix — a whole heading, a first word, a whole
+			// task line. Requiring both non-empty refused every such comment
+			// with a 400 (RV-1A). An empty context is still a valid anchor: the
+			// quote and its block carry it.
 			if (
 				!isNonEmptyString(blockId) ||
 				!isNonEmptyString(quote) ||
-				!isNonEmptyString(prefix) ||
-				!isNonEmptyString(suffix)
+				typeof prefix !== "string" ||
+				typeof suffix !== "string"
 			) {
 				return null;
 			}
@@ -513,6 +519,27 @@ export async function runAlfyCommentReply(
 		jsonSchema: ALFY_COMMENT_REPLY_JSON_SCHEMA,
 		signal: params.abortSignal,
 	}).catch(() => null);
+
+	// The model ran, so the call is paid for — whatever happens next, abort
+	// included (RV-1A: it was never recorded, so the conversation's cost
+	// display left out every @Alfy reply). Attributed to the artifact's own
+	// conversation: the knowledge page's panel names none.
+	if (modelResult) {
+		const { recordControlModelUsage } = await import("../analytics");
+		await recordControlModelUsage({
+			userId: params.userId,
+			conversationId: alfyRead.conversationId,
+			feature: "artifact_comment_alfy",
+			modelId: modelResult.modelId,
+			modelDisplayName: modelResult.modelDisplayName,
+			promptTokens: modelResult.usage?.promptTokens,
+			completionTokens: modelResult.usage?.completionTokens,
+			totalTokens: modelResult.usage?.totalTokens,
+			cachedInputTokens: modelResult.usage?.cachedInputTokens,
+			cacheHitTokens: modelResult.usage?.cacheHitTokens,
+			cacheMissTokens: modelResult.usage?.cacheMissTokens,
+		});
+	}
 
 	if (params.abortSignal.aborted) return { ok: false, reason: "aborted" };
 	if (!modelResult) return { ok: true, value: await refused() };

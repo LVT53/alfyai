@@ -230,3 +230,34 @@ describe("POST /api/artifacts/[id]/export", () => {
 		expect(mockSubmitIntake).not.toHaveBeenCalled();
 	});
 });
+
+// RV-1A (independent review of Slice 1): red before its fix; the review file
+// (docs/plans/claude-at-home-2/review-1a.md) quotes the failing line.
+describe("RV-1A: the Markdown export removes markers, never content", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("keeps a code block's line that merely looks like a marker", async () => {
+		mockGetArtifact.mockResolvedValue(
+			artifactFixture({
+				body: "<!--b:p1-->\nHow the ids look:\n\n<!--b:c1-->\n```html\n<!--b:example-->\n<p>Hi</p>\n```\n",
+			}),
+		);
+		mockSubmitIntake.mockResolvedValue({
+			ok: true,
+			status: 202,
+			job: { id: "job-9" },
+			reused: false,
+		});
+
+		await POST(
+			makeEvent({ conversationId: "conv-1", body: { format: "markdown" } }),
+		);
+
+		const content = mockSubmitIntake.mock.calls[0][0].body.inlineText.content;
+		expect(content).toBe(
+			"How the ids look:\n\n```html\n<!--b:example-->\n<p>Hi</p>\n```",
+		);
+	});
+});

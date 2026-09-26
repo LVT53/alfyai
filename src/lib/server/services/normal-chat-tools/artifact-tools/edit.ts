@@ -81,6 +81,12 @@ export interface ArtifactRefusal {
 	/** Document: blockLabel. Slides: the SlideTarget. */
 	label?: string;
 	reason: ArtifactRefusalReason;
+	/**
+	 * Document: the refused op's index in this call's `patches`. Two ops can
+	 * target one block with different outcomes, so a block id alone cannot
+	 * say which one was refused (RV-1A).
+	 */
+	opIndex?: number;
 }
 
 export type EditArtifactModelPayload =
@@ -262,13 +268,22 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 			return { ok: false, error };
 		}
 
-		const refused: ArtifactRefusal[] = result.result.outcomes
-			.filter((outcome) => outcome.status === "refused")
-			.map((outcome) => ({
-				target: outcome.blockId,
-				label: outcome.blockLabel,
-				reason: (outcome.code ?? "block_missing") as ArtifactRefusalReason,
-			}));
+		// One outcome per op, in the order of `patches` — so an outcome's
+		// position is the op's index.
+		const refused: ArtifactRefusal[] = result.result.outcomes.flatMap(
+			(outcome, opIndex) =>
+				outcome.status === "refused"
+					? [
+							{
+								target: outcome.blockId,
+								label: outcome.blockLabel,
+								reason: (outcome.code ??
+									"block_missing") as ArtifactRefusalReason,
+								opIndex,
+							},
+						]
+					: [],
+		);
 
 		return {
 			ok: true,
@@ -478,6 +493,11 @@ export async function runEditArtifactTool(params: {
 							result.value.refused.map((item) => ({
 								blockId: item.target ?? "",
 								reason: item.reason,
+								// Which op, not just which block: one block can carry an
+								// applied op and a refused one in the same call (RV-1A).
+								...(item.opIndex !== undefined
+									? { opIndex: item.opIndex }
+									: {}),
 							})),
 						),
 					}

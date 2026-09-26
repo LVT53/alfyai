@@ -505,7 +505,13 @@ const {
 	listVersions,
 	resolveArtifactCatalogueBlock,
 	setKv,
+	createDocumentArtifact,
+	readDocumentForAlfy,
+	applyDocumentPatch,
+	saveDocumentBody,
+	runAlfyCommentReply,
 } = await import("$lib/server/services/artifacts");
+const { parseDocument } = await import("$lib/shared/artifact-document/blocks");
 
 const SECRET_DOCUMENT_TITLE = "Severance checklist";
 
@@ -658,6 +664,151 @@ describe("an incognito conversation's artifact family, from outside it", () => {
 		expect(names).toContain("public-notes.md");
 		expect(JSON.stringify(found)).not.toContain(SECRET_DOCUMENT_TITLE);
 		expect(JSON.stringify(found)).not.toContain("agreement");
+	});
+});
+
+// Slice 1's Document reads and writes (RV-1A): Alfy's read (which writes the
+// last-read snapshot), a patch, a body save and the @Alfy hook each resolve
+// the artifact through the same scope, and the card preview travels only in
+// the conversation's own list. Negative half from outside, positive half
+// from inside, so a pass measures the scope, not a broken accessor.
+describe("an incognito conversation's Document, through the Document's own reads and writes", () => {
+	async function seedIncognitoDocument() {
+		const document = await createDocumentArtifact({
+			userId: USER,
+			conversationId: INCOGNITO,
+			title: SECRET_DOCUMENT_TITLE,
+			markdown: `- [ ] Sign the ${SECRET_WORD} agreement`,
+			author: "alfy",
+			summary: "Alfy wrote the first draft",
+		});
+		const body = document.body ?? "";
+		const [task] = parseDocument(body, { mint: false }).blocks;
+		const comment = await createComment({
+			userId: USER,
+			artifactId: document.id,
+			conversationId: INCOGNITO,
+			anchor: {
+				kind: "text",
+				blockId: task.id,
+				quote: "agreement",
+				prefix: `Sign the ${SECRET_WORD} `,
+				suffix: "",
+			},
+			author: "user",
+			body: "@Alfy is this final?",
+		});
+		if (!comment) throw new Error("seeding refused");
+		return { documentId: document.id, body, task, commentId: comment.id };
+	}
+
+	function snapshotRows(artifactId: string) {
+		return memory.db
+			.select({ id: schema.artifactKv.id })
+			.from(schema.artifactKv)
+			.where(eq(schema.artifactKv.artifactId, artifactId))
+			.all();
+	}
+
+	it("answers not_found from outside and writes nothing: Alfy's read, a patch, a save, @Alfy", async () => {
+		const { documentId, body, task, commentId } = await seedIncognitoDocument();
+
+		for (const outside of [{}, { conversationId: NORMAL }]) {
+			const scope = { userId: USER, artifactId: documentId, ...outside };
+			await expect(readDocumentForAlfy(scope)).rejects.toMatchObject({
+				reason: "not_found",
+			});
+			await expect(
+				applyDocumentPatch({
+					...scope,
+					patch: {
+						patchId: "p",
+						label: "Alfy",
+						ops: [
+							{
+								opId: "o",
+								kind: "toggleTask",
+								blockId: task.id,
+								baseHash: task.hash,
+								blockLabel: task.label,
+								checked: true,
+							},
+						],
+					},
+				}),
+			).resolves.toEqual({ ok: false, reason: "not_found" });
+			await expect(
+				saveDocumentBody({
+					...scope,
+					body: { markdown: "Overwritten.", tabs: [] },
+					author: "user",
+					summary: "Edited",
+				}),
+			).resolves.toEqual({ ok: false, reason: "not_found" });
+			await expect(
+				runAlfyCommentReply({
+					...scope,
+					commentId,
+					abortSignal: new AbortController().signal,
+				}),
+			).resolves.toEqual({ ok: false, reason: "not_found" });
+		}
+
+		expect(snapshotRows(documentId)).toEqual([]);
+		const stored = memory.db
+			.select({ contentText: schema.artifacts.contentText })
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, documentId))
+			.get();
+		expect(stored?.contentText).toBe(body);
+	});
+
+	it("works from inside: Alfy's read writes its snapshot, a patch lands, and the card preview is in its own list only", async () => {
+		const { documentId, task } = await seedIncognitoDocument();
+		const inside = {
+			userId: USER,
+			artifactId: documentId,
+			conversationId: INCOGNITO,
+		};
+
+		const read = await readDocumentForAlfy(inside);
+		expect(read.blocks.map((block) => block.blockId)).toEqual([task.id]);
+		expect(snapshotRows(documentId)).toHaveLength(1);
+		const patched = await applyDocumentPatch({
+			...inside,
+			patch: {
+				patchId: "p",
+				label: "Alfy",
+				ops: [
+					{
+						opId: "o",
+						kind: "toggleTask",
+						blockId: task.id,
+						baseHash: task.hash,
+						blockLabel: task.label,
+						checked: true,
+					},
+				],
+			},
+		});
+		expect(patched.ok && patched.result.applied).toBe(1);
+
+		const [own] = await listArtifactsForConversation({
+			userId: USER,
+			conversationId: INCOGNITO,
+		});
+		expect(own.documentPreview?.tasks).toEqual([
+			{
+				blockId: task.id,
+				text: `Sign the ${SECRET_WORD} agreement`,
+				checked: true,
+			},
+		]);
+		const elsewhere = await listArtifactsForConversation({
+			userId: USER,
+			conversationId: NORMAL,
+		});
+		expect(JSON.stringify(elsewhere)).not.toContain(SECRET_WORD);
 	});
 });
 

@@ -509,11 +509,24 @@ export async function updateArtifactBody(
 		// was created less than ARTIFACT_USER_VERSION_COALESCE_MS ago. Every
 		// Alfy change, restore and creation still always appends — this is the
 		// coalescing path's only entry, and it never applies to them.
+		//
+		// "Also the user's" is not enough on its own: a restore is authored
+		// `user`, and so is a document the user created ("Save as new"), and the
+		// ruling says those are never merged. A burst is consecutive saves of
+		// the SAME kind, so the latest version must also carry this save's own
+		// summary — a restore ("restored …") or a creation's summary never
+		// matches the editor's "Edited", and the first save after either one
+		// starts a version of its own (RV-1A).
+		const summary = clampChars(
+			params.summary,
+			ARTIFACT_VERSION_SUMMARY_MAX_CHARS,
+		);
 		const latestVersionRow = newest
 			? tx
 					.select({
 						id: artifactVersions.id,
 						author: artifactVersions.author,
+						summary: artifactVersions.summary,
 						createdAt: artifactVersions.createdAt,
 					})
 					.from(artifactVersions)
@@ -529,6 +542,7 @@ export async function updateArtifactBody(
 			params.coalesceUserEdits === true &&
 			params.author === "user" &&
 			latestVersionRow?.author === "user" &&
+			latestVersionRow.summary === summary &&
 			now.getTime() - latestVersionRow.createdAt.getTime() <
 				ARTIFACT_USER_VERSION_COALESCE_MS;
 
@@ -540,10 +554,7 @@ export async function updateArtifactBody(
 					body: params.body,
 					bodyHash,
 					createdAt: now,
-					summary: clampChars(
-						params.summary,
-						ARTIFACT_VERSION_SUMMARY_MAX_CHARS,
-					),
+					summary,
 				})
 				.where(eq(artifactVersions.id, latestVersionRow.id))
 				.run();
