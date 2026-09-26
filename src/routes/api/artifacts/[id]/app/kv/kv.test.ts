@@ -104,6 +104,32 @@ describe("GET /api/artifacts/[id]/app/kv", () => {
 			conversationId: "conv-1",
 		});
 	});
+
+	// Ruling 58: the served App document is already no-store; the kv READ's
+	// body is the user's own stored data and deserves the same treatment,
+	// even though nothing here is heuristically cacheable today (no
+	// validator) — this makes it explicit rather than relying on that.
+	it.each([
+		["a hit", () => mockReadAppValue.mockResolvedValue({ ok: true, value: 1 })],
+		[
+			"a miss",
+			() => mockReadAppValue.mockResolvedValue({ ok: true, value: null }),
+		],
+		[
+			"a refusal",
+			() =>
+				mockReadAppValue.mockResolvedValue({ ok: false, reason: "not_found" }),
+		],
+	] as const)("sends Cache-Control: no-store for %s", async (_label, setup) => {
+		setup();
+		const response = await GET(makeGetEvent());
+		expect(response.headers.get("Cache-Control")).toBe("no-store");
+	});
+
+	it("sends Cache-Control: no-store even for the missing-?key= 400", async () => {
+		const response = await GET(makeGetEvent("app-1", "owner-user", null));
+		expect(response.headers.get("Cache-Control")).toBe("no-store");
+	});
 });
 
 describe("POST /api/artifacts/[id]/app/kv", () => {

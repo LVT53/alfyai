@@ -18,7 +18,8 @@ interface StorageMessage {
  */
 function createSandbox() {
 	const messages: StorageMessage[] = [];
-	const listeners: Array<(event: { data: unknown }) => void> = [];
+	const listeners: Array<(event: { data: unknown; source?: unknown }) => void> =
+		[];
 	const pendingTimers: Array<() => void> = [];
 
 	const sandboxWindow: Record<string, unknown> = {
@@ -54,8 +55,17 @@ function createSandbox() {
 			};
 		},
 		messages,
-		deliverReply: (reply: Record<string, unknown>) => {
-			for (const listener of listeners) listener({ data: reply });
+		// Real replies arrive FROM the parent: inside the iframe document this
+		// script runs in, `event.source` on an incoming message is always the
+		// window that sent it — the parent, i.e. `window.parent` as this
+		// document sees it. The sandbox aliases `parent` to itself, so that is
+		// the default `source` here; a test can pass a different object to
+		// simulate a reply arriving from anything else.
+		deliverReply: (
+			reply: Record<string, unknown>,
+			source: unknown = sandboxWindow.parent,
+		) => {
+			for (const listener of listeners) listener({ data: reply, source });
 		},
 		fireTimers: () => {
 			for (const fn of pendingTimers.splice(0)) fn();
@@ -188,6 +198,38 @@ describe("APP_BOOTSTRAP_SCRIPT — window.alfy.storage", () => {
 		await expect(promise).resolves.toBe("right");
 	});
 
+	// Ruling 58, RV-2A open question 4 (hardening): unreachable today (the App
+	// can open no popup or nested frame under its own sandbox), but the
+	// listener should not rely on that alone — a window holding a reference to
+	// the App's frame must not be able to resolve its pending promises with a
+	// forged value.
+	it("ignores a reply whose source is not window.parent, even with a matching id and kind", async () => {
+		const { window, messages, deliverReply } = createSandbox();
+		const promise = window.alfy.storage.get("my-key");
+		const request = messages[0];
+		const impostor = { not: "the parent" };
+
+		deliverReply(
+			{
+				v: 1,
+				kind: "alfy.storage.result",
+				id: request.id,
+				ok: true,
+				value: "forged",
+			},
+			impostor,
+		);
+		deliverReply({
+			v: 1,
+			kind: "alfy.storage.result",
+			id: request.id,
+			ok: true,
+			value: "from the real parent",
+		});
+
+		await expect(promise).resolves.toBe("from the real parent");
+	});
+
 	it("times out after 5000ms with no reply, and the rejection is fixed text — never the key", async () => {
 		const { window, fireTimers } = createSandbox();
 		const promise = window.alfy.storage.get("a-very-secret-key");
@@ -230,6 +272,32 @@ describe("injectAppBootstrap", () => {
 		expect(injected.startsWith("<script>")).toBe(true);
 	});
 
+	// RV-2A. `<head>` and `<body>` start tags are optional in HTML, so a valid
+	// document can have neither — and `<header>` is not `<head>`.
+	it("is not fooled by <header>: a head-less document's own script still runs after the bootstrap", () => {
+		const html =
+			"<!doctype html><html><body><script>var hasBridge = !!window.alfy;</script><header><h1>x</h1></header></body></html>";
+		const injected = injectAppBootstrap(html);
+
+		expect(injected.indexOf(APP_BOOTSTRAP_SCRIPT)).toBeLessThan(
+			injected.indexOf("var hasBridge"),
+		);
+	});
+
+	it("keeps a leading doctype first, so a document with implied <head>/<body> is not thrown into quirks mode", () => {
+		const html =
+			'<!DOCTYPE html>\n<html lang="en"><meta charset="utf-8"><title>t</title><script>var hasBridge = !!window.alfy;</script><h1>x</h1>';
+		const injected = injectAppBootstrap(html);
+
+		// Anything but whitespace or a comment before the doctype makes the
+		// parser ignore it and render in quirks mode (Chromium's compatMode
+		// reads "BackCompat").
+		expect(injected.startsWith("<!DOCTYPE html>")).toBe(true);
+		expect(injected.indexOf(APP_BOOTSTRAP_SCRIPT)).toBeLessThan(
+			injected.indexOf("var hasBridge"),
+		);
+	});
+
 	it("is a pure string splice: it never reads anything out of the artifact's own html to build the tag", () => {
 		const html =
 			"<head><script>window.parent = null;</script></head><body></body>";
@@ -237,5 +305,24 @@ describe("injectAppBootstrap", () => {
 		// The bootstrap tag itself is byte-identical regardless of what the
 		// artifact's own document contains.
 		expect(injected).toContain(`<script>${APP_BOOTSTRAP_SCRIPT}</script>`);
+	});
+
+	// RV-2A. This runs on EVERY request for an App, over model-authored text:
+	// a splice point found by backtracking lets one stored body stall the
+	// server's event loop each time anyone opens it. Both inputs below are
+	// finished in well under a millisecond by a linear scan; the thresholds
+	// are hundreds of times that, so a slow shared machine cannot flip them.
+	it("finds its splice point without backtracking over a run of comments", () => {
+		const html = `${"<!---->".repeat(36)}x`;
+		const started = performance.now();
+		injectAppBootstrap(html);
+		expect(performance.now() - started).toBeLessThan(250);
+	});
+
+	it("finds its splice point without rescanning the document for every unclosed tag", () => {
+		const html = "<head ".repeat(32_000);
+		const started = performance.now();
+		injectAppBootstrap(html);
+		expect(performance.now() - started).toBeLessThan(250);
 	});
 });

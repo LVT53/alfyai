@@ -18,6 +18,7 @@ import {
 	RefreshCw,
 	TriangleAlert,
 } from "@lucide/svelte";
+import { untrack } from "svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import { isDark } from "$lib/stores/theme";
@@ -29,7 +30,7 @@ import {
 } from "$lib/client/api/artifacts";
 import type { AppContractRuleId } from "$lib/server/services/artifacts/app/contract";
 import type { AppVerificationVerdict } from "$lib/server/services/artifacts/app/verify";
-import { renderCodeBlock } from "$lib/services/markdown";
+import { renderHighlightedText } from "$lib/services/markdown";
 import AppFrame from "./AppFrame.svelte";
 
 interface Props {
@@ -57,11 +58,24 @@ let regeneratePromptText = $state("");
 let regenerateBusy = $state(false);
 let regenerateError = $state<string | null>(null);
 
+// The panel reuses this body when its rail switches from one App to another,
+// so `artifactId` can change under a live component. Another App's detail is
+// dropped at once (the card shows the loading state, never the last App's
+// verification line or code under the next App's frame), and an answer that
+// arrives for an App the card has already left is discarded. A reload of the
+// SAME App (after a regenerate) keeps the old detail until the new one lands.
+// The read of `detail` is untracked: `load` runs inside the effect below, and
+// a tracked read would re-run that effect on every detail it writes.
 async function load(id: string): Promise<void> {
 	loadFailed = false;
+	const shown = untrack(() => detail);
+	if (shown && shown.artifact.id !== id) detail = null;
 	try {
-		detail = await fetchArtifact(id, conversationId);
+		const next = await fetchArtifact(id, conversationId);
+		if (id !== artifactId) return;
+		detail = next;
 	} catch {
+		if (id !== artifactId) return;
 		loadFailed = true;
 	}
 }
@@ -119,9 +133,18 @@ const VERIFY_LINE_KEYS: Record<AppVerificationVerdict, I18nKey> = {
 	unavailable: "artifacts.app.verify.unavailable",
 };
 
+/**
+ * Ruling 58 (RV-2A open question 10): loads the highlighter — and the "html"
+ * grammar — ON DEMAND when the Code tab opens, through the existing async
+ * Shiki path, rather than relying on the chat surface having already called
+ * `initHighlighter()` for its own markdown rendering. Without this,
+ * `renderCodeBlock`'s own synchronous fallback (safe, but unhighlighted
+ * escaped plain text) is what a card shows whenever nothing else in the app
+ * happened to initialise Shiki first.
+ */
 async function ensureCodeHighlighted(): Promise<void> {
 	if (!htmlBody) return;
-	highlightedCode = renderCodeBlock(htmlBody, "html", $isDark);
+	highlightedCode = await renderHighlightedText(htmlBody, "html", $isDark);
 }
 
 $effect(() => {
@@ -170,6 +193,7 @@ async function submitRegenerate(): Promise<void> {
 			artifactId,
 			regeneratePromptText.trim(),
 			versionNumber,
+			conversationId,
 		);
 		if (result.ok) {
 			regenerateOpen = false;
@@ -191,6 +215,23 @@ const REGENERATE_FAILURE_KEYS: Record<string, I18nKey> = {
 	tool_call: "artifacts.app.failed.toolCall",
 	too_long: "artifacts.app.failed.tooLong",
 };
+
+/**
+ * Ruling 58: the download error is always a localized sentence, never
+ * `result.reason` (a wire-level reason/intake-error code) or the bare word
+ * "failed" shown straight to the user. `conversation_required` is the
+ * server's own backstop for the same case the disabled button already
+ * explains proactively (no conversation), so it reuses that copy; every
+ * other reason — a race where the artifact vanished, a file-production
+ * intake failure, the request itself throwing — falls back to one generic
+ * "could not prepare this for download" sentence.
+ */
+const DOWNLOAD_FAILURE_KEYS: Partial<Record<string, I18nKey>> = {
+	conversation_required: "artifacts.app.download.unavailable",
+};
+function localizeDownloadFailure(reason: string): string {
+	return $t(DOWNLOAD_FAILURE_KEYS[reason] ?? "artifacts.app.download.failed");
+}
 </script>
 
 <div class="app-body">
@@ -318,7 +359,9 @@ const REGENERATE_FAILURE_KEYS: Record<string, I18nKey> = {
 			<p class="app-body-hint">{$t('artifacts.app.download.unavailable')}</p>
 		{/if}
 		{#if downloadError}
-			<p class="app-body-hint app-body-error-text">{downloadError}</p>
+			<p class="app-body-hint app-body-error-text">
+				{localizeDownloadFailure(downloadError)}
+			</p>
 		{/if}
 	{/if}
 </div>

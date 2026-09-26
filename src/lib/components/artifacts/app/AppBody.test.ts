@@ -35,13 +35,19 @@ vi.mock("$lib/client/api/artifacts", () => ({
 	regenerateApp: (...args: unknown[]) => regenerateApp(...args),
 }));
 
-const renderCodeBlock = vi.fn(
-	(content: string) =>
+// Ruling 58: the Code tab loads its highlighter ON DEMAND when it opens,
+// through the existing async Shiki path (renderHighlightedText, which
+// ensures the highlighter AND the "html" grammar are loaded before calling
+// the synchronous renderCodeBlock) — not the bare synchronous renderCodeBlock,
+// which silently falls back to escaped plain text unless something ELSE
+// already initialised Shiki first.
+const renderHighlightedText = vi.fn(
+	async (content: string) =>
 		`<pre data-testid="highlighted"><code>${content}</code></pre>`,
 );
 vi.mock("$lib/services/markdown", () => ({
-	renderCodeBlock: (...args: unknown[]) =>
-		(renderCodeBlock as (...a: unknown[]) => string)(...args),
+	renderHighlightedText: (...args: unknown[]) =>
+		(renderHighlightedText as (...a: unknown[]) => Promise<string>)(...args),
 }));
 
 const APP_HTML =
@@ -104,6 +110,21 @@ describe("AppBody — loading and tabs", () => {
 		expect(codeTab.getAttribute("aria-selected")).toBe("false");
 	});
 
+	// Ruling 58: the highlighter loads ON DEMAND when the Code tab opens, not
+	// eagerly on mount — the chat's own Shiki init (or lack of it) must not
+	// decide whether this card's Code tab is highlighted.
+	it("does not load the highlighter while showing Preview", async () => {
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+		});
+		await screen.findByRole("tab", { name: /Preview/ });
+
+		expect(renderHighlightedText).not.toHaveBeenCalled();
+	});
+
 	it("switches to Code on click and renders the stored HTML read-only, through the existing Shiki path", async () => {
 		render(AppBody, {
 			artifactId: "app-1",
@@ -115,8 +136,8 @@ describe("AppBody — loading and tabs", () => {
 
 		await fireEvent.click(codeTab);
 
-		await waitFor(() => expect(renderCodeBlock).toHaveBeenCalled());
-		expect(renderCodeBlock).toHaveBeenCalledWith(
+		await waitFor(() => expect(renderHighlightedText).toHaveBeenCalled());
+		expect(renderHighlightedText).toHaveBeenCalledWith(
 			APP_HTML,
 			"html",
 			expect.any(Boolean),
@@ -132,7 +153,7 @@ describe("AppBody — loading and tabs", () => {
 		});
 		const codeTab = await screen.findByRole("tab", { name: /Code/ });
 		await fireEvent.click(codeTab);
-		await waitFor(() => expect(renderCodeBlock).toHaveBeenCalled());
+		await waitFor(() => expect(renderHighlightedText).toHaveBeenCalled());
 
 		const codePanel = container.querySelector(".app-body-code");
 		expect(codePanel?.querySelector("textarea")).toBeNull();
@@ -199,6 +220,83 @@ describe("AppBody — conversation scoping (ruling 51)", () => {
 			return el;
 		});
 		expect(iframe.getAttribute("src")).not.toContain("conversationId=");
+	});
+});
+
+// RV-2A. The panel reuses this body when its open-documents rail switches
+// from one App to another (same kind, same loader), so `artifactId` changes
+// under a live component. The card's trust lines and its Code tab must follow
+// the App whose frame is showing, never the one the panel just left.
+describe("AppBody — switching Apps in the same panel", () => {
+	function detailFor(id: string, verdict: "clean" | "unavailable") {
+		return {
+			...baseDetail({
+				id,
+				body: `<!doctype html><title>${id}</title>`,
+				metadata: {
+					artifactType: "app",
+					title: id,
+					verification: { checked: true, verdict, reason: null },
+				},
+			}),
+		};
+	}
+
+	function deferred<T>() {
+		let resolve: (value: T) => void = () => {};
+		const promise = new Promise<T>((settle) => {
+			resolve = settle;
+		});
+		return { promise, resolve };
+	}
+
+	it("does not show the previous App's verification line under the next App's frame while it loads", async () => {
+		const nextDetail = deferred<ReturnType<typeof detailFor>>();
+		fetchArtifact.mockResolvedValueOnce(detailFor("app-a", "clean"));
+		fetchArtifact.mockReturnValueOnce(nextDetail.promise);
+		const { rerender } = render(AppBody, {
+			artifactId: "app-a",
+			kind: "app",
+			title: "A",
+			body: null,
+		});
+		await screen.findByText(en.verifyClean);
+
+		await rerender({
+			artifactId: "app-b",
+			kind: "app",
+			title: "B",
+			body: null,
+		});
+
+		expect(screen.queryByText(en.verifyClean)).toBeNull();
+		nextDetail.resolve(detailFor("app-b", "unavailable"));
+		await screen.findByText(en.verifyUnavailable);
+	});
+
+	it("a slow answer for the previous App never replaces the current App's detail", async () => {
+		const slowA = deferred<ReturnType<typeof detailFor>>();
+		fetchArtifact.mockReturnValueOnce(slowA.promise);
+		fetchArtifact.mockResolvedValueOnce(detailFor("app-b", "unavailable"));
+		const { rerender } = render(AppBody, {
+			artifactId: "app-a",
+			kind: "app",
+			title: "A",
+			body: null,
+		});
+
+		await rerender({
+			artifactId: "app-b",
+			kind: "app",
+			title: "B",
+			body: null,
+		});
+		await screen.findByText(en.verifyUnavailable);
+		slowA.resolve(detailFor("app-a", "clean"));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(screen.queryByText(en.verifyClean)).toBeNull();
+		expect(screen.getByText(en.verifyUnavailable)).toBeInTheDocument();
 	});
 });
 
@@ -457,6 +555,77 @@ describe("AppBody — download", () => {
 			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", null),
 		);
 	});
+
+	// Ruling 58: the download error must be a localized sentence, never a raw
+	// reason code or intake error code shown straight to the user.
+	it("shows a localized message for an unrecognised reason code, never the raw code", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockResolvedValue({ ok: false, reason: "rate_limited" });
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(screen.queryByText("rate_limited")).not.toBeInTheDocument(),
+		);
+		expect(
+			screen.getByText("Could not prepare this app for download."),
+		).toBeInTheDocument();
+	});
+
+	it("reuses the download-unavailable copy for the server's conversation_required backstop", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockResolvedValue({
+			ok: false,
+			reason: "conversation_required",
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(screen.getByText(en.downloadUnavailable)).toBeInTheDocument(),
+		);
+	});
+
+	it("shows the same localized message, never the word 'failed', when the request itself throws", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockRejectedValue(new Error("network down"));
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(
+				screen.getByText("Could not prepare this app for download."),
+			).toBeInTheDocument(),
+		);
+		expect(screen.queryByText("failed")).not.toBeInTheDocument();
+	});
 });
 
 describe("AppBody — regenerate", () => {
@@ -495,10 +664,57 @@ describe("AppBody — regenerate", () => {
 				"app-1",
 				"add a currency switch",
 				2,
+				null,
 			),
 		);
 		// A successful regeneration re-fetches the detail (the new version).
 		await waitFor(() => expect(fetchArtifact).toHaveBeenCalledTimes(2));
+	});
+
+	// RV-2A (ruling 51): an incognito conversation's App is readable only when
+	// the request names that conversation, and the regenerate route reads it
+	// from the body — so a regenerate that drops the panel's conversationId is
+	// a 404 for every App in an incognito chat.
+	it("passes the panel's conversationId to regenerateApp, so an incognito conversation's own App can be regenerated", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		regenerateApp.mockResolvedValue({
+			ok: true,
+			version: 3,
+			title: "Habit tracker",
+			verification: { checked: false },
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+			conversationId: "panel-conv",
+		});
+
+		await fireEvent.click(
+			await screen.findByRole("button", {
+				name: /Ask Alfy for a new version/,
+			}),
+		);
+		await fireEvent.input(await screen.findByLabelText(en.regeneratePrompt), {
+			target: { value: "add a currency switch" },
+		});
+		const submit = screen
+			.getAllByRole("button", { name: /Ask Alfy for a new version/ })
+			.at(-1);
+		if (!submit) throw new Error("no submit button");
+		await fireEvent.click(submit);
+
+		await waitFor(() =>
+			expect(regenerateApp).toHaveBeenCalledWith(
+				"app-1",
+				"add a currency switch",
+				2,
+				"panel-conv",
+			),
+		);
 	});
 
 	it("a 409 version_conflict keeps the dialog and the prompt text, rather than discarding it", async () => {

@@ -96,8 +96,9 @@ describe("GET /api/artifacts/[id]/app", () => {
 
 		const response = await GET(makeEvent());
 
+		// Ruling 58: the sandbox directive widens by exactly `allow-forms`.
 		expect(response.headers.get("Content-Security-Policy")).toBe(
-			"sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
+			"sandbox allow-scripts allow-forms; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
 		);
 		expect(response.headers.get("Content-Security-Policy")).toBe(
 			APP_SANDBOX_CSP,

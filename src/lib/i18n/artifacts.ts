@@ -103,6 +103,17 @@ const artifactsDict = {
 		"artifacts.app.frame.loading": "Loading the app…",
 		"artifacts.app.frame.blocked": "Apps are not run in this context.",
 		"artifacts.app.serve.failed": "This app could not be opened.",
+		// Ruling 58's tripwire: the parent tears the frame down when it fires a
+		// load the parent did not cause (the app navigated itself).
+		"artifacts.app.frame.tripwire":
+			"This app tried to leave its sandbox, so Alfy stopped it.",
+		"artifacts.app.frame.reload": "Reload the app",
+		// Ruling 58: served instead of a dead /login form when this route loads
+		// with no session left inside the App's own sandboxed iframe
+		// (hooks.server.ts, sandbox-response.ts's renderAppSessionExpiredResponse).
+		"artifacts.app.session.expiredTitle": "Session ended",
+		"artifacts.app.session.expiredMessage":
+			"Your session ended. Reload AlfyAI to sign in again.",
 		"artifacts.app.tabs.a11y": "Preview and code",
 		"artifacts.app.code.copy": "Copy code",
 		"artifacts.app.code.copied": "Copied",
@@ -110,6 +121,12 @@ const artifactsDict = {
 			"Ask Alfy for a new version? Your saved data stays.",
 		"artifacts.app.download.unavailable":
 			"This app is not in a chat, so it cannot be saved as a file.",
+		// Ruling 58: every OTHER download refusal (a request that throws, a
+		// missing/foreign artifact, any file-production intake error code)
+		// shows this instead of the raw reason/code. conversation_required
+		// reuses download.unavailable above, since that is the same case the
+		// disabled button already explains proactively.
+		"artifacts.app.download.failed": "Could not prepare this app for download.",
 		"artifacts.app.open.cta": "Make an app",
 	},
 	hu: {
@@ -189,6 +206,12 @@ const artifactsDict = {
 		"artifacts.app.frame.blocked":
 			"Ebben a környezetben az alkalmazások nem futnak.",
 		"artifacts.app.serve.failed": "Ezt az alkalmazást nem sikerült megnyitni.",
+		"artifacts.app.frame.tripwire":
+			"Ez az alkalmazás megpróbálta elhagyni a homokozóját, ezért Alfy leállította.",
+		"artifacts.app.frame.reload": "Alkalmazás újratöltése",
+		"artifacts.app.session.expiredTitle": "Lejárt a munkamenet",
+		"artifacts.app.session.expiredMessage":
+			"Lejárt a munkameneted. Töltsd újra az AlfyAI-t, hogy újra bejelentkezhess.",
 		"artifacts.app.tabs.a11y": "Előnézet és kód",
 		"artifacts.app.code.copy": "Kód másolása",
 		"artifacts.app.code.copied": "Másolva",
@@ -196,6 +219,8 @@ const artifactsDict = {
 			"Új változatot kérsz Alfytól? A mentett adataid megmaradnak.",
 		"artifacts.app.download.unavailable":
 			"Ez az alkalmazás nincs beszélgetésben, ezért nem menthető fájlként.",
+		"artifacts.app.download.failed":
+			"Nem sikerült előkészíteni ezt az alkalmazást letöltésre.",
 		"artifacts.app.open.cta": "Készíts alkalmazást",
 	},
 } as const;

@@ -181,6 +181,26 @@ describe("artifacts client API", () => {
 				value: { a: 1 },
 			});
 		});
+
+		// RV-2A. postMessage's structured clone carries a BigInt and a cycle
+		// into the parent intact; JSON cannot encode either. The contract
+		// promises such a set is refused as not_serialisable (the frame's own
+		// localised "cannot be saved" line), not left to time out.
+		it("refuses a BigInt or a cyclic value as not_serialisable, without a request", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true }),
+			);
+			const cyclic: Record<string, unknown> = { name: "loop" };
+			cyclic.self = cyclic;
+
+			await expect(
+				writeAppValue("app-1", "k", 10n, null, fetchMock),
+			).resolves.toEqual({ ok: false, reason: "not_serialisable" });
+			await expect(
+				writeAppValue("app-1", "k", cyclic, null, fetchMock),
+			).resolves.toEqual({ ok: false, reason: "not_serialisable" });
+			expect(fetchMock).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("regenerateApp", () => {
@@ -198,6 +218,7 @@ describe("artifacts client API", () => {
 				"app-1",
 				"add a currency switch",
 				1,
+				null,
 				fetchMock,
 			);
 
@@ -212,6 +233,35 @@ describe("artifacts client API", () => {
 			expect(JSON.parse((init as RequestInit).body as string)).toEqual({
 				prompt: "add a currency switch",
 				expectVersion: 1,
+				conversationId: null,
+			});
+		});
+
+		// RV-2A (ruling 51): the regenerate route widens its scope from the
+		// body's conversationId, exactly as the download route does.
+		it("sends the panel's conversationId in the body, so an incognito conversation's own App resolves", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({
+					ok: true,
+					version: 2,
+					title: "Split",
+					verification: { checked: false },
+				}),
+			);
+
+			await regenerateApp(
+				"app-1",
+				"add a currency switch",
+				1,
+				"conv-incognito",
+				fetchMock,
+			);
+
+			const [, init] = fetchMock.mock.calls[0];
+			expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+				prompt: "add a currency switch",
+				expectVersion: 1,
+				conversationId: "conv-incognito",
 			});
 		});
 
@@ -224,7 +274,7 @@ describe("artifacts client API", () => {
 			);
 
 			await expect(
-				regenerateApp("app-1", "add a currency switch", 1, fetchMock),
+				regenerateApp("app-1", "add a currency switch", 1, null, fetchMock),
 			).resolves.toEqual({ ok: false, reason: "version_conflict", version: 4 });
 		});
 	});
