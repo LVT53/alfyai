@@ -160,7 +160,7 @@ Documents, T4/T10's @Alfy path/T13 blocked on 5a; S2 in `art-s2` (5430) — Apps
 merge `feat/artifacts` themselves once 5a has merged there, else stop and report. Reviews after: RV-5a (sonnet), RV-1A
 (opus, patch protocol), RV-1B (sonnet, editor), RV-2A (opus, sandbox/CSP), RV-2B (sonnet, generation).
 
-**Slice 5a DONE (2026-09-26 ~00:30), in review.** `feat/artifacts-s5a` in `art-s5a`, HEAD `cb9a0775` (4 commits on
+**Slice 5a DONE (2026-09-26), in review.** `feat/artifacts-s5a` in `art-s5a`, HEAD `cb9a0775` (4 commits on
 `2bf644aa`: `1b24cf93` catalogue, `05b0f80c` the three tools, `623473b9` harness core, `cb9a0775` retry wiring). Gates:
 check 0/17, biome clean, **12,356 tests**, build 32/2, Fallow 124/4 identical, containment 24 unchanged, Playwright 37/37.
 Catalogue ceiling raised once to `{ en: 4830, hu: 7850 }` (measured 4,804 / 7,823), snapshots regenerated. Its
@@ -196,7 +196,7 @@ key). The branch was fast-forwarded to `4ba32b9c` and merged. Its open questions
 never received the envelope's abort signal) are **ruling 53**; **S5a resumed** for that follow-up (abort signal,
 read bound, `MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3`). Gates on `feat/artifacts` running (`/tmp/gates-fa-5a/`).
 
-**2026-09-26 ~00:50.** Gates on `feat/artifacts` at the 5a merge `20e73213`: check 0/17, biome clean, **12,364 tests**,
+**2026-09-26.** Gates on `feat/artifacts` at the 5a merge `20e73213`: check 0/17, biome clean, **12,364 tests**,
 build 32/2, Fallow 124/4 with 0 new, Playwright 27/27 (chat + conversation + artifacts-panel). The ruling-51 fix
 (`ab0edb85`: `ArtifactBodyProps.conversationId`, `DocumentWorkspace` prop, the chat page supplies it; 2 tests; its own
 gates green, 27/27 Playwright) merged as **`62c4eb55`**. **S2's agent ran out of context** on resume ("Prompt is too
@@ -205,14 +205,14 @@ brief: merge `feat/artifacts`, ruling 51 in AppBody, ruling 52 in verify.ts, A9 
 30430), A8 tool wording, then A7 once 5a's ruling-53 follow-up is merged (else stop, "blocked on 5a follow-up").
 S1 told it is unblocked. Lesson: long-running implementers need a context-economy line in their brief.
 
-**Ruling 53 landed (2026-09-26 ~01:10).** S5a's follow-up `ab29d9f5` (abort signal into all three handlers, proven on
+**Ruling 53 landed (2026-09-26).** S5a's follow-up `ab29d9f5` (abort signal into all three handlers, proven on
 the real wiring for both the tool timeout and the turn's stop), `7ea8157c` (read bound at `MAX_INLINE_TEXT_CHARS`
 100,000 exported from `files.ts`; `truncated` + `omittedChars`/`omittedBlocks`; catalogue snapshots unchanged),
 `25771975` (`MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3`, checked and counted before the first await, so parallel calls
 cannot pass it); 12,375 tests, gates clean. Read by the orchestrator, merged as **`365083f2`**; check 0/17, the
 tools/artifacts/workspace tests 1,079/1,079. S1 and S2b told; S2b's A7 is unblocked. 5a is complete.
 
-**2026-09-26 03:00–03:50.** The API usage limit stopped S1 and S2b mid-task at ~01:30; both resumed at 03:00 (S1 clean
+**2026-09-26 (morning).** The API usage limit stopped S1 and S2b mid-task at ~01:30; both resumed at 03:00 (S1 clean
 at `6196e671`; S2b with uncommitted ruling-52 work). **S1 reported (HEAD `bb398b5e`, 12,557 tests, gates clean, containment
 28, Playwright 29/29):** T1–T7, T4 (the three Document handlers, abort-aware) and T13 (the document suite) done;
 **T8–T12 not started** (its context was spent). Its "live" eval ran through the harness's opencode-config fallback, not
@@ -227,7 +227,7 @@ factory options, `applyDocumentPatch` returning `versionId`, the Document-only `
 `art-s1`'s, port 5520) T13 re-record + T10 + T12, with a file split and `DocumentBody.svelte` as the one shared
 file; **evalkey fix** in `art-evalkey` (branch `feat/artifacts-evalkey`). S2b told about ruling 54.
 
-**2026-09-26 ~04:30. S2b reported** (`feat/artifacts-s2` HEAD `2d8d0cbf`, 12,643 tests, containment 30, Playwright 34):
+**2026-09-26. S2b reported** (`feat/artifacts-s2` HEAD `2d8d0cbf`, 12,643 tests, containment 30, Playwright 34):
 ruling 51 in AppBody/AppFrame (`6776c087`, the kv bridge now carries the conversation too), ruling 52 re-verification
 with a 25 s deadline (`28eea958`), the `app` + `verification` suites (`0256529c`, `15d34f52`; live on qwen3-6-27b via
 the tunnel: app 10/10 by the static audit, verification 3 good + 1 acceptable), the shared generate→verify pipeline
@@ -241,7 +241,7 @@ harness's default `--out results` lands outside `.gitignore` went to the evalkey
 touch. RV-2B (sonnet) follows S2c. **Evalkey fix done** (`1d23ec0c`: explicit endpoint required, fallback and its
 tests removed, README tunnel recipe; 12,374 tests; Fallow 124/4) plus `719dc60f` (the default `--out` is the harness's own gitignored `results/`; `run.ts`'s `fixturesRoot` no longer uses `new URL('.', import.meta.url)`, which Vite rewrites under vitest); read and merged as **`2e3b19b2`** (harness tests 46/46). S2c told to merge it before touching `run.ts`.
 
-**RV-2A done (opus, 2026-09-26 ~05:30): "merge with these fixes".** Branch `feat/artifacts-s2-review-sandbox` HEAD
+**RV-2A done (opus, 2026-09-26): "merge with these fixes".** Branch `feat/artifacts-s2-review-sandbox` HEAD
 `0a4cf01d`: six fixes on `2d8d0cbf`. `16db33bb` **High**: switching Apps in the rail reused one iframe element, so the
 outgoing App's storage calls hit the incoming App's kv (39/40 in Chromium); now one element per `src`. `36845442`:
 regenerate did not send the conversation (incognito 404). `c13b263c`: no cap on a frame's pending storage requests
@@ -254,7 +254,7 @@ contract/audit/eval half (before its live run); **S2d** (sonnet, in `rv-2a`, por
 the review branch. Then: merge the review branch into `feat/artifacts-s2` after S2c, and RV-2B (sonnet) covers
 generation/verification/eval plus S2d's runtime changes.
 
-**S2d done (2026-09-26 ~08:40).** `feat/artifacts-s2-review-sandbox` HEAD `69a99a4b` (on RV-2A's `0a4cf01d`): ruling 58's runtime
+**S2d done (2026-09-26).** `feat/artifacts-s2-review-sandbox` HEAD `69a99a4b` (on RV-2A's `0a4cf01d`): ruling 58's runtime
 half. `3ff7c447` sandbox `allow-scripts allow-forms` from one `APP_IFRAME_SANDBOX` constant (CSP derives from it;
 AppFrame's literal pinned equal), `7d712761` the load tripwire + localized notice, `d936b18b` bootstrap replies only
 from `window.parent`, `ccaa0212` same-key ordering + an 8 MiB queued-bytes cap, `c476ec8f` non-string key dropped
@@ -264,7 +264,7 @@ iframe`; never public, tested with the route's HTML asserted absent. `69a99a4b` 
 12,690 tests (+33), Playwright 37, containment 30, gates clean except the known extra cycle; one MinerU timing flake
 passes alone. Read by the orchestrator. Waiting: S2c → merge this branch into `feat/artifacts-s2` → RV-2B.
 
-**S1c done (2026-09-26 ~09:00).** `feat/artifacts-s1-comments` HEAD `e73c7003`, 20 commits on `bb398b5e`: the document
+**S1c done (2026-09-26).** `feat/artifacts-s1-comments` HEAD `e73c7003`, 20 commits on `bb398b5e`: the document
 eval **re-recorded from qwen3-6-27b** via the tunnel (`98e0c6af`; live 7/7 good, known-bad failed as it must, replay
 7/7); T10 (shared anchor vocabulary + the Document's text resolver, comments + `@Alfy` routes, the margin/thread/card/
 bubble, `@Alfy` reads through `readDocumentForAlfy` first so its patches meet the same snapshot guard as
@@ -276,7 +276,7 @@ anchor scoring constants are its own; `no-ad-hoc-maps.test.ts` allowlist entries
 Waiting: S1b (T11) → merge `feat/artifacts-s1-comments` into `feat/artifacts-s1` (shared: `DocumentBody.svelte`,
 `toolbar-actions.ts`, i18n) → RV-1A (opus) + RV-1B (sonnet).
 
-**S2c done (2026-09-26 ~09:10).** `feat/artifacts-s2` HEAD `5b5abc99`: `8e95e36c` ruling 55 (handler `language` from
+**S2c done (2026-09-26).** `feat/artifacts-s2` HEAD `5b5abc99`: `8e95e36c` ruling 55 (handler `language` from
 `ctx.language`; regenerate uses the resolver), `4fd87001` ruling 57 (`research-web-tool.ts` pure move; snapshots
 unchanged without `-u`; Fallow back to 124/4), `c0796775` + `408ecaf8` ruling 56 (the core's optional `evaluate`
 step; the P1 browser pass ported, with a language-mismatch check), `35f000df` + `21936ad8` ruling 58 generation half
@@ -291,7 +291,7 @@ not built (reporting only, deferred). 12,703 tests, Playwright 34, containment 3
 (`69a99a4b`: RV-2A + S2d) into `feat/artifacts-s2` with no conflicts**; gates on the merge running
 (`/tmp/gates-s2-merged/`). Next: RV-2B (sonnet), which also re-runs the app suite live with forms allowed.
 
-**S1b done (2026-09-26 ~09:40).** `feat/artifacts-s1` HEAD `bd0bdc1f`: `61b80e18` T8 (the `AlfyChange` mark, Keep/Undo
+**S1b done (2026-09-26).** `feat/artifacts-s1` HEAD `bd0bdc1f`: `61b80e18` T8 (the `AlfyChange` mark, Keep/Undo
 through the engine's inverses against a live editor, `ChangeBar`, `AlfyWriting`, the shared `RefusalNotice`),
 `9c1f734c` T9 (`Tabs`, chips, the `TrackerChip` node storing canonical tokens whatever the UI language, `card-view.ts`,
 tabs saved through the body route), `ad1540a4` T11 (`MobileToolbar` from the same action list; `artifact-document.spec.ts`,
@@ -307,7 +307,7 @@ conflicts structurally** (`DocumentBody.svelte` ×6, its test ×8, i18n ×2): ab
 `art-s1`, 5420) as step 0; after it reports, S1d gets the crash, mobile-open and margin placement, and a parallel
 **S1e** gets the live channel (T8) and the card preview (T9.7) from the merge commit.
 
-**Slice 1 merged in its own branch (2026-09-26 ~10:10):** S1d merged S1c into `feat/artifacts-s1` as **`4b4445a1`** (template
+**Slice 1 merged in its own branch (2026-09-26):** S1d merged S1c into `feat/artifacts-s1` as **`4b4445a1`** (template
 rebuilt so Tabs + the desktop/mobile toolbar pair live inside S1c's `document-main` beside the margin; the test file's
 describe blocks re-assembled from each side; i18n both sides): check 0/17, 544 artifact tests, Playwright 18/18 (7 are
 the known crash under `test.fail()`). Dispatched in parallel from it: **S1d** (resumed, `art-s1`, 5420): the editor
@@ -316,7 +316,7 @@ branch `feat/artifacts-s1-live`, `node_modules` → `art-s1`'s, 5530): T8 live (
 marks + Keep/Undo from inverses, refusal notice; one `DocumentWorkspace` prop, one `DocumentBody` hook) and T9.7 (a
 bounded server-side Document preview on the card summary, ticking as a user edit).
 
-**RV-2B done → Slice 2 merged into `feat/artifacts` as `f91addb8` (2026-09-26 ~10:30).** Verdict "ship with the four
+**RV-2B done → Slice 2 merged into `feat/artifacts` as `f91addb8` (2026-09-26).** Verdict "ship with the four
 fixes": `469b6fe4` the `no-navigate` audit rule missed `window['location']=` and flagged any object's `.location`
 (an address field would be refused); `e9e19bce` an app with an unrelated unsettled claim could ship as "repaired";
 `0cfe0734` a trailing slash slipped past the "session ended" branch and rendered the real login form in the sandbox;
@@ -335,7 +335,7 @@ S6 `1777140000112` (journal idx 125); later slices take 113, 114, … in merge o
 before dispatch. Still running: S1d (crash, mobile open, margin), S1e (live marks, card preview). Next: when both
 report, merge `feat/artifacts-s1-live` into `feat/artifacts-s1`, then RV-1A (opus) + RV-1B (sonnet).
 
-**S1d done (2026-09-26 ~11:30).** `feat/artifacts-s1` HEAD `dfbd1575`. **The crash's root cause:** `readMarkdown`'s two marker
+**S1d done (2026-09-26).** `feat/artifacts-s1` HEAD `dfbd1575`. **The crash's root cause:** `readMarkdown`'s two marker
 transactions (and `ensureBlockIds`/`loadMarkdown`) dispatched without Tiptap's `preventUpdate`, so each fired
 `update` → `handleUpdate` → `currentCanonicalMarkdown()` → `readMarkdown` again, synchronously, until the stack
 overflowed (`fixTables`/`isActive` were only where it happened to break); `document-editor.test.ts` never mounted an
