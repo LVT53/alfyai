@@ -474,6 +474,20 @@ assembler by a test. Catalogue EN 4,804 → 4,720, HU 7,823 → 7,700; ceiling `
 regenerated. Also fixed a latent `index.test.ts` isolation bug (an `afterEach` deleted the real Document handler).
 13,237 tests, Fallow 124/4. Waiting only on RV-1B.
 
+**Wave 2 DEPLOYED to ai.dev (2026-09-26).** Final merges: `feat/artifacts-s1` ← RV-1B's branch (which holds RV-1A's), `feat/artifacts-chatcard` ←
+`feat/artifacts-s1` (`3f3ddd18`, one test conflict kept both), `feat/artifacts` ← `feat/artifacts-chatcard` (`a9fc1b2e`),
+`npm ci` in `art-base` (Tiptap), then `b121662b` reconciled two tests that met only at the merge (RV-1A's handler calls
+lacked ruling 55's `language`; SC's coalescing test used two summaries while RV-1A's rule needs the same one). `dev`
+← `feat/artifacts` = **`7f07dbf8`**; gates in `dev-int`: check 0/17, biome clean, **13,418 tests**, build 32/2, Fallow
+124/4 with 0 new, **Playwright 108/108**. Pushed; deployed (health OK, `current -> releases/7f07dbf8`).
+**Live check** (`/root/verify-artifacts-w2.mjs`, harness account): Document created via `create_artifact` (9.5 s); a plain
+question makes nothing; App created (38 s, 10 KB HTML, `lang="en"`, classifier: nothing checkable); a Hungarian request
+gives a Hungarian Document; an incognito Document is 404 outside, 200 inside, absent from search. The edit request
+(items already on the list) was answered correctly without an edit; re-run with new items: read → edit (refused) →
+edit (applied), 46.6 s. **Defect found: the Alfy edit rewrote version 1 in place** (one `artifact_versions` row whose
+body holds the edit), against ruling 47. Fix agent (sonnet, `art-fixv`, branch `fix/artifacts-alfy-edit-version`, 5690)
+running, also reading why the first edit was refused. The owner is waiting for the go-ahead to test.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
