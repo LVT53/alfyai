@@ -5,6 +5,7 @@ import {
 } from "$lib/shared/artifact-document/blocks";
 import {
 	documentArtifactCardView,
+	documentArtifactCardViewFromPreview,
 	documentCardTabCount,
 	documentTabsFromCardMetadata,
 } from "./card-view";
@@ -118,5 +119,89 @@ describe("card-view: documentArtifactCardView", () => {
 		expect(view.madeBy).toBe("made by Alfy just now");
 		expect(view.kind).toBe("document");
 		expect(view.openTargetId).toBe("doc-1");
+	});
+});
+
+describe("card-view: documentArtifactCardViewFromPreview (the chat card's bounded builder, T9 steps 4/7)", () => {
+	it("builds the SAME shape as the full-body view, from the bounded preview alone", () => {
+		const view = documentArtifactCardViewFromPreview({
+			artifactId: "doc-1",
+			title: "Packing list",
+			versionNumber: 2,
+			subtitle: "Document · 1 tab",
+			preview: {
+				tabCount: 1,
+				tasks: [
+					{ blockId: "b1", text: "Passport", checked: true },
+					{ blockId: "b2", text: "Charger", checked: false },
+				],
+				totalTaskCount: 2,
+			},
+			onToggleTask: vi.fn(),
+		});
+
+		expect(view).toMatchObject({
+			id: "doc-1",
+			kind: "document",
+			title: "Packing list",
+			subtitle: "Document · 1 tab",
+			versionNumber: 2,
+			openTargetId: "doc-1",
+		});
+		expect(view.tickable?.items).toEqual([
+			{ id: "b1", text: "Passport", done: true },
+			{ id: "b2", text: "Charger", done: false },
+		]);
+	});
+
+	it("shows the true total even though the preview only ever carries five", () => {
+		const view = documentArtifactCardViewFromPreview({
+			artifactId: "doc-1",
+			title: "Packing list",
+			versionNumber: 1,
+			preview: {
+				tabCount: 1,
+				tasks: [
+					{ blockId: "b1", text: "Passport", checked: true },
+					{ blockId: "b2", text: "Tickets", checked: true },
+					{ blockId: "b3", text: "Charger", checked: false },
+					{ blockId: "b4", text: "Sunscreen", checked: false },
+					{ blockId: "b5", text: "Umbrella", checked: false },
+				],
+				totalTaskCount: 7,
+			},
+			onToggleTask: vi.fn(),
+		});
+
+		expect(view.tickable?.items).toHaveLength(5);
+		expect(view.tickable?.totalCount).toBe(7);
+	});
+
+	it("has no tickable checklist when the preview's checklist is empty", () => {
+		const view = documentArtifactCardViewFromPreview({
+			artifactId: "doc-1",
+			title: "Notes",
+			versionNumber: 1,
+			preview: { tabCount: 1, tasks: [], totalTaskCount: 0 },
+			onToggleTask: vi.fn(),
+		});
+		expect(view.tickable).toBeNull();
+	});
+
+	it("ticking calls onToggleTask with the block id and the flipped state", () => {
+		const onToggleTask = vi.fn();
+		const view = documentArtifactCardViewFromPreview({
+			artifactId: "doc-1",
+			title: "Packing list",
+			versionNumber: 1,
+			preview: {
+				tabCount: 1,
+				tasks: [{ blockId: "b1", text: "Passport", checked: false }],
+				totalTaskCount: 1,
+			},
+			onToggleTask,
+		});
+		view.tickable?.onToggle("b1");
+		expect(onToggleTask).toHaveBeenCalledExactlyOnceWith("b1", true);
 	});
 });

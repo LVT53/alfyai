@@ -18,7 +18,10 @@ import type {
 	ArtifactCardTickableItem,
 	ArtifactCardView,
 } from "$lib/components/artifacts/ArtifactCard.svelte";
-import type { ArtifactMetadata } from "$lib/server/services/artifacts/types";
+import type {
+	ArtifactMetadata,
+	DocumentCardPreview,
+} from "$lib/server/services/artifacts/types";
 import {
 	parseDocument,
 	readTaskBlock,
@@ -85,10 +88,34 @@ export interface DocumentCardViewParams {
 }
 
 /**
- * Builds the Document's `ArtifactCardView`. `tickable` is `null` when the
- * document has no task list at all — `ArtifactCard.svelte` renders nothing
- * for a `null` `tickable`, so a Document with no checklist looks like any
- * other card.
+ * The one `tickable` builder both card views share: given the checklist
+ * items a caller already resolved (from a full body, or from the bounded
+ * server preview) and how many task items REALLY exist (`totalCount` —
+ * equal to `items.length` unless the caller is working from a bounded
+ * subset), returns `ArtifactCardView["tickable"]`. `null` when there is no
+ * checklist at all, so `ArtifactCard.svelte` renders nothing and a Document
+ * with no tasks looks like any other card.
+ */
+function buildTickable(
+	items: ArtifactCardTickableItem[],
+	totalCount: number,
+	onToggleTask: (blockId: string, checked: boolean) => void,
+): ArtifactCardView["tickable"] {
+	if (totalCount === 0) return null;
+	return {
+		items,
+		totalCount,
+		onToggle: (id) => {
+			const item = items.find((candidate) => candidate.id === id);
+			if (item) onToggleTask(id, !item.done);
+		},
+	};
+}
+
+/**
+ * Builds the Document's `ArtifactCardView` from a FULL body (the panel,
+ * which already has one loaded) — see `documentArtifactCardViewFromPreview`
+ * below for the chat card's bounded-preview counterpart.
  */
 export function documentArtifactCardView(
 	params: DocumentCardViewParams,
@@ -110,15 +137,50 @@ export function documentArtifactCardView(
 		madeBy: params.madeBy ?? null,
 		versionNumber: params.versionNumber,
 		openTargetId: params.artifactId,
-		tickable:
-			items.length > 0
-				? {
-						items,
-						onToggle: (id) => {
-							const item = items.find((candidate) => candidate.id === id);
-							if (item) params.onToggleTask(id, !item.done);
-						},
-					}
-				: null,
+		tickable: buildTickable(items, items.length, params.onToggleTask),
+	};
+}
+
+export interface DocumentCardViewFromPreviewParams {
+	artifactId: string;
+	title: string;
+	versionNumber: number;
+	/** Already-localised, e.g. `$t('artifacts.card.madeBy', {...})`. */
+	madeBy?: string | null;
+	/** Already-localised, e.g. `$t('artifacts.document.cardSubtitle', {count: preview.tabCount})`. */
+	subtitle?: string | null;
+	/** `ArtifactCardSummary.documentPreview` — bounded, server-computed, never the whole body (T9 steps 4/7). */
+	preview: DocumentCardPreview;
+	/** Same contract as `DocumentCardViewParams.onToggleTask`. */
+	onToggleTask: (blockId: string, checked: boolean) => void;
+}
+
+/**
+ * The chat card's own builder (T9 steps 4/7): identical shape to
+ * `documentArtifactCardView`, but reads the bounded, ALREADY-COMPUTED server
+ * preview instead of parsing a full body this caller never has (and must
+ * never fetch just to render a card) — `preview.totalTaskCount` is what lets
+ * `ArtifactCard.svelte` show "+N more" correctly even though `preview.tasks`
+ * itself never carries more than the first five.
+ */
+export function documentArtifactCardViewFromPreview(
+	params: DocumentCardViewFromPreviewParams,
+): ArtifactCardView {
+	const items: ArtifactCardTickableItem[] = params.preview.tasks.map(
+		(task) => ({ id: task.blockId, text: task.text, done: task.checked }),
+	);
+	return {
+		id: params.artifactId,
+		kind: "document",
+		title: params.title,
+		subtitle: params.subtitle ?? null,
+		madeBy: params.madeBy ?? null,
+		versionNumber: params.versionNumber,
+		openTargetId: params.artifactId,
+		tickable: buildTickable(
+			items,
+			params.preview.totalTaskCount,
+			params.onToggleTask,
+		),
 	};
 }
