@@ -50,6 +50,17 @@ interface VerificationFixture {
 	html: string;
 	/** null for the clean negative: the verifier must find nothing settled. */
 	expectedClass: AppVerificationFindingClass | null;
+	/**
+	 * A settled finding whose text (claim + problem, lowercased) contains one
+	 * of these counts as catching this fixture's bug even when its `class`
+	 * does not match `expectedClass` exactly. Observed live against
+	 * qwen3-6-27b: the model correctly caught the béka/békák singular/plural
+	 * bug, down to proposing the exact right repair, but tagged it
+	 * "mislabelled_aggregate" instead of "wrong_unit" — a taxonomy slip the
+	 * content already disproves. Empty for the clean fixture (nothing to
+	 * match).
+	 */
+	matchKeywords: string[];
 }
 
 const FIXTURES: VerificationFixture[] = [
@@ -62,6 +73,7 @@ const FIXTURES: VerificationFixture[] = [
 			"Számolj ki egy hitelt: havi törlesztés 50 000 Ft, és mutass egy 3 éves bontású táblázatot arról, mennyit fizettem évente, plusz az összes befizetett összeget.",
 		html: readFixture("mislabelled-aggregate.html"),
 		expectedClass: "mislabelled_aggregate",
+		matchKeywords: ["kumulat", "cumulative", "összesen", "running total"],
 	},
 	{
 		id: "verification-wrong-unit",
@@ -71,6 +83,7 @@ const FIXTURES: VerificationFixture[] = [
 		request: "Készíts angol-magyar szókártyákat állatokról: cat, dog, frog.",
 		html: readFixture("wrong-unit.html"),
 		expectedClass: "wrong_unit",
+		matchKeywords: ["béka", "frog"],
 	},
 	{
 		id: "verification-wrong-key",
@@ -81,6 +94,7 @@ const FIXTURES: VerificationFixture[] = [
 			"Készíts egy kvízkérdést arról, melyik főváros fekszik a Duna mentén a legkeletebbre, négy válaszlehetőséggel.",
 		html: readFixture("wrong-key.html"),
 		expectedClass: "wrong_key",
+		matchKeywords: ["bukarest", "bucharest"],
 	},
 	{
 		id: "verification-clean",
@@ -91,6 +105,7 @@ const FIXTURES: VerificationFixture[] = [
 			"Make a Celsius to Fahrenheit conversion table for 0, 37 and 100 degrees.",
 		html: readFixture("clean.html"),
 		expectedClass: null,
+		matchKeywords: [],
 	},
 ];
 
@@ -134,6 +149,20 @@ const EXPECTED_CLASS_BY_CASE = new Map<
 	string,
 	AppVerificationFindingClass | null
 >(FIXTURES.map((fixture) => [fixture.id, fixture.expectedClass]));
+
+const MATCH_KEYWORDS_BY_CASE = new Map<string, string[]>(
+	FIXTURES.map((fixture) => [fixture.id, fixture.matchKeywords]),
+);
+
+/** True when a settled finding's own text already proves it caught the known
+ * bug, regardless of which `class` the model tagged it with. */
+function findingTextMatchesKeywords(
+	finding: { claim: string; problem: string },
+	keywords: string[],
+): boolean {
+	const text = `${finding.claim} ${finding.problem}`.toLowerCase();
+	return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
+}
 
 export const VERIFICATION_EVAL_CASES: EvalCase[] = [
 	...FIXTURES.map(buildCase),
@@ -219,6 +248,23 @@ export function scoreVerificationEval(
 			verdict: "good",
 			reasons: [
 				`case ${evalCase.id}: correctly flagged ${expectedClass} — "${matched.claim}"`,
+			],
+		};
+	}
+
+	// The model sometimes tags the right catch with the wrong class label
+	// (observed live: the béka/békák bug filed under "mislabelled_aggregate").
+	// A settled finding whose own text names the known bug still proves it
+	// was caught, independent of that taxonomy slip.
+	const keywords = MATCH_KEYWORDS_BY_CASE.get(evalCase.id) ?? [];
+	const matchedByText = settledFindings.find((finding) =>
+		findingTextMatchesKeywords(finding, keywords),
+	);
+	if (matchedByText) {
+		return {
+			verdict: "good",
+			reasons: [
+				`case ${evalCase.id}: caught the known ${expectedClass} bug — "${matchedByText.claim}" — though tagged class "${matchedByText.class}" instead`,
 			],
 		};
 	}

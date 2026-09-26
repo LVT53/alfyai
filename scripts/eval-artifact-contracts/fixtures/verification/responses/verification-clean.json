@@ -1,0 +1,4 @@
+{
+	"response": "```json\n{\n  \"claims\": [\n    \"the Fahrenheit equivalent of 0 Celsius\",\n    \"the Fahrenheit equivalent of 37 Celsius\",\n    \"the Fahrenheit equivalent of 100 Celsius\"\n  ],\n  \"findings\": [],\n  \"repairedHtml\": null,\n  \"repairSafe\": true\n}\n```",
+	"durationMs": 601
+}

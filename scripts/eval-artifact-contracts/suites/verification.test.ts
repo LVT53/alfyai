@@ -69,6 +69,41 @@ describe("scoreVerificationEval — the three prototype bug classes must be caug
 		expect(result.verdict).toBe("bad");
 	});
 
+	it("scores good for a settled finding whose CONTENT matches the known bug even when the model mistags its class (a real observed live response)", () => {
+		// The live run against qwen3-6-27b caught this exact bug — béka/békák,
+		// even proposing the correct repair — but tagged it
+		// "mislabelled_aggregate" instead of "wrong_unit". The class enum is a
+		// taxonomy detail the content already proves it understood; scoring
+		// this "acceptable" would under-credit a genuinely correct catch.
+		const evalCase = VERIFICATION_EVAL_CASES.find(
+			(c) => c.id === "verification-wrong-unit",
+		);
+		if (!evalCase) throw new Error("fixture not found");
+		const result = scoreVerificationEval(evalCase, {
+			caseId: evalCase.id,
+			suite: "verification",
+			response: fenceJson({
+				claims: [
+					"the English word 'frog' translates to the Hungarian word 'békák'",
+				],
+				findings: [
+					{
+						claim:
+							"the English word 'frog' translates to the Hungarian word 'békák'",
+						problem:
+							"'frog' is singular English, but 'békák' is Hungarian plural; the correct translation is 'béka'.",
+						class: "mislabelled_aggregate",
+						location: "li:nth-child(3)",
+						settled: true,
+					},
+				],
+				repairedHtml: null,
+				repairSafe: false,
+			}),
+		});
+		expect(result.verdict).toBe("good");
+	});
+
 	it("scores acceptable when the verifier flags something but not a settled match for the known bug", () => {
 		const evalCase = VERIFICATION_EVAL_CASES.find(
 			(c) => c.id === "verification-wrong-unit",

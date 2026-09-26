@@ -1,0 +1,4 @@
+{
+	"response": "```json\n{\n  \"claims\": [\n    \"the correct answer to the quiz question\",\n    \"the option letter corresponding to the correct answer\"\n  ],\n  \"findings\": [\n    {\n      \"claim\": \"the correct answer to the quiz question\",\n      \"problem\": \"The app marks 'Bukarest' as the correct answer, but Bucharest is not located on the Danube (it is on the Dâmbovița). The correct answer should be Belgrade (C).\",\n      \"class\": \"wrong_key\",\n      \"location\": \"ol > li:nth-child(4)[data-correct] and p:last-child\",\n      \"settled\": false\n    }\n  ],\n  \"repairedHtml\": null,\n  \"repairSafe\": false\n}\n```",
+	"durationMs": 1250
+}
