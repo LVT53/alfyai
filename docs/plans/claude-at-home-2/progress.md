@@ -357,6 +357,22 @@ summary-first + three-standard publish rule mirrored in the client checklist), t
 reuses it), the dialog's type picker stays seed-only. Fallow +1 (`ArtifactTourState`, consumed by T3): accepted
 until T3 lands. T3/T4/T6/T7 wait on all four kinds' panels and Slice 5b.
 
+**S1e and S7 done (2026-09-26, before the fourth usage-limit stop).** **S1e** (`feat/artifacts-s1-live`, 15 commits): T8 live:
+`edit_artifact`'s Document handler puts `appliedCount` + `refusedBlocksJson` on the tool-call metadata; the chat page
+maps the latest create/edit segment to an `alfyActivity` prop on `DocumentWorkspace`; the body rebuilds outcomes +
+inverses from the tool's own ops, the refused blocks and its pre-edit blocks, then marks through the lazy boundary;
+`@Alfy` replies use the same pipeline. T9.7: a bounded server `documentPreview` (tabs, first five tasks, total) on the
+card summary, `readTaskBlock` shared by server and client, ticks through `toggleDocumentTask` (the normal body save).
+Its T8-live e2e was `test.fail()` only because of the crash S1d fixed. Deviation: **no in-chat card for any new
+kind exists** (only File has one in `ToolActivityRow`); slice-2 A7.4 ("the card renders during the turn") and spec
+§5 require it; no slice owned it → a cross-kind task after Slice 1 merges, before the Wave 2 deploy.
+**S7** (`feat/artifacts-s7` HEAD `50fffbf9`, 7 commits): the listing merge, typed search for every kind, the Documents
+tab's six chips / Version column / type pill / Delete-only actions, search labels + icons, containment (33), e2e; 12,804
+tests, Playwright 51. It found that `type:"artifact"` rows are not in `core.ts`'s conversation-required ownership set.
+**Merged `feat/artifacts-s1-live` into `feat/artifacts-s1` as `e17c6f09` (no conflicts)**; gates running
+(`/tmp/gates-s1-merged/`). Remaining `test.fail()`: the mobile toolbar at 53 px (RV-1B) and S1e's T8-live test (should
+now pass). **RV-7 (sonnet) dispatched** in `rv-7` (5610), hunting that ownership edge first.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
