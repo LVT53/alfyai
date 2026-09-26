@@ -265,7 +265,7 @@ describe("verifyApp — clean and repaired", () => {
 		expect(result.usage?.totalTokens).toBeGreaterThan(0);
 	});
 
-	it("repairs once when the model is sure and the repair is safe", async () => {
+	it("repairs once when the model is sure, and re-verifies the repair before accepting it (ruling 52)", async () => {
 		sendJsonControlMessage.mockResolvedValue({
 			text: JSON.stringify({ checkable: true, kinds: ["computed_numbers"] }),
 			rawResponse: {},
@@ -274,24 +274,36 @@ describe("verifyApp — clean and repaired", () => {
 			usage: classifierUsage(),
 		});
 		const repaired = "<html><body>fixed total</body></html>";
-		runPlainNormalChatModelRun.mockResolvedValue(
-			verifierResult(
-				fenceJson({
-					findings: [
-						{
-							claim: "Total: 900",
-							problem:
-								"The displayed total does not match the sum of the rows (should be 950).",
-							class: "other",
-							location: "Total row",
-							settled: true,
-						},
-					],
-					repairedHtml: repaired,
-					repairSafe: true,
-				}),
-			),
-		);
+		runPlainNormalChatModelRun
+			.mockResolvedValueOnce(
+				verifierResult(
+					fenceJson({
+						claims: ["the grand total amount"],
+						findings: [
+							{
+								claim: "Total: 900",
+								problem:
+									"The displayed total does not match the sum of the rows (should be 950).",
+								class: "other",
+								location: "Total row",
+								settled: true,
+							},
+						],
+						repairedHtml: repaired,
+						repairSafe: true,
+					}),
+				),
+			)
+			.mockResolvedValueOnce(
+				verifierResult(
+					fenceJson({
+						claims: ["the grand total amount"],
+						findings: [],
+						repairedHtml: null,
+						repairSafe: false,
+					}),
+				),
+			);
 
 		const result = await verifyApp(baseParams());
 
@@ -299,6 +311,8 @@ describe("verifyApp — clean and repaired", () => {
 		expect(result.repairedHtml).toBe(repaired);
 		expect(result.repairedHtml).not.toBe(baseParams().html);
 		expect(result.findings).toHaveLength(1);
+		// Both the proposal AND its re-verification must have actually run.
+		expect(runPlainNormalChatModelRun).toHaveBeenCalledTimes(2);
 	});
 
 	it("a repair that would introduce a new, unverified claim is uncertain with the ORIGINAL html, never clean", async () => {
@@ -333,6 +347,135 @@ describe("verifyApp — clean and repaired", () => {
 
 		expect(result.verdict).toBe("uncertain");
 		expect(result.repairedHtml).toBeNull();
+	});
+});
+
+describe("verifyApp — ruling 52: a repair is re-verified before acceptance", () => {
+	function repairProposal(overrides: Record<string, unknown> = {}) {
+		return fenceJson({
+			claims: ["the grand total amount"],
+			findings: [
+				{
+					claim: "Total: 900",
+					problem: "The displayed total does not match the sum of the rows.",
+					class: "other",
+					location: "Total row",
+					settled: true,
+				},
+			],
+			repairedHtml: "<html><body>fixed total</body></html>",
+			repairSafe: true,
+			...overrides,
+		});
+	}
+
+	beforeEach(() => {
+		sendJsonControlMessage.mockResolvedValue({
+			text: JSON.stringify({ checkable: true, kinds: ["computed_numbers"] }),
+			rawResponse: {},
+			modelId: "model2",
+			modelDisplayName: "Model 2",
+			usage: classifierUsage(),
+		});
+	});
+
+	it("re-verification still finding a problem is uncertain, with the ORIGINAL html — never the repair", async () => {
+		runPlainNormalChatModelRun
+			.mockResolvedValueOnce(verifierResult(repairProposal()))
+			.mockResolvedValueOnce(
+				verifierResult(
+					fenceJson({
+						claims: ["the grand total amount"],
+						findings: [
+							{
+								claim: "Total: 940",
+								problem: "Still does not match the sum of the rows.",
+								class: "other",
+								location: "Total row",
+								settled: true,
+							},
+						],
+						repairedHtml: null,
+						repairSafe: false,
+					}),
+				),
+			);
+
+		const result = await verifyApp(baseParams());
+
+		expect(result.verdict).toBe("uncertain");
+		expect(result.repairedHtml).toBeNull();
+		expect(runPlainNormalChatModelRun).toHaveBeenCalledTimes(2);
+	});
+
+	it("a repair that introduces a claim the original never made is uncertain, even when re-verification finds nothing wrong with it", async () => {
+		runPlainNormalChatModelRun
+			.mockResolvedValueOnce(verifierResult(repairProposal()))
+			.mockResolvedValueOnce(
+				verifierResult(
+					fenceJson({
+						// The re-verified (repaired) app now also asserts a loyalty
+						// discount — a subject pass one never listed. Nothing is
+						// flagged as wrong with it, so `findings` is empty; the
+						// claim-list comparison is the only thing that can catch this.
+						claims: [
+							"the grand total amount",
+							"the loyalty discount percentage",
+						],
+						findings: [],
+						repairedHtml: null,
+						repairSafe: false,
+					}),
+				),
+			);
+
+		const result = await verifyApp(baseParams());
+
+		expect(result.verdict).toBe("uncertain");
+		expect(result.repairedHtml).toBeNull();
+	});
+
+	it("a repair that only rewrites the SAME claim (same subject, corrected value) is not treated as a gained claim", async () => {
+		runPlainNormalChatModelRun
+			.mockResolvedValueOnce(verifierResult(repairProposal()))
+			.mockResolvedValueOnce(
+				verifierResult(
+					fenceJson({
+						// Same subject as pass one, just no longer wrong — this is the
+						// allowed "rewrite", not a new assertion.
+						claims: ["the grand total amount"],
+						findings: [],
+						repairedHtml: null,
+						repairSafe: false,
+					}),
+				),
+			);
+
+		const result = await verifyApp(baseParams());
+
+		expect(result.verdict).toBe("repaired");
+	});
+
+	it("a re-verification that cannot finish inside its own deadline is uncertain with the original html, and the call still resolves (the create can still succeed)", async () => {
+		vi.useFakeTimers();
+		try {
+			runPlainNormalChatModelRun
+				.mockResolvedValueOnce(verifierResult(repairProposal()))
+				.mockReturnValueOnce(new Promise(() => undefined));
+
+			const resultPromise = verifyApp(baseParams());
+			await vi.advanceTimersByTimeAsync(25_000);
+
+			const result = await resultPromise;
+
+			expect(result.verdict).toBe("uncertain");
+			expect(result.repairedHtml).toBeNull();
+			// The original finding survives so Alfy's note has something to quote.
+			expect(result.findings).toHaveLength(1);
+			expect(result.reason).not.toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

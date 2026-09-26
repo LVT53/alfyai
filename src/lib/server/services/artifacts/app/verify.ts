@@ -67,7 +67,7 @@ export interface AppVerification {
 	findings: AppVerificationFinding[];
 	/** The app with the repairs applied, when the verdict is "repaired", and the claim list is unchanged. */
 	repairedHtml: string | null;
-	/** Non-null whenever any model call happened: classifier, verifier and repair summed. */
+	/** Non-null whenever any model call happened: classifier, verifier and any re-verification pass, summed. */
 	usage: AppModelCallUsage | null;
 	/** The user-facing reason for "uncertain"/"unavailable", in the request's language; null otherwise. */
 	reason: string | null;
@@ -81,6 +81,18 @@ export interface VerifyAppParams {
 	language: "en" | "hu";
 	abortSignal?: AbortSignal;
 }
+
+/**
+ * Ruling 52: a proposed repair is re-verified — without `research_web` — before
+ * it is accepted, and that pass has its OWN deadline so the whole verification
+ * pass still finishes inside `create_artifact`'s 120s envelope (ruling 40)
+ * alongside ~23s generation, ~5s classification and `research_web`'s own 60s
+ * ceiling (slice-2.md Task A7's arithmetic: 23 + 5 + 60 + ~25 ≈ 113s, rounded
+ * up). A deadline hit is reported as "uncertain" with the original HTML — the
+ * repair is never accepted on trust, and `verifyApp` never throws for it, so
+ * the App is still created (decisions.md ruling 52).
+ */
+export const APP_REVERIFICATION_TIMEOUT_MS = 25_000;
 
 const CLASSIFIER_KINDS = [
 	"table",
@@ -135,6 +147,7 @@ ${languageLine}
 Answer with EXACTLY one fenced code block, tagged json, and nothing outside it:
 \`\`\`json
 {
+  "claims": ["..."],
   "findings": [
     { "claim": "...", "problem": "...", "class": "wrong_key" | "mislabelled_aggregate" | "wrong_unit" | "other", "location": "..." | null, "settled": true | false }
   ],
@@ -143,12 +156,54 @@ Answer with EXACTLY one fenced code block, tagged json, and nothing outside it:
 }
 \`\`\`
 
-"findings" is [] when nothing is wrong. "repairedHtml" is the WHOLE corrected document, only when you are sure of a fix, else null. "repairSafe" must be true ONLY when the repair corrects or relabels an EXISTING claim — if the repair would require the reader to accept any fact, number or label that the original app did not already assert, set repairSafe to false and describe it as a finding instead. Never invent a new claim while "repairing" one.`;
+"claims" lists every distinct checkable claim you examined, named by its SUBJECT rather than its specific value (e.g. "the grand total amount", not "Total: 900") — a caller compares this list across a repair and its re-verification, so name a claim the same way whether or not it turns out to be correct. "findings" is [] when nothing is wrong. "repairedHtml" is the WHOLE corrected document, only when you are sure of a fix, else null. "repairSafe" must be true ONLY when the repair corrects or relabels an EXISTING claim — if the repair would require the reader to accept any fact, number or label that the original app did not already assert, set repairSafe to false and describe it as a finding instead. Never invent a new claim while "repairing" one.`;
+}
+
+/**
+ * Ruling 52's second pass: re-checks a PROPOSED repair, without `research_web`
+ * (its own 60s ceiling would not fit inside this pass's 25s budget). Named
+ * facts the first pass already settled — with web research where one needed
+ * it — are matched by claim TEXT rather than re-derived from memory.
+ */
+function buildReVerificationPrompt(
+	previousClaims: string[],
+	language: "en" | "hu",
+): string {
+	const languageLine =
+		language === "hu"
+			? "Write every claim, problem and location in Hungarian, matching the app's own language."
+			: "Write every claim, problem and location in English, matching the app's own language.";
+	const settledLine =
+		previousClaims.length > 0
+			? ` An earlier pass already examined this app — with web research where a claim needed it — and listed these claim subjects: ${previousClaims.map((claim) => `"${claim}"`).join(", ")}. If the same subject still appears here, treat it as already settled rather than unsettled merely because you have no web tool now.`
+			: "";
+
+	return `You are re-checking a REPAIRED version of a generated web app, after an earlier pass found a problem and proposed a fix. Confirm the repair leaves nothing wrong and introduces no claim beyond what the earlier pass already examined.
+
+Recompute every number from the app's own inputs: a total that is not the sum of its parts, a percentage that is not the ratio, a running total presented as a per-period figure, are all bugs. Check that every label agrees with what it labels (singular/plural, the right unit, the right column). Check that any answer key or "correct" marker actually names the correct option for the question as written. You have no web research tool in this pass — never settle a NEW real-world named fact from memory alone; mark it unsettled instead.${settledLine}
+
+${languageLine}
+
+Answer with EXACTLY one fenced code block, tagged json, and nothing outside it:
+\`\`\`json
+{
+  "claims": ["..."],
+  "findings": [
+    { "claim": "...", "problem": "...", "class": "wrong_key" | "mislabelled_aggregate" | "wrong_unit" | "other", "location": "..." | null, "settled": true | false }
+  ],
+  "repairedHtml": null,
+  "repairSafe": false
+}
+\`\`\`
+
+"claims" lists every distinct checkable claim you examined here, named by its SUBJECT rather than its specific value, exactly as the earlier pass would name it when it is the same claim. "findings" is [] when nothing is wrong. This pass never proposes a further repair: always answer "repairedHtml" as null and "repairSafe" as false.`;
 }
 
 const FENCE_RE = /```[ \t]*(?:json|JSON)[ \t]*\r?\n([\s\S]*?)```/;
 
 interface VerifierAnswer {
+	/** Every distinct claim examined, named by subject (ruling 52) — see `claimListGainedAClaim`. */
+	claims: string[];
 	findings: AppVerificationFinding[];
 	repairedHtml: string | null;
 	repairSafe: boolean;
@@ -194,7 +249,14 @@ function parseVerifierAnswer(text: string): VerifierAnswer | null {
 		});
 	}
 
+	const claims = Array.isArray(record.claims)
+		? record.claims.filter(
+				(claim): claim is string => typeof claim === "string",
+			)
+		: [];
+
 	return {
+		claims,
 		findings,
 		repairedHtml:
 			typeof record.repairedHtml === "string" &&
@@ -203,6 +265,21 @@ function parseVerifierAnswer(text: string): VerifierAnswer | null {
 				: null,
 		repairSafe: record.repairSafe === true,
 	};
+}
+
+/**
+ * True when `after` names a claim (by normalized subject text) that `before`
+ * never listed — ruling 52's "the claim list did not gain a claim". The
+ * prompt asks for a claim's SUBJECT rather than its value, so correcting a
+ * value (a rewrite) keeps the same listed subject and is allowed; asserting
+ * something new (an add) introduces a subject that was never listed and is
+ * not.
+ */
+function claimListGainedAClaim(before: string[], after: string[]): boolean {
+	const normalize = (claim: string) =>
+		claim.trim().toLowerCase().replace(/\s+/g, " ");
+	const known = new Set(before.map(normalize));
+	return after.some((claim) => !known.has(normalize(claim)));
 }
 
 function sumUsage(
@@ -222,7 +299,7 @@ function sumUsage(
 async function recordVerificationCost(params: {
 	userId: string;
 	conversationId: string | null;
-	call: "classifier" | "verifier";
+	call: "classifier" | "verifier" | "reverify";
 	modelId: string;
 	modelDisplayName?: string | null;
 	usage: AppModelCallUsage | null;
@@ -253,6 +330,130 @@ function unavailable(
 		usage,
 		reason,
 	};
+}
+
+type ReVerifyResult =
+	| {
+			ok: true;
+			findings: AppVerificationFinding[];
+			claims: string[];
+			usage: AppModelCallUsage | null;
+	  }
+	| { ok: false; reason: string; usage: AppModelCallUsage | null };
+
+/**
+ * Ruling 52: re-verifies a PROPOSED repair before it is accepted. Never
+ * `research_web` (its own 60s ceiling would not fit here) and never a second
+ * repair — this pass only confirms or rejects the first one, inside its own
+ * bounded deadline (`APP_REVERIFICATION_TIMEOUT_MS`) so the whole verification
+ * pass stays inside `create_artifact`'s 120s envelope. Times out or errors →
+ * `{ ok: false }`, never a throw: a repair that cannot be confirmed becomes
+ * "uncertain", not a failed create.
+ */
+async function reVerifyRepair(params: {
+	userId: string;
+	conversationId: string | null;
+	provider: NormalChatModelRunProvider;
+	repairedHtml: string;
+	prompt: string;
+	language: "en" | "hu";
+	previousClaims: string[];
+	abortSignal?: AbortSignal;
+}): Promise<ReVerifyResult> {
+	const controller = new AbortController();
+	let timedOut = false;
+	// Races the call itself (below) rather than trusting the downstream model
+	// run to unwind promptly once `controller` aborts: that keeps this pass's
+	// deadline real even if a provider call is slow to notice an abort.
+	let rejectOnTimeout: (error: Error) => void = () => undefined;
+	const timeout = new Promise<never>((_resolve, reject) => {
+		rejectOnTimeout = reject;
+	});
+	const timer = setTimeout(() => {
+		timedOut = true;
+		const timeoutError = new Error("app re-verification timed out");
+		controller.abort(timeoutError);
+		rejectOnTimeout(timeoutError);
+	}, APP_REVERIFICATION_TIMEOUT_MS);
+	// Node's timer keeps the process alive; this pass must never be the reason
+	// a short-lived script or test process hangs waiting for it.
+	(timer as unknown as { unref?: () => void }).unref?.();
+
+	const onCallerAbort = () => controller.abort(params.abortSignal?.reason);
+	if (params.abortSignal) {
+		if (params.abortSignal.aborted) {
+			controller.abort(params.abortSignal.reason);
+		} else {
+			params.abortSignal.addEventListener("abort", onCallerAbort, {
+				once: true,
+			});
+		}
+	}
+
+	try {
+		const result = await Promise.race([
+			runPlainNormalChatModelRun({
+				provider: params.provider,
+				modelId: "model1",
+				system: buildReVerificationPrompt(
+					params.previousClaims,
+					params.language,
+				),
+				// Same rule as the first pass (A3.9): the request and the repaired
+				// HTML only, nothing else from the session.
+				messages: [
+					{
+						role: "user",
+						content: `The request that produced this app:\n${params.prompt}\n\nThe repaired app's HTML:\n${params.repairedHtml}`,
+					},
+				],
+				resolveProviderOptions: (attemptProvider) =>
+					buildNormalChatModelRunProviderOptions(attemptProvider, "off"),
+				maxToolSteps: 1,
+				abortSignal: controller.signal,
+			}),
+			timeout,
+		]);
+
+		const usage = toModelCallUsage(result.usage);
+		await recordVerificationCost({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			call: "reverify",
+			modelId: result.model.modelId,
+			modelDisplayName: result.model.displayName,
+			usage,
+		});
+
+		const answer = parseVerifierAnswer(result.text);
+		if (!answer) {
+			return {
+				ok: false,
+				reason: "the re-verification answer could not be read",
+				usage,
+			};
+		}
+		return {
+			ok: true,
+			findings: answer.findings,
+			claims: answer.claims,
+			usage,
+		};
+	} catch (caught) {
+		if (timedOut) {
+			return {
+				ok: false,
+				reason: "the repair could not be re-verified in time",
+				usage: null,
+			};
+		}
+		return { ok: false, reason: describeError(caught), usage: null };
+	} finally {
+		clearTimeout(timer);
+		if (params.abortSignal) {
+			params.abortSignal.removeEventListener("abort", onCallerAbort);
+		}
+	}
 }
 
 /**
@@ -408,13 +609,65 @@ export async function verifyApp(
 		};
 	}
 
-	if (answer.repairedHtml && answer.repairSafe) {
+	if (answer.repairedHtml) {
+		// The model's own "safe" attestation is an extra guard, never the only
+		// one (ruling 52) — but it can still veto a repair up front and save a
+		// re-verification call the model itself does not trust.
+		if (!answer.repairSafe) {
+			return {
+				checked: true,
+				verdict: "uncertain",
+				findings: answer.findings,
+				repairedHtml: null,
+				usage: totalUsage,
+				reason: null,
+			};
+		}
+
+		const reverify = await reVerifyRepair({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			provider,
+			repairedHtml: answer.repairedHtml,
+			prompt: params.prompt,
+			language: params.language,
+			previousClaims: answer.claims,
+			abortSignal: params.abortSignal,
+		});
+		const usageWithReverify = sumUsage(totalUsage, reverify.usage);
+
+		if (!reverify.ok) {
+			// A deadline hit or a failed call: never accepted on trust, and
+			// never a thrown error — the original finding stays so Alfy's note
+			// has something to quote, and the create still succeeds.
+			return {
+				checked: true,
+				verdict: "uncertain",
+				findings: answer.findings,
+				repairedHtml: null,
+				usage: usageWithReverify,
+				reason: reverify.reason,
+			};
+		}
+
+		const gainedClaim = claimListGainedAClaim(answer.claims, reverify.claims);
+		if (reverify.findings.length > 0 || gainedClaim) {
+			return {
+				checked: true,
+				verdict: "uncertain",
+				findings: answer.findings,
+				repairedHtml: null,
+				usage: usageWithReverify,
+				reason: null,
+			};
+		}
+
 		return {
 			checked: true,
 			verdict: "repaired",
 			findings: answer.findings,
 			repairedHtml: answer.repairedHtml,
-			usage: totalUsage,
+			usage: usageWithReverify,
 			reason: null,
 		};
 	}
