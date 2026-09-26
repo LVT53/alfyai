@@ -678,3 +678,38 @@ describe("runAlfyCommentReply", () => {
 		expect(result).toEqual({ ok: false, reason: "not_found" });
 	});
 });
+
+// RV-1A (independent review of Slice 1): red before its fix; the review file
+// (docs/plans/claude-at-home-2/review-1a.md) quotes the failing line.
+describe("RV-1A: a comment on a selection at a block's edge", () => {
+	it("is created: the editor sends an empty prefix at a block's start and an empty suffix at its end", async () => {
+		const artifact = await createDocument();
+		// What `readSelectionAnchorContext` + `makeAnchor` send for a whole
+		// heading, a first word, or a last word: the context stops at the block.
+		const atStart: Anchor = {
+			kind: "text",
+			blockId: "b1",
+			quote: "Naschmarkt",
+			prefix: "",
+			suffix: ", then the",
+		};
+		const wholeBlock: Anchor = {
+			kind: "text",
+			blockId: "b1",
+			quote: "Naschmarkt, then the Secession",
+			prefix: "",
+			suffix: "",
+		};
+		for (const anchor of [atStart, wholeBlock]) {
+			const comment = await createComment({
+				userId: OWNER,
+				artifactId: artifact.id,
+				anchor,
+				author: "user",
+				body: "Worth it?",
+			});
+			expect(comment?.anchor).toEqual(anchor);
+		}
+		expect(parseArtifactAnchor(JSON.stringify(wholeBlock))).toEqual(wholeBlock);
+	});
+});

@@ -50,11 +50,17 @@ function toAnchor(value: unknown): Anchor | null {
 	switch (candidate.kind) {
 		case "text": {
 			const { blockId, quote, prefix, suffix } = candidate;
+			// The context may be EMPTY: the editor captures it inside the
+			// block, so a selection at a block's start has no prefix and one at
+			// its end has no suffix — a whole heading, a first word, a whole
+			// task line. Requiring both non-empty refused every such comment
+			// with a 400 (RV-1A). An empty context is still a valid anchor: the
+			// quote and its block carry it.
 			if (
 				!isNonEmptyString(blockId) ||
 				!isNonEmptyString(quote) ||
-				!isNonEmptyString(prefix) ||
-				!isNonEmptyString(suffix)
+				typeof prefix !== "string" ||
+				typeof suffix !== "string"
 			) {
 				return null;
 			}
