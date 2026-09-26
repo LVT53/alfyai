@@ -11,10 +11,13 @@ import {
 	listArtifactCatalogueEntries,
 } from "$lib/server/services/artifacts";
 import { parseDocument } from "$lib/shared/artifact-document/blocks";
-import type {
-	RefusalReason as DocumentRefusalReason,
-	PatchOp,
-	PatchSet,
+import {
+	type RefusalReason as DocumentRefusalReason,
+	PATCH_OP_KINDS,
+	type PatchOp,
+	type PatchOpInput,
+	type PatchSet,
+	patchOpInputSchema,
 } from "$lib/shared/artifact-document/patch";
 import { truncateText } from "../shared";
 import {
@@ -27,19 +30,41 @@ import {
 } from "./kind-registry";
 
 /**
- * Advertised to the model. `patches`/`ops` stay permissive on purpose
- * (below) — but each is only DESCRIBED while a kind that actually uses it is
- * advertised (kind-registry.ts's advertisedArtifactKinds()); an undescribed
- * field for a kind nobody can create yet would just be a token cost with
- * nothing to point at. Built fresh from `kinds` for the same reason
- * buildCreateArtifactModelInputSchema (create.ts) is: a newly registered
- * handler must be reflected the next time this is called, not frozen at
- * module load.
+ * `patches`'s real, executed shape (Document's five ops — `patchOpInputSchema`
+ * in `$lib/shared/artifact-document/patch.ts`, the SAME schema
+ * `EDIT_ARTIFACT_HANDLERS.document` validates every call against below). One
+ * array-level cap here (min 1, max 40) shared by both the advertised and the
+ * executed schema, so neither can drift from the other on op count either.
+ * Exported so a test can parse the description's own worked example
+ * (kind-prose.ts's `EDIT_ARTIFACT_DOCUMENT_EXAMPLE`) through the exact schema
+ * a real call is validated against, rather than a schema built to match it.
+ */
+export const documentPatchesArraySchema = z
+	.array(patchOpInputSchema)
+	.min(1)
+	.max(40);
+
+/**
+ * Advertised to the model, and — via `compactToolInputSchema`'s `shown`
+ * parameter at this tool's registration (`normal-chat-tools/index.ts`) —
+ * ALSO what is validated: `patches` carries the real Document op union the
+ * moment Document is advertised (kind-registry.ts's advertisedArtifactKinds()),
+ * never a generic `z.unknown()` the model has to guess the shape of from
+ * prose alone. Slides would join the same union here once it has a create
+ * handler and its own op schema; Canvas's `ops` stays a generic array (its
+ * own JSON-diff shape, not this engine's). Built fresh from `kinds` for the
+ * same reason buildCreateArtifactModelInputSchema (create.ts) is: a newly
+ * registered handler must be reflected the next time this is called, not
+ * frozen at module load.
  */
 export function buildEditArtifactModelInputSchema(
 	kinds: readonly CreatableArtifactKind[] = advertisedArtifactKinds(),
 ) {
-	const patches = z.array(z.unknown()).optional();
+	const patches = (
+		kinds.includes("document")
+			? documentPatchesArraySchema
+			: z.array(z.unknown())
+	).optional();
 	const patchesDescription = editArtifactPatchesFieldDescription(kinds);
 	const ops = z.array(z.unknown()).optional();
 	const opsDescription = editArtifactOpsFieldDescription(kinds);
@@ -174,43 +199,43 @@ export type EditArtifactHandler = (
  * here — and only here. No type slice edits `normal-chat-tools/index.ts` or
  * `shared.ts`.
  */
-// Slice 1's wire shape for one Document patch op, matching this tool's own
-// advertised `[{op, blockId|slideId, fieldId, baseHash, text}]` shape with
-// Document's own `op` vocabulary (mirrors $lib/shared/artifact-document/patch's
-// PatchOpKind so the engine's five kinds are the model's five `op` values,
-// never a second naming). All fields beyond `op`/`blockId`/`baseHash` are
-// optional here; the engine itself refuses an op whose kind needs a field
-// that is missing (`not_a_text_block`, `empty_text`, …).
-const documentPatchOpSchema = z.object({
-	op: z.enum([
-		"replaceBlock",
-		"insertText",
-		"replaceRange",
-		"toggleTask",
-		"addTableRow",
-	]),
-	blockId: z.string().min(1),
-	baseHash: z.string().min(1),
-	text: z.string().optional(),
-	find: z.string().optional(),
-	at: z.enum(["start", "end"]).optional(),
-	checked: z.boolean().optional(),
-	cells: z
-		.array(
-			z.union([
-				z.string(),
-				z.object({
-					chip: z.object({
-						kind: z.enum(["status", "date"]),
-						value: z.string(),
-					}),
-				}),
-			]),
-		)
-		.optional(),
-});
+// The wire shape for one Document patch op is `patchOpInputSchema`
+// ($lib/shared/artifact-document/patch.ts) — the SAME schema
+// buildEditArtifactModelInputSchema advertises to the model above, so a
+// shape the model was shown can never be refused here as malformed, and one
+// it was not shown can never silently be accepted either. Each variant
+// carries only the fields its `op` reads; the engine still refuses an op
+// whose semantic preconditions fail (`not_a_text_block`, `find_not_found`,
+// …) — this schema only guards the WIRE shape.
+const documentPatchOpsSchema = documentPatchesArraySchema;
 
-const documentPatchOpsSchema = z.array(documentPatchOpSchema).min(1);
+/**
+ * `PatchOpInput`'s per-variant fields narrow on `op` (a `toggleTask` input
+ * has no `text`, for instance), so building the engine's flat `PatchOp`
+ * needs one branch per kind rather than a uniform field copy — the
+ * discriminated union is exactly the fields-per-op payoff this schema
+ * exists for; a single spread would erase it.
+ */
+function toPatchOp(input: PatchOpInput, blockLabel: string): PatchOp {
+	const common = {
+		opId: `alfy-${randomUUID()}`,
+		blockId: input.blockId,
+		baseHash: input.baseHash,
+		blockLabel,
+	};
+	switch (input.op) {
+		case "replaceBlock":
+			return { ...common, kind: input.op, text: input.text };
+		case "insertText":
+			return { ...common, kind: input.op, text: input.text, at: input.at };
+		case "replaceRange":
+			return { ...common, kind: input.op, find: input.find, text: input.text };
+		case "toggleTask":
+			return { ...common, kind: input.op, checked: input.checked };
+		case "addTableRow":
+			return { ...common, kind: input.op, cells: input.cells };
+	}
+}
 
 export const EDIT_ARTIFACT_HANDLERS: Partial<
 	Record<CreatableArtifactKind, EditArtifactHandler>
@@ -226,8 +251,7 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 		if (!parsed.success) {
 			return {
 				ok: false,
-				error:
-					"One or more patch ops were malformed. Re-read the document and try again with the exact op/blockId/baseHash shape.",
+				error: `One or more patch ops were malformed. Documents use patches (not ops); each op's "op" must be one of: ${PATCH_OP_KINDS.join(", ")}. Re-read the document and try again with the exact shape edit_artifact's schema shows.`,
 			};
 		}
 
@@ -247,18 +271,9 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 			}
 		}
 
-		const ops: PatchOp[] = parsed.data.map((op) => ({
-			opId: `alfy-${randomUUID()}`,
-			kind: op.op,
-			blockId: op.blockId,
-			baseHash: op.baseHash,
-			blockLabel: labelByBlockId.get(op.blockId) ?? op.blockId,
-			text: op.text,
-			find: op.find,
-			at: op.at,
-			checked: op.checked,
-			cells: op.cells,
-		}));
+		const ops: PatchOp[] = parsed.data.map((op) =>
+			toPatchOp(op, labelByBlockId.get(op.blockId) ?? op.blockId),
+		);
 
 		const patch: PatchSet = {
 			patchId: `alfy-${params.turnId}`,

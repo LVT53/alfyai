@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactDetail } from "$lib/server/services/artifacts";
+import {
+	PATCH_OP_KINDS,
+	patchOpInputSchema,
+} from "$lib/shared/artifact-document/patch";
+import { EDIT_ARTIFACT_DOCUMENT_EXAMPLE } from "./kind-prose";
 
 const getArtifactMock =
 	vi.fn<
@@ -27,8 +32,12 @@ vi.mock("$lib/server/services/artifacts", () => ({
 		listArtifactCatalogueEntriesMock(...(args as [never])),
 }));
 
-const { EDIT_ARTIFACT_HANDLERS, editArtifactInputSchema, runEditArtifactTool } =
-	await import("./edit");
+const {
+	documentPatchesArraySchema,
+	EDIT_ARTIFACT_HANDLERS,
+	editArtifactInputSchema,
+	runEditArtifactTool,
+} = await import("./edit");
 
 function detail(overrides: Partial<ArtifactDetail> = {}): ArtifactDetail {
 	return {
@@ -60,6 +69,75 @@ describe("editArtifactInputSchema", () => {
 			ops: Array.from({ length: 41 }, () => ({})),
 		};
 		expect(editArtifactInputSchema.safeParse(tooMany).success).toBe(false);
+	});
+});
+
+// A dev live check (2026-09-26) found edit_artifact's Document op contract
+// undiscoverable: the advertised schema never showed the real `op` values, so
+// the model guessed seven wrong synonyms in a row (insert_after, replace,
+// update, edit, update_block — never one of the five real ops) and gave up.
+// The fix makes `patchOpInputSchema` (patch.ts) the ONE schema both the
+// advertised description/schema and this handler's own validator read; these
+// pin that the two really are the same schema, not two that happen to agree
+// today.
+describe("edit_artifact's Document op contract (dev incident, 2026-09-26)", () => {
+	it("the description's own worked example parses through the real validator", () => {
+		const result = documentPatchesArraySchema.safeParse(
+			EDIT_ARTIFACT_DOCUMENT_EXAMPLE.patches,
+		);
+		expect(result.success).toBe(true);
+	});
+
+	it.each([
+		{
+			op: "replaceBlock",
+			blockId: "b1",
+			baseHash: "h1",
+			text: "New text.",
+		},
+		{
+			op: "insertText",
+			blockId: "b1",
+			baseHash: "h1",
+			text: "More text.",
+			at: "end",
+		},
+		{
+			op: "replaceRange",
+			blockId: "b1",
+			baseHash: "h1",
+			find: "old",
+			text: "new",
+		},
+		{ op: "toggleTask", blockId: "b1", baseHash: "h1", checked: true },
+		{
+			op: "addTableRow",
+			blockId: "b1",
+			baseHash: "h1",
+			cells: ["a", "b"],
+		},
+	])("the advertised union accepts a real $op example with exactly its fields", (example) => {
+		expect(patchOpInputSchema.safeParse(example).success).toBe(true);
+	});
+
+	it("PATCH_OP_KINDS lists exactly the five ops the schema's own discriminant accepts", () => {
+		expect(PATCH_OP_KINDS).toEqual([
+			"replaceBlock",
+			"insertText",
+			"replaceRange",
+			"toggleTask",
+			"addTableRow",
+		]);
+	});
+
+	it("refuses an op name outside the union — the exact guess the real model made on dev", () => {
+		const result = patchOpInputSchema.safeParse({
+			op: "insert_after",
+			blockId: "b1",
+			baseHash: "h1",
+			text: "x",
+		});
+		expect(result.success).toBe(false);
 	});
 });
 

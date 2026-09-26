@@ -250,12 +250,46 @@ export function editArtifactRuleClause(
 
 const PATCHES_FIELD_DESCRIPTION = {
 	documentAndSlides:
-		"Documents and Slides only: [{op, blockId|slideId, fieldId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
+		"Documents and Slides only, one op per block or slide field — each op's exact fields are in this array's own schema. Read the artifact first; baseHash must be the hash you last read.",
 	documentOnly:
-		"Documents only: [{op, blockId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
+		"Documents only, one op per block — each op's exact fields are in this array's own schema. Read the artifact first; baseHash must be the hash you last read.",
 	slidesOnly:
-		"Slides only: [{op, slideId, fieldId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
+		"Slides only, one op per slide field — each op's exact fields are in this array's own schema. Read the artifact first; baseHash must be the hash you last read.",
 } as const;
+
+/**
+ * edit_artifact's ONE worked example (Document, `replaceBlock`) — the exact
+ * literal the top-level description shows the model, exported so a test can
+ * feed this SAME value to the real validator
+ * (`$lib/shared/artifact-document/patch.ts`'s `patchOpInputSchema`) and prove
+ * the two can never disagree (a dev incident, 2026-09-26: the model never
+ * discovered a valid `op` value from prose alone and burned seven refused
+ * edit_artifact calls guessing synonyms before giving up and duplicating the
+ * document with create_artifact instead).
+ */
+export const EDIT_ARTIFACT_DOCUMENT_EXAMPLE = {
+	artifactId: "a1",
+	patches: [
+		{
+			op: "replaceBlock",
+			blockId: "b3",
+			baseHash: "9f2c1a04",
+			text: "New text for this block.",
+		},
+	],
+} as const;
+
+/** edit_artifact's compact worked example, shown only while Document is
+ *  advertised — Slides would need its own once it has a create handler and
+ *  an op schema of its own; Canvas's ops are a different, unadvertised shape. */
+export function editArtifactExampleClause(
+	kinds: readonly CreatableArtifactKind[],
+	lang: "en" | "hu",
+): string {
+	if (!kinds.includes("document")) return "";
+	const json = JSON.stringify(EDIT_ARTIFACT_DOCUMENT_EXAMPLE);
+	return lang === "en" ? `Example: ${json}.` : `Példa: ${json}.`;
+}
 
 /** edit_artifact's `patches` field description (EN only), or undefined when
  *  neither Document nor Slides is advertised — patches would have nothing to

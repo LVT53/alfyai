@@ -233,6 +233,57 @@ describe("edit_artifact.document", () => {
 		expect(result?.ok).toBe(false);
 	});
 
+	// The dev live check (2026-09-26): the real model tried "insert_after"
+	// (and, in the same conversation, "replace", "update", "edit",
+	// "update_block") for `op`, none of them real, and the refusal never named
+	// what WAS real — so it kept guessing seven times, then gave up and
+	// duplicated the document with create_artifact. The refusal now names the
+	// five valid ops, through the SAME tool-handler seam the model calls.
+	it("names the valid op values when the model guesses one that does not exist (the exact dev incident)", async () => {
+		const artifactId = await createDoc("Book the flight to Vienna.");
+		const read = await READ_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			artifactId,
+			title: "Saturday plan",
+			detail: "blocks",
+			abortSignal: abortSignal(),
+		});
+		const [block] = read?.blocks ?? [];
+
+		const handler = EDIT_ARTIFACT_HANDLERS.document;
+		const result = await handler?.({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			artifactId,
+			title: "Saturday plan",
+			patches: [
+				{
+					op: "insert_after",
+					blockId: block?.blockId,
+					baseHash: block?.hash,
+					text: "Opera tickets",
+				},
+			],
+			abortSignal: abortSignal(),
+		});
+
+		expect(result?.ok).toBe(false);
+		if (result && !result.ok) {
+			for (const kind of [
+				"replaceBlock",
+				"insertText",
+				"replaceRange",
+				"toggleTask",
+				"addTableRow",
+			]) {
+				expect(result.error).toContain(kind);
+			}
+			expect(result.error).toContain("patches");
+		}
+	});
+
 	// [trap] "your words win", proven through the SAME seam the model calls —
 	// not just through document-ops.ts directly (tests/integration and
 	// editor-server-refusal.test.ts already prove the engine and the real
