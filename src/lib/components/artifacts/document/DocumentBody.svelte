@@ -1064,12 +1064,20 @@ function saveNoticeText(notice: SaveNotice): string {
 
 	.document-content {
 		position: relative;
+		display: flex;
+		flex-direction: column;
 		flex: 1;
 		min-height: 240px;
 		overflow-y: auto;
 	}
 
+	/* `flex: 1` (not just `min-height`) so the editable canvas fills whatever
+	   room `.document-content` actually has, even when the document itself is
+	   short or empty — otherwise the host hugs its 240px floor and leaves the
+	   rest of the panel visually blank below it (T11.1: the editor must keep
+	   >= 60% of a 390x844 viewport, `tests/e2e/artifact-document.spec.ts`). */
 	.document-editor-host {
+		flex: 1;
 		min-height: 240px;
 		padding: 1rem 1.25rem;
 	}

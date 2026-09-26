@@ -406,22 +406,18 @@ test.describe("the Document mobile toolbar", () => {
 	test("at 390x844 the toolbar stays within its budget and the editor keeps most of the viewport", async ({
 		page,
 	}) => {
-		// A separate, narrower, still-open finding from item 2's fix (the
-		// mobile list→document transition, described above the describe
-		// block): now that the editor is actually reachable at 390×844, the
-		// toolbar measures 53px, 5px over its 48px budget — MobileToolbar.
-		// svelte's own header comment computes 45px (2×4px padding + 1px
-		// border + 36px button), so the live DOM disagrees with that
-		// component's own arithmetic by exactly the same 5px on every
-		// measurement. Not chased further here: this is T11's own CSS budget
-		// (Review Focus 7), unrelated to the ARIA-role/testid gap item 2 was
-		// scoped to fix. The other three tests in this describe block do not
-		// depend on the exact 48px figure and pass now that the transition
-		// works.
-		test.fail(
-			true,
-			"MobileToolbar.svelte measures 53px against its own computed 45px/48px budget — see this test's own comment",
-		);
+		// RV-1B: this used to measure 53px, 5px over the 48px budget, even
+		// though MobileToolbar.svelte's own header comment computes 45px
+		// (2×4px padding + 1px border + 36px button). The global mobile
+		// stylesheet's "icon controls should meet the 44px target" rule
+		// (`src/app.css`'s `@media (max-width: 767px)` block) applies to
+		// every `.btn-icon-bare`, including this toolbar's, and its
+		// `!important` 44px silently overrode the component's own 36px —
+		// so the live DOM disagreed with the component's arithmetic by
+		// exactly the 8px difference between 44px and 36px. Fixed by
+		// opting this toolbar's buttons back out in `app.css`
+		// (`.mobile-toolbar .btn-icon-bare`), which is now specific enough
+		// to win over the general rule.
 		await page.setViewportSize({ width: 390, height: 844 });
 		const conversationId = await createConversation(page, "Plan a trip");
 		await seedDocument({
