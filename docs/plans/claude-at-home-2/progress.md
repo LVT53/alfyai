@@ -212,6 +212,21 @@ the real wiring for both the tool timeout and the turn's stop), `7ea8157c` (read
 cannot pass it); 12,375 tests, gates clean. Read by the orchestrator, merged as **`365083f2`**; check 0/17, the
 tools/artifacts/workspace tests 1,079/1,079. S1 and S2b told; S2b's A7 is unblocked. 5a is complete.
 
+**2026-09-26 03:00–03:50.** The API usage limit stopped S1 and S2b mid-task at ~01:30; both resumed at 03:00 (S1 clean
+at `6196e671`; S2b with uncommitted ruling-52 work). **S1 reported (HEAD `bb398b5e`, 12,557 tests, gates clean, containment
+28, Playwright 29/29):** T1–T7, T4 (the three Document handlers, abort-aware) and T13 (the document suite) done;
+**T8–T12 not started** (its context was spent). Its "live" eval ran through the harness's opencode-config fallback, not
+the tunnel, so it measured an unknown provider (the owner was told) → **ruling 54** (fallback removed; explicit
+endpoint only; fixtures re-recorded from qwen3-6-27b). S1 added Tiptap 3.31.3 (7 packages, pinned) and has its own
+real `node_modules`; `art-base`'s install lacks Tiptap, so `npm install` is needed there when S1 merges into
+`feat/artifacts` (do it at a quiet moment: other worktrees symlink it). Accepted deviations: the directory split
+(pure engine in `src/lib/shared/artifact-document/`, editor in `components/artifacts/document/`), Tiptap-named
+factory options, `applyDocumentPatch` returning `versionId`, the Document-only `POST /api/artifacts/document`
+("save as new" after a delete; reviewers check its scope), 8 eval cases. Dispatched (sonnet): **S1b** in `art-s1`
+(5420) T8/T9/T11; **S1c** in `art-s1c` (branch `feat/artifacts-s1-comments` from `bb398b5e`, `node_modules` →
+`art-s1`'s, port 5520) T13 re-record + T10 + T12, with a file split and `DocumentBody.svelte` as the one shared
+file; **evalkey fix** in `art-evalkey` (branch `feat/artifacts-evalkey`). S2b told about ruling 54.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
