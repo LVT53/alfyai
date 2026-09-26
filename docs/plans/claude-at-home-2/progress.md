@@ -465,6 +465,15 @@ write?); a full read sends the text twice (~200k chars max); the spec's `…/doc
 `ssh -O cancel -L <port>:192.168.1.96:30000 alfyroot`. The shared `node_modules/.vite` can be re-optimised by another
 worktree's dev server mid-run (45 spurious e2e failures once).
 
+**Advertised kinds done → merged into `feat/artifacts-chatcard` as `e5f20c37` (2026-09-26).** `ea45a38d`: `advertisedArtifactKinds()` in a
+dependency-free `artifact-tools/kind-registry.ts` (moving the registry there broke a real import cycle through
+`config-store`→`prompts`, which could drop "document" from the catalogue by import order); per-kind EN/HU fragments in
+`kind-prose.ts`; the create/edit schemas and the three descriptions are built from the advertised kinds inside
+`createNormalChatTools`; the base prompt paragraph is a hand-edited literal (ADR-0055) cross-checked against the
+assembler by a test. Catalogue EN 4,804 → 4,720, HU 7,823 → 7,700; ceiling `{ en: 4746, hu: 7727 }`; snapshots
+regenerated. Also fixed a latent `index.test.ts` isolation bug (an `afterEach` deleted the real Document handler).
+13,237 tests, Fallow 124/4. Waiting only on RV-1B.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
