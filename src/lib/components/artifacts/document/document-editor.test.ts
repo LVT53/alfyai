@@ -66,6 +66,25 @@ function replaceWithCodeBlock(editor: Editor, text: string): void {
 	);
 }
 
+/**
+ * Sets the whole document to a single plain paragraph with EXACTLY `text` as
+ * its content, the same live-node route `replaceWithCodeBlock` uses above and
+ * for the same reason: markdown SOURCE starting with "2024. " or "- " is
+ * already ambiguous at the very first parse (a real reader cannot tell a
+ * numeral from a list marker either), so loading it as source would prove
+ * nothing about `readMarkdown`'s own re-serialization of a paragraph the user
+ * actually typed.
+ */
+function replaceWithParagraph(editor: Editor, text: string): void {
+	const { schema } = editor.state;
+	const doc = schema.nodes.doc.create(null, [
+		schema.nodes.paragraph.create(null, schema.text(text)),
+	]);
+	editor.view.dispatch(
+		editor.state.tr.replaceWith(0, editor.state.doc.content.size, doc.content),
+	);
+}
+
 describe("document-editor", () => {
 	// T7's mint-before-hash equivalent, through the real editor: a fresh load
 	// with no markers at all must still give every top-level block a stable id
@@ -183,6 +202,65 @@ describe("document-editor", () => {
 		const markdown = readMarkdown(editor);
 		expect(markdown).toContain("```js");
 		expect(markdown).not.toContain("````");
+		editor.destroy();
+	});
+
+	// RV-1B, coordinator item 4: a plain paragraph whose own first line
+	// happens to start with an ordered numeral ("2024. ") or a bullet
+	// character ("- ") is, in bare Markdown, indistinguishable from a real
+	// list — `blocks.ts`'s splitter read either shape as `kind: "list"` on the
+	// very next parse, silently changing the block's own kind.
+	it("keeps a paragraph starting with a numeral-and-period as a paragraph, not a list", () => {
+		const editor = mountEditor("placeholder");
+		replaceWithParagraph(editor, "2024. Some year in review.");
+
+		const markdown = readMarkdown(editor);
+		const blocks = parseDocument(markdown, { mint: false }).blocks;
+		expect(blocks.length).toBe(1);
+		expect(blocks[0].kind).toBe("paragraph");
+		expect(blocks[0].label).toBe("2024. Some year in review.");
+		editor.destroy();
+	});
+
+	it("keeps a paragraph starting with a dash as a paragraph, not a list", () => {
+		const editor = mountEditor("placeholder");
+		replaceWithParagraph(editor, "- this is not a list, just a sentence.");
+
+		const markdown = readMarkdown(editor);
+		const blocks = parseDocument(markdown, { mint: false }).blocks;
+		expect(blocks.length).toBe(1);
+		expect(blocks[0].kind).toBe("paragraph");
+		expect(blocks[0].label).toBe("- this is not a list, just a sentence.");
+		editor.destroy();
+	});
+
+	it("keeps a paragraph starting with a parenthesised numeral as a paragraph, not a list", () => {
+		const editor = mountEditor("placeholder");
+		replaceWithParagraph(editor, "1) Not actually a list item.");
+
+		const markdown = readMarkdown(editor);
+		const blocks = parseDocument(markdown, { mint: false }).blocks;
+		expect(blocks.length).toBe(1);
+		expect(blocks[0].kind).toBe("paragraph");
+		expect(blocks[0].label).toBe("1) Not actually a list item.");
+		editor.destroy();
+	});
+
+	it("does not touch a real list's own marker", () => {
+		const editor = mountEditor("- one\n- two\n- three");
+		const markdown = readMarkdown(editor);
+		const blocks = parseDocument(markdown, { mint: false }).blocks;
+		expect(blocks[0].kind).toBe("list");
+		expect(blocks[0].markdown).toBe("- one\n- two\n- three");
+		editor.destroy();
+	});
+
+	it("a numeral-paragraph's escape round-trips through a second read with no drift", () => {
+		const editor = mountEditor("placeholder");
+		replaceWithParagraph(editor, "2024. Some year in review.");
+		const first = readMarkdown(editor);
+		const second = readMarkdown(editor);
+		expect(second).toBe(first);
 		editor.destroy();
 	});
 

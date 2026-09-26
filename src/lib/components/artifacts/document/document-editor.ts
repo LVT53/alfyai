@@ -9,6 +9,7 @@ import { Editor } from "@tiptap/core";
 import type { ResolvedPos } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import { ANCHOR_CONTEXT_CHARS } from "$lib/shared/artifact-document/anchor";
+import { MARKER_PREFIX } from "$lib/shared/artifact-document/blocks";
 import type {
 	PatchResult,
 	PatchSet,
@@ -187,8 +188,82 @@ export function readMarkdown(editor: Editor): string {
 	// returned STRING — see `sentinelizeTableCellPipes`'s own comment for why
 	// this cannot happen before `getMarkdown()` runs.
 	const withPipesEscaped = markdown.split(TABLE_CELL_PIPE_SENTINEL).join("\\|");
-	return widenCodeFencesForBacktickContent(editor, withPipesEscaped);
+	return escapeParagraphListMarkerLookalikes(
+		editor,
+		widenCodeFencesForBacktickContent(editor, withPipesEscaped),
+	);
 }
+
+/**
+ * RV-1B, coordinator item 4: a plain paragraph whose own first line happens
+ * to start with an ordered numeral ("2024. ") or a bullet character ("- ")
+ * is, in bare Markdown, indistinguishable from a real list — `blocks.ts`'s
+ * splitter (`ORDERED_START_RE`/`BULLET_START_RE`) reads either shape as
+ * `kind: "list"` on the very next parse, silently changing the block's own
+ * kind (and, since a "list" block does not read back through the same rules
+ * as a "paragraph" — different label derivation, different visible-text
+ * joining — its label and any comment anchor resolved against it).
+ *
+ * Fixed the same way as the code-fence widening above: found in the LIVE
+ * document, never guessed from the ambiguous output string. A real list's own
+ * first item serialises to the exact same "- "/"1. " shape a look-alike
+ * paragraph does, so the string alone cannot tell "the user typed a dash"
+ * from "this really is a list" — only the live node's TYPE can. Only a
+ * top-level `paragraph` node (`editor.state.doc.forEach`, the same top-level
+ * scope `identified` above already uses — a `blocks.ts` block boundary is a
+ * top-level construct; a look-alike start buried inside a blockquote or list
+ * item does not change that outer block's own kind) whose own text starts
+ * with the risky shape gets its block's first line escaped, one backslash
+ * right before the marker character (`\-`) or before the ordered marker's
+ * trailing punctuation (`2024\.`) — exactly where CommonMark's own escape
+ * goes, and exactly what `blocks.ts`'s `inlinePlainText` already un-escapes
+ * back to the literal character on every read (its escape range covers both
+ * `-` and `.`).
+ *
+ * Applied to the STRING, after `getMarkdown()` has already run — never by
+ * inserting the backslash into the live document first, which is the same
+ * double-escaping trap `sentinelizeTableCellPipes` above already hit: a
+ * literal backslash typed into a text node comes back from `getMarkdown()`
+ * doubled (`\\`), because the serialiser escapes a text node's own backslash
+ * too.
+ */
+function escapeParagraphListMarkerLookalikes(
+	editor: Editor,
+	markdown: string,
+): string {
+	let result = markdown;
+	editor.state.doc.forEach((node) => {
+		if (node.type.name !== "paragraph") return;
+		const id = node.attrs?.[BLOCK_ID_ATTR];
+		if (typeof id !== "string" || id.length === 0) return;
+		if (!LIST_MARKER_LOOKALIKE_RE.test(node.textContent)) return;
+		const markerAnchor = `${MARKER_PREFIX}${id}-->`;
+		const anchorIndex = result.indexOf(markerAnchor);
+		if (anchorIndex === -1) return;
+		const afterMarker = anchorIndex + markerAnchor.length;
+		result =
+			result.slice(0, afterMarker) +
+			result
+				.slice(afterMarker)
+				.replace(
+					LEADING_LIST_MARKER_RE,
+					(_match, lead: string, marker: string, ws: string) => {
+						const escaped =
+							marker.length === 1
+								? `\\${marker}`
+								: `${marker.slice(0, -1)}\\${marker.slice(-1)}`;
+						return `${lead}${escaped}${ws}`;
+					},
+				);
+	});
+	return result;
+}
+
+/** Pre-check against the live paragraph's own text, before touching the output string at all. */
+const LIST_MARKER_LOOKALIKE_RE = /^(?:[-*+]|\d+[.)])\s/;
+
+/** Anchored to the start of "everything right after this block's own `<!--b:id-->` marker": the look-alike marker (a bullet character, or an ordered numeral plus its `.`/`)`) plus its required trailing whitespace, captured so only the marker's own punctuation gets escaped. */
+const LEADING_LIST_MARKER_RE = /^(\n+)([-*+]|\d+[.)])(\s)/;
 
 /**
  * RV-1B, coordinator item 3: a code block whose own content contains a line
