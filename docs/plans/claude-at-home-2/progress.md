@@ -373,6 +373,17 @@ tests, Playwright 51. It found that `type:"artifact"` rows are not in `core.ts`'
 (`/tmp/gates-s1-merged/`). Remaining `test.fail()`: the mobile toolbar at 53 px (RV-1B) and S1e's T8-live test (should
 now pass). **RV-7 (sonnet) dispatched** in `rv-7` (5610), hunting that ownership edge first.
 
+**Slice 1 combined and in review (2026-09-26, 13:07).** Gates on `feat/artifacts-s1` `e17c6f09`: check 0/17, biome 2 warnings
+(dead code), **12,823 tests**, build 32/2, Fallow 124/4 with 0 new, Playwright 46 (the two `test.fail()`s: the 53 px
+mobile toolbar, and S1e's T8-live test, which fails on a strict-mode locator, not the old crash). **RV-1A** (opus,
+`rv-1a`, branch `feat/artifacts-s1-review-engine`, 5620) on the engine/server; **RV-1B** (sonnet, `rv-1b`,
+`feat/artifacts-s1-review-editor`, 5630) on the editor/UI, owning the two `test.fail()`s and the dead code.
+**SC** (sonnet, `art-card`, branch `feat/artifacts-chatcard` from `feat/artifacts` `34fcdaaa`, `node_modules` →
+`art-s1`'s, 5640): step 0 merges `feat/artifacts-s1` into the App line (11 conflicts, found by a trial merge; the one
+needing thought is `record.ts`: ruling-47 coalescing + Slice 2's `metadataPatch` together), step 1 builds the
+in-chat card for every kind. Merge order after the reviews: `feat/artifacts-chatcard` → `feat/artifacts`, then
+`feat/artifacts-s1` (review fixes only; the merge base is `e17c6f09`), then RV-7's S7.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
