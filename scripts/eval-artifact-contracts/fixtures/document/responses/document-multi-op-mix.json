@@ -1,4 +1,4 @@
 {
-	"response": "[\n  {\"op\":\"replaceBlock\",\"blockId\":\"p1\",\"baseHash\":\"c811663b\",\"text\":\"Book the train.\"},\n  {\"op\":\"replaceBlock\",\"blockId\":\"p2\",\"baseHash\":\"a0a3c315\",\"text\":\"Book the apartment.\"},\n  {\"op\":\"replaceBlock\",\"blockId\":\"p3\",\"baseHash\":\"4baf202c\",\"text\":\"Pack the bags and passports.\"}\n]",
-	"durationMs": 812
+  "response": "[\n  {\"op\":\"replaceBlock\",\"blockId\":\"p1\",\"baseHash\":\"c811663b\",\"text\":\"Book the train.\"},\n  {\"op\":\"replaceBlock\",\"blockId\":\"p2\",\"baseHash\":\"a0a3c315\",\"text\":\"Book the apartment.\"},\n  {\"op\":\"replaceBlock\",\"blockId\":\"p3\",\"baseHash\":\"4baf202c\",\"text\":\"Pack the bags and passports.\"}\n]",
+  "durationMs": 706
 }
