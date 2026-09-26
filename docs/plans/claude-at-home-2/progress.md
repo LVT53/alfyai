@@ -205,6 +205,13 @@ brief: merge `feat/artifacts`, ruling 51 in AppBody, ruling 52 in verify.ts, A9 
 30430), A8 tool wording, then A7 once 5a's ruling-53 follow-up is merged (else stop, "blocked on 5a follow-up").
 S1 told it is unblocked. Lesson: long-running implementers need a context-economy line in their brief.
 
+**Ruling 53 landed (2026-09-26 ~01:10).** S5a's follow-up `ab29d9f5` (abort signal into all three handlers, proven on
+the real wiring for both the tool timeout and the turn's stop), `7ea8157c` (read bound at `MAX_INLINE_TEXT_CHARS`
+100,000 exported from `files.ts`; `truncated` + `omittedChars`/`omittedBlocks`; catalogue snapshots unchanged),
+`25771975` (`MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3`, checked and counted before the first await, so parallel calls
+cannot pass it); 12,375 tests, gates clean. Read by the orchestrator, merged as **`365083f2`**; check 0/17, the
+tools/artifacts/workspace tests 1,079/1,079. S1 and S2b told; S2b's A7 is unblocked. 5a is complete.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
