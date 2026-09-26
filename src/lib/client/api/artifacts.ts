@@ -115,6 +115,44 @@ export async function saveArtifactBody(
 }
 
 /**
+ * `Tabs.svelte`'s (T9) one write path for add/rename/delete: the SAME body
+ * route every other Document edit uses, with a `tabs` field the route
+ * threads into `saveDocumentBody`'s `metadataPatch` instead of falling back
+ * to the artifact's current stored tabs (`+server.ts`'s own comment). The
+ * current markdown is required, not optional — this call still writes the
+ * body in the same transaction as the tab change (one version, not two), so
+ * the caller passes exactly what it would otherwise autosave.
+ */
+export async function saveDocumentTabs(
+	artifactId: string,
+	tabs: { id: string; title: string; startBlockId: string }[],
+	markdown: string,
+	expectVersion?: number,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<SaveArtifactBodyResult> {
+	const response = await fetchImpl(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/body${withConversationQuery(conversationId)}`,
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				body: markdown,
+				tabs,
+				...(expectVersion !== undefined ? { expectVersion } : {}),
+			}),
+		},
+	);
+	const payload = (await response
+		.json()
+		.catch(() => null)) as SaveArtifactBodyResult | null;
+	if (!payload) {
+		return { ok: false, reason: "not_found" };
+	}
+	return payload;
+}
+
+/**
  * The Document's one direct-create call (`slice-1.md` T7.10's "deleted while
  * open" escape hatch): the artifact the panel had open is gone, so there is
  * no id to PATCH against — this posts the editor's own text as a brand-new

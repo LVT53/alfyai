@@ -57,14 +57,17 @@ import {
 	createDocumentCopy,
 	fetchArtifact,
 	saveArtifactBody,
+	saveDocumentTabs,
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
 import { t } from "$lib/i18n";
+import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import {
 	parseDocument,
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
+import { documentTabsFromCardMetadata } from "./card-view";
 import {
 	createDocumentAutosave,
 	type DocumentAutosaveHandle,
@@ -72,6 +75,7 @@ import {
 } from "./document-autosave";
 import type { Editor } from "./document-editor";
 import DocumentToolbar from "./DocumentToolbar.svelte";
+import Tabs from "./Tabs.svelte";
 import type { DocumentToolbarActionId } from "./toolbar-actions";
 
 let {
@@ -89,6 +93,15 @@ let loadState = $state<LoadState>("loading");
 let saveNotice = $state<SaveNotice>(null);
 let versionNumber = $state<number | null>(null);
 let activeActionIds = $state<Set<DocumentToolbarActionId>>(new Set());
+// T9: the tab strip. `Tabs.svelte` owns its own add/rename/delete UI and
+// hands back the new list through `onChange`; this body's only job is to
+// persist it (through the SAME body route every edit uses,
+// `saveDocumentTabs`) and track which one is active. Switching the active
+// tab never touches the editor — `handleTabActivate` only updates
+// `activeTabId`, so a tab switch cannot remount or reload the document
+// (T9.1).
+let tabs = $state<DocumentTab[]>([]);
+let activeTabId = $state<string>("");
 // The current binding: starts as the prop, but T7.10's "save a copy" escape
 // hatch re-points it at a BRAND NEW artifact without the panel's own
 // `activeDocumentId` changing — the panel still thinks it is showing the
@@ -235,6 +248,35 @@ function handleLinkAction(): void {
 	editor.chain().focus().toggleLink({ href: url.trim() }).run();
 }
 
+/** Switching the active tab is a pure UI notification — it never touches the editor (T9.1). */
+function handleTabActivate(tabId: string): void {
+	activeTabId = tabId;
+}
+
+/**
+ * Persists an add/rename/delete from `Tabs.svelte` through the SAME body
+ * route every other edit uses (`saveDocumentTabs`, one write path — T9.2/
+ * T9.7), carrying the editor's current canonical text along unchanged so a
+ * tab-list edit is never mistaken for a text edit. The strip already updated
+ * itself optimistically (it renders straight from its own `tabs` prop
+ * change); on a refusal it is simply overwritten by the next successful
+ * load rather than rolled back, matching this body's existing "keep the
+ * user's text, surface the notice" failure shape for every other save.
+ */
+async function handleTabsChange(next: DocumentTab[]): Promise<void> {
+	tabs = next;
+	const canonical = currentCanonicalMarkdown();
+	if (canonical === null) return;
+	const result = await saveDocumentTabs(
+		boundArtifactId,
+		next,
+		canonical,
+		versionNumber ?? undefined,
+		panelConversationId ?? null,
+	);
+	handleSaveResult(result, canonical);
+}
+
 /**
  * Creates (or replaces) the autosave loop bound to `id`. Pulled out of
  * `runLoad` so `handleSaveCopy` can call it too: the OLD `autosave`'s `save`
@@ -305,6 +347,8 @@ async function runLoad(id: string): Promise<void> {
 
 		readMarkdownFn = mod.readMarkdown;
 		versionNumber = detail.artifact.versionNumber;
+		tabs = documentTabsFromCardMetadata(detail.artifact.metadata);
+		activeTabId = tabs[0]?.id ?? "";
 
 		editor?.destroy();
 		editor = mod.createDocumentEditor({
@@ -366,6 +410,14 @@ function saveNoticeText(notice: SaveNotice): string {
 </script>
 
 <div class="document-body">
+	{#if editorReady}
+		<Tabs
+			{tabs}
+			{activeTabId}
+			onActivate={handleTabActivate}
+			onChange={handleTabsChange}
+		/>
+	{/if}
 	<DocumentToolbar
 		{activeActionIds}
 		disabled={!editorReady}

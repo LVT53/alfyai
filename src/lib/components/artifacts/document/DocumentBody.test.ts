@@ -11,17 +11,23 @@ import {
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 
-const { mockFetchArtifact, mockSaveArtifactBody, mockCreateDocumentCopy } =
-	vi.hoisted(() => ({
-		mockFetchArtifact: vi.fn(),
-		mockSaveArtifactBody: vi.fn(),
-		mockCreateDocumentCopy: vi.fn(),
-	}));
+const {
+	mockFetchArtifact,
+	mockSaveArtifactBody,
+	mockCreateDocumentCopy,
+	mockSaveDocumentTabs,
+} = vi.hoisted(() => ({
+	mockFetchArtifact: vi.fn(),
+	mockSaveArtifactBody: vi.fn(),
+	mockCreateDocumentCopy: vi.fn(),
+	mockSaveDocumentTabs: vi.fn(),
+}));
 
 vi.mock("$lib/client/api/artifacts", () => ({
 	fetchArtifact: mockFetchArtifact,
 	saveArtifactBody: mockSaveArtifactBody,
 	createDocumentCopy: mockCreateDocumentCopy,
+	saveDocumentTabs: mockSaveDocumentTabs,
 }));
 
 const { mockCreateDocumentEditor, mockReadMarkdown, editorInstances } =
@@ -137,6 +143,7 @@ describe("DocumentBody", () => {
 		setupCreateDocumentEditor();
 		mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
 		mockSaveArtifactBody.mockResolvedValue({ ok: true, version: 2 });
+		mockSaveDocumentTabs.mockResolvedValue({ ok: true, version: 2 });
 	});
 
 	afterEach(() => {
@@ -465,5 +472,111 @@ describe("DocumentBody", () => {
 		await waitFor(() =>
 			expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 		);
+	});
+
+	// T9: the tab strip is loaded from the artifact's metadata and persisted
+	// through the same body route, without ever touching the editor module.
+	describe("tabs", () => {
+		it("hides the strip for a document with one tab (or none)", async () => {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(screen.queryByTestId("document-tabs")).not.toBeInTheDocument();
+			expect(screen.getByTestId("document-tabs-single")).toBeInTheDocument();
+		});
+
+		it("renders every tab from the artifact's metadata, first one active", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					metadata: {
+						artifactType: "document",
+						title: "Trip plan",
+						tabs: [
+							{ id: "tab-1", title: "Plan", startBlockId: "p1" },
+							{ id: "tab-2", title: "Budget", startBlockId: "p2" },
+						],
+					},
+				}),
+			);
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			const tabButtons = screen.getAllByRole("tab");
+			expect(tabButtons.map((el) => el.textContent?.trim())).toEqual([
+				"Plan",
+				"Budget",
+			]);
+			expect(tabButtons[0]).toHaveAttribute("aria-selected", "true");
+		});
+
+		it("switching the active tab does not reload the editor module or the document", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					metadata: {
+						artifactType: "document",
+						title: "Trip plan",
+						tabs: [
+							{ id: "tab-1", title: "Plan", startBlockId: "p1" },
+							{ id: "tab-2", title: "Budget", startBlockId: "p2" },
+						],
+					},
+				}),
+			);
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await fireEvent.click(screen.getAllByRole("tab")[1]);
+
+			expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1);
+			const tabButtons = screen.getAllByRole("tab");
+			expect(tabButtons[1]).toHaveAttribute("aria-selected", "true");
+		});
+
+		it("adding a tab persists the new list through the same body route the editor autosaves through", async () => {
+			mockReadMarkdown.mockReturnValue("Hello.");
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Add a tab" }));
+
+			await waitFor(() =>
+				expect(mockSaveDocumentTabs).toHaveBeenCalledTimes(1),
+			);
+			const [artifactId, tabsArg, markdownArg] =
+				mockSaveDocumentTabs.mock.calls[0];
+			expect(artifactId).toBe("artifact-1");
+			expect(tabsArg).toHaveLength(1);
+			expect(tabsArg[0].title).toBe("New section");
+			// A fresh `parseDocument("Hello.")` mints its OWN random block id, so
+			// this asserts the canonical SHAPE (one marker, the exact text) rather
+			// than an exact string two independent mints would rarely agree on.
+			expect(markdownArg).toMatch(/^<!--b:[a-z0-9]+-->\nHello\.\n$/);
+		});
 	});
 });

@@ -35,7 +35,7 @@ import type {
 	MarkdownParseHelpers,
 	MarkdownToken,
 } from "@tiptap/core";
-import { Extension, Node } from "@tiptap/core";
+import { createInlineMarkdownSpec, Extension, Node } from "@tiptap/core";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Placeholder } from "@tiptap/extension-placeholder";
 import { TableKit } from "@tiptap/extension-table";
@@ -48,12 +48,15 @@ import {
 	type Transaction,
 } from "@tiptap/pm/state";
 import { StarterKit } from "@tiptap/starter-kit";
+import { get } from "svelte/store";
 import {
 	type BlockKind,
 	MARKER_PREFIX,
 	mintBlockId,
 } from "$lib/shared/artifact-document/blocks";
+import { uiLanguage } from "$lib/stores/settings";
 import { BLOCK_ID_ATTR, BLOCK_MARKER_NODE } from "./block-attrs";
+import { chipLabel, chipValues } from "./chips";
 import { AlfyChange } from "./marks";
 
 // Re-exported for every existing caller (`document-editor.ts`,
@@ -387,6 +390,131 @@ export function ensureBlockIds(editor: {
 	editor.view.dispatch(tr);
 }
 
+export const TRACKER_CHIP_NODE = "trackerChip";
+export const CHIP_KIND_ATTR = "kind";
+export const CHIP_VALUE_ATTR = "value";
+
+/**
+ * The tracker chip (T9): an inline atom that serialises as
+ * `[chip kind="status" value="Booked"]` — a self-closing shortcode, built on
+ * `@tiptap/core`'s own `createInlineMarkdownSpec` helper rather than a
+ * hand-rolled tokenizer (the same helper the installed 3.31.3's own
+ * `mention`/`emoji` examples use for this exact `[name attrs]` shape). Its
+ * three markdown fields (`parseMarkdown`/`markdownTokenizer`/`renderMarkdown`)
+ * are spread at the TOP level of the node config, matching `BlockMarker`
+ * above — nesting them under a `markdown:` key was verified empirically
+ * (`BlockMarker`'s own comment) to leave a node's markdown as literal text in
+ * this installed version, so this node follows the same, already-proven
+ * shape rather than the alternative the upstream doc comment shows.
+ *
+ * `chipLabel`/`chipValues` (`chips.ts`) own the canonical-value → localized-
+ * label mapping; this node calls `chipLabel` with the CURRENT UI language
+ * read via `get(uiLanguage)` (a plain store read, not a Svelte subscription —
+ * `renderHTML` runs outside any component) because the value shown here must
+ * follow the same rule as everywhere else: the stored `value` attribute is
+ * always the canonical English token, and only the rendered label changes
+ * with the locale (Review Focus 8).
+ */
+const TrackerChip = Node.create({
+	name: TRACKER_CHIP_NODE,
+	group: "inline",
+	inline: true,
+	atom: true,
+
+	addAttributes() {
+		return {
+			[CHIP_KIND_ATTR]: { default: "status" },
+			[CHIP_VALUE_ATTR]: { default: "" },
+		};
+	},
+
+	parseHTML() {
+		return [{ tag: `span[data-chip-kind]` }];
+	},
+
+	renderHTML({ HTMLAttributes }: { HTMLAttributes: Record<string, unknown> }) {
+		const kind = (HTMLAttributes[CHIP_KIND_ATTR] as string) ?? "status";
+		const value = (HTMLAttributes[CHIP_VALUE_ATTR] as string) ?? "";
+		const locale = get(uiLanguage) === "hu" ? "hu" : "en";
+		return [
+			"span",
+			{
+				"data-chip-kind": kind,
+				"data-chip-value": value,
+				class: "tracker-chip",
+			},
+			chipLabel(kind === "date" ? "date" : "status", value, locale),
+		];
+	},
+
+	/**
+	 * The editable half of "the UI shows a localized label and edits the
+	 * token" — a status chip is a real `<select>` (a listbox, matching the UI
+	 * states table's "the chip dropdown is a listbox driven by arrow keys");
+	 * a date chip has no fixed vocabulary (`chipValues("date")` is `[]`) and
+	 * is shown as plain (for now non-editable) text. Choosing an option
+	 * dispatches `setNodeMarkup` with the OPTION'S OWN VALUE — `chipValues`'
+	 * canonical English tokens, never the localized text the option displays
+	 * — so the stored attribute (and therefore the serialised
+	 * `[chip value="…"]`) never changes with the locale (Review Focus 8;
+	 * T9.5's own assertion).
+	 */
+	addNodeView() {
+		return ({ node, getPos, editor: nodeEditor }) => {
+			const dom = document.createElement("span");
+			dom.className = "tracker-chip";
+			dom.dataset.chipKind = node.attrs[CHIP_KIND_ATTR];
+			dom.dataset.chipValue = node.attrs[CHIP_VALUE_ATTR];
+
+			const locale = get(uiLanguage) === "hu" ? "hu" : "en";
+			const kind = node.attrs[CHIP_KIND_ATTR] === "date" ? "date" : "status";
+			const options = chipValues(kind);
+
+			if (options.length > 0) {
+				const select = document.createElement("select");
+				select.className = "tracker-chip-select";
+				select.setAttribute("aria-label", kind);
+				for (const value of options) {
+					const option = document.createElement("option");
+					option.value = value;
+					option.textContent = chipLabel(kind, value, locale);
+					if (value === node.attrs[CHIP_VALUE_ATTR]) option.selected = true;
+					select.appendChild(option);
+				}
+				// A mousedown inside the dropdown must not fall through to
+				// ProseMirror's own selection handling, which would otherwise
+				// steal focus from the listbox before the user can pick an option.
+				select.addEventListener("mousedown", (event) =>
+					event.stopPropagation(),
+				);
+				select.addEventListener("change", () => {
+					if (typeof getPos !== "function") return;
+					const pos = getPos();
+					if (pos == null) return;
+					nodeEditor.view.dispatch(
+						nodeEditor.view.state.tr.setNodeMarkup(pos, undefined, {
+							...node.attrs,
+							[CHIP_VALUE_ATTR]: select.value,
+						}),
+					);
+				});
+				dom.appendChild(select);
+			} else {
+				dom.textContent = chipLabel(kind, node.attrs[CHIP_VALUE_ATTR], locale);
+			}
+
+			return { dom };
+		};
+	},
+
+	...createInlineMarkdownSpec({
+		nodeName: TRACKER_CHIP_NODE,
+		name: "chip",
+		selfClosing: true,
+		allowedAttributes: [CHIP_KIND_ATTR, CHIP_VALUE_ATTR],
+	}),
+});
+
 /**
  * The Document's full extension list. `TaskList`/`TaskItem` come from
  * `@tiptap/extension-list` and `TableKit` from `@tiptap/extension-table` —
@@ -394,10 +522,12 @@ export function ensureBlockIds(editor: {
  * AGENTS.md's mandatory docs check (no Context7/Svelte MCP tool in this
  * session; the installed `.d.ts` is the version-exact fallback).
  *
- * `AlfyChange` (T8, `marks.ts`) is the one Document-specific piece added on
- * top of the T7 baseline so far: the change mark never round-trips to
- * Markdown (it is a purely visual, in-session annotation — see `marks.ts`'s
- * header comment).
+ * `AlfyChange` (T8, `marks.ts`) and `TrackerChip` (T9, this file) are the two
+ * Document-specific pieces added on top of the T7 baseline: the change mark
+ * never round-trips to Markdown (it is a purely visual, in-session
+ * annotation — see `marks.ts`'s header comment), and the chip node keeps
+ * `[chip kind="…" value="…"]` alive through the round trip the same way
+ * `BlockMarker` keeps `<!--b:id-->` alive.
  */
 export function buildDocumentExtensions(placeholder: string) {
 	return [
@@ -412,5 +542,6 @@ export function buildDocumentExtensions(placeholder: string) {
 		BlockIds,
 		BlockMarker,
 		AlfyChange,
+		TrackerChip,
 	];
 }

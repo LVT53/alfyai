@@ -116,6 +116,20 @@ const artifactsDict = {
 		"artifacts.document.refused.seeChange": "See what Alfy did",
 		// The planned-section shimmer while a tool call is in flight (Slice 1, T8).
 		"artifacts.document.planned.writing": "Alfy is writing: {label}",
+		// Tabs (Slice 1, T9).
+		"artifacts.document.cardSubtitle": "Document · {count} tabs",
+		"artifacts.document.tab.add": "Add a tab",
+		"artifacts.document.tab.rename": "Rename",
+		"artifacts.document.tab.delete": "Delete tab",
+		"artifacts.document.tab.deleteConfirm": "Delete “{name}” and its text?",
+		"artifacts.document.tab.renamePrompt": "Rename this tab",
+		"artifacts.document.tab.newTabTitle": "New section",
+		// Tracker chips (Slice 1, T9) — stored values are canonical English
+		// tokens; only the label is localised (Global Constraints, Review Focus 8).
+		"artifacts.document.chip.status.Booked": "Booked",
+		"artifacts.document.chip.status.ToBook": "To book",
+		"artifacts.document.chip.status.Paid": "Paid",
+		"artifacts.document.chip.status.Cancelled": "Cancelled",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -206,6 +220,18 @@ const artifactsDict = {
 			"Alfy nem tudta alkalmazni ezt a módosítást",
 		"artifacts.document.refused.seeChange": "Nézd meg, mit csinált Alfy",
 		"artifacts.document.planned.writing": "Alfy írja: {label}",
+		"artifacts.document.cardSubtitle": "Dokumentum · {count} fül",
+		"artifacts.document.tab.add": "Fül hozzáadása",
+		"artifacts.document.tab.rename": "Átnevezés",
+		"artifacts.document.tab.delete": "Fül törlése",
+		"artifacts.document.tab.deleteConfirm":
+			"Törlöd a(z) „{name}” fület és a szövegét?",
+		"artifacts.document.tab.renamePrompt": "Nevezd át ezt a fület",
+		"artifacts.document.tab.newTabTitle": "Új szakasz",
+		"artifacts.document.chip.status.Booked": "Lefoglalva",
+		"artifacts.document.chip.status.ToBook": "Lefoglalandó",
+		"artifacts.document.chip.status.Paid": "Kifizetve",
+		"artifacts.document.chip.status.Cancelled": "Lemondva",
 	},
 } as const;
 

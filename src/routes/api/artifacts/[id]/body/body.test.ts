@@ -121,6 +121,66 @@ describe("PATCH /api/artifacts/[id]/body", () => {
 		expect(mockUpdateArtifactBody).not.toHaveBeenCalled();
 	});
 
+	// T9: `Tabs.svelte`'s one write path — a well-formed `tabs` field in the
+	// request REPLACES the stored tabs instead of carrying them forward.
+	it("uses a client-supplied well-formed tabs array instead of the stored tabs", async () => {
+		mockGetArtifact.mockResolvedValue(documentFixture);
+		mockDocumentTabs.mockReturnValue([
+			{ id: "t1", title: "Plan", startBlockId: "p1" },
+		]);
+		mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 4 });
+
+		const response = await PATCH(
+			makeEvent({
+				body: {
+					body: "New text.",
+					expectVersion: 2,
+					tabs: [
+						{ id: "t1", title: "Plan", startBlockId: "p1" },
+						{ id: "t2", title: "Budget", startBlockId: "p2" },
+					],
+				},
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+			expect.objectContaining({
+				body: {
+					markdown: "New text.",
+					tabs: [
+						{ id: "t1", title: "Plan", startBlockId: "p1" },
+						{ id: "t2", title: "Budget", startBlockId: "p2" },
+					],
+				},
+			}),
+		);
+	});
+
+	it("falls back to the stored tabs when the supplied tabs field is malformed, rather than rejecting the save", async () => {
+		mockGetArtifact.mockResolvedValue(documentFixture);
+		mockDocumentTabs.mockReturnValue([
+			{ id: "t1", title: "Plan", startBlockId: "p1" },
+		]);
+		mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
+
+		const response = await PATCH(
+			makeEvent({
+				body: { body: "New text.", tabs: [{ id: "t1" }] },
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+			expect.objectContaining({
+				body: {
+					markdown: "New text.",
+					tabs: [{ id: "t1", title: "Plan", startBlockId: "p1" }],
+				},
+			}),
+		);
+	});
+
 	it("answers 409 version_conflict on a stale expectVersion, writing nothing", async () => {
 		mockGetArtifact.mockResolvedValue(documentFixture);
 		mockSaveDocumentBody.mockResolvedValue({

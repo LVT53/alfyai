@@ -34,6 +34,13 @@ export interface ArtifactCardView {
 	id: string;
 	kind: ArtifactKind;
 	title: string;
+	/**
+	 * A second line under the title, e.g. the Document's "Document · 3 tabs"
+	 * (T9.4, `documentArtifactCardView` in `document/card-view.ts`) —
+	 * already-localised by the caller, exactly like `madeBy`. `null`/omitted
+	 * renders nothing, so every other kind is unaffected by this field.
+	 */
+	subtitle?: string | null;
 	/** Rendered as "made by Alfy {when}"; the caller supplies the already-localised time. */
 	madeBy?: string | null;
 	versionNumber?: number | null;
@@ -131,6 +138,10 @@ function handleOpen(): void {
 			{/if}
 		</div>
 
+		{#if view.subtitle}
+			<div class="artifact-card-subtitle">{view.subtitle}</div>
+		{/if}
+
 		{#if view.madeBy}
 			<div class="artifact-card-madeby">{view.madeBy}</div>
 		{/if}
@@ -208,6 +219,7 @@ function handleOpen(): void {
 		font-weight: 600;
 	}
 
+	.artifact-card-subtitle,
 	.artifact-card-madeby {
 		color: var(--text-muted);
 		font-size: var(--text-xs);

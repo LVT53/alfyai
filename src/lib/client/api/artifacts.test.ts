@@ -6,6 +6,7 @@ import {
 	fetchConversationArtifacts,
 	restoreArtifactVersion,
 	saveArtifactBody,
+	saveDocumentTabs,
 } from "./artifacts";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -222,6 +223,50 @@ describe("artifacts client API", () => {
 
 			const call = fetchMock.mock.calls[0]?.[1];
 			expect(JSON.parse(String(call?.body))).toEqual({ body: "Text." });
+		});
+	});
+
+	describe("saveDocumentTabs (Slice 1, T9)", () => {
+		it("PATCHes the SAME body route with a tabs field and the current markdown", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, version: 5 }),
+			);
+			const tabs = [
+				{ id: "t1", title: "Plan", startBlockId: "p1" },
+				{ id: "t2", title: "Budget", startBlockId: "p2" },
+			];
+
+			const result = await saveDocumentTabs(
+				"artifact-1",
+				tabs,
+				"Current text.",
+				4,
+				"conv-1",
+				fetchMock,
+			);
+
+			expect(result).toEqual({ ok: true, version: 5 });
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/artifacts/artifact-1/body?conversationId=conv-1",
+				expect.objectContaining({
+					method: "PATCH",
+					body: JSON.stringify({
+						body: "Current text.",
+						tabs,
+						expectVersion: 4,
+					}),
+				}),
+			);
+		});
+
+		it("never throws on a documented refusal, matching saveArtifactBody's own contract", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: false, reason: "too_large" }, 413),
+			);
+
+			await expect(
+				saveDocumentTabs("artifact-1", [], "Text.", undefined, null, fetchMock),
+			).resolves.toEqual({ ok: false, reason: "too_large" });
 		});
 	});
 });

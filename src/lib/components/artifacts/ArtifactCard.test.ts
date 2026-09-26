@@ -131,6 +131,20 @@ describe("ArtifactCard", () => {
 		}
 	});
 
+	// T9.4: the Document's "Document · 3 tabs" line, a generic optional slot
+	// so every other kind (which never sets `subtitle`) is unaffected.
+	it("renders the subtitle under the title when one is given", () => {
+		render(ArtifactCard, {
+			view: view({ subtitle: "Document · 3 tabs" }),
+		});
+		expect(screen.getByText("Document · 3 tabs")).toBeInTheDocument();
+	});
+
+	it("renders no subtitle line when none is given", () => {
+		const { container } = render(ArtifactCard, { view: view() });
+		expect(container.querySelector(".artifact-card-subtitle")).toBeNull();
+	});
+
 	it("renders a tickable view's first five items and '+N more'", async () => {
 		const onToggle = vi.fn();
 		const items = Array.from({ length: 7 }, (_, index) => ({
