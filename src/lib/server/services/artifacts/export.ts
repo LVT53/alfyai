@@ -9,10 +9,14 @@
  * no native block for, and this mapper never invents one — every Document
  * `BlockKind` maps to exactly one of heading/paragraph/list/quote/code/divider.
  */
-import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
+import type {
+	GeneratedDocumentListItem,
+	GeneratedDocumentSource,
+} from "$lib/server/services/file-production/source-schema";
 import {
 	BULLET_LINE_RE,
 	type DocumentBlock,
+	inlinePlainText,
 	ORDERED_LINE_RE,
 	splitTableCells,
 	TASK_LINE_RE,
@@ -20,18 +24,29 @@ import {
 
 const HEADING_LINE_RE = /^(#{1,6})\s+(.*)$/;
 const CODE_FENCE_LINE_RE = /^(`{3,}|~{3,})\s*(\S*)\s*$/;
-const CHIP_TOKEN_RE = /^\[chip\s+kind="([^"]*)"\s+value="([^"]*)"\]$/;
+const CHIP_TOKEN_RE = /\[chip\s+kind="[^"]*"\s+value="([^"]*)"\]/g;
 const MAX_FILENAME_LENGTH = 100;
 
 function nonEmptyLines(markdown: string): string[] {
 	return markdown.split("\n").filter((line) => line.trim().length > 0);
 }
 
-/** A table cell's canonical chip token (store/store/documents.ts's own convention) renders as its plain value — a rendered report has no chip pill styling to show. */
-function cellText(raw: string): string {
-	const trimmed = raw.trim();
-	const chip = CHIP_TOKEN_RE.exec(trimmed);
-	return chip ? chip[2] : trimmed;
+/**
+ * Markdown as the text a reader sees (RV-1A): the report renderers print
+ * text verbatim, so `**bold**`, `[a link](url)`, `&amp;` and `\*` reached the
+ * PDF and the Word file as those characters. A tracker chip token renders as
+ * its plain value (a rendered report has no chip pill), and a hard break as a
+ * line break.
+ */
+function exportText(markdown: string): string {
+	return inlinePlainText(
+		markdown
+			.replace(CHIP_TOKEN_RE, (_token, value: string) => value)
+			// A soft line break reads as a space; a hard one (a backslash or two
+			// spaces before the newline) stays a line break.
+			.replace(/(?<!\\| {2})\n[ \t]*/g, " "),
+		{ hardBreak: "\n" },
+	).trim();
 }
 
 function mapHeading(
@@ -41,14 +56,23 @@ function mapHeading(
 	const level = match
 		? (Math.min(3, match[1].length) as 1 | 2 | 3)
 		: (2 as const);
-	const text = match ? match[2].trim() : markdown.trim();
-	return { type: "heading", level, text };
+	const text = match ? match[2].replace(/[ \t]+#+[ \t]*$/, "") : markdown;
+	return { type: "heading", level, text: exportText(text) };
 }
 
 function mapParagraph(
 	markdown: string,
 ): GeneratedDocumentSource["blocks"][number] {
-	return { type: "paragraph", text: markdown.trim() };
+	return { type: "paragraph", text: exportText(markdown) };
+}
+
+/** A list line's own text (marker removed), or `null` for a continuation line of the item before it. */
+function listItemText(line: string): string | null {
+	const ordered = ORDERED_LINE_RE.exec(line);
+	if (ordered) return ordered[4];
+	const bullet = BULLET_LINE_RE.exec(line);
+	if (bullet) return bullet[3];
+	return null;
 }
 
 function mapList(markdown: string): GeneratedDocumentSource["blocks"][number] {
@@ -56,32 +80,57 @@ function mapList(markdown: string): GeneratedDocumentSource["blocks"][number] {
 	const style = lines.some((line) => ORDERED_LINE_RE.test(line))
 		? ("numbered" as const)
 		: ("bullet" as const);
-	const items = lines.map((line) => {
-		const ordered = ORDERED_LINE_RE.exec(line);
-		if (ordered) return ordered[4].trim();
-		const bullet = BULLET_LINE_RE.exec(line);
-		if (bullet) return bullet[3].trim();
-		return line.trim();
-	});
-	return { type: "list", style, items };
+	// A continuation line (a hard break's second line, a wrapped line) belongs
+	// to the item above it, never an item of its own.
+	const raw: string[] = [];
+	for (const line of lines) {
+		const text = listItemText(line);
+		if (text === null && raw.length > 0) {
+			raw[raw.length - 1] += `\n${line.trim()}`;
+		} else {
+			raw.push(text ?? line.trim());
+		}
+	}
+	return { type: "list", style, items: raw.map(exportText) };
 }
 
 /**
  * Ruling 36: a checked box, never "[x]" folded into the item's own text — the
  * structured `{ text, checked }` shape the four renderers now all understand.
+ * A task item's block also holds its nested items (RV-1A's nesting fix): a
+ * nested task is a box of its own, a nested plain item a plain item, and a
+ * continuation line joins the item above it — never a stray unchecked box.
  */
 function mapTaskList(
 	markdown: string,
 ): GeneratedDocumentSource["blocks"][number] {
-	const items = nonEmptyLines(markdown).map((line) => {
+	const items: { text: string; checked?: boolean }[] = [];
+	for (const line of nonEmptyLines(markdown)) {
 		const task = TASK_LINE_RE.exec(line);
-		if (!task) return { text: line.trim(), checked: false };
-		return {
-			text: (task[4] ?? "").trim(),
-			checked: task[2].toLowerCase() === "x",
-		};
-	});
-	return { type: "list", style: "bullet", items };
+		if (task) {
+			items.push({
+				text: task[4] ?? "",
+				checked: task[2].toLowerCase() === "x",
+			});
+			continue;
+		}
+		const plain = listItemText(line);
+		if (plain !== null || items.length === 0) {
+			items.push({ text: plain ?? line.trim() });
+			continue;
+		}
+		items[items.length - 1].text += `\n${line.trim()}`;
+	}
+	return {
+		type: "list",
+		style: "bullet",
+		items: items.map((item): GeneratedDocumentListItem => {
+			const text = exportText(item.text);
+			return item.checked === undefined
+				? text
+				: { text, checked: item.checked };
+		}),
+	};
 }
 
 function mapTable(markdown: string): GeneratedDocumentSource["blocks"][number] {
@@ -89,7 +138,7 @@ function mapTable(markdown: string): GeneratedDocumentSource["blocks"][number] {
 	const headerLine = lines[0];
 	if (!headerLine) return { type: "table", columns: [], rows: [] };
 
-	const headers = splitTableCells(headerLine).map((cell) => cell.trim());
+	const headers = splitTableCells(headerLine).map((cell) => exportText(cell));
 	const columns = headers.map((label, index) => ({
 		key: `c${index}`,
 		label,
@@ -100,7 +149,7 @@ function mapTable(markdown: string): GeneratedDocumentSource["blocks"][number] {
 		const cells = splitTableCells(line);
 		const row: Record<string, string> = {};
 		columns.forEach((column, index) => {
-			row[column.key] = cellText(cells[index] ?? "");
+			row[column.key] = exportText(cells[index] ?? "");
 		});
 		return row;
 	});
@@ -111,9 +160,17 @@ function mapCode(markdown: string): GeneratedDocumentSource["blocks"][number] {
 	const lines = markdown.split("\n");
 	const fenceMatch = CODE_FENCE_LINE_RE.exec(lines[0]?.trim() ?? "");
 	const language = fenceMatch?.[2] ? fenceMatch[2] : undefined;
-	// Drop the opening and closing fence lines; the body is verbatim between them.
-	const body = lines.slice(1, lines.length - 1).join("\n");
-	return { type: "code", language, text: body };
+	// Drop the opening fence, and the closing one only when there is one (an
+	// unclosed fence runs to the block's end, and its last line is code):
+	// the body is verbatim between them.
+	const inner = lines.slice(1);
+	if (
+		inner.length > 0 &&
+		CODE_FENCE_LINE_RE.test(inner[inner.length - 1].trim())
+	) {
+		inner.pop();
+	}
+	return { type: "code", language, text: inner.join("\n") };
 }
 
 function mapBlockquote(
@@ -121,10 +178,9 @@ function mapBlockquote(
 ): GeneratedDocumentSource["blocks"][number] {
 	const text = markdown
 		.split("\n")
-		.map((line) => line.replace(/^\s*>\s?/, ""))
-		.join("\n")
-		.trim();
-	return { type: "quote", text };
+		.map((line) => line.replace(/^\s*(?:>\s?)+/, ""))
+		.join("\n");
+	return { type: "quote", text: exportText(text) };
 }
 
 function mapBlock(

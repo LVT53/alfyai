@@ -741,7 +741,14 @@ function decodeEntities(text: string): string {
  * atoms with no text in the editor), inline HTML tags dropped, entities
  * decoded, and a hard break as nothing. A soft line break stays "\n".
  */
-export function inlinePlainText(markdown: string): string {
+export function inlinePlainText(
+	markdown: string,
+	options: {
+		/** What a hard break becomes: nothing, like the editor's text (the default), or a line break for a rendered export. */
+		hardBreak?: string;
+	} = {},
+): string {
+	const hardBreak = options.hardBreak ?? "";
 	const codeSpans: string[] = [];
 	let text = markdown.replace(
 		/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g,
@@ -755,7 +762,9 @@ export function inlinePlainText(markdown: string): string {
 		escapes.push(ch);
 		return `\uE001${escapes.length - 1}\uE001`;
 	});
-	text = text.replace(/\\\n[ \t]*/g, "").replace(/ {2,}\n[ \t]*/g, "");
+	text = text
+		.replace(/\\\n[ \t]*/g, hardBreak)
+		.replace(/ {2,}\n[ \t]*/g, hardBreak);
 	text = text
 		.replace(/\[chip\s+[^\]]*\]/g, "")
 		.replace(/!\[[^\]]*\]\([^)]*\)/g, "")
