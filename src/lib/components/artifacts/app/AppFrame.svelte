@@ -176,10 +176,10 @@ async function handleMessage(event: MessageEvent): Promise<void> {
 
 	try {
 		if (data.method === "get") {
-			reply(source, requestId, await readAppValue(id, key));
+			reply(source, requestId, await readAppValue(id, key, conversationId));
 			return;
 		}
-		const written = await writeAppValue(id, key, data.args[1]);
+		const written = await writeAppValue(id, key, data.args[1], conversationId);
 		// A set has nothing to echo back; the bootstrap's set() promise
 		// resolves with undefined either way.
 		reply(source, requestId, written.ok ? { ok: true, value: null } : written);

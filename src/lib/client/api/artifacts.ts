@@ -97,13 +97,26 @@ export async function fetchConversationArtifacts(
  * needs that reason to pick the app's own localised line
  * (`artifacts.app.storage.*`) — never a generic "something went wrong".
  */
+/**
+ * `conversationId` widens the kv route's scope exactly like `fetchArtifact`'s
+ * (ruling 51): an incognito conversation's own App cannot read/write its
+ * storage unless the request names the conversation the caller is in. It
+ * travels in the URL, never the body, so the GET and POST shapes stay
+ * consistent with the served route and `downloadAppAsHtml`.
+ */
 export async function readAppValue(
 	artifactId: string,
 	key: string,
+	conversationId?: string | null,
 	fetchImpl: FetchLike = fetch,
 ): Promise<AppKvReadResult> {
+	const params = `key=${encodeURIComponent(key)}${
+		conversationId
+			? `&conversationId=${encodeURIComponent(conversationId)}`
+			: ""
+	}`;
 	const response = await requestResponse(
-		`/api/artifacts/${encodeURIComponent(artifactId)}/app/kv?key=${encodeURIComponent(key)}`,
+		`/api/artifacts/${encodeURIComponent(artifactId)}/app/kv?${params}`,
 		undefined,
 		fetchImpl,
 	);
@@ -114,10 +127,14 @@ export async function writeAppValue(
 	artifactId: string,
 	key: string,
 	value: unknown,
+	conversationId?: string | null,
 	fetchImpl: FetchLike = fetch,
 ): Promise<AppKvWriteResult> {
+	const query = conversationId
+		? `?conversationId=${encodeURIComponent(conversationId)}`
+		: "";
 	const response = await requestResponse(
-		`/api/artifacts/${encodeURIComponent(artifactId)}/app/kv`,
+		`/api/artifacts/${encodeURIComponent(artifactId)}/app/kv${query}`,
 		{
 			method: "POST",
 			headers: { "Content-Type": "application/json" },

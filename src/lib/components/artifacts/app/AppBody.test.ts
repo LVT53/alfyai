@@ -140,6 +140,68 @@ describe("AppBody — loading and tabs", () => {
 	});
 });
 
+describe("AppBody — conversation scoping (ruling 51)", () => {
+	it("passes the panel's conversationId prop to fetchArtifact, not the artifact's own conversation", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+			conversationId: "panel-conv",
+		});
+
+		await waitFor(() =>
+			expect(fetchArtifact).toHaveBeenCalledWith("app-1", "panel-conv"),
+		);
+	});
+
+	it("passes the panel's conversationId prop to the running frame's src, not the artifact's own conversation", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		const { container } = render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+			conversationId: "panel-conv",
+		});
+
+		const iframe = await waitFor(() => {
+			const el = container.querySelector("iframe");
+			if (!el) throw new Error("no iframe yet");
+			return el;
+		});
+		expect(iframe.getAttribute("src")).toContain("conversationId=panel-conv");
+		expect(iframe.getAttribute("src")).not.toContain("owner-conv");
+	});
+
+	it("omits conversationId from fetchArtifact and the frame src when the panel has none", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		const { container } = render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		await waitFor(() =>
+			expect(fetchArtifact).toHaveBeenCalledWith("app-1", null),
+		);
+		const iframe = await waitFor(() => {
+			const el = container.querySelector("iframe");
+			if (!el) throw new Error("no iframe yet");
+			return el;
+		});
+		expect(iframe.getAttribute("src")).not.toContain("conversationId=");
+	});
+});
+
 describe("AppBody — verification line", () => {
 	it("shows nothing when checked is false", async () => {
 		fetchArtifact.mockResolvedValue(
@@ -346,7 +408,35 @@ describe("AppBody — download", () => {
 		expect(screen.getByText(en.downloadUnavailable)).toBeInTheDocument();
 	});
 
-	it("requests a download with the artifact id and conversation id only", async () => {
+	it("requests a download with the artifact id and the PANEL's conversation id, not the artifact's own", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockResolvedValue({
+			ok: true,
+			job: { id: "job-1" },
+			reused: false,
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+			conversationId: "panel-conv",
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", "panel-conv"),
+		);
+	});
+
+	it("still allows download with no panel conversation, as long as the artifact has its own — and sends null", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
 		downloadAppAsHtml.mockResolvedValue({
 			ok: true,
 			job: { id: "job-1" },
@@ -360,10 +450,11 @@ describe("AppBody — download", () => {
 		});
 
 		const button = await screen.findByRole("button", { name: /Download/ });
+		expect(button).not.toBeDisabled();
 		await fireEvent.click(button);
 
 		await waitFor(() =>
-			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", "conv-1"),
+			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", null),
 		);
 	});
 });

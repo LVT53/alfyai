@@ -204,7 +204,54 @@ describe("AppFrame — the trust boundary", () => {
 		);
 		await vi.waitFor(() => expect(readAppValue).toHaveBeenCalled());
 
-		expect(readAppValue).toHaveBeenCalledWith("the-real-id", "k");
+		expect(readAppValue).toHaveBeenCalledWith("the-real-id", "k", null);
+	});
+
+	it("forwards the frame's conversationId prop to readAppValue, so an incognito conversation's own App resolves its storage", async () => {
+		readAppValue.mockResolvedValue({ ok: true, value: 1 });
+		const { container } = render(AppFrame, {
+			artifactId: "app-1",
+			version: 1,
+			conversationId: "conv-incognito",
+		});
+		const iframe = getIframe(container);
+
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: ["k"] },
+			iframe.contentWindow as Window,
+		);
+		await vi.waitFor(() => expect(readAppValue).toHaveBeenCalled());
+
+		expect(readAppValue).toHaveBeenCalledWith("app-1", "k", "conv-incognito");
+	});
+
+	it("forwards the frame's conversationId prop to writeAppValue", async () => {
+		writeAppValue.mockResolvedValue({ ok: true });
+		const { container } = render(AppFrame, {
+			artifactId: "app-1",
+			version: 1,
+			conversationId: "conv-incognito",
+		});
+		const iframe = getIframe(container);
+
+		post(
+			{
+				v: 1,
+				kind: "alfy.storage",
+				id: 2,
+				method: "set",
+				args: ["k", { a: 1 }],
+			},
+			iframe.contentWindow as Window,
+		);
+		await vi.waitFor(() => expect(writeAppValue).toHaveBeenCalled());
+
+		expect(writeAppValue).toHaveBeenCalledWith(
+			"app-1",
+			"k",
+			{ a: 1 },
+			"conv-incognito",
+		);
 	});
 
 	it("replies only to event.source, with the same request id, never broadcasting", async () => {
@@ -262,7 +309,7 @@ describe("AppFrame — the trust boundary", () => {
 		);
 		await vi.waitFor(() => expect(writeAppValue).toHaveBeenCalled());
 
-		expect(writeAppValue).toHaveBeenCalledWith("app-1", "k", { a: 1 });
+		expect(writeAppValue).toHaveBeenCalledWith("app-1", "k", { a: 1 }, null);
 	});
 
 	it("localises a storage refusal into the reply's error text, and calls onStorageError with the same text", async () => {

@@ -126,7 +126,9 @@ describe("artifacts client API", () => {
 				jsonResponse({ ok: false, reason: "not_found" }, 404),
 			);
 
-			await expect(readAppValue("app-1", "k", fetchMock)).resolves.toEqual({
+			await expect(
+				readAppValue("app-1", "k", undefined, fetchMock),
+			).resolves.toEqual({
 				ok: false,
 				reason: "not_found",
 			});
@@ -141,9 +143,38 @@ describe("artifacts client API", () => {
 			);
 
 			await expect(
-				writeAppValue("app-1", "k", { a: 1 }, fetchMock),
+				writeAppValue("app-1", "k", { a: 1 }, undefined, fetchMock),
 			).resolves.toEqual({ ok: false, reason: "too_large" });
 
+			const [, init] = fetchMock.mock.calls[0];
+			expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+				key: "k",
+				value: { a: 1 },
+			});
+		});
+
+		it("appends conversationId to the read URL when given one, to widen scope for an incognito conversation's own App", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, value: 1 }),
+			);
+
+			await readAppValue("app-1", "k", "conv-1", fetchMock);
+
+			expect(fetchMock.mock.calls[0][0]).toBe(
+				"/api/artifacts/app-1/app/kv?key=k&conversationId=conv-1",
+			);
+		});
+
+		it("appends conversationId to the write URL when given one, and leaves the body as { key, value }", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true }),
+			);
+
+			await writeAppValue("app-1", "k", { a: 1 }, "conv-1", fetchMock);
+
+			expect(fetchMock.mock.calls[0][0]).toBe(
+				"/api/artifacts/app-1/app/kv?conversationId=conv-1",
+			);
 			const [, init] = fetchMock.mock.calls[0];
 			expect(JSON.parse((init as RequestInit).body as string)).toEqual({
 				key: "k",

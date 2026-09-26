@@ -37,9 +37,11 @@ interface Props {
 	kind: string;
 	title: string;
 	body: string | null;
+	/** The conversation the PANEL is showing (ruling 51) — passed to fetchArtifact and every artifact route this body calls, so an incognito conversation's own App resolves. Distinct from the artifact's OWN conversationId (below), which is a fact about the artifact, not about where it is being viewed from. */
+	conversationId?: string | null;
 }
 
-let { artifactId, title }: Props = $props();
+let { artifactId, title, conversationId = null }: Props = $props();
 
 let detail = $state<ArtifactDetailResponse | null>(null);
 let loadFailed = $state(false);
@@ -58,7 +60,7 @@ let regenerateError = $state<string | null>(null);
 async function load(id: string): Promise<void> {
 	loadFailed = false;
 	try {
-		detail = await fetchArtifact(id);
+		detail = await fetchArtifact(id, conversationId);
 	} catch {
 		loadFailed = true;
 	}
@@ -70,7 +72,8 @@ $effect(() => {
 
 let htmlBody = $derived(detail?.artifact.body ?? "");
 let versionNumber = $derived(detail?.artifact.versionNumber ?? 0);
-let conversationId = $derived(detail?.artifact.conversationId ?? null);
+/** Whether the App is linked to ANY conversation at all (spec §4: a project-linked App has none) — the domain fact that gates download, independent of which conversation the panel happens to be showing it from. */
+let artifactConversationId = $derived(detail?.artifact.conversationId ?? null);
 let metadata = $derived(
 	(detail?.artifact.metadata ?? {}) as Record<string, unknown>,
 );
@@ -139,7 +142,7 @@ async function copyCode(): Promise<void> {
 }
 
 async function handleDownload(): Promise<void> {
-	if (!conversationId || downloadBusy) return;
+	if (!artifactConversationId || downloadBusy) return;
 	downloadBusy = true;
 	downloadError = null;
 	try {
@@ -299,8 +302,8 @@ const REGENERATE_FAILURE_KEYS: Record<string, I18nKey> = {
 			<button
 				type="button"
 				class="app-body-action"
-				disabled={!conversationId || downloadBusy}
-				title={conversationId ? undefined : $t('artifacts.app.download.unavailable')}
+				disabled={!artifactConversationId || downloadBusy}
+				title={artifactConversationId ? undefined : $t('artifacts.app.download.unavailable')}
 				onclick={handleDownload}
 			>
 				<Download size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -311,7 +314,7 @@ const REGENERATE_FAILURE_KEYS: Record<string, I18nKey> = {
 				{$t('artifacts.app.action.regenerate')}
 			</button>
 		</div>
-		{#if !conversationId}
+		{#if !artifactConversationId}
 			<p class="app-body-hint">{$t('artifacts.app.download.unavailable')}</p>
 		{/if}
 		{#if downloadError}
