@@ -16,9 +16,10 @@ type CampaignDb = typeof defaultDb;
 
 export type AnnouncementCampaignType =
 	| "first_run_onboarding"
-	| "release_update";
+	| "release_update"
+	| "artifact_tour";
 export type AnnouncementCampaignStatus = "draft" | "published" | "archived";
-export type AnnouncementCampaignSlideLayout = "setup" | "standard";
+export type AnnouncementCampaignSlideLayout = "setup" | "standard" | "summary";
 export type AnnouncementCampaignSlideRole = "feature" | "data_disclosure";
 export type CampaignCompletionReason = "completed" | "skipped";
 export type CampaignEventType =
@@ -87,10 +88,12 @@ type SnapshotSlideRow = typeof announcementCampaignSnapshotSlides.$inferSelect;
 const CAMPAIGN_TYPES = new Set<AnnouncementCampaignType>([
 	"first_run_onboarding",
 	"release_update",
+	"artifact_tour",
 ]);
 const LAYOUT_TYPES = new Set<AnnouncementCampaignSlideLayout>([
 	"setup",
 	"standard",
+	"summary",
 ]);
 const SEMANTIC_ROLES = new Set<AnnouncementCampaignSlideRole>([
 	"feature",
@@ -179,7 +182,13 @@ function defaultVersionFor(
 	type: AnnouncementCampaignType,
 	releaseVersion?: string | null,
 ): string {
-	if (type === "release_update") {
+	// `artifact_tour` shares `release_update`'s rule for a reason specific to
+	// tours: four drafts of one type need four distinct identities, one per
+	// kind, not four revisions of a single "v1" (slice-6 spec, "The identity
+	// rule for four drafts"). The seed sets `releaseVersion` to the kind
+	// ("document" | "app" | "canvas" | "slides"), giving
+	// `artifact_tour:<kind>:r1` instead of `artifact_tour:v1:r1..r4`.
+	if (type === "release_update" || type === "artifact_tour") {
 		return releaseVersion?.trim() || "unversioned";
 	}
 	return "v1";
@@ -193,7 +202,7 @@ function assertType(value: unknown): AnnouncementCampaignType {
 		return value as AnnouncementCampaignType;
 	}
 	throw new AnnouncementCampaignValidationError("Invalid campaign type.", {
-		type: "Campaign type must be first_run_onboarding or release_update.",
+		type: "Campaign type must be first_run_onboarding, release_update or artifact_tour.",
 	});
 }
 
@@ -592,7 +601,7 @@ function validatePublishCampaignBasics(
 	}
 	if (!CAMPAIGN_TYPES.has(campaign.type as AnnouncementCampaignType)) {
 		errors.type =
-			"Campaign type must be first_run_onboarding or release_update.";
+			"Campaign type must be first_run_onboarding, release_update or artifact_tour.";
 	}
 	if (
 		!trimString(campaign.campaignVersion) ||
@@ -731,7 +740,7 @@ function validatePublishInput(
 			addFieldError(
 				errors,
 				`${prefix}.layoutType`,
-				"Slide layout must be setup or standard.",
+				"Slide layout must be setup, standard or summary.",
 			);
 		}
 		if (
@@ -805,6 +814,22 @@ function validatePublishInput(
 		if (dataDisclosureCount < 1) {
 			errors.dataDisclosure =
 				"First-run onboarding requires at least one data-disclosure standard slide.";
+		}
+	}
+
+	// `slides` arrives pre-sorted by `sortOrder` (publishCampaign's own
+	// query), so index 0 is genuinely first — not merely "some summary slide
+	// exists somewhere". A tour is exactly one summary slide, then exactly
+	// three standard slides, in that order (slice-6 spec: "Concretely: four
+	// slides with sortOrder 1 (summary), 2, 3, 4").
+	if (campaign.type === "artifact_tour") {
+		const wellShaped =
+			slides.length === 4 &&
+			slides[0]?.layoutType === "summary" &&
+			slides.slice(1).every((slide) => slide.layoutType === "standard");
+		if (!wellShaped) {
+			errors.tourSlideShape =
+				"A tour campaign requires exactly one summary slide, placed first, and exactly three standard slides after it.";
 		}
 	}
 

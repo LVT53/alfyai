@@ -1,11 +1,12 @@
 import Database from "better-sqlite3";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ARTIFACT_TOUR_CONTENT_VERSION } from "$lib/server/artifact-tour-defaults";
 import * as schema from "$lib/server/db/schema";
 import type { ArtifactTourType } from "$lib/shared/artifacts/tours";
-import { getArtifactTour } from "./artifact-tours";
+import { getArtifactTour, seedArtifactTourDrafts } from "./artifact-tours";
 
 describe("artifact tours service", () => {
 	let sqlite: Database.Database;
@@ -21,6 +22,12 @@ describe("artifact tours service", () => {
 			.values([
 				{ id: "user-1", email: "user1@example.com", passwordHash: "hash" },
 				{ id: "user-2", email: "user2@example.com", passwordHash: "hash" },
+				{
+					id: "admin-user",
+					email: "admin@example.com",
+					passwordHash: "hash",
+					role: "admin",
+				},
 			])
 			.run();
 	});
@@ -324,5 +331,124 @@ describe("artifact tours service", () => {
 
 		expect(result?.seen).toBe(false);
 		expect(result?.lastSlide).toBe(0);
+	});
+});
+
+describe("seedArtifactTourDrafts", () => {
+	let sqlite: Database.Database;
+	let db: ReturnType<typeof drizzle<typeof schema>>;
+
+	beforeEach(() => {
+		sqlite = new Database(":memory:");
+		sqlite.pragma("foreign_keys = ON");
+		db = drizzle(sqlite, { schema });
+		migrate(db, { migrationsFolder: "./drizzle" });
+
+		db.insert(schema.users)
+			.values({
+				id: "admin-user",
+				email: "admin@example.com",
+				passwordHash: "hash",
+				role: "admin",
+			})
+			.run();
+	});
+
+	afterEach(() => {
+		sqlite.close();
+	});
+
+	it("seeds four drafts, one per kind, and seeds nothing on a second call", async () => {
+		const first = await seedArtifactTourDrafts("admin-user", { db });
+		expect(first).toEqual({ created: 4, existing: 0 });
+
+		const rows = db
+			.select()
+			.from(schema.announcementCampaigns)
+			.where(eq(schema.announcementCampaigns.type, "artifact_tour"))
+			.all();
+		expect(rows).toHaveLength(4);
+		expect(rows.map((row) => row.releaseVersion).sort()).toEqual([
+			"app",
+			"canvas",
+			"document",
+			"slides",
+		]);
+
+		const second = await seedArtifactTourDrafts("admin-user", { db });
+		expect(second).toEqual({ created: 0, existing: 4 });
+		expect(
+			db
+				.select()
+				.from(schema.announcementCampaigns)
+				.where(eq(schema.announcementCampaigns.type, "artifact_tour"))
+				.all(),
+		).toHaveLength(4);
+	});
+
+	it("gives each seeded draft a distinct identity key", async () => {
+		await seedArtifactTourDrafts("admin-user", { db });
+
+		const rows = db
+			.select({ identityKey: schema.announcementCampaigns.identityKey })
+			.from(schema.announcementCampaigns)
+			.where(eq(schema.announcementCampaigns.type, "artifact_tour"))
+			.all();
+		const keys = rows.map((row) => row.identityKey).sort();
+		expect(keys).toEqual([
+			"artifact_tour:app:r1",
+			"artifact_tour:canvas:r1",
+			"artifact_tour:document:r1",
+			"artifact_tour:slides:r1",
+		]);
+		expect(new Set(keys).size).toBe(4);
+	});
+
+	it("leaves a seeded draft unpublished", async () => {
+		await seedArtifactTourDrafts("admin-user", { db });
+
+		const rows = db
+			.select({ status: schema.announcementCampaigns.status })
+			.from(schema.announcementCampaigns)
+			.where(eq(schema.announcementCampaigns.type, "artifact_tour"))
+			.all();
+		expect(rows.every((row) => row.status === "draft")).toBe(true);
+	});
+
+	it("pre-fills each draft with one summary slide and three ordered standard slides", async () => {
+		await seedArtifactTourDrafts("admin-user", { db });
+
+		const canvasCampaign = db
+			.select({ id: schema.announcementCampaigns.id })
+			.from(schema.announcementCampaigns)
+			.where(
+				and(
+					eq(schema.announcementCampaigns.type, "artifact_tour"),
+					eq(schema.announcementCampaigns.releaseVersion, "canvas"),
+				),
+			)
+			.get();
+		const slides = db
+			.select()
+			.from(schema.announcementCampaignSlides)
+			.where(
+				eq(
+					schema.announcementCampaignSlides.campaignId,
+					canvasCampaign?.id ?? "",
+				),
+			)
+			.orderBy(schema.announcementCampaignSlides.sortOrder)
+			.all();
+
+		expect(slides.map((slide) => slide.layoutType)).toEqual([
+			"summary",
+			"standard",
+			"standard",
+			"standard",
+		]);
+		expect(slides[0]?.titleEn).toBe(
+			"Empty board. Insert a block or draw on it.",
+		);
+		expect(slides[1]?.titleEn).toBe("A board for anything");
 	});
 });

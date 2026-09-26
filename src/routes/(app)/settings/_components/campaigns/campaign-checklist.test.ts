@@ -347,3 +347,105 @@ describe("slide-level lookups", () => {
 		});
 	});
 });
+
+describe("artifact_tour slide shape (Slice 6)", () => {
+	function tourSlides(
+		overrides: Partial<
+			Record<"summary" | "1" | "2" | "3", Partial<ChecklistSlide>>
+		> = {},
+	): ChecklistSlide[] {
+		return [
+			slide({
+				localId: "summary",
+				kind: "summary",
+				sortOrder: 1,
+				...overrides.summary,
+			}),
+			slide({
+				localId: "s1",
+				kind: "standard",
+				sortOrder: 2,
+				...overrides["1"],
+			}),
+			slide({
+				localId: "s2",
+				kind: "standard",
+				sortOrder: 3,
+				...overrides["2"],
+			}),
+			slide({
+				localId: "s3",
+				kind: "standard",
+				sortOrder: 4,
+				...overrides["3"],
+			}),
+		];
+	}
+
+	it("lets the client check a tour with one summary and three standard slides", () => {
+		const checklist = evaluateCampaignChecklist(
+			campaign({
+				type: "artifact_tour",
+				releaseVersion: "canvas",
+				slides: tourSlides(),
+			}),
+		);
+		expect(checklist.ready).toBe(true);
+		expect(
+			checklist.rules.find((rule) => rule.id === "tourShape")?.passed,
+		).toBe(true);
+	});
+
+	it("blocks publishing a tour whose summary slide is missing", () => {
+		const slides = tourSlides();
+		slides[0] = { ...slides[0], kind: "standard" };
+		const checklist = evaluateCampaignChecklist(
+			campaign({ type: "artifact_tour", releaseVersion: "canvas", slides }),
+		);
+		expect(checklist.ready).toBe(false);
+		expect(
+			checklist.failures.some((failure) => failure.ruleId === "tourShape"),
+		).toBe(true);
+	});
+
+	it("blocks a tour with the wrong slide count", () => {
+		const checklist = evaluateCampaignChecklist(
+			campaign({
+				type: "artifact_tour",
+				releaseVersion: "canvas",
+				slides: tourSlides().slice(0, 3),
+			}),
+		);
+		expect(checklist.ready).toBe(false);
+		expect(
+			checklist.failures.some((failure) => failure.ruleId === "tourShape"),
+		).toBe(true);
+	});
+
+	it("does not evaluate the tour shape rule for other campaign types", () => {
+		const checklist = evaluateCampaignChecklist(
+			campaign({ type: "release_update", slides: [slide()] }),
+		);
+		expect(checklist.rules.some((rule) => rule.id === "tourShape")).toBe(false);
+	});
+
+	it("lets the type gate and the layout gate both pass a well-shaped tour", () => {
+		// The type gate accepts artifact_tour, and the layout gate accepts a
+		// `summary` slide on it (the picker widening in SlideOptionsDialog.svelte
+		// mirrors this), so a well-shaped tour is never blocked by the two enum
+		// gates before it even reaches the shape rule.
+		const checklist = evaluateCampaignChecklist(
+			campaign({
+				type: "artifact_tour",
+				releaseVersion: "canvas",
+				slides: tourSlides(),
+			}),
+		);
+		expect(checklist.rules.find((rule) => rule.id === "type")?.passed).toBe(
+			true,
+		);
+		expect(checklist.rules.find((rule) => rule.id === "layout")?.passed).toBe(
+			true,
+		);
+	});
+});

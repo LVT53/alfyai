@@ -28,7 +28,9 @@ import type {
 } from "$lib/shared/artifacts/tours";
 import {
 	type CampaignServiceOptions,
+	createCampaignDraft,
 	getCampaignById,
+	updateCampaignDraft,
 } from "./announcement-campaigns";
 
 type ArtifactToursDb = typeof defaultDb;
@@ -185,4 +187,103 @@ export async function getArtifactTour(params: {
 		seen: Boolean(state),
 		lastSlide: state?.lastSlide ?? 0,
 	};
+}
+
+/** Admin-facing draft name per kind. Never "Artifact" (ADR-0066); the kind's
+ *  own ratified name is enough context in the campaign rail. */
+const TOUR_DRAFT_NAMES: Record<ArtifactTourType, string> = {
+	document: "Document tour",
+	app: "App tour",
+	canvas: "Canvas tour",
+	slides: "Slides tour",
+};
+
+/**
+ * The seed's summary-slide body is a placeholder, not shipped copy: the
+ * summary slide's TITLE carries the real one-line summary
+ * (`ARTIFACT_TOUR_DEFAULTS[kind].summary`, the same text the code default and
+ * the empty state show), but a campaign slide's smaller second-line body has
+ * no shipped equivalent to seed — the same reason `seedFirstRunOnboardingTemplate`
+ * seeds "Replace this draft copy with admin-authored campaign content." for
+ * its own non-critical slide.
+ */
+const TOUR_SUMMARY_BODY_PLACEHOLDER = {
+	en: "Add a short second line here, shown under the artwork.",
+	hu: "Adj hozzá egy rövid második sort, ami a kép alatt jelenik meg.",
+};
+
+/**
+ * Seeds one `artifact_tour` draft per kind — document, app, canvas, slides —
+ * each with the shipped default copy pre-filled (Task T2's
+ * `ARTIFACT_TOUR_DEFAULTS`) so an admin reviews and publishes real content
+ * rather than starting from a blank campaign. `releaseVersion` is set to the
+ * kind, which `defaultVersionFor` uses as the campaign version for
+ * `artifact_tour`, giving four distinct identities
+ * (`artifact_tour:<kind>:r1`) instead of four revisions of one version
+ * string — see slice-6.md "The identity rule for four drafts".
+ *
+ * Idempotent per kind, like `seedFirstRunOnboardingTemplate`: a kind that
+ * already has a campaign row (draft, published or archived) is left alone
+ * and counted as `existing`, never duplicated or overwritten.
+ */
+export async function seedArtifactTourDrafts(
+	createdByUserId: string,
+	options: CampaignServiceOptions = {},
+): Promise<{ created: number; existing: number }> {
+	const db = database(options);
+	let created = 0;
+	let existing = 0;
+
+	for (const kind of Object.keys(
+		ARTIFACT_TOUR_DEFAULTS,
+	) as ArtifactTourType[]) {
+		const existingRow = db
+			.select({ id: announcementCampaigns.id })
+			.from(announcementCampaigns)
+			.where(
+				and(
+					eq(announcementCampaigns.type, "artifact_tour"),
+					eq(announcementCampaigns.releaseVersion, kind),
+				),
+			)
+			.get();
+		if (existingRow) {
+			existing += 1;
+			continue;
+		}
+
+		const defaults = ARTIFACT_TOUR_DEFAULTS[kind];
+		const campaign = await createCampaignDraft(
+			{
+				type: "artifact_tour",
+				name: TOUR_DRAFT_NAMES[kind],
+				releaseVersion: kind,
+				createdByUserId,
+			},
+			{ db },
+		);
+		await updateCampaignDraft(
+			campaign.id,
+			{
+				slides: [
+					{
+						layoutType: "summary",
+						sortOrder: 1,
+						title: defaults.summary,
+						body: TOUR_SUMMARY_BODY_PLACEHOLDER,
+					},
+					...defaults.slides.map((slide, index) => ({
+						layoutType: "standard",
+						sortOrder: index + 2,
+						title: slide.title,
+						body: slide.body,
+					})),
+				],
+			},
+			{ db },
+		);
+		created += 1;
+	}
+
+	return { created, existing };
 }
