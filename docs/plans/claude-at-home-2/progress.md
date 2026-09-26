@@ -291,6 +291,22 @@ not built (reporting only, deferred). 12,703 tests, Playwright 34, containment 3
 (`69a99a4b`: RV-2A + S2d) into `feat/artifacts-s2` with no conflicts**; gates on the merge running
 (`/tmp/gates-s2-merged/`). Next: RV-2B (sonnet), which also re-runs the app suite live with forms allowed.
 
+**S1b done (2026-09-26 ~09:40).** `feat/artifacts-s1` HEAD `bd0bdc1f`: `61b80e18` T8 (the `AlfyChange` mark, Keep/Undo
+through the engine's inverses against a live editor, `ChangeBar`, `AlfyWriting`, the shared `RefusalNotice`),
+`9c1f734c` T9 (`Tabs`, chips, the `TrackerChip` node storing canonical tokens whatever the UI language, `card-view.ts`,
+tabs saved through the body route), `ad1540a4` T11 (`MobileToolbar` from the same action list; `artifact-document.spec.ts`,
+9 tests), `bd0bdc1f` Fallow cleanup. 12,631 tests, Fallow 124/4, Playwright 36. **Found, marked with `test.fail()` in
+the e2e:** a **critical** crash, `RangeError: Maximum call stack size exceeded` from `readMarkdown` + the table
+extension's `fixTables` under sustained real-browser edits (typing, adding a tab, changing a chip), which jsdom never
+exercised; and opening a Document from the **mobile** panel list does not reliably reach the editor. **Gaps against
+the spec:** T8's live trigger is not wired (no "Alfy is writing: {label}" while an edit is in flight, no marks when a
+chat-turn `edit_artifact` lands; only `@Alfy` has a hook), and T9.7's card preview (subtitle, first five tickable task
+items, ticking writes the document) has no call site because the card summary carries no body. With S1c's flat margin
+("the margin shows it against the right block"), these become Slice 1's integration work. **The S1b/S1c merge
+conflicts structurally** (`DocumentBody.svelte` ×6, its test ×8, i18n ×2): aborted and given to **S1d** (sonnet,
+`art-s1`, 5420) as step 0; after it reports, S1d gets the crash, mobile-open and margin placement, and a parallel
+**S1e** gets the live channel (T8) and the card preview (T9.7) from the merge commit.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
