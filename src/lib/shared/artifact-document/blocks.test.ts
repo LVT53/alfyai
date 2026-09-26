@@ -494,3 +494,15 @@ describe("RV-1A: chip syntax is only rewritten when it is a chip", () => {
 		);
 	});
 });
+
+describe("RV-1A: a hard break inside a quote survives too", () => {
+	it("keeps the editor's two-space break between two lines of the same quote", () => {
+		expect(normalizeMarkdown("> quoted line  \n> second quoted")).toBe(
+			"> quoted line\\\n> second quoted",
+		);
+		// The start of a nested quote is a new block, not a continuation.
+		expect(normalizeMarkdown("> outer  \n> > inner")).toBe(
+			"> outer\n> > inner",
+		);
+	});
+});

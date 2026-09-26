@@ -131,10 +131,37 @@ function keepHardBreaks(lines: string[]): string[] {
 	if (TASK_LINE_RE.test(first)) return lines;
 	return lines.map((line, i) => {
 		const next = lines[i + 1];
-		if (next === undefined || next.trim() === "") return line;
-		if (startsNewBlock(next) || LIST_ITEM_START_RE.test(next)) return line;
+		if (next === undefined || !continuesParagraph(line, next)) return line;
 		return /\S {2,}$/.test(line) ? line.replace(/ +$/, "\\") : line;
 	});
+}
+
+const QUOTE_PREFIX_RE = /^\s{0,3}(?:>[ \t]?)+/;
+
+/**
+ * Whether `next` carries on the paragraph `line` is in. Inside a quote both
+ * lines carry the `>` prefix, so it is the text after the prefix that must
+ * not start a block of its own (RV-1A: a break between two lines of one quote
+ * was trimmed away like any other).
+ */
+function continuesParagraph(line: string, next: string): boolean {
+	if (next.trim() === "") return false;
+	const lineQuote = QUOTE_PREFIX_RE.exec(line)?.[0];
+	const nextQuote = QUOTE_PREFIX_RE.exec(next)?.[0];
+	const depth = (prefix: string) => prefix.split(">").length - 1;
+	if (
+		lineQuote !== undefined &&
+		nextQuote !== undefined &&
+		depth(lineQuote) !== depth(nextQuote)
+	) {
+		return false;
+	}
+	const text =
+		lineQuote !== undefined && nextQuote !== undefined
+			? next.slice(nextQuote.length)
+			: next;
+	if (text.trim() === "") return false;
+	return !startsNewBlock(text) && !LIST_ITEM_START_RE.test(text);
 }
 
 /** `fnv1aHex(normalizeMarkdown(markdown))` — the one hasher, so nothing can bypass the canonicaliser. */
