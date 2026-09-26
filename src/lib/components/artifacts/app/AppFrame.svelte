@@ -120,22 +120,77 @@ function reply(
  * (ARTIFACT_KV_MAX_KEYS, 200). A frame posting past the backlog is flooding:
  * the excess is dropped without a reply, like any other refused message, and
  * the app's own promise times out in the bootstrap.
+ *
+ * Ruling 58 (RV-2A open question 5): the COUNT cap above bounds how many
+ * calls the backlog holds, never how large their values are — a hostile app
+ * posting many large-but-serialisable values can still press on the parent
+ * tab's memory well before 256 of them queue up. `MAX_CALLS_WAITING_BYTES` is
+ * this slice's independent client-side ceiling on the backlog's total
+ * payload size; it is NOT a copy of the server's own per-value cap
+ * (`APP_KV_LIMITS`, a server-only module a client component cannot import
+ * without breaking the build), just a conservative bound on what this tab is
+ * willing to hold onto while a call waits its turn.
  */
 const MAX_CALLS_IN_FLIGHT = 4;
 const MAX_CALLS_WAITING = 256;
+const MAX_CALLS_WAITING_BYTES = 8 * 1024 * 1024; // 8 MiB
 let callsInFlight = 0;
-const callsWaiting: Array<() => Promise<void>> = [];
+let queuedBytes = 0;
+const callsWaiting: Array<{ run: () => Promise<void>; bytes: number }> = [];
+
+/**
+ * A conservative, cheap estimate of one queued call's memory footprint —
+ * the request's own value is the only part of a call that can be large.
+ * `undefined`, a function, a `BigInt` or a cycle cannot be measured this way
+ * (`JSON.stringify` returns `undefined` or throws); they count as zero here
+ * rather than being refused at the gate, because `writeAppValue`'s own
+ * `not_serialisable` check refuses them the moment they are dequeued
+ * (finding 4) — this estimate exists for the memory a FLOOD of ordinarily
+ * large values can hold, not for catching an unserialisable one.
+ */
+function estimateQueuedBytes(value: unknown): number {
+	try {
+		return JSON.stringify(value)?.length ?? 0;
+	} catch {
+		return 0;
+	}
+}
 
 function runWaitingCalls(): void {
 	while (callsInFlight < MAX_CALLS_IN_FLIGHT) {
-		const call = callsWaiting.shift();
-		if (!call) return;
+		const queued = callsWaiting.shift();
+		if (!queued) return;
+		queuedBytes -= queued.bytes;
 		callsInFlight += 1;
-		void call().finally(() => {
+		void queued.run().finally(() => {
 			callsInFlight -= 1;
 			runWaitingCalls();
 		});
 	}
+}
+
+/**
+ * Two quick `set`s of the SAME key can otherwise land out of order: the
+ * flood bound above still allows up to four calls in flight together, so a
+ * slower FIRST write finishing after a faster SECOND one would let the
+ * OLDER value win — exactly what a debounced slider's `input` events do
+ * (RV-2A open question 5). Chaining each key's own calls onto its own
+ * promise keeps that key's writes strictly in arrival order while different
+ * keys still run independently under the flight cap above. `.then(run, run)`
+ * (not `.then(run)`) runs the next write regardless of whether the previous
+ * one succeeded or failed — one key's earlier failure must not wedge its
+ * later calls forever.
+ */
+const pendingSetByKey = new Map<string, Promise<void>>();
+
+function sequenceSetByKey(key: string, run: () => Promise<void>): Promise<void> {
+	const previous = pendingSetByKey.get(key) ?? Promise.resolve();
+	const settled = previous.then(run, run);
+	pendingSetByKey.set(key, settled);
+	void settled.finally(() => {
+		if (pendingSetByKey.get(key) === settled) pendingSetByKey.delete(key);
+	});
+	return settled;
 }
 
 async function serveStorageCall(call: {
@@ -147,15 +202,44 @@ async function serveStorageCall(call: {
 	value: unknown;
 	conversationId: string | null;
 }): Promise<void> {
+	if (call.method === "set") {
+		await sequenceSetByKey(call.key, () => performSet(call));
+		return;
+	}
+	await performGet(call);
+}
+
+async function performGet(call: {
+	source: Window;
+	requestId: number;
+	artifactId: string;
+	key: string;
+	conversationId: string | null;
+}): Promise<void> {
 	try {
-		if (call.method === "get") {
-			reply(
-				call.source,
-				call.requestId,
-				await readAppValue(call.artifactId, call.key, call.conversationId),
-			);
-			return;
-		}
+		reply(
+			call.source,
+			call.requestId,
+			await readAppValue(call.artifactId, call.key, call.conversationId),
+		);
+	} catch {
+		// The bridge's own fetch failed (network, server down): the app's
+		// promise is left to the bootstrap's own 5s timeout rather than
+		// answering with a guess. onStorageError still fires so the caller
+		// can note it happened.
+		onStorageError?.($t("artifacts.app.storage.timedOut"));
+	}
+}
+
+async function performSet(call: {
+	source: Window;
+	requestId: number;
+	artifactId: string;
+	key: string;
+	value: unknown;
+	conversationId: string | null;
+}): Promise<void> {
+	try {
 		const written = await writeAppValue(
 			call.artifactId,
 			call.key,
@@ -243,7 +327,14 @@ function handleMessage(event: MessageEvent): void {
 		return;
 	}
 
-	if (callsWaiting.length >= MAX_CALLS_WAITING) {
+	// A `set`'s value is the only part of a call that can be large; a `get`
+	// carries none (args.length === 1), so it always estimates as zero here.
+	const estimatedBytes =
+		data.method === "set" ? estimateQueuedBytes(data.args[1]) : 0;
+	if (
+		callsWaiting.length >= MAX_CALLS_WAITING ||
+		queuedBytes + estimatedBytes > MAX_CALLS_WAITING_BYTES
+	) {
 		countRejection("flood");
 		return;
 	}
@@ -256,7 +347,8 @@ function handleMessage(event: MessageEvent): void {
 		value: data.args[1],
 		conversationId,
 	} as const;
-	callsWaiting.push(() => serveStorageCall(call));
+	queuedBytes += estimatedBytes;
+	callsWaiting.push({ run: () => serveStorageCall(call), bytes: estimatedBytes });
 	runWaitingCalls();
 }
 

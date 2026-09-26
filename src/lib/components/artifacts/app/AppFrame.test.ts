@@ -606,6 +606,127 @@ describe("AppFrame — a flood from the frame is bounded", () => {
 	});
 });
 
+// RV-2A open question 5, ruling 58. The flood bound above (four calls in
+// flight) means two `set`s for the SAME key can both be in flight together,
+// and a slower FIRST request finishing after a faster SECOND one lets the
+// older value win — exactly what a debounced slider's `input` events do.
+// Sequencing a key's own calls closes that; the backlog's byte cap is the
+// other half — the count cap alone does not bound a hostile app's total
+// queued PAYLOAD size, only how many calls it holds.
+describe("AppFrame — same-key sets land in order, and the backlog caps bytes too", () => {
+	function flush(): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, 0));
+	}
+
+	/** A controllable server: every write waits until the test releases it. */
+	function holdEveryWrite() {
+		const waiting: Array<() => void> = [];
+		writeAppValue.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					waiting.push(() => resolve({ ok: true }));
+				}),
+		);
+		return {
+			async releaseAll(): Promise<void> {
+				while (waiting.length > 0) {
+					for (const release of waiting.splice(0)) release();
+					await flush();
+				}
+			},
+		};
+	}
+
+	it("never starts the second set for a key before the first one finishes", async () => {
+		let resolveFirst: (value: unknown) => void = () => {};
+		writeAppValue.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveFirst = resolve;
+				}),
+		);
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const source = getIframe(container).contentWindow as Window;
+
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "set", args: ["notes", "first"] },
+			source,
+		);
+		await flush();
+		expect(writeAppValue).toHaveBeenCalledTimes(1);
+
+		post(
+			{ v: 1, kind: "alfy.storage", id: 2, method: "set", args: ["notes", "second"] },
+			source,
+		);
+		await flush();
+		// The second write must not have started while the first is pending.
+		expect(writeAppValue).toHaveBeenCalledTimes(1);
+
+		writeAppValue.mockResolvedValueOnce({ ok: true });
+		resolveFirst({ ok: true });
+		await vi.waitFor(() => expect(writeAppValue).toHaveBeenCalledTimes(2));
+
+		expect(writeAppValue).toHaveBeenNthCalledWith(1, "app-1", "notes", "first", null);
+		expect(writeAppValue).toHaveBeenNthCalledWith(2, "app-1", "notes", "second", null);
+	});
+
+	it("does not serialize sets for DIFFERENT keys against each other", async () => {
+		let resolveA: (value: unknown) => void = () => {};
+		writeAppValue.mockImplementation((...args: unknown[]) =>
+			args[1] === "a"
+				? new Promise((resolve) => {
+						resolveA = resolve;
+					})
+				: Promise.resolve({ ok: true }),
+		);
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const source = getIframe(container).contentWindow as Window;
+
+		post({ v: 1, kind: "alfy.storage", id: 1, method: "set", args: ["a", 1] }, source);
+		await flush();
+		post({ v: 1, kind: "alfy.storage", id: 2, method: "set", args: ["b", 2] }, source);
+		await flush();
+
+		// key "b" ran even though key "a" is still pending.
+		expect(writeAppValue).toHaveBeenCalledTimes(2);
+		resolveA({ ok: true });
+	});
+
+	it("caps the backlog by total queued bytes, not just by count, with a named constant", async () => {
+		const server = holdEveryWrite();
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const source = getIframe(container).contentWindow as Window;
+		const postSpy = vi.spyOn(source, "postMessage");
+		const bigValue = "x".repeat(200_000); // ~200KB per value, all DIFFERENT keys
+
+		for (let id = 1; id <= 60; id += 1) {
+			post(
+				{
+					v: 1,
+					kind: "alfy.storage",
+					id,
+					method: "set",
+					args: [`key-${id}`, bigValue],
+				},
+				source,
+			);
+		}
+		await flush();
+		await server.releaseAll();
+
+		// 60 * 200_000 bytes (~12MB) queued/in-flight is well past a sane byte
+		// cap while nowhere near MAX_CALLS_WAITING's 256-item count cap, so some
+		// of these 60 can only have been dropped by the byte cap — but more
+		// than just the 4 always-immediate in-flight slots must have made it
+		// through, or this is really just the count cap in disguise.
+		const served = writeAppValue.mock.calls.length;
+		expect(served).toBeGreaterThan(4);
+		expect(served).toBeLessThan(60);
+		expect(postSpy).toHaveBeenCalledTimes(served);
+	});
+});
+
 // Ruling 58's tripwire. jsdom never fires a `load` event on its own for a
 // bare iframe (confirmed by spike: 200ms after setting `src`, the listener
 // has not run), so every `load` here is dispatched by the test itself — this
