@@ -194,12 +194,19 @@ test.describe("the chat header's artifact count button and panel", () => {
 			.getByTestId("artifact-panel-list")
 			.getByRole("button", { name: "Open" })
 			.click();
-		await expect(page.getByTestId("page-scroll-container")).toBeVisible();
+		// Scoped to the shell, not `page`: the mobile and desktop shells each
+		// carry this testid at every viewport (CSS, not a conditional, decides
+		// which is visible), so an unscoped page-wide query is ambiguous —
+		// see the earlier test's own `shell`-scoped check above.
+		const shell = page.getByRole("complementary", {
+			name: "Document workspace",
+		});
+		await expect(shell.getByTestId("page-scroll-container")).toBeVisible();
 
 		await page
 			.getByRole("button", { name: "Close document workspace" })
 			.click();
-		await expect(page.getByTestId("page-scroll-container")).not.toBeVisible();
+		await expect(shell).not.toBeVisible();
 
 		// A keyboard user who closes the panel from its own × must land
 		// somewhere useful — the opener that is still on screen — rather than
@@ -243,5 +250,47 @@ test.describe("the chat header's artifact count button and panel", () => {
 				document.documentElement.clientWidth,
 		);
 		expect(hasHorizontalOverflow).toBe(false);
+	});
+
+	// Regression test: this spec's own 390×844 test above never proceeded past
+	// the list (see the file's header comment on scope). Opening a specific
+	// item from the MOBILE list used to leave the workspace unreachable —
+	// `DocumentWorkspace.svelte`'s mobile shell had no distinguishing test
+	// hook at all, so nothing could ever confirm the transition landed, no
+	// matter how correctly the underlying state changed. Fixed in
+	// `DocumentWorkspace.svelte` by giving the mobile shell its own
+	// `data-testid="document-workspace-mobile-shell"` (not the desktop
+	// `<aside>`'s role="complementary", which stayed desktop-only — reusing it
+	// on mobile broke dozens of desktop-only component tests in jsdom, which
+	// does not filter accessibility queries by computed style); this proves
+	// the full mobile list→document transition now works end to end, not just
+	// the list.
+	test("opens the File's preview from the MOBILE list, reaching the same workspace desktop reaches", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(
+			page,
+			"Make me a trip summary",
+		);
+		await seedProducedFile(conversationId);
+		await openChatAndReload(page, conversationId);
+
+		await page.getByTestId("artifact-count-button-compact").click();
+		await page
+			.getByTestId("artifact-panel-list-mobile")
+			.getByRole("button", { name: "Open" })
+			.click();
+
+		const shell = page.getByTestId("document-workspace-mobile-shell");
+		await expect(shell).toBeVisible();
+		await expect(
+			shell.getByTestId("page-scroll-container-mobile"),
+		).toBeVisible();
+
+		await shell
+			.getByRole("button", { name: "Close document workspace" })
+			.click();
+		await expect(shell).not.toBeVisible();
 	});
 });

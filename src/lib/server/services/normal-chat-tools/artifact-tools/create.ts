@@ -5,6 +5,7 @@
 // descriptions are Slice 5a's; each type slice appends ONLY its own entry to
 // CREATE_ARTIFACT_HANDLERS below, in this file).
 import { z } from "zod";
+import { createDocumentArtifact } from "$lib/server/services/artifacts";
 import { createAppFromBrief } from "$lib/server/services/artifacts/app/create";
 import { truncateText } from "../shared";
 
@@ -138,7 +139,33 @@ export type CreateArtifactHandler = (
  */
 export const CREATE_ARTIFACT_HANDLERS: Partial<
 	Record<CreatableArtifactKind, CreateArtifactHandler>
-> = {};
+> = {
+	// Slice 1: mint-before-hash happens INSIDE createDocumentArtifact's own
+	// createBody call (parseDocument runs before anything is hashed or
+	// stored — decisions.md's global constraints), so this handler is a thin
+	// envelope: validate the abort signal, write the row, report back.
+	document: async (params) => {
+		if (params.abortSignal.aborted) {
+			return { ok: false, reason: "The request was cancelled." };
+		}
+		try {
+			const artifact = await createDocumentArtifact({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				title: params.title,
+				markdown: params.body,
+				author: "alfy",
+				summary: "Alfy wrote the first draft",
+			});
+			return {
+				ok: true,
+				value: { artifactId: artifact.id, title: artifact.title },
+			};
+		} catch {
+			return { ok: false, reason: "Could not create the document." };
+		}
+	},
+};
 
 /**
  * The App branch (Task A7): a thin adapter over

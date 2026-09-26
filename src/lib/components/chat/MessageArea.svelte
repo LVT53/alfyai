@@ -52,6 +52,7 @@ let {
 	onSendFollowUp = undefined,
 	onEdit = undefined,
 	onFork = undefined,
+	onKeepAsDocument = undefined,
 	onOpenDocument = undefined,
 	skillDraftActionState = {},
 	onSaveSkillDraft = undefined,
@@ -101,6 +102,9 @@ let {
 		| ((payload: { messageId: string; newText: string }) => void)
 		| undefined;
 	onFork?:
+		| ((payload: { messageId: string }) => void | Promise<void>)
+		| undefined;
+	onKeepAsDocument?:
 		| ((payload: { messageId: string }) => void | Promise<void>)
 		| undefined;
 	onOpenDocument?:
@@ -1017,6 +1021,7 @@ async function scrollToMessage(messageId: string) {
 					{onEdit}
 					{onFork}
 					forkBusy={forkingMessageId === message.id}
+					{onKeepAsDocument}
 					{onOpenDocument}
 					{skillDraftActionState}
 					{onSaveSkillDraft}

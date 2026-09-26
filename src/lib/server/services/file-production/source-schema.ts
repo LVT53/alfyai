@@ -1,7 +1,23 @@
+/**
+ * A plain string is an ordinary bullet/numbered item; the object form is a
+ * checklist item, `checked` always present once normalized (ruling 36 —
+ * added as a new item shape, never a change to the existing bare-string one,
+ * which is why the envelope stays version 1). A checklist item with no
+ * `checked` sent normalizes down to a bare string: the object form exists
+ * only to carry the box's state, not as a second way to write plain text.
+ */
+export type GeneratedDocumentListItem =
+	| string
+	| { text: string; checked: boolean };
+
 export type GeneratedDocumentBlock =
 	| { type: "heading"; level: 1 | 2 | 3; text: string }
 	| GeneratedDocumentParagraphBlock
-	| { type: "list"; style: "bullet" | "numbered"; items: string[] }
+	| {
+			type: "list";
+			style: "bullet" | "numbered";
+			items: GeneratedDocumentListItem[];
+	  }
 	| {
 			type: "callout";
 			tone: "info" | "warning" | "tip" | "note";
@@ -1031,12 +1047,30 @@ function normalizeParagraphBasisMarkers(
 	return { ok: true, markers };
 }
 
+/**
+ * A bare string normalizes to a string (`cleanText`, as always); `{ text,
+ * checked }` normalizes to the checklist object ONLY when `checked` is
+ * actually a boolean — `{ text }` alone is just a plain item someone wrote
+ * as an object, and collapses to the same bare string a plain item would.
+ */
+function normalizeListItem(value: unknown): GeneratedDocumentListItem | null {
+	if (typeof value === "string") return cleanText(value);
+	if (!isRecord(value)) return null;
+	const text = cleanText(value.text);
+	if (!text) return null;
+	return typeof value.checked === "boolean"
+		? { text, checked: value.checked }
+		: text;
+}
+
 function normalizeListBlock(
 	block: Record<string, unknown>,
 ): BlockNormalizationResult {
 	const style = block.style === "numbered" ? "numbered" : "bullet";
 	const items = Array.isArray(block.items)
-		? block.items.map(cleanText).filter((item): item is string => Boolean(item))
+		? block.items
+				.map(normalizeListItem)
+				.filter((item): item is GeneratedDocumentListItem => item !== null)
 		: [];
 	return items.length > 0
 		? { ok: true, block: { type: "list", style, items } }

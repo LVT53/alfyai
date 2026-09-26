@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInMemoryDatabase,
@@ -49,6 +49,19 @@ function versionRows(artifactId: string) {
 		.from(schema.artifactVersions)
 		.where(eq(schema.artifactVersions.artifactId, artifactId))
 		.all();
+}
+
+function kvRow(artifactId: string, key: string) {
+	return memory.db
+		.select()
+		.from(schema.artifactKv)
+		.where(
+			and(
+				eq(schema.artifactKv.artifactId, artifactId),
+				eq(schema.artifactKv.key, key),
+			),
+		)
+		.get();
 }
 
 async function createDocument(
@@ -307,6 +320,7 @@ describe("updateArtifactBody", () => {
 			ok: true,
 			versionId: expect.any(String),
 			bodyHash: hashArtifactBody("- [x] Book museum tickets"),
+			versionNumber: 2,
 		});
 		expect(artifactRow(artifact.id)?.contentText).toBe(
 			"- [x] Book museum tickets",
@@ -454,6 +468,372 @@ describe("updateArtifactBody", () => {
 		).resolves.toEqual({ ok: false, reason: "not_found" });
 		expect(versionRows(artifact.id)).toHaveLength(1);
 		expect(versionRows(hidden.id)).toHaveLength(1);
+	});
+
+	// Slice 1's additive fields (`metadataPatch`, `snapshot`, `expectVersion`,
+	// `coalesceUserEdits`), against Slice 0's declaration — see
+	// docs/plans/claude-at-home-2/slice-1.md "The updateArtifactBody diff".
+	it("merges metadataPatch into metadata_json in the same write, keeping other keys", async () => {
+		const artifact = await createDocument();
+
+		await updateArtifactBody({
+			userId: OWNER,
+			artifactId: artifact.id,
+			body: "v2",
+			author: "alfy",
+			summary: "x",
+			metadataPatch: {
+				tabs: [{ id: "t1", title: "Plan", startBlockId: "p1" }],
+			},
+		});
+
+		const metadata = JSON.parse(artifactRow(artifact.id)?.metadataJson ?? "{}");
+		expect(metadata.artifactType).toBe("document");
+		expect(metadata.title).toBe("Saturday plan");
+		expect(metadata.tabs).toEqual([
+			{ id: "t1", title: "Plan", startBlockId: "p1" },
+		]);
+	});
+
+	it("writes the snapshot to artifact_kv in the same call, with docVersion set to the version it actually wrote", async () => {
+		const artifact = await createDocument();
+
+		const result = await updateArtifactBody({
+			userId: OWNER,
+			artifactId: artifact.id,
+			body: "v2",
+			author: "alfy",
+			summary: "x",
+			// A deliberately wrong docVersion: the function must not trust it.
+			snapshot: { at: 123, docVersion: 999, index: { p1: "hash1" } },
+		});
+
+		expect(result.ok).toBe(true);
+		const row = kvRow(artifact.id, "alfy.snapshot");
+		expect(row).toBeDefined();
+		const stored = JSON.parse(row?.valueJson ?? "{}");
+		expect(stored).toEqual({
+			at: 123,
+			docVersion: result.ok ? result.versionNumber : null,
+			index: { p1: "hash1" },
+		});
+		expect(stored.docVersion).toBe(2);
+	});
+
+	it("updates an existing snapshot row rather than duplicating it", async () => {
+		const artifact = await createDocument();
+		await updateArtifactBody({
+			userId: OWNER,
+			artifactId: artifact.id,
+			body: "v2",
+			author: "alfy",
+			summary: "x",
+			snapshot: { at: 1, docVersion: 0, index: { a: "1" } },
+		});
+		await updateArtifactBody({
+			userId: OWNER,
+			artifactId: artifact.id,
+			body: "v3",
+			author: "alfy",
+			summary: "x",
+			snapshot: { at: 2, docVersion: 0, index: { b: "2" } },
+		});
+
+		const rows = memory.db
+			.select()
+			.from(schema.artifactKv)
+			.where(eq(schema.artifactKv.artifactId, artifact.id))
+			.all();
+		expect(rows).toHaveLength(1);
+		expect(JSON.parse(rows[0].valueJson)).toEqual({
+			at: 2,
+			docVersion: 3,
+			index: { b: "2" },
+		});
+	});
+
+	it("refuses version_conflict on a stale expectVersion and writes nothing", async () => {
+		const artifact = await createDocument();
+
+		const result = await updateArtifactBody({
+			userId: OWNER,
+			artifactId: artifact.id,
+			body: "clobber",
+			author: "user",
+			summary: "x",
+			expectVersion: 5,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "version_conflict" });
+		expect(versionRows(artifact.id)).toHaveLength(1);
+		expect(artifactRow(artifact.id)?.contentText).toBe(
+			"- [ ] Book museum tickets",
+		);
+	});
+
+	it("succeeds when expectVersion matches the current version number", async () => {
+		const artifact = await createDocument();
+
+		const result = await updateArtifactBody({
+			userId: OWNER,
+			artifactId: artifact.id,
+			body: "v2",
+			author: "user",
+			summary: "x",
+			expectVersion: 1,
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
+	describe("ruling 47 — coalesceUserEdits is opt-in", () => {
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("without coalesceUserEdits, every user save still appends (Slice 0's original behaviour)", async () => {
+			const artifact = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "v2",
+				author: "user",
+				summary: "first",
+			});
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "v3",
+				author: "user",
+				summary: "second",
+			});
+			expect(versionRows(artifact.id)).toHaveLength(3);
+		});
+
+		it("coalesces a user save into the latest version when it is also the user's and recent", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(NOW);
+			const artifact = await createDocument();
+			const first = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "v2",
+				author: "user",
+				summary: "Typing…",
+				coalesceUserEdits: true,
+			});
+			vi.setSystemTime(new Date(NOW.getTime() + 60_000));
+			const second = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "v2 continued",
+				author: "user",
+				summary: "Still typing…",
+				coalesceUserEdits: true,
+			});
+
+			expect(versionRows(artifact.id)).toHaveLength(2);
+			expect(first.ok && second.ok && first.versionId).toBe(
+				second.ok && second.versionId,
+			);
+			expect(second.ok && second.versionNumber).toBe(2);
+			expect(artifactRow(artifact.id)?.contentText).toBe("v2 continued");
+			const rows = versionRows(artifact.id).sort(
+				(a, b) => a.versionNumber - b.versionNumber,
+			);
+			expect(rows[1].summary).toBe("Still typing…");
+		});
+
+		// The merge of Slice 1 (coalesceUserEdits) and Slice 2 (metadataPatch):
+		// ruling 47's in-place update must not skip the metadata merge just
+		// because it took the coalescing branch instead of appending.
+		it("a coalesced in-place user save still applies its metadataPatch", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(NOW);
+			const artifact = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "v2",
+				author: "user",
+				summary: "Typing…",
+				coalesceUserEdits: true,
+			});
+			vi.setSystemTime(new Date(NOW.getTime() + 60_000));
+			const second = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "v2 continued",
+				author: "user",
+				summary: "Still typing…",
+				coalesceUserEdits: true,
+				metadataPatch: { tabs: [{ id: "t1", title: "Plan" }] },
+			});
+
+			expect(second.ok).toBe(true);
+			// Coalesced: still exactly one version beyond the create.
+			expect(versionRows(artifact.id)).toHaveLength(2);
+			const read = await getArtifact({ userId: OWNER, artifactId: artifact.id });
+			expect(read?.metadata).toMatchObject({
+				artifactType: "document",
+				tabs: [{ id: "t1", title: "Plan" }],
+			});
+		});
+
+		it("does not coalesce once the window has passed — a new version starts the next burst", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(NOW);
+			const artifact = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "v2",
+				author: "user",
+				summary: "first burst",
+				coalesceUserEdits: true,
+			});
+			vi.setSystemTime(new Date(NOW.getTime() + 11 * 60 * 1000));
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "v3",
+				author: "user",
+				summary: "second burst",
+				coalesceUserEdits: true,
+			});
+
+			expect(versionRows(artifact.id)).toHaveLength(3);
+		});
+
+		it("never coalesces an Alfy write, and an Alfy write closes a user's burst", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(NOW);
+			const artifact = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "user typed this",
+				author: "user",
+				summary: "the user's burst",
+				coalesceUserEdits: true,
+			});
+			// Alfy's own edit, moments later, must append — never coalesce into the
+			// user's still-open burst, and never be coalesced INTO by a later one.
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "alfy edited this",
+				author: "alfy",
+				summary: "Alfy's change",
+				coalesceUserEdits: true,
+			});
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "user typed again",
+				author: "user",
+				summary: "a new burst",
+				coalesceUserEdits: true,
+			});
+
+			expect(versionRows(artifact.id)).toHaveLength(4);
+			const rows = versionRows(artifact.id).sort(
+				(a, b) => a.versionNumber - b.versionNumber,
+			);
+			expect(rows.map((r) => r.author)).toEqual([
+				"alfy",
+				"user",
+				"alfy",
+				"user",
+			]);
+		});
+
+		// The other half of the same combination: an Alfy write (App's
+		// regenerate, say) that also carries a metadataPatch must still append
+		// — coalescing is opt-in AND author-gated to "user", so a patch riding
+		// along must never make an Alfy write merge into a prior user version.
+		it("an Alfy write with a metadataPatch appends a new version rather than coalescing", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(NOW);
+			const artifact = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "user typed this",
+				author: "user",
+				summary: "the user's burst",
+				coalesceUserEdits: true,
+			});
+			vi.setSystemTime(new Date(NOW.getTime() + 1_000));
+			const result = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "alfy regenerated this",
+				author: "alfy",
+				summary: "Alfy's change",
+				coalesceUserEdits: true,
+				metadataPatch: { verification: { checked: true, verdict: "clean" } },
+			});
+
+			expect(result.ok).toBe(true);
+			expect(versionRows(artifact.id)).toHaveLength(3);
+			const read = await getArtifact({ userId: OWNER, artifactId: artifact.id });
+			expect(read?.metadata).toMatchObject({
+				verification: { checked: true, verdict: "clean" },
+			});
+		});
+
+		it("never coalesces a restore, even immediately after a user edit (restoreVersion never opts in)", async () => {
+			const artifact = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "user edit",
+				author: "user",
+				summary: "an edit",
+			});
+			// Simulating what restoreVersion does: author "user", but no
+			// coalesceUserEdits — restoring is not this slice's autosave loop.
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "- [ ] Book museum tickets",
+				author: "user",
+				summary: "restored Alfy wrote the first draft",
+			});
+			expect(versionRows(artifact.id)).toHaveLength(3);
+		});
+	});
+
+	// The body write, the version write and the snapshot write are one
+	// transaction (record.ts's `db.transaction` call): a body newer than the
+	// snapshot it was written with is exactly the state that refuses every
+	// later patch, so it must be unreachable rather than merely unlikely.
+	// `JSON.stringify` genuinely cannot serialise a BigInt — no mock needed —
+	// and it throws AFTER the version row would already have been inserted
+	// (this function's real statement order: version, then metadata, then the
+	// artifacts row, then the kv snapshot), so seeing NONE of those three move
+	// is exactly the "all or nothing" guarantee this test exists to pin.
+	it("writes nothing — not the body, not the version, not the snapshot — when a step partway through the transaction throws", async () => {
+		const artifact = await createDocument();
+
+		await expect(
+			updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "attempted edit",
+				author: "alfy",
+				summary: "x",
+				snapshot: { at: 1, docVersion: 1, index: {} },
+				metadataPatch: { poison: 10n as unknown as number },
+			}),
+		).rejects.toThrow();
+
+		expect(artifactRow(artifact.id)?.contentText).toBe(
+			"- [ ] Book museum tickets",
+		);
+		expect(versionRows(artifact.id)).toHaveLength(1);
+		expect(kvRow(artifact.id, "alfy.snapshot")).toBeUndefined();
 	});
 });
 

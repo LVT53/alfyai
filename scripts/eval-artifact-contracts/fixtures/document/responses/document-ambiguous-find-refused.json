@@ -1,0 +1,4 @@
+{
+	"response": "[{\"op\":\"replaceRange\",\"blockId\":\"p1\",\"baseHash\":\"12a1def6\",\"find\":\"book the hotel\",\"text\":\"confirm the hotel\"}]",
+	"durationMs": 365
+}

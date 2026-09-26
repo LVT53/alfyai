@@ -191,7 +191,11 @@ describe("restoreVersion", () => {
 			versionId: first.id,
 		});
 
-		expect(result).toEqual({ ok: true, versionId: expect.any(String) });
+		expect(result).toEqual({
+			ok: true,
+			versionId: expect.any(String),
+			versionNumber: 3,
+		});
 		expect(contentOf(artifact.id)).toBe("v1 body");
 		const versions = await listVersions({
 			userId: OWNER,

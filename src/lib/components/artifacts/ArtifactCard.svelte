@@ -34,6 +34,13 @@ export interface ArtifactCardView {
 	id: string;
 	kind: ArtifactKind;
 	title: string;
+	/**
+	 * A second line under the title, e.g. the Document's "Document · 3 tabs"
+	 * (T9.4, `documentArtifactCardView` in `document/card-view.ts`) —
+	 * already-localised by the caller, exactly like `madeBy`. `null`/omitted
+	 * renders nothing, so every other kind is unaffected by this field.
+	 */
+	subtitle?: string | null;
 	/** Rendered as "made by Alfy {when}"; the caller supplies the already-localised time. */
 	madeBy?: string | null;
 	versionNumber?: number | null;
@@ -41,6 +48,14 @@ export interface ArtifactCardView {
 	openTargetId?: string | null;
 	tickable?: {
 		items: ArtifactCardTickableItem[];
+		/**
+		 * How many task items REALLY exist — equal to `items.length` unless the
+		 * caller is working from a bounded subset (the chat card's server
+		 * preview, T9 steps 4/7, never carries more than the first five).
+		 * Falls back to `items.length` when omitted, so a full-body caller
+		 * (the panel) needs no change.
+		 */
+		totalCount?: number;
 		onToggle: (id: string) => void;
 	} | null;
 }
@@ -87,7 +102,11 @@ let visibleTickableItems = $derived(
 	view.tickable?.items.slice(0, TICKABLE_VISIBLE_LIMIT) ?? [],
 );
 let hiddenTickableCount = $derived(
-	Math.max(0, (view.tickable?.items.length ?? 0) - TICKABLE_VISIBLE_LIMIT),
+	Math.max(
+		0,
+		(view.tickable?.totalCount ?? view.tickable?.items.length ?? 0) -
+			TICKABLE_VISIBLE_LIMIT,
+	),
 );
 
 // The File body is lazy: a chat page with no file-producing turn must not
@@ -130,6 +149,10 @@ function handleOpen(): void {
 				<span class="artifact-card-version">{$t('artifacts.card.version', { n: view.versionNumber })}</span>
 			{/if}
 		</div>
+
+		{#if view.subtitle}
+			<div class="artifact-card-subtitle">{view.subtitle}</div>
+		{/if}
 
 		{#if view.madeBy}
 			<div class="artifact-card-madeby">{view.madeBy}</div>
@@ -208,6 +231,7 @@ function handleOpen(): void {
 		font-weight: 600;
 	}
 
+	.artifact-card-subtitle,
 	.artifact-card-madeby {
 		color: var(--text-muted);
 		font-size: var(--text-xs);

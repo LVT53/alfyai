@@ -15,11 +15,51 @@ import {
 	getArtifactOwnershipScope,
 } from "$lib/server/services/knowledge/store/core";
 import {
+	parseDocument,
+	readTaskBlock,
+} from "$lib/shared/artifact-document/blocks";
+import { documentTabsFromMetadata } from "./document-ops";
+import {
 	FAMILY_ROW_TYPES,
 	kindForArtifactRow,
+	parseArtifactMetadata,
 	titleForArtifactRow,
 } from "./record";
-import type { ArtifactCardSummary } from "./types";
+import type { ArtifactCardSummary, DocumentCardPreview } from "./types";
+
+/** T9 steps 4/7's bounded checklist: never more than this many task items travel with the card summary. */
+const DOCUMENT_PREVIEW_TASK_LIMIT = 5;
+
+/**
+ * The Document card's subtitle facts and tickable checklist, computed from
+ * the SAME parse (`parseDocument`) and the SAME task-line reader
+ * (`readTaskBlock`) every other Document surface uses — never a body-shaped
+ * duplicate of this logic. Bounded on purpose (T9): `tasks` is at most
+ * `DOCUMENT_PREVIEW_TASK_LIMIT` items, and the body itself never appears
+ * anywhere in the returned value.
+ */
+function buildDocumentPreview(row: {
+	metadataJson: string | null;
+	contentText: string | null;
+}): DocumentCardPreview {
+	const tabCount = documentTabsFromMetadata(
+		parseArtifactMetadata(row.metadataJson),
+	).length;
+	const blocks = row.contentText
+		? parseDocument(row.contentText, { mint: false }).blocks
+		: [];
+	const tasks: DocumentCardPreview["tasks"] = [];
+	let totalTaskCount = 0;
+	for (const block of blocks) {
+		const task = readTaskBlock(block);
+		if (!task) continue;
+		totalTaskCount += 1;
+		if (tasks.length < DOCUMENT_PREVIEW_TASK_LIMIT) {
+			tasks.push({ blockId: block.id, text: task.text, checked: task.checked });
+		}
+	}
+	return { tabCount, tasks, totalTaskCount };
+}
 
 /**
  * The conversation's artifacts, newest change first: its own `artifact` rows,
@@ -53,6 +93,10 @@ export async function listArtifactsForConversation(params: {
 			metadataJson: artifacts.metadataJson,
 			conversationId: artifacts.conversationId,
 			updatedAt: artifacts.updatedAt,
+			// T9 steps 4/7: only ever read to COMPUTE `documentPreview` below
+			// (`buildDocumentPreview`) for a `kind: "document"` row — the raw
+			// text itself never reaches `ArtifactCardSummary`.
+			contentText: artifacts.contentText,
 		})
 		.from(artifacts)
 		.where(
@@ -109,13 +153,19 @@ export async function listArtifactsForConversation(params: {
 		commentRows.map((row) => [row.artifactId, row.total]),
 	);
 
-	return listed.map((row) => ({
-		id: row.id,
-		kind: kindForArtifactRow(row),
-		title: titleForArtifactRow(row),
-		conversationId: row.conversationId ?? null,
-		versionNumber: newestVersionById.get(row.id) ?? 0,
-		commentCount: commentCountById.get(row.id) ?? 0,
-		updatedAt: row.updatedAt.getTime(),
-	}));
+	return listed.map((row) => {
+		const kind = kindForArtifactRow(row);
+		return {
+			id: row.id,
+			kind,
+			title: titleForArtifactRow(row),
+			conversationId: row.conversationId ?? null,
+			versionNumber: newestVersionById.get(row.id) ?? 0,
+			commentCount: commentCountById.get(row.id) ?? 0,
+			updatedAt: row.updatedAt.getTime(),
+			...(kind === "document"
+				? { documentPreview: buildDocumentPreview(row) }
+				: {}),
+		};
+	});
 }

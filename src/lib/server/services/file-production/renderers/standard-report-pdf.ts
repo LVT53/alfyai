@@ -21,6 +21,7 @@ import type {
 	GeneratedDocumentBlock,
 	GeneratedDocumentChartBlock,
 	GeneratedDocumentCitationLevel,
+	GeneratedDocumentListItem,
 	GeneratedDocumentSource,
 } from "../source-schema";
 import {
@@ -918,25 +919,48 @@ class StandardReportPdfLayout {
 		this.y -= 6;
 	}
 
-	drawList(style: "bullet" | "numbered", items: string[]): void {
+	drawList(
+		style: "bullet" | "numbered",
+		items: GeneratedDocumentListItem[],
+	): void {
 		const indent = 18;
 		const lineHeight = LAYOUT.bodyFontPt * LAYOUT.lineHeight;
-		for (const [index, item] of items.entries()) {
-			const marker = style === "numbered" ? `${index + 1}.` : "•";
+		for (const [index, rawItem] of items.entries()) {
+			const isChecklistItem = typeof rawItem !== "string";
+			const text = isChecklistItem ? rawItem.text : rawItem;
 			const lines = wrapText(
-				item,
+				text,
 				this.fonts.regular,
 				LAYOUT.bodyFontPt,
 				this.contentWidth() - indent,
 			);
 			this.ensureSpace(lines.length * lineHeight + 4);
-			this.page.drawText(marker, {
-				x: this.contentX(),
-				y: this.y,
-				size: LAYOUT.bodyFontPt,
-				font: this.fonts.bold,
-				color: hexColor(THEME.accent),
-			});
+			if (isChecklistItem) {
+				// Ruling 36: a real vector checkbox, not "[x]" as text — pdf-lib's
+				// standard fonts have no glyph coverage guarantee for ☑/☐, so this
+				// draws the box itself the same way every other shape in this
+				// renderer is drawn (drawRectangle), never a font glyph.
+				const boxSize = 8;
+				const boxY = this.y + LAYOUT.bodyFontPt * 0.12;
+				this.page.drawRectangle({
+					x: this.contentX(),
+					y: boxY,
+					width: boxSize,
+					height: boxSize,
+					borderColor: hexColor(THEME.accent),
+					borderWidth: 0.8,
+					...(rawItem.checked ? { color: hexColor(THEME.accent) } : {}),
+				});
+			} else {
+				const marker = style === "numbered" ? `${index + 1}.` : "•";
+				this.page.drawText(marker, {
+					x: this.contentX(),
+					y: this.y,
+					size: LAYOUT.bodyFontPt,
+					font: this.fonts.bold,
+					color: hexColor(THEME.accent),
+				});
+			}
 			for (const line of lines) {
 				this.page.drawText(line, {
 					x: this.contentX() + indent,
