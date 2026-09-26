@@ -1,4 +1,4 @@
 {
-  "response": "```json\n{\n  \"claims\": [\n    \"the Fahrenheit value for 0 Celsius\",\n    \"the Fahrenheit value for 37 Celsius\",\n    \"the Fahrenheit value for 100 Celsius\",\n    \"the table column labels\"\n  ],\n  \"findings\": [],\n  \"repairedHtml\": null,\n  \"repairSafe\": false\n}\n```",
-  "durationMs": 627
+	"response": "```json\n{\n  \"claims\": [\n    \"the Fahrenheit value for 0 Celsius\",\n    \"the Fahrenheit value for 37 Celsius\",\n    \"the Fahrenheit value for 100 Celsius\",\n    \"the table column labels\"\n  ],\n  \"findings\": [],\n  \"repairedHtml\": null,\n  \"repairSafe\": false\n}\n```",
+	"durationMs": 627
 }

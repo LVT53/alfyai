@@ -1,104 +1,101 @@
 {
-  "evaluation": {
-    "pages": [
-      {
-        "label": "light-1280",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-04-light-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 182,
-        "textSample": "Szókártyák Kattints egy kártyára, hogy megforduljon, és nézd meg a magyar szót! ÖSSZES PONT 0 BEVETT SZAVAK 0 EZ A KÖR 0 VÁLASSZ TÉMÁT Állatok Színek Iskola Új keverés Pontok törlése",
-        "controlCount": 19,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-1280",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-04-dark-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 182,
-        "textSample": "Szókártyák Kattints egy kártyára, hogy megforduljon, és nézd meg a magyar szót! ÖSSZES PONT 0 BEVETT SZAVAK 0 EZ A KÖR 0 VÁLASSZ TÉMÁT Állatok Színek Iskola Új keverés Pontok törlése",
-        "controlCount": 19,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "light-390",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-04-light-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 182,
-        "textSample": "Szókártyák Kattints egy kártyára, hogy megforduljon, és nézd meg a magyar szót! ÖSSZES PONT 0 BEVETT SZAVAK 0 EZ A KÖR 0 VÁLASSZ TÉMÁT Állatok Színek Iskola Új keverés Pontok törlése",
-        "controlCount": 19,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-390",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-04-dark-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 182,
-        "textSample": "Szókártyák Kattints egy kártyára, hogy megforduljon, és nézd meg a magyar szót! ÖSSZES PONT 0 BEVETT SZAVAK 0 EZ A KÖR 0 VÁLASSZ TÉMÁT Állatok Színek Iskola Új keverés Pontok törlése",
-        "controlCount": 19,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      }
-    ],
-    "interaction": {
-      "inputSelector": null,
-      "inputValue": null,
-      "buttonText": "Színek",
-      "clickedButtons": [
-        "Állatok",
-        "Színek"
-      ],
-      "domChangedAfter": "Színek",
-      "clicked": true,
-      "domChanged": true,
-      "textBefore": 182,
-      "textAfter": 182,
-      "htmlChanged": true,
-      "storageSetsBefore": 0,
-      "storageSetsAfter": 0,
-      "storageKeys": [],
-      "dialogs": [],
-      "note": null
-    },
-    "consoleErrors": [],
-    "pageErrors": [],
-    "blockedRequests": [],
-    "storageGets": 1,
-    "storageSets": 0,
-    "storageKeys": []
-  }
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-04-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 182,
+				"textSample": "Szókártyák Kattints egy kártyára, hogy megforduljon, és nézd meg a magyar szót! ÖSSZES PONT 0 BEVETT SZAVAK 0 EZ A KÖR 0 VÁLASSZ TÉMÁT Állatok Színek Iskola Új keverés Pontok törlése",
+				"controlCount": 19,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-04-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 182,
+				"textSample": "Szókártyák Kattints egy kártyára, hogy megforduljon, és nézd meg a magyar szót! ÖSSZES PONT 0 BEVETT SZAVAK 0 EZ A KÖR 0 VÁLASSZ TÉMÁT Állatok Színek Iskola Új keverés Pontok törlése",
+				"controlCount": 19,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-04-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 182,
+				"textSample": "Szókártyák Kattints egy kártyára, hogy megforduljon, és nézd meg a magyar szót! ÖSSZES PONT 0 BEVETT SZAVAK 0 EZ A KÖR 0 VÁLASSZ TÉMÁT Állatok Színek Iskola Új keverés Pontok törlése",
+				"controlCount": 19,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-04-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 182,
+				"textSample": "Szókártyák Kattints egy kártyára, hogy megforduljon, és nézd meg a magyar szót! ÖSSZES PONT 0 BEVETT SZAVAK 0 EZ A KÖR 0 VÁLASSZ TÉMÁT Állatok Színek Iskola Új keverés Pontok törlése",
+				"controlCount": 19,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": null,
+			"inputValue": null,
+			"buttonText": "Színek",
+			"clickedButtons": ["Állatok", "Színek"],
+			"domChangedAfter": "Színek",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 182,
+			"textAfter": 182,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 0,
+			"storageKeys": [],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 0,
+		"storageKeys": []
+	}
 }

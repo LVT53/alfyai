@@ -1,103 +1,101 @@
 {
-  "evaluation": {
-    "pages": [
-      {
-        "label": "light-1280",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-01-light-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 398,
-        "textSample": "Weekend Trip Split Track who paid for what, then see exactly who owes whom. Everyone shares the total equally. People Levente × Anna × Peti × Add a person Add Expenses What was it? Amount (€) Paid by Levente Anna Peti Sp",
-        "controlCount": 10,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-1280",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-01-dark-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 398,
-        "textSample": "Weekend Trip Split Track who paid for what, then see exactly who owes whom. Everyone shares the total equally. People Levente × Anna × Peti × Add a person Add Expenses What was it? Amount (€) Paid by Levente Anna Peti Sp",
-        "controlCount": 10,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "light-390",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-01-light-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 398,
-        "textSample": "Weekend Trip Split Track who paid for what, then see exactly who owes whom. Everyone shares the total equally. People Levente × Anna × Peti × Add a person Add Expenses What was it? Amount (€) Paid by Levente Anna Peti Sp",
-        "controlCount": 10,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-390",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-01-dark-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 398,
-        "textSample": "Weekend Trip Split Track who paid for what, then see exactly who owes whom. Everyone shares the total equally. People Levente × Anna × Peti × Add a person Add Expenses What was it? Amount (€) Paid by Levente Anna Peti Sp",
-        "controlCount": 10,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      }
-    ],
-    "interaction": {
-      "inputSelector": "input[type=text]",
-      "inputValue": "teszt",
-      "buttonText": "Levente ×",
-      "clickedButtons": [
-        "Levente ×"
-      ],
-      "domChangedAfter": "Levente ×",
-      "clicked": true,
-      "domChanged": true,
-      "textBefore": 398,
-      "textAfter": 457,
-      "htmlChanged": true,
-      "storageSetsBefore": 0,
-      "storageSetsAfter": 0,
-      "storageKeys": [],
-      "dialogs": [],
-      "note": null
-    },
-    "consoleErrors": [],
-    "pageErrors": [],
-    "blockedRequests": [],
-    "storageGets": 1,
-    "storageSets": 0,
-    "storageKeys": []
-  }
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-01-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 398,
+				"textSample": "Weekend Trip Split Track who paid for what, then see exactly who owes whom. Everyone shares the total equally. People Levente × Anna × Peti × Add a person Add Expenses What was it? Amount (€) Paid by Levente Anna Peti Sp",
+				"controlCount": 10,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-01-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 398,
+				"textSample": "Weekend Trip Split Track who paid for what, then see exactly who owes whom. Everyone shares the total equally. People Levente × Anna × Peti × Add a person Add Expenses What was it? Amount (€) Paid by Levente Anna Peti Sp",
+				"controlCount": 10,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-01-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 398,
+				"textSample": "Weekend Trip Split Track who paid for what, then see exactly who owes whom. Everyone shares the total equally. People Levente × Anna × Peti × Add a person Add Expenses What was it? Amount (€) Paid by Levente Anna Peti Sp",
+				"controlCount": 10,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-01-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 398,
+				"textSample": "Weekend Trip Split Track who paid for what, then see exactly who owes whom. Everyone shares the total equally. People Levente × Anna × Peti × Add a person Add Expenses What was it? Amount (€) Paid by Levente Anna Peti Sp",
+				"controlCount": 10,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": "input[type=text]",
+			"inputValue": "teszt",
+			"buttonText": "Levente ×",
+			"clickedButtons": ["Levente ×"],
+			"domChangedAfter": "Levente ×",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 398,
+			"textAfter": 457,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 0,
+			"storageKeys": [],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 0,
+		"storageKeys": []
+	}
 }

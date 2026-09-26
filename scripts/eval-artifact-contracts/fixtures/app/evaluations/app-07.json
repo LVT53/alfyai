@@ -1,109 +1,101 @@
 {
-  "evaluation": {
-    "pages": [
-      {
-        "label": "light-1280",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-07-light-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 278,
-        "textSample": "Kvíz a Dunáról 10 kérdés · négy válaszlehetőség · a végén megkapod a pontszámod. Teszteld a tudásod a Dunáról! 10 kérdés vár rád, mindegyikhez négy válaszlehetőség tartozik. Válassz egyet, majd lépj tovább – a végén megm",
-        "controlCount": 1,
-        "storageGets": 1,
-        "storageSets": 1,
-        "storageKeys": [
-          "duna-quiz-v1"
-        ]
-      },
-      {
-        "label": "dark-1280",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-07-dark-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 278,
-        "textSample": "Kvíz a Dunáról 10 kérdés · négy válaszlehetőség · a végén megkapod a pontszámod. Teszteld a tudásod a Dunáról! 10 kérdés vár rád, mindegyikhez négy válaszlehetőség tartozik. Válassz egyet, majd lépj tovább – a végén megm",
-        "controlCount": 1,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "light-390",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-07-light-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 278,
-        "textSample": "Kvíz a Dunáról 10 kérdés · négy válaszlehetőség · a végén megkapod a pontszámod. Teszteld a tudásod a Dunáról! 10 kérdés vár rád, mindegyikhez négy válaszlehetőség tartozik. Válassz egyet, majd lépj tovább – a végén megm",
-        "controlCount": 1,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-390",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-07-dark-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 278,
-        "textSample": "Kvíz a Dunáról 10 kérdés · négy válaszlehetőség · a végén megkapod a pontszámod. Teszteld a tudásod a Dunáról! 10 kérdés vár rád, mindegyikhez négy válaszlehetőség tartozik. Válassz egyet, majd lépj tovább – a végén megm",
-        "controlCount": 1,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      }
-    ],
-    "interaction": {
-      "inputSelector": null,
-      "inputValue": null,
-      "buttonText": "Kvíz indítása",
-      "clickedButtons": [
-        "Kvíz indítása"
-      ],
-      "domChangedAfter": "Kvíz indítása",
-      "clicked": true,
-      "domChanged": true,
-      "textBefore": 278,
-      "textAfter": 213,
-      "htmlChanged": true,
-      "storageSetsBefore": 0,
-      "storageSetsAfter": 1,
-      "storageKeys": [
-        "duna-quiz-v1"
-      ],
-      "dialogs": [],
-      "note": null
-    },
-    "consoleErrors": [],
-    "pageErrors": [],
-    "blockedRequests": [],
-    "storageGets": 1,
-    "storageSets": 1,
-    "storageKeys": [
-      "duna-quiz-v1"
-    ]
-  }
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-07-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 278,
+				"textSample": "Kvíz a Dunáról 10 kérdés · négy válaszlehetőség · a végén megkapod a pontszámod. Teszteld a tudásod a Dunáról! 10 kérdés vár rád, mindegyikhez négy válaszlehetőség tartozik. Válassz egyet, majd lépj tovább – a végén megm",
+				"controlCount": 1,
+				"storageGets": 1,
+				"storageSets": 1,
+				"storageKeys": ["duna-quiz-v1"]
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-07-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 278,
+				"textSample": "Kvíz a Dunáról 10 kérdés · négy válaszlehetőség · a végén megkapod a pontszámod. Teszteld a tudásod a Dunáról! 10 kérdés vár rád, mindegyikhez négy válaszlehetőség tartozik. Válassz egyet, majd lépj tovább – a végén megm",
+				"controlCount": 1,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-07-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 278,
+				"textSample": "Kvíz a Dunáról 10 kérdés · négy válaszlehetőség · a végén megkapod a pontszámod. Teszteld a tudásod a Dunáról! 10 kérdés vár rád, mindegyikhez négy válaszlehetőség tartozik. Válassz egyet, majd lépj tovább – a végén megm",
+				"controlCount": 1,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-07-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 278,
+				"textSample": "Kvíz a Dunáról 10 kérdés · négy válaszlehetőség · a végén megkapod a pontszámod. Teszteld a tudásod a Dunáról! 10 kérdés vár rád, mindegyikhez négy válaszlehetőség tartozik. Válassz egyet, majd lépj tovább – a végén megm",
+				"controlCount": 1,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": null,
+			"inputValue": null,
+			"buttonText": "Kvíz indítása",
+			"clickedButtons": ["Kvíz indítása"],
+			"domChangedAfter": "Kvíz indítása",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 278,
+			"textAfter": 213,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 1,
+			"storageKeys": ["duna-quiz-v1"],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 1,
+		"storageKeys": ["duna-quiz-v1"]
+	}
 }

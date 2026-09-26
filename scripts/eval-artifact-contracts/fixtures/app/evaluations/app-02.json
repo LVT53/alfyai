@@ -1,114 +1,105 @@
 {
-  "evaluation": {
-    "pages": [
-      {
-        "label": "light-1280",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-02-light-1280.png",
-        "consoleErrors": [
-          "Blocked form submission to '' because the form's frame is sandboxed and the 'allow-forms' permission is not set."
-        ],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 303,
-        "textSample": "Bevásárlólista Írd be a terméket, válaszd ki a kategóriát, majd pipáld be, amit megvettél. A lista megmarad, ha bezárod az ablakot. Új termék neve Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Bevitt eltávolítása Még ",
-        "controlCount": 4,
-        "storageGets": 1,
-        "storageSets": 1,
-        "storageKeys": [
-          "shopping-list-v1"
-        ]
-      },
-      {
-        "label": "dark-1280",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-02-dark-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 303,
-        "textSample": "Bevásárlólista Írd be a terméket, válaszd ki a kategóriát, majd pipáld be, amit megvettél. A lista megmarad, ha bezárod az ablakot. Új termék neve Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Bevitt eltávolítása Még ",
-        "controlCount": 4,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "light-390",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-02-light-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 303,
-        "textSample": "Bevásárlólista Írd be a terméket, válaszd ki a kategóriát, majd pipáld be, amit megvettél. A lista megmarad, ha bezárod az ablakot. Új termék neve Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Bevitt eltávolítása Még ",
-        "controlCount": 4,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-390",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-02-dark-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 303,
-        "textSample": "Bevásárlólista Írd be a terméket, válaszd ki a kategóriát, majd pipáld be, amit megvettél. A lista megmarad, ha bezárod az ablakot. Új termék neve Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Bevitt eltávolítása Még ",
-        "controlCount": 4,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      }
-    ],
-    "interaction": {
-      "inputSelector": "input[type=text]",
-      "inputValue": "teszt",
-      "buttonText": "Bevitt eltávolítása",
-      "clickedButtons": [
-        "Hozzáad",
-        "Bevitt eltávolítása"
-      ],
-      "domChangedAfter": "Bevitt eltávolítása",
-      "clicked": true,
-      "domChanged": true,
-      "textBefore": 303,
-      "textAfter": 331,
-      "htmlChanged": true,
-      "storageSetsBefore": 0,
-      "storageSetsAfter": 1,
-      "storageKeys": [
-        "shopping-list-v1"
-      ],
-      "dialogs": [],
-      "note": null
-    },
-    "consoleErrors": [
-      "Blocked form submission to '' because the form's frame is sandboxed and the 'allow-forms' permission is not set."
-    ],
-    "pageErrors": [],
-    "blockedRequests": [],
-    "storageGets": 1,
-    "storageSets": 1,
-    "storageKeys": [
-      "shopping-list-v1"
-    ]
-  }
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-02-light-1280.png",
+				"consoleErrors": [
+					"Blocked form submission to '' because the form's frame is sandboxed and the 'allow-forms' permission is not set."
+				],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 303,
+				"textSample": "Bevásárlólista Írd be a terméket, válaszd ki a kategóriát, majd pipáld be, amit megvettél. A lista megmarad, ha bezárod az ablakot. Új termék neve Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Bevitt eltávolítása Még ",
+				"controlCount": 4,
+				"storageGets": 1,
+				"storageSets": 1,
+				"storageKeys": ["shopping-list-v1"]
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-02-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 303,
+				"textSample": "Bevásárlólista Írd be a terméket, válaszd ki a kategóriát, majd pipáld be, amit megvettél. A lista megmarad, ha bezárod az ablakot. Új termék neve Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Bevitt eltávolítása Még ",
+				"controlCount": 4,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-02-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 303,
+				"textSample": "Bevásárlólista Írd be a terméket, válaszd ki a kategóriát, majd pipáld be, amit megvettél. A lista megmarad, ha bezárod az ablakot. Új termék neve Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Bevitt eltávolítása Még ",
+				"controlCount": 4,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-02-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 303,
+				"textSample": "Bevásárlólista Írd be a terméket, válaszd ki a kategóriát, majd pipáld be, amit megvettél. A lista megmarad, ha bezárod az ablakot. Új termék neve Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Bevitt eltávolítása Még ",
+				"controlCount": 4,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": "input[type=text]",
+			"inputValue": "teszt",
+			"buttonText": "Bevitt eltávolítása",
+			"clickedButtons": ["Hozzáad", "Bevitt eltávolítása"],
+			"domChangedAfter": "Bevitt eltávolítása",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 303,
+			"textAfter": 331,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 1,
+			"storageKeys": ["shopping-list-v1"],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [
+			"Blocked form submission to '' because the form's frame is sandboxed and the 'allow-forms' permission is not set."
+		],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 1,
+		"storageKeys": ["shopping-list-v1"]
+	}
 }

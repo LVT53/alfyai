@@ -1,4 +1,4 @@
 {
-  "response": "```json\n{\n  \"claims\": [\n    \"A kvíz kérdése: melyik főváros fekszik a Duna mentén a legkeletebbre\",\n    \"A helyes válasz a D) Bukarest\"\n  ],\n  \"findings\": [\n    {\n      \"claim\": \"A helyes válasz a D) Bukarest\",\n      \"problem\": \"A Bukarest nem fekszik a Duna mentén (a Duna nem folyik át rajta). A négy közül a legkeletebbi Duna-parti főváros a C) Belgrád.\",\n      \"class\": \"wrong_key\",\n      \"location\": \"ol li[data-correct=\\\"true\\\"] és p: 'Helyes válasz: D) Bukarest'\",\n      \"settled\": false\n    }\n  ],\n  \"repairedHtml\": null,\n  \"repairSafe\": false\n}\n```",
-  "durationMs": 1322
+	"response": "```json\n{\n  \"claims\": [\n    \"A kvíz kérdése: melyik főváros fekszik a Duna mentén a legkeletebbre\",\n    \"A helyes válasz a D) Bukarest\"\n  ],\n  \"findings\": [\n    {\n      \"claim\": \"A helyes válasz a D) Bukarest\",\n      \"problem\": \"A Bukarest nem fekszik a Duna mentén (a Duna nem folyik át rajta). A négy közül a legkeletebbi Duna-parti főváros a C) Belgrád.\",\n      \"class\": \"wrong_key\",\n      \"location\": \"ol li[data-correct=\\\"true\\\"] és p: 'Helyes válasz: D) Bukarest'\",\n      \"settled\": false\n    }\n  ],\n  \"repairedHtml\": null,\n  \"repairSafe\": false\n}\n```",
+	"durationMs": 1322
 }

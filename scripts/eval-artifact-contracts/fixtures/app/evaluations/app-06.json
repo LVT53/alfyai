@@ -1,109 +1,101 @@
 {
-  "evaluation": {
-    "pages": [
-      {
-        "label": "light-1280",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-06-light-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 173,
-        "textSample": "Pomodoro Timer Work for 25 minutes, then take a 5-minute break. 25:00 Ready to start Start Pause Reset 0 rounds completed Start the timer to begin your first Pomodoro round.",
-        "controlCount": 3,
-        "storageGets": 1,
-        "storageSets": 1,
-        "storageKeys": [
-          "pomodoro-state"
-        ]
-      },
-      {
-        "label": "dark-1280",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-06-dark-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 173,
-        "textSample": "Pomodoro Timer Work for 25 minutes, then take a 5-minute break. 25:00 Ready to start Start Pause Reset 0 rounds completed Start the timer to begin your first Pomodoro round.",
-        "controlCount": 3,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "light-390",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-06-light-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 173,
-        "textSample": "Pomodoro Timer Work for 25 minutes, then take a 5-minute break. 25:00 Ready to start Start Pause Reset 0 rounds completed Start the timer to begin your first Pomodoro round.",
-        "controlCount": 3,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-390",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-06-dark-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 173,
-        "textSample": "Pomodoro Timer Work for 25 minutes, then take a 5-minute break. 25:00 Ready to start Start Pause Reset 0 rounds completed Start the timer to begin your first Pomodoro round.",
-        "controlCount": 3,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      }
-    ],
-    "interaction": {
-      "inputSelector": null,
-      "inputValue": null,
-      "buttonText": "Start",
-      "clickedButtons": [
-        "Start"
-      ],
-      "domChangedAfter": "Start",
-      "clicked": true,
-      "domChanged": true,
-      "textBefore": 173,
-      "textAfter": 117,
-      "htmlChanged": true,
-      "storageSetsBefore": 0,
-      "storageSetsAfter": 1,
-      "storageKeys": [
-        "pomodoro-state"
-      ],
-      "dialogs": [],
-      "note": null
-    },
-    "consoleErrors": [],
-    "pageErrors": [],
-    "blockedRequests": [],
-    "storageGets": 1,
-    "storageSets": 1,
-    "storageKeys": [
-      "pomodoro-state"
-    ]
-  }
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-06-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 173,
+				"textSample": "Pomodoro Timer Work for 25 minutes, then take a 5-minute break. 25:00 Ready to start Start Pause Reset 0 rounds completed Start the timer to begin your first Pomodoro round.",
+				"controlCount": 3,
+				"storageGets": 1,
+				"storageSets": 1,
+				"storageKeys": ["pomodoro-state"]
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-06-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 173,
+				"textSample": "Pomodoro Timer Work for 25 minutes, then take a 5-minute break. 25:00 Ready to start Start Pause Reset 0 rounds completed Start the timer to begin your first Pomodoro round.",
+				"controlCount": 3,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-06-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 173,
+				"textSample": "Pomodoro Timer Work for 25 minutes, then take a 5-minute break. 25:00 Ready to start Start Pause Reset 0 rounds completed Start the timer to begin your first Pomodoro round.",
+				"controlCount": 3,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-06-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 173,
+				"textSample": "Pomodoro Timer Work for 25 minutes, then take a 5-minute break. 25:00 Ready to start Start Pause Reset 0 rounds completed Start the timer to begin your first Pomodoro round.",
+				"controlCount": 3,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": null,
+			"inputValue": null,
+			"buttonText": "Start",
+			"clickedButtons": ["Start"],
+			"domChangedAfter": "Start",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 173,
+			"textAfter": 117,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 1,
+			"storageKeys": ["pomodoro-state"],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 1,
+		"storageKeys": ["pomodoro-state"]
+	}
 }

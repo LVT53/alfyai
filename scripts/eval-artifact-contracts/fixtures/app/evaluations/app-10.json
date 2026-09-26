@@ -1,103 +1,101 @@
 {
-  "evaluation": {
-    "pages": [
-      {
-        "label": "light-1280",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-10-light-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 216,
-        "textSample": "Memory Match Flip two cards to find a pair. Match all 8 pairs to win. MOVES 0 PAIRS 0/8 BEST – ? ☀ ? ♪ ? ♣ ? ★ ? ♦ ? ☀ ? ♠ ? ♥ ? ♥ ? ♣ ? ★ ? ✿ ? ♪ ? ♠ ? ♦ ? ✿ New game New game started. Flip two cards to find a pair.",
-        "controlCount": 17,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-1280",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 1280,
-          "height": 800
-        },
-        "screenshot": "shot-app-10-dark-1280.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 216,
-        "textSample": "Memory Match Flip two cards to find a pair. Match all 8 pairs to win. MOVES 0 PAIRS 0/8 BEST – ? ♪ ? ✿ ? ♦ ? ☀ ? ★ ? ♠ ? ♦ ? ♠ ? ♥ ? ♣ ? ♪ ? ♣ ? ✿ ? ★ ? ☀ ? ♥ New game New game started. Flip two cards to find a pair.",
-        "controlCount": 17,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "light-390",
-        "colorScheme": "light",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-10-light-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 216,
-        "textSample": "Memory Match Flip two cards to find a pair. Match all 8 pairs to win. MOVES 0 PAIRS 0/8 BEST – ? ♥ ? ☀ ? ✿ ? ★ ? ♣ ? ♦ ? ♦ ? ★ ? ☀ ? ♣ ? ♪ ? ♥ ? ♪ ? ♠ ? ✿ ? ♠ New game New game started. Flip two cards to find a pair.",
-        "controlCount": 17,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      },
-      {
-        "label": "dark-390",
-        "colorScheme": "dark",
-        "viewport": {
-          "width": 390,
-          "height": 844
-        },
-        "screenshot": "shot-app-10-dark-390.png",
-        "consoleErrors": [],
-        "pageErrors": [],
-        "blockedRequests": [],
-        "textLength": 216,
-        "textSample": "Memory Match Flip two cards to find a pair. Match all 8 pairs to win. MOVES 0 PAIRS 0/8 BEST – ? ♥ ? ♠ ? ★ ? ☀ ? ♦ ? ♪ ? ✿ ? ♦ ? ♣ ? ♪ ? ☀ ? ♣ ? ♠ ? ♥ ? ★ ? ✿ New game New game started. Flip two cards to find a pair.",
-        "controlCount": 17,
-        "storageGets": 1,
-        "storageSets": 0,
-        "storageKeys": []
-      }
-    ],
-    "interaction": {
-      "inputSelector": null,
-      "inputValue": null,
-      "buttonText": "? ☀",
-      "clickedButtons": [
-        "? ☀"
-      ],
-      "domChangedAfter": "? ☀",
-      "clicked": true,
-      "domChanged": true,
-      "textBefore": 216,
-      "textAfter": 216,
-      "htmlChanged": true,
-      "storageSetsBefore": 0,
-      "storageSetsAfter": 0,
-      "storageKeys": [],
-      "dialogs": [],
-      "note": null
-    },
-    "consoleErrors": [],
-    "pageErrors": [],
-    "blockedRequests": [],
-    "storageGets": 1,
-    "storageSets": 0,
-    "storageKeys": []
-  }
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-10-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 216,
+				"textSample": "Memory Match Flip two cards to find a pair. Match all 8 pairs to win. MOVES 0 PAIRS 0/8 BEST – ? ☀ ? ♪ ? ♣ ? ★ ? ♦ ? ☀ ? ♠ ? ♥ ? ♥ ? ♣ ? ★ ? ✿ ? ♪ ? ♠ ? ♦ ? ✿ New game New game started. Flip two cards to find a pair.",
+				"controlCount": 17,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-10-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 216,
+				"textSample": "Memory Match Flip two cards to find a pair. Match all 8 pairs to win. MOVES 0 PAIRS 0/8 BEST – ? ♪ ? ✿ ? ♦ ? ☀ ? ★ ? ♠ ? ♦ ? ♠ ? ♥ ? ♣ ? ♪ ? ♣ ? ✿ ? ★ ? ☀ ? ♥ New game New game started. Flip two cards to find a pair.",
+				"controlCount": 17,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-10-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 216,
+				"textSample": "Memory Match Flip two cards to find a pair. Match all 8 pairs to win. MOVES 0 PAIRS 0/8 BEST – ? ♥ ? ☀ ? ✿ ? ★ ? ♣ ? ♦ ? ♦ ? ★ ? ☀ ? ♣ ? ♪ ? ♥ ? ♪ ? ♠ ? ✿ ? ♠ New game New game started. Flip two cards to find a pair.",
+				"controlCount": 17,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-10-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 216,
+				"textSample": "Memory Match Flip two cards to find a pair. Match all 8 pairs to win. MOVES 0 PAIRS 0/8 BEST – ? ♥ ? ♠ ? ★ ? ☀ ? ♦ ? ♪ ? ✿ ? ♦ ? ♣ ? ♪ ? ☀ ? ♣ ? ♠ ? ♥ ? ★ ? ✿ New game New game started. Flip two cards to find a pair.",
+				"controlCount": 17,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": null,
+			"inputValue": null,
+			"buttonText": "? ☀",
+			"clickedButtons": ["? ☀"],
+			"domChangedAfter": "? ☀",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 216,
+			"textAfter": 216,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 0,
+			"storageKeys": [],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 0,
+		"storageKeys": []
+	}
 }
