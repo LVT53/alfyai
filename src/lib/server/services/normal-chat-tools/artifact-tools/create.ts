@@ -5,6 +5,7 @@
 // descriptions are Slice 5a's; each type slice appends ONLY its own entry to
 // CREATE_ARTIFACT_HANDLERS below, in this file).
 import { z } from "zod";
+import { createAppFromBrief } from "$lib/server/services/artifacts/app/create";
 import { truncateText } from "../shared";
 
 /** The four types Alfy may create. "file" is produce_file's, not this tool's. */
@@ -129,6 +130,34 @@ export type CreateArtifactHandler = (
 export const CREATE_ARTIFACT_HANDLERS: Partial<
 	Record<CreatableArtifactKind, CreateArtifactHandler>
 > = {};
+
+/**
+ * The App branch (Task A7): a thin adapter over
+ * `artifacts/app/create.ts`'s `createAppFromBrief`, which owns everything
+ * substantive — the thinking-off generation call, the fact-verification
+ * pass and its ruling-52 repair/re-verify gate, and the `createArtifact`
+ * write with `author: "alfy"`. The model's `body` is its BRIEF (what to
+ * build), never HTML it wrote itself: the App contract forbids the chat
+ * model from producing the actual markup, so this handler passes `body`
+ * straight through as the generation prompt and nothing else ever reaches
+ * the model — no HTML, not even on failure (see the file's own A7.4 test).
+ */
+CREATE_ARTIFACT_HANDLERS.app = async (params) => {
+	const result = await createAppFromBrief({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		prompt: params.body,
+		title: params.title,
+		abortSignal: params.abortSignal,
+	});
+	if (!result.ok) {
+		return { ok: false, reason: result.detail };
+	}
+	return {
+		ok: true,
+		value: { artifactId: result.artifactId, title: result.title },
+	};
+};
 
 export interface CreateArtifactRunResult {
 	modelPayload: CreateArtifactModelPayload;

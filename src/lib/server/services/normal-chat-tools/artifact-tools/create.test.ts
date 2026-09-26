@@ -1,4 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const createAppFromBrief = vi.fn();
+vi.mock("$lib/server/services/artifacts/app/create", () => ({
+	createAppFromBrief: (params: unknown) => createAppFromBrief(params),
+}));
+
 import {
 	CREATABLE_ARTIFACT_KINDS,
 	CREATE_ARTIFACT_HANDLERS,
@@ -7,6 +13,13 @@ import {
 	createArtifactModelInputSchema,
 	runCreateArtifactTool,
 } from "./create";
+
+/** The kinds this test file's own "no handler registered" assertions still
+ * cover — "app" is registered for real (Slice 2, Task A7) and gets its own
+ * describe block below instead. */
+const UNREGISTERED_KINDS = CREATABLE_ARTIFACT_KINDS.filter(
+	(kind) => kind !== "app",
+);
 
 describe("createArtifactModelInputSchema / createArtifactInputSchema", () => {
 	it("advertises the four creatable kinds", () => {
@@ -50,13 +63,13 @@ describe("createArtifactModelInputSchema / createArtifactInputSchema", () => {
 
 describe("runCreateArtifactTool — no kind registered yet (Slice 5a)", () => {
 	afterEach(() => {
-		for (const kind of CREATABLE_ARTIFACT_KINDS) {
+		for (const kind of UNREGISTERED_KINDS) {
 			delete CREATE_ARTIFACT_HANDLERS[kind];
 		}
 	});
 
-	it("refuses every creatable kind with a model-safe failure, not a throw", async () => {
-		for (const artifactType of CREATABLE_ARTIFACT_KINDS) {
+	it("refuses every still-unregistered kind with a model-safe failure, not a throw", async () => {
+		for (const artifactType of UNREGISTERED_KINDS) {
 			const result = await runCreateArtifactTool({
 				userId: "user-1",
 				conversationId: "conv-1",
@@ -164,5 +177,119 @@ describe("runCreateArtifactTool — a registered handler", () => {
 		});
 
 		expect(seenSignal).toBe(controller.signal);
+	});
+});
+
+describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
+	afterEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("dispatches to createAppFromBrief with the tool's own fields — the model's body as the brief, never as literal html", async () => {
+		createAppFromBrief.mockResolvedValue({
+			ok: true,
+			artifactId: "artifact-1",
+			title: "Trip cost splitter",
+			verification: { checked: false, verdict: "clean", reason: null },
+		});
+
+		const result = await runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			title: "Trip cost splitter",
+			body: "Split costs between three friends on a trip.",
+			artifactType: "app",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(createAppFromBrief).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				conversationId: "conv-1",
+				title: "Trip cost splitter",
+				prompt: "Split costs between three friends on a trip.",
+			}),
+		);
+		expect(result.modelPayload).toEqual({
+			success: true,
+			artifactId: "artifact-1",
+			artifactType: "app",
+			title: "Trip cost splitter",
+			versionId: undefined,
+		});
+	});
+
+	it("passes the envelope's abortSignal through unchanged", async () => {
+		createAppFromBrief.mockResolvedValue({
+			ok: true,
+			artifactId: "artifact-1",
+			title: "x",
+			verification: { checked: false, verdict: "clean", reason: null },
+		});
+		const controller = new AbortController();
+
+		await runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			title: "x",
+			body: "a brief",
+			artifactType: "app",
+			abortSignal: controller.signal,
+		});
+
+		expect(createAppFromBrief).toHaveBeenCalledWith(
+			expect.objectContaining({ abortSignal: controller.signal }),
+		);
+	});
+
+	it("surfaces a generation/verification failure as a model-safe refusal, never a thrown error", async () => {
+		createAppFromBrief.mockResolvedValue({
+			ok: false,
+			reason: "no_fence",
+			detail: "no html fence and no complete html document in the answer",
+		});
+
+		const result = await runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			title: "x",
+			body: "a brief",
+			artifactType: "app",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload).toEqual({
+			success: false,
+			error: "no html fence and no complete html document in the answer",
+		});
+		expect(result.metadata.ok).toBe(false);
+	});
+
+	it("never leaks the generated html anywhere in the tool's model payload or metadata (A7.4)", async () => {
+		const secretHtml =
+			"<html><body>the generated app's actual markup</body></html>";
+		createAppFromBrief.mockResolvedValue({
+			ok: true,
+			artifactId: "artifact-1",
+			title: "x",
+			verification: { checked: false, verdict: "clean", reason: null },
+		});
+
+		const result = await runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			title: "x",
+			body: "a brief",
+			artifactType: "app",
+			abortSignal: new AbortController().signal,
+		});
+
+		const serialized = JSON.stringify(result);
+		expect(serialized).not.toContain(secretHtml);
+		expect(serialized).not.toContain("<html");
 	});
 });
