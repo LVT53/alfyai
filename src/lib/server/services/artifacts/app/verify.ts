@@ -20,7 +20,8 @@ import {
 	resolveNormalChatModelRunProvider,
 	runPlainNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
-import { createNormalChatTools } from "$lib/server/services/normal-chat-tools";
+import { createResearchWebTool } from "$lib/server/services/normal-chat-tools/research-web-tool";
+import { createToolCallRecorder } from "$lib/server/services/normal-chat-tools/shared";
 // Thinking pinned off for BOTH calls this module makes (spec §2.9's rule is
 // not just the generator's): the classifier goes through
 // sendJsonControlMessage's own `thinkingMode: "off"` option; the verifier
@@ -529,20 +530,25 @@ export async function verifyApp(
 
 	const parallelConfigured = Boolean(getConfig().parallelApiKey?.trim());
 	const researchWebTool = parallelConfigured
-		? createNormalChatTools({
+		? createResearchWebTool({
 				userId: params.userId,
 				conversationId: params.conversationId ?? `app-verify:${randomUUID()}`,
 				turnId: randomUUID(),
 				language: params.language,
-			}).tools.research_web
+				recorder: createToolCallRecorder(),
+			})
 		: undefined;
 	// research_web is the ONE place a tool is allowed in this slice, and it is
 	// a verifier tool, never the generator's (spec §2.11 forbids the generator
 	// itself from reaching for anything). Registered only when Parallel is
-	// configured — `createNormalChatTools` mirrors the exact same
-	// `parallelConfigured` gate the chat turn's own tool catalogue uses, so
-	// this verifier is never MORE optimistic about availability than the rest
-	// of Normal Chat.
+	// configured — mirrors the exact same `parallelConfigured` gate the chat
+	// turn's own tool catalogue uses (`createNormalChatTools`, ruling 57's own
+	// `research-web-tool.ts`), so this verifier is never MORE optimistic about
+	// availability than the rest of Normal Chat. This module builds the tool
+	// directly, through `research-web-tool.ts`, rather than going through
+	// `createNormalChatTools` (`normal-chat-tools/index.ts`) — that import
+	// would close a cycle back to this very file through
+	// `artifact-tools/create.ts`'s per-kind dispatch (ruling 57).
 	const tools = researchWebTool ? { research_web: researchWebTool } : undefined;
 
 	let verifierResult: Awaited<ReturnType<typeof runPlainNormalChatModelRun>>;

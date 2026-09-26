@@ -15,12 +15,8 @@ import { getFileProductionWorkerConfig } from "$lib/server/services/file-product
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
-import {
-	type ToolEvidenceCandidate,
-	toolReadArtifactIdsMetadata,
-} from "$lib/server/services/message-evidence";
+import { toolReadArtifactIdsMetadata } from "$lib/server/services/message-evidence";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
-import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
 import {
 	getConversationProjectId,
@@ -37,11 +33,8 @@ import { resolveSkillInstructionsForUse } from "$lib/server/services/skills/prom
 import { getCachedToolHealthSnapshot } from "$lib/server/services/tool-health";
 import {
 	buildGroundedWebModelPayload,
-	buildGroundedWebPageFromFetch,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
-	type GroundedWebPage,
-	selectTopDistinctSourceUrls,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
@@ -161,10 +154,7 @@ import {
 	runReposTool,
 	sanitizeReposToolInput,
 } from "./repos";
-import {
-	researchWebInputSchema,
-	sanitizeResearchWebInput,
-} from "./research-web";
+import { createResearchWebTool, RESEARCH_WEB_I18N } from "./research-web-tool";
 import {
 	routingToolInputSchema,
 	routingToolModelSchema,
@@ -178,6 +168,7 @@ import {
 	summarizeRunPythonResult,
 } from "./run-python";
 import {
+	asExecutableTool,
 	compactToolInputSchema,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
@@ -212,11 +203,6 @@ import {
 	setCachedToolResult,
 } from "./tool-result-cache";
 
-// Per-result excerpt budget (chars) requested from Parallel for research_web.
-// Keeps each source's excerpt short enough to fit several sources into the
-// model payload without crowding out the answer brief.
-const RESEARCH_WEB_EXCERPT_MAX_CHARS = 2000;
-
 const useSkillInputSchema = z.object({
 	name: z
 		.string()
@@ -228,16 +214,6 @@ const useSkillInputSchema = z.object({
 type UseSkillModelPayload =
 	| { found: true; error: null; displayName: string; instructions: string }
 	| { found: false; error: string; displayName: null; instructions: null };
-
-type RequiredExecuteTool<TInput, TOutput> = Tool<TInput, TOutput> & {
-	execute: NonNullable<Tool<TInput, TOutput>["execute"]>;
-};
-
-function asExecutableTool<TInput, TOutput>(
-	toolDefinition: Tool<TInput, TOutput>,
-): RequiredExecuteTool<TInput, TOutput> {
-	return toolDefinition as RequiredExecuteTool<TInput, TOutput>;
-}
 
 // ── Public re-exports ──────────────────────────────────────────
 
@@ -297,11 +273,9 @@ type ToolI18n = Record<string, { description: string; errorPrefix: string }>;
 
 const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 	en: {
-		research_web: {
-			description:
-				'Search the web for current or verifiable facts: prices, specs, news, policies, comparisons. Call with {"query": "the exact research question"}; optionally `objective` and 2-3 short keyword `searchQueries` (no site: operators, no years unless historical). Set `readPages` to 1-2 when the answer needs page-level detail (an exact price, a spec, official documentation, one named article), so it finishes here rather than in a separate fetch_url step; else 0. Do not use it for a URL the user already gave (fetch_url), for distance, route or travel time (map_route), for pictures to show (image_search), or when this turn already has web research results. Returns `evidence` snippets and an `answerBriefMarkdown`, plus `pages` (url, title, contentMarkdown) when `readPages` was set; prefer primary sources when they conflict.',
-			errorPrefix: "Web research failed",
-		},
+		// Moved to research-web-tool.ts (ruling 57) alongside the tool itself;
+		// re-imported here so the assembled catalogue is byte-identical.
+		research_web: RESEARCH_WEB_I18N.en,
 		fetch_url: {
 			description:
 				'Read named web pages: {"urls": ["https://example.com"]} (always an array, at most 5) plus an optional `objective` saying what to extract. Call for a link the user gave, or a detail only that page has. Do not use it to find pages you have no URL for (research_web finds them, and its `readPages` returns page text), nor for stored files or files in this conversation (files, read_generated_file). Returns `evidence` snippets and an `answerBriefMarkdown`.',
@@ -409,11 +383,9 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 	},
 	hu: {
-		research_web: {
-			description:
-				'Keresés az interneten aktuális vagy ellenőrizhető tényekért: árak, specifikációk, hírek, szabályzatok, összehasonlítások. Hívd így: {"query": "a pontos kutatási kérdés"}; opcionálisan `objective` és 2-3 rövid kulcsszavas `searchQueries` (site: operátor nélkül, évszám nélkül, hacsak nem történeti a kérdés). A `readPages`-t állítsd 1-2-re, ha a válaszhoz oldal-szintű részlet kell (pontos ár, specifikáció, hivatalos dokumentáció, egy megnevezett cikk), így a kutatás itt fejeződik be egy külön fetch_url lépés helyett; egyébként 0. Ne használd olyan URL-hez, amelyet a felhasználó már megadott (fetch_url), távolsághoz, útvonalhoz vagy menetidőhöz (map_route), megmutatandó képekhez (image_search), és akkor sem, ha ebben a körben már vannak webes kutatási eredmények. `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza, valamint `pages` tömböt (url, title, contentMarkdown), ha a `readPages` be volt állítva; ellentmondás esetén az elsődleges forrást részesítsd előnyben.',
-			errorPrefix: "A webes kutatás sikertelen",
-		},
+		// Moved to research-web-tool.ts (ruling 57) alongside the tool itself;
+		// re-imported here so the assembled catalogue is byte-identical.
+		research_web: RESEARCH_WEB_I18N.hu,
 		fetch_url: {
 			description:
 				'Megnevezett weboldalak elolvasása: {"urls": ["https://example.com"]} (mindig tömb, legfeljebb 5) és opcionális `objective`, hogy mit keresel. Akkor hívd, ha a felhasználó linket adott, vagy ha egy részlet csak azon az oldalon található meg. Ne használd oldalak megkeresésére, amelyeknek nincs URL-je (a research_web keresi meg őket, és a `readPages`-szel oldalszöveget is ad), sem tárolt fájlokhoz vagy a beszélgetés fájljaihoz (files, read_generated_file). `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza.',
@@ -746,196 +718,20 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		// "Parallel search failed: 401 …" provider error.
 		...(parallelConfigured
 			? {
-					research_web: asExecutableTool(
-						tool({
-							description: i18n.research_web.description,
-							inputSchema: researchWebInputSchema,
-							execute: async (
-								input: z.infer<typeof researchWebInputSchema>,
-								options: ToolExecutionOptions,
-							) => {
-								const safeInput = sanitizeResearchWebInput(input);
-								// readPages is consumed here, not forwarded to Parallel search —
-								// strip it before building the search request.
-								const { readPages, ...researchRequest } = safeInput;
-								return executeToolWithEnvelope({
-									toolName: "research_web",
-									timeoutMs: TOOL_TIMEOUTS_MS.research_web,
-									options,
-									recorder,
-									run: async (abortSignal) => {
-										const { parallelApiKey, parallelBaseUrl } = getConfig();
-										const parallelDeps = {
-											fetch,
-											config: { parallelApiKey, parallelBaseUrl },
-											signal: abortSignal,
-										};
-										// Per-conversation cache: an identical query/objective/searchQueries
-										// (and readPages) this conversation already paid Parallel for is
-										// served from memory, pages included, instead of paying and waiting
-										// twice (see tool-result-cache.ts).
-										type ResearchCacheEntry = {
-											result: GroundedWebResult;
-											pages: GroundedWebPage[];
-											pageCandidates: ToolEvidenceCandidate[];
-										};
-										const cacheKey = buildToolResultCacheKey({
-											conversationId: ctx.conversationId,
-											toolName: "research_web",
-											input: safeInput,
-										});
-										const cachedEntry =
-											getCachedToolResult<ResearchCacheEntry>(cacheKey);
-										const cached = Boolean(cachedEntry);
-										let result: GroundedWebResult;
-										let pages: GroundedWebPage[] = [];
-										let pageCandidates: ToolEvidenceCandidate[] = [];
-										if (cachedEntry) {
-											({ result, pages, pageCandidates } = cachedEntry);
-										} else {
-											result = await researchWebViaParallel(
-												researchRequest,
-												parallelDeps,
-												{
-													sessionId: ctx.turnId,
-													excerptMaxChars: RESEARCH_WEB_EXCERPT_MAX_CHARS,
-												},
-											);
-											// Fire-and-forget Parallel Turbo usage tracking; never block or
-											// alter the tool result on analytics failure. Skipped entirely on
-											// a cache hit — a repeated identical call must not bill twice.
-											void recordParallelUsage({
-												userId: ctx.userId,
-												conversationId: ctx.conversationId,
-												tool: "research_web",
-											}).catch(() => {});
-											// readPages: fetch the top N distinct result URLs in the
-											// SAME call, so a question needing page-level detail (an
-											// exact price, a spec, official documentation) doesn't need
-											// a separate fetch_url step. Best-effort: any failure here
-											// (a single page, or the whole batch) is swallowed — the
-											// search result already succeeded and stands on its own.
-											if (readPages && readPages > 0) {
-												const topUrls = selectTopDistinctSourceUrls(
-													result.sources,
-													readPages,
-												);
-												if (topUrls.length > 0) {
-													const contextTokens = await resolveModelContextTokens(
-														ctx.modelId,
-													).catch(() => null);
-													// Divide the shared char-cap ceiling across the pages
-													// being read, so N pages together never exceed the
-													// same total budget a single fetch_url call would get.
-													const perPageCap = Math.max(
-														1,
-														Math.floor(
-															resolveFetchContentCharCap(contextTokens) /
-																topUrls.length,
-														),
-													);
-													const settled = await Promise.allSettled(
-														topUrls.map((url) =>
-															fetchUrlViaParallel(
-																{ urls: [url] },
-																parallelDeps,
-																{
-																	sessionId: ctx.turnId,
-																	maxCharsTotal: perPageCap,
-																},
-															),
-														),
-													);
-													for (const outcome of settled) {
-														if (outcome.status !== "fulfilled") continue;
-														const pageResult = outcome.value;
-														const page =
-															buildGroundedWebPageFromFetch(pageResult);
-														if (!page) continue;
-														pages.push(page);
-														pageCandidates.push(
-															...createGroundedWebCandidates(pageResult),
-														);
-														// Same usage-tracking shape as fetch_url's own
-														// call: fire-and-forget, never blocks the result.
-														void recordParallelUsage({
-															userId: ctx.userId,
-															conversationId: ctx.conversationId,
-															tool: "fetch_url",
-														}).catch(() => {});
-													}
-												}
-											}
-
-											// Same discipline as fetch_url below: a search that came
-											// back with no sources found nothing and is worth
-											// re-running, so it is never pinned for the TTL.
-											if (result.sources.length > 0) {
-												setCachedToolResult(cacheKey, {
-													result,
-													pages,
-													pageCandidates,
-												});
-											}
-										}
-
-										const modelPayload = {
-											...buildGroundedWebModelPayload(result),
-											...(pages.length > 0 ? { pages } : {}),
-											...(cached ? { cached: true as const } : {}),
-										};
-										const candidates = [
-											...createGroundedWebCandidates(result),
-											...pageCandidates,
-										];
-										return {
-											modelPayload,
-											entry: {
-												callId: options.toolCallId,
-												name: "research_web",
-												input: safeInput,
-												status: "done",
-												outputSummary: summarizeGroundedWebResult(result),
-												sourceType: "web",
-												candidates,
-												metadata: {
-													...createGroundedWebMetadata(result),
-													...(cached ? { cached: true as const } : {}),
-												},
-											},
-										};
-									},
-									onError: (error) => {
-										const message = modelSafeToolError(
-											error,
-											i18n.research_web.errorPrefix,
-										);
-										const modelPayload = {
-											success: false as const,
-											error: message,
-										};
-										return {
-											modelPayload,
-											entry: {
-												callId: options.toolCallId,
-												name: "research_web",
-												input: safeInput,
-												status: "done",
-												outputSummary: modelPayload.error,
-												sourceType: "web",
-												candidates: [],
-												metadata: {
-													ok: false,
-													evidenceReady: false,
-													error: modelPayload.error,
-												},
-											},
-										};
-									},
-								});
-							},
-						}),
-					),
+					// Moved to research-web-tool.ts (ruling 57): the App verifier
+					// (artifacts/app/verify.ts) needed this ONE tool without pulling in
+					// this whole factory, which closed a cycle back to the App's own
+					// generation path through artifact-tools/create.ts's per-kind
+					// dispatch. Exact same tool — the frozen catalogue snapshot tests
+					// below prove it.
+					research_web: createResearchWebTool({
+						userId: ctx.userId,
+						conversationId: ctx.conversationId,
+						turnId: ctx.turnId,
+						modelId: ctx.modelId,
+						language: lang,
+						recorder,
+					}),
 					fetch_url: asExecutableTool(
 						tool({
 							description: i18n.fetch_url.description,

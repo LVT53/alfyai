@@ -29,13 +29,13 @@ vi.mock("$lib/server/services/normal-chat-model", () => ({
 	) => buildNormalChatModelRunProviderOptions(provider, thinkingMode),
 }));
 
-const createNormalChatTools = vi.fn(
-	(_ctx?: unknown): { tools: { research_web: unknown } } => ({
-		tools: { research_web: undefined },
-	}),
-);
-vi.mock("$lib/server/services/normal-chat-tools", () => ({
-	createNormalChatTools: (ctx: unknown) => createNormalChatTools(ctx),
+// ruling 57: verify.ts builds research_web through its own module instead of
+// the full createNormalChatTools factory (which would close a cycle back to
+// this very file), so that is what this test mocks now — the tool itself is
+// unchanged, only its construction seam moved.
+const createResearchWebTool = vi.fn((_params?: unknown): unknown => undefined);
+vi.mock("$lib/server/services/normal-chat-tools/research-web-tool", () => ({
+	createResearchWebTool: (params: unknown) => createResearchWebTool(params),
 }));
 
 const recordControlModelUsage = vi.fn().mockResolvedValue(undefined);
@@ -105,7 +105,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	parallelApiKey = "";
 	resolveNormalChatModelRunProvider.mockResolvedValue(PROVIDER);
-	createNormalChatTools.mockReturnValue({ tools: { research_web: undefined } });
+	createResearchWebTool.mockReturnValue(undefined);
 });
 
 describe("verifyApp — the classifier gate", () => {
@@ -571,9 +571,7 @@ describe("verifyApp — the prompt carries the request and the html only", () =>
 
 	it("gives the verifier the research_web tool only when Parallel is configured", async () => {
 		parallelApiKey = "test-parallel-key";
-		createNormalChatTools.mockReturnValue({
-			tools: { research_web: { description: "stub" } },
-		});
+		createResearchWebTool.mockReturnValue({ description: "stub" });
 		sendJsonControlMessage.mockResolvedValue({
 			text: JSON.stringify({ checkable: true, kinds: ["named_facts"] }),
 			rawResponse: {},

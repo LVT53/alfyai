@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import { asSchema } from "@ai-sdk/provider-utils";
-import type { ToolExecutionOptions } from "ai";
+import type { Tool, ToolExecutionOptions } from "ai";
 import { jsonSchema } from "ai";
 import { z } from "zod";
 
@@ -443,4 +443,23 @@ export function compactToolInputSchema<T>(
 				: { success: false, error: parsed.error };
 		},
 	});
+}
+
+// ── Tool-shape narrowing ──────────────────────────────────────────
+//
+// Moved here from index.ts (decisions.md ruling 57): a pure type-narrowing
+// cast with no runtime behavior, needed by every tool `index.ts` builds AND
+// by `research-web-tool.ts`, which could no longer import it from index.ts
+// once that import became the other half of a circular dependency (verify.ts
+// -> normal-chat-tools/index.ts -> artifact-tools/create.ts -> ... ->
+// verify.ts). `shared.ts` is a leaf module with no such risk.
+
+export type RequiredExecuteTool<TInput, TOutput> = Tool<TInput, TOutput> & {
+	execute: NonNullable<Tool<TInput, TOutput>["execute"]>;
+};
+
+export function asExecutableTool<TInput, TOutput>(
+	toolDefinition: Tool<TInput, TOutput>,
+): RequiredExecuteTool<TInput, TOutput> {
+	return toolDefinition as RequiredExecuteTool<TInput, TOutput>;
 }

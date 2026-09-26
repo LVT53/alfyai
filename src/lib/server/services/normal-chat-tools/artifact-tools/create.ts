@@ -5,6 +5,7 @@
 // descriptions are Slice 5a's; each type slice appends ONLY its own entry to
 // CREATE_ARTIFACT_HANDLERS below, in this file).
 import { z } from "zod";
+import { createAppFromBrief } from "$lib/server/services/artifacts/app/create";
 import { truncateText } from "../shared";
 
 /** The four types Alfy may create. "file" is produce_file's, not this tool's. */
@@ -150,18 +151,17 @@ export const CREATE_ARTIFACT_HANDLERS: Partial<
  * straight through as the generation prompt and nothing else ever reaches
  * the model — no HTML, not even on failure (see the file's own A7.4 test).
  *
- * `createAppFromBrief` is imported dynamically, not at module top level: its
- * own chain (generate-and-verify.ts → verify.ts → `normal-chat-tools/index.ts`
- * for the verifier's `research_web` tool) would otherwise close a static
- * cycle back through this very file, which `index.ts` imports to register
- * `create_artifact` (Fallow caught this — 0 new circular dependencies is the
- * gate). A dynamic import breaks the STATIC edge with no behavior change:
- * ES module resolution caches the target after its first call either way.
+ * `createAppFromBrief` is a normal static import again (ruling 57): its own
+ * chain (generate-and-verify.ts → verify.ts) used to reach back into
+ * `normal-chat-tools/index.ts` for the verifier's `research_web` tool, which
+ * closed a static cycle back through this very file, which `index.ts`
+ * imports to register `create_artifact`. Now that `verify.ts` builds
+ * `research_web` through its own module (`research-web-tool.ts`) instead of
+ * `createNormalChatTools`, that cycle is gone (Fallow's circular count is
+ * back to 4), and the dynamic `import()` this file used to defer it no
+ * longer serves a purpose.
  */
 CREATE_ARTIFACT_HANDLERS.app = async (params) => {
-	const { createAppFromBrief } = await import(
-		"$lib/server/services/artifacts/app/create"
-	);
 	const result = await createAppFromBrief({
 		userId: params.userId,
 		conversationId: params.conversationId,
