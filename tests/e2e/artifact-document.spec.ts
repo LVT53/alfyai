@@ -436,3 +436,92 @@ test.describe("the Document mobile toolbar", () => {
 		expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(420);
 	});
 });
+
+// T9 steps 4/7: the panel list's own card preview (subtitle + tickable
+// checklist), never requiring the document to be open — the card is built
+// from the server's bounded preview (`ArtifactCardSummary.documentPreview`),
+// not a full-body fetch. This never touches the Tiptap editor at all, so it
+// is unaffected by this file's header-comment `readMarkdown` recursion bug.
+test.describe("the Document card's checklist (T9 steps 4/7)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("shows the tab-count subtitle and the checklist, and ticking an item writes it through the same patch path", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		const artifactId = await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "# Packing\n\n- [ ] Charger\n\n- [ ] Passport",
+		});
+		await openChatAndReload(page, conversationId);
+
+		await page.getByTestId("artifact-count-button").click();
+		const list = page.getByTestId("artifact-panel-list");
+		// `artifacts.document.cardSubtitle`'s template is not plural-aware
+		// ("Document · {count} tabs" always) — this is the literal rendered
+		// text for the one default tab `createDocumentArtifact` gives a fresh
+		// document.
+		await expect(list.getByText("Document · 1 tabs")).toBeVisible();
+		await expect(list.getByText("Charger")).toBeVisible();
+		await expect(list.getByText("Passport")).toBeVisible();
+
+		// Each tickable row is a `<label>` wrapping its own `<input>`, so the
+		// checkbox's accessible name is exactly the task's text — scoping this
+		// way (rather than an ancestor `<li>`, which also matches the OUTER
+		// per-artifact row and so "contains" every task's text at once) finds
+		// exactly one checkbox.
+		const chargerCheckbox = list.getByRole("checkbox", { name: "Charger" });
+		await expect(chargerCheckbox).not.toBeChecked();
+		await chargerCheckbox.click();
+
+		// The real ground truth: the stored Markdown itself, not just the
+		// in-memory optimistic flip — proves the write actually landed through
+		// applyPatchSet + saveArtifactBody, the SAME path the open editor uses.
+		await expect
+			.poll(() => readStoredBody(artifactId), { timeout: 10_000 })
+			.toContain("[x] Charger");
+		// The sibling task is untouched.
+		await expect
+			.poll(() => readStoredBody(artifactId))
+			.toContain("[ ] Passport");
+
+		// Persists after a reload — the checkbox reflects the SAVED state.
+		await page.reload({ waitUntil: "networkidle" });
+		await page.getByTestId("artifact-count-button").click();
+		const listAfterReload = page.getByTestId("artifact-panel-list");
+		await expect(
+			listAfterReload.getByRole("checkbox", { name: "Charger" }),
+		).toBeChecked();
+	});
+
+	test("a document with more than five task items shows '+N more'", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Big packing list",
+			markdown: [
+				"# Packing",
+				"- [ ] One",
+				"- [ ] Two",
+				"- [ ] Three",
+				"- [ ] Four",
+				"- [ ] Five",
+				"- [ ] Six",
+				"- [ ] Seven",
+			].join("\n\n"),
+		});
+		await openChatAndReload(page, conversationId);
+
+		await page.getByTestId("artifact-count-button").click();
+		const list = page.getByTestId("artifact-panel-list");
+		await expect(list.getByText("One")).toBeVisible();
+		await expect(list.getByText("Five")).toBeVisible();
+		await expect(list.getByText("Six")).not.toBeVisible();
+		await expect(list.getByText("+2 more")).toBeVisible();
+	});
+});
