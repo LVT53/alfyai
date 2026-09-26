@@ -63,6 +63,38 @@ describe("document-editor", () => {
 		editor.destroy();
 	});
 
+	// RV-1B, coordinator item 1: this Document registers no Image node, and
+	// without a handler for it, @tiptap/markdown's fallback parsing of an
+	// unrecognised `![alt](url)` left a bare inline text node sitting
+	// directly under "doc" — invalid per the schema's block-only top-level
+	// content expression, crashing the very next transaction
+	// (`buildAbsorbAndMintTransaction`'s own `ensureBlockIds` call) with
+	// "Invalid content for node doc". Alfy can write an image into a
+	// document as a completely ordinary thing to do; opening it must not
+	// crash the editor.
+	it("does not crash opening a document containing a Markdown image", () => {
+		const editor = mountEditor(
+			"Some text.\n\n![alt text](https://example.com/pic.png)\n\nMore text.",
+		);
+		const markdown = readMarkdown(editor);
+		const parsed = parseDocument(markdown, { mint: false });
+		// Degrades to plain text (the alt text) rather than crashing or
+		// silently dropping the paragraph — every block still gets a stable id.
+		expect(parsed.blocks.length).toBe(3);
+		expect(parsed.blocks.every((b) => b.id.length > 0)).toBe(true);
+		expect(markdown).toContain("alt text");
+		editor.destroy();
+	});
+
+	it("falls back to a placeholder for an image with no alt text, and stays stable across two round trips", () => {
+		const editor = mountEditor("![](https://example.com/pic.png)");
+		const pass1 = readMarkdown(editor);
+		loadMarkdown(editor, pass1);
+		const pass2 = readMarkdown(editor);
+		expect(pass2).toBe(pass1);
+		editor.destroy();
+	});
+
 	it("readMarkdown never leaves a blockMarker node in the live document", () => {
 		const editor = mountEditor("<!--b:p00001-->\nHello there.");
 		readMarkdown(editor);
