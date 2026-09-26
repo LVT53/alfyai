@@ -183,3 +183,57 @@ describe("RV-1A: a split keeps one stable id per half", () => {
 		expect(twice).toEqual(once);
 	});
 });
+
+describe("RV-1A: an empty list item survives a save and a reopen", () => {
+	it("keeps a just-added checklist item a checklist item, and a numbered one numbered", () => {
+		element = document.createElement("div");
+		document.body.appendChild(element);
+		const editor = createDocumentEditor({
+			element,
+			markdown: "",
+			placeholder: "Write anything, or ask Alfy to.",
+		});
+		const paragraph = (text?: string) =>
+			text
+				? { type: "paragraph", content: [{ type: "text", text }] }
+				: { type: "paragraph" };
+		editor.commands.setContent({
+			type: "doc",
+			content: [
+				{
+					type: "orderedList",
+					attrs: { start: 1 },
+					content: [
+						{ type: "listItem", content: [paragraph("one")] },
+						{ type: "listItem", content: [paragraph()] },
+					],
+				},
+				{
+					type: "taskList",
+					content: [
+						{
+							type: "taskItem",
+							attrs: { checked: false },
+							content: [paragraph()],
+						},
+					],
+				},
+			],
+		});
+		const saved = serializeDocument(parseDocument(readMarkdown(editor)).blocks);
+		editor.destroy();
+		element.remove();
+		element = document.createElement("div");
+		document.body.appendChild(element);
+		const reopened = createDocumentEditor({
+			element,
+			markdown: saved,
+			placeholder: "Write anything, or ask Alfy to.",
+		});
+		const shape = (reopened.getJSON().content ?? []).map(
+			(node) => `${node.type}:${node.content?.length ?? 0}`,
+		);
+		reopened.destroy();
+		expect(shape.slice(0, 2)).toEqual(["orderedList:2", "taskList:1"]);
+	});
+});

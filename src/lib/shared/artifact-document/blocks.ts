@@ -104,7 +104,7 @@ export function normalizeMarkdown(markdown: string): string {
 		).join("\n");
 	}
 	lines = keepHardBreaks(lines);
-	lines = lines.map((line) => line.replace(/[ \t]+$/, ""));
+	lines = lines.map(trimLineEnd);
 	lines = collapseBlankRuns(lines);
 	lines = trimBlankEdges(lines);
 	lines = normalizeTableLines(lines);
@@ -131,6 +131,7 @@ function keepHardBreaks(lines: string[]): string[] {
 	if (TASK_LINE_RE.test(first)) return lines;
 	return lines.map((line, i) => {
 		const next = lines[i + 1];
+		if (BARE_MARKER_RE.test(line)) return line;
 		if (next === undefined || !continuesParagraph(line, next)) return line;
 		return /\S {2,}$/.test(line) ? line.replace(/ +$/, "\\") : line;
 	});
@@ -162,6 +163,23 @@ function continuesParagraph(line: string, next: string): boolean {
 			: next;
 	if (text.trim() === "") return false;
 	return !startsNewBlock(text) && !LIST_ITEM_START_RE.test(text);
+}
+
+/** A list marker with nothing after it but whitespace: an item the user added and has not typed into yet. */
+const BARE_MARKER_RE = /^\s*(?:[-*+](?:\s+\[[ xX]\])?|\d+[.)])[ \t]*$/;
+
+/**
+ * Rule 1's trim, except the one space after a bare list marker: the editor
+ * writes an empty item as `2. ` or `- [ ] ` and reads `2.` / `- [ ]` back as
+ * text, so trimming it turned an empty numbered item into "2." inside the
+ * item above, and an empty checklist item into a bullet reading "[ ]"
+ * (RV-1A). Such a line keeps exactly one space.
+ */
+function trimLineEnd(line: string): string {
+	return line.replace(
+		/[ \t]+$/,
+		BARE_MARKER_RE.test(line) && /[ \t]$/.test(line) ? " " : "",
+	);
 }
 
 /** `fnv1aHex(normalizeMarkdown(markdown))` — the one hasher, so nothing can bypass the canonicaliser. */
@@ -314,7 +332,9 @@ function normalizeListMarkers(lines: string[]): string[] {
 		if (task) {
 			const [, indent, mark, , rest] = task;
 			const checked = mark.toLowerCase() === "x";
-			const suffix = rest && rest.trim().length > 0 ? ` ${rest.trim()}` : "";
+			// An empty checklist item keeps its space: the editor reads "- [ ]"
+			// without it as a bullet whose text is "[ ]" (see trimLineEnd).
+			const suffix = rest && rest.trim().length > 0 ? ` ${rest.trim()}` : " ";
 			return `${indent}- [${checked ? "x" : " "}]${suffix}`;
 		}
 		const bullet = BULLET_LINE_RE.exec(line);

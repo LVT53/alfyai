@@ -518,3 +518,19 @@ describe("RV-1A: a block's label names it the way the user sees it", () => {
 		expect(table.label).toBe("Item | Cost");
 	});
 });
+
+describe("RV-1A: an empty list item stays a list item", () => {
+	it("keeps the one space after a bare marker, which the editor needs to read the item back", () => {
+		// What the editor writes for a checklist item or a numbered item the user
+		// has just added and not typed into yet (an autosave lands meanwhile).
+		expect(normalizeMarkdown("- [ ] ")).toBe("- [ ] ");
+		expect(normalizeMarkdown("1. one\n2. ")).toBe("1. one\n2. ");
+		expect(normalizeMarkdown("- first\n- ")).toBe("- first\n- ");
+		// Idempotent, and still one space however many were there.
+		expect(normalizeMarkdown("- [x]    ")).toBe("- [x] ");
+		expect(normalizeMarkdown(normalizeMarkdown("- [ ] "))).toBe("- [ ] ");
+		const [task] = parseDocument("- [ ] ").blocks;
+		expect(task.kind).toBe("taskList");
+		expect(readTaskBlock(task)).toEqual({ checked: false, text: "" });
+	});
+});
