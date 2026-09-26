@@ -6,6 +6,8 @@
  * Document never pays for Tiptap/ProseMirror's bytes.
  */
 import { Editor } from "@tiptap/core";
+import type { ResolvedPos } from "@tiptap/pm/model";
+import type { Transaction } from "@tiptap/pm/state";
 import { ANCHOR_CONTEXT_CHARS } from "$lib/shared/artifact-document/anchor";
 import type {
 	PatchResult,
@@ -134,6 +136,23 @@ export function readMarkdown(editor: Editor): string {
 		const { pos, id } = identified[i];
 		insertTr.insert(pos, markerType.create({ id }));
 	}
+	// RV-1B, coordinator item 2: a literal "|" the user typed inside a table
+	// cell is an ordinary character to them but a column separator to
+	// Markdown's table syntax. `@tiptap/markdown`'s own table serializer does
+	// not escape it, so `getMarkdown()` below would write it bare — and on
+	// the very next parse, blocks.ts's table reader counts it as an extra
+	// column, silently reflowing (and, once the row is padded back down to
+	// the header's column count, silently DROPPING) the cell after it.
+	// Replaced with a sentinel here, for the duration of this call only, and
+	// reverted below alongside the markers — the live document the user sees
+	// never gains a character they did not type. A sentinel, not `\|`
+	// directly: `getMarkdown()` ALSO escapes a literal backslash in cell text
+	// (confirmed empirically — inserting `\|` came back as `\\|`, which still
+	// reads as an unescaped separator), so injecting the escape before
+	// serialization does not survive it; the sentinel passes through
+	// untouched and becomes `\|` only in the returned STRING, after
+	// `getMarkdown()` has already run its own escaping pass.
+	sentinelizeTableCellPipes(insertTr);
 	insertTr.setMeta("addToHistory", false);
 	// Without this, dispatching the insertion re-triggers BlockIds' own
 	// appendTransaction, which would see a marker whose following block is
@@ -158,12 +177,68 @@ export function readMarkdown(editor: Editor): string {
 	for (const marker of [...markers].sort((a, b) => b.pos - a.pos)) {
 		deleteTr.delete(marker.pos, marker.pos + marker.size);
 	}
+	unsentinelizeTableCellPipes(deleteTr);
 	deleteTr.setMeta("addToHistory", false);
 	deleteTr.setMeta(blockIdPluginKey, SKIP_BLOCK_ID_PLUGIN);
 	deleteTr.setMeta("preventUpdate", true);
 	editor.view.dispatch(deleteTr);
 
-	return markdown;
+	// The sentinel becomes a real, correctly-escaped pipe only in the
+	// returned STRING — see `sentinelizeTableCellPipes`'s own comment for why
+	// this cannot happen before `getMarkdown()` runs.
+	return markdown.split(TABLE_CELL_PIPE_SENTINEL).join("\\|");
+}
+
+/**
+ * A placeholder for a literal `|` inside a table cell, chosen to be
+ * vanishingly unlikely in real document text and to contain NO character
+ * `getMarkdown()`'s own escaping treats specially — confirmed empirically
+ * the hard way: a first attempt using `_` as a separator came back with the
+ * underscores themselves escaped to `\_` (markdown's own emphasis
+ * character), which broke the exact-string match this sentinel depends on.
+ * Plain letters and digits between two NUL bytes pass through untouched.
+ */
+const TABLE_CELL_PIPE_SENTINEL = "\u0000RV1BTABLEPIPE7QX\u0000";
+
+/** True when `$pos` resolves to somewhere inside a table cell, at any depth (a cell's own content is typically wrapped in a paragraph, so the cell is rarely the DIRECT parent). */
+function isInsideTableCell($pos: ResolvedPos): boolean {
+	for (let d = $pos.depth; d >= 0; d -= 1) {
+		const name = $pos.node(d).type.name;
+		if (name === "tableCell" || name === "tableHeader") return true;
+	}
+	return false;
+}
+
+/** Shared by `sentinelizeTableCellPipes`/`unsentinelizeTableCellPipes`: finds every table-cell text node `transform` would change, then applies the replacements last-to-first so earlier positions stay valid. */
+function transformTableCellText(
+	tr: Transaction,
+	transform: (text: string) => string,
+): void {
+	const edits: { from: number; to: number; text: string }[] = [];
+	tr.doc.descendants((node, pos) => {
+		if (!node.isText || !node.text) return;
+		const transformed = transform(node.text);
+		if (transformed === node.text) return;
+		if (!isInsideTableCell(tr.doc.resolve(pos))) return;
+		edits.push({ from: pos, to: pos + node.text.length, text: transformed });
+	});
+	for (const edit of [...edits].sort((a, b) => b.from - a.from)) {
+		tr.insertText(edit.text, edit.from, edit.to);
+	}
+}
+
+function sentinelizeTableCellPipes(tr: Transaction): void {
+	transformTableCellText(tr, (text) =>
+		text.includes("|") ? text.split("|").join(TABLE_CELL_PIPE_SENTINEL) : text,
+	);
+}
+
+function unsentinelizeTableCellPipes(tr: Transaction): void {
+	transformTableCellText(tr, (text) =>
+		text.includes(TABLE_CELL_PIPE_SENTINEL)
+			? text.split(TABLE_CELL_PIPE_SENTINEL).join("|")
+			: text,
+	);
 }
 
 /** Viewport coordinates (`EditorView.coordsAtPos`'s own shape) spanning the selection, for the bubble's own placement. */

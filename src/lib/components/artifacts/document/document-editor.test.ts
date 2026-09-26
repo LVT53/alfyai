@@ -95,6 +95,34 @@ describe("document-editor", () => {
 		editor.destroy();
 	});
 
+	// RV-1B, coordinator item 2: `@tiptap/markdown`'s own table serializer
+	// does not escape a literal "|" inside a cell, so it wrote one bare —
+	// which the next parse counts as an extra column, silently reflowing
+	// (and, once padded back to the header's column count, silently
+	// dropping) whatever cell came after it.
+	it("escapes a literal pipe typed inside a table cell, and keeps the column count stable across a reload", () => {
+		const editor = mountEditor(
+			"| Col A | Col B |\n| --- | --- |\n| Rate: 10\\|20 | Discount |",
+		);
+		const markdown = readMarkdown(editor);
+		expect(markdown).toContain("Rate: 10\\|20");
+		expect(markdown).not.toMatch(/Rate: 10\|20/); // never the unescaped form
+		const blocks = parseDocument(markdown, { mint: false }).blocks;
+		const table = blocks.find((b) => b.kind === "table");
+		expect(table?.markdown).toContain("Rate: 10\\|20 | Discount");
+		editor.destroy();
+	});
+
+	it("keeps the user's own live text free of any escaping after readMarkdown returns", () => {
+		const editor = mountEditor(
+			"| Col A | Col B |\n| --- | --- |\n| Rate: 10\\|20 | Discount |",
+		);
+		readMarkdown(editor);
+		expect(editor.state.doc.textContent).toContain("Rate: 10|20");
+		expect(editor.state.doc.textContent).not.toContain("\\");
+		editor.destroy();
+	});
+
 	it("readMarkdown never leaves a blockMarker node in the live document", () => {
 		const editor = mountEditor("<!--b:p00001-->\nHello there.");
 		readMarkdown(editor);
