@@ -7,7 +7,10 @@
  */
 import { Editor } from "@tiptap/core";
 import { ANCHOR_CONTEXT_CHARS } from "$lib/shared/artifact-document/anchor";
-import type { PatchResult, PatchSet } from "$lib/shared/artifact-document/patch";
+import type {
+	PatchResult,
+	PatchSet,
+} from "$lib/shared/artifact-document/patch";
 import {
 	BLOCK_ID_ATTR,
 	BLOCK_MARKER_NODE,
@@ -21,8 +24,8 @@ import {
 	alfyChangeRect,
 	applyAlfyChangeMarks,
 	keepAlfyChange,
-	refusalReasonI18nKey,
 	type RefusalSummary,
+	refusalReasonI18nKey,
 	scrollToAlfyChange,
 	summarizeRefusals,
 	undoAlfyChange,

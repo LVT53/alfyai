@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { DocumentBlock } from "$lib/shared/artifact-document/blocks";
 import {
 	buildDocumentAlfyActivity,
-	reconstructDocumentPatch,
 	type RawAlfyToolCallSegment,
+	reconstructDocumentPatch,
 } from "./alfy-activity";
 
 function block(id: string, markdown: string, label = markdown): DocumentBlock {
@@ -47,7 +47,9 @@ describe("buildDocumentAlfyActivity", () => {
 			input: {
 				artifactId: "art-1",
 				summary: "Add packing list",
-				patches: [{ op: "insertText", blockId: "b1", baseHash: "h1", text: "x" }],
+				patches: [
+					{ op: "insertText", blockId: "b1", baseHash: "h1", text: "x" },
+				],
 			},
 		};
 		const activity = buildDocumentAlfyActivity(segment);

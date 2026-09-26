@@ -128,10 +128,8 @@ function parseRawPatches(value: unknown): DocumentAlfyRawPatchOp[] {
 			baseHash: record.baseHash,
 			text: typeof record.text === "string" ? record.text : undefined,
 			find: typeof record.find === "string" ? record.find : undefined,
-			at:
-				record.at === "start" || record.at === "end" ? record.at : undefined,
-			checked:
-				typeof record.checked === "boolean" ? record.checked : undefined,
+			at: record.at === "start" || record.at === "end" ? record.at : undefined,
+			checked: typeof record.checked === "boolean" ? record.checked : undefined,
 		});
 	}
 	return ops;
@@ -151,7 +149,10 @@ function parseRefusedBlocks(value: unknown): DocumentRefusedBlock[] {
 	for (const entry of parsed) {
 		if (!entry || typeof entry !== "object") continue;
 		const record = entry as Record<string, unknown>;
-		if (typeof record.blockId === "string" && typeof record.reason === "string") {
+		if (
+			typeof record.blockId === "string" &&
+			typeof record.reason === "string"
+		) {
 			items.push({ blockId: record.blockId, reason: record.reason });
 		}
 	}

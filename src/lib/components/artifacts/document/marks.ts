@@ -273,7 +273,12 @@ export function alfyChangeRect(
 	try {
 		const start = editor.view.coordsAtPos(range.from);
 		const end = editor.view.coordsAtPos(range.to);
-		return { top: start.top, left: start.left, right: end.right, bottom: end.bottom };
+		return {
+			top: start.top,
+			left: start.left,
+			right: end.right,
+			bottom: end.bottom,
+		};
 	} catch {
 		// jsdom (unit tests) does not implement real layout — a real browser
 		// always has it (Playwright exercises this for real).
