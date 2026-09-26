@@ -315,12 +315,18 @@ async function runCasesSequentially(
 				);
 			}
 		}
-		const score = deps.score(evalCase, outcome.attempt, evaluation ?? undefined);
+		const score = deps.score(
+			evalCase,
+			outcome.attempt,
+			evaluation ?? undefined,
+		);
 		results.push({
 			caseId: evalCase.id,
 			verdict: score.verdict,
 			reasons: score.reasons,
-			...(evaluation !== null && evaluation !== undefined ? { evaluation } : {}),
+			...(evaluation !== null && evaluation !== undefined
+				? { evaluation }
+				: {}),
 		});
 	}
 
