@@ -88,7 +88,8 @@ async function openDocumentFromPanel(page: Page): Promise<Locator> {
 	const list = page.getByTestId(
 		isMobile ? "artifact-panel-list-mobile" : "artifact-panel-list",
 	);
-	await list.getByRole("button", { name: "Open" }).click({ timeout: 30_000 });
+	// chrome="row" now — the whole row is the button (artifacts-panel.spec.ts).
+	await list.getByTestId("artifact-row").first().click({ timeout: 30_000 });
 	const shell = isMobile
 		? page.getByTestId("document-workspace-mobile-shell")
 		: page.getByRole("complementary", { name: "Document workspace" });
