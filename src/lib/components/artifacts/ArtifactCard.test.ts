@@ -300,7 +300,10 @@ describe("ArtifactCard", () => {
 		});
 
 		it("disables the row when there is no openTargetId yet (a job still running)", () => {
-			render(ArtifactCard, { view: view({ openTargetId: null }), chrome: "row" });
+			render(ArtifactCard, {
+				view: view({ openTargetId: null }),
+				chrome: "row",
+			});
 			expect(screen.getByRole("button")).toBeDisabled();
 		});
 

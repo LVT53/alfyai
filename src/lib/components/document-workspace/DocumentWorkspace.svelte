@@ -309,7 +309,11 @@ $effect(() => {
 			{ opacity: 0, transform: `translateX(${fromX}px)` },
 			{ opacity: 1, transform: "translateX(0)" },
 		],
-		{ duration: MOTION_DURATION.emphasis, easing: MOTION_EASING.emphasis, delay },
+		{
+			duration: MOTION_DURATION.emphasis,
+			easing: MOTION_EASING.emphasis,
+			delay,
+		},
 	);
 	return () => {
 		animation.cancel();
@@ -347,10 +351,10 @@ let desktopShellTransform = $derived(
 			: "translateY(0.45rem) scale(0.985)"
 		: isVisible
 			? "translateX(0)"
-			// §7.2 #1: the panel enters from the right (the side it lives on,
-			// per §7.1's own principle 1) — this used to read -20px, sliding in
-			// from the left instead (§5.1 problem 8).
-			: "translateX(32px)",
+			: // §7.2 #1: the panel enters from the right (the side it lives on,
+				// per §7.1's own principle 1) — this used to read -20px, sliding in
+				// from the left instead (§5.1 problem 8).
+				"translateX(32px)",
 );
 
 function startResize(event: MouseEvent) {

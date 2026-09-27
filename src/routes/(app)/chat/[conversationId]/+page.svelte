@@ -930,8 +930,8 @@ let isArtifactPanelOpen = $derived(
  */
 let hasUnreviewedArtifactChange = $derived(
 	liveDocumentAlfyActivity !== null &&
-		(liveDocumentAlfyActivity.status === 'applied' ||
-			liveDocumentAlfyActivity.status === 'refused'),
+		(liveDocumentAlfyActivity.status === "applied" ||
+			liveDocumentAlfyActivity.status === "refused"),
 );
 let showArtifactPendingDot = $derived(
 	hasUnreviewedArtifactChange && !isArtifactPanelOpen,
@@ -939,8 +939,8 @@ let showArtifactPendingDot = $derived(
 let artifactCountButtonA11yLabel = $derived(
 	$t(
 		showArtifactPendingDot
-			? 'artifacts.header.buttonA11yPending'
-			: 'artifacts.header.buttonA11y',
+			? "artifacts.header.buttonA11yPending"
+			: "artifacts.header.buttonA11y",
 		{ count: artifactCount },
 	),
 );

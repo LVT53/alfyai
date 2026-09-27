@@ -87,7 +87,9 @@ describe("ArtifactPanelHeader", () => {
 			title: "Vienna trip plan",
 			onBack: vi.fn(),
 		});
-		expect(screen.getByRole("button", { name: "This chat" })).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "This chat" }),
+		).toBeInTheDocument();
 	});
 
 	it("renders the caller's actions snippet", () => {
@@ -102,7 +104,7 @@ describe("ArtifactPanelHeader", () => {
 		expect(screen.getByTestId("close-action")).toBeInTheDocument();
 	});
 
-	it("shows every kind's own label (never the word \"artifact\")", () => {
+	it('shows every kind\'s own label (never the word "artifact")', () => {
 		render(ArtifactPanelHeader, {
 			kind: "app",
 			title: "Trip budget app",

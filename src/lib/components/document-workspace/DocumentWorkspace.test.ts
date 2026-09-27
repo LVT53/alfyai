@@ -1684,7 +1684,9 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		// DocumentBody.test.ts covers the real, button-shaped case.
 		expect(within(shell).getByText("Document")).toBeInTheDocument();
 		expect(within(shell).getByText("v6")).toBeInTheDocument();
-		expect(within(shell).queryByText("Active document")).not.toBeInTheDocument();
+		expect(
+			within(shell).queryByText("Active document"),
+		).not.toBeInTheDocument();
 		expect(
 			within(shell).queryByTestId("document-provenance"),
 		).not.toBeInTheDocument();
@@ -1728,7 +1730,9 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		const shell = screen.getAllByRole("complementary", {
 			name: "Document workspace",
 		})[0];
-		await fireEvent.click(within(shell).getByRole("button", { name: "This chat" }));
+		await fireEvent.click(
+			within(shell).getByRole("button", { name: "This chat" }),
+		);
 
 		expect(onListOpenChange).toHaveBeenCalledWith(true);
 		expect(onCloseWorkspace).not.toHaveBeenCalled();
@@ -1761,7 +1765,11 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		renderWorkspace({
 			documents: [
 				makeWorkspaceDocument({ id: "doc-1", kind: "document", title: "Plan" }),
-				makeWorkspaceDocument({ id: "doc-1b", kind: "document", title: "Budget" }),
+				makeWorkspaceDocument({
+					id: "doc-1b",
+					kind: "document",
+					title: "Budget",
+				}),
 			],
 			activeDocumentId: "doc-1",
 		});
@@ -1777,7 +1785,9 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			],
 			activeDocumentId: "doc-2",
 		});
-		expect(await screen.findByTestId("open-documents-rail")).toBeInTheDocument();
+		expect(
+			await screen.findByTestId("open-documents-rail"),
+		).toBeInTheDocument();
 	});
 });
 
@@ -1813,7 +1823,8 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 			finished: Promise.resolve(),
 			cancel: vi.fn(),
 		}));
-		HTMLElement.prototype.animate = animateSpy as unknown as typeof HTMLElement.prototype.animate;
+		HTMLElement.prototype.animate =
+			animateSpy as unknown as typeof HTMLElement.prototype.animate;
 	});
 
 	afterEach(() => {
