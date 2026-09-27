@@ -1291,6 +1291,50 @@ describe("DocumentBody", () => {
 		});
 	});
 
+	// Wave 2.5 Step 3: the panel header's version button and Download action
+	// (redesign §5.2 — "there is one History entry … and it sits where the
+	// version is") open the SAME two sheets the toolbar already knows how to
+	// open, through the functions this body hands `DocumentWorkspace.svelte`
+	// via `registerPanelActions`.
+	describe("registerPanelActions (Wave 2.5 Step 3)", () => {
+		it("hands the header working openVersions/openDownload triggers", async () => {
+			mockFetchArtifactVersions.mockResolvedValue([]);
+			const registerPanelActions = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+				registerPanelActions,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+
+			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
+			expect(screen.queryByRole("dialog")).toBeNull();
+
+			actions.openVersions();
+			expect(
+				await screen.findByRole("dialog", { name: "Versions" }),
+			).toBeInTheDocument();
+			await waitFor(() =>
+				expect(mockFetchArtifactVersions).toHaveBeenCalledWith(
+					"artifact-1",
+					"conv-1",
+				),
+			);
+
+			actions.openDownload();
+			expect(
+				await screen.findByRole("button", { name: "PDF" }),
+			).toBeInTheDocument();
+			expect(screen.queryByRole("dialog", { name: "Versions" })).toBeNull();
+		});
+	});
+
 	describe("T8 live — Alfy's chat-turn edits appear in the open panel", () => {
 		const TWO_BLOCK_BODY = "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.";
 

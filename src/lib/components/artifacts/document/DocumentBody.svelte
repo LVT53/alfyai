@@ -109,6 +109,7 @@ let {
 	alfyActivity = null,
 	onDirtyChange,
 	onBodyChange,
+	registerPanelActions,
 }: ArtifactBodyProps = $props();
 
 type LoadState = "loading" | "ready" | "load_error" | "not_found";
@@ -709,19 +710,50 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
 	}
 }
 
+/**
+ * Wave 2.5 Step 3: the shared trigger for the header's version button
+ * (`ArtifactPanelHeader`, via `registerPanelActions` below) — the ONE History
+ * entry the redesign wants, replacing the toolbar's own "history" action.
+ * Both sheets anchor to the same top-right corner (T12/T6): only one may be
+ * open at a time, or they would visually overlap.
+ */
+function openVersionsSheet(): void {
+	downloadSheetOpen = false;
+	versionsSheetOpen = true;
+}
+
+/** The header's Download action (`registerPanelActions`), replacing the toolbar's own "download" action. */
+function openDownloadSheet(): void {
+	versionsSheetOpen = false;
+	downloadSheetOpen = true;
+}
+
+// Wave 2.5 Step 3: hands the panel header the two sheet triggers above, so
+// `ArtifactPanelHeader.svelte` can open them without knowing anything about
+// Tiptap or this body's own state — see `ArtifactBodyProps.registerPanelActions`.
+// No dependency this effect reads ever changes (the two functions are stable
+// closures over local `$state` setters), so this runs once, after mount,
+// like `onMount` — but as an effect, a future need to re-register per
+// `artifactId` (the panel's rail can swap which item is open without
+// remounting this body) is one dependency read away rather than a rewrite.
+$effect(() => {
+	registerPanelActions?.({
+		openVersions: openVersionsSheet,
+		openDownload: openDownloadSheet,
+	});
+});
+
 function handleToolbarAction(id: DocumentToolbarActionId): void {
 	// T12/T6: the two toolbar actions that never touch the live editor
-	// directly — they open a sheet instead.
+	// directly — they open a sheet instead. Wave 2.5 Step 5 moves both
+	// actions out of the toolbar and into the panel header (above); these two
+	// branches stay as a harmless fallback until that step lands.
 	if (id === "download") {
-		// Both sheets anchor to the same top-right corner (T12/T6): only one
-		// may be open at a time, or they would visually overlap.
-		versionsSheetOpen = false;
-		downloadSheetOpen = true;
+		openDownloadSheet();
 		return;
 	}
 	if (id === "history") {
-		downloadSheetOpen = false;
-		versionsSheetOpen = true;
+		openVersionsSheet();
 		return;
 	}
 	if (!editor) return;
