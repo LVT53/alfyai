@@ -17,6 +17,8 @@ Written 2026-09-26 by the Waves 0–2 orchestrator. Start here, then read `progr
 
 ## What Wave 3 and 4 do (working-plan §3)
 
+- **Wave 2.5 is under way (2026-09-27): agents 1–2 merged into `feat/artifacts`, paused for the weekly limit; resume from
+  `progress.md`'s Wave 2.5 section and its "Next action". Briefs and reports: `wave-2-5/`.**
 - **FIRST: build the approved redesign ("Wave 2.5", owner, 2026-09-27; ruling 61).** Spec and mockup:
   `docs/design/artifacts-redesign/redesign.md` + `index.html` (the owner loves it; §12's questions are answered by ruling 61).
   Grouping of its 16-step build plan into small Sonnet agents (each also does its share of step 15: tests, a11y, reduced

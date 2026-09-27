@@ -532,7 +532,7 @@ resets 2026-09-28 08:59 UTC.
 | # | Agent (redesign steps) | Branch / worktree (port) | State |
 |---|---|---|---|
 | 1 | Foundation (1–2) | `feat/artifacts-rd1-foundation` / `art-rd1` (5400) | **merged** — 8 commits `473cc2bb`…`988ab94e`: §9.1 tokens (light/dark, `color-scheme`), `reducedMotionAnimate` WAAPI helper, `.btn-text` and `--status-*` gone, `btn-primary` → `--accent-text`, contrast test, `.document-content` prose, `.alfy-change` + `arrive`, comment-mark classes (unwired). Gates: check 0/17, 13,475 tests, build 32/2, Fallow 124/4 (0 new), Playwright 42/42. Cost ≈ 1 % of the weekly budget (472k tokens, 65 min) |
-| 2 | Panel shell (3–5) | `feat/artifacts-rd2-shell` / `art-rd2` (5410) | running (branched from agent 1's head) |
+| 2 | Panel shell (3–5) | `feat/artifacts-rd2-shell` / `art-rd2` (5410) | **merged** (`79109131`) — 20 commits `f9702a8f`…`33065621`: `ArtifactPanelHeader` (Document/App/File), `ArtifactCard chrome="row"` list, push navigation and panel motion, count button pressed state + dot, tabs that switch sections (a tab-range decoration; a new empty tab shows everything), `⋯` tab menu, grouped toolbar with roving tabindex and "Saved", phone More sheet on `DialogShell`. Gates: check 0/17, 13,528 tests, build 32/2, Fallow 124/4 (0 new), Playwright 68/68. Cost ≈ 4 % of the weekly budget (743 tool calls, 3 h 5 min) |
 | 5 | Cards, App panel, Knowledge (12–14) | `feat/artifacts-rd5-cards` / `art-rd5` (5440) | waiting |
 | 3a | Comment card/thread, the rail (6–7) | `feat/artifacts-rd3a-comments` / `art-rd3a` (5420) | waiting |
 | 3b | Phone comments, drawer, Versions/Download popovers (8 + §3.2) | `feat/artifacts-rd3b-sheets` / `art-rd3b` (5425) | waiting |
@@ -553,6 +553,12 @@ Rulings (orchestrator, 2026-09-27):
 - Agent 1, deferred for the Opus review: the comment-anchor decoration does not exist yet (agent 3 wires the
   `.comment-anchor` / `.is-active` / `.is-resolved` styles); the tracker's "Cancelled" → warning tone is agent 1's own
   call; Document checkboxes on phones keep the mockup's 17 px (no 44 px hit area); no chevron on status/date chips.
+- Agent 2, deferred: `OpenDocumentsRail` is hidden for Documents only (an App e2e security test switches Apps through it)
+  — handed to agent 5's brief to decide; no version button is visible in the header of a v1 Document (check the spec's
+  `v6 ▾` in the review).
+- **Visible defect found by the orchestrator in both agents' screenshots:** task items show the checkbox on its own line
+  above the text (agent 1 reported them inline). Now step 0 of agent 3a's brief. The final review must look at every
+  surface itself; the agents' own screenshot checks missed this.
 - Ruling: agents 3 and 4 are split in two each (3a/3b, 4a/4b), and 3b also takes the Versions/Download popovers that
   §10 left without a step — why: the hand-off's lesson that long agents ran out of context, and 4 carries ruling 61's data
   change — cost if wrong: two extra agent start-ups (≈ 0.3 % of the weekly budget).
@@ -581,6 +587,22 @@ Rulings (orchestrator, 2026-09-27):
 - i18n namespaces are now discovered from `src/lib/i18n/index.ts` by the validator and the parity test
   (`1e5a32df`, `2a30d85c`).
 
+**PAUSED 2026-09-27 16:00 UTC for the weekly limit (94 % used; resets 2026-09-28 09:00 UTC).** Agents 1 and 2 are merged into
+`feat/artifacts` (`79109131` + this note); nothing of the redesign is on `dev` or ai.dev yet (ai.dev = `29a07688`).
+Worktrees `art-rd1` and `art-rd2` can be removed (both branches merged).
+
 ## Next action
 
-Wave 2.5 (the redesign) is running: see its table above for the live state. Then Wave 3 from `wave-3-handoff.md`.
+Resume Wave 2.5 after the weekly reset, in this session or a fresh one:
+1. `get_usage`; then create agent 5's worktree from `feat/artifacts`: `git worktree add -b feat/artifacts-rd5-cards
+   ../art-rd5 feat/artifacts`, symlink `art-base/node_modules`, `DATABASE_PATH="$PWD/data/playwright-e2e-chat.db" npm run
+   db:prepare` (Node 22 on `PATH`).
+2. Dispatch it (Sonnet) with `wave-2-5/common.md` + `wave-2-5/rd5-brief.md` + the hand-off sections of `rd1-report.md`
+   and `rd2-report.md` (all in `docs/plans/claude-at-home-2/wave-2-5/`; if the old session scratchpad is gone, point the
+   brief's report/screenshot paths at your own scratchpad).
+3. After it: `wave-2-5/gates.sh <worktree> <port> <label> [specs]` (summary in `/tmp/gates-<label>/summary.txt`, Fallow
+   baseline `~/.cache/alfyai-artifacts/fallow-baseline-00ef6d2a.json`), merge into `feat/artifacts`, update the table.
+4. Then 3a → 3b → 4a → 4b the same way, then one Opus visual/a11y review of `d933e2f8..feat/artifacts` (every surface,
+   both themes, HU, phone and desktop, reduced motion; include the deferred items above), one fix agent, merge
+   `feat/artifacts` → `dev` on the main checkout, gates in `dev-int`, push `dev`, deploy ai.dev, tell the owner what to look at.
+Budget guide from this session: a small agent ≈ 1 %, a three-step UI agent ≈ 4 % of the weekly limit.

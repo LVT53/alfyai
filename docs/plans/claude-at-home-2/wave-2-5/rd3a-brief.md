@@ -21,6 +21,14 @@ cards), §8's `CommentCard` / `CommentThread` / `CommentRail` rows (731–732), 
 wins over the spec and the mockup:** the rail shows **Open** threads by default, with a quiet "N resolved" toggle to
 All; resolved threads fold to one line either way. Mockup: `#rail`, `.rail-filter`, `#railBody` and the thread cards.
 
+## Step 0 · Fix inline task items first (a defect from agent 1)
+
+Task items render with the checkbox on its own line **above** the text (agent 1's own screenshot
+`shots/rd1/rd1-document-1440-light-hu.png` and agent 2's `shots/rd2/document-hu-desktop-light.png` show it); spec §1/§5
+and the mockup's `.tasks` put the checkbox on the text's line. Fix it in the `.document-content` styles, test-first
+with a Playwright check that a task's checkbox and its first text line share one line box (their vertical centres
+within a few px), at 1440×900 and 390×844.
+
 ## Step 6 · Comment card and thread anatomy
 
 `src/lib/components/artifacts/CommentCard.svelte` (shared, knows nothing about Tiptap — §8) and
