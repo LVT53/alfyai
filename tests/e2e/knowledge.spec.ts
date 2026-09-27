@@ -28,7 +28,12 @@ test.describe("Knowledge page", () => {
 		if ((await searchbox.count()) > 0) {
 			await expect(searchbox).toBeVisible();
 		} else {
-			await expect(page.getByText("No documents")).toBeVisible();
+			// Exact: Step 14 gave the zero-count Documents chip its own "No
+			// documents yet" reason (`title`/`aria-describedby`), which a loose
+			// match against this empty-state heading would also catch.
+			await expect(
+				page.getByText("No documents", { exact: true }),
+			).toBeVisible();
 		}
 	});
 
@@ -83,7 +88,10 @@ test.describe("Knowledge page", () => {
 		await page.getByRole("tab", { name: "Documents" }).click();
 		const firstDocumentRow = page.locator("tbody tr").first();
 		if ((await firstDocumentRow.count()) === 0) {
-			await expect(page.getByText("No documents")).toBeVisible();
+			// Exact: see the note in "documents section is visible" above.
+			await expect(
+				page.getByText("No documents", { exact: true }),
+			).toBeVisible();
 			expect(pageErrors).toEqual([]);
 			return;
 		}
@@ -183,7 +191,10 @@ test.describe("Knowledge page", () => {
 		const table = page.locator("table.documents-table");
 		if ((await table.count()) === 0) {
 			// No documents seeded in this run; the table is not drawn at all.
-			await expect(page.getByText(/No documents/)).toBeVisible();
+			// Exact: see the note in "documents section is visible" above.
+			await expect(
+				page.getByText("No documents", { exact: true }),
+			).toBeVisible();
 			return;
 		}
 
@@ -212,7 +223,10 @@ test.describe("Knowledge page", () => {
 
 		const sortSelect = page.getByLabel("Sort documents by");
 		if ((await sortSelect.count()) === 0) {
-			await expect(page.getByText(/No documents/)).toBeVisible();
+			// Exact: see the note in "documents section is visible" above.
+			await expect(
+				page.getByText("No documents", { exact: true }),
+			).toBeVisible();
 			return;
 		}
 		await expect(sortSelect).toBeVisible();
