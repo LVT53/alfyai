@@ -203,6 +203,27 @@ describe("extensions: tab section visibility", () => {
 		editor.destroy();
 	});
 
+	// Regression: `Tabs.svelte`'s `addTab()` activates a brand-new tab in the
+	// same breath it creates it, before that tab owns any block of its own —
+	// every existing block's `startBlockId` still resolves to some OTHER,
+	// real tab, so without this fallback the walk would hide the ENTIRE
+	// document the instant "Add a tab" is clicked (found via
+	// `artifact-document.spec.ts`'s "sustained edits" test timing out trying
+	// to reach a status chip that this exact sequence had hidden).
+	it("activating a brand-new tab with no block of its own shows everything, not nothing", () => {
+		const editor = mountEditor("First.\n\nSecond.");
+		const existingTabs = tabsFromBlockIds(blockIdsInOrder(editor));
+		const tabsWithNewEmptyTab: DocumentTab[] = [
+			...existingTabs,
+			{ id: "tab-new", title: "New section", startBlockId: "" },
+		];
+
+		setActiveDocumentTab(editor, tabsWithNewEmptyTab, "tab-new");
+		expect(paragraphDisplay(element, 0)).not.toBe("none");
+		expect(paragraphDisplay(element, 1)).not.toBe("none");
+		editor.destroy();
+	});
+
 	it("ruling 61: readMarkdown still returns every section's text regardless of which tab is active", () => {
 		const editor = mountEditor("First.\n\nSecond.\n\nThird.");
 		const tabs = tabsFromBlockIds(blockIdsInOrder(editor));

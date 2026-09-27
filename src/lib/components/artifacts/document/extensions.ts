@@ -629,6 +629,7 @@ export function buildTabSectionDecorations(
 	);
 	const decorations: Decoration[] = [];
 	let currentTabId = tabs[0]?.id ?? activeTabId;
+	let activeTabOwnsABlock = false;
 	doc.forEach((node, offset) => {
 		const blockId = node.attrs?.[BLOCK_ID_ATTR];
 		const owningTabId =
@@ -636,6 +637,7 @@ export function buildTabSectionDecorations(
 				? startBlockIdToTabId.get(blockId)
 				: undefined;
 		if (owningTabId !== undefined) currentTabId = owningTabId;
+		if (currentTabId === activeTabId) activeTabOwnsABlock = true;
 		if (currentTabId !== activeTabId) {
 			decorations.push(
 				Decoration.node(offset, offset + node.nodeSize, {
@@ -644,6 +646,15 @@ export function buildTabSectionDecorations(
 			);
 		}
 	});
+	// A brand-new tab (`Tabs.svelte`'s `addTab`) is activated immediately but
+	// starts with no block of its own to anchor to — every existing block's
+	// `startBlockId` still resolves to some OTHER, real tab, so the walk above
+	// would otherwise hide the entire document the moment it is created,
+	// leaving nothing visible and nowhere to type. Showing everything (no
+	// decorations) is the safe fallback for that edge case: it is never worse
+	// than hiding the whole document, and it self-corrects the moment the new
+	// tab's own `startBlockId` is set to a real block.
+	if (!activeTabOwnsABlock) return DecorationSet.empty;
 	return DecorationSet.create(doc, decorations);
 }
 
