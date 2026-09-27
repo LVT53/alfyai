@@ -1,3 +1,5 @@
+import { copyFileSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { afterEach, inject, vi } from "vitest";
 import "@testing-library/jest-dom";
 
@@ -17,11 +19,33 @@ afterEach(async () => {
 	await vi.dynamicImportSettled();
 });
 
-// Always point the shared `db` singleton (src/lib/server/db/index.ts) at the
-// fully migrated throwaway database provisioned by src/vitest-global-setup.ts.
-// This is unconditional on purpose: the suite must never open a developer's
-// real ./data/chat.db, whatever DATABASE_PATH happens to be in the shell.
-process.env.DATABASE_PATH = inject("alfyaiTestDatabasePath");
+// Point the shared `db` singleton (src/lib/server/db/index.ts) at a private
+// copy of the fully migrated throwaway database provisioned by
+// src/vitest-global-setup.ts. This is unconditional on purpose: the suite
+// must never open a developer's real ./data/chat.db, whatever DATABASE_PATH
+// happens to be in the shell.
+//
+// Each Vitest worker (a separate OS thread or process) runs this file's
+// module-level code once per test file, and every one of them would
+// otherwise point `db/index.ts`'s WAL-mode better-sqlite3 connection at the
+// exact same template file. Two connections writing that one file from
+// separate processes can hit an immediate `SQLITE_BUSY` "database is locked"
+// on an ordinary snapshot conflict -- no busy-timeout retry can help, because
+// nothing is holding a lock to wait out. So give each worker its own copy of
+// the template, made once (the first test file that worker runs) and reused
+// by every later file in that same worker, exactly like every test file
+// already reused one shared database before this change -- just partitioned
+// so no two live connections ever point at the same file at once.
+const templateDatabasePath = inject("alfyaiTestDatabasePath");
+const workerId = process.env.VITEST_POOL_ID ?? String(process.pid);
+const workerDatabasePath = join(
+	dirname(templateDatabasePath),
+	`chat-worker-${workerId}.db`,
+);
+if (!existsSync(workerDatabasePath)) {
+	copyFileSync(templateDatabasePath, workerDatabasePath);
+}
+process.env.DATABASE_PATH = workerDatabasePath;
 
 if (!Element.prototype.animate) {
 	Object.defineProperty(Element.prototype, "animate", {
