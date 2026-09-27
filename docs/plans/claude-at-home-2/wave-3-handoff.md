@@ -17,6 +17,13 @@ Written 2026-09-26 by the Waves 0–2 orchestrator. Start here, then read `progr
 
 ## What Wave 3 and 4 do (working-plan §3)
 
+- **FIRST: the redesign (owner, 2026-09-27).** The owner found the new surfaces under-designed (no motion, rough to use, the
+  panel's comment sidebar a wall of text, buttons and action→effect unclear). An Opus design pass (branch
+  `design/artifacts-redesign`, worktree `art-design`) produces `docs/design/artifacts-redesign/redesign.md` + a click-through
+  `index.html` for the owner to approve. Scope: the panel sidebar, editing feedback, the panel shell and cards, the App panel
+  and the Knowledge tab. Build it (small agents, then a visual review) **before Canvas and Slides**, which reuse those
+  panel pieces.
+
 - **S3 Canvas** (+ the canvas eval suite; no prototype survives) and **S4 Slides** (T1/T2/T5/T6 first, ops after S3
   merges). Each registers its create/read/edit handlers in `normal-chat-tools/artifact-tools/` (ruling 50), which makes
   the model text name the kind. **Migration numbers:** next free is `1777140000113` (assign one per slice before
