@@ -109,6 +109,7 @@ let {
 	alfyActivity = null,
 	onDirtyChange,
 	onBodyChange,
+	registerPanelActions,
 }: ArtifactBodyProps = $props();
 
 type LoadState = "loading" | "ready" | "load_error" | "not_found";
@@ -116,6 +117,8 @@ type SaveNotice = "offline" | "tooLarge" | "conflict" | "deleted" | null;
 
 let loadState = $state<LoadState>("loading");
 let saveNotice = $state<SaveNotice>(null);
+/** Mirrors every `onDirtyChange?.(...)` call so the toolbar's own "Saved"/"Saving…" state (redesign §5.2/§9.2) can read it locally, without waiting on the panel's round trip. */
+let isDirty = $state(false);
 let versionNumber = $state<number | null>(null);
 /**
  * RV-1B, coordinator item 6: the last body hash this component KNOWS is
@@ -151,7 +154,30 @@ let editorEl = $state<HTMLDivElement | undefined>();
 let editor: Editor | null = null;
 let autosave: DocumentAutosaveHandle | null = null;
 let readMarkdownFn: typeof DocumentEditorModule.readMarkdown | null = null;
+/** Redesign §5.2 "Tabs switch sections", Wave 2.5 Step 5 — see `document-editor.ts`'s own doc comment. */
+let setActiveDocumentTabFn:
+	| typeof DocumentEditorModule.setActiveDocumentTab
+	| null = null;
 let editorReady = $derived(loadState === "ready");
+
+/**
+ * The toolbar's own right-aligned save state (redesign §5.2/§9.2: "the
+ * existing save notices move into the toolbar's right end"). `offline`/
+ * `conflict` reuse `saveNotice` for a compact label; the detailed sentence
+ * (plus, for `tooLarge`/`deleted`, an action) stays on the existing
+ * `.document-save-banner` below — those two states are not compact-label
+ * material, so they are not duplicated here.
+ */
+type ToolbarSaveState = "saving" | "saved" | "offline" | "conflict";
+let toolbarSaveState = $derived<ToolbarSaveState>(
+	saveNotice === "offline"
+		? "offline"
+		: saveNotice === "conflict"
+			? "conflict"
+			: isDirty
+				? "saving"
+				: "saved",
+);
 
 // ---- T8 live: marks.ts's surface, reached only through document-editor.ts's
 // lazy re-exports (never a static "./marks" import from this file). ---------
@@ -216,6 +242,44 @@ let handledActivityKey = "";
 function updateBlocksFromMarkdown(markdown: string): void {
 	blocks = parseDocument(markdown, { mint: false }).blocks;
 }
+
+/**
+ * `Tabs.svelte`'s badge (redesign §5.2): how many of THIS tab's own comment
+ * THREADS (root comments, never replies) are still open. Walks `blocks` in
+ * the SAME document order `extensions.ts`'s `buildTabSectionDecorations`
+ * walks the live ProseMirror doc, assigning each block to whichever tab's
+ * `startBlockId` most recently appeared at or before it — kept in sync here
+ * (rather than reading the decoration back out of the editor) because this
+ * needs to run whenever `comments` changes too, not just `tabs`/`blocks`.
+ */
+function computeTabBadgeCounts(
+	docBlocks: DocumentBlock[],
+	docComments: ArtifactComment[],
+	docTabs: DocumentTab[],
+): Record<string, number> {
+	if (docTabs.length <= 1) return {};
+	const startBlockIdToTabId = new Map(
+		docTabs.map((tab) => [tab.startBlockId, tab.id] as const),
+	);
+	const blockIdToTabId = new Map<string, string>();
+	let currentTabId = docTabs[0]?.id ?? "";
+	for (const block of docBlocks) {
+		const owningTabId = startBlockIdToTabId.get(block.id);
+		if (owningTabId !== undefined) currentTabId = owningTabId;
+		blockIdToTabId.set(block.id, currentTabId);
+	}
+	const counts: Record<string, number> = {};
+	for (const comment of docComments) {
+		if (comment.status !== "open") continue;
+		if (!comment.anchor || comment.anchor.kind !== "text") continue;
+		const tabId = blockIdToTabId.get(comment.anchor.blockId);
+		if (!tabId) continue;
+		counts[tabId] = (counts[tabId] ?? 0) + 1;
+	}
+	return counts;
+}
+
+let tabBadgeCounts = $derived(computeTabBadgeCounts(blocks, comments, tabs));
 
 function updateSelectionBubble(): void {
 	if (!editor || !readSelectionContextFn || !contentEl) {
@@ -659,6 +723,7 @@ function handleDirty(): void {
 	if (saveNotice === "tooLarge" && autosave?.stopped) {
 		autosave.resume();
 	}
+	isDirty = true;
 	onDirtyChange?.(true);
 }
 
@@ -687,6 +752,7 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
 		// in between, instead of silently overwriting it.
 		if (typeof result.bodyHash === "string") knownBodyHash = result.bodyHash;
 		saveNotice = null;
+		isDirty = false;
 		onDirtyChange?.(false);
 		onBodyChange?.(markdown);
 		return;
@@ -709,19 +775,50 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
 	}
 }
 
+/**
+ * Wave 2.5 Step 3: the shared trigger for the header's version button
+ * (`ArtifactPanelHeader`, via `registerPanelActions` below) — the ONE History
+ * entry the redesign wants, replacing the toolbar's own "history" action.
+ * Both sheets anchor to the same top-right corner (T12/T6): only one may be
+ * open at a time, or they would visually overlap.
+ */
+function openVersionsSheet(): void {
+	downloadSheetOpen = false;
+	versionsSheetOpen = true;
+}
+
+/** The header's Download action (`registerPanelActions`), replacing the toolbar's own "download" action. */
+function openDownloadSheet(): void {
+	versionsSheetOpen = false;
+	downloadSheetOpen = true;
+}
+
+// Wave 2.5 Step 3: hands the panel header the two sheet triggers above, so
+// `ArtifactPanelHeader.svelte` can open them without knowing anything about
+// Tiptap or this body's own state — see `ArtifactBodyProps.registerPanelActions`.
+// No dependency this effect reads ever changes (the two functions are stable
+// closures over local `$state` setters), so this runs once, after mount,
+// like `onMount` — but as an effect, a future need to re-register per
+// `artifactId` (the panel's rail can swap which item is open without
+// remounting this body) is one dependency read away rather than a rewrite.
+$effect(() => {
+	registerPanelActions?.({
+		openVersions: openVersionsSheet,
+		openDownload: openDownloadSheet,
+	});
+});
+
 function handleToolbarAction(id: DocumentToolbarActionId): void {
 	// T12/T6: the two toolbar actions that never touch the live editor
-	// directly — they open a sheet instead.
+	// directly — they open a sheet instead. Wave 2.5 Step 5 moves both
+	// actions out of the toolbar and into the panel header (above); these two
+	// branches stay as a harmless fallback until that step lands.
 	if (id === "download") {
-		// Both sheets anchor to the same top-right corner (T12/T6): only one
-		// may be open at a time, or they would visually overlap.
-		versionsSheetOpen = false;
-		downloadSheetOpen = true;
+		openDownloadSheet();
 		return;
 	}
 	if (id === "history") {
-		downloadSheetOpen = false;
-		versionsSheetOpen = true;
+		openVersionsSheet();
 		return;
 	}
 	if (!editor) return;
@@ -787,9 +884,15 @@ function handleLinkAction(): void {
 	editor.chain().focus().toggleLink({ href: url.trim() }).run();
 }
 
-/** Switching the active tab is a pure UI notification — it never touches the editor (T9.1). */
+/**
+ * Switching the active tab never remounts or reloads the document (T9.1) —
+ * `setActiveDocumentTabFn` dispatches a no-op-for-history meta transaction
+ * that only updates which blocks the tab-section decoration hides (redesign
+ * §5.2), the same document, editor instance and undo stack throughout.
+ */
 function handleTabActivate(tabId: string): void {
 	activeTabId = tabId;
+	if (editor) setActiveDocumentTabFn?.(editor, tabs, tabId);
 }
 
 /**
@@ -804,6 +907,10 @@ function handleTabActivate(tabId: string): void {
  */
 async function handleTabsChange(next: DocumentTab[]): Promise<void> {
 	tabs = next;
+	// An add/delete can move section boundaries even when `activeTabId`
+	// itself is unchanged (e.g. deleting a LATER tab); a rename cannot, but
+	// re-dispatching is a cheap no-op either way (redesign §5.2).
+	if (editor) setActiveDocumentTabFn?.(editor, next, activeTabId);
 	const canonical = currentCanonicalMarkdown();
 	if (canonical === null) return;
 	const result = await saveDocumentTabs(
@@ -865,6 +972,7 @@ async function handleSaveCopy(): Promise<void> {
 		tabs = [];
 		activeTabId = "";
 		saveNotice = null;
+		isDirty = false;
 		bindAutosave(created.id, conversationId);
 		onDirtyChange?.(false);
 		onBodyChange?.(canonical);
@@ -899,6 +1007,7 @@ async function runLoad(id: string): Promise<void> {
 	const myToken = ++loadToken;
 	loadState = "loading";
 	saveNotice = null;
+	isDirty = false;
 	try {
 		const conversationId = panelConversationId ?? null;
 		const [mod, detail] = await Promise.all([
@@ -908,6 +1017,7 @@ async function runLoad(id: string): Promise<void> {
 		if (myToken !== loadToken || !editorEl) return;
 
 		readMarkdownFn = mod.readMarkdown;
+		setActiveDocumentTabFn = mod.setActiveDocumentTab;
 		loadMarkdownFn = mod.loadMarkdown;
 		readSelectionContextFn = mod.readSelectionAnchorContext;
 		applyAlfyChangesFn = mod.applyAlfyChanges;
@@ -941,6 +1051,10 @@ async function runLoad(id: string): Promise<void> {
 			onUpdate: handleUpdate,
 			onSelectionUpdate: handleSelectionUpdate,
 		});
+		// The very first paint already shows only the active tab's section
+		// (redesign §5.2) — without this, every section would flash visible
+		// until the user's first tab click dispatched the meta transaction.
+		setActiveDocumentTabFn(editor, tabs, activeTabId);
 		updateActiveActionIds();
 		bindAutosave(id, conversationId);
 
@@ -999,6 +1113,7 @@ function saveNoticeText(notice: SaveNotice): string {
 				{activeTabId}
 				onActivate={handleTabActivate}
 				onChange={handleTabsChange}
+				badgeCounts={tabBadgeCounts}
 			/>
 		{/if}
 		<!-- T11: the phone gets its own toolbar (its row stays inside a 48 px
@@ -1009,6 +1124,7 @@ function saveNoticeText(notice: SaveNotice): string {
 			<DocumentToolbar
 				{activeActionIds}
 				disabled={!editorReady}
+				saveState={editorReady ? toolbarSaveState : undefined}
 				onAction={handleToolbarAction}
 			/>
 		</div>

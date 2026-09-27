@@ -8,6 +8,7 @@
 import { Editor } from "@tiptap/core";
 import type { ResolvedPos } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
+import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import { ANCHOR_CONTEXT_CHARS } from "$lib/shared/artifact-document/anchor";
 import { MARKER_PREFIX } from "$lib/shared/artifact-document/blocks";
 import type {
@@ -21,6 +22,7 @@ import {
 	buildDocumentExtensions,
 	ensureBlockIds,
 	SKIP_BLOCK_ID_PLUGIN,
+	tabSectionPluginKey,
 } from "./extensions";
 import {
 	type AlfyChangeEntry,
@@ -66,6 +68,31 @@ export function createDocumentEditor(
 	});
 	ensureBlockIds(editor);
 	return editor;
+}
+
+/**
+ * Redesign §5.2 "Tabs switch sections", Wave 2.5 Step 5: the one place that
+ * turns `Tabs.svelte`'s `onActivate`/`onChange` notifications into the
+ * editor actually hiding every other section's blocks — see
+ * `extensions.ts`'s `tabSectionPluginKey`/`buildTabSectionDecorations` for
+ * the decoration itself. `DocumentBody.svelte` calls this once right after
+ * `createDocumentEditor` (so the very first paint already has the right
+ * section visible) and again on every `onActivate`/`onChange`. A no-op
+ * dispatch (nothing to mark as history, no document change) — the same
+ * pattern `ensureBlockIds`'s own transactions use.
+ */
+export function setActiveDocumentTab(
+	editor: Editor,
+	tabs: DocumentTab[],
+	activeTabId: string,
+): void {
+	const tr = editor.state.tr.setMeta(tabSectionPluginKey, {
+		tabs,
+		activeTabId,
+	});
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
 }
 
 /**

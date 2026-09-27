@@ -252,6 +252,92 @@ describe("ArtifactCard", () => {
 		expect(checkbox.checked).toBe(false);
 	});
 
+	// chrome="row": the panel list's one-line-per-item row (redesign §5.2).
+	describe("chrome=row", () => {
+		it("renders the whole row as one button: icon, title, kind/facts/version, and time", () => {
+			render(ArtifactCard, {
+				view: view({
+					title: "Vienna trip plan",
+					subtitle: "Document · 3 tabs",
+					versionNumber: 6,
+					updatedAtLabel: "2 min ago",
+					openTargetId: "artifact-1",
+				}),
+				chrome: "row",
+			});
+
+			const row = screen.getByRole("button", { name: /Vienna trip plan/ });
+			expect(row).toHaveAttribute("data-testid", "artifact-row");
+			expect(row).toHaveTextContent("Vienna trip plan");
+			expect(row).toHaveTextContent("Document · 3 tabs");
+			expect(row).toHaveTextContent("v6");
+			expect(row).toHaveTextContent("2 min ago");
+			// Never a second, separate "Open" affordance — the row itself is it.
+			expect(
+				screen.queryByRole("button", { name: "Open" }),
+			).not.toBeInTheDocument();
+		});
+
+		it("falls back to the bare kind label when the caller gives no subtitle (App, File, …)", () => {
+			render(ArtifactCard, {
+				view: view({ kind: "app", subtitle: null, versionNumber: 2 }),
+				chrome: "row",
+			});
+			const row = screen.getByRole("button");
+			expect(row).toHaveTextContent("App");
+			expect(row).toHaveTextContent("v2");
+		});
+
+		it("clicking the row calls onOpen with the item's openTargetId", async () => {
+			const onOpen = vi.fn();
+			render(ArtifactCard, {
+				view: view({ openTargetId: "artifact-1" }),
+				chrome: "row",
+				onOpen,
+			});
+			await fireEvent.click(screen.getByRole("button"));
+			expect(onOpen).toHaveBeenCalledWith("artifact-1");
+		});
+
+		it("disables the row when there is no openTargetId yet (a job still running)", () => {
+			render(ArtifactCard, {
+				view: view({ openTargetId: null }),
+				chrome: "row",
+			});
+			expect(screen.getByRole("button")).toBeDisabled();
+		});
+
+		it("tints the row for the item currently open in the panel", () => {
+			const { container } = render(ArtifactCard, {
+				view: view({ current: true }),
+				chrome: "row",
+			});
+			expect(container.querySelector(".artifact-row-current")).toBeTruthy();
+		});
+
+		it("shows a pending-review pill instead of the resting chevron when changes are waiting", () => {
+			render(ArtifactCard, {
+				view: view({ pendingReviewCount: 2 }),
+				chrome: "row",
+			});
+			expect(screen.getByText("2 changes to review")).toBeInTheDocument();
+		});
+
+		it("never renders the tickable checklist inline (the row stays one line)", () => {
+			render(ArtifactCard, {
+				view: view({
+					tickable: {
+						items: [{ id: "t1", text: "Book the hotel", done: false }],
+						onToggle: vi.fn(),
+					},
+				}),
+				chrome: "row",
+			});
+			expect(screen.queryByText("Book the hotel")).not.toBeInTheDocument();
+			expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+		});
+	});
+
 	it("does not statically import FileProductionCard.svelte", () => {
 		const here = path.dirname(fileURLToPath(import.meta.url));
 		const source = readFileSync(

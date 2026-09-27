@@ -22,6 +22,11 @@ const artifactsDict = {
 		// The chat header's quiet count button (surface 1). Not drawn at all at
 		// zero, so there is no "0" wording.
 		"artifacts.header.buttonA11y": "Open what this chat made ({count})",
+		// The dot state (redesign §5.2/§5.3): a change is waiting while the
+		// panel is closed. The dot itself is decorative (aria-hidden) — this is
+		// how a screen reader user gets the same information.
+		"artifacts.header.buttonA11yPending":
+			"Open what this chat made ({count}) — a change is waiting",
 		// The panel's list state (surface 2).
 		"artifacts.panel.eyebrow": "This chat",
 		"artifacts.panel.title": "What this chat made",
@@ -31,6 +36,12 @@ const artifactsDict = {
 		"artifacts.panel.back": "Back to the item",
 		"artifacts.panel.empty": "Nothing made here yet.",
 		"artifacts.panel.history": "History",
+		// The list row's pending-review pill (redesign §5.2) — a session-only
+		// signal until a later Wave 2.5 agent's durable review-state work lands.
+		"artifacts.panel.pendingReview":
+			"{count} {count, plural, one {change} other {changes}} to review",
+		"artifacts.panel.backA11y":
+			"Back to This chat ({count} {count, plural, one {item} other {items}})",
 		// The shared card.
 		"artifacts.card.open": "Open",
 		"artifacts.card.openA11y": "Open {title}",
@@ -162,6 +173,10 @@ const artifactsDict = {
 		"artifacts.document.toolbar.more": "More",
 		"artifacts.document.toolbar.download": "Download",
 		"artifacts.document.toolbar.history": "History",
+		"artifacts.document.toolbar.saveState.saving": "Saving…",
+		"artifacts.document.toolbar.saveState.saved": "Saved",
+		"artifacts.document.toolbar.saveState.offline": "Offline",
+		"artifacts.document.toolbar.saveState.conflict": "Conflict",
 		"artifacts.document.save.offline":
 			"Not saved yet — you are offline. Your text is safe here.",
 		"artifacts.document.save.tooLarge": "This document is too long to save.",
@@ -194,6 +209,7 @@ const artifactsDict = {
 		// Tabs (Slice 1, T9).
 		"artifacts.document.cardSubtitle": "Document · {count} tabs",
 		"artifacts.document.tab.add": "Add a tab",
+		"artifacts.document.tab.menu": "Tab options",
 		"artifacts.document.tab.rename": "Rename",
 		"artifacts.document.tab.delete": "Delete tab",
 		"artifacts.document.tab.deleteConfirm": "Delete “{name}” and its text?",
@@ -253,6 +269,8 @@ const artifactsDict = {
 	hu: {
 		"artifacts.header.buttonA11y":
 			"Nyisd meg, amit ez a beszélgetés készített ({count})",
+		"artifacts.header.buttonA11yPending":
+			"Nyisd meg, amit ez a beszélgetés készített ({count}) — egy módosítás vár rád",
 		"artifacts.panel.eyebrow": "Ez a beszélgetés",
 		"artifacts.panel.title": "Amit ez a beszélgetés készített",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",
@@ -260,6 +278,8 @@ const artifactsDict = {
 		"artifacts.panel.back": "Vissza az elemhez",
 		"artifacts.panel.empty": "Itt még nem készült semmi.",
 		"artifacts.panel.history": "Előzmények",
+		"artifacts.panel.pendingReview": "{count} módosítás vár rád",
+		"artifacts.panel.backA11y": "Vissza: Ez a beszélgetés ({count} elem)",
 		"artifacts.card.open": "Megnyitás",
 		"artifacts.card.openA11y": "{title} megnyitása",
 		"artifacts.card.madeBy": "Alfy készítette: {when}",
@@ -376,6 +396,10 @@ const artifactsDict = {
 		"artifacts.document.toolbar.more": "Több",
 		"artifacts.document.toolbar.download": "Letöltés",
 		"artifacts.document.toolbar.history": "Előzmények",
+		"artifacts.document.toolbar.saveState.saving": "Mentés…",
+		"artifacts.document.toolbar.saveState.saved": "Mentve",
+		"artifacts.document.toolbar.saveState.offline": "Nincs kapcsolat",
+		"artifacts.document.toolbar.saveState.conflict": "Ütközés",
 		"artifacts.document.save.offline":
 			"Még nincs elmentve — nincs kapcsolat. A szöveged itt biztonságban van.",
 		"artifacts.document.save.tooLarge":
@@ -406,6 +430,7 @@ const artifactsDict = {
 		"artifacts.document.planned.writing": "Alfy írja: {label}",
 		"artifacts.document.cardSubtitle": "Dokumentum · {count} fül",
 		"artifacts.document.tab.add": "Fül hozzáadása",
+		"artifacts.document.tab.menu": "Fül beállításai",
 		"artifacts.document.tab.rename": "Átnevezés",
 		"artifacts.document.tab.delete": "Fül törlése",
 		"artifacts.document.tab.deleteConfirm":

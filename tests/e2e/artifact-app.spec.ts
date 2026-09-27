@@ -196,12 +196,35 @@ async function openChatAndReload(page: Page, conversationId: string) {
 }
 
 async function openAppPanel(page: Page) {
+	const scrollContainer = page.getByTestId("page-scroll-container");
+	// The panel's open/showing state can persist across a reload
+	// (sessionStorage) — the "saved state survives a reload" test below calls
+	// this a second time after `page.reload()`, where the App is very likely
+	// already open again by the time this runs. The count button now toggles
+	// (Wave 2.5 Step 4: clicking it while the panel is open closes it
+	// instead), so clicking it unconditionally here could close an
+	// already-open panel rather than open one — a bounded `waitFor` (not a
+	// synchronous `isVisible()`) gives the restore a brief chance to finish
+	// hydrating past `networkidle`, which only covers the network leg, and
+	// falls through to a fresh open within 2s when the panel is genuinely
+	// closed. Mirrors artifact-document.spec.ts's own openDocumentFromPanel().
+	const alreadyShowing = await scrollContainer
+		.waitFor({ state: "visible", timeout: 2_000 })
+		.then(() => true)
+		.catch(() => false);
+	if (alreadyShowing) return;
+
 	await page.getByTestId("artifact-count-button").click();
+	// Redesign §5.2 (Wave 2.5 Step 4): each row is an ArtifactCard
+	// chrome="row" now — the whole row is the button (data-testid
+	// "artifact-row"), never a separate "Open" affordance. Every caller
+	// here seeds exactly one app, so the first row is always the right one.
 	await page
 		.getByTestId("artifact-panel-list")
-		.getByRole("button", { name: "Open" })
+		.getByTestId("artifact-row")
+		.first()
 		.click();
-	await expect(page.getByTestId("page-scroll-container")).toBeVisible();
+	await expect(scrollContainer).toBeVisible();
 }
 
 test.describe("the App kind, in the panel", () => {
@@ -482,12 +505,15 @@ test.describe("the App kind, in the panel", () => {
 		);
 		await openChatAndReload(page, conversationId);
 
+		// Redesign §5.2 (Wave 2.5 Step 4): each row is an ArtifactCard
+		// chrome="row" now (data-testid "artifact-row", not the old
+		// "artifact-card" + a separate "Open" button) — the row itself is
+		// the button, named from its own title text.
 		const openFromList = async (title: string) => {
 			await page
 				.getByTestId("artifact-panel-list")
-				.getByTestId("artifact-card")
+				.getByTestId("artifact-row")
 				.filter({ hasText: title })
-				.getByRole("button", { name: "Open" })
 				.click();
 		};
 		await page.getByTestId("artifact-count-button").click();
@@ -497,7 +523,13 @@ test.describe("the App kind, in the panel", () => {
 				name: "Quiet App",
 			}),
 		).toBeVisible();
-		await page.getByRole("button", { name: "Show list" }).click();
+		// Wave 2.5 Step 3: the old "Show list" grid-icon button only remains on
+		// the legacy, non-artifact header now — an artifact-kind item (App
+		// included) uses ArtifactPanelHeader's breadcrumb instead
+		// (DocumentWorkspace.svelte's own `artifactHeaderActionsSnippet` header
+		// comment), same control `artifact-document.spec.ts` returns to the
+		// list with.
+		await page.getByRole("button", { name: /This chat/ }).click();
 		await openFromList("Chatty App");
 		const chattyFrame = page.frameLocator("iframe.app-frame");
 		await expect(chattyFrame.getByTestId("chatty-count")).not.toHaveText("0");
@@ -543,9 +575,12 @@ test.describe("the App kind, in the panel", () => {
 		await openChatAndReload(page, conversationId);
 
 		await page.getByTestId("artifact-count-button-compact").click();
+		// Redesign §5.2 (Wave 2.5 Step 4): chrome="row" — the whole row is the
+		// button, never a separate "Open" affordance.
 		await page
 			.getByTestId("artifact-panel-list-mobile")
-			.getByRole("button", { name: "Open" })
+			.getByTestId("artifact-row")
+			.first()
 			.click();
 
 		await expect(page.locator("iframe.app-frame")).toBeVisible();
