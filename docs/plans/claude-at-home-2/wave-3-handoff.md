@@ -5,7 +5,7 @@ Written 2026-09-26 by the Waves 0–2 orchestrator. Start here, then read `progr
 
 ## Where things stand
 
-- **ai.dev runs `dev` = `73ab3b07`** (Wave 2: the three artifact tools, Documents, Apps, the in-chat card, the
+- **ai.dev runs `dev` = `29a07688`** (after two owner-testing fixes on 2026-09-27: the selection bubble, ruling 60's file-type filter, per-worker test DBs; earlier `73ab3b07`) (Wave 2: the three artifact tools, Documents, Apps, the in-chat card, the
   Knowledge tab and Workspace Search for every kind, focus-trap pass one). Production (`main`) is untouched.
 - **Live check:** `/root/verify-artifacts-w2.mjs` on the box, 14/14 on 2026-09-26 (see its header for usage). Model
   `qwen3-6-27b`; Alfy is only told about Document and App (`advertisedArtifactKinds()`, derived from
@@ -30,6 +30,9 @@ Written 2026-09-26 by the Waves 0–2 orchestrator. Start here, then read `progr
   on ai.dev, the release checklist; production and the campaign only on the owner's word.
 
 ## Open items carried over
+
+- The chat-file store is shared across vitest workers (`data/chat-files/`): `conversation-forks.test.ts` flaked with `ENOENT`; give it a per-worker directory like the DB (`fb5d2a7e`).
+- The Documents summary line says "N uploaded" beside the renamed "Files" chip (ask the owner).
 
 - Canonical form: Alfy-written Markdown that the editor re-spells gets a new hash on the first user save, so a patch
   built on an older read is refused (narrow window; consider canonicalising Alfy's text on write).

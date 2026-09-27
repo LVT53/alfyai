@@ -576,6 +576,15 @@ on the model misbehaving. Every suite's known-bad cases are hand-written respons
 live runs too: the harness never sends them to the model. This is owned by Slice 5b's T9 (the all-suite live run),
 unless an earlier slice needs it first.
 
+## 60. The Documents tab filters ordinary files by type too (two tiers)
+
+*Owner, 2026-09-27, while testing Wave 2.* The top row is `All · Documents · Canvas · Apps · Slides · Files` ("Uploaded"
+renamed Files/Fájlok; the same bucket: uploads, produced files, Skill Notes). Choosing Files shows a second row of file
+families with live server-side counts, zero families hidden: PDF · Word · Spreadsheets · Presentations · Images ·
+Text & Markdown · Other. The family is a fold over the one file-type registry's categories
+(`src/lib/shared/file-types/`), so every registered type lands in exactly one family. Counts and the filter run on the
+server under the existing ownership scope. Amends ruling 46 and the slice-7 amendment.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.

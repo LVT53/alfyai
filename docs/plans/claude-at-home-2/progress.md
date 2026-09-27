@@ -508,6 +508,17 @@ Hungarian Document in Hungarian, incognito Document 404 outside / 200 inside / a
 the go-ahead to test with sample tasks. **Paused until the weekly reset (Mon 2026-09-28 ~10:00 IST); Wave 3 starts in a
 fresh session from `wave-3-handoff.md`.**
 
+**Owner testing, 2026-09-27 (early hours).** Two items fixed and deployed: (1) the selection bubble sat off screen. `DocumentBody`
+placed it with viewport coordinates minus the pane's offset but without its `scrollTop`, and had no clamp or flip. A
+pure `bubble-placement.ts` fixed it, and the change bar had the same mistake (`69b57ae6`; e2e measures the bubble
+against the browser's own selection rect). Deployed as `813f9d96`. (2) **Ruling 60**, the two-tier file-type filter
+(`feat/artifacts-file-type-filter`, 4 commits; 13,449 tests). With it, `fb5d2a7e`: **each vitest worker now gets its
+own copy of the migrated test DB**. All workers had shared one SQLite file, so read-then-write transactions failed
+with "database is locked" (7/10 paired runs); after the fix 12/12, and the full suite twice green. Deployed as
+**`29a07688`**. Left for Wave 3: a second shared-state flake, `conversation-forks.test.ts` hit `ENOENT` under
+`data/chat-files/` (the file store is shared across workers too; per-worker dir); the Documents summary line still
+says "N uploaded" next to the "Files" chip (owner's call).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
