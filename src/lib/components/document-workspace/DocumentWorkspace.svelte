@@ -13,10 +13,12 @@ import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
+import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	ARTIFACT_BODIES,
 	type ArtifactBodyLoader,
+	type ArtifactPanelBodyActions,
 } from "$lib/components/artifacts/artifact-bodies";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
@@ -115,6 +117,20 @@ let activeArtifactKind: ArtifactKind = $derived(activeDocument?.kind ?? "file");
 let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 	ARTIFACT_BODIES[activeArtifactKind],
 );
+
+// Wave 2.5 Step 3: whatever sheet triggers the open body registered for
+// `ArtifactPanelHeader`'s version button / Download action (App/File
+// register nothing today, so this stays null for them and the header falls
+// back to plain text / the panel's own generic download link). Reset
+// whenever the open item itself changes — closing, switching documents, or
+// switching kind — so a stale closure over a document that is no longer
+// open can never be called; the newly-open body (if any) re-registers on
+// its own next tick.
+let bodyPanelActions = $state<ArtifactPanelBodyActions | null>(null);
+$effect(() => {
+	activeDocument?.id;
+	bodyPanelActions = null;
+});
 
 // One cached module promise per kind, mirroring
 // ensureDocumentPreviewRendererModule below: a loader runs at most once no
@@ -419,19 +435,45 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 					when: formatRelativeTime(item.updatedAt, { t: $t }),
 				})
 			: null;
+	// chrome="row" (redesign §5.2) wants the BARE time, never the "made by
+	// Alfy …" sentence `madeBy` above builds — see
+	// `ArtifactCardView.updatedAtLabel`'s own doc comment.
+	const updatedAtLabel =
+		item.updatedAt != null
+			? formatRelativeTime(item.updatedAt, { t: $t })
+			: null;
+	// The row's pending-review pill: the same ephemeral, session-only "a
+	// change just landed" signal the chat header's count-button dot reads
+	// (`alfyActivity`, already a prop here) — see
+	// `ArtifactCardView.pendingReviewCount`'s own doc comment for why this is
+	// expected to be superseded, not this field itself.
+	const pendingReviewCount =
+		alfyActivity &&
+		alfyActivity.artifactId === (item.artifactId ?? item.id) &&
+		(alfyActivity.status === "applied" || alfyActivity.status === "refused")
+			? Math.max(alfyActivity.appliedCount, 1)
+			: null;
+	const rowExtras = {
+		updatedAtLabel,
+		pendingReviewCount,
+		current: item.id === activeDocumentId,
+	};
 	if (item.kind === "document" && item.documentPreview) {
-		return documentArtifactCardViewFromPreview({
-			artifactId: item.id,
-			title: getDocumentTitle(item),
-			versionNumber: item.versionNumber ?? 0,
-			madeBy,
-			subtitle: $t("artifacts.document.cardSubtitle", {
-				count: item.documentPreview.tabCount,
+		return {
+			...documentArtifactCardViewFromPreview({
+				artifactId: item.id,
+				title: getDocumentTitle(item),
+				versionNumber: item.versionNumber ?? 0,
+				madeBy,
+				subtitle: $t("artifacts.document.cardSubtitle", {
+					count: item.documentPreview.tabCount,
+				}),
+				preview: item.documentPreview,
+				onToggleTask: (blockId, checked) =>
+					onToggleDocumentTask?.(item.id, blockId, checked),
 			}),
-			preview: item.documentPreview,
-			onToggleTask: (blockId, checked) =>
-				onToggleDocumentTask?.(item.id, blockId, checked),
-		});
+			...rowExtras,
+		};
 	}
 	return {
 		id: item.id,
@@ -440,6 +482,7 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 		versionNumber: item.versionNumber ?? null,
 		openTargetId: item.id,
 		madeBy,
+		...rowExtras,
 	};
 }
 
@@ -912,7 +955,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						<li>
 							<ArtifactCard
 								view={artifactCardViewFor(item)}
-								chrome="full"
+								chrome="row"
 								onOpen={() => selectFromList(item)}
 							/>
 						</li>
@@ -1101,6 +1144,51 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		{/if}
 	{/snippet}
 
+	<!--
+		Wave 2.5 Step 3: `ArtifactPanelHeader`'s actions for an artifact-kind
+		item (Document/App/File) — Download, a divider, Expand, Close. Never
+		Comments (its open count isn't wired until a later agent's comment-
+		thread work lands — no disabled placeholder, per redesign §5.2) and
+		never the old grid/History buttons `artifactPanelActions()` above
+		draws for a legacy, non-artifact item: the breadcrumb replaces "back to
+		the list", and the version button above replaces History outright.
+	-->
+	{#snippet artifactHeaderActionsSnippet()}
+		{#if bodyPanelActions?.openDownload}
+			<button
+				type="button"
+				class="btn-icon-bare workspace-download-button"
+				onclick={() => bodyPanelActions?.openDownload?.()}
+				aria-label={$t('artifacts.document.toolbar.download')}
+				title={$t('artifacts.document.toolbar.download')}
+			>
+				<Download size={18} strokeWidth={2} aria-hidden="true" />
+			</button>
+		{:else}
+			{@render atlasDownloadControl(activeDocument)}
+		{/if}
+		{#if showPresentationToggle && presentation !== "expanded"}
+			<span class="artifact-panel-header-actions-div" aria-hidden="true"></span>
+			<button
+				type="button"
+				class="btn-icon-bare workspace-expand-button"
+				onclick={requestExpandedPresentation}
+				aria-label={$t('documentWorkspace.expandWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
+				title={$t('documentWorkspace.expandWorkspace')}
+			>
+				<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
+			</button>
+		{/if}
+		<button
+			type="button"
+			class="btn-icon-bare workspace-close-button"
+			onclick={handleCloseWorkspace}
+			aria-label={$t('documentWorkspace.closeWorkspace')}
+		>
+			<X size={18} strokeWidth={2.1} aria-hidden="true" />
+		</button>
+	{/snippet}
+
 	<!-- Mobile overlay -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
@@ -1114,105 +1202,118 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			aria-label={$t('documentWorkspace.documentWorkspace')}
 			data-testid="document-workspace-mobile-shell"
 		>
-			<div class="workspace-header">
-				<div class="workspace-heading">
-					<div class="workspace-eyebrow">
-						{$t('documentWorkspace.workingDocument')}
-						{@render artifactTypeAndVersion()}
-					</div>
-					<div class="workspace-title-row">
-						{#if canJumpToSource(activeDocument)}
-							<button
-								type="button"
-								class="workspace-title workspace-title-link"
-								onclick={() => onJumpToSource?.(activeDocument)}
-								title={$t('documentWorkspace.viewSourceMessage')}
-							>
-							<span>{getDocumentTitle(activeDocument)}</span>
-							<span class="workspace-title-source-icon">
-								<ArrowUpRight size={14} strokeWidth={2.1} aria-hidden="true" />
-							</span>
-							</button>
-						{:else}
-							<div class="workspace-title">
+			{#if activeDocument.kind}
+				<ArtifactPanelHeader
+					kind={activeArtifactKind}
+					title={getDocumentTitle(activeDocument)}
+					versionNumber={activeDocument.versionNumber && activeDocument.versionNumber > 0 ? activeDocument.versionNumber : null}
+					onVersions={bodyPanelActions?.openVersions}
+					meta={activeDocument.updatedAt != null ? formatRelativeTime(activeDocument.updatedAt, { t: $t }) : null}
+					itemCount={list?.items.length ?? null}
+					onBack={() => onListOpenChange?.(true)}
+					actions={artifactHeaderActionsSnippet}
+				/>
+			{:else}
+				<div class="workspace-header">
+					<div class="workspace-heading">
+						<div class="workspace-eyebrow">
+							{$t('documentWorkspace.workingDocument')}
+							{@render artifactTypeAndVersion()}
+						</div>
+						<div class="workspace-title-row">
+							{#if canJumpToSource(activeDocument)}
+								<button
+									type="button"
+									class="workspace-title workspace-title-link"
+									onclick={() => onJumpToSource?.(activeDocument)}
+									title={$t('documentWorkspace.viewSourceMessage')}
+								>
 								<span>{getDocumentTitle(activeDocument)}</span>
+								<span class="workspace-title-source-icon">
+									<ArrowUpRight size={14} strokeWidth={2.1} aria-hidden="true" />
+								</span>
+								</button>
+							{:else}
+								<div class="workspace-title">
+									<span>{getDocumentTitle(activeDocument)}</span>
+								</div>
+							{/if}
+							<div class="workspace-header-actions">
+								{#if documents.length > 1}
+									<button
+										type="button"
+										class="btn-icon-bare workspace-mobile-documents-button"
+										onclick={() => {
+											mobileDocumentsSheetOpen = !mobileDocumentsSheetOpen;
+										}}
+										aria-label={$t('documentWorkspace.openDocuments')}
+										aria-expanded={mobileDocumentsSheetOpen}
+										title={$t('documentWorkspace.openDocuments')}
+										data-testid="mobile-documents-button"
+									>
+									<List size={18} strokeWidth={2.1} aria-hidden="true" />
+										<span aria-hidden="true">{documents.length}</span>
+									</button>
+								{/if}
+								{@render artifactPanelActions()}
+								{@render atlasDownloadControl(activeDocument)}
+								{#if showPresentationToggle}
+									<button
+										type="button"
+										class="btn-icon-bare workspace-expand-button"
+										onclick={requestExpandedPresentation}
+										aria-label={$t('documentWorkspace.expandWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
+										title={$t('documentWorkspace.expandWorkspace')}
+									>
+										<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
+									</button>
+								{/if}
+								<button
+									type="button"
+									class="btn-icon-bare workspace-close-button"
+									onclick={handleCloseWorkspace}
+									aria-label={$t('documentWorkspace.closeWorkspace')}
+								>
+									<X size={18} strokeWidth={2.1} aria-hidden="true" />
+								</button>
 							</div>
+						</div>
+						{#if getDocumentSubtitle(activeDocument)}
+							<div class="workspace-subtitle">{getDocumentSubtitle(activeDocument)}</div>
 						{/if}
-						<div class="workspace-header-actions">
-							{#if documents.length > 1}
+						<div class="workspace-meta-row" data-testid="document-provenance">
+							<span class="workspace-source-pill" class:workspace-source-pill-ai={isAiGeneratedDocument(activeDocument)}>
+							{#if isAiGeneratedDocument(activeDocument)}
+								<span class="workspace-source-sparkle">
+									<Sparkles size={13} strokeWidth={2.1} aria-hidden="true" />
+								</span>
+							{/if}
+								<span>{getDocumentSourceLabel(activeDocument)}</span>
+							</span>
+							{#if canCompareActiveDocument}
 								<button
 									type="button"
-									class="btn-icon-bare workspace-mobile-documents-button"
+									class="workspace-compare-toggle"
+									class:workspace-compare-toggle-active={compareMode}
 									onclick={() => {
-										mobileDocumentsSheetOpen = !mobileDocumentsSheetOpen;
+										compareMode = !compareMode;
 									}}
-									aria-label={$t('documentWorkspace.openDocuments')}
-									aria-expanded={mobileDocumentsSheetOpen}
-									title={$t('documentWorkspace.openDocuments')}
-									data-testid="mobile-documents-button"
+									aria-label={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
+									title={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
+									aria-pressed={compareMode}
 								>
-								<List size={18} strokeWidth={2.1} aria-hidden="true" />
-									<span aria-hidden="true">{documents.length}</span>
+									<ArrowLeftRight size={13} strokeWidth={2.1} aria-hidden="true" />
 								</button>
 							{/if}
-							{@render artifactPanelActions()}
-							{@render atlasDownloadControl(activeDocument)}
-							{#if showPresentationToggle}
-								<button
-									type="button"
-									class="btn-icon-bare workspace-expand-button"
-									onclick={requestExpandedPresentation}
-									aria-label={$t('documentWorkspace.expandWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
-									title={$t('documentWorkspace.expandWorkspace')}
-								>
-									<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
-								</button>
+							{#if getDocumentLifecycleLabel(activeDocument)}
+								<span class="workspace-status-badge">
+									{getDocumentLifecycleLabel(activeDocument)}
+								</span>
 							{/if}
-							<button
-								type="button"
-								class="btn-icon-bare workspace-close-button"
-								onclick={handleCloseWorkspace}
-								aria-label={$t('documentWorkspace.closeWorkspace')}
-							>
-								<X size={18} strokeWidth={2.1} aria-hidden="true" />
-							</button>
 						</div>
 					</div>
-					{#if getDocumentSubtitle(activeDocument)}
-						<div class="workspace-subtitle">{getDocumentSubtitle(activeDocument)}</div>
-					{/if}
-					<div class="workspace-meta-row" data-testid="document-provenance">
-						<span class="workspace-source-pill" class:workspace-source-pill-ai={isAiGeneratedDocument(activeDocument)}>
-						{#if isAiGeneratedDocument(activeDocument)}
-							<span class="workspace-source-sparkle">
-								<Sparkles size={13} strokeWidth={2.1} aria-hidden="true" />
-							</span>
-						{/if}
-							<span>{getDocumentSourceLabel(activeDocument)}</span>
-						</span>
-						{#if canCompareActiveDocument}
-							<button
-								type="button"
-								class="workspace-compare-toggle"
-								class:workspace-compare-toggle-active={compareMode}
-								onclick={() => {
-									compareMode = !compareMode;
-								}}
-								aria-label={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
-								title={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
-								aria-pressed={compareMode}
-							>
-								<ArrowLeftRight size={13} strokeWidth={2.1} aria-hidden="true" />
-							</button>
-						{/if}
-						{#if getDocumentLifecycleLabel(activeDocument)}
-							<span class="workspace-status-badge">
-								{getDocumentLifecycleLabel(activeDocument)}
-							</span>
-						{/if}
-					</div>
 				</div>
-			</div>
+			{/if}
 
 			<MobileDocumentsSheet
 				{documents}
@@ -1265,6 +1366,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							body={null}
 							{conversationId}
 							{alfyActivity}
+							registerPanelActions={(actions) => {
+								bodyPanelActions = actions;
+							}}
 						/>
 					{/await}
 				{:else if compareMode && comparedDocument}
@@ -1389,89 +1493,102 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			aria-valuenow={workspaceWidth}
 			tabindex="0"
 		></div>
-		<div class="workspace-header">
-			<div class="workspace-heading">
-				<div class="workspace-eyebrow">
-					{$t('documentWorkspace.workingDocument')}
-					{@render artifactTypeAndVersion()}
-				</div>
-				<div class="workspace-title-row">
-					{#if canJumpToSource(activeDocument)}
-						<button
-							type="button"
-							class="workspace-title workspace-title-link"
-							onclick={() => onJumpToSource?.(activeDocument)}
-							title={$t('documentWorkspace.viewSourceMessage')}
-						>
-							<span>{getDocumentTitle(activeDocument)}</span>
-							<span class="workspace-title-source-icon">
-								<ArrowUpRight size={14} strokeWidth={2.1} aria-hidden="true" />
-							</span>
-						</button>
-					{:else}
-						<div class="workspace-title">
-							<span>{getDocumentTitle(activeDocument)}</span>
-						</div>
-					{/if}
-					<div class="workspace-header-actions">
-						{@render artifactPanelActions()}
-						{@render atlasDownloadControl(activeDocument)}
-						{#if showPresentationToggle && presentation !== "expanded"}
+		{#if activeDocument.kind}
+			<ArtifactPanelHeader
+				kind={activeArtifactKind}
+				title={getDocumentTitle(activeDocument)}
+				versionNumber={activeDocument.versionNumber && activeDocument.versionNumber > 0 ? activeDocument.versionNumber : null}
+				onVersions={bodyPanelActions?.openVersions}
+				meta={activeDocument.updatedAt != null ? formatRelativeTime(activeDocument.updatedAt, { t: $t }) : null}
+				itemCount={list?.items.length ?? null}
+				onBack={() => onListOpenChange?.(true)}
+				actions={artifactHeaderActionsSnippet}
+			/>
+		{:else}
+			<div class="workspace-header">
+				<div class="workspace-heading">
+					<div class="workspace-eyebrow">
+						{$t('documentWorkspace.workingDocument')}
+						{@render artifactTypeAndVersion()}
+					</div>
+					<div class="workspace-title-row">
+						{#if canJumpToSource(activeDocument)}
 							<button
 								type="button"
-								class="btn-icon-bare workspace-expand-button"
-								onclick={requestExpandedPresentation}
-								aria-label={$t('documentWorkspace.expandWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
-								title={$t('documentWorkspace.expandWorkspace')}
+								class="workspace-title workspace-title-link"
+								onclick={() => onJumpToSource?.(activeDocument)}
+								title={$t('documentWorkspace.viewSourceMessage')}
 							>
-								<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
+								<span>{getDocumentTitle(activeDocument)}</span>
+								<span class="workspace-title-source-icon">
+									<ArrowUpRight size={14} strokeWidth={2.1} aria-hidden="true" />
+								</span>
+							</button>
+						{:else}
+							<div class="workspace-title">
+								<span>{getDocumentTitle(activeDocument)}</span>
+							</div>
+						{/if}
+						<div class="workspace-header-actions">
+							{@render artifactPanelActions()}
+							{@render atlasDownloadControl(activeDocument)}
+							{#if showPresentationToggle && presentation !== "expanded"}
+								<button
+									type="button"
+									class="btn-icon-bare workspace-expand-button"
+									onclick={requestExpandedPresentation}
+									aria-label={$t('documentWorkspace.expandWorkspaceLabel', { title: getDocumentTitle(activeDocument) })}
+									title={$t('documentWorkspace.expandWorkspace')}
+								>
+									<Maximize2 size={18} strokeWidth={2} aria-hidden="true" />
+								</button>
+							{/if}
+							<button
+								type="button"
+								class="btn-icon-bare workspace-close-button"
+								onclick={handleCloseWorkspace}
+								aria-label={$t('documentWorkspace.closeWorkspace')}
+							>
+								<X size={18} strokeWidth={2.1} aria-hidden="true" />
+							</button>
+						</div>
+					</div>
+					{#if getDocumentSubtitle(activeDocument)}
+						<div class="workspace-subtitle">{getDocumentSubtitle(activeDocument)}</div>
+					{/if}
+					<div class="workspace-meta-row" data-testid="document-provenance">
+						<span class="workspace-source-pill" class:workspace-source-pill-ai={isAiGeneratedDocument(activeDocument)}>
+							{#if isAiGeneratedDocument(activeDocument)}
+								<span class="workspace-source-sparkle">
+									<Sparkles size={13} strokeWidth={2.1} aria-hidden="true" />
+								</span>
+							{/if}
+							<span>{getDocumentSourceLabel(activeDocument)}</span>
+						</span>
+						{#if canCompareActiveDocument}
+							<button
+								type="button"
+								class="workspace-compare-toggle"
+								class:workspace-compare-toggle-active={compareMode}
+								onclick={() => {
+									compareMode = !compareMode;
+								}}
+								aria-label={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
+								title={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
+								aria-pressed={compareMode}
+							>
+								<ArrowLeftRight size={13} strokeWidth={2.1} aria-hidden="true" />
 							</button>
 						{/if}
-						<button
-							type="button"
-							class="btn-icon-bare workspace-close-button"
-							onclick={handleCloseWorkspace}
-							aria-label={$t('documentWorkspace.closeWorkspace')}
-						>
-							<X size={18} strokeWidth={2.1} aria-hidden="true" />
-						</button>
-					</div>
-				</div>
-				{#if getDocumentSubtitle(activeDocument)}
-					<div class="workspace-subtitle">{getDocumentSubtitle(activeDocument)}</div>
-				{/if}
-				<div class="workspace-meta-row" data-testid="document-provenance">
-					<span class="workspace-source-pill" class:workspace-source-pill-ai={isAiGeneratedDocument(activeDocument)}>
-						{#if isAiGeneratedDocument(activeDocument)}
-							<span class="workspace-source-sparkle">
-								<Sparkles size={13} strokeWidth={2.1} aria-hidden="true" />
+						{#if getDocumentLifecycleLabel(activeDocument)}
+							<span class="workspace-status-badge">
+								{getDocumentLifecycleLabel(activeDocument)}
 							</span>
 						{/if}
-						<span>{getDocumentSourceLabel(activeDocument)}</span>
-					</span>
-					{#if canCompareActiveDocument}
-						<button
-							type="button"
-							class="workspace-compare-toggle"
-							class:workspace-compare-toggle-active={compareMode}
-							onclick={() => {
-								compareMode = !compareMode;
-							}}
-							aria-label={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
-							title={compareMode ? $t('documentWorkspace.closeCompare') : $t('documentWorkspace.compareVersions')}
-							aria-pressed={compareMode}
-						>
-							<ArrowLeftRight size={13} strokeWidth={2.1} aria-hidden="true" />
-						</button>
-					{/if}
-					{#if getDocumentLifecycleLabel(activeDocument)}
-						<span class="workspace-status-badge">
-							{getDocumentLifecycleLabel(activeDocument)}
-						</span>
-					{/if}
+					</div>
 				</div>
 			</div>
-		</div>
+		{/if}
 
 	<div
 		class="workspace-main"
@@ -1480,13 +1597,15 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		data-presentation={presentation}
 		data-layout={documents.length > 1 ? "rail-and-preview" : "preview-only"}
 	>
-		<OpenDocumentsRail
-			{documents}
-			activeDocumentId={activeDocument.id}
-			{onSelectDocument}
-			{onJumpToSource}
-			{onCloseDocument}
-		/>
+		{#if !activeDocument.kind}
+			<OpenDocumentsRail
+				{documents}
+				activeDocumentId={activeDocument.id}
+				{onSelectDocument}
+				{onJumpToSource}
+				{onCloseDocument}
+			/>
+		{/if}
 
 		<div class="workspace-document-column" data-testid="workspace-document-column">
 			{#if familyDocuments.length > 1}
@@ -1529,6 +1648,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					body={null}
 					{conversationId}
 					{alfyActivity}
+					registerPanelActions={(actions) => {
+						bodyPanelActions = actions;
+					}}
 				/>
 			{/await}
 		{:else if compareMode && comparedDocument}
@@ -2434,6 +2556,15 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	.workspace-history-toggle-button:disabled {
 		cursor: not-allowed;
 		opacity: 0.5;
+	}
+
+	/* ArtifactPanelHeader's actions (Wave 2.5 Step 3): the divider between
+	   Download and Expand, mirroring the mockup's `.ph-actions .div`. */
+	.artifact-panel-header-actions-div {
+		width: 1px;
+		height: 1.125rem;
+		margin: 0 0.25rem;
+		background: var(--border-default);
 	}
 
 	.artifact-panel-list-body {

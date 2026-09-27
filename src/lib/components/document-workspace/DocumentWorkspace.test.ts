@@ -1632,6 +1632,154 @@ describe("DocumentWorkspace artifact-kind dispatch", () => {
 	});
 });
 
+// Wave 2.5 Step 3 (redesign §5.1/§5.2/§8): ArtifactPanelHeader replaces the
+// old "ACTIVE DOCUMENT" eyebrow, source pill, and disabled History
+// placeholder for an item that declares an artifact kind; an item with no
+// kind (a plain uploaded/library document, or a search-result open) keeps
+// today's header exactly as it was.
+describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		global.fetch = vi.fn();
+	});
+
+	afterEach(() => {
+		delete ARTIFACT_BODIES.document;
+	});
+
+	function withDocumentLoader() {
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeArtifactBody.svelte");
+	}
+
+	it("renders the shared header for an artifact-kind item, not the legacy eyebrow/source pill", async () => {
+		withDocumentLoader();
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "doc-1",
+					kind: "document",
+					title: "Vienna trip plan",
+					versionNumber: 6,
+					mimeType: null,
+				}),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		await screen.findByTestId("fake-artifact-body");
+		const shell = screen.getAllByRole("complementary", {
+			name: "Document workspace",
+		})[0];
+
+		expect(
+			within(shell).getByRole("heading", { name: "Vienna trip plan" }),
+		).toBeInTheDocument();
+		// The kind label appears once, plainly, with its version alongside it
+		// — never the old duplicated "ACTIVE DOCUMENT" eyebrow or a source
+		// pill. The fixture body never calls registerPanelActions, so the
+		// version renders as plain text here (no onVersions handler yet) —
+		// DocumentBody.test.ts covers the real, button-shaped case.
+		expect(within(shell).getByText("Document")).toBeInTheDocument();
+		expect(within(shell).getByText("v6")).toBeInTheDocument();
+		expect(within(shell).queryByText("Active document")).not.toBeInTheDocument();
+		expect(
+			within(shell).queryByTestId("document-provenance"),
+		).not.toBeInTheDocument();
+		// The disabled History placeholder is gone outright (redesign §5.2:
+		// "no disabled placeholders").
+		expect(
+			within(shell).queryByRole("button", { name: "History" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("keeps the legacy header, unchanged, for an item with no kind", async () => {
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "doc-1",
+					title: "Uploaded receipt.pdf",
+				}),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		const shell = await screen.findByRole("complementary", {
+			name: "Document workspace",
+		});
+		expect(within(shell).getByText("Active document")).toBeInTheDocument();
+		expect(
+			within(shell).getByTestId("document-provenance"),
+		).toBeInTheDocument();
+	});
+
+	it("the breadcrumb returns to the list without closing the whole panel", async () => {
+		withDocumentLoader();
+		const { onListOpenChange, onCloseWorkspace } = renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({ id: "doc-1", kind: "document", title: "Plan" }),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		await screen.findByTestId("fake-artifact-body");
+		const shell = screen.getAllByRole("complementary", {
+			name: "Document workspace",
+		})[0];
+		await fireEvent.click(within(shell).getByRole("button", { name: "This chat" }));
+
+		expect(onListOpenChange).toHaveBeenCalledWith(true);
+		expect(onCloseWorkspace).not.toHaveBeenCalled();
+	});
+
+	it("closes the workspace from the header's Close action", async () => {
+		withDocumentLoader();
+		const { onCloseWorkspace } = renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({ id: "doc-1", kind: "document", title: "Plan" }),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		await screen.findByTestId("fake-artifact-body");
+		const shell = screen.getAllByRole("complementary", {
+			name: "Document workspace",
+		})[0];
+		await fireEvent.click(
+			within(shell).getByRole("button", { name: "Close document workspace" }),
+		);
+
+		expect(onCloseWorkspace).toHaveBeenCalledOnce();
+	});
+
+	// OpenDocumentsRail only ever draws itself with 2+ open tabs, so both
+	// cases below open two.
+	it("hides the open-documents rail for an artifact-kind item", async () => {
+		withDocumentLoader();
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({ id: "doc-1", kind: "document", title: "Plan" }),
+				makeWorkspaceDocument({ id: "doc-1b", kind: "document", title: "Budget" }),
+			],
+			activeDocumentId: "doc-1",
+		});
+		await screen.findByTestId("fake-artifact-body");
+		expect(screen.queryByTestId("open-documents-rail")).not.toBeInTheDocument();
+	});
+
+	it("keeps showing the open-documents rail for a legacy item", async () => {
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({ id: "doc-2", title: "Legacy PDF" }),
+				makeWorkspaceDocument({ id: "doc-2b", title: "Legacy PDF 2" }),
+			],
+			activeDocumentId: "doc-2",
+		});
+		expect(await screen.findByTestId("open-documents-rail")).toBeInTheDocument();
+	});
+});
+
 describe("DocumentWorkspace 'what this chat made' list", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -1677,11 +1825,11 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		expect(within(list).getByText("Budget sheet")).toBeInTheDocument();
 	});
 
-	// Mockup surface 2 shows a relative time on every row ("just now", "12
-	// min ago", …) — that is what tells a "newest first" list apart. The
-	// seam already exists on the card (ArtifactCardView.madeBy); a row with
-	// a timestamp must actually feed it.
-	it("shows each row's relative time as 'made by Alfy …'", async () => {
+	// Redesign §5.2 shows a bare relative time on every row's right-hand side
+	// ("just now", "12 min ago", …), never the "made by Alfy …" sentence the
+	// in-chat card renders — that is what tells a "newest first" list apart
+	// without repeating "Alfy" on every single row (§5.1 problem 4).
+	it("shows each row's bare relative time", async () => {
 		const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
 		renderWorkspace({
 			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
@@ -1699,9 +1847,8 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		});
 
 		const list = await screen.findByTestId("artifact-panel-list");
-		expect(
-			within(list).getByText("made by Alfy 5 min ago"),
-		).toBeInTheDocument();
+		expect(within(list).getByText("5 min ago")).toBeInTheDocument();
+		expect(within(list).queryByText(/made by Alfy/)).not.toBeInTheDocument();
 	});
 
 	it("selects a row's document and closes the list", async () => {
@@ -1715,9 +1862,11 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		});
 
 		const list = await screen.findByTestId("artifact-panel-list");
-		// Each row is an ArtifactCard (chrome="full", Task S6): the title is
-		// plain text, and Open is the row's one clickable affordance.
-		await fireEvent.click(within(list).getByRole("button", { name: "Open" }));
+		// Each row is an ArtifactCard (chrome="row", redesign §5.2): the whole
+		// row is the one clickable affordance, named after its title.
+		await fireEvent.click(
+			within(list).getByRole("button", { name: /Vienna itinerary/ }),
+		);
 
 		expect(onSelectDocument).toHaveBeenCalledWith("list-item-1");
 		expect(onListOpenChange).toHaveBeenCalledWith(false);
@@ -1748,11 +1897,14 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		).toBeGreaterThan(0);
 	});
 
-	// T9 steps 4/7: a Document row with a server preview gets the subtitle
-	// and tickable checklist through documentArtifactCardViewFromPreview —
-	// the SAME builder/data the chat card uses, never a full-body fetch.
-	describe("a Document row's preview (T9 steps 4/7)", () => {
-		it("shows the tab-count subtitle and the first-five tickable items", async () => {
+	// T9 steps 4/7, revised by the redesign (§5.1 problem 4/§5.2): a Document
+	// row's server preview still feeds the row's subtitle through
+	// documentArtifactCardViewFromPreview — the SAME builder/data the in-chat
+	// card uses, never a full-body fetch — but the row itself never shows the
+	// checklist inline any more; ticking a task is something the OPEN
+	// document does, not the list.
+	describe("a Document row's preview (T9 steps 4/7, redesign §5.2)", () => {
+		it("shows the tab-count subtitle, never the checklist itself", async () => {
 			renderWorkspace({
 				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
 				activeDocumentId: "doc-1",
@@ -1778,13 +1930,12 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 
 			const list = await screen.findByTestId("artifact-panel-list");
 			expect(within(list).getByText("Document · 3 tabs")).toBeInTheDocument();
-			expect(within(list).getByText("Passport")).toBeInTheDocument();
-			expect(within(list).getByText("Charger")).toBeInTheDocument();
-			// totalTaskCount (7) minus the 5-item visible cap.
-			expect(within(list).getByText("+2 more")).toBeInTheDocument();
+			expect(within(list).queryByText("Passport")).not.toBeInTheDocument();
+			expect(within(list).queryByText("Charger")).not.toBeInTheDocument();
+			expect(within(list).queryByText("+2 more")).not.toBeInTheDocument();
 		});
 
-		it("ticking a row's item calls onToggleDocumentTask with the artifact id, block id and flipped state", async () => {
+		it("never exposes a per-task checkbox on the row, even with a preview", async () => {
 			const onToggleDocumentTask = vi.fn();
 			renderWorkspace({
 				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
@@ -1808,13 +1959,8 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 			});
 
 			const list = await screen.findByTestId("artifact-panel-list");
-			await fireEvent.click(within(list).getByRole("checkbox"));
-
-			expect(onToggleDocumentTask).toHaveBeenCalledExactlyOnceWith(
-				"doc-1",
-				"b1",
-				true,
-			);
+			expect(within(list).queryByRole("checkbox")).not.toBeInTheDocument();
+			expect(onToggleDocumentTask).not.toHaveBeenCalled();
 		});
 
 		it("falls back to the plain card for a Document row with no preview", async () => {
