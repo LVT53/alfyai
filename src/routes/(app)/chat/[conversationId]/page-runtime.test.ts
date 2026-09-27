@@ -1076,9 +1076,12 @@ describe("chat page runtime integration", () => {
 		await fireEvent.click(await screen.findByTestId("artifact-count-button"));
 		// Scoped to the desktop list: both the mobile and desktop shells exist
 		// in jsdom at once (no media query), so an unscoped query would see two
-		// "Open" buttons for the same row.
+		// rows for the same item. Each row is an ArtifactCard (chrome="row",
+		// redesign §5.2): the whole row is the button, named after its title.
 		const list = await screen.findByTestId("artifact-panel-list");
-		await fireEvent.click(within(list).getByRole("button", { name: "Open" }));
+		await fireEvent.click(
+			within(list).getByRole("button", { name: /Vienna trip summary\.pdf/ }),
+		);
 
 		const shell = await screen.findByRole("complementary", {
 			name: "Document workspace",

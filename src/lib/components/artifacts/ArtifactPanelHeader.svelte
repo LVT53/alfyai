@@ -89,6 +89,7 @@ let crumbLabel = $derived(
 				<button
 					type="button"
 					class="artifact-panel-header-version"
+					data-testid="artifact-version-pill"
 					onclick={onVersions}
 					aria-haspopup="dialog"
 					aria-label={$t('artifacts.card.versionA11y', { n: versionNumber })}
@@ -97,7 +98,10 @@ let crumbLabel = $derived(
 					<ChevronDown size={12} strokeWidth={2.2} aria-hidden="true" />
 				</button>
 			{:else}
-				<span class="artifact-panel-header-version-static">
+				<span
+					class="artifact-panel-header-version-static"
+					data-testid="artifact-version-pill"
+				>
 					{$t('artifacts.card.version', { n: versionNumber })}
 				</span>
 			{/if}
