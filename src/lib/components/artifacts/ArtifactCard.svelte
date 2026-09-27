@@ -18,18 +18,12 @@
 // only the header does not. Asserted by ArtifactCard.test.ts and
 // ToolActivityRow.test.ts: the composed row+body markup shows a title
 // exactly once, for every kind.
-import {
-	AppWindow,
-	FileText,
-	Presentation,
-	Shapes,
-	SquarePen,
-} from "@lucide/svelte";
-import type { Component } from "svelte";
+import { ChevronRight, Sparkles } from "@lucide/svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import { ARTIFACT_KIND_ICONS } from "./kind-icons";
 
 export interface ArtifactCardTickableItem {
 	id: string;
@@ -50,9 +44,30 @@ export interface ArtifactCardView {
 	subtitle?: string | null;
 	/** Rendered as "made by Alfy {when}"; the caller supplies the already-localised time. */
 	madeBy?: string | null;
+	/**
+	 * The bare relative time ("2 min ago"), already localised — `chrome="row"`'s
+	 * own right-aligned time (redesign §5.2), never the "made by Alfy …"
+	 * sentence `madeBy` renders: the row's time column is too narrow for the
+	 * full sentence, and repeating "Alfy" on every row was one of the
+	 * mockup's own complaints (§5.1 problem 4). `null`/omitted renders no time.
+	 */
+	updatedAtLabel?: string | null;
 	versionNumber?: number | null;
 	/** Null while a job is still running, so Open is not offered. */
 	openTargetId?: string | null;
+	/**
+	 * `chrome="row"` only: how many of THIS item's changes are waiting for
+	 * review right now (redesign §5.2's "Pending review shows as a status
+	 * pill"), so the row shows a pill instead of its resting chevron. `null`/
+	 * omitted/0 renders the resting chevron. This is the same ephemeral,
+	 * session-only signal the chat header's count-button dot reads
+	 * (`liveDocumentAlfyActivity`) — a later Wave 2.5 agent's durable
+	 * "pending review survives a reload" work is expected to replace what
+	 * feeds this field, not this field itself.
+	 */
+	pendingReviewCount?: number | null;
+	/** `chrome="row"` only: this item is the one currently open in the panel, so the row is tinted (redesign §5.2). */
+	current?: boolean;
 	tickable?: {
 		items: ArtifactCardTickableItem[];
 		/**
@@ -80,8 +95,15 @@ let {
 	view: ArtifactCardView;
 	/** Live job state for the File kind in the chat. */
 	job?: FileProductionJob | null;
-	/** "full" draws the header row; "body" renders only the body, for a host that draws its own header. */
-	chrome?: "full" | "body";
+	/**
+	 * "full" draws the header row (icon, title, kind label, version pill,
+	 * Open) for the in-chat card; "body" renders only the body, for a host
+	 * that already draws its own header; "row" is the one-line panel-list row
+	 * (redesign §5.2) — icon, title, a muted kind/facts/version line, time,
+	 * and a chevron or a pending-review pill, with the whole row as the
+	 * button.
+	 */
+	chrome?: "full" | "body" | "row";
 	onOpen?: ((artifactId: string) => void) | undefined;
 	/**
 	 * The File body's own per-file Open action (one job can produce several
@@ -96,15 +118,7 @@ let {
 
 const TICKABLE_VISIBLE_LIMIT = 5;
 
-const KIND_ICONS: Record<ArtifactKind, Component> = {
-	file: FileText,
-	document: SquarePen,
-	app: AppWindow,
-	canvas: Shapes,
-	slides: Presentation,
-};
-
-let KindIcon = $derived(KIND_ICONS[view.kind]);
+let KindIcon = $derived(ARTIFACT_KIND_ICONS[view.kind]);
 let visibleTickableItems = $derived(
 	view.tickable?.items.slice(0, TICKABLE_VISIBLE_LIMIT) ?? [],
 );
@@ -148,6 +162,44 @@ function handleOpen(): void {
 	{#if job && FileProductionBody}
 		<FileProductionBody {job} {onOpenDocument} {onRetry} {onCancel} {onDismiss} />
 	{/if}
+{:else if chrome === 'row'}
+	<button
+		type="button"
+		class="artifact-row"
+		class:artifact-row-current={view.current}
+		data-testid="artifact-row"
+		disabled={!view.openTargetId}
+		onclick={handleOpen}
+	>
+		<span class="artifact-row-icon" aria-hidden="true">
+			<KindIcon size={18} strokeWidth={1.75} aria-hidden="true" />
+		</span>
+		<span class="artifact-row-main">
+			<span class="artifact-row-title">{view.title}</span>
+			<span class="artifact-row-sub">
+				<span>{view.subtitle ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+				{#if view.versionNumber}
+					<span class="artifact-row-sep" aria-hidden="true">·</span>
+					<span>{$t('artifacts.card.version', { n: view.versionNumber })}</span>
+				{/if}
+			</span>
+		</span>
+		<span class="artifact-row-end">
+			{#if view.updatedAtLabel}
+				<span class="artifact-row-time">{view.updatedAtLabel}</span>
+			{/if}
+			{#if view.pendingReviewCount}
+				<span class="pill artifact-row-pill">
+					<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
+					{$t('artifacts.panel.pendingReview', { count: view.pendingReviewCount })}
+				</span>
+			{:else}
+				<span class="artifact-row-chev" aria-hidden="true">
+					<ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
+				</span>
+			{/if}
+		</span>
+	</button>
 {:else}
 	<div class="artifact-card" data-testid="artifact-card">
 		{#if chrome === 'full'}
@@ -309,5 +361,121 @@ function handleOpen(): void {
 	.artifact-card-open:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	/* chrome="row" — the panel list's one-line-per-item row (redesign §5.2): the whole row is the button. */
+	.artifact-row {
+		display: grid;
+		grid-template-columns: 34px minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.75rem;
+		width: 100%;
+		min-height: 56px;
+		padding: 0.5rem 0.75rem;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: transparent;
+		text-align: left;
+		font-family: var(--font-sans);
+		cursor: pointer;
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	.artifact-row:hover {
+		background: var(--surface-elevated);
+	}
+
+	.artifact-row-current {
+		background: var(--accent-tint);
+	}
+
+	.artifact-row:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring) inset;
+	}
+
+	.artifact-row:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
+	}
+
+	.artifact-row-icon {
+		display: grid;
+		place-items: center;
+		width: 34px;
+		height: 34px;
+		flex: 0 0 auto;
+		border-radius: 8px;
+		background: var(--accent-tint);
+		color: var(--accent-text);
+	}
+
+	.artifact-row-main {
+		min-width: 0;
+	}
+
+	.artifact-row-title {
+		display: block;
+		overflow: hidden;
+		color: var(--text-primary);
+		font-size: 0.875rem;
+		font-weight: 700;
+		letter-spacing: 0.01em;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+
+	.artifact-row-sub {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.125rem 0.375rem;
+		margin-top: 0.125rem;
+		color: var(--text-muted);
+		font-size: 0.78rem;
+	}
+
+	.artifact-row-sep {
+		opacity: 0.55;
+	}
+
+	.artifact-row-end {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0.25rem;
+		color: var(--text-muted);
+		font-size: 0.75rem;
+	}
+
+	.artifact-row-chev {
+		display: inline-flex;
+		color: var(--icon-muted);
+		opacity: 0;
+		transform: translateX(-4px);
+		transition:
+			opacity var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out);
+	}
+
+	.artifact-row:hover .artifact-row-chev,
+	.artifact-row:focus-visible .artifact-row-chev {
+		opacity: 1;
+		transform: none;
+	}
+
+	.artifact-row-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		height: 20px;
+		padding: 0 0.44rem;
+		border-radius: var(--radius-full);
+		background: var(--accent-tint);
+		color: var(--accent-text);
+		font-size: 0.69rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
 	}
 </style>

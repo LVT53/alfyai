@@ -31,6 +31,12 @@ const artifactsDict = {
 		"artifacts.panel.back": "Back to the item",
 		"artifacts.panel.empty": "Nothing made here yet.",
 		"artifacts.panel.history": "History",
+		// The list row's pending-review pill (redesign §5.2) — a session-only
+		// signal until a later Wave 2.5 agent's durable review-state work lands.
+		"artifacts.panel.pendingReview":
+			"{count} {count, plural, one {change} other {changes}} to review",
+		"artifacts.panel.backA11y":
+			"Back to This chat ({count} {count, plural, one {item} other {items}})",
 		// The shared card.
 		"artifacts.card.open": "Open",
 		"artifacts.card.openA11y": "Open {title}",
@@ -260,6 +266,8 @@ const artifactsDict = {
 		"artifacts.panel.back": "Vissza az elemhez",
 		"artifacts.panel.empty": "Itt még nem készült semmi.",
 		"artifacts.panel.history": "Előzmények",
+		"artifacts.panel.pendingReview": "{count} módosítás vár rád",
+		"artifacts.panel.backA11y": "Vissza: Ez a beszélgetés ({count} elem)",
 		"artifacts.card.open": "Megnyitás",
 		"artifacts.card.openA11y": "{title} megnyitása",
 		"artifacts.card.madeBy": "Alfy készítette: {when}",
