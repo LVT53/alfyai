@@ -21,6 +21,7 @@ import { t } from "$lib/i18n";
 import ArtifactCard, {
 	type ArtifactCardView,
 } from "$lib/components/artifacts/ArtifactCard.svelte";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
@@ -48,6 +49,7 @@ let {
 	bodyContent = undefined,
 	conversationId = null,
 	onToggleDocumentTask = undefined,
+	alfyActivity = null,
 }: {
 	item: ToolActivityItem;
 	open?: boolean;
@@ -80,6 +82,15 @@ let {
 	onToggleDocumentTask?:
 		| ((artifactId: string, blockId: string, checked: boolean) => void)
 		| undefined;
+	/**
+	 * The same ephemeral, session-only "a change just landed" signal
+	 * `DocumentWorkspace.svelte`'s own list rows already read (redesign §5.2,
+	 * Wave 2.5 Step 12) — feeds the standalone in-chat card's
+	 * `pendingReviewCount` ("N changes to review" + "Review ›") when this
+	 * row's own artifact is the one the activity is about. `null` outside a
+	 * live Document turn, or for every other body kind.
+	 */
+	alfyActivity?: DocumentAlfyActivity | null;
 } = $props();
 
 type ArtifactActivityBody = Extract<ToolActivityBody, { kind: "artifact" }>;
@@ -98,24 +109,38 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 		body.artifactKind === "document"
 			? body.preview?.documentPreview
 			: undefined;
+	// Mirrors `DocumentWorkspace.svelte`'s own `artifactCardViewFor` exactly
+	// (redesign §5.2, Wave 2.5 Step 12): the standalone card's "N changes to
+	// review" pill and "Review ›" affordance read the same ephemeral signal
+	// the panel list's row already does, matched to THIS card's own artifact.
+	const pendingReviewCount =
+		alfyActivity &&
+		alfyActivity.artifactId === body.artifactId &&
+		(alfyActivity.status === "applied" || alfyActivity.status === "refused")
+			? Math.max(alfyActivity.appliedCount, 1)
+			: null;
 	if (documentPreview) {
-		return documentArtifactCardViewFromPreview({
-			artifactId: body.artifactId,
-			title: body.artifactTitle,
-			versionNumber: body.preview?.versionNumber ?? 0,
-			subtitle: $t("artifacts.document.cardSubtitle", {
-				count: documentPreview.tabCount,
+		return {
+			...documentArtifactCardViewFromPreview({
+				artifactId: body.artifactId,
+				title: body.artifactTitle,
+				versionNumber: body.preview?.versionNumber ?? 0,
+				subtitle: $t("artifacts.document.cardSubtitle", {
+					count: documentPreview.tabCount,
+				}),
+				preview: documentPreview,
+				onToggleTask: (blockId, checked) =>
+					onToggleDocumentTask?.(body.artifactId, blockId, checked),
 			}),
-			preview: documentPreview,
-			onToggleTask: (blockId, checked) =>
-				onToggleDocumentTask?.(body.artifactId, blockId, checked),
-		});
+			pendingReviewCount,
+		};
 	}
 	return {
 		id: body.artifactId,
 		kind: body.artifactKind,
 		title: body.artifactTitle,
 		openTargetId: body.artifactId,
+		pendingReviewCount,
 	};
 }
 

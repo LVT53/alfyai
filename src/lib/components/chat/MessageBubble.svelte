@@ -32,6 +32,7 @@ import type {
 	AtlasJobCard,
 	AtlasProfile,
 } from "$lib/server/services/atlas/public-types";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
@@ -102,6 +103,7 @@ let {
 	onCancelWrite = undefined,
 	conversationArtifacts = [],
 	onToggleDocumentTask = undefined,
+	alfyActivity = null,
 }: {
 	message: ChatMessage;
 	isLast?: boolean;
@@ -181,6 +183,8 @@ let {
 	onToggleDocumentTask?:
 		| ((artifactId: string, blockId: string, checked: boolean) => void)
 		| undefined;
+	/** Forwarded to ThinkingBlock's standalone card (Wave 2.5 Step 12). See its own prop doc. */
+	alfyActivity?: DocumentAlfyActivity | null;
 } = $props();
 
 let copied = $state(false);
@@ -989,6 +993,7 @@ function sendFollowUp(question: string) {
 			{conversationId}
 			{conversationArtifacts}
 			{onToggleDocumentTask}
+			{alfyActivity}
 		/>
 		{/if}
 		{#if isUser}

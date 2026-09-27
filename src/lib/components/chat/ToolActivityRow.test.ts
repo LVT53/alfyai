@@ -532,6 +532,49 @@ describe("ToolActivityRow", () => {
 			);
 		});
 
+		// Redesign §5.2, Wave 2.5 Step 12: "after an edit ... 'Review ›'" —
+		// mirrors `DocumentWorkspace.svelte`'s own `pendingReviewCount` formula
+		// exactly (same ephemeral `alfyActivity` signal, matched by artifactId).
+		it("shows the pending-review pill and 'Review' when alfyActivity is about this card's own artifact", () => {
+			const { getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(artifactSegment(), "row-review", get(t)),
+				alfyActivity: {
+					key: "call-1",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [],
+					refusedBlocks: [],
+					appliedCount: 2,
+				},
+			});
+
+			const head = getByTestId("artifact-card-head");
+			expect(head).toHaveTextContent("2 changes to review");
+			expect(head).toHaveTextContent("Review");
+		});
+
+		it("ignores alfyActivity about a DIFFERENT artifact", () => {
+			const { getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(artifactSegment(), "row-other", get(t)),
+				alfyActivity: {
+					key: "call-1",
+					artifactId: "some-other-artifact",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [],
+					refusedBlocks: [],
+					appliedCount: 2,
+				},
+			});
+
+			const head = getByTestId("artifact-card-head");
+			expect(head).not.toHaveTextContent("changes to review");
+			expect(head).toHaveTextContent("Open");
+		});
+
 		it("a reload's persisted segment renders the exact same card — no live-only state involved", () => {
 			// Nothing here distinguishes "live" from "after a reload": both cases
 			// hand the SAME tool-call segment shape to buildToolActivityItem, so

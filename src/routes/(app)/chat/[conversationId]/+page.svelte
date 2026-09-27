@@ -3215,6 +3215,7 @@ function handleDrop(event: DragEvent) {
 						onOpenDocument={openWorkspaceDocument}
 						{artifacts}
 						onToggleDocumentTask={handleToggleDocumentTask}
+						alfyActivity={liveDocumentAlfyActivity}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}

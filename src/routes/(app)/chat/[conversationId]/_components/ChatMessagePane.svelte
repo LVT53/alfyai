@@ -1,5 +1,6 @@
 <script lang="ts">
 import MessageArea from "$lib/components/chat/MessageArea.svelte";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type {
 	AtlasAction,
@@ -52,6 +53,7 @@ let {
 	onCancelWrite = undefined,
 	artifacts = [],
 	onToggleDocumentTask = undefined,
+	alfyActivity = null,
 }: {
 	messages: ChatMessage[];
 	conversationId: string;
@@ -119,6 +121,8 @@ let {
 		blockId: string,
 		checked: boolean,
 	) => void;
+	/** Forwarded to every message's in-chat card (Wave 2.5 Step 12). */
+	alfyActivity?: DocumentAlfyActivity | null;
 } = $props();
 </script>
 
@@ -164,6 +168,7 @@ let {
 		{onCancelWrite}
 		{artifacts}
 		{onToggleDocumentTask}
+		{alfyActivity}
 	/>
 </div>
 
