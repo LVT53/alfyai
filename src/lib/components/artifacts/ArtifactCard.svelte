@@ -1,23 +1,31 @@
 <script lang="ts">
 // The one card every artifact kind renders as, in chat and in the panel's
-// list (Slice 0 Task S6). Two chrome modes share one body-dispatch:
-// "full" draws the header row (icon, title, kind label, version pill, Open)
-// for the panel list; "body" renders only the kind's body — no title, icon,
-// kind label or version pill of its own — for a host that already draws its
-// own header.
+// list (Slice 0 Task S6). Three chrome modes share one body-dispatch:
+// "row" is the panel list's one-line-per-item row (redesign §5.2, agent 2);
+// "full" is the standalone in-chat card (redesign §5.2/§9.2, Wave 2.5 Step
+// 12) — its OWN head (icon, title, subtitle line, version, pending-review
+// pill) is one button, with the trailing "Open ›" / "Open in panel" /
+// "Review ›" affordance built into it, never a second control; "body"
+// renders only the kind's body — no title, icon, kind label or version pill
+// of its own — for a host that already draws its own header.
 //
-// Every kind hosted by ToolActivityRow is such a host: the row chrome always
-// renders its own icon and its own verb+object line (`item.object`) before
-// the body ever opens — a produced file's ("Produced budget.xlsx") exactly
-// as much as a create_artifact/edit_artifact call's ("Created Weekend
-// plan"). chrome="body" must never repeat that line: the File body
-// (`FileProductionCard.svelte`, moved here from ToolActivityRow, imported
-// lazily so a chat page with no file-producing turn never pays for its
-// chunk) never has, and the other four kinds' chat card follows the same
-// rule — subtitle, tickable items and Open still render under chrome="body",
-// only the header does not. Asserted by ArtifactCard.test.ts and
-// ToolActivityRow.test.ts: the composed row+body markup shows a title
-// exactly once, for every kind.
+// The File kind hosted by ToolActivityRow is such a host: the row chrome
+// always renders its own icon and its own verb+object line (`item.object`)
+// before the body ever opens ("Produced budget.xlsx"), and chrome="body"
+// must never repeat that line — the File body (`FileProductionCard.svelte`,
+// moved here from ToolActivityRow, imported lazily so a chat page with no
+// file-producing turn never pays for its chunk) never has. Asserted by
+// ArtifactCard.test.ts and ToolActivityRow.test.ts: the composed row+body
+// markup shows a title exactly once, for the File kind.
+//
+// The other four kinds' in-chat card is chrome="full" instead (Wave 2.5 Step
+// 12 changed this from chrome="body"): the approved mockup's own `.a-card`
+// deliberately repeats the title — once on the tool row's compact status
+// line ("Created Weekend plan"), once on the card's own head — so a create_
+// artifact/edit_artifact card reads as a real deliverable next to the chat,
+// not a nested log entry. `ArtifactCard.test.ts` and
+// `artifact-chat-card.spec.ts` assert the row+card pair together instead of
+// a single-title invariant for this chrome.
 import { ChevronRight, Sparkles } from "@lucide/svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
@@ -56,17 +64,23 @@ export interface ArtifactCardView {
 	/** Null while a job is still running, so Open is not offered. */
 	openTargetId?: string | null;
 	/**
-	 * `chrome="row"` only: how many of THIS item's changes are waiting for
-	 * review right now (redesign §5.2's "Pending review shows as a status
-	 * pill"), so the row shows a pill instead of its resting chevron. `null`/
-	 * omitted/0 renders the resting chevron. This is the same ephemeral,
-	 * session-only signal the chat header's count-button dot reads
+	 * `chrome="row"` and `chrome="full"`: how many of THIS item's changes are
+	 * waiting for review right now (redesign §5.2's "Pending review shows as
+	 * a status pill"). A row shows a pill instead of its resting chevron; a
+	 * standalone card's head shows the same pill plus "Review ›" instead of
+	 * "Open ›" (§5.2's in-chat card, Wave 2.5 Step 12). `null`/omitted/0
+	 * renders the resting chevron / plain "Open ›". This is the same
+	 * ephemeral, session-only signal the chat header's count-button dot reads
 	 * (`liveDocumentAlfyActivity`) — a later Wave 2.5 agent's durable
 	 * "pending review survives a reload" work is expected to replace what
 	 * feeds this field, not this field itself.
 	 */
 	pendingReviewCount?: number | null;
-	/** `chrome="row"` only: this item is the one currently open in the panel, so the row is tinted (redesign §5.2). */
+	/**
+	 * `chrome="row"` and `chrome="full"`: this item is the one currently open
+	 * in the panel. A row is tinted; a standalone card is outlined in accent
+	 * and its head reads "Open in panel" instead of "Open ›" (redesign §5.2).
+	 */
 	current?: boolean;
 	tickable?: {
 		items: ArtifactCardTickableItem[];
@@ -201,28 +215,7 @@ function handleOpen(): void {
 		</span>
 	</button>
 {:else}
-	<div class="artifact-card" data-testid="artifact-card">
-		{#if chrome === 'full'}
-			<div class="artifact-card-header">
-				<span class="artifact-card-icon" aria-hidden="true">
-					<KindIcon size={16} strokeWidth={1.75} aria-hidden="true" />
-				</span>
-				<span class="artifact-card-title">{view.title}</span>
-				<span class="artifact-card-kind">{$t(`artifacts.type.${view.kind}` as I18nKey)}</span>
-				{#if view.versionNumber}
-					<span class="artifact-card-version">{$t('artifacts.card.version', { n: view.versionNumber })}</span>
-				{/if}
-			</div>
-		{/if}
-
-		{#if view.subtitle}
-			<div class="artifact-card-subtitle">{view.subtitle}</div>
-		{/if}
-
-		{#if view.madeBy}
-			<div class="artifact-card-madeby">{view.madeBy}</div>
-		{/if}
-
+	{#snippet tickableBlock()}
 		{#if view.tickable}
 			<ul class="artifact-card-tickable">
 				{#each visibleTickableItems as tickItem (tickItem.id)}
@@ -258,11 +251,80 @@ function handleOpen(): void {
 				</div>
 			{/if}
 		{/if}
+	{/snippet}
 
-		{#if view.openTargetId}
-			<button type="button" class="artifact-card-open" onclick={handleOpen}>
-				{$t('artifacts.card.open')}
+	<div
+		class="artifact-card"
+		class:artifact-card-full={chrome === 'full'}
+		class:artifact-card-current={chrome === 'full' && view.current}
+		data-testid="artifact-card"
+	>
+		{#if chrome === 'full'}
+			<!-- The head IS the button (redesign §5.2: "the head is one button") —
+			     icon, title, subtitle/version/pending-review line, and the
+			     trailing Open/Review affordance all live inside one control, never
+			     a separate "Open" button beside a non-interactive header. -->
+			<button
+				type="button"
+				class="artifact-card-head"
+				data-testid="artifact-card-head"
+				disabled={!view.openTargetId}
+				onclick={handleOpen}
+			>
+				<span class="artifact-card-icon" aria-hidden="true">
+					<KindIcon size={18} strokeWidth={1.75} aria-hidden="true" />
+				</span>
+				<span class="artifact-card-headtext">
+					<span class="artifact-card-title">{view.title}</span>
+					<span class="artifact-card-sub">
+						<span>{view.subtitle ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+						{#if view.versionNumber}
+							<span class="artifact-card-sep" aria-hidden="true">·</span>
+							<span>{$t('artifacts.card.version', { n: view.versionNumber })}</span>
+						{/if}
+						{#if view.pendingReviewCount}
+							<span class="pill artifact-card-pending">
+								<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
+								{$t('artifacts.panel.pendingReview', { count: view.pendingReviewCount })}
+							</span>
+						{/if}
+					</span>
+				</span>
+				{#if view.openTargetId}
+					<span class="artifact-card-cta">
+						{#if view.pendingReviewCount}
+							{$t('artifacts.card.review')}
+						{:else if view.current}
+							{$t('artifacts.card.openInPanel')}
+						{:else}
+							{$t('artifacts.card.open')}
+						{/if}
+						<ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
+					</span>
+				{/if}
 			</button>
+
+			{#if view.tickable}
+				<div class="artifact-card-body">
+					{@render tickableBlock()}
+				</div>
+			{/if}
+		{:else}
+			{#if view.subtitle}
+				<div class="artifact-card-subtitle">{view.subtitle}</div>
+			{/if}
+
+			{#if view.madeBy}
+				<div class="artifact-card-madeby">{view.madeBy}</div>
+			{/if}
+
+			{@render tickableBlock()}
+
+			{#if view.openTargetId}
+				<button type="button" class="artifact-card-open" onclick={handleOpen}>
+					{$t('artifacts.card.open')}
+				</button>
+			{/if}
 		{/if}
 	</div>
 {/if}
@@ -274,17 +336,80 @@ function handleOpen(): void {
 		gap: var(--space-xs, 0.375rem);
 	}
 
-	.artifact-card-header {
-		display: flex;
+	/* chrome="full" — the standalone in-chat card (redesign §5.2, Wave 2.5
+	   Step 12): a real bordered card, never just a flex column of parts, so
+	   it stands on its own below the tool row instead of reading as another
+	   line inside it. Scoped to this modifier class (not the bare
+	   `.artifact-card`) so chrome="body" — a host that draws its own box
+	   already (ToolActivityRow's `.act-body`) — is untouched. */
+	.artifact-card-full {
+		gap: 0;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-lg, 12px);
+		background: var(--surface-page);
+		box-shadow: var(--shadow-sm);
+		overflow: hidden;
+		transition:
+			border-color var(--duration-standard) var(--ease-out),
+			box-shadow var(--duration-standard) var(--ease-out);
+	}
+
+	/* The item this card is FOR is already open in the panel (redesign §5.2). */
+	.artifact-card-current {
+		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+		box-shadow: 0 0 0 3px var(--accent-tint);
+	}
+
+	/* The head IS the button: icon, title/subtitle column, and the trailing
+	   Open/Review affordance all sit in one control (redesign §5.2's "the
+	   head is one button" — the same whole-element-is-the-button shape
+	   chrome="row" already uses, just laid out as a card head instead of a
+	   one-line row). */
+	.artifact-card-head {
+		display: grid;
+		grid-template-columns: 36px minmax(0, 1fr) auto;
 		align-items: center;
-		gap: var(--space-xs, 0.375rem);
+		gap: 0.75rem;
+		width: 100%;
+		padding: 0.75rem 0.75rem 0.75rem 0.875rem;
+		border: 0;
+		background: transparent;
+		text-align: left;
+		font-family: var(--font-sans);
+		cursor: pointer;
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	.artifact-card-head:hover:not(:disabled) {
+		background: var(--surface-overlay);
+	}
+
+	.artifact-card-head:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring) inset;
+	}
+
+	.artifact-card-head:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
+	}
+
+	.artifact-card-headtext {
 		min-width: 0;
 	}
 
+	/* The kind tile (redesign §5.2's `.kind-tile`): bigger and tinted, unlike
+	   chrome="body"/"row"'s plain muted-icon treatment, because this is the
+	   card's own identity mark, not a decoration beside someone else's title. */
 	.artifact-card-icon {
-		display: inline-flex;
+		display: grid;
+		place-items: center;
+		width: 36px;
+		height: 36px;
 		flex: 0 0 auto;
-		color: var(--icon-muted);
+		border-radius: 9px;
+		background: var(--accent-tint);
+		color: var(--accent-text);
 	}
 
 	.artifact-card-title {
@@ -294,18 +419,63 @@ function handleOpen(): void {
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--text-primary);
-		font-weight: 600;
+		font-weight: 700;
+		letter-spacing: 0.01em;
 	}
 
-	.artifact-card-kind,
-	.artifact-card-version {
-		flex: 0 0 auto;
-		padding: 0.05rem 0.42rem;
-		border-radius: var(--radius-md);
-		background: var(--surface-elevated);
+	.artifact-card-sub {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.125rem 0.375rem;
+		margin-top: 0.125rem;
 		color: var(--text-muted);
-		font-size: var(--text-2xs, 0.66rem);
-		font-weight: 600;
+		font-size: 0.78rem;
+	}
+
+	.artifact-card-sep {
+		opacity: 0.6;
+	}
+
+	.artifact-card-pending {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		height: 20px;
+		padding: 0 0.44rem;
+		border-radius: var(--radius-full);
+		background: var(--accent-tint);
+		color: var(--accent-text);
+		font-size: 0.69rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+
+	.artifact-card-cta {
+		display: inline-flex;
+		flex: 0 0 auto;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.3rem 0.5rem;
+		border-radius: var(--radius-md);
+		color: var(--accent-text);
+		font-size: 0.78rem;
+		font-weight: 700;
+		white-space: nowrap;
+	}
+
+	.artifact-card-head:hover:not(:disabled) .artifact-card-cta {
+		background: var(--accent-tint);
+	}
+
+	/* Aligns under the head's text column (14px head padding + 36px icon +
+	   12px gap = 62px), mirroring the mockup's `.a-card-body` exactly. */
+	.artifact-card-body {
+		padding: 0.125rem 0.875rem 0.75rem 62px;
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
 	}
 
 	.artifact-card-subtitle,
@@ -330,6 +500,16 @@ function handleOpen(): void {
 		color: var(--text-primary);
 		font-size: var(--text-sm);
 		cursor: pointer;
+	}
+
+	/* Redesign §5.2: "checklist ticks are 44 px tall on phones" — a task's
+	   whole row (the `<label>`, not just the visual checkbox square) is the
+	   tap target, so a taller row is enough; it applies to both chrome
+	   values since they share this exact row markup. */
+	@media (max-width: 767px) {
+		.artifact-card-tick-row {
+			min-height: 44px;
+		}
 	}
 
 	.artifact-card-tick-done {

@@ -45,6 +45,12 @@ const artifactsDict = {
 		// The shared card.
 		"artifacts.card.open": "Open",
 		"artifacts.card.openA11y": "Open {title}",
+		// chrome="full"'s standalone in-chat card (Wave 2.5 Step 12): the head's
+		// trailing affordance when the item is the one already open in the panel,
+		// or when an Alfy edit is waiting for review — see ArtifactCardView's
+		// `current`/`pendingReviewCount` doc comments.
+		"artifacts.card.openInPanel": "Open in panel",
+		"artifacts.card.review": "Review",
 		"artifacts.card.madeBy": "made by Alfy {when}",
 		"artifacts.card.version": "v{n}",
 		"artifacts.card.versionA11y": "Version {n}",
@@ -283,6 +289,8 @@ const artifactsDict = {
 		"artifacts.panel.backA11y": "Vissza: Ez a beszélgetés ({count} elem)",
 		"artifacts.card.open": "Megnyitás",
 		"artifacts.card.openA11y": "{title} megnyitása",
+		"artifacts.card.openInPanel": "Megnyitva a panelen",
+		"artifacts.card.review": "Átnézés",
 		"artifacts.card.madeBy": "Alfy készítette: {when}",
 		"artifacts.card.version": "v{n}",
 		"artifacts.card.versionA11y": "{n}. verzió",
