@@ -586,7 +586,8 @@ export const tabSectionPluginKey = new PluginKey<TabSectionPluginState>(
 	"documentTabSections",
 );
 
-export interface TabSectionPluginState {
+/** Not exported: only `tabSectionPluginKey`'s own `PluginKey<T>` and the plugin below need this shape. */
+interface TabSectionPluginState {
 	tabs: DocumentTab[];
 	activeTabId: string;
 }
