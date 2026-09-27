@@ -109,6 +109,7 @@ let {
 	alfyActivity = null,
 	onDirtyChange,
 	onBodyChange,
+	registerPanelActions,
 }: ArtifactBodyProps = $props();
 
 type LoadState = "loading" | "ready" | "load_error" | "not_found";
@@ -116,6 +117,8 @@ type SaveNotice = "offline" | "tooLarge" | "conflict" | "deleted" | null;
 
 let loadState = $state<LoadState>("loading");
 let saveNotice = $state<SaveNotice>(null);
+/** Mirrors every `onDirtyChange?.(...)` call so the toolbar's own "Saved"/"Saving…" state (redesign §5.2/§9.2) can read it locally, without waiting on the panel's round trip. */
+let isDirty = $state(false);
 let versionNumber = $state<number | null>(null);
 /**
  * RV-1B, coordinator item 6: the last body hash this component KNOWS is
@@ -151,7 +154,30 @@ let editorEl = $state<HTMLDivElement | undefined>();
 let editor: Editor | null = null;
 let autosave: DocumentAutosaveHandle | null = null;
 let readMarkdownFn: typeof DocumentEditorModule.readMarkdown | null = null;
+/** Redesign §5.2 "Tabs switch sections", Wave 2.5 Step 5 — see `document-editor.ts`'s own doc comment. */
+let setActiveDocumentTabFn:
+	| typeof DocumentEditorModule.setActiveDocumentTab
+	| null = null;
 let editorReady = $derived(loadState === "ready");
+
+/**
+ * The toolbar's own right-aligned save state (redesign §5.2/§9.2: "the
+ * existing save notices move into the toolbar's right end"). `offline`/
+ * `conflict` reuse `saveNotice` for a compact label; the detailed sentence
+ * (plus, for `tooLarge`/`deleted`, an action) stays on the existing
+ * `.document-save-banner` below — those two states are not compact-label
+ * material, so they are not duplicated here.
+ */
+type ToolbarSaveState = "saving" | "saved" | "offline" | "conflict";
+let toolbarSaveState = $derived<ToolbarSaveState>(
+	saveNotice === "offline"
+		? "offline"
+		: saveNotice === "conflict"
+			? "conflict"
+			: isDirty
+				? "saving"
+				: "saved",
+);
 
 // ---- T8 live: marks.ts's surface, reached only through document-editor.ts's
 // lazy re-exports (never a static "./marks" import from this file). ---------
@@ -216,6 +242,44 @@ let handledActivityKey = "";
 function updateBlocksFromMarkdown(markdown: string): void {
 	blocks = parseDocument(markdown, { mint: false }).blocks;
 }
+
+/**
+ * `Tabs.svelte`'s badge (redesign §5.2): how many of THIS tab's own comment
+ * THREADS (root comments, never replies) are still open. Walks `blocks` in
+ * the SAME document order `extensions.ts`'s `buildTabSectionDecorations`
+ * walks the live ProseMirror doc, assigning each block to whichever tab's
+ * `startBlockId` most recently appeared at or before it — kept in sync here
+ * (rather than reading the decoration back out of the editor) because this
+ * needs to run whenever `comments` changes too, not just `tabs`/`blocks`.
+ */
+function computeTabBadgeCounts(
+	docBlocks: DocumentBlock[],
+	docComments: ArtifactComment[],
+	docTabs: DocumentTab[],
+): Record<string, number> {
+	if (docTabs.length <= 1) return {};
+	const startBlockIdToTabId = new Map(
+		docTabs.map((tab) => [tab.startBlockId, tab.id] as const),
+	);
+	const blockIdToTabId = new Map<string, string>();
+	let currentTabId = docTabs[0]?.id ?? "";
+	for (const block of docBlocks) {
+		const owningTabId = startBlockIdToTabId.get(block.id);
+		if (owningTabId !== undefined) currentTabId = owningTabId;
+		blockIdToTabId.set(block.id, currentTabId);
+	}
+	const counts: Record<string, number> = {};
+	for (const comment of docComments) {
+		if (comment.status !== "open") continue;
+		if (!comment.anchor || comment.anchor.kind !== "text") continue;
+		const tabId = blockIdToTabId.get(comment.anchor.blockId);
+		if (!tabId) continue;
+		counts[tabId] = (counts[tabId] ?? 0) + 1;
+	}
+	return counts;
+}
+
+let tabBadgeCounts = $derived(computeTabBadgeCounts(blocks, comments, tabs));
 
 function updateSelectionBubble(): void {
 	if (!editor || !readSelectionContextFn || !contentEl) {
@@ -659,6 +723,7 @@ function handleDirty(): void {
 	if (saveNotice === "tooLarge" && autosave?.stopped) {
 		autosave.resume();
 	}
+	isDirty = true;
 	onDirtyChange?.(true);
 }
 
@@ -687,6 +752,7 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
 		// in between, instead of silently overwriting it.
 		if (typeof result.bodyHash === "string") knownBodyHash = result.bodyHash;
 		saveNotice = null;
+		isDirty = false;
 		onDirtyChange?.(false);
 		onBodyChange?.(markdown);
 		return;
@@ -709,19 +775,50 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
 	}
 }
 
+/**
+ * Wave 2.5 Step 3: the shared trigger for the header's version button
+ * (`ArtifactPanelHeader`, via `registerPanelActions` below) — the ONE History
+ * entry the redesign wants, replacing the toolbar's own "history" action.
+ * Both sheets anchor to the same top-right corner (T12/T6): only one may be
+ * open at a time, or they would visually overlap.
+ */
+function openVersionsSheet(): void {
+	downloadSheetOpen = false;
+	versionsSheetOpen = true;
+}
+
+/** The header's Download action (`registerPanelActions`), replacing the toolbar's own "download" action. */
+function openDownloadSheet(): void {
+	versionsSheetOpen = false;
+	downloadSheetOpen = true;
+}
+
+// Wave 2.5 Step 3: hands the panel header the two sheet triggers above, so
+// `ArtifactPanelHeader.svelte` can open them without knowing anything about
+// Tiptap or this body's own state — see `ArtifactBodyProps.registerPanelActions`.
+// No dependency this effect reads ever changes (the two functions are stable
+// closures over local `$state` setters), so this runs once, after mount,
+// like `onMount` — but as an effect, a future need to re-register per
+// `artifactId` (the panel's rail can swap which item is open without
+// remounting this body) is one dependency read away rather than a rewrite.
+$effect(() => {
+	registerPanelActions?.({
+		openVersions: openVersionsSheet,
+		openDownload: openDownloadSheet,
+	});
+});
+
 function handleToolbarAction(id: DocumentToolbarActionId): void {
 	// T12/T6: the two toolbar actions that never touch the live editor
-	// directly — they open a sheet instead.
+	// directly — they open a sheet instead. Wave 2.5 Step 5 moves both
+	// actions out of the toolbar and into the panel header (above); these two
+	// branches stay as a harmless fallback until that step lands.
 	if (id === "download") {
-		// Both sheets anchor to the same top-right corner (T12/T6): only one
-		// may be open at a time, or they would visually overlap.
-		versionsSheetOpen = false;
-		downloadSheetOpen = true;
+		openDownloadSheet();
 		return;
 	}
 	if (id === "history") {
-		downloadSheetOpen = false;
-		versionsSheetOpen = true;
+		openVersionsSheet();
 		return;
 	}
 	if (!editor) return;
@@ -787,9 +884,15 @@ function handleLinkAction(): void {
 	editor.chain().focus().toggleLink({ href: url.trim() }).run();
 }
 
-/** Switching the active tab is a pure UI notification — it never touches the editor (T9.1). */
+/**
+ * Switching the active tab never remounts or reloads the document (T9.1) —
+ * `setActiveDocumentTabFn` dispatches a no-op-for-history meta transaction
+ * that only updates which blocks the tab-section decoration hides (redesign
+ * §5.2), the same document, editor instance and undo stack throughout.
+ */
 function handleTabActivate(tabId: string): void {
 	activeTabId = tabId;
+	if (editor) setActiveDocumentTabFn?.(editor, tabs, tabId);
 }
 
 /**
@@ -804,6 +907,10 @@ function handleTabActivate(tabId: string): void {
  */
 async function handleTabsChange(next: DocumentTab[]): Promise<void> {
 	tabs = next;
+	// An add/delete can move section boundaries even when `activeTabId`
+	// itself is unchanged (e.g. deleting a LATER tab); a rename cannot, but
+	// re-dispatching is a cheap no-op either way (redesign §5.2).
+	if (editor) setActiveDocumentTabFn?.(editor, next, activeTabId);
 	const canonical = currentCanonicalMarkdown();
 	if (canonical === null) return;
 	const result = await saveDocumentTabs(
@@ -865,6 +972,7 @@ async function handleSaveCopy(): Promise<void> {
 		tabs = [];
 		activeTabId = "";
 		saveNotice = null;
+		isDirty = false;
 		bindAutosave(created.id, conversationId);
 		onDirtyChange?.(false);
 		onBodyChange?.(canonical);
@@ -899,6 +1007,7 @@ async function runLoad(id: string): Promise<void> {
 	const myToken = ++loadToken;
 	loadState = "loading";
 	saveNotice = null;
+	isDirty = false;
 	try {
 		const conversationId = panelConversationId ?? null;
 		const [mod, detail] = await Promise.all([
@@ -908,6 +1017,7 @@ async function runLoad(id: string): Promise<void> {
 		if (myToken !== loadToken || !editorEl) return;
 
 		readMarkdownFn = mod.readMarkdown;
+		setActiveDocumentTabFn = mod.setActiveDocumentTab;
 		loadMarkdownFn = mod.loadMarkdown;
 		readSelectionContextFn = mod.readSelectionAnchorContext;
 		applyAlfyChangesFn = mod.applyAlfyChanges;
@@ -941,6 +1051,10 @@ async function runLoad(id: string): Promise<void> {
 			onUpdate: handleUpdate,
 			onSelectionUpdate: handleSelectionUpdate,
 		});
+		// The very first paint already shows only the active tab's section
+		// (redesign §5.2) — without this, every section would flash visible
+		// until the user's first tab click dispatched the meta transaction.
+		setActiveDocumentTabFn(editor, tabs, activeTabId);
 		updateActiveActionIds();
 		bindAutosave(id, conversationId);
 
@@ -999,6 +1113,7 @@ function saveNoticeText(notice: SaveNotice): string {
 				{activeTabId}
 				onActivate={handleTabActivate}
 				onChange={handleTabsChange}
+				badgeCounts={tabBadgeCounts}
 			/>
 		{/if}
 		<!-- T11: the phone gets its own toolbar (its row stays inside a 48 px
@@ -1009,6 +1124,7 @@ function saveNoticeText(notice: SaveNotice): string {
 			<DocumentToolbar
 				{activeActionIds}
 				disabled={!editorReady}
+				saveState={editorReady ? toolbarSaveState : undefined}
 				onAction={handleToolbarAction}
 			/>
 		</div>
@@ -1207,6 +1323,315 @@ function saveNoticeText(notice: SaveNotice): string {
 
 	.document-editor-host :global(.document-content) {
 		outline: none;
+	}
+
+	/* Artifacts redesign §1/§2.3/§9.2, Step 2.1: the prose layer. Nothing
+	   styled the text inside `.document-content` before this (its one rule
+	   was the outline-none one above) — headings looked like body text, every
+	   checkbox sat above its label, the table had no borders, status chips
+	   were raw native selects. This mirrors the mockup's `.prose`/`.doc-page`
+	   rules (`docs/design/artifacts-redesign/index.html`) against the REAL
+	   Tiptap-rendered DOM: `:global(...)` has to wrap the full descendant
+	   selector, not just `.document-content` itself, because everything past
+	   that point (h2, p, table, …) is Tiptap-injected markup that never
+	   carries this component's own Svelte scoping hash — a bare descendant
+	   combinator outside `:global(...)` would silently match nothing. */
+	.document-editor-host :global(.document-content) {
+		font-family: var(--font-serif);
+		font-size: 16px;
+		line-height: 1.72;
+		color: var(--text-primary);
+		max-width: 62ch;
+	}
+
+	.document-editor-host :global(.document-content h1),
+	.document-editor-host :global(.document-content h2),
+	.document-editor-host :global(.document-content h3),
+	.document-editor-host :global(.document-content h4),
+	.document-editor-host :global(.document-content h5),
+	.document-editor-host :global(.document-content h6) {
+		font-family: var(--font-sans);
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.document-editor-host :global(.document-content h1) {
+		font-size: 24px;
+		line-height: 1.25;
+		letter-spacing: 0.005em;
+		margin: 0 0 12px;
+	}
+
+	.document-editor-host :global(.document-content h2) {
+		font-size: 20px;
+		line-height: 1.3;
+		letter-spacing: 0.005em;
+		margin: 0 0 10px;
+	}
+
+	.document-editor-host :global(.document-content h3) {
+		font-size: 16px;
+		letter-spacing: 0.01em;
+		margin: 22px 0 6px;
+	}
+
+	.document-editor-host :global(.document-content h4),
+	.document-editor-host :global(.document-content h5),
+	.document-editor-host :global(.document-content h6) {
+		font-size: 14px;
+		margin: 18px 0 4px;
+	}
+
+	.document-editor-host :global(.document-content p) {
+		margin: 0 0 12px;
+		position: relative;
+	}
+
+	.document-editor-host :global(.document-content strong) {
+		font-weight: 700;
+	}
+
+	.document-editor-host :global(.document-content ul),
+	.document-editor-host :global(.document-content ol) {
+		margin: 0 0 12px;
+		padding-left: 1.375rem;
+	}
+
+	.document-editor-host :global(.document-content li) {
+		margin: 0.125rem 0;
+	}
+
+	.document-editor-host :global(.document-content blockquote) {
+		margin: 0.5rem 0 1rem;
+		padding: 0.25rem 0 0.25rem 1rem;
+		border-left: 3px solid var(--border-default);
+		color: var(--text-muted);
+		font-style: italic;
+	}
+
+	.document-editor-host :global(.document-content code) {
+		font-family: var(--font-mono);
+		font-size: 0.85em;
+		background-color: var(--surface-code);
+		border-radius: var(--radius-sm);
+		padding: 0.1em 0.3em;
+	}
+
+	.document-editor-host :global(.document-content pre) {
+		margin: 0.5rem 0 1rem;
+		padding: 0.75rem 1rem;
+		background-color: var(--surface-code);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		overflow-x: auto;
+	}
+
+	.document-editor-host :global(.document-content pre code) {
+		background-color: transparent;
+		padding: 0;
+		border-radius: 0;
+	}
+
+	/* Inline task items (`@tiptap/extension-list`'s TaskList/TaskItem): the
+	   real DOM is `ul[data-type=taskList] > li[data-checked] > (label >
+	   input[type=checkbox] + span, div > p)` — no class of its own to hook,
+	   so these are tag/attribute selectors rather than the mockup's `.tasks`/
+	   `.task`/`.task-box`. `display: flex` on the list item is the actual fix
+	   for the bug this step exists to close: without it, the label (holding
+	   only the checkbox) and the text `div` are both block-level and stack
+	   vertically, putting every checkbox on its own line above its label.
+	   Wave 2.5 Step 0: this used to key off `li[data-type='taskItem']`, which
+	   never matches — TaskItem renders through a custom Tiptap `addNodeView()`,
+	   and a NodeView's HTML attributes come only from each attribute's own
+	   `renderHTML` (here just `checked` → `data-checked`); the literal
+	   `'data-type': this.name` baked into the node's schema-level `renderHTML()`
+	   is a separate code path used only when there is no NodeView, so it never
+	   reached the live `<li>` and every rule below was dead. `data-checked` is
+	   always rendered (`"true"` or `"false"`), so it is the reliable hook. */
+	.document-editor-host :global(.document-content ul[data-type='taskList']) {
+		list-style: none;
+		margin: 6px 0 16px;
+		padding: 0;
+		font-family: var(--font-serif);
+	}
+
+	.document-editor-host :global(.document-content li[data-checked]) {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+		padding: 4px 0;
+		font-size: 15.5px;
+	}
+
+	.document-editor-host :global(.document-content li[data-checked] > label) {
+		display: inline-flex;
+		flex-shrink: 0;
+		margin-top: 0.2em;
+	}
+
+	.document-editor-host :global(.document-content li[data-checked] input[type='checkbox']) {
+		width: 17px;
+		height: 17px;
+		accent-color: var(--accent);
+		cursor: pointer;
+	}
+
+	.document-editor-host :global(.document-content li[data-checked] > div) {
+		min-width: 0;
+	}
+
+	.document-editor-host :global(.document-content li[data-checked] > div p) {
+		margin: 0;
+	}
+
+	/* The tracker table (`@tiptap/extension-table`'s TableKit, configured
+	   with `renderWrapper: false` — see `extensions.ts` — so this styles the
+	   bare `table` directly rather than the mockup's `.doc-table-wrap` +
+	   `.doc-table` pair, which wraps a `<div>` this DOM does not have). */
+	.document-editor-host :global(.document-content table) {
+		width: 100%;
+		margin: 6px 0 16px;
+		border: 1px solid var(--border-default);
+		border-radius: 10px;
+		border-collapse: collapse;
+		overflow: hidden;
+		font-family: var(--font-sans);
+		font-size: 13.5px;
+	}
+
+	.document-editor-host :global(.document-content th) {
+		text-align: left;
+		padding: 9px 12px;
+		font-size: 10.5px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+		background-color: var(--surface-overlay);
+		border-bottom: 1px solid var(--border-default);
+	}
+
+	.document-editor-host :global(.document-content td) {
+		padding: 9px 12px;
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.document-editor-host :global(.document-content tr:last-child td) {
+		border-bottom: 0;
+	}
+
+	/* The tracker chip (`extensions.ts`'s `TrackerChip` node): a status chip
+	   is a real `<select>` (a listbox) so the toned pill background/text
+	   below key off the wrapper span's own `data-chip-value` — the canonical
+	   English token `chips.ts` always writes there, never the localized
+	   label — so re-colouring never depends on the current UI language. A
+	   date chip (`data-chip-kind="date"`) has no fixed vocabulary and no
+	   tone; it reads as a plain bordered pill instead. */
+	.document-editor-host :global(.document-content .tracker-chip) {
+		display: inline-flex;
+		align-items: center;
+		height: 26px;
+		padding: 0 10px;
+		border-radius: var(--radius-full);
+		background-color: var(--surface-elevated);
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+		font-size: 12.5px;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		vertical-align: middle;
+	}
+
+	.document-editor-host :global(.document-content .tracker-chip[data-chip-value='To book']),
+	.document-editor-host :global(.document-content .tracker-chip[data-chip-value='Cancelled']) {
+		background-color: var(--warning-tint);
+		color: var(--warning-text);
+	}
+
+	.document-editor-host :global(.document-content .tracker-chip[data-chip-value='Booked']),
+	.document-editor-host :global(.document-content .tracker-chip[data-chip-value='Paid']) {
+		background-color: var(--success-tint);
+		color: var(--success-text);
+	}
+
+	.document-editor-host :global(.document-content .tracker-chip[data-chip-kind='date']) {
+		background-color: var(--surface-page);
+		color: var(--text-primary);
+		font-weight: 400;
+		border: 1px solid var(--border-default);
+	}
+
+	.document-editor-host :global(.document-content .tracker-chip-select) {
+		appearance: none;
+		border: none;
+		background-color: transparent;
+		font: inherit;
+		color: inherit;
+		letter-spacing: inherit;
+		padding: 0;
+		margin: 0;
+		cursor: pointer;
+	}
+
+	/* Step 2.2: Alfy's change mark (`marks.ts`'s `AlfyChange` Tiptap mark,
+	   T8) — the visible trace of an applied patch (§1/§4), invisible before
+	   this (marks.ts emitted the class with no matching CSS anywhere). The
+	   2px underline in --accent keeps the change visible after its own tint
+	   has settled all the way down to the page. `arrive` plays once, right
+	   when the mark is first created — see marks.ts's own comment on why
+	   rendering it unconditionally on every render is still safe — settling
+	   from the loud --alfy-mark-arrive tint to the quiet resting --alfy-mark
+	   tint over --duration-settle. Reduced motion needs no separate rule
+	   here: app.css's global `animation-duration` override already collapses
+	   any @keyframes animation, including this one, to 0.01ms, landing on
+	   the resting state per §7.3 ("no movement... jump to the final state"). */
+	.document-editor-host :global(.document-content .alfy-change) {
+		background-color: var(--alfy-mark);
+		border-radius: 2px;
+		box-shadow: inset 0 -2px 0 var(--accent);
+	}
+
+	.document-editor-host :global(.document-content .alfy-change.arrive) {
+		animation: alfy-change-arrive var(--duration-settle) var(--ease-out);
+	}
+
+	@keyframes alfy-change-arrive {
+		from {
+			background-color: var(--alfy-mark-arrive);
+		}
+		to {
+			background-color: var(--alfy-mark);
+		}
+	}
+
+	/* Step 2.3: comment-anchor highlight (§1/§2.2/§9.1). Styles only — there
+	   is no comment-anchor decoration in extensions.ts yet (MarginPanel's
+	   quote today renders only inside its own margin card, never inside the
+	   document text), so nothing applies these classes in the DOM yet. They
+	   exist so agent 3 has real, working styles the moment it adds that
+	   decoration plus the click <-> thread wiring and the rail, per the
+	   redesign build plan's own split between this step and that one — see
+	   this component's hand-off notes for the exact class names. */
+	.document-editor-host :global(.document-content .comment-anchor) {
+		background-color: var(--comment-mark);
+		border-radius: 2px;
+		box-shadow: 0 2px 0 -0.5px var(--comment-rule);
+		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			box-shadow var(--duration-standard) var(--ease-out);
+	}
+
+	.document-editor-host :global(.document-content .comment-anchor.is-active) {
+		background-color: var(--comment-mark-active);
+	}
+
+	/* A resolved thread's anchor, or one whose text survived but is no
+	   longer worth drawing attention to — reads as plain text again. */
+	.document-editor-host :global(.document-content .comment-anchor.is-resolved) {
+		background-color: transparent;
+		box-shadow: none;
+		cursor: text;
 	}
 
 	.document-editor-skeleton {

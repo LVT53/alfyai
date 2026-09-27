@@ -36,6 +36,27 @@ export interface ArtifactBodyProps {
 	onDirtyChange?: (dirty: boolean) => void;
 	/** The body hands its serialised form back for versions/refusal. Slice 1 first. */
 	onBodyChange?: (body: string) => void;
+	/**
+	 * Wave 2.5 Step 3: `ArtifactPanelHeader.svelte`'s version button and
+	 * Download action open sheets that live INSIDE the body (Document's own
+	 * `VersionsSheet`/`DownloadSheet`, opened today through the toolbar's
+	 * "history"/"download" actions, now removed from the toolbar — redesign
+	 * §5.2: "there is one History entry … and it sits where the version is").
+	 * A body that owns such a sheet calls this once its trigger functions are
+	 * ready (an `$effect`, not a one-time `onMount`, so a body whose
+	 * `artifactId` changes under it — the panel's rail can swap which item is
+	 * open without remounting the body — re-registers for the NEW item rather
+	 * than leaving the panel holding a closure over the old one); a kind with
+	 * no such sheet (App, File) simply never calls it, and the header falls
+	 * back to its plain-text version / the panel's own generic download link.
+	 */
+	registerPanelActions?: (actions: ArtifactPanelBodyActions) => void;
+}
+
+/** See `ArtifactBodyProps.registerPanelActions`. Every field is optional: a body opts in to only the actions it actually owns a sheet for. */
+export interface ArtifactPanelBodyActions {
+	openVersions?: () => void;
+	openDownload?: () => void;
 }
 
 export type ArtifactBodyLoader = () => Promise<{

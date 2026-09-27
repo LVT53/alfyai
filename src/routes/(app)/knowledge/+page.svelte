@@ -1067,13 +1067,17 @@ $effect(() => {
 				</div>
 			{:else}
 				<div id="documents-panel" role="tabpanel" aria-labelledby="documents-tab" class="documents-section space-y-3">
+					<!-- Step 14 (redesign §6.2, "one count source"): the eyebrow used to
+					     carry its own "{documentTotalItems} documents" pill here, which
+					     disagreed with DocumentsList's own chip-summed totals ("All 10")
+					     whenever a filter was active — the pill showed the CURRENT
+					     filtered count, the summary line always shows the unfiltered
+					     one. DocumentsList's summary line is now the one count source;
+					     this heading names the section only. -->
 					<div class="flex flex-wrap items-center gap-2.5">
 						<h2 id="documents-title" class="documents-eyebrow">
 							{$t('knowledge.documents')}
 						</h2>
-						<span class="rounded-full border border-border bg-surface-elevated px-2 py-0.5 text-[0.66rem] font-sans text-text-muted">
-							{$t('knowledge.documentCount', { count: documentTotalItems })}
-						</span>
 					</div>
 					<DocumentsList
 						documents={documents}

@@ -48,6 +48,7 @@ import {
 	buildToolActivitySummary,
 	type ToolActivityItem,
 } from "$lib/utils/tool-activity";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
@@ -124,6 +125,11 @@ let {
 	conversationId = null,
 	conversationArtifacts = [],
 	onToggleDocumentTask = undefined,
+	// Redesign §5.2, Wave 2.5 Step 12: the same ephemeral "a change just
+	// landed" signal `DocumentWorkspace.svelte`'s panel-list rows already
+	// read, forwarded so the standalone in-chat card can show "N changes to
+	// review" / "Review ›" for the one artifact it is about.
+	alfyActivity = null,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
@@ -146,6 +152,7 @@ let {
 	onToggleDocumentTask?:
 		| ((artifactId: string, blockId: string, checked: boolean) => void)
 		| undefined;
+	alfyActivity?: DocumentAlfyActivity | null;
 } = $props();
 
 /**
@@ -1085,6 +1092,7 @@ function toggleFullReasoning(): void {
 			{onOpenDocument}
 			{conversationId}
 			{onToggleDocumentTask}
+			{alfyActivity}
 		/>
 	{:else if activityItems.length > 0 && !expanded}
 		{#if activitySummary.length > 0}
@@ -1131,6 +1139,7 @@ function toggleFullReasoning(): void {
 					{onOpenDocument}
 					{conversationId}
 					{onToggleDocumentTask}
+					{alfyActivity}
 				/>
 			</div>
 		{/if}
@@ -1194,6 +1203,7 @@ function toggleFullReasoning(): void {
 									{onOpenDocument}
 									{conversationId}
 									{onToggleDocumentTask}
+									{alfyActivity}
 								/>
 							{:else if entry.kind === 'thought_step'}
 								{@render thoughtStepEntry(entry.step)}
@@ -1222,6 +1232,7 @@ function toggleFullReasoning(): void {
 							{onOpenDocument}
 							{conversationId}
 							{onToggleDocumentTask}
+							{alfyActivity}
 						/>
 					{:else if entry.kind === 'connector-group'}
 						<ToolActivityRow

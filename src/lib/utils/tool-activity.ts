@@ -746,7 +746,10 @@ function buildSettledToolActivityItem(
 				...base,
 				verb: actionVerb,
 				object,
-				meta: elapsed ?? "",
+				// Redesign §5.1 problem 7 / §9.2: an artifact card reads like a log
+				// entry when it carries a raw "230 ms"/"1 ms" fact next to it — the
+				// card itself is the deliverable, so the row never shows a timing.
+				meta: "",
 				summaryLabel: `${actionVerb} ${object}`.trim(),
 				title: object,
 				// A made or changed artifact is a deliverable, exactly like a
@@ -762,7 +765,8 @@ function buildSettledToolActivityItem(
 				...base,
 				verb: actionVerb,
 				object,
-				meta: elapsed ?? "",
+				// Same reasoning as the settled card above: no timing while creating either.
+				meta: "",
 				summaryLabel: actionVerb,
 				title: object,
 				body: null,

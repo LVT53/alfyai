@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { artifacts, users } from "../../src/lib/server/db/schema";
@@ -141,17 +141,6 @@ async function openDocumentFromPanel(page: Page) {
 	const countButton = page.getByTestId(
 		isMobile ? "artifact-count-button-compact" : "artifact-count-button",
 	);
-	await countButton.click();
-	const list = page.getByTestId(
-		isMobile ? "artifact-panel-list-mobile" : "artifact-panel-list",
-	);
-	// A generous timeout absorbs the dev server's one-time compile of the
-	// Document editor's module graph (Tiptap and everything it pulls in) on
-	// the very first Document ever opened in a test run — every later open in
-	// the same run is instant because Vite has already transformed it. The
-	// workspace becoming visible is the SAME one-time cost (it waits on the
-	// same lazy import), so it gets the same generous budget.
-	await list.getByRole("button", { name: "Open" }).click({ timeout: 30_000 });
 	// The desktop shell is a real `<aside>` (role="complementary" for free);
 	// the mobile shell is a `<section>` with its own dedicated testid instead
 	// — NOT the same role/name pair, on purpose. Both shells are always real
@@ -164,12 +153,51 @@ async function openDocumentFromPanel(page: Page) {
 	const shell = isMobile
 		? page.getByTestId("document-workspace-mobile-shell")
 		: page.getByRole("complementary", { name: "Document workspace" });
+	const scrollContainer = shell.getByTestId(
+		isMobile ? "page-scroll-container-mobile" : "page-scroll-container",
+	);
+
+	// The panel's open/showing state can persist across a reload
+	// (sessionStorage) — a caller that reloads and calls this again (the T8
+	// live test below) may already find a document open and showing. The
+	// count button now toggles (Wave 2.5 Step 4: clicking it while the panel
+	// is open closes it instead), so clicking it unconditionally here would
+	// close an already-open panel rather than open one — skip straight
+	// through when there is nothing left to do. A bounded `waitFor` (not a
+	// synchronous `isVisible()`) gives the restore its own brief chance to
+	// finish hydrating after `networkidle`, which only covers the network
+	// leg and not the client-side re-selection that follows it; it still
+	// resolves quickly in the common already-open case and falls through to
+	// the click path below within 2s when the panel is genuinely closed.
+	const alreadyShowing = await scrollContainer
+		.waitFor({ state: "visible", timeout: 2_000 })
+		.then(() => true)
+		.catch(() => false);
+	if (alreadyShowing) {
+		return shell;
+	}
+
+	if ((await countButton.getAttribute("aria-pressed")) !== "true") {
+		await countButton.click();
+	}
+	const list = page.getByTestId(
+		isMobile ? "artifact-panel-list-mobile" : "artifact-panel-list",
+	);
+	// A generous timeout absorbs the dev server's one-time compile of the
+	// Document editor's module graph (Tiptap and everything it pulls in) on
+	// the very first Document ever opened in a test run — every later open in
+	// the same run is instant because Vite has already transformed it. The
+	// workspace becoming visible is the SAME one-time cost (it waits on the
+	// same lazy import), so it gets the same generous budget.
+	//
+	// Redesign §5.2 (Wave 2.5 Step 4): each row is an ArtifactCard
+	// chrome="row" now — the whole row is the button, named after its own
+	// title, never a separate "Open" affordance — so this opens whichever row
+	// is first (every caller here seeds exactly one document) by its shared
+	// data-testid instead of a label that no longer exists.
+	await list.getByTestId("artifact-row").first().click({ timeout: 30_000 });
 	await expect(shell).toBeVisible({ timeout: 30_000 });
-	await expect(
-		shell.getByTestId(
-			isMobile ? "page-scroll-container-mobile" : "page-scroll-container",
-		),
-	).toBeVisible();
+	await expect(scrollContainer).toBeVisible();
 	return shell;
 }
 
@@ -196,8 +224,11 @@ test.describe("the Document panel", () => {
 		// workspace header, a hidden breadcrumb/tooltip duplicate, …) — a
 		// plain text match is not unique or reliably the VISIBLE one, so this
 		// scopes to the workspace and asserts the actual body heading by role.
+		// `exact: true` also rules out ArtifactPanelHeader's own <h2> title
+		// ("Vienna trip plan"), which a substring match would otherwise catch
+		// too (redesign §8, Wave 2.5 Step 3).
 		await expect(
-			shell.getByRole("heading", { name: "Vienna trip" }),
+			shell.getByRole("heading", { name: "Vienna trip", exact: true }),
 		).toBeVisible();
 		await expect(page.getByText("Book the hotel by Friday.")).toBeVisible();
 	});
@@ -559,17 +590,45 @@ test.describe("the Document mobile toolbar", () => {
 	});
 });
 
-// T9 steps 4/7: the panel list's own card preview (subtitle + tickable
-// checklist), never requiring the document to be open — the card is built
-// from the server's bounded preview (`ArtifactCardSummary.documentPreview`),
-// not a full-body fetch. This never touches the Tiptap editor at all, so it
-// is unaffected by this file's header-comment `readMarkdown` recursion bug.
-test.describe("the Document card's checklist (T9 steps 4/7)", () => {
+// T9 steps 4/7, revised by the redesign (§5.1 problem 4/§5.2, Wave 2.5 Step
+// 4): the panel list's own card preview still feeds the row's SUBTITLE
+// (tab count) from the server's bounded preview
+// (`ArtifactCardSummary.documentPreview`), never a full-body fetch — but the
+// row itself never shows the checklist inline any more (chrome="row"):
+// ticking a task is something the OPEN document does, not the list. This
+// still never touches the Tiptap editor at all for the subtitle-only half,
+// so it stays unaffected by this file's header-comment `readMarkdown`
+// recursion bug.
+test.describe("the Document card's preview (T9 steps 4/7, redesign §5.2)", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
 	});
 
-	test("shows the tab-count subtitle and the checklist, and ticking an item writes it through the same patch path", async ({
+	test("the row shows the tab-count subtitle, never the checklist itself", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "# Packing\n\n- [ ] Charger\n\n- [ ] Passport",
+		});
+		await openChatAndReload(page, conversationId);
+
+		await page.getByTestId("artifact-count-button").click();
+		const list = page.getByTestId("artifact-panel-list");
+		// `artifacts.document.cardSubtitle` is ICU-plural-aware (Wave 2.5 Step
+		// 12) — this is the literal rendered text for the one default tab
+		// `createDocumentArtifact` gives a fresh document.
+		await expect(
+			list.getByText("Document · 1 tab", { exact: true }),
+		).toBeVisible();
+		await expect(list.getByText("Charger")).not.toBeVisible();
+		await expect(list.getByText("Passport")).not.toBeVisible();
+		await expect(list.getByRole("checkbox")).toHaveCount(0);
+	});
+
+	test("ticking a task in the OPEN document writes it through the same patch path, and the row still shows no checklist", async ({
 		page,
 	}) => {
 		const conversationId = await createConversation(page, "Plan a trip");
@@ -579,29 +638,20 @@ test.describe("the Document card's checklist (T9 steps 4/7)", () => {
 			markdown: "# Packing\n\n- [ ] Charger\n\n- [ ] Passport",
 		});
 		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
 
-		await page.getByTestId("artifact-count-button").click();
-		const list = page.getByTestId("artifact-panel-list");
-		// `artifacts.document.cardSubtitle`'s template is not plural-aware
-		// ("Document · {count} tabs" always) — this is the literal rendered
-		// text for the one default tab `createDocumentArtifact` gives a fresh
-		// document.
-		await expect(list.getByText("Document · 1 tabs")).toBeVisible();
-		await expect(list.getByText("Charger")).toBeVisible();
-		await expect(list.getByText("Passport")).toBeVisible();
-
-		// Each tickable row is a `<label>` wrapping its own `<input>`, so the
-		// checkbox's accessible name is exactly the task's text — scoping this
-		// way (rather than an ancestor `<li>`, which also matches the OUTER
-		// per-artifact row and so "contains" every task's text at once) finds
-		// exactly one checkbox.
-		const chargerCheckbox = list.getByRole("checkbox", { name: "Charger" });
+		// The real Tiptap task item, inside the open editor — the one place
+		// ticking a task lives now. Structural (not role-based): Tiptap's
+		// TaskItem does not guarantee a label/input pairing that resolves to
+		// an accessible name matching the task's own text.
+		const chargerItem = shell.locator("li", { hasText: "Charger" }).first();
+		const chargerCheckbox = chargerItem.locator('input[type="checkbox"]');
 		await expect(chargerCheckbox).not.toBeChecked();
 		await chargerCheckbox.click();
 
 		// The real ground truth: the stored Markdown itself, not just the
 		// in-memory optimistic flip — proves the write actually landed through
-		// applyPatchSet + saveArtifactBody, the SAME path the open editor uses.
+		// applyPatchSet + saveArtifactBody.
 		await expect
 			.poll(() => readStoredBody(artifactId), { timeout: 10_000 })
 			.toContain("[x] Charger");
@@ -610,41 +660,130 @@ test.describe("the Document card's checklist (T9 steps 4/7)", () => {
 			.poll(() => readStoredBody(artifactId))
 			.toContain("[ ] Passport");
 
-		// Persists after a reload — the checkbox reflects the SAVED state.
-		await page.reload({ waitUntil: "networkidle" });
-		await page.getByTestId("artifact-count-button").click();
-		const listAfterReload = page.getByTestId("artifact-panel-list");
-		await expect(
-			listAfterReload.getByRole("checkbox", { name: "Charger" }),
-		).toBeChecked();
+		// The list row itself still never shows the checklist (redesign §5.2),
+		// tick or no tick.
+		await page.getByRole("button", { name: /This chat/ }).click();
+		const list = page.getByTestId("artifact-panel-list");
+		await expect(list.getByText("Charger")).not.toBeVisible();
+		await expect(list.getByRole("checkbox")).toHaveCount(0);
+	});
+});
+
+// Wave 2.5 Step 0: a defect left over from redesign agent 1's prose pass.
+// Spec §1 problem 1 / §5's `.tasks`/`.task` put the checkbox on the SAME line
+// as its label; agent 1's CSS in `DocumentBody.svelte` already encodes that
+// (`li[data-type='taskItem'] { display: flex; ... }`) but never matches the
+// real editing DOM, so every task still rendered stacked. Root cause: Tiptap's
+// `TaskItem` node has a custom `addNodeView()`, and a NodeView's HTML
+// attributes come only from `getRenderedAttributes()` (each attribute's own
+// `renderHTML`, which for `TaskItem` is just `checked` → `data-checked`) —
+// the literal `'data-type': this.name` baked into the node's schema-level
+// `renderHTML()` is a separate code path used only when there is NO NodeView,
+// so it never reaches the live `<li>`. `data-checked` (always rendered, as
+// `"true"` or `"false"`) is the attribute that is actually always present.
+test.describe("inline task items (Wave 2.5 Step 0)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
 	});
 
-	test("a document with more than five task items shows '+N more'", async ({
+	async function checkboxAndLabelCenters(shell: Locator) {
+		const item = shell.locator("li", { hasText: "Charger" }).first();
+		const checkbox = item.locator('input[type="checkbox"]');
+		const label = item.locator("div p").first();
+		const [checkboxBox, labelBox] = await Promise.all([
+			checkbox.boundingBox(),
+			label.boundingBox(),
+		]);
+		expect(checkboxBox, "checkbox must be visible").not.toBeNull();
+		expect(labelBox, "label text must be visible").not.toBeNull();
+		return {
+			checkboxCenter: (checkboxBox?.y ?? 0) + (checkboxBox?.height ?? 0) / 2,
+			labelCenter: (labelBox?.y ?? 0) + (labelBox?.height ?? 0) / 2,
+		};
+	}
+
+	test("the checkbox and its first text line share one line at desktop width", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "# Packing\n\n- [ ] Charger\n\n- [ ] Passport",
+		});
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		const { checkboxCenter, labelCenter } =
+			await checkboxAndLabelCenters(shell);
+		expect(Math.abs(checkboxCenter - labelCenter)).toBeLessThanOrEqual(6);
+	});
+
+	test("the checkbox and its first text line share one line at phone width", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "# Packing\n\n- [ ] Charger\n\n- [ ] Passport",
+		});
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		const { checkboxCenter, labelCenter } =
+			await checkboxAndLabelCenters(shell);
+		expect(Math.abs(checkboxCenter - labelCenter)).toBeLessThanOrEqual(6);
+	});
+});
+
+// Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open item".
+test.describe("the composer placeholder names the open item (Wave 2.5 Step 12)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("names the document once it is open, and reverts once the panel closes", async ({
 		page,
 	}) => {
 		const conversationId = await createConversation(page, "Plan a trip");
 		await seedDocument({
 			conversationId,
-			title: "Big packing list",
-			markdown: [
-				"# Packing",
-				"- [ ] One",
-				"- [ ] Two",
-				"- [ ] Three",
-				"- [ ] Four",
-				"- [ ] Five",
-				"- [ ] Six",
-				"- [ ] Seven",
-			].join("\n\n"),
+			title: "Packing list",
+			markdown: "Some notes.",
 		});
 		await openChatAndReload(page, conversationId);
 
+		await expect(page.getByPlaceholder("Type a message...")).toBeVisible();
+
+		await openDocumentFromPanel(page);
+		await expect(page.getByPlaceholder("Ask about Packing list")).toBeVisible();
+
+		// Closing the whole panel (the count button toggles it shut, Wave 2.5
+		// Step 4) drops the specific-item state, so the composer reverts —
+		// even though the document tab itself stays open underneath for a
+		// quick reopen (push-navigation's own "back is instant" state).
 		await page.getByTestId("artifact-count-button").click();
-		const list = page.getByTestId("artifact-panel-list");
-		await expect(list.getByText("One")).toBeVisible();
-		await expect(list.getByText("Five")).toBeVisible();
-		await expect(list.getByText("Six")).not.toBeVisible();
-		await expect(list.getByText("+2 more")).toBeVisible();
+		await expect(page.getByPlaceholder("Type a message...")).toBeVisible();
+	});
+
+	test("names nothing while the panel shows the list, only once an item is open", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "Some notes.",
+		});
+		await openChatAndReload(page, conversationId);
+
+		// The list view alone (before picking a row) has no single item to name.
+		await page.getByTestId("artifact-count-button").click();
+		await expect(page.getByTestId("artifact-panel-list")).toBeVisible();
+		await expect(page.getByPlaceholder("Type a message...")).toBeVisible();
 	});
 });
 

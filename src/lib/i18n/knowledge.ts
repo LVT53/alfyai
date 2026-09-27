@@ -32,7 +32,6 @@ const knowledgeDict = {
 		"knowledge.description":
 			"Persistent documents and a live memory view of what the system currently knows about you.",
 		"knowledge.documentType": "Document type",
-		"knowledge.documentCount": "{count} documents",
 		"knowledge.documents": "Documents",
 		// Slice 7 (Feature 2, ADR-0066): the Documents tab's chip row and
 		// summary line. "All"/"Uploaded" plus the mockup's four category
@@ -49,9 +48,26 @@ const knowledgeDict = {
 		// as the parent of the new second-tier file-type row below it.
 		"knowledge.documents.filter.uploaded": "Files",
 		"knowledge.documents.filter.optionA11y": "Filter: {label}, {count} items",
-		"knowledge.documents.count.uploaded": "{count} uploaded",
-		"knowledge.documents.count.document": "{count} documents",
-		"knowledge.documents.count.app": "{count} apps",
+		// Redesign §6.2/§6.4: a zero-count chip is disabled with a reason,
+		// spoken through `title`/`aria-describedby` rather than shown only
+		// visually. One key per `DOCUMENT_TYPE_FILTER_ORDER` entry.
+		"knowledge.documents.filter.emptyReason.all": "No items yet",
+		"knowledge.documents.filter.emptyReason.document": "No documents yet",
+		"knowledge.documents.filter.emptyReason.canvas": "No canvases yet",
+		"knowledge.documents.filter.emptyReason.app": "No apps yet",
+		"knowledge.documents.filter.emptyReason.slides": "No slides yet",
+		"knowledge.documents.filter.emptyReason.uploaded": "No files yet",
+		// Step 14: renamed from "{count} uploaded" to match the mockup's own
+		// wording ("8 files") now that the chip itself reads "Files", plus
+		// correct ICU plurals throughout (redesign §6.2: "correct plurals").
+		// Canvas/Slides stay invariant nouns, matching `artifacts.type.canvas`/
+		// `.slides`, which already label a SINGLE item "Canvas"/"Slides".
+		"knowledge.documents.count.uploaded":
+			"{count} {count, plural, one {file} other {files}}",
+		"knowledge.documents.count.document":
+			"{count} {count, plural, one {document} other {documents}}",
+		"knowledge.documents.count.app":
+			"{count} {count, plural, one {app} other {apps}}",
 		"knowledge.documents.count.canvas": "{count} canvas",
 		"knowledge.documents.count.slides": "{count} slides",
 		"knowledge.documents.totalLabel": "{count} items",
@@ -61,6 +77,9 @@ const knowledgeDict = {
 		// everything the five named families and Text & Markdown do not claim
 		// (code, archives, media) reads as Other.
 		"knowledge.documents.fileFamily.groupLabel": "File type",
+		// Ruling 60 / redesign §6.2: the one chip at this tier with no family of
+		// its own — clears `fileFamilyFilter` back to null.
+		"knowledge.documents.fileFamily.all": "All files",
 		"knowledge.documents.fileFamily.pdf": "PDF",
 		"knowledge.documents.fileFamily.word": "Word",
 		"knowledge.documents.fileFamily.spreadsheet": "Spreadsheets",
@@ -549,7 +568,6 @@ const knowledgeDict = {
 		"knowledge.description":
 			"Tartós dokumentumok és egy élő memórianézet arról, amit a rendszer jelenleg tud rólad.",
 		"knowledge.documentType": "Dokumentum típus",
-		"knowledge.documentCount": "{count} dokumentum",
 		"knowledge.documents": "Dokumentumok",
 		"knowledge.documents.filter.all": "Összes",
 		"knowledge.documents.filter.document": "Dokumentumok",
@@ -558,13 +576,22 @@ const knowledgeDict = {
 		"knowledge.documents.filter.slides": "Diasorok",
 		"knowledge.documents.filter.uploaded": "Fájlok",
 		"knowledge.documents.filter.optionA11y": "Szűrő: {label}, {count} elem",
-		"knowledge.documents.count.uploaded": "{count} feltöltött",
+		"knowledge.documents.filter.emptyReason.all": "Még nincs elem",
+		"knowledge.documents.filter.emptyReason.document": "Még nincs dokumentum",
+		"knowledge.documents.filter.emptyReason.canvas": "Még nincs tábla",
+		"knowledge.documents.filter.emptyReason.app": "Még nincs alkalmazás",
+		"knowledge.documents.filter.emptyReason.slides": "Még nincs diasor",
+		"knowledge.documents.filter.emptyReason.uploaded": "Még nincs fájl",
+		// Hungarian nouns after a numeral do not take a plural suffix, so
+		// there is no ICU one/other split here (see the EN entries above).
+		"knowledge.documents.count.uploaded": "{count} fájl",
 		"knowledge.documents.count.document": "{count} dokumentum",
 		"knowledge.documents.count.app": "{count} alkalmazás",
 		"knowledge.documents.count.canvas": "{count} tábla",
 		"knowledge.documents.count.slides": "{count} diasor",
 		"knowledge.documents.totalLabel": "{count} elem",
 		"knowledge.documents.fileFamily.groupLabel": "Fájltípus",
+		"knowledge.documents.fileFamily.all": "Minden fájl",
 		"knowledge.documents.fileFamily.pdf": "PDF",
 		"knowledge.documents.fileFamily.word": "Word",
 		"knowledge.documents.fileFamily.spreadsheet": "Táblázatok",

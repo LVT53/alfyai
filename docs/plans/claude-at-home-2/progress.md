@@ -508,6 +508,73 @@ Hungarian Document in Hungarian, incognito Document 404 outside / 200 inside / a
 the go-ahead to test with sample tasks. **Paused until the weekly reset (Mon 2026-09-28 ~10:00 IST); Wave 3 starts in a
 fresh session from `wave-3-handoff.md`.**
 
+**Owner testing, 2026-09-27 (early hours).** Two items fixed and deployed: (1) the selection bubble sat off screen. `DocumentBody`
+placed it with viewport coordinates minus the pane's offset but without its `scrollTop`, and had no clamp or flip. A
+pure `bubble-placement.ts` fixed it, and the change bar had the same mistake (`69b57ae6`; e2e measures the bubble
+against the browser's own selection rect). Deployed as `813f9d96`. (2) **Ruling 60**, the two-tier file-type filter
+(`feat/artifacts-file-type-filter`, 4 commits; 13,449 tests). With it, `fb5d2a7e`: **each vitest worker now gets its
+own copy of the migrated test DB**. All workers had shared one SQLite file, so read-then-write transactions failed
+with "database is locked" (7/10 paired runs); after the fix 12/12, and the full suite twice green. Deployed as
+**`29a07688`**. Left for Wave 3: a second shared-state flake, `conversation-forks.test.ts` hit `ENOENT` under
+`data/chat-files/` (the file store is shared across workers too; per-worker dir); the Documents summary line still
+says "N uploaded" next to the "Files" chip (owner's call).
+
+## Wave 2.5 — the approved redesign (ruling 61), orchestrator session of 2026-09-27
+
+Built from `docs/design/artifacts-redesign/redesign.md` §10 as grouped in `wave-3-handoff.md`. Each agent: Sonnet, its own
+worktree and branch from the current `feat/artifacts`, test-first, its share of step 15. After each agent: the full gate
+script on its worktree, then merge into `feat/artifacts`. At the end: one Opus visual/a11y review of the whole redesign,
+one fix agent, merge `feat/artifacts` → `dev` (main checkout), gates in `dev-int`, push, deploy ai.dev.
+
+Start: `feat/artifacts` = `d933e2f8`, `dev` = ai.dev = `29a07688`. Weekly budget (all models) **89 %** at 10:29 UTC,
+resets 2026-09-28 08:59 UTC.
+
+| # | Agent (redesign steps) | Branch / worktree (port) | State |
+|---|---|---|---|
+| 1 | Foundation (1–2) | `feat/artifacts-rd1-foundation` / `art-rd1` (5400) | **merged** — 8 commits `473cc2bb`…`988ab94e`: §9.1 tokens (light/dark, `color-scheme`), `reducedMotionAnimate` WAAPI helper, `.btn-text` and `--status-*` gone, `btn-primary` → `--accent-text`, contrast test, `.document-content` prose, `.alfy-change` + `arrive`, comment-mark classes (unwired). Gates: check 0/17, 13,475 tests, build 32/2, Fallow 124/4 (0 new), Playwright 42/42. Cost ≈ 1 % of the weekly budget (472k tokens, 65 min) |
+| 2 | Panel shell (3–5) | `feat/artifacts-rd2-shell` / `art-rd2` (5410) | **merged** (`79109131`) — 20 commits `f9702a8f`…`33065621`: `ArtifactPanelHeader` (Document/App/File), `ArtifactCard chrome="row"` list, push navigation and panel motion, count button pressed state + dot, tabs that switch sections (a tab-range decoration; a new empty tab shows everything), `⋯` tab menu, grouped toolbar with roving tabindex and "Saved", phone More sheet on `DialogShell`. Gates: check 0/17, 13,528 tests, build 32/2, Fallow 124/4 (0 new), Playwright 68/68. Cost ≈ 4 % of the weekly budget (743 tool calls, 3 h 5 min) |
+| 5a | Task-item fix, in-chat cards (0, 12) | `feat/artifacts-rd5a-cards` / `art-rd5a` (5440) | **merged** — 7 commits `b2a3442f`…`82e70f72`: task items inline (agent 1's CSS keyed on a `data-type` Tiptap never renders; now `data-checked`), no timing on artifact cards, "1 tab" plural, a real standalone card outside the tool-row box, the live pending-review count on the card, the composer placeholder names the open item. Gates: check 0/17, 13,533 tests, build 32/2, Fallow 124/4 (0 new), Playwright 48/48. Cost ≈ 2 % (395 tool calls, 83 min). Stopped before step 14 on the budget |
+| 5k | Knowledge chips (14) | `feat/artifacts-rd5k-chips` / `art-rd5k` (5448) | **merged** — 2 commits `99129148`, `d437beaa`: zero chips disabled with a reason, "All files" chip, CSS reveal, one count source (the page's disagreeing pill removed), plurals, "uploaded" → "files" as the mockup words it. Gates: check 0/17, 13,537 tests, build 32/2, Fallow 124/4 (0 new), Playwright 42/42. Cost ≈ 1 % (175 tool calls, 34 min). Deferred: the per-chip 20 ms stagger and the collapse-out; unused `knowledge.documents.totalLabel`; "Alkalmazások 0" clips at 390 px HU (pre-existing) |
+| 5b | App panel (13), 5a's leftovers | `feat/artifacts-rd5b-app` / `art-rd5b` (5445) | waiting — brief = `rd5-brief.md`'s Step 13 (incl. the rail decision) + the deferred card items in `rd5a-report.md` (creating/failed/deleted states, "1 part left alone" pill, live `current` wiring, App fact-check field) |
+| 3a | Comment card/thread, the rail (6–7) | `feat/artifacts-rd3a-comments` / `art-rd3a` (5420) | waiting |
+| 3b | Phone comments, drawer, Versions/Download popovers (8 + §3.2) | `feat/artifacts-rd3b-sheets` / `art-rd3b` (5425) | waiting |
+| 4a | Selection pill/composer, Alfy writing, pinned refusal (9, 11) | `feat/artifacts-rd4a-compose` / `art-rd4a` (5430) | waiting |
+| 4b | Change pill, review bar, pending review across reloads (10 + ruling 61) | `feat/artifacts-rd4b-review` / `art-rd4b` (5435) | waiting |
+| R | Opus visual/a11y review (16) | `rv-rd` (5450) | waiting |
+
+Rulings (orchestrator, 2026-09-27):
+- Ruling: no per-agent code review; each branch passes the full gate script before it merges into `feat/artifacts`, and the
+  one Opus review covers the whole redesign (the owner's structure) — why: the weekly budget is at 89 % — cost if wrong: defects
+  surface later, in the Opus review, and need a larger fix agent.
+- Ruling: agents 2 and 5 run one after the other, not in parallel — they share `ArtifactCard.svelte`, the chat page and
+  `i18n/artifacts.ts`, and the weekly budget, not wall-clock, is the constraint — cost if wrong: a few hours of wall-clock.
+  Order: 1 → 2 → 5a → 5k → 5b → 3a → 3b → 4a → 4b → review → fixes → dev.
+- Ruling: no new `axe-core` dependency this wave; a11y is checked with Playwright role/name assertions, a token-contrast unit
+  test and the Opus review — why: a new dependency touches the shared `node_modules` and the deploy — cost if wrong: an axe
+  finding caught later (add axe in Wave 3 with the owner's OK).
+- Agent 1, deferred for the Opus review: the comment-anchor decoration does not exist yet (agent 3 wires the
+  `.comment-anchor` / `.is-active` / `.is-resolved` styles); the tracker's "Cancelled" → warning tone is agent 1's own
+  call; Document checkboxes on phones keep the mockup's 17 px (no 44 px hit area); no chevron on status/date chips.
+- Agent 2, deferred: `OpenDocumentsRail` is hidden for Documents only (an App e2e security test switches Apps through it)
+  — handed to agent 5's brief to decide; no version button is visible in the header of a v1 Document (check the spec's
+  `v6 ▾` in the review).
+- **Visible defect found by the orchestrator in both agents' screenshots:** task items show the checkbox on its own line
+  above the text (agent 1 reported them inline). Now step 0 of agent 3a's brief. The final review must look at every
+  surface itself; the agents' own screenshot checks missed this.
+- Ruling: agents 3 and 4 are split in two each (3a/3b, 4a/4b), and 3b also takes the Versions/Download popovers that
+  §10 left without a step — why: the hand-off's lesson that long agents ran out of context, and 4 carries ruling 61's data
+  change — cost if wrong: two extra agent start-ups (≈ 0.3 % of the weekly budget).
+- Ruling (4b's design for ruling 61's first point): the review state lives in the artifact's `metadata_json` (no
+  migration) — the last reviewed Alfy version plus the block ids kept in newer Alfy versions — written only through a
+  new artifacts-facade function and a thin route (ownership scope, `{ ok: true }`, `?conversationId=`). Pending = blocks
+  each newer Alfy version changed against its parent, minus kept, minus later user edits, minus deleted; creation never
+  pending; an artifact without a marker has nothing pending until its next Alfy edit writes the marker — cost if wrong:
+  a pending change made before the deploy is not re-shown (today's behaviour), or a column is needed later.
+- Briefs for every agent: `docs/plans/claude-at-home-2/wave-2-5/` (`common.md` + `rd*-brief.md`); reports and
+  screenshots in this session's scratchpad `rd/`.
+- Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
+  wrap-up reserve (progress note, owner message).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
@@ -522,7 +589,24 @@ fresh session from `wave-3-handoff.md`.**
 - i18n namespaces are now discovered from `src/lib/i18n/index.ts` by the validator and the parity test
   (`1e5a32df`, `2a30d85c`).
 
+**PAUSED 2026-09-27 ~17:50 UTC for the weekly limit** (the owner asked to continue to 98 % and keep 2 % for a later deploy;
+agents 5a and 5k ran on that basis; stopped at 97 %). Agents 1, 2, 5a and 5k are merged into `feat/artifacts`; nothing
+of the redesign is on `dev` or ai.dev yet (ai.dev = `29a07688`). Worktrees `art-rd1`, `art-rd2`, `art-rd5a`, `art-rd5k`
+can be removed (branches merged). 3a's
+step 0 (task items) is already done by 5a: skip it.
+
 ## Next action
 
-Wave 3 in a fresh orchestrator session: read `wave-3-handoff.md` first, then this file's latest entries. Check the weekly
-budget (`get_usage`) before dispatching. Owner feedback from testing Wave 2 on ai.dev comes first.
+Resume Wave 2.5 after the weekly reset, in this session or a fresh one:
+1. `get_usage`; then create agent 5b's worktree from `feat/artifacts`: `git worktree add -b feat/artifacts-rd5b-app
+   ../art-rd5b feat/artifacts`, symlink `art-base/node_modules`, `DATABASE_PATH="$PWD/data/playwright-e2e-chat.db" npm run
+   db:prepare` (Node 22 on `PATH`).
+2. Write 5b's brief from the table row above, then dispatch it (Sonnet) with `wave-2-5/common.md` + that brief + the
+   hand-off sections of `rd1-report.md`, `rd2-report.md` and `rd5a-report.md` (all in `docs/plans/claude-at-home-2/wave-2-5/`; if the old session scratchpad is gone, point the
+   brief's report/screenshot paths at your own scratchpad).
+3. After it: `wave-2-5/gates.sh <worktree> <port> <label> [specs]` (summary in `/tmp/gates-<label>/summary.txt`, Fallow
+   baseline `~/.cache/alfyai-artifacts/fallow-baseline-00ef6d2a.json`), merge into `feat/artifacts`, update the table.
+4. Then 3a → 3b → 4a → 4b the same way, then one Opus visual/a11y review of `d933e2f8..feat/artifacts` (every surface,
+   both themes, HU, phone and desktop, reduced motion; include the deferred items above), one fix agent, merge
+   `feat/artifacts` → `dev` on the main checkout, gates in `dev-int`, push `dev`, deploy ai.dev, tell the owner what to look at.
+Budget guide from this session: a small agent ≈ 1 %, a three-step UI agent ≈ 4 % of the weekly limit.

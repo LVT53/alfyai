@@ -904,6 +904,73 @@ let availableWorkspaceDocuments = $derived(
 let artifactCount = $derived(artifacts.length);
 
 /**
+ * Wave 2.5 Step 4 (redesign §5.3): "pressed (panel open)" means the panel is
+ * showing anything at all — the list OR an item — not just the list.
+ * Mirrors `DocumentWorkspace.svelte`'s own `shouldShowWorkspaceShell`
+ * (`open && (documents.length > 0 || Boolean(list?.open))`) using this
+ * page's own copies of the same three inputs, so the button's pressed state
+ * agrees with the panel it is controlling instead of clearing the moment a
+ * list row is opened (which only sets `artifactListOpen = false`, not
+ * `workspaceOpen`).
+ */
+let isArtifactPanelOpen = $derived(
+	workspaceOpen && (artifactListOpen || workspaceDocuments.length > 0),
+);
+
+/**
+ * Wave 2.5 Step 12 (redesign §9.2): "composer placeholder names the open
+ * item" — looked up from `workspaceDocuments` (the panel's own open tabs),
+ * never from `DocumentWorkspace.svelte`'s internal `activeDocument`
+ * derivation, which this page has no access to. `null` whenever there is no
+ * specific item actually ON SCREEN: the panel is closed, or it is open but
+ * showing the LIST (`artifactListOpen`) rather than an item — the list has
+ * no single "open item" to name, even if a document tab is still active
+ * underneath it (push-navigation keeps that state so "back" is instant).
+ */
+let activeWorkspaceDocumentTitle = $derived(
+	workspaceOpen && !artifactListOpen
+		? (workspaceDocuments.find(
+				(document) => document.id === activeWorkspaceDocumentId,
+			)?.title ?? null)
+		: null,
+);
+let composerPlaceholder = $derived(
+	activeWorkspaceDocumentTitle
+		? $t("artifacts.chat.composerPlaceholder", {
+				title: activeWorkspaceDocumentTitle,
+			})
+		: null,
+);
+
+/**
+ * Wave 2.5 Step 4 (redesign §5.2/§5.3): the count button's dot — "a change
+ * waits while the panel is closed". Fed from `liveDocumentAlfyActivity`, the
+ * page's existing ephemeral, session-only signal for "Alfy just finished a
+ * create_artifact/edit_artifact call" (settled, not still running or
+ * failed) — the SAME single derived value `ArtifactCard`'s row-level
+ * pending-review pill reads (see `artifactCardViewFor` in
+ * `DocumentWorkspace.svelte`). A later Wave 2.5 agent's durable "pending
+ * review survives a reload" work replaces what feeds this value, not the
+ * button markup that reads it.
+ */
+let hasUnreviewedArtifactChange = $derived(
+	liveDocumentAlfyActivity !== null &&
+		(liveDocumentAlfyActivity.status === "applied" ||
+			liveDocumentAlfyActivity.status === "refused"),
+);
+let showArtifactPendingDot = $derived(
+	hasUnreviewedArtifactChange && !isArtifactPanelOpen,
+);
+let artifactCountButtonA11yLabel = $derived(
+	$t(
+		showArtifactPendingDot
+			? "artifacts.header.buttonA11yPending"
+			: "artifacts.header.buttonA11y",
+		{ count: artifactCount },
+	),
+);
+
+/**
  * The File kind reuses the SAME real item (`previewUrl`, `mimeType`, …)
  * `availableWorkspaceDocuments` already builds for the produced-file row's
  * own Open action, rather than a second, poorer representation built from
@@ -1008,6 +1075,21 @@ let availableWorkspaceDocumentsWithArtifacts = $derived([
 function openArtifactList() {
 	workspaceOpen = true;
 	artifactListOpen = true;
+}
+
+/**
+ * The count button's own click (Wave 2.5 Step 4): opens the list, or — if
+ * the panel is already open, showing the list or an item — closes the whole
+ * panel. Matches the mockup's own `madeBtn` handler
+ * (`panelIsOpen() ? closePanel() : openPanel("list")`); the button's pressed
+ * state (`isArtifactPanelOpen`) is exactly the condition this checks.
+ */
+function handleArtifactCountButtonClick() {
+	if (isArtifactPanelOpen) {
+		closeWorkspace();
+		return;
+	}
+	openArtifactList();
 }
 
 function getPersistedWorkspaceState() {
@@ -3089,12 +3171,15 @@ function handleDrop(event: DragEvent) {
 							type="button"
 							class="artifact-count-button"
 							data-testid="artifact-count-button"
-							aria-label={$t('artifacts.header.buttonA11y', { count: artifactCount })}
-							aria-pressed={artifactListOpen}
-							onclick={openArtifactList}
+							aria-label={artifactCountButtonA11yLabel}
+							aria-pressed={isArtifactPanelOpen}
+							onclick={handleArtifactCountButtonClick}
 						>
 							<LayoutGrid size={16} strokeWidth={1.75} aria-hidden="true" />
 							<b>{artifactCount}</b>
+							{#if showArtifactPendingDot}
+								<span class="artifact-count-dot" data-testid="artifact-count-dot" aria-hidden="true"></span>
+							{/if}
 						</button>
 					{/if}
 				</div>
@@ -3113,12 +3198,15 @@ function handleDrop(event: DragEvent) {
 						type="button"
 						class="artifact-count-button"
 						data-testid="artifact-count-button-compact"
-						aria-label={$t('artifacts.header.buttonA11y', { count: artifactCount })}
-						aria-pressed={artifactListOpen}
-						onclick={openArtifactList}
+						aria-label={artifactCountButtonA11yLabel}
+						aria-pressed={isArtifactPanelOpen}
+						onclick={handleArtifactCountButtonClick}
 					>
 						<LayoutGrid size={16} strokeWidth={1.75} aria-hidden="true" />
 						<b>{artifactCount}</b>
+						{#if showArtifactPendingDot}
+							<span class="artifact-count-dot" data-testid="artifact-count-dot-compact" aria-hidden="true"></span>
+						{/if}
 					</button>
 				</div>
 			{/if}
@@ -3152,6 +3240,7 @@ function handleDrop(event: DragEvent) {
 						onOpenDocument={openWorkspaceDocument}
 						{artifacts}
 						onToggleDocumentTask={handleToggleDocumentTask}
+						alfyActivity={liveDocumentAlfyActivity}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}
@@ -3226,6 +3315,7 @@ function handleDrop(event: DragEvent) {
 				beforeSend={ensureCloudWarningAcked}
 				checkingCloudWarning={cloudWarningChecking}
 				onCapabilitiesReady={handleCapabilitiesReady}
+				placeholder={composerPlaceholder}
 			/>
 		</div>
 
@@ -3332,6 +3422,23 @@ function handleDrop(event: DragEvent) {
 	.artifact-count-button:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring) inset;
+	}
+
+	/* Wave 2.5 Step 4 (redesign §5.2/§5.3): "pressed" while the panel is
+	   open, mirroring the mockup's `.made-btn[aria-expanded="true"]`. */
+	.artifact-count-button[aria-pressed='true'] {
+		background: var(--accent-tint);
+		color: var(--accent-text);
+	}
+
+	/* The pending-change dot — "a change waits while the panel is closed". */
+	.artifact-count-dot {
+		width: 7px;
+		height: 7px;
+		margin-left: -0.05rem;
+		border-radius: 50%;
+		background: var(--accent-fill);
+		box-shadow: 0 0 0 2px var(--surface-page);
 	}
 
 	.chat-title-bar-compact .artifact-count-button {
