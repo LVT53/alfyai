@@ -71,6 +71,7 @@ let {
 	checkingCloudWarning = false,
 	onCapabilitiesReady = undefined,
 	children,
+	placeholder = null,
 }: {
 	sendError: string | null;
 	// R1 (ADR-0060) — defaults to true so existing callers that never show a
@@ -156,6 +157,14 @@ let {
 		| ((ensureLoaded: () => Promise<void>) => void)
 		| undefined;
 	children?: Snippet;
+	/**
+	 * Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open
+	 * item" — the chat page passes the title of whichever document/app/etc.
+	 * is currently open in the artifact panel. Unset (the ordinary chat
+	 * placeholder) when nothing is open, exactly like MessageInput's own
+	 * `placeholder` prop doc already describes for the project page.
+	 */
+	placeholder?: string | null;
 } = $props();
 
 // The soft-keyboard offset is handled natively by the browser via the
@@ -225,6 +234,7 @@ let {
 			{beforeSend}
 			{checkingCloudWarning}
 			{onCapabilitiesReady}
+			{placeholder}
 		/>
 	</div>
 </div>

@@ -918,6 +918,31 @@ let isArtifactPanelOpen = $derived(
 );
 
 /**
+ * Wave 2.5 Step 12 (redesign §9.2): "composer placeholder names the open
+ * item" — looked up from `workspaceDocuments` (the panel's own open tabs),
+ * never from `DocumentWorkspace.svelte`'s internal `activeDocument`
+ * derivation, which this page has no access to. `null` whenever there is no
+ * specific item actually ON SCREEN: the panel is closed, or it is open but
+ * showing the LIST (`artifactListOpen`) rather than an item — the list has
+ * no single "open item" to name, even if a document tab is still active
+ * underneath it (push-navigation keeps that state so "back" is instant).
+ */
+let activeWorkspaceDocumentTitle = $derived(
+	workspaceOpen && !artifactListOpen
+		? (workspaceDocuments.find(
+				(document) => document.id === activeWorkspaceDocumentId,
+			)?.title ?? null)
+		: null,
+);
+let composerPlaceholder = $derived(
+	activeWorkspaceDocumentTitle
+		? $t("artifacts.chat.composerPlaceholder", {
+				title: activeWorkspaceDocumentTitle,
+			})
+		: null,
+);
+
+/**
  * Wave 2.5 Step 4 (redesign §5.2/§5.3): the count button's dot — "a change
  * waits while the panel is closed". Fed from `liveDocumentAlfyActivity`, the
  * page's existing ephemeral, session-only signal for "Alfy just finished a
@@ -3290,6 +3315,7 @@ function handleDrop(event: DragEvent) {
 				beforeSend={ensureCloudWarningAcked}
 				checkingCloudWarning={cloudWarningChecking}
 				onCapabilitiesReady={handleCapabilitiesReady}
+				placeholder={composerPlaceholder}
 			/>
 		</div>
 

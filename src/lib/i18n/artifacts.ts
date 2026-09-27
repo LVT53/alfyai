@@ -27,6 +27,10 @@ const artifactsDict = {
 		// how a screen reader user gets the same information.
 		"artifacts.header.buttonA11yPending":
 			"Open what this chat made ({count}) — a change is waiting",
+		// Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open
+		// item" — the chat page's own composer, while a document/app/etc. is
+		// open in the panel. `src/routes/(app)/chat/[conversationId]/+page.svelte`.
+		"artifacts.chat.composerPlaceholder": "Ask about {title}",
 		// The panel's list state (surface 2).
 		"artifacts.panel.eyebrow": "This chat",
 		"artifacts.panel.title": "What this chat made",
@@ -278,6 +282,10 @@ const artifactsDict = {
 			"Nyisd meg, amit ez a beszélgetés készített ({count})",
 		"artifacts.header.buttonA11yPending":
 			"Nyisd meg, amit ez a beszélgetés készített ({count}) — egy módosítás vár rád",
+		// A kettőspont a "-ról/-ről" rag nélkül old meg egy tetszőleges,
+		// felhasználó/AI adta címet — a magyar toldalék a cím végződésétől
+		// függne, ami egy dinamikus értéknél nem garantálható.
+		"artifacts.chat.composerPlaceholder": "Kérdezz erről: {title}",
 		"artifacts.panel.eyebrow": "Ez a beszélgetés",
 		"artifacts.panel.title": "Amit ez a beszélgetés készített",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",

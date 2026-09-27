@@ -739,6 +739,54 @@ test.describe("inline task items (Wave 2.5 Step 0)", () => {
 	});
 });
 
+// Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open item".
+test.describe("the composer placeholder names the open item (Wave 2.5 Step 12)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("names the document once it is open, and reverts once the panel closes", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "Some notes.",
+		});
+		await openChatAndReload(page, conversationId);
+
+		await expect(page.getByPlaceholder("Type a message...")).toBeVisible();
+
+		await openDocumentFromPanel(page);
+		await expect(page.getByPlaceholder("Ask about Packing list")).toBeVisible();
+
+		// Closing the whole panel (the count button toggles it shut, Wave 2.5
+		// Step 4) drops the specific-item state, so the composer reverts —
+		// even though the document tab itself stays open underneath for a
+		// quick reopen (push-navigation's own "back is instant" state).
+		await page.getByTestId("artifact-count-button").click();
+		await expect(page.getByPlaceholder("Type a message...")).toBeVisible();
+	});
+
+	test("names nothing while the panel shows the list, only once an item is open", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "Some notes.",
+		});
+		await openChatAndReload(page, conversationId);
+
+		// The list view alone (before picking a row) has no single item to name.
+		await page.getByTestId("artifact-count-button").click();
+		await expect(page.getByTestId("artifact-panel-list")).toBeVisible();
+		await expect(page.getByPlaceholder("Type a message...")).toBeVisible();
+	});
+});
+
 // T8 live: a REAL edit_artifact call, driven through the real /api/chat/stream
 // path by the fake OpenAI-compatible provider harness (the mechanism
 // instruction-suggestion-live.spec.ts already established for suggest_instruction)
