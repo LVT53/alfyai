@@ -224,6 +224,13 @@ function chipLabelKey(filter: DocumentTypeFilter) {
 	return `knowledge.documents.filter.${filter}` as const;
 }
 
+/** The reason a zero-count chip's `title`/`aria-describedby` gives on hover
+ *  (redesign §6.2/§6.4: "Zero-count chips are dimmed, dashed and disabled,
+ *  with a reason on hover"). One key per `DOCUMENT_TYPE_FILTER_ORDER` entry. */
+function chipEmptyReasonKey(filter: DocumentTypeFilter) {
+	return `knowledge.documents.filter.emptyReason.${filter}` as const;
+}
+
 // ── The file family row (ruling 60, second tier, Files only) ─────────────
 //
 // Unlike the kind row above, a zero-count family is HIDDEN rather than shown
@@ -1364,20 +1371,33 @@ async function handleBulkDelete(): Promise<boolean> {
 	{/if}
 	<div class="documents-filter-chips" data-testid="documents-filter-chips">
 		{#each DOCUMENT_TYPE_FILTER_ORDER as filter (filter)}
+			{@const count = chipCount(filter)}
+			{@const isZero = count === 0}
+			{@const reasonId = `documents-filter-chip-reason-${filter}`}
+			<!-- `disabled` keeps a real browser from ever dispatching the click;
+			     the `isZero` guard in `onclick` below is the same rule enforced
+			     in JS, since `disabled` alone doesn't stop a synthetically
+			     dispatched click event (only real, hit-tested pointer input). -->
 			<button
 				type="button"
 				class="documents-filter-chip"
 				class:active={typeFilter === filter}
 				aria-pressed={typeFilter === filter}
+				disabled={isZero}
+				title={isZero ? $t(chipEmptyReasonKey(filter)) : undefined}
+				aria-describedby={isZero ? reasonId : undefined}
 				aria-label={$t('knowledge.documents.filter.optionA11y', {
 					label: $t(chipLabelKey(filter)),
-					count: chipCount(filter),
+					count,
 				})}
 				data-testid="documents-filter-chip-{filter}"
-				onclick={() => handleTypeFilterChipClick(filter)}
+				onclick={() => !isZero && handleTypeFilterChipClick(filter)}
 			>
-				{$t(chipLabelKey(filter))} {chipCount(filter)}
+				{$t(chipLabelKey(filter))} {count}
 			</button>
+			{#if isZero}
+				<span id={reasonId} class="sr-only">{$t(chipEmptyReasonKey(filter))}</span>
+			{/if}
 		{/each}
 	</div>
 	{#if showFileFamilyRow}
@@ -1390,6 +1410,23 @@ async function handleBulkDelete(): Promise<boolean> {
 			<span class="documents-filter-group-label">
 				{$t('knowledge.documents.fileFamily.groupLabel')}
 			</span>
+			<!-- Ruling 60 / redesign §6.2: "starting with All files 8" — the only
+			     chip at this tier with no family of its own; clearing the active
+			     family (clicking it again, or switching kind chips) lands here. -->
+			<button
+				type="button"
+				class="documents-filter-chip documents-filter-chip-secondary"
+				class:active={!fileFamilyFilter}
+				aria-pressed={!fileFamilyFilter}
+				aria-label={$t('knowledge.documents.filter.optionA11y', {
+					label: $t('knowledge.documents.fileFamily.all'),
+					count: countsByKind?.uploaded ?? 0,
+				})}
+				data-testid="documents-file-family-chip-all"
+				onclick={() => onFileFamilyFilterChange?.(null)}
+			>
+				{$t('knowledge.documents.fileFamily.all')} {countsByKind?.uploaded ?? 0}
+			</button>
 			{#each visibleFileFamilies as family (family)}
 				<button
 					type="button"
@@ -2822,11 +2859,41 @@ async function handleBulkDelete(): Promise<boolean> {
 		outline-offset: 2px;
 	}
 
+	/* Redesign §6.2/§6.4: a zero-count chip is dimmed, dashed and disabled
+	   rather than hidden — the reason lives in `title`/`aria-describedby`. */
+	.documents-filter-chip:disabled {
+		opacity: 0.5;
+		border-style: dashed;
+		cursor: not-allowed;
+	}
+
+	.documents-filter-chip:disabled:hover {
+		border-color: var(--border-default);
+		color: var(--text-muted);
+	}
+
 	/* The file family row (ruling 60): a visually subordinate second tier,
 	   live only under the Files chip. Same wrap-not-scroll rule as the row
-	   above it, so it never overflows at narrow widths either. */
+	   above it, so it never overflows at narrow widths either. Redesign §7.2
+	   #32: "the file-type row grows from the Files chip" — a plain CSS
+	   keyframe reveal on mount, so `app.css`'s existing global
+	   prefers-reduced-motion override (which already collapses every
+	   animation to 0.01ms) is the row's whole §7.3 reduced path, with no
+	   extra JS branching to test. */
 	.documents-filter-chips-secondary {
 		align-items: center;
+		animation: documents-file-family-reveal var(--duration-emphasis) var(--ease-emphasis);
+	}
+
+	@keyframes documents-file-family-reveal {
+		from {
+			opacity: 0;
+			transform: translateY(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.documents-filter-group-label {
