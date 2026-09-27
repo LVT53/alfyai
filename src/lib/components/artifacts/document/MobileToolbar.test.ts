@@ -128,6 +128,24 @@ describe("MobileToolbar", () => {
 			expect(moreButton).toHaveFocus();
 		});
 
+		// Regression: this toolbar (and the sheet it opens) lives inside
+		// DocumentWorkspace.svelte's mobile shell, whose own
+		// `.workspace-mobile-backdrop` paints at z-index 95. DialogShell's
+		// default z-50 rendered the sheet BEHIND that backdrop — invisible in a
+		// real browser even though every other check (role, text, geometry)
+		// passed, since jsdom does not paint. Caught only by looking at an
+		// actual screenshot; asserted here so the override can't silently
+		// regress back to the default.
+		it("renders above the document workspace's own mobile backdrop (z-index 95)", async () => {
+			render(MobileToolbar, { onAction: vi.fn() });
+			await fireEvent.click(screen.getByRole("button", { name: "More" }));
+			// zIndexClass lands on DialogShell's own fixed backdrop wrapper, the
+			// dialog's parent — not on the role="dialog" element itself.
+			expect(screen.getByRole("dialog").parentElement?.className).toContain(
+				"z-[150]",
+			);
+		});
+
 		it("renders as a bottom sheet with a grabber (a real close affordance) on a phone", async () => {
 			vi.stubGlobal("innerWidth", 390);
 			render(MobileToolbar, { onAction: vi.fn() });

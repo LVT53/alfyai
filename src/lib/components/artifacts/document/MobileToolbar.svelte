@@ -23,6 +23,15 @@
  * sheet gets a title… and a close button", which the old bare
  * `aria-label`-only dialog never had.
  *
+ * `zIndexClass="z-[150]"`: this toolbar (and the sheet it opens) is nested
+ * INSIDE `DocumentWorkspace.svelte`'s mobile shell, whose own
+ * `.workspace-mobile-backdrop` sits at `z-index: 95` — DialogShell's default
+ * `z-50` would render the sheet BEHIND that blurred backdrop (invisible,
+ * confirmed by screenshot: the sheet existed with correct geometry and
+ * opacity, just painted under the backdrop). The old hand-rolled sheet used
+ * `z-index: 140` for the same reason; 150 keeps the same margin above every
+ * z-index in that file (highest today: 115, `.workspace-shell-expanded`).
+ *
  * No `@tiptap/*` import — stays outside the lazy editor boundary (T7.8).
  */
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
@@ -129,6 +138,7 @@ function handleSheetAction(id: DocumentToolbarActionId): void {
 		title={$t('artifacts.document.toolbar.moreSheetTitle')}
 		onClose={closeSheet}
 		phonePresentation="sheet"
+		zIndexClass="z-[150]"
 	>
 		<div class="mobile-toolbar-sheet-grid">
 			{#each overflowActions as action (action.id)}
