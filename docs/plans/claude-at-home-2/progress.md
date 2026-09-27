@@ -534,8 +534,10 @@ resets 2026-09-28 08:59 UTC.
 | 1 | Foundation (1–2) | `feat/artifacts-rd1-foundation` / `art-rd1` (5400) | **merged** — 8 commits `473cc2bb`…`988ab94e`: §9.1 tokens (light/dark, `color-scheme`), `reducedMotionAnimate` WAAPI helper, `.btn-text` and `--status-*` gone, `btn-primary` → `--accent-text`, contrast test, `.document-content` prose, `.alfy-change` + `arrive`, comment-mark classes (unwired). Gates: check 0/17, 13,475 tests, build 32/2, Fallow 124/4 (0 new), Playwright 42/42. Cost ≈ 1 % of the weekly budget (472k tokens, 65 min) |
 | 2 | Panel shell (3–5) | `feat/artifacts-rd2-shell` / `art-rd2` (5410) | running (branched from agent 1's head) |
 | 5 | Cards, App panel, Knowledge (12–14) | `feat/artifacts-rd5-cards` / `art-rd5` (5440) | waiting |
-| 3 | Comments (6–8) | `feat/artifacts-rd3-comments` / `art-rd3` (5420) | waiting |
-| 4 | Editing feedback (9–11) | `feat/artifacts-rd4-editing` / `art-rd4` (5430) | waiting |
+| 3a | Comment card/thread, the rail (6–7) | `feat/artifacts-rd3a-comments` / `art-rd3a` (5420) | waiting |
+| 3b | Phone comments, drawer, Versions/Download popovers (8 + §3.2) | `feat/artifacts-rd3b-sheets` / `art-rd3b` (5425) | waiting |
+| 4a | Selection pill/composer, Alfy writing, pinned refusal (9, 11) | `feat/artifacts-rd4a-compose` / `art-rd4a` (5430) | waiting |
+| 4b | Change pill, review bar, pending review across reloads (10 + ruling 61) | `feat/artifacts-rd4b-review` / `art-rd4b` (5435) | waiting |
 | R | Opus visual/a11y review (16) | `rv-rd` (5450) | waiting |
 
 Rulings (orchestrator, 2026-09-27):
@@ -544,13 +546,24 @@ Rulings (orchestrator, 2026-09-27):
   surface later, in the Opus review, and need a larger fix agent.
 - Ruling: agents 2 and 5 run one after the other, not in parallel — they share `ArtifactCard.svelte`, the chat page and
   `i18n/artifacts.ts`, and the weekly budget, not wall-clock, is the constraint — cost if wrong: a few hours of wall-clock.
-  Order: 1 → 2 → 5 → 3 → 4 → review → fixes → dev.
+  Order: 1 → 2 → 5 → 3a → 3b → 4a → 4b → review → fixes → dev.
 - Ruling: no new `axe-core` dependency this wave; a11y is checked with Playwright role/name assertions, a token-contrast unit
   test and the Opus review — why: a new dependency touches the shared `node_modules` and the deploy — cost if wrong: an axe
   finding caught later (add axe in Wave 3 with the owner's OK).
 - Agent 1, deferred for the Opus review: the comment-anchor decoration does not exist yet (agent 3 wires the
   `.comment-anchor` / `.is-active` / `.is-resolved` styles); the tracker's "Cancelled" → warning tone is agent 1's own
   call; Document checkboxes on phones keep the mockup's 17 px (no 44 px hit area); no chevron on status/date chips.
+- Ruling: agents 3 and 4 are split in two each (3a/3b, 4a/4b), and 3b also takes the Versions/Download popovers that
+  §10 left without a step — why: the hand-off's lesson that long agents ran out of context, and 4 carries ruling 61's data
+  change — cost if wrong: two extra agent start-ups (≈ 0.3 % of the weekly budget).
+- Ruling (4b's design for ruling 61's first point): the review state lives in the artifact's `metadata_json` (no
+  migration) — the last reviewed Alfy version plus the block ids kept in newer Alfy versions — written only through a
+  new artifacts-facade function and a thin route (ownership scope, `{ ok: true }`, `?conversationId=`). Pending = blocks
+  each newer Alfy version changed against its parent, minus kept, minus later user edits, minus deleted; creation never
+  pending; an artifact without a marker has nothing pending until its next Alfy edit writes the marker — cost if wrong:
+  a pending change made before the deploy is not re-shown (today's behaviour), or a column is needed later.
+- Briefs for every agent: `docs/plans/claude-at-home-2/wave-2-5/` (`common.md` + `rd*-brief.md`); reports and
+  screenshots in this session's scratchpad `rd/`.
 - Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
   wrap-up reserve (progress note, owner message).
 
