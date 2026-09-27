@@ -533,7 +533,8 @@ resets 2026-09-28 08:59 UTC.
 |---|---|---|---|
 | 1 | Foundation (1–2) | `feat/artifacts-rd1-foundation` / `art-rd1` (5400) | **merged** — 8 commits `473cc2bb`…`988ab94e`: §9.1 tokens (light/dark, `color-scheme`), `reducedMotionAnimate` WAAPI helper, `.btn-text` and `--status-*` gone, `btn-primary` → `--accent-text`, contrast test, `.document-content` prose, `.alfy-change` + `arrive`, comment-mark classes (unwired). Gates: check 0/17, 13,475 tests, build 32/2, Fallow 124/4 (0 new), Playwright 42/42. Cost ≈ 1 % of the weekly budget (472k tokens, 65 min) |
 | 2 | Panel shell (3–5) | `feat/artifacts-rd2-shell` / `art-rd2` (5410) | **merged** (`79109131`) — 20 commits `f9702a8f`…`33065621`: `ArtifactPanelHeader` (Document/App/File), `ArtifactCard chrome="row"` list, push navigation and panel motion, count button pressed state + dot, tabs that switch sections (a tab-range decoration; a new empty tab shows everything), `⋯` tab menu, grouped toolbar with roving tabindex and "Saved", phone More sheet on `DialogShell`. Gates: check 0/17, 13,528 tests, build 32/2, Fallow 124/4 (0 new), Playwright 68/68. Cost ≈ 4 % of the weekly budget (743 tool calls, 3 h 5 min) |
-| 5 | Cards, App panel, Knowledge (12–14) | `feat/artifacts-rd5-cards` / `art-rd5` (5440) | waiting |
+| 5a | Task-item fix, in-chat cards (0, 12) | `feat/artifacts-rd5a-cards` / `art-rd5a` (5440) | **merged** — 7 commits `b2a3442f`…`82e70f72`: task items inline (agent 1's CSS keyed on a `data-type` Tiptap never renders; now `data-checked`), no timing on artifact cards, "1 tab" plural, a real standalone card outside the tool-row box, the live pending-review count on the card, the composer placeholder names the open item. Gates: check 0/17, 13,533 tests, build 32/2, Fallow 124/4 (0 new), Playwright 48/48. Cost ≈ 2 % (395 tool calls, 83 min). Stopped before step 14 on the budget |
+| 5b | App panel (13), Knowledge chips (14), 5a's leftovers | `feat/artifacts-rd5b-app` / `art-rd5b` (5445) | waiting — brief = `rd5-brief.md`'s Step 13 (incl. the rail decision) + `rd5a-brief.md`'s Step 14 + the deferred card items in `rd5a-report.md` (creating/failed/deleted states, "1 part left alone" pill, live `current` wiring, App fact-check field) |
 | 3a | Comment card/thread, the rail (6–7) | `feat/artifacts-rd3a-comments` / `art-rd3a` (5420) | waiting |
 | 3b | Phone comments, drawer, Versions/Download popovers (8 + §3.2) | `feat/artifacts-rd3b-sheets` / `art-rd3b` (5425) | waiting |
 | 4a | Selection pill/composer, Alfy writing, pinned refusal (9, 11) | `feat/artifacts-rd4a-compose` / `art-rd4a` (5430) | waiting |
@@ -546,7 +547,7 @@ Rulings (orchestrator, 2026-09-27):
   surface later, in the Opus review, and need a larger fix agent.
 - Ruling: agents 2 and 5 run one after the other, not in parallel — they share `ArtifactCard.svelte`, the chat page and
   `i18n/artifacts.ts`, and the weekly budget, not wall-clock, is the constraint — cost if wrong: a few hours of wall-clock.
-  Order: 1 → 2 → 5 → 3a → 3b → 4a → 4b → review → fixes → dev.
+  Order: 1 → 2 → 5a → 5b → 3a → 3b → 4a → 4b → review → fixes → dev.
 - Ruling: no new `axe-core` dependency this wave; a11y is checked with Playwright role/name assertions, a token-contrast unit
   test and the Opus review — why: a new dependency touches the shared `node_modules` and the deploy — cost if wrong: an axe
   finding caught later (add axe in Wave 3 with the owner's OK).
@@ -587,18 +588,19 @@ Rulings (orchestrator, 2026-09-27):
 - i18n namespaces are now discovered from `src/lib/i18n/index.ts` by the validator and the parity test
   (`1e5a32df`, `2a30d85c`).
 
-**PAUSED 2026-09-27 16:00 UTC for the weekly limit (94 % used; resets 2026-09-28 09:00 UTC).** Agents 1 and 2 are merged into
-`feat/artifacts` (`79109131` + this note); nothing of the redesign is on `dev` or ai.dev yet (ai.dev = `29a07688`).
-Worktrees `art-rd1` and `art-rd2` can be removed (both branches merged).
+**PAUSED 2026-09-27 ~17:50 UTC for the weekly limit** (the owner asked to continue to 98 % and keep 2 % for a later deploy;
+agent 5a ran on that basis). Agents 1, 2 and 5a are merged into `feat/artifacts`; nothing of the redesign is on `dev` or
+ai.dev yet (ai.dev = `29a07688`). Worktrees `art-rd1`, `art-rd2`, `art-rd5a` can be removed (branches merged). 3a's
+step 0 (task items) is already done by 5a: skip it.
 
 ## Next action
 
 Resume Wave 2.5 after the weekly reset, in this session or a fresh one:
-1. `get_usage`; then create agent 5's worktree from `feat/artifacts`: `git worktree add -b feat/artifacts-rd5-cards
-   ../art-rd5 feat/artifacts`, symlink `art-base/node_modules`, `DATABASE_PATH="$PWD/data/playwright-e2e-chat.db" npm run
+1. `get_usage`; then create agent 5b's worktree from `feat/artifacts`: `git worktree add -b feat/artifacts-rd5b-app
+   ../art-rd5b feat/artifacts`, symlink `art-base/node_modules`, `DATABASE_PATH="$PWD/data/playwright-e2e-chat.db" npm run
    db:prepare` (Node 22 on `PATH`).
-2. Dispatch it (Sonnet) with `wave-2-5/common.md` + `wave-2-5/rd5-brief.md` + the hand-off sections of `rd1-report.md`
-   and `rd2-report.md` (all in `docs/plans/claude-at-home-2/wave-2-5/`; if the old session scratchpad is gone, point the
+2. Write 5b's brief from the table row above, then dispatch it (Sonnet) with `wave-2-5/common.md` + that brief + the
+   hand-off sections of `rd1-report.md`, `rd2-report.md` and `rd5a-report.md` (all in `docs/plans/claude-at-home-2/wave-2-5/`; if the old session scratchpad is gone, point the
    brief's report/screenshot paths at your own scratchpad).
 3. After it: `wave-2-5/gates.sh <worktree> <port> <label> [specs]` (summary in `/tmp/gates-<label>/summary.txt`, Fallow
    baseline `~/.cache/alfyai-artifacts/fallow-baseline-00ef6d2a.json`), merge into `feat/artifacts`, update the table.
