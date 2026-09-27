@@ -3,6 +3,7 @@ import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ARTIFACT_BODIES } from "$lib/components/artifacts/artifact-bodies";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import { MOTION_EASING } from "$lib/utils/motion";
 import {
 	makeWorkspaceDocument,
 	renderWorkspace,
@@ -1777,6 +1778,184 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			activeDocumentId: "doc-2",
 		});
 		expect(await screen.findByTestId("open-documents-rail")).toBeInTheDocument();
+	});
+});
+
+// Wave 2.5 Step 4 (redesign §7.2 #1/#3/#4): the panel's own open motion and
+// list↔item push, both through `reducedMotionAnimate` — jsdom has no WAAPI,
+// so `Element.prototype.animate` is stubbed per test, mirroring
+// `motion.test.ts`'s own pattern.
+describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
+	let animateSpy: ReturnType<typeof vi.fn>;
+
+	function stubMatchMedia(matches: boolean) {
+		vi.stubGlobal(
+			"matchMedia",
+			vi.fn((query: string) => ({
+				matches,
+				media: query,
+				onchange: null,
+				addListener: () => undefined,
+				removeListener: () => undefined,
+				addEventListener: () => undefined,
+				removeEventListener: () => undefined,
+				dispatchEvent: () => false,
+			})),
+		);
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		global.fetch = vi.fn();
+		stubMatchMedia(false);
+		animateSpy = vi.fn(() => ({
+			finished: Promise.resolve(),
+			cancel: vi.fn(),
+		}));
+		HTMLElement.prototype.animate = animateSpy as unknown as typeof HTMLElement.prototype.animate;
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("enters the content from the right, 60ms after the panel's own first open", async () => {
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+			activeDocumentId: "doc-1",
+		});
+		await tick();
+
+		expect(animateSpy).toHaveBeenCalledWith(
+			[
+				{ opacity: 0, transform: "translateX(32px)" },
+				{ opacity: 1, transform: "translateX(0)" },
+			],
+			expect.objectContaining({ delay: 60 }),
+		);
+	});
+
+	it("plays no WAAPI animation under reduced motion", async () => {
+		stubMatchMedia(true);
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+			activeDocumentId: "doc-1",
+		});
+		await tick();
+
+		expect(animateSpy).not.toHaveBeenCalled();
+	});
+
+	// DocumentWorkspace is a controlled component: clicking a row only fires
+	// `onSelectDocument`/`onListOpenChange`, so the test plays the parent's
+	// own part (as the real chat/knowledge pages do) by re-rendering with the
+	// props those callbacks would cause, then checks the entrance the newly
+	// mounted item content plays.
+	it("pushes the item in from the right, immediately, when a list row is opened", async () => {
+		const listItem = makeWorkspaceDocument({
+			id: "list-item-1",
+			title: "Vienna itinerary",
+			kind: "file",
+		});
+		const { rerender, onSelectDocument, onListOpenChange } = renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+			activeDocumentId: "doc-1",
+			list: { open: true, items: [listItem] },
+		});
+		await tick();
+		animateSpy.mockClear();
+
+		const list = await screen.findByTestId("artifact-panel-list");
+		await fireEvent.click(
+			within(list).getByRole("button", { name: /Vienna itinerary/ }),
+		);
+		expect(onSelectDocument).toHaveBeenCalledWith("list-item-1");
+		expect(onListOpenChange).toHaveBeenCalledWith(false);
+
+		await rerender({
+			documents: [
+				makeWorkspaceDocument({ id: "doc-1", title: "Doc" }),
+				listItem,
+			],
+			activeDocumentId: "list-item-1",
+			list: { open: false, items: [listItem] },
+		});
+		await tick();
+
+		expect(animateSpy).toHaveBeenCalledWith(
+			[
+				{ opacity: 0, transform: "translateX(32px)" },
+				{ opacity: 1, transform: "translateX(0)" },
+			],
+			expect.objectContaining({ delay: 0 }),
+		);
+	});
+
+	it("pulls the list in from the left, immediately, from the header's breadcrumb", async () => {
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeArtifactBody.svelte");
+		try {
+			const doc = makeWorkspaceDocument({
+				id: "doc-1",
+				kind: "document",
+				title: "Plan",
+			});
+			const { rerender, onListOpenChange } = renderWorkspace({
+				documents: [doc],
+				activeDocumentId: "doc-1",
+				list: { open: false, items: [doc] },
+			});
+			await screen.findByTestId("fake-artifact-body");
+			await tick();
+			animateSpy.mockClear();
+
+			const shell = screen.getAllByRole("complementary", {
+				name: "Document workspace",
+			})[0];
+			await fireEvent.click(
+				within(shell).getByRole("button", { name: /This chat/ }),
+			);
+			expect(onListOpenChange).toHaveBeenCalledWith(true);
+
+			await rerender({
+				documents: [doc],
+				activeDocumentId: "doc-1",
+				list: { open: true, items: [doc] },
+			});
+			await tick();
+
+			expect(animateSpy).toHaveBeenCalledWith(
+				[
+					{ opacity: 0, transform: "translateX(-32px)" },
+					{ opacity: 1, transform: "translateX(0)" },
+				],
+				expect.objectContaining({ delay: 0 }),
+			);
+		} finally {
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
+	it("fades the content out, standard duration, when the panel closes", async () => {
+		const { rerender } = renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+			activeDocumentId: "doc-1",
+		});
+		await tick();
+		animateSpy.mockClear();
+
+		await rerender({
+			open: false,
+			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+			activeDocumentId: "doc-1",
+		});
+		await tick();
+
+		expect(animateSpy).toHaveBeenCalledWith(
+			[{ opacity: 1 }, { opacity: 0 }],
+			expect.objectContaining({ easing: MOTION_EASING.in }),
+		);
 	});
 });
 

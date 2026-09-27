@@ -9,6 +9,11 @@ import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types
 import { handleDownloadAnchorClick } from "$lib/client/downloads";
 import { t, type I18nKey } from "$lib/i18n";
 import { formatRelativeTime } from "$lib/utils/time";
+import {
+	MOTION_DURATION,
+	MOTION_EASING,
+	reducedMotionAnimate,
+} from "$lib/utils/motion";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
@@ -169,6 +174,25 @@ let documentPreviewRendererModulePromise: Promise<DocumentPreviewRendererModule>
 	null;
 let desktopShellElement: HTMLElement | null = $state(null);
 let mobileShellElement: HTMLElement | null = $state(null);
+/**
+ * The desktop shell's own content (everything below its header-or-list-head
+ * — the two mutually exclusive `{#if list?.open}`/`{:else if …}` branches
+ * each wrap their body in this same class/ref), so the panel's OPEN/CLOSE
+ * and list↔item PUSH motion (redesign §7.2 #1–#4) can animate content
+ * separately from the shell's own width (a plain CSS transition — see
+ * `.workspace-shell-desktop`). Rebinds to a NEW element every time the
+ * branch swaps (list → item or back), which is exactly the hook
+ * `desktopContentEntranceEffect` below needs: Svelte destroys the outgoing
+ * branch and mounts the incoming one in one synchronous update, so there is
+ * no element to play an "exit" animation on by the time this ref changes —
+ * only an entrance on whatever just arrived.
+ */
+let desktopContentElement: HTMLElement | null = $state(null);
+/** What the NEXT `desktopContentElement` mount should play — set just before the state change that will cause it, per §7.2 rows #1/#3/#4. Panel-open default: content arrives from the right, 60ms after the panel itself does. */
+let pendingEntrance: { direction: "left" | "right"; delay: number } = {
+	direction: "right",
+	delay: 60,
+};
 // Fade animation state
 let isVisible = $state(false);
 let shouldRender = $state(false);
@@ -241,11 +265,55 @@ $effect(() => {
 
 	isVisible = false;
 	if (shouldRender && !closeAnimationTimer) {
+		// §7.2 #2: "content fades out" — the content wrapper's own fade, not
+		// the shell's (which keeps its existing opacity/transform fade
+		// unchanged below); reducedMotionAnimate jumps straight to hidden
+		// under reduced motion, so `finished` still resolves promptly.
+		const fadeOut = desktopContentElement
+			? reducedMotionAnimate(
+					desktopContentElement,
+					[{ opacity: 1 }, { opacity: 0 }],
+					{ duration: MOTION_DURATION.standard, easing: MOTION_EASING.in },
+				)
+			: null;
 		closeAnimationTimer = setTimeout(() => {
 			shouldRender = false;
 			closeAnimationTimer = null;
 		}, 150);
+		return () => {
+			fadeOut?.cancel();
+		};
 	}
+});
+
+/**
+ * Plays the entrance for whatever just mounted into `desktopContentElement`
+ * — the panel's very first open (the default `pendingEntrance`, content from
+ * the right, 60ms after the panel itself per §7.2 #1) and every list↔item
+ * push within an already-open panel (§7.2 #3/#4, immediate: `selectFromList`
+ * and the header's back-to-list path set `pendingEntrance` to the direction
+ * the NEW content is arriving from just before they change the state that
+ * swaps the branch). There is no separate exit animation: Svelte destroys
+ * the outgoing branch synchronously when the state changes, so the outgoing
+ * content is simply gone by the time this effect could see it — the
+ * entrance below is what carries the motion.
+ */
+$effect(() => {
+	const element = desktopContentElement;
+	if (!element) return;
+	const { direction, delay } = pendingEntrance;
+	const fromX = direction === "right" ? 32 : -32;
+	const animation = reducedMotionAnimate(
+		element,
+		[
+			{ opacity: 0, transform: `translateX(${fromX}px)` },
+			{ opacity: 1, transform: "translateX(0)" },
+		],
+		{ duration: MOTION_DURATION.emphasis, easing: MOTION_EASING.emphasis, delay },
+	);
+	return () => {
+		animation.cancel();
+	};
 });
 
 $effect(() => {
@@ -279,7 +347,10 @@ let desktopShellTransform = $derived(
 			: "translateY(0.45rem) scale(0.985)"
 		: isVisible
 			? "translateX(0)"
-			: "translateX(-20px)",
+			// §7.2 #1: the panel enters from the right (the side it lives on,
+			// per §7.1's own principle 1) — this used to read -20px, sliding in
+			// from the left instead (§5.1 problem 8).
+			: "translateX(32px)",
 );
 
 function startResize(event: MouseEvent) {
@@ -748,9 +819,22 @@ function closeArtifactList(): void {
 // chat_generated_file's own id, with `artifactId` carried only as a
 // separate field), so looking the selection up by anything else would miss
 // every item the caller already builds today.
+//
+// §7.2 #3: "list slides 28px left and fades (exit); item slides in from 28px
+// right (enter)". Setting `pendingEntrance` here, just before the calls that
+// swap `list?.open` off, is what the item view's incoming
+// `desktopContentElement` picks up once Svelte mounts it a moment later —
+// see that effect's own doc comment for why there is no separate exit half.
 function selectFromList(item: DocumentWorkspaceItem): void {
+	pendingEntrance = { direction: "right", delay: 0 };
 	onSelectDocument(item.id);
 	onListOpenChange?.(false);
+}
+
+/** `ArtifactPanelHeader`'s breadcrumb (§7.2 #4, the mirror of #3: the list enters from the left). */
+function handleBackToList(): void {
+	pendingEntrance = { direction: "left", delay: 0 };
+	onListOpenChange?.(true);
 }
 
 function handleDocumentPointerdown(event: PointerEvent) {
@@ -1013,33 +1097,35 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		style:opacity={isVisible ? '1' : '0'}
 		aria-label={$t('documentWorkspace.documentWorkspace')}
 	>
-		<div class="workspace-header">
-			<div class="workspace-heading">
-				<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
-				<div class="workspace-title-row">
-					<div class="workspace-title">
-						<span>{list.title ?? $t('artifacts.panel.title')}</span>
+		<div class="workspace-content" bind:this={desktopContentElement}>
+			<div class="workspace-header">
+				<div class="workspace-heading">
+					<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
+					<div class="workspace-title-row">
+						<div class="workspace-title">
+							<span>{list.title ?? $t('artifacts.panel.title')}</span>
+						</div>
+						<div class="workspace-header-actions">
+							<button
+								type="button"
+								class="btn-icon-bare workspace-close-button"
+								onclick={closeArtifactList}
+								aria-label={$t('documentWorkspace.closeWorkspace')}
+							>
+								<X size={18} strokeWidth={2.1} aria-hidden="true" />
+							</button>
+						</div>
 					</div>
-					<div class="workspace-header-actions">
-						<button
-							type="button"
-							class="btn-icon-bare workspace-close-button"
-							onclick={closeArtifactList}
-							aria-label={$t('documentWorkspace.closeWorkspace')}
-						>
-							<X size={18} strokeWidth={2.1} aria-hidden="true" />
-						</button>
+					<div class="workspace-subtitle">
+						{$t('artifacts.panel.count', { count: list.items.length })}
 					</div>
-				</div>
-				<div class="workspace-subtitle">
-					{$t('artifacts.panel.count', { count: list.items.length })}
 				</div>
 			</div>
-		</div>
 
-		<div class="workspace-main" data-testid="workspace-main" data-presentation={presentation}>
-			<div class="workspace-document-column">
-				{@render artifactListBody('artifact-panel-list')}
+			<div class="workspace-main" data-testid="workspace-main" data-presentation={presentation}>
+				<div class="workspace-document-column">
+					{@render artifactListBody('artifact-panel-list')}
+				</div>
 			</div>
 		</div>
 	</aside>
@@ -1210,7 +1296,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					onVersions={bodyPanelActions?.openVersions}
 					meta={activeDocument.updatedAt != null ? formatRelativeTime(activeDocument.updatedAt, { t: $t }) : null}
 					itemCount={list?.items.length ?? null}
-					onBack={() => onListOpenChange?.(true)}
+					onBack={handleBackToList}
 					actions={artifactHeaderActionsSnippet}
 				/>
 			{:else}
@@ -1474,7 +1560,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				? 'none'
 				: presentation === 'expanded'
 					? 'opacity 180ms ease-out, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)'
-					: 'opacity 150ms ease-out, transform 150ms ease-out'
+					// §7.2 #1/#2: the docked column's own width transition
+					// (content's fade/slide is `desktopContentElement`'s own
+					// WAAPI animation, driven separately below).
+					: 'opacity 150ms ease-out, transform 150ms ease-out, width var(--duration-standard) var(--ease-in)'
 		}
 		style:opacity={isVisible ? '1' : '0'}
 		style:transform={desktopShellTransform}
@@ -1493,6 +1582,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			aria-valuenow={workspaceWidth}
 			tabindex="0"
 		></div>
+		<div class="workspace-content" bind:this={desktopContentElement}>
 		{#if activeDocument.kind}
 			<ArtifactPanelHeader
 				kind={activeArtifactKind}
@@ -1501,7 +1591,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				onVersions={bodyPanelActions?.openVersions}
 				meta={activeDocument.updatedAt != null ? formatRelativeTime(activeDocument.updatedAt, { t: $t }) : null}
 				itemCount={list?.items.length ?? null}
-				onBack={() => onListOpenChange?.(true)}
+				onBack={handleBackToList}
 				actions={artifactHeaderActionsSnippet}
 			/>
 		{:else}
@@ -1739,6 +1829,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	</div>
 		</div>
 	</div>
+	</div>
 </aside>
 {/if}
 
@@ -1772,7 +1863,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		display: none;
 		transition: opacity var(--duration-standard) ease-out, transform var(--duration-standard) ease-out;
 		opacity: 0;
-		transform: translateX(-20px);
+		transform: translateX(32px);
 	}
 
 	.workspace-fade-in {
@@ -2076,6 +2167,17 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
+	}
+
+	/* The desktop shell's animatable content (redesign §7.2 #1–#4): a plain
+	   pass-through flex column so wrapping the header + workspace-main for
+	   `desktopContentElement` changes no existing layout. */
+	.workspace-content {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 auto;
+		min-height: 0;
+		min-width: 0;
 	}
 
 	.workspace-main {
@@ -2414,16 +2516,30 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	@media (min-width: 768px) {
 		.workspace-shell-desktop {
 			display: flex;
-			width: min(68vw, 59.375rem);
-			max-width: 68%;
-			min-width: min(38.75rem, 68vw);
+			/* §7.2 #1/#2: the column itself grows from 0 to its width when the
+			   panel opens, and shrinks back on close — rather than the whole
+			   element popping in at its full width while only its opacity/
+			   transform faded (§5.1 problem 8, "the chat column snaps to its
+			   new width"). `.workspace-fade-in` below carries the real
+			   width/max-width/min-width and its own faster (emphasis) timing;
+			   this rest state's `standard`/`ease-in` transition is what plays
+			   on CLOSE, when `.workspace-fade-in` is removed. */
+			width: 0;
+			max-width: 0;
+			min-width: 0;
+			overflow: hidden;
 			flex: 0 0 auto;
 			border-left: 1px solid var(--border-subtle);
 			background: var(--surface-page);
-			transition: opacity var(--duration-standard) ease-out, transform var(--duration-standard) ease-out;
+			transition:
+				opacity var(--duration-standard) ease-out,
+				transform var(--duration-standard) ease-out,
+				width var(--duration-standard) var(--ease-in);
 			transform-origin: center;
 			opacity: 0;
-			transform: translateX(-20px);
+			/* The panel enters from the right, the side it lives on (§7.1
+			   principle 1) — this used to read -20px (§5.1 problem 8). */
+			transform: translateX(32px);
 		}
 
 		.workspace-shell-expanded {
@@ -2446,8 +2562,25 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		}
 
 		.workspace-fade-in {
+			width: min(68vw, 59.375rem);
+			max-width: 68%;
+			min-width: min(38.75rem, 68vw);
 			opacity: 1;
 			transform: translateX(0);
+			transition:
+				opacity var(--duration-standard) ease-out,
+				transform var(--duration-standard) ease-out,
+				width var(--duration-emphasis) var(--ease-emphasis);
+		}
+
+		.workspace-shell-expanded.workspace-fade-in {
+			/* Expanded mode owns its own width (auto, fixed-position) and its
+			   own opacity/transform crossfade timing above — the docked
+			   open/close width transition above must not leak into it. */
+			width: auto;
+			max-width: none;
+			min-width: 0;
+			transition: opacity 180ms ease-out, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 		}
 
 		.workspace-resizing {
