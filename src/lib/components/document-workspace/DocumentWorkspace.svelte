@@ -1691,7 +1691,18 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		data-presentation={presentation}
 		data-layout={documents.length > 1 ? "rail-and-preview" : "preview-only"}
 	>
-		{#if !activeDocument.kind}
+		{#if activeDocument.kind !== "document"}
+			<!--
+				Only the Document kind has a built replacement for
+				"switch between multiple open items while one stays visible"
+				(the breadcrumb back to the list, Wave 2.5 Step 3/4) — so only
+				Document hides the rail. App/Canvas/Slides/File keep it exactly
+				as before until each kind's own panel work (App-panel etc.,
+				later in this wave) makes its own intentional call; App in
+				particular still relies on the rail's persisted iframe
+				WindowProxy for its cross-app storage-isolation regression
+				coverage (tests/e2e/artifact-app.spec.ts).
+			-->
 			<OpenDocumentsRail
 				{documents}
 				activeDocumentId={activeDocument.id}
