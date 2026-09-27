@@ -156,11 +156,12 @@ test.describe("the chat header's artifact count button and panel", () => {
 		await openChatAndReload(page, conversationId);
 
 		await page.getByTestId("artifact-count-button").click();
-		// Each row is an ArtifactCard (chrome="full", Task S6): the title is
-		// plain text, and Open is the row's one clickable affordance.
+		// Each row is an ArtifactCard (chrome="row", redesign §5.2/Wave 2.5 Step
+		// 4): the whole row is the one clickable affordance, named after its own
+		// title — never a separate "Open" button.
 		await page
 			.getByTestId("artifact-panel-list")
-			.getByRole("button", { name: "Open" })
+			.getByTestId("artifact-row")
 			.click();
 
 		const shell = page.getByRole("complementary", {
@@ -192,7 +193,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 		await countButton.click();
 		await page
 			.getByTestId("artifact-panel-list")
-			.getByRole("button", { name: "Open" })
+			.getByTestId("artifact-row")
 			.click();
 		// Scoped to the shell, not `page`: the mobile and desktop shells each
 		// carry this testid at every viewport (CSS, not a conditional, decides
@@ -279,7 +280,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 		await page.getByTestId("artifact-count-button-compact").click();
 		await page
 			.getByTestId("artifact-panel-list-mobile")
-			.getByRole("button", { name: "Open" })
+			.getByTestId("artifact-row")
 			.click();
 
 		const shell = page.getByTestId("document-workspace-mobile-shell");
