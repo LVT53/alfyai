@@ -83,6 +83,10 @@
 
 @layer base {
 	:root {
+		/* Artifacts redesign §9.1: native controls (checkboxes, selects, the
+		   chip dropdown) follow the app's own theme rather than the OS's. */
+		color-scheme: light;
+
 		--space-xs: 4px;
 		--space-sm: 8px;
 		--space-md: 16px;
@@ -91,6 +95,11 @@
 		--space-2xl: 48px;
 
 		--ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+		/* Artifacts redesign §7.2/§9.1: arrivals (emphasis) and exits (in). Same
+		   value in light and dark, so unlike the theme colours below these are
+		   declared once here rather than repeated in `.dark`. */
+		--ease-emphasis: cubic-bezier(0.2, 0, 0, 1);
+		--ease-in: cubic-bezier(0.4, 0, 1, 1);
 
 		/* Shared tokens without semantic equivalents */
 		--bg-primary: #fafaf8;
@@ -168,6 +177,30 @@
 		--duration-micro: 100ms;
 		--duration-standard: 150ms;
 		--duration-emphasis: 250ms;
+		/* Artifacts redesign §7.2/§9.1: a highlight settling (the Alfy change
+		   mark's arrival, a flashed quote). Same value in light and dark. */
+		--duration-settle: 700ms;
+
+		/* Semantic Tokens - Artifacts (redesign §9.1) — accent text/fill pulled
+		   out of the raw --accent so small text and filled buttons clear
+		   4.5:1 (the raw --accent itself is 4.0:1 on the page in light; see
+		   `artifact-color-contrast.test.ts`), plus the Alfy-change and
+		   comment-anchor highlight tokens and the warning/success text pairs
+		   that replace the undefined --status-* tokens. */
+		--accent-text: #9f5135;
+		--accent-fill: #ae5630;
+		--on-accent: #ffffff;
+		--accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
+		--accent-tint-strong: color-mix(in srgb, var(--accent) 22%, transparent);
+		--alfy-mark: color-mix(in srgb, var(--accent) 15%, transparent);
+		--alfy-mark-arrive: color-mix(in srgb, var(--accent) 34%, transparent);
+		--comment-mark: color-mix(in srgb, var(--caution) 24%, transparent);
+		--comment-mark-active: color-mix(in srgb, var(--caution) 46%, transparent);
+		--comment-rule: #a07a02;
+		--warning-text: #8a4b06;
+		--warning-tint: color-mix(in srgb, var(--warning) 11%, transparent);
+		--success-text: #166534;
+		--success-tint: color-mix(in srgb, var(--success) 11%, transparent);
 
 		/* Incognito, one-way (docs/plans/incognito-one-way-spec.md §4) — the
 		   ambient tint. `.stage--incognito` overrides --surface-page,
@@ -182,6 +215,9 @@
 	}
 
 	.dark {
+		/* Artifacts redesign §9.1: see the light root's own comment. */
+		color-scheme: dark;
+
 		/* Shared tokens without semantic equivalents */
 		--bg-primary: #1a1a1a;
 		--text-secondary: #8a8a8a;
@@ -244,6 +280,23 @@
 
 		/* Semantic Tokens - Surface (message-specific) */
 		--surface-message-user: #2f2f2f;
+
+		/* Semantic Tokens - Artifacts (redesign §9.1) — dark pair. See the
+		   light root's own comment; --accent-tint/--accent-tint-strong are
+		   not repeated here because they are the same 12%/22% mix in both
+		   themes and already resolve against this block's own --accent. */
+		--accent-text: #e0937c;
+		--accent-fill: #d4836b;
+		--on-accent: #1a1a1a;
+		--alfy-mark: color-mix(in srgb, var(--accent) 17%, transparent);
+		--alfy-mark-arrive: color-mix(in srgb, var(--accent) 36%, transparent);
+		--comment-mark: color-mix(in srgb, var(--caution) 17%, transparent);
+		--comment-mark-active: color-mix(in srgb, var(--caution) 34%, transparent);
+		--comment-rule: #facc15;
+		--warning-text: #f5b04a;
+		--warning-tint: color-mix(in srgb, var(--warning) 15%, transparent);
+		--success-text: #4ade80;
+		--success-tint: color-mix(in srgb, var(--success) 14%, transparent);
 
 		/* Incognito, one-way — dark pair. See the light-mode block above. */
 		--incognito-surface-page: #111214;
@@ -389,6 +442,12 @@ body {
 			--duration-micro: 0.01ms;
 			--duration-standard: 0.01ms;
 			--duration-emphasis: 0.01ms;
+			/* Artifacts redesign §9.1: the fourth duration token, collapsed
+			   here alongside the other three for anything that reads it
+			   directly (the `animation-duration` override above already
+			   forces every CSS animation/transition to 0.01ms regardless of
+			   which token it names). */
+			--duration-settle: 0.01ms;
 		}
 	}
 
