@@ -22,6 +22,11 @@ const artifactsDict = {
 		// The chat header's quiet count button (surface 1). Not drawn at all at
 		// zero, so there is no "0" wording.
 		"artifacts.header.buttonA11y": "Open what this chat made ({count})",
+		// The dot state (redesign §5.2/§5.3): a change is waiting while the
+		// panel is closed. The dot itself is decorative (aria-hidden) — this is
+		// how a screen reader user gets the same information.
+		"artifacts.header.buttonA11yPending":
+			"Open what this chat made ({count}) — a change is waiting",
 		// The panel's list state (surface 2).
 		"artifacts.panel.eyebrow": "This chat",
 		"artifacts.panel.title": "What this chat made",
@@ -259,6 +264,8 @@ const artifactsDict = {
 	hu: {
 		"artifacts.header.buttonA11y":
 			"Nyisd meg, amit ez a beszélgetés készített ({count})",
+		"artifacts.header.buttonA11yPending":
+			"Nyisd meg, amit ez a beszélgetés készített ({count}) — egy módosítás vár rád",
 		"artifacts.panel.eyebrow": "Ez a beszélgetés",
 		"artifacts.panel.title": "Amit ez a beszélgetés készített",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",
