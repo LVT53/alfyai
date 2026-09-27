@@ -19,8 +19,10 @@ Written 2026-09-26 by the Waves 0–2 orchestrator. Start here, then read `progr
 
 - **FIRST: the redesign (owner, 2026-09-27).** The owner found the new surfaces under-designed (no motion, rough to use, the
   panel's comment sidebar a wall of text, buttons and action→effect unclear). An Opus design pass (branch
-  `design/artifacts-redesign`, worktree `art-design`) produces `docs/design/artifacts-redesign/redesign.md` + a click-through
-  `index.html` for the owner to approve. Scope: the panel sidebar, editing feedback, the panel shell and cards, the App panel
+  `design/artifacts-redesign`, worktree `art-design`) produced `docs/design/artifacts-redesign/redesign.md` + a click-through
+  `index.html` (commit `182a641e`, merged into `feat/artifacts`): §-by-§ problems with screenshots, the redesign, a motion
+  spec, and a 16-step build plan (2–3 tasks per agent, ending with an Opus visual review). Get the owner's answers to its
+  §12 questions (a pending Keep/Undo after reload; margin default All vs Open; tabs show only their own section) first. Scope: the panel sidebar, editing feedback, the panel shell and cards, the App panel
   and the Knowledge tab. Build it (small agents, then a visual review) **before Canvas and Slides**, which reuse those
   panel pieces.
 
