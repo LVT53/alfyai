@@ -217,7 +217,7 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 		// and Open is the row's one clickable affordance (artifacts-panel.spec.ts).
 		await page
 			.getByTestId("artifact-panel-list")
-			.getByRole("button", { name: "Open" })
+			.getByTestId("artifact-row")
 			.click();
 
 		const shell = page.getByRole("complementary", {
@@ -290,7 +290,7 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 		await page.getByTestId("artifact-count-button").click();
 		await page
 			.getByTestId("artifact-panel-list")
-			.getByRole("button", { name: "Open" })
+			.getByTestId("artifact-row")
 			.click();
 
 		const shell = page.getByRole("complementary", {
