@@ -1019,6 +1019,31 @@ describe("buildToolActivityItem — journey row", () => {
 			});
 		});
 
+		// Redesign §5.1 problem 7 / §9.2: the card is the deliverable, so the
+		// row must never carry a raw "230 ms" fact beside it — unlike every
+		// other tool call, which keeps its timing (see the elapsed-label tests
+		// above).
+		it("never shows a millisecond/second timing next to an artifact card, even when the call carries a duration", () => {
+			const item = buildToolActivityItem(
+				toolCall({
+					name: "create_artifact",
+					input: { artifactType: "document", title: "Weekend plan" },
+					status: "done",
+					metadata: {
+						ok: true,
+						artifactId: "artifact-1",
+						artifactKind: "document",
+						artifactTitle: "Weekend plan",
+						durationMs: 230,
+					},
+				}),
+				"k-create-timed",
+				translate,
+			);
+
+			expect(item.meta).toBe("");
+		});
+
 		it("renders the same card shape from a successful edit_artifact, with the Edited verb", () => {
 			const item = buildToolActivityItem(
 				toolCall({
@@ -1064,6 +1089,7 @@ describe("buildToolActivityItem — journey row", () => {
 			expect(item.body).toBeNull();
 			expect(item.pinned).toBe(false);
 			expect(item.alwaysOpen).toBe(false);
+			expect(item.meta).toBe("");
 		});
 
 		it("never renders a card for a refused edit_artifact — the row shows the refusal, not a deliverable", () => {

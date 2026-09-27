@@ -617,11 +617,12 @@ test.describe("the Document card's preview (T9 steps 4/7, redesign §5.2)", () =
 
 		await page.getByTestId("artifact-count-button").click();
 		const list = page.getByTestId("artifact-panel-list");
-		// `artifacts.document.cardSubtitle`'s template is not plural-aware
-		// ("Document · {count} tabs" always) — this is the literal rendered
-		// text for the one default tab `createDocumentArtifact` gives a fresh
-		// document.
-		await expect(list.getByText("Document · 1 tabs")).toBeVisible();
+		// `artifacts.document.cardSubtitle` is ICU-plural-aware (Wave 2.5 Step
+		// 12) — this is the literal rendered text for the one default tab
+		// `createDocumentArtifact` gives a fresh document.
+		await expect(
+			list.getByText("Document · 1 tab", { exact: true }),
+		).toBeVisible();
 		await expect(list.getByText("Charger")).not.toBeVisible();
 		await expect(list.getByText("Passport")).not.toBeVisible();
 		await expect(list.getByRole("checkbox")).toHaveCount(0);

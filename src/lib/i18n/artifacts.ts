@@ -207,7 +207,8 @@ const artifactsDict = {
 		// The planned-section shimmer while a tool call is in flight (Slice 1, T8).
 		"artifacts.document.planned.writing": "Alfy is writing: {label}",
 		// Tabs (Slice 1, T9).
-		"artifacts.document.cardSubtitle": "Document · {count} tabs",
+		"artifacts.document.cardSubtitle":
+			"Document · {count} {count, plural, one {tab} other {tabs}}",
 		"artifacts.document.tab.add": "Add a tab",
 		"artifacts.document.tab.menu": "Tab options",
 		"artifacts.document.tab.rename": "Rename",
@@ -428,6 +429,8 @@ const artifactsDict = {
 			"Alfy nem tudta alkalmazni ezt a módosítást",
 		"artifacts.document.refused.seeChange": "Nézd meg, mit csinált Alfy",
 		"artifacts.document.planned.writing": "Alfy írja: {label}",
+		// No ICU plural here on purpose: Hungarian nouns after a numeral stay
+		// singular ("1 fül", "3 fül"), unlike the English "tab"/"tabs" split.
 		"artifacts.document.cardSubtitle": "Dokumentum · {count} fül",
 		"artifacts.document.tab.add": "Fül hozzáadása",
 		"artifacts.document.tab.menu": "Fül beállításai",
