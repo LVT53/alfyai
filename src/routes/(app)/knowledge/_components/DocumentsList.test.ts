@@ -216,7 +216,10 @@ describe("DocumentsList", () => {
 				},
 			});
 
-			expect(screen.getByText(/no documents/i)).toBeInTheDocument();
+			// Exact match: a loose /no documents/i also matches the zero-count
+			// Documents chip's own "No documents yet" reason (Step 14), which
+			// wasn't on screen before that chip could be disabled.
+			expect(screen.getByText("No documents")).toBeInTheDocument();
 			expect(
 				screen.getByText(/upload or generate documents/i),
 			).toBeInTheDocument();
@@ -1590,12 +1593,12 @@ describe("DocumentsList", () => {
 			).toBe("Files 12");
 		});
 
-		it("renders a chip at 0 rather than hiding it", () => {
+		it("renders a chip at 0 rather than hiding it, dimmed and disabled with a reason", () => {
 			render(DocumentsList, {
 				props: {
 					documents: [],
 					countsByKind: {
-						document: 0,
+						document: 1,
 						app: 0,
 						canvas: 0,
 						slides: 0,
@@ -1604,9 +1607,40 @@ describe("DocumentsList", () => {
 				},
 			});
 
-			expect(
-				screen.getByTestId("documents-filter-chip-app").textContent?.trim(),
-			).toBe("Apps 0");
+			const appChip = screen.getByTestId("documents-filter-chip-app");
+			expect(appChip.textContent?.trim()).toBe("Apps 0");
+			expect(appChip).toBeDisabled();
+			expect(appChip).toHaveAttribute("title", "No apps yet");
+			const describedBy = appChip.getAttribute("aria-describedby");
+			expect(describedBy).toBeTruthy();
+			expect(document.getElementById(describedBy as string)?.textContent).toBe(
+				"No apps yet",
+			);
+
+			// A non-zero chip stays enabled, with no reason attached.
+			const documentChip = screen.getByTestId("documents-filter-chip-document");
+			expect(documentChip).not.toBeDisabled();
+			expect(documentChip).not.toHaveAttribute("title");
+		});
+
+		it("does not fire onTypeFilterChange when a disabled zero chip is clicked", async () => {
+			const onTypeFilterChange = vi.fn();
+			render(DocumentsList, {
+				props: {
+					documents: [],
+					countsByKind: {
+						document: 1,
+						app: 0,
+						canvas: 0,
+						slides: 0,
+						uploaded: 0,
+					},
+					onTypeFilterChange,
+				},
+			});
+
+			await fireEvent.click(screen.getByTestId("documents-filter-chip-app"));
+			expect(onTypeFilterChange).not.toHaveBeenCalled();
 		});
 
 		it("fires onTypeFilterChange and reflects the active chip via aria-pressed", async () => {
@@ -1618,7 +1652,10 @@ describe("DocumentsList", () => {
 					countsByKind: {
 						document: 1,
 						app: 0,
-						canvas: 0,
+						// Non-zero: zero-count chips are disabled (see "renders a chip
+						// at 0..." above), and this test is about the click/aria-pressed
+						// wiring, not that behaviour.
+						canvas: 2,
 						slides: 0,
 						uploaded: 1,
 					},
@@ -1643,7 +1680,9 @@ describe("DocumentsList", () => {
 				},
 			});
 
-			expect(screen.getByText(/no documents/i)).toBeInTheDocument();
+			// Exact match: see the same note in "Empty State" above — the
+			// Documents chip's own zero-count reason also matches /no documents/i.
+			expect(screen.getByText("No documents")).toBeInTheDocument();
 			expect(
 				screen.getByTestId("documents-filter-chip-all"),
 			).toBeInTheDocument();
@@ -1704,13 +1743,66 @@ describe("DocumentsList", () => {
 			const group = screen.getByTestId("documents-file-family-chips");
 			const chips = within(group).getAllByRole("button");
 			// presentation and textMarkdown are 0 and must not render at all.
+			// "All files" always leads, at the Files bucket's own total (13).
 			expect(chips.map((chip) => chip.textContent?.trim())).toEqual([
+				"All files 13",
 				"PDF 6",
 				"Word 3",
 				"Spreadsheets 2",
 				"Images 1",
 				"Other 1",
 			]);
+		});
+
+		it("shows All files first, active whenever no family is selected", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					typeFilter: "uploaded",
+					countsByKind,
+					countsByFileFamily: {
+						pdf: 6,
+						word: 3,
+						spreadsheet: 0,
+						presentation: 0,
+						image: 0,
+						textMarkdown: 0,
+						other: 0,
+					},
+				},
+			});
+
+			const allFilesChip = screen.getByTestId("documents-file-family-chip-all");
+			expect(allFilesChip.textContent?.trim()).toBe("All files 13");
+			expect(allFilesChip.getAttribute("aria-pressed")).toBe("true");
+		});
+
+		it("marks All files inactive, and clicking it clears the active family", async () => {
+			const onFileFamilyFilterChange = vi.fn();
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					typeFilter: "uploaded",
+					fileFamilyFilter: "pdf",
+					countsByKind,
+					countsByFileFamily: {
+						pdf: 6,
+						word: 3,
+						spreadsheet: 0,
+						presentation: 0,
+						image: 0,
+						textMarkdown: 0,
+						other: 0,
+					},
+					onFileFamilyFilterChange,
+				},
+			});
+
+			const allFilesChip = screen.getByTestId("documents-file-family-chip-all");
+			expect(allFilesChip.getAttribute("aria-pressed")).toBe("false");
+
+			await fireEvent.click(allFilesChip);
+			expect(onFileFamilyFilterChange).toHaveBeenCalledWith(null);
 		});
 
 		it("renders nothing when every family is 0", () => {
@@ -1881,7 +1973,7 @@ describe("DocumentsList", () => {
 			});
 
 			expect(screen.getByTestId("documents-summary-line").textContent).toBe(
-				"12 uploaded \u00b7 6 documents \u00b7 3 canvas \u00b7 2 apps \u00b7 1 slides",
+				"12 files \u00b7 6 documents \u00b7 3 canvas \u00b7 2 apps \u00b7 1 slides",
 			);
 		});
 
@@ -1900,7 +1992,31 @@ describe("DocumentsList", () => {
 			});
 
 			expect(screen.getByTestId("documents-summary-line").textContent).toBe(
-				"5 uploaded \u00b7 1 canvas",
+				"5 files \u00b7 1 canvas",
+			);
+		});
+
+		// Redesign \u00a76.2: "correct plurals" \u2014 a count of exactly one never reads
+		// "1 apps"/"1 documents"/"1 files". Canvas and Slides stay invariant
+		// nouns (matching `artifacts.type.canvas`/`.slides`, which already label
+		// a SINGLE item "Canvas"/"Slides"), so only these three buckets take the
+		// ICU one/other split.
+		it("uses the singular noun for a count of exactly one", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					countsByKind: {
+						document: 1,
+						app: 1,
+						canvas: 0,
+						slides: 0,
+						uploaded: 1,
+					},
+				},
+			});
+
+			expect(screen.getByTestId("documents-summary-line").textContent).toBe(
+				"1 file \u00b7 1 document \u00b7 1 app",
 			);
 		});
 
@@ -1933,7 +2049,7 @@ describe("DocumentsList", () => {
 			});
 
 			expect(screen.getByTestId("documents-summary-line").textContent).toBe(
-				"12 uploaded \u00b7 6 documents \u00b7 3 canvas \u00b7 2 apps \u00b7 1 slides",
+				"12 files \u00b7 6 documents \u00b7 3 canvas \u00b7 2 apps \u00b7 1 slides",
 			);
 		});
 	});

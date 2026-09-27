@@ -69,8 +69,9 @@ describe("knowledge.extraction dictionary", () => {
 			Object.keys(knowledgeDict.en) as KnowledgeKey[]
 		).filter((key) => key.startsWith("knowledge.documents.fileFamily."));
 
-		// The seven family labels plus the row's own group label.
-		expect(fileFamilyKeys.length).toBe(8);
+		// The seven family labels, the row's own group label, and the Step 14
+		// "All files" chip that leads them.
+		expect(fileFamilyKeys.length).toBe(9);
 		for (const key of fileFamilyKeys) {
 			expect(knowledgeDict.en[key]).toBeTruthy();
 			expect(knowledgeDict.hu[key]).toBeTruthy();
