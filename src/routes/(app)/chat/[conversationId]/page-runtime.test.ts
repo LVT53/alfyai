@@ -1094,6 +1094,92 @@ describe("chat page runtime integration", () => {
 		expect(within(shell).getByText("File")).toBeInTheDocument();
 	});
 
+	// Wave 2.5 Step 4/redesign §7: the count button now toggles instead of
+	// only ever opening — clicking it again while the panel is showing closes
+	// it, mirroring the mockup's own count button. Regression coverage for the
+	// `isArtifactPanelOpen` derived (mirrors DocumentWorkspace's own
+	// `shouldShowWorkspaceShell` formula) that replaced a narrower
+	// `artifactListOpen`-only check, which cleared `aria-pressed` as soon as
+	// the list handed off to an open item.
+	it("toggles the panel closed on a second click of the count button, clearing aria-pressed", async () => {
+		// This test opens an item from the list, which best-effort records the
+		// open the same way the neighboring "shows the type and version pill…"
+		// test above does — unmocked, `recordDocumentWorkspaceOpen`'s default
+		// return is not a Promise, so the `.catch` call site throws.
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		renderPage(
+			pageData({
+				generatedFiles: [
+					{
+						id: "chat-file-1",
+						conversationId: "conv-1",
+						assistantMessageId: "assistant-file-1",
+						artifactId: "artifact-file-1",
+						documentFamilyId: null,
+						documentFamilyStatus: null,
+						documentLabel: null,
+						documentRole: null,
+						versionNumber: 1,
+						originConversationId: null,
+						originAssistantMessageId: null,
+						sourceChatFileId: null,
+						filename: "Vienna trip summary.pdf",
+						mimeType: "application/pdf",
+						sizeBytes: 2048,
+						createdAt: 1,
+					},
+				],
+				artifacts: [
+					{
+						id: "artifact-file-1",
+						kind: "file",
+						title: "Vienna trip summary.pdf",
+						conversationId: "conv-1",
+						versionNumber: 1,
+						commentCount: 0,
+						updatedAt: Date.now(),
+					},
+				],
+			}),
+		);
+
+		const countButton = await screen.findByTestId("artifact-count-button");
+		expect(countButton).toHaveAttribute("aria-pressed", "false");
+
+		await fireEvent.click(countButton);
+		await screen.findByTestId("artifact-panel-list");
+		expect(countButton).toHaveAttribute("aria-pressed", "true");
+
+		await fireEvent.click(countButton);
+		await waitFor(() => {
+			expect(
+				screen.queryByTestId("artifact-panel-list"),
+			).not.toBeInTheDocument();
+		});
+		expect(countButton).toHaveAttribute("aria-pressed", "false");
+
+		// The same toggle still closes the panel after navigating from the list
+		// to an open item — the exact bug `isArtifactPanelOpen` fixed, since
+		// `artifactListOpen` alone goes false on that transition even though
+		// the panel is still showing.
+		await fireEvent.click(countButton);
+		const list = await screen.findByTestId("artifact-panel-list");
+		await fireEvent.click(
+			within(list).getByRole("button", { name: /Vienna trip summary\.pdf/ }),
+		);
+		await screen.findByRole("complementary", { name: "Document workspace" });
+		expect(countButton).toHaveAttribute("aria-pressed", "true");
+
+		await fireEvent.click(countButton);
+		await waitFor(() => {
+			expect(screen.queryByTestId("workspace-main")).not.toBeInTheDocument();
+		});
+		expect(countButton).toHaveAttribute("aria-pressed", "false");
+	});
+
 	it("drains a queued follow-up after polling reconciles a waiting stream completion", async () => {
 		let resolveDetail: (
 			value:
