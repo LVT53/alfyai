@@ -1449,6 +1449,67 @@ function saveNoticeText(notice: SaveNotice): string {
 		cursor: pointer;
 	}
 
+	/* Step 2.2: Alfy's change mark (`marks.ts`'s `AlfyChange` Tiptap mark,
+	   T8) — the visible trace of an applied patch (§1/§4), invisible before
+	   this (marks.ts emitted the class with no matching CSS anywhere). The
+	   2px underline in --accent keeps the change visible after its own tint
+	   has settled all the way down to the page. `arrive` plays once, right
+	   when the mark is first created — see marks.ts's own comment on why
+	   rendering it unconditionally on every render is still safe — settling
+	   from the loud --alfy-mark-arrive tint to the quiet resting --alfy-mark
+	   tint over --duration-settle. Reduced motion needs no separate rule
+	   here: app.css's global `animation-duration` override already collapses
+	   any @keyframes animation, including this one, to 0.01ms, landing on
+	   the resting state per §7.3 ("no movement... jump to the final state"). */
+	.document-editor-host :global(.document-content .alfy-change) {
+		background-color: var(--alfy-mark);
+		border-radius: 2px;
+		box-shadow: inset 0 -2px 0 var(--accent);
+	}
+
+	.document-editor-host :global(.document-content .alfy-change.arrive) {
+		animation: alfy-change-arrive var(--duration-settle) var(--ease-out);
+	}
+
+	@keyframes alfy-change-arrive {
+		from {
+			background-color: var(--alfy-mark-arrive);
+		}
+		to {
+			background-color: var(--alfy-mark);
+		}
+	}
+
+	/* Step 2.3: comment-anchor highlight (§1/§2.2/§9.1). Styles only — there
+	   is no comment-anchor decoration in extensions.ts yet (MarginPanel's
+	   quote today renders only inside its own margin card, never inside the
+	   document text), so nothing applies these classes in the DOM yet. They
+	   exist so agent 3 has real, working styles the moment it adds that
+	   decoration plus the click <-> thread wiring and the rail, per the
+	   redesign build plan's own split between this step and that one — see
+	   this component's hand-off notes for the exact class names. */
+	.document-editor-host :global(.document-content .comment-anchor) {
+		background-color: var(--comment-mark);
+		border-radius: 2px;
+		box-shadow: 0 2px 0 -0.5px var(--comment-rule);
+		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			box-shadow var(--duration-standard) var(--ease-out);
+	}
+
+	.document-editor-host :global(.document-content .comment-anchor.is-active) {
+		background-color: var(--comment-mark-active);
+	}
+
+	/* A resolved thread's anchor, or one whose text survived but is no
+	   longer worth drawing attention to — reads as plain text again. */
+	.document-editor-host :global(.document-content .comment-anchor.is-resolved) {
+		background-color: transparent;
+		box-shadow: none;
+		cursor: text;
+	}
+
 	.document-editor-skeleton {
 		position: absolute;
 		inset: 0;
