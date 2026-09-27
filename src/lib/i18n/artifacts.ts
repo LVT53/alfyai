@@ -205,6 +205,7 @@ const artifactsDict = {
 		// Tabs (Slice 1, T9).
 		"artifacts.document.cardSubtitle": "Document · {count} tabs",
 		"artifacts.document.tab.add": "Add a tab",
+		"artifacts.document.tab.menu": "Tab options",
 		"artifacts.document.tab.rename": "Rename",
 		"artifacts.document.tab.delete": "Delete tab",
 		"artifacts.document.tab.deleteConfirm": "Delete “{name}” and its text?",
@@ -421,6 +422,7 @@ const artifactsDict = {
 		"artifacts.document.planned.writing": "Alfy írja: {label}",
 		"artifacts.document.cardSubtitle": "Dokumentum · {count} fül",
 		"artifacts.document.tab.add": "Fül hozzáadása",
+		"artifacts.document.tab.menu": "Fül beállításai",
 		"artifacts.document.tab.rename": "Átnevezés",
 		"artifacts.document.tab.delete": "Fül törlése",
 		"artifacts.document.tab.deleteConfirm":
