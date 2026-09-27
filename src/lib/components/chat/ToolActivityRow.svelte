@@ -150,6 +150,15 @@ const hasBody = $derived(item.body !== null);
 // the row must carry the body's background so the two read as one element.
 const isOpen = $derived(hasBody && (item.alwaysOpen || open));
 const isInteractive = $derived(hasBody && !item.alwaysOpen);
+// Redesign §5.1 problem 7 / §5.2 (Wave 2.5 Step 12): a create_artifact/
+// edit_artifact card must "stand on its own, below the tool row and outside
+// the collapsible thinking area" instead of reading like another line inside
+// the grey `.act-body` box — unlike every other body kind (including
+// file-job, left exactly as it was), which still joins the row into one
+// shaded block. `isJoinedOpen` drives that shared box/join styling; the
+// artifact card renders through its own standalone wrapper below instead.
+const isStandaloneCard = $derived(item.body?.kind === "artifact");
+const isJoinedOpen = $derived(isOpen && !isStandaloneCard);
 
 // The map body's MapLibre component is dynamic-imported the same way
 // MessageBubble used to lazy-load MapRouteCard — the library never touches
@@ -266,7 +275,7 @@ function handleToggle() {
 		<button
 			type="button"
 			class="act-row"
-			class:is-open={isOpen}
+			class:is-open={isJoinedOpen}
 			class:is-running={item.status === 'running'}
 			class:is-failed={item.status === 'failed'}
 			data-testid="tool-activity-row"
@@ -282,7 +291,7 @@ function handleToggle() {
 	{:else}
 		<div
 			class="act-row"
-			class:is-open={isOpen}
+			class:is-open={isJoinedOpen}
 			class:is-running={item.status === 'running'}
 			class:is-failed={item.status === 'failed'}
 			data-testid="tool-activity-row"
@@ -294,7 +303,24 @@ function handleToggle() {
 		</div>
 	{/if}
 
-	{#if isOpen && item.body}
+	{#if isOpen && item.body?.kind === 'artifact'}
+		{@const body = item.body}
+		<!-- Redesign §5.1 problem 7 / §5.2 (Wave 2.5 Step 12): a create_artifact/
+		     edit_artifact card stands on its own below the tool row, never
+		     joined into its grey `.act-body` box — chrome="full" now, not
+		     "body", so the card draws its own head ("the head is one button"),
+		     matching the approved mockup's `.a-card` next to a compact
+		     `.tool-row`-style status line instead of nesting inside it. -->
+		<div class="act-standalone-card" data-testid="tool-activity-standalone-card">
+			<ArtifactCard
+				view={artifactCardView(body)}
+				chrome="full"
+				onOpen={() => handleOpenArtifact(body)}
+			/>
+		</div>
+	{/if}
+
+	{#if isOpen && item.body && item.body.kind !== 'artifact'}
 		{@const body = item.body}
 		<div class="act-body" data-testid="tool-activity-body" transition:slideTransition={{ duration: 200 }}>
 			{#if body.kind === 'sources'}
@@ -346,12 +372,6 @@ function handleToggle() {
 						onDismiss={onDismissJob}
 					/>
 				{/if}
-			{:else if body.kind === 'artifact'}
-				<ArtifactCard
-					view={artifactCardView(body)}
-					chrome="body"
-					onOpen={() => handleOpenArtifact(body)}
-				/>
 			{:else if body.kind === 'atlas'}
 				{@render bodyContent?.()}
 			{:else if body.kind === 'text'}
@@ -545,6 +565,14 @@ function handleToggle() {
 
 	.act-row.is-open :global(.act-chevron) {
 		transform: rotate(180deg);
+	}
+
+	/* The standalone in-chat card (redesign §5.1 problem 7 / §5.2): plain
+	   vertical spacing only — no shared background, join, or negative margin
+	   pulling it under the row like `.act-body` below, since it is
+	   deliberately NOT part of that joined box. */
+	.act-standalone-card {
+		margin: 6px 0 10px;
 	}
 
 	.act-body {
