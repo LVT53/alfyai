@@ -93,14 +93,14 @@ let isRefusal = $derived(
 	{#if onResolve || onReplyClick}
 		<div class="comment-card-actions">
 			{#if onReplyClick}
-				<button type="button" class="btn-text" onclick={onReplyClick}>
+				<button type="button" class="btn-ghost btn-sm" onclick={onReplyClick}>
 					{$t('artifacts.document.comment.reply')}
 				</button>
 			{/if}
 			{#if onResolve}
 				<button
 					type="button"
-					class="btn-text"
+					class="btn-ghost btn-sm"
 					onclick={() => onResolve?.(comment.status !== 'resolved')}
 				>
 					{comment.status === 'resolved'
@@ -169,10 +169,5 @@ let isRefusal = $derived(
 	.comment-card-actions {
 		display: flex;
 		gap: 0.75rem;
-	}
-
-	.comment-card-actions .btn-text {
-		font-size: 0.75rem;
-		padding: 0;
 	}
 </style>
