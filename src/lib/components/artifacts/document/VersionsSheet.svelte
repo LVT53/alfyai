@@ -207,7 +207,7 @@ async function confirmRestore() {
 	}
 
 	.versions-sheet-error {
-		color: var(--status-danger-text, var(--text-primary));
+		color: var(--danger);
 	}
 
 	.versions-sheet-list {

@@ -413,8 +413,8 @@ const positionedAreaHeight = $derived(
 	}
 
 	.margin-panel-tone-warning {
-		color: var(--status-warning-text, #8a6100);
-		background-color: var(--status-warning-surface, #fff3cd);
+		color: var(--warning-text);
+		background-color: var(--warning-tint);
 	}
 
 	.margin-panel-tone-faint {

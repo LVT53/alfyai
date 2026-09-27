@@ -167,7 +167,7 @@ function retry(): void {
 	.download-sheet-error {
 		margin: 0;
 		font-size: 0.8125rem;
-		color: var(--status-danger, #c0392b);
+		color: var(--danger);
 	}
 
 	.download-sheet-status {
