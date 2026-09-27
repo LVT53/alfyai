@@ -519,6 +519,38 @@ with "database is locked" (7/10 paired runs); after the fix 12/12, and the full 
 `data/chat-files/` (the file store is shared across workers too; per-worker dir); the Documents summary line still
 says "N uploaded" next to the "Files" chip (owner's call).
 
+## Wave 2.5 — the approved redesign (ruling 61), orchestrator session of 2026-09-27
+
+Built from `docs/design/artifacts-redesign/redesign.md` §10 as grouped in `wave-3-handoff.md`. Each agent: Sonnet, its own
+worktree and branch from the current `feat/artifacts`, test-first, its share of step 15. After each agent: the full gate
+script on its worktree, then merge into `feat/artifacts`. At the end: one Opus visual/a11y review of the whole redesign,
+one fix agent, merge `feat/artifacts` → `dev` (main checkout), gates in `dev-int`, push, deploy ai.dev.
+
+Start: `feat/artifacts` = `d933e2f8`, `dev` = ai.dev = `29a07688`. Weekly budget (all models) **89 %** at 10:29 UTC,
+resets 2026-09-28 08:59 UTC.
+
+| # | Agent (redesign steps) | Branch / worktree (port) | State |
+|---|---|---|---|
+| 1 | Foundation (1–2) | `feat/artifacts-rd1-foundation` / `art-rd1` (5400) | dispatching |
+| 2 | Panel shell (3–5) | `feat/artifacts-rd2-shell` / `art-rd2` (5410) | waiting |
+| 5 | Cards, App panel, Knowledge (12–14) | `feat/artifacts-rd5-cards` / `art-rd5` (5440) | waiting |
+| 3 | Comments (6–8) | `feat/artifacts-rd3-comments` / `art-rd3` (5420) | waiting |
+| 4 | Editing feedback (9–11) | `feat/artifacts-rd4-editing` / `art-rd4` (5430) | waiting |
+| R | Opus visual/a11y review (16) | `rv-rd` (5450) | waiting |
+
+Rulings (orchestrator, 2026-09-27):
+- Ruling: no per-agent code review; each branch passes the full gate script before it merges into `feat/artifacts`, and the
+  one Opus review covers the whole redesign (the owner's structure) — why: the weekly budget is at 89 % — cost if wrong: defects
+  surface later, in the Opus review, and need a larger fix agent.
+- Ruling: agents 2 and 5 run one after the other, not in parallel — they share `ArtifactCard.svelte`, the chat page and
+  `i18n/artifacts.ts`, and the weekly budget, not wall-clock, is the constraint — cost if wrong: a few hours of wall-clock.
+  Order: 1 → 2 → 5 → 3 → 4 → review → fixes → dev.
+- Ruling: no new `axe-core` dependency this wave; a11y is checked with Playwright role/name assertions, a token-contrast unit
+  test and the Opus review — why: a new dependency touches the shared `node_modules` and the deploy — cost if wrong: an axe
+  finding caught later (add axe in Wave 3 with the owner's OK).
+- Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
+  wrap-up reserve (progress note, owner message).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
@@ -535,5 +567,4 @@ says "N uploaded" next to the "Files" chip (owner's call).
 
 ## Next action
 
-Wave 3 in a fresh orchestrator session: read `wave-3-handoff.md` first, then this file's latest entries. Check the weekly
-budget (`get_usage`) before dispatching. Owner feedback from testing Wave 2 on ai.dev comes first.
+Wave 2.5 (the redesign) is running: see its table above for the live state. Then Wave 3 from `wave-3-handoff.md`.
