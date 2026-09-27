@@ -27,6 +27,10 @@ const artifactsDict = {
 		// how a screen reader user gets the same information.
 		"artifacts.header.buttonA11yPending":
 			"Open what this chat made ({count}) — a change is waiting",
+		// Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open
+		// item" — the chat page's own composer, while a document/app/etc. is
+		// open in the panel. `src/routes/(app)/chat/[conversationId]/+page.svelte`.
+		"artifacts.chat.composerPlaceholder": "Ask about {title}",
 		// The panel's list state (surface 2).
 		"artifacts.panel.eyebrow": "This chat",
 		"artifacts.panel.title": "What this chat made",
@@ -45,6 +49,12 @@ const artifactsDict = {
 		// The shared card.
 		"artifacts.card.open": "Open",
 		"artifacts.card.openA11y": "Open {title}",
+		// chrome="full"'s standalone in-chat card (Wave 2.5 Step 12): the head's
+		// trailing affordance when the item is the one already open in the panel,
+		// or when an Alfy edit is waiting for review — see ArtifactCardView's
+		// `current`/`pendingReviewCount` doc comments.
+		"artifacts.card.openInPanel": "Open in panel",
+		"artifacts.card.review": "Review",
 		"artifacts.card.madeBy": "made by Alfy {when}",
 		"artifacts.card.version": "v{n}",
 		"artifacts.card.versionA11y": "Version {n}",
@@ -207,7 +217,8 @@ const artifactsDict = {
 		// The planned-section shimmer while a tool call is in flight (Slice 1, T8).
 		"artifacts.document.planned.writing": "Alfy is writing: {label}",
 		// Tabs (Slice 1, T9).
-		"artifacts.document.cardSubtitle": "Document · {count} tabs",
+		"artifacts.document.cardSubtitle":
+			"Document · {count} {count, plural, one {tab} other {tabs}}",
 		"artifacts.document.tab.add": "Add a tab",
 		"artifacts.document.tab.menu": "Tab options",
 		"artifacts.document.tab.rename": "Rename",
@@ -271,6 +282,10 @@ const artifactsDict = {
 			"Nyisd meg, amit ez a beszélgetés készített ({count})",
 		"artifacts.header.buttonA11yPending":
 			"Nyisd meg, amit ez a beszélgetés készített ({count}) — egy módosítás vár rád",
+		// A kettőspont a "-ról/-ről" rag nélkül old meg egy tetszőleges,
+		// felhasználó/AI adta címet — a magyar toldalék a cím végződésétől
+		// függne, ami egy dinamikus értéknél nem garantálható.
+		"artifacts.chat.composerPlaceholder": "Kérdezz erről: {title}",
 		"artifacts.panel.eyebrow": "Ez a beszélgetés",
 		"artifacts.panel.title": "Amit ez a beszélgetés készített",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",
@@ -282,6 +297,8 @@ const artifactsDict = {
 		"artifacts.panel.backA11y": "Vissza: Ez a beszélgetés ({count} elem)",
 		"artifacts.card.open": "Megnyitás",
 		"artifacts.card.openA11y": "{title} megnyitása",
+		"artifacts.card.openInPanel": "Megnyitva a panelen",
+		"artifacts.card.review": "Átnézés",
 		"artifacts.card.madeBy": "Alfy készítette: {when}",
 		"artifacts.card.version": "v{n}",
 		"artifacts.card.versionA11y": "{n}. verzió",
@@ -428,6 +445,8 @@ const artifactsDict = {
 			"Alfy nem tudta alkalmazni ezt a módosítást",
 		"artifacts.document.refused.seeChange": "Nézd meg, mit csinált Alfy",
 		"artifacts.document.planned.writing": "Alfy írja: {label}",
+		// No ICU plural here on purpose: Hungarian nouns after a numeral stay
+		// singular ("1 fül", "3 fül"), unlike the English "tab"/"tabs" split.
 		"artifacts.document.cardSubtitle": "Dokumentum · {count} fül",
 		"artifacts.document.tab.add": "Fül hozzáadása",
 		"artifacts.document.tab.menu": "Fül beállításai",

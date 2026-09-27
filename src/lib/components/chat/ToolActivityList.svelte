@@ -5,6 +5,7 @@
 // open-state source, so a row opened in the live stack is still open when the
 // block is expanded.
 import type { Snippet } from "svelte";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ToolActivityItem } from "$lib/utils/tool-activity";
@@ -25,6 +26,7 @@ let {
 	afterItem = undefined,
 	conversationId = null,
 	onToggleDocumentTask = undefined,
+	alfyActivity = null,
 }: {
 	items: ToolActivityItem[];
 	openKeys: Set<string>;
@@ -41,6 +43,8 @@ let {
 	onToggleDocumentTask?:
 		| ((artifactId: string, blockId: string, checked: boolean) => void)
 		| undefined;
+	/** Forwarded to each row's standalone card. See ToolActivityRow's own prop doc. */
+	alfyActivity?: DocumentAlfyActivity | null;
 } = $props();
 </script>
 
@@ -57,6 +61,7 @@ let {
 			{onDismissJob}
 			{conversationId}
 			{onToggleDocumentTask}
+			{alfyActivity}
 		/>
 		{@render afterItem?.(item)}
 	{/each}

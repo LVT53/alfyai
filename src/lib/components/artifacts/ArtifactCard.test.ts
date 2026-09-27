@@ -43,7 +43,10 @@ describe("ArtifactCard", () => {
 		uiLanguage.set("en");
 	});
 
-	it("chrome=full renders the icon, title, kind label and Open", () => {
+	// Wave 2.5 Step 12: the head is one button (redesign §5.2) — icon, title,
+	// kind fallback and the trailing "Open" affordance all live in the same
+	// control, mirroring chrome="row"'s own whole-element-is-the-button shape.
+	it("chrome=full renders the head as one button: icon, title, kind fallback and Open", () => {
 		const onOpen = vi.fn();
 		render(ArtifactCard, {
 			view: view({ openTargetId: "artifact-1" }),
@@ -51,9 +54,12 @@ describe("ArtifactCard", () => {
 		});
 
 		expect(screen.getByTestId("artifact-card")).toBeInTheDocument();
-		expect(screen.getByText("Weekend checklist")).toBeInTheDocument();
-		expect(screen.getByText("Document")).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+		const head = screen.getByRole("button", { name: /Weekend checklist/ });
+		expect(head).toHaveAttribute("data-testid", "artifact-card-head");
+		expect(head).toHaveTextContent("Weekend checklist");
+		// No subtitle given, so the head falls back to the bare kind label.
+		expect(head).toHaveTextContent("Document");
+		expect(head).toHaveTextContent("Open");
 	});
 
 	it("chrome=body renders no title of its own, leaving exactly one in the composed row", async () => {
@@ -72,19 +78,45 @@ describe("ArtifactCard", () => {
 		expect(screen.queryByTestId("artifact-card")).not.toBeInTheDocument();
 	});
 
-	it("renders no Open affordance when openTargetId is null, and calls onOpen with it otherwise", async () => {
+	it("disables the head when openTargetId is null, and calls onOpen with it otherwise", async () => {
 		const onOpen = vi.fn();
 		const { rerender } = render(ArtifactCard, {
 			view: view({ openTargetId: null }),
 			onOpen,
 		});
-		expect(
-			screen.queryByRole("button", { name: "Open" }),
-		).not.toBeInTheDocument();
+		// The head is still there (icon/title always show), just not clickable —
+		// a job still running is the same "disabled, not absent" shape
+		// chrome="row" already uses.
+		expect(screen.getByTestId("artifact-card-head")).toBeDisabled();
 
 		await rerender({ view: view({ openTargetId: "artifact-1" }), onOpen });
-		await fireEvent.click(screen.getByRole("button", { name: "Open" }));
+		const head = screen.getByTestId("artifact-card-head");
+		expect(head).not.toBeDisabled();
+		await fireEvent.click(head);
 		expect(onOpen).toHaveBeenCalledWith("artifact-1");
+	});
+
+	// redesign §5.2: "When that item is open in the panel, the card is
+	// outlined in accent and 'Open ›' reads 'Open in panel'."
+	it("chrome=full outlines the card and reads 'Open in panel' for the item currently open", () => {
+		const { container } = render(ArtifactCard, {
+			view: view({ openTargetId: "artifact-1", current: true }),
+		});
+
+		expect(container.querySelector(".artifact-card-current")).toBeTruthy();
+		const head = screen.getByRole("button", { name: /Weekend checklist/ });
+		expect(head).toHaveTextContent("Open in panel");
+	});
+
+	// redesign §5.2: "After an edit: '1 change to review' ... and 'Review ›'."
+	it("chrome=full shows the pending-review pill and 'Review' instead of 'Open' when changes are waiting", () => {
+		render(ArtifactCard, {
+			view: view({ openTargetId: "artifact-1", pendingReviewCount: 1 }),
+		});
+
+		const head = screen.getByRole("button", { name: /Weekend checklist/ });
+		expect(head).toHaveTextContent("1 change to review");
+		expect(head).toHaveTextContent("Review");
 	});
 
 	it("renders the File kind's running, failed and stale job states through the lazily-loaded body", async () => {
@@ -194,7 +226,7 @@ describe("ArtifactCard", () => {
 		expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
 	});
 
-	it("chrome=full still renders the icon, title, kind label and version pill (the panel list)", () => {
+	it("chrome=full still renders the icon, title, subtitle and version in the head (the standalone in-chat card)", () => {
 		render(ArtifactCard, {
 			view: view({
 				kind: "document",
@@ -206,11 +238,11 @@ describe("ArtifactCard", () => {
 			chrome: "full",
 		});
 
-		expect(screen.getByText("Weekend checklist")).toBeInTheDocument();
-		expect(screen.getByText("Document")).toBeInTheDocument();
-		expect(screen.getByText("v3")).toBeInTheDocument();
-		expect(screen.getByText("Document · 2 tabs")).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
+		const head = screen.getByRole("button", { name: /Weekend checklist/ });
+		expect(head).toHaveTextContent("Weekend checklist");
+		expect(head).toHaveTextContent("Document · 2 tabs");
+		expect(head).toHaveTextContent("v3");
+		expect(head).toHaveTextContent("Open");
 	});
 
 	it("chrome=body still renders nothing but the lazy File body for kind file", async () => {

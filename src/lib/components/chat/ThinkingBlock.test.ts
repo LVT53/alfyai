@@ -517,7 +517,9 @@ describe("ThinkingBlock", () => {
 			});
 
 			expect(await screen.findByTestId("artifact-card")).toBeInTheDocument();
-			await fireEvent.click(screen.getByRole("button", { name: "Open" }));
+			// chrome="full"'s head is one button (redesign §5.2), so its
+			// accessible name is the whole head's text, not the bare word "Open".
+			await fireEvent.click(screen.getByTestId("artifact-card-head"));
 			expect(onOpenDocument).toHaveBeenCalledWith(
 				expect.objectContaining({
 					artifactId: "artifact-1",

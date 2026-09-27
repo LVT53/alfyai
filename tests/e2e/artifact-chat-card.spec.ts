@@ -219,23 +219,25 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			// and no separate fetch of ConversationDetail.artifacts either.
 			const card = page.getByTestId("artifact-card");
 			await expect(card).toBeVisible();
-			// The title lives on the row's own line ("Created Weekend plan") —
-			// chrome="body" renders no title of its own (slice-0.md Task S6 Step
-			// 1.1), so the card must not repeat it. Asserted on the row, and as
-			// an exact count on the page, so a regression that reintroduces the
-			// header (duplicating the title) fails loudly here too.
+			// The title lives on the row's own compact line ("Created Weekend
+			// plan") AND on the standalone card's own head (Wave 2.5 Step 12
+			// deliberately overturned the old "chrome=body, no title of its own"
+			// contract for this chrome — see ArtifactCard.svelte's header
+			// comment): exactly two occurrences, never a bare row-only one or a
+			// runaway third.
 			const row = page.getByTestId("tool-activity-row");
 			await expect(row).toBeVisible();
 			await expect(row.getByText(AI_SMOKE_CREATE_ARTIFACT_TITLE)).toBeVisible();
 			await expect(page.getByText(AI_SMOKE_CREATE_ARTIFACT_TITLE)).toHaveCount(
-				1,
+				2,
 			);
 
 			// Open reaches the real panel on this exact item (the chat page's
 			// existing panel-open path, ruling 51's conversationId included).
-			await card
-				.getByRole("button", { name: "Open" })
-				.click({ timeout: 30_000 });
+			// chrome="full"'s head is one button (redesign §5.2), so its
+			// accessible name is the whole head's text, not the bare word
+			// "Open" — click by the head's own testid instead.
+			await card.getByTestId("artifact-card-head").click({ timeout: 30_000 });
 			const workspace = page.getByRole("complementary", {
 				name: "Document workspace",
 			});
@@ -266,7 +268,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			// contract is already the "during the turn" assertion above and the
 			// component tests in ArtifactCard.test.ts/ToolActivityRow.test.ts.)
 			await cardAfterReload
-				.getByRole("button", { name: "Open" })
+				.getByTestId("artifact-card-head")
 				.click({ timeout: 30_000 });
 			await expect(
 				page.getByRole("complementary", { name: "Document workspace" }),

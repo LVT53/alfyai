@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { artifacts, users } from "../../src/lib/server/db/schema";
@@ -617,11 +617,12 @@ test.describe("the Document card's preview (T9 steps 4/7, redesign §5.2)", () =
 
 		await page.getByTestId("artifact-count-button").click();
 		const list = page.getByTestId("artifact-panel-list");
-		// `artifacts.document.cardSubtitle`'s template is not plural-aware
-		// ("Document · {count} tabs" always) — this is the literal rendered
-		// text for the one default tab `createDocumentArtifact` gives a fresh
-		// document.
-		await expect(list.getByText("Document · 1 tabs")).toBeVisible();
+		// `artifacts.document.cardSubtitle` is ICU-plural-aware (Wave 2.5 Step
+		// 12) — this is the literal rendered text for the one default tab
+		// `createDocumentArtifact` gives a fresh document.
+		await expect(
+			list.getByText("Document · 1 tab", { exact: true }),
+		).toBeVisible();
 		await expect(list.getByText("Charger")).not.toBeVisible();
 		await expect(list.getByText("Passport")).not.toBeVisible();
 		await expect(list.getByRole("checkbox")).toHaveCount(0);
@@ -665,6 +666,124 @@ test.describe("the Document card's preview (T9 steps 4/7, redesign §5.2)", () =
 		const list = page.getByTestId("artifact-panel-list");
 		await expect(list.getByText("Charger")).not.toBeVisible();
 		await expect(list.getByRole("checkbox")).toHaveCount(0);
+	});
+});
+
+// Wave 2.5 Step 0: a defect left over from redesign agent 1's prose pass.
+// Spec §1 problem 1 / §5's `.tasks`/`.task` put the checkbox on the SAME line
+// as its label; agent 1's CSS in `DocumentBody.svelte` already encodes that
+// (`li[data-type='taskItem'] { display: flex; ... }`) but never matches the
+// real editing DOM, so every task still rendered stacked. Root cause: Tiptap's
+// `TaskItem` node has a custom `addNodeView()`, and a NodeView's HTML
+// attributes come only from `getRenderedAttributes()` (each attribute's own
+// `renderHTML`, which for `TaskItem` is just `checked` → `data-checked`) —
+// the literal `'data-type': this.name` baked into the node's schema-level
+// `renderHTML()` is a separate code path used only when there is NO NodeView,
+// so it never reaches the live `<li>`. `data-checked` (always rendered, as
+// `"true"` or `"false"`) is the attribute that is actually always present.
+test.describe("inline task items (Wave 2.5 Step 0)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	async function checkboxAndLabelCenters(shell: Locator) {
+		const item = shell.locator("li", { hasText: "Charger" }).first();
+		const checkbox = item.locator('input[type="checkbox"]');
+		const label = item.locator("div p").first();
+		const [checkboxBox, labelBox] = await Promise.all([
+			checkbox.boundingBox(),
+			label.boundingBox(),
+		]);
+		expect(checkboxBox, "checkbox must be visible").not.toBeNull();
+		expect(labelBox, "label text must be visible").not.toBeNull();
+		return {
+			checkboxCenter: (checkboxBox?.y ?? 0) + (checkboxBox?.height ?? 0) / 2,
+			labelCenter: (labelBox?.y ?? 0) + (labelBox?.height ?? 0) / 2,
+		};
+	}
+
+	test("the checkbox and its first text line share one line at desktop width", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "# Packing\n\n- [ ] Charger\n\n- [ ] Passport",
+		});
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		const { checkboxCenter, labelCenter } =
+			await checkboxAndLabelCenters(shell);
+		expect(Math.abs(checkboxCenter - labelCenter)).toBeLessThanOrEqual(6);
+	});
+
+	test("the checkbox and its first text line share one line at phone width", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "# Packing\n\n- [ ] Charger\n\n- [ ] Passport",
+		});
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		const { checkboxCenter, labelCenter } =
+			await checkboxAndLabelCenters(shell);
+		expect(Math.abs(checkboxCenter - labelCenter)).toBeLessThanOrEqual(6);
+	});
+});
+
+// Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open item".
+test.describe("the composer placeholder names the open item (Wave 2.5 Step 12)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("names the document once it is open, and reverts once the panel closes", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "Some notes.",
+		});
+		await openChatAndReload(page, conversationId);
+
+		await expect(page.getByPlaceholder("Type a message...")).toBeVisible();
+
+		await openDocumentFromPanel(page);
+		await expect(page.getByPlaceholder("Ask about Packing list")).toBeVisible();
+
+		// Closing the whole panel (the count button toggles it shut, Wave 2.5
+		// Step 4) drops the specific-item state, so the composer reverts —
+		// even though the document tab itself stays open underneath for a
+		// quick reopen (push-navigation's own "back is instant" state).
+		await page.getByTestId("artifact-count-button").click();
+		await expect(page.getByPlaceholder("Type a message...")).toBeVisible();
+	});
+
+	test("names nothing while the panel shows the list, only once an item is open", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Packing list",
+			markdown: "Some notes.",
+		});
+		await openChatAndReload(page, conversationId);
+
+		// The list view alone (before picking a row) has no single item to name.
+		await page.getByTestId("artifact-count-button").click();
+		await expect(page.getByTestId("artifact-panel-list")).toBeVisible();
+		await expect(page.getByPlaceholder("Type a message...")).toBeVisible();
 	});
 });
 

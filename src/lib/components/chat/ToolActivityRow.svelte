@@ -21,6 +21,7 @@ import { t } from "$lib/i18n";
 import ArtifactCard, {
 	type ArtifactCardView,
 } from "$lib/components/artifacts/ArtifactCard.svelte";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
@@ -48,6 +49,7 @@ let {
 	bodyContent = undefined,
 	conversationId = null,
 	onToggleDocumentTask = undefined,
+	alfyActivity = null,
 }: {
 	item: ToolActivityItem;
 	open?: boolean;
@@ -80,6 +82,15 @@ let {
 	onToggleDocumentTask?:
 		| ((artifactId: string, blockId: string, checked: boolean) => void)
 		| undefined;
+	/**
+	 * The same ephemeral, session-only "a change just landed" signal
+	 * `DocumentWorkspace.svelte`'s own list rows already read (redesign §5.2,
+	 * Wave 2.5 Step 12) — feeds the standalone in-chat card's
+	 * `pendingReviewCount` ("N changes to review" + "Review ›") when this
+	 * row's own artifact is the one the activity is about. `null` outside a
+	 * live Document turn, or for every other body kind.
+	 */
+	alfyActivity?: DocumentAlfyActivity | null;
 } = $props();
 
 type ArtifactActivityBody = Extract<ToolActivityBody, { kind: "artifact" }>;
@@ -98,24 +109,38 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 		body.artifactKind === "document"
 			? body.preview?.documentPreview
 			: undefined;
+	// Mirrors `DocumentWorkspace.svelte`'s own `artifactCardViewFor` exactly
+	// (redesign §5.2, Wave 2.5 Step 12): the standalone card's "N changes to
+	// review" pill and "Review ›" affordance read the same ephemeral signal
+	// the panel list's row already does, matched to THIS card's own artifact.
+	const pendingReviewCount =
+		alfyActivity &&
+		alfyActivity.artifactId === body.artifactId &&
+		(alfyActivity.status === "applied" || alfyActivity.status === "refused")
+			? Math.max(alfyActivity.appliedCount, 1)
+			: null;
 	if (documentPreview) {
-		return documentArtifactCardViewFromPreview({
-			artifactId: body.artifactId,
-			title: body.artifactTitle,
-			versionNumber: body.preview?.versionNumber ?? 0,
-			subtitle: $t("artifacts.document.cardSubtitle", {
-				count: documentPreview.tabCount,
+		return {
+			...documentArtifactCardViewFromPreview({
+				artifactId: body.artifactId,
+				title: body.artifactTitle,
+				versionNumber: body.preview?.versionNumber ?? 0,
+				subtitle: $t("artifacts.document.cardSubtitle", {
+					count: documentPreview.tabCount,
+				}),
+				preview: documentPreview,
+				onToggleTask: (blockId, checked) =>
+					onToggleDocumentTask?.(body.artifactId, blockId, checked),
 			}),
-			preview: documentPreview,
-			onToggleTask: (blockId, checked) =>
-				onToggleDocumentTask?.(body.artifactId, blockId, checked),
-		});
+			pendingReviewCount,
+		};
 	}
 	return {
 		id: body.artifactId,
 		kind: body.artifactKind,
 		title: body.artifactTitle,
 		openTargetId: body.artifactId,
+		pendingReviewCount,
 	};
 }
 
@@ -150,6 +175,15 @@ const hasBody = $derived(item.body !== null);
 // the row must carry the body's background so the two read as one element.
 const isOpen = $derived(hasBody && (item.alwaysOpen || open));
 const isInteractive = $derived(hasBody && !item.alwaysOpen);
+// Redesign §5.1 problem 7 / §5.2 (Wave 2.5 Step 12): a create_artifact/
+// edit_artifact card must "stand on its own, below the tool row and outside
+// the collapsible thinking area" instead of reading like another line inside
+// the grey `.act-body` box — unlike every other body kind (including
+// file-job, left exactly as it was), which still joins the row into one
+// shaded block. `isJoinedOpen` drives that shared box/join styling; the
+// artifact card renders through its own standalone wrapper below instead.
+const isStandaloneCard = $derived(item.body?.kind === "artifact");
+const isJoinedOpen = $derived(isOpen && !isStandaloneCard);
 
 // The map body's MapLibre component is dynamic-imported the same way
 // MessageBubble used to lazy-load MapRouteCard — the library never touches
@@ -266,7 +300,7 @@ function handleToggle() {
 		<button
 			type="button"
 			class="act-row"
-			class:is-open={isOpen}
+			class:is-open={isJoinedOpen}
 			class:is-running={item.status === 'running'}
 			class:is-failed={item.status === 'failed'}
 			data-testid="tool-activity-row"
@@ -282,7 +316,7 @@ function handleToggle() {
 	{:else}
 		<div
 			class="act-row"
-			class:is-open={isOpen}
+			class:is-open={isJoinedOpen}
 			class:is-running={item.status === 'running'}
 			class:is-failed={item.status === 'failed'}
 			data-testid="tool-activity-row"
@@ -294,7 +328,24 @@ function handleToggle() {
 		</div>
 	{/if}
 
-	{#if isOpen && item.body}
+	{#if isOpen && item.body?.kind === 'artifact'}
+		{@const body = item.body}
+		<!-- Redesign §5.1 problem 7 / §5.2 (Wave 2.5 Step 12): a create_artifact/
+		     edit_artifact card stands on its own below the tool row, never
+		     joined into its grey `.act-body` box — chrome="full" now, not
+		     "body", so the card draws its own head ("the head is one button"),
+		     matching the approved mockup's `.a-card` next to a compact
+		     `.tool-row`-style status line instead of nesting inside it. -->
+		<div class="act-standalone-card" data-testid="tool-activity-standalone-card">
+			<ArtifactCard
+				view={artifactCardView(body)}
+				chrome="full"
+				onOpen={() => handleOpenArtifact(body)}
+			/>
+		</div>
+	{/if}
+
+	{#if isOpen && item.body && item.body.kind !== 'artifact'}
 		{@const body = item.body}
 		<div class="act-body" data-testid="tool-activity-body" transition:slideTransition={{ duration: 200 }}>
 			{#if body.kind === 'sources'}
@@ -346,12 +397,6 @@ function handleToggle() {
 						onDismiss={onDismissJob}
 					/>
 				{/if}
-			{:else if body.kind === 'artifact'}
-				<ArtifactCard
-					view={artifactCardView(body)}
-					chrome="body"
-					onOpen={() => handleOpenArtifact(body)}
-				/>
 			{:else if body.kind === 'atlas'}
 				{@render bodyContent?.()}
 			{:else if body.kind === 'text'}
@@ -545,6 +590,14 @@ function handleToggle() {
 
 	.act-row.is-open :global(.act-chevron) {
 		transform: rotate(180deg);
+	}
+
+	/* The standalone in-chat card (redesign §5.1 problem 7 / §5.2): plain
+	   vertical spacing only — no shared background, join, or negative margin
+	   pulling it under the row like `.act-body` below, since it is
+	   deliberately NOT part of that joined box. */
+	.act-standalone-card {
+		margin: 6px 0 10px;
 	}
 
 	.act-body {
