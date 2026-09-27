@@ -152,6 +152,10 @@ let editorEl = $state<HTMLDivElement | undefined>();
 let editor: Editor | null = null;
 let autosave: DocumentAutosaveHandle | null = null;
 let readMarkdownFn: typeof DocumentEditorModule.readMarkdown | null = null;
+/** Redesign §5.2 "Tabs switch sections", Wave 2.5 Step 5 — see `document-editor.ts`'s own doc comment. */
+let setActiveDocumentTabFn:
+	| typeof DocumentEditorModule.setActiveDocumentTab
+	| null = null;
 let editorReady = $derived(loadState === "ready");
 
 // ---- T8 live: marks.ts's surface, reached only through document-editor.ts's
@@ -217,6 +221,44 @@ let handledActivityKey = "";
 function updateBlocksFromMarkdown(markdown: string): void {
 	blocks = parseDocument(markdown, { mint: false }).blocks;
 }
+
+/**
+ * `Tabs.svelte`'s badge (redesign §5.2): how many of THIS tab's own comment
+ * THREADS (root comments, never replies) are still open. Walks `blocks` in
+ * the SAME document order `extensions.ts`'s `buildTabSectionDecorations`
+ * walks the live ProseMirror doc, assigning each block to whichever tab's
+ * `startBlockId` most recently appeared at or before it — kept in sync here
+ * (rather than reading the decoration back out of the editor) because this
+ * needs to run whenever `comments` changes too, not just `tabs`/`blocks`.
+ */
+function computeTabBadgeCounts(
+	docBlocks: DocumentBlock[],
+	docComments: ArtifactComment[],
+	docTabs: DocumentTab[],
+): Record<string, number> {
+	if (docTabs.length <= 1) return {};
+	const startBlockIdToTabId = new Map(
+		docTabs.map((tab) => [tab.startBlockId, tab.id] as const),
+	);
+	const blockIdToTabId = new Map<string, string>();
+	let currentTabId = docTabs[0]?.id ?? "";
+	for (const block of docBlocks) {
+		const owningTabId = startBlockIdToTabId.get(block.id);
+		if (owningTabId !== undefined) currentTabId = owningTabId;
+		blockIdToTabId.set(block.id, currentTabId);
+	}
+	const counts: Record<string, number> = {};
+	for (const comment of docComments) {
+		if (comment.status !== "open") continue;
+		if (!comment.anchor || comment.anchor.kind !== "text") continue;
+		const tabId = blockIdToTabId.get(comment.anchor.blockId);
+		if (!tabId) continue;
+		counts[tabId] = (counts[tabId] ?? 0) + 1;
+	}
+	return counts;
+}
+
+let tabBadgeCounts = $derived(computeTabBadgeCounts(blocks, comments, tabs));
 
 function updateSelectionBubble(): void {
 	if (!editor || !readSelectionContextFn || !contentEl) {
@@ -819,9 +861,15 @@ function handleLinkAction(): void {
 	editor.chain().focus().toggleLink({ href: url.trim() }).run();
 }
 
-/** Switching the active tab is a pure UI notification — it never touches the editor (T9.1). */
+/**
+ * Switching the active tab never remounts or reloads the document (T9.1) —
+ * `setActiveDocumentTabFn` dispatches a no-op-for-history meta transaction
+ * that only updates which blocks the tab-section decoration hides (redesign
+ * §5.2), the same document, editor instance and undo stack throughout.
+ */
 function handleTabActivate(tabId: string): void {
 	activeTabId = tabId;
+	if (editor) setActiveDocumentTabFn?.(editor, tabs, tabId);
 }
 
 /**
@@ -836,6 +884,10 @@ function handleTabActivate(tabId: string): void {
  */
 async function handleTabsChange(next: DocumentTab[]): Promise<void> {
 	tabs = next;
+	// An add/delete can move section boundaries even when `activeTabId`
+	// itself is unchanged (e.g. deleting a LATER tab); a rename cannot, but
+	// re-dispatching is a cheap no-op either way (redesign §5.2).
+	if (editor) setActiveDocumentTabFn?.(editor, next, activeTabId);
 	const canonical = currentCanonicalMarkdown();
 	if (canonical === null) return;
 	const result = await saveDocumentTabs(
@@ -940,6 +992,7 @@ async function runLoad(id: string): Promise<void> {
 		if (myToken !== loadToken || !editorEl) return;
 
 		readMarkdownFn = mod.readMarkdown;
+		setActiveDocumentTabFn = mod.setActiveDocumentTab;
 		loadMarkdownFn = mod.loadMarkdown;
 		readSelectionContextFn = mod.readSelectionAnchorContext;
 		applyAlfyChangesFn = mod.applyAlfyChanges;
@@ -973,6 +1026,10 @@ async function runLoad(id: string): Promise<void> {
 			onUpdate: handleUpdate,
 			onSelectionUpdate: handleSelectionUpdate,
 		});
+		// The very first paint already shows only the active tab's section
+		// (redesign §5.2) — without this, every section would flash visible
+		// until the user's first tab click dispatched the meta transaction.
+		setActiveDocumentTabFn(editor, tabs, activeTabId);
 		updateActiveActionIds();
 		bindAutosave(id, conversationId);
 
@@ -1031,6 +1088,7 @@ function saveNoticeText(notice: SaveNotice): string {
 				{activeTabId}
 				onActivate={handleTabActivate}
 				onChange={handleTabsChange}
+				badgeCounts={tabBadgeCounts}
 			/>
 		{/if}
 		<!-- T11: the phone gets its own toolbar (its row stays inside a 48 px

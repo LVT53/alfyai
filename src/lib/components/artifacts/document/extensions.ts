@@ -47,8 +47,10 @@ import {
 	PluginKey,
 	type Transaction,
 } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { StarterKit } from "@tiptap/starter-kit";
 import { get } from "svelte/store";
+import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import {
 	type BlockKind,
 	MARKER_PREFIX,
@@ -570,6 +572,109 @@ const ImageAsPlainText = Extension.create({
 	}),
 });
 
+/**
+ * Redesign §5.2 "Tabs switch sections", Wave 2.5 Step 5. The plugin's own
+ * state is `{ tabs, activeTabId }`, updated ONLY via `setMeta` (never
+ * derived from the document itself) — `document-editor.ts`'s
+ * `setActiveDocumentTab` is the one place that dispatches it, mirroring how
+ * `blockIdPluginKey`'s skip flag works above. `Tabs.svelte`'s own
+ * `onActivate` stays a pure UI notification (T9.1): it never touches the
+ * editor, so THIS is what turns "the user clicked a tab" into "the editor
+ * hides the other sections."
+ */
+export const tabSectionPluginKey = new PluginKey<TabSectionPluginState>(
+	"documentTabSections",
+);
+
+export interface TabSectionPluginState {
+	tabs: DocumentTab[];
+	activeTabId: string;
+}
+
+const EMPTY_TAB_SECTION_STATE: TabSectionPluginState = {
+	tabs: [],
+	activeTabId: "",
+};
+
+/**
+ * One node decoration per top-level block OUTSIDE the active tab's range —
+ * never a decoration spanning multiple blocks, since `Decoration.node` only
+ * covers exactly one node's bounds. A block belongs to whichever tab's
+ * `startBlockId` most recently appeared at or before it, in document order;
+ * anything before the first recognised start marker (or every block, when a
+ * stale `startBlockId` names a block that's gone — `DocumentTab`'s own
+ * contract: "re-pointed on read if the block it once named is gone") falls
+ * back to the document's first tab, exactly like a document with no
+ * recognised markers at all would.
+ *
+ * `display:none` hides the block from the RENDERED DOM only: the doc itself
+ * — block ids, marks, comment anchors, patch targets — is completely
+ * untouched, so search, export, the card preview and Alfy's reads (which all
+ * work from the markdown/doc, never from what is currently painted) still
+ * see the whole document (ruling 61's third point).
+ *
+ * `tabs.length <= 1` (including the empty registry the panel falls back to
+ * before any tabs exist) hides nothing — there is only one section, so
+ * nothing is "outside" it.
+ */
+export function buildTabSectionDecorations(
+	doc: PMNode,
+	tabs: DocumentTab[],
+	activeTabId: string,
+): DecorationSet {
+	if (tabs.length <= 1) return DecorationSet.empty;
+	const startBlockIdToTabId = new Map(
+		tabs.map((tab) => [tab.startBlockId, tab.id] as const),
+	);
+	const decorations: Decoration[] = [];
+	let currentTabId = tabs[0]?.id ?? activeTabId;
+	doc.forEach((node, offset) => {
+		const blockId = node.attrs?.[BLOCK_ID_ATTR];
+		const owningTabId =
+			typeof blockId === "string"
+				? startBlockIdToTabId.get(blockId)
+				: undefined;
+		if (owningTabId !== undefined) currentTabId = owningTabId;
+		if (currentTabId !== activeTabId) {
+			decorations.push(
+				Decoration.node(offset, offset + node.nodeSize, {
+					style: "display:none",
+				}),
+			);
+		}
+	});
+	return DecorationSet.create(doc, decorations);
+}
+
+const TabSections = Extension.create({
+	name: "documentTabSections",
+
+	addProseMirrorPlugins() {
+		return [
+			new Plugin<TabSectionPluginState>({
+				key: tabSectionPluginKey,
+				state: {
+					init: () => EMPTY_TAB_SECTION_STATE,
+					apply(tr, value) {
+						return tr.getMeta(tabSectionPluginKey) ?? value;
+					},
+				},
+				props: {
+					decorations(state) {
+						const pluginState =
+							tabSectionPluginKey.getState(state) ?? EMPTY_TAB_SECTION_STATE;
+						return buildTabSectionDecorations(
+							state.doc,
+							pluginState.tabs,
+							pluginState.activeTabId,
+						);
+					},
+				},
+			}),
+		];
+	},
+});
+
 export function buildDocumentExtensions(placeholder: string) {
 	return [
 		StarterKit.configure({
@@ -585,5 +690,6 @@ export function buildDocumentExtensions(placeholder: string) {
 		AlfyChange,
 		TrackerChip,
 		ImageAsPlainText,
+		TabSections,
 	];
 }

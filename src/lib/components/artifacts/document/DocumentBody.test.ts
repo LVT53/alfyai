@@ -65,6 +65,7 @@ const {
 	mockScrollToChange,
 	mockSummarizeRefusals,
 	mockRefusalReasonI18nKey,
+	mockSetActiveDocumentTab,
 	editorInstances,
 } = vi.hoisted(() => ({
 	mockCreateDocumentEditor: vi.fn(),
@@ -78,6 +79,10 @@ const {
 	mockScrollToChange: vi.fn(),
 	mockSummarizeRefusals: vi.fn(),
 	mockRefusalReasonI18nKey: vi.fn(),
+	// Wave 2.5 Step 5: the tab-range visibility trigger (extensions.ts'
+	// tabSectionPluginKey) — a no-op here, since these tests use a fake
+	// editor with no real ProseMirror state to dispatch a transaction into.
+	mockSetActiveDocumentTab: vi.fn(),
 	editorInstances: [] as Array<{
 		options: Record<string, unknown>;
 		destroy: ReturnType<typeof vi.fn>;
@@ -97,6 +102,7 @@ vi.mock("./document-editor", () => ({
 	scrollToChange: mockScrollToChange,
 	summarizeRefusals: mockSummarizeRefusals,
 	refusalReasonI18nKey: mockRefusalReasonI18nKey,
+	setActiveDocumentTab: mockSetActiveDocumentTab,
 }));
 
 // A fake stands in for the real Tiptap editor: `document-editor.test.ts`
