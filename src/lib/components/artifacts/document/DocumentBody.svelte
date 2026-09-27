@@ -117,6 +117,8 @@ type SaveNotice = "offline" | "tooLarge" | "conflict" | "deleted" | null;
 
 let loadState = $state<LoadState>("loading");
 let saveNotice = $state<SaveNotice>(null);
+/** Mirrors every `onDirtyChange?.(...)` call so the toolbar's own "Saved"/"Saving…" state (redesign §5.2/§9.2) can read it locally, without waiting on the panel's round trip. */
+let isDirty = $state(false);
 let versionNumber = $state<number | null>(null);
 /**
  * RV-1B, coordinator item 6: the last body hash this component KNOWS is
@@ -157,6 +159,25 @@ let setActiveDocumentTabFn:
 	| typeof DocumentEditorModule.setActiveDocumentTab
 	| null = null;
 let editorReady = $derived(loadState === "ready");
+
+/**
+ * The toolbar's own right-aligned save state (redesign §5.2/§9.2: "the
+ * existing save notices move into the toolbar's right end"). `offline`/
+ * `conflict` reuse `saveNotice` for a compact label; the detailed sentence
+ * (plus, for `tooLarge`/`deleted`, an action) stays on the existing
+ * `.document-save-banner` below — those two states are not compact-label
+ * material, so they are not duplicated here.
+ */
+type ToolbarSaveState = "saving" | "saved" | "offline" | "conflict";
+let toolbarSaveState = $derived<ToolbarSaveState>(
+	saveNotice === "offline"
+		? "offline"
+		: saveNotice === "conflict"
+			? "conflict"
+			: isDirty
+				? "saving"
+				: "saved",
+);
 
 // ---- T8 live: marks.ts's surface, reached only through document-editor.ts's
 // lazy re-exports (never a static "./marks" import from this file). ---------
@@ -702,6 +723,7 @@ function handleDirty(): void {
 	if (saveNotice === "tooLarge" && autosave?.stopped) {
 		autosave.resume();
 	}
+	isDirty = true;
 	onDirtyChange?.(true);
 }
 
@@ -730,6 +752,7 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
 		// in between, instead of silently overwriting it.
 		if (typeof result.bodyHash === "string") knownBodyHash = result.bodyHash;
 		saveNotice = null;
+		isDirty = false;
 		onDirtyChange?.(false);
 		onBodyChange?.(markdown);
 		return;
@@ -949,6 +972,7 @@ async function handleSaveCopy(): Promise<void> {
 		tabs = [];
 		activeTabId = "";
 		saveNotice = null;
+		isDirty = false;
 		bindAutosave(created.id, conversationId);
 		onDirtyChange?.(false);
 		onBodyChange?.(canonical);
@@ -983,6 +1007,7 @@ async function runLoad(id: string): Promise<void> {
 	const myToken = ++loadToken;
 	loadState = "loading";
 	saveNotice = null;
+	isDirty = false;
 	try {
 		const conversationId = panelConversationId ?? null;
 		const [mod, detail] = await Promise.all([
@@ -1099,6 +1124,7 @@ function saveNoticeText(notice: SaveNotice): string {
 			<DocumentToolbar
 				{activeActionIds}
 				disabled={!editorReady}
+				saveState={editorReady ? toolbarSaveState : undefined}
 				onAction={handleToolbarAction}
 			/>
 		</div>

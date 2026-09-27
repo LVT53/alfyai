@@ -173,6 +173,10 @@ const artifactsDict = {
 		"artifacts.document.toolbar.more": "More",
 		"artifacts.document.toolbar.download": "Download",
 		"artifacts.document.toolbar.history": "History",
+		"artifacts.document.toolbar.saveState.saving": "Saving…",
+		"artifacts.document.toolbar.saveState.saved": "Saved",
+		"artifacts.document.toolbar.saveState.offline": "Offline",
+		"artifacts.document.toolbar.saveState.conflict": "Conflict",
 		"artifacts.document.save.offline":
 			"Not saved yet — you are offline. Your text is safe here.",
 		"artifacts.document.save.tooLarge": "This document is too long to save.",
@@ -392,6 +396,10 @@ const artifactsDict = {
 		"artifacts.document.toolbar.more": "Több",
 		"artifacts.document.toolbar.download": "Letöltés",
 		"artifacts.document.toolbar.history": "Előzmények",
+		"artifacts.document.toolbar.saveState.saving": "Mentés…",
+		"artifacts.document.toolbar.saveState.saved": "Mentve",
+		"artifacts.document.toolbar.saveState.offline": "Nincs kapcsolat",
+		"artifacts.document.toolbar.saveState.conflict": "Ütközés",
 		"artifacts.document.save.offline":
 			"Még nincs elmentve — nincs kapcsolat. A szöveged itt biztonságban van.",
 		"artifacts.document.save.tooLarge":

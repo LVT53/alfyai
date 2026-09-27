@@ -1169,23 +1169,32 @@ describe("DocumentBody", () => {
 
 	// The download sheet (Slice 1, T12).
 	describe("download", () => {
-		it("opens the download sheet, named after the document, from the toolbar", async () => {
+		// Wave 2.5 Step 3 moved the trigger off the toolbar and into the panel
+		// header's own Download action — `registerPanelActions` is how that
+		// header would call in; these tests invoke the captured function
+		// directly rather than duplicating a header/fixture round trip
+		// `DocumentWorkspace.test.ts` already covers.
+		it("opens the download sheet, named after the document, from the panel header's Download action", async () => {
+			let panelActions: { openDownload?: () => void } = {};
 			render(DocumentBody, {
 				artifactId: "artifact-1",
 				kind: "document",
 				title: "Trip plan",
 				body: null,
 				conversationId: "conv-1",
+				registerPanelActions: (actions) => {
+					panelActions = actions;
+				},
 			});
 			await waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
 			expect(screen.queryByRole("dialog")).toBeNull();
 
-			await fireEvent.click(screen.getByRole("button", { name: "Download" }));
+			panelActions.openDownload?.();
 
 			expect(
-				screen.getByRole("dialog", { name: /Trip plan/ }),
+				await screen.findByRole("dialog", { name: /Trip plan/ }),
 			).toBeInTheDocument();
 		});
 
@@ -1194,19 +1203,23 @@ describe("DocumentBody", () => {
 				ok: true,
 				job: { id: "job-1" },
 			});
+			let panelActions: { openDownload?: () => void } = {};
 			render(DocumentBody, {
 				artifactId: "artifact-1",
 				kind: "document",
 				title: "Trip plan",
 				body: null,
 				conversationId: "conv-1",
+				registerPanelActions: (actions) => {
+					panelActions = actions;
+				},
 			});
 			await waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
 
-			await fireEvent.click(screen.getByRole("button", { name: "Download" }));
-			await fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+			panelActions.openDownload?.();
+			await fireEvent.click(await screen.findByRole("button", { name: "PDF" }));
 
 			expect(mockExportArtifactDocument).toHaveBeenCalledWith(
 				"artifact-1",
@@ -1224,9 +1237,12 @@ describe("DocumentBody", () => {
 	// either the desktop or mobile toolbar (both render from the same shared
 	// `DOCUMENT_TOOLBAR_ACTIONS` list). A user had no way to see or restore a
 	// Document's history at all. Wired a "History" action, mirroring exactly
-	// how "download" already opens `DownloadSheet`.
+	// how "download" already opens `DownloadSheet` — Wave 2.5 Step 3 then
+	// moved BOTH triggers off the toolbar into the panel header's own version
+	// button/Download action (`registerPanelActions`), which is how this test
+	// now opens the sheet.
 	describe("version history (T6)", () => {
-		it("opens the versions sheet from the toolbar, and reloads the editor after a restore", async () => {
+		it("opens the versions sheet from the panel header's version button, and reloads the editor after a restore", async () => {
 			mockFetchArtifactVersions.mockResolvedValue([
 				{
 					id: "v2",
@@ -1243,19 +1259,23 @@ describe("DocumentBody", () => {
 					createdAt: Date.now() - 60_000,
 				},
 			]);
+			let panelActions: { openVersions?: () => void } = {};
 			render(DocumentBody, {
 				artifactId: "artifact-1",
 				kind: "document",
 				title: "Trip plan",
 				body: null,
 				conversationId: "conv-1",
+				registerPanelActions: (actions) => {
+					panelActions = actions;
+				},
 			});
 			await waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
 			expect(screen.queryByRole("dialog")).toBeNull();
 
-			await fireEvent.click(screen.getByRole("button", { name: "History" }));
+			panelActions.openVersions?.();
 
 			const dialog = await screen.findByRole("dialog", { name: "Versions" });
 			await waitFor(() =>
