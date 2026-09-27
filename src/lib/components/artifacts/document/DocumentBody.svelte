@@ -1433,13 +1433,21 @@ function saveNoticeText(notice: SaveNotice): string {
 	}
 
 	/* Inline task items (`@tiptap/extension-list`'s TaskList/TaskItem): the
-	   real DOM is `ul[data-type=taskList] > li[data-type=taskItem] > (label >
+	   real DOM is `ul[data-type=taskList] > li[data-checked] > (label >
 	   input[type=checkbox] + span, div > p)` — no class of its own to hook,
 	   so these are tag/attribute selectors rather than the mockup's `.tasks`/
 	   `.task`/`.task-box`. `display: flex` on the list item is the actual fix
 	   for the bug this step exists to close: without it, the label (holding
 	   only the checkbox) and the text `div` are both block-level and stack
-	   vertically, putting every checkbox on its own line above its label. */
+	   vertically, putting every checkbox on its own line above its label.
+	   Wave 2.5 Step 0: this used to key off `li[data-type='taskItem']`, which
+	   never matches — TaskItem renders through a custom Tiptap `addNodeView()`,
+	   and a NodeView's HTML attributes come only from each attribute's own
+	   `renderHTML` (here just `checked` → `data-checked`); the literal
+	   `'data-type': this.name` baked into the node's schema-level `renderHTML()`
+	   is a separate code path used only when there is no NodeView, so it never
+	   reached the live `<li>` and every rule below was dead. `data-checked` is
+	   always rendered (`"true"` or `"false"`), so it is the reliable hook. */
 	.document-editor-host :global(.document-content ul[data-type='taskList']) {
 		list-style: none;
 		margin: 6px 0 16px;
@@ -1447,7 +1455,7 @@ function saveNoticeText(notice: SaveNotice): string {
 		font-family: var(--font-serif);
 	}
 
-	.document-editor-host :global(.document-content li[data-type='taskItem']) {
+	.document-editor-host :global(.document-content li[data-checked]) {
 		display: flex;
 		align-items: flex-start;
 		gap: 10px;
@@ -1455,24 +1463,24 @@ function saveNoticeText(notice: SaveNotice): string {
 		font-size: 15.5px;
 	}
 
-	.document-editor-host :global(.document-content li[data-type='taskItem'] > label) {
+	.document-editor-host :global(.document-content li[data-checked] > label) {
 		display: inline-flex;
 		flex-shrink: 0;
 		margin-top: 0.2em;
 	}
 
-	.document-editor-host :global(.document-content li[data-type='taskItem'] input[type='checkbox']) {
+	.document-editor-host :global(.document-content li[data-checked] input[type='checkbox']) {
 		width: 17px;
 		height: 17px;
 		accent-color: var(--accent);
 		cursor: pointer;
 	}
 
-	.document-editor-host :global(.document-content li[data-type='taskItem'] > div) {
+	.document-editor-host :global(.document-content li[data-checked] > div) {
 		min-width: 0;
 	}
 
-	.document-editor-host :global(.document-content li[data-type='taskItem'] > div p) {
+	.document-editor-host :global(.document-content li[data-checked] > div p) {
 		margin: 0;
 	}
 
