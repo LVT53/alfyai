@@ -605,7 +605,12 @@ body {
 
 	.btn-primary {
 		background-color: color-mix(in srgb, var(--accent) 12%, transparent);
-		color: var(--accent);
+		/* Artifacts redesign §9.1: --accent text on this 12% accent tint was
+		   3.5:1 in light — under the 4.5:1 text minimum. --accent-text is the
+		   same accent hue, darkened/lightened per theme to clear it (see
+		   artifact-color-contrast.test.ts); every btn-primary user gets the
+		   fix, not just the artifact surfaces that motivated it. */
+		color: var(--accent-text);
 		border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
 		padding: 0.3125rem 0.75rem;
 	}
