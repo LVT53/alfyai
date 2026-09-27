@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
-import { createConversation, login } from "./helpers";
+import { createConversation, login, waitForStableBoundingBox } from "./helpers";
 
 // The Document editor's selection bubble ("Ask Alfy" / "Comment", T10.1) must
 // land right next to the live text selection, inside the visible page —
@@ -250,9 +250,17 @@ test.describe("the Document selection bubble follows the live selection", () => 
 			// contenteditable root (also classed `.document-content` — see that
 			// file's `.document-editor-host :global(.document-content)` rule). The
 			// direct-child selector picks only the outer, actually-scrolling one.
-			const containerBox = await page
-				.locator(".document-main > .document-content")
-				.boundingBox();
+			const documentContent = page.locator(
+				".document-main > .document-content",
+			);
+			// The panel's own open/push entrance motion (1c1634d2, a46d8fd8) can
+			// still be sliding the container when this runs right after
+			// `openDocumentFromPanel` returns — unlike `.click()`, a plain
+			// `.boundingBox()` read has no built-in wait for frame stability, so
+			// it can capture a mid-slide rect the later selection/bubble
+			// measurements won't agree with.
+			await waitForStableBoundingBox(documentContent);
+			const containerBox = await documentContent.boundingBox();
 			expect(
 				containerBox,
 				"the document scroll pane must be visible",

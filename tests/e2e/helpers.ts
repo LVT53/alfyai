@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 const TEST_EMAIL = process.env.E2E_EMAIL || "admin@local";
 const TEST_PASSWORD = process.env.E2E_PASSWORD || "admin123";
@@ -125,6 +125,47 @@ export async function advancePastConversationRefreshDebounce(page: Page) {
 		const currentNow = Date.now();
 		Date.now = () => currentNow + 2100;
 	});
+}
+
+/**
+ * Waits until `locator`'s bounding box reports the same rect across two
+ * consecutive animation frames. A plain `.boundingBox()` call has no
+ * actionability wait at all (unlike `.click()`, which Playwright itself
+ * holds back until its target is frame-stable) — reading it right after
+ * an action that starts a CSS/WAAPI transition, such as the Document
+ * panel's open/push entrance motion (1c1634d2, a46d8fd8), can capture a
+ * mid-slide rect instead of the settled one. Callers that snapshot a
+ * container's box to assert something against it later should await this
+ * first.
+ */
+export async function waitForStableBoundingBox(
+	locator: Locator,
+	options: { timeout?: number } = {},
+): Promise<void> {
+	const timeout = options.timeout ?? 5000;
+	const deadline = Date.now() + timeout;
+	const page = locator.page();
+	let previous = await locator.boundingBox();
+	while (Date.now() < deadline) {
+		await page.evaluate(
+			() =>
+				new Promise<void>((resolve) => {
+					requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+				}),
+		);
+		const current = await locator.boundingBox();
+		if (
+			previous &&
+			current &&
+			previous.x === current.x &&
+			previous.y === current.y &&
+			previous.width === current.width &&
+			previous.height === current.height
+		) {
+			return;
+		}
+		previous = current;
+	}
 }
 
 export function buildAiSdkUiStreamBody(text: string): string {
