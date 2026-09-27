@@ -591,7 +591,15 @@ Rulings (orchestrator, 2026-09-27):
 
 **PAUSED 2026-09-27 ~17:50 UTC for the weekly limit** (the owner asked to continue to 98 % and keep 2 % for a later deploy;
 agents 5a and 5k ran on that basis; stopped at 97 %). Agents 1, 2, 5a and 5k are merged into `feat/artifacts`; nothing
-of the redesign is on `dev` or ai.dev yet (ai.dev = `29a07688`). Worktrees `art-rd1`, `art-rd2`, `art-rd5a`, `art-rd5k`
+of the redesign was on `dev` at that point.
+
+**First half DEPLOYED to ai.dev on the owner's request (2026-09-27 ~21:30 UTC): `dev` = ai.dev = `16c3ebb3`** (health OK,
+`current -> releases/16c3ebb3`). Before it: `fix/artifacts-rd-e2e-rows` — two older suites still clicked the list's removed
+"Open" button (agent 2's brief had not listed them), and the bubble geometry test measured `.document-content` during the
+panel's new entrance slide (`waitForStableBoundingBox` in `tests/e2e/helpers.ts`; test timing, the placement math is
+right). Gates in `dev-int`: check 0/17, 13,537 tests, build 32/2, Fallow 124/4 (0 new), **Playwright 81/81** (chat,
+conversation, every artifact suite, knowledge). The live model check (`/root/verify-artifacts-w2.mjs`) was not re-run:
+no server code changed. The owner inspects ai.dev and says when the rest resumes. Worktrees `art-rd1`, `art-rd2`, `art-rd5a`, `art-rd5k`
 can be removed (branches merged). 3a's
 step 0 (task items) is already done by 5a: skip it.
 
