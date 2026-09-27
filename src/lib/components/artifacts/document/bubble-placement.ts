@@ -75,7 +75,7 @@ export interface BubblePlacement {
 }
 
 /** `.selection-bubble`'s own `min-width: 12rem` and its default (non-composing, two-action-row) rendered height. */
-export const DEFAULT_BUBBLE_SIZE: BubbleSize = { width: 192, height: 92 };
+const DEFAULT_BUBBLE_SIZE: BubbleSize = { width: 192, height: 92 };
 
 /** Breathing room kept between the bubble and the selection, and between the bubble and the container's own visible edge. */
 const SELECTION_GAP_PX = 8;
