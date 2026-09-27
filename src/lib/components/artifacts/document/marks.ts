@@ -91,7 +91,19 @@ export const AlfyChange = Mark.create({
 	renderHTML({ HTMLAttributes }: { HTMLAttributes: Record<string, unknown> }) {
 		return [
 			"span",
-			mergeAttributes(HTMLAttributes, { class: "alfy-change" }),
+			// Artifacts redesign §7.2 #11/§9.1: "arrive" is the settle animation
+			// — a CSS @keyframes rule (`DocumentBody.svelte`'s styles) tinting
+			// from `--alfy-mark-arrive` to the resting `--alfy-mark` over
+			// `--duration-settle`, unconditionally on every render of this mark
+			// rather than only its first one. That is deliberately harmless, not
+			// just tolerated: ProseMirror only reconstructs a mark's DOM node
+			// when the mark is first created (or its node is otherwise dirtied),
+			// so in practice the animation plays once, right when the change
+			// actually lands, then the element sits at its resting appearance —
+			// nothing keeps re-triggering it on unrelated re-renders elsewhere in
+			// the document. `prefers-reduced-motion` collapses it to the resting
+			// tint immediately via app.css's global animation-duration override.
+			mergeAttributes(HTMLAttributes, { class: "alfy-change arrive" }),
 			0,
 		];
 	},

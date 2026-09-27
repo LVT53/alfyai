@@ -22,8 +22,18 @@ export default {
 				},
 				accent: {
 					DEFAULT: 'var(--accent)',
-					hover: 'var(--accent-hover)'
+					hover: 'var(--accent-hover)',
+					// Artifacts redesign §9.1: small text/filled-button variants of
+					// --accent that clear 4.5:1 (the raw --accent is 4.0:1 on the
+					// page in light) — see artifact-color-contrast.test.ts.
+					text: 'var(--accent-text)',
+					fill: 'var(--accent-fill)',
+					tint: 'var(--accent-tint)',
+					tintStrong: 'var(--accent-tint-strong)'
 				},
+				// Artifacts redesign §9.1: the text colour for a filled --accent-fill
+				// button/badge (white in light, near-black in dark).
+				'on-accent': 'var(--on-accent)',
 				border: {
 					DEFAULT: 'var(--border-default)',
 					subtle: 'var(--border-subtle)',
@@ -48,7 +58,18 @@ export default {
 				},
 				success: {
 					DEFAULT: 'var(--success)',
-					hover: 'var(--success-hover)'
+					hover: 'var(--success-hover)',
+					// Artifacts redesign §9.1: "Facts checked" / "Paid" status pills.
+					text: 'var(--success-text)',
+					tint: 'var(--success-tint)'
+				},
+				// Artifacts redesign §9.1: replaces the undefined --status-warning-*
+				// tokens (a refusal notice, a warning status pill).
+				warning: {
+					DEFAULT: 'var(--warning)',
+					hover: 'var(--warning-hover)',
+					text: 'var(--warning-text)',
+					tint: 'var(--warning-tint)'
 				},
 				// Focus Ring
 				'focus-ring': 'var(--focus-ring)'
@@ -77,6 +98,9 @@ export default {
 			'150': 'var(--duration-standard)',
 			'250': 'var(--duration-emphasis)',
 			'emphasis': 'var(--duration-emphasis)',
+			// Artifacts redesign §9.1: a highlight settling.
+			'700': 'var(--duration-settle)',
+			'settle': 'var(--duration-settle)',
 		},
 			fontFamily: {
 				sans: ["var(--font-sans)"],

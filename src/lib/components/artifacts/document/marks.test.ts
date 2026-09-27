@@ -107,6 +107,30 @@ describe("marks: applyAlfyChangeMarks", () => {
 		editor.destroy();
 	});
 
+	it("renders the mark with the visible alfy-change class and the arrive settle animation (§7.2/§9.1)", () => {
+		const { editor, blocks, snapshot } = setup(
+			"First paragraph.\n\nSecond paragraph.",
+		);
+		const target = blocks[0];
+		const insertOp = op({
+			kind: "insertText",
+			blockId: target.id,
+			baseHash: target.hash,
+			at: "end",
+			text: "Extra detail.",
+		});
+		const patch = patchOf([insertOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+
+		loadMarkdown(editor, result.markdown);
+		applyAlfyChangeMarks(editor, result, patch);
+
+		const marked = element?.querySelector("[data-alfy-change-id]");
+		expect(marked?.classList.contains("alfy-change")).toBe(true);
+		expect(marked?.classList.contains("arrive")).toBe(true);
+		editor.destroy();
+	});
+
 	it("marks the whole block for a replaceBlock op", () => {
 		const { editor, blocks, snapshot } = setup("Old text here.");
 		const target = blocks[0];

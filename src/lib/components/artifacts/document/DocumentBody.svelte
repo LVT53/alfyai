@@ -1209,6 +1209,307 @@ function saveNoticeText(notice: SaveNotice): string {
 		outline: none;
 	}
 
+	/* Artifacts redesign §1/§2.3/§9.2, Step 2.1: the prose layer. Nothing
+	   styled the text inside `.document-content` before this (its one rule
+	   was the outline-none one above) — headings looked like body text, every
+	   checkbox sat above its label, the table had no borders, status chips
+	   were raw native selects. This mirrors the mockup's `.prose`/`.doc-page`
+	   rules (`docs/design/artifacts-redesign/index.html`) against the REAL
+	   Tiptap-rendered DOM: `:global(...)` has to wrap the full descendant
+	   selector, not just `.document-content` itself, because everything past
+	   that point (h2, p, table, …) is Tiptap-injected markup that never
+	   carries this component's own Svelte scoping hash — a bare descendant
+	   combinator outside `:global(...)` would silently match nothing. */
+	.document-editor-host :global(.document-content) {
+		font-family: var(--font-serif);
+		font-size: 16px;
+		line-height: 1.72;
+		color: var(--text-primary);
+		max-width: 62ch;
+	}
+
+	.document-editor-host :global(.document-content h1),
+	.document-editor-host :global(.document-content h2),
+	.document-editor-host :global(.document-content h3),
+	.document-editor-host :global(.document-content h4),
+	.document-editor-host :global(.document-content h5),
+	.document-editor-host :global(.document-content h6) {
+		font-family: var(--font-sans);
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.document-editor-host :global(.document-content h1) {
+		font-size: 24px;
+		line-height: 1.25;
+		letter-spacing: 0.005em;
+		margin: 0 0 12px;
+	}
+
+	.document-editor-host :global(.document-content h2) {
+		font-size: 20px;
+		line-height: 1.3;
+		letter-spacing: 0.005em;
+		margin: 0 0 10px;
+	}
+
+	.document-editor-host :global(.document-content h3) {
+		font-size: 16px;
+		letter-spacing: 0.01em;
+		margin: 22px 0 6px;
+	}
+
+	.document-editor-host :global(.document-content h4),
+	.document-editor-host :global(.document-content h5),
+	.document-editor-host :global(.document-content h6) {
+		font-size: 14px;
+		margin: 18px 0 4px;
+	}
+
+	.document-editor-host :global(.document-content p) {
+		margin: 0 0 12px;
+		position: relative;
+	}
+
+	.document-editor-host :global(.document-content strong) {
+		font-weight: 700;
+	}
+
+	.document-editor-host :global(.document-content ul),
+	.document-editor-host :global(.document-content ol) {
+		margin: 0 0 12px;
+		padding-left: 1.375rem;
+	}
+
+	.document-editor-host :global(.document-content li) {
+		margin: 0.125rem 0;
+	}
+
+	.document-editor-host :global(.document-content blockquote) {
+		margin: 0.5rem 0 1rem;
+		padding: 0.25rem 0 0.25rem 1rem;
+		border-left: 3px solid var(--border-default);
+		color: var(--text-muted);
+		font-style: italic;
+	}
+
+	.document-editor-host :global(.document-content code) {
+		font-family: var(--font-mono);
+		font-size: 0.85em;
+		background-color: var(--surface-code);
+		border-radius: var(--radius-sm);
+		padding: 0.1em 0.3em;
+	}
+
+	.document-editor-host :global(.document-content pre) {
+		margin: 0.5rem 0 1rem;
+		padding: 0.75rem 1rem;
+		background-color: var(--surface-code);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		overflow-x: auto;
+	}
+
+	.document-editor-host :global(.document-content pre code) {
+		background-color: transparent;
+		padding: 0;
+		border-radius: 0;
+	}
+
+	/* Inline task items (`@tiptap/extension-list`'s TaskList/TaskItem): the
+	   real DOM is `ul[data-type=taskList] > li[data-type=taskItem] > (label >
+	   input[type=checkbox] + span, div > p)` — no class of its own to hook,
+	   so these are tag/attribute selectors rather than the mockup's `.tasks`/
+	   `.task`/`.task-box`. `display: flex` on the list item is the actual fix
+	   for the bug this step exists to close: without it, the label (holding
+	   only the checkbox) and the text `div` are both block-level and stack
+	   vertically, putting every checkbox on its own line above its label. */
+	.document-editor-host :global(.document-content ul[data-type='taskList']) {
+		list-style: none;
+		margin: 6px 0 16px;
+		padding: 0;
+		font-family: var(--font-serif);
+	}
+
+	.document-editor-host :global(.document-content li[data-type='taskItem']) {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+		padding: 4px 0;
+		font-size: 15.5px;
+	}
+
+	.document-editor-host :global(.document-content li[data-type='taskItem'] > label) {
+		display: inline-flex;
+		flex-shrink: 0;
+		margin-top: 0.2em;
+	}
+
+	.document-editor-host :global(.document-content li[data-type='taskItem'] input[type='checkbox']) {
+		width: 17px;
+		height: 17px;
+		accent-color: var(--accent);
+		cursor: pointer;
+	}
+
+	.document-editor-host :global(.document-content li[data-type='taskItem'] > div) {
+		min-width: 0;
+	}
+
+	.document-editor-host :global(.document-content li[data-type='taskItem'] > div p) {
+		margin: 0;
+	}
+
+	/* The tracker table (`@tiptap/extension-table`'s TableKit, configured
+	   with `renderWrapper: false` — see `extensions.ts` — so this styles the
+	   bare `table` directly rather than the mockup's `.doc-table-wrap` +
+	   `.doc-table` pair, which wraps a `<div>` this DOM does not have). */
+	.document-editor-host :global(.document-content table) {
+		width: 100%;
+		margin: 6px 0 16px;
+		border: 1px solid var(--border-default);
+		border-radius: 10px;
+		border-collapse: collapse;
+		overflow: hidden;
+		font-family: var(--font-sans);
+		font-size: 13.5px;
+	}
+
+	.document-editor-host :global(.document-content th) {
+		text-align: left;
+		padding: 9px 12px;
+		font-size: 10.5px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+		background-color: var(--surface-overlay);
+		border-bottom: 1px solid var(--border-default);
+	}
+
+	.document-editor-host :global(.document-content td) {
+		padding: 9px 12px;
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.document-editor-host :global(.document-content tr:last-child td) {
+		border-bottom: 0;
+	}
+
+	/* The tracker chip (`extensions.ts`'s `TrackerChip` node): a status chip
+	   is a real `<select>` (a listbox) so the toned pill background/text
+	   below key off the wrapper span's own `data-chip-value` — the canonical
+	   English token `chips.ts` always writes there, never the localized
+	   label — so re-colouring never depends on the current UI language. A
+	   date chip (`data-chip-kind="date"`) has no fixed vocabulary and no
+	   tone; it reads as a plain bordered pill instead. */
+	.document-editor-host :global(.document-content .tracker-chip) {
+		display: inline-flex;
+		align-items: center;
+		height: 26px;
+		padding: 0 10px;
+		border-radius: var(--radius-full);
+		background-color: var(--surface-elevated);
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+		font-size: 12.5px;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		vertical-align: middle;
+	}
+
+	.document-editor-host :global(.document-content .tracker-chip[data-chip-value='To book']),
+	.document-editor-host :global(.document-content .tracker-chip[data-chip-value='Cancelled']) {
+		background-color: var(--warning-tint);
+		color: var(--warning-text);
+	}
+
+	.document-editor-host :global(.document-content .tracker-chip[data-chip-value='Booked']),
+	.document-editor-host :global(.document-content .tracker-chip[data-chip-value='Paid']) {
+		background-color: var(--success-tint);
+		color: var(--success-text);
+	}
+
+	.document-editor-host :global(.document-content .tracker-chip[data-chip-kind='date']) {
+		background-color: var(--surface-page);
+		color: var(--text-primary);
+		font-weight: 400;
+		border: 1px solid var(--border-default);
+	}
+
+	.document-editor-host :global(.document-content .tracker-chip-select) {
+		appearance: none;
+		border: none;
+		background-color: transparent;
+		font: inherit;
+		color: inherit;
+		letter-spacing: inherit;
+		padding: 0;
+		margin: 0;
+		cursor: pointer;
+	}
+
+	/* Step 2.2: Alfy's change mark (`marks.ts`'s `AlfyChange` Tiptap mark,
+	   T8) — the visible trace of an applied patch (§1/§4), invisible before
+	   this (marks.ts emitted the class with no matching CSS anywhere). The
+	   2px underline in --accent keeps the change visible after its own tint
+	   has settled all the way down to the page. `arrive` plays once, right
+	   when the mark is first created — see marks.ts's own comment on why
+	   rendering it unconditionally on every render is still safe — settling
+	   from the loud --alfy-mark-arrive tint to the quiet resting --alfy-mark
+	   tint over --duration-settle. Reduced motion needs no separate rule
+	   here: app.css's global `animation-duration` override already collapses
+	   any @keyframes animation, including this one, to 0.01ms, landing on
+	   the resting state per §7.3 ("no movement... jump to the final state"). */
+	.document-editor-host :global(.document-content .alfy-change) {
+		background-color: var(--alfy-mark);
+		border-radius: 2px;
+		box-shadow: inset 0 -2px 0 var(--accent);
+	}
+
+	.document-editor-host :global(.document-content .alfy-change.arrive) {
+		animation: alfy-change-arrive var(--duration-settle) var(--ease-out);
+	}
+
+	@keyframes alfy-change-arrive {
+		from {
+			background-color: var(--alfy-mark-arrive);
+		}
+		to {
+			background-color: var(--alfy-mark);
+		}
+	}
+
+	/* Step 2.3: comment-anchor highlight (§1/§2.2/§9.1). Styles only — there
+	   is no comment-anchor decoration in extensions.ts yet (MarginPanel's
+	   quote today renders only inside its own margin card, never inside the
+	   document text), so nothing applies these classes in the DOM yet. They
+	   exist so agent 3 has real, working styles the moment it adds that
+	   decoration plus the click <-> thread wiring and the rail, per the
+	   redesign build plan's own split between this step and that one — see
+	   this component's hand-off notes for the exact class names. */
+	.document-editor-host :global(.document-content .comment-anchor) {
+		background-color: var(--comment-mark);
+		border-radius: 2px;
+		box-shadow: 0 2px 0 -0.5px var(--comment-rule);
+		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			box-shadow var(--duration-standard) var(--ease-out);
+	}
+
+	.document-editor-host :global(.document-content .comment-anchor.is-active) {
+		background-color: var(--comment-mark-active);
+	}
+
+	/* A resolved thread's anchor, or one whose text survived but is no
+	   longer worth drawing attention to — reads as plain text again. */
+	.document-editor-host :global(.document-content .comment-anchor.is-resolved) {
+		background-color: transparent;
+		box-shadow: none;
+		cursor: text;
+	}
+
 	.document-editor-skeleton {
 		position: absolute;
 		inset: 0;

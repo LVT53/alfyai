@@ -137,6 +137,6 @@ async function submitReply(): Promise<void> {
 	.comment-thread-error {
 		margin: 0;
 		font-size: 0.75rem;
-		color: var(--status-danger, #c0392b);
+		color: var(--danger);
 	}
 </style>
