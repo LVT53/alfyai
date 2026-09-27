@@ -585,6 +585,18 @@ Text & Markdown · Other. The family is a fold over the one file-type registry's
 (`src/lib/shared/file-types/`), so every registered type lands in exactly one family. Counts and the filter run on the
 server under the existing ownership scope. Amends ruling 46 and the slice-7 amendment.
 
+## 61. The redesign is approved and built before anything else
+
+*Owner, 2026-09-27: "I love the redesign"; the three open questions in `redesign.md` §12 delegated to the orchestrator.* Build
+`docs/design/artifacts-redesign/` as specified, now, before Wave 3, so Documents and Apps are publishable for the owner.
+- **A pending Alfy change survives a reload.** The edit is already a saved version; only its review state was lost. The
+  artifact records the last Alfy version the user has reviewed; on load, an unreviewed Alfy version's changed blocks
+  (its diff against its parent, block by block) are marked again and counted in the review bar. Keep acknowledges them;
+  Undo restores the parent's content for those blocks as a user edit; a user's own edit to such a block acknowledges it.
+- **The comment margin shows Open threads by default,** with a quiet "N resolved" toggle to All; resolved threads fold to
+  one line either way.
+- **Tabs show only their own section.** Search, export, the card preview and Alfy's reads still cover the whole document.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
