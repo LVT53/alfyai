@@ -37,6 +37,10 @@ button (real button classes, the `focusTrap` attachment with `onEscape` and `res
 phones); a non-blocking busy veil over a dimmed, `inert` v1 while v2 is made; a v2 toast with Undo; Download only in
 the header (agent 2's `ArtifactPanelHeader` actions). Do not touch the frame's sandbox attribute, CSP or the bootstrap
 (ruling 58's exact-string tests must stay green).
+- **Decide the Open-documents rail for App and File.** §9.2 hides `OpenDocumentsRail` for every artifact kind; agent 2
+  hid it for Documents only, because an App e2e security test switches between Apps through that rail (details in
+  `rd/rd2-report.md`). Hide it for App and File too and move that test onto the panel list so it still proves the same
+  thing — or keep the rail with a reason in your report.
 
 ## Step 14 · Knowledge chips
 
