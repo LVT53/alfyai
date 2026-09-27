@@ -309,4 +309,169 @@ test.describe("Knowledge page", () => {
 				.where(eq(conversations.id, conversationId));
 		}
 	});
+
+	// Ruling 60: the Documents tab's second-tier file-family filter, live only
+	// under Files. Real end-to-end pipeline coverage of the actual registry ->
+	// store -> route -> UI chain, like the artifact-family case above — no
+	// earlier spec seeds this mix of real file types.
+	test("Files -> PDF narrows to the PDF row, switching to Documents hides the second row, and 390px wraps without horizontal overflow", async ({
+		page,
+	}) => {
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const stamp = Date.now();
+		const conversationId = `e2e-file-family-conv-${stamp}`;
+		const now = new Date();
+		const pdfName = `Q1 report ${stamp}.pdf`;
+		const docxName = `Meeting notes ${stamp}.docx`;
+		const documentArtifactName = `Trip plan ${stamp}`;
+
+		await db.insert(conversations).values({
+			id: conversationId,
+			userId: user.id,
+			title: "Seeded for the file-family e2e case",
+			createdAt: now,
+			updatedAt: now,
+		});
+		await db.insert(artifacts).values([
+			{
+				id: `e2e-ff-pdf-${stamp}`,
+				userId: user.id,
+				conversationId,
+				type: "source_document",
+				retrievalClass: "durable",
+				name: pdfName,
+				mimeType: "application/pdf",
+				sizeBytes: 100,
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				id: `e2e-ff-docx-${stamp}`,
+				userId: user.id,
+				conversationId,
+				type: "source_document",
+				retrievalClass: "durable",
+				name: docxName,
+				mimeType:
+					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				sizeBytes: 100,
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				id: `e2e-ff-xlsx-${stamp}`,
+				userId: user.id,
+				conversationId,
+				type: "source_document",
+				retrievalClass: "durable",
+				name: `Budget ${stamp}.xlsx`,
+				mimeType:
+					"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+				sizeBytes: 100,
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				id: `e2e-ff-image-${stamp}`,
+				userId: user.id,
+				conversationId,
+				type: "source_document",
+				retrievalClass: "durable",
+				name: `Photo ${stamp}.png`,
+				mimeType: "image/png",
+				sizeBytes: 100,
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				id: `e2e-ff-md-${stamp}`,
+				userId: user.id,
+				conversationId,
+				type: "source_document",
+				retrievalClass: "durable",
+				name: `Ideas ${stamp}.md`,
+				mimeType: "text/markdown",
+				sizeBytes: 100,
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				id: `e2e-ff-document-${stamp}`,
+				userId: user.id,
+				conversationId,
+				type: "artifact",
+				retrievalClass: "durable",
+				name: documentArtifactName,
+				metadataJson: JSON.stringify({
+					artifactType: "document",
+					title: documentArtifactName,
+				}),
+				createdAt: now,
+				updatedAt: now,
+			},
+		]);
+
+		try {
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			await page.getByRole("tab", { name: "Documents" }).click();
+
+			const filesChip = page.getByTestId("documents-filter-chip-uploaded");
+			await expect(filesChip).toContainText("Files");
+			await filesChip.click();
+			await expect(page).toHaveURL(/type=uploaded/);
+
+			await expect(
+				page.getByTestId("documents-file-family-chips"),
+			).toBeVisible();
+			const pdfChip = page.getByTestId("documents-file-family-chip-pdf");
+			await expect(pdfChip).toBeVisible();
+			await pdfChip.click();
+			await expect(page).toHaveURL(/family=pdf/);
+
+			await expect(
+				page.locator("tbody tr", { hasText: pdfName }),
+			).toBeVisible();
+			// The other seeded Files rows narrow OUT once PDF is the active family.
+			await expect(page.locator("tbody tr", { hasText: docxName })).toHaveCount(
+				0,
+			);
+
+			// Switching to a non-Files kind chip hides the second row entirely
+			// and drops `family` from the URL in the same navigation.
+			await page.getByTestId("documents-filter-chip-document").click();
+			await expect(page).toHaveURL(/type=document/);
+			await expect(page).not.toHaveURL(/family=/);
+			await expect(page.getByTestId("documents-file-family-chips")).toHaveCount(
+				0,
+			);
+			await expect(
+				page.locator("tbody tr", { hasText: documentArtifactName }),
+			).toBeVisible();
+
+			// 390px: the two-tier chip row must wrap onto more lines, never
+			// force the page to scroll horizontally.
+			await page.setViewportSize({ width: 390, height: 844 });
+			await page.getByTestId("documents-filter-chip-uploaded").click();
+			await expect(
+				page.getByTestId("documents-file-family-chips"),
+			).toBeVisible();
+			const hasHorizontalOverflow = await page.evaluate(
+				() =>
+					document.documentElement.scrollWidth >
+					document.documentElement.clientWidth,
+			);
+			expect(hasHorizontalOverflow).toBe(false);
+		} finally {
+			await db
+				.delete(artifacts)
+				.where(eq(artifacts.conversationId, conversationId));
+			await db
+				.delete(conversations)
+				.where(eq(conversations.id, conversationId));
+		}
+	});
 });
