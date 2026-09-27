@@ -133,7 +133,12 @@ function applyFinalKeyframe(
 	if (!final) return;
 	const style = element.style as unknown as Record<string, string>;
 	for (const [property, value] of Object.entries(final)) {
-		if (property === "offset" || property === "easing" || property === "composite") continue;
+		if (
+			property === "offset" ||
+			property === "easing" ||
+			property === "composite"
+		)
+			continue;
 		const resolved = Array.isArray(value) ? value.at(-1) : value;
 		if (resolved === undefined || resolved === null) continue;
 		style[property] = String(resolved);
