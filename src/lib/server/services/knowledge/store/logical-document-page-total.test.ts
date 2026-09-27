@@ -491,4 +491,207 @@ describe("listLogicalDocumentsPage totals", () => {
 			"owned-canvas",
 		]);
 	});
+
+	// Ruling 60: the Documents tab's second-tier filter. `countsByFileFamily`
+	// is tallied over the Files ("uploaded") bucket only, on the SAME
+	// query-filtered set `countsByKind` uses — before either `kindFilter` or
+	// `fileFamilyFilter` narrows the page — so switching families never moves
+	// a sibling family's own number, exactly like the existing kind chips.
+	it("tallies countsByFileFamily over the Files bucket before fileFamilyFilter narrows it, and the filter narrows to that family", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seed(db);
+		db.insert(schema.artifacts)
+			.values([
+				// A second uploaded PDF, so the "pdf" family count needs a real
+				// tally rather than happening to equal 1 by coincidence.
+				{
+					id: "owned-pdf-2",
+					userId: "owner",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "second.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 10,
+					conversationId: null,
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+				// A produced Word file — a generated_output groups under Files too.
+				{
+					id: "owned-word",
+					userId: "owner",
+					type: "generated_output",
+					retrievalClass: "durable",
+					name: "report.docx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					sizeBytes: 10,
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({ sourceChatFileId: "chat-file-1" }),
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+				// An artifact-family Canvas row: never a Files row, and must never
+				// be counted in any file family regardless of its own name/mime.
+				{
+					id: "owned-canvas",
+					userId: "owner",
+					type: "artifact",
+					retrievalClass: "durable",
+					name: "Vienna trip board",
+					conversationId: "conv-owner",
+					metadataJson: JSON.stringify({
+						artifactType: "canvas",
+						title: "Vienna trip board",
+					}),
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+			])
+			.run();
+		sqlite.close();
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+
+		const unfiltered = await listLogicalDocumentsPage("owner", {
+			includeGeneratedOutputs: true,
+			offset: 0,
+			limit: 20,
+		});
+		// "mine.pdf" + "second.pdf" -> pdf: 2; "report.docx" -> word: 1. The
+		// canvas row contributes to no family at all.
+		expect(unfiltered.countsByFileFamily).toEqual({
+			pdf: 2,
+			word: 1,
+			spreadsheet: 0,
+			presentation: 0,
+			image: 0,
+			textMarkdown: 0,
+			other: 0,
+		});
+
+		const wordOnly = await listLogicalDocumentsPage("owner", {
+			includeGeneratedOutputs: true,
+			offset: 0,
+			limit: 20,
+			kindFilter: "uploaded",
+			fileFamilyFilter: "word",
+		});
+		expect(wordOnly.documents.map((document) => document.id)).toEqual([
+			"owned-word",
+		]);
+		expect(wordOnly.totalItems).toBe(1);
+		// Narrowing to one family must never move any family's own count,
+		// including the one just selected.
+		expect(wordOnly.countsByFileFamily).toEqual(unfiltered.countsByFileFamily);
+	});
+
+	// A kind chip other than Files paired with a fileFamilyFilter is a
+	// combination the UI never actually sends (switching away from Files
+	// clears the family), but the store must still refuse to leak a Files row
+	// into a kind chip's result rather than silently ignoring the stray param.
+	it("never shows a Files row under a non-Files kind chip, even if a fileFamilyFilter is also set", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seed(db);
+		db.insert(schema.artifacts)
+			.values({
+				id: "owned-canvas",
+				userId: "owner",
+				type: "artifact",
+				retrievalClass: "durable",
+				name: "Vienna trip board",
+				conversationId: "conv-owner",
+				metadataJson: JSON.stringify({
+					artifactType: "canvas",
+					title: "Vienna trip board",
+				}),
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+		sqlite.close();
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+
+		const page = await listLogicalDocumentsPage("owner", {
+			includeGeneratedOutputs: true,
+			offset: 0,
+			limit: 20,
+			kindFilter: "canvas",
+			fileFamilyFilter: "pdf",
+		});
+		// "mine.pdf" (owned-source) matches the family but not the kind chip;
+		// "owned-canvas" matches the kind chip but carries no file family. The
+		// combination must resolve to nothing, never to either row.
+		expect(page.documents).toEqual([]);
+		expect(page.totalItems).toBe(0);
+	});
+
+	it("walks a fileFamilyFilter-narrowed page one row at a time without skipping or repeating", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seed(db);
+		db.insert(schema.artifacts)
+			.values([
+				{
+					id: "owned-pdf-2",
+					userId: "owner",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "second.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 10,
+					conversationId: null,
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+				{
+					id: "owned-pdf-3",
+					userId: "owner",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "third.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 10,
+					conversationId: null,
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+				// A Word upload in the same Files bucket, excluded by the family
+				// filter below — proves the walk is narrowed, not just paginated.
+				{
+					id: "owned-word",
+					userId: "owner",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "report.docx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					sizeBytes: 10,
+					conversationId: null,
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+			])
+			.run();
+		sqlite.close();
+
+		const { listLogicalDocumentsPage } = await import("./documents");
+
+		const visited: string[] = [];
+		for (let offset = 0; offset < 3; offset += 1) {
+			const page = await listLogicalDocumentsPage("owner", {
+				includeGeneratedOutputs: true,
+				offset,
+				limit: 1,
+				kindFilter: "uploaded",
+				fileFamilyFilter: "pdf",
+			});
+			expect(page.totalItems).toBe(3);
+			expect(page.documents).toHaveLength(1);
+			visited.push(page.documents[0].id);
+		}
+		expect(visited.sort()).toEqual(
+			["owned-source", "owned-pdf-2", "owned-pdf-3"].sort(),
+		);
+	});
 });

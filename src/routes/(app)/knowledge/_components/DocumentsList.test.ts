@@ -233,9 +233,10 @@ describe("DocumentsList", () => {
 			const fileInput = screen.getByTestId("file-input") as HTMLInputElement;
 			const clickSpy = vi.spyOn(fileInput, "click");
 
-			// Exact match: the "Uploaded" filter chip's accessible name also
-			// contains "upload" and would otherwise ambiguously match a loose
-			// /upload/i query too.
+			// Exact match: before ruling 60 renamed the chip to "Files", its
+			// accessible name was "Filter: Uploaded, N items", which also
+			// contained "upload" and would otherwise ambiguously match a loose
+			// /upload/i query too. Kept exact for the same reason it was added.
 			const emptyStateButton = screen.getByRole("button", { name: "Upload" });
 			await fireEvent.click(emptyStateButton);
 
@@ -1580,11 +1581,13 @@ describe("DocumentsList", () => {
 			expect(
 				screen.getByTestId("documents-filter-chip-slides").textContent?.trim(),
 			).toBe("Slides 1");
+			// Ruling 60: "Uploaded" became "Files" — the chip still covers the
+			// same bucket, only its label changed.
 			expect(
 				screen
 					.getByTestId("documents-filter-chip-uploaded")
 					.textContent?.trim(),
-			).toBe("Uploaded 12");
+			).toBe("Files 12");
 		});
 
 		it("renders a chip at 0 rather than hiding it", () => {
@@ -1647,6 +1650,221 @@ describe("DocumentsList", () => {
 		});
 	});
 
+	// Ruling 60: the second-tier row under the Files chip.
+	describe("the file family chip row", () => {
+		const countsByKind = {
+			document: 0,
+			app: 0,
+			canvas: 0,
+			slides: 0,
+			uploaded: 13,
+		};
+
+		it("does not render while a chip other than Files is active", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					typeFilter: "document",
+					countsByKind,
+					countsByFileFamily: {
+						pdf: 6,
+						word: 3,
+						spreadsheet: 2,
+						presentation: 0,
+						image: 1,
+						textMarkdown: 0,
+						other: 1,
+					},
+				},
+			});
+
+			expect(
+				screen.queryByTestId("documents-file-family-chips"),
+			).not.toBeInTheDocument();
+		});
+
+		it("renders one chip per non-zero family, in order, hiding zero-count families", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					typeFilter: "uploaded",
+					countsByKind,
+					countsByFileFamily: {
+						pdf: 6,
+						word: 3,
+						spreadsheet: 2,
+						presentation: 0,
+						image: 1,
+						textMarkdown: 0,
+						other: 1,
+					},
+				},
+			});
+
+			const group = screen.getByTestId("documents-file-family-chips");
+			const chips = within(group).getAllByRole("button");
+			// presentation and textMarkdown are 0 and must not render at all.
+			expect(chips.map((chip) => chip.textContent?.trim())).toEqual([
+				"PDF 6",
+				"Word 3",
+				"Spreadsheets 2",
+				"Images 1",
+				"Other 1",
+			]);
+		});
+
+		it("renders nothing when every family is 0", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [],
+					typeFilter: "uploaded",
+					countsByKind: { ...countsByKind, uploaded: 0 },
+					countsByFileFamily: {
+						pdf: 0,
+						word: 0,
+						spreadsheet: 0,
+						presentation: 0,
+						image: 0,
+						textMarkdown: 0,
+						other: 0,
+					},
+				},
+			});
+
+			expect(
+				screen.queryByTestId("documents-file-family-chips"),
+			).not.toBeInTheDocument();
+		});
+
+		it("fires onFileFamilyFilterChange and reflects the active chip via aria-pressed, toggling off on a second click", async () => {
+			const onFileFamilyFilterChange = vi.fn();
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					typeFilter: "uploaded",
+					countsByKind,
+					countsByFileFamily: {
+						pdf: 6,
+						word: 3,
+						spreadsheet: 0,
+						presentation: 0,
+						image: 0,
+						textMarkdown: 0,
+						other: 0,
+					},
+					onFileFamilyFilterChange,
+				},
+			});
+
+			const pdfChip = screen.getByTestId("documents-file-family-chip-pdf");
+			expect(pdfChip.getAttribute("aria-pressed")).toBe("false");
+
+			await fireEvent.click(pdfChip);
+			expect(onFileFamilyFilterChange).toHaveBeenCalledWith("pdf");
+		});
+
+		it("clicking the already-active chip clears it back to All files", async () => {
+			const onFileFamilyFilterChange = vi.fn();
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					typeFilter: "uploaded",
+					fileFamilyFilter: "pdf",
+					countsByKind,
+					countsByFileFamily: {
+						pdf: 6,
+						word: 3,
+						spreadsheet: 0,
+						presentation: 0,
+						image: 0,
+						textMarkdown: 0,
+						other: 0,
+					},
+					onFileFamilyFilterChange,
+				},
+			});
+
+			const pdfChip = screen.getByTestId("documents-file-family-chip-pdf");
+			expect(pdfChip.getAttribute("aria-pressed")).toBe("true");
+
+			await fireEvent.click(pdfChip);
+			expect(onFileFamilyFilterChange).toHaveBeenCalledWith(null);
+		});
+
+		it("clears the visible family selection when the top chip switches away from Files", async () => {
+			const onFileFamilyFilterChange = vi.fn();
+			const { rerender } = render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					typeFilter: "uploaded",
+					fileFamilyFilter: "pdf",
+					countsByKind,
+					countsByFileFamily: {
+						pdf: 6,
+						word: 0,
+						spreadsheet: 0,
+						presentation: 0,
+						image: 0,
+						textMarkdown: 0,
+						other: 0,
+					},
+					onFileFamilyFilterChange,
+				},
+			});
+			expect(
+				screen.getByTestId("documents-file-family-chips"),
+			).toBeInTheDocument();
+
+			// The parent owns clearing `fileFamilyFilter` itself (it is the one
+			// that persists the URL); the row must disappear the instant
+			// `typeFilter` says something other than Files, even before the
+			// parent gets around to nulling the stale prop out.
+			await rerender({
+				documents: [mockUploadedDocument],
+				typeFilter: "document",
+				fileFamilyFilter: "pdf",
+				countsByKind,
+				countsByFileFamily: {
+					pdf: 6,
+					word: 0,
+					spreadsheet: 0,
+					presentation: 0,
+					image: 0,
+					textMarkdown: 0,
+					other: 0,
+				},
+				onFileFamilyFilterChange,
+			});
+
+			expect(
+				screen.queryByTestId("documents-file-family-chips"),
+			).not.toBeInTheDocument();
+		});
+
+		it("labels the row as a group named File type", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					typeFilter: "uploaded",
+					countsByKind,
+					countsByFileFamily: {
+						pdf: 6,
+						word: 0,
+						spreadsheet: 0,
+						presentation: 0,
+						image: 0,
+						textMarkdown: 0,
+						other: 0,
+					},
+				},
+			});
+
+			expect(
+				screen.getByRole("group", { name: "File type" }),
+			).toBeInTheDocument();
+		});
+	});
+
 	describe("the summary line", () => {
 		it("lists only non-zero buckets, in the mockup's order: uploaded, document, canvas, app, slides", () => {
 			render(DocumentsList, {
@@ -1683,6 +1901,39 @@ describe("DocumentsList", () => {
 
 			expect(screen.getByTestId("documents-summary-line").textContent).toBe(
 				"5 uploaded \u00b7 1 canvas",
+			);
+		});
+
+		// Ruling 60: countsByKind is tallied before fileFamilyFilter narrows the
+		// page, so a family selection must never change the summary line's own
+		// kind-level phrase.
+		it("stays on the kind-level phrase even while a file family is selected", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					typeFilter: "uploaded",
+					fileFamilyFilter: "pdf",
+					countsByKind: {
+						document: 6,
+						app: 2,
+						canvas: 3,
+						slides: 1,
+						uploaded: 12,
+					},
+					countsByFileFamily: {
+						pdf: 6,
+						word: 6,
+						spreadsheet: 0,
+						presentation: 0,
+						image: 0,
+						textMarkdown: 0,
+						other: 0,
+					},
+				},
+			});
+
+			expect(screen.getByTestId("documents-summary-line").textContent).toBe(
+				"12 uploaded \u00b7 6 documents \u00b7 3 canvas \u00b7 2 apps \u00b7 1 slides",
 			);
 		});
 	});

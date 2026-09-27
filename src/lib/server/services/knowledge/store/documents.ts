@@ -13,6 +13,11 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import {
+	FILE_FAMILY_ORDER,
+	type FileFamily,
+	getFileFamily,
+} from "$lib/shared/file-types";
 import { computeDecayScore } from "../../../utils/artifact-decay";
 import { shortlistSemanticMatchesBySubject } from "../../semantic-ranking";
 import {
@@ -73,6 +78,13 @@ export interface LogicalDocumentPageOptions {
 	limit?: number;
 	/** Narrow to one kind bucket. Omitted means every kind. */
 	kindFilter?: KnowledgeDocumentKindFilter;
+	/**
+	 * Narrow further to one file-type family WITHIN the Files ("uploaded")
+	 * bucket (ruling 60, the Documents tab's second-tier filter). A row whose
+	 * kind bucket is not "uploaded" never matches, regardless of `kindFilter` —
+	 * see `resolveFileFamilyBucket`.
+	 */
+	fileFamilyFilter?: FileFamily;
 }
 
 export interface LogicalDocumentPageResult {
@@ -84,6 +96,13 @@ export interface LogicalDocumentPageResult {
 	 * changes the other chips' own numbers).
 	 */
 	countsByKind: Record<KnowledgeDocumentKindFilter, number>;
+	/**
+	 * The Files bucket's own second-tier breakdown (ruling 60): tallied over
+	 * the SAME query-filtered set `countsByKind` uses, restricted to rows whose
+	 * kind bucket is "uploaded", and BEFORE `fileFamilyFilter` narrows the
+	 * page — so switching families never moves a sibling family's own number.
+	 */
+	countsByFileFamily: Record<FileFamily, number>;
 }
 
 export type LogicalDocumentArtifactRow = Parameters<
@@ -415,6 +434,33 @@ function tallyCountsByKind(
 	};
 	for (const item of items) {
 		counts[resolveDocumentKindFilterBucket(item)] += 1;
+	}
+	return counts;
+}
+
+/**
+ * A row's file-type family, or `null` when the row is not in the Files
+ * bucket at all (an artifact-family Document/App/Canvas/Slides row). Ruling
+ * 60 scopes families to Files rows only — a Canvas board's own name/mime
+ * (usually absent) must never resolve to a family by coincidence.
+ */
+function resolveFileFamilyBucket(
+	item: KnowledgeDocumentItem,
+): FileFamily | null {
+	if (resolveDocumentKindFilterBucket(item) !== "uploaded") return null;
+	return getFileFamily(item.name, item.mimeType);
+}
+
+/** Zero-initialised so a family with no rows reports 0, not `undefined`. */
+function tallyCountsByFileFamily(
+	items: KnowledgeDocumentItem[],
+): Record<FileFamily, number> {
+	const counts = Object.fromEntries(
+		FILE_FAMILY_ORDER.map((family) => [family, 0]),
+	) as Record<FileFamily, number>;
+	for (const item of items) {
+		const family = resolveFileFamilyBucket(item);
+		if (family) counts[family] += 1;
 	}
 	return counts;
 }
@@ -1021,10 +1067,14 @@ export async function listLogicalDocumentsPage(
 
 	// Tallied on the query-filtered, NOT-yet-kindFilter-filtered union — a
 	// chip's own count must never move when that same chip is clicked.
-	const countsByKind = tallyCountsByKind([
+	const mergedItems = [
 		...queryFilteredLegacy.map((entry) => entry.item),
 		...queryFilteredFamily.map((entry) => entry.item),
-	]);
+	];
+	const countsByKind = tallyCountsByKind(mergedItems);
+	// Same rule, one tier down: the Files bucket's own family breakdown, tallied
+	// before fileFamilyFilter narrows anything (ruling 60).
+	const countsByFileFamily = tallyCountsByFileFamily(mergedItems);
 
 	const combined = [...queryFilteredLegacy, ...queryFilteredFamily];
 	const kindFiltered = options.kindFilter
@@ -1033,6 +1083,16 @@ export async function listLogicalDocumentsPage(
 					resolveDocumentKindFilterBucket(entry.item) === options.kindFilter,
 			)
 		: combined;
+	// A file family only ever narrows WITHIN the Files bucket — checking the
+	// bucket again here (rather than trusting `kindFilter` to have been
+	// "uploaded") means a stray fileFamilyFilter paired with some other kind
+	// chip resolves to nothing instead of leaking a Files row into that chip.
+	const fileFamilyFiltered = options.fileFamilyFilter
+		? kindFiltered.filter(
+				(entry) =>
+					resolveFileFamilyBucket(entry.item) === options.fileFamilyFilter,
+			)
+		: kindFiltered;
 
 	// Same dual-mode rule the old code used, replicated rather than re-derived:
 	// relevance order when searching, plain sortKey/sortDirection order when
@@ -1043,7 +1103,7 @@ export async function listLogicalDocumentsPage(
 	// tie-break here would silently reorder every row, old and new alike, the
 	// moment two results tie on relevance — exactly the behaviour change the
 	// Global Constraints promise not to make.
-	const sorted = [...kindFiltered].sort((left, right) => {
+	const sorted = [...fileFamilyFiltered].sort((left, right) => {
 		if (query && left.score !== right.score) return right.score - left.score;
 		return compareKnowledgeDocumentItems(
 			left.item,
@@ -1057,6 +1117,7 @@ export async function listLogicalDocumentsPage(
 		documents: sorted.slice(offset, offset + limit).map((entry) => entry.item),
 		totalItems: sorted.length,
 		countsByKind,
+		countsByFileFamily,
 	};
 }
 

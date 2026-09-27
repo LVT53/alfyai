@@ -44,7 +44,10 @@ const knowledgeDict = {
 		"knowledge.documents.filter.canvas": "Canvas",
 		"knowledge.documents.filter.app": "Apps",
 		"knowledge.documents.filter.slides": "Slides",
-		"knowledge.documents.filter.uploaded": "Uploaded",
+		// Ruling 60: "Uploaded" became "Files" — the bucket is unchanged
+		// (uploads, produced files, Skill Notes), only the label reads better
+		// as the parent of the new second-tier file-type row below it.
+		"knowledge.documents.filter.uploaded": "Files",
 		"knowledge.documents.filter.optionA11y": "Filter: {label}, {count} items",
 		"knowledge.documents.count.uploaded": "{count} uploaded",
 		"knowledge.documents.count.document": "{count} documents",
@@ -52,6 +55,19 @@ const knowledgeDict = {
 		"knowledge.documents.count.canvas": "{count} canvas",
 		"knowledge.documents.count.slides": "{count} slides",
 		"knowledge.documents.totalLabel": "{count} items",
+		// Ruling 60: the Documents tab's second-tier row, live only under
+		// Files. Seven families over the shared file-type registry's category
+		// fold (`getFileFamilyForCategory`) — "Word" covers docx/doc/odt, and
+		// everything the five named families and Text & Markdown do not claim
+		// (code, archives, media) reads as Other.
+		"knowledge.documents.fileFamily.groupLabel": "File type",
+		"knowledge.documents.fileFamily.pdf": "PDF",
+		"knowledge.documents.fileFamily.word": "Word",
+		"knowledge.documents.fileFamily.spreadsheet": "Spreadsheets",
+		"knowledge.documents.fileFamily.presentation": "Presentations",
+		"knowledge.documents.fileFamily.image": "Images",
+		"knowledge.documents.fileFamily.textMarkdown": "Text & Markdown",
+		"knowledge.documents.fileFamily.other": "Other",
 		"knowledge.dropFileTooLarge":
 			"Some files are larger than {limit} and were skipped.",
 		"knowledge.dropFiles": "Drop files here to upload (max {max}MB per file)",
@@ -540,7 +556,7 @@ const knowledgeDict = {
 		"knowledge.documents.filter.canvas": "Táblák",
 		"knowledge.documents.filter.app": "Alkalmazások",
 		"knowledge.documents.filter.slides": "Diasorok",
-		"knowledge.documents.filter.uploaded": "Feltöltött",
+		"knowledge.documents.filter.uploaded": "Fájlok",
 		"knowledge.documents.filter.optionA11y": "Szűrő: {label}, {count} elem",
 		"knowledge.documents.count.uploaded": "{count} feltöltött",
 		"knowledge.documents.count.document": "{count} dokumentum",
@@ -548,6 +564,14 @@ const knowledgeDict = {
 		"knowledge.documents.count.canvas": "{count} tábla",
 		"knowledge.documents.count.slides": "{count} diasor",
 		"knowledge.documents.totalLabel": "{count} elem",
+		"knowledge.documents.fileFamily.groupLabel": "Fájltípus",
+		"knowledge.documents.fileFamily.pdf": "PDF",
+		"knowledge.documents.fileFamily.word": "Word",
+		"knowledge.documents.fileFamily.spreadsheet": "Táblázatok",
+		"knowledge.documents.fileFamily.presentation": "Prezentációk",
+		"knowledge.documents.fileFamily.image": "Képek",
+		"knowledge.documents.fileFamily.textMarkdown": "Szöveg és Markdown",
+		"knowledge.documents.fileFamily.other": "Egyéb",
 		"knowledge.dropFileTooLarge":
 			"Néhány fájl nagyobb, mint {limit}, és ki lett hagyva.",
 		"knowledge.dropFiles":

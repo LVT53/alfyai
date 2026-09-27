@@ -58,4 +58,43 @@ describe("knowledge.extraction dictionary", () => {
 			keys.hu.filter((key) => key.startsWith("knowledge.extraction.")),
 		).toEqual(auditedExtractionKeys);
 	});
+
+	// Ruling 60: the Documents tab's second-tier file-family row. `knowledge.`
+	// as a whole is not in i18n.test.ts's AUDITED_PREFIXES (pre-existing
+	// drift — see that file's comment), so this narrow, explicit check is the
+	// only thing that would catch one of these seven labels landing in EN and
+	// not in HU.
+	it("gives every fileFamily label and the renamed Files chip both an EN and a natural HU string", () => {
+		const fileFamilyKeys = (
+			Object.keys(knowledgeDict.en) as KnowledgeKey[]
+		).filter((key) => key.startsWith("knowledge.documents.fileFamily."));
+
+		// The seven family labels plus the row's own group label.
+		expect(fileFamilyKeys.length).toBe(8);
+		for (const key of fileFamilyKeys) {
+			expect(knowledgeDict.en[key]).toBeTruthy();
+			expect(knowledgeDict.hu[key]).toBeTruthy();
+		}
+		// "PDF" and "Word" are the same word in both languages by design — every
+		// OTHER family must actually be translated, not copied.
+		const translated = fileFamilyKeys.filter(
+			(key) =>
+				!key.endsWith(".pdf") &&
+				!key.endsWith(".word") &&
+				!key.endsWith(".groupLabel"),
+		);
+		expect(translated.length).toBeGreaterThan(0);
+		for (const key of translated) {
+			expect(knowledgeDict.hu[key]).not.toBe(knowledgeDict.en[key]);
+		}
+
+		// The chip covering the same Files bucket must have moved off the old
+		// "Uploaded" text in both languages, not just English.
+		expect(knowledgeDict.en["knowledge.documents.filter.uploaded"]).toBe(
+			"Files",
+		);
+		expect(knowledgeDict.hu["knowledge.documents.filter.uploaded"]).toBe(
+			"Fájlok",
+		);
+	});
 });
