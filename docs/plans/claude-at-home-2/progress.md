@@ -531,8 +531,8 @@ resets 2026-09-28 08:59 UTC.
 
 | # | Agent (redesign steps) | Branch / worktree (port) | State |
 |---|---|---|---|
-| 1 | Foundation (1–2) | `feat/artifacts-rd1-foundation` / `art-rd1` (5400) | dispatching |
-| 2 | Panel shell (3–5) | `feat/artifacts-rd2-shell` / `art-rd2` (5410) | waiting |
+| 1 | Foundation (1–2) | `feat/artifacts-rd1-foundation` / `art-rd1` (5400) | **merged** — 8 commits `473cc2bb`…`988ab94e`: §9.1 tokens (light/dark, `color-scheme`), `reducedMotionAnimate` WAAPI helper, `.btn-text` and `--status-*` gone, `btn-primary` → `--accent-text`, contrast test, `.document-content` prose, `.alfy-change` + `arrive`, comment-mark classes (unwired). Gates: check 0/17, 13,475 tests, build 32/2, Fallow 124/4 (0 new), Playwright 42/42. Cost ≈ 1 % of the weekly budget (472k tokens, 65 min) |
+| 2 | Panel shell (3–5) | `feat/artifacts-rd2-shell` / `art-rd2` (5410) | running (branched from agent 1's head) |
 | 5 | Cards, App panel, Knowledge (12–14) | `feat/artifacts-rd5-cards` / `art-rd5` (5440) | waiting |
 | 3 | Comments (6–8) | `feat/artifacts-rd3-comments` / `art-rd3` (5420) | waiting |
 | 4 | Editing feedback (9–11) | `feat/artifacts-rd4-editing` / `art-rd4` (5430) | waiting |
@@ -548,6 +548,9 @@ Rulings (orchestrator, 2026-09-27):
 - Ruling: no new `axe-core` dependency this wave; a11y is checked with Playwright role/name assertions, a token-contrast unit
   test and the Opus review — why: a new dependency touches the shared `node_modules` and the deploy — cost if wrong: an axe
   finding caught later (add axe in Wave 3 with the owner's OK).
+- Agent 1, deferred for the Opus review: the comment-anchor decoration does not exist yet (agent 3 wires the
+  `.comment-anchor` / `.is-active` / `.is-resolved` styles); the tracker's "Cancelled" → warning tone is agent 1's own
+  call; Document checkboxes on phones keep the mockup's 17 px (no 44 px hit area); no chevron on status/date chips.
 - Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
   wrap-up reserve (progress note, owner message).
 
