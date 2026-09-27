@@ -1,13 +1,13 @@
 <script lang="ts">
 /**
- * The phone toolbar (Feature 2 · Artifacts, Slice 1, T11): one row of 6
- * primary actions plus a `More` trigger, instead of the desktop's full row.
- * The prototype's single toolbar was 226 px of an 844 px phone viewport
- * (27 %) before its own fix, and even the fixed prototype's row still
- * measured 137 px (Review Focus 7) — this row carries only format actions
- * and stays within a 48 px budget (`tests/e2e/artifact-document.spec.ts`
- * asserts the real number in a real browser; jsdom has no layout engine, so
- * that assertion cannot live here).
+ * The phone toolbar (Feature 2 · Artifacts, Slice 1, T11; redesign
+ * §5.2/§9.2, Wave 2.5 Step 5): one row of 6 primary actions plus a `More`
+ * trigger, instead of the desktop's full row. The prototype's single
+ * toolbar was 226 px of an 844 px phone viewport (27 %) before its own fix,
+ * and even the fixed prototype's row still measured 137 px (Review Focus 7)
+ * — this row carries only format actions and stays within a 48 px budget
+ * (`tests/e2e/artifact-document.spec.ts` asserts the real number in a real
+ * browser; jsdom has no layout engine, so that assertion cannot live here).
  *
  * Built from the SAME `DOCUMENT_TOOLBAR_ACTIONS` list `DocumentToolbar.svelte`
  * uses — never a second, possibly-drifted set of ids (T11.2) — so "every
@@ -15,10 +15,19 @@
  * construction: every id not on the primary row is in the sheet, and the
  * two lists partition `DOCUMENT_TOOLBAR_ACTIONS` exactly.
  *
+ * The `More` sheet is `DialogShell` with `phonePresentation="sheet"`
+ * (redesign §9.3's "reuse `DialogShell.svelte`… for every phone sheet"):
+ * this drops a hand-rolled focus trap/backdrop/Escape handler in favour of
+ * the shared one, and gains a title ("More formatting") and a real close
+ * affordance (the grabber, `aria-label="Close"`) — redesign §5.2's "the More
+ * sheet gets a title… and a close button", which the old bare
+ * `aria-label`-only dialog never had.
+ *
  * No `@tiptap/*` import — stays outside the lazy editor boundary (T7.8).
  */
-import { Ellipsis } from "@lucide/svelte";
+import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import { Ellipsis } from "@lucide/svelte";
 import {
 	DOCUMENT_TOOLBAR_ACTIONS,
 	type DocumentToolbarActionId,
@@ -30,8 +39,8 @@ import {
  * and the task list §2.3 builds checklists from), a link (referencing is
  * common even in a short note) and undo (mistakes from touch typing are more
  * likely than on a keyboard, so recovery earns a direct slot). Everything
- * else — the second heading level, ordered lists, quote, code, table, redo —
- * lives in the `More` sheet.
+ * else — the second heading level, ordered lists, quote, table, redo — lives
+ * in the `More` sheet.
  */
 const PRIMARY_MOBILE_ACTION_IDS: readonly DocumentToolbarActionId[] = [
 	"bold",
@@ -61,13 +70,12 @@ const overflowActions = DOCUMENT_TOOLBAR_ACTIONS.filter(
 
 let sheetOpen = $state(false);
 let moreButtonEl = $state<HTMLButtonElement | undefined>();
-let sheetEl = $state<HTMLDivElement | undefined>();
 
 function openSheet(): void {
 	sheetOpen = true;
 }
 
-/** Closing always returns focus to the button that opened it (UI states: "Escape closes it and returns focus to the button that opened it"). */
+/** Closing always returns focus to the button that opened it (UI states: "Escape closes it and returns focus to the button that opened it") — DialogShell's own focus trap restores focus on cleanup, but the trigger is what it should land on here. */
 function closeSheet(): void {
 	sheetOpen = false;
 	moreButtonEl?.focus();
@@ -77,81 +85,6 @@ function handleSheetAction(id: DocumentToolbarActionId): void {
 	onAction(id);
 	closeSheet();
 }
-
-/**
- * RV-1B: the sheet renders `role="dialog" aria-modal="true"`, and the UI
- * states contract says "The More sheet traps focus while open" — but nothing
- * enforced it, so a keyboard user could Tab straight past a "modal" sheet
- * into the primary toolbar row sitting behind it. Mirrors
- * `DialogShell.svelte`'s own `trapTabNavigation`/`getFocusableElements`
- * (self-contained here rather than imported: this sheet is one small,
- * self-closing dialog, not the stacking multi-dialog case `DialogShell`
- * itself guards against with its "topmost dialog" gate).
- */
-function isRendered(el: HTMLElement): boolean {
-	if (el.getClientRects().length > 0) return true;
-	const style = getComputedStyle(el);
-	return style.display !== "none" && style.visibility !== "hidden";
-}
-
-function getSheetFocusableElements(): HTMLElement[] {
-	return Array.from(
-		sheetEl?.querySelectorAll<HTMLElement>(
-			'button:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
-		) ?? [],
-	).filter(isRendered);
-}
-
-function trapSheetTab(event: KeyboardEvent): void {
-	const focusable = getSheetFocusableElements();
-	if (focusable.length === 0) {
-		event.preventDefault();
-		sheetEl?.focus();
-		return;
-	}
-	const first = focusable[0];
-	const last = focusable[focusable.length - 1];
-	const activeElement = document.activeElement;
-
-	// Focus has escaped the sheet (or was never inside it) — pull it back.
-	if (!(activeElement instanceof Node) || !sheetEl?.contains(activeElement)) {
-		event.preventDefault();
-		first.focus();
-		return;
-	}
-	if (event.shiftKey && activeElement === first) {
-		event.preventDefault();
-		last.focus();
-		return;
-	}
-	if (!event.shiftKey && activeElement === last) {
-		event.preventDefault();
-		first.focus();
-	}
-}
-
-function handleSheetKeydown(event: KeyboardEvent): void {
-	if (event.key === "Escape") {
-		event.preventDefault();
-		closeSheet();
-		return;
-	}
-	if (event.key === "Tab") {
-		trapSheetTab(event);
-	}
-}
-
-function handleBackdropClick(): void {
-	closeSheet();
-}
-
-// The sheet traps focus on open (UI states) — moved to its first button
-// rather than left on the trigger, which is now hidden behind the backdrop.
-$effect(() => {
-	if (sheetOpen) {
-		sheetEl?.querySelector<HTMLButtonElement>("button")?.focus();
-	}
-});
 </script>
 
 <div
@@ -192,22 +125,12 @@ $effect(() => {
 </div>
 
 {#if sheetOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-	<div
-		class="mobile-toolbar-sheet-backdrop"
-		role="presentation"
-		onclick={handleBackdropClick}
+	<DialogShell
+		title={$t('artifacts.document.toolbar.moreSheetTitle')}
+		onClose={closeSheet}
+		phonePresentation="sheet"
 	>
-		<div
-			bind:this={sheetEl}
-			class="mobile-toolbar-sheet"
-			role="dialog"
-			aria-modal="true"
-			aria-label={$t('artifacts.document.toolbar.moreSheetTitle')}
-			tabindex="-1"
-			onkeydown={handleSheetKeydown}
-			onclick={(event) => event.stopPropagation()}
-		>
+		<div class="mobile-toolbar-sheet-grid">
 			{#each overflowActions as action (action.id)}
 				{@const Icon = action.icon}
 				{@const isActive = !action.momentary && activeActionIds.has(action.id)}
@@ -225,7 +148,7 @@ $effect(() => {
 				</button>
 			{/each}
 		</div>
-	</div>
+	</DialogShell>
 {/if}
 
 <style>
@@ -268,27 +191,12 @@ $effect(() => {
 		outline-offset: 1px;
 	}
 
-	.mobile-toolbar-sheet-backdrop {
-		position: fixed;
-		inset: 0;
-		z-index: 140;
-		display: flex;
-		align-items: flex-end;
-		background-color: rgb(0 0 0 / 35%);
-	}
-
-	.mobile-toolbar-sheet {
+	.mobile-toolbar-sheet-grid {
 		display: grid;
 		grid-template-columns: repeat(4, 1fr);
 		gap: 0.5rem;
-		width: 100%;
-		max-height: 60vh;
+		max-height: 50vh;
 		overflow-y: auto;
-		padding: 1rem;
-		border-top-left-radius: var(--radius-lg);
-		border-top-right-radius: var(--radius-lg);
-		background-color: var(--surface-overlay);
-		box-shadow: var(--shadow-lg);
 	}
 
 	.mobile-toolbar-sheet-item {
