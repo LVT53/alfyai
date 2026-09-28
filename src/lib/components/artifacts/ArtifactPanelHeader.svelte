@@ -254,4 +254,29 @@ let crumbLabel = $derived(
 		background: var(--surface-elevated);
 		color: var(--text-muted);
 	}
+
+	/* Phones: the breadcrumb (1.75rem/28px) and the version button
+	   (1.375rem/22px) stay visually compact but get a 44px hit area via an
+	   `::after` inset, exactly like ChangeBar.svelte's own phone rule for the
+	   Keep/Undo buttons (redesign §5.4: "44 px hit area" for header controls). */
+	@media (max-width: 639px) {
+		.artifact-panel-header-crumb,
+		.artifact-panel-header-version {
+			position: relative;
+		}
+
+		.artifact-panel-header-crumb::after {
+			content: "";
+			position: absolute;
+			/* 28px visible height + 2*8px = 44px. */
+			inset: -0.5rem -0.25rem;
+		}
+
+		.artifact-panel-header-version::after {
+			content: "";
+			position: absolute;
+			/* 22px visible height + 2*11px = 44px. */
+			inset: -0.6875rem -0.25rem;
+		}
+	}
 </style>
