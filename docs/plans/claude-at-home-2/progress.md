@@ -589,6 +589,17 @@ Rulings (orchestrator, 2026-09-27):
 - **All eight build agents merged (2026-09-28 ~19:25 UTC): `feat/artifacts` = `39c6493c`.** Next: the final gates on this
   head, the one Opus review (`wave-2-5/review-brief.md`, report only, findings tagged [doc]/[shell]), then two Sonnet fix
   agents side by side (one per tag), then `dev`, gates in `dev-int`, push, deploy.
+- **Opus review done (2026-09-28 ~21:15 UTC, `wave-2-5/review-2-5.md`): 3 Critical, 15 Important, 20 Minor; "ready after
+  fixes".** Ruling 61's server side verified correct; no contrast failures. Fix plan: round F1 = A [shell + review-state
+  flow] ∥ B [Document layout, phone composer/review bar, popovers, tabs, pill keyboard]; round F2 = C [Document review
+  logic, versions, avatars, HU strings, cheap a11y minors] ∥ D [chat-side minors]; then one Sonnet re-check (phone pass +
+  live card flow), `dev`, deploy. The other [doc] minors (touch targets, sheet offsets, rail copy, prose, Versions rows,
+  refusal placement, Undo summary) and the review's "can wait" triage rows are left for later.
+- **Fix agent A merged** (`cf275a44`; 3 commits `8509e87b`…`01d54f54`): all six of its findings, the persisted
+  `pendingReviewCount` now the one source for the card, list row and dot (read model), the card-path double count, the
+  header's version/time from the card, the App sheet/popover layering, Escape stacking and padding. Gates: check 0/17,
+  13,691 tests, build 32/2, Fallow 124/4 (0 new), Playwright 88/89 → the one failure is a **pre-existing flake**
+  (`artifact-chat-card.spec.ts:190`, fails ~1 in 3 on the reviewed head `145c199e` too); handed to D. D started beside B.
 - Briefs for every agent: `docs/plans/claude-at-home-2/wave-2-5/` (`common.md` + `rd*-brief.md`); reports and
   screenshots in this session's scratchpad `rd/`.
 - Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
