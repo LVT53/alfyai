@@ -9,6 +9,7 @@
 // above already crosses this boundary.
 import type { AppGenerationFailureReason } from "$lib/server/services/artifacts/app/generate";
 import type { AppVerification } from "$lib/server/services/artifacts/app/verify";
+import type { DocumentReviewPendingBlock } from "$lib/server/services/artifacts/document-ops";
 import type {
 	ArtifactCardSummary,
 	ArtifactComment,
@@ -621,4 +622,54 @@ export async function exportArtifactDocument(
 		return { ok: false, reason: "not_found" };
 	}
 	return payload;
+}
+
+/**
+ * Ruling 61's first point: the Document's pending-review set, recomputed
+ * server-side on every call — never cached client-side across a reload. Used
+ * once right after the editor loads, to mark Alfy's still-unreviewed changes
+ * again (§4.2's "Reload with a pending change").
+ */
+export async function fetchDocumentReviewState(
+	artifactId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<DocumentReviewPendingBlock[]> {
+	const payload = await requestJson<{
+		ok: true;
+		pending: DocumentReviewPendingBlock[];
+	}>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/review${withConversationQuery(conversationId)}`,
+		undefined,
+		"Failed to load what Alfy changed",
+		fetchImpl,
+	);
+	return payload.pending;
+}
+
+/**
+ * Keep and Undo both "acknowledge" (ruling 61) — this is the one call for
+ * both. Answers the recomputed pending list so the caller can resync its own
+ * review bar/pill state without a second round trip.
+ */
+export async function acknowledgeDocumentReviewBlocks(
+	artifactId: string,
+	blockIds: string[],
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<DocumentReviewPendingBlock[]> {
+	const payload = await requestJson<{
+		ok: true;
+		pending: DocumentReviewPendingBlock[];
+	}>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/review${withConversationQuery(conversationId)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ blockIds }),
+		},
+		"Failed to save what you reviewed",
+		fetchImpl,
+	);
+	return payload.pending;
 }

@@ -232,14 +232,23 @@ const artifactsDict = {
 			"This document was deleted while it was open. Your text is still here.",
 		"artifacts.document.deleted.saveCopy": "Save it as a new document",
 		"artifacts.document.notFound": "This document is not available.",
-		// The inline change mark's bar (Slice 1, T8): "Alfy · Keep · Undo".
+		// The inline change pill (Slice 1, T8; redesigned Wave 2.5 Step 10 as a
+		// ProseMirror widget decoration): "✦ Alfy · Keep · Undo", "Redo" after
+		// Undo (redesign §7.2 #13/#14: "Kept"/"Undone · Redo").
 		"artifacts.document.change.alfy": "Alfy",
 		"artifacts.document.change.keep": "Keep",
 		"artifacts.document.change.undo": "Undo",
-		"artifacts.document.change.keptNotice": "Kept.",
-		"artifacts.document.change.undoneNotice": "Undone — your text is back.",
+		"artifacts.document.change.redo": "Redo",
+		"artifacts.document.change.keptNotice": "Kept",
+		"artifacts.document.change.undoneNotice": "Undone",
 		"artifacts.document.change.commentCountA11y":
 			"{count} {count, plural, one {comment} other {comments}} on this change",
+		// §4.4: the pill is `role="group"` named "Alfy's change: '…'"; its own
+		// buttons keep short VISIBLE text (above) but a fuller accessible name.
+		"artifacts.document.change.groupLabel": "Alfy's change: {quote}",
+		"artifacts.document.change.keepA11y": "Keep Alfy's change",
+		"artifacts.document.change.undoA11y": "Undo Alfy's change",
+		"artifacts.document.change.redoA11y": "Redo Alfy's change",
 		// The visible refusal (Slice 1, T8) — "your words win" is only a
 		// feature if the user can see it happened.
 		"artifacts.document.refused.notice":
@@ -262,6 +271,19 @@ const artifactsDict = {
 		// a later Wave 2.5 agent's ReviewBar.svelte to read, so its own count
 		// never drifts from this card's. Mirrors the mockup's `revLeft`.
 		"artifacts.document.refused.reviewBarLeft": "Left {count} alone.",
+		// The shared review bar (redesign §4.2 item 5/6, §8's `ReviewBar` row,
+		// Wave 2.5 Step 10) — "Alfy changed N part(s).", the stepper, Keep all /
+		// Undo all. `regionLabel` and `summary` together are also this
+		// component's own polite landing announcement (§4.4: "Alfy changed 1
+		// part and left 1 alone. Review it below the text.") — the region is
+		// already populated with both sentences when it enters the DOM.
+		"artifacts.document.review.regionLabel": "Changes from Alfy",
+		"artifacts.document.review.summary":
+			"{count, plural, one {Alfy changed 1 part.} other {Alfy changed {count} parts.}}",
+		"artifacts.document.review.prev": "Previous change",
+		"artifacts.document.review.next": "Next change",
+		"artifacts.document.review.keepAll": "Keep all",
+		"artifacts.document.review.undoAll": "Undo all",
 		// The planned-section shimmer while a tool call is in flight (Slice 1, T8).
 		"artifacts.document.planned.writing": "Alfy is writing: {label}",
 		// Tabs (Slice 1, T9).
@@ -558,11 +580,15 @@ const artifactsDict = {
 		"artifacts.document.change.alfy": "Alfy",
 		"artifacts.document.change.keep": "Megtartom",
 		"artifacts.document.change.undo": "Visszavonom",
-		"artifacts.document.change.keptNotice": "Megtartva.",
-		"artifacts.document.change.undoneNotice":
-			"Visszavonva — a szöveged visszaállt.",
+		"artifacts.document.change.redo": "Újra",
+		"artifacts.document.change.keptNotice": "Megtartva",
+		"artifacts.document.change.undoneNotice": "Visszavonva",
 		"artifacts.document.change.commentCountA11y":
 			"{count} megjegyzés ehhez a módosításhoz",
+		"artifacts.document.change.groupLabel": "Alfy módosítása: {quote}",
+		"artifacts.document.change.keepA11y": "Alfy módosításának megtartása",
+		"artifacts.document.change.undoA11y": "Alfy módosításának visszavonása",
+		"artifacts.document.change.redoA11y": "Alfy módosításának megismétlése",
 		"artifacts.document.refused.notice":
 			"{count, plural, one {Alfy egy részt nem érintett, mert megváltoztattad.} other {Alfy néhány részt nem érintett, mert megváltoztattad.}}",
 		"artifacts.document.refused.changed":
@@ -576,6 +602,14 @@ const artifactsDict = {
 		"artifacts.document.refused.seeChange": "Nézd meg, mit csinált Alfy",
 		"artifacts.document.refused.dismiss": "Elvetés",
 		"artifacts.document.refused.reviewBarLeft": "{count} részt nem érintett.",
+		"artifacts.document.review.regionLabel": "Alfy módosításai",
+		// No ICU plural here either, for `cardSubtitle`'s own reason: Hungarian
+		// nouns after a numeral stay singular ("1 részt", "3 részt").
+		"artifacts.document.review.summary": "Alfy {count} részt módosított.",
+		"artifacts.document.review.prev": "Előző módosítás",
+		"artifacts.document.review.next": "Következő módosítás",
+		"artifacts.document.review.keepAll": "Mindet megtartom",
+		"artifacts.document.review.undoAll": "Mindet visszavonom",
 		"artifacts.document.planned.writing": "Alfy írja: {label}",
 		// No ICU plural here on purpose: Hungarian nouns after a numeral stay
 		// singular ("1 fül", "3 fül"), unlike the English "tab"/"tabs" split.
