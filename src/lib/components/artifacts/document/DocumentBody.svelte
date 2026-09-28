@@ -130,6 +130,7 @@ let {
 	onBodyChange,
 	registerPanelActions,
 	onCommentCountChange,
+	onPendingReviewCountChange,
 }: ArtifactBodyProps = $props();
 
 type LoadState = "loading" | "ready" | "load_error" | "not_found";
@@ -1004,6 +1005,13 @@ $effect(() => {
 	if (reviewIndex >= pendingList.length) {
 		reviewIndex = Math.max(0, pendingList.length - 1);
 	}
+});
+// Wave 2.5 review (F1): the ONE call this body makes into the shell's own
+// persisted-count plumbing (see `ArtifactBodyProps.onPendingReviewCountChange`'s
+// own doc comment) — so the chat card, the list row and the count-button dot
+// all reflect Keep/Undo/Keep-all the instant they happen, without a reload.
+$effect(() => {
+	onPendingReviewCountChange?.(pendingList.length);
 });
 
 function handleReviewPrev(): void {

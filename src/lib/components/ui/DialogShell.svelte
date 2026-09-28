@@ -61,6 +61,21 @@ export function deregisterDialog(id: symbol): void {
 export function isTopmostDialog(id: symbol): boolean {
 	return dialogStack.isTopmost(id);
 }
+
+/**
+ * Whether ANY dialog/popover/sheet on this shared stack is currently open —
+ * for a host that owns its OWN window-level Escape handling (e.g.
+ * `DocumentWorkspace.svelte`'s expanded-panel close) and needs to defer to
+ * whichever layer is actually on top rather than fight over the same
+ * keypress. A window keydown listener mounted before the stack's first
+ * entry runs BEFORE it on the same event (registration order), so checking
+ * `event.defaultPrevented` alone is not enough — the popover's own
+ * `preventDefault()` has not run yet by the time an earlier-registered
+ * listener sees the event. Checking this instead is order-independent.
+ */
+export function hasOpenDialog(): boolean {
+	return dialogStack.size() > 0;
+}
 </script>
 
 <script lang="ts">

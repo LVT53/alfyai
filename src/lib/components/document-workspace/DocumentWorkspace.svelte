@@ -15,6 +15,7 @@ import {
 	reducedMotionAnimate,
 } from "$lib/utils/motion";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
+import { hasOpenDialog } from "$lib/components/ui/DialogShell.svelte";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
@@ -77,6 +78,7 @@ let {
 	onCloseWorkspace,
 	onPresentationChange = undefined,
 	onListOpenChange = undefined,
+	onPendingReviewCountChange = undefined,
 }: {
 	open?: boolean;
 	presentation?: "docked" | "expanded";
@@ -103,6 +105,18 @@ let {
 		| ((presentation: "docked" | "expanded") => void)
 		| undefined;
 	onListOpenChange?: ((open: boolean) => void) | undefined;
+	/**
+	 * Wave 2.5 review (F1): bubbles the open Document body's own live
+	 * `onPendingReviewCountChange` report (see `ArtifactBodyProps`'s doc
+	 * comment) up to the page, keyed by artifact id — so the page can patch
+	 * its own persisted `artifacts` list the same way `onToggleDocumentTask`'s
+	 * caller already does, and every reader of that list (the chat card, this
+	 * panel's own list row, the count-button dot) updates together. `undefined`
+	 * for a caller that has not wired durable review state yet.
+	 */
+	onPendingReviewCountChange?:
+		| ((artifactId: string, count: number) => void)
+		| undefined;
 } = $props();
 
 let activeDocument: WorkspaceDocument | null = $derived.by(() => {
@@ -114,6 +128,56 @@ let activeDocument: WorkspaceDocument | null = $derived.by(() => {
 		null
 	);
 });
+
+/**
+ * Wave 2.5 review (F1): "double count from the card path". Opened straight
+ * from the chat card AFTER an edit already settled while the panel was
+ * closed, the body's own mount-time restore (`runLoad` → `restorePendingReview`,
+ * keyed by block id) already reflects the just-landed change from the
+ * PERSISTED state — handing it `alfyActivity` too (keyed by op id) made it
+ * replay `landAlfyActivity` a second time for the same block, double-
+ * counting it. Only a key this panel was ACTUALLY open on the matching
+ * artifact for (at any point — including while it was still "running") is
+ * safe to replay: the body was mounted throughout that activity's own
+ * lifecycle, so `runLoad`'s restore ran BEFORE the change existed on the
+ * server, and the live landing is the only thing that ever adds it. A key
+ * never seen open stays suppressed for the body — even once the panel opens
+ * later — so the persisted restore is left to own it alone, exactly as the
+ * review's own fix note suggests ("let the server restore... own it").
+ * `alfyActivity` itself (unsuppressed) still feeds the row-level ephemeral
+ * pending pill below and the chat card, neither of which replay anything.
+ */
+let alfyActivitySeenOpenKeys = $state<Set<string>>(new Set());
+$effect(() => {
+	if (!alfyActivity) return;
+	if (
+		(activeDocument?.artifactId ?? activeDocument?.id) !==
+		alfyActivity.artifactId
+	) {
+		return;
+	}
+	if (alfyActivitySeenOpenKeys.has(alfyActivity.key)) return;
+	alfyActivitySeenOpenKeys = new Set(alfyActivitySeenOpenKeys).add(
+		alfyActivity.key,
+	);
+});
+let bodyAlfyActivity = $derived(
+	alfyActivity && alfyActivitySeenOpenKeys.has(alfyActivity.key)
+		? alfyActivity
+		: null,
+);
+
+/**
+ * Wave 2.5 review (F1): the one call this panel makes into the page's own
+ * persisted-artifact-list plumbing, keyed by the SAME `artifactId` shape the
+ * body invocations already resolve (`activeDocument.artifactId ??
+ * activeDocument.id`) — see `onPendingReviewCountChange`'s own doc comment.
+ */
+function handleBodyPendingReviewCountChange(count: number): void {
+	const artifactId = activeDocument?.artifactId ?? activeDocument?.id;
+	if (!artifactId) return;
+	onPendingReviewCountChange?.(artifactId, count);
+}
 
 // The type-aware content area (Slice 0 Task S5): a kind with a registered
 // loader renders that body; a missing entry IS the File body, so every kind
@@ -521,21 +585,27 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 		item.updatedAt != null
 			? formatRelativeTime(item.updatedAt, { t: $t })
 			: null;
-	// The row's pending-review pill: the same ephemeral, session-only "a
-	// change just landed" signal the chat header's count-button dot reads
-	// (`alfyActivity`, already a prop here) — see
-	// `ArtifactCardView.pendingReviewCount`'s own doc comment for why this is
-	// expected to be superseded, not this field itself. Wave 2.5 Step 11:
-	// only APPLIED changes count — a fully refused call has nothing to
-	// review (`ToolActivityRow.svelte`'s own `artifactCardView` mirrors this
-	// exactly, including the same removed `Math.max(..., 1)` stopgap).
-	const pendingReviewCount =
+	// The row's pending-review pill (Wave 2.5 review, F1): `item.pendingReviewCount`
+	// is the PERSISTED count — `read-model.ts`'s `computeDocumentPendingReviewCounts`
+	// on load/refresh, kept live by this panel's own `handleBodyPendingReviewCountChange`
+	// while the body is open — and wins whenever it is set (0 included: that
+	// means "reviewed", still a real answer, never a reason to fall through).
+	// Only a row this page has NEVER heard a persisted count for (`undefined` —
+	// a brand-new item from mid-turn, before any conversation-detail load)
+	// falls back to the ephemeral, session-only `alfyActivity` guess, exactly
+	// like before. Wave 2.5 Step 11: only APPLIED changes count in that
+	// fallback — a fully refused call has nothing to review
+	// (`ToolActivityRow.svelte`'s own `artifactCardView` mirrors this exactly,
+	// including the same removed `Math.max(..., 1)` stopgap).
+	const ephemeralPendingReviewCount =
 		alfyActivity &&
 		alfyActivity.artifactId === (item.artifactId ?? item.id) &&
 		(alfyActivity.status === "applied" || alfyActivity.status === "refused") &&
 		alfyActivity.appliedCount > 0
 			? alfyActivity.appliedCount
 			: null;
+	const pendingReviewCount =
+		item.pendingReviewCount ?? ephemeralPendingReviewCount;
 	const rowExtras = {
 		updatedAtLabel,
 		pendingReviewCount,
@@ -806,6 +876,15 @@ function handleWindowKeydown(event: KeyboardEvent) {
 	) {
 		return;
 	}
+
+	// This listener mounts with the shell itself, before any popover/sheet/
+	// composer that opens later — so it runs FIRST on a shared Escape press,
+	// before that layer's own `preventDefault()` has a chance to fire.
+	// Deferring to `hasOpenDialog()` (order-independent) instead of relying
+	// on `event.defaultPrevented` above is what keeps one Escape closing
+	// only the innermost layer (redesign §5.4) instead of the popover AND
+	// the expanded panel at once.
+	if (hasOpenDialog()) return;
 
 	// The list closes first, in any presentation; only then does Escape fall
 	// through to the panel's own (expanded-only) close behaviour.
@@ -1485,13 +1564,14 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							title={getDocumentTitle(activeDocument)}
 							body={null}
 							{conversationId}
-							{alfyActivity}
+							alfyActivity={bodyAlfyActivity}
 							registerPanelActions={(actions) => {
 								bodyPanelActions = actions;
 							}}
 							onCommentCountChange={(count) => {
 								documentOpenCommentCount = count;
 							}}
+							onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						/>
 					{/await}
 				{:else if compareMode && comparedDocument}
@@ -1791,13 +1871,14 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					title={getDocumentTitle(activeDocument)}
 					body={null}
 					{conversationId}
-					{alfyActivity}
+					alfyActivity={bodyAlfyActivity}
 					registerPanelActions={(actions) => {
 						bodyPanelActions = actions;
 					}}
 					onCommentCountChange={(count) => {
 						documentOpenCommentCount = count;
 					}}
+					onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 				/>
 			{/await}
 		{:else if compareMode && comparedDocument}

@@ -591,4 +591,106 @@ test.describe("the App kind, in the panel", () => {
 		);
 		expect(hasHorizontalOverflow).toBe(false);
 	});
+
+	test("phone: 'Change this app…' opens the regenerate sheet on top of the panel", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(
+			page,
+			"Make me a notes app",
+		);
+		await seedApp(conversationId, NOTES_APP_HTML);
+		await openChatAndReload(page, conversationId);
+
+		await page.getByTestId("artifact-count-button-compact").click();
+		await page
+			.getByTestId("artifact-panel-list-mobile")
+			.getByTestId("artifact-row")
+			.first()
+			.click();
+
+		await page.getByRole("button", { name: /Change this app/ }).click();
+
+		const sheet = page.getByRole("dialog", { name: "What should change?" });
+		await expect(sheet).toBeVisible();
+
+		// Before the `zIndexClass="z-[150]"` fix, this sheet painted at the
+		// default z-50 — BEHIND the mobile shell's own iframe/panel — so
+		// `elementFromPoint` at its own centre hit the app frame instead of
+		// the sheet itself, even though `toBeVisible` (a DOM/CSS check only,
+		// never actual paint order) still passed. Mirrors
+		// artifact-document-comments.spec.ts's own topmost regression test.
+		const isOnTop = await sheet.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + 10,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the regenerate sheet must be the topmost element, not painted under the phone panel",
+		).toBe(true);
+
+		await page.keyboard.press("Escape");
+		await expect(sheet).toBeHidden();
+	});
+
+	test("expanded panel: the regenerate popover paints above the panel, and Escape closes only the popover first", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"Make me a notes app",
+		);
+		await seedApp(conversationId, NOTES_APP_HTML);
+		await openChatAndReload(page, conversationId);
+		await openAppPanel(page);
+
+		await page
+			.getByRole("button", { name: /Expand document workspace/ })
+			.click();
+		const expandedShell = page.locator(".workspace-shell-expanded");
+		await expect(expandedShell).toBeVisible();
+
+		await page.getByRole("button", { name: /Change this app/ }).click();
+		// The desktop popover's own accessible name is the trigger's label
+		// ("Change this app…", `artifacts.app.action.regenerate`) — distinct
+		// from the phone sheet's title ("What should change?",
+		// `artifacts.app.regenerate.prompt`) used in the test above.
+		const popover = page.getByRole("dialog", { name: "Change this app…" });
+		await expect(popover).toBeVisible();
+
+		// Before the z-index fix, `.app-regen-popover` (z-index: 60) painted
+		// UNDER `.workspace-shell-expanded` (z-index: 115) — `toBeVisible`
+		// never catches that, since it checks DOM/CSS, not paint order.
+		const isOnTop = await popover.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + 10,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the regenerate popover must paint above the expanded panel, not under it",
+		).toBe(true);
+
+		// One Escape closes only the innermost layer (redesign §5.4) — the
+		// popover — never both at once. Before the fix, DocumentWorkspace's
+		// own window keydown listener (mounted before the popover's) saw
+		// this same Escape first and always collapsed the expanded panel
+		// too, regardless of the popover being open.
+		await page.keyboard.press("Escape");
+		await expect(popover).toBeHidden();
+		await expect(expandedShell).toBeVisible();
+
+		// A second Escape, with nothing else open, closes the expanded panel
+		// (back to docked) as before.
+		await page.keyboard.press("Escape");
+		await expect(expandedShell).toBeHidden();
+	});
 });

@@ -648,6 +648,7 @@ const regeneratePopoverFocusTrap = focusTrap({
 			title={$t('artifacts.app.regenerate.prompt')}
 			phonePresentation="sheet"
 			onClose={closeRegeneratePopover}
+			zIndexClass="z-[150]"
 		>
 			{@render regenerateFormContent()}
 		</DialogShell>
@@ -723,6 +724,10 @@ const regeneratePopoverFocusTrap = focusTrap({
 		display: flex;
 		flex-direction: column;
 		gap: 0;
+		/* Aligns with the shared header's own inline padding
+		   (ArtifactPanelHeader.svelte: 1.25rem) — previously flush against
+		   the panel edge. */
+		padding-inline: 1.25rem;
 	}
 
 	.app-status-row {
@@ -823,6 +828,8 @@ const regeneratePopoverFocusTrap = focusTrap({
 		align-items: center;
 		gap: 0.5rem;
 		flex-wrap: wrap;
+		/* Matches `.app-status`'s own inline padding, above. */
+		padding-inline: 1.25rem;
 	}
 
 	.app-bar-grow {
@@ -888,6 +895,8 @@ const regeneratePopoverFocusTrap = focusTrap({
 		min-height: 320px;
 		display: flex;
 		flex-direction: column;
+		/* Matches `.app-status`'s own inline padding, above. */
+		padding-inline: 1.25rem;
 	}
 
 	.app-body-frame-wrap {
@@ -1019,7 +1028,9 @@ const regeneratePopoverFocusTrap = focusTrap({
 	/* ── The regenerate popover (desktop) ────────────────────────── */
 	.app-regen-popover {
 		position: fixed;
-		z-index: 60;
+		/* Above `.workspace-shell-expanded` (DocumentWorkspace.svelte: 115) —
+		   plain 60 painted this popover UNDER the expanded panel. */
+		z-index: 130;
 		width: min(340px, calc(100vw - 24px));
 		border-radius: var(--radius-lg, 12px);
 		background: var(--surface-overlay);
@@ -1104,11 +1115,17 @@ const regeneratePopoverFocusTrap = focusTrap({
 		margin-top: 0.1rem;
 	}
 
-	/* ── Phone: 44px touch targets (redesign §6.4) ───────────────── */
+	/* ── Phone: 44px touch targets (redesign §6.4), 16px inline padding ─ */
 	@media (max-width: 639px) {
 		.app-seg-tab,
 		.app-bar > .btn-primary {
 			min-height: 44px;
+		}
+
+		.app-status,
+		.app-bar,
+		.app-stage {
+			padding-inline: 1rem;
 		}
 	}
 </style>
