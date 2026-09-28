@@ -131,6 +131,8 @@ const artifactsDict = {
 		"artifacts.app.verify.unavailable":
 			"Alfy could not check the facts in this app.",
 		"artifacts.app.verify.noteTitle": "Alfy's note",
+		"artifacts.app.verify.readNote": "Read Alfy's note",
+		"artifacts.app.toast.undoFailed": "Couldn't undo this.",
 		"artifacts.app.glitch.network":
 			"This app tried to reach the network. Everything still works offline.",
 		"artifacts.app.glitch.storage":
@@ -386,6 +388,8 @@ const artifactsDict = {
 		"artifacts.app.verify.unavailable":
 			"Alfy nem tudta ellenőrizni az alkalmazás adatait.",
 		"artifacts.app.verify.noteTitle": "Alfy megjegyzése",
+		"artifacts.app.verify.readNote": "Alfy megjegyzésének elolvasása",
+		"artifacts.app.toast.undoFailed": "Ezt nem sikerült visszavonni.",
 		"artifacts.app.glitch.network":
 			"Ez az alkalmazás hálózatot próbált elérni. Így is működik, offline.",
 		"artifacts.app.glitch.storage":

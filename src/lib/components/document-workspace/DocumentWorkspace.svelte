@@ -1245,12 +1245,17 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	-->
 	{#snippet artifactHeaderActionsSnippet()}
 		{#if bodyPanelActions?.openDownload}
+			{@const downloadLabel = $t(
+				activeArtifactKind === 'app'
+					? 'artifacts.app.action.download'
+					: 'artifacts.document.toolbar.download',
+			)}
 			<button
 				type="button"
 				class="btn-icon-bare workspace-download-button"
 				onclick={() => bodyPanelActions?.openDownload?.()}
-				aria-label={$t('artifacts.document.toolbar.download')}
-				title={$t('artifacts.document.toolbar.download')}
+				aria-label={downloadLabel}
+				title={downloadLabel}
 			>
 				<Download size={18} strokeWidth={2} aria-hidden="true" />
 			</button>
