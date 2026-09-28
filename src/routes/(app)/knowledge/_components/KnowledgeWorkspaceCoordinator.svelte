@@ -30,10 +30,17 @@ let {
 	documents,
 	openRequest = null,
 	onJumpToSource,
+	currentUser = null,
 }: {
 	documents: KnowledgeDocumentItem[];
 	openRequest?: { sequence: number; document: DocumentWorkspaceItem } | null;
 	onJumpToSource?: (document: DocumentWorkspaceItem) => void | Promise<void>;
+	/** rd/review-2-5.md:272-275: forwarded straight to `DocumentWorkspace` — see `ArtifactBodyProps.currentUser`'s own doc comment. */
+	currentUser?: {
+		id: string;
+		displayName: string;
+		profilePicture: string | null;
+	} | null;
 } = $props();
 
 let workspaceDocuments = $state<DocumentWorkspaceItem[]>([]);
@@ -209,4 +216,5 @@ export function handleOpenDocument(doc: DocumentWorkspaceItem) {
 	onJumpToSource={onJumpToSource}
 	onCloseDocument={closeDocument}
 	onCloseWorkspace={closeWorkspace}
+	{currentUser}
 />

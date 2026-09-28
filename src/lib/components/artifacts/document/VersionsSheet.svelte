@@ -49,12 +49,24 @@ let {
 	conversationId = null,
 	onClose,
 	onRestored,
+	currentUserId = null,
+	currentUserName = null,
+	currentUserProfilePicture = null,
 }: {
 	artifactId: string;
 	conversationId?: string | null;
 	onClose: () => void;
 	/** Fires with the NEW version number after a successful restore. */
 	onRestored?: (version: number) => void;
+	/**
+	 * rd/review-2-5.md:272-275: the signed-in user's own id/name/profile
+	 * picture, for a "you" row's real avatar instead of the old literal
+	 * `"user"` placeholder — see `ArtifactBodyProps.currentUser`'s own doc
+	 * comment.
+	 */
+	currentUserId?: string | null;
+	currentUserName?: string | null;
+	currentUserProfilePicture?: string | null;
 } = $props();
 
 let versions = $state<ArtifactVersionSummary[]>([]);
@@ -254,7 +266,12 @@ const popoverFocusTrap = focusTrap({
 								<Sparkles size={12} strokeWidth={2} />
 							</span>
 						{:else}
-							<AvatarCircle userId="user" size={22} />
+							<AvatarCircle
+								userId={currentUserId ?? 'user'}
+								name={currentUserName}
+								profilePicture={currentUserProfilePicture}
+								size={22}
+							/>
 						{/if}
 					</div>
 					<div class="versions-popover-row-main">

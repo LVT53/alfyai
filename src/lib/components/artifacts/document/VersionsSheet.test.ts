@@ -79,6 +79,39 @@ describe("VersionsSheet", () => {
 		expect(screen.getAllByRole("button", { name: "Restore" })).toHaveLength(2);
 	});
 
+	// rd/review-2-5.md:272-275 — the user-authored row showed a placeholder
+	// "U" instead of the signed-in user's real avatar.
+	it("shows a placeholder 'U' on the user-authored row when the caller supplies no current user", async () => {
+		mockFetchVersions.mockResolvedValue(VERSIONS);
+
+		render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+		await waitFor(() => {
+			expect(screen.getByText("Shortened Saturday")).toBeInTheDocument();
+		});
+		// Portaled onto <body> (`portalToBody`), not inside the render container
+		// — see "renders as an anchored popover naming Versions" below.
+		expect(document.querySelector(".avatar-circle")?.textContent?.trim()).toBe(
+			"U",
+		);
+	});
+
+	it("shows the signed-in user's own initial on the user-authored row once the caller supplies currentUserId/currentUserName", async () => {
+		mockFetchVersions.mockResolvedValue(VERSIONS);
+
+		render(VersionsSheet, {
+			artifactId: "artifact-1",
+			onClose: vi.fn(),
+			currentUserId: "alice-1",
+			currentUserName: "Alice",
+		});
+		await waitFor(() => {
+			expect(screen.getByText("Shortened Saturday")).toBeInTheDocument();
+		});
+		expect(document.querySelector(".avatar-circle")?.textContent?.trim()).toBe(
+			"A",
+		);
+	});
+
 	it("renders as an anchored popover naming Versions", async () => {
 		mockFetchVersions.mockResolvedValue([]);
 

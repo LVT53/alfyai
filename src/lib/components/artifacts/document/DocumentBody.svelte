@@ -131,6 +131,7 @@ let {
 	registerPanelActions,
 	onCommentCountChange,
 	onPendingReviewCountChange,
+	currentUser = null,
 }: ArtifactBodyProps = $props();
 
 type LoadState = "loading" | "ready" | "load_error" | "not_found";
@@ -2029,6 +2030,9 @@ function saveNoticeText(notice: SaveNotice): string {
 								versionsSheetOpen = false;
 								retryLoad();
 							}}
+							currentUserId={currentUser?.id ?? null}
+							currentUserName={currentUser?.displayName ?? null}
+							currentUserProfilePicture={currentUser?.profilePicture ?? null}
 						/>
 					{/if}
 				{/if}
@@ -2083,6 +2087,9 @@ function saveNoticeText(notice: SaveNotice): string {
 					onActiveCommentChange={(id) => (activeCommentId = id)}
 					onAnchorsChange={(anchors) => (commentAnchors = anchors)}
 					onActivateTab={handleTabActivate}
+					currentUserId={currentUser?.id ?? null}
+					currentUserName={currentUser?.displayName ?? null}
+					currentUserProfilePicture={currentUser?.profilePicture ?? null}
 				/>
 			</aside>
 			<!-- Wave 2.5 Step 8: the SAME rail, below the container's 820px
@@ -2107,6 +2114,9 @@ function saveNoticeText(notice: SaveNotice): string {
 					onAnchorsChange={(anchors) => (commentAnchors = anchors)}
 					onActivateTab={handleTabActivate}
 					onClose={() => (commentsOverlayOpen = false)}
+					currentUserId={currentUser?.id ?? null}
+					currentUserName={currentUser?.displayName ?? null}
+					currentUserProfilePicture={currentUser?.profilePicture ?? null}
 				/>
 			{/if}
 		</div>

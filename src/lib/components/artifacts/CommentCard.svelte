@@ -32,6 +32,9 @@ let {
 	changeState,
 	onSeeChange,
 	onAskAgain,
+	currentUserId = null,
+	currentUserName = null,
+	currentUserProfilePicture = null,
 }: {
 	comment: ArtifactComment;
 	/**
@@ -55,6 +58,15 @@ let {
 	onSeeChange?: () => void;
 	/** The refused-reply quick action ("Ask again", §3.3's "Alfy refused" row) — opens the SAME reply composer `CommentThread`'s own Reply button does. Rendered only on a refusal message. */
 	onAskAgain?: () => void;
+	/**
+	 * rd/review-2-5.md:272-275: the signed-in user's own id/name/profile
+	 * picture — the current session, i.e. whoever "you" (`authorLabel` below)
+	 * refers to, since a Document has exactly one human collaborator. `null`
+	 * falls back to the old literal `"user"` placeholder.
+	 */
+	currentUserId?: string | null;
+	currentUserName?: string | null;
+	currentUserProfilePicture?: string | null;
 } = $props();
 
 let authorLabel = $derived(
@@ -127,7 +139,12 @@ let changeChipLabel = $derived(
 				<Sparkles size={12} strokeWidth={2} />
 			</span>
 		{:else}
-			<AvatarCircle userId="user" size={22} />
+			<AvatarCircle
+				userId={currentUserId ?? 'user'}
+				name={currentUserName}
+				profilePicture={currentUserProfilePicture}
+				size={22}
+			/>
 		{/if}
 		<span class="comment-card-author">{authorLabel}</span>
 		<time class="comment-card-time">{formatRelativeTime(comment.createdAt, { t: $t })}</time>

@@ -79,6 +79,7 @@ let {
 	onPresentationChange = undefined,
 	onListOpenChange = undefined,
 	onPendingReviewCountChange = undefined,
+	currentUser = null,
 }: {
 	open?: boolean;
 	presentation?: "docked" | "expanded";
@@ -117,6 +118,12 @@ let {
 	onPendingReviewCountChange?:
 		| ((artifactId: string, count: number) => void)
 		| undefined;
+	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
+	currentUser?: {
+		id: string;
+		displayName: string;
+		profilePicture: string | null;
+	} | null;
 } = $props();
 
 let activeDocument: WorkspaceDocument | null = $derived.by(() => {
@@ -1572,6 +1579,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								documentOpenCommentCount = count;
 							}}
 							onPendingReviewCountChange={handleBodyPendingReviewCountChange}
+							{currentUser}
 						/>
 					{/await}
 				{:else if compareMode && comparedDocument}
@@ -1879,6 +1887,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						documentOpenCommentCount = count;
 					}}
 					onPendingReviewCountChange={handleBodyPendingReviewCountChange}
+					{currentUser}
 				/>
 			{/await}
 		{:else if compareMode && comparedDocument}

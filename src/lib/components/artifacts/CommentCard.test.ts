@@ -203,4 +203,28 @@ describe("CommentCard", () => {
 			expect(screen.getByText("Undone")).toBeInTheDocument();
 		});
 	});
+
+	// rd/review-2-5.md:272-275 — the user's own row showed a placeholder "U"
+	// next to "Te"/"You" instead of the signed-in user's real avatar.
+	describe("the current user's own avatar", () => {
+		it("falls back to the placeholder 'U' when the caller supplies no current user", () => {
+			const { container } = render(CommentCard, {
+				comment: makeComment({ body: "Too early?" }),
+			});
+			expect(
+				container.querySelector(".avatar-circle")?.textContent?.trim(),
+			).toBe("U");
+		});
+
+		it("shows the signed-in user's own initial once the caller supplies currentUserId/currentUserName", () => {
+			const { container } = render(CommentCard, {
+				comment: makeComment({ body: "Too early?" }),
+				currentUserId: "alice-1",
+				currentUserName: "Alice",
+			});
+			expect(
+				container.querySelector(".avatar-circle")?.textContent?.trim(),
+			).toBe("A");
+		});
+	});
 });
