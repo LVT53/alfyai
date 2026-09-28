@@ -642,6 +642,89 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 		await expect(popover).toBeHidden();
 		await expect(downloadButton).toBeFocused();
 	});
+
+	// Review 2.5 Important finding (rd/review-2-5.md:168-175): in the
+	// EXPANDED panel presentation the version button sits near the panel's
+	// own left edge; right-aligning the popover to the trigger's right edge
+	// (extending 340px further LEFT from there) ran the popover off the
+	// left edge of the viewport entirely (x -138 in the review's own
+	// evidence) — and in DOCKED mode the same right-anchoring bled the
+	// popover out of the panel to the left, over the chat column.
+	test("in the expanded panel, the Versions popover opens on-screen, anchored to the trigger's left edge, and topmost", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"Versions popover expanded",
+		);
+		const { artifact } = await seedDocumentWithBlock(
+			conversationId,
+			"Book the flight to Vienna.",
+		);
+		await saveNewVersion(
+			page,
+			artifact.id,
+			conversationId,
+			1,
+			"<!--b:p1-->\nBook the flight to Vienna, confirmed.",
+		);
+
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const shell = desktopShell(page);
+		await shell
+			.getByRole("button", { name: /Expand document workspace/ })
+			.click();
+
+		const expandedVersionButton = page
+			.locator(".workspace-shell-expanded")
+			.getByTestId("artifact-version-pill");
+		await expect(expandedVersionButton).toBeVisible();
+		await expandedVersionButton.click();
+
+		const popover = page.getByRole("dialog", { name: "Versions" });
+		await expect(popover).toBeVisible();
+		// The version list loads async — a generous timeout absorbs that
+		// fetch rather than racing it (the off-screen bug this test exists
+		// for happens regardless of load state, but the LEFT-edge/topmost
+		// checks below want the settled, final popover).
+		await expect(popover.getByText("v2")).toBeVisible({ timeout: 15_000 });
+		await waitForStableBoundingBox(popover);
+
+		const popoverBox = await popover.boundingBox();
+		expect(popoverBox, "the popover must have a bounding box").not.toBeNull();
+		const box = popoverBox as { x: number; y: number; width: number };
+		// Fully on-screen — the bug put it at a negative x.
+		expect(box.x).toBeGreaterThanOrEqual(0);
+		expect(box.x + box.width).toBeLessThanOrEqual(1440 + 1);
+		// Anchored to the LEFT edge of its trigger, not the right — its own
+		// left edge starts at or after the button's own left edge, never
+		// hundreds of pixels before it.
+		const buttonBox = await expandedVersionButton.boundingBox();
+		expect(buttonBox, "the trigger must have a bounding box").not.toBeNull();
+		expect(box.x).toBeGreaterThanOrEqual((buttonBox as { x: number }).x - 20);
+
+		// Topmost — not painted under the expanded panel's own tab strip or
+		// any other chrome (the bug: `elementFromPoint` hit the tab strip).
+		const isOnTop = await popover.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + 10,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the popover must be the topmost element, not painted under the expanded panel",
+		).toBe(true);
+	});
 });
 
 // Review 2.5 Important finding (rd/review-2-5.md:87-97): "the rail is a 300px

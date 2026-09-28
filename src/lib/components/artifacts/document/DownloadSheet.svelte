@@ -111,13 +111,32 @@ function findAnchorEl(): HTMLElement | null {
 	return null;
 }
 
+// Review 2.5 (rd/review-2-5.md:168-175): right-aligning to the trigger's
+// RIGHT edge (extending `POPOVER_WIDTH` further left from there) put the
+// sibling Versions popover off-screen entirely in the expanded panel (the
+// header buttons sit near the panel's own left edge) and bleeding out of
+// the panel over the chat column in docked mode — the same bug applies
+// here. Anchoring to the trigger's LEFT edge instead, clamped into the
+// viewport on both sides, keeps the popover beside its own trigger in
+// every presentation.
+const POPOVER_WIDTH = 300;
+const VIEWPORT_MARGIN = 12;
+
 function measurePopover(): void {
 	if (typeof window === "undefined") return;
 	const anchor = findAnchorEl();
 	if (!anchor) return;
 	const rect = anchor.getBoundingClientRect();
-	const right = Math.max(12, window.innerWidth - rect.right);
-	popoverStyle = `top: ${rect.bottom + 8}px; right: ${right}px;`;
+	const width = Math.min(
+		POPOVER_WIDTH,
+		window.innerWidth - VIEWPORT_MARGIN * 2,
+	);
+	const maxLeft = Math.max(
+		VIEWPORT_MARGIN,
+		window.innerWidth - width - VIEWPORT_MARGIN,
+	);
+	const left = Math.min(Math.max(rect.left, VIEWPORT_MARGIN), maxLeft);
+	popoverStyle = `top: ${rect.bottom + 8}px; left: ${left}px;`;
 }
 
 $effect(() => {
@@ -251,7 +270,13 @@ const popoverFocusTrap = focusTrap({
 <style>
 	.download-popover {
 		position: fixed;
-		z-index: 60;
+		/* Review 2.5 (rd/review-2-5.md:168-175): 60 rendered UNDER the
+		   expanded panel shell (`DocumentWorkspace.svelte`'s
+		   `.workspace-shell-expanded`, z-index 115). 130 clears it, matching
+		   the existing precedent `ConfirmDialog.svelte` already sets as its
+		   own default `zIndexClass="z-[130]"` for "must be above other
+		   floating chrome". */
+		z-index: 130;
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
