@@ -12,7 +12,12 @@ import {
 	encodeEditArtifactScenarioPayload,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
-import { createConversation, login, sendMessage } from "./helpers";
+import {
+	createConversation,
+	login,
+	sendMessage,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // Slice 1's T8/T9/T11 surfaces: change marks, Keep/Undo and the refusal
 // notice are unit-tested directly against a real Tiptap editor in
@@ -312,6 +317,80 @@ test.describe("the Document panel", () => {
 
 		await page.reload({ waitUntil: "networkidle" });
 		await expect(page.getByRole("tab")).toHaveCount(3);
+	});
+
+	// Review 2.5 Important finding (rd/review-2-5.md:183-190): the ⋯ menu was
+	// `position: absolute` inside `.document-tabs`, whose own
+	// `overflow-x: auto` (needed so a long tab strip scrolls sideways
+	// instead of wrapping) coerces its unset `overflow-y` to `auto` too
+	// (same CSS-spec quirk as the nested-scroller finding elsewhere in this
+	// review) — clipping the menu the moment it dropped below the strip's
+	// own row height. Only reachable through a real browser's geometry
+	// (jsdom has no layout engine); keyboard/focus coverage lives in
+	// Tabs.test.ts.
+	test("the ⋯ menu on the active tab is not clipped by the strip's own overflow, and keyboard access works", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Trip",
+			markdown: "# Plan\n\nBook the hotel.\n\n# Budget\n\nEstimate: $500.",
+			tabs: [
+				{ id: "tab-plan", title: "Plan", startBlockId: "" },
+				{ id: "tab-budget", title: "Budget", startBlockId: "" },
+			],
+		});
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		// The panel's own open/push entrance motion can still be sliding the
+		// tab strip when this runs right after `openDocumentFromPanel`
+		// returns (same trap `artifact-document-selection-bubble.spec.ts`'s
+		// own comment documents) — reading the trigger's rect (for the click
+		// below) or the menu's rect (for the geometry checks further down)
+		// mid-slide would measure a moving target instead of the settled
+		// layout this test actually cares about.
+		const tabStrip = shell.getByTestId("document-tabs");
+		await waitForStableBoundingBox(tabStrip);
+
+		const trigger = page.getByRole("button", { name: "Tab options" });
+		await trigger.click();
+		const menu = page.getByRole("menu");
+		await expect(menu).toBeVisible();
+		const renameItem = menu.getByRole("menuitem", { name: "Rename" });
+		const deleteItem = menu.getByRole("menuitem", { name: "Delete tab" });
+		await expect(renameItem).toBeVisible();
+		await waitForStableBoundingBox(menu);
+
+		// `toBeVisible()` only checks CSS visibility, never actual paint
+		// order — `elementFromPoint` is the only way to catch "clipped by an
+		// ancestor's accidental overflow", exactly like the phone-sheet
+		// z-index regressions elsewhere in this suite.
+		const isOnTop = await menu.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + rect.height / 2,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the tab menu must be topmost, not clipped by the strip's own overflow",
+		).toBe(true);
+
+		// Focus starts on Rename, ArrowDown/Up cycle to Delete and wrap back.
+		await expect(renameItem).toBeFocused();
+		await page.keyboard.press("ArrowDown");
+		await expect(deleteItem).toBeFocused();
+		await page.keyboard.press("ArrowDown");
+		await expect(renameItem).toBeFocused();
+
+		// Escape closes the menu and returns focus to its own trigger.
+		await page.keyboard.press("Escape");
+		await expect(menu).toBeHidden();
+		await expect(trigger).toBeFocused();
 	});
 
 	test("a status chip renders as a listbox with the localized label, and choosing another option writes the canonical token", async ({
