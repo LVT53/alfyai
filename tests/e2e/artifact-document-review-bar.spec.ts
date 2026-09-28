@@ -159,3 +159,124 @@ test.describe("Review bar on phone (Wave 2.5 review fix, Critical)", () => {
 		).toBeVisible();
 	});
 });
+
+// Review 2.5 Important finding (rd/review-2-5.md:98-108): `position: absolute`
+// on a direct child of the SCROLLING `.document-content` scrolled away WITH
+// the text (an absolutely positioned element's containing block is its
+// nearest positioned ancestor's box, which was the scroller itself here — not
+// "pinned" at all), spanned both grid columns (covering the rail's last
+// rows), and left no room for the last paragraph to clear it.
+test.describe("Review bar positioning while scrolling (Wave 2.5 review fix, Important)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("stays visible, confined to the text column, and never covers the last paragraph at 1440x900", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(page, "Review bar scroll");
+		const filler = Array.from(
+			{ length: 40 },
+			(_, i) =>
+				`Filler paragraph number ${i} pads out the document with enough sentences of ordinary text that the panel's own scroll container has real height to scroll through before reaching the end.`,
+		);
+		const lastParagraphText =
+			"The very last paragraph in the whole document, which must stay fully readable even while a change is pending.";
+		const paragraphs = [
+			"Book the flight to Vienna.",
+			"Reserve the hotel near the river.",
+			...filler,
+			lastParagraphText,
+		];
+		const pageErrors: string[] = [];
+		page.on("pageerror", (error) => pageErrors.push(error.message));
+
+		await seedPendingChanges(conversationId, paragraphs, 2);
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		const bar = shell.getByRole("status", { name: "Changes from Alfy" });
+		await expect(bar).toBeVisible();
+
+		// Wait for the document to actually finish rendering (a generous
+		// timeout absorbs the dev server's one-time compile of the Document
+		// editor's module graph on the very first Document ever opened in a
+		// test run) before scrolling — otherwise the scroll below moves an
+		// empty/mid-layout container.
+		const lastParagraph = shell
+			.locator(".document-editor-host")
+			.getByText(lastParagraphText, { exact: false });
+		await expect(lastParagraph).toBeAttached({ timeout: 30_000 });
+
+		const outerScroller = shell.locator(".document-main > .document-content");
+		await outerScroller.evaluate((el) => {
+			el.scrollTop = el.scrollHeight;
+		});
+		await waitForStableBoundingBox(bar);
+
+		// Still visible — not scrolled away with the text, and within the
+		// scroller's own visible box (sticky to the bottom, not floating
+		// outside it).
+		await expect(bar).toBeVisible();
+		const barBox = await bar.boundingBox();
+		const outerBox = await outerScroller.boundingBox();
+		expect(barBox, "the review bar must have a bounding box").not.toBeNull();
+		expect(outerBox, "the scroller must have a bounding box").not.toBeNull();
+		const bar_ = barBox as {
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+		};
+		const outer_ = outerBox as {
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+		};
+		expect(bar_.y).toBeGreaterThanOrEqual(outer_.y - 1);
+		expect(bar_.y + bar_.height).toBeLessThanOrEqual(
+			outer_.y + outer_.height + 2,
+		);
+
+		// Confined to the text column — never extends into the rail (the
+		// bug: it used to span both grid columns).
+		const railBox = await shell.locator(".document-content-rail").boundingBox();
+		expect(railBox, "the rail must have a bounding box").not.toBeNull();
+		const rail_ = railBox as { x: number };
+		expect(bar_.x + bar_.width).toBeLessThanOrEqual(rail_.x + 2);
+
+		// The last paragraph's own text is fully visible and not hidden
+		// behind the bar (the bug: no bottom padding, so the bar covered it).
+		await expect(lastParagraph).toBeVisible();
+		const lastParaBox = await lastParagraph.boundingBox();
+		expect(
+			lastParaBox,
+			"the last paragraph must have a bounding box",
+		).not.toBeNull();
+		const lastPara_ = lastParaBox as { y: number; height: number };
+		expect(lastPara_.y + lastPara_.height).toBeLessThanOrEqual(bar_.y + 2);
+
+		// `elementFromPoint` at the last paragraph's own centre confirms the
+		// paragraph, not the bar, is what actually paints there — the same
+		// technique used elsewhere in this suite to catch "visible per the
+		// DOM but painted under something" bugs.
+		const isParagraphOnTop = await lastParagraph.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + rect.height / 2,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isParagraphOnTop,
+			"the last paragraph must be the topmost element at its own centre, not painted under the review bar",
+		).toBe(true);
+
+		expect(pageErrors, `no page errors, got: ${pageErrors.join("; ")}`).toEqual(
+			[],
+		);
+	});
+});

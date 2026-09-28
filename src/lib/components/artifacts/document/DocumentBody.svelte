@@ -286,6 +286,9 @@ let scrollToCommentAnchorFn:
 const NARROW_PANEL_THRESHOLD_PX = 820;
 let documentBodyEl = $state<HTMLDivElement | undefined>();
 let panelContainerWidth = $state(0);
+/** The review bar's own live rendered height (Review 2.5, rd/review-2-5.md:98-108) — read by the effect below and used to reserve enough bottom padding under the last paragraph. */
+let reviewBarSlotEl = $state<HTMLDivElement | undefined>();
+let reviewBarHeight = $state(0);
 let isPhone = $state(isPhoneViewport());
 /** `0` means "not measured yet" (no ResizeObserver in this environment, e.g. jsdom) — treated as "not narrow" rather than a false-positive drawer. */
 let isNarrowPanel = $derived(
@@ -1257,6 +1260,28 @@ $effect(() => {
 	return () => observer.disconnect();
 });
 
+// Review 2.5 (rd/review-2-5.md:98-108): the review bar is now a normal-flow,
+// `position: sticky` child at the end of the text column (see
+// `.document-review-bar-slot`'s own CSS comment) rather than an absolutely
+// positioned overlay — so it no longer floats over whatever paragraph is
+// last, but the LAST paragraph still needs real scroll room to clear the
+// bar's own height before the column runs out of content to scroll through
+// (the classic "sticky footer covers the last line" problem). Same guarded
+// ResizeObserver shape as the width-tracking effect above; the bar's own
+// height changes with viewport width (the phone layout wraps taller) and
+// content (refused-count text, i18n string length), so this stays live
+// rather than a one-time measurement.
+$effect(() => {
+	const el = reviewBarSlotEl;
+	if (!el || typeof ResizeObserver === "undefined") return;
+	const observer = new ResizeObserver((entries) => {
+		const height = entries[0]?.contentRect.height;
+		if (height !== undefined) reviewBarHeight = height;
+	});
+	observer.observe(el);
+	return () => observer.disconnect();
+});
+
 // Closes a stray-open overlay the moment the layout no longer needs one
 // (a window/panel resize back above the threshold) — otherwise the drawer
 // would float uselessly ALONGSIDE the now-visible inline rail.
@@ -1800,7 +1825,13 @@ function saveNoticeText(notice: SaveNotice): string {
 							</button>
 						</div>
 					{/if}
-					<div class="document-editor-host" bind:this={editorEl}></div>
+					<div
+						class="document-editor-host"
+						bind:this={editorEl}
+						style:padding-bottom={pendingList.length > 0
+							? `calc(1rem + ${reviewBarHeight}px)`
+							: undefined}
+					></div>
 					{#if loadState === 'loading'}
 						<div class="document-editor-skeleton" aria-hidden="true">
 							<span class="sr-only">{$t('common.loading')}</span>
@@ -1851,29 +1882,38 @@ function saveNoticeText(notice: SaveNotice): string {
 						/>
 					{/if}
 				{/if}
+				<!-- Wave 2.5 Step 10 / Review 2.5 (rd/review-2-5.md:98-108): the
+				     review bar, "at the bottom of the text column" (redesign
+				     §4.2 item 5, §8). The pill itself is no longer rendered
+				     here — Step 10 moved it into the editor's own DOM as a
+				     ProseMirror widget decoration (`change-pill-decoration.ts`).
+				     Nested INSIDE `.document-content-text` (not a sibling grid
+				     item of it) on purpose: `position: sticky` needs to be a
+				     normal-flow descendant of the scrolling ancestor
+				     (`.document-content`) to stick within its viewport, and
+				     nesting it here also confines its width to the text
+				     column alone — it used to span both grid columns and cover
+				     the rail's last rows (see this class's own CSS comment). -->
+				{#if pendingList.length > 0}
+					<div
+						class="document-review-bar-slot"
+						bind:this={reviewBarSlotEl}
+						in:reviewBarFly={{ y: 16, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
+						out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
+					>
+						<ReviewBar
+							pendingCount={pendingList.length}
+							refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
+							currentIndex={reviewIndex}
+							onPrev={handleReviewPrev}
+							onNext={handleReviewNext}
+							onKeepAll={handleKeepAllChanges}
+							onUndoAll={handleUndoAllChanges}
+							onSeeRefused={refusalNotice ? handleSeeChange : undefined}
+						/>
+					</div>
+				{/if}
 			</div>
-			<!-- Wave 2.5 Step 10: the review bar, "at the bottom of the text
-			     column" (redesign §4.2 item 5, §8). The pill itself is no longer
-			     rendered here — Step 10 moved it into the editor's own DOM as a
-			     ProseMirror widget decoration (`change-pill-decoration.ts`). -->
-			{#if pendingList.length > 0}
-				<div
-					class="document-review-bar-slot"
-					in:reviewBarFly={{ y: 16, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
-					out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
-				>
-					<ReviewBar
-						pendingCount={pendingList.length}
-						refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
-						currentIndex={reviewIndex}
-						onPrev={handleReviewPrev}
-						onNext={handleReviewNext}
-						onKeepAll={handleKeepAllChanges}
-						onUndoAll={handleUndoAllChanges}
-						onSeeRefused={refusalNotice ? handleSeeChange : undefined}
-					/>
-				</div>
-			{/if}
 			<!-- T10 / redesign §3.2: the comment rail, the grid's second column
 			     (≥820px container width only — see the `@container` rule below). -->
 			<aside class="document-content-rail" aria-label={$t('artifacts.document.margin.title')}>
@@ -2022,18 +2062,31 @@ function saveNoticeText(notice: SaveNotice): string {
 		}
 	}
 
-	/* Wave 2.5 Step 10: "at the bottom of the text column" (redesign §4.2 item
-	   5, §8). `position: absolute` on a grid item removes it from grid track
-	   placement entirely (CSS Grid §grid-and-abs-pos), so this sits as a
-	   simple overlay against `.document-content`'s own box (`position:
-	   relative` above) rather than becoming a third column; being a DIRECT
-	   child of the scrolling `.document-content` (not nested inside
-	   `.document-content-text`) is what keeps it pinned while the text
-	   scrolls underneath, mirroring the mockup's own `.review` exactly (same
-	   inset values), just without a hardcoded `z-index` magic number beyond
-	   what already clears the editor's own content. */
+	/* Wave 2.5 Step 10, revised by Review 2.5 (rd/review-2-5.md:98-108): "at
+	   the bottom of the text column" (redesign §4.2 item 5, §8). The
+	   ORIGINAL `position: absolute` version sat as a direct child of the
+	   scrolling `.document-content` on the theory that this "kept it pinned
+	   while the text scrolls underneath" — backwards: an absolutely
+	   positioned element's containing block is still whatever POSITIONED
+	   ancestor it renders inside, and `.document-content` (the SCROLLING
+	   element itself) was that ancestor, so the bar scrolled away WITH the
+	   text instead of staying pinned, and — being a child of the two-column
+	   grid rather than the text column alone — it spanned both columns and
+	   covered the rail's last rows. `position: sticky` here (now nested
+	   INSIDE `.document-content-text`, a normal-flow child after the editor
+	   host — see the markup comment) actually achieves "stays pinned to the
+	   bottom of the text column while the text scrolls": it sticks within
+	   `.document-content`'s own scrollport (its nearest actual scrolling
+	   ancestor) while its box lives in the text column's own normal flow,
+	   which is also what confines its width to that column instead of the
+	   whole grid. `.document-editor-host`'s own `padding-bottom` (see its
+	   `style:padding-bottom` binding) reserves room, measured live from this
+	   element's own height, so the last paragraph can fully clear it before
+	   the column runs out of content to scroll through — the classic
+	   "sticky footer covers the last line" problem a plain `position:
+	   sticky` does not solve by itself. */
 	.document-review-bar-slot {
-		position: absolute;
+		position: sticky;
 		left: 1rem;
 		right: 1rem;
 		bottom: 0.875rem;
