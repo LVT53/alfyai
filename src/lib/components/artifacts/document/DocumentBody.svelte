@@ -54,10 +54,12 @@ function loadEditorModule(): Promise<typeof DocumentEditorModule> {
  */
 import { onDestroy, tick, untrack } from "svelte";
 import {
+	acknowledgeDocumentReviewBlocks,
 	askAlfyInComment,
 	createArtifactComment,
 	createDocumentCopy,
 	fetchArtifact,
+	fetchDocumentReviewState,
 	resolveArtifactComment,
 	saveArtifactBody,
 	saveDocumentTabs,
@@ -65,6 +67,7 @@ import {
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
 import RefusalNotice from "$lib/components/artifacts/RefusalNotice.svelte";
+import ReviewBar from "$lib/components/artifacts/ReviewBar.svelte";
 import { t } from "$lib/i18n";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
@@ -88,13 +91,8 @@ import {
 	type DocumentAlfyActivity,
 } from "./alfy-activity";
 import AlfyWriting from "./AlfyWriting.svelte";
-import {
-	COMPOSER_BUBBLE_SIZE,
-	computeBubblePlacement,
-	localizePoint,
-} from "./bubble-placement";
+import { COMPOSER_BUBBLE_SIZE, computeBubblePlacement } from "./bubble-placement";
 import { documentTabsFromCardMetadata } from "./card-view";
-import ChangeBar from "./ChangeBar.svelte";
 import CommentsSheet from "./CommentsSheet.svelte";
 import {
 	createDocumentAutosave,
@@ -107,6 +105,7 @@ import {
 // it a second time in this instance script is a duplicate-identifier error.
 import type {
 	AlfyChangeEntry,
+	ChangePillEntry,
 	CommentAnchorTarget,
 	Editor,
 } from "./document-editor";
@@ -203,8 +202,11 @@ let applyAlfyChangesFn: typeof DocumentEditorModule.applyAlfyChanges | null =
 	null;
 let keepChangeFn: typeof DocumentEditorModule.keepChange | null = null;
 let undoChangeFn: typeof DocumentEditorModule.undoChange | null = null;
-let changeMarkRectFn: typeof DocumentEditorModule.changeMarkRect | null = null;
+let remarkChangeFn: typeof DocumentEditorModule.remarkChange | null = null;
+let changeDocRangeFn: typeof DocumentEditorModule.changeDocRange | null = null;
 let scrollToChangeFn: typeof DocumentEditorModule.scrollToChange | null = null;
+/** Wave 2.5 Step 10: pushes `pendingChanges` into the editor's own widget-decoration plugin — see `change-pill-decoration.ts`. */
+let setChangePillsFn: typeof DocumentEditorModule.setChangePills | null = null;
 let summarizeRefusalsFn: typeof DocumentEditorModule.summarizeRefusals | null =
 	null;
 let refusalReasonI18nKeyFn:
@@ -300,8 +302,8 @@ let changeChipByCommentId = $derived.by(() => {
 // ---- end redesign §3.2 -----------------------------------------------
 
 // ---- T8 live: Alfy's chat-turn edits appear in the open Document ----------
-// `alfyWritingLabel` drives the shimmer; `pendingChanges`/`changePositions`
-// drive the inline Keep/Undo bars (one per applied op, keyed by `changeId`);
+// `alfyWritingLabel` drives the shimmer; `pendingChanges` drives the inline
+// pill (one per applied op, keyed by `changeId`) AND the review bar;
 // `refusalNotice` is `null` until a landed call actually refused something.
 // `handledActivityKey` guards against reprocessing the SAME settled call
 // twice (an unrelated re-render must not re-apply marks or re-open a notice
@@ -309,16 +311,33 @@ let changeChipByCommentId = $derived.by(() => {
 // this block's own model.
 /** Redesign §4.2 item 4: "shown for at least 600ms even when the call is faster, so it is seen." */
 const ALFY_WRITING_MIN_VISIBLE_MS = 600;
+/** Redesign §7.2 #13: "the pill leaves after 1.4s" once Kept. */
+const KEEP_SETTLE_MS = 1400;
+/** Redesign §7.2 #14: "the pill shows 'Undone · Redo' for 5s". */
+const UNDO_SETTLE_MS = 5000;
 
 interface PendingAlfyChange {
 	entry: AlfyChangeEntry;
 	status: "pending" | "kept" | "undone";
+	/**
+	 * Ruling 61: true when this pending change was restored from a reload for
+	 * a block Alfy ADDED (no parent counterpart) — Undo deletes it rather than
+	 * restoring empty content (`marks.ts`'s own `isNewBlock` doc comment).
+	 * Never set for a live-session change (the live path always knows exactly
+	 * what to restore, via `entry.previousMarkdown`).
+	 */
+	isNewBlock?: boolean;
+	/** Captured from `blocks` state right before Undo replaces the text — Redo's own restore target. */
+	appliedMarkdown?: string;
+	/** Captured right before Undo removes the mark structurally — the pill's own fallback anchor while `status` is `"undone"` (`change-pill-decoration.ts`'s own `fallbackPos`). */
+	fallbackPos?: number;
 }
 let alfyWritingLabel = $state<string | null>(null);
 let pendingChanges = $state<Map<string, PendingAlfyChange>>(new Map());
-let changePositions = $state<Map<string, { x: number; y: number }>>(
-	new Map(),
-);
+/** The review bar's own stepper position (0-based) into the CURRENTLY pending entries, in Map-insertion order. */
+let reviewIndex = $state(0);
+/** Keyed by changeId — cleared by Redo (cancels the pending removal) or by `removePendingChange` itself; a plain Map, never `$state`, since it drives no render on its own. */
+const undoSettleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let refusalNotice = $state<{
 	message: string;
 	items: { label: string; reason: string }[];
@@ -557,7 +576,6 @@ async function maybeAskAlfy(
 	if (!reconstructed) return;
 	const entries = applyAlfyChangesFn(editor, reconstructed, reconstructed.patch);
 	const nextPending = new Map(pendingChanges);
-	const nextPositions = new Map(changePositions);
 	// Redesign §3.2's change chip: THIS comment (the `@Alfy` reply that just
 	// applied) is the one message whose card should carry it — one op per
 	// reply (the doc comment above: "every `@Alfy` patch is scoped to exactly
@@ -569,27 +587,8 @@ async function maybeAskAlfy(
 	}
 	for (const entry of entries) {
 		nextPending.set(entry.changeId, { entry, status: "pending" });
-		const rect = changeMarkRectFn?.(editor, entry.changeId);
-		if (rect && contentEl) {
-			// Same scroll container, same viewport-to-local conversion the
-			// selection bubble needs (bubble-placement.ts's own header comment) —
-			// this one omitted the container's own scroll offset too.
-			const hostRect = contentEl.getBoundingClientRect();
-			nextPositions.set(
-				entry.changeId,
-				localizePoint(
-					{ x: rect.left, y: rect.bottom },
-					{
-						hostRect,
-						scrollLeft: contentEl.scrollLeft,
-						scrollTop: contentEl.scrollTop,
-					},
-				),
-			);
-		}
 	}
 	pendingChanges = nextPending;
-	changePositions = nextPositions;
 }
 
 /** Returns the created comment's own id — the selection composer's "send" (`handleSelectionSubmit` below) needs it to find the new card for its own travel animation. */
@@ -790,30 +789,10 @@ async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
 
 		const entries = applyAlfyChangesFn(editor, reconstructed, reconstructed.patch);
 		const nextPending = new Map(pendingChanges);
-		const nextPositions = new Map(changePositions);
 		for (const entry of entries) {
 			nextPending.set(entry.changeId, { entry, status: "pending" });
-			const rect = changeMarkRectFn?.(editor, entry.changeId);
-			if (rect && contentEl) {
-				// Same scroll container, same viewport-to-local conversion the
-				// selection bubble needs (bubble-placement.ts's own header comment) —
-				// this one omitted the container's own scroll offset too.
-				const hostRect = contentEl.getBoundingClientRect();
-				nextPositions.set(
-					entry.changeId,
-					localizePoint(
-						{ x: rect.left, y: rect.bottom },
-						{
-							hostRect,
-							scrollLeft: contentEl.scrollLeft,
-							scrollTop: contentEl.scrollTop,
-						},
-					),
-				);
-			}
 		}
 		pendingChanges = nextPending;
-		changePositions = nextPositions;
 
 		const summary = summarizeRefusalsFn?.(reconstructed) ?? null;
 		if (summary && refusalReasonI18nKeyFn) {
@@ -847,48 +826,147 @@ async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
 	}
 }
 
-/** Keep: clears exactly this change's mark, leaves the text. */
+/**
+ * Ruling 61's own write side, fire-and-forget from every Keep/Undo (live or
+ * reload-restored — both "acknowledge", ruling 61's own word): best-effort,
+ * exactly like `refreshAfterCommentChange` elsewhere in this file — a failed
+ * call just means the block re-appears as pending on the NEXT reload, a
+ * safe, visible failure mode, never a hard dependency for the live session
+ * (AGENTS.md: "auxiliary services... should degrade gracefully").
+ */
+async function acknowledgeReview(blockIds: string[]): Promise<void> {
+	if (blockIds.length === 0) return;
+	try {
+		await acknowledgeDocumentReviewBlocks(
+			boundArtifactId,
+			blockIds,
+			panelConversationId ?? null,
+		);
+	} catch {
+		// See above.
+	}
+}
+
+/**
+ * Keep: clears exactly this change's mark, leaves the text. The mark's own
+ * CLEAR is deferred to the end of the pill's 1.4s "Kept" window (redesign
+ * §7.2 #13) rather than instant, so `change-pill-decoration.ts`'s own live
+ * mark lookup keeps finding a position for the pill throughout — never
+ * instant like the pre-redesign bar's own `keepAlfyChange` call used to be.
+ */
 function handleKeepChange(changeId: string): void {
-	if (!editor || !keepChangeFn) return;
-	keepChangeFn(editor, changeId);
 	const pending = pendingChanges.get(changeId);
 	if (!pending) return;
 	pendingChanges = new Map(pendingChanges).set(changeId, {
 		...pending,
 		status: "kept",
 	});
-	setTimeout(() => removePendingChange(changeId), 1500);
+	void acknowledgeReview([pending.entry.blockId]);
+	setTimeout(() => {
+		if (editor && keepChangeFn) keepChangeFn(editor, changeId);
+		removePendingChange(changeId);
+	}, KEEP_SETTLE_MS);
 }
 
 /**
  * Undo: restores exactly this change's pre-edit text and treats that as a
  * USER edit — scheduled through the normal autosave path (T8's own rule),
- * not a second, silent write.
+ * not a second, silent write. Unlike Keep, the mark is gone the instant this
+ * runs (`undoAlfyChange` replaces the whole node) — `changeDocRangeFn`
+ * captures its LAST live position first, as the pill's own fallback anchor
+ * for the "Undone · Redo" window (redesign §7.2 #14). `appliedMarkdown` is
+ * ALSO captured first (from `blocks` state, still showing the pre-undo,
+ * Alfy-applied text) — Redo's own restore target, since nothing else keeps
+ * what Undo is about to overwrite.
  */
 function handleUndoChange(changeId: string): void {
 	if (!editor || !undoChangeFn) return;
 	const pending = pendingChanges.get(changeId);
 	if (!pending) return;
-	undoChangeFn(editor, pending.entry);
+	const fallbackPos = changeDocRangeFn?.(editor, changeId)?.to;
+	const appliedMarkdown = blocks.find(
+		(b) => b.id === pending.entry.blockId,
+	)?.markdown;
+	undoChangeFn(editor, {
+		...pending.entry,
+		isNewBlock: pending.isNewBlock,
+	});
 	pendingChanges = new Map(pendingChanges).set(changeId, {
 		...pending,
 		status: "undone",
+		fallbackPos,
+		appliedMarkdown,
 	});
 	const canonical = currentCanonicalMarkdown();
 	if (canonical !== null) {
 		autosave?.schedule(canonical);
 		updateBlocksFromMarkdown(canonical);
 	}
-	setTimeout(() => removePendingChange(changeId), 1500);
+	void acknowledgeReview([pending.entry.blockId]);
+	const timer = setTimeout(() => removePendingChange(changeId), UNDO_SETTLE_MS);
+	undoSettleTimers.set(changeId, timer);
+}
+
+/**
+ * Redo: reverses Undo within its own settle window — restores the captured
+ * `appliedMarkdown` (the SAME mechanism as Undo, in reverse: `undoChangeFn`
+ * is generically "set this block's content to X", never direction-specific)
+ * and re-marks the block under the SAME `changeId` so the pill goes back to
+ * `"pending"`. A change with `insertedBlockIds` in its live-session entry
+ * loses those extra blocks on Redo (Undo already removed them, and only
+ * `appliedMarkdown`'s own block is captured) — a deliberate, narrow
+ * simplification; see the report's own deviations.
+ */
+function handleRedoChange(changeId: string): void {
+	if (!editor || !undoChangeFn || !remarkChangeFn) return;
+	const pending = pendingChanges.get(changeId);
+	if (!pending || pending.status !== "undone") return;
+	const timer = undoSettleTimers.get(changeId);
+	if (timer !== undefined) {
+		clearTimeout(timer);
+		undoSettleTimers.delete(changeId);
+	}
+	if (pending.appliedMarkdown !== undefined) {
+		undoChangeFn(editor, {
+			blockId: pending.entry.blockId,
+			previousMarkdown: pending.appliedMarkdown,
+		});
+	}
+	remarkChangeFn(editor, changeId, pending.entry.blockId);
+	pendingChanges = new Map(pendingChanges).set(changeId, {
+		...pending,
+		status: "pending",
+		fallbackPos: undefined,
+	});
+	const canonical = currentCanonicalMarkdown();
+	if (canonical !== null) {
+		autosave?.schedule(canonical);
+		updateBlocksFromMarkdown(canonical);
+	}
 }
 
 function removePendingChange(changeId: string): void {
+	const timer = undoSettleTimers.get(changeId);
+	if (timer !== undefined) {
+		clearTimeout(timer);
+		undoSettleTimers.delete(changeId);
+	}
 	const nextPending = new Map(pendingChanges);
 	nextPending.delete(changeId);
 	pendingChanges = nextPending;
-	const nextPositions = new Map(changePositions);
-	nextPositions.delete(changeId);
-	changePositions = nextPositions;
+}
+
+/** Keep all / Undo all (redesign §4.2 item 6, the review bar) — every still-pending entry gets the SAME per-change handler a single Keep/Undo click would. */
+function handleKeepAllChanges(): void {
+	for (const [changeId, pending] of pendingChanges) {
+		if (pending.status === "pending") handleKeepChange(changeId);
+	}
+}
+
+function handleUndoAllChanges(): void {
+	for (const [changeId, pending] of pendingChanges) {
+		if (pending.status === "pending") handleUndoChange(changeId);
+	}
 }
 
 /** "See what Alfy did" / a comment's own change chip — scrolls to one already-applied change's own mark. */
@@ -900,6 +978,81 @@ function seeChange(changeId: string): void {
 function handleSeeChange(): void {
 	if (refusalNotice?.firstAppliedChangeId) seeChange(refusalNotice.firstAppliedChangeId);
 }
+
+// ---- Wave 2.5 Step 10: the review bar's own stepper ------------------------
+// `pendingList` is every STILL-PENDING entry, in Map-insertion order (live
+// changes land in the order Alfy made them; ruling 61's reload restore
+// inserts in the SAME order the server returns, already sorted by which
+// Alfy version made them — `document-ops.ts`'s own `computePendingReviewBlocks`).
+let pendingList = $derived(
+	[...pendingChanges.entries()].filter(([, p]) => p.status === "pending"),
+);
+$effect(() => {
+	if (reviewIndex >= pendingList.length) {
+		reviewIndex = Math.max(0, pendingList.length - 1);
+	}
+});
+
+function handleReviewPrev(): void {
+	if (pendingList.length === 0) return;
+	reviewIndex = (reviewIndex - 1 + pendingList.length) % pendingList.length;
+	const [changeId] = pendingList[reviewIndex];
+	seeChange(changeId);
+}
+
+function handleReviewNext(): void {
+	if (pendingList.length === 0) return;
+	reviewIndex = (reviewIndex + 1) % pendingList.length;
+	const [changeId] = pendingList[reviewIndex];
+	seeChange(changeId);
+}
+// ---- end Wave 2.5 Step 10 review bar stepper ------------------------------
+
+// ---- Ruling 61: a pending Alfy change survives a reload --------------------
+/**
+ * Fetches the server's own recomputed pending set and marks each block
+ * again (redesign §4.2's own "Reload with a pending change": "marked again
+ * and counted in the review bar"). `remarkChangeFn` marks the WHOLE block
+ * under a synthetic `changeId` (the block id itself — there is no live
+ * per-character opId left from a past session, and ruling 61's own pending
+ * set is block-granular, never op-granular), the same coarse fallback
+ * `applyAlfyChangeMarks` already uses when it cannot find a precise range.
+ * `myToken` mirrors `runLoad`'s own guard: a document switched away from
+ * before this resolves must not paint marks onto whatever is open NOW.
+ */
+async function restorePendingReview(
+	artifactIdAtCall: string,
+	conversationId: string | null,
+	myToken: number,
+): Promise<void> {
+	let pending: Awaited<ReturnType<typeof fetchDocumentReviewState>>;
+	try {
+		pending = await fetchDocumentReviewState(artifactIdAtCall, conversationId);
+	} catch {
+		// Best-effort (see `acknowledgeReview`'s own comment) — reads the same
+		// as "no marker yet": nothing pending.
+		return;
+	}
+	if (myToken !== loadToken || !editor || pending.length === 0) return;
+
+	const nextPending = new Map(pendingChanges);
+	for (const block of pending) {
+		const changeId = block.blockId;
+		if (!remarkChangeFn?.(editor, changeId, block.blockId)) continue;
+		nextPending.set(changeId, {
+			entry: {
+				changeId,
+				blockId: block.blockId,
+				blockLabel: block.blockLabel,
+				previousMarkdown: block.previousMarkdown,
+			},
+			status: "pending",
+			isNewBlock: block.isNewBlock,
+		});
+	}
+	pendingChanges = nextPending;
+}
+// ---- end ruling 61 ---------------------------------------------------------
 
 /** The pinned refusal card's own "Dismiss" — clears the card and its line's dashed rule together, so the two can never drift. */
 function dismissRefusalNotice(): void {
@@ -1313,8 +1466,10 @@ async function runLoad(id: string): Promise<void> {
 		applyAlfyChangesFn = mod.applyAlfyChanges;
 		keepChangeFn = mod.keepChange;
 		undoChangeFn = mod.undoChange;
-		changeMarkRectFn = mod.changeMarkRect;
+		remarkChangeFn = mod.remarkChange;
+		changeDocRangeFn = mod.changeDocRange;
 		scrollToChangeFn = mod.scrollToChange;
+		setChangePillsFn = mod.setChangePills;
 		summarizeRefusalsFn = mod.summarizeRefusals;
 		refusalReasonI18nKeyFn = mod.refusalReasonI18nKey;
 		setCommentAnchorsFn = mod.setCommentAnchors;
@@ -1329,7 +1484,7 @@ async function runLoad(id: string): Promise<void> {
 		// itself is fully derived by the `alfyActivity` effect above, so it
 		// is not reset here — doing so would race that effect on first mount).
 		pendingChanges = new Map();
-		changePositions = new Map();
+		reviewIndex = 0;
 		refusalNotice = null;
 		handledActivityKey = "";
 		// A stale bubble/composer would otherwise keep pointing at the PREVIOUS
@@ -1353,6 +1508,11 @@ async function runLoad(id: string): Promise<void> {
 			onDirty: handleDirty,
 			onUpdate: handleUpdate,
 			onSelectionUpdate: handleSelectionUpdate,
+			changePillCallbacks: {
+				onKeep: handleKeepChange,
+				onUndo: handleUndoChange,
+				onRedo: handleRedoChange,
+			},
 		});
 		// The very first paint already shows only the active tab's section
 		// (redesign §5.2) — without this, every section would flash visible
@@ -1362,6 +1522,14 @@ async function runLoad(id: string): Promise<void> {
 		bindAutosave(id, conversationId);
 
 		loadState = "ready";
+		// Ruling 61: restored AFTER `loadState = "ready"` — a slow review-state
+		// fetch must never hold up the editor becoming interactive. Best-effort
+		// (its own try/catch): a failed fetch just means no marks come back for
+		// this load, exactly like "no marker yet" (nothing pending) reads.
+		// `myToken` guards it the same way the rest of `runLoad` does — a
+		// document switched away from before this resolves must not paint
+		// marks onto whatever editor is open NOW.
+		void restorePendingReview(id, conversationId, myToken);
 	} catch (error) {
 		if (myToken !== loadToken) return;
 		loadState =
@@ -1393,6 +1561,28 @@ $effect(() => {
 	const active = activeCommentId;
 	if (editor && setCommentAnchorsFn) {
 		setCommentAnchorsFn(editor, anchors, active);
+	}
+});
+
+/**
+ * Wave 2.5 Step 10: pushes the CURRENT pending/kept/undone list into the
+ * editor's own widget-decoration plugin whenever it changes — the one write
+ * side `change-pill-decoration.ts` reads from (`setChangePillsFn` is `null`
+ * until the lazy editor module resolves; nothing to decorate before that
+ * anyway, same guard as the comment-anchor effect above).
+ */
+$effect(() => {
+	const entries: ChangePillEntry[] = [...pendingChanges.entries()].map(
+		([changeId, pending]) => ({
+			changeId,
+			blockId: pending.entry.blockId,
+			status: pending.status,
+			commentCount: 0,
+			fallbackPos: pending.fallbackPos,
+		}),
+	);
+	if (editor && setChangePillsFn) {
+		setChangePillsFn(editor, entries);
 	}
 });
 
@@ -1569,8 +1759,10 @@ function saveNoticeText(notice: SaveNotice): string {
 		<!-- Redesign §3.2, Wave 2.5 Step 7: "the comment rail is a 300 px column
 		     inside the SAME scroll container as the text" — `.document-content`
 		     is that one scroll container (still `contentEl`, unchanged identity,
-		     so every `localizePoint`/bubble/change-bar computation below keeps
-		     working untouched); `.document-content-text` and `.document-content-rail`
+		     so every `localizePoint`/bubble computation below keeps working
+		     untouched — the change pill no longer needs it, Wave 2.5 Step 10: it
+		     is a ProseMirror widget decoration now, positioned in DOCUMENT space,
+		     not screen space); `.document-content-text` and `.document-content-rail`
 		     are its two grid columns. The rail collapses below 820 px (agent
 		     3b's own narrow-panel drawer picks up from there — rd3a-brief.md). -->
 		<div class="document-content" bind:this={contentEl}>
@@ -1645,26 +1837,26 @@ function saveNoticeText(notice: SaveNotice): string {
 							}}
 						/>
 					{/if}
-					<!-- T8 live: one inline Keep/Undo bar per applied change, positioned
-					     at that change's own mark (never all bunched at a fixed spot —
-					     several ops across different blocks each get their own bar). -->
-					{#each [...pendingChanges.entries()] as [changeId, pending] (changeId)}
-						{@const position = changePositions.get(changeId)}
-						<div
-							class="document-change-anchor"
-							style={position
-								? `left: ${position.x}px; top: ${position.y}px;`
-								: "left: 0.75rem; top: 0.5rem;"}
-						>
-							<ChangeBar
-								status={pending.status}
-								onKeep={() => handleKeepChange(changeId)}
-								onUndo={() => handleUndoChange(changeId)}
-							/>
-						</div>
-					{/each}
 				{/if}
 			</div>
+			<!-- Wave 2.5 Step 10: the review bar, "at the bottom of the text
+			     column" (redesign §4.2 item 5, §8). The pill itself is no longer
+			     rendered here — Step 10 moved it into the editor's own DOM as a
+			     ProseMirror widget decoration (`change-pill-decoration.ts`). -->
+			{#if pendingList.length > 0}
+				<div class="document-review-bar-slot">
+					<ReviewBar
+						pendingCount={pendingList.length}
+						refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
+						currentIndex={reviewIndex}
+						onPrev={handleReviewPrev}
+						onNext={handleReviewNext}
+						onKeepAll={handleKeepAllChanges}
+						onUndoAll={handleUndoAllChanges}
+						onSeeRefused={refusalNotice ? handleSeeChange : undefined}
+					/>
+				</div>
+			{/if}
 			<!-- T10 / redesign §3.2: the comment rail, the grid's second column
 			     (≥820px container width only — see the `@container` rule below). -->
 			<aside class="document-content-rail" aria-label={$t('artifacts.document.margin.title')}>
@@ -1799,6 +1991,32 @@ function saveNoticeText(notice: SaveNotice): string {
 	@container (min-width: 820px) {
 		.document-content-rail {
 			display: block;
+		}
+	}
+
+	/* Wave 2.5 Step 10: "at the bottom of the text column" (redesign §4.2 item
+	   5, §8). `position: absolute` on a grid item removes it from grid track
+	   placement entirely (CSS Grid §grid-and-abs-pos), so this sits as a
+	   simple overlay against `.document-content`'s own box (`position:
+	   relative` above) rather than becoming a third column; being a DIRECT
+	   child of the scrolling `.document-content` (not nested inside
+	   `.document-content-text`) is what keeps it pinned while the text
+	   scrolls underneath, mirroring the mockup's own `.review` exactly (same
+	   inset values), just without a hardcoded `z-index` magic number beyond
+	   what already clears the editor's own content. */
+	.document-review-bar-slot {
+		position: absolute;
+		left: 1rem;
+		right: 1rem;
+		bottom: 0.875rem;
+		z-index: 5;
+	}
+
+	@media (max-width: 480px) {
+		.document-review-bar-slot {
+			left: 0.5rem;
+			right: 0.5rem;
+			bottom: 4rem;
 		}
 	}
 
@@ -2226,15 +2444,6 @@ function saveNoticeText(notice: SaveNotice): string {
 		transition: opacity var(--duration-standard) var(--ease-out);
 	}
 
-	/* T8 live: one change's own mark position, computed via
-	   `changeMarkRect`/`getBoundingClientRect` in script and applied through
-	   an inline style — the position is per-change data, not something a
-	   static class can express. */
-	.document-change-anchor {
-		position: absolute;
-		z-index: 15;
-		transform: translateY(0.25rem);
-	}
 
 	.document-notice {
 		display: flex;
