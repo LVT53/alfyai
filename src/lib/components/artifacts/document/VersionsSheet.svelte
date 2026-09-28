@@ -265,14 +265,14 @@ const popoverFocusTrap = focusTrap({
 									<span class="versions-popover-confirm-grow"></span>
 									<button
 										type="button"
-										class="btn-ghost btn-xs"
+										class="btn-ghost btn-sm"
 										onclick={() => (confirmTargetId = null)}
 									>
 										{$t('common.cancel')}
 									</button>
 									<button
 										type="button"
-										class="btn-primary btn-xs"
+										class="btn-primary btn-sm"
 										disabled={restoringId === version.id}
 										onclick={() => confirmRestore(version)}
 									>
@@ -283,7 +283,7 @@ const popoverFocusTrap = focusTrap({
 							{:else}
 								<button
 									type="button"
-									class="btn-secondary btn-xs versions-popover-restore"
+									class="btn-secondary btn-sm versions-popover-restore"
 									disabled={restoringId === version.id}
 									onclick={() => (confirmTargetId = version.id)}
 								>
