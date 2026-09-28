@@ -920,15 +920,46 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			// `findLiveDocumentAlfyActivity` deliberately scans the WHOLE
 			// message history for the most recent Document call with no regard
 			// for age, so without `liveDocumentAlfyActivityExcluding`'s
-			// suppression this call would resurface its Keep/Undo mark and
-			// refusal notice on every fresh load of this conversation forever.
+			// suppression this call would resurface the refusal notice on every
+			// fresh load of this conversation forever — that suppression is
+			// still exactly what keeps `refusal-notice` gone below (refusals
+			// are not persisted; ruling 61 is Documents' applied changes only).
+			//
+			// Ruling 61: the applied block's own pill is NOT gone, though — a
+			// DIFFERENT, independent mechanism (`restorePendingReview`, fed by
+			// GET /api/artifacts/[id]/review, never the chat-history replay
+			// path above) marks it again because nobody has reviewed it yet.
 			await page.reload({ waitUntil: "networkidle" });
 			await openDocumentFromPanel(page);
 			await expect(
 				editorContent.getByText("Book the hotel by Friday."),
 			).toBeVisible();
-			await expect(page.getByTestId("alfy-change-bar")).toHaveCount(0);
+			await expect(page.getByTestId("alfy-change-bar")).toBeVisible({
+				timeout: 10_000,
+			});
 			await expect(page.getByTestId("refusal-notice")).toHaveCount(0);
+			await expect(
+				page.getByRole("status", { name: "Changes from Alfy" }),
+			).toContainText("Alfy changed 1 part.");
+
+			// Keep it, reload again: one fewer — the marker (and the
+			// acknowledged block id) persisted through the FIRST reload too, so
+			// this proves the write side (POST .../review) and the read side
+			// (GET .../review) actually round-trip, not just that a still-fresh
+			// marker happens to still cover this version.
+			await page
+				.getByRole("button", { name: "Keep Alfy's change" })
+				.click();
+			await expect(
+				page.getByRole("status", { name: "Changes from Alfy" }),
+			).toHaveCount(0, { timeout: 5_000 });
+
+			await page.reload({ waitUntil: "networkidle" });
+			await openDocumentFromPanel(page);
+			await expect(page.getByTestId("alfy-change-bar")).toHaveCount(0);
+			await expect(
+				page.getByRole("status", { name: "Changes from Alfy" }),
+			).toHaveCount(0);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (temporaryProvider) {
