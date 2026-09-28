@@ -2657,6 +2657,138 @@ describe("DocumentBody", () => {
 				),
 			);
 		});
+
+		// rd/review-2-5.md:141-148 — a user's own edit of a pending block did not
+		// acknowledge it in the live session: the pill and the acknowledge call
+		// only ever fired from an explicit Keep/Undo click, so typing over the
+		// SAME block left it stuck "pending" (and a later Undo would have thrown
+		// the user's own typing away, restoring Alfy's pre-edit text instead).
+		it("the user's own edit of a pending block acknowledges it, the same as Keep", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nFirst." }),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-5",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "call-user-edit",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+			await waitFor(() =>
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({ changeId: "change-5", status: "pending" }),
+					]),
+				),
+			);
+
+			// The user keeps typing in the SAME block — not a Keep/Undo click.
+			simulateTyping("<!--b:p1-->\nFirst, edited by the user instead.");
+
+			await waitFor(() =>
+				expect(mockAcknowledgeDocumentReviewBlocks).toHaveBeenCalledWith(
+					"artifact-1",
+					["p1"],
+					null,
+				),
+			);
+			// The mark is cleared the same way Keep clears it (no lingering pill).
+			expect(mockKeepChange).toHaveBeenCalledWith(expect.anything(), "change-5");
+			expect(mockSetChangePills).toHaveBeenLastCalledWith(
+				expect.anything(),
+				[],
+			);
+		});
+
+		it("does NOT acknowledge a pending block the user never touched", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond." }),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-6",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "call-other-block-edit",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+			await waitFor(() =>
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({ changeId: "change-6", status: "pending" }),
+					]),
+				),
+			);
+			mockSetChangePills.mockClear();
+
+			// Edits the OTHER block (p2) — p1's own pending change must survive.
+			simulateTyping(
+				"<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond, edited by the user.",
+			);
+			await waitFor(() => expect(mockReadMarkdown).toHaveBeenCalled());
+
+			expect(mockAcknowledgeDocumentReviewBlocks).not.toHaveBeenCalled();
+			expect(mockKeepChange).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("Wave 2.5 Step 10: the review bar", () => {

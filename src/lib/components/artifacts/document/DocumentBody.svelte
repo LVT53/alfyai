@@ -1218,14 +1218,65 @@ function handleDirty(): void {
 	onDirtyChange?.(true);
 }
 
+/**
+ * Ruling 61: "a user's own edit to such a block acknowledges it" — server-side
+ * this was already true after a reload (`document-ops.ts`'s own
+ * `computePendingReviewBlocks` treats a later user-authored version as the
+ * block's most recent change, which excludes it), but nothing told the LIVE
+ * session the same thing: the pill and the review bar's own count kept
+ * showing a change the user had, in effect, already resolved by typing over
+ * it, and Undo would then restore the PRE-ALFY text, throwing the user's own
+ * edit away with it (rd/review-2-5.md:141-148).
+ *
+ * Compares every still-pending block's hash before/after this update (`blocks`
+ * state is still the PRE-update value here — the caller reassigns it right
+ * after this returns); a block whose hash changed (edited) or that no longer
+ * exists (deleted) is dropped from the live `pendingChanges` map — the same
+ * `setChangePills` effect that renders the pills reacts to this — and its
+ * mark cleared exactly as Keep does, immediately rather than through Keep's
+ * own 1.4s settle window: there is no "Kept" feedback to show, since the user
+ * never clicked anything.
+ */
+function acknowledgePendingBlocksTouchedByUserEdit(
+	nextBlocks: DocumentBlock[],
+): void {
+	if (pendingChanges.size === 0) return;
+	const previousHashById = new Map(blocks.map((b) => [b.id, b.hash]));
+	const nextHashById = new Map(nextBlocks.map((b) => [b.id, b.hash]));
+
+	const touchedChangeIds: string[] = [];
+	const touchedBlockIds: string[] = [];
+	for (const [changeId, pending] of pendingChanges) {
+		if (pending.status !== "pending") continue;
+		const blockId = pending.entry.blockId;
+		const before = previousHashById.get(blockId);
+		if (before === undefined) continue; // nothing to compare against yet
+		if (nextHashById.get(blockId) === before) continue; // untouched
+		touchedChangeIds.push(changeId);
+		touchedBlockIds.push(blockId);
+	}
+	if (touchedChangeIds.length === 0) return;
+
+	const next = new Map(pendingChanges);
+	for (const changeId of touchedChangeIds) next.delete(changeId);
+	pendingChanges = next;
+
+	if (editor && keepChangeFn) {
+		for (const changeId of touchedChangeIds) keepChangeFn(editor, changeId);
+	}
+	void acknowledgeReview(touchedBlockIds);
+}
+
 function handleUpdate(): void {
 	updateActiveActionIds();
 	const canonical = currentCanonicalMarkdown();
 	if (canonical !== null) {
 		autosave?.schedule(canonical);
+		const nextBlocks = parseDocument(canonical, { mint: false }).blocks;
+		acknowledgePendingBlocksTouchedByUserEdit(nextBlocks);
 		// Keeps the margin's anchor resolution live as the user types, not just
 		// after the next full reload.
-		updateBlocksFromMarkdown(canonical);
+		blocks = nextBlocks;
 	}
 }
 
