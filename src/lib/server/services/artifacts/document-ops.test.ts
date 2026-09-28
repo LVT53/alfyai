@@ -101,8 +101,76 @@ describe("computePendingReviewBlocks", () => {
 				body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond, edited.",
 			},
 		];
-		const pending = computePendingReviewBlocks(1, ["p1"], versions);
+		// `"p1@2"`: kept as of version 2 — the same version that changed it, so
+		// it is excluded (see the version-tie tests below for the opposite case).
+		const pending = computePendingReviewBlocks(1, ["p1@2"], versions);
 		expect(pending.map((p) => p.blockId)).toEqual(["p2"]);
+	});
+
+	it("a kept block id is tied to the version it was kept against — an older tie does not suppress a NEWER Alfy change to the same block", () => {
+		const versions = [
+			{
+				versionNumber: 1,
+				author: "user" as const,
+				body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+			},
+			{
+				versionNumber: 2,
+				author: "alfy" as const,
+				body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond, edited.",
+			},
+			// Alfy changes p1 again, after it was kept against version 2.
+			{
+				versionNumber: 3,
+				author: "alfy" as const,
+				body: "<!--b:p1-->\nFirst, edited again.\n\n<!--b:p2-->\nSecond, edited.",
+			},
+		];
+		const pending = computePendingReviewBlocks(1, ["p1@2"], versions);
+		expect(pending.map((p) => p.blockId).sort()).toEqual(["p1", "p2"]);
+		const p1 = pending.find((p) => p.blockId === "p1");
+		expect(p1?.alfyVersionNumber).toBe(3);
+		expect(p1?.previousMarkdown).toBe("First, edited.");
+	});
+
+	it("a kept block id tied to the CURRENT version still suppresses it when Alfy has not touched it again", () => {
+		const versions = [
+			{
+				versionNumber: 1,
+				author: "user" as const,
+				body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+			},
+			{
+				versionNumber: 2,
+				author: "alfy" as const,
+				body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond, edited.",
+			},
+			// Only p2 changes again; p1's hash is identical to its version-2 self.
+			{
+				versionNumber: 3,
+				author: "alfy" as const,
+				body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond, edited again.",
+			},
+		];
+		const pending = computePendingReviewBlocks(1, ["p1@2"], versions);
+		expect(pending.map((p) => p.blockId)).toEqual(["p2"]);
+	});
+
+	it("a legacy or malformed kept entry with no parseable @version reads as version 0, so it never permanently suppresses a real Alfy change", () => {
+		const versions = [
+			{
+				versionNumber: 1,
+				author: "user" as const,
+				body: "<!--b:p1-->\nFirst.",
+			},
+			{
+				versionNumber: 2,
+				author: "alfy" as const,
+				body: "<!--b:p1-->\nFirst, edited.",
+			},
+		];
+		const pending = computePendingReviewBlocks(1, ["p1"], versions);
+		expect(pending.map((p) => p.blockId)).toEqual(["p1"]);
 	});
 
 	it("a user edit to the same block in a later version acknowledges it automatically", () => {
@@ -258,6 +326,25 @@ function replaceBlockPatch(
 		text,
 	};
 	return { patchId: `patch-${blockId}-${text}`, label: "Edited", ops: [op] };
+}
+
+/** Same as `replaceBlockPatch`, but for several blocks in one Alfy version. */
+function replaceBlocksPatch(
+	edits: { blockId: string; baseHash: string; text: string }[],
+): PatchSet {
+	const ops: PatchOp[] = edits.map((edit) => ({
+		opId: `op-${edit.blockId}`,
+		kind: "replaceBlock",
+		blockId: edit.blockId,
+		baseHash: edit.baseHash,
+		blockLabel: "block",
+		text: edit.text,
+	}));
+	return {
+		patchId: `patch-${edits.map((e) => e.blockId).join("-")}`,
+		label: "Edited",
+		ops,
+	};
 }
 
 beforeEach(() => {
@@ -438,5 +525,101 @@ describe("acknowledgeDocumentReviewBlocks", () => {
 			blockIds: [block.id],
 		});
 		expect(withScope).toEqual({ ok: true, pending: [] });
+	});
+
+	it("a kept block that Alfy changes again is pending again after that edit (ruling 61 persistence)", async () => {
+		const artifact = await createDocumentArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			title: "Trip plan",
+			markdown: "First paragraph.\n\nSecond paragraph.",
+			author: "user",
+			summary: "Created",
+		});
+		const doc = await readDocumentForAlfy({
+			userId: OWNER,
+			artifactId: artifact.id,
+			conversationId: CONVERSATION,
+		});
+		const [b1, b2] = doc.blocks;
+		if (!b1 || !b2) throw new Error("expected two blocks");
+
+		// Alfy edit A (version 2): changes both blocks.
+		await applyDocumentPatch({
+			userId: OWNER,
+			artifactId: artifact.id,
+			conversationId: CONVERSATION,
+			patch: replaceBlocksPatch([
+				{ blockId: b1.blockId, baseHash: b1.hash, text: "First, edited." },
+				{ blockId: b2.blockId, baseHash: b2.hash, text: "Second, edited." },
+			]),
+		});
+
+		// Keep b1 only — b2 stays pending.
+		const afterKeep = await acknowledgeDocumentReviewBlocks({
+			userId: OWNER,
+			artifactId: artifact.id,
+			blockIds: [b1.blockId],
+		});
+		expect(afterKeep.ok && afterKeep.pending.map((p) => p.blockId)).toEqual([
+			b2.blockId,
+		]);
+
+		// Alfy edit B (version 3): changes b1 again, the SAME block just kept.
+		const docAfterA = await readDocumentForAlfy({
+			userId: OWNER,
+			artifactId: artifact.id,
+			conversationId: CONVERSATION,
+		});
+		const b1AfterA = docAfterA.blocks.find((b) => b.blockId === b1.blockId);
+		if (!b1AfterA) throw new Error("b1 missing after edit A");
+		await applyDocumentPatch({
+			userId: OWNER,
+			artifactId: artifact.id,
+			conversationId: CONVERSATION,
+			patch: replaceBlockPatch(
+				b1AfterA.blockId,
+				b1AfterA.hash,
+				"First, edited again.",
+			),
+		});
+
+		// Reload: both b1 (re-pending, tied to version 3 now) and b2 (still
+		// pending from version 2) show up — the bug was b1 staying silently
+		// "reviewed" forever because its kept id carried no version.
+		const state = await getDocumentReviewState({
+			userId: OWNER,
+			artifactId: artifact.id,
+			conversationId: CONVERSATION,
+		});
+		expect(
+			state.ok && state.pending.map((p) => p.blockId).sort(),
+		).toEqual([b1.blockId, b2.blockId].sort());
+	});
+
+	it("acknowledging a block id that is not currently pending is ignored, not stored verbatim", async () => {
+		const artifact = await createDocument();
+		const block = await readFirstBlock(artifact.id);
+		await applyDocumentPatch({
+			userId: OWNER,
+			artifactId: artifact.id,
+			conversationId: CONVERSATION,
+			patch: replaceBlockPatch(block.id, block.hash, "First, edited."),
+		});
+
+		const result = await acknowledgeDocumentReviewBlocks({
+			userId: OWNER,
+			artifactId: artifact.id,
+			blockIds: ["not-a-real-pending-block"],
+		});
+		expect(result.ok && result.pending.map((p) => p.blockId)).toEqual([
+			block.id,
+		]);
+		// Nothing was written: the fabricated id never reached storage, and the
+		// genuinely pending block was never named, so the marker never moves.
+		expect(readMetadata(artifact.id).review).toEqual({
+			throughVersion: 1,
+			keptBlockIds: [],
+		});
 	});
 });
