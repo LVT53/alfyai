@@ -266,6 +266,8 @@ const artifactsDict = {
 		"artifacts.document.comment.seeChange": "See change",
 		"artifacts.document.comment.alfyTyping": "Alfy is writing…",
 		"artifacts.document.comment.replyPlaceholder": "Reply, or ask @Alfy…",
+		"artifacts.document.comment.askAlfyHint":
+			"Alfy answers here and can edit the text. You keep or undo the change.",
 		"artifacts.document.comment.peekThread": "Show the full thread",
 		"artifacts.document.comment.quoteA11y": "Show “{quote}” in the text",
 		"artifacts.document.margin.title": "Comments",
@@ -513,6 +515,8 @@ const artifactsDict = {
 		"artifacts.document.comment.alfyTyping": "Alfy ír…",
 		"artifacts.document.comment.replyPlaceholder":
 			"Válasz, vagy kérdezd: @Alfy…",
+		"artifacts.document.comment.askAlfyHint":
+			"Alfy itt válaszol, és szerkesztheti is a szöveget. A módosítást megtarthatod vagy visszavonhatod.",
 		"artifacts.document.comment.peekThread": "Szál megnyitása",
 		"artifacts.document.comment.quoteA11y":
 			"„{quote}” megmutatása a szövegben",
