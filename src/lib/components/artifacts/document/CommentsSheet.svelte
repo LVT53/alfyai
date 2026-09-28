@@ -83,10 +83,19 @@ const drawerFocusTrap = focusTrap({
 	     resolved" toggle) as its rail header — `titleVisuallyHidden` keeps
 	     `DialogShell`'s title as the sheet's ACCESSIBLE name without a second,
 	     visually duplicate heading. -->
+	<!-- zIndexClass: this sheet opens from a button INSIDE
+	     `DocumentWorkspace.svelte`'s mobile shell, whose own
+	     `.workspace-mobile-backdrop` sits at `z-index: 95` — DialogShell's
+	     default `z-50` renders behind it (found by screenshot, not by any
+	     role/text query: the sheet is still genuinely "visible" and
+	     interactive to Testing Library/Playwright, just painted under the
+	     backdrop). Same fix, same value, same reasoning as
+	     `MobileToolbar.svelte`'s own "More" sheet. -->
 	<DialogShell
 		title={$t('artifacts.document.margin.title')}
 		titleVisuallyHidden
 		phonePresentation="sheet"
+		zIndexClass="z-[150]"
 		onClose={onClose}
 	>
 		<MarginPanel {...marginPanelProps} onGotoAnchor={handleGotoAnchor} />

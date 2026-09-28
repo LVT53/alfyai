@@ -206,9 +206,14 @@ const popoverFocusTrap = focusTrap({
 {/snippet}
 
 {#if isPhone}
+	<!-- zIndexClass: opened from a button inside the mobile shell, whose own
+	     `.workspace-mobile-backdrop` sits at `z-index: 95` — DialogShell's
+	     default `z-50` would paint behind it. Same fix, same value, as
+	     `MobileToolbar.svelte`'s own "More" sheet / `CommentsSheet.svelte`. -->
 	<DialogShell
 		title={$t('artifacts.document.export.title', { title })}
 		phonePresentation="sheet"
+		zIndexClass="z-[150]"
 		onClose={onClose}
 	>
 		{@render downloadOptions()}
