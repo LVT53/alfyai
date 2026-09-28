@@ -2,7 +2,12 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
-import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
+import {
+	createComment,
+	createDocumentArtifact,
+} from "../../src/lib/server/services/artifacts";
+import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
+import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
 import { createConversation, login, waitForStableBoundingBox } from "./helpers";
 
 // The Document editor's selection bubble ("Ask Alfy" / "Comment", T10.1) must
@@ -438,5 +443,99 @@ test.describe("Phone selection composer sheet is topmost (Wave 2.5 review fix)",
 			isOnTop,
 			"the composer sheet must be the topmost element, not painted under the mobile panel's own backdrop",
 		).toBe(true);
+	});
+});
+
+// Review 2.5 Important finding (rd/review-2-5.md:198-207): with text
+// selected, Tab moved focus to the editor's OWN next focusable DOM node (a
+// comment highlight span) instead of into the selection pill — only the
+// ⌘/Ctrl+Alt+M shortcut ever reached "Ask Alfy" by keyboard; there was no
+// keyboard path into the pill's buttons at all.
+test.describe("Keyboard access into the selection pill (Wave 2.5 review fix)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("Tab from a selection moves focus into the pill, not the next comment highlight; arrows rove; Escape returns focus with the selection intact", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(
+			page,
+			"Selection pill keyboard access",
+		);
+		const userId = await testUserId();
+		const markdown =
+			"Topmarker begins here.\n\nA paragraph with a highlighted phrase inside it.";
+		const artifact = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Selection pill keyboard access",
+			markdown,
+			author: "user",
+			summary: "Seeded for E2E",
+		});
+		const blocks = parseDocument(artifact.body ?? "", { mint: false }).blocks;
+		const secondBlock = blocks[1];
+		if (!secondBlock) throw new Error("the seed must produce two blocks");
+		const quote = "highlighted phrase";
+		const idx = secondBlock.markdown.indexOf(quote);
+		expect(idx).toBeGreaterThanOrEqual(0);
+		const anchor: Anchor = {
+			kind: "text",
+			blockId: secondBlock.id,
+			quote,
+			prefix: secondBlock.markdown.slice(0, idx),
+			suffix: secondBlock.markdown.slice(idx + quote.length),
+		};
+		const created = await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor,
+			author: "user",
+			body: "A highlight the old bug tabbed into instead of the pill",
+		});
+		if (!created) throw new Error("the seeded comment must be created");
+
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		// A highlight exists, and it IS keyboard-focusable — the exact trap
+		// the old bug fell into.
+		const highlight = shell.locator(`[data-comment-anchor-id="${created.id}"]`);
+		await expect(highlight).toBeVisible();
+
+		await selectWordAndReadBubble(page, shell, "Topmarker begins here.");
+		// Scoped to the pill itself — the panel header's own "Comments (N)"
+		// button elsewhere on the page also matches an unscoped
+		// `{ name: "Comment" }` substring query.
+		const pill = page.getByTestId("selection-bubble");
+		const askButton = pill.getByRole("button", { name: "Ask Alfy" });
+		const commentButton = pill.getByRole("button", { name: "Comment" });
+
+		await page.keyboard.press("Tab");
+		await expect(askButton).toBeFocused();
+		// Never the highlight — the bug this finding reports.
+		await expect(highlight).not.toBeFocused();
+
+		await page.keyboard.press("ArrowRight");
+		await expect(commentButton).toBeFocused();
+		await page.keyboard.press("ArrowLeft");
+		await expect(askButton).toBeFocused();
+
+		// Escape returns focus to the editor with the selection intact —
+		// never collapsed, never stranded at <body> once the focused button
+		// unmounts.
+		await page.keyboard.press("Escape");
+		await expect(page.getByTestId("selection-bubble")).toBeHidden();
+		const stillSelected = await page.evaluate(() => {
+			const sel = window.getSelection();
+			return !!sel && !sel.isCollapsed && sel.toString().length > 0;
+		});
+		expect(stillSelected, "the text selection must survive Escape").toBe(true);
+		const focusInEditor = await page.evaluate(
+			() => document.activeElement?.closest(".document-editor-host") != null,
+		);
+		expect(focusInEditor, "focus must return to the editor").toBe(true);
 	});
 });

@@ -148,6 +148,29 @@ function openComment(): void {
 	mode = "comment";
 }
 
+/**
+ * Redesign §4.4 (rd/review-2-5.md:198-207): "arrow keys inside the
+ * `role="toolbar"`" — a plain horizontal roving-focus pattern between "Ask
+ * Alfy" and "Comment" (or however many trigger buttons ever end up here),
+ * matching `Tabs.svelte`'s own ArrowLeft/ArrowRight handler for its
+ * horizontal strip.
+ */
+function handleToolbarKeydown(event: KeyboardEvent): void {
+	if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+	const toolbar = event.currentTarget as HTMLElement;
+	const buttons = Array.from(
+		toolbar.querySelectorAll<HTMLButtonElement>("button:not([disabled])"),
+	);
+	const currentIndex = buttons.indexOf(
+		document.activeElement as HTMLButtonElement,
+	);
+	if (currentIndex === -1) return;
+	event.preventDefault();
+	const step = event.key === "ArrowRight" ? 1 : -1;
+	const nextIndex = (currentIndex + step + buttons.length) % buttons.length;
+	buttons[nextIndex]?.focus();
+}
+
 function cancel(): void {
 	mode = "pill";
 	draftText = "";
@@ -259,6 +282,7 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 			role="toolbar"
 			tabindex="-1"
 			aria-label={$t('artifacts.document.comment.selectionToolbar')}
+			onkeydown={handleToolbarKeydown}
 		>
 			{@render triggerButtons()}
 		</div>
@@ -296,6 +320,7 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 				role="toolbar"
 				tabindex="-1"
 				aria-label={$t('artifacts.document.comment.selectionToolbar')}
+				onkeydown={handleToolbarKeydown}
 			>
 				{@render triggerButtons()}
 			</div>

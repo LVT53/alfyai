@@ -460,8 +460,52 @@ function clearSelectionBubble(): void {
 	if (editor) setSelectionPendingFn?.(editor, null);
 }
 
+/**
+ * Review 2.5 (rd/review-2-5.md:198-207): the one DOM reach into
+ * `SelectionBubble.svelte`'s own rendered output this Tiptap-free component
+ * never hands back a ref for — same query shape as
+ * `VersionsSheet.svelte`/`DownloadSheet.svelte`'s own `findAnchorEl`.
+ * `data-testid="selection-bubble"` is the toolbar itself on a phone
+ * (`.selection-docked-bar`) and its wrapper on desktop
+ * (`.selection-bubble`, with `.selection-bubble-toolbar` nested inside) —
+ * either way, its first non-disabled `button` is "Ask Alfy". `false` when
+ * nothing is open to focus (no live selection, or the bubble/composer never
+ * mounted) — the caller (`document-editor.ts`'s own Tab handler) lets a
+ * plain Tab fall through to its normal behaviour in that case.
+ */
+function focusSelectionPill(): boolean {
+	if (!selectionBubble) return false;
+	const button = document.querySelector<HTMLButtonElement>(
+		'[data-testid="selection-bubble"] button:not([disabled])',
+	);
+	if (!button) return false;
+	button.focus();
+	return true;
+}
+
+/**
+ * Redesign §4.4 "Escape returns to the text with the selection intact":
+ * dismissing while keyboard focus is still INSIDE the bubble/composer
+ * (`focusSelectionPill` above, or the composer's own Cancel/Escape) would
+ * otherwise strand focus at `<body>` once the focused button/textarea is
+ * unmounted — refocusing the editor (never collapses `state.selection` on
+ * its own) is what actually leaves the selection visibly intact. A
+ * mouse-driven dismiss (clicking elsewhere) never has focus inside the
+ * bubble to begin with, so this branch is a no-op for that path.
+ */
 function dismissSelectionBubble(): void {
+	const hadBubbleFocus = !!document.activeElement?.closest(
+		'[data-testid="selection-bubble"]',
+	);
 	clearSelectionBubble();
+	// `editor.view.focus()` directly — Tiptap's own `commands.focus()`
+	// defers the actual DOM focus (a `requestAnimationFrame`, for its own
+	// cross-browser reasons), which loses this race: Svelte's reactive
+	// removal of the (still-focused, until this call) pill button ran
+	// first, and the browser's own "focused element left the DOM" default
+	// already moved focus to `<body>` before the deferred call ever fired.
+	// ProseMirror's own `EditorView.focus()` moves DOM focus immediately.
+	if (hadBubbleFocus) editor?.view?.focus();
 }
 
 /**
@@ -1574,6 +1618,7 @@ async function runLoad(id: string): Promise<void> {
 				onUndo: handleUndoChange,
 				onRedo: handleRedoChange,
 			},
+			onTabIntoSelectionPill: focusSelectionPill,
 		});
 		// The very first paint already shows only the active tab's section
 		// (redesign §5.2) — without this, every section would flash visible

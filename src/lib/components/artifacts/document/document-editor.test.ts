@@ -576,6 +576,120 @@ describe("document-editor", () => {
 			editor.destroy();
 		});
 	});
+
+	// Review 2.5 Important finding (rd/review-2-5.md:198-207): Tab from a
+	// non-collapsed selection reached the editor's own next focusable DOM
+	// node first (a comment highlight, a chip select, a change pill, a task
+	// checkbox) — the selection pill came after every one of those, so
+	// keyboard-only Ask Alfy/Comment was unreachable. Dispatches a REAL
+	// `KeyboardEvent` at `editor.view.dom`, the same object ProseMirror's own
+	// internal listener is attached to, so this exercises the actual
+	// `editorProps.handleKeyDown` wiring rather than calling some exported
+	// handler function directly.
+	describe("Tab into the selection pill", () => {
+		function dispatchTab(
+			editor: Editor,
+			extra: KeyboardEventInit = {},
+		): KeyboardEvent {
+			const event = new KeyboardEvent("keydown", {
+				key: "Tab",
+				bubbles: true,
+				cancelable: true,
+				...extra,
+			});
+			editor.view.dom.dispatchEvent(event);
+			return event;
+		}
+
+		it("a plain Tab over a non-empty selection calls onTabIntoSelectionPill and suppresses the default", () => {
+			const onTabIntoSelectionPill = vi.fn().mockReturnValue(true);
+			element = document.createElement("div");
+			document.body.appendChild(element);
+			const editor = createDocumentEditor({
+				element,
+				markdown: "<!--b:p1-->\nSelect this text.",
+				placeholder: "x",
+				onTabIntoSelectionPill,
+			});
+			editor.commands.setTextSelection({ from: 1, to: 7 });
+			expect(editor.state.selection.empty).toBe(false);
+
+			const event = dispatchTab(editor);
+			expect(onTabIntoSelectionPill).toHaveBeenCalledOnce();
+			expect(event.defaultPrevented).toBe(true);
+			editor.destroy();
+		});
+
+		it("does not intercept Tab when the selection is empty (a caret)", () => {
+			const onTabIntoSelectionPill = vi.fn().mockReturnValue(true);
+			element = document.createElement("div");
+			document.body.appendChild(element);
+			const editor = createDocumentEditor({
+				element,
+				markdown: "<!--b:p1-->\nSelect this text.",
+				placeholder: "x",
+				onTabIntoSelectionPill,
+			});
+			editor.commands.setTextSelection(1);
+			expect(editor.state.selection.empty).toBe(true);
+
+			const event = dispatchTab(editor);
+			expect(onTabIntoSelectionPill).not.toHaveBeenCalled();
+			expect(event.defaultPrevented).toBe(false);
+			editor.destroy();
+		});
+
+		it("does not intercept Shift+Tab, even over a non-empty selection", () => {
+			const onTabIntoSelectionPill = vi.fn().mockReturnValue(true);
+			element = document.createElement("div");
+			document.body.appendChild(element);
+			const editor = createDocumentEditor({
+				element,
+				markdown: "<!--b:p1-->\nSelect this text.",
+				placeholder: "x",
+				onTabIntoSelectionPill,
+			});
+			editor.commands.setTextSelection({ from: 1, to: 7 });
+
+			const event = dispatchTab(editor, { shiftKey: true });
+			expect(onTabIntoSelectionPill).not.toHaveBeenCalled();
+			expect(event.defaultPrevented).toBe(false);
+			editor.destroy();
+		});
+
+		it("lets Tab fall through to its own default when there is nothing to focus (onTabIntoSelectionPill returns false)", () => {
+			const onTabIntoSelectionPill = vi.fn().mockReturnValue(false);
+			element = document.createElement("div");
+			document.body.appendChild(element);
+			const editor = createDocumentEditor({
+				element,
+				markdown: "<!--b:p1-->\nSelect this text.",
+				placeholder: "x",
+				onTabIntoSelectionPill,
+			});
+			editor.commands.setTextSelection({ from: 1, to: 7 });
+
+			const event = dispatchTab(editor);
+			expect(onTabIntoSelectionPill).toHaveBeenCalledOnce();
+			expect(event.defaultPrevented).toBe(false);
+			editor.destroy();
+		});
+
+		it("does nothing when no onTabIntoSelectionPill callback was supplied at all", () => {
+			element = document.createElement("div");
+			document.body.appendChild(element);
+			const editor = createDocumentEditor({
+				element,
+				markdown: "<!--b:p1-->\nSelect this text.",
+				placeholder: "x",
+			});
+			editor.commands.setTextSelection({ from: 1, to: 7 });
+
+			const event = dispatchTab(editor);
+			expect(event.defaultPrevented).toBe(false);
+			editor.destroy();
+		});
+	});
 });
 
 describe("setCommentAnchors / scrollToCommentAnchor (redesign §3.2, Wave 2.5 Step 7)", () => {

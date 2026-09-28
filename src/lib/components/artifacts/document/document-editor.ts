@@ -64,6 +64,20 @@ export interface CreateDocumentEditorOptions {
 	onUpdate?: () => void;
 	/** Wave 2.5 Step 10: the inline pill's own Keep/Undo/Redo — see `change-pill-decoration.ts`. */
 	changePillCallbacks?: ChangePillCallbacks;
+	/**
+	 * Review 2.5 (rd/review-2-5.md:198-207): Tab from a non-collapsed
+	 * selection reached the editor's OWN next focusable DOM node first (a
+	 * comment highlight span, a chip select, a change pill, a task
+	 * checkbox) — the selection bubble/pill came after every one of those,
+	 * so keyboard-only Ask Alfy/Comment was unreachable (only the
+	 * ⌘/Ctrl+Alt+M shortcut worked). Called from `handleKeyDown` below on a
+	 * plain Tab press over a non-empty selection; returning `true` (it
+	 * focused the pill's first button) suppresses Tab's own default so
+	 * focus does not ALSO jump to that next highlight. `DocumentBody.svelte`
+	 * implements this — the bubble itself is a Tiptap-free, purely
+	 * presentational sibling this module has no reference to.
+	 */
+	onTabIntoSelectionPill?: () => boolean;
 }
 
 /** Builds the one editor instance a `DocumentBody` owns, with ids already ensured. */
@@ -81,6 +95,15 @@ export function createDocumentEditor(
 		editable: options.editable ?? true,
 		editorProps: {
 			attributes: { class: "document-content", spellcheck: "true" },
+			handleKeyDown: (_view, event) => {
+				if (event.key !== "Tab" || event.shiftKey || event.altKey) {
+					return false;
+				}
+				if (editor.state.selection.empty) return false;
+				if (!options.onTabIntoSelectionPill?.()) return false;
+				event.preventDefault();
+				return true;
+			},
 		},
 		onUpdate: () => {
 			options.onDirty?.();
