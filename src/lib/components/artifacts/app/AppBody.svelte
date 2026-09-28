@@ -30,6 +30,7 @@ import {
 } from "$lib/client/api/artifacts";
 import type { AppContractRuleId } from "$lib/server/services/artifacts/app/contract";
 import type { AppVerificationVerdict } from "$lib/server/services/artifacts/app/verify";
+import { APP_VERIFY_LINE_KEYS } from "$lib/shared/artifacts/app-verify-labels";
 import { renderHighlightedText } from "$lib/services/markdown";
 import AppFrame from "./AppFrame.svelte";
 
@@ -125,13 +126,6 @@ let glitchMessageKeys = $derived(
 		(key): key is I18nKey => Boolean(key),
 	),
 );
-
-const VERIFY_LINE_KEYS: Record<AppVerificationVerdict, I18nKey> = {
-	clean: "artifacts.app.verify.clean",
-	repaired: "artifacts.app.verify.repaired",
-	uncertain: "artifacts.app.verify.uncertain",
-	unavailable: "artifacts.app.verify.unavailable",
-};
 
 /**
  * Ruling 58 (RV-2A open question 10): loads the highlighter — and the "html"
@@ -294,7 +288,7 @@ function localizeDownloadFailure(reason: string): string {
 
 				{#if verification?.checked}
 					<div class="app-body-verify-line">
-						{$t(VERIFY_LINE_KEYS[verification.verdict])}
+						{$t(APP_VERIFY_LINE_KEYS[verification.verdict])}
 					</div>
 				{/if}
 				{#if (verification?.verdict === 'repaired' || verification?.verdict === 'uncertain') && verificationNote}
