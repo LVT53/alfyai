@@ -211,6 +211,31 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 	test("shows the card during the turn, Open reaches the panel on it, and it survives a reload", async ({
 		page,
 	}) => {
+		// Found flaky by the orchestrator (~1 run in 3), failing at two
+		// different points across runs: once at toBeEnabled() on
+		// message-input (inside login()/createConversation(), both near the
+		// very start), once waiting for the Document workspace text (near the
+		// very end). Two disparate failure points on the SAME test point at
+		// one shared cause rather than a logic race at either spot: this test
+		// has no test.setTimeout of its own, so it inherits playwright.config.ts's
+		// global 60_000ms default — but it already budgets 30s EACH for three
+		// separate slow steps (the final assistant text, the workspace
+		// becoming visible, the workspace's own text), on top of login,
+		// conversation creation, and provider setup. None of those 30s
+		// allowances is meant to be "normal" — they exist for a cold
+		// dev-server compiling the Tiptap-heavy Document editor chunk for the
+		// first time (see the comment above the workspace-text assertion
+		// below) — but when the environment IS that slow, the cumulative
+		// elapsed time can cross the 60s ceiling before any single await
+		// reaches ITS OWN allowance, and Playwright fails whatever happened
+		// to be in flight at that moment: sometimes an early one (this
+		// matches the toBeEnabled() failures), sometimes a late one (this
+		// matches the workspace-text failures). Sibling specs with similarly
+		// long live-model flows already call test.setTimeout for exactly this
+		// reason (atlas-job-flow.spec.ts uses 120_000) — this one just never
+		// did. Proof: 5 consecutive green runs of this spec (see fxd-report.md).
+		test.setTimeout(120_000);
+
 		await login(page);
 		const previousModelPreference = await snapshotUserModelPreference(page);
 		let temporaryProvider: {
