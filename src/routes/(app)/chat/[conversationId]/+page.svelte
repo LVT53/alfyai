@@ -1103,7 +1103,10 @@ async function handleToggleDocumentTask(
  * `effect_update_depth_exceeded`. Bailing out when the count already
  * matches breaks that cycle at its source.
  */
-function handlePendingReviewCountChange(artifactId: string, count: number): void {
+function handlePendingReviewCountChange(
+	artifactId: string,
+	count: number,
+): void {
 	const current = artifacts.find((row) => row.id === artifactId);
 	if (!current || current.pendingReviewCount === count) return;
 	artifacts = artifacts.map((row) =>

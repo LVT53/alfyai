@@ -418,7 +418,10 @@ describe("listArtifactsForConversation — pendingReviewCount (Wave 2.5 review, 
 	});
 
 	it("counts a pending Alfy edit, and reads 0 (reviewed) once it is kept", async () => {
-		const doc = await createDocumentWithBody("Hotel plan", "# Hotel\nBook the Ritz.");
+		const doc = await createDocumentWithBody(
+			"Hotel plan",
+			"# Hotel\nBook the Ritz.",
+		);
 		const block = await readFirstBlock(doc.id);
 		await applyDocumentPatch({
 			userId: OWNER,
@@ -464,7 +467,11 @@ describe("listArtifactsForConversation — pendingReviewCount (Wave 2.5 review, 
 			userId: OWNER,
 			artifactId: second.id,
 			conversationId: CONVERSATION,
-			patch: replaceBlockPatch(secondBlock.id, secondBlock.hash, "Two, edited."),
+			patch: replaceBlockPatch(
+				secondBlock.id,
+				secondBlock.hash,
+				"Two, edited.",
+			),
 		});
 
 		const listed = await listArtifactsForConversation({

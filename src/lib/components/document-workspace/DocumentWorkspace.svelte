@@ -150,14 +150,21 @@ let activeDocument: WorkspaceDocument | null = $derived.by(() => {
 let alfyActivitySeenOpenKeys = $state<Set<string>>(new Set());
 $effect(() => {
 	if (!alfyActivity) return;
-	if ((activeDocument?.artifactId ?? activeDocument?.id) !== alfyActivity.artifactId) {
+	if (
+		(activeDocument?.artifactId ?? activeDocument?.id) !==
+		alfyActivity.artifactId
+	) {
 		return;
 	}
 	if (alfyActivitySeenOpenKeys.has(alfyActivity.key)) return;
-	alfyActivitySeenOpenKeys = new Set(alfyActivitySeenOpenKeys).add(alfyActivity.key);
+	alfyActivitySeenOpenKeys = new Set(alfyActivitySeenOpenKeys).add(
+		alfyActivity.key,
+	);
 });
 let bodyAlfyActivity = $derived(
-	alfyActivity && alfyActivitySeenOpenKeys.has(alfyActivity.key) ? alfyActivity : null,
+	alfyActivity && alfyActivitySeenOpenKeys.has(alfyActivity.key)
+		? alfyActivity
+		: null,
 );
 
 /**

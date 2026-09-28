@@ -1086,9 +1086,9 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			// earlier in this same turn.
 			await expect(card).toContainText("Reviewed");
 			await expect(card).not.toContainText("1 change to review");
-			await expect(
-				countButton.getByTestId("artifact-count-dot"),
-			).toHaveCount(0);
+			await expect(countButton.getByTestId("artifact-count-dot")).toHaveCount(
+				0,
+			);
 
 			// A reload: still nothing pending — the persisted state, not a
 			// stale ephemeral one, is what both the card and the dot show on

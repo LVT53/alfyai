@@ -732,8 +732,11 @@ export async function computeDocumentPendingReviewCounts(
 		const versions = versionsById.get(id) ?? [];
 		counts.set(
 			id,
-			computePendingReviewBlocks(review.throughVersion, review.keptBlockIds, versions)
-				.length,
+			computePendingReviewBlocks(
+				review.throughVersion,
+				review.keptBlockIds,
+				versions,
+			).length,
 		);
 	}
 	return counts;
