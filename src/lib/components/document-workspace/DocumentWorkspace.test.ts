@@ -1697,6 +1697,33 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("moves focus to the panel title when a document opens (redesign §5.4, Wave 2.5 review F2)", async () => {
+		// The review's own finding: opening the panel did not move focus to
+		// the title/first row, so a screen-reader user got no announcement of
+		// what just appeared. `data-testid="artifact-panel-title"` carries
+		// `tabindex="-1"` specifically so it is a valid focus target here.
+		withDocumentLoader();
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "doc-1",
+					kind: "document",
+					title: "Vienna trip plan",
+				}),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		await screen.findByTestId("fake-artifact-body");
+		await waitFor(() => {
+			expect(document.activeElement).toHaveAttribute(
+				"data-testid",
+				"artifact-panel-title",
+			);
+		});
+		expect(document.activeElement).toHaveTextContent("Vienna trip plan");
+	});
+
 	it("keeps the legacy header, unchanged, for an item with no kind", async () => {
 		renderWorkspace({
 			documents: [

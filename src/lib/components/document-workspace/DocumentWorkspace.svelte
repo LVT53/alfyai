@@ -1,4 +1,5 @@
 <script lang="ts">
+import { tick } from "svelte";
 import { browser } from "$app/environment";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
 import {
@@ -312,8 +313,31 @@ $effect(() => {
 		lastDocumentId = activeDocument.id;
 		currentPage = activeDocument.currentPage ?? 1;
 		currentTotalPages = activeDocument.totalPages ?? 1;
+		void focusPanelTitleOnOpen();
 	}
 });
+
+/**
+ * Redesign §5.4 (Wave 2.5 review F2): opening the panel on a specific item —
+ * the first open, a list row click, or switching items via the count
+ * button/card — did not move focus, so a screen-reader user got no
+ * announcement of what just appeared. `tick()` waits for the branch swap
+ * (list → item, or the initial closed → open mount) to actually land in the
+ * DOM before querying for the title `ArtifactPanelHeader.svelte` renders
+ * (`data-testid="artifact-panel-title"`, `tabindex="-1"` so it is a valid
+ * programmatic focus target without joining the normal tab order). Queries
+ * whichever shell (mobile or desktop) is currently mounted rather than
+ * assuming one, since both bind their own ref and only one renders content
+ * for the active viewport at a time.
+ */
+async function focusPanelTitleOnOpen(): Promise<void> {
+	await tick();
+	const shell = desktopShellElement ?? mobileShellElement;
+	const title = shell?.querySelector<HTMLElement>(
+		'[data-testid="artifact-panel-title"]',
+	);
+	title?.focus();
+}
 
 $effect(() => {
 	if (shouldShowWorkspaceShell) {

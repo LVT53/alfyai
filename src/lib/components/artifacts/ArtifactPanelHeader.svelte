@@ -76,7 +76,13 @@ let crumbLabel = $derived(
 		{/if}
 	</div>
 
-	<h2 class="artifact-panel-header-title">{title}</h2>
+	<h2
+		class="artifact-panel-header-title"
+		data-testid="artifact-panel-title"
+		tabindex="-1"
+	>
+		{title}
+	</h2>
 
 	<div class="artifact-panel-header-meta">
 		<span class="artifact-panel-header-kind">
