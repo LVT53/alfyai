@@ -394,6 +394,22 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 		await expect(sheet).toBeVisible();
 		await expect(sheet.getByText("Anna says it sells out early.")).toBeVisible();
 
+		// `toBeVisible` only checks the DOM/CSS, never actual paint order — the
+		// mobile shell's own full-screen `.workspace-mobile-backdrop` sits at
+		// z-index 95, and this sheet genuinely passed the checks above while
+		// still painting BEHIND it (z-50) before its own zIndexClass fix.
+		// `elementFromPoint` catches exactly that class of regression: it
+		// returns whatever is actually topmost at that pixel.
+		const isOnTop = await sheet.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + 10,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(isOnTop, "the sheet must be the topmost element, not painted under the mobile shell's own backdrop").toBe(true);
+
 		await page.keyboard.press("Escape");
 		await expect(sheet).toBeHidden();
 		await expect(commentsButton).toBeFocused();
