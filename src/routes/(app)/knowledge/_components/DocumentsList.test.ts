@@ -1593,6 +1593,35 @@ describe("DocumentsList", () => {
 			).toBe("Files 12");
 		});
 
+		// Wave 2.5 review (F2, redesign §6.2): the mockup gives every kind chip
+		// its own icon ("all" excepted) — see index.html's `renderKb`'s own
+		// `kinds` array (square-pen/app-window/shapes/presentation/paperclip).
+		it("shows a kind icon on every chip except All", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					countsByKind: {
+						document: 6,
+						app: 2,
+						canvas: 3,
+						slides: 1,
+						uploaded: 12,
+					},
+				},
+			});
+
+			expect(
+				screen.getByTestId("documents-filter-chip-all").querySelector("svg"),
+			).toBeNull();
+			for (const filter of ["document", "canvas", "app", "slides", "uploaded"]) {
+				expect(
+					screen
+						.getByTestId(`documents-filter-chip-${filter}`)
+						.querySelector("svg"),
+				).not.toBeNull();
+			}
+		});
+
 		it("renders a chip at 0 rather than hiding it, dimmed and disabled with a reason", () => {
 			render(DocumentsList, {
 				props: {
