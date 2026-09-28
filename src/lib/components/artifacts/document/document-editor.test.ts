@@ -1,5 +1,5 @@
 import type { Editor } from "@tiptap/core";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	buildIndex,
 	countMarkers,
@@ -10,8 +10,10 @@ import {
 	loadMarkdown,
 	readMarkdown,
 	readSelectionAnchorContext,
+	scrollToCommentAnchor,
+	setCommentAnchors,
 } from "./document-editor";
-import { BLOCK_MARKER_NODE } from "./extensions";
+import { BLOCK_ID_ATTR, BLOCK_MARKER_NODE } from "./extensions";
 
 /** Selects the first occurrence of `substring` inside whichever top-level block contains it. */
 function selectSubstring(editor: Editor, substring: string): void {
@@ -428,5 +430,90 @@ describe("document-editor", () => {
 			expect(readSelectionAnchorContext(editor)?.blockId).toBe("p2");
 			editor.destroy();
 		});
+	});
+});
+
+describe("setCommentAnchors / scrollToCommentAnchor (redesign §3.2, Wave 2.5 Step 7)", () => {
+	function firstBlockId(editor: Editor): string {
+		let id: string | null = null;
+		editor.state.doc.forEach((node) => {
+			if (id !== null) return;
+			const value = node.attrs?.[BLOCK_ID_ATTR];
+			if (typeof value === "string") id = value;
+		});
+		if (id === null) throw new Error("fixture has no identified block");
+		return id;
+	}
+
+	it("renders the live decoration span once anchors are set, and clears it back to nothing", () => {
+		const editor = mountEditor("Hello world, this is a test.");
+		const blockId = firstBlockId(editor);
+
+		setCommentAnchors(
+			editor,
+			[{ commentId: "c1", blockId, from: 6, to: 11, resolved: false }],
+			null,
+		);
+		let span = element?.querySelector(".comment-anchor");
+		expect(span?.textContent).toBe("world");
+		expect(span?.getAttribute("role")).toBe("button");
+
+		setCommentAnchors(editor, [], null);
+		span = element?.querySelector(".comment-anchor");
+		expect(span).toBeNull();
+		editor.destroy();
+	});
+
+	it("marks the active comment's own span is-active, and never adds a step to the undo stack", () => {
+		const editor = mountEditor("Hello world, this is a test.");
+		const blockId = firstBlockId(editor);
+		const canUndoBefore = editor.can().undo();
+
+		setCommentAnchors(
+			editor,
+			[{ commentId: "c1", blockId, from: 6, to: 11, resolved: false }],
+			"c1",
+		);
+		expect(
+			element?.querySelector(".comment-anchor.is-active")?.textContent,
+		).toBe("world");
+		expect(editor.can().undo()).toBe(canUndoBefore);
+		editor.destroy();
+	});
+
+	it("a resolved anchor renders is-resolved with no tabindex, staying out of tab order", () => {
+		const editor = mountEditor("Hello world, this is a test.");
+		const blockId = firstBlockId(editor);
+
+		setCommentAnchors(
+			editor,
+			[{ commentId: "c1", blockId, from: 6, to: 11, resolved: true }],
+			null,
+		);
+		const span = element?.querySelector(".comment-anchor");
+		expect(span?.classList.contains("is-resolved")).toBe(true);
+		expect(span?.hasAttribute("tabindex")).toBe(false);
+		editor.destroy();
+	});
+
+	it("scrollToCommentAnchor finds and flashes the resolved anchor's own element", () => {
+		const editor = mountEditor("Hello world, this is a test.");
+		const blockId = firstBlockId(editor);
+		// jsdom implements neither `scrollIntoView` nor (until vitest-setup.ts's
+		// own global stub) `Element.animate` — mirrors marks.test.ts's own
+		// `scrollToAlfyChange` test for exactly the same reason.
+		const scrollIntoView = vi.fn();
+		Element.prototype.scrollIntoView = scrollIntoView;
+
+		const found = scrollToCommentAnchor(editor, blockId, 6, 11);
+		expect(found).toBe(true);
+		expect(scrollIntoView).toHaveBeenCalled();
+		editor.destroy();
+	});
+
+	it("scrollToCommentAnchor returns false for a block that is not in the live doc", () => {
+		const editor = mountEditor("Hello world.");
+		expect(scrollToCommentAnchor(editor, "missing-block", 0, 3)).toBe(false);
+		editor.destroy();
 	});
 });

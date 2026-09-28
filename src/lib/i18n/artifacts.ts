@@ -238,9 +238,7 @@ const artifactsDict = {
 		// Comments and @Alfy (Slice 1, T10). CommentCard reuses
 		// artifacts.document.versions.byUser/byAlfy for the author name rather
 		// than a second pair of the same two words.
-		"artifacts.document.anchor.exact": "Exact",
 		"artifacts.document.anchor.moved": "Moved",
-		"artifacts.document.anchor.orphaned": "Orphaned",
 		"artifacts.document.comment.ask": "Ask Alfy",
 		"artifacts.document.comment.add": "Comment",
 		"artifacts.document.comment.placeholder": "Write a comment…",
@@ -257,12 +255,42 @@ const artifactsDict = {
 		"artifacts.document.comment.alfyPartialRefusal":
 			"Part of this could not be applied safely.",
 		"artifacts.document.comment.postError": "Could not post this comment.",
+		// Comment card anatomy (redesign §3.2/§8, Wave 2.5 Step 6): the Guess
+		// tag on Alfy's own judgement-call threads, the change chip embedded in
+		// a reply that edited the text, and the refused-reply quick action.
+		"artifacts.document.comment.guessTag": "Guess",
+		"artifacts.document.comment.askAgain": "Ask again",
+		"artifacts.document.comment.changeEdited": "Edited · waiting for you",
+		"artifacts.document.comment.changeKept": "Kept",
+		"artifacts.document.comment.changeUndone": "Undone",
+		"artifacts.document.comment.seeChange": "See change",
+		"artifacts.document.comment.alfyTyping": "Alfy is writing…",
+		"artifacts.document.comment.replyPlaceholder": "Reply, or ask @Alfy…",
+		"artifacts.document.comment.askAlfyHint":
+			"Alfy answers here and can edit the text. You keep or undo the change.",
+		"artifacts.document.comment.peekThread": "Show the full thread",
+		"artifacts.document.comment.quoteA11y": "Show “{quote}” in the text",
 		"artifacts.document.margin.title": "Comments",
-		"artifacts.document.margin.empty": "No comments yet.",
+		// Redesign §3.3: the rail is per-tab now, so the empty state also
+		// carries "select text to start one" and coexists with the "in other
+		// tabs" list rather than replacing it.
+		"artifacts.document.margin.empty":
+			"No comments on this tab. Select text to start one.",
 		// The orphaned-comment group (margin placement follow-up): threads whose
 		// anchored text is gone have nowhere to sit beside, so they render in
-		// their own labelled section below the position-synced ones.
-		"artifacts.document.margin.orphanedGroup": "No longer in the document",
+		// their own labelled, foldable section below the position-synced ones.
+		"artifacts.document.margin.orphanedGroup":
+			"{count} {count, plural, one {comment} other {comments}} on text that was removed",
+		// Ruling 61: Open by default, with a quiet toggle to All — never the
+		// mockup's own two-button "Open 4 | All 6" segmented filter.
+		"artifacts.document.margin.resolvedToggle": "{count} resolved",
+		"artifacts.document.margin.showOpenOnly": "Show open only",
+		// "In other tabs" (redesign §3.2): one row per other tab, its own
+		// title plus this counts suffix — never interpolated into one string,
+		// since a tab's title is arbitrary user text.
+		"artifacts.document.margin.otherTabs": "In other tabs",
+		"artifacts.document.margin.otherTabCounts":
+			"{open} open · {resolved} resolved",
 		// The download sheet (Slice 1, T12).
 		"artifacts.document.export.title": "Download {title}",
 		"artifacts.document.export.pdf": "PDF",
@@ -461,9 +489,7 @@ const artifactsDict = {
 		"artifacts.document.chip.status.Paid": "Kifizetve",
 		"artifacts.document.chip.status.Cancelled": "Lemondva",
 		"artifacts.document.toolbar.moreSheetTitle": "További formázás",
-		"artifacts.document.anchor.exact": "Pontos",
 		"artifacts.document.anchor.moved": "Elmozdult",
-		"artifacts.document.anchor.orphaned": "Elárvult",
 		"artifacts.document.comment.ask": "Alfy megkérdezése",
 		"artifacts.document.comment.add": "Megjegyzés",
 		"artifacts.document.comment.placeholder": "Írj egy megjegyzést…",
@@ -481,9 +507,31 @@ const artifactsDict = {
 			"Ennek egy részét nem tudtam biztonságosan végrehajtani.",
 		"artifacts.document.comment.postError":
 			"Nem sikerült elküldeni a megjegyzést.",
+		"artifacts.document.comment.guessTag": "Tipp",
+		"artifacts.document.comment.askAgain": "Újrakérdezés",
+		"artifacts.document.comment.changeEdited": "Módosítva · rád vár",
+		"artifacts.document.comment.changeKept": "Megtartva",
+		"artifacts.document.comment.changeUndone": "Visszavonva",
+		"artifacts.document.comment.seeChange": "Módosítás mutatása",
+		"artifacts.document.comment.alfyTyping": "Alfy ír…",
+		"artifacts.document.comment.replyPlaceholder":
+			"Válasz, vagy kérdezd: @Alfy…",
+		"artifacts.document.comment.askAlfyHint":
+			"Alfy itt válaszol, és szerkesztheti is a szöveget. A módosítást megtarthatod vagy visszavonhatod.",
+		"artifacts.document.comment.peekThread": "Szál megnyitása",
+		"artifacts.document.comment.quoteA11y": "„{quote}” megmutatása a szövegben",
 		"artifacts.document.margin.title": "Megjegyzések",
-		"artifacts.document.margin.empty": "Még nincs megjegyzés.",
-		"artifacts.document.margin.orphanedGroup": "Már nincs a dokumentumban",
+		"artifacts.document.margin.empty":
+			"Nincs megjegyzés ezen a fülön. Jelölj ki szöveget egy új megjegyzéshez.",
+		// No ICU plural here on purpose, matching commentCountA11y above:
+		// Hungarian nouns after a numeral stay singular.
+		"artifacts.document.margin.orphanedGroup":
+			"{count} megjegyzés törölt szövegen",
+		"artifacts.document.margin.resolvedToggle": "{count} lezárva",
+		"artifacts.document.margin.showOpenOnly": "Csak a nyitottak",
+		"artifacts.document.margin.otherTabs": "Más füleken",
+		"artifacts.document.margin.otherTabCounts":
+			"{open} nyitott · {resolved} lezárva",
 		"artifacts.document.export.title": "{title} letöltése",
 		"artifacts.document.export.pdf": "PDF",
 		"artifacts.document.export.docx": "Word",

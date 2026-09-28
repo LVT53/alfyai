@@ -13,6 +13,8 @@
  * it has an id.
  */
 
+import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
+
 export const MARKER_PREFIX = "<!--b:";
 const MARKER_RE = /^<!--b:([A-Za-z0-9_.-]+)-->$/;
 
@@ -453,6 +455,43 @@ export function buildIndex(blocks: DocumentBlock[]): Record<string, string> {
 	const index: Record<string, string> = {};
 	for (const block of blocks) index[block.id] = block.hash;
 	return index;
+}
+
+/**
+ * `id → owning tab id` (redesign §5.2 "Tabs show only their own section",
+ * ruling 61's third point): each block belongs to whichever tab's
+ * `startBlockId` most recently appeared at or before it, in document order —
+ * the SAME assignment rule `extensions.ts`'s `buildTabSectionDecorations`
+ * applies to the live ProseMirror doc, mirrored here for `DocumentBlock[]`
+ * so `DocumentBody.svelte`'s tab badge counts and `MarginPanel.svelte`'s own
+ * per-tab comment scoping (Wave 2.5 Step 7) both walk blocks exactly once,
+ * the same way, instead of drifting apart. Returns an EMPTY map for zero or
+ * one tab — "only one section, nothing is outside it" — which callers can
+ * treat as "no real scoping" without a separate `tabs.length <= 1` check of
+ * their own.
+ *
+ * `DocumentTab` is a type-only import from `$lib/server/services/artifacts/
+ * serialize/document` — erased at compile time, so this module (importable
+ * from the server AND the browser, this file's own header comment) never
+ * gains a runtime dependency on server code. `document-editor.ts` and
+ * `DocumentBody.svelte` already import that same type the same way.
+ */
+export function mapBlocksToTabs(
+	blocks: Pick<DocumentBlock, "id">[],
+	tabs: Pick<DocumentTab, "id" | "startBlockId">[],
+): Map<string, string> {
+	const blockIdToTabId = new Map<string, string>();
+	if (tabs.length <= 1) return blockIdToTabId;
+	const startBlockIdToTabId = new Map(
+		tabs.map((tab) => [tab.startBlockId, tab.id] as const),
+	);
+	let currentTabId = tabs[0]?.id ?? "";
+	for (const block of blocks) {
+		const owningTabId = startBlockIdToTabId.get(block.id);
+		if (owningTabId !== undefined) currentTabId = owningTabId;
+		blockIdToTabId.set(block.id, currentTabId);
+	}
+	return blockIdToTabId;
 }
 
 /** Count of `<!--b:` occurrences — the size cost, made visible (and a T1.3 assertion). */

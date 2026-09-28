@@ -43,6 +43,28 @@ describe("CommentCard", () => {
 		expect(screen.getByText("Alfy")).toBeInTheDocument();
 	});
 
+	it("highlights an @Alfy mention inside the body", () => {
+		render(CommentCard, {
+			comment: makeComment({ body: "@Alfy can you check this?" }),
+		});
+		const mention = screen.getByText("@Alfy");
+		expect(mention.className).toContain("comment-card-mention");
+	});
+
+	it("shows the Guess tag only when the caller marks this message a guess", () => {
+		const { rerender } = render(CommentCard, {
+			comment: makeComment({ author: "alfy", body: "It's open until 21:00." }),
+			isGuess: true,
+		});
+		expect(screen.getByText("Guess")).toBeInTheDocument();
+
+		rerender({
+			comment: makeComment({ author: "alfy", body: "It's open until 21:00." }),
+			isGuess: false,
+		});
+		expect(screen.queryByText("Guess")).not.toBeInTheDocument();
+	});
+
 	// T10.5's refusal marker never reaches the user as literal text.
 	it("renders the refused marker as the localized notice, not the raw marker", () => {
 		render(CommentCard, {
@@ -57,6 +79,29 @@ describe("CommentCard", () => {
 			comment: makeComment({ author: "alfy", body: ALFY_EMPTY_REPLY_MARKER }),
 		});
 		expect(screen.getByText("Done.")).toBeInTheDocument();
+	});
+
+	describe("a refused @Alfy reply", () => {
+		it("offers Ask again only when onAskAgain is passed, and fires it", async () => {
+			const onAskAgain = vi.fn();
+			render(CommentCard, {
+				comment: makeComment({ author: "alfy", body: ALFY_REFUSED_MARKER }),
+				onAskAgain,
+			});
+			const button = screen.getByRole("button", { name: "Ask again" });
+			await fireEvent.click(button);
+			expect(onAskAgain).toHaveBeenCalled();
+		});
+
+		it("never offers Ask again on an ordinary (non-refused) message", () => {
+			render(CommentCard, {
+				comment: makeComment({ author: "alfy", body: "Done that." }),
+				onAskAgain: vi.fn(),
+			});
+			expect(
+				screen.queryByRole("button", { name: "Ask again" }),
+			).not.toBeInTheDocument();
+		});
 	});
 
 	// RV-1B, coordinator item 8: a reply that both applied and refused ops
@@ -119,42 +164,43 @@ describe("CommentCard", () => {
 		});
 	});
 
-	it("shows a Resolved badge once the thread is resolved", () => {
-		render(CommentCard, { comment: makeComment({ status: "resolved" }) });
-		expect(screen.getByText("Resolved")).toBeInTheDocument();
-	});
-
-	it("offers Resolve only when onResolve is passed, and fires it with the next state", async () => {
-		const onResolve = vi.fn();
-		render(CommentCard, {
-			comment: makeComment({ status: "open" }),
-			onResolve,
+	describe("the change chip", () => {
+		it("renders nothing when changeState is omitted", () => {
+			render(CommentCard, {
+				comment: makeComment({ author: "alfy", body: "Moved it to ten." }),
+			});
+			expect(screen.queryByText("Kept")).not.toBeInTheDocument();
+			expect(
+				screen.queryByRole("button", { name: "See change" }),
+			).not.toBeInTheDocument();
 		});
-		const button = screen.getByRole("button", { name: "Resolve" });
-		await fireEvent.click(button);
-		expect(onResolve).toHaveBeenCalledWith(true);
-	});
 
-	it("offers Reopen once resolved", async () => {
-		const onResolve = vi.fn();
-		render(CommentCard, {
-			comment: makeComment({ status: "resolved" }),
-			onResolve,
+		it("shows the pending label and a working See change action", async () => {
+			const onSeeChange = vi.fn();
+			render(CommentCard, {
+				comment: makeComment({ author: "alfy", body: "Moved it to ten." }),
+				changeState: "pending",
+				onSeeChange,
+			});
+			expect(screen.getByText("Edited · waiting for you")).toBeInTheDocument();
+			await fireEvent.click(screen.getByRole("button", { name: "See change" }));
+			expect(onSeeChange).toHaveBeenCalled();
 		});
-		await fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
-		expect(onResolve).toHaveBeenCalledWith(false);
-	});
 
-	it("never shows Resolve/Reopen when onResolve is omitted (e.g. a reply)", () => {
-		render(CommentCard, { comment: makeComment({ parentId: "root-1" }) });
-		expect(screen.queryByRole("button", { name: "Resolve" })).toBeNull();
-		expect(screen.queryByRole("button", { name: "Reopen" })).toBeNull();
-	});
+		it("shows Kept once the change is kept", () => {
+			render(CommentCard, {
+				comment: makeComment({ author: "alfy", body: "Moved it to ten." }),
+				changeState: "kept",
+			});
+			expect(screen.getByText("Kept")).toBeInTheDocument();
+		});
 
-	it("offers Reply only when onReplyClick is passed", async () => {
-		const onReplyClick = vi.fn();
-		render(CommentCard, { comment: makeComment(), onReplyClick });
-		await fireEvent.click(screen.getByRole("button", { name: "Reply" }));
-		expect(onReplyClick).toHaveBeenCalled();
+		it("shows Undone once the change is undone", () => {
+			render(CommentCard, {
+				comment: makeComment({ author: "alfy", body: "Moved it to ten." }),
+				changeState: "undone",
+			});
+			expect(screen.getByText("Undone")).toBeInTheDocument();
+		});
 	});
 });

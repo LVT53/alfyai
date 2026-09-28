@@ -15,11 +15,15 @@ import type {
 	PatchResult,
 	PatchSet,
 } from "$lib/shared/artifact-document/patch";
+import { MOTION_EASING, prefersReducedMotion } from "$lib/utils/motion";
 import {
 	BLOCK_ID_ATTR,
 	BLOCK_MARKER_NODE,
 	blockIdPluginKey,
 	buildDocumentExtensions,
+	type CommentAnchorTarget,
+	commentAnchorDocRange,
+	commentAnchorPluginKey,
 	ensureBlockIds,
 	SKIP_BLOCK_ID_PLUGIN,
 	tabSectionPluginKey,
@@ -89,6 +93,32 @@ export function setActiveDocumentTab(
 	const tr = editor.state.tr.setMeta(tabSectionPluginKey, {
 		tabs,
 		activeTabId,
+	});
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
+}
+
+export type { CommentAnchorTarget };
+
+/**
+ * Redesign §3.2/§9.2, Wave 2.5 Step 7: the two-way link's write side.
+ * `MarginPanel.svelte` re-resolves every comment's anchor on every relevant
+ * change (`resolveTextAnchor` against `blocks`, already its own job — T10)
+ * and reports the result up through `DocumentBody.svelte`, which calls this
+ * once per change, mirroring `setActiveDocumentTab`'s own no-op-for-history
+ * dispatch pattern exactly. `activeCommentId` is whichever thread is
+ * currently linked — hover/focus on its card, or its own words having been
+ * clicked/focused — `null` when nothing is.
+ */
+export function setCommentAnchors(
+	editor: Editor,
+	anchors: CommentAnchorTarget[],
+	activeCommentId: string | null,
+): void {
+	const tr = editor.state.tr.setMeta(commentAnchorPluginKey, {
+		anchors,
+		activeCommentId,
 	});
 	tr.setMeta("addToHistory", false);
 	tr.setMeta("preventUpdate", true);
@@ -534,6 +564,81 @@ export function changeMarkRect(
 /** Scrolls a change's mark into view ("See what Alfy did", T8.4). */
 export function scrollToChange(editor: Editor, changeId: string): boolean {
 	return scrollToAlfyChange(editor, changeId);
+}
+
+/**
+ * The `.comment-anchor` mark's resting/peak visual states (motion #17: "a 3
+ * px ring and deeper tint that fades"). Kept here, next to the one function
+ * that plays them, rather than read back out of a computed style — mirrors
+ * `--comment-mark`/`--comment-mark-active`/`--comment-rule`
+ * (`DocumentBody.svelte`'s own Step 2.3 styles) by hand, the same trade-off
+ * `motion.ts`'s own `MOTION_DURATION`/`MOTION_EASING` already make for every
+ * other WAAPI call in this feature.
+ */
+const COMMENT_ANCHOR_FLASH_PEAK: Keyframe = {
+	backgroundColor: "var(--comment-mark-active)",
+	boxShadow: "0 0 0 3px var(--comment-rule)",
+};
+const COMMENT_ANCHOR_FLASH_RESTING: Keyframe = {
+	backgroundColor: "var(--comment-mark)",
+	boxShadow: "0 2px 0 -0.5px var(--comment-rule)",
+};
+/** Motion #17's own total, an explicit exception to `MOTION_DURATION.settle` (700 ms) — the spec names 900 ms for this one animation by hand. */
+const COMMENT_ANCHOR_FLASH_MS = 900;
+
+/**
+ * "The quote button (goes to the anchor)" (Wave 2.5 Step 6) plus motion #17:
+ * scrolls the live doc to a comment's resolved anchor and flashes it. Not
+ * `reducedMotionAnimate` (`motion.ts`): that helper's reduced-motion path
+ * jumps straight to the FINAL keyframe with no hold, but §7.3 rule 3
+ * requires this ONE animation to hold a STATIC ring for the full 900 ms
+ * under reduced motion too ("the flashed words get a static ring for
+ * 900ms") — a real intermediate state, not just skipping to rest.
+ */
+export function scrollToCommentAnchor(
+	editor: Editor,
+	blockId: string,
+	from: number,
+	to: number,
+): boolean {
+	const range = commentAnchorDocRange(editor.state.doc, blockId, from, to);
+	if (!range) return false;
+	let element: HTMLElement | null = null;
+	try {
+		const dom = editor.view.domAtPos(range.from).node;
+		element =
+			dom.nodeType === Node.ELEMENT_NODE
+				? (dom as HTMLElement)
+				: dom.parentElement;
+		element = element?.closest<HTMLElement>(".comment-anchor") ?? element;
+		element?.scrollIntoView({ block: "center", behavior: "smooth" });
+	} catch {
+		// jsdom (unit tests) does not implement real layout — a real browser
+		// always has it (Playwright exercises this for real).
+		return false;
+	}
+	if (!element) return false;
+	// A non-null `const` alias: TS cannot narrow a captured `let` inside the
+	// closures below, and this element is never reassigned past this point.
+	const el = element;
+
+	if (prefersReducedMotion()) {
+		Object.assign(el.style, COMMENT_ANCHOR_FLASH_PEAK);
+		window.setTimeout(() => {
+			el.style.backgroundColor = "";
+			el.style.boxShadow = "";
+		}, COMMENT_ANCHOR_FLASH_MS);
+		return true;
+	}
+	const animation = el.animate(
+		[COMMENT_ANCHOR_FLASH_PEAK, COMMENT_ANCHOR_FLASH_RESTING],
+		{ duration: COMMENT_ANCHOR_FLASH_MS, easing: MOTION_EASING.out },
+	);
+	animation.addEventListener("finish", () => {
+		el.style.backgroundColor = "";
+		el.style.boxShadow = "";
+	});
+	return true;
 }
 
 export type { Editor };

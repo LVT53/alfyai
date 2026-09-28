@@ -71,6 +71,7 @@ import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import { makeAnchor } from "$lib/shared/artifact-document/anchor";
 import {
 	type DocumentBlock,
+	mapBlocksToTabs,
 	parseDocument,
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
@@ -92,7 +93,11 @@ import {
 // namespace every `...Fn` closure below is typed against) comes from the
 // `<script module>` block above — it is already visible here, and importing
 // it a second time in this instance script is a duplicate-identifier error.
-import type { AlfyChangeEntry, Editor } from "./document-editor";
+import type {
+	AlfyChangeEntry,
+	CommentAnchorTarget,
+	Editor,
+} from "./document-editor";
 import DocumentToolbar from "./DocumentToolbar.svelte";
 import DownloadSheet from "./DownloadSheet.svelte";
 import MarginPanel from "./MarginPanel.svelte";
@@ -213,6 +218,39 @@ let selectionBubble = $state<
 >(null);
 let contentEl = $state<HTMLDivElement | undefined>();
 
+// ---- Redesign §3.2, Wave 2.5 Step 7: the rail's two-way link ---------------
+// `commentAnchors` is whatever `MarginPanel.svelte` last resolved (its own
+// `resolveTextAnchor` work, reported up rather than redone here);
+// `activeCommentId` is whichever thread is currently linked — hover/focus on
+// its card in the rail, or its own words in the text having been
+// clicked/focused — driving BOTH the rail's `.is-active` card chrome and the
+// editor's own decoration. `focusCommentRequest` is a ONE-SHOT signal (a
+// bumped token, never just the id) for "scroll the rail to and focus THIS
+// thread's card" — kept separate from `activeCommentId` on purpose: merely
+// hovering a card must never also yank scroll/keyboard focus toward it.
+let commentAnchors = $state<CommentAnchorTarget[]>([]);
+let activeCommentId = $state<string | null>(null);
+let focusCommentRequest = $state<{ commentId: string; token: number } | null>(
+	null,
+);
+let setCommentAnchorsFn:
+	| typeof DocumentEditorModule.setCommentAnchors
+	| null = null;
+let scrollToCommentAnchorFn:
+	| typeof DocumentEditorModule.scrollToCommentAnchor
+	| null = null;
+/** commentId -> the changeId its own `@Alfy` reply produced this session (`maybeAskAlfy` below) — ephemeral, like `pendingChanges` itself. */
+let changeIdByCommentId = $state<Map<string, string>>(new Map());
+let changeChipByCommentId = $derived.by(() => {
+	const map: Record<string, "pending" | "kept" | "undone"> = {};
+	for (const [commentId, changeId] of changeIdByCommentId) {
+		const pending = pendingChanges.get(changeId);
+		if (pending) map[commentId] = pending.status;
+	}
+	return map;
+});
+// ---- end redesign §3.2 -----------------------------------------------
+
 // ---- T8 live: Alfy's chat-turn edits appear in the open Document ----------
 // `alfyWritingLabel` drives the shimmer; `pendingChanges`/`changePositions`
 // drive the inline Keep/Undo bars (one per applied op, keyed by `changeId`);
@@ -245,29 +283,20 @@ function updateBlocksFromMarkdown(markdown: string): void {
 
 /**
  * `Tabs.svelte`'s badge (redesign §5.2): how many of THIS tab's own comment
- * THREADS (root comments, never replies) are still open. Walks `blocks` in
- * the SAME document order `extensions.ts`'s `buildTabSectionDecorations`
- * walks the live ProseMirror doc, assigning each block to whichever tab's
- * `startBlockId` most recently appeared at or before it — kept in sync here
- * (rather than reading the decoration back out of the editor) because this
- * needs to run whenever `comments` changes too, not just `tabs`/`blocks`.
+ * THREADS (root comments, never replies) are still open. `mapBlocksToTabs`
+ * (`shared/artifact-document/blocks.ts`) owns the block→tab walk itself —
+ * the SAME one `MarginPanel.svelte`'s own per-tab comment scoping uses, so
+ * the two never drift apart — recomputed here (rather than read back out of
+ * the editor's decoration) because this needs to run whenever `comments`
+ * changes too, not just `tabs`/`blocks`.
  */
 function computeTabBadgeCounts(
 	docBlocks: DocumentBlock[],
 	docComments: ArtifactComment[],
 	docTabs: DocumentTab[],
 ): Record<string, number> {
-	if (docTabs.length <= 1) return {};
-	const startBlockIdToTabId = new Map(
-		docTabs.map((tab) => [tab.startBlockId, tab.id] as const),
-	);
-	const blockIdToTabId = new Map<string, string>();
-	let currentTabId = docTabs[0]?.id ?? "";
-	for (const block of docBlocks) {
-		const owningTabId = startBlockIdToTabId.get(block.id);
-		if (owningTabId !== undefined) currentTabId = owningTabId;
-		blockIdToTabId.set(block.id, currentTabId);
-	}
+	const blockIdToTabId = mapBlocksToTabs(docBlocks, docTabs);
+	if (blockIdToTabId.size === 0) return {};
 	const counts: Record<string, number> = {};
 	for (const comment of docComments) {
 		if (comment.status !== "open") continue;
@@ -423,6 +452,15 @@ async function maybeAskAlfy(
 	const entries = applyAlfyChangesFn(editor, reconstructed, reconstructed.patch);
 	const nextPending = new Map(pendingChanges);
 	const nextPositions = new Map(changePositions);
+	// Redesign §3.2's change chip: THIS comment (the `@Alfy` reply that just
+	// applied) is the one message whose card should carry it — one op per
+	// reply (the doc comment above: "every `@Alfy` patch is scoped to exactly
+	// ONE block"), so the first entry is always the whole story.
+	if (entries[0]) {
+		const nextChangeIds = new Map(changeIdByCommentId);
+		nextChangeIds.set(commentId, entries[0].changeId);
+		changeIdByCommentId = nextChangeIds;
+	}
 	for (const entry of entries) {
 		nextPending.set(entry.changeId, { entry, status: "pending" });
 		const rect = changeMarkRectFn?.(editor, entry.changeId);
@@ -671,12 +709,14 @@ function removePendingChange(changeId: string): void {
 	changePositions = nextPositions;
 }
 
-/** "See what Alfy did" — scrolls to the first change the same patch actually applied. */
+/** "See what Alfy did" / a comment's own change chip — scrolls to one already-applied change's own mark. */
+function seeChange(changeId: string): void {
+	if (!editor || !scrollToChangeFn) return;
+	scrollToChangeFn(editor, changeId);
+}
+
 function handleSeeChange(): void {
-	if (!editor || !scrollToChangeFn || !refusalNotice?.firstAppliedChangeId) {
-		return;
-	}
-	scrollToChangeFn(editor, refusalNotice.firstAppliedChangeId);
+	if (refusalNotice?.firstAppliedChangeId) seeChange(refusalNotice.firstAppliedChangeId);
 }
 // ---- end T8 live ---------------------------------------------------------
 
@@ -1027,6 +1067,8 @@ async function runLoad(id: string): Promise<void> {
 		scrollToChangeFn = mod.scrollToChange;
 		summarizeRefusalsFn = mod.summarizeRefusals;
 		refusalReasonI18nKeyFn = mod.refusalReasonI18nKey;
+		setCommentAnchorsFn = mod.setCommentAnchors;
+		scrollToCommentAnchorFn = mod.scrollToCommentAnchor;
 		// A fresh document (a new id, or a retry of this one) starts with no
 		// leftover marks or notice from whatever was open before (the shimmer
 		// itself is fully derived by the `alfyActivity` effect above, so it
@@ -1035,6 +1077,9 @@ async function runLoad(id: string): Promise<void> {
 		changePositions = new Map();
 		refusalNotice = null;
 		handledActivityKey = "";
+		changeIdByCommentId = new Map();
+		activeCommentId = null;
+		focusCommentRequest = null;
 		versionNumber = detail.artifact.versionNumber;
 		knownBodyHash = detail.artifact.bodyHash;
 		tabs = documentTabsFromCardMetadata(detail.artifact.metadata);
@@ -1079,6 +1124,105 @@ $effect(() => {
 	if (idToLoad !== loadedArtifactId) {
 		void runLoad(idToLoad);
 	}
+});
+
+// Redesign §3.2, Wave 2.5 Step 7: pushes the rail's own already-resolved
+// anchors — and whichever thread is currently linked — into the live
+// decoration whenever either changes. `setCommentAnchorsFn` is `null` until
+// the lazy editor module resolves; nothing to decorate before that anyway.
+$effect(() => {
+	const anchors = commentAnchors;
+	const active = activeCommentId;
+	if (editor && setCommentAnchorsFn) {
+		setCommentAnchorsFn(editor, anchors, active);
+	}
+});
+
+/** Quote button ("goes to the anchor", Wave 2.5 Step 6) — MarginPanel already resolved this thread's own live position; this only asks the editor to scroll to and flash it. */
+function handleGotoCommentAnchor(
+	blockId: string,
+	from: number,
+	to: number,
+): void {
+	if (!editor || !scrollToCommentAnchorFn) return;
+	scrollToCommentAnchorFn(editor, blockId, from, to);
+}
+
+/** The change chip's own "See change" — the SAME scroll-to-change `handleSeeChange` below already uses for the refusal notice, resolved from whichever changeId this comment's own `@Alfy` reply produced. */
+function handleSeeChangeForComment(commentId: string): void {
+	const changeId = changeIdByCommentId.get(commentId);
+	if (changeId) seeChange(changeId);
+}
+
+/**
+ * Two-way linking's other direction (Wave 2.5 Step 7): hover/focus on a
+ * `.comment-anchor` span links it to its thread's card (`activeCommentId`);
+ * clicking or pressing Enter on an OPEN one also asks the rail to scroll to
+ * and focus that thread (`focusCommentRequest`, a bumped token so the same
+ * word clicked twice still re-triggers it). Plain DOM delegation on
+ * `editorEl` — the decoration's own class/data attribute already carries
+ * everything this needs, so there is no reason to reach back into
+ * `document-editor.ts` for a second, PM-specific event mechanism.
+ *
+ * `findCommentAnchorTarget` returns the nearest `.comment-anchor` ancestor,
+ * but only an INTERACTIVE one — `buildCommentAnchorDecorations` only adds
+ * `role="button"` while a thread is open (redesign §3.4: "highlights are
+ * focusable only while their thread is open"), and hover/click/keydown all
+ * share this one gate rather than each re-deriving resolved state from the
+ * DOM its own way.
+ */
+function findCommentAnchorTarget(event: Event): HTMLElement | null {
+	const el = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+		".comment-anchor",
+	);
+	return el?.getAttribute("role") === "button" ? el : null;
+}
+
+function handleEditorAnchorHoverIn(event: Event): void {
+	const target = findCommentAnchorTarget(event);
+	const commentId = target?.getAttribute("data-comment-anchor-id");
+	if (commentId) activeCommentId = commentId;
+}
+
+function handleEditorAnchorHoverOut(event: Event): void {
+	if (findCommentAnchorTarget(event)) activeCommentId = null;
+}
+
+let focusCommentRequestToken = 0;
+
+function handleEditorAnchorActivate(event: Event): void {
+	const target = findCommentAnchorTarget(event);
+	const commentId = target?.getAttribute("data-comment-anchor-id");
+	if (!commentId) return;
+	event.preventDefault();
+	activeCommentId = commentId;
+	focusCommentRequestToken += 1;
+	focusCommentRequest = { commentId, token: focusCommentRequestToken };
+}
+
+function handleEditorAnchorKeydown(event: KeyboardEvent): void {
+	if (event.key !== "Enter" && event.key !== " ") return;
+	if (!findCommentAnchorTarget(event)) return;
+	handleEditorAnchorActivate(event);
+}
+
+$effect(() => {
+	const host = editorEl;
+	if (!host) return;
+	host.addEventListener("mouseover", handleEditorAnchorHoverIn);
+	host.addEventListener("mouseout", handleEditorAnchorHoverOut);
+	host.addEventListener("focusin", handleEditorAnchorHoverIn);
+	host.addEventListener("focusout", handleEditorAnchorHoverOut);
+	host.addEventListener("click", handleEditorAnchorActivate);
+	host.addEventListener("keydown", handleEditorAnchorKeydown);
+	return () => {
+		host.removeEventListener("mouseover", handleEditorAnchorHoverIn);
+		host.removeEventListener("mouseout", handleEditorAnchorHoverOut);
+		host.removeEventListener("focusin", handleEditorAnchorHoverIn);
+		host.removeEventListener("focusout", handleEditorAnchorHoverOut);
+		host.removeEventListener("click", handleEditorAnchorActivate);
+		host.removeEventListener("keydown", handleEditorAnchorKeydown);
+	};
 });
 
 onDestroy(() => {
@@ -1150,109 +1294,128 @@ function saveNoticeText(notice: SaveNotice): string {
 				onSeeChange={refusalNotice.seeChangeLabel ? handleSeeChange : undefined}
 			/>
 		{/if}
+		<!-- Redesign §3.2, Wave 2.5 Step 7: "the comment rail is a 300 px column
+		     inside the SAME scroll container as the text" — `.document-content`
+		     is that one scroll container (still `contentEl`, unchanged identity,
+		     so every `localizePoint`/bubble/change-bar computation below keeps
+		     working untouched); `.document-content-text` and `.document-content-rail`
+		     are its two grid columns. The rail collapses below 820 px (agent
+		     3b's own narrow-panel drawer picks up from there — rd3a-brief.md). -->
 		<div class="document-content" bind:this={contentEl}>
-			{#if loadState === "not_found"}
-				<div class="document-notice" role="status">
-					<p>{$t('artifacts.document.notFound')}</p>
-				</div>
-			{:else}
-				{#if loadState === "load_error"}
-					<div class="document-notice" role="alert">
-						<p>{$t('artifacts.document.editor.failedToLoad')}</p>
-						<button type="button" class="btn-secondary" onclick={retryLoad}>
-							{$t('common.retry')}
-						</button>
+			<div class="document-content-text">
+				{#if loadState === "not_found"}
+					<div class="document-notice" role="status">
+						<p>{$t('artifacts.document.notFound')}</p>
 					</div>
-				{:else if saveNotice === 'deleted'}
-					<div class="document-notice" role="alert">
-						<p>{$t('artifacts.document.deleted')}</p>
-						<button type="button" class="btn-primary" onclick={handleSaveCopy}>
-							{$t('artifacts.document.deleted.saveCopy')}
-						</button>
-					</div>
-				{/if}
-				<div class="document-editor-host" bind:this={editorEl}></div>
-				{#if loadState === 'loading'}
-					<div class="document-editor-skeleton" aria-hidden="true">
-						<span class="sr-only">{$t('common.loading')}</span>
-					</div>
-				{/if}
-				<!-- T10: the selection bubble, positioned against this same scroll container -->
-				{#if selectionBubble}
-					<SelectionBubble
-						position={selectionBubble}
-						onSubmit={async (body) => {
-							if (!selectionBubble) return;
-							await postComment(selectionBubble.anchor, body);
-							selectionBubble = null;
-						}}
-						onDismiss={dismissSelectionBubble}
-					/>
-				{/if}
-				<!-- T12: the download sheet, opened from the toolbar's download action -->
-				{#if downloadSheetOpen}
-					<div class="document-download-anchor">
-						<DownloadSheet
-							artifactId={boundArtifactId}
-							{title}
-							conversationId={panelConversationId}
-							onClose={() => (downloadSheetOpen = false)}
-						/>
-					</div>
-				{/if}
-				<!-- RV-1B, T6: the versions sheet, opened from the toolbar's history
-				     action (previously unreachable — see toolbar-actions.ts). A
-				     restore changes the stored body out from under the open editor,
-				     so it reloads through the same retryLoad() the "load failed, try
-				     again" path already uses, rather than a second reload path. -->
-				{#if versionsSheetOpen}
-					<div class="document-versions-anchor">
-						<VersionsSheet
-							artifactId={boundArtifactId}
-							conversationId={panelConversationId}
-							onClose={() => (versionsSheetOpen = false)}
-							onRestored={() => {
-								versionsSheetOpen = false;
-								retryLoad();
+				{:else}
+					{#if loadState === "load_error"}
+						<div class="document-notice" role="alert">
+							<p>{$t('artifacts.document.editor.failedToLoad')}</p>
+							<button type="button" class="btn-secondary" onclick={retryLoad}>
+								{$t('common.retry')}
+							</button>
+						</div>
+					{:else if saveNotice === 'deleted'}
+						<div class="document-notice" role="alert">
+							<p>{$t('artifacts.document.deleted')}</p>
+							<button type="button" class="btn-primary" onclick={handleSaveCopy}>
+								{$t('artifacts.document.deleted.saveCopy')}
+							</button>
+						</div>
+					{/if}
+					<div class="document-editor-host" bind:this={editorEl}></div>
+					{#if loadState === 'loading'}
+						<div class="document-editor-skeleton" aria-hidden="true">
+							<span class="sr-only">{$t('common.loading')}</span>
+						</div>
+					{/if}
+					<!-- T10: the selection bubble, positioned against this same scroll container -->
+					{#if selectionBubble}
+						<SelectionBubble
+							position={selectionBubble}
+							onSubmit={async (body) => {
+								if (!selectionBubble) return;
+								await postComment(selectionBubble.anchor, body);
+								selectionBubble = null;
 							}}
+							onDismiss={dismissSelectionBubble}
 						/>
-					</div>
+					{/if}
+					<!-- T12: the download sheet, opened from the toolbar's download action -->
+					{#if downloadSheetOpen}
+						<div class="document-download-anchor">
+							<DownloadSheet
+								artifactId={boundArtifactId}
+								{title}
+								conversationId={panelConversationId}
+								onClose={() => (downloadSheetOpen = false)}
+							/>
+						</div>
+					{/if}
+					<!-- RV-1B, T6: the versions sheet, opened from the toolbar's history
+					     action (previously unreachable — see toolbar-actions.ts). A
+					     restore changes the stored body out from under the open editor,
+					     so it reloads through the same retryLoad() the "load failed, try
+					     again" path already uses, rather than a second reload path. -->
+					{#if versionsSheetOpen}
+						<div class="document-versions-anchor">
+							<VersionsSheet
+								artifactId={boundArtifactId}
+								conversationId={panelConversationId}
+								onClose={() => (versionsSheetOpen = false)}
+								onRestored={() => {
+									versionsSheetOpen = false;
+									retryLoad();
+								}}
+							/>
+						</div>
+					{/if}
+					<!-- T8 live: one inline Keep/Undo bar per applied change, positioned
+					     at that change's own mark (never all bunched at a fixed spot —
+					     several ops across different blocks each get their own bar). -->
+					{#each [...pendingChanges.entries()] as [changeId, pending] (changeId)}
+						{@const position = changePositions.get(changeId)}
+						<div
+							class="document-change-anchor"
+							style={position
+								? `left: ${position.x}px; top: ${position.y}px;`
+								: "left: 0.75rem; top: 0.5rem;"}
+						>
+							<ChangeBar
+								status={pending.status}
+								onKeep={() => handleKeepChange(changeId)}
+								onUndo={() => handleUndoChange(changeId)}
+							/>
+						</div>
+					{/each}
 				{/if}
-				<!-- T8 live: one inline Keep/Undo bar per applied change, positioned
-				     at that change's own mark (never all bunched at a fixed spot —
-				     several ops across different blocks each get their own bar). -->
-				{#each [...pendingChanges.entries()] as [changeId, pending] (changeId)}
-					{@const position = changePositions.get(changeId)}
-					<div
-						class="document-change-anchor"
-						style={position
-							? `left: ${position.x}px; top: ${position.y}px;`
-							: "left: 0.75rem; top: 0.5rem;"}
-					>
-						<ChangeBar
-							status={pending.status}
-							onKeep={() => handleKeepChange(changeId)}
-							onUndo={() => handleUndoChange(changeId)}
-						/>
-					</div>
-				{/each}
-			{/if}
+			</div>
+			<!-- T10 / redesign §3.2: the comment rail, the grid's second column. -->
+			<aside class="document-content-rail" aria-label={$t('artifacts.document.margin.title')}>
+				<MarginPanel
+					{comments}
+					{blocks}
+					{contentEl}
+					{tabs}
+					{activeTabId}
+					changeStateByCommentId={changeChipByCommentId}
+					{activeCommentId}
+					focusRequest={focusCommentRequest}
+					onResolve={handleCommentResolve}
+					onSubmitReply={postReply}
+					onSeeChange={handleSeeChangeForComment}
+					onGotoAnchor={handleGotoCommentAnchor}
+					onActiveCommentChange={(id) => (activeCommentId = id)}
+					onAnchorsChange={(anchors) => (commentAnchors = anchors)}
+					onActivateTab={handleTabActivate}
+				/>
+			</aside>
 		</div>
 		{#if saveNotice === 'offline' || saveNotice === 'tooLarge' || saveNotice === 'conflict'}
 			<div class="document-save-banner" role="status">
 				{saveNoticeText(saveNotice)}
 			</div>
 		{/if}
-	</div>
-	<!-- T10: the comment margin -->
-	<div class="document-margin">
-		<MarginPanel
-			{comments}
-			{blocks}
-			{contentEl}
-			onResolve={handleCommentResolve}
-			onSubmitReply={postReply}
-		/>
 	</div>
 </div>
 
@@ -1266,8 +1429,7 @@ function saveNoticeText(notice: SaveNotice): string {
 		border-radius: var(--radius-md);
 	}
 
-	/* T10: the toolbar/content/banner column, unchanged in substance — only
-	   wrapped so the margin can sit beside it rather than inside it. */
+	/* T10: the toolbar/content/banner column. */
 	.document-main {
 		display: flex;
 		flex-direction: column;
@@ -1276,38 +1438,57 @@ function saveNoticeText(notice: SaveNotice): string {
 		min-height: 0;
 	}
 
-	/* T10: the comment margin. A fixed-ish column, collapsing to nothing on
-	   narrow viewports rather than squeezing the document (the mobile
-	   toolbar's own budget is T11's, not this one's to spend). */
-	.document-margin {
-		display: none;
-		width: 18rem;
-		flex-shrink: 0;
-		border-left: 1px solid var(--border-subtle);
-		overflow-y: auto;
-	}
-
-	@media (min-width: 900px) {
-		.document-margin {
-			display: block;
-		}
-	}
-
+	/* Redesign §3.2, Wave 2.5 Step 7: "the comment rail is a 300 px column
+	   inside the SAME scroll container as the text" — a two-column grid, one
+	   `overflow-y`, so nothing anchored near the end (or the removed-text
+	   group) can sit below what the editor lets you scroll to (§3.1 problem
+	   6, the old scroll-sync effect's own failure mode). Below 820 px there
+	   is no room for a real second column; the rail collapses here and picks
+	   back up as agent 3b's own narrow-panel drawer (rd3a-brief.md). */
 	.document-content {
 		position: relative;
-		display: flex;
-		flex-direction: column;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		/* `flex: 1` (not just `min-height`), same reasoning as the editor host
+		   below: this is still a flex CHILD of `.document-main`, and without
+		   it this grid sizes to its own content instead of filling whatever
+		   vertical room `.document-main` actually has (T11.1: the editor must
+		   keep >= 60% of a 390x844 viewport). */
 		flex: 1;
 		min-height: 240px;
 		overflow-y: auto;
+	}
+
+	@media (min-width: 820px) {
+		.document-content {
+			grid-template-columns: minmax(0, 1fr) 300px;
+		}
+	}
+
+	.document-content-text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
 		/* RV-1B: explicit rather than relying on the CSS spec's "overflow-y
 		   auto computes overflow-x to auto too" quirk (real, and already
 		   holding — `tests/e2e/artifact-document.spec.ts`'s "a wide table does
 		   not force horizontal page scroll" passes today — but undocumented
 		   and one `overflow-y` edit away from silently breaking). A wide table
-		   (§2.3's table block) gets its own horizontal scrollbar here instead
-		   of forcing the whole page to scroll sideways at 390 px. */
+		   (§2.3's table block) gets its own horizontal scrollbar on THIS
+		   column alone, never dragging the rail sideways with it. */
 		overflow-x: auto;
+	}
+
+	.document-content-rail {
+		display: none;
+		min-width: 0;
+		border-left: 1px solid var(--border-subtle);
+	}
+
+	@media (min-width: 820px) {
+		.document-content-rail {
+			display: block;
+		}
 	}
 
 	/* `flex: 1` (not just `min-height`) so the editable canvas fills whatever
@@ -1604,14 +1785,9 @@ function saveNoticeText(notice: SaveNotice): string {
 		}
 	}
 
-	/* Step 2.3: comment-anchor highlight (§1/§2.2/§9.1). Styles only — there
-	   is no comment-anchor decoration in extensions.ts yet (MarginPanel's
-	   quote today renders only inside its own margin card, never inside the
-	   document text), so nothing applies these classes in the DOM yet. They
-	   exist so agent 3 has real, working styles the moment it adds that
-	   decoration plus the click <-> thread wiring and the rail, per the
-	   redesign build plan's own split between this step and that one — see
-	   this component's hand-off notes for the exact class names. */
+	/* Step 2.3: comment-anchor highlight (§1/§2.2/§9.1). Wired up for real in
+	   Wave 2.5 Step 7 (`extensions.ts`'s `CommentAnchors` plugin) — this
+	   file's own job stays styling only. */
 	.document-editor-host :global(.document-content .comment-anchor) {
 		background-color: var(--comment-mark);
 		border-radius: 2px;
@@ -1632,6 +1808,14 @@ function saveNoticeText(notice: SaveNotice): string {
 		background-color: transparent;
 		box-shadow: none;
 		cursor: text;
+	}
+
+	/* §3.4: "visible focus: 2px --focus-ring, 2px offset, on every button,
+	   chip and highlight" — only an OPEN anchor ever carries `tabindex`, so
+	   this can never show on a resolved (plain-text) one. */
+	.document-editor-host :global(.document-content .comment-anchor:focus-visible) {
+		outline: 2px solid var(--focus-ring);
+		outline-offset: 2px;
 	}
 
 	.document-editor-skeleton {
