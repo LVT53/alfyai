@@ -1696,17 +1696,23 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		data-presentation={presentation}
 		data-layout={documents.length > 1 ? "rail-and-preview" : "preview-only"}
 	>
-		{#if activeDocument.kind !== "document"}
+		{#if !activeDocument.kind}
 			<!--
-				Only the Document kind has a built replacement for
-				"switch between multiple open items while one stays visible"
-				(the breadcrumb back to the list, Wave 2.5 Step 3/4) — so only
-				Document hides the rail. App/Canvas/Slides/File keep it exactly
-				as before until each kind's own panel work (App-panel etc.,
-				later in this wave) makes its own intentional call; App in
-				particular still relies on the rail's persisted iframe
-				WindowProxy for its cross-app storage-isolation regression
-				coverage (tests/e2e/artifact-app.spec.ts).
+				Wave 2.5 Step 13: completes §9.2's original "hides OpenDocumentsRail
+				for every artifact kind" — App now hides it too (agent 2 had only
+				hidden it for Document; App's own panel work was still pending).
+				The panel's own breadcrumb back to "This chat" (list rows,
+				chrome="row") replaces the rail's "switch between multiple open
+				items" role for every artifact kind now: the security test that
+				used to switch Apps through the rail (its own persisted iframe
+				WindowProxy proved the cross-app storage-isolation guarantee) now
+				switches through the list instead — the SAME `{#key src}` remount
+				in AppFrame.svelte fires either way, so it is still exercising the
+				real mechanism, not a weaker substitute (see
+				tests/e2e/artifact-app.spec.ts). Canvas/Slides have no body yet, so
+				this is currently only observable for App/File; the rail still
+				serves legacy, non-artifact items (uploaded library documents,
+				old produced-file opens) that carry no `.kind` at all.
 			-->
 			<OpenDocumentsRail
 				{documents}
