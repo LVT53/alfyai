@@ -68,6 +68,11 @@ const {
 	mockSetActiveDocumentTab,
 	mockSetCommentAnchors,
 	mockScrollToCommentAnchor,
+	mockSetAlfyWritingBlock,
+	mockSetSelectionPending,
+	mockSetRefusedLines,
+	mockBlockRect,
+	mockSelectAndScrollToBlock,
 	editorInstances,
 } = vi.hoisted(() => ({
 	mockCreateDocumentEditor: vi.fn(),
@@ -89,6 +94,13 @@ const {
 	// reasoning, a no-op against this suite's fake editor.
 	mockSetCommentAnchors: vi.fn(),
 	mockScrollToCommentAnchor: vi.fn(),
+	// Wave 2.5 Step 9/11: the Ask-Alfy chain's own decoration write sides —
+	// same reasoning, no-ops against this suite's fake editor.
+	mockSetAlfyWritingBlock: vi.fn(),
+	mockSetSelectionPending: vi.fn(),
+	mockSetRefusedLines: vi.fn(),
+	mockBlockRect: vi.fn().mockReturnValue(null),
+	mockSelectAndScrollToBlock: vi.fn().mockReturnValue(true),
 	editorInstances: [] as Array<{
 		options: Record<string, unknown>;
 		destroy: ReturnType<typeof vi.fn>;
@@ -111,6 +123,11 @@ vi.mock("./document-editor", () => ({
 	setActiveDocumentTab: mockSetActiveDocumentTab,
 	setCommentAnchors: mockSetCommentAnchors,
 	scrollToCommentAnchor: mockScrollToCommentAnchor,
+	setAlfyWritingBlock: mockSetAlfyWritingBlock,
+	setSelectionPending: mockSetSelectionPending,
+	setRefusedLines: mockSetRefusedLines,
+	blockRect: mockBlockRect,
+	selectAndScrollToBlock: mockSelectAndScrollToBlock,
 }));
 
 // A fake stands in for the real Tiptap editor: `document-editor.test.ts`
@@ -149,6 +166,11 @@ function makeFakeEditor() {
 		chain: vi.fn(() => chain),
 		isActive,
 		destroy,
+		// Wave 2.5 Step 9: `updateSelectionBubble` reads the live selection's
+		// own raw positions directly (`editor.state.selection.from`/`to`) for
+		// the selection-pending highlight — a static stub is enough here,
+		// since these tests never assert on the exact positions themselves.
+		state: { selection: { from: 0, to: 5 } },
 		_chain: chain,
 	};
 }
@@ -886,7 +908,10 @@ describe("DocumentBody", () => {
 			await fireEvent.input(screen.getByRole("textbox"), {
 				target: { value: "Too early?" },
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+			// Comment mode's own send button relabels to "Ask Alfy" only once the
+			// draft mentions @Alfy (redesign §4.2's "@Alfy switch") — plain text
+			// keeps the "Comment" label.
+			await fireEvent.click(screen.getByRole("button", { name: "Comment" }));
 
 			await waitFor(() =>
 				expect(mockCreateArtifactComment).toHaveBeenCalledWith(
@@ -951,9 +976,12 @@ describe("DocumentBody", () => {
 			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 			const textbox = screen.getByRole("textbox") as HTMLTextAreaElement;
 			await fireEvent.input(textbox, {
-				target: { value: "@Alfy change it." },
+				target: { value: "change it." },
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+			// Ask mode's own send button stays labelled "Ask Alfy" (redesign
+			// §4.2 item 2) — it transparently prefixes the @Alfy mention on
+			// submit, so the draft the user types (below) never has to spell it.
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 
 			await waitFor(() =>
 				expect(mockAskAlfyInComment).toHaveBeenCalledWith(
@@ -1009,9 +1037,12 @@ describe("DocumentBody", () => {
 			);
 			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 			await fireEvent.input(screen.getByRole("textbox"), {
-				target: { value: "@Alfy change it." },
+				target: { value: "change it." },
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+			// Ask mode's own send button stays labelled "Ask Alfy" (redesign
+			// §4.2 item 2) — it transparently prefixes the @Alfy mention on
+			// submit, so the draft the user types (below) never has to spell it.
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 
 			await waitFor(() =>
 				expect(mockLoadMarkdown).toHaveBeenCalledWith(
@@ -1074,9 +1105,12 @@ describe("DocumentBody", () => {
 			);
 			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 			await fireEvent.input(screen.getByRole("textbox"), {
-				target: { value: "@Alfy change it." },
+				target: { value: "change it." },
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+			// Ask mode's own send button stays labelled "Ask Alfy" (redesign
+			// §4.2 item 2) — it transparently prefixes the @Alfy mention on
+			// submit, so the draft the user types (below) never has to spell it.
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 
 			await waitFor(() =>
 				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
@@ -1136,15 +1170,102 @@ describe("DocumentBody", () => {
 			);
 			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 			await fireEvent.input(screen.getByRole("textbox"), {
-				target: { value: "@Alfy is this a good idea?" },
+				target: { value: "is this a good idea?" },
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+			// Ask mode's own send button stays labelled "Ask Alfy" (redesign
+			// §4.2 item 2) — it transparently prefixes the @Alfy mention on
+			// submit, so the draft the user types (below) never has to spell it.
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 
 			await waitFor(() =>
 				expect(mockAskAlfyInComment).toHaveBeenCalledTimes(1),
 			);
 			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
 			expect(screen.queryByTestId("alfy-change-bar")).not.toBeInTheDocument();
+		});
+
+		it("shows 'Alfy is writing' in place on the target block for at least 600ms, even when the reply is instant", async () => {
+			mockCreateArtifactComment.mockResolvedValue(
+				commentFixture({ body: "@Alfy change it." }),
+			);
+			// Resolves on the very next microtask — the fastest a real call
+			// could ever settle — so only the 600ms floor keeps it visible.
+			mockAskAlfyInComment.mockResolvedValue({
+				outcome: "answered",
+				applied: 0,
+				refused: 0,
+				version: 1,
+				reply: commentFixture({
+					id: "comment-2",
+					author: "alfy",
+					body: "Done.",
+				}),
+			});
+			mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
+
+			// Setup (mount, selection) runs under REAL timers — only the final
+			// send is measured under fake ones, so `waitFor`'s own internal
+			// polling never has to interact with faked time.
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 0, left: 0, right: 0, bottom: 0 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "change it." },
+			});
+
+			vi.useFakeTimers();
+			try {
+				await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+				// Flushes the already-resolved mock promise chain
+				// (postComment -> maybeAskAlfy -> askAlfyInComment ->
+				// refreshAfterCommentChange) without advancing past the 600ms
+				// floor itself.
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(mockSetAlfyWritingBlock).toHaveBeenCalledWith(
+					expect.anything(),
+					{ blockId: "p1", tagLabel: "Alfy is writing…" },
+				);
+				// The reply has already settled, but the in-place decoration must
+				// still be showing — never cleared before the 600ms floor.
+				expect(mockSetAlfyWritingBlock).not.toHaveBeenCalledWith(
+					expect.anything(),
+					null,
+				);
+
+				await vi.advanceTimersByTimeAsync(599);
+				expect(mockSetAlfyWritingBlock).not.toHaveBeenCalledWith(
+					expect.anything(),
+					null,
+				);
+
+				await vi.advanceTimersByTimeAsync(1);
+				expect(mockSetAlfyWritingBlock).toHaveBeenLastCalledWith(
+					expect.anything(),
+					null,
+				);
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 
 		it("resolves a comment through the margin's own action", async () => {
@@ -1772,6 +1893,112 @@ describe("DocumentBody", () => {
 			expect(mockScrollToChange).toHaveBeenCalledWith(
 				expect.anything(),
 				"change-applied",
+			);
+		});
+
+		it("the refusal card's Ask again re-selects the refused line and dismisses the card", async () => {
+			mockApplyAlfyChanges.mockReturnValue([]);
+			mockSummarizeRefusals.mockReturnValue({
+				count: 1,
+				items: [
+					{ blockId: "p2", blockLabel: "Second.", code: "block_changed" },
+				],
+			});
+			mockRefusalReasonI18nKey.mockReturnValue(
+				"artifacts.document.refused.changed",
+			);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					...runningActivity(),
+					status: "refused",
+					patches: [
+						{ op: "replaceBlock", blockId: "p2", baseHash: "h2", text: "y" },
+					],
+					refusedBlocks: [{ blockId: "p2", reason: "block_changed" }],
+					appliedCount: 0,
+				},
+			});
+
+			await waitFor(() =>
+				expect(screen.getByTestId("refusal-notice")).toBeInTheDocument(),
+			);
+			// The dashed gutter rule lands on the SAME refused block the card names.
+			expect(mockSetRefusedLines).toHaveBeenCalledWith(expect.anything(), {
+				blockIds: ["p2"],
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: "Ask again" }));
+			expect(mockSelectAndScrollToBlock).toHaveBeenCalledWith(
+				expect.anything(),
+				"p2",
+			);
+			expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument();
+		});
+
+		it("the refusal card's Dismiss clears the card and its line's dashed rule", async () => {
+			mockApplyAlfyChanges.mockReturnValue([]);
+			mockSummarizeRefusals.mockReturnValue({
+				count: 1,
+				items: [
+					{ blockId: "p2", blockLabel: "Second.", code: "block_changed" },
+				],
+			});
+			mockRefusalReasonI18nKey.mockReturnValue(
+				"artifacts.document.refused.changed",
+			);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					...runningActivity(),
+					status: "refused",
+					patches: [
+						{ op: "replaceBlock", blockId: "p2", baseHash: "h2", text: "y" },
+					],
+					refusedBlocks: [{ blockId: "p2", reason: "block_changed" }],
+					appliedCount: 0,
+				},
+			});
+			await waitFor(() =>
+				expect(screen.getByTestId("refusal-notice")).toBeInTheDocument(),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+			expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument();
+			expect(mockSetRefusedLines).toHaveBeenLastCalledWith(
+				expect.anything(),
+				null,
 			);
 		});
 
