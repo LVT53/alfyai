@@ -61,6 +61,17 @@ export interface ArtifactBodyProps {
 	 * never shows the button at all.
 	 */
 	onCommentCountChange?: (openCount: number) => void;
+	/**
+	 * Wave 2.5 review (F1): the live count behind the persisted
+	 * `pendingReviewCount` — same shape/trigger contract as
+	 * `onCommentCountChange` above (a plain reactive report from an
+	 * `$effect`, not a one-time `registerPanelActions` trigger), so the
+	 * chat card, the list row and the count-button dot all update the
+	 * instant Keep/Undo/Keep-all changes the count, without waiting for a
+	 * full conversation-detail reload. Document only, today; a kind with no
+	 * review workflow (App, File) simply never calls it.
+	 */
+	onPendingReviewCountChange?: (count: number) => void;
 }
 
 /** See `ArtifactBodyProps.registerPanelActions`. Every field is optional: a body opts in to only the actions it actually owns a sheet for. */

@@ -300,4 +300,13 @@ export interface DocumentWorkspaceItem {
 	 * "document"` item; every other caller/kind leaves it unset.
 	 */
 	documentPreview?: DocumentCardPreview;
+	/**
+	 * `ArtifactCardSummary.pendingReviewCount` (Wave 2.5 review, F1), carried
+	 * through so the panel list row reads the SAME persisted count the chat
+	 * card and the count-button dot do. Only ever set for a `kind:
+	 * "document"` item; every other caller/kind leaves it unset. `undefined`
+	 * means "never had anything to review" (never omit a real `0`, which
+	 * means "reviewed").
+	 */
+	pendingReviewCount?: number;
 }

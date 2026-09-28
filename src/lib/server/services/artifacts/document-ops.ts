@@ -15,7 +15,7 @@
  * `artifact_kv` directly, restricted to kind `"document"`.
  */
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactKv, artifacts, artifactVersions } from "$lib/server/db/schema";
 import { parseJsonRecord } from "$lib/server/utils/json";
@@ -669,6 +669,74 @@ export function computePendingReviewBlocks(
 			a.blockId.localeCompare(b.blockId),
 	);
 	return pending;
+}
+
+/**
+ * Bulk counterpart to `getDocumentReviewState`, for `read-model.ts`'s
+ * `listArtifactsForConversation` (Wave 2.5 review, F1: "one pending count
+ * per Document as the single source" — the chat card, the panel's list row
+ * and the header's count-button dot all read this ONE persisted number
+ * instead of each independently re-deriving their own from the ephemeral,
+ * session-only `liveDocumentAlfyActivity` signal, which could go stale in a
+ * different way for each of the three).
+ *
+ * Takes rows the caller already fetched (id + metadataJson — never a second
+ * query for those) and returns each DOCUMENT row's count, keyed by artifact
+ * id, through the exact same `computePendingReviewBlocks` a single-artifact
+ * `getDocumentReviewState` call already uses. A row with no `metadata.review`
+ * marker (never touched by Alfy) gets NO entry in the returned map — the
+ * caller's own "no entry" reads as "not reviewable", distinct from an entry
+ * of `0` ("reviewed"); this also means its version history is never even
+ * fetched, keeping the common case (most documents were never Alfy-edited)
+ * cheap: only a row that already has a marker pays for the extra query.
+ */
+export async function computeDocumentPendingReviewCounts(
+	rows: readonly { id: string; metadataJson: string | null }[],
+): Promise<Map<string, number>> {
+	const reviewById = new Map<string, DocumentReviewMetadata>();
+	for (const row of rows) {
+		const review = readDocumentReviewMetadata(
+			parseArtifactMetadata(row.metadataJson),
+		);
+		if (review) reviewById.set(row.id, review);
+	}
+	if (reviewById.size === 0) return new Map();
+
+	const ids = [...reviewById.keys()];
+	const versionRows = db
+		.select({
+			artifactId: artifactVersions.artifactId,
+			versionNumber: artifactVersions.versionNumber,
+			author: artifactVersions.author,
+			body: artifactVersions.body,
+		})
+		.from(artifactVersions)
+		.where(inArray(artifactVersions.artifactId, ids))
+		.orderBy(asc(artifactVersions.versionNumber))
+		.all();
+
+	const versionsById = new Map<string, ReviewVersionRow[]>();
+	for (const row of versionRows) {
+		const entry: ReviewVersionRow = {
+			versionNumber: row.versionNumber,
+			author: row.author as ArtifactAuthor,
+			body: row.body,
+		};
+		const list = versionsById.get(row.artifactId);
+		if (list) list.push(entry);
+		else versionsById.set(row.artifactId, [entry]);
+	}
+
+	const counts = new Map<string, number>();
+	for (const [id, review] of reviewById) {
+		const versions = versionsById.get(id) ?? [];
+		counts.set(
+			id,
+			computePendingReviewBlocks(review.throughVersion, review.keptBlockIds, versions)
+				.length,
+		);
+	}
+	return counts;
 }
 
 /**

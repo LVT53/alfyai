@@ -105,6 +105,18 @@ export interface ArtifactCardSummary {
 	documentPreview?: DocumentCardPreview;
 	/** `kind: "app"` only; `null` when the App's facts were never checked. */
 	appVerification?: AppVerificationSummary | null;
+	/**
+	 * `kind: "document"` only (Wave 2.5 review, F1): the PERSISTED review
+	 * state — `document-ops.ts`'s `computePendingReviewBlocks`, through the
+	 * artifact's own stored `metadata.review` marker (ruling 61) — never the
+	 * ephemeral, session-only `liveDocumentAlfyActivity` signal the chat card,
+	 * list row and count-button dot used to read independently (and could
+	 * each go stale in a different way). `undefined` for a document that has
+	 * never had an Alfy edit land (no marker yet — nothing to review, ever):
+	 * distinct from `0`, which means "reviewed" (a marker exists and nothing
+	 * is pending right now). Every other kind always omits this field.
+	 */
+	pendingReviewCount?: number;
 }
 
 export interface ArtifactDetail extends ArtifactCardSummary {

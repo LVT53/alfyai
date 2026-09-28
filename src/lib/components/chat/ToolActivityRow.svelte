@@ -130,23 +130,30 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 			? body.preview?.documentPreview
 			: undefined;
 	// Mirrors `DocumentWorkspace.svelte`'s own `artifactCardViewFor` exactly
-	// (redesign §5.2, Wave 2.5 Step 12): the standalone card's "N changes to
-	// review" pill and "Review ›" affordance read the same ephemeral signal
-	// the panel list's row already does, matched to THIS card's own artifact.
-	// Wave 2.5 Step 11: only APPLIED changes count here — a fully refused
-	// call (`appliedCount === 0`) has nothing to review, only something left
-	// alone (`refusedCount` below); the previous `Math.max(..., 1)` floor was
-	// a stopgap so a full refusal still showed SOMETHING before this pill
-	// existed (rd5a's own deviation note).
+	// (Wave 2.5 review, F1): `body.preview?.pendingReviewCount` is the
+	// PERSISTED count (`read-model.ts`'s `computeDocumentPendingReviewCounts`),
+	// kept live by the SAME `artifacts` state `+page.svelte` patches from the
+	// open body's own report — wins whenever it is set (0 included: "reviewed"
+	// is a real answer, never a reason to fall through). Only when this card's
+	// artifact has NEVER had a persisted count attached (a brand-new item from
+	// mid-turn, before any conversation-detail load) does it fall back to the
+	// ephemeral, session-only `alfyActivity` guess, exactly like before. Wave
+	// 2.5 Step 11: only APPLIED changes count in that fallback — a fully
+	// refused call (`appliedCount === 0`) has nothing to review, only
+	// something left alone (`refusedCount` below); the previous
+	// `Math.max(..., 1)` floor was a stopgap so a full refusal still showed
+	// SOMETHING before this pill existed (rd5a's own deviation note).
 	const isThisArtifact =
 		alfyActivity != null && alfyActivity.artifactId === body.artifactId;
-	const pendingReviewCount =
+	const ephemeralPendingReviewCount =
 		isThisArtifact &&
 		(alfyActivity?.status === "applied" ||
 			alfyActivity?.status === "refused") &&
 		alfyActivity.appliedCount > 0
 			? alfyActivity.appliedCount
 			: null;
+	const pendingReviewCount =
+		body.preview?.pendingReviewCount ?? ephemeralPendingReviewCount;
 	// The in-chat card's own "N parts left alone" pill (redesign §4.2 "The
 	// chat side"): fed from the SAME `alfyActivity` a refusal already carries
 	// — `status === "refused"` is only ever true when `refusedBlocks.length`
@@ -245,6 +252,17 @@ function handleOpenArtifact(body: ArtifactActivityBody): void {
 		artifactId: body.artifactId,
 		conversationId,
 		kind: body.artifactKind,
+		// Wave 2.5 review (F1): without these, an item opened straight from
+		// the chat card had no `versionNumber`, so the header's version
+		// button never appeared and its meta line showed only the kind
+		// label — the version button was the only way into Versions, and
+		// "Átnézés ›" is the main way into a changed document. `body.preview`
+		// is the same server-computed `ArtifactCardSummary` already attached
+		// from `ConversationDetail.artifacts` for the pending-review pill
+		// above; `undefined` here (a live, mid-turn card with no preview
+		// yet) falls back to the previous behaviour unchanged.
+		versionNumber: body.preview?.versionNumber,
+		updatedAt: body.preview?.updatedAt,
 	});
 }
 

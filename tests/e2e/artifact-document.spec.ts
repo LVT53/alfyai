@@ -965,6 +965,150 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			}
 		}
 	});
+
+	// Wave 2.5 review (F1) — the review's own Verdict section, live: the chat
+	// card, the list row and the count-button dot must follow the PERSISTED
+	// review state (never stay stale after Keep all, never come back empty
+	// after a reload), and opening from the card (the main "Átnézés ›" path)
+	// must count each applied change exactly once, not twice. Reuses the
+	// SAME real edit_artifact scenario as the test above (one applied block,
+	// one refused) — the difference is the panel starts CLOSED, and the user
+	// opens it from the CARD, never from the count button.
+	test("the chat card, list row and count-button dot follow the persisted review state through Keep all and a reload", async ({
+		page,
+	}) => {
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a trip");
+			const artifactId = await seedDocument({
+				conversationId,
+				title: "Trip plan",
+				markdown: "Book the hotel.\n\nBook the flight.",
+			});
+
+			const userId = await testUserId();
+			const readResult = await runReadArtifactTool({
+				userId,
+				conversationId,
+				artifactId,
+				detail: "blocks",
+				abortSignal: new AbortController().signal,
+			});
+			const blocks =
+				readResult.modelPayload.success && "blocks" in readResult.modelPayload
+					? (readResult.modelPayload.blocks as Array<{
+							blockId: string;
+							hash: string;
+							text: string;
+						}>)
+					: [];
+			const applyBlock = blocks.find((b) => b.text === "Book the hotel.");
+			const refuseBlock = blocks.find((b) => b.text === "Book the flight.");
+			expect(applyBlock, "the seeded 'Book the hotel.' block").toBeTruthy();
+			expect(refuseBlock, "the seeded 'Book the flight.' block").toBeTruthy();
+
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+
+			// The panel starts CLOSED — never opened before the edit lands, and
+			// never opened through the count button below either.
+			await openChatAndReload(page, conversationId);
+
+			const markerMessage = `${AI_SMOKE_EDIT_ARTIFACT_MARKER} ${encodeEditArtifactScenarioPayload(
+				{
+					artifactId,
+					applyBlockId: applyBlock?.blockId ?? "",
+					applyBaseHash: applyBlock?.hash ?? "",
+					refuseBlockId: refuseBlock?.blockId ?? "",
+				},
+			)}`;
+			await sendMessage(page, markerMessage);
+			await expect(
+				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			// The in-chat card: one change counted (only the APPLIED block —
+			// the refused one has nothing to review, ruling 61).
+			const card = page.getByTestId("artifact-card-head");
+			await expect(card).toBeVisible({ timeout: 10_000 });
+			await expect(card).toContainText("1 change to review");
+
+			// The count button's dot lights up — a change waits while the
+			// panel is closed.
+			const countButton = page.getByTestId("artifact-count-button");
+			await expect(countButton.getByTestId("artifact-count-dot")).toBeVisible();
+
+			// Open from the CARD (the main "Átnézés ›" path), not the count
+			// button — this is the "double count from the card path" finding's
+			// own trigger.
+			await card.click();
+			const shell = page.getByRole("complementary", {
+				name: "Document workspace",
+			});
+			await expect(shell).toBeVisible({ timeout: 30_000 });
+
+			// The header has a version button AND a time — opened straight from
+			// the card, `handleOpenArtifact` (ToolActivityRow.svelte) must fill
+			// versionNumber/updatedAt from the card's own `body.preview`, or the
+			// header falls back to showing only the kind label (this finding's
+			// own evidence: "the meta line shows only 'Dokumentum'"). The
+			// version button is the only way into Versions from here. Still v1
+			// (the page's own `conversationArtifacts` snapshot from BEFORE this
+			// turn's live edit — the finding's own "Related" note: the header
+			// reads the item's snapshot, not the body's live number, is a
+			// separate, deliberately deferred gap this fix does not close) —
+			// what matters here is that a version renders AT ALL.
+			await expect(shell.getByTestId("artifact-version-pill")).toContainText(
+				"v1",
+			);
+
+			// Exactly ONE applied change, never two, when opened this way.
+			const reviewRegion = page.getByRole("status", {
+				name: "Changes from Alfy",
+			});
+			await expect(reviewRegion).toContainText("Alfy changed 1 part.");
+
+			await page.getByRole("button", { name: "Keep all" }).click();
+			await expect(reviewRegion).toHaveCount(0, { timeout: 5_000 });
+
+			// Live, no reload: the card reads reviewed, and the dot is gone —
+			// both read the SAME persisted count the Keep-all click just
+			// advanced, not the frozen ephemeral "1 change" signal from
+			// earlier in this same turn.
+			await expect(card).toContainText("Reviewed");
+			await expect(card).not.toContainText("1 change to review");
+			await expect(
+				countButton.getByTestId("artifact-count-dot"),
+			).toHaveCount(0);
+
+			// A reload: still nothing pending — the persisted state, not a
+			// stale ephemeral one, is what both the card and the dot show on
+			// a fresh load too.
+			await page.reload({ waitUntil: "networkidle" });
+			await expect(page.getByTestId("artifact-card-head")).toContainText(
+				"Reviewed",
+			);
+			await expect(
+				page
+					.getByTestId("artifact-count-button")
+					.getByTestId("artifact-count-dot"),
+			).toHaveCount(0);
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
 });
 
 async function snapshotUserModelPreference(page: Page): Promise<string | null> {

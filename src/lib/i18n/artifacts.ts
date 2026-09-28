@@ -44,10 +44,17 @@ const artifactsDict = {
 		"artifacts.panel.back": "Back to the item",
 		"artifacts.panel.empty": "Nothing made here yet.",
 		"artifacts.panel.history": "History",
-		// The list row's pending-review pill (redesign §5.2) — a session-only
-		// signal until a later Wave 2.5 agent's durable review-state work lands.
+		// The list row's / chat card's pending-review pill (redesign §5.2),
+		// fed by the PERSISTED `pendingReviewCount` (Wave 2.5 review, F1).
 		"artifacts.panel.pendingReview":
 			"{count} {count, plural, one {change} other {changes}} to review",
+		// The mockup's own `reviewed` string (§4.2 "the card reads ✓
+		// Reviewed"): shown instead of `pendingReview` once
+		// `pendingReviewCount` reads exactly 0 — a marker exists (this
+		// artifact WAS edited by Alfy) and nothing is pending right now,
+		// distinct from a document that was never touched at all (which
+		// shows neither pill).
+		"artifacts.panel.reviewed": "Reviewed",
 		// The in-chat card's second pill (redesign §4.2 "The chat side", Wave 2.5
 		// Step 11): the count of undismissed refusal notes, independent from
 		// pendingReview above — `ToolActivityRow.svelte`'s own `artifactCardView`
@@ -424,6 +431,7 @@ const artifactsDict = {
 		"artifacts.panel.empty": "Itt még nem készült semmi.",
 		"artifacts.panel.history": "Előzmények",
 		"artifacts.panel.pendingReview": "{count} módosítás vár rád",
+		"artifacts.panel.reviewed": "Átnézve",
 		// No ICU plural here on purpose, matching cardSubtitle above: Hungarian
 		// nouns after a numeral stay singular.
 		"artifacts.panel.leftAlone": "{count} részt nem érintett",

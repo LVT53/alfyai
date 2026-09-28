@@ -26,7 +26,7 @@
 // not a nested log entry. `ArtifactCard.test.ts` and
 // `artifact-chat-card.spec.ts` assert the row+card pair together instead of
 // a single-title invariant for this chrome.
-import { ChevronRight, CircleSlash, Sparkles } from "@lucide/svelte";
+import { Check, ChevronRight, CircleSlash, Sparkles } from "@lucide/svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -242,6 +242,16 @@ function handleOpen(): void {
 					<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
 					{$t('artifacts.panel.pendingReview', { count: view.pendingReviewCount })}
 				</span>
+			{:else if view.pendingReviewCount === 0}
+				<!-- Wave 2.5 review (F1): "reviewed" is a real, positive answer —
+				     a marker exists (Alfy edited this Document) and nothing is
+				     pending right now — distinct from a document that was never
+				     touched at all, which still falls through to the plain
+				     chevron below. -->
+				<span class="pill artifact-row-pill-reviewed">
+					<Check size={12} strokeWidth={2} aria-hidden="true" />
+					{$t('artifacts.panel.reviewed')}
+				</span>
 			{:else}
 				<span class="artifact-row-chev" aria-hidden="true">
 					<ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
@@ -325,6 +335,15 @@ function handleOpen(): void {
 							<span class="pill artifact-card-pending">
 								<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
 								{$t('artifacts.panel.pendingReview', { count: view.pendingReviewCount })}
+							</span>
+						{:else if view.pendingReviewCount === 0}
+							<!-- Wave 2.5 review (F1): "the card reads ✓ Reviewed" once
+							     Keep/Undo/Keep-all resolves every pending change — a
+							     positive confirmation, not silence, and never the
+							     stale "N to review" pill this replaces. -->
+							<span class="pill artifact-card-reviewed">
+								<Check size={12} strokeWidth={2} aria-hidden="true" />
+								{$t('artifacts.panel.reviewed')}
 							</span>
 						{/if}
 						{#if view.refusedCount}
@@ -538,6 +557,23 @@ function handleOpen(): void {
 		border-radius: var(--radius-full);
 		background: var(--warning-tint);
 		color: var(--warning-text);
+		font-size: 0.69rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+
+	/* Same shape as `.artifact-card-pending`, success-toned — "the card reads
+	   ✓ Reviewed" (Wave 2.5 review, F1) once nothing is pending anymore. */
+	.artifact-card-reviewed {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		height: 20px;
+		padding: 0 0.44rem;
+		border-radius: var(--radius-full);
+		background: var(--success-tint);
+		color: var(--success-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
@@ -801,6 +837,23 @@ function handleOpen(): void {
 		border-radius: var(--radius-full);
 		background: var(--accent-tint);
 		color: var(--accent-text);
+		font-size: 0.69rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+
+	/* Same shape as `.artifact-row-pill`, success-toned — see
+	   `.artifact-card-reviewed`'s own doc comment. */
+	.artifact-row-pill-reviewed {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		height: 20px;
+		padding: 0 0.44rem;
+		border-radius: var(--radius-full);
+		background: var(--success-tint);
+		color: var(--success-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
