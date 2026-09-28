@@ -336,3 +336,289 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 		).not.toBeAttached();
 	});
 });
+
+// Both the mobile-shell and desktop-shell headers are real DOM nodes at
+// every viewport (CSS alone decides which is visible — `artifact-document
+// .spec.ts`'s own `openDocumentFromPanel` established this pattern), so
+// every header-button lookup below is scoped to ONE shell rather than
+// `page.getByTestId(...)`, which would strict-mode-fail on the other, hidden
+// copy.
+function mobileShell(page: Page) {
+	return page.getByTestId("document-workspace-mobile-shell");
+}
+function desktopShell(page: Page) {
+	return page.getByRole("complementary", { name: "Document workspace" });
+}
+
+// Wave 2.5 Step 8: comments away from the inline rail — the header's
+// Comments button (a bottom sheet on phones, a drawer on a narrow desktop
+// panel) and a tapped highlight, both landing on the same MarginPanel
+// content DocumentBody already renders inline at full width.
+test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("phone: the header's Comments button opens a bottom sheet, and a tapped highlight opens the same sheet at that thread", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Phone comments");
+		const markdown = "Book the flight to Vienna.";
+		const { artifact, block } = await seedDocumentWithBlock(
+			conversationId,
+			markdown,
+		);
+		const created = await createComment({
+			userId: await testUserId(),
+			artifactId: artifact.id,
+			anchor: anchorFor(block.id, block.markdown, "flight"),
+			author: "user",
+			body: "Anna says it sells out early.",
+		});
+		if (!created) throw new Error("the seeded comment must be created");
+
+		await page.setViewportSize({ width: 390, height: 844 });
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button-compact").click();
+		await page
+			.getByTestId("artifact-panel-list-mobile")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const shell = mobileShell(page);
+		const commentsButton = shell.getByTestId("artifact-comments-button");
+		await expect(commentsButton).toBeVisible({ timeout: 30_000 });
+		await commentsButton.click();
+
+		const sheet = page.getByRole("dialog", { name: "Comments" });
+		await expect(sheet).toBeVisible();
+		await expect(sheet.getByText("Anna says it sells out early.")).toBeVisible();
+
+		await page.keyboard.press("Escape");
+		await expect(sheet).toBeHidden();
+		await expect(commentsButton).toBeFocused();
+
+		// A tapped highlight opens the SAME sheet, scrolled to and focused on
+		// that thread — the phone toolbar/rail never shows the highlight's
+		// words otherwise, so this is the only way to see the thread again.
+		const highlight = shell.locator(
+			`[data-comment-anchor-id="${created.id}"]`,
+		);
+		await expect(highlight).toBeVisible();
+		await highlight.click();
+
+		await expect(sheet).toBeVisible();
+		await expect(sheet.getByText("Anna says it sells out early.")).toBeVisible();
+	});
+
+	// A panel width below 820px but a viewport width above BOTH the chat
+	// page's own desktop-count-button breakpoint (Tailwind's `lg`, 1024px)
+	// and the workspace's own desktop-shell breakpoint (768px) — the docked
+	// panel is `min(68vw, 950px)`, so 1100px viewport width gives a 748px
+	// panel: too narrow for the inline rail, wide enough that every OTHER
+	// piece of chrome still reads as "desktop".
+	test("narrow desktop panel: the rail becomes a drawer, toggled by the header's Comments button", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Narrow panel");
+		const markdown = "Book the flight to Vienna.";
+		const { artifact, block } = await seedDocumentWithBlock(
+			conversationId,
+			markdown,
+		);
+		await createComment({
+			userId: await testUserId(),
+			artifactId: artifact.id,
+			anchor: anchorFor(block.id, block.markdown, "flight"),
+			author: "user",
+			body: "Seeded for the narrow-panel drawer",
+		});
+
+		await page.setViewportSize({ width: 1100, height: 800 });
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const shell = desktopShell(page);
+		await expect(shell).toBeVisible({ timeout: 30_000 });
+		// The inline rail is the redesign's own `.document-content-rail` —
+		// `display: none` below the container's 820px threshold.
+		await expect(shell.locator(".document-content-rail")).not.toBeVisible();
+
+		const commentsButton = shell.getByTestId("artifact-comments-button");
+		await commentsButton.click();
+
+		const drawer = page.getByTestId("comments-drawer");
+		await expect(drawer).toBeVisible();
+		await expect(
+			drawer.getByText("Seeded for the narrow-panel drawer"),
+		).toBeVisible();
+
+		await page.keyboard.press("Escape");
+		await expect(drawer).toBeHidden();
+		await expect(commentsButton).toBeFocused();
+	});
+});
+
+// Wave 2.5 Step 8: Versions and Download become popovers anchored to their
+// own header buttons on desktop, sheets on phones.
+test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	/** Bumps the document's body through the real save route (never a raw DB write) so the popover's own version list is genuine, server-ordered data. */
+	async function saveNewVersion(
+		page: Page,
+		artifactId: string,
+		conversationId: string,
+		expectVersion: number,
+		body: string,
+	): Promise<void> {
+		const response = await page.request.fetch(
+			`/api/artifacts/${artifactId}/body?conversationId=${conversationId}`,
+			{
+				method: "PATCH",
+				data: { body, expectVersion, coalesce: false },
+			},
+		);
+		expect(response.status(), await response.text()).toBe(200);
+	}
+
+	test("at a narrow desktop panel width, the Versions popover opens anchored near the version button atop an already-open Comments drawer, and Escape closes only the popover", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Versions popover");
+		const { artifact, block } = await seedDocumentWithBlock(
+			conversationId,
+			"Book the flight to Vienna.",
+		);
+		await createComment({
+			userId: await testUserId(),
+			artifactId: artifact.id,
+			anchor: anchorFor(block.id, block.markdown, "flight"),
+			author: "user",
+			body: "Still open while Versions is on top",
+		});
+		await saveNewVersion(
+			page,
+			artifact.id,
+			conversationId,
+			1,
+			"<!--b:p1-->\nBook the flight to Vienna, confirmed.",
+		);
+
+		await page.setViewportSize({ width: 1100, height: 800 });
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const shell = desktopShell(page);
+		await shell.getByTestId("artifact-comments-button").click();
+		const drawer = page.getByTestId("comments-drawer");
+		await expect(drawer).toBeVisible({ timeout: 30_000 });
+
+		const versionButton = shell.getByTestId("artifact-version-pill");
+		await versionButton.click();
+		const popover = page.getByRole("dialog", { name: "Versions" });
+		await expect(popover).toBeVisible();
+		await expect(popover.getByText("v2")).toBeVisible();
+
+		// Anchored near its own trigger, not the corner of the panel: within a
+		// generous distance of the version button's own row, not off in some
+		// unrelated corner.
+		const buttonBox = await versionButton.boundingBox();
+		const popoverBox = await popover.boundingBox();
+		expect(buttonBox).not.toBeNull();
+		expect(popoverBox).not.toBeNull();
+		expect(Math.abs((popoverBox?.y ?? 0) - (buttonBox?.y ?? 0))).toBeLessThan(
+			200,
+		);
+
+		// Escape closes only the TOPMOST layer (Versions) — the Comments
+		// drawer underneath stays open.
+		await page.keyboard.press("Escape");
+		await expect(popover).toBeHidden();
+		await expect(drawer).toBeVisible();
+		await expect(versionButton).toBeFocused();
+	});
+
+	test("restores a version from the Versions popover with an inline confirm, closes, and offers Undo", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Versions restore");
+		const { artifact } = await seedDocumentWithBlock(
+			conversationId,
+			"Book the flight to Vienna.",
+		);
+		await saveNewVersion(
+			page,
+			artifact.id,
+			conversationId,
+			1,
+			"<!--b:p1-->\nBook the flight to Vienna, confirmed.",
+		);
+
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		await desktopShell(page).getByTestId("artifact-version-pill").click();
+		const popover = page.getByRole("dialog", { name: "Versions" });
+		await expect(popover).toBeVisible();
+
+		await popover.getByRole("button", { name: "Restore" }).click();
+		await expect(
+			popover.getByText(/Restore v1\? Your current text stays as a version\./),
+		).toBeVisible();
+		// Never a modal — the confirm is the SAME popover's own content.
+		await expect(page.getByTestId("confirm-delete")).toHaveCount(0);
+
+		await popover.getByRole("button", { name: "Restore" }).click();
+		await expect(popover).toBeHidden();
+
+		const toast = page.getByTestId("toast-entry").filter({ hasText: "v1" });
+		await expect(toast).toBeVisible();
+		await expect(toast.getByRole("button", { name: "Undo" })).toBeVisible();
+	});
+
+	test("the Download popover opens from the header's Download button and offers PDF, Word and Markdown", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Download popover");
+		await seedDocumentWithBlock(conversationId, "Book the flight to Vienna.");
+
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const downloadButton = desktopShell(page).getByTestId(
+			"artifact-download-button",
+		);
+		await downloadButton.click();
+
+		const popover = page.getByTestId("document-download-popover");
+		await expect(popover).toBeVisible();
+		await expect(popover.getByRole("button", { name: "PDF" })).toBeVisible();
+		await expect(popover.getByRole("button", { name: "Word" })).toBeVisible();
+		await expect(
+			popover.getByRole("button", { name: "Markdown" }),
+		).toBeVisible();
+
+		await page.keyboard.press("Escape");
+		await expect(popover).toBeHidden();
+		await expect(downloadButton).toBeFocused();
+	});
+});
