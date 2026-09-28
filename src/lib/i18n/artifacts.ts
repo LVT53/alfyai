@@ -612,7 +612,8 @@ const artifactsDict = {
 		"artifacts.document.comment.peekThread": "Szál megnyitása",
 		"artifacts.document.comment.quoteA11y": "„{quote}” megmutatása a szövegben",
 		"artifacts.document.comment.selectionToolbar": "Kijelölés",
-		"artifacts.document.comment.askHeader": "Alfy megkérdezése erről: „{quote}”",
+		"artifacts.document.comment.askHeader":
+			"Alfy megkérdezése erről: „{quote}”",
 		"artifacts.document.comment.commentHeader": "Megjegyzés ehhez: „{quote}”",
 		"artifacts.document.comment.askPlaceholder":
 			"Mit tegyen Alfy ezzel a szöveggel?",

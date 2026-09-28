@@ -120,11 +120,7 @@ describe("computeBubblePlacement with the composer's own footprint", () => {
 	// container's own top edge once it grows to 320px.
 	it("flips below when there is room for the small pill above but not for the composer", () => {
 		const anchor = { top: 150, left: 380, right: 420, bottom: 170 };
-		const pillPlacement = computeBubblePlacement(
-			anchor,
-			container(),
-			BUBBLE,
-		);
+		const pillPlacement = computeBubblePlacement(anchor, container(), BUBBLE);
 		const composerPlacement = computeBubblePlacement(
 			anchor,
 			container(),
