@@ -32,6 +32,10 @@ Minor, cheap and visible (fix these too):
 - (223–228) tabs ARIA.
 - (229–232) the composer's Escape only works from the textarea.
 
+Also verify (from fix agent B's report, its finding 7): the zero-width-space anchor B uses for an empty new tab must
+never reach the saved Markdown (canonical form and hash), an export, the card preview or `read_artifact`. Prove it with
+a test; if it leaks, fix it at the serializer.
+
 Not yours (recorded for later): the other [doc] minors — phone touch targets, the Comments sheet/drawer offsets, rail copy
 and counts, prose details, Versions row details, refusal placement, Undo's version summary.
 
