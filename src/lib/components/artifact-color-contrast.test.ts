@@ -44,6 +44,40 @@ function contrastRatio(a: string, b: string): number {
 	return (hi + 0.05) / (lo + 0.05);
 }
 
+function parseHex(hex: string): [number, number, number] {
+	const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+	if (!m) throw new Error(`Not a 6-digit hex colour: ${hex}`);
+	const n = Number.parseInt(m[1], 16);
+	return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}
+
+function toHex([r, g, b]: [number, number, number]): string {
+	return `#${[r, g, b].map((c) => Math.round(c).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
+ * What `color-mix(in srgb, foreground percent%, transparent)` renders as
+ * once painted over `surfaceHex` — btn-primary's actual background is this
+ * composite, never a flat token-to-token pair, so testing --accent-text
+ * against --surface-page alone (as the other cases in this file do) would
+ * miss a regression in the tint percentage itself, exactly what motivated
+ * this test (§9.1: the 18% hover tint measured under 4.5:1).
+ */
+function mixOverSurface(
+	foregroundHex: string,
+	percent: number,
+	surfaceHex: string,
+): string {
+	const alpha = percent / 100;
+	const fg = parseHex(foregroundHex);
+	const bg = parseHex(surfaceHex);
+	return toHex([
+		alpha * fg[0] + (1 - alpha) * bg[0],
+		alpha * fg[1] + (1 - alpha) * bg[1],
+		alpha * fg[2] + (1 - alpha) * bg[2],
+	]);
+}
+
 /**
  * Pull a theme block out of app.css, the same way as
  * `checkbox-tick-contrast.test.ts`: sliced from the selector to the first
@@ -82,6 +116,25 @@ describe("artifact redesign token contrast (§9.1)", () => {
 			expect(
 				ratio,
 				`--accent-text ${accentText} on --surface-page ${surfacePage} in ${theme} is ${ratio.toFixed(2)}:1`,
+			).toBeGreaterThanOrEqual(MIN_RATIO);
+		});
+
+		// Wave 2.5 review (F2): btn-primary's real background is a 12% --accent
+		// tint composited over the page, in BOTH its resting and hover states
+		// (app.css — the hover rule deliberately keeps the same 12% rather than
+		// darkening to 18%, which measured 4.36:1 and prompted this test).
+		// Recomputes the composite from the literal app.css values rather than
+		// trusting the 12% figure, so a future edit to either the tint percent
+		// or --accent-text fails loudly here instead of silently drifting
+		// under 4.5:1 the way the 18% hover state once did.
+		it(`${theme}: --accent-text clears ${MIN_RATIO}:1 on btn-primary's 12% accent tint (resting and hover)`, () => {
+			const accent = tokenValue(selector, "accent");
+			const accentText = tokenValue(selector, "accent-text");
+			const tint = mixOverSurface(accent, 12, surfacePage);
+			const ratio = contrastRatio(accentText, tint);
+			expect(
+				ratio,
+				`--accent-text ${accentText} on the 12% --accent tint ${tint} (over --surface-page ${surfacePage}) in ${theme} is ${ratio.toFixed(2)}:1`,
 			).toBeGreaterThanOrEqual(MIN_RATIO);
 		});
 
