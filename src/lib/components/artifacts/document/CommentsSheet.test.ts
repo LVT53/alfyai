@@ -75,9 +75,7 @@ describe("CommentsSheet", () => {
 			"Comments",
 		);
 		expect(
-			within(dialog).getByText(
-				"Anna says the Musikverein sells out early.",
-			),
+			within(dialog).getByText("Anna says the Musikverein sells out early."),
 		).toBeInTheDocument();
 	});
 
@@ -88,9 +86,7 @@ describe("CommentsSheet", () => {
 		expect(drawer).toHaveAttribute("aria-label", "Comments");
 		expect(drawer.parentElement).toBe(document.body);
 		expect(
-			within(drawer).getByText(
-				"Anna says the Musikverein sells out early.",
-			),
+			within(drawer).getByText("Anna says the Musikverein sells out early."),
 		).toBeInTheDocument();
 	});
 
@@ -150,7 +146,11 @@ describe("CommentsSheet", () => {
 		});
 		await fireEvent.click(quoteButton);
 
-		expect(onGotoAnchor).toHaveBeenCalledWith("p1", expect.any(Number), expect.any(Number));
+		expect(onGotoAnchor).toHaveBeenCalledWith(
+			"p1",
+			expect.any(Number),
+			expect.any(Number),
+		);
 		expect(onClose).toHaveBeenCalled();
 	});
 });

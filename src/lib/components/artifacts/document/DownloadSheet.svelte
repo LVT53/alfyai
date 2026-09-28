@@ -30,7 +30,10 @@ import { t } from "$lib/i18n";
 import { focusTrap } from "$lib/utils/focus-trap";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { portalToBody } from "$lib/utils/portal";
-import { isPhoneViewport, watchPhoneViewport } from "$lib/utils/viewport.svelte";
+import {
+	isPhoneViewport,
+	watchPhoneViewport,
+} from "$lib/utils/viewport.svelte";
 
 let {
 	artifactId,

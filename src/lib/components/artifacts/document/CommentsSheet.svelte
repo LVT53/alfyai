@@ -37,6 +37,11 @@ import { t } from "$lib/i18n";
 import { focusTrap } from "$lib/utils/focus-trap";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { portalToBody } from "$lib/utils/portal";
+// MarginPanel is a genuine runtime import for the two <MarginPanel {...} />
+// mounts in the template below, on top of typing MarginPanelProps via
+// ComponentProps<typeof MarginPanel> — biome's import-usage check only sees
+// this script block, not the template, so it reads as type-only.
+// biome-ignore lint/style/useImportType: see above — import type would break both template mounts
 import MarginPanel from "./MarginPanel.svelte";
 
 type MarginPanelProps = Omit<ComponentProps<typeof MarginPanel>, "contentEl">;

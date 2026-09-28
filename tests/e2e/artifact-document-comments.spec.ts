@@ -392,7 +392,9 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 
 		const sheet = page.getByRole("dialog", { name: "Comments" });
 		await expect(sheet).toBeVisible();
-		await expect(sheet.getByText("Anna says it sells out early.")).toBeVisible();
+		await expect(
+			sheet.getByText("Anna says it sells out early."),
+		).toBeVisible();
 
 		// `toBeVisible` only checks the DOM/CSS, never actual paint order — the
 		// mobile shell's own full-screen `.workspace-mobile-backdrop` sits at
@@ -408,7 +410,10 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 			);
 			return !!top && node.contains(top);
 		});
-		expect(isOnTop, "the sheet must be the topmost element, not painted under the mobile shell's own backdrop").toBe(true);
+		expect(
+			isOnTop,
+			"the sheet must be the topmost element, not painted under the mobile shell's own backdrop",
+		).toBe(true);
 
 		await page.keyboard.press("Escape");
 		await expect(sheet).toBeHidden();
@@ -417,14 +422,14 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 		// A tapped highlight opens the SAME sheet, scrolled to and focused on
 		// that thread — the phone toolbar/rail never shows the highlight's
 		// words otherwise, so this is the only way to see the thread again.
-		const highlight = shell.locator(
-			`[data-comment-anchor-id="${created.id}"]`,
-		);
+		const highlight = shell.locator(`[data-comment-anchor-id="${created.id}"]`);
 		await expect(highlight).toBeVisible();
 		await highlight.click();
 
 		await expect(sheet).toBeVisible();
-		await expect(sheet.getByText("Anna says it sells out early.")).toBeVisible();
+		await expect(
+			sheet.getByText("Anna says it sells out early."),
+		).toBeVisible();
 	});
 
 	// A panel width below 820px but a viewport width above BOTH the chat

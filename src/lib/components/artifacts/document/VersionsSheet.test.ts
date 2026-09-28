@@ -113,7 +113,9 @@ describe("VersionsSheet", () => {
 			screen.getByText("Restore v2? Your current text stays as a version."),
 		).toBeInTheDocument();
 
-		await fireEvent.click(screen.getAllByRole("button", { name: "Restore" })[0]);
+		await fireEvent.click(
+			screen.getAllByRole("button", { name: "Restore" })[0],
+		);
 
 		await waitFor(() => {
 			expect(mockRestoreVersion).toHaveBeenCalledWith(
@@ -138,7 +140,9 @@ describe("VersionsSheet", () => {
 		render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
 
 		await waitFor(() => screen.getByText("Shortened Saturday"));
-		await fireEvent.click(screen.getAllByRole("button", { name: "Restore" })[0]);
+		await fireEvent.click(
+			screen.getAllByRole("button", { name: "Restore" })[0],
+		);
 		expect(
 			screen.getByText("Restore v2? Your current text stays as a version."),
 		).toBeInTheDocument();
@@ -164,8 +168,12 @@ describe("VersionsSheet", () => {
 		});
 
 		await waitFor(() => screen.getByText("Shortened Saturday"));
-		await fireEvent.click(screen.getAllByRole("button", { name: "Restore" })[0]);
-		await fireEvent.click(screen.getAllByRole("button", { name: "Restore" })[0]);
+		await fireEvent.click(
+			screen.getAllByRole("button", { name: "Restore" })[0],
+		);
+		await fireEvent.click(
+			screen.getAllByRole("button", { name: "Restore" })[0],
+		);
 		await waitFor(() => expect(mockRestoreVersion).toHaveBeenCalledTimes(1));
 
 		const toastEntry = get(toasts).at(-1);
