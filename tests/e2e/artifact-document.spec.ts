@@ -1279,14 +1279,13 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			// versionNumber/updatedAt from the card's own `body.preview`, or the
 			// header falls back to showing only the kind label (this finding's
 			// own evidence: "the meta line shows only 'Dokumentum'"). The
-			// version button is the only way into Versions from here. Still v1
-			// (the page's own `conversationArtifacts` snapshot from BEFORE this
-			// turn's live edit — the finding's own "Related" note: the header
-			// reads the item's snapshot, not the body's live number, is a
-			// separate, deliberately deferred gap this fix does not close) —
-			// what matters here is that a version renders AT ALL.
+			// version button is the only way into Versions from here. v2 — the
+			// seeded document started at v1 and this turn's one applied edit
+			// (the "Book the hotel." block) created v2 — because the header
+			// now follows the live version instead of the page's pre-turn
+			// `conversationArtifacts` snapshot (fixed in 9d6b1868).
 			await expect(shell.getByTestId("artifact-version-pill")).toContainText(
-				"v1",
+				"v2",
 			);
 
 			// Exactly ONE applied change, never two, when opened this way.
