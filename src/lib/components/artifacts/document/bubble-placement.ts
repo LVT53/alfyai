@@ -74,8 +74,14 @@ export interface BubblePlacement {
 	placement: "above" | "below";
 }
 
-/** `.selection-bubble`'s own `min-width: 12rem` and its default (non-composing, two-action-row) rendered height. */
-export const DEFAULT_BUBBLE_SIZE: BubbleSize = { width: 192, height: 92 };
+/**
+ * `.selection-bubble`'s own `min-width: 12rem` and its default (non-
+ * composing, two-action-row) rendered height. Not exported: `DocumentBody.svelte`
+ * always places the bubble against `COMPOSER_BUBBLE_SIZE` below instead (the
+ * grown composer's footprint, so growing in place never needs a re-flip) —
+ * this stays the internal default for any caller that omits `bubbleSize`.
+ */
+const DEFAULT_BUBBLE_SIZE: BubbleSize = { width: 192, height: 92 };
 
 /**
  * The grown composer's own footprint (redesign §4.2 item 2: "the pill grows
