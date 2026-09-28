@@ -289,7 +289,8 @@ const artifactsDict = {
 		// title plus this counts suffix — never interpolated into one string,
 		// since a tab's title is arbitrary user text.
 		"artifacts.document.margin.otherTabs": "In other tabs",
-		"artifacts.document.margin.otherTabCounts": "{open} open · {resolved} resolved",
+		"artifacts.document.margin.otherTabCounts":
+			"{open} open · {resolved} resolved",
 		// The download sheet (Slice 1, T12).
 		"artifacts.document.export.title": "Download {title}",
 		"artifacts.document.export.pdf": "PDF",
@@ -518,18 +519,19 @@ const artifactsDict = {
 		"artifacts.document.comment.askAlfyHint":
 			"Alfy itt válaszol, és szerkesztheti is a szöveget. A módosítást megtarthatod vagy visszavonhatod.",
 		"artifacts.document.comment.peekThread": "Szál megnyitása",
-		"artifacts.document.comment.quoteA11y":
-			"„{quote}” megmutatása a szövegben",
+		"artifacts.document.comment.quoteA11y": "„{quote}” megmutatása a szövegben",
 		"artifacts.document.margin.title": "Megjegyzések",
 		"artifacts.document.margin.empty":
 			"Nincs megjegyzés ezen a fülön. Jelölj ki szöveget egy új megjegyzéshez.",
 		// No ICU plural here on purpose, matching commentCountA11y above:
 		// Hungarian nouns after a numeral stay singular.
-		"artifacts.document.margin.orphanedGroup": "{count} megjegyzés törölt szövegen",
+		"artifacts.document.margin.orphanedGroup":
+			"{count} megjegyzés törölt szövegen",
 		"artifacts.document.margin.resolvedToggle": "{count} lezárva",
 		"artifacts.document.margin.showOpenOnly": "Csak a nyitottak",
 		"artifacts.document.margin.otherTabs": "Más füleken",
-		"artifacts.document.margin.otherTabCounts": "{open} nyitott · {resolved} lezárva",
+		"artifacts.document.margin.otherTabCounts":
+			"{open} nyitott · {resolved} lezárva",
 		"artifacts.document.export.title": "{title} letöltése",
 		"artifacts.document.export.pdf": "PDF",
 		"artifacts.document.export.docx": "Word",

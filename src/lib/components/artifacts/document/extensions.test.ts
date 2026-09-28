@@ -267,7 +267,9 @@ describe("extensions: CommentAnchors (redesign §3.2, Wave 2.5 Step 7)", () => {
 		).type.attrs;
 	}
 
-	function firstBlockId(editor: ReturnType<typeof createDocumentEditor>): string {
+	function firstBlockId(
+		editor: ReturnType<typeof createDocumentEditor>,
+	): string {
 		let id: string | null = null;
 		editor.state.doc.forEach((node) => {
 			if (id !== null) return;
@@ -287,15 +289,20 @@ describe("extensions: CommentAnchors (redesign §3.2, Wave 2.5 Step 7)", () => {
 
 			const range = commentAnchorDocRange(editor.state.doc, blockId, from, to);
 			expect(range).not.toBeNull();
-			expect(editor.state.doc.textBetween(range?.from ?? 0, range?.to ?? 0)).toBe(
-				"world",
-			);
+			expect(
+				editor.state.doc.textBetween(range?.from ?? 0, range?.to ?? 0),
+			).toBe("world");
 			editor.destroy();
 		});
 
 		it("returns null when the block id is not in the live doc", () => {
 			const editor = mountEditor("Hello world.");
-			const range = commentAnchorDocRange(editor.state.doc, "missing-block", 0, 5);
+			const range = commentAnchorDocRange(
+				editor.state.doc,
+				"missing-block",
+				0,
+				5,
+			);
 			expect(range).toBeNull();
 			editor.destroy();
 		});
@@ -352,13 +359,18 @@ describe("extensions: CommentAnchors (redesign §3.2, Wave 2.5 Step 7)", () => {
 		it("skips an anchor whose block is not in the live doc, without throwing", () => {
 			const editor = mountEditor("Hello world.");
 			const anchors: CommentAnchorTarget[] = [
-				{ commentId: "gone", blockId: "missing", from: 0, to: 3, resolved: false },
+				{
+					commentId: "gone",
+					blockId: "missing",
+					from: 0,
+					to: 3,
+					resolved: false,
+				},
 			];
 			expect(
 				buildCommentAnchorDecorations(editor.state.doc, anchors, null).find(),
 			).toHaveLength(0);
 			editor.destroy();
 		});
-
 	});
 });

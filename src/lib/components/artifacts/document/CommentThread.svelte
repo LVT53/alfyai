@@ -16,7 +16,14 @@
  * "post this text to this thread", "set this thread's status", "scroll to
  * the anchor" and "scroll to a change", each already bound by the caller.
  */
-import { Check, ChevronDown, CornerDownLeft, Quote, RotateCcw, Sparkles } from "@lucide/svelte";
+import {
+	Check,
+	ChevronDown,
+	CornerDownLeft,
+	Quote,
+	RotateCcw,
+	Sparkles,
+} from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import CommentCard from "../CommentCard.svelte";
@@ -54,7 +61,9 @@ let {
 } = $props();
 
 /** Alfy's own notes (spec decision 8, redesign §3.2): a thread whose FIRST message is Alfy's own, unprompted — never a reply inside a thread the user started. */
-let isGuessThread = $derived(thread.parentId === null && thread.author === "alfy");
+let isGuessThread = $derived(
+	thread.parentId === null && thread.author === "alfy",
+);
 
 /** Resolved threads fold to one line by default (ruling 61); peeking is a one-way, per-mount reveal — Reopen (an ordinary status change) is what un-resolves a thread, not this. */
 let peeked = $state(false);
@@ -104,7 +113,9 @@ function truncate(text: string, max: number): string {
 	const trimmed = text.trim();
 	return trimmed.length > max ? `${trimmed.slice(0, max).trimEnd()}…` : trimmed;
 }
-let foldedPreview = $derived(truncate(quote ?? thread.body, FOLDED_PREVIEW_MAX));
+let foldedPreview = $derived(
+	truncate(quote ?? thread.body, FOLDED_PREVIEW_MAX),
+);
 let foldedA11yLabel = $derived(
 	`${$t("artifacts.document.comment.peekThread")}: ${foldedPreview}`,
 );

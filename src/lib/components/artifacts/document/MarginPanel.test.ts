@@ -174,15 +174,17 @@ describe("MarginPanel (the redesign's rail, Wave 2.5 Step 7)", () => {
 
 		it("names the count, and is collapsed until clicked", async () => {
 			renderWithOneFoundOneGone();
-			expect(screen.getByText("1 comment on text that was removed")).toBeInTheDocument();
+			expect(
+				screen.getByText("1 comment on text that was removed"),
+			).toBeInTheDocument();
 			expect(screen.queryByText("Where did this go?")).not.toBeInTheDocument();
 
-			await fireEvent.click(
-				screen.getByRole("button", { name: /removed/i }),
-			);
+			await fireEvent.click(screen.getByRole("button", { name: /removed/i }));
 			const group = screen.getByTestId("margin-orphaned-group");
 			expect(within(group).getByText("Where did this go?")).toBeInTheDocument();
-			expect(within(group).queryByText("Still relevant")).not.toBeInTheDocument();
+			expect(
+				within(group).queryByText("Still relevant"),
+			).not.toBeInTheDocument();
 			expect(screen.getByText("Still relevant")).toBeInTheDocument();
 		});
 
@@ -236,7 +238,9 @@ describe("MarginPanel (the redesign's rail, Wave 2.5 Step 7)", () => {
 			renderOneOpenOneResolved();
 			expect(screen.getByText("Still open")).toBeInTheDocument();
 			expect(screen.queryByText("All set")).not.toBeInTheDocument();
-			expect(screen.getByRole("button", { name: "1 resolved" })).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: "1 resolved" }),
+			).toBeInTheDocument();
 		});
 
 		it("reveals resolved threads (still folded) once toggled to All", async () => {

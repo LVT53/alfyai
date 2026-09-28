@@ -56,7 +56,11 @@ describe("CommentThread", () => {
 
 	it("tags the root Guess only when Alfy itself started the thread", () => {
 		const { rerender } = render(CommentThread, {
-			thread: makeThread({ author: "alfy", parentId: null, body: "It's open until 21:00." }),
+			thread: makeThread({
+				author: "alfy",
+				parentId: null,
+				body: "It's open until 21:00.",
+			}),
 			onResolve: vi.fn(),
 			onSubmitReply: vi.fn(),
 		});
@@ -117,7 +121,10 @@ describe("CommentThread", () => {
 	describe("resolved fold and peek", () => {
 		it("folds a resolved thread to one line, hiding Reply/Resolve until peeked", async () => {
 			render(CommentThread, {
-				thread: makeThread({ status: "resolved", body: "Is €540 still the rate?" }),
+				thread: makeThread({
+					status: "resolved",
+					body: "Is €540 still the rate?",
+				}),
 				onResolve: vi.fn(),
 				onSubmitReply: vi.fn(),
 			});
@@ -128,7 +135,9 @@ describe("CommentThread", () => {
 			await fireEvent.click(
 				screen.getByRole("button", { name: /Is €540 still the rate/i }),
 			);
-			expect(screen.getByRole("button", { name: "Reopen" })).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: "Reopen" }),
+			).toBeInTheDocument();
 		});
 
 		it("never folds an open thread", () => {
@@ -137,7 +146,9 @@ describe("CommentThread", () => {
 				onResolve: vi.fn(),
 				onSubmitReply: vi.fn(),
 			});
-			expect(screen.getByRole("button", { name: "Resolve" })).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: "Resolve" }),
+			).toBeInTheDocument();
 		});
 	});
 
@@ -185,7 +196,9 @@ describe("CommentThread", () => {
 			await fireEvent.input(screen.getByRole("textbox"), {
 				target: { value: "@Alfy change it to ten." },
 			});
-			expect(screen.getByRole("button", { name: "Ask Alfy" })).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: "Ask Alfy" }),
+			).toBeInTheDocument();
 			expect(
 				screen.getByText(/Alfy answers here and can edit the text/i),
 			).toBeInTheDocument();
@@ -270,7 +283,11 @@ describe("CommentThread", () => {
 		it("passes changeStateByCommentId through to the matching message and wires See change", async () => {
 			const onSeeChange = vi.fn();
 			render(CommentThread, {
-				thread: makeThread({ author: "alfy", parentId: null, body: "Moved it to ten." }),
+				thread: makeThread({
+					author: "alfy",
+					parentId: null,
+					body: "Moved it to ten.",
+				}),
 				changeStateByCommentId: { "root-1": "pending" },
 				onSeeChange,
 				onResolve: vi.fn(),

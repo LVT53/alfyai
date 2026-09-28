@@ -606,9 +606,10 @@ export function scrollToCommentAnchor(
 	let element: HTMLElement | null = null;
 	try {
 		const dom = editor.view.domAtPos(range.from).node;
-		element = dom.nodeType === Node.ELEMENT_NODE
-			? (dom as HTMLElement)
-			: dom.parentElement;
+		element =
+			dom.nodeType === Node.ELEMENT_NODE
+				? (dom as HTMLElement)
+				: dom.parentElement;
 		element = element?.closest<HTMLElement>(".comment-anchor") ?? element;
 		element?.scrollIntoView({ block: "center", behavior: "smooth" });
 	} catch {

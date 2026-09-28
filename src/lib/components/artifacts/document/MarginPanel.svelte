@@ -169,7 +169,9 @@ function tabIdFor(comment: ArtifactComment): string | null {
 
 /** Every root thread whose anchor still resolves to real text, whether on this tab or another. */
 const resolvableComments = $derived(
-	comments.filter((comment) => resolutionByCommentId.get(comment.id)?.state !== "orphaned"),
+	comments.filter(
+		(comment) => resolutionByCommentId.get(comment.id)?.state !== "orphaned",
+	),
 );
 /** Ruling 61's third point: only the active tab's own threads are positioned here. Zero/one tab (`blockIdToTabId` empty) means there is only one section — everything belongs to it. */
 const thisTabComments = $derived(
@@ -188,7 +190,9 @@ const visibleThisTabComments = $derived(
 );
 /** Comments on removed text: never tab-scoped (the text is gone, so there is no current section to belong to), but still honours the same Open/All filter. */
 const allOrphanedComments = $derived(
-	comments.filter((comment) => resolutionByCommentId.get(comment.id)?.state === "orphaned"),
+	comments.filter(
+		(comment) => resolutionByCommentId.get(comment.id)?.state === "orphaned",
+	),
 );
 const visibleOrphanedComments = $derived(
 	filter === "all"
@@ -215,7 +219,10 @@ const otherTabsSummary = $derived.by<OtherTabRow[]>(() => {
 	}
 	return tabs
 		.filter((tab) => tab.id !== activeTabId && counts.has(tab.id))
-		.map((tab) => ({ tab, ...(counts.get(tab.id) ?? { open: 0, resolved: 0 }) }));
+		.map((tab) => ({
+			tab,
+			...(counts.get(tab.id) ?? { open: 0, resolved: 0 }),
+		}));
 });
 
 function threadAuthorLabel(comment: ArtifactComment): string {
@@ -448,7 +455,8 @@ function toggleFilter(): void {
 
 function gotoFor(comment: ArtifactComment): (() => void) | undefined {
 	const resolution = resolutionByCommentId.get(comment.id);
-	if (!onGotoAnchor || !resolution || resolution.blockId === null) return undefined;
+	if (!onGotoAnchor || !resolution || resolution.blockId === null)
+		return undefined;
 	const blockId = resolution.blockId;
 	const { from, to } = resolution;
 	return () => onGotoAnchor(blockId, from, to);
