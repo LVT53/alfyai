@@ -727,8 +727,9 @@ const regeneratePopoverFocusTrap = focusTrap({
 
 	.app-status-row {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: 0.4rem;
+		gap: 0.2rem 0.4rem;
 		padding: 0.3rem 0;
 		color: var(--text-muted);
 		font-size: var(--text-xs);
