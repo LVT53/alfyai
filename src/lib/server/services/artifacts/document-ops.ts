@@ -24,6 +24,7 @@ import {
 	buildIndex,
 	type DocumentBlock,
 	parseDocument,
+	stripEmptyTabAnchorPlaceholder,
 } from "$lib/shared/artifact-document/blocks";
 import {
 	applyPatchSet,
@@ -275,9 +276,16 @@ export async function readDocumentForAlfy(
 			blocks: parsed.blocks.map((block) => ({
 				blockId: block.id,
 				kind: block.kind,
-				label: block.label,
+				// Wave 2.5 review, fix agent C (fix-agent-B finding 7): a
+				// brand-new, still-untouched tab's anchor paragraph is a single
+				// zero-width space (`appendEmptyTabSection`'s own placeholder) —
+				// real content to the STORED body (it must survive
+				// `saveDocumentBody`'s own re-canonicalisation), but Alfy should
+				// read it (both `label` and `text`) as the empty section it
+				// visibly is, not as one invisible character.
+				label: stripEmptyTabAnchorPlaceholder(block.label),
 				hash: block.hash,
-				text: block.markdown,
+				text: stripEmptyTabAnchorPlaceholder(block.markdown),
 			})),
 		};
 	});
@@ -575,9 +583,7 @@ function parseKeptBlockVersions(
 		const versionText = at === -1 ? "" : entry.slice(at + 1);
 		const parsedVersion = Number.parseInt(versionText, 10);
 		const asOfVersion =
-			Number.isFinite(parsedVersion) && parsedVersion >= 0
-				? parsedVersion
-				: 0;
+			Number.isFinite(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0;
 		const existing = kept.get(blockId);
 		if (existing === undefined || asOfVersion > existing) {
 			kept.set(blockId, asOfVersion);
@@ -696,7 +702,10 @@ export function computePendingReviewBlocks(
 		// version tie fixes: a bare, version-less kept id would suppress every
 		// future Alfy edit to that block, forever).
 		const keptAsOfVersion = keptVersions.get(blockId);
-		if (keptAsOfVersion !== undefined && keptAsOfVersion >= change.versionNumber) {
+		if (
+			keptAsOfVersion !== undefined &&
+			keptAsOfVersion >= change.versionNumber
+		) {
 			continue;
 		}
 		// "minus blocks that no longer exist" (ruling 61).

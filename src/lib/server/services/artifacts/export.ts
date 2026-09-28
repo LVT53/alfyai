@@ -19,6 +19,7 @@ import {
 	inlinePlainText,
 	ORDERED_LINE_RE,
 	splitTableCells,
+	stripEmptyTabAnchorPlaceholder,
 	TASK_LINE_RE,
 } from "$lib/shared/artifact-document/blocks";
 
@@ -36,16 +37,23 @@ function nonEmptyLines(markdown: string): string[] {
  * text verbatim, so `**bold**`, `[a link](url)`, `&amp;` and `\*` reached the
  * PDF and the Word file as those characters. A tracker chip token renders as
  * its plain value (a rendered report has no chip pill), and a hard break as a
- * line break.
+ * line break. Also strips `appendEmptyTabSection`'s own zero-width-space
+ * anchor placeholder (Wave 2.5 review, fix-agent-B finding 7): a still-empty
+ * new tab's own paragraph is real content to the STORED body, but an
+ * exported PDF/DOCX should show it as the empty paragraph it visibly is, not
+ * one invisible character — `nonEmptyLines`/`.trim()` alone would not catch
+ * it (the placeholder is deliberately not Unicode whitespace).
  */
 function exportText(markdown: string): string {
-	return inlinePlainText(
-		markdown
-			.replace(CHIP_TOKEN_RE, (_token, value: string) => value)
-			// A soft line break reads as a space; a hard one (a backslash or two
-			// spaces before the newline) stays a line break.
-			.replace(/(?<!\\| {2})\n[ \t]*/g, " "),
-		{ hardBreak: "\n" },
+	return stripEmptyTabAnchorPlaceholder(
+		inlinePlainText(
+			markdown
+				.replace(CHIP_TOKEN_RE, (_token, value: string) => value)
+				// A soft line break reads as a space; a hard one (a backslash or
+				// two spaces before the newline) stays a line break.
+				.replace(/(?<!\\| {2})\n[ \t]*/g, " "),
+			{ hardBreak: "\n" },
+		),
 	).trim();
 }
 
@@ -211,6 +219,26 @@ function mapBlock(
 }
 
 /**
+ * True only for a paragraph that mapped to EMPTY text — in practice, only a
+ * still-untouched new tab's own placeholder paragraph (Wave 2.5 review,
+ * fix-agent-B finding 7): `exportText` already strips the zero-width-space
+ * placeholder itself, which is what turns it into `""` here. A REAL empty
+ * paragraph can never reach this mapper in the first place (`saveDocumentBody`'s
+ * own re-canonicalisation drops a truly empty one on the very save that
+ * created the surrounding condition this placeholder exists to prevent), and
+ * the report's own generated-document validator rejects an empty-text
+ * paragraph outright (`normalizeParagraphBlock`) — so this is not "the
+ * mapping is total" (`mapBlock`'s own comment) being violated for ordinary
+ * content, only the one synthetic case that total mapping would otherwise
+ * turn into a hard export failure for a section nobody has written in yet.
+ */
+function isEmptyExportParagraph(
+	block: GeneratedDocumentSource["blocks"][number],
+): boolean {
+	return block.type === "paragraph" && block.text === "";
+}
+
+/**
  * The one builder every export path (PDF, DOCX; Markdown takes a different
  * route, `inline_text` — see the export route) uses to turn a Document's
  * current blocks into a `GeneratedDocumentSource`. Never trusts a
@@ -224,7 +252,9 @@ export function buildGeneratedDocumentSource(params: {
 		version: 1,
 		template: "alfyai_standard_report",
 		title: params.title,
-		blocks: params.blocks.map(mapBlock),
+		blocks: params.blocks
+			.map(mapBlock)
+			.filter((block) => !isEmptyExportParagraph(block)),
 	};
 }
 

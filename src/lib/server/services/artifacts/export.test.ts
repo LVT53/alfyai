@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { validateGeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
-import { makeBlock } from "$lib/shared/artifact-document/blocks";
+import {
+	EMPTY_TAB_ANCHOR_PLACEHOLDER,
+	makeBlock,
+} from "$lib/shared/artifact-document/blocks";
 import {
 	buildGeneratedDocumentSource,
 	sanitizeDocumentFilename,
@@ -39,6 +42,57 @@ describe("buildGeneratedDocumentSource", () => {
 		];
 		const source = buildGeneratedDocumentSource({ title: "Report", blocks });
 		expect(JSON.stringify(source)).not.toContain("<!--b:");
+	});
+
+	// rd/review-2-5.md's fix-agent-B finding 7 (verified by fix agent C): a
+	// still-empty new tab's own anchor paragraph is a single zero-width space
+	// (`appendEmptyTabSection`) — real content to the STORED body, but an
+	// exported PDF/DOCX must not carry it as if the user had written
+	// something there. Dropped entirely rather than mapped to an empty-text
+	// paragraph: the report's own validator rejects empty paragraph text
+	// outright, so "leave a visible empty paragraph" is not an option — an
+	// untouched section contributes nothing to the export, same as if it had
+	// never been typed into.
+	it("drops a still-empty new tab's zero-width-space placeholder instead of exporting it", () => {
+		const blocks = [
+			makeBlock("p1", "heading", "## Trip plan"),
+			makeBlock("p2", "paragraph", EMPTY_TAB_ANCHOR_PLACEHOLDER),
+		];
+		const source = buildGeneratedDocumentSource({
+			title: "Trip plan",
+			blocks,
+		});
+		expect(source.blocks).toEqual([
+			{ type: "heading", level: 2, text: "Trip plan" },
+		]);
+		expect(JSON.stringify(source)).not.toContain(EMPTY_TAB_ANCHOR_PLACEHOLDER);
+
+		const validated = validateGeneratedDocumentSource(source);
+		expect(validated.ok).toBe(true);
+	});
+
+	it("drops EVERY still-empty placeholder paragraph, even when it is the only block", () => {
+		const blocks = [makeBlock("p1", "paragraph", EMPTY_TAB_ANCHOR_PLACEHOLDER)];
+		const source = buildGeneratedDocumentSource({ title: "New tab", blocks });
+		expect(source.blocks).toEqual([]);
+
+		const validated = validateGeneratedDocumentSource(source);
+		expect(validated.ok).toBe(true);
+	});
+
+	it("strips the placeholder from surrounding real text too, not just a placeholder-only block", () => {
+		const blocks = [
+			makeBlock(
+				"p1",
+				"paragraph",
+				`Booked${EMPTY_TAB_ANCHOR_PLACEHOLDER} the hotel.`,
+			),
+		];
+		const source = buildGeneratedDocumentSource({ title: "Trip", blocks });
+		expect(source.blocks[0]).toEqual({
+			type: "paragraph",
+			text: "Booked the hotel.",
+		});
 	});
 
 	it("maps a taskList's checked state onto structured list items, never [x] text", () => {

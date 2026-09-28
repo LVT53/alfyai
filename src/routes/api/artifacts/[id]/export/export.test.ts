@@ -20,6 +20,7 @@ vi.mock("$lib/server/services/file-production", () => ({
 
 import { getArtifact } from "$lib/server/services/artifacts";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
+import { EMPTY_TAB_ANCHOR_PLACEHOLDER } from "$lib/shared/artifact-document/blocks";
 import { POST } from "./+server";
 
 const mockGetArtifact = getArtifact as ReturnType<typeof vi.fn>;
@@ -182,6 +183,34 @@ describe("POST /api/artifacts/[id]/export", () => {
 		expect(call.body.inlineText.content).toContain(
 			"Book the flight to Vienna.",
 		);
+	});
+
+	// rd/review-2-5.md's fix-agent-B finding 7 (verified by fix agent C): a
+	// still-empty new tab's own anchor paragraph is a single zero-width space
+	// (`appendEmptyTabSection`) — real content to the STORED body, but an
+	// exported .md file must not carry it as if the user had typed it there.
+	it("strips a still-empty new tab's zero-width-space placeholder from the exported Markdown", async () => {
+		mockGetArtifact.mockResolvedValue(
+			artifactFixture({
+				body: `${DOCUMENT_BODY}\n\n<!--b:p2-->\n${EMPTY_TAB_ANCHOR_PLACEHOLDER}`,
+			}),
+		);
+		mockSubmitIntake.mockResolvedValue({
+			ok: true,
+			status: 202,
+			job: { id: "job-zwsp" },
+			reused: false,
+		});
+
+		await POST(
+			makeEvent({ conversationId: "conv-1", body: { format: "markdown" } }),
+		);
+
+		const call = mockSubmitIntake.mock.calls[0][0];
+		expect(call.body.inlineText.content).not.toContain(
+			EMPTY_TAB_ANCHOR_PLACEHOLDER,
+		);
+		expect(call.body.inlineText.content).toBe("Book the flight to Vienna.");
 	});
 
 	it("falls back to document.md when the title cannot make a sane filename", async () => {
