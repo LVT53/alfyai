@@ -119,6 +119,65 @@ export function setActiveDocumentTab(
 	editor.view.dispatch(tr);
 }
 
+/**
+ * Review 2.5 (rd/review-2-5.md:191-197, rd2's own suggested fix): a brand-new
+ * tab used to start with no block of its own (`Tabs.svelte`'s `addTab` sets
+ * `startBlockId: ""`), so `buildTabSectionDecorations`'s own "active tab
+ * owns zero blocks -> show everything" safety net always fired — an empty
+ * new section showed the WHOLE document instead.
+ *
+ * Appends one paragraph and returns its minted id: `extensions.ts`'s
+ * `BlockIds` extension mints an id for any un-identified block on EVERY
+ * doc-changing transaction (its own `appendTransaction`, the same mechanism
+ * `ensureBlockIds` drives at load time), so by the time `.run()` returns the
+ * new paragraph already carries a real one — nothing here mints it by hand.
+ *
+ * The paragraph's own text is a single zero-width space (`​`), not
+ * truly empty — `blocks.ts`'s own `splitIntoSegments` documents, by design,
+ * that "a trailing marker with no following block is dropped" (a blank line
+ * has no Markdown syntax for "an empty block with this id" at all, and
+ * `saveDocumentBody` re-canonicalises through that same parser on every
+ * save), so a LITERALLY empty paragraph's marker — and with it, this tab's
+ * only anchor — silently vanished on the very next save, reviving the exact
+ * bug this function exists to fix the moment the document was reopened
+ * (confirmed empirically while writing this function's own test suite). A
+ * zero-width space is invisible to the user but not blank to `.trim()`, so
+ * the block survives. The selection below SELECTS that one character (not a
+ * collapsed caret after it) so the user's first keystroke replaces it
+ * outright, leaving no stray invisible character behind.
+ *
+ * A real, undo-able transaction on purpose (never the load-time
+ * `addToHistory: false` shape `setActiveDocumentTab` above uses) — this is
+ * user-initiated content, not bookkeeping, so it autosaves and Undo removes
+ * it like any other edit. `null` only if the schema has no paragraph node
+ * (never true for this Document's own fixed schema — defensive, not a real
+ * branch).
+ */
+const EMPTY_TAB_SECTION_PLACEHOLDER = "​";
+
+export function appendEmptyTabSection(editor: Editor): string | null {
+	if (!editor.schema.nodes.paragraph) return null;
+	const endPos = editor.state.doc.content.size;
+	editor
+		.chain()
+		.focus()
+		.insertContentAt(endPos, {
+			type: "paragraph",
+			content: [{ type: "text", text: EMPTY_TAB_SECTION_PLACEHOLDER }],
+		})
+		.run();
+	const docEnd = editor.state.doc.content.size;
+	const charStart = docEnd - 1 - EMPTY_TAB_SECTION_PLACEHOLDER.length;
+	editor
+		.chain()
+		.focus()
+		.setTextSelection({ from: charStart, to: docEnd - 1 })
+		.scrollIntoView()
+		.run();
+	const id = editor.state.doc.lastChild?.attrs?.[BLOCK_ID_ATTR];
+	return typeof id === "string" && id.length > 0 ? id : null;
+}
+
 export type { CommentAnchorTarget };
 
 /**

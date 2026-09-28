@@ -178,6 +178,10 @@ let readMarkdownFn: typeof DocumentEditorModule.readMarkdown | null = null;
 let setActiveDocumentTabFn:
 	| typeof DocumentEditorModule.setActiveDocumentTab
 	| null = null;
+/** Review 2.5 (rd/review-2-5.md:191-197) — see `document-editor.ts`'s own doc comment. */
+let appendEmptyTabSectionFn:
+	| typeof DocumentEditorModule.appendEmptyTabSection
+	| null = null;
 let editorReady = $derived(loadState === "ready");
 
 /**
@@ -1379,14 +1383,32 @@ function handleTabActivate(tabId: string): void {
 /**
  * Persists an add/rename/delete from `Tabs.svelte` through the SAME body
  * route every other edit uses (`saveDocumentTabs`, one write path — T9.2/
- * T9.7), carrying the editor's current canonical text along unchanged so a
- * tab-list edit is never mistaken for a text edit. The strip already updated
- * itself optimistically (it renders straight from its own `tabs` prop
- * change); on a refusal it is simply overwritten by the next successful
- * load rather than rolled back, matching this body's existing "keep the
- * user's text, surface the notice" failure shape for every other save.
+ * T9.7). The strip already updated itself optimistically (it renders
+ * straight from its own `tabs` prop change); on a refusal it is simply
+ * overwritten by the next successful load rather than rolled back, matching
+ * this body's existing "keep the user's text, surface the notice" failure
+ * shape for every other save.
+ *
+ * Review 2.5 (rd/review-2-5.md:191-197): a brand-new tab (`Tabs.svelte`'s
+ * `addTab`, `startBlockId: ""`) gets a real anchor block here, BEFORE the
+ * canonical text below is read — `appendEmptyTabSection`'s own doc comment
+ * has the why — so this is the ONE case where a tabs-only change does NOT
+ * carry the editor's text along unchanged; every other caller (rename,
+ * delete) is untouched.
  */
 async function handleTabsChange(next: DocumentTab[]): Promise<void> {
+	const previousIds = new Set(tabs.map((tab) => tab.id));
+	const blankNewTab = next.find(
+		(tab) => tab.startBlockId === "" && !previousIds.has(tab.id),
+	);
+	if (blankNewTab && editor) {
+		const mintedId = appendEmptyTabSectionFn?.(editor) ?? null;
+		if (mintedId) {
+			next = next.map((tab) =>
+				tab.id === blankNewTab.id ? { ...tab, startBlockId: mintedId } : tab,
+			);
+		}
+	}
 	tabs = next;
 	// An add/delete can move section boundaries even when `activeTabId`
 	// itself is unchanged (e.g. deleting a LATER tab); a rename cannot, but
@@ -1499,6 +1521,7 @@ async function runLoad(id: string): Promise<void> {
 
 		readMarkdownFn = mod.readMarkdown;
 		setActiveDocumentTabFn = mod.setActiveDocumentTab;
+		appendEmptyTabSectionFn = mod.appendEmptyTabSection;
 		loadMarkdownFn = mod.loadMarkdown;
 		readSelectionContextFn = mod.readSelectionAnchorContext;
 		applyAlfyChangesFn = mod.applyAlfyChanges;

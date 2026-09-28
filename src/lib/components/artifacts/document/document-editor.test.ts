@@ -1,11 +1,13 @@
 import type { Editor } from "@tiptap/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import {
 	buildIndex,
 	countMarkers,
 	parseDocument,
 } from "$lib/shared/artifact-document/blocks";
 import {
+	appendEmptyTabSection,
 	blockRect,
 	createDocumentEditor,
 	loadMarkdown,
@@ -18,7 +20,11 @@ import {
 	setRefusedLines,
 	setSelectionPending,
 } from "./document-editor";
-import { BLOCK_ID_ATTR, BLOCK_MARKER_NODE } from "./extensions";
+import {
+	BLOCK_ID_ATTR,
+	BLOCK_MARKER_NODE,
+	buildTabSectionDecorations,
+} from "./extensions";
 
 /** Selects the first occurrence of `substring` inside whichever top-level block contains it. */
 function selectSubstring(editor: Editor, substring: string): void {
@@ -392,6 +398,140 @@ describe("document-editor", () => {
 		expect(markdown).toContain("<!--b:p1-->");
 		expect(markdown).toContain("Replaced text.");
 		editor.destroy();
+	});
+
+	// Review 2.5 (rd/review-2-5.md:191-197): a brand-new tab used to start
+	// with no block of its own, so the whole document showed inside what
+	// should have been an empty new section — `Tabs.svelte`'s own
+	// `addTab`/`DocumentBody.svelte`'s `handleTabsChange` call this to give
+	// it a real one.
+	//
+	// A LITERALLY empty paragraph does NOT work for this, even though it
+	// looks right in the live session: `blocks.ts`'s own `splitIntoSegments`
+	// documents, by design, that "a trailing marker with no following block
+	// is dropped" — a blank line has no Markdown syntax for "an empty block
+	// with this id" at all. `saveDocumentBody` (the server) re-canonicalises
+	// through that exact same parser on every save
+	// (`parseDocument(params.body.markdown).markdown`), so a truly empty
+	// anchor paragraph's marker silently vanished from the STORED body on
+	// the very first save — reviving the whole-document bug the moment the
+	// tab was revisited after a reload, even though `Tabs.svelte`'s own
+	// metadata still pointed at that (now nonexistent) block id. Confirmed
+	// empirically while writing this suite (the first version of these
+	// tests used a truly empty paragraph and passed every one of THEM, since
+	// none reused `parseDocument`'s own canonical round trip the way the
+	// server actually does — see "survives the server's own re-canonicalising
+	// save" below, the test that caught it). `appendEmptyTabSection` inserts
+	// a zero-width space instead: invisible to the user, but not blank to
+	// `.trim()`, so the block survives every layer.
+	describe("appendEmptyTabSection", () => {
+		it("appends a paragraph (a single zero-width space) with a freshly minted id, and returns that id", () => {
+			const editor = mountEditor("<!--b:p1-->\nFirst paragraph.");
+			const id = appendEmptyTabSection(editor);
+			expect(id).not.toBeNull();
+			expect(editor.state.doc.childCount).toBe(2);
+			const lastNode = editor.state.doc.lastChild;
+			expect(lastNode?.type.name).toBe("paragraph");
+			expect(lastNode?.textContent).toBe("​");
+			expect(lastNode?.attrs?.[BLOCK_ID_ATTR]).toBe(id);
+			editor.destroy();
+		});
+
+		it("selects the zero-width space so the user's first keystroke replaces it outright", () => {
+			const editor = mountEditor("<!--b:p1-->\nFirst paragraph.");
+			appendEmptyTabSection(editor);
+			const lastNode = editor.state.doc.lastChild;
+			expect(lastNode?.type.name).toBe("paragraph");
+			expect(lastNode?.textContent).toBe("​");
+			const { selection } = editor.state;
+			expect(selection.empty).toBe(false);
+			expect(selection.to - selection.from).toBe(1);
+			editor.commands.insertContent("x");
+			expect(editor.state.doc.lastChild?.textContent).toBe("x");
+			editor.destroy();
+		});
+
+		it("mints a different id for a second tab added right after the first", () => {
+			const editor = mountEditor("<!--b:p1-->\nFirst paragraph.");
+			const id1 = appendEmptyTabSection(editor);
+			const id2 = appendEmptyTabSection(editor);
+			expect(id1).not.toBeNull();
+			expect(id2).not.toBeNull();
+			expect(id1).not.toBe(id2);
+			expect(editor.state.doc.childCount).toBe(3);
+			editor.destroy();
+		});
+
+		it("is a real, undo-able edit, unlike setActiveDocumentTab's own no-op-for-history dispatch", () => {
+			const editor = mountEditor("<!--b:p1-->\nFirst paragraph.");
+			const before = readMarkdown(editor);
+			appendEmptyTabSection(editor);
+			expect(readMarkdown(editor)).not.toBe(before);
+			editor.commands.undo();
+			expect(readMarkdown(editor)).toBe(before);
+			editor.destroy();
+		});
+
+		it("gives buildTabSectionDecorations a real anchor, so its own 'show everything' fallback never fires", () => {
+			const editor = mountEditor("<!--b:p1-->\nFirst paragraph.");
+			const newId = appendEmptyTabSection(editor);
+			expect(newId).not.toBeNull();
+			const existingTab: DocumentTab = {
+				id: "tab-existing",
+				title: "Plan",
+				startBlockId: "p1",
+			};
+			const newTab: DocumentTab = {
+				id: "tab-new",
+				title: "New section",
+				startBlockId: newId as string,
+			};
+			const decorations = buildTabSectionDecorations(
+				editor.state.doc,
+				[existingTab, newTab],
+				newTab.id,
+			);
+			// The fallback (rd2's own safety net) returns an EMPTY decoration
+			// set for "active tab owns zero blocks" — the exact bug this
+			// finding reports. A real anchor means the new tab instead hides
+			// the OTHER tab's block: exactly one decoration, on the first
+			// paragraph, not zero.
+			expect(decorations.find()).toHaveLength(1);
+			editor.destroy();
+		});
+
+		it("the new block's id survives a real reload (loadMarkdown re-parses the trailing marker the same way)", () => {
+			const editor = mountEditor("<!--b:p1-->\nFirst paragraph.");
+			const id = appendEmptyTabSection(editor);
+			const stored = readMarkdown(editor);
+			editor.destroy();
+
+			const reopened = mountEditor(stored);
+			expect(reopened.state.doc.childCount).toBe(2);
+			const lastNode = reopened.state.doc.lastChild;
+			expect(lastNode?.attrs?.[BLOCK_ID_ATTR]).toBe(id);
+			expect(lastNode?.textContent).toBe("​");
+			reopened.destroy();
+		});
+
+		// The actual bug: `saveDocumentBody` (document-ops.ts) stores
+		// `parseDocument(markdown).markdown`, never the caller's raw string —
+		// this is the ONE assertion that exercises that exact recanonicalising
+		// step (`document-ops.test.ts`'s own domain, mirrored here since a
+		// server-only test cannot mount a real editor to produce the input).
+		it("survives the server's own re-canonicalising save (parseDocument(markdown).markdown), not just this editor's own round trip", () => {
+			const editor = mountEditor("<!--b:p1-->\nFirst paragraph.");
+			const id = appendEmptyTabSection(editor);
+			const clientMarkdown = readMarkdown(editor);
+			editor.destroy();
+
+			const canonical = parseDocument(clientMarkdown).markdown;
+			const blocks = parseDocument(canonical, { mint: false }).blocks;
+			expect(
+				blocks.some((block) => block.id === id),
+				`the new block's marker must survive re-canonicalisation; got blocks ${JSON.stringify(blocks.map((b) => b.id))}`,
+			).toBe(true);
+		});
 	});
 
 	// T10.1: the SelectionBubble's own data source, and the one place the

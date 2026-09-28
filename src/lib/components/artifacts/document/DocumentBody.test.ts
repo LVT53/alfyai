@@ -95,6 +95,7 @@ const {
 	mockSummarizeRefusals,
 	mockRefusalReasonI18nKey,
 	mockSetActiveDocumentTab,
+	mockAppendEmptyTabSection,
 	mockSetCommentAnchors,
 	mockScrollToCommentAnchor,
 	mockSetAlfyWritingBlock,
@@ -124,6 +125,11 @@ const {
 	// tabSectionPluginKey) — a no-op here, since these tests use a fake
 	// editor with no real ProseMirror state to dispatch a transaction into.
 	mockSetActiveDocumentTab: vi.fn(),
+	// Review 2.5 (rd/review-2-5.md:191-197): mints a real anchor block for a
+	// brand-new tab. Returns `null` by default (this suite's fake editor has
+	// no real ProseMirror doc to mint against); a test that needs the
+	// "minted a real id" branch sets a return value explicitly.
+	mockAppendEmptyTabSection: vi.fn().mockReturnValue(null),
 	// Wave 2.5 Step 7: the comment-anchor decoration's own write side — same
 	// reasoning, a no-op against this suite's fake editor.
 	mockSetCommentAnchors: vi.fn(),
@@ -157,6 +163,7 @@ vi.mock("./document-editor", () => ({
 	summarizeRefusals: mockSummarizeRefusals,
 	refusalReasonI18nKey: mockRefusalReasonI18nKey,
 	setActiveDocumentTab: mockSetActiveDocumentTab,
+	appendEmptyTabSection: mockAppendEmptyTabSection,
 	setCommentAnchors: mockSetCommentAnchors,
 	scrollToCommentAnchor: mockScrollToCommentAnchor,
 	setAlfyWritingBlock: mockSetAlfyWritingBlock,
@@ -832,6 +839,34 @@ describe("DocumentBody", () => {
 			// this asserts the canonical SHAPE (one marker, the exact text) rather
 			// than an exact string two independent mints would rarely agree on.
 			expect(markdownArg).toMatch(/^<!--b:[a-z0-9]+-->\nHello\.\n$/);
+		});
+
+		// Review 2.5 (rd/review-2-5.md:191-197): the new tab used to save with
+		// `startBlockId: ""` — the anchor `appendEmptyTabSection` mints (a real
+		// ProseMirror/markdown concern, covered against a real editor in
+		// `document-editor.test.ts`) must overwrite it here before the save
+		// this suite's own fake editor cannot exercise end to end.
+		it("a newly minted anchor block's id becomes the new tab's startBlockId before it saves", async () => {
+			mockReadMarkdown.mockReturnValue("Hello.");
+			mockAppendEmptyTabSection.mockReturnValueOnce("p9k2m1");
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Add a tab" }));
+
+			await waitFor(() =>
+				expect(mockSaveDocumentTabs).toHaveBeenCalledTimes(1),
+			);
+			expect(mockAppendEmptyTabSection).toHaveBeenCalledTimes(1);
+			const [, tabsArg] = mockSaveDocumentTabs.mock.calls[0];
+			expect(tabsArg[0].startBlockId).toBe("p9k2m1");
 		});
 	});
 
