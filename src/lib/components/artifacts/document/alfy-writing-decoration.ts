@@ -28,12 +28,42 @@
 
 import { Extension } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { BLOCK_ID_ATTR } from "./block-attrs";
 
-/** The live doc's own top-level block node matching `blockId`, and its own (not just its content's) bounds. Mirrors `extensions.ts`'s private `findBlockContentRange`, duplicated rather than exported/shared — an ~8-line node walk is cheaper than widening that file's own export surface for one more caller. */
-function findBlockNodeRange(
+/**
+ * `Transaction.getMeta` returns `undefined` when nothing was set for `key`
+ * on this transaction — NOT the same as this module's own legitimate
+ * "clear the target" signal, an explicitly-set `null` (`setAlfyWritingBlock`
+ * et al. dispatch `null` to mean exactly that). A plain `tr.getMeta(key) ??
+ * value` conflates the two: `null` is nullish, so it would fall back to the
+ * OLD state instead of clearing it — the SAME shape as `extensions.ts`'s own
+ * `commentAnchorPluginKey`/`tabSectionPluginKey` `apply`, but safe there only
+ * because those two never dispatch a bare `null`. This helper distinguishes
+ * "no meta on this transaction" from "meta explicitly set to null".
+ */
+function applyMetaOrNull<T>(
+	tr: Transaction,
+	key: PluginKey<T | null>,
+	value: T | null,
+): T | null {
+	const meta = tr.getMeta(key);
+	return meta === undefined ? value : (meta as T | null);
+}
+
+/**
+ * The live doc's own top-level block node matching `blockId`, and its own
+ * (not just its content's) bounds. Mirrors `extensions.ts`'s private
+ * `findBlockContentRange`, duplicated rather than exported/shared from there
+ * — an ~8-line node walk is cheaper than widening that file's own export
+ * surface for one more caller (and would still need this file's own header
+ * comment's no-cycle rule either way). Exported here for `document-editor.ts`'s
+ * `blockRect`/`selectAndScrollToBlock` (the refusal card's "Ask again" and
+ * its own positioning) — the ONE other place in this feature that needs a
+ * block's live range, so it reuses this walk rather than a third copy.
+ */
+export function findBlockNodeRange(
 	doc: PMNode,
 	blockId: string,
 ): { nodeStart: number; nodeEnd: number; contentEnd: number } | null {
@@ -122,7 +152,7 @@ const AlfyWritingBlock = Extension.create({
 				state: {
 					init: () => null,
 					apply(tr, value) {
-						return tr.getMeta(alfyWritingPluginKey) ?? value;
+						return applyMetaOrNull(tr, alfyWritingPluginKey, value);
 					},
 				},
 				props: {
@@ -212,7 +242,7 @@ const SelectionPending = Extension.create({
 				state: {
 					init: () => null,
 					apply(tr, value) {
-						return tr.getMeta(selectionPendingPluginKey) ?? value;
+						return applyMetaOrNull(tr, selectionPendingPluginKey, value);
 					},
 				},
 				props: {
@@ -270,7 +300,7 @@ const RefusedLines = Extension.create({
 				state: {
 					init: () => null,
 					apply(tr, value) {
-						return tr.getMeta(refusedLinesPluginKey) ?? value;
+						return applyMetaOrNull(tr, refusedLinesPluginKey, value);
 					},
 				},
 				props: {
