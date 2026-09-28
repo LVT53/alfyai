@@ -93,9 +93,23 @@ const artifactsDict = {
 		"artifacts.app.cardSubtitle": "App",
 		"artifacts.app.tab.preview": "Preview",
 		"artifacts.app.tab.code": "Code",
-		"artifacts.app.action.regenerate": "Ask Alfy for a new version",
+		// Wave 2.5 Step 13: the trigger button beside the segmented control —
+		// was "Ask Alfy for a new version" (the old modal's own title); the
+		// popover it now opens carries that fuller meaning instead (see
+		// `regenerate.prompt`/`regenerate.effect` below).
+		"artifacts.app.action.regenerate": "Change this app…",
 		"artifacts.app.action.download": "Download as .html",
 		"artifacts.app.regenerate.prompt": "What should change?",
+		"artifacts.app.regenerate.cancel": "Cancel",
+		"artifacts.app.regenerate.makeV2": "Make v2",
+		"artifacts.app.regenerate.effect":
+			"Alfy writes a new version and checks its facts. v1 stays in History.",
+		"artifacts.app.regenerate.building":
+			"Alfy is building v2 · v1 stays until v2 is ready. Your saved data is kept.",
+		"artifacts.app.regenerate.failed": "Alfy couldn't make v2. v1 is unchanged.",
+		"artifacts.app.toast.v2Ready": "Now showing v2",
+		"artifacts.app.toast.undo": "Undo",
+		"artifacts.app.sandboxBar": "Runs sandboxed · no internet · keeps your data",
 		"artifacts.app.generating": "Alfy is writing the app…",
 		"artifacts.app.generating.hint": "This takes a few seconds.",
 		"artifacts.app.failed.emptyContent":
@@ -148,8 +162,6 @@ const artifactsDict = {
 		"artifacts.app.tabs.a11y": "Preview and code",
 		"artifacts.app.code.copy": "Copy code",
 		"artifacts.app.code.copied": "Copied",
-		"artifacts.app.regenerate.confirm":
-			"Ask Alfy for a new version? Your saved data stays.",
 		"artifacts.app.download.unavailable":
 			"This app is not in a chat, so it cannot be saved as a file.",
 		// Ruling 58: every OTHER download refusal (a request that throws, a
@@ -336,9 +348,23 @@ const artifactsDict = {
 		"artifacts.app.cardSubtitle": "Alkalmazás",
 		"artifacts.app.tab.preview": "Előnézet",
 		"artifacts.app.tab.code": "Kód",
-		"artifacts.app.action.regenerate": "Kérj új változatot Alfytól",
+		// Ruling: "shortened on purpose so the row fits 390 px; the popover's
+		// title carries the full meaning" (redesign §6.5's own HU allowance).
+		"artifacts.app.action.regenerate": "Módosítás…",
 		"artifacts.app.action.download": "Letöltés .html-ként",
 		"artifacts.app.regenerate.prompt": "Min változtasson?",
+		"artifacts.app.regenerate.cancel": "Mégse",
+		"artifacts.app.regenerate.makeV2": "v2 elkészítése",
+		"artifacts.app.regenerate.effect":
+			"Alfy megírja az új változatot, és ellenőrzi az adatait. A v1 megmarad az Előzményekben.",
+		"artifacts.app.regenerate.building":
+			"Alfy készíti a v2-t · A v1 megmarad, amíg a v2 el nem készül. A mentett adataid megmaradnak.",
+		"artifacts.app.regenerate.failed":
+			"Alfynak nem sikerült elkészítenie a v2-t. A v1 változatlan.",
+		"artifacts.app.toast.v2Ready": "Mostantól a v2 látszik",
+		"artifacts.app.toast.undo": "Visszavonás",
+		"artifacts.app.sandboxBar":
+			"Homokozóban fut · nincs internet · megőrzi az adataidat",
 		"artifacts.app.generating": "Alfy írja az alkalmazást…",
 		"artifacts.app.generating.hint": "Ez néhány másodpercet vesz igénybe.",
 		"artifacts.app.failed.emptyContent":
@@ -388,8 +414,6 @@ const artifactsDict = {
 		"artifacts.app.tabs.a11y": "Előnézet és kód",
 		"artifacts.app.code.copy": "Kód másolása",
 		"artifacts.app.code.copied": "Másolva",
-		"artifacts.app.regenerate.confirm":
-			"Új változatot kérsz Alfytól? A mentett adataid megmaradnak.",
 		"artifacts.app.download.unavailable":
 			"Ez az alkalmazás nincs beszélgetésben, ezért nem menthető fájlként.",
 		"artifacts.app.download.failed":
