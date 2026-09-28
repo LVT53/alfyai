@@ -76,6 +76,7 @@ import {
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import { isPhoneViewport, watchPhoneViewport } from "$lib/utils/viewport.svelte";
 import {
 	reconstructDocumentPatch,
 	type DocumentAlfyActivity,
@@ -84,6 +85,7 @@ import AlfyWriting from "./AlfyWriting.svelte";
 import { computeBubblePlacement, localizePoint } from "./bubble-placement";
 import { documentTabsFromCardMetadata } from "./card-view";
 import ChangeBar from "./ChangeBar.svelte";
+import CommentsSheet from "./CommentsSheet.svelte";
 import {
 	createDocumentAutosave,
 	type DocumentAutosaveHandle,
@@ -115,6 +117,7 @@ let {
 	onDirtyChange,
 	onBodyChange,
 	registerPanelActions,
+	onCommentCountChange,
 }: ArtifactBodyProps = $props();
 
 type LoadState = "loading" | "ready" | "load_error" | "not_found";
@@ -239,6 +242,21 @@ let setCommentAnchorsFn:
 let scrollToCommentAnchorFn:
 	| typeof DocumentEditorModule.scrollToCommentAnchor
 	| null = null;
+
+// ---- Wave 2.5 Step 8: the rail's phone sheet / narrow-panel drawer --------
+// `.document-content`'s own CSS mirrors this exact threshold under
+// `@container (min-width: 820px)` — the two must stay in step, since this is
+// the JS half deciding whether `CommentsSheet` should even mount, and the
+// CSS half is what actually hides the inline rail at the same width.
+const NARROW_PANEL_THRESHOLD_PX = 820;
+let documentBodyEl = $state<HTMLDivElement | undefined>();
+let panelContainerWidth = $state(0);
+let isPhone = $state(isPhoneViewport());
+/** `0` means "not measured yet" (no ResizeObserver in this environment, e.g. jsdom) — treated as "not narrow" rather than a false-positive drawer. */
+let isNarrowPanel = $derived(
+	panelContainerWidth > 0 && panelContainerWidth < NARROW_PANEL_THRESHOLD_PX,
+);
+let commentsOverlayOpen = $state(false);
 /** commentId -> the changeId its own `@Alfy` reply produced this session (`maybeAskAlfy` below) — ephemeral, like `pendingChanges` itself. */
 let changeIdByCommentId = $state<Map<string, string>>(new Map());
 let changeChipByCommentId = $derived.by(() => {
@@ -819,8 +837,9 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
  * Wave 2.5 Step 3: the shared trigger for the header's version button
  * (`ArtifactPanelHeader`, via `registerPanelActions` below) — the ONE History
  * entry the redesign wants, replacing the toolbar's own "history" action.
- * Both sheets anchor to the same top-right corner (T12/T6): only one may be
- * open at a time, or they would visually overlap.
+ * Each popover now anchors to its OWN header button (Step 8), so only one
+ * still closes the other here to avoid two floating panels open together,
+ * not because they would visually overlap at the same spot.
  */
 function openVersionsSheet(): void {
 	downloadSheetOpen = false;
@@ -833,19 +852,65 @@ function openDownloadSheet(): void {
 	downloadSheetOpen = true;
 }
 
-// Wave 2.5 Step 3: hands the panel header the two sheet triggers above, so
-// `ArtifactPanelHeader.svelte` can open them without knowing anything about
-// Tiptap or this body's own state — see `ArtifactBodyProps.registerPanelActions`.
-// No dependency this effect reads ever changes (the two functions are stable
-// closures over local `$state` setters), so this runs once, after mount,
-// like `onMount` — but as an effect, a future need to re-register per
-// `artifactId` (the panel's rail can swap which item is open without
-// remounting this body) is one dependency read away rather than a rewrite.
+/** The header's Comments button (`registerPanelActions`, Wave 2.5 Step 8) and a tapped highlight's own fallback (`handleEditorAnchorActivate` below) both funnel through here. */
+function openCommentsOverlay(): void {
+	commentsOverlayOpen = true;
+}
+
+// Wave 2.5 Step 3: hands the panel header the sheet triggers above, so
+// `ArtifactPanelHeader.svelte`/`DocumentWorkspace.svelte` can open them
+// without knowing anything about Tiptap or this body's own state — see
+// `ArtifactBodyProps.registerPanelActions`. No dependency this effect reads
+// ever changes (the functions are stable closures over local `$state`
+// setters), so this runs once, after mount, like `onMount` — but as an
+// effect, a future need to re-register per `artifactId` (the panel's rail
+// can swap which item is open without remounting this body) is one
+// dependency read away rather than a rewrite.
 $effect(() => {
 	registerPanelActions?.({
 		openVersions: openVersionsSheet,
 		openDownload: openDownloadSheet,
+		openComments: openCommentsOverlay,
 	});
+});
+
+/** Wave 2.5 Step 8: the header Comments button's own open-thread badge — every open (non-resolved) thread across the whole document, not just the active tab (the button represents the document, the same way the mockup's header count does). */
+let openCommentCount = $derived(
+	comments.filter((comment) => comment.status !== "resolved").length,
+);
+$effect(() => {
+	onCommentCountChange?.(openCommentCount);
+});
+
+$effect(() => {
+	const stopWatchingViewport = watchPhoneViewport((phone) => {
+		isPhone = phone;
+	});
+	return stopWatchingViewport;
+});
+
+// Tracks this body's own rendered width so the inline rail (CSS, the SAME
+// 820px threshold — see `NARROW_PANEL_THRESHOLD_PX`) and the overlay
+// (`commentsOverlayOpen`'s presentation, below) agree on when there is room
+// for the 300px column. Guarded: jsdom (this component's own tests) has no
+// ResizeObserver, and the panel must render correctly without one — see
+// `MarginPanel.svelte`'s own identical guard.
+$effect(() => {
+	const el = documentBodyEl;
+	if (!el || typeof ResizeObserver === "undefined") return;
+	const observer = new ResizeObserver((entries) => {
+		const width = entries[0]?.contentRect.width;
+		if (width !== undefined) panelContainerWidth = width;
+	});
+	observer.observe(el);
+	return () => observer.disconnect();
+});
+
+// Closes a stray-open overlay the moment the layout no longer needs one
+// (a window/panel resize back above the threshold) — otherwise the drawer
+// would float uselessly ALONGSIDE the now-visible inline rail.
+$effect(() => {
+	if (!isPhone && !isNarrowPanel) commentsOverlayOpen = false;
 });
 
 function handleToolbarAction(id: DocumentToolbarActionId): void {
@@ -1198,6 +1263,12 @@ function handleEditorAnchorActivate(event: Event): void {
 	activeCommentId = commentId;
 	focusCommentRequestToken += 1;
 	focusCommentRequest = { commentId, token: focusCommentRequestToken };
+	// Wave 2.5 Step 8: the inline rail is hidden below the container's own
+	// 820px threshold, and never rendered at all on a phone — open the
+	// overlay so the thread `focusCommentRequest` just named has somewhere to
+	// actually appear (`CommentsSheet` renders the SAME `MarginPanel`, which
+	// already reacts to `focusCommentRequest` on mount, not just on change).
+	if (isPhone || isNarrowPanel) openCommentsOverlay();
 }
 
 function handleEditorAnchorKeydown(event: KeyboardEvent): void {
@@ -1249,7 +1320,7 @@ function saveNoticeText(notice: SaveNotice): string {
 }
 </script>
 
-<div class="document-body">
+<div class="document-body" bind:this={documentBodyEl}>
 	<div class="document-main">
 		{#if editorReady}
 			<Tabs
@@ -1341,34 +1412,33 @@ function saveNoticeText(notice: SaveNotice): string {
 							onDismiss={dismissSelectionBubble}
 						/>
 					{/if}
-					<!-- T12: the download sheet, opened from the toolbar's download action -->
+					<!-- T12, Wave 2.5 Step 8: the download popover, opened from the
+					     panel header's Download action — anchors itself to that
+					     button and portals onto <body>, so no wrapping anchor div is
+					     needed here any more. -->
 					{#if downloadSheetOpen}
-						<div class="document-download-anchor">
-							<DownloadSheet
-								artifactId={boundArtifactId}
-								{title}
-								conversationId={panelConversationId}
-								onClose={() => (downloadSheetOpen = false)}
-							/>
-						</div>
+						<DownloadSheet
+							artifactId={boundArtifactId}
+							{title}
+							conversationId={panelConversationId}
+							onClose={() => (downloadSheetOpen = false)}
+						/>
 					{/if}
-					<!-- RV-1B, T6: the versions sheet, opened from the toolbar's history
-					     action (previously unreachable — see toolbar-actions.ts). A
-					     restore changes the stored body out from under the open editor,
-					     so it reloads through the same retryLoad() the "load failed, try
-					     again" path already uses, rather than a second reload path. -->
+					<!-- RV-1B, T6, Wave 2.5 Step 8: the versions popover, opened from
+					     the panel header's version button. A restore changes the
+					     stored body out from under the open editor, so it reloads
+					     through the same retryLoad() the "load failed, try again" path
+					     already uses, rather than a second reload path. -->
 					{#if versionsSheetOpen}
-						<div class="document-versions-anchor">
-							<VersionsSheet
-								artifactId={boundArtifactId}
-								conversationId={panelConversationId}
-								onClose={() => (versionsSheetOpen = false)}
-								onRestored={() => {
-									versionsSheetOpen = false;
-									retryLoad();
-								}}
-							/>
-						</div>
+						<VersionsSheet
+							artifactId={boundArtifactId}
+							conversationId={panelConversationId}
+							onClose={() => (versionsSheetOpen = false)}
+							onRestored={() => {
+								versionsSheetOpen = false;
+								retryLoad();
+							}}
+						/>
 					{/if}
 					<!-- T8 live: one inline Keep/Undo bar per applied change, positioned
 					     at that change's own mark (never all bunched at a fixed spot —
@@ -1390,7 +1460,8 @@ function saveNoticeText(notice: SaveNotice): string {
 					{/each}
 				{/if}
 			</div>
-			<!-- T10 / redesign §3.2: the comment rail, the grid's second column. -->
+			<!-- T10 / redesign §3.2: the comment rail, the grid's second column
+			     (≥820px container width only — see the `@container` rule below). -->
 			<aside class="document-content-rail" aria-label={$t('artifacts.document.margin.title')}>
 				<MarginPanel
 					{comments}
@@ -1410,6 +1481,30 @@ function saveNoticeText(notice: SaveNotice): string {
 					onActivateTab={handleTabActivate}
 				/>
 			</aside>
+			<!-- Wave 2.5 Step 8: the SAME rail, below the container's 820px
+			     threshold — a phone sheet or a narrow-panel drawer, opened by the
+			     header's Comments button (`registerPanelActions`) or a tapped
+			     highlight (`handleEditorAnchorActivate`). -->
+			{#if commentsOverlayOpen}
+				<CommentsSheet
+					presentation={isPhone ? 'sheet' : 'drawer'}
+					{comments}
+					{blocks}
+					{tabs}
+					{activeTabId}
+					changeStateByCommentId={changeChipByCommentId}
+					{activeCommentId}
+					focusRequest={focusCommentRequest}
+					onResolve={handleCommentResolve}
+					onSubmitReply={postReply}
+					onSeeChange={handleSeeChangeForComment}
+					onGotoAnchor={handleGotoCommentAnchor}
+					onActiveCommentChange={(id) => (activeCommentId = id)}
+					onAnchorsChange={(anchors) => (commentAnchors = anchors)}
+					onActivateTab={handleTabActivate}
+					onClose={() => (commentsOverlayOpen = false)}
+				/>
+			{/if}
 		</div>
 		{#if saveNotice === 'offline' || saveNotice === 'tooLarge' || saveNotice === 'conflict'}
 			<div class="document-save-banner" role="status">
@@ -1427,6 +1522,16 @@ function saveNoticeText(notice: SaveNotice): string {
 		min-height: 0;
 		background-color: var(--surface-page);
 		border-radius: var(--radius-md);
+		/* Wave 2.5 Step 8: `.document-content`/`.document-content-rail` below
+		   query THIS element's own rendered width (`@container`), not the
+		   viewport's (`@media`) — the panel this body sits inside can be
+		   narrower than the window (it is a resizable side panel, not
+		   necessarily full-width), which is exactly the "narrow desktop panel"
+		   redesign.md §3.2 describes. Matches the same unnamed-container-query
+		   shape already used by `StatGrid.svelte`/`SettingsConnectionsTab.svelte`.
+		   `NARROW_PANEL_THRESHOLD_PX` in the script is the JS half of this
+		   SAME 820px threshold — the two must stay in step. */
+		container-type: inline-size;
 	}
 
 	/* T10: the toolbar/content/banner column. */
@@ -1442,9 +1547,10 @@ function saveNoticeText(notice: SaveNotice): string {
 	   inside the SAME scroll container as the text" — a two-column grid, one
 	   `overflow-y`, so nothing anchored near the end (or the removed-text
 	   group) can sit below what the editor lets you scroll to (§3.1 problem
-	   6, the old scroll-sync effect's own failure mode). Below 820 px there
-	   is no room for a real second column; the rail collapses here and picks
-	   back up as agent 3b's own narrow-panel drawer (rd3a-brief.md). */
+	   6, the old scroll-sync effect's own failure mode). Below a container
+	   width of 820px there is no room for a real second column; the rail
+	   collapses here and Wave 2.5 Step 8's `CommentsSheet` (a phone sheet or a
+	   narrow-panel drawer) picks up from there instead. */
 	.document-content {
 		position: relative;
 		display: grid;
@@ -1459,7 +1565,7 @@ function saveNoticeText(notice: SaveNotice): string {
 		overflow-y: auto;
 	}
 
-	@media (min-width: 820px) {
+	@container (min-width: 820px) {
 		.document-content {
 			grid-template-columns: minmax(0, 1fr) 300px;
 		}
@@ -1485,7 +1591,7 @@ function saveNoticeText(notice: SaveNotice): string {
 		border-left: 1px solid var(--border-subtle);
 	}
 
-	@media (min-width: 820px) {
+	@container (min-width: 820px) {
 		.document-content-rail {
 			display: block;
 		}
@@ -1833,25 +1939,6 @@ function saveNoticeText(notice: SaveNotice): string {
 		position: absolute;
 		z-index: 15;
 		transform: translateY(0.25rem);
-	}
-
-	/* T12: anchored under the toolbar's download button, at the top of the
-	   same scroll container the selection bubble uses. */
-	.document-download-anchor {
-		position: absolute;
-		top: 0.5rem;
-		right: 0.75rem;
-		z-index: 20;
-		min-width: 12rem;
-	}
-
-	/* RV-1B, T6: same corner as the download anchor — handleToolbarAction
-	   ensures only one of the two is ever open at once. */
-	.document-versions-anchor {
-		position: absolute;
-		top: 0.5rem;
-		right: 0.75rem;
-		z-index: 20;
 	}
 
 	.document-notice {

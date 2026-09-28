@@ -51,12 +51,24 @@ export interface ArtifactBodyProps {
 	 * back to its plain-text version / the panel's own generic download link.
 	 */
 	registerPanelActions?: (actions: ArtifactPanelBodyActions) => void;
+	/**
+	 * Wave 2.5 Step 8: the live count behind the header's Comments button
+	 * badge (Document only, today) — a plain reactive report, not a
+	 * `registerPanelActions` field, because it changes continuously as
+	 * comments load/resolve rather than being a one-time trigger a body hands
+	 * up once. Fires from an `$effect` whenever the count changes; a kind
+	 * with no comments (App, File) simply never calls it, and the header
+	 * never shows the button at all.
+	 */
+	onCommentCountChange?: (openCount: number) => void;
 }
 
 /** See `ArtifactBodyProps.registerPanelActions`. Every field is optional: a body opts in to only the actions it actually owns a sheet for. */
 export interface ArtifactPanelBodyActions {
 	openVersions?: () => void;
 	openDownload?: () => void;
+	/** Wave 2.5 Step 8: opens the phone sheet / narrow-panel drawer holding the same rail `MarginPanel.svelte` renders inline at full width — see `CommentsSheet.svelte`. */
+	openComments?: () => void;
 }
 
 export type ArtifactBodyLoader = () => Promise<{

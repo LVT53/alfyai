@@ -53,6 +53,24 @@ vi.mock("$lib/client/api/artifacts", () => ({
 	exportArtifactDocument: mockExportArtifactDocument,
 }));
 
+// Wave 2.5 Step 8: jsdom's default `window.innerWidth` (1024) already means
+// "not phone" for every OTHER test in this file, matching the real
+// `isPhoneViewport()` this mock replaces — so this only changes behaviour in
+// the one describe block below that flips `mockViewportState.isPhone` to
+// drive the phone-sheet branch without a real resize.
+const { mockViewportState } = vi.hoisted(() => ({
+	mockViewportState: { isPhone: false },
+}));
+vi.mock("$lib/utils/viewport.svelte", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/utils/viewport.svelte")>();
+	return {
+		...actual,
+		isPhoneViewport: () => mockViewportState.isPhone,
+		watchPhoneViewport: () => () => {},
+	};
+});
+
 const {
 	mockCreateDocumentEditor,
 	mockReadMarkdown,
@@ -209,6 +227,7 @@ describe("DocumentBody", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		editorInstances.length = 0;
+		mockViewportState.isPhone = false;
 		setupCreateDocumentEditor();
 		mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
 		mockSaveArtifactBody.mockResolvedValue({ ok: true, version: 2 });
@@ -1309,10 +1328,12 @@ describe("DocumentBody", () => {
 			await fireEvent.click(
 				within(dialog).getByRole("button", { name: "Restore" }),
 			);
-			// The confirm dialog's own confirm button — NOT scoped by role/name
-			// (ConfirmDialog's title/confirm text are both "Restore" too, the
-			// same as the row's own button), so this uses its fixed testid.
-			await fireEvent.click(screen.getByTestId("confirm-delete"));
+			// Wave 2.5 Step 8: the confirm is inline (never a modal) — the SAME
+			// row's trigger button is replaced by its own "Restore v1? …" confirm,
+			// which re-queries as the (now only) "Restore" button in the dialog.
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Restore" }),
+			);
 
 			await waitFor(() =>
 				expect(mockRestoreArtifactVersion).toHaveBeenCalledWith(
@@ -1368,6 +1389,131 @@ describe("DocumentBody", () => {
 				await screen.findByRole("button", { name: "PDF" }),
 			).toBeInTheDocument();
 			expect(screen.queryByRole("dialog", { name: "Versions" })).toBeNull();
+		});
+	});
+
+	// Wave 2.5 Step 8: comments away from the inline rail — the header's
+	// Comments button (via `registerPanelActions`), a tapped highlight, and
+	// the live open-thread count both flow through `CommentsSheet.svelte`.
+	// The width-driven "narrow desktop panel" branch needs a real
+	// ResizeObserver/layout, which jsdom does not have — that half is the
+	// brief's own Playwright suite's job; this covers the phone-sheet branch
+	// and the count callback, both reachable by mocking `isPhoneViewport`.
+	describe("comments away from the rail (Wave 2.5 Step 8)", () => {
+		it("hands the header an openComments trigger that opens the phone sheet", async () => {
+			mockViewportState.isPhone = true;
+			const registerPanelActions = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+				registerPanelActions,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
+			expect(screen.queryByRole("dialog")).toBeNull();
+
+			actions.openComments();
+
+			expect(
+				await screen.findByRole("dialog", { name: "Comments" }),
+			).toBeInTheDocument();
+		});
+
+		it("reports the open (non-resolved) comment count, across every tab", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({}, [
+					{
+						id: "c1",
+						artifactId: "artifact-1",
+						parentId: null,
+						anchor: null,
+						author: "user",
+						body: "Open one",
+						status: "open",
+						createdAt: 1,
+						replies: [],
+					},
+					{
+						id: "c2",
+						artifactId: "artifact-1",
+						parentId: null,
+						anchor: null,
+						author: "user",
+						body: "Resolved one",
+						status: "resolved",
+						createdAt: 1,
+						replies: [],
+					},
+				]),
+			);
+			const onCommentCountChange = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+				onCommentCountChange,
+			});
+
+			await waitFor(() =>
+				expect(onCommentCountChange).toHaveBeenLastCalledWith(1),
+			);
+		});
+
+		it("a tapped highlighted phrase opens the phone sheet at that thread too", async () => {
+			mockViewportState.isPhone = true;
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nOne proper concert." }, [
+					{
+						id: "c1",
+						artifactId: "artifact-1",
+						parentId: null,
+						// The anchor's own resolution is irrelevant here — this test
+						// only exercises the click→overlay wiring, not placement.
+						anchor: null,
+						author: "user",
+						body: "Anna says it sells out early.",
+						status: "open",
+						createdAt: 1,
+						replies: [],
+					},
+				]),
+			);
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(screen.queryByRole("dialog")).toBeNull();
+
+			// This suite's fake editor host has no real ProseMirror decorations to
+			// click through, so the anchor-activate path is driven the same way
+			// the existing T10 comment tests drive it elsewhere in this file: a
+			// synthetic click on a `.comment-anchor[role="button"]` span, which is
+			// all `handleEditorAnchorActivate`'s own DOM delegation reads.
+			const editorHost = document.querySelector(".document-editor-host");
+			const span = document.createElement("span");
+			span.className = "comment-anchor";
+			span.setAttribute("role", "button");
+			span.setAttribute("data-comment-anchor-id", "c1");
+			editorHost?.appendChild(span);
+			await fireEvent.click(span);
+
+			expect(
+				await screen.findByRole("dialog", { name: "Comments" }),
+			).toBeInTheDocument();
 		});
 	});
 
