@@ -61,6 +61,12 @@ const artifactsDict = {
 		// A checklist card's tickable body (slice 0 ships the seam; slice 1 is
 		// the first caller) shows the first five items and this for the rest.
 		"artifacts.card.moreItems": "+{count} more",
+		// chrome="full" (Wave 2.5 Step 12/13): the create_artifact "creating"
+		// skeleton state's subtitle, and the "failed" state's title — the
+		// card's own reason text (`ArtifactCardView.failedReason`) is caller-
+		// supplied already-resolved plain text and needs no key of its own.
+		"artifacts.card.creatingSubtitle": "Alfy is writing…",
+		"artifacts.card.failedTitle": "Alfy couldn't make this.",
 		// The five kinds.
 		"artifacts.type.file": "File",
 		"artifacts.type.document": "Document",
@@ -303,6 +309,8 @@ const artifactsDict = {
 		"artifacts.card.version": "v{n}",
 		"artifacts.card.versionA11y": "{n}. verzió",
 		"artifacts.card.moreItems": "+{count} további",
+		"artifacts.card.creatingSubtitle": "Alfy éppen ír…",
+		"artifacts.card.failedTitle": "Alfynak ezt nem sikerült elkészítenie.",
 		"artifacts.type.file": "Fájl",
 		"artifacts.type.document": "Dokumentum",
 		"artifacts.type.app": "Alkalmazás",
