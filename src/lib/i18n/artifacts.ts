@@ -302,6 +302,11 @@ const artifactsDict = {
 		"artifacts.document.comment.peekThread": "Show the full thread",
 		"artifacts.document.comment.quoteA11y": "Show “{quote}” in the text",
 		"artifacts.document.margin.title": "Comments",
+		// Wave 2.5 Step 8: the header's Comments button, only while it has an
+		// open count to report — the button falls back to the plain title
+		// above at zero (`DocumentWorkspace.svelte`), matching
+		// `artifacts.header.buttonA11y`'s own "never draw a bare 0" rule.
+		"artifacts.document.margin.buttonA11y": "Comments ({count})",
 		// Redesign §3.3: the rail is per-tab now, so the empty state also
 		// carries "select text to start one" and coexists with the "in other
 		// tabs" list rather than replacing it.
@@ -574,6 +579,7 @@ const artifactsDict = {
 		"artifacts.document.comment.peekThread": "Szál megnyitása",
 		"artifacts.document.comment.quoteA11y": "„{quote}” megmutatása a szövegben",
 		"artifacts.document.margin.title": "Megjegyzések",
+		"artifacts.document.margin.buttonA11y": "Megjegyzések ({count})",
 		"artifacts.document.margin.empty":
 			"Nincs megjegyzés ezen a fülön. Jelölj ki szöveget egy új megjegyzéshez.",
 		// No ICU plural here on purpose, matching commentCountA11y above:
