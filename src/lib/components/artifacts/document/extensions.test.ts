@@ -8,8 +8,11 @@ import {
 } from "./document-editor";
 import {
 	BLOCK_ID_ATTR,
+	buildCommentAnchorDecorations,
 	buildTabSectionDecorations,
 	CHIP_VALUE_ATTR,
+	type CommentAnchorTarget,
+	commentAnchorDocRange,
 	TRACKER_CHIP_NODE,
 } from "./extensions";
 
@@ -246,5 +249,102 @@ describe("extensions: tab section visibility", () => {
 		setActiveDocumentTab(editor, tabs, tabs[1].id);
 
 		expect(editor.can().undo()).toBe(canUndoBefore);
+	});
+});
+
+describe("extensions: CommentAnchors (redesign §3.2, Wave 2.5 Step 7)", () => {
+	function firstBlockId(editor: ReturnType<typeof createDocumentEditor>): string {
+		let id: string | null = null;
+		editor.state.doc.forEach((node) => {
+			if (id !== null) return;
+			const value = node.attrs?.[BLOCK_ID_ATTR];
+			if (typeof value === "string") id = value;
+		});
+		if (id === null) throw new Error("fixture has no identified block");
+		return id;
+	}
+
+	describe("commentAnchorDocRange", () => {
+		it("maps a block-relative character window onto the live doc's own positions", () => {
+			const editor = mountEditor("Hello world, this is a test.");
+			const blockId = firstBlockId(editor);
+			const from = "Hello world, this is a test.".indexOf("world");
+			const to = from + "world".length;
+
+			const range = commentAnchorDocRange(editor.state.doc, blockId, from, to);
+			expect(range).not.toBeNull();
+			expect(editor.state.doc.textBetween(range?.from ?? 0, range?.to ?? 0)).toBe(
+				"world",
+			);
+			editor.destroy();
+		});
+
+		it("returns null when the block id is not in the live doc", () => {
+			const editor = mountEditor("Hello world.");
+			const range = commentAnchorDocRange(editor.state.doc, "missing-block", 0, 5);
+			expect(range).toBeNull();
+			editor.destroy();
+		});
+	});
+
+	describe("buildCommentAnchorDecorations", () => {
+		it("decorates the resolved window with comment-anchor, focusable while open", () => {
+			const editor = mountEditor("Hello world, this is a test.");
+			const blockId = firstBlockId(editor);
+			const anchors: CommentAnchorTarget[] = [
+				{ commentId: "c1", blockId, from: 6, to: 11, resolved: false },
+			];
+
+			const decorations = buildCommentAnchorDecorations(
+				editor.state.doc,
+				anchors,
+				null,
+			).find();
+			expect(decorations).toHaveLength(1);
+			const attrs = decorations[0].type.attrs as Record<string, string>;
+			expect(attrs.class).toBe("comment-anchor");
+			expect(attrs["data-comment-anchor-id"]).toBe("c1");
+			expect(attrs.tabindex).toBe("0");
+			expect(attrs.role).toBe("button");
+			editor.destroy();
+		});
+
+		it("adds is-active only for the active comment, and is-resolved for a resolved one, with no tabindex/role", () => {
+			const editor = mountEditor("Hello world, this is a test.");
+			const blockId = firstBlockId(editor);
+			const anchors: CommentAnchorTarget[] = [
+				{ commentId: "c1", blockId, from: 0, to: 5, resolved: false },
+				{ commentId: "c2", blockId, from: 6, to: 11, resolved: true },
+			];
+
+			const decorations = buildCommentAnchorDecorations(
+				editor.state.doc,
+				anchors,
+				"c1",
+			).find();
+			const byId = new Map(
+				decorations.map((d) => [
+					(d.type.attrs as Record<string, string>)["data-comment-anchor-id"],
+					d.type.attrs as Record<string, string>,
+				]),
+			);
+			expect(byId.get("c1")?.class).toBe("comment-anchor is-active");
+			expect(byId.get("c2")?.class).toBe("comment-anchor is-resolved");
+			expect(byId.get("c2")?.tabindex).toBeUndefined();
+			expect(byId.get("c2")?.role).toBeUndefined();
+			editor.destroy();
+		});
+
+		it("skips an anchor whose block is not in the live doc, without throwing", () => {
+			const editor = mountEditor("Hello world.");
+			const anchors: CommentAnchorTarget[] = [
+				{ commentId: "gone", blockId: "missing", from: 0, to: 3, resolved: false },
+			];
+			expect(
+				buildCommentAnchorDecorations(editor.state.doc, anchors, null).find(),
+			).toHaveLength(0);
+			editor.destroy();
+		});
+
 	});
 });
