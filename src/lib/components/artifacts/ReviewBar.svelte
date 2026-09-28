@@ -172,11 +172,25 @@ let {
 		margin-left: auto;
 	}
 
-	/* Redesign §4.4: 44px Keep all / Undo all on phones. */
+	/* Redesign §4.4: 44px Keep all / Undo all on phones. Review 2.5 Critical
+	   finding (rd/review-2-5.md:45-56): under `flex-direction: column`, a
+	   flex-basis meant for the DESKTOP row layout (`.review-bar-msg`'s own
+	   `flex: 1 1 16.25rem` above) becomes a 260px HEIGHT basis instead of a
+	   width one — the message row alone ballooned to ~390px, covering half
+	   the document. `flex: 0 0 auto` here lets it size to its own wrapped
+	   content instead. */
 	@media (max-width: 480px) {
 		.review-bar {
 			flex-direction: column;
 			align-items: stretch;
+		}
+
+		.review-bar-msg {
+			flex: 0 0 auto;
+		}
+
+		.review-bar-nav {
+			align-self: flex-start;
 		}
 
 		.review-bar-actions {
@@ -186,6 +200,17 @@ let {
 		.review-bar-actions :global(button) {
 			flex: 1 1 0;
 			min-height: 2.75rem;
+		}
+
+		/* Review 2.5 (rd/review-2-5.md:45-56, "4b's open item #4"): the global
+		   `@media (max-width: 767px) .btn-icon` rule in app.css already
+		   targets 44px, but this bar's own prev/next need to hit that target
+		   deterministically without depending on a cross-file cascade —
+		   `min-width`/`min-height` here are the local, self-contained source
+		   of truth for this specific control. */
+		.review-bar-nav :global(button.btn-icon) {
+			min-height: 44px;
+			min-width: 44px;
 		}
 	}
 </style>
