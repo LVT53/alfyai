@@ -1,7 +1,10 @@
 # Agent 4b · The change pill, the review bar, and pending review that survives a reload (step 10 + ruling 61)
 
-The last build agent. Read the **hand-off sections** of every earlier `rd/rd*-report.md` first (in particular 2's
-count-button dot input and 4a's refusal summary line) and reuse what they name.
+The last build agent; it runs alone. Every other redesign agent is merged (1, 2, 5a, 5k, 5b, 3a, 3b, 4a). Read the
+**hand-off sections** of every `rd/rd*-report.md` first — in particular 2's count-button dot input, 5a's
+`pendingReviewCount` wiring on the in-chat card (the card's "N changes to review" pill must follow the persisted state
+too), 3a's change chip (`changeIdByCommentId`, session-only today: make it survive a reload with the same state if it is
+small, else say so), and 4a's refusal summary line — and reuse what they name.
 
 - Worktree `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/.claude/worktrees/art-rd4b`, branch
   `feat/artifacts-rd4b-review`, e2e port **5435**, label `rd4b`.
