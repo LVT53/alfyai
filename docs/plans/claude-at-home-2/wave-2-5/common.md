@@ -56,11 +56,14 @@ worktree, branch, port, report path and screenshot folder.
    `RouteItinerary` 1); a new warning is a regression.
 2. `npx biome check src scripts tests` (not `npm run lint`, which breaks on nested worktrees).
 3. `npm test` (full vitest, once; ~13,450 tests).
-4. The Playwright specs your brief lists, on your port.
+4. Playwright, once, on your port: **every** artifact suite plus the chat and knowledge suites —
+   `tests/e2e/artifact*.spec.ts tests/e2e/artifacts-*.spec.ts tests/e2e/knowledge.spec.ts tests/e2e/chat.spec.ts
+   tests/e2e/conversation.spec.ts` (a narrower list let two stale suites slip through before). A failure in a suite you
+   did not touch: rerun that spec alone first (the `.vite` cache is shared with a parallel agent's worktree).
 5. `npx fallow --no-cache --format json --quiet --score --output-file /tmp/fallow-<your label>.json` — the baseline is
    124 issues with 4 circular dependencies; your change must add **zero** findings (an unused new export counts).
 
-## Context economy (the owner's weekly token budget is almost spent)
+## Context economy (the owner's weekly token budget is the binding constraint)
 
 Read by range (`grep -n`, `sed -n`), never whole large files (`DocumentWorkspace.svelte` 2,465 lines, the chat page
 3,393, `DocumentBody.svelte` 1,279, `index.html` 3,159). Pipe long output through `tail -40`. Run targeted tests while

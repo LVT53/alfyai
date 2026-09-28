@@ -535,8 +535,8 @@ resets 2026-09-28 08:59 UTC.
 | 2 | Panel shell (3–5) | `feat/artifacts-rd2-shell` / `art-rd2` (5410) | **merged** (`79109131`) — 20 commits `f9702a8f`…`33065621`: `ArtifactPanelHeader` (Document/App/File), `ArtifactCard chrome="row"` list, push navigation and panel motion, count button pressed state + dot, tabs that switch sections (a tab-range decoration; a new empty tab shows everything), `⋯` tab menu, grouped toolbar with roving tabindex and "Saved", phone More sheet on `DialogShell`. Gates: check 0/17, 13,528 tests, build 32/2, Fallow 124/4 (0 new), Playwright 68/68. Cost ≈ 4 % of the weekly budget (743 tool calls, 3 h 5 min) |
 | 5a | Task-item fix, in-chat cards (0, 12) | `feat/artifacts-rd5a-cards` / `art-rd5a` (5440) | **merged** — 7 commits `b2a3442f`…`82e70f72`: task items inline (agent 1's CSS keyed on a `data-type` Tiptap never renders; now `data-checked`), no timing on artifact cards, "1 tab" plural, a real standalone card outside the tool-row box, the live pending-review count on the card, the composer placeholder names the open item. Gates: check 0/17, 13,533 tests, build 32/2, Fallow 124/4 (0 new), Playwright 48/48. Cost ≈ 2 % (395 tool calls, 83 min). Stopped before step 14 on the budget |
 | 5k | Knowledge chips (14) | `feat/artifacts-rd5k-chips` / `art-rd5k` (5448) | **merged** — 2 commits `99129148`, `d437beaa`: zero chips disabled with a reason, "All files" chip, CSS reveal, one count source (the page's disagreeing pill removed), plurals, "uploaded" → "files" as the mockup words it. Gates: check 0/17, 13,537 tests, build 32/2, Fallow 124/4 (0 new), Playwright 42/42. Cost ≈ 1 % (175 tool calls, 34 min). Deferred: the per-chip 20 ms stagger and the collapse-out; unused `knowledge.documents.totalLabel`; "Alkalmazások 0" clips at 390 px HU (pre-existing) |
-| 5b | App panel (13), 5a's leftovers | `feat/artifacts-rd5b-app` / `art-rd5b` (5445) | waiting — brief = `rd5-brief.md`'s Step 13 (incl. the rail decision) + the deferred card items in `rd5a-report.md` (creating/failed/deleted states, "1 part left alone" pill, live `current` wiring, App fact-check field) |
-| 3a | Comment card/thread, the rail (6–7) | `feat/artifacts-rd3a-comments` / `art-rd3a` (5420) | waiting |
+| 5b | App panel (13), 5a's leftovers | `feat/artifacts-rd5b-app` / `art-rd5b` (5445) | **running** (2026-09-28, beside 3a; brief `wave-2-5/rd5b-brief.md`) — was: brief = `rd5-brief.md`'s Step 13 (incl. the rail decision) + the deferred card items in `rd5a-report.md` (creating/failed/deleted states, "1 part left alone" pill, live `current` wiring, App fact-check field) |
+| 3a | Comment card/thread, the rail (6–7) | `feat/artifacts-rd3a-comments` / `art-rd3a` (5420) | **running** (2026-09-28, beside 5b) |
 | 3b | Phone comments, drawer, Versions/Download popovers (8 + §3.2) | `feat/artifacts-rd3b-sheets` / `art-rd3b` (5425) | waiting |
 | 4a | Selection pill/composer, Alfy writing, pinned refusal (9, 11) | `feat/artifacts-rd4a-compose` / `art-rd4a` (5430) | waiting |
 | 4b | Change pill, review bar, pending review across reloads (10 + ruling 61) | `feat/artifacts-rd4b-review` / `art-rd4b` (5435) | waiting |
@@ -570,6 +570,14 @@ Rulings (orchestrator, 2026-09-27):
   each newer Alfy version changed against its parent, minus kept, minus later user edits, minus deleted; creation never
   pending; an artifact without a marker has nothing pending until its next Alfy edit writes the marker — cost if wrong:
   a pending change made before the deploy is not re-shown (today's behaviour), or a column is needed later.
+- **Resumed 2026-09-28 after the weekly reset (0 %).** The owner allows two agents at a time. Ruling: rounds of two —
+  5b ∥ 3a (disjoint files; each adds i18n keys inside its own block), then 3b ∥ 4a (3b's phone sheet/drawer and popovers
+  in their own components, 4a's bubble/writing/refusal in theirs; each keeps `DocumentBody.svelte` edits to a mount and a
+  handler), then 4b alone, then the Opus review — cost if wrong: a merge conflict in `DocumentBody.svelte` or
+  `i18n/artifacts.ts` that one small agent resolves with tests. Every agent now runs all artifact e2e suites at the end.
+- Ruling (5b's card states): build "open in panel" live, "creating" (create only), "failed" without a Retry unless a real
+  retry path exists, and the App fact-check line only if the verdict is already stored; the "deleted" state has no server
+  signal (left for the review) and the "1 part left alone" pill goes to 4a with the refusal summary.
 - Briefs for every agent: `docs/plans/claude-at-home-2/wave-2-5/` (`common.md` + `rd*-brief.md`); reports and
   screenshots in this session's scratchpad `rd/`.
 - Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
