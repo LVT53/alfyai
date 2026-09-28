@@ -133,11 +133,27 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 	// (redesign §5.2, Wave 2.5 Step 12): the standalone card's "N changes to
 	// review" pill and "Review ›" affordance read the same ephemeral signal
 	// the panel list's row already does, matched to THIS card's own artifact.
+	// Wave 2.5 Step 11: only APPLIED changes count here — a fully refused
+	// call (`appliedCount === 0`) has nothing to review, only something left
+	// alone (`refusedCount` below); the previous `Math.max(..., 1)` floor was
+	// a stopgap so a full refusal still showed SOMETHING before this pill
+	// existed (rd5a's own deviation note).
+	const isThisArtifact =
+		alfyActivity != null && alfyActivity.artifactId === body.artifactId;
 	const pendingReviewCount =
-		alfyActivity &&
-		alfyActivity.artifactId === body.artifactId &&
-		(alfyActivity.status === "applied" || alfyActivity.status === "refused")
-			? Math.max(alfyActivity.appliedCount, 1)
+		isThisArtifact &&
+		(alfyActivity?.status === "applied" ||
+			alfyActivity?.status === "refused") &&
+		alfyActivity.appliedCount > 0
+			? alfyActivity.appliedCount
+			: null;
+	// The in-chat card's own "N parts left alone" pill (redesign §4.2 "The
+	// chat side"): fed from the SAME `alfyActivity` a refusal already carries
+	// — `status === "refused"` is only ever true when `refusedBlocks.length`
+	// is (`alfy-activity.ts`'s own `buildDocumentAlfyActivity`).
+	const refusedCount =
+		isThisArtifact && alfyActivity?.status === "refused"
+			? alfyActivity.refusedBlocks.length
 			: null;
 	// Wave 2.5 Step 13: matched against the bare artifact id, never the
 	// workspace item id ("artifact:" + id) the panel itself uses — see
@@ -165,6 +181,7 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 					onToggleDocumentTask?.(body.artifactId, blockId, checked),
 			}),
 			pendingReviewCount,
+			refusedCount,
 			current,
 		};
 	}
@@ -174,6 +191,7 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 		title: body.artifactTitle,
 		openTargetId: body.artifactId,
 		pendingReviewCount,
+		refusedCount,
 		current,
 		factCheckLine,
 	};

@@ -17,6 +17,15 @@ import type {
 } from "$lib/shared/artifact-document/patch";
 import { MOTION_EASING, prefersReducedMotion } from "$lib/utils/motion";
 import {
+	type AlfyWritingTarget,
+	alfyWritingPluginKey,
+	findBlockNodeRange,
+	type RefusedLinesTarget,
+	refusedLinesPluginKey,
+	type SelectionPendingTarget,
+	selectionPendingPluginKey,
+} from "./alfy-writing-decoration";
+import {
 	BLOCK_ID_ATTR,
 	BLOCK_MARKER_NODE,
 	blockIdPluginKey,
@@ -120,6 +129,43 @@ export function setCommentAnchors(
 		anchors,
 		activeCommentId,
 	});
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
+}
+
+export type { AlfyWritingTarget, RefusedLinesTarget, SelectionPendingTarget };
+
+/**
+ * Wave 2.5 Step 9/11: the Ask-Alfy chain's three write sides, all mirroring
+ * `setCommentAnchors`'s own no-op-for-history dispatch pattern exactly (see
+ * `alfy-writing-decoration.ts`'s header). `null` clears each one.
+ */
+export function setAlfyWritingBlock(
+	editor: Editor,
+	target: AlfyWritingTarget | null,
+): void {
+	const tr = editor.state.tr.setMeta(alfyWritingPluginKey, target);
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
+}
+
+export function setSelectionPending(
+	editor: Editor,
+	target: SelectionPendingTarget | null,
+): void {
+	const tr = editor.state.tr.setMeta(selectionPendingPluginKey, target);
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
+}
+
+export function setRefusedLines(
+	editor: Editor,
+	target: RefusedLinesTarget | null,
+): void {
+	const tr = editor.state.tr.setMeta(refusedLinesPluginKey, target);
 	tr.setMeta("addToHistory", false);
 	tr.setMeta("preventUpdate", true);
 	editor.view.dispatch(tr);
@@ -564,6 +610,49 @@ export function changeMarkRect(
 /** Scrolls a change's mark into view ("See what Alfy did", T8.4). */
 export function scrollToChange(editor: Editor, changeId: string): boolean {
 	return scrollToAlfyChange(editor, changeId);
+}
+
+/** A block's own on-screen rect, for the pinned refusal card's own positioning (redesign §4.2 "Refusal": "pinned beside the refused line") — mirrors `changeMarkRect`'s exact shape and jsdom fallback. */
+export function blockRect(
+	editor: Editor,
+	blockId: string,
+): { top: number; left: number; right: number; bottom: number } | null {
+	const range = findBlockNodeRange(editor.state.doc, blockId);
+	if (!range) return null;
+	try {
+		const start = editor.view.coordsAtPos(range.nodeStart + 1);
+		const end = editor.view.coordsAtPos(range.contentEnd);
+		return {
+			top: start.top,
+			left: start.left,
+			right: end.right,
+			bottom: end.bottom,
+		};
+	} catch {
+		// jsdom (unit tests) does not implement real layout — a real browser
+		// always has it (Playwright exercises this for real).
+		return null;
+	}
+}
+
+/**
+ * Selects a whole block's text and scrolls it into view — the refusal
+ * card's "Ask again" (redesign §4.2 "Refusal"): re-surfaces the selection
+ * pill at the refused line rather than reopening a composer directly, so it
+ * reads as the SAME ask flow the user would reach by selecting the text
+ * themselves. `true` when the block was found and selected.
+ */
+export function selectAndScrollToBlock(
+	editor: Editor,
+	blockId: string,
+): boolean {
+	const range = findBlockNodeRange(editor.state.doc, blockId);
+	if (!range) return false;
+	const from = range.nodeStart + 1;
+	const to = range.contentEnd;
+	if (from >= to) return false;
+	editor.chain().focus().setTextSelection({ from, to }).scrollIntoView().run();
+	return true;
 }
 
 /**

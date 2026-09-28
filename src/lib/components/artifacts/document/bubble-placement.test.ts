@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	type BubbleContainerGeometry,
+	COMPOSER_BUBBLE_SIZE,
 	computeBubblePlacement,
 	localizePoint,
 } from "./bubble-placement";
@@ -109,6 +110,24 @@ describe("computeBubblePlacement", () => {
 			BUBBLE,
 		);
 		expect(result).toEqual({ x: 30, y: 10, placement: "above" });
+	});
+});
+
+describe("computeBubblePlacement with the composer's own footprint", () => {
+	// Redesign §9.2: placement must be computed against the GROWN composer's
+	// size, not the small resting pill's — otherwise a pill placed "above"
+	// (room enough for the 92px pill) could have its composer clipped at the
+	// container's own top edge once it grows to 320px.
+	it("flips below when there is room for the small pill above but not for the composer", () => {
+		const anchor = { top: 150, left: 380, right: 420, bottom: 170 };
+		const pillPlacement = computeBubblePlacement(anchor, container(), BUBBLE);
+		const composerPlacement = computeBubblePlacement(
+			anchor,
+			container(),
+			COMPOSER_BUBBLE_SIZE,
+		);
+		expect(pillPlacement?.placement).toBe("above");
+		expect(composerPlacement?.placement).toBe("below");
 	});
 });
 

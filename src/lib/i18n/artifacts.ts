@@ -48,6 +48,13 @@ const artifactsDict = {
 		// signal until a later Wave 2.5 agent's durable review-state work lands.
 		"artifacts.panel.pendingReview":
 			"{count} {count, plural, one {change} other {changes}} to review",
+		// The in-chat card's second pill (redesign §4.2 "The chat side", Wave 2.5
+		// Step 11): the count of undismissed refusal notes, independent from
+		// pendingReview above — `ToolActivityRow.svelte`'s own `artifactCardView`
+		// feeds both from the SAME `alfyActivity`. Mirrors the mockup's own
+		// `oneLeft`/`revLeft` copy family.
+		"artifacts.panel.leftAlone":
+			"{count} {count, plural, one {part} other {parts}} left alone",
 		"artifacts.panel.backA11y":
 			"Back to This chat ({count} {count, plural, one {item} other {items}})",
 		// The shared card.
@@ -245,6 +252,16 @@ const artifactsDict = {
 			"the text Alfy wanted to replace is not unique here",
 		"artifacts.document.refused.other": "Alfy could not apply this change",
 		"artifacts.document.refused.seeChange": "See what Alfy did",
+		// The pinned refusal card's own dismiss action (redesign §4.2's
+		// "your words win" card, Wave 2.5 Step 11) — `askAgain` reuses the
+		// comment family's existing key below rather than a second translation
+		// of the same action, so the two "Ask again"s read as one family.
+		"artifacts.document.refused.dismiss": "Dismiss",
+		// The review bar's own "Left N alone." link (redesign §4.2 item 5, §8's
+		// RefusalNotice row: "the one-line summary for ReviewBar") — exported for
+		// a later Wave 2.5 agent's ReviewBar.svelte to read, so its own count
+		// never drifts from this card's. Mirrors the mockup's `revLeft`.
+		"artifacts.document.refused.reviewBarLeft": "Left {count} alone.",
 		// The planned-section shimmer while a tool call is in flight (Slice 1, T8).
 		"artifacts.document.planned.writing": "Alfy is writing: {label}",
 		// Tabs (Slice 1, T9).
@@ -301,6 +318,30 @@ const artifactsDict = {
 			"Alfy answers here and can edit the text. You keep or undo the change.",
 		"artifacts.document.comment.peekThread": "Show the full thread",
 		"artifacts.document.comment.quoteA11y": "Show “{quote}” in the text",
+		// The selection pill and composer (redesign §4.2 items 1–2, §9.2's
+		// SelectionBubble.svelte row, Wave 2.5 Step 9). `comment.ask`/`comment.add`
+		// above are reused for both the pill's own buttons AND the composer's
+		// send button (Ask mode) — the mockup's own `askSend` is the identical
+		// string as its `askAlfy` pill label, so this file does not duplicate it.
+		"artifacts.document.comment.selectionToolbar": "Selection",
+		"artifacts.document.comment.askHeader": "Ask Alfy about “{quote}”",
+		"artifacts.document.comment.commentHeader": "Comment on “{quote}”",
+		"artifacts.document.comment.askPlaceholder":
+			"What should Alfy do with this text?",
+		"artifacts.document.comment.askEffect":
+			"Alfy replies in the margin and marks its change here, for you to keep or undo.",
+		"artifacts.document.comment.mentionHint":
+			"Mention @Alfy to get an answer and an edit.",
+		"artifacts.document.comment.chipLessList": "Less like a list",
+		"artifacts.document.comment.chipShorter": "Shorter",
+		"artifacts.document.comment.chipFriendlier": "Friendlier",
+		"artifacts.document.comment.chipHungarian": "In Hungarian",
+		// "Alfy is writing" in place on the target block (redesign §4.2 item 4,
+		// Wave 2.5 Step 11) — the inline tag a ProseMirror widget decoration
+		// renders at the end of the block; distinct from `planned.writing`
+		// above, which names a block by its label for the T8-live case where no
+		// specific block is known yet (see `alfy-writing-decoration.ts`).
+		"artifacts.document.writing.tag": "Alfy is writing…",
 		"artifacts.document.margin.title": "Comments",
 		// Wave 2.5 Step 8: the header's Comments button, only while it has an
 		// open count to report — the button falls back to the plain title
@@ -361,6 +402,9 @@ const artifactsDict = {
 		"artifacts.panel.empty": "Itt még nem készült semmi.",
 		"artifacts.panel.history": "Előzmények",
 		"artifacts.panel.pendingReview": "{count} módosítás vár rád",
+		// No ICU plural here on purpose, matching cardSubtitle above: Hungarian
+		// nouns after a numeral stay singular.
+		"artifacts.panel.leftAlone": "{count} részt nem érintett",
 		"artifacts.panel.backA11y": "Vissza: Ez a beszélgetés ({count} elem)",
 		"artifacts.card.open": "Megnyitás",
 		"artifacts.card.openA11y": "{title} megnyitása",
@@ -530,6 +574,8 @@ const artifactsDict = {
 		"artifacts.document.refused.other":
 			"Alfy nem tudta alkalmazni ezt a módosítást",
 		"artifacts.document.refused.seeChange": "Nézd meg, mit csinált Alfy",
+		"artifacts.document.refused.dismiss": "Elvetés",
+		"artifacts.document.refused.reviewBarLeft": "{count} részt nem érintett.",
 		"artifacts.document.planned.writing": "Alfy írja: {label}",
 		// No ICU plural here on purpose: Hungarian nouns after a numeral stay
 		// singular ("1 fül", "3 fül"), unlike the English "tab"/"tabs" split.
@@ -578,6 +624,21 @@ const artifactsDict = {
 			"Alfy itt válaszol, és szerkesztheti is a szöveget. A módosítást megtarthatod vagy visszavonhatod.",
 		"artifacts.document.comment.peekThread": "Szál megnyitása",
 		"artifacts.document.comment.quoteA11y": "„{quote}” megmutatása a szövegben",
+		"artifacts.document.comment.selectionToolbar": "Kijelölés",
+		"artifacts.document.comment.askHeader":
+			"Alfy megkérdezése erről: „{quote}”",
+		"artifacts.document.comment.commentHeader": "Megjegyzés ehhez: „{quote}”",
+		"artifacts.document.comment.askPlaceholder":
+			"Mit tegyen Alfy ezzel a szöveggel?",
+		"artifacts.document.comment.askEffect":
+			"Alfy a margón válaszol, és itt jelöli a módosítását, amit megtarthatsz vagy visszavonhatsz.",
+		"artifacts.document.comment.mentionHint":
+			"Írd be, hogy @Alfy — választ és szerkesztést is kapsz.",
+		"artifacts.document.comment.chipLessList": "Kevésbé listaszerűen",
+		"artifacts.document.comment.chipShorter": "Rövidebben",
+		"artifacts.document.comment.chipFriendlier": "Barátságosabban",
+		"artifacts.document.comment.chipHungarian": "Magyarul",
+		"artifacts.document.writing.tag": "Alfy írja…",
 		"artifacts.document.margin.title": "Megjegyzések",
 		"artifacts.document.margin.buttonA11y": "Megjegyzések ({count})",
 		"artifacts.document.margin.empty":

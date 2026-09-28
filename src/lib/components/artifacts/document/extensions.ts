@@ -57,6 +57,7 @@ import {
 	mintBlockId,
 } from "$lib/shared/artifact-document/blocks";
 import { uiLanguage } from "$lib/stores/settings";
+import { alfyWritingChainExtensions } from "./alfy-writing-decoration";
 import { BLOCK_ID_ATTR, BLOCK_MARKER_NODE } from "./block-attrs";
 import { chipLabel, chipValues } from "./chips";
 import { AlfyChange } from "./marks";
@@ -882,5 +883,9 @@ export function buildDocumentExtensions(placeholder: string) {
 		ImageAsPlainText,
 		TabSections,
 		CommentAnchors,
+		// Wave 2.5 Step 9/11: the Ask-Alfy chain's three small decorations
+		// (in-place "Alfy is writing", the selection's pending highlight, the
+		// refused-line rule) — see `alfy-writing-decoration.ts`'s own header.
+		...alfyWritingChainExtensions,
 	];
 }

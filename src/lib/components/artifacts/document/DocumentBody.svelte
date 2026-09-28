@@ -52,7 +52,7 @@ function loadEditorModule(): Promise<typeof DocumentEditorModule> {
  * one tears down the first editor and mounts a fresh one against the new id
  * — the module stays cached (above), only the per-document state reloads.
  */
-import { onDestroy, untrack } from "svelte";
+import { onDestroy, tick, untrack } from "svelte";
 import {
 	askAlfyInComment,
 	createArtifactComment,
@@ -78,11 +78,21 @@ import {
 import type { Anchor } from "$lib/shared/artifacts/anchor";
 import { isPhoneViewport, watchPhoneViewport } from "$lib/utils/viewport.svelte";
 import {
+	MOTION_DURATION,
+	MOTION_EASING,
+	prefersReducedMotion,
+	reducedMotionAnimate,
+} from "$lib/utils/motion";
+import {
 	reconstructDocumentPatch,
 	type DocumentAlfyActivity,
 } from "./alfy-activity";
 import AlfyWriting from "./AlfyWriting.svelte";
-import { computeBubblePlacement, localizePoint } from "./bubble-placement";
+import {
+	COMPOSER_BUBBLE_SIZE,
+	computeBubblePlacement,
+	localizePoint,
+} from "./bubble-placement";
 import { documentTabsFromCardMetadata } from "./card-view";
 import ChangeBar from "./ChangeBar.svelte";
 import CommentsSheet from "./CommentsSheet.svelte";
@@ -200,6 +210,19 @@ let summarizeRefusalsFn: typeof DocumentEditorModule.summarizeRefusals | null =
 let refusalReasonI18nKeyFn:
 	| typeof DocumentEditorModule.refusalReasonI18nKey
 	| null = null;
+/** Wave 2.5 Step 9/11: the Ask-Alfy chain's own decoration write sides — see `alfy-writing-decoration.ts`'s header. */
+let setAlfyWritingBlockFn:
+	| typeof DocumentEditorModule.setAlfyWritingBlock
+	| null = null;
+let setSelectionPendingFn:
+	| typeof DocumentEditorModule.setSelectionPending
+	| null = null;
+let setRefusedLinesFn: typeof DocumentEditorModule.setRefusedLines | null =
+	null;
+let blockRectFn: typeof DocumentEditorModule.blockRect | null = null;
+let selectAndScrollToBlockFn:
+	| typeof DocumentEditorModule.selectAndScrollToBlock
+	| null = null;
 
 // ---- T10: comments margin and the selection bubble -------------------------
 // Kept to this one block: `loadMarkdownFn`/`readSelectionContextFn` mirror
@@ -216,7 +239,14 @@ let readSelectionContextFn:
 let comments = $state<ArtifactComment[]>([]);
 let blocks = $state<DocumentBlock[]>([]);
 let selectionBubble = $state<
-	| { x: number; y: number; placement: "above" | "below"; anchor: Anchor }
+	| {
+			x: number;
+			y: number;
+			placement: "above" | "below";
+			anchor: Anchor;
+			/** The raw selected text (`readSelectionAnchorContext`'s own `quote`) — `SelectionBubble.svelte` truncates it for display. */
+			quote: string;
+	  }
 	| null
 >(null);
 let contentEl = $state<HTMLDivElement | undefined>();
@@ -277,6 +307,9 @@ let changeChipByCommentId = $derived.by(() => {
 // twice (an unrelated re-render must not re-apply marks or re-open a notice
 // that Keep/Undo already resolved) — the "loadedArtifactId" guard above is
 // this block's own model.
+/** Redesign §4.2 item 4: "shown for at least 600ms even when the call is faster, so it is seen." */
+const ALFY_WRITING_MIN_VISIBLE_MS = 600;
+
 interface PendingAlfyChange {
 	entry: AlfyChangeEntry;
 	status: "pending" | "kept" | "undone";
@@ -291,6 +324,8 @@ let refusalNotice = $state<{
 	items: { label: string; reason: string }[];
 	seeChangeLabel: string | null;
 	firstAppliedChangeId: string | null;
+	/** Every refused block this call touched — `setRefusedLinesFn`'s own dashed-gutter-rule target, and (its first entry) "Ask again"'s own return point. */
+	refusedBlockIds: string[];
 } | null>(null);
 let handledActivityKey = "";
 // ---- end T8 live -----------------------------------------------------
@@ -330,17 +365,17 @@ let tabBadgeCounts = $derived(computeTabBadgeCounts(blocks, comments, tabs));
 
 function updateSelectionBubble(): void {
 	if (!editor || !readSelectionContextFn || !contentEl) {
-		selectionBubble = null;
+		clearSelectionBubble();
 		return;
 	}
 	const context = readSelectionContextFn(editor);
 	if (!context) {
-		selectionBubble = null;
+		clearSelectionBubble();
 		return;
 	}
 	const anchor = makeAnchor(context);
 	if (!anchor) {
-		selectionBubble = null;
+		clearSelectionBubble();
 		return;
 	}
 	// `computeBubblePlacement` (bubble-placement.ts) converts the selection's
@@ -348,23 +383,46 @@ function updateSelectionBubble(): void {
 	// scroll offset included — and clamps/flips it into the container's
 	// currently visible window. `null` means the selection has scrolled fully
 	// out of view: hide the bubble rather than pin it to nothing visible.
+	// Placement is computed against the GROWN composer's own footprint
+	// (`COMPOSER_BUBBLE_SIZE`, redesign §9.2's "composer-height-aware flip"),
+	// not the small resting pill's, so growing in place never needs a
+	// re-flip — see `bubble-placement.ts`'s own doc comment on the constant.
 	const hostRect = contentEl.getBoundingClientRect();
-	const placement = computeBubblePlacement(context.rect, {
-		hostRect,
-		scrollLeft: contentEl.scrollLeft,
-		scrollTop: contentEl.scrollTop,
-		clientWidth: contentEl.clientWidth,
-		clientHeight: contentEl.clientHeight,
-	});
+	const placement = computeBubblePlacement(
+		context.rect,
+		{
+			hostRect,
+			scrollLeft: contentEl.scrollLeft,
+			scrollTop: contentEl.scrollTop,
+			clientWidth: contentEl.clientWidth,
+			clientHeight: contentEl.clientHeight,
+		},
+		COMPOSER_BUBBLE_SIZE,
+	);
 	if (!placement) {
-		selectionBubble = null;
+		clearSelectionBubble();
 		return;
 	}
-	selectionBubble = { ...placement, anchor };
+	selectionBubble = { ...placement, anchor, quote: context.quote };
+	// Redesign §4.2 item 2: "the selection keeps a dashed amber 'pending'
+	// highlight so you still see what you are asking about" — the live
+	// selection's own raw positions, captured now rather than resolved later
+	// (alfy-writing-decoration.ts's own header comment explains why raw
+	// positions are enough for this one, unlike a comment anchor).
+	setSelectionPendingFn?.(editor, {
+		from: editor.state.selection.from,
+		to: editor.state.selection.to,
+	});
+}
+
+/** Clears the bubble/composer AND its own pending highlight together — the one exit path every "nothing to show" branch above and `dismissSelectionBubble` below share, so the two states can never drift apart. */
+function clearSelectionBubble(): void {
+	selectionBubble = null;
+	if (editor) setSelectionPendingFn?.(editor, null);
 }
 
 function dismissSelectionBubble(): void {
-	selectionBubble = null;
+	clearSelectionBubble();
 }
 
 /**
@@ -432,6 +490,35 @@ async function maybeAskAlfy(
 ): Promise<void> {
 	const conversationId = panelConversationId ?? null;
 	const previousBlocksById = new Map(blocks.map((b) => [b.id, b]));
+
+	// Redesign §4.2 item 4 / Wave 2.5 Step 11: "Alfy is writing" IN PLACE on
+	// the target block — possible here (unlike the T8-live chat-tool-call
+	// path's own global `AlfyWriting.svelte` banner) because this block is
+	// known SYNCHRONOUSLY: it is the thread's own anchor, not a tool call's
+	// still-streaming input. Shown for at least `ALFY_WRITING_MIN_VISIBLE_MS`
+	// even when the call settles faster, so a fast reply is still seen —
+	// scheduled, never awaited, so it cannot delay applying the result below.
+	const writingBlockSet = Boolean(blockId && editor && setAlfyWritingBlockFn);
+	if (writingBlockSet && blockId && editor && setAlfyWritingBlockFn) {
+		setAlfyWritingBlockFn(editor, {
+			blockId,
+			tagLabel: $t("artifacts.document.writing.tag"),
+		});
+	}
+	const writingStartedAt = Date.now();
+	function scheduleClearAlfyWritingBlock(): void {
+		if (!writingBlockSet) return;
+		const remaining = Math.max(
+			0,
+			ALFY_WRITING_MIN_VISIBLE_MS - (Date.now() - writingStartedAt),
+		);
+		const clear = () => {
+			if (editor && setAlfyWritingBlockFn) setAlfyWritingBlockFn(editor, null);
+		};
+		if (remaining === 0) clear();
+		else setTimeout(clear, remaining);
+	}
+
 	let outcome: Awaited<ReturnType<typeof askAlfyInComment>>["outcome"] | null =
 		null;
 	try {
@@ -447,6 +534,7 @@ async function maybeAskAlfy(
 		// next refresh (another comment, a reload) will show the truth again.
 	} finally {
 		await refreshAfterCommentChange();
+		scheduleClearAlfyWritingBlock();
 	}
 
 	if (outcome !== "applied" || !blockId || !editor || !applyAlfyChangesFn) {
@@ -504,7 +592,8 @@ async function maybeAskAlfy(
 	changePositions = nextPositions;
 }
 
-async function postComment(anchor: Anchor, body: string): Promise<void> {
+/** Returns the created comment's own id — the selection composer's "send" (`handleSelectionSubmit` below) needs it to find the new card for its own travel animation. */
+async function postComment(anchor: Anchor, body: string): Promise<string> {
 	const conversationId = panelConversationId ?? null;
 	const created = await createArtifactComment(
 		boundArtifactId,
@@ -517,6 +606,75 @@ async function postComment(anchor: Anchor, body: string): Promise<void> {
 	if (mentionsAlfy(body)) {
 		await maybeAskAlfy(created.id, textAnchorBlockId(anchor));
 	}
+	return created.id;
+}
+
+/**
+ * The selection composer's "Send" (redesign §7.2 #9: "the composer's box
+ * travels to the new thread's place in the margin and becomes the card; the
+ * card fades in during the second half"). `sourceRect` is `null` on a phone
+ * (`SelectionBubble.svelte`'s own doc comment: "a phone sheet has nothing to
+ * travel from") — the card simply appears, matching the reduced-motion path
+ * exactly, since a phone composer has nothing on-screen to measure a travel
+ * from either way. Best-effort past the post itself: a card the traveling
+ * ghost can't find (a slow render, or the margin currently showing a
+ * different tab) just means the card appears without the flourish.
+ */
+async function handleSelectionSubmit(
+	anchor: Anchor,
+	body: string,
+	sourceRect: DOMRect | null,
+): Promise<void> {
+	const createdId = await postComment(anchor, body);
+	selectionBubble = null;
+	if (!sourceRect || prefersReducedMotion() || !contentEl) return;
+	await tick();
+	const target = contentEl.querySelector(
+		`[data-comment-id="${createdId}"]`,
+	);
+	if (!(target instanceof HTMLElement)) return;
+	const targetRect = target.getBoundingClientRect();
+
+	const ghost = document.createElement("div");
+	Object.assign(ghost.style, {
+		position: "fixed",
+		left: `${sourceRect.left}px`,
+		top: `${sourceRect.top}px`,
+		width: `${sourceRect.width}px`,
+		height: `${sourceRect.height}px`,
+		borderRadius: "var(--radius-md)",
+		border: "1px solid var(--border-default)",
+		backgroundColor: "var(--surface-overlay)",
+		boxShadow: "var(--shadow-lg, var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.18)))",
+		pointerEvents: "none",
+		zIndex: "50",
+	});
+	document.body.appendChild(ghost);
+
+	const dx = targetRect.left - sourceRect.left;
+	const dy = targetRect.top - sourceRect.top;
+	const sx = sourceRect.width > 0 ? targetRect.width / sourceRect.width : 1;
+	const sy = sourceRect.height > 0 ? targetRect.height / sourceRect.height : 1;
+	const travel = reducedMotionAnimate(
+		ghost,
+		[
+			{ transform: "translate(0px, 0px) scale(1, 1)", opacity: 1 },
+			{
+				transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`,
+				opacity: 0,
+			},
+		],
+		{ duration: MOTION_DURATION.emphasis, easing: MOTION_EASING.emphasis },
+	);
+	// "The card fades in during the second half" — a 150ms delay into the
+	// SAME travel duration, applied directly to the real card DOM node
+	// (`MarginPanel.svelte`'s own — this never touches its Svelte state).
+	target.animate([{ opacity: 0 }, { opacity: 0 }, { opacity: 1 }], {
+		duration: MOTION_DURATION.emphasis,
+		delay: MOTION_DURATION.standard,
+	});
+	await travel.finished;
+	ghost.remove();
 }
 
 async function postReply(parentId: string, body: string): Promise<void> {
@@ -659,6 +817,7 @@ async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
 
 		const summary = summarizeRefusalsFn?.(reconstructed) ?? null;
 		if (summary && refusalReasonI18nKeyFn) {
+			const refusedBlockIds = summary.items.map((item) => item.blockId);
 			refusalNotice = {
 				message: $t("artifacts.document.refused.notice", {
 					count: summary.count,
@@ -672,9 +831,14 @@ async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
 						? $t("artifacts.document.refused.seeChange")
 						: null,
 				firstAppliedChangeId: entries[0]?.changeId ?? null,
+				refusedBlockIds,
 			};
+			// Redesign §4.2 "Refusal": "a dashed amber rule in the gutter" on
+			// every refused line, not just the pinned card.
+			setRefusedLinesFn?.(editor, { blockIds: refusedBlockIds });
 		} else {
 			refusalNotice = null;
+			setRefusedLinesFn?.(editor, null);
 		}
 	} catch {
 		// Best-effort, mirroring `refreshAfterCommentChange`: the panel shows
@@ -735,6 +899,27 @@ function seeChange(changeId: string): void {
 
 function handleSeeChange(): void {
 	if (refusalNotice?.firstAppliedChangeId) seeChange(refusalNotice.firstAppliedChangeId);
+}
+
+/** The pinned refusal card's own "Dismiss" — clears the card and its line's dashed rule together, so the two can never drift. */
+function dismissRefusalNotice(): void {
+	refusalNotice = null;
+	if (editor) setRefusedLinesFn?.(editor, null);
+}
+
+/**
+ * The pinned refusal card's own "Ask again" (redesign §4.2 "Refusal") —
+ * re-selects the refused line and scrolls to it, re-surfacing the selection
+ * pill there (`selectAndScrollToBlockFn` sets the editor's own selection,
+ * which `handleSelectionUpdate` already turns into a shown bubble — the SAME
+ * flow the user would reach by selecting the text themselves), rather than
+ * jumping straight into an open composer.
+ */
+function handleAskAgainRefusal(): void {
+	const blockId = refusalNotice?.refusedBlockIds[0];
+	if (!blockId || !editor || !selectAndScrollToBlockFn) return;
+	selectAndScrollToBlockFn(editor, blockId);
+	dismissRefusalNotice();
 }
 // ---- end T8 live ---------------------------------------------------------
 
@@ -1134,6 +1319,11 @@ async function runLoad(id: string): Promise<void> {
 		refusalReasonI18nKeyFn = mod.refusalReasonI18nKey;
 		setCommentAnchorsFn = mod.setCommentAnchors;
 		scrollToCommentAnchorFn = mod.scrollToCommentAnchor;
+		setAlfyWritingBlockFn = mod.setAlfyWritingBlock;
+		setSelectionPendingFn = mod.setSelectionPending;
+		setRefusedLinesFn = mod.setRefusedLines;
+		blockRectFn = mod.blockRect;
+		selectAndScrollToBlockFn = mod.selectAndScrollToBlock;
 		// A fresh document (a new id, or a retry of this one) starts with no
 		// leftover marks or notice from whatever was open before (the shimmer
 		// itself is fully derived by the `alfyActivity` effect above, so it
@@ -1142,6 +1332,9 @@ async function runLoad(id: string): Promise<void> {
 		changePositions = new Map();
 		refusalNotice = null;
 		handledActivityKey = "";
+		// A stale bubble/composer would otherwise keep pointing at the PREVIOUS
+		// document's own block id once this one's editor replaces it.
+		clearSelectionBubble();
 		changeIdByCommentId = new Map();
 		activeCommentId = null;
 		focusCommentRequest = null;
@@ -1363,6 +1556,14 @@ function saveNoticeText(notice: SaveNotice): string {
 				items={refusalNotice.items}
 				seeChangeLabel={refusalNotice.seeChangeLabel ?? undefined}
 				onSeeChange={refusalNotice.seeChangeLabel ? handleSeeChange : undefined}
+				askAgainLabel={refusalNotice.refusedBlockIds[0]
+					? $t('artifacts.document.comment.askAgain')
+					: undefined}
+				onAskAgain={refusalNotice.refusedBlockIds[0]
+					? handleAskAgainRefusal
+					: undefined}
+				dismissLabel={$t('artifacts.document.refused.dismiss')}
+				onDismiss={dismissRefusalNotice}
 			/>
 		{/if}
 		<!-- Redesign §3.2, Wave 2.5 Step 7: "the comment rail is a 300 px column
@@ -1404,10 +1605,14 @@ function saveNoticeText(notice: SaveNotice): string {
 					{#if selectionBubble}
 						<SelectionBubble
 							position={selectionBubble}
-							onSubmit={async (body) => {
+							quote={selectionBubble.quote}
+							onSubmit={async (body, sourceRect) => {
 								if (!selectionBubble) return;
-								await postComment(selectionBubble.anchor, body);
-								selectionBubble = null;
+								await handleSelectionSubmit(
+									selectionBubble.anchor,
+									body,
+									sourceRect,
+								);
 							}}
 							onDismiss={dismissSelectionBubble}
 						/>
@@ -1922,6 +2127,96 @@ function saveNoticeText(notice: SaveNotice): string {
 	.document-editor-host :global(.document-content .comment-anchor:focus-visible) {
 		outline: 2px solid var(--focus-ring);
 		outline-offset: 2px;
+	}
+
+	/* Wave 2.5 Step 9/11: the Ask-Alfy chain's own decorations
+	   (`alfy-writing-decoration.ts` builds these classes; this file's own job
+	   stays styling only, matching the comment-anchor block above). Values
+	   mirror the approved mockup's `.writing`/`.w-tag`/`.refused-line`
+	   exactly, with `--accent`/`--warning` mapped onto this app's own
+	   `--accent-fill`/`--warning-text` tokens. */
+	.document-editor-host :global(.document-content .alfy-writing-block) {
+		position: relative;
+		/* Dims the TEXT only via `color`, never `opacity` on the block itself
+		   — opacity would equally dim the gutter bar `::before` below (a
+		   sibling-in-spirit pseudo-element of this same element), which the
+		   mockup's own two-selector split (`.writing` vs `.writing > .w-text`)
+		   keeps at full brightness on purpose. */
+		color: color-mix(in srgb, var(--text-primary) 45%, transparent);
+	}
+
+	.document-editor-host :global(.document-content .alfy-writing-block::before) {
+		content: "";
+		position: absolute;
+		left: -16px;
+		top: 4px;
+		bottom: 4px;
+		width: 3px;
+		border-radius: 3px;
+		background: linear-gradient(
+			180deg,
+			var(--accent-fill) 0%,
+			color-mix(in srgb, var(--accent-fill) 20%, transparent) 50%,
+			var(--accent-fill) 100%
+		);
+		background-size: 100% 200%;
+		animation: alfy-writing-gutter-bar 1.2s linear infinite;
+	}
+
+	@keyframes alfy-writing-gutter-bar {
+		from {
+			background-position: 0 0;
+		}
+		to {
+			background-position: 0 200%;
+		}
+	}
+
+	.document-editor-host :global(.document-content .alfy-writing-tag) {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3125rem;
+		margin-left: 0.375rem;
+		vertical-align: 2px;
+		height: 22px;
+		padding: 0 0.5rem;
+		border-radius: var(--radius-full, 999px);
+		background-color: var(--accent-tint);
+		color: var(--accent-text);
+		font-family: var(--font-sans);
+		font-size: 0.72rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+
+	.document-editor-host :global(.document-content .alfy-writing-tag-icon) {
+		font-size: 0.7rem;
+	}
+
+	/* Redesign §4.2 "Refusal": "the refused line... gets a dashed amber rule
+	   in the gutter". */
+	.document-editor-host :global(.document-content .alfy-refused-line) {
+		position: relative;
+	}
+
+	.document-editor-host :global(.document-content .alfy-refused-line::after) {
+		content: "";
+		position: absolute;
+		left: -16px;
+		top: 3px;
+		bottom: 3px;
+		width: 0;
+		border-left: 2px dashed var(--warning-text);
+	}
+
+	/* Redesign §4.2 item 2: "the selection keeps a dashed amber 'pending'
+	   highlight so you still see what you are asking about" — live only
+	   while the selection composer is open. */
+	.document-editor-host :global(.document-content .selection-pending) {
+		background-color: var(--warning-tint);
+		border-bottom: 2px dashed var(--warning-text);
+		border-radius: 2px;
 	}
 
 	.document-editor-skeleton {

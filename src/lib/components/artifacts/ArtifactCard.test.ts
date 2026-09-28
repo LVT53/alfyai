@@ -119,6 +119,37 @@ describe("ArtifactCard", () => {
 		expect(head).toHaveTextContent("Review");
 	});
 
+	// redesign §4.2 "The chat side", Wave 2.5 Step 11: "Vienna trip plan ·
+	// [✦ 1 change to review] [⚠ 1 part left alone] · Review ›" — the two
+	// pills are independent signals shown side by side.
+	it("chrome=full shows both the pending-review and left-alone pills together", () => {
+		render(ArtifactCard, {
+			view: view({
+				openTargetId: "artifact-1",
+				pendingReviewCount: 1,
+				refusedCount: 1,
+			}),
+		});
+
+		const head = screen.getByRole("button", { name: /Weekend checklist/ });
+		expect(head).toHaveTextContent("1 change to review");
+		expect(head).toHaveTextContent("1 part left alone");
+		expect(head).toHaveTextContent("Review");
+	});
+
+	// A fully-refused call has nothing applied to review, only something left
+	// alone — the card must not claim "N changes to review" for zero changes.
+	it("chrome=full shows only the left-alone pill, still with 'Review', when nothing was applied", () => {
+		render(ArtifactCard, {
+			view: view({ openTargetId: "artifact-1", refusedCount: 1 }),
+		});
+
+		const head = screen.getByRole("button", { name: /Weekend checklist/ });
+		expect(head).not.toHaveTextContent("change to review");
+		expect(head).toHaveTextContent("1 part left alone");
+		expect(head).toHaveTextContent("Review");
+	});
+
 	// Wave 2.5 Step 12 (redesign §7.2 row 25): a create_artifact call still
 	// running, with a skeleton body and an "Alfy is writing…" subtitle, and
 	// no Open affordance (nothing to open yet).

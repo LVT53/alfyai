@@ -6,12 +6,17 @@ import {
 	parseDocument,
 } from "$lib/shared/artifact-document/blocks";
 import {
+	blockRect,
 	createDocumentEditor,
 	loadMarkdown,
 	readMarkdown,
 	readSelectionAnchorContext,
 	scrollToCommentAnchor,
+	selectAndScrollToBlock,
+	setAlfyWritingBlock,
 	setCommentAnchors,
+	setRefusedLines,
+	setSelectionPending,
 } from "./document-editor";
 import { BLOCK_ID_ATTR, BLOCK_MARKER_NODE } from "./extensions";
 
@@ -514,6 +519,112 @@ describe("setCommentAnchors / scrollToCommentAnchor (redesign §3.2, Wave 2.5 St
 	it("scrollToCommentAnchor returns false for a block that is not in the live doc", () => {
 		const editor = mountEditor("Hello world.");
 		expect(scrollToCommentAnchor(editor, "missing-block", 0, 3)).toBe(false);
+		editor.destroy();
+	});
+});
+
+describe("the Ask-Alfy chain's decorations (Wave 2.5 Step 9/11)", () => {
+	function firstBlockId(editor: Editor): string {
+		let id: string | null = null;
+		editor.state.doc.forEach((node) => {
+			if (id !== null) return;
+			const value = node.attrs?.[BLOCK_ID_ATTR];
+			if (typeof value === "string") id = value;
+		});
+		if (id === null) throw new Error("fixture has no identified block");
+		return id;
+	}
+
+	it("setAlfyWritingBlock renders the gutter/dim class and the inline tag, and clears back to nothing", () => {
+		const editor = mountEditor("Hello world, this is a test.");
+		const blockId = firstBlockId(editor);
+
+		setAlfyWritingBlock(editor, { blockId, tagLabel: "Alfy is writing…" });
+		expect(element?.querySelector(".alfy-writing-block")).not.toBeNull();
+		expect(element?.querySelector(".alfy-writing-tag")?.textContent).toContain(
+			"Alfy is writing…",
+		);
+
+		setAlfyWritingBlock(editor, null);
+		expect(element?.querySelector(".alfy-writing-block")).toBeNull();
+		editor.destroy();
+	});
+
+	it("setAlfyWritingBlock never adds a step to the undo stack", () => {
+		const editor = mountEditor("Hello world.");
+		const blockId = firstBlockId(editor);
+		const canUndoBefore = editor.can().undo();
+		setAlfyWritingBlock(editor, { blockId, tagLabel: "Alfy is writing…" });
+		expect(editor.can().undo()).toBe(canUndoBefore);
+		editor.destroy();
+	});
+
+	it("setSelectionPending marks exactly the given live selection range, and clears it", () => {
+		const editor = mountEditor("Hello world, this is a test.");
+		// PM position 1 is the paragraph's own opening content position; "world"
+		// starts 6 characters in.
+		setSelectionPending(editor, { from: 1 + 6, to: 1 + 11 });
+		const span = element?.querySelector(".selection-pending");
+		expect(span?.textContent).toBe("world");
+
+		setSelectionPending(editor, null);
+		expect(element?.querySelector(".selection-pending")).toBeNull();
+		editor.destroy();
+	});
+
+	it("setRefusedLines dashes every refused block at once", () => {
+		const editor = mountEditor("First paragraph.\n\nSecond paragraph.");
+		const ids: string[] = [];
+		editor.state.doc.forEach((node) => {
+			const value = node.attrs?.[BLOCK_ID_ATTR];
+			if (typeof value === "string") ids.push(value);
+		});
+
+		setRefusedLines(editor, { blockIds: ids });
+		expect(element?.querySelectorAll(".alfy-refused-line")).toHaveLength(2);
+
+		setRefusedLines(editor, null);
+		expect(element?.querySelectorAll(".alfy-refused-line")).toHaveLength(0);
+		editor.destroy();
+	});
+
+	it("blockRect returns null in a test environment with no real layout (jsdom), never throws", () => {
+		const editor = mountEditor("Hello world.");
+		const blockId = firstBlockId(editor);
+		expect(blockRect(editor, blockId)).toBeNull();
+		editor.destroy();
+	});
+
+	it("blockRect returns null for a block that is not in the live doc", () => {
+		const editor = mountEditor("Hello world.");
+		expect(blockRect(editor, "missing-block")).toBeNull();
+		editor.destroy();
+	});
+
+	it("selectAndScrollToBlock selects the whole block's text", () => {
+		// Tiptap's own chainable `.focus()`/`.scrollIntoView()` depend on real
+		// DOM focus/layout that jsdom does not implement (unlike
+		// `scrollToCommentAnchor`'s own hand-written `Element.scrollIntoView`
+		// call above, which is directly stubbable) — nothing to assert on here;
+		// Playwright covers the real, visible behaviour. The selection change
+		// itself is pure ProseMirror state and IS observable here.
+		const editor = mountEditor("Hello world, this is a test.");
+		const blockId = firstBlockId(editor);
+
+		const found = selectAndScrollToBlock(editor, blockId);
+		expect(found).toBe(true);
+		expect(
+			editor.state.doc.textBetween(
+				editor.state.selection.from,
+				editor.state.selection.to,
+			),
+		).toBe("Hello world, this is a test.");
+		editor.destroy();
+	});
+
+	it("selectAndScrollToBlock returns false for a block that is not in the live doc", () => {
+		const editor = mountEditor("Hello world.");
+		expect(selectAndScrollToBlock(editor, "missing-block")).toBe(false);
 		editor.destroy();
 	});
 });

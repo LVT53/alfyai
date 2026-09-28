@@ -525,12 +525,16 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 	// change just landed" signal the chat header's count-button dot reads
 	// (`alfyActivity`, already a prop here) — see
 	// `ArtifactCardView.pendingReviewCount`'s own doc comment for why this is
-	// expected to be superseded, not this field itself.
+	// expected to be superseded, not this field itself. Wave 2.5 Step 11:
+	// only APPLIED changes count — a fully refused call has nothing to
+	// review (`ToolActivityRow.svelte`'s own `artifactCardView` mirrors this
+	// exactly, including the same removed `Math.max(..., 1)` stopgap).
 	const pendingReviewCount =
 		alfyActivity &&
 		alfyActivity.artifactId === (item.artifactId ?? item.id) &&
-		(alfyActivity.status === "applied" || alfyActivity.status === "refused")
-			? Math.max(alfyActivity.appliedCount, 1)
+		(alfyActivity.status === "applied" || alfyActivity.status === "refused") &&
+		alfyActivity.appliedCount > 0
+			? alfyActivity.appliedCount
 			: null;
 	const rowExtras = {
 		updatedAtLabel,

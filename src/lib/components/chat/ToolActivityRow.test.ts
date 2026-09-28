@@ -555,6 +555,57 @@ describe("ToolActivityRow", () => {
 			expect(head).toHaveTextContent("Review");
 		});
 
+		// Redesign §4.2 "The chat side", Wave 2.5 Step 11: the two pills are
+		// independent signals shown side by side.
+		it("shows both the pending-review and left-alone pills for a partial refusal", () => {
+			const { getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(artifactSegment(), "row-partial", get(t)),
+				alfyActivity: {
+					key: "call-1",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "refused",
+					label: null,
+					patches: [],
+					refusedBlocks: [{ blockId: "p2", reason: "block_changed" }],
+					appliedCount: 1,
+				},
+			});
+
+			const head = getByTestId("artifact-card-head");
+			expect(head).toHaveTextContent("1 change to review");
+			expect(head).toHaveTextContent("1 part left alone");
+			expect(head).toHaveTextContent("Review");
+		});
+
+		// A fully refused call has nothing applied — the card must not claim
+		// "N changes to review" for zero applied changes (the old
+		// `Math.max(appliedCount, 1)` stopgap this pill replaces did).
+		it("shows only the left-alone pill, still with 'Review', for a full refusal", () => {
+			const { getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(
+					artifactSegment(),
+					"row-full-refusal",
+					get(t),
+				),
+				alfyActivity: {
+					key: "call-1",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "refused",
+					label: null,
+					patches: [],
+					refusedBlocks: [{ blockId: "p1", reason: "block_changed" }],
+					appliedCount: 0,
+				},
+			});
+
+			const head = getByTestId("artifact-card-head");
+			expect(head).not.toHaveTextContent("change to review");
+			expect(head).toHaveTextContent("1 part left alone");
+			expect(head).toHaveTextContent("Review");
+		});
+
 		it("ignores alfyActivity about a DIFFERENT artifact", () => {
 			const { getByTestId } = render(ToolActivityRow, {
 				item: buildToolActivityItem(artifactSegment(), "row-other", get(t)),

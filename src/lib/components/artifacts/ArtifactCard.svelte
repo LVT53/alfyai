@@ -26,7 +26,7 @@
 // not a nested log entry. `ArtifactCard.test.ts` and
 // `artifact-chat-card.spec.ts` assert the row+card pair together instead of
 // a single-title invariant for this chrome.
-import { ChevronRight, Sparkles } from "@lucide/svelte";
+import { ChevronRight, CircleSlash, Sparkles } from "@lucide/svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -76,6 +76,17 @@ export interface ArtifactCardView {
 	 * feeds this field, not this field itself.
 	 */
 	pendingReviewCount?: number | null;
+	/**
+	 * `chrome="full"` only (redesign §4.2 "The chat side", Wave 2.5 Step 11):
+	 * the count of undismissed refusal notes — independent from
+	 * `pendingReviewCount` above (the mockup's own `oneLeft`/`revLeft` copy
+	 * family treats them as two separate signals: "N changes to review" is
+	 * what got APPLIED, this is what Alfy left untouched). Shown as its own
+	 * pill beside `pendingReviewCount`'s. `null`/omitted/0 renders nothing.
+	 * The SAME ephemeral, session-only `alfyActivity` signal feeds both —
+	 * `ToolActivityRow.svelte`'s own `artifactCardView`.
+	 */
+	refusedCount?: number | null;
 	/**
 	 * `chrome="row"` and `chrome="full"`: this item is the one currently open
 	 * in the panel. A row is tinted; a standalone card is outlined in accent
@@ -316,11 +327,17 @@ function handleOpen(): void {
 								{$t('artifacts.panel.pendingReview', { count: view.pendingReviewCount })}
 							</span>
 						{/if}
+						{#if view.refusedCount}
+							<span class="pill artifact-card-refused">
+								<CircleSlash size={12} strokeWidth={2} aria-hidden="true" />
+								{$t('artifacts.panel.leftAlone', { count: view.refusedCount })}
+							</span>
+						{/if}
 					</span>
 				</span>
 				{#if view.openTargetId}
 					<span class="artifact-card-cta">
-						{#if view.pendingReviewCount}
+						{#if view.pendingReviewCount || view.refusedCount}
 							{$t('artifacts.card.review')}
 						{:else if view.current}
 							{$t('artifacts.card.openInPanel')}
@@ -503,6 +520,24 @@ function handleOpen(): void {
 		border-radius: var(--radius-full);
 		background: var(--accent-tint);
 		color: var(--accent-text);
+		font-size: 0.69rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+
+	/* Same shape as `.artifact-card-pending`, warning-toned to match
+	   `RefusalNotice.svelte`/`CommentCard.svelte`'s own refusal treatment —
+	   "the two should read as the same family" (rd3a's hand-off). */
+	.artifact-card-refused {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		height: 20px;
+		padding: 0 0.44rem;
+		border-radius: var(--radius-full);
+		background: var(--warning-tint);
+		color: var(--warning-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
