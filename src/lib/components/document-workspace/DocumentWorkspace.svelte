@@ -1431,7 +1431,11 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					title={getDocumentTitle(activeDocument)}
 					versionNumber={activeDocument.versionNumber && activeDocument.versionNumber > 0 ? activeDocument.versionNumber : null}
 					onVersions={bodyPanelActions?.openVersions}
-					meta={activeDocument.updatedAt != null ? formatRelativeTime(activeDocument.updatedAt, { t: $t }) : null}
+					meta={activeDocument.updatedAt != null
+					? $t('artifacts.header.editedBy', {
+							when: formatRelativeTime(activeDocument.updatedAt, { t: $t }),
+						})
+					: null}
 					itemCount={list?.items.length ?? null}
 					onBack={handleBackToList}
 					actions={artifactHeaderActionsSnippet}
@@ -1730,7 +1734,11 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				title={getDocumentTitle(activeDocument)}
 				versionNumber={activeDocument.versionNumber && activeDocument.versionNumber > 0 ? activeDocument.versionNumber : null}
 				onVersions={bodyPanelActions?.openVersions}
-				meta={activeDocument.updatedAt != null ? formatRelativeTime(activeDocument.updatedAt, { t: $t }) : null}
+				meta={activeDocument.updatedAt != null
+					? $t('artifacts.header.editedBy', {
+							when: formatRelativeTime(activeDocument.updatedAt, { t: $t }),
+						})
+					: null}
 				itemCount={list?.items.length ?? null}
 				onBack={handleBackToList}
 				actions={artifactHeaderActionsSnippet}
