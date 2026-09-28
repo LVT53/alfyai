@@ -239,21 +239,25 @@ export function applyAlfyChangeMarks(
 }
 
 /**
- * The one place that searches the live document for a change mark's range —
- * `keepAlfyChange` and `alfyChangeRect`/`scrollToAlfyChange` (the inline
- * bar's own positioning, below) all go through this instead of repeating the
- * `descendants` walk.
+ * The one place that searches a document for a change mark's range — DOC
+ * only (never `Editor`), so it is reachable from a ProseMirror plugin's own
+ * `decorations(state)` prop, which never has a live `Editor` to call
+ * `.schema`/`.view` on, only `state.doc` (a `Node` still carries its own
+ * schema via `.type.schema`). `findAlfyChangeRange` (editor-based, below) and
+ * `findAlfyChangeMarkRange` (exported for `change-pill-decoration.ts`'s own
+ * plugin, the one other caller with no `Editor` at hand) both go through this
+ * instead of repeating the `descendants` walk.
  */
-function findAlfyChangeRange(
-	editor: Editor,
+function findAlfyChangeRangeInDoc(
+	doc: PMNode,
 	changeId: string,
 ): { from: number; to: number } | null {
-	const markType = editor.schema.marks[ALFY_CHANGE_MARK];
+	const markType = doc.type.schema.marks[ALFY_CHANGE_MARK];
 	if (!markType) return null;
 
 	let from = Number.POSITIVE_INFINITY;
 	let to = -1;
-	editor.state.doc.descendants((node, pos) => {
+	doc.descendants((node, pos) => {
 		if (
 			node.marks.some(
 				(m) => m.type === markType && m.attrs[ALFY_CHANGE_ATTR] === changeId,
@@ -264,6 +268,21 @@ function findAlfyChangeRange(
 		}
 	});
 	return to < 0 ? null : { from, to };
+}
+
+function findAlfyChangeRange(
+	editor: Editor,
+	changeId: string,
+): { from: number; to: number } | null {
+	return findAlfyChangeRangeInDoc(editor.state.doc, changeId);
+}
+
+/** The PMNode-only variant of `alfyChangeDocRange`, for a ProseMirror plugin's own `decorations(state)` prop — `change-pill-decoration.ts`'s one caller. */
+export function findAlfyChangeMarkRange(
+	doc: PMNode,
+	changeId: string,
+): { from: number; to: number } | null {
+	return findAlfyChangeRangeInDoc(doc, changeId);
 }
 
 /** Keep: clears the mark, leaves the text exactly as applied. `true` when a mark was actually found and cleared. */
@@ -279,33 +298,46 @@ export function keepAlfyChange(editor: Editor, changeId: string): boolean {
 }
 
 /**
- * The change mark's own on-screen rect (`EditorView.coordsAtPos`'s shape,
- * mirroring `document-editor.ts`'s `readSelectionAnchorContext`), for the
- * inline `Alfy · Keep · Undo` bar's own positioning — the same "compute a
- * rect, let the caller convert it to a position relative to its own
- * container" contract `SelectionBubble` already uses. `null` when the mark
- * is gone (already Kept/Undone, or the editor reloaded past it).
+ * The change mark's own live document range — `null` once the mark is gone
+ * (already Kept — Keep clears it — or Undone: Undo replaces the whole node,
+ * so nothing carries `changeId` any more). The inline pill's own widget
+ * decoration (Wave 2.5 Step 10) uses this to position itself while pending,
+ * and callers that are ABOUT to remove the mark structurally (Undo) capture
+ * it first, as a fallback anchor for the brief "Undone · Redo" window when
+ * the live lookup can no longer find anything.
  */
-export function alfyChangeRect(
+export function alfyChangeDocRange(
 	editor: Editor,
 	changeId: string,
-): { top: number; left: number; right: number; bottom: number } | null {
-	const range = findAlfyChangeRange(editor, changeId);
-	if (!range) return null;
-	try {
-		const start = editor.view.coordsAtPos(range.from);
-		const end = editor.view.coordsAtPos(range.to);
-		return {
-			top: start.top,
-			left: start.left,
-			right: end.right,
-			bottom: end.bottom,
-		};
-	} catch {
-		// jsdom (unit tests) does not implement real layout — a real browser
-		// always has it (Playwright exercises this for real).
-		return null;
-	}
+): { from: number; to: number } | null {
+	return findAlfyChangeRange(editor, changeId);
+}
+
+/**
+ * Marks a WHOLE block with `AlfyChange{changeId}` — the same coarse
+ * whole-block fallback `applyAlfyChangeMarks` already uses when a precise
+ * text range cannot be found, reused here for two callers that have no
+ * op-level precision to re-derive: Redo (the original precise range is gone
+ * once Undo replaced the node) and ruling 61's reload-restored pending set
+ * (the server only ever answers "this block changed", never which
+ * characters). `false` when the block is not currently in the document.
+ */
+export function remarkAlfyChange(
+	editor: Editor,
+	changeId: string,
+	blockId: string,
+): boolean {
+	const markType = editor.schema.marks[ALFY_CHANGE_MARK];
+	const range = markType ? findBlockRange(editor, blockId) : null;
+	if (!markType || !range) return false;
+	const tr = editor.state.tr.addMark(
+		range.from + 1,
+		range.to - 1,
+		markType.create({ [ALFY_CHANGE_ATTR]: changeId }),
+	);
+	tr.setMeta("addToHistory", false);
+	editor.view.dispatch(tr);
+	return true;
 }
 
 /** Scrolls the change mark into view — "See what Alfy did" (T8.4). `true` when a mark was found to scroll to. */
@@ -376,6 +408,16 @@ export function scrollToAlfyChange(editor: Editor, changeId: string): boolean {
  * this function only ever replaced `entry.blockId`'s own node. Undo is
  * defined as restoring the document to what it was BEFORE the op (spec
  * §2.4), not just restoring one block's text.
+ *
+ * `entry.isNewBlock` (ruling 61: a reload-restored pending change for a block
+ * Alfy ADDED, with no parent counterpart) means "restoring the parent" is
+ * removing the block, never replacing it with parsed-empty content — an empty
+ * `previousMarkdown` is otherwise ambiguous with a block that already existed
+ * but was itself blank before the op (e.g. Alfy filled in an empty
+ * paragraph), which this function is NOT asked to tell apart from a deletion
+ * on its own; `isNewBlock` is the caller's explicit answer. Only ruling 61's
+ * reload path ever sets it; the live session's own `AlfyChangeEntry` never
+ * does.
  */
 export function undoAlfyChange(
 	editor: Editor,
@@ -383,11 +425,19 @@ export function undoAlfyChange(
 		blockId: string;
 		previousMarkdown: string;
 		insertedBlockIds?: string[];
+		isNewBlock?: boolean;
 	},
 	extensions: Extensions,
 ): boolean {
 	const target = findBlockRange(editor, entry.blockId);
 	if (!target) return false;
+
+	if (entry.isNewBlock) {
+		const tr = editor.state.tr.delete(target.from, target.to);
+		tr.setMeta("addToHistory", false);
+		editor.view.dispatch(tr);
+		return true;
+	}
 
 	const scratch = document.createElement("div");
 	document.body.appendChild(scratch);

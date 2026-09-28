@@ -26,6 +26,12 @@ import {
 	selectionPendingPluginKey,
 } from "./alfy-writing-decoration";
 import {
+	type ChangePillCallbacks,
+	type ChangePillEntry,
+	changePillPluginKey,
+	type ChangePillStatus,
+} from "./change-pill-decoration";
+import {
 	BLOCK_ID_ATTR,
 	BLOCK_MARKER_NODE,
 	blockIdPluginKey,
@@ -39,10 +45,11 @@ import {
 } from "./extensions";
 import {
 	type AlfyChangeEntry,
-	alfyChangeRect,
+	alfyChangeDocRange,
 	applyAlfyChangeMarks,
 	keepAlfyChange,
 	refusalReasonI18nKey,
+	remarkAlfyChange,
 	scrollToAlfyChange,
 	summarizeRefusals,
 	undoAlfyChange,
@@ -56,6 +63,8 @@ export interface CreateDocumentEditorOptions {
 	onDirty?: () => void;
 	onSelectionUpdate?: () => void;
 	onUpdate?: () => void;
+	/** Wave 2.5 Step 10: the inline pill's own Keep/Undo/Redo — see `change-pill-decoration.ts`. */
+	changePillCallbacks?: ChangePillCallbacks;
 }
 
 /** Builds the one editor instance a `DocumentBody` owns, with ids already ensured. */
@@ -64,7 +73,10 @@ export function createDocumentEditor(
 ): Editor {
 	const editor = new Editor({
 		element: options.element,
-		extensions: buildDocumentExtensions(options.placeholder),
+		extensions: buildDocumentExtensions(
+			options.placeholder,
+			options.changePillCallbacks,
+		),
 		content: options.markdown,
 		contentType: "markdown",
 		editable: options.editable ?? true,
@@ -166,6 +178,24 @@ export function setRefusedLines(
 	target: RefusedLinesTarget | null,
 ): void {
 	const tr = editor.state.tr.setMeta(refusedLinesPluginKey, target);
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
+}
+
+/**
+ * Wave 2.5 Step 10: pushes the CURRENT pending/kept/undone change list into
+ * the editor — `DocumentBody.svelte`'s own `pendingChanges` map, mapped to
+ * `ChangePillEntry[]`, is the one source; this is the one write side (mirrors
+ * `setAlfyWritingBlock`/`setSelectionPending`/`setRefusedLines` above
+ * exactly). A no-op when the editor's own extension list never registered
+ * `changePillCallbacks` (`buildDocumentExtensions`'s optional third
+ * argument) — `changePillPluginKey.getState` simply finds no plugin.
+ */
+export type { ChangePillCallbacks, ChangePillEntry, ChangePillStatus };
+
+export function setChangePills(editor: Editor, entries: ChangePillEntry[]): void {
+	const tr = editor.state.tr.setMeta(changePillPluginKey, entries);
 	tr.setMeta("addToHistory", false);
 	tr.setMeta("preventUpdate", true);
 	editor.view.dispatch(tr);
@@ -594,17 +624,31 @@ export function undoChange(
 		blockId: string;
 		previousMarkdown: string;
 		insertedBlockIds?: string[];
+		isNewBlock?: boolean;
 	},
 ): boolean {
 	return undoAlfyChange(editor, entry, buildDocumentExtensions(""));
 }
 
-/** The change mark's on-screen rect, for the inline bar's own positioning. */
-export function changeMarkRect(
+/**
+ * Re-marks a whole block as an Alfy change under `changeId` — Redo (the
+ * pill's own "Undone · Redo") and ruling 61's reload-restore both have no
+ * op-level precision to re-derive, only "this block".
+ */
+export function remarkChange(
 	editor: Editor,
 	changeId: string,
-): { top: number; left: number; right: number; bottom: number } | null {
-	return alfyChangeRect(editor, changeId);
+	blockId: string,
+): boolean {
+	return remarkAlfyChange(editor, changeId, blockId);
+}
+
+/** The change mark's own live document range, for the inline pill's widget decoration positioning while its mark is about to be replaced structurally (Undo). */
+export function changeDocRange(
+	editor: Editor,
+	changeId: string,
+): { from: number; to: number } | null {
+	return alfyChangeDocRange(editor, changeId);
 }
 
 /** Scrolls a change's mark into view ("See what Alfy did", T8.4). */

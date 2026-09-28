@@ -59,6 +59,10 @@ import {
 import { uiLanguage } from "$lib/stores/settings";
 import { alfyWritingChainExtensions } from "./alfy-writing-decoration";
 import { BLOCK_ID_ATTR, BLOCK_MARKER_NODE } from "./block-attrs";
+import {
+	buildChangePillExtension,
+	type ChangePillCallbacks,
+} from "./change-pill-decoration";
 import { chipLabel, chipValues } from "./chips";
 import { AlfyChange } from "./marks";
 
@@ -866,7 +870,18 @@ const CommentAnchors = Extension.create({
 	},
 });
 
-export function buildDocumentExtensions(placeholder: string) {
+/**
+ * `changePillCallbacks` is optional (defaults to no-ops, `change-pill-
+ * decoration.ts`'s own `NOOP_CALLBACKS`) so every caller that never renders a
+ * pill for real — `undoAlfyChange`'s own temp/detached editor (`marks.ts`),
+ * and any test that does not care about it — never has to supply one.
+ * `DocumentBody.svelte`'s own `createDocumentEditor` call is the one caller
+ * that does.
+ */
+export function buildDocumentExtensions(
+	placeholder: string,
+	changePillCallbacks?: ChangePillCallbacks,
+) {
 	return [
 		StarterKit.configure({
 			link: { openOnClick: false, autolink: false },
@@ -887,5 +902,10 @@ export function buildDocumentExtensions(placeholder: string) {
 		// (in-place "Alfy is writing", the selection's pending highlight, the
 		// refused-line rule) — see `alfy-writing-decoration.ts`'s own header.
 		...alfyWritingChainExtensions,
+		// Wave 2.5 Step 10: the inline "Alfy · Keep · Undo" pill, as a widget
+		// decoration — see `change-pill-decoration.ts`'s own header.
+		...(changePillCallbacks
+			? [buildChangePillExtension(changePillCallbacks)]
+			: []),
 	];
 }
