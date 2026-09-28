@@ -39,7 +39,10 @@ import { showToast } from "$lib/stores/toast";
 import { focusTrap } from "$lib/utils/focus-trap";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { portalToBody } from "$lib/utils/portal";
-import { isPhoneViewport, watchPhoneViewport } from "$lib/utils/viewport.svelte";
+import {
+	isPhoneViewport,
+	watchPhoneViewport,
+} from "$lib/utils/viewport.svelte";
 import {
 	downloadAppAsHtml,
 	fetchArtifact,
@@ -379,7 +382,9 @@ $effect(() => {
 	const handlePointerDown = (event: MouseEvent | TouchEvent) => {
 		const target = event.target as Node;
 		if (regenerateTriggerEl?.contains(target)) return;
-		const popover = document.querySelector('[data-testid="app-regenerate-popover"]');
+		const popover = document.querySelector(
+			'[data-testid="app-regenerate-popover"]',
+		);
 		if (popover && !popover.contains(target)) closeRegeneratePopover();
 	};
 	window.addEventListener("resize", handleReflow);
@@ -952,6 +957,17 @@ const regeneratePopoverFocusTrap = focusTrap({
 		}
 		100% {
 			transform: translateX(250%);
+		}
+	}
+
+	/* Redesign §7.3: a loop becomes a STATIC state, never an animated sweep
+	   at one random frame — app.css's global override already forces one
+	   0.01ms iteration (landing on the keyframe's END, fully translated
+	   away), so this holds the fill at a plain resting position instead. */
+	@media (prefers-reduced-motion: reduce) {
+		.app-busy-progress i {
+			animation: none;
+			transform: none;
 		}
 	}
 

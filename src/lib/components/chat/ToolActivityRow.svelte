@@ -106,8 +106,14 @@ let {
 } = $props();
 
 type ArtifactActivityBody = Extract<ToolActivityBody, { kind: "artifact" }>;
-type ArtifactCreatingBody = Extract<ToolActivityBody, { kind: "artifact-creating" }>;
-type ArtifactFailedBody = Extract<ToolActivityBody, { kind: "artifact-failed" }>;
+type ArtifactCreatingBody = Extract<
+	ToolActivityBody,
+	{ kind: "artifact-creating" }
+>;
+type ArtifactFailedBody = Extract<
+	ToolActivityBody,
+	{ kind: "artifact-failed" }
+>;
 
 /**
  * The four new kinds' chat-card view (Feature 2, the cross-kind task): the
@@ -174,7 +180,9 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 }
 
 /** Wave 2.5 Step 12: the running create_artifact skeleton card — see the `"artifact-creating"` body's own doc comment in tool-activity.ts. */
-function artifactCreatingCardView(body: ArtifactCreatingBody): ArtifactCardView {
+function artifactCreatingCardView(
+	body: ArtifactCreatingBody,
+): ArtifactCardView {
 	return {
 		id: `creating:${body.title}`,
 		kind: body.artifactKind,
@@ -197,7 +205,7 @@ function artifactFailedCardView(body: ArtifactFailedBody): ArtifactCardView {
 		id: `failed:${body.title}`,
 		kind: body.artifactKind,
 		title: body.title,
-		failedReason: body.reason || $t('artifacts.error.load'),
+		failedReason: body.reason || $t("artifacts.error.load"),
 	};
 }
 

@@ -432,9 +432,7 @@ test.describe("the App kind, in the panel", () => {
 		// app…" (the trigger, opening a popover) and "Make v2" (the popover's
 		// own submit) — two distinct labels now, so no more .last() needed to
 		// disambiguate them.
-		await page
-			.getByRole("button", { name: /Change this app/ })
-			.click();
+		await page.getByRole("button", { name: /Change this app/ }).click();
 		await page
 			.getByLabel("What should change?")
 			.fill("Add a character counter");

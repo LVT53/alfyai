@@ -798,7 +798,11 @@ function buildSettledToolActivityItem(
 			// brief's own "edit_artifact keeps today's row" line.
 			const creatingBody: ToolActivityBody | null =
 				!isEdit && inputArtifactKind
-					? { kind: "artifact-creating", artifactKind: inputArtifactKind, title: object }
+					? {
+							kind: "artifact-creating",
+							artifactKind: inputArtifactKind,
+							title: object,
+						}
 					: null;
 			return {
 				...base,
@@ -825,7 +829,13 @@ function buildSettledToolActivityItem(
 		// "failed" so the glyph actually turns red for what is, from the user's
 		// side, a real failure (nothing was made), unlike a hard transport
 		// failure the segment itself never reports here (status stays "done").
-		if (!isEdit && status === "done" && metadata?.ok === false && artifactKind && object) {
+		if (
+			!isEdit &&
+			status === "done" &&
+			metadata?.ok === false &&
+			artifactKind &&
+			object
+		) {
 			return {
 				...base,
 				status: "failed",

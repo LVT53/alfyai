@@ -590,7 +590,11 @@ describe("ToolActivityRow", () => {
 
 		it("reads plain 'Open' when activeArtifactId names a DIFFERENT artifact", () => {
 			const { getByTestId } = render(ToolActivityRow, {
-				item: buildToolActivityItem(artifactSegment(), "row-not-current", get(t)),
+				item: buildToolActivityItem(
+					artifactSegment(),
+					"row-not-current",
+					get(t),
+				),
 				activeArtifactId: "some-other-artifact",
 			});
 

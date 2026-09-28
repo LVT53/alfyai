@@ -106,10 +106,12 @@ const artifactsDict = {
 			"Alfy writes a new version and checks its facts. v1 stays in History.",
 		"artifacts.app.regenerate.building":
 			"Alfy is building v2 · v1 stays until v2 is ready. Your saved data is kept.",
-		"artifacts.app.regenerate.failed": "Alfy couldn't make v2. v1 is unchanged.",
+		"artifacts.app.regenerate.failed":
+			"Alfy couldn't make v2. v1 is unchanged.",
 		"artifacts.app.toast.v2Ready": "Now showing v2",
 		"artifacts.app.toast.undo": "Undo",
-		"artifacts.app.sandboxBar": "Runs sandboxed · no internet · keeps your data",
+		"artifacts.app.sandboxBar":
+			"Runs sandboxed · no internet · keeps your data",
 		"artifacts.app.generating": "Alfy is writing the app…",
 		"artifacts.app.generating.hint": "This takes a few seconds.",
 		"artifacts.app.failed.emptyContent":

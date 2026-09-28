@@ -124,16 +124,20 @@ describe("ArtifactCard", () => {
 	// no Open affordance (nothing to open yet).
 	it("chrome=full shows a skeleton body and 'Alfy is writing…' while creating, with no Open affordance", () => {
 		const { container } = render(ArtifactCard, {
-			view: view({ kind: "app", title: "Trip budget splitter", creating: true }),
+			view: view({
+				kind: "app",
+				title: "Trip budget splitter",
+				creating: true,
+			}),
 		});
 
 		const head = screen.getByRole("button", { name: /Trip budget splitter/ });
 		expect(head).toHaveTextContent("Alfy is writing…");
 		expect(head).not.toHaveTextContent("Open");
 		expect(head).toBeDisabled();
-		expect(
-			container.querySelectorAll(".artifact-card-skel-line"),
-		).toHaveLength(3);
+		expect(container.querySelectorAll(".artifact-card-skel-line")).toHaveLength(
+			3,
+		);
 	});
 
 	// Wave 2.5 Step 12: a settled, business-level refusal of create_artifact —

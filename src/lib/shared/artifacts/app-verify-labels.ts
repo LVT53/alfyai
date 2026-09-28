@@ -7,8 +7,9 @@
 // module: erased at build time, so it never puts server runtime code in a
 // browser bundle — the same established pattern `client/api/artifacts.ts`
 // already uses for this exact type.
-import type { AppVerificationVerdict } from "$lib/server/services/artifacts/app/verify";
+
 import type { I18nKey } from "$lib/i18n";
+import type { AppVerificationVerdict } from "$lib/server/services/artifacts/app/verify";
 
 export const APP_VERIFY_LINE_KEYS: Record<AppVerificationVerdict, I18nKey> = {
 	clean: "artifacts.app.verify.clean",

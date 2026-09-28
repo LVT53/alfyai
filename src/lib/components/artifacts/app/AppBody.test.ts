@@ -36,7 +36,8 @@ vi.mock("$lib/client/api/artifacts", () => ({
 	fetchArtifact: (...args: unknown[]) => fetchArtifact(...args),
 	downloadAppAsHtml: (...args: unknown[]) => downloadAppAsHtml(...args),
 	regenerateApp: (...args: unknown[]) => regenerateApp(...args),
-	restoreArtifactVersion: (...args: unknown[]) => restoreArtifactVersion(...args),
+	restoreArtifactVersion: (...args: unknown[]) =>
+		restoreArtifactVersion(...args),
 }));
 
 // Ruling 58: the Code tab loads its highlighter ON DEMAND when it opens,
@@ -711,7 +712,13 @@ describe("AppBody — regenerate", () => {
 		fetchArtifact.mockResolvedValue({
 			...baseDetail(),
 			versions: [
-				{ id: "v1-id", versionNumber: 1, author: "alfy", summary: "", createdAt: 1 },
+				{
+					id: "v1-id",
+					versionNumber: 1,
+					author: "alfy",
+					summary: "",
+					createdAt: 1,
+				},
 			],
 		});
 		regenerateApp.mockResolvedValue({
@@ -824,7 +831,9 @@ describe("AppBody — regenerate", () => {
 
 		await waitFor(() => expect(regenerateApp).toHaveBeenCalled());
 		await screen.findByText("Alfy couldn't make v2. v1 is unchanged.");
-		expect(screen.queryByLabelText(en.regeneratePrompt)).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText(en.regeneratePrompt),
+		).not.toBeInTheDocument();
 
 		await fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
 		const reopenedTextarea = await screen.findByLabelText(en.regeneratePrompt);
@@ -858,9 +867,9 @@ describe("AppBody — regenerate", () => {
 		await fireEvent.click(screen.getByRole("button", { name: /Make v2/ }));
 
 		await screen.findByTestId("app-busy-veil");
-		const frameWrap = document.getElementById(
-			"app-panel-preview-app-1",
-		) as (HTMLElement & { inert: boolean }) | null;
+		const frameWrap = document.getElementById("app-panel-preview-app-1") as
+			| (HTMLElement & { inert: boolean })
+			| null;
 		expect(frameWrap).not.toBeNull();
 		// jsdom has no native `inert` reflection between the IDL property and the
 		// content attribute (unlike a real browser), so this reads the property
@@ -894,7 +903,13 @@ describe("AppBody — regenerate", () => {
 		fetchArtifact.mockResolvedValue({
 			...baseDetail(),
 			versions: [
-				{ id: "v1-id", versionNumber: 1, author: "alfy", summary: "", createdAt: 1 },
+				{
+					id: "v1-id",
+					versionNumber: 1,
+					author: "alfy",
+					summary: "",
+					createdAt: 1,
+				},
 			],
 		});
 		regenerateApp.mockResolvedValue({
