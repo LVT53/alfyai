@@ -53,6 +53,8 @@ function loadEditorModule(): Promise<typeof DocumentEditorModule> {
  * — the module stays cached (above), only the per-document state reloads.
  */
 import { onDestroy, tick, untrack } from "svelte";
+import { cubicIn, cubicOut } from "svelte/easing";
+import { fly } from "svelte/transition";
 import {
 	acknowledgeDocumentReviewBlocks,
 	askAlfyInComment,
@@ -85,6 +87,7 @@ import {
 	MOTION_EASING,
 	prefersReducedMotion,
 	reducedMotionAnimate,
+	reducedMotionAware,
 } from "$lib/utils/motion";
 import {
 	reconstructDocumentPatch,
@@ -315,6 +318,16 @@ const ALFY_WRITING_MIN_VISIBLE_MS = 600;
 const KEEP_SETTLE_MS = 1400;
 /** Redesign §7.2 #14: "the pill shows 'Undone · Redo' for 5s". */
 const UNDO_SETTLE_MS = 5000;
+/**
+ * Redesign §7.2 #12: "rises from below the text column and fades in / sinks
+ * and fades out" — `fly`'s own `y` covers "rises"/"sinks", its built-in
+ * opacity interpolation covers the fade; `reducedMotionAware` collapses both
+ * to instant under `prefers-reduced-motion` (motion.ts's own header: Svelte's
+ * `css` transitions interpolate styles directly, so app.css's global
+ * animation-duration override cannot reach them — unlike the CSS `@keyframes`
+ * pill-arrival animation in `ChangeBar.svelte`, which needs no such wrapper).
+ */
+const reviewBarFly = reducedMotionAware(fly);
 
 interface PendingAlfyChange {
 	entry: AlfyChangeEntry;
@@ -1844,7 +1857,11 @@ function saveNoticeText(notice: SaveNotice): string {
 			     rendered here — Step 10 moved it into the editor's own DOM as a
 			     ProseMirror widget decoration (`change-pill-decoration.ts`). -->
 			{#if pendingList.length > 0}
-				<div class="document-review-bar-slot">
+				<div
+					class="document-review-bar-slot"
+					in:reviewBarFly={{ y: 16, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
+					out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
+				>
 					<ReviewBar
 						pendingCount={pendingList.length}
 						refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
