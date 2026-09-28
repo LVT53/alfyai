@@ -75,6 +75,24 @@ export interface DocumentCardPreview {
 	totalTaskCount: number;
 }
 
+/**
+ * `kind: "app"` only (Wave 2.5 Step 13): the App panel's own status-row
+ * verdict, carried along so the in-chat card can show the same fact-check
+ * line without a second fetch. Mirrors the shape `AppBody.svelte` already
+ * reads off `metadata.verification` client-side — never the full
+ * `AppVerification` (findings, repairedHtml, …), which stays panel-only.
+ *
+ * `verdict` repeats `./app/verify.ts`'s own `AppVerificationVerdict` union as
+ * a literal rather than importing it: that module's own import graph
+ * (generation/verification/tool-recording) has no reason to run through this
+ * shared types file, and a real, small, stable four-value enum is cheaper to
+ * repeat here than to risk a new circular dependency over.
+ */
+export interface AppVerificationSummary {
+	checked: boolean;
+	verdict: "clean" | "repaired" | "uncertain" | "unavailable";
+}
+
 export interface ArtifactCardSummary {
 	id: string;
 	kind: ArtifactKind;
@@ -85,6 +103,8 @@ export interface ArtifactCardSummary {
 	commentCount: number;
 	updatedAt: number;
 	documentPreview?: DocumentCardPreview;
+	/** `kind: "app"` only; `null` when the App's facts were never checked. */
+	appVerification?: AppVerificationSummary | null;
 }
 
 export interface ArtifactDetail extends ArtifactCardSummary {

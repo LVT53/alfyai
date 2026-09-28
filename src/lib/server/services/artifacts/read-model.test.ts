@@ -360,3 +360,69 @@ describe("listArtifactsForConversation — documentPreview (T9 steps 4/7)", () =
 		expect(row.documentPreview).toBeUndefined();
 	});
 });
+
+/** Bypasses the App's own generate-and-verify pipeline — this test only needs the STORED metadata shape `buildAppVerificationSummary` reads. */
+function setMetadataVerification(
+	id: string,
+	verification: Record<string, unknown> | undefined,
+) {
+	const row = memory.sqlite
+		.prepare("SELECT metadata_json FROM artifacts WHERE id = ?")
+		.get(id) as { metadata_json: string };
+	const metadata = JSON.parse(row.metadata_json);
+	if (verification === undefined) delete metadata.verification;
+	else metadata.verification = verification;
+	memory.sqlite
+		.prepare("UPDATE artifacts SET metadata_json = ? WHERE id = ?")
+		.run(JSON.stringify(metadata), id);
+}
+
+describe("listArtifactsForConversation — appVerification (Wave 2.5 Step 13)", () => {
+	it("surfaces the stored checked/verdict pair for an App whose facts were checked", async () => {
+		const app = await create(CONVERSATION, "Trip budget splitter", "app");
+		setMetadataVerification(app.id, { checked: true, verdict: "repaired" });
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.appVerification).toEqual({ checked: true, verdict: "repaired" });
+	});
+
+	it("is null (not missing) for an App whose facts were never checked", async () => {
+		const app = await create(CONVERSATION, "Quiet app", "app");
+		setMetadataVerification(app.id, undefined);
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.appVerification).toBeNull();
+	});
+
+	it("is null for a malformed verification shape rather than surfacing garbage", async () => {
+		const app = await create(CONVERSATION, "Odd app", "app");
+		setMetadataVerification(app.id, { checked: "yes", verdict: 3 });
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.appVerification).toBeNull();
+	});
+
+	it("omits appVerification entirely for a non-app kind", async () => {
+		await create(CONVERSATION, "Weekend plan", "document");
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.kind).toBe("document");
+		expect(row.appVerification).toBeUndefined();
+	});
+});

@@ -25,7 +25,11 @@ import {
 	parseArtifactMetadata,
 	titleForArtifactRow,
 } from "./record";
-import type { ArtifactCardSummary, DocumentCardPreview } from "./types";
+import type {
+	AppVerificationSummary,
+	ArtifactCardSummary,
+	DocumentCardPreview,
+} from "./types";
 
 /** T9 steps 4/7's bounded checklist: never more than this many task items travel with the card summary. */
 const DOCUMENT_PREVIEW_TASK_LIMIT = 5;
@@ -59,6 +63,35 @@ function buildDocumentPreview(row: {
 		}
 	}
 	return { tabCount, tasks, totalTaskCount };
+}
+
+/**
+ * Wave 2.5 Step 13: the App panel's own status-row verdict (`AppBody.svelte`
+ * reads the identical `metadata.verification` shape client-side), projected
+ * through the facade so the in-chat card's fact-check line does not need a
+ * second fetch. `null` when the App's facts were never checked (a legacy row,
+ * or a kind the classifier found nothing checkable in) — distinct from
+ * `undefined`, which `documentPreview`'s own sibling field uses for "not this
+ * kind" (the caller below only calls this for `kind === "app"` rows).
+ */
+function buildAppVerificationSummary(row: {
+	metadataJson: string | null;
+}): AppVerificationSummary | null {
+	const metadata = parseArtifactMetadata(row.metadataJson);
+	const verification = metadata?.verification as
+		| { checked?: unknown; verdict?: unknown }
+		| undefined;
+	if (
+		!verification ||
+		typeof verification.checked !== "boolean" ||
+		typeof verification.verdict !== "string"
+	) {
+		return null;
+	}
+	return {
+		checked: verification.checked,
+		verdict: verification.verdict as AppVerificationSummary["verdict"],
+	};
 }
 
 /**
@@ -165,7 +198,9 @@ export async function listArtifactsForConversation(params: {
 			updatedAt: row.updatedAt.getTime(),
 			...(kind === "document"
 				? { documentPreview: buildDocumentPreview(row) }
-				: {}),
+				: kind === "app"
+					? { appVerification: buildAppVerificationSummary(row) }
+					: {}),
 		};
 	});
 }
