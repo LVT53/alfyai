@@ -1073,7 +1073,10 @@ describe("buildToolActivityItem — journey row", () => {
 			});
 		});
 
-		it("shows a running create_artifact as 'Creating <title>' from the model's own call arguments, with no card yet", () => {
+		// Wave 2.5 Step 12/13: a running create_artifact's own call arguments
+		// already carry a kind and a title, so it gets a standalone skeleton
+		// card straight away — no need to wait for the tool call to settle.
+		it("shows a running create_artifact as 'Creating <title>' with a skeleton card, from the model's own call arguments", () => {
 			const item = buildToolActivityItem(
 				toolCall({
 					name: "create_artifact",
@@ -1086,10 +1089,88 @@ describe("buildToolActivityItem — journey row", () => {
 
 			expect(item.verb).toBe("Creating");
 			expect(item.object).toBe("Pitch deck");
+			expect(item.body).toEqual({
+				kind: "artifact-creating",
+				artifactKind: "slides",
+				title: "Pitch deck",
+			});
+			expect(item.pinned).toBe(true);
+			expect(item.alwaysOpen).toBe(true);
+			expect(item.meta).toBe("");
+		});
+
+		// edit_artifact's own call arguments never carry a kind or a title
+		// (only artifactId + patches/ops), so `object` stays empty and a
+		// running edit falls straight through to the row's generic identity —
+		// no card, exactly today's behaviour.
+		it("shows no artifact card for a running edit_artifact — its call arguments carry no title to show", () => {
+			const item = buildToolActivityItem(
+				toolCall({
+					name: "edit_artifact",
+					input: { artifactId: "artifact-1", summary: "Tighten the intro" },
+					status: "running",
+				}),
+				"k-running-edit",
+				translate,
+			);
+
+			expect(item.body?.kind).not.toBe("artifact-creating");
+			expect(item.pinned).toBe(false);
+			expect(item.alwaysOpen).toBe(false);
+		});
+
+		// Defence in depth: even if a future edit_artifact schema change ever
+		// put a title/kind on its call arguments, isEdit alone must still keep
+		// it off the skeleton-card path — only create_artifact gets one.
+		it("never builds a skeleton card for a running edit_artifact, even given a title-shaped input", () => {
+			const item = buildToolActivityItem(
+				toolCall({
+					name: "edit_artifact",
+					input: {
+						artifactId: "artifact-1",
+						artifactType: "document",
+						title: "Weekend plan",
+					},
+					status: "running",
+				}),
+				"k-running-edit-titled",
+				translate,
+			);
+
+			expect(item.verb).toBe("Editing");
+			expect(item.object).toBe("Weekend plan");
 			expect(item.body).toBeNull();
 			expect(item.pinned).toBe(false);
 			expect(item.alwaysOpen).toBe(false);
-			expect(item.meta).toBe("");
+		});
+
+		// Wave 2.5 Step 12/13: a SOFT refusal (ok: false) of create_artifact —
+		// distinct from a hard transport failure — now gets its own standalone
+		// "could not be made" card, with the tool's own English reason.
+		it("shows a standalone failed card for a refused create_artifact, with the model-facing reason, and turns the row's glyph red", () => {
+			const item = buildToolActivityItem(
+				toolCall({
+					name: "create_artifact",
+					input: { artifactType: "app", title: "Trip budget splitter" },
+					status: "done",
+					outputSummary: "Could not create the app: the brief was empty.",
+					metadata: { ok: false, artifactKind: "app" },
+				}),
+				"k-create-refused",
+				translate,
+			);
+
+			expect(item.status).toBe("failed");
+			expect(item.verb).toBe("Created");
+			expect(item.object).toBe("Trip budget splitter");
+			expect(item.pinned).toBe(true);
+			expect(item.alwaysOpen).toBe(true);
+			expect(item.body).toEqual({
+				kind: "artifact-failed",
+				artifactKind: "app",
+				title: "Trip budget splitter",
+				reason: "Could not create the app: the brief was empty.",
+			});
 		});
 
 		it("never renders a card for a refused edit_artifact — the row shows the refusal, not a deliverable", () => {
