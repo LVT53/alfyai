@@ -27,6 +27,13 @@ const artifactsDict = {
 		// how a screen reader user gets the same information.
 		"artifacts.header.buttonA11yPending":
 			"Open what this chat made ({count}) — a change is waiting",
+		// Wave 2.5 review (F2): the panel header's meta line (redesign §5.2/§8
+		// "kind · version · edited") was missing the mockup's own authorship —
+		// index.html's `editedWhen` ("You and Alfy · edited {when}"). `when` is
+		// already-localised relative time (formatRelativeTime), so this string
+		// only wraps it, matching ArtifactPanelHeader.svelte's own `meta` prop
+		// doc comment example.
+		"artifacts.header.editedBy": "You and Alfy · edited {when}",
 		// Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open
 		// item" — the chat page's own composer, while a document/app/etc. is
 		// open in the panel. `src/routes/(app)/chat/[conversationId]/+page.svelte`.
@@ -416,6 +423,7 @@ const artifactsDict = {
 			"Nyisd meg, amit ez a beszélgetés készített ({count})",
 		"artifacts.header.buttonA11yPending":
 			"Nyisd meg, amit ez a beszélgetés készített ({count}) — egy módosítás vár rád",
+		"artifacts.header.editedBy": "Te és Alfy · szerkesztve {when}",
 		// A kettőspont a "-ról/-ről" rag nélkül old meg egy tetszőleges,
 		// felhasználó/AI adta címet — a magyar toldalék a cím végződésétől
 		// függne, ami egy dinamikus értéknél nem garantálható.

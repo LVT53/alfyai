@@ -156,6 +156,15 @@ export type NormalChatClientTurnRuntimeAdapters = {
 		name: string,
 		status: "running" | "done" | "failed",
 	) => boolean;
+	// Wave 2.5 review (F2): a second, separately-named hydrate gate for the
+	// SAME onToolCall hook — a create_artifact/edit_artifact call's fresh
+	// version/review state needs the identical conversation-detail refresh,
+	// for a different reason than file-production/connection writes do. See
+	// _helpers.ts's shouldHydrateArtifactsOnToolCall for the reasoning.
+	shouldHydrateArtifactsOnToolCall?: (
+		name: string,
+		status: "running" | "done" | "failed",
+	) => boolean;
 	applyStreamMetadata: (metadata?: StreamMetadata) => void;
 	attachFileProductionJobsToAssistantMessage: (
 		assistantMessageId: string,
@@ -711,7 +720,8 @@ export function createNormalChatClientTurnRuntime(
 					}
 				}
 				if (
-					adapters.shouldHydrateFileProductionJobsOnToolCall?.(name, status)
+					adapters.shouldHydrateFileProductionJobsOnToolCall?.(name, status) ||
+					adapters.shouldHydrateArtifactsOnToolCall?.(name, status)
 				) {
 					adapters.hydrateConversationDetail();
 				}

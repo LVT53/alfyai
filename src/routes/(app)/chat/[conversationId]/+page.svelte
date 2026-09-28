@@ -172,6 +172,7 @@ import {
 	isConversationReadOnly,
 	isOsFileDropEvent,
 	markPendingSkillUnavailable,
+	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
 	type DraftChangePayload,
 	type MessageEditPayload,
@@ -733,6 +734,7 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		}
 	},
 	shouldHydrateFileProductionJobsOnToolCall,
+	shouldHydrateArtifactsOnToolCall,
 	applyStreamMetadata: (metadata) => {
 		if (metadata) {
 			markDetailMetadataFreshnessBoundary();
@@ -1897,6 +1899,15 @@ async function hydrateConversationDetail(conversationId: string) {
 			contextDebug = payload.contextDebug ?? contextDebug;
 			generatedFiles = payload.generatedFiles ?? generatedFiles;
 			fileProductionJobs = payload.fileProductionJobs ?? fileProductionJobs;
+			// Wave 2.5 review (F2): missing here (unlike its sibling
+			// applyConversationDetailMetadata, the polling-fallback path's
+			// version of this same field list, which already includes it) —
+			// a create_artifact/edit_artifact turn's fresh versionNumber/
+			// pendingReviewCount never reached the chat card or panel list row
+			// without a full reload, since ThinkingBlock.svelte's
+			// buildEnrichedToolActivityItem derives the card's `preview` from
+			// exactly this array.
+			artifacts = payload.artifacts ?? artifacts;
 			atlasJobs = payload.atlasJobs ?? atlasJobs;
 			contextCompressionMarkers =
 				payload.contextCompressionSnapshots ?? contextCompressionMarkers;

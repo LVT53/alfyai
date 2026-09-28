@@ -1,7 +1,8 @@
 <script module lang="ts">
+import { cubicIn, cubicOut } from "svelte/easing";
 import { fade, fly, scale } from "svelte/transition";
 import { createFocusTrapStack } from "$lib/utils/focus-trap";
-import { reducedMotionAware } from "$lib/utils/motion";
+import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 
 // Backdrop/panel transitions, wrapped once per module (not per instance) so
 // every DialogShell shares the same reduced-motion-aware functions — mirrors
@@ -31,6 +32,7 @@ export type PanelTransitionParams = {
 	opacity?: number;
 	start?: number;
 	y?: number;
+	easing?: (t: number) => number;
 };
 
 // Mount-order stack of currently-open DialogShell instances. The topmost
@@ -172,15 +174,35 @@ let presentation = $derived(
 let isSheet = $derived(presentation !== "centered");
 
 // A centred panel scales into the middle of the screen; a sheet slides up
-// from the bottom edge and back down on the way out (250ms, the standard
-// ease — the board's number). Both go through reducedMotionAware, so both
-// collapse to an instant appearance under prefers-reduced-motion. Selected as
-// a value rather than with two `{#if}` branches so the panel element — and
-// the focus trap bound to it — is the same node in both presentations.
+// from the bottom edge and back down on the way out. Both go through
+// reducedMotionAware, so both collapse to an instant appearance under
+// prefers-reduced-motion. Selected as a value rather than with two `{#if}`
+// branches so the panel element — and the focus trap bound to it — is the
+// same node in both presentations.
 let panelTransition = $derived(isSheet ? panelSlide : panelScale);
-let panelTransitionParams: PanelTransitionParams = $derived(
+// Wave 2.5 review (F2), redesign §7.2 #24 ("Phone sheets... in emphasis ·
+// ease-emphasis; out standard · ease-in"): the sheet used the SAME 250ms for
+// both directions — asymmetric now, in/out split through in:/out: below. The
+// centred dialog's own scale (not one of the review's cited "popovers/
+// drawer" instances) is left symmetric, unchanged.
+let panelTransitionInParams: PanelTransitionParams = $derived(
 	isSheet
-		? { duration: 250, y: 360, opacity: 1 }
+		? {
+				duration: MOTION_DURATION.emphasis,
+				y: 360,
+				opacity: 1,
+				easing: cubicOut,
+			}
+		: { duration: 150, start: 0.95 },
+);
+let panelTransitionOutParams: PanelTransitionParams = $derived(
+	isSheet
+		? {
+				duration: MOTION_DURATION.standard,
+				y: 360,
+				opacity: 1,
+				easing: cubicIn,
+			}
 		: { duration: 150, start: 0.95 },
 );
 
@@ -252,7 +274,7 @@ onDestroy(() => {
   class={`fixed inset-0 ${zIndexClass} flex justify-center ${isSheet ? 'items-end p-0' : 'items-center'} ${isSheet ? '' : fullScreen ? 'p-0 sm:p-lg' : 'p-md'}`}
   data-presentation={presentation}
   use:portalToBody
-  transition:backdropFade={{ duration: 150 }}
+  transition:backdropFade={{ duration: MOTION_DURATION.standard }}
   style={isSheet
     ? 'padding: 0;'
     : `padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));`}
@@ -278,7 +300,8 @@ onDestroy(() => {
     aria-describedby={description ? 'dialog-shell-description' : undefined}
     tabindex="-1"
     class={`relative w-full ${dialogSizeClass} border-border bg-surface-page shadow-lg ${isSheet ? '' : 'p-lg'}`}
-    transition:panelTransition={panelTransitionParams}
+    in:panelTransition={panelTransitionInParams}
+    out:panelTransition={panelTransitionOutParams}
     style={isSheet ? '' : fullScreen ? 'max-height: 100dvh; overflow-y: auto;' : 'max-height: 85dvh; overflow-y: auto;'}
   >
     {#if isSheet}

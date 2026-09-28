@@ -26,6 +26,7 @@ import {
 	X,
 } from "@lucide/svelte";
 import { untrack } from "svelte";
+import { cubicIn, cubicOut } from "svelte/easing";
 import { scale } from "svelte/transition";
 import DialogShell, {
 	deregisterDialog,
@@ -37,7 +38,7 @@ import { t, type I18nKey } from "$lib/i18n";
 import { isDark } from "$lib/stores/theme";
 import { showToast } from "$lib/stores/toast";
 import { focusTrap } from "$lib/utils/focus-trap";
-import { reducedMotionAware } from "$lib/utils/motion";
+import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 import { portalToBody } from "$lib/utils/portal";
 import {
 	isPhoneViewport,
@@ -510,7 +511,19 @@ const regeneratePopoverFocusTrap = focusTrap({
 			{/if}
 
 			{#if verificationNote}
-				<div class="app-note-wrap" class:app-note-open={noteOpen} id="app-note-{artifactId}">
+				<!-- Wave 2.5 review (F2): the note stays in the DOM at all times so
+				     its grid-template-rows height animation has something to
+				     collapse/expand (0fr <-> 1fr below) — `inert` while collapsed
+				     keeps it out of the accessibility tree and tab order without
+				     tearing it down, rather than the plain-visual `app-note-open`
+				     class alone leaving "Alfy megjegyzése" reachable by a screen
+				     reader even when visually collapsed to zero height. -->
+				<div
+					class="app-note-wrap"
+					class:app-note-open={noteOpen}
+					id="app-note-{artifactId}"
+					inert={!noteOpen}
+				>
 					<div class="app-note-inner">
 						<div class="app-note" data-testid="app-verify-note">
 							<div class="app-note-title">{$t('artifacts.app.verify.noteTitle')}</div>
@@ -625,15 +638,31 @@ const regeneratePopoverFocusTrap = focusTrap({
 				</div>
 			{/if}
 
+			<!-- Wave 2.5 review (F2): a persistent, always-mounted live region,
+			     never removed/re-added with the veil itself — a role="status"
+			     element inserted at the same moment as the text it announces
+			     often goes unannounced (the region has to already exist for a
+			     screen reader to notice its content changing). The visual veil
+			     below stays purely presentational (its own copy of the text is
+			     aria-hidden so nothing reads twice). -->
+			<div
+				class="sr-only"
+				role="status"
+				aria-live="polite"
+				data-testid="app-busy-announcer"
+			>
+				{regenerateBusy ? $t('artifacts.app.regenerate.building') : ''}
+			</div>
+
 			<!-- Redesign §6.2/§6.4: non-blocking — v1 stays visible, dimmed, under
 			     this veil while v2 is built; the frame itself is `inert` above so
 			     keyboard users cannot type into an app about to be replaced. Never
 			     traps focus (no focusTrap here on purpose). -->
 			{#if regenerateBusy}
-				<div class="app-busy-veil" role="status" aria-live="polite" data-testid="app-busy-veil">
+				<div class="app-busy-veil" data-testid="app-busy-veil">
 					<div class="app-busy-card">
 						<Sparkles size={20} strokeWidth={1.75} class="app-busy-spark" aria-hidden="true" />
-						<p>{$t('artifacts.app.regenerate.building')}</p>
+						<p aria-hidden="true">{$t('artifacts.app.regenerate.building')}</p>
 						<span class="app-busy-progress" aria-hidden="true"><i></i></span>
 					</div>
 				</div>
@@ -662,7 +691,16 @@ const regeneratePopoverFocusTrap = focusTrap({
 			data-testid="app-regenerate-popover"
 			use:portalToBody
 			{@attach regeneratePopoverFocusTrap}
-			transition:popoverScale={{ duration: 150, start: 0.98 }}
+			in:popoverScale={{
+				duration: MOTION_DURATION.standard,
+				start: 0.98,
+				easing: cubicOut,
+			}}
+			out:popoverScale={{
+				duration: MOTION_DURATION.micro,
+				start: 0.98,
+				easing: cubicIn,
+			}}
 		>
 			<div class="app-regen-pop-head">
 				<h4>{$t('artifacts.app.regenerate.prompt')}</h4>
