@@ -559,11 +559,11 @@ describe("the Ask-Alfy chain's decorations (Wave 2.5 Step 9/11)", () => {
 		editor.destroy();
 	});
 
-	it("setSelectionPending marks exactly the block-relative character window, and clears it", () => {
+	it("setSelectionPending marks exactly the given live selection range, and clears it", () => {
 		const editor = mountEditor("Hello world, this is a test.");
-		const blockId = firstBlockId(editor);
-
-		setSelectionPending(editor, { blockId, from: 6, to: 11 });
+		// PM position 1 is the paragraph's own opening content position; "world"
+		// starts 6 characters in.
+		setSelectionPending(editor, { from: 1 + 6, to: 1 + 11 });
 		const span = element?.querySelector(".selection-pending");
 		expect(span?.textContent).toBe("world");
 

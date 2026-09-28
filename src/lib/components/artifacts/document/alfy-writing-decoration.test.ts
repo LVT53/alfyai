@@ -98,13 +98,11 @@ describe("buildAlfyWritingDecorations", () => {
 });
 
 describe("buildSelectionPendingDecorations", () => {
-	it("marks the block-relative character window as pending", () => {
+	it("marks exactly the given live selection range as pending", () => {
 		const editor = mountEditor("Hello world, this is a test.");
-		const [firstId] = blockIds(editor);
-		const from = "Hello world, this is a test.".indexOf("world");
+		const from = "Hello world, this is a test.".indexOf("world") + 1; // +1: the paragraph's own opening position
 		const to = from + "world".length;
 		const set = buildSelectionPendingDecorations(editor.state.doc, {
-			blockId: firstId,
 			from,
 			to,
 		});
@@ -121,6 +119,27 @@ describe("buildSelectionPendingDecorations", () => {
 		const editor = mountEditor("Hello world.");
 		const set = buildSelectionPendingDecorations(editor.state.doc, null);
 		expect(set.find()).toHaveLength(0);
+		editor.destroy();
+	});
+
+	it("is empty for an inverted or empty range rather than throwing", () => {
+		const editor = mountEditor("Hello world.");
+		const set = buildSelectionPendingDecorations(editor.state.doc, {
+			from: 5,
+			to: 5,
+		});
+		expect(set.find()).toHaveLength(0);
+		editor.destroy();
+	});
+
+	it("clamps a stale (past the doc's current end) range instead of throwing", () => {
+		const editor = mountEditor("Hi.");
+		const set = buildSelectionPendingDecorations(editor.state.doc, {
+			from: 1,
+			to: 9999,
+		});
+		// Clamped to the doc's own bounds — still a valid, findable decoration.
+		expect(set.find()).toHaveLength(1);
 		editor.destroy();
 	});
 });

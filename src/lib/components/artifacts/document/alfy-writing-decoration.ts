@@ -172,16 +172,18 @@ const AlfyWritingBlock = Extension.create({
 // 2. The selection's own "pending" highlight while the composer is open
 //    (redesign §4.2 item 2: "the selection keeps a dashed amber 'pending'
 //    highlight so you still see what you are asking about"; §4.3 states
-//    table's "Composing" row). Same block-id + block-relative-character-
-//    offset window a comment anchor resolves (`makeAnchor`'s `Anchor` in
-//    `DocumentBody.svelte` is built from the identical
-//    `readSelectionAnchorContext` shape) — the character-offset-to-position
-//    walk is `extensions.ts`'s own `positionAtCharOffset`, duplicated here
-//    rather than imported (this file's own header comment explains why).
+//    table's "Composing" row). Unlike a comment anchor (which must survive a
+//    reload and so is stored as block-relative CHARACTER offsets, re-resolved
+//    by fuzzy text matching — `commentAnchorDocRange`'s own rationale), this
+//    highlight only ever needs to outlive the CURRENT live selection: the
+//    caller (`DocumentBody.svelte`'s `updateSelectionBubble`) already has the
+//    selection's raw, live ProseMirror positions at hand
+//    (`editor.state.selection.from`/`to`) the instant it matters, so this
+//    takes them directly — no block lookup, no resolution, nothing that can
+//    go stale.
 // ---------------------------------------------------------------------------
 
 export interface SelectionPendingTarget {
-	blockId: string;
 	from: number;
 	to: number;
 }
@@ -189,44 +191,17 @@ export interface SelectionPendingTarget {
 export const selectionPendingPluginKey =
 	new PluginKey<SelectionPendingTarget | null>("documentSelectionPending");
 
-/** Binary search over `doc.textBetween(blockStart, p, "\n")`'s length — see `extensions.ts`'s `positionAtCharOffset` for the full rationale (the same separator, the same convergence argument). */
-function positionAtCharOffset(
-	doc: PMNode,
-	blockStart: number,
-	blockEnd: number,
-	target: number,
-): number {
-	let lo = blockStart;
-	let hi = blockEnd;
-	while (lo < hi) {
-		const mid = (lo + hi) >> 1;
-		const length = doc.textBetween(blockStart, mid, "\n").length;
-		if (length < target) lo = mid + 1;
-		else hi = mid;
-	}
-	return lo;
-}
-
 export function buildSelectionPendingDecorations(
 	doc: PMNode,
 	target: SelectionPendingTarget | null,
 ): DecorationSet {
-	if (!target) return DecorationSet.empty;
-	const blockRange = findBlockNodeRange(doc, target.blockId);
-	if (!blockRange) return DecorationSet.empty;
-	const contentStart = blockRange.nodeStart + 1;
-	const from = positionAtCharOffset(
-		doc,
-		contentStart,
-		blockRange.contentEnd,
-		target.from,
-	);
-	const to = positionAtCharOffset(
-		doc,
-		contentStart,
-		blockRange.contentEnd,
-		target.to,
-	);
+	if (!target || target.from >= target.to) return DecorationSet.empty;
+	// A stale position pair (the doc changed since `target` was captured)
+	// would throw inside `Decoration.inline` — defensively clamp to the
+	// document's own current bounds rather than let a late transaction crash
+	// the editor over a highlight that is about to be cleared anyway.
+	const from = Math.max(0, Math.min(target.from, doc.content.size));
+	const to = Math.max(from, Math.min(target.to, doc.content.size));
 	if (from >= to) return DecorationSet.empty;
 	return DecorationSet.create(doc, [
 		Decoration.inline(from, to, { class: "selection-pending" }),
