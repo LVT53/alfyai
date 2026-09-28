@@ -125,37 +125,35 @@ export function buildChangePillDecorations(
 	return DecorationSet.create(doc, decorations);
 }
 
-const ChangePills = Extension.create<never, { callbacks: ChangePillCallbacks }>(
-	{
-		name: "documentChangePills",
-		addOptions() {
-			return { callbacks: NOOP_CALLBACKS };
-		},
-		addProseMirrorPlugins() {
-			const { callbacks } = this.options;
-			return [
-				new Plugin<ChangePillEntry[]>({
-					key: changePillPluginKey,
-					state: {
-						init: () => [],
-						apply(tr, value) {
-							return tr.getMeta(changePillPluginKey) ?? value;
-						},
-					},
-					props: {
-						decorations(state) {
-							return buildChangePillDecorations(
-								state.doc,
-								changePillPluginKey.getState(state) ?? [],
-								callbacks,
-							);
-						},
-					},
-				}),
-			];
-		},
+const ChangePills = Extension.create<{ callbacks: ChangePillCallbacks }>({
+	name: "documentChangePills",
+	addOptions() {
+		return { callbacks: NOOP_CALLBACKS };
 	},
-);
+	addProseMirrorPlugins() {
+		const { callbacks } = this.options;
+		return [
+			new Plugin<ChangePillEntry[]>({
+				key: changePillPluginKey,
+				state: {
+					init: () => [],
+					apply(tr, value) {
+						return tr.getMeta(changePillPluginKey) ?? value;
+					},
+				},
+				props: {
+					decorations(state) {
+						return buildChangePillDecorations(
+							state.doc,
+							changePillPluginKey.getState(state) ?? [],
+							callbacks,
+						);
+					},
+				},
+			}),
+		];
+	},
+});
 
 /** `extensions.ts`'s own registration point — one configured instance per editor, so each editor's pill buttons call THAT editor's own callbacks. */
 export function buildChangePillExtension(callbacks: ChangePillCallbacks) {

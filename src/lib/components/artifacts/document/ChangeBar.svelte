@@ -209,10 +209,13 @@ let {
 			position: relative;
 		}
 
+		/* Button is 1.25rem (20px) tall; +0.75rem (12px) on top and bottom
+		   reaches the full 44px hit area the button's own visible size stays
+		   short of. */
 		.alfy-change-bar-action::after {
 			content: "";
 			position: absolute;
-			inset: -0.625rem -0.25rem;
+			inset: -0.75rem -0.25rem;
 		}
 	}
 
