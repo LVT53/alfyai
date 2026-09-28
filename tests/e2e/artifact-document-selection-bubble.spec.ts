@@ -345,3 +345,98 @@ test.describe("the Document selection bubble follows the live selection", () => 
 		});
 	}
 });
+
+// Review 2.5 Critical finding (rd/review-2-5.md:27-37): on a phone, opening
+// the composer from the docked bar's "Ask Alfy"/"Comment" button painted the
+// `DialogShell` sheet BEHIND `DocumentWorkspace.svelte`'s mobile panel — the
+// dialog passed every `toBeVisible()`/role query (it exists in the DOM with
+// the right accessible name) while genuinely rendering under the panel's own
+// `.workspace-mobile-backdrop` (z-index 95) because it had no `zIndexClass`
+// and fell back to DialogShell's default `z-50`. `elementFromPoint` is the
+// only way to catch this class of bug — same technique as
+// `artifact-document-comments.spec.ts`'s own Comments-sheet regression test.
+test.describe("Phone selection composer sheet is topmost (Wave 2.5 review fix)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("Ask Alfy opens its composer sheet above the mobile panel, not behind it", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(
+			page,
+			"Phone composer sheet",
+		);
+		await seedScrollingDocument(conversationId);
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		await selectWordAndReadBubble(page, shell, TOP_TEXT);
+		const dockedBar = page.getByTestId("selection-bubble");
+		await dockedBar.getByRole("button", { name: "Ask Alfy" }).click();
+
+		const sheet = page.getByRole("dialog", { name: /Ask Alfy about/ });
+		await expect(sheet).toBeVisible();
+		// See the sibling "Comment" test below for why this wait matters:
+		// `toBeVisible()` only checks CSS visibility, not whether the sheet's
+		// own slide-up entrance transition has actually settled.
+		await waitForStableBoundingBox(sheet);
+
+		const isOnTop = await sheet.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + 10,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the composer sheet must be the topmost element, not painted under the mobile panel's own backdrop",
+		).toBe(true);
+
+		await page.keyboard.press("Escape");
+		await expect(sheet).toBeHidden();
+	});
+
+	test("Comment opens its composer sheet above the mobile panel, not behind it", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(
+			page,
+			"Phone comment composer sheet",
+		);
+		await seedScrollingDocument(conversationId);
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		await selectWordAndReadBubble(page, shell, TOP_TEXT);
+		const dockedBar = page.getByTestId("selection-bubble");
+		await dockedBar.getByRole("button", { name: "Comment" }).click();
+
+		const sheet = page.getByRole("dialog", { name: /Comment on/ });
+		await expect(sheet).toBeVisible();
+		// The sheet's own entrance transition (DialogShell's `dialog-sheet`
+		// slide-up) still has an in-flight `getBoundingClientRect()` for a few
+		// frames after `toBeVisible()` resolves — that check only looks at
+		// CSS visibility, not whether the element has finished animating into
+		// place. Reading the rect mid-slide is exactly the trap this helper
+		// exists for (see its own doc comment).
+		await waitForStableBoundingBox(sheet);
+
+		const isOnTop = await sheet.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + 10,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the composer sheet must be the topmost element, not painted under the mobile panel's own backdrop",
+		).toBe(true);
+	});
+});

@@ -263,7 +263,20 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 			{@render triggerButtons()}
 		</div>
 	{:else}
-		<DialogShell title={composerLabel} onClose={cancel} phonePresentation="sheet">
+		<!-- zIndexClass: this sheet opens from the docked bar INSIDE
+		     `DocumentWorkspace.svelte`'s mobile shell, whose own
+		     `.workspace-mobile-backdrop` sits at `z-index: 95` — DialogShell's
+		     default `z-50` renders behind it (found by `elementFromPoint`, not
+		     any role/text query: the sheet is still genuinely "visible" to
+		     Testing Library/Playwright, just painted under the backdrop). Same
+		     fix, same value, same reasoning as `CommentsSheet.svelte`/
+		     `MobileToolbar.svelte`'s own phone sheets. -->
+		<DialogShell
+			title={composerLabel}
+			onClose={cancel}
+			phonePresentation="sheet"
+			zIndexClass="z-[150]"
+		>
 			<div class="selection-bubble-sheet-fields">
 				{@render composerFields()}
 			</div>
