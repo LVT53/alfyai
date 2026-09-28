@@ -23,6 +23,8 @@ const en = {
 	downloadUnavailable:
 		"This app is not in a chat, so it cannot be saved as a file.",
 	regeneratePrompt: "What should change?",
+	regenerateBuilding:
+		"Alfy is building v2 · v1 stays until v2 is ready. Your saved data is kept.",
 };
 const hu = {
 	verifyUncertain: "Alfy egy részletben nem volt biztos — lásd a megjegyzést.",
@@ -435,6 +437,57 @@ describe("AppBody — verification line", () => {
 
 		await fireEvent.click(toggle);
 		expect(toggle).toHaveAttribute("aria-expanded", "true");
+	});
+
+	// Wave 2.5 review (F2): the collapsed note stayed in the accessibility
+	// tree (reachable by a screen reader even at zero visual height) —
+	// `inert` while collapsed fixes that without tearing the note down, so
+	// its height animation still has something to animate.
+	it("keeps the collapsed note out of the accessibility tree via inert, and un-inerts it once opened", async () => {
+		fetchArtifact.mockResolvedValue({
+			...baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					verification: { checked: true, verdict: "repaired", reason: null },
+				},
+			}),
+			comments: [
+				{
+					id: "c1",
+					artifactId: "app-1",
+					parentId: null,
+					anchor: null,
+					author: "alfy",
+					body: "Fixed a rounding slip.",
+					status: "open",
+					createdAt: 1,
+					replies: [],
+				},
+			],
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const toggle = await screen.findByRole("button", {
+			name: /Read Alfy's note/,
+		});
+		// jsdom does not reflect the `inert` content attribute back onto
+		// `hasAttribute` the way a real browser does (see the busy-veil test
+		// above for the same caveat) — read the IDL property Svelte sets.
+		const noteWrap = document.getElementById("app-note-app-1") as
+			| (HTMLElement & { inert: boolean })
+			| null;
+		expect(noteWrap).not.toBeNull();
+		expect(noteWrap?.inert).toBe(true);
+
+		await fireEvent.click(toggle);
+
+		expect(noteWrap?.inert).toBe(false);
 	});
 
 	it("shows no note block for uncertain when there is no Alfy comment yet", async () => {
@@ -894,6 +947,55 @@ describe("AppBody — regenerate", () => {
 					| null
 			)?.inert,
 		).toBeFalsy();
+	});
+
+	// Wave 2.5 review (F2): a role="status" element that arrives in the DOM
+	// at the same moment as the text it announces often goes unannounced —
+	// the live region itself has to already exist for a screen reader to
+	// notice a text-content change. The announcer stays mounted throughout,
+	// empty until busy.
+	it("announces the busy state through a persistent live region rather than one mounted with its own text", async () => {
+		let resolveRegenerate: (value: unknown) => void = () => {};
+		regenerateApp.mockReturnValue(
+			new Promise((resolve) => {
+				resolveRegenerate = resolve;
+			}),
+		);
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const announcer = await screen.findByTestId("app-busy-announcer");
+		expect(announcer).toHaveAttribute("aria-live", "polite");
+		expect(announcer).toHaveTextContent("");
+
+		await fireEvent.click(
+			await screen.findByRole("button", { name: /Change this app/ }),
+		);
+		await fireEvent.input(await screen.findByLabelText(en.regeneratePrompt), {
+			target: { value: "add tax" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: /Make v2/ }));
+
+		await waitFor(() =>
+			expect(announcer).toHaveTextContent(en.regenerateBuilding),
+		);
+		// The visual veil's own copy of the same sentence must not double it up
+		// for a screen reader that also happens to land on the veil.
+		const veil = await screen.findByTestId("app-busy-veil");
+		expect(veil.querySelector("p")).toHaveAttribute("aria-hidden", "true");
+
+		resolveRegenerate({
+			ok: true,
+			version: 3,
+			title: "x",
+			verification: { checked: false },
+		});
+
+		await waitFor(() => expect(announcer).toHaveTextContent(""));
 	});
 
 	// The v2 toast's Undo is a REAL restore (versions.ts's own restoreVersion,
