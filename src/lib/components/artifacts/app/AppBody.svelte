@@ -26,6 +26,7 @@ import {
 	X,
 } from "@lucide/svelte";
 import { untrack } from "svelte";
+import { cubicIn, cubicOut } from "svelte/easing";
 import { scale } from "svelte/transition";
 import DialogShell, {
 	deregisterDialog,
@@ -37,7 +38,7 @@ import { t, type I18nKey } from "$lib/i18n";
 import { isDark } from "$lib/stores/theme";
 import { showToast } from "$lib/stores/toast";
 import { focusTrap } from "$lib/utils/focus-trap";
-import { reducedMotionAware } from "$lib/utils/motion";
+import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 import { portalToBody } from "$lib/utils/portal";
 import {
 	isPhoneViewport,
@@ -690,7 +691,16 @@ const regeneratePopoverFocusTrap = focusTrap({
 			data-testid="app-regenerate-popover"
 			use:portalToBody
 			{@attach regeneratePopoverFocusTrap}
-			transition:popoverScale={{ duration: 150, start: 0.98 }}
+			in:popoverScale={{
+				duration: MOTION_DURATION.standard,
+				start: 0.98,
+				easing: cubicOut,
+			}}
+			out:popoverScale={{
+				duration: MOTION_DURATION.micro,
+				start: 0.98,
+				easing: cubicIn,
+			}}
 		>
 			<div class="app-regen-pop-head">
 				<h4>{$t('artifacts.app.regenerate.prompt')}</h4>
