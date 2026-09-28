@@ -27,6 +27,7 @@ let {
 	conversationId = null,
 	onToggleDocumentTask = undefined,
 	alfyActivity = null,
+	activeArtifactId = null,
 }: {
 	items: ToolActivityItem[];
 	openKeys: Set<string>;
@@ -45,6 +46,8 @@ let {
 		| undefined;
 	/** Forwarded to each row's standalone card. See ToolActivityRow's own prop doc. */
 	alfyActivity?: DocumentAlfyActivity | null;
+	/** Forwarded to each row's standalone card. See ToolActivityRow's own prop doc. */
+	activeArtifactId?: string | null;
 } = $props();
 </script>
 
@@ -62,6 +65,7 @@ let {
 			{conversationId}
 			{onToggleDocumentTask}
 			{alfyActivity}
+			{activeArtifactId}
 		/>
 		{@render afterItem?.(item)}
 	{/each}

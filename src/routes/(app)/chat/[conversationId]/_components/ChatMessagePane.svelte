@@ -54,6 +54,7 @@ let {
 	artifacts = [],
 	onToggleDocumentTask = undefined,
 	alfyActivity = null,
+	activeArtifactId = null,
 }: {
 	messages: ChatMessage[];
 	conversationId: string;
@@ -123,6 +124,8 @@ let {
 	) => void;
 	/** Forwarded to every message's in-chat card (Wave 2.5 Step 12). */
 	alfyActivity?: DocumentAlfyActivity | null;
+	/** Forwarded to every message's in-chat card (Wave 2.5 Step 13). */
+	activeArtifactId?: string | null;
 } = $props();
 </script>
 
@@ -169,6 +172,7 @@ let {
 		{artifacts}
 		{onToggleDocumentTask}
 		{alfyActivity}
+		{activeArtifactId}
 	/>
 </div>
 

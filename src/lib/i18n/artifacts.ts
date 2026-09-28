@@ -31,6 +31,10 @@ const artifactsDict = {
 		// item" — the chat page's own composer, while a document/app/etc. is
 		// open in the panel. `src/routes/(app)/chat/[conversationId]/+page.svelte`.
 		"artifacts.chat.composerPlaceholder": "Ask about {title}",
+		// Wave 2.5 Step 13: the App's own phrasing — "ask Alfy to CHANGE it",
+		// matching the panel's own "Change this app…" button, rather than the
+		// generic "ask about" every other kind uses.
+		"artifacts.chat.composerPlaceholderApp": "Ask Alfy to change {title}…",
 		// The panel's list state (surface 2).
 		"artifacts.panel.eyebrow": "This chat",
 		"artifacts.panel.title": "What this chat made",
@@ -292,6 +296,9 @@ const artifactsDict = {
 		// felhasználó/AI adta címet — a magyar toldalék a cím végződésétől
 		// függne, ami egy dinamikus értéknél nem garantálható.
 		"artifacts.chat.composerPlaceholder": "Kérdezz erről: {title}",
+		// Same colon trick as above, for the same reason.
+		"artifacts.chat.composerPlaceholderApp":
+			"Kérd meg Alfyt, hogy módosítsa ezt: {title}",
 		"artifacts.panel.eyebrow": "Ez a beszélgetés",
 		"artifacts.panel.title": "Amit ez a beszélgetés készített",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",

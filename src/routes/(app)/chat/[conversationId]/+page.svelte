@@ -918,27 +918,44 @@ let isArtifactPanelOpen = $derived(
 );
 
 /**
- * Wave 2.5 Step 12 (redesign §9.2): "composer placeholder names the open
- * item" — looked up from `workspaceDocuments` (the panel's own open tabs),
- * never from `DocumentWorkspace.svelte`'s internal `activeDocument`
- * derivation, which this page has no access to. `null` whenever there is no
- * specific item actually ON SCREEN: the panel is closed, or it is open but
- * showing the LIST (`artifactListOpen`) rather than an item — the list has
- * no single "open item" to name, even if a document tab is still active
- * underneath it (push-navigation keeps that state so "back" is instant).
+ * Wave 2.5 Step 12/13 (redesign §9.2): the panel's own open item — looked up
+ * from `workspaceDocuments` (the panel's own open tabs), never from
+ * `DocumentWorkspace.svelte`'s internal `activeDocument` derivation, which
+ * this page has no access to. `null` whenever there is no specific item
+ * actually ON SCREEN: the panel is closed, or it is open but showing the
+ * LIST (`artifactListOpen`) rather than an item — the list has no single
+ * "open item" to name, even if a document tab is still active underneath it
+ * (push-navigation keeps that state so "back" is instant). Both
+ * `composerPlaceholder` and `activeArtifactId` below read from this one
+ * lookup rather than each re-deriving it.
  */
-let activeWorkspaceDocumentTitle = $derived(
+let activeWorkspaceDocument = $derived(
 	workspaceOpen && !artifactListOpen
 		? (workspaceDocuments.find(
 				(document) => document.id === activeWorkspaceDocumentId,
-			)?.title ?? null)
+			) ?? null)
 		: null,
 );
+/**
+ * Wave 2.5 Step 13: the bare artifact id of the panel's own open item,
+ * forwarded to every in-chat create_artifact/edit_artifact card
+ * (`ToolActivityRow`'s `activeArtifactId` prop) so the one card that matches
+ * shows "Open in panel" instead of "Open ›" — see that prop's own doc.
+ * Distinct from `activeWorkspaceDocumentId`, which is the workspace ITEM id
+ * ("artifact:" + id for the four new kinds, minted in
+ * `ToolActivityRow.svelte`'s own `handleOpenArtifact`), not the bare id a
+ * card's `body.artifactId` carries.
+ */
+let activeArtifactId = $derived(activeWorkspaceDocument?.artifactId ?? null);
+/** Wave 2.5 Step 12/13 (redesign §9.2): "composer placeholder names the open item" — App gets its own phrasing ("ask to CHANGE it"), every other kind keeps the generic "ask ABOUT it". */
 let composerPlaceholder = $derived(
-	activeWorkspaceDocumentTitle
-		? $t("artifacts.chat.composerPlaceholder", {
-				title: activeWorkspaceDocumentTitle,
-			})
+	activeWorkspaceDocument
+		? $t(
+				activeWorkspaceDocument.kind === "app"
+					? "artifacts.chat.composerPlaceholderApp"
+					: "artifacts.chat.composerPlaceholder",
+				{ title: activeWorkspaceDocument.title },
+			)
 		: null,
 );
 
@@ -3241,6 +3258,7 @@ function handleDrop(event: DragEvent) {
 						{artifacts}
 						onToggleDocumentTask={handleToggleDocumentTask}
 						alfyActivity={liveDocumentAlfyActivity}
+						{activeArtifactId}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}
