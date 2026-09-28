@@ -130,6 +130,10 @@ let {
 	// read, forwarded so the standalone in-chat card can show "N changes to
 	// review" / "Review ›" for the one artifact it is about.
 	alfyActivity = null,
+	// Wave 2.5 Step 13: forwarded to every standalone card so it can show
+	// "Open in panel" for whichever one is the panel's own open item. See
+	// ToolActivityRow's own prop doc.
+	activeArtifactId = null,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
@@ -153,6 +157,7 @@ let {
 		| ((artifactId: string, blockId: string, checked: boolean) => void)
 		| undefined;
 	alfyActivity?: DocumentAlfyActivity | null;
+	activeArtifactId?: string | null;
 } = $props();
 
 /**
@@ -1093,6 +1098,7 @@ function toggleFullReasoning(): void {
 			{conversationId}
 			{onToggleDocumentTask}
 			{alfyActivity}
+			{activeArtifactId}
 		/>
 	{:else if activityItems.length > 0 && !expanded}
 		{#if activitySummary.length > 0}
@@ -1140,6 +1146,7 @@ function toggleFullReasoning(): void {
 					{conversationId}
 					{onToggleDocumentTask}
 					{alfyActivity}
+					{activeArtifactId}
 				/>
 			</div>
 		{/if}
@@ -1204,6 +1211,7 @@ function toggleFullReasoning(): void {
 									{conversationId}
 									{onToggleDocumentTask}
 									{alfyActivity}
+									{activeArtifactId}
 								/>
 							{:else if entry.kind === 'thought_step'}
 								{@render thoughtStepEntry(entry.step)}
@@ -1233,6 +1241,7 @@ function toggleFullReasoning(): void {
 							{conversationId}
 							{onToggleDocumentTask}
 							{alfyActivity}
+							{activeArtifactId}
 						/>
 					{:else if entry.kind === 'connector-group'}
 						<ToolActivityRow

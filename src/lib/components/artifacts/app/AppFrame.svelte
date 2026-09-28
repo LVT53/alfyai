@@ -10,6 +10,7 @@
 // `sandbox-response.ts`'s `APP_IFRAME_SANDBOX`: a client component cannot
 // import `$lib/server/*` without breaking the build, so the two are kept in
 // sync by AppFrame.test.ts asserting this literal equals that constant.
+import { Lock } from "@lucide/svelte";
 import {
 	readAppValue,
 	writeAppValue,
@@ -439,27 +440,64 @@ function reloadAfterTripwire(): void {
 		</button>
 	</div>
 {:else}
-	{#key src}
-		<!-- svelte-ignore a11y_no_noninteractive_tabindex -- Owner decision 15: reachable by
-		     keyboard even when the app's own content has nothing focusable; a user who cannot
-		     click cannot otherwise use the app at all. -->
-		<iframe
-			bind:this={iframe}
-			use:trackFrameLoad
-			class="app-frame"
-			sandbox="allow-scripts allow-forms"
-			{src}
-			title={$t('artifacts.app.frame.title', { title })}
-			tabindex="0"
-		></iframe>
-	{/key}
+	<!-- Redesign §6.2: "the sandbox promise is a thin bar on the frame
+	     itself" — this component is the one place the app actually runs, so
+	     the bar lives here rather than being reconstructed by every caller. -->
+	<div class="app-frame-stage">
+		<div class="app-frame-sandbox-bar">
+			<Lock size={12} strokeWidth={2} aria-hidden="true" />
+			<span>{$t('artifacts.app.sandboxBar')}</span>
+		</div>
+		{#key src}
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex -- Owner decision 15: reachable by
+			     keyboard even when the app's own content has nothing focusable; a user who cannot
+			     click cannot otherwise use the app at all. -->
+			<iframe
+				bind:this={iframe}
+				use:trackFrameLoad
+				class="app-frame"
+				sandbox="allow-scripts allow-forms"
+				{src}
+				title={$t('artifacts.app.frame.title', { title })}
+				tabindex="0"
+			></iframe>
+		{/key}
+	</div>
 {/if}
 
 <style>
+	.app-frame-stage {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+	}
+
+	.app-frame-sandbox-bar {
+		display: flex;
+		flex: 0 0 auto;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.3rem 0.625rem;
+		border-bottom: 1px solid var(--border-default);
+		background: var(--surface-elevated);
+		color: var(--text-muted);
+		font-size: 0.6875rem;
+		letter-spacing: 0.01em;
+	}
+
+	.app-frame-sandbox-bar :global(svg) {
+		flex: 0 0 auto;
+		color: var(--icon-muted);
+	}
+
 	.app-frame {
 		display: block;
 		width: 100%;
-		height: 100%;
+		flex: 1 1 auto;
+		min-height: 0;
 		border: 0;
 		background: var(--surface-page);
 	}

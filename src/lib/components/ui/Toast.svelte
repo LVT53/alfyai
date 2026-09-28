@@ -39,6 +39,18 @@ const flyIn = reducedMotionAware(fly);
 				<CircleAlert size={18} strokeWidth={2} class="mt-[1px] shrink-0 text-danger" aria-hidden="true" />
 			{/if}
 			<p class="flex-1 text-sm leading-5 text-text-primary">{toast.message}</p>
+			{#if toast.actionLabel && toast.onAction}
+				<button
+					type="button"
+					class="toast-entry-action shrink-0"
+					onclick={() => {
+						toast.onAction?.();
+						dismissToast(toast.id);
+					}}
+				>
+					{toast.actionLabel}
+				</button>
+			{/if}
 			<button
 				type="button"
 				class="btn-icon-bare -m-1.5 shrink-0"
@@ -63,5 +75,27 @@ const flyIn = reducedMotionAware(fly);
 
 	.toast-entry-error {
 		border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+	}
+
+	.toast-entry-action {
+		border: 0;
+		background: none;
+		padding: 0;
+		color: var(--accent-text);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		cursor: pointer;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.toast-entry-action:hover {
+		opacity: 0.85;
+	}
+
+	.toast-entry-action:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+		border-radius: var(--radius-sm, 4px);
 	}
 </style>

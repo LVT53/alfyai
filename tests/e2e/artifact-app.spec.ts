@@ -428,16 +428,15 @@ test.describe("the App kind, in the panel", () => {
 			});
 		});
 
-		await page
-			.getByRole("button", { name: /Ask Alfy for a new version/ })
-			.click();
+		// Wave 2.5 Step 13: "Ask Alfy for a new version" is now "Change this
+		// app…" (the trigger, opening a popover) and "Make v2" (the popover's
+		// own submit) — two distinct labels now, so no more .last() needed to
+		// disambiguate them.
+		await page.getByRole("button", { name: /Change this app/ }).click();
 		await page
 			.getByLabel("What should change?")
 			.fill("Add a character counter");
-		await page
-			.getByRole("button", { name: /Ask Alfy for a new version/ })
-			.last()
-			.click();
+		await page.getByRole("button", { name: /Make v2/ }).click();
 
 		await expect
 			.poll(() => capturedBody)
@@ -479,14 +478,17 @@ test.describe("the App kind, in the panel", () => {
 		await expect.poll(() => requested).toBe(true);
 	});
 
-	// RV-2A. Two Apps open as tabs; switching between them in the open-documents
-	// rail reuses the panel's frame, and an iframe keeps ONE WindowProxy across
-	// navigations — so the app being switched AWAY from is still running during
-	// the navigation, and every storage message it posts passes the parent's
+	// RV-2A. Two Apps open as tabs; switching between them through the panel
+	// list (Wave 2.5 Step 13: OpenDocumentsRail is hidden for App now, so the
+	// list's own breadcrumb-and-row navigation is what switches — the SAME
+	// {#key src} remount in AppFrame.svelte fires either way) reuses the
+	// panel's frame, and an iframe keeps ONE WindowProxy across navigations —
+	// so the app being switched AWAY from is still running during the
+	// navigation, and every storage message it posts passes the parent's
 	// `event.source === frame.contentWindow` check. It must never be served
 	// against the app being switched TO. The quiet app below never calls
 	// storage at all, so any row in its kv came from the other app's document.
-	test("switching apps in the rail never lets the outgoing app write into the incoming app's storage", async ({
+	test("switching apps through the list never lets the outgoing app write into the incoming app's storage", async ({
 		page,
 	}) => {
 		const conversationId = await createConversation(
@@ -540,10 +542,8 @@ test.describe("the App kind, in the panel", () => {
 			await new Promise((resolve) => setTimeout(resolve, 400));
 			await route.continue();
 		});
-		await page
-			.getByTestId("open-documents-rail")
-			.getByRole("tab", { name: /Quiet App/ })
-			.click();
+		await page.getByRole("button", { name: /This chat/ }).click();
+		await openFromList("Quiet App");
 		await expect(
 			page.frameLocator("iframe.app-frame").getByRole("heading", {
 				name: "Quiet App",

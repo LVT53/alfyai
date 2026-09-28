@@ -62,6 +62,37 @@ describe("Toast", () => {
 		expect(screen.queryByTestId("toast-entry")).not.toBeInTheDocument();
 	});
 
+	it("renders an inline action button and runs it, then dismisses the toast, on click", async () => {
+		render(Toast);
+		const onAction = vi.fn();
+
+		showToast({
+			type: "success",
+			message: "Now showing v2",
+			actionLabel: "Undo",
+			onAction,
+			duration: 0,
+		});
+		await tick();
+
+		const actionButton = screen.getByRole("button", { name: "Undo" });
+		await fireEvent.click(actionButton);
+
+		expect(onAction).toHaveBeenCalledOnce();
+		expect(screen.queryByTestId("toast-entry")).not.toBeInTheDocument();
+	});
+
+	it("renders no action button when a toast has no actionLabel/onAction", async () => {
+		render(Toast);
+
+		showToast({ type: "success", message: "Copied to clipboard" });
+		await tick();
+
+		expect(
+			screen.queryByRole("button", { name: "Undo" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("dismisses a toast via its manual close button", async () => {
 		render(Toast);
 

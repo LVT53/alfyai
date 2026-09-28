@@ -74,6 +74,7 @@ let {
 	artifacts = [],
 	onToggleDocumentTask = undefined,
 	alfyActivity = null,
+	activeArtifactId = null,
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
@@ -178,6 +179,7 @@ let {
 		| undefined;
 	/** Forwarded to every message's in-chat card (Wave 2.5 Step 12). See ThinkingBlock's own prop doc. */
 	alfyActivity?: DocumentAlfyActivity | null;
+	activeArtifactId?: string | null;
 } = $props();
 
 const flyOut = reducedMotionAware(fly);
@@ -1049,6 +1051,7 @@ async function scrollToMessage(messageId: string) {
 					conversationArtifacts={artifacts}
 					{onToggleDocumentTask}
 					{alfyActivity}
+					{activeArtifactId}
 				/>
 				{#if message.role === "assistant" && !isIncognito}
 					<!-- The rows sit under the reply that prompted them, outside the

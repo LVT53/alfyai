@@ -31,6 +31,10 @@ const artifactsDict = {
 		// item" — the chat page's own composer, while a document/app/etc. is
 		// open in the panel. `src/routes/(app)/chat/[conversationId]/+page.svelte`.
 		"artifacts.chat.composerPlaceholder": "Ask about {title}",
+		// Wave 2.5 Step 13: the App's own phrasing — "ask Alfy to CHANGE it",
+		// matching the panel's own "Change this app…" button, rather than the
+		// generic "ask about" every other kind uses.
+		"artifacts.chat.composerPlaceholderApp": "Ask Alfy to change {title}…",
 		// The panel's list state (surface 2).
 		"artifacts.panel.eyebrow": "This chat",
 		"artifacts.panel.title": "What this chat made",
@@ -61,6 +65,12 @@ const artifactsDict = {
 		// A checklist card's tickable body (slice 0 ships the seam; slice 1 is
 		// the first caller) shows the first five items and this for the rest.
 		"artifacts.card.moreItems": "+{count} more",
+		// chrome="full" (Wave 2.5 Step 12/13): the create_artifact "creating"
+		// skeleton state's subtitle, and the "failed" state's title — the
+		// card's own reason text (`ArtifactCardView.failedReason`) is caller-
+		// supplied already-resolved plain text and needs no key of its own.
+		"artifacts.card.creatingSubtitle": "Alfy is writing…",
+		"artifacts.card.failedTitle": "Alfy couldn't make this.",
 		// The five kinds.
 		"artifacts.type.file": "File",
 		"artifacts.type.document": "Document",
@@ -83,9 +93,25 @@ const artifactsDict = {
 		"artifacts.app.cardSubtitle": "App",
 		"artifacts.app.tab.preview": "Preview",
 		"artifacts.app.tab.code": "Code",
-		"artifacts.app.action.regenerate": "Ask Alfy for a new version",
+		// Wave 2.5 Step 13: the trigger button beside the segmented control —
+		// was "Ask Alfy for a new version" (the old modal's own title); the
+		// popover it now opens carries that fuller meaning instead (see
+		// `regenerate.prompt`/`regenerate.effect` below).
+		"artifacts.app.action.regenerate": "Change this app…",
 		"artifacts.app.action.download": "Download as .html",
 		"artifacts.app.regenerate.prompt": "What should change?",
+		"artifacts.app.regenerate.cancel": "Cancel",
+		"artifacts.app.regenerate.makeV2": "Make v2",
+		"artifacts.app.regenerate.effect":
+			"Alfy writes a new version and checks its facts. v1 stays in History.",
+		"artifacts.app.regenerate.building":
+			"Alfy is building v2 · v1 stays until v2 is ready. Your saved data is kept.",
+		"artifacts.app.regenerate.failed":
+			"Alfy couldn't make v2. v1 is unchanged.",
+		"artifacts.app.toast.v2Ready": "Now showing v2",
+		"artifacts.app.toast.undo": "Undo",
+		"artifacts.app.sandboxBar":
+			"Runs sandboxed · no internet · keeps your data",
 		"artifacts.app.generating": "Alfy is writing the app…",
 		"artifacts.app.generating.hint": "This takes a few seconds.",
 		"artifacts.app.failed.emptyContent":
@@ -107,6 +133,8 @@ const artifactsDict = {
 		"artifacts.app.verify.unavailable":
 			"Alfy could not check the facts in this app.",
 		"artifacts.app.verify.noteTitle": "Alfy's note",
+		"artifacts.app.verify.readNote": "Read Alfy's note",
+		"artifacts.app.toast.undoFailed": "Couldn't undo this.",
 		"artifacts.app.glitch.network":
 			"This app tried to reach the network. Everything still works offline.",
 		"artifacts.app.glitch.storage":
@@ -138,8 +166,6 @@ const artifactsDict = {
 		"artifacts.app.tabs.a11y": "Preview and code",
 		"artifacts.app.code.copy": "Copy code",
 		"artifacts.app.code.copied": "Copied",
-		"artifacts.app.regenerate.confirm":
-			"Ask Alfy for a new version? Your saved data stays.",
 		"artifacts.app.download.unavailable":
 			"This app is not in a chat, so it cannot be saved as a file.",
 		// Ruling 58: every OTHER download refusal (a request that throws, a
@@ -314,6 +340,9 @@ const artifactsDict = {
 		// felhasználó/AI adta címet — a magyar toldalék a cím végződésétől
 		// függne, ami egy dinamikus értéknél nem garantálható.
 		"artifacts.chat.composerPlaceholder": "Kérdezz erről: {title}",
+		// Same colon trick as above, for the same reason.
+		"artifacts.chat.composerPlaceholderApp":
+			"Kérd meg Alfyt, hogy módosítsa ezt: {title}",
 		"artifacts.panel.eyebrow": "Ez a beszélgetés",
 		"artifacts.panel.title": "Amit ez a beszélgetés készített",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",
@@ -331,6 +360,8 @@ const artifactsDict = {
 		"artifacts.card.version": "v{n}",
 		"artifacts.card.versionA11y": "{n}. verzió",
 		"artifacts.card.moreItems": "+{count} további",
+		"artifacts.card.creatingSubtitle": "Alfy éppen ír…",
+		"artifacts.card.failedTitle": "Alfynak ezt nem sikerült elkészítenie.",
 		"artifacts.type.file": "Fájl",
 		"artifacts.type.document": "Dokumentum",
 		"artifacts.type.app": "Alkalmazás",
@@ -349,9 +380,23 @@ const artifactsDict = {
 		"artifacts.app.cardSubtitle": "Alkalmazás",
 		"artifacts.app.tab.preview": "Előnézet",
 		"artifacts.app.tab.code": "Kód",
-		"artifacts.app.action.regenerate": "Kérj új változatot Alfytól",
+		// Ruling: "shortened on purpose so the row fits 390 px; the popover's
+		// title carries the full meaning" (redesign §6.5's own HU allowance).
+		"artifacts.app.action.regenerate": "Módosítás…",
 		"artifacts.app.action.download": "Letöltés .html-ként",
 		"artifacts.app.regenerate.prompt": "Min változtasson?",
+		"artifacts.app.regenerate.cancel": "Mégse",
+		"artifacts.app.regenerate.makeV2": "v2 elkészítése",
+		"artifacts.app.regenerate.effect":
+			"Alfy megírja az új változatot, és ellenőrzi az adatait. A v1 megmarad az Előzményekben.",
+		"artifacts.app.regenerate.building":
+			"Alfy készíti a v2-t · A v1 megmarad, amíg a v2 el nem készül. A mentett adataid megmaradnak.",
+		"artifacts.app.regenerate.failed":
+			"Alfynak nem sikerült elkészítenie a v2-t. A v1 változatlan.",
+		"artifacts.app.toast.v2Ready": "Mostantól a v2 látszik",
+		"artifacts.app.toast.undo": "Visszavonás",
+		"artifacts.app.sandboxBar":
+			"Homokozóban fut · nincs internet · megőrzi az adataidat",
 		"artifacts.app.generating": "Alfy írja az alkalmazást…",
 		"artifacts.app.generating.hint": "Ez néhány másodpercet vesz igénybe.",
 		"artifacts.app.failed.emptyContent":
@@ -373,6 +418,8 @@ const artifactsDict = {
 		"artifacts.app.verify.unavailable":
 			"Alfy nem tudta ellenőrizni az alkalmazás adatait.",
 		"artifacts.app.verify.noteTitle": "Alfy megjegyzése",
+		"artifacts.app.verify.readNote": "Alfy megjegyzésének elolvasása",
+		"artifacts.app.toast.undoFailed": "Ezt nem sikerült visszavonni.",
 		"artifacts.app.glitch.network":
 			"Ez az alkalmazás hálózatot próbált elérni. Így is működik, offline.",
 		"artifacts.app.glitch.storage":
@@ -401,8 +448,6 @@ const artifactsDict = {
 		"artifacts.app.tabs.a11y": "Előnézet és kód",
 		"artifacts.app.code.copy": "Kód másolása",
 		"artifacts.app.code.copied": "Másolva",
-		"artifacts.app.regenerate.confirm":
-			"Új változatot kérsz Alfytól? A mentett adataid megmaradnak.",
 		"artifacts.app.download.unavailable":
 			"Ez az alkalmazás nincs beszélgetésben, ezért nem menthető fájlként.",
 		"artifacts.app.download.failed":
