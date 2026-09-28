@@ -1,8 +1,12 @@
 # Agent 3b · Phone comments, the narrow-panel drawer, Versions and Download popovers (step 8 + §3.2's Versions)
 
-Runs after agent 3a. Read the **hand-off sections** of `rd/rd1-report.md`, `rd/rd2-report.md`, `rd/rd5-report.md` and
-`rd/rd3a-report.md` first and reuse what they name (the rail, `CommentCard` / `CommentThread`, the anchor decoration,
-`ArtifactPanelHeader`'s buttons). Agents 4a/4b (the editing chain) come after you.
+Runs after agents 1, 2, 5a, 5k, 5b and 3a (all merged). **Agent 4a runs at the same time as you** and owns
+`SelectionBubble.svelte`, `bubble-placement.ts`, `AlfyWriting.svelte`, `RefusalNotice.svelte` and the new writing/refusal
+decorations. Put your new UI in its own component(s) (for example `document/CommentsSheet.svelte`), keep your edits to
+`DocumentBody.svelte` and `extensions.ts` to mounting it and one handler, and add i18n keys inside your existing blocks
+(comments, versions, download), never at the end of the `en`/`hu` objects. Read the **hand-off sections** of `rd/rd1-report.md`, `rd/rd2-report.md`, `rd/rd5a-report.md`, `rd/rd5b-report.md` and `rd/rd3a-report.md` first
+and reuse what they name (the rail, `CommentCard` / `CommentThread`, the anchor decoration, `ArtifactPanelHeader`'s
+buttons). Agent 4b (the review bar) comes after you both.
 
 - Worktree `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/.claude/worktrees/art-rd3b`, branch
   `feat/artifacts-rd3b-sheets`, e2e port **5425**, label `rd3b`.

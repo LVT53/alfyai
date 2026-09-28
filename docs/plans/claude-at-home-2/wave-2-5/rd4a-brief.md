@@ -1,9 +1,13 @@
 # Agent 4a · Selection pill and composer, Alfy writing in place, the pinned refusal (steps 9 and 11)
 
-Runs after agents 1, 2, 5, 3a and 3b. Read the **hand-off sections** of every earlier `rd/rd*-report.md` first and
+Runs after agents 1, 2, 5a, 5k, 5b and 3a (all merged). **Agent 3b runs at the same time as you** and owns the phone
+Comments sheet, the narrow-panel drawer, `VersionsSheet.svelte` and `DownloadSheet.svelte`. Put your new logic in your own
+components and modules (new decorations in their own module, registered from `extensions.ts` with a small change), keep
+your `DocumentBody.svelte` edits to mounts and handlers, and add i18n keys inside your existing blocks (selection bubble,
+Alfy writing, refusal), never at the end of the `en`/`hu` objects. Read the **hand-off sections** of `rd/rd1-report.md`, `rd/rd2-report.md`, `rd/rd5a-report.md`, `rd/rd5b-report.md` and `rd/rd3a-report.md` first and
 reuse what they name (tokens, `reducedMotionAnimate`, `ArtifactPanelHeader`, the rail and `CommentCard`/`CommentThread`,
-the comment-anchor decoration, the sheets). Agent 4b (the change pill, the review bar, pending review across reloads)
-comes after you: leave `ChangeBar.svelte` and the review bar alone.
+the comment-anchor decoration). Agent 4b (the change pill, the review bar, pending review across reloads) comes after
+you: leave `ChangeBar.svelte` and the review bar alone.
 
 - Worktree `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/.claude/worktrees/art-rd4a`, branch
   `feat/artifacts-rd4a-compose`, e2e port **5430**, label `rd4a`.
@@ -37,6 +41,9 @@ sheet composer (`DialogShell` `phonePresentation="sheet"`).
   amber rule on the line, "Ask again" and "Dismiss" (keep `data-testid="refusal-notice"`); also export the one-line
   summary agent 4b's review bar will show.
 - Alfy's typing placeholder in threads ("Alfy is reading…" then "Alfy is writing…") if agent 3a did not finish it.
+- The in-chat card's **"1 part left alone"** pill (agent 5a's deviation list in `rd/rd5a-report.md`): the count of
+  undismissed refusal notes, shown beside the existing "N changes to review" pill, fed from the same place your refusal
+  summary comes from.
 
 ## Tests and screens
 
