@@ -93,9 +93,19 @@ $effect(() => {
 // Shortcut: ⌘/Ctrl+Alt+M opens the Comment composer directly (redesign
 // §4.4's "the Google Docs convention"), while a selection (this component's
 // own mount) is active.
+// Window-level (not just the pill's own `onkeydown`) so Escape dismisses the
+// pill/docked bar regardless of where focus actually is — the pill's own
+// buttons are never auto-focused (redesign §4.4: focus only moves in on Tab),
+// so a local listener alone would miss the common case of the editor itself
+// still holding focus while the pill merely floats beside the selection.
 $effect(() => {
 	function onWindowKeydown(event: KeyboardEvent): void {
 		if (mode !== "pill") return;
+		if (event.key === "Escape") {
+			event.preventDefault();
+			onDismiss();
+			return;
+		}
 		if (!(event.metaKey || event.ctrlKey) || !event.altKey) return;
 		if (event.key.toLowerCase() !== "m") return;
 		event.preventDefault();
@@ -176,13 +186,6 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 		cancel();
 	}
 }
-
-function handlePillKeydown(event: KeyboardEvent): void {
-	if (event.key === "Escape") {
-		event.preventDefault();
-		onDismiss();
-	}
-}
 </script>
 
 {#snippet triggerButtons()}
@@ -256,7 +259,6 @@ function handlePillKeydown(event: KeyboardEvent): void {
 			role="toolbar"
 			tabindex="-1"
 			aria-label={$t('artifacts.document.comment.selectionToolbar')}
-			onkeydown={handlePillKeydown}
 		>
 			{@render triggerButtons()}
 		</div>
@@ -281,7 +283,6 @@ function handlePillKeydown(event: KeyboardEvent): void {
 				role="toolbar"
 				tabindex="-1"
 				aria-label={$t('artifacts.document.comment.selectionToolbar')}
-				onkeydown={handlePillKeydown}
 			>
 				{@render triggerButtons()}
 			</div>
@@ -427,8 +428,18 @@ function handlePillKeydown(event: KeyboardEvent): void {
 	   sticky to the bottom of the scrolling text column rather than a
 	   viewport-fixed overlay — no extra JS rect math, and it never drifts out
 	   from under an on-screen keyboard the way `position: fixed` can. */
+	/* `position: fixed` to the viewport, not `sticky` to the scroll pane: this
+	   sits alongside the (potentially very tall) editor content in normal
+	   flow, so a `sticky` bottom offset only holds true near the END of that
+	   flow — once a long document is scrolled deep, the "natural" position
+	   sticky measures from has already scrolled past, and the bar stops
+	   tracking the viewport (confirmed against a real 40-paragraph document:
+	   scrolled fully off-screen). `fixed` has no such dependency on where
+	   this happens to sit in the DOM. */
 	.selection-docked-bar {
-		position: sticky;
+		position: fixed;
+		left: 0;
+		right: 0;
 		bottom: 0;
 		z-index: 20;
 		display: flex;

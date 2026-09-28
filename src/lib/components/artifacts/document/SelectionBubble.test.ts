@@ -228,6 +228,21 @@ describe("SelectionBubble", () => {
 		expect(onSubmit).toHaveBeenCalledWith("Quick note", expect.anything());
 	});
 
+	it("Escape dismisses the resting pill even when focus never moved into it (redesign §4.4)", async () => {
+		const onDismiss = vi.fn();
+		stubViewport(false);
+		render(SelectionBubble, {
+			position: { x: 0, y: 0 },
+			quote: "x",
+			onSubmit: vi.fn(),
+			onDismiss,
+		});
+		// The pill's own buttons are never auto-focused — this dispatches from
+		// `document`, exactly as it would with focus still in the editor.
+		await fireEvent.keyDown(document, { key: "Escape" });
+		expect(onDismiss).toHaveBeenCalledOnce();
+	});
+
 	it("positions the resting pill at the given coordinates", () => {
 		stubViewport(false);
 		render(SelectionBubble, {

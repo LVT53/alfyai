@@ -169,11 +169,59 @@ function assertBubbleNearSelection(
 	expect(verticalGap).toBeLessThanOrEqual(48);
 }
 
+/**
+ * Redesign §4.3's "Phone" row (Wave 2.5 Step 9): below the toolbar breakpoint
+ * the selection affordance stops floating next to the selection at all — it
+ * becomes a docked bar `position: sticky` to the BOTTOM of the scroll pane,
+ * by design (so it never sits under a thumb or an on-screen keyboard). The
+ * desktop-only "stays near the selection" contract above no longer applies
+ * here; this checks the phone contract instead: docked within the scroll
+ * pane's own box, pinned to its bottom edge, spanning (almost) its full
+ * width, with both actions reachable.
+ */
+async function assertDockedBarAtBottom(
+	page: Page,
+	viewport: { width: number; height: number },
+	containerBox: Box,
+) {
+	const bar = page.getByTestId("selection-bubble");
+	await expect(bar).toBeVisible();
+	const barBox = await bar.boundingBox();
+	expect(barBox, "the docked bar must have a bounding box").not.toBeNull();
+	const box = barBox as Box;
+
+	expect(box.x).toBeGreaterThanOrEqual(0);
+	expect(box.x + box.width).toBeLessThanOrEqual(viewport.width + 1);
+	// Pinned to the scroll pane's own bottom edge, not floating mid-page.
+	expect(box.y + box.height).toBeGreaterThanOrEqual(
+		containerBox.y + containerBox.height - 2,
+	);
+	expect(box.y + box.height).toBeLessThanOrEqual(
+		containerBox.y + containerBox.height + 2,
+	);
+	// Spans (almost) the full scroll pane width — a docked BAR, not a pill.
+	expect(box.width).toBeGreaterThanOrEqual(containerBox.width - 16);
+
+	await expect(bar.getByRole("button", { name: "Ask Alfy" })).toBeVisible();
+	await expect(bar.getByRole("button", { name: "Comment" })).toBeVisible();
+}
+
 async function selectWordAndReadBubble(
 	page: Page,
 	shell: Locator,
 	paragraphText: string,
 ): Promise<{ bubbleBox: Box; selectionRect: ScreenRect }> {
+	// On a phone, the previous call's own docked bar (redesign §4.3, `fixed`
+	// to the viewport bottom so it tracks correctly through a long scroll —
+	// see `SelectionBubble.svelte`'s own doc comment) can still be showing
+	// and physically overlap the NEXT paragraph if it happens to render near
+	// the bottom of the viewport, intercepting the click below before it ever
+	// reaches the text. Escape (dispatched at the window regardless of
+	// focus) dismisses it first, exactly as a real user would before making
+	// a new selection; a harmless no-op when nothing is open yet. The
+	// `.click()` below still has its own normal actionability wait, so there
+	// is nothing further to wait for here.
+	await page.keyboard.press("Escape");
 	const paragraph = shell
 		.locator(".document-editor-host")
 		.getByText(paragraphText, { exact: true });
@@ -266,24 +314,34 @@ test.describe("the Document selection bubble follows the live selection", () => 
 				"the document scroll pane must be visible",
 			).not.toBeNull();
 
+			const isPhone = viewport.width < 768;
+
 			// Near the top, unscrolled.
 			const top = await selectWordAndReadBubble(page, shell, TOP_TEXT);
-			assertBubbleNearSelection(
-				top.bubbleBox,
-				top.selectionRect,
-				viewport,
-				containerBox as Box,
-			);
+			if (isPhone) {
+				await assertDockedBarAtBottom(page, viewport, containerBox as Box);
+			} else {
+				assertBubbleNearSelection(
+					top.bubbleBox,
+					top.selectionRect,
+					viewport,
+					containerBox as Box,
+				);
+			}
 
 			// Scrolled: reaching this paragraph forces a real scroll of
 			// `.document-content` first.
 			const bottom = await selectWordAndReadBubble(page, shell, BOTTOM_TEXT);
-			assertBubbleNearSelection(
-				bottom.bubbleBox,
-				bottom.selectionRect,
-				viewport,
-				containerBox as Box,
-			);
+			if (isPhone) {
+				await assertDockedBarAtBottom(page, viewport, containerBox as Box);
+			} else {
+				assertBubbleNearSelection(
+					bottom.bubbleBox,
+					bottom.selectionRect,
+					viewport,
+					containerBox as Box,
+				);
+			}
 		});
 	}
 });
