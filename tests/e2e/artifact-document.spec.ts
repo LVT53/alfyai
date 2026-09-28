@@ -947,9 +947,7 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			// this proves the write side (POST .../review) and the read side
 			// (GET .../review) actually round-trip, not just that a still-fresh
 			// marker happens to still cover this version.
-			await page
-				.getByRole("button", { name: "Keep Alfy's change" })
-				.click();
+			await page.getByRole("button", { name: "Keep Alfy's change" }).click();
 			await expect(
 				page.getByRole("status", { name: "Changes from Alfy" }),
 			).toHaveCount(0, { timeout: 5_000 });
