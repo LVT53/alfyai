@@ -179,8 +179,13 @@ const artifactsDict = {
 		"artifacts.document.versions.title": "Versions",
 		"artifacts.document.versions.current": "Current",
 		"artifacts.document.versions.restore": "Restore",
+		// Wave 2.5 Step 8: the inline confirm (redesign §3.2 — never a modal),
+		// named by version number so it reads as a real question about a real
+		// row, not the old generic "this version".
 		"artifacts.document.versions.restoreConfirm":
-			"Restore this version? The current one is kept as a version.",
+			"Restore v{v}? Your current text stays as a version.",
+		"artifacts.document.versions.restoreToast": "Restored v{from} as v{to}",
+		"artifacts.document.versions.undo": "Undo",
 		"artifacts.document.versions.byUser": "You",
 		"artifacts.document.versions.byAlfy": "Alfy",
 		"artifacts.document.versions.conflict":
@@ -457,7 +462,10 @@ const artifactsDict = {
 		"artifacts.document.versions.current": "Jelenlegi",
 		"artifacts.document.versions.restore": "Visszaállítás",
 		"artifacts.document.versions.restoreConfirm":
-			"Visszaállítod ezt a változatot? A jelenlegi is megmarad változatként.",
+			"Visszaállítod a v{v} változatot? A jelenlegi szöveged megmarad változatként.",
+		"artifacts.document.versions.restoreToast":
+			"Visszaállítva: v{from} mint v{to}",
+		"artifacts.document.versions.undo": "Visszavonás",
 		"artifacts.document.versions.byUser": "Te",
 		"artifacts.document.versions.byAlfy": "Alfy",
 		"artifacts.document.versions.conflict":

@@ -5,7 +5,9 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/svelte";
+import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toasts } from "$lib/stores/toast";
 import VersionsSheet from "./VersionsSheet.svelte";
 
 const { mockFetchVersions, mockRestoreVersion } = vi.hoisted(() => ({
@@ -42,17 +44,24 @@ const VERSIONS = [
 	},
 ];
 
+// jsdom's default `window.innerWidth` (1024) is above the phone threshold
+// (`isPhoneViewport`, 640px), so every test here — like `AppBody.test.ts`'s
+// own regenerate-popover suite — exercises the DESKTOP popover branch. The
+// phone `DialogShell` sheet branch reuses the same `versionsList` snippet and
+// is covered by `DialogShell.test.ts` plus the Playwright suite (per the
+// brief: real viewport-driven behaviour belongs there, not in jsdom).
 describe("VersionsSheet", () => {
 	beforeEach(() => {
 		mockFetchVersions.mockReset();
 		mockRestoreVersion.mockReset();
+		toasts.set([]);
 	});
 
 	afterEach(() => {
 		cleanup();
 	});
 
-	it("lists versions newest first, each with author and summary, the newest marked Current", async () => {
+	it("lists versions newest first, each with author, version number and summary, the newest marked Current", async () => {
 		mockFetchVersions.mockResolvedValue(VERSIONS);
 
 		render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
@@ -63,11 +72,26 @@ describe("VersionsSheet", () => {
 		expect(screen.getByText("Current")).toBeInTheDocument();
 		expect(screen.getAllByText("You")).toHaveLength(1);
 		expect(screen.getAllByText("Alfy")).toHaveLength(2);
+		expect(screen.getByText("v3")).toBeInTheDocument();
+		expect(screen.getByText("v2")).toBeInTheDocument();
+		expect(screen.getByText("v1")).toBeInTheDocument();
 		// Only the two non-current rows offer Restore.
 		expect(screen.getAllByRole("button", { name: "Restore" })).toHaveLength(2);
 	});
 
-	it("restores a version after confirming, and refreshes the list", async () => {
+	it("renders as an anchored popover naming Versions", async () => {
+		mockFetchVersions.mockResolvedValue([]);
+
+		render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+		const dialog = await screen.findByRole("dialog", { name: "Versions" });
+		expect(dialog).toBeInTheDocument();
+		// Portaled straight onto <body> (`portalToBody`) rather than nested
+		// somewhere the panel's own overflow could clip it.
+		expect(dialog.parentElement).toBe(document.body);
+	});
+
+	it("restores a version after an inline confirm (never a modal), closes, and offers Undo", async () => {
 		mockFetchVersions.mockResolvedValue(VERSIONS);
 		mockRestoreVersion.mockResolvedValue(4);
 		const onRestored = vi.fn();
@@ -83,15 +107,13 @@ describe("VersionsSheet", () => {
 		const restoreButtons = screen.getAllByRole("button", { name: "Restore" });
 		await fireEvent.click(restoreButtons[0]);
 
-		// The confirmation dialog appears before anything is called.
+		// Inline, in the same row — never a separate ConfirmDialog.
 		expect(mockRestoreVersion).not.toHaveBeenCalled();
 		expect(
-			screen.getByText(
-				"Restore this version? The current one is kept as a version.",
-			),
+			screen.getByText("Restore v2? Your current text stays as a version."),
 		).toBeInTheDocument();
 
-		await fireEvent.click(screen.getByTestId("confirm-delete"));
+		await fireEvent.click(screen.getAllByRole("button", { name: "Restore" })[0]);
 
 		await waitFor(() => {
 			expect(mockRestoreVersion).toHaveBeenCalledWith(
@@ -101,8 +123,64 @@ describe("VersionsSheet", () => {
 			);
 		});
 		expect(onRestored).toHaveBeenCalledWith(4);
-		// The list reloads after a successful restore.
-		expect(mockFetchVersions).toHaveBeenCalledTimes(2);
+
+		const toastEntry = get(toasts).at(-1);
+		expect(toastEntry).toMatchObject({
+			type: "success",
+			message: "Restored v2 as v4",
+			actionLabel: "Undo",
+		});
+	});
+
+	it("Cancel on the inline confirm leaves the version untouched", async () => {
+		mockFetchVersions.mockResolvedValue(VERSIONS);
+
+		render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+		await waitFor(() => screen.getByText("Shortened Saturday"));
+		await fireEvent.click(screen.getAllByRole("button", { name: "Restore" })[0]);
+		expect(
+			screen.getByText("Restore v2? Your current text stays as a version."),
+		).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+		expect(
+			screen.queryByText("Restore v2? Your current text stays as a version."),
+		).not.toBeInTheDocument();
+		expect(mockRestoreVersion).not.toHaveBeenCalled();
+	});
+
+	it("the restore toast's Undo restores whatever was current a moment before, and reports it too", async () => {
+		mockFetchVersions.mockResolvedValue(VERSIONS);
+		mockRestoreVersion.mockResolvedValueOnce(4).mockResolvedValueOnce(5);
+		const onRestored = vi.fn();
+
+		render(VersionsSheet, {
+			artifactId: "artifact-1",
+			conversationId: "conv-1",
+			onClose: vi.fn(),
+			onRestored,
+		});
+
+		await waitFor(() => screen.getByText("Shortened Saturday"));
+		await fireEvent.click(screen.getAllByRole("button", { name: "Restore" })[0]);
+		await fireEvent.click(screen.getAllByRole("button", { name: "Restore" })[0]);
+		await waitFor(() => expect(mockRestoreVersion).toHaveBeenCalledTimes(1));
+
+		const toastEntry = get(toasts).at(-1);
+		toastEntry?.onAction?.();
+
+		// v3 (index 0, "Current") was current a moment before the v2 restore —
+		// Undo puts it back, never re-restores v2.
+		await waitFor(() => {
+			expect(mockRestoreVersion).toHaveBeenLastCalledWith(
+				"artifact-1",
+				"v3",
+				"conv-1",
+			);
+		});
+		expect(onRestored).toHaveBeenLastCalledWith(5);
 	});
 
 	it("shows a retry option when loading fails", async () => {
@@ -132,6 +210,17 @@ describe("VersionsSheet", () => {
 
 		await waitFor(() => screen.getByText("No earlier versions yet."));
 		await fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		expect(onClose).toHaveBeenCalled();
+	});
+
+	it("closes on Escape", async () => {
+		mockFetchVersions.mockResolvedValue([]);
+		const onClose = vi.fn();
+
+		render(VersionsSheet, { artifactId: "artifact-1", onClose });
+
+		await waitFor(() => screen.getByText("No earlier versions yet."));
+		await fireEvent.keyDown(window, { key: "Escape" });
 		expect(onClose).toHaveBeenCalled();
 	});
 });
