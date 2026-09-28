@@ -800,7 +800,9 @@ describe("DocumentBody", () => {
 			await waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
-			expect(screen.getByText("No comments yet.")).toBeInTheDocument();
+			expect(
+				screen.getByText("No comments on this tab. Select text to start one."),
+			).toBeInTheDocument();
 		});
 
 		it("renders a fetched comment in the margin", async () => {

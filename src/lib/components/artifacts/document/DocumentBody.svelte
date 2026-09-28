@@ -71,6 +71,7 @@ import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import { makeAnchor } from "$lib/shared/artifact-document/anchor";
 import {
 	type DocumentBlock,
+	mapBlocksToTabs,
 	parseDocument,
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
@@ -245,29 +246,20 @@ function updateBlocksFromMarkdown(markdown: string): void {
 
 /**
  * `Tabs.svelte`'s badge (redesign §5.2): how many of THIS tab's own comment
- * THREADS (root comments, never replies) are still open. Walks `blocks` in
- * the SAME document order `extensions.ts`'s `buildTabSectionDecorations`
- * walks the live ProseMirror doc, assigning each block to whichever tab's
- * `startBlockId` most recently appeared at or before it — kept in sync here
- * (rather than reading the decoration back out of the editor) because this
- * needs to run whenever `comments` changes too, not just `tabs`/`blocks`.
+ * THREADS (root comments, never replies) are still open. `mapBlocksToTabs`
+ * (`shared/artifact-document/blocks.ts`) owns the block→tab walk itself —
+ * the SAME one `MarginPanel.svelte`'s own per-tab comment scoping uses, so
+ * the two never drift apart — recomputed here (rather than read back out of
+ * the editor's decoration) because this needs to run whenever `comments`
+ * changes too, not just `tabs`/`blocks`.
  */
 function computeTabBadgeCounts(
 	docBlocks: DocumentBlock[],
 	docComments: ArtifactComment[],
 	docTabs: DocumentTab[],
 ): Record<string, number> {
-	if (docTabs.length <= 1) return {};
-	const startBlockIdToTabId = new Map(
-		docTabs.map((tab) => [tab.startBlockId, tab.id] as const),
-	);
-	const blockIdToTabId = new Map<string, string>();
-	let currentTabId = docTabs[0]?.id ?? "";
-	for (const block of docBlocks) {
-		const owningTabId = startBlockIdToTabId.get(block.id);
-		if (owningTabId !== undefined) currentTabId = owningTabId;
-		blockIdToTabId.set(block.id, currentTabId);
-	}
+	const blockIdToTabId = mapBlocksToTabs(docBlocks, docTabs);
+	if (blockIdToTabId.size === 0) return {};
 	const counts: Record<string, number> = {};
 	for (const comment of docComments) {
 		if (comment.status !== "open") continue;
