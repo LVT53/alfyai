@@ -566,10 +566,16 @@ test.describe("the Document mobile toolbar", () => {
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		const conversationId = await createConversation(page, "Plan a trip");
+		// One cell carries a long, space-free token (an id-like string) that
+		// cannot line-wrap the way ordinary prose does — with wrapping,
+		// `table-layout: auto`'s default column sizing can shrink every
+		// OTHER cell's text onto more lines and fit inside 390px without the
+		// table itself ever needing to overflow, which would silently defeat
+		// the table's own horizontal-scroll assertion below.
 		const wideTable = [
 			"| Column Alpha | Column Beta | Column Gamma | Column Delta | Column Epsilon |",
 			"| --- | --- | --- | --- | --- |",
-			"| A rather long cell value here | Another long value | Yet more text in this cell | And even more content | The last column's long text |",
+			"| A rather long cell value here | AnUnbreakableTokenThatCannotWrapAcrossLines1234567890 | Yet more text in this cell | And even more content | The last column's long text |",
 		].join("\n");
 		await seedDocument({
 			conversationId,
@@ -587,6 +593,27 @@ test.describe("the Document mobile toolbar", () => {
 			clientWidth: document.documentElement.clientWidth,
 		}));
 		expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+
+		// Review 2.5 (rd/review-2-5.md:87-97): the horizontal scroll for a
+		// wide table moved from `.document-content-text` (which was also,
+		// accidentally, a second VERTICAL scroller — fixed separately) onto
+		// Tiptap's own `.tableWrapper` div (the live editor's real DOM
+		// parent of every `<table>` — a bare `table` element cannot scroll
+		// directly: `display: table` boxes compute `overflow` to `visible`
+		// regardless of the specified value). The unbreakable token in
+		// "Column Beta" above must still genuinely overflow that wrapper's
+		// own box and remain reachable by scrolling THERE, not just silently
+		// clipped — the page-level check above alone cannot tell "scrolls
+		// locally" apart from "cut off".
+		const tableOverflow = await page
+			.locator(".document-editor-host .tableWrapper")
+			.evaluate((el) => ({
+				scrollWidth: el.scrollWidth,
+				clientWidth: el.clientWidth,
+			}));
+		expect(tableOverflow.scrollWidth).toBeGreaterThan(
+			tableOverflow.clientWidth,
+		);
 	});
 });
 

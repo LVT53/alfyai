@@ -1989,14 +1989,25 @@ function saveNoticeText(notice: SaveNotice): string {
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
-		/* RV-1B: explicit rather than relying on the CSS spec's "overflow-y
-		   auto computes overflow-x to auto too" quirk (real, and already
-		   holding — `tests/e2e/artifact-document.spec.ts`'s "a wide table does
-		   not force horizontal page scroll" passes today — but undocumented
-		   and one `overflow-y` edit away from silently breaking). A wide table
-		   (§2.3's table block) gets its own horizontal scrollbar on THIS
-		   column alone, never dragging the rail sideways with it. */
-		overflow-x: auto;
+		/* Review 2.5 Important finding (rd/review-2-5.md:87-97): RV-1B's own
+		   `overflow-x: auto` here was meant to give a wide table its own
+		   horizontal scrollbar without dragging the rail sideways — but ANY
+		   non-visible overflow-x makes the CSS overflow spec coerce this
+		   column's unset overflow-y (`visible` by default) into `auto` too,
+		   turning `.document-content-text` into a SECOND, independent
+		   vertical scroll container nested inside `.document-content`'s
+		   intended single one (redesign §3.2: "one scroll"). A real
+		   wheel-scroll over the text landed on this INNER scroller first,
+		   moving the highlighted text without moving the rail (a sibling
+		   grid column that only follows the OUTER `.document-content`) —
+		   the rail's cards drifted away from the words they annotate. This
+		   column must never independently overflow either axis; a wide
+		   table gets its own horizontal scrollbar directly on the `table`
+		   element below instead — its own height is always intrinsic
+		   (never constrained), so the SAME visible/auto coercion on ITS
+		   unset overflow-y is harmless: there is never vertical content to
+		   scroll within a table's own box. */
+		overflow: visible;
 	}
 
 	.document-content-rail {
@@ -2211,10 +2222,9 @@ function saveNoticeText(notice: SaveNotice): string {
 		margin: 0;
 	}
 
-	/* The tracker table (`@tiptap/extension-table`'s TableKit, configured
-	   with `renderWrapper: false` — see `extensions.ts` — so this styles the
-	   bare `table` directly rather than the mockup's `.doc-table-wrap` +
-	   `.doc-table` pair, which wraps a `<div>` this DOM does not have). */
+	/* The tracker table (`@tiptap/extension-table`'s TableKit). This styles
+	   the bare `table` directly, matching the mockup's `.doc-table` (not
+	   `.doc-table-wrap`) — width/border/radius stay here, unchanged. */
 	.document-editor-host :global(.document-content table) {
 		width: 100%;
 		margin: 6px 0 16px;
@@ -2224,6 +2234,25 @@ function saveNoticeText(notice: SaveNotice): string {
 		overflow: hidden;
 		font-family: var(--font-sans);
 		font-size: 13.5px;
+	}
+
+	/* Review 2.5 (rd/review-2-5.md:87-97): a wide table's horizontal
+	   scrollbar belongs on `.tableWrapper` — the LIVE editor's real DOM
+	   parent of every `<table>` (`@tiptap/extension-table`'s `TableView`
+	   NodeView always wraps one, unconditionally; the `renderWrapper: false`
+	   default this file used to describe here only gates the STATIC
+	   `renderHTML` path this contenteditable editor never uses — a stale
+	   assumption, corrected after this DOM was actually inspected). Putting
+	   `overflow-x: auto` on the bare `table` element instead does NOT work:
+	   `display: table` boxes compute `overflow` to `visible` regardless of
+	   the specified value (confirmed via `getComputedStyle`), which is
+	   exactly why `.document-content-text` (a `display: flex` column, not a
+	   table) needed to stop being the one holding this rule in the first
+	   place — that column must never independently overflow either axis
+	   (see its own comment above). */
+	.document-editor-host :global(.document-content .tableWrapper) {
+		overflow-x: auto;
+		max-width: 100%;
 	}
 
 	.document-editor-host :global(.document-content th) {
