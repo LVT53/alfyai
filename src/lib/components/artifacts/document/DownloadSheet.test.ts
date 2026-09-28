@@ -11,22 +11,30 @@ vi.mock("$lib/client/api/artifacts", () => ({
 
 import DownloadSheet from "./DownloadSheet.svelte";
 
+// jsdom's default `window.innerWidth` (1024) is above the phone threshold
+// (`isPhoneViewport`, 640px), so every test here exercises the DESKTOP
+// popover branch — the same assumption `VersionsSheet.test.ts` and
+// `AppBody.test.ts`'s own regenerate-popover suite make. The phone
+// `DialogShell` sheet branch reuses the same `downloadOptions` snippet and is
+// covered by `DialogShell.test.ts` plus the Playwright suite.
 describe("DownloadSheet", () => {
 	afterEach(() => {
 		cleanup();
 		mockExportArtifactDocument.mockReset();
 	});
 
-	it("names the document, never the word Artifact", () => {
+	it("names the document, never the word Artifact, and is portaled onto <body>", () => {
 		render(DownloadSheet, {
 			artifactId: "artifact-1",
 			title: "Vienna, 10–12 October",
 			conversationId: "conv-1",
 			onClose: vi.fn(),
 		});
-		expect(
-			screen.getByRole("dialog", { name: /Vienna, 10–12 October/ }),
-		).toBeInTheDocument();
+		const dialog = screen.getByRole("dialog", {
+			name: /Vienna, 10–12 October/,
+		});
+		expect(dialog).toBeInTheDocument();
+		expect(dialog.parentElement).toBe(document.body);
 		expect(document.body.textContent).not.toMatch(/artifact/i);
 	});
 
@@ -141,5 +149,18 @@ describe("DownloadSheet", () => {
 
 		expect(onClose).toHaveBeenCalled();
 		expect(mockExportArtifactDocument).not.toHaveBeenCalled();
+	});
+
+	it("closes on Escape", async () => {
+		const onClose = vi.fn();
+		render(DownloadSheet, {
+			artifactId: "artifact-1",
+			title: "Trip plan",
+			conversationId: "conv-1",
+			onClose,
+		});
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+		expect(onClose).toHaveBeenCalled();
 	});
 });

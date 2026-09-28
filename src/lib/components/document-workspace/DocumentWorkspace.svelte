@@ -34,6 +34,7 @@ import {
 	Download,
 	FileText,
 	Maximize2,
+	MessageSquareText,
 	X,
 	Sparkles,
 	ArrowLeftRight,
@@ -132,9 +133,12 @@ let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 // open can never be called; the newly-open body (if any) re-registers on
 // its own next tick.
 let bodyPanelActions = $state<ArtifactPanelBodyActions | null>(null);
+/** Wave 2.5 Step 8: the Comments button's own badge (Document only — every other kind never calls `onCommentCountChange`, so this just stays 0 and the button never renders for them). Reset alongside `bodyPanelActions` for the same reason: a stale count from the item just left must never linger on the newly-open one. */
+let documentOpenCommentCount = $state(0);
 $effect(() => {
 	activeDocument?.id;
 	bodyPanelActions = null;
+	documentOpenCommentCount = 0;
 });
 
 // One cached module promise per kind, mirroring
@@ -1235,15 +1239,31 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	{/snippet}
 
 	<!--
-		Wave 2.5 Step 3: `ArtifactPanelHeader`'s actions for an artifact-kind
-		item (Document/App/File) — Download, a divider, Expand, Close. Never
-		Comments (its open count isn't wired until a later agent's comment-
-		thread work lands — no disabled placeholder, per redesign §5.2) and
-		never the old grid/History buttons `artifactPanelActions()` above
-		draws for a legacy, non-artifact item: the breadcrumb replaces "back to
-		the list", and the version button above replaces History outright.
+		Wave 2.5 Step 3/8: `ArtifactPanelHeader`'s actions for an artifact-kind
+		item (Document/App/File) — Comments (Document only, matching the mockup's
+		own `.ph-actions` order), Download, a divider, Expand, Close. Never the
+		old grid/History buttons `artifactPanelActions()` above draws for a
+		legacy, non-artifact item: the breadcrumb replaces "back to the list",
+		and the version button above replaces History outright.
 	-->
 	{#snippet artifactHeaderActionsSnippet()}
+		{#if bodyPanelActions?.openComments}
+			<button
+				type="button"
+				class="btn-icon-bare workspace-comments-button"
+				data-testid="artifact-comments-button"
+				onclick={() => bodyPanelActions?.openComments?.()}
+				aria-label={documentOpenCommentCount > 0
+					? $t('artifacts.document.margin.buttonA11y', { count: documentOpenCommentCount })
+					: $t('artifacts.document.margin.title')}
+				title={$t('artifacts.document.margin.title')}
+			>
+				<MessageSquareText size={18} strokeWidth={2} aria-hidden="true" />
+				{#if documentOpenCommentCount > 0}
+					<span class="workspace-comments-count" aria-hidden="true">{documentOpenCommentCount}</span>
+				{/if}
+			</button>
+		{/if}
 		{#if bodyPanelActions?.openDownload}
 			{@const downloadLabel = $t(
 				activeArtifactKind === 'app'
@@ -1253,6 +1273,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			<button
 				type="button"
 				class="btn-icon-bare workspace-download-button"
+				data-testid="artifact-download-button"
 				onclick={() => bodyPanelActions?.openDownload?.()}
 				aria-label={downloadLabel}
 				title={downloadLabel}
@@ -1463,6 +1484,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							{alfyActivity}
 							registerPanelActions={(actions) => {
 								bodyPanelActions = actions;
+							}}
+							onCommentCountChange={(count) => {
+								documentOpenCommentCount = count;
 							}}
 						/>
 					{/await}
@@ -1766,6 +1790,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					{alfyActivity}
 					registerPanelActions={(actions) => {
 						bodyPanelActions = actions;
+					}}
+					onCommentCountChange={(count) => {
+						documentOpenCommentCount = count;
 					}}
 				/>
 			{/await}
@@ -2185,6 +2212,30 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 
 	.workspace-expand-button:hover {
 		color: var(--text-primary);
+	}
+
+	/* Wave 2.5 Step 8: the header's Comments button — a plain icon button with
+	   an overlaid open-thread badge, the same shape the mockup's own
+	   `.btn-icon .count` uses. */
+	.workspace-comments-button {
+		position: relative;
+	}
+
+	.workspace-comments-count {
+		position: absolute;
+		top: 2px;
+		right: 1px;
+		min-width: 15px;
+		height: 15px;
+		padding: 0 4px;
+		border-radius: var(--radius-full);
+		background: var(--accent-fill);
+		color: var(--on-accent);
+		font-size: 9.5px;
+		font-weight: 700;
+		line-height: 15px;
+		letter-spacing: 0;
+		text-align: center;
 	}
 
 	.workspace-body {

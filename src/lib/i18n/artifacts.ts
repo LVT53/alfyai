@@ -179,8 +179,13 @@ const artifactsDict = {
 		"artifacts.document.versions.title": "Versions",
 		"artifacts.document.versions.current": "Current",
 		"artifacts.document.versions.restore": "Restore",
+		// Wave 2.5 Step 8: the inline confirm (redesign §3.2 — never a modal),
+		// named by version number so it reads as a real question about a real
+		// row, not the old generic "this version".
 		"artifacts.document.versions.restoreConfirm":
-			"Restore this version? The current one is kept as a version.",
+			"Restore v{v}? Your current text stays as a version.",
+		"artifacts.document.versions.restoreToast": "Restored v{from} as v{to}",
+		"artifacts.document.versions.undo": "Undo",
 		"artifacts.document.versions.byUser": "You",
 		"artifacts.document.versions.byAlfy": "Alfy",
 		"artifacts.document.versions.conflict":
@@ -297,6 +302,11 @@ const artifactsDict = {
 		"artifacts.document.comment.peekThread": "Show the full thread",
 		"artifacts.document.comment.quoteA11y": "Show “{quote}” in the text",
 		"artifacts.document.margin.title": "Comments",
+		// Wave 2.5 Step 8: the header's Comments button, only while it has an
+		// open count to report — the button falls back to the plain title
+		// above at zero (`DocumentWorkspace.svelte`), matching
+		// `artifacts.header.buttonA11y`'s own "never draw a bare 0" rule.
+		"artifacts.document.margin.buttonA11y": "Comments ({count})",
 		// Redesign §3.3: the rail is per-tab now, so the empty state also
 		// carries "select text to start one" and coexists with the "in other
 		// tabs" list rather than replacing it.
@@ -457,7 +467,10 @@ const artifactsDict = {
 		"artifacts.document.versions.current": "Jelenlegi",
 		"artifacts.document.versions.restore": "Visszaállítás",
 		"artifacts.document.versions.restoreConfirm":
-			"Visszaállítod ezt a változatot? A jelenlegi is megmarad változatként.",
+			"Visszaállítod a v{v} változatot? A jelenlegi szöveged megmarad változatként.",
+		"artifacts.document.versions.restoreToast":
+			"Visszaállítva: v{from} mint v{to}",
+		"artifacts.document.versions.undo": "Visszavonás",
 		"artifacts.document.versions.byUser": "Te",
 		"artifacts.document.versions.byAlfy": "Alfy",
 		"artifacts.document.versions.conflict":
@@ -566,6 +579,7 @@ const artifactsDict = {
 		"artifacts.document.comment.peekThread": "Szál megnyitása",
 		"artifacts.document.comment.quoteA11y": "„{quote}” megmutatása a szövegben",
 		"artifacts.document.margin.title": "Megjegyzések",
+		"artifacts.document.margin.buttonA11y": "Megjegyzések ({count})",
 		"artifacts.document.margin.empty":
 			"Nincs megjegyzés ezen a fülön. Jelölj ki szöveget egy új megjegyzéshez.",
 		// No ICU plural here on purpose, matching commentCountA11y above:
