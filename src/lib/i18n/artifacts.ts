@@ -271,6 +271,19 @@ const artifactsDict = {
 		// a later Wave 2.5 agent's ReviewBar.svelte to read, so its own count
 		// never drifts from this card's. Mirrors the mockup's `revLeft`.
 		"artifacts.document.refused.reviewBarLeft": "Left {count} alone.",
+		// The shared review bar (redesign §4.2 item 5/6, §8's `ReviewBar` row,
+		// Wave 2.5 Step 10) — "Alfy changed N part(s).", the stepper, Keep all /
+		// Undo all. `regionLabel` and `summary` together are also this
+		// component's own polite landing announcement (§4.4: "Alfy changed 1
+		// part and left 1 alone. Review it below the text.") — the region is
+		// already populated with both sentences when it enters the DOM.
+		"artifacts.document.review.regionLabel": "Changes from Alfy",
+		"artifacts.document.review.summary":
+			"{count, plural, one {Alfy changed 1 part.} other {Alfy changed {count} parts.}}",
+		"artifacts.document.review.prev": "Previous change",
+		"artifacts.document.review.next": "Next change",
+		"artifacts.document.review.keepAll": "Keep all",
+		"artifacts.document.review.undoAll": "Undo all",
 		// The planned-section shimmer while a tool call is in flight (Slice 1, T8).
 		"artifacts.document.planned.writing": "Alfy is writing: {label}",
 		// Tabs (Slice 1, T9).
@@ -589,6 +602,14 @@ const artifactsDict = {
 		"artifacts.document.refused.seeChange": "Nézd meg, mit csinált Alfy",
 		"artifacts.document.refused.dismiss": "Elvetés",
 		"artifacts.document.refused.reviewBarLeft": "{count} részt nem érintett.",
+		"artifacts.document.review.regionLabel": "Alfy módosításai",
+		// No ICU plural here either, for `cardSubtitle`'s own reason: Hungarian
+		// nouns after a numeral stay singular ("1 részt", "3 részt").
+		"artifacts.document.review.summary": "Alfy {count} részt módosított.",
+		"artifacts.document.review.prev": "Előző módosítás",
+		"artifacts.document.review.next": "Következő módosítás",
+		"artifacts.document.review.keepAll": "Mindet megtartom",
+		"artifacts.document.review.undoAll": "Mindet visszavonom",
 		"artifacts.document.planned.writing": "Alfy írja: {label}",
 		// No ICU plural here on purpose: Hungarian nouns after a numeral stay
 		// singular ("1 fül", "3 fül"), unlike the English "tab"/"tabs" split.
