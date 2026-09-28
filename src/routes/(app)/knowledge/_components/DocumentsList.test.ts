@@ -1613,7 +1613,13 @@ describe("DocumentsList", () => {
 			expect(
 				screen.getByTestId("documents-filter-chip-all").querySelector("svg"),
 			).toBeNull();
-			for (const filter of ["document", "canvas", "app", "slides", "uploaded"]) {
+			for (const filter of [
+				"document",
+				"canvas",
+				"app",
+				"slides",
+				"uploaded",
+			]) {
 				expect(
 					screen
 						.getByTestId(`documents-filter-chip-${filter}`)

@@ -578,15 +578,13 @@ describe("file production chat helpers", () => {
 		expect(shouldHydrateArtifactsOnToolCall("edit_artifact", "failed")).toBe(
 			true,
 		);
-		expect(
-			shouldHydrateArtifactsOnToolCall("create_artifact", "running"),
-		).toBe(false);
+		expect(shouldHydrateArtifactsOnToolCall("create_artifact", "running")).toBe(
+			false,
+		);
 		expect(shouldHydrateArtifactsOnToolCall("produce_file", "done")).toBe(
 			false,
 		);
-		expect(shouldHydrateArtifactsOnToolCall("web_search", "done")).toBe(
-			false,
-		);
+		expect(shouldHydrateArtifactsOnToolCall("web_search", "done")).toBe(false);
 	});
 
 	// Item 6 (UX-speed plan) — a produce_file tool call shows a "queued"

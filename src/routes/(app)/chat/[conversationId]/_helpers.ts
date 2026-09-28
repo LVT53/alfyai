@@ -360,7 +360,10 @@ export function shouldHydrateArtifactsOnToolCall(
 	name: string,
 	status: "running" | "done" | "failed",
 ): boolean {
-	return status !== "running" && (name === "create_artifact" || name === "edit_artifact");
+	return (
+		status !== "running" &&
+		(name === "create_artifact" || name === "edit_artifact")
+	);
 }
 
 export function mergeFileProductionJob(
