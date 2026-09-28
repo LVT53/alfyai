@@ -2768,5 +2768,103 @@ describe("DocumentBody", () => {
 				"rb-change-1",
 			);
 		});
+
+		// rd/review-2-5.md:122-129 — the stepper's Next/Previous never switched
+		// tabs, so a pending change living in a tab other than the active one
+		// was unreachable (its block sits in a `display:none` section).
+		it("the stepper switches tabs first when the next change lives in a different tab", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+					metadata: {
+						artifactType: "document",
+						title: "Trip plan",
+						tabs: [
+							{ id: "tab-1", title: "Plan", startBlockId: "p1" },
+							{ id: "tab-2", title: "Budget", startBlockId: "p2" },
+						],
+					},
+				}),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "rb-change-1",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+				{
+					changeId: "rb-change-2",
+					blockId: "p2",
+					blockLabel: "Second.",
+					previousMarkdown: "Second.",
+				},
+			]);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			// tab-1 (the first tab) is active by default — its own row's "Next"
+			// stays on tab-1 until the stepper reaches p2's change, in tab-2.
+			expect(screen.getAllByRole("tab")[0]).toHaveAttribute(
+				"aria-selected",
+				"true",
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "rb-call-2tabs",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact" as const,
+					status: "applied" as const,
+					label: null,
+					patches: [
+						{
+							op: "replaceBlock" as const,
+							blockId: "p1",
+							baseHash: "h1",
+							text: "x",
+						},
+						{
+							op: "replaceBlock" as const,
+							blockId: "p2",
+							baseHash: "h1",
+							text: "y",
+						},
+					],
+					refusedBlocks: [],
+					appliedCount: 2,
+				},
+			});
+			await vi.waitFor(() =>
+				expect(screen.getByRole("button", { name: "Next change" })),
+			);
+
+			// reviewIndex starts at 0 — the FIRST pending entry (p1, already in
+			// the active tab-1). Advancing to the second (p2, tab-2) must switch
+			// tabs before scrolling.
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Next change" }),
+			);
+			expect(mockSetActiveDocumentTab).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.anything(),
+				"tab-2",
+			);
+			expect(mockScrollToChange).toHaveBeenCalledWith(
+				expect.anything(),
+				"rb-change-2",
+			);
+		});
 	});
 });

@@ -1034,14 +1034,37 @@ function handleUndoAllChanges(): void {
 	}
 }
 
-/** "See what Alfy did" / a comment's own change chip — scrolls to one already-applied change's own mark. */
-function seeChange(changeId: string): void {
+/**
+ * "See what Alfy did" / a comment's own change chip / the review bar's
+ * stepper — scrolls to one already-applied change's own mark. rd/review-2-5.md:122-129:
+ * a change living in a tab other than the active one sits inside a
+ * `display:none` section (ruling 61's "tabs show only their own section"),
+ * so scrolling straight to it did nothing visible — this switches to the
+ * change's own tab FIRST (via the same `handleTabActivate` a click on the
+ * tab strip uses) and waits a `tick()` for that section to actually become
+ * visible before scrolling. The changeId → blockId lookup goes through
+ * `pendingChanges` (the same map every change pill/the review bar itself
+ * reads) rather than searching the live document, since every caller here
+ * only ever names a changeId that is (or very recently was) one of its
+ * entries.
+ */
+async function seeChange(changeId: string): Promise<void> {
 	if (!editor || !scrollToChangeFn) return;
+	const blockId = pendingChanges.get(changeId)?.entry.blockId;
+	if (blockId) {
+		const targetTabId = mapBlocksToTabs(blocks, tabs).get(blockId);
+		if (targetTabId && targetTabId !== activeTabId) {
+			handleTabActivate(targetTabId);
+			await tick();
+		}
+	}
 	scrollToChangeFn(editor, changeId);
 }
 
 function handleSeeChange(): void {
-	if (refusalNotice?.firstAppliedChangeId) seeChange(refusalNotice.firstAppliedChangeId);
+	if (refusalNotice?.firstAppliedChangeId) {
+		void seeChange(refusalNotice.firstAppliedChangeId);
+	}
 }
 
 // ---- Wave 2.5 Step 10: the review bar's own stepper ------------------------
@@ -1069,14 +1092,14 @@ function handleReviewPrev(): void {
 	if (pendingList.length === 0) return;
 	reviewIndex = (reviewIndex - 1 + pendingList.length) % pendingList.length;
 	const [changeId] = pendingList[reviewIndex];
-	seeChange(changeId);
+	void seeChange(changeId);
 }
 
 function handleReviewNext(): void {
 	if (pendingList.length === 0) return;
 	reviewIndex = (reviewIndex + 1) % pendingList.length;
 	const [changeId] = pendingList[reviewIndex];
-	seeChange(changeId);
+	void seeChange(changeId);
 }
 // ---- end Wave 2.5 Step 10 review bar stepper ------------------------------
 
@@ -1713,7 +1736,7 @@ function handleGotoCommentAnchor(
 /** The change chip's own "See change" — the SAME scroll-to-change `handleSeeChange` below already uses for the refusal notice, resolved from whichever changeId this comment's own `@Alfy` reply produced. */
 function handleSeeChangeForComment(commentId: string): void {
 	const changeId = changeIdByCommentId.get(commentId);
-	if (changeId) seeChange(changeId);
+	if (changeId) void seeChange(changeId);
 }
 
 /**
