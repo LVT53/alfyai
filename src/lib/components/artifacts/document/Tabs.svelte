@@ -268,14 +268,14 @@ $effect(() => {
 						</button>
 						{#if menuOpenForTabId === tab.id}
 							<div
-							class="document-tab-menu"
-							role="menu"
-							tabindex="-1"
-							bind:this={menuEl}
-							use:portalToBody
-							style={menuStyle}
-							onkeydown={handleMenuKeydown}
-						>
+								class="document-tab-menu"
+								role="menu"
+								tabindex="-1"
+								bind:this={menuEl}
+								use:portalToBody
+								style={menuStyle}
+								onkeydown={handleMenuKeydown}
+							>
 								<button
 									type="button"
 									role="menuitem"
