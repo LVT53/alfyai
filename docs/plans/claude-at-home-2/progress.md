@@ -600,6 +600,11 @@ Rulings (orchestrator, 2026-09-27):
   header's version/time from the card, the App sheet/popover layering, Escape stacking and padding. Gates: check 0/17,
   13,691 tests, build 32/2, Fallow 124/4 (0 new), Playwright 88/89 → the one failure is a **pre-existing flake**
   (`artifact-chat-card.spec.ts:190`, fails ~1 in 3 on the reviewed head `145c199e` too); handed to D. D started beside B.
+- **Fix agent B merged** (`c9df1e5e`; 9 commits `957bc07a`…`198ef385`): all eight Document-layout findings (phone composer
+  sheet on top, compact phone review bar with 44 px prev/next, one real scroll container so rail cards stay beside their
+  words, the review bar placement, expanded-panel popovers, the tab `⋯` menu, an empty new tab shows only its (empty)
+  section via a zero-width-space anchor — C verifies it never reaches saved text — and the pill by keyboard). Gates on
+  A+B: check 0/17, 13,712 tests, build 32/2, Fallow 124/4 (0 new), Playwright 99/99. C started beside D.
 - Briefs for every agent: `docs/plans/claude-at-home-2/wave-2-5/` (`common.md` + `rd*-brief.md`); reports and
   screenshots in this session's scratchpad `rd/`.
 - Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
