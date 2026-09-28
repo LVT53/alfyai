@@ -60,6 +60,53 @@ describe("SelectionBubble", () => {
 		).toBeInTheDocument();
 	});
 
+	// Review 2.5 (rd/review-2-5.md:198-207): the pill itself was unreachable
+	// by keyboard at all (covered by `document-editor.test.ts`'s own Tab
+	// interception test, since that half is a ProseMirror concern this
+	// Tiptap-free component has no part in) — this covers what happens once
+	// focus IS inside it: arrow keys rove between its own buttons instead of
+	// leaving the browser to Tab through them one at a time.
+	it("ArrowRight/ArrowLeft rove focus between the toolbar's own buttons, wrapping both ways", async () => {
+		stubViewport(false);
+		render(SelectionBubble, {
+			position: { x: 10, y: 20 },
+			quote: "Hello",
+			onSubmit: vi.fn(),
+			onDismiss: vi.fn(),
+		});
+		const askButton = screen.getByRole("button", { name: "Ask Alfy" });
+		const commentButton = screen.getByRole("button", { name: "Comment" });
+		askButton.focus();
+		expect(askButton).toHaveFocus();
+
+		await fireEvent.keyDown(askButton, { key: "ArrowRight" });
+		expect(commentButton).toHaveFocus();
+
+		// Wraps past the last button back to the first.
+		await fireEvent.keyDown(commentButton, { key: "ArrowRight" });
+		expect(askButton).toHaveFocus();
+
+		// Wraps the other way past the first button back to the last.
+		await fireEvent.keyDown(askButton, { key: "ArrowLeft" });
+		expect(commentButton).toHaveFocus();
+	});
+
+	it("the same roving focus works in the phone docked bar", async () => {
+		stubViewport(true);
+		render(SelectionBubble, {
+			position: { x: 10, y: 20 },
+			quote: "Hello",
+			onSubmit: vi.fn(),
+			onDismiss: vi.fn(),
+		});
+		const askButton = screen.getByRole("button", { name: "Ask Alfy" });
+		const commentButton = screen.getByRole("button", { name: "Comment" });
+		askButton.focus();
+
+		await fireEvent.keyDown(askButton, { key: "ArrowRight" });
+		expect(commentButton).toHaveFocus();
+	});
+
 	it("Comment opens an empty composer with the mention hint, no @Alfy prefill", async () => {
 		stubViewport(false);
 		render(SelectionBubble, {

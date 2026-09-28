@@ -8,7 +8,7 @@ import {
 } from "../../src/lib/server/services/artifacts";
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
-import { createConversation, login } from "./helpers";
+import { createConversation, login, waitForStableBoundingBox } from "./helpers";
 
 // Comments, anchoring and the @Alfy hook (Feature 2 · Artifacts, Slice 1,
 // Task T10) — the real routes, the real service, the real DB. Deliberately
@@ -641,5 +641,316 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 		await page.keyboard.press("Escape");
 		await expect(popover).toBeHidden();
 		await expect(downloadButton).toBeFocused();
+	});
+
+	// Review 2.5 Important finding (rd/review-2-5.md:168-175): in the
+	// EXPANDED panel presentation the version button sits near the panel's
+	// own left edge; right-aligning the popover to the trigger's right edge
+	// (extending 340px further LEFT from there) ran the popover off the
+	// left edge of the viewport entirely (x -138 in the review's own
+	// evidence) — and in DOCKED mode the same right-anchoring bled the
+	// popover out of the panel to the left, over the chat column.
+	test("in the expanded panel, the Versions popover opens on-screen, anchored to the trigger's left edge, and topmost", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"Versions popover expanded",
+		);
+		const { artifact } = await seedDocumentWithBlock(
+			conversationId,
+			"Book the flight to Vienna.",
+		);
+		await saveNewVersion(
+			page,
+			artifact.id,
+			conversationId,
+			1,
+			"<!--b:p1-->\nBook the flight to Vienna, confirmed.",
+		);
+
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const shell = desktopShell(page);
+		await shell
+			.getByRole("button", { name: /Expand document workspace/ })
+			.click();
+
+		const expandedVersionButton = page
+			.locator(".workspace-shell-expanded")
+			.getByTestId("artifact-version-pill");
+		await expect(expandedVersionButton).toBeVisible();
+		await expandedVersionButton.click();
+
+		const popover = page.getByRole("dialog", { name: "Versions" });
+		await expect(popover).toBeVisible();
+		// The version list loads async — a generous timeout absorbs that
+		// fetch rather than racing it (the off-screen bug this test exists
+		// for happens regardless of load state, but the LEFT-edge/topmost
+		// checks below want the settled, final popover).
+		await expect(popover.getByText("v2")).toBeVisible({ timeout: 15_000 });
+		await waitForStableBoundingBox(popover);
+
+		const popoverBox = await popover.boundingBox();
+		expect(popoverBox, "the popover must have a bounding box").not.toBeNull();
+		const box = popoverBox as { x: number; y: number; width: number };
+		// Fully on-screen — the bug put it at a negative x.
+		expect(box.x).toBeGreaterThanOrEqual(0);
+		expect(box.x + box.width).toBeLessThanOrEqual(1440 + 1);
+		// Anchored to the LEFT edge of its trigger, not the right — its own
+		// left edge starts at or after the button's own left edge, never
+		// hundreds of pixels before it.
+		const buttonBox = await expandedVersionButton.boundingBox();
+		expect(buttonBox, "the trigger must have a bounding box").not.toBeNull();
+		expect(box.x).toBeGreaterThanOrEqual((buttonBox as { x: number }).x - 20);
+
+		// Topmost — not painted under the expanded panel's own tab strip or
+		// any other chrome (the bug: `elementFromPoint` hit the tab strip).
+		const isOnTop = await popover.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + 10,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the popover must be the topmost element, not painted under the expanded panel",
+		).toBe(true);
+	});
+});
+
+// Review 2.5 Important finding (rd/review-2-5.md:87-97): "the rail is a 300px
+// column inside the SAME scroll container as the text ... one scroll" (§3.2)
+// was actually two nested scrollers — `.document-content-text`'s own
+// `overflow-x: auto` made the CSS overflow spec coerce its unset
+// `overflow-y` to `auto` too (a non-visible overflow-x forces a `visible`
+// overflow-y to become `auto`), giving it an independent vertical scroller
+// nested inside `.document-content`'s intended single one. A real user's
+// wheel-scroll over the text picks the INNERMOST scrollable ancestor first,
+// so the rail (a sibling grid column of `.document-content-text`, moving
+// only with the OUTER `.document-content`) drifted away from the highlights
+// it points at.
+async function seedLongDocumentWithComments(
+	conversationId: string,
+	targets: { index: number; quote: string; commentBody: string }[],
+) {
+	const userId = await testUserId();
+	const paragraphs = Array.from({ length: 45 }, (_, i) => {
+		const target = targets.find((t) => t.index === i);
+		if (target) return target.quote;
+		return `Filler paragraph number ${i} pads out the document with enough sentences of ordinary text that the editor's own scroll container has real height to scroll through before reaching the next marker.`;
+	});
+	const artifact = await createDocumentArtifact({
+		userId,
+		conversationId,
+		title: "Long document scroll",
+		markdown: paragraphs.join("\n\n"),
+		author: "user",
+		summary: "Seeded for E2E",
+	});
+	const blocks = parseDocument(artifact.body ?? "", { mint: false }).blocks;
+	expect(blocks.length, "every paragraph must parse to its own block").toBe(
+		paragraphs.length,
+	);
+	const created: { commentId: string; blockId: string }[] = [];
+	for (const target of targets) {
+		const block = blocks[target.index];
+		if (!block) throw new Error(`no block at index ${target.index}`);
+		const comment = await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor: anchorFor(block.id, block.markdown, target.quote),
+			author: "user",
+			body: target.commentBody,
+		});
+		if (!comment) throw new Error("the seeded comment must be created");
+		created.push({ commentId: comment.id, blockId: block.id });
+	}
+	return { artifact, blocks, comments: created };
+}
+
+test.describe("Document scroll is a single scroller (Wave 2.5 review fix)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("`.document-content-text` has no scrollable overflow of its own", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(
+			page,
+			"Long document, one scroller",
+		);
+		await seedLongDocumentWithComments(conversationId, [
+			{
+				index: 3,
+				quote: "Marker Charlie reserves the window seat.",
+				commentBody: "Early comment",
+			},
+			{
+				index: 40,
+				quote: "Marker Omega confirms the late checkout.",
+				commentBody: "Late comment",
+			},
+		]);
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const shell = desktopShell(page);
+		await expect(shell).toBeVisible();
+		const textColumn = shell.locator(".document-content-text");
+		await expect(textColumn).toBeVisible();
+		// All 45 paragraphs must actually be in the DOM before measuring
+		// scroll heights below — a generous timeout absorbs the dev server's
+		// one-time compile of the Document editor's module graph (Tiptap and
+		// everything it pulls in) on the very first Document ever opened in a
+		// test run (matches `artifact-document.spec.ts`'s own established
+		// pattern); measuring mid-load would read a not-yet-laid-out DOM and
+		// silently pass both assertions below for the wrong reason.
+		await expect(
+			shell
+				.locator(".document-editor-host")
+				.getByText("Marker Omega confirms the late checkout.", {
+					exact: false,
+				}),
+		).toBeAttached({ timeout: 30_000 });
+
+		// The intended single scroller (`.document-content`) must itself be
+		// scrollable — otherwise this test would trivially pass because
+		// NOTHING scrolls anywhere.
+		const outerOverflow = await shell
+			.locator(".document-main > .document-content")
+			.evaluate((el) => el.scrollHeight - el.clientHeight);
+		expect(outerOverflow).toBeGreaterThan(50);
+
+		// The bug: `.document-content-text` had its OWN scrollHeight beyond
+		// its clientHeight — a second, nested scroll container. After the
+		// fix, this column never independently overflows: whatever height
+		// its content needs, `.document-content` (its scrolling ancestor)
+		// is the one that grows a scrollbar for it.
+		const innerOverflow = await textColumn.evaluate(
+			(el) => el.scrollHeight - el.clientHeight,
+		);
+		expect(innerOverflow).toBeLessThanOrEqual(1);
+	});
+
+	test("a rail card stays aligned with its highlight after scrolling a long commented document", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(
+			page,
+			"Long document, rail sync",
+		);
+		const { comments } = await seedLongDocumentWithComments(conversationId, [
+			{
+				index: 3,
+				quote: "Marker Charlie reserves the window seat.",
+				commentBody: "Early comment",
+			},
+			{
+				index: 40,
+				quote: "Marker Omega confirms the late checkout.",
+				commentBody: "Late comment",
+			},
+		]);
+		const earlyCommentId = comments[0]?.commentId;
+		expect(earlyCommentId).toBeTruthy();
+
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const shell = desktopShell(page);
+		// A generous timeout absorbs the dev server's one-time compile of the
+		// Document editor's module graph on the very first Document ever
+		// opened in a test run (matches `artifact-document.spec.ts`'s own
+		// established pattern) — without this, the highlight locator below
+		// waits on an element that does not exist yet and runs out the whole
+		// test timeout instead of failing (or passing) for the right reason.
+		await expect(
+			shell
+				.locator(".document-editor-host")
+				.getByText("Marker Omega confirms the late checkout.", {
+					exact: false,
+				}),
+		).toBeAttached({ timeout: 30_000 });
+
+		const outerScroller = shell.locator(".document-main > .document-content");
+		await waitForStableBoundingBox(outerScroller);
+
+		const earlyHighlight = shell.locator(
+			`[data-comment-anchor-id="${earlyCommentId}"]`,
+		);
+		const earlyCard = shell
+			.getByTestId("margin-comment")
+			.filter({ hasText: "Early comment" });
+		await waitForStableBoundingBox(earlyHighlight);
+		await waitForStableBoundingBox(earlyCard);
+		const beforeHighlightBox = await earlyHighlight.boundingBox();
+		const beforeCardBox = await earlyCard.boundingBox();
+		expect(beforeHighlightBox, "the highlight must be visible").not.toBeNull();
+		expect(beforeCardBox, "the rail card must be visible").not.toBeNull();
+		// The card's own header/padding naturally offsets it from its
+		// highlight's exact baseline even at rest (they are never expected
+		// to sit pixel-for-pixel level — the file's own pre-existing
+		// ordering test above only checks card/card, never card/highlight).
+		// What must NOT change is this offset, once scrolling is involved.
+		const offsetBefore =
+			(beforeCardBox as { y: number }).y -
+			(beforeHighlightBox as { y: number }).y;
+
+		// A real mouse-wheel scroll, hovering over the TEXT (never the rail),
+		// small enough (120px) to stay under `.document-content-text`'s own
+		// ~200px of bugged internal overflow (measured by the sibling test
+		// above) so this exercises PURE inner-scroller drift, never native
+		// scroll-chaining to the outer container once the inner one maxes
+		// out — chaining would coordinate both scrollers back into
+		// alignment and mask the bug, exactly like `scrollIntoViewIfNeeded()`
+		// would (deliberately not used here for that reason). A real wheel
+		// gesture lands on whichever element the browser picks as the
+		// nearest scrollable ancestor under the cursor — in the bugged
+		// version that is `.document-content-text` itself, leaving the rail
+		// (a SIBLING column, moved only by the OUTER `.document-content`)
+		// behind. This is the same vector the review's own evidence measured
+		// ("`.document-content-text` scrolls on its own").
+		const textBox = await shell.locator(".document-content-text").boundingBox();
+		expect(textBox, "the text column must be visible").not.toBeNull();
+		const { x, y, width } = textBox as { x: number; y: number; width: number };
+		await page.mouse.move(x + width / 2, y + 40);
+		await page.mouse.wheel(0, 120);
+		await waitForStableBoundingBox(earlyHighlight);
+		await waitForStableBoundingBox(earlyCard);
+
+		const afterHighlightBox = await earlyHighlight.boundingBox();
+		const afterCardBox = await earlyCard.boundingBox();
+		expect(afterHighlightBox, "the highlight must be visible").not.toBeNull();
+		expect(afterCardBox, "the rail card must be visible").not.toBeNull();
+		const offsetAfter =
+			(afterCardBox as { y: number }).y -
+			(afterHighlightBox as { y: number }).y;
+
+		// The bug moved the highlight (inside the accidentally-scrolled
+		// `.document-content-text`) without moving the card (inside the
+		// sibling `.document-content-rail`, which only follows the OUTER
+		// scroller) — a ~120px swing in this offset. A single scroller
+		// moves both together, so the offset barely changes.
+		expect(Math.abs(offsetAfter - offsetBefore)).toBeLessThan(20);
 	});
 });

@@ -148,6 +148,29 @@ function openComment(): void {
 	mode = "comment";
 }
 
+/**
+ * Redesign §4.4 (rd/review-2-5.md:198-207): "arrow keys inside the
+ * `role="toolbar"`" — a plain horizontal roving-focus pattern between "Ask
+ * Alfy" and "Comment" (or however many trigger buttons ever end up here),
+ * matching `Tabs.svelte`'s own ArrowLeft/ArrowRight handler for its
+ * horizontal strip.
+ */
+function handleToolbarKeydown(event: KeyboardEvent): void {
+	if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+	const toolbar = event.currentTarget as HTMLElement;
+	const buttons = Array.from(
+		toolbar.querySelectorAll<HTMLButtonElement>("button:not([disabled])"),
+	);
+	const currentIndex = buttons.indexOf(
+		document.activeElement as HTMLButtonElement,
+	);
+	if (currentIndex === -1) return;
+	event.preventDefault();
+	const step = event.key === "ArrowRight" ? 1 : -1;
+	const nextIndex = (currentIndex + step + buttons.length) % buttons.length;
+	buttons[nextIndex]?.focus();
+}
+
 function cancel(): void {
 	mode = "pill";
 	draftText = "";
@@ -259,11 +282,25 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 			role="toolbar"
 			tabindex="-1"
 			aria-label={$t('artifacts.document.comment.selectionToolbar')}
+			onkeydown={handleToolbarKeydown}
 		>
 			{@render triggerButtons()}
 		</div>
 	{:else}
-		<DialogShell title={composerLabel} onClose={cancel} phonePresentation="sheet">
+		<!-- zIndexClass: this sheet opens from the docked bar INSIDE
+		     `DocumentWorkspace.svelte`'s mobile shell, whose own
+		     `.workspace-mobile-backdrop` sits at `z-index: 95` — DialogShell's
+		     default `z-50` renders behind it (found by `elementFromPoint`, not
+		     any role/text query: the sheet is still genuinely "visible" to
+		     Testing Library/Playwright, just painted under the backdrop). Same
+		     fix, same value, same reasoning as `CommentsSheet.svelte`/
+		     `MobileToolbar.svelte`'s own phone sheets. -->
+		<DialogShell
+			title={composerLabel}
+			onClose={cancel}
+			phonePresentation="sheet"
+			zIndexClass="z-[150]"
+		>
 			<div class="selection-bubble-sheet-fields">
 				{@render composerFields()}
 			</div>
@@ -283,6 +320,7 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 				role="toolbar"
 				tabindex="-1"
 				aria-label={$t('artifacts.document.comment.selectionToolbar')}
+				onkeydown={handleToolbarKeydown}
 			>
 				{@render triggerButtons()}
 			</div>

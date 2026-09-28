@@ -179,6 +179,10 @@ let readMarkdownFn: typeof DocumentEditorModule.readMarkdown | null = null;
 let setActiveDocumentTabFn:
 	| typeof DocumentEditorModule.setActiveDocumentTab
 	| null = null;
+/** Review 2.5 (rd/review-2-5.md:191-197) — see `document-editor.ts`'s own doc comment. */
+let appendEmptyTabSectionFn:
+	| typeof DocumentEditorModule.appendEmptyTabSection
+	| null = null;
 let editorReady = $derived(loadState === "ready");
 
 /**
@@ -287,6 +291,9 @@ let scrollToCommentAnchorFn:
 const NARROW_PANEL_THRESHOLD_PX = 820;
 let documentBodyEl = $state<HTMLDivElement | undefined>();
 let panelContainerWidth = $state(0);
+/** The review bar's own live rendered height (Review 2.5, rd/review-2-5.md:98-108) — read by the effect below and used to reserve enough bottom padding under the last paragraph. */
+let reviewBarSlotEl = $state<HTMLDivElement | undefined>();
+let reviewBarHeight = $state(0);
 let isPhone = $state(isPhoneViewport());
 /** `0` means "not measured yet" (no ResizeObserver in this environment, e.g. jsdom) — treated as "not narrow" rather than a false-positive drawer. */
 let isNarrowPanel = $derived(
@@ -454,8 +461,52 @@ function clearSelectionBubble(): void {
 	if (editor) setSelectionPendingFn?.(editor, null);
 }
 
+/**
+ * Review 2.5 (rd/review-2-5.md:198-207): the one DOM reach into
+ * `SelectionBubble.svelte`'s own rendered output this Tiptap-free component
+ * never hands back a ref for — same query shape as
+ * `VersionsSheet.svelte`/`DownloadSheet.svelte`'s own `findAnchorEl`.
+ * `data-testid="selection-bubble"` is the toolbar itself on a phone
+ * (`.selection-docked-bar`) and its wrapper on desktop
+ * (`.selection-bubble`, with `.selection-bubble-toolbar` nested inside) —
+ * either way, its first non-disabled `button` is "Ask Alfy". `false` when
+ * nothing is open to focus (no live selection, or the bubble/composer never
+ * mounted) — the caller (`document-editor.ts`'s own Tab handler) lets a
+ * plain Tab fall through to its normal behaviour in that case.
+ */
+function focusSelectionPill(): boolean {
+	if (!selectionBubble) return false;
+	const button = document.querySelector<HTMLButtonElement>(
+		'[data-testid="selection-bubble"] button:not([disabled])',
+	);
+	if (!button) return false;
+	button.focus();
+	return true;
+}
+
+/**
+ * Redesign §4.4 "Escape returns to the text with the selection intact":
+ * dismissing while keyboard focus is still INSIDE the bubble/composer
+ * (`focusSelectionPill` above, or the composer's own Cancel/Escape) would
+ * otherwise strand focus at `<body>` once the focused button/textarea is
+ * unmounted — refocusing the editor (never collapses `state.selection` on
+ * its own) is what actually leaves the selection visibly intact. A
+ * mouse-driven dismiss (clicking elsewhere) never has focus inside the
+ * bubble to begin with, so this branch is a no-op for that path.
+ */
 function dismissSelectionBubble(): void {
+	const hadBubbleFocus = !!document.activeElement?.closest(
+		'[data-testid="selection-bubble"]',
+	);
 	clearSelectionBubble();
+	// `editor.view.focus()` directly — Tiptap's own `commands.focus()`
+	// defers the actual DOM focus (a `requestAnimationFrame`, for its own
+	// cross-browser reasons), which loses this race: Svelte's reactive
+	// removal of the (still-focused, until this call) pill button ran
+	// first, and the browser's own "focused element left the DOM" default
+	// already moved focus to `<body>` before the deferred call ever fired.
+	// ProseMirror's own `EditorView.focus()` moves DOM focus immediately.
+	if (hadBubbleFocus) editor?.view?.focus();
 }
 
 /**
@@ -1265,6 +1316,28 @@ $effect(() => {
 	return () => observer.disconnect();
 });
 
+// Review 2.5 (rd/review-2-5.md:98-108): the review bar is now a normal-flow,
+// `position: sticky` child at the end of the text column (see
+// `.document-review-bar-slot`'s own CSS comment) rather than an absolutely
+// positioned overlay — so it no longer floats over whatever paragraph is
+// last, but the LAST paragraph still needs real scroll room to clear the
+// bar's own height before the column runs out of content to scroll through
+// (the classic "sticky footer covers the last line" problem). Same guarded
+// ResizeObserver shape as the width-tracking effect above; the bar's own
+// height changes with viewport width (the phone layout wraps taller) and
+// content (refused-count text, i18n string length), so this stays live
+// rather than a one-time measurement.
+$effect(() => {
+	const el = reviewBarSlotEl;
+	if (!el || typeof ResizeObserver === "undefined") return;
+	const observer = new ResizeObserver((entries) => {
+		const height = entries[0]?.contentRect.height;
+		if (height !== undefined) reviewBarHeight = height;
+	});
+	observer.observe(el);
+	return () => observer.disconnect();
+});
+
 // Closes a stray-open overlay the moment the layout no longer needs one
 // (a window/panel resize back above the threshold) — otherwise the drawer
 // would float uselessly ALONGSIDE the now-visible inline rail.
@@ -1362,14 +1435,32 @@ function handleTabActivate(tabId: string): void {
 /**
  * Persists an add/rename/delete from `Tabs.svelte` through the SAME body
  * route every other edit uses (`saveDocumentTabs`, one write path — T9.2/
- * T9.7), carrying the editor's current canonical text along unchanged so a
- * tab-list edit is never mistaken for a text edit. The strip already updated
- * itself optimistically (it renders straight from its own `tabs` prop
- * change); on a refusal it is simply overwritten by the next successful
- * load rather than rolled back, matching this body's existing "keep the
- * user's text, surface the notice" failure shape for every other save.
+ * T9.7). The strip already updated itself optimistically (it renders
+ * straight from its own `tabs` prop change); on a refusal it is simply
+ * overwritten by the next successful load rather than rolled back, matching
+ * this body's existing "keep the user's text, surface the notice" failure
+ * shape for every other save.
+ *
+ * Review 2.5 (rd/review-2-5.md:191-197): a brand-new tab (`Tabs.svelte`'s
+ * `addTab`, `startBlockId: ""`) gets a real anchor block here, BEFORE the
+ * canonical text below is read — `appendEmptyTabSection`'s own doc comment
+ * has the why — so this is the ONE case where a tabs-only change does NOT
+ * carry the editor's text along unchanged; every other caller (rename,
+ * delete) is untouched.
  */
 async function handleTabsChange(next: DocumentTab[]): Promise<void> {
+	const previousIds = new Set(tabs.map((tab) => tab.id));
+	const blankNewTab = next.find(
+		(tab) => tab.startBlockId === "" && !previousIds.has(tab.id),
+	);
+	if (blankNewTab && editor) {
+		const mintedId = appendEmptyTabSectionFn?.(editor) ?? null;
+		if (mintedId) {
+			next = next.map((tab) =>
+				tab.id === blankNewTab.id ? { ...tab, startBlockId: mintedId } : tab,
+			);
+		}
+	}
 	tabs = next;
 	// An add/delete can move section boundaries even when `activeTabId`
 	// itself is unchanged (e.g. deleting a LATER tab); a rename cannot, but
@@ -1482,6 +1573,7 @@ async function runLoad(id: string): Promise<void> {
 
 		readMarkdownFn = mod.readMarkdown;
 		setActiveDocumentTabFn = mod.setActiveDocumentTab;
+		appendEmptyTabSectionFn = mod.appendEmptyTabSection;
 		loadMarkdownFn = mod.loadMarkdown;
 		readSelectionContextFn = mod.readSelectionAnchorContext;
 		applyAlfyChangesFn = mod.applyAlfyChanges;
@@ -1534,6 +1626,7 @@ async function runLoad(id: string): Promise<void> {
 				onUndo: handleUndoChange,
 				onRedo: handleRedoChange,
 			},
+			onTabIntoSelectionPill: focusSelectionPill,
 		});
 		// The very first paint already shows only the active tab's section
 		// (redesign §5.2) — without this, every section would flash visible
@@ -1808,7 +1901,13 @@ function saveNoticeText(notice: SaveNotice): string {
 							</button>
 						</div>
 					{/if}
-					<div class="document-editor-host" bind:this={editorEl}></div>
+					<div
+						class="document-editor-host"
+						bind:this={editorEl}
+						style:padding-bottom={pendingList.length > 0
+							? `calc(1rem + ${reviewBarHeight}px)`
+							: undefined}
+					></div>
 					{#if loadState === 'loading'}
 						<div class="document-editor-skeleton" aria-hidden="true">
 							<span class="sr-only">{$t('common.loading')}</span>
@@ -1859,29 +1958,38 @@ function saveNoticeText(notice: SaveNotice): string {
 						/>
 					{/if}
 				{/if}
+				<!-- Wave 2.5 Step 10 / Review 2.5 (rd/review-2-5.md:98-108): the
+				     review bar, "at the bottom of the text column" (redesign
+				     §4.2 item 5, §8). The pill itself is no longer rendered
+				     here — Step 10 moved it into the editor's own DOM as a
+				     ProseMirror widget decoration (`change-pill-decoration.ts`).
+				     Nested INSIDE `.document-content-text` (not a sibling grid
+				     item of it) on purpose: `position: sticky` needs to be a
+				     normal-flow descendant of the scrolling ancestor
+				     (`.document-content`) to stick within its viewport, and
+				     nesting it here also confines its width to the text
+				     column alone — it used to span both grid columns and cover
+				     the rail's last rows (see this class's own CSS comment). -->
+				{#if pendingList.length > 0}
+					<div
+						class="document-review-bar-slot"
+						bind:this={reviewBarSlotEl}
+						in:reviewBarFly={{ y: 16, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
+						out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
+					>
+						<ReviewBar
+							pendingCount={pendingList.length}
+							refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
+							currentIndex={reviewIndex}
+							onPrev={handleReviewPrev}
+							onNext={handleReviewNext}
+							onKeepAll={handleKeepAllChanges}
+							onUndoAll={handleUndoAllChanges}
+							onSeeRefused={refusalNotice ? handleSeeChange : undefined}
+						/>
+					</div>
+				{/if}
 			</div>
-			<!-- Wave 2.5 Step 10: the review bar, "at the bottom of the text
-			     column" (redesign §4.2 item 5, §8). The pill itself is no longer
-			     rendered here — Step 10 moved it into the editor's own DOM as a
-			     ProseMirror widget decoration (`change-pill-decoration.ts`). -->
-			{#if pendingList.length > 0}
-				<div
-					class="document-review-bar-slot"
-					in:reviewBarFly={{ y: 16, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
-					out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
-				>
-					<ReviewBar
-						pendingCount={pendingList.length}
-						refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
-						currentIndex={reviewIndex}
-						onPrev={handleReviewPrev}
-						onNext={handleReviewNext}
-						onKeepAll={handleKeepAllChanges}
-						onUndoAll={handleUndoAllChanges}
-						onSeeRefused={refusalNotice ? handleSeeChange : undefined}
-					/>
-				</div>
-			{/if}
 			<!-- T10 / redesign §3.2: the comment rail, the grid's second column
 			     (≥820px container width only — see the `@container` rule below). -->
 			<aside class="document-content-rail" aria-label={$t('artifacts.document.margin.title')}>
@@ -1997,14 +2105,25 @@ function saveNoticeText(notice: SaveNotice): string {
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
-		/* RV-1B: explicit rather than relying on the CSS spec's "overflow-y
-		   auto computes overflow-x to auto too" quirk (real, and already
-		   holding — `tests/e2e/artifact-document.spec.ts`'s "a wide table does
-		   not force horizontal page scroll" passes today — but undocumented
-		   and one `overflow-y` edit away from silently breaking). A wide table
-		   (§2.3's table block) gets its own horizontal scrollbar on THIS
-		   column alone, never dragging the rail sideways with it. */
-		overflow-x: auto;
+		/* Review 2.5 Important finding (rd/review-2-5.md:87-97): RV-1B's own
+		   `overflow-x: auto` here was meant to give a wide table its own
+		   horizontal scrollbar without dragging the rail sideways — but ANY
+		   non-visible overflow-x makes the CSS overflow spec coerce this
+		   column's unset overflow-y (`visible` by default) into `auto` too,
+		   turning `.document-content-text` into a SECOND, independent
+		   vertical scroll container nested inside `.document-content`'s
+		   intended single one (redesign §3.2: "one scroll"). A real
+		   wheel-scroll over the text landed on this INNER scroller first,
+		   moving the highlighted text without moving the rail (a sibling
+		   grid column that only follows the OUTER `.document-content`) —
+		   the rail's cards drifted away from the words they annotate. This
+		   column must never independently overflow either axis; a wide
+		   table gets its own horizontal scrollbar directly on the `table`
+		   element below instead — its own height is always intrinsic
+		   (never constrained), so the SAME visible/auto coercion on ITS
+		   unset overflow-y is harmless: there is never vertical content to
+		   scroll within a table's own box. */
+		overflow: visible;
 	}
 
 	.document-content-rail {
@@ -2019,18 +2138,31 @@ function saveNoticeText(notice: SaveNotice): string {
 		}
 	}
 
-	/* Wave 2.5 Step 10: "at the bottom of the text column" (redesign §4.2 item
-	   5, §8). `position: absolute` on a grid item removes it from grid track
-	   placement entirely (CSS Grid §grid-and-abs-pos), so this sits as a
-	   simple overlay against `.document-content`'s own box (`position:
-	   relative` above) rather than becoming a third column; being a DIRECT
-	   child of the scrolling `.document-content` (not nested inside
-	   `.document-content-text`) is what keeps it pinned while the text
-	   scrolls underneath, mirroring the mockup's own `.review` exactly (same
-	   inset values), just without a hardcoded `z-index` magic number beyond
-	   what already clears the editor's own content. */
+	/* Wave 2.5 Step 10, revised by Review 2.5 (rd/review-2-5.md:98-108): "at
+	   the bottom of the text column" (redesign §4.2 item 5, §8). The
+	   ORIGINAL `position: absolute` version sat as a direct child of the
+	   scrolling `.document-content` on the theory that this "kept it pinned
+	   while the text scrolls underneath" — backwards: an absolutely
+	   positioned element's containing block is still whatever POSITIONED
+	   ancestor it renders inside, and `.document-content` (the SCROLLING
+	   element itself) was that ancestor, so the bar scrolled away WITH the
+	   text instead of staying pinned, and — being a child of the two-column
+	   grid rather than the text column alone — it spanned both columns and
+	   covered the rail's last rows. `position: sticky` here (now nested
+	   INSIDE `.document-content-text`, a normal-flow child after the editor
+	   host — see the markup comment) actually achieves "stays pinned to the
+	   bottom of the text column while the text scrolls": it sticks within
+	   `.document-content`'s own scrollport (its nearest actual scrolling
+	   ancestor) while its box lives in the text column's own normal flow,
+	   which is also what confines its width to that column instead of the
+	   whole grid. `.document-editor-host`'s own `padding-bottom` (see its
+	   `style:padding-bottom` binding) reserves room, measured live from this
+	   element's own height, so the last paragraph can fully clear it before
+	   the column runs out of content to scroll through — the classic
+	   "sticky footer covers the last line" problem a plain `position:
+	   sticky` does not solve by itself. */
 	.document-review-bar-slot {
-		position: absolute;
+		position: sticky;
 		left: 1rem;
 		right: 1rem;
 		bottom: 0.875rem;
@@ -2219,10 +2351,9 @@ function saveNoticeText(notice: SaveNotice): string {
 		margin: 0;
 	}
 
-	/* The tracker table (`@tiptap/extension-table`'s TableKit, configured
-	   with `renderWrapper: false` — see `extensions.ts` — so this styles the
-	   bare `table` directly rather than the mockup's `.doc-table-wrap` +
-	   `.doc-table` pair, which wraps a `<div>` this DOM does not have). */
+	/* The tracker table (`@tiptap/extension-table`'s TableKit). This styles
+	   the bare `table` directly, matching the mockup's `.doc-table` (not
+	   `.doc-table-wrap`) — width/border/radius stay here, unchanged. */
 	.document-editor-host :global(.document-content table) {
 		width: 100%;
 		margin: 6px 0 16px;
@@ -2232,6 +2363,25 @@ function saveNoticeText(notice: SaveNotice): string {
 		overflow: hidden;
 		font-family: var(--font-sans);
 		font-size: 13.5px;
+	}
+
+	/* Review 2.5 (rd/review-2-5.md:87-97): a wide table's horizontal
+	   scrollbar belongs on `.tableWrapper` — the LIVE editor's real DOM
+	   parent of every `<table>` (`@tiptap/extension-table`'s `TableView`
+	   NodeView always wraps one, unconditionally; the `renderWrapper: false`
+	   default this file used to describe here only gates the STATIC
+	   `renderHTML` path this contenteditable editor never uses — a stale
+	   assumption, corrected after this DOM was actually inspected). Putting
+	   `overflow-x: auto` on the bare `table` element instead does NOT work:
+	   `display: table` boxes compute `overflow` to `visible` regardless of
+	   the specified value (confirmed via `getComputedStyle`), which is
+	   exactly why `.document-content-text` (a `display: flex` column, not a
+	   table) needed to stop being the one holding this rule in the first
+	   place — that column must never independently overflow either axis
+	   (see its own comment above). */
+	.document-editor-host :global(.document-content .tableWrapper) {
+		overflow-x: auto;
+		max-width: 100%;
 	}
 
 	.document-editor-host :global(.document-content th) {

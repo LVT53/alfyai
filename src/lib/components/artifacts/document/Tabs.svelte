@@ -31,6 +31,8 @@ import { onMount, tick } from "svelte";
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import { t } from "$lib/i18n";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
+import { getFocusableElements } from "$lib/utils/focus-trap";
+import { portalToBody } from "$lib/utils/portal";
 
 let {
 	tabs,
@@ -52,6 +54,19 @@ let menuOpenForTabId = $state<string | null>(null);
 let tabListEl = $state<HTMLElement | null>(null);
 let inkEl = $state<HTMLElement | null>(null);
 let tabButtons = new Map<string, HTMLButtonElement>();
+// Review 2.5 (rd/review-2-5.md:183-190): the ⋯ menu used to render inline,
+// `position: absolute` against its own `.document-tab-menu-anchor` — a
+// descendant of `.document-tabs`, whose `overflow-x: auto` (needed so a long
+// tab strip scrolls sideways instead of wrapping) clipped the menu's own
+// box the moment it dropped below the strip's bottom edge. Portalled to
+// `document.body` and positioned from the trigger's own rect instead (the
+// same shape `VersionsSheet.svelte`/`DownloadSheet.svelte` already use),
+// this can never be clipped by an ancestor's overflow again.
+let menuTriggerEl = $state<HTMLButtonElement | undefined>();
+let menuEl = $state<HTMLDivElement | undefined>();
+let menuStyle = $state<string | undefined>(undefined);
+const MENU_WIDTH = 128; // matches `.document-tab-menu`'s own `min-width: 8rem`
+const VIEWPORT_MARGIN = 8;
 
 function addTab(): void {
 	const newTab: DocumentTab = {
@@ -102,11 +117,63 @@ function toggleMenu(tabId: string, event: MouseEvent): void {
 	// The menu's own open toggle must not immediately re-close itself through
 	// the window-level click-outside handler below.
 	event.stopPropagation();
-	menuOpenForTabId = menuOpenForTabId === tabId ? null : tabId;
+	const opening = menuOpenForTabId !== tabId;
+	menuOpenForTabId = opening ? tabId : null;
+	if (opening) menuTriggerEl = event.currentTarget as HTMLButtonElement;
 }
 
-function closeMenu(): void {
+/** `refocusTrigger`: true for Escape (redesign's own convention: the innermost layer's Escape returns focus to what opened it), false for an outside click (focus is already wherever the user clicked). */
+function closeMenu(refocusTrigger = false): void {
 	menuOpenForTabId = null;
+	if (refocusTrigger) menuTriggerEl?.focus();
+}
+
+function measureMenu(): void {
+	if (typeof window === "undefined" || !menuTriggerEl) return;
+	const rect = menuTriggerEl.getBoundingClientRect();
+	const width = Math.min(MENU_WIDTH, window.innerWidth - VIEWPORT_MARGIN * 2);
+	const maxLeft = Math.max(
+		VIEWPORT_MARGIN,
+		window.innerWidth - width - VIEWPORT_MARGIN,
+	);
+	const left = Math.min(Math.max(rect.left, VIEWPORT_MARGIN), maxLeft);
+	menuStyle = `top: ${rect.bottom + 5}px; left: ${left}px;`;
+}
+
+$effect(() => {
+	if (!menuOpenForTabId) return;
+	measureMenu();
+	// Review 2.5 (rd/review-2-5.md:183-190): "focus the first item on open" —
+	// keyboard focus stayed on ⋯ before this fix, so ArrowDown/Enter had
+	// nothing to act on.
+	void tick().then(() => {
+		getFocusableElements(menuEl)[0]?.focus();
+	});
+	const handleReflow = () => measureMenu();
+	window.addEventListener("resize", handleReflow);
+	window.addEventListener("scroll", handleReflow, true);
+	return () => {
+		window.removeEventListener("resize", handleReflow);
+		window.removeEventListener("scroll", handleReflow, true);
+	};
+});
+
+/** WAI-ARIA menu pattern (redesign §5.2, rd/review-2-5.md:183-190): Up/Down cycles the two items with wraparound, Escape closes and returns focus to ⋯. */
+function handleMenuKeydown(event: KeyboardEvent): void {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		event.stopPropagation();
+		closeMenu(true);
+		return;
+	}
+	if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+	event.preventDefault();
+	const items = getFocusableElements(menuEl);
+	if (items.length === 0) return;
+	const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+	const step = event.key === "ArrowDown" ? 1 : -1;
+	const nextIndex = (currentIndex + step + items.length) % items.length;
+	items[nextIndex]?.focus();
 }
 
 /** Automatic activation, wrapping (WAI-ARIA tabs pattern) — mirrors the approved mockup's own `#tabs` keydown handler exactly. */
@@ -200,7 +267,15 @@ $effect(() => {
 							<Ellipsis size={13} strokeWidth={2} aria-hidden="true" />
 						</button>
 						{#if menuOpenForTabId === tab.id}
-							<div class="document-tab-menu" role="menu">
+							<div
+								class="document-tab-menu"
+								role="menu"
+								tabindex="-1"
+								bind:this={menuEl}
+								use:portalToBody
+								style={menuStyle}
+								onkeydown={handleMenuKeydown}
+							>
 								<button
 									type="button"
 									role="menuitem"
@@ -357,11 +432,17 @@ $effect(() => {
 		color: var(--text-primary);
 	}
 
+	/* Review 2.5 (rd/review-2-5.md:183-190): `position: fixed` (not the old
+	   `absolute` against `.document-tab-menu-anchor`) plus `use:portalToBody`
+	   on this element (see the markup) — `top`/`left` come from `menuStyle`,
+	   measured from the ⋯ trigger's own rect in script, exactly like
+	   `VersionsSheet.svelte`/`DownloadSheet.svelte`'s popovers. z-index 130
+	   matches those same popovers' own fix (clears
+	   `DocumentWorkspace.svelte`'s `.workspace-shell-expanded`, 115 — this
+	   strip renders inside the expanded panel too). */
 	.document-tab-menu {
-		position: absolute;
-		top: calc(100% + 0.3rem);
-		left: 0;
-		z-index: 5;
+		position: fixed;
+		z-index: 130;
 		display: grid;
 		min-width: 8rem;
 		gap: 0.1rem;

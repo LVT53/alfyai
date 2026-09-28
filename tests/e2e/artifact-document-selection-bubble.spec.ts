@@ -2,7 +2,12 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
-import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
+import {
+	createComment,
+	createDocumentArtifact,
+} from "../../src/lib/server/services/artifacts";
+import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
+import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
 import { createConversation, login, waitForStableBoundingBox } from "./helpers";
 
 // The Document editor's selection bubble ("Ask Alfy" / "Comment", T10.1) must
@@ -344,4 +349,193 @@ test.describe("the Document selection bubble follows the live selection", () => 
 			}
 		});
 	}
+});
+
+// Review 2.5 Critical finding (rd/review-2-5.md:27-37): on a phone, opening
+// the composer from the docked bar's "Ask Alfy"/"Comment" button painted the
+// `DialogShell` sheet BEHIND `DocumentWorkspace.svelte`'s mobile panel — the
+// dialog passed every `toBeVisible()`/role query (it exists in the DOM with
+// the right accessible name) while genuinely rendering under the panel's own
+// `.workspace-mobile-backdrop` (z-index 95) because it had no `zIndexClass`
+// and fell back to DialogShell's default `z-50`. `elementFromPoint` is the
+// only way to catch this class of bug — same technique as
+// `artifact-document-comments.spec.ts`'s own Comments-sheet regression test.
+test.describe("Phone selection composer sheet is topmost (Wave 2.5 review fix)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("Ask Alfy opens its composer sheet above the mobile panel, not behind it", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(
+			page,
+			"Phone composer sheet",
+		);
+		await seedScrollingDocument(conversationId);
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		await selectWordAndReadBubble(page, shell, TOP_TEXT);
+		const dockedBar = page.getByTestId("selection-bubble");
+		await dockedBar.getByRole("button", { name: "Ask Alfy" }).click();
+
+		const sheet = page.getByRole("dialog", { name: /Ask Alfy about/ });
+		await expect(sheet).toBeVisible();
+		// See the sibling "Comment" test below for why this wait matters:
+		// `toBeVisible()` only checks CSS visibility, not whether the sheet's
+		// own slide-up entrance transition has actually settled.
+		await waitForStableBoundingBox(sheet);
+
+		const isOnTop = await sheet.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + 10,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the composer sheet must be the topmost element, not painted under the mobile panel's own backdrop",
+		).toBe(true);
+
+		await page.keyboard.press("Escape");
+		await expect(sheet).toBeHidden();
+	});
+
+	test("Comment opens its composer sheet above the mobile panel, not behind it", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(
+			page,
+			"Phone comment composer sheet",
+		);
+		await seedScrollingDocument(conversationId);
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		await selectWordAndReadBubble(page, shell, TOP_TEXT);
+		const dockedBar = page.getByTestId("selection-bubble");
+		await dockedBar.getByRole("button", { name: "Comment" }).click();
+
+		const sheet = page.getByRole("dialog", { name: /Comment on/ });
+		await expect(sheet).toBeVisible();
+		// The sheet's own entrance transition (DialogShell's `dialog-sheet`
+		// slide-up) still has an in-flight `getBoundingClientRect()` for a few
+		// frames after `toBeVisible()` resolves — that check only looks at
+		// CSS visibility, not whether the element has finished animating into
+		// place. Reading the rect mid-slide is exactly the trap this helper
+		// exists for (see its own doc comment).
+		await waitForStableBoundingBox(sheet);
+
+		const isOnTop = await sheet.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + 10,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the composer sheet must be the topmost element, not painted under the mobile panel's own backdrop",
+		).toBe(true);
+	});
+});
+
+// Review 2.5 Important finding (rd/review-2-5.md:198-207): with text
+// selected, Tab moved focus to the editor's OWN next focusable DOM node (a
+// comment highlight span) instead of into the selection pill — only the
+// ⌘/Ctrl+Alt+M shortcut ever reached "Ask Alfy" by keyboard; there was no
+// keyboard path into the pill's buttons at all.
+test.describe("Keyboard access into the selection pill (Wave 2.5 review fix)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("Tab from a selection moves focus into the pill, not the next comment highlight; arrows rove; Escape returns focus with the selection intact", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(
+			page,
+			"Selection pill keyboard access",
+		);
+		const userId = await testUserId();
+		const markdown =
+			"Topmarker begins here.\n\nA paragraph with a highlighted phrase inside it.";
+		const artifact = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Selection pill keyboard access",
+			markdown,
+			author: "user",
+			summary: "Seeded for E2E",
+		});
+		const blocks = parseDocument(artifact.body ?? "", { mint: false }).blocks;
+		const secondBlock = blocks[1];
+		if (!secondBlock) throw new Error("the seed must produce two blocks");
+		const quote = "highlighted phrase";
+		const idx = secondBlock.markdown.indexOf(quote);
+		expect(idx).toBeGreaterThanOrEqual(0);
+		const anchor: Anchor = {
+			kind: "text",
+			blockId: secondBlock.id,
+			quote,
+			prefix: secondBlock.markdown.slice(0, idx),
+			suffix: secondBlock.markdown.slice(idx + quote.length),
+		};
+		const created = await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor,
+			author: "user",
+			body: "A highlight the old bug tabbed into instead of the pill",
+		});
+		if (!created) throw new Error("the seeded comment must be created");
+
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		// A highlight exists, and it IS keyboard-focusable — the exact trap
+		// the old bug fell into.
+		const highlight = shell.locator(`[data-comment-anchor-id="${created.id}"]`);
+		await expect(highlight).toBeVisible();
+
+		await selectWordAndReadBubble(page, shell, "Topmarker begins here.");
+		// Scoped to the pill itself — the panel header's own "Comments (N)"
+		// button elsewhere on the page also matches an unscoped
+		// `{ name: "Comment" }` substring query.
+		const pill = page.getByTestId("selection-bubble");
+		const askButton = pill.getByRole("button", { name: "Ask Alfy" });
+		const commentButton = pill.getByRole("button", { name: "Comment" });
+
+		await page.keyboard.press("Tab");
+		await expect(askButton).toBeFocused();
+		// Never the highlight — the bug this finding reports.
+		await expect(highlight).not.toBeFocused();
+
+		await page.keyboard.press("ArrowRight");
+		await expect(commentButton).toBeFocused();
+		await page.keyboard.press("ArrowLeft");
+		await expect(askButton).toBeFocused();
+
+		// Escape returns focus to the editor with the selection intact —
+		// never collapsed, never stranded at <body> once the focused button
+		// unmounts.
+		await page.keyboard.press("Escape");
+		await expect(page.getByTestId("selection-bubble")).toBeHidden();
+		const stillSelected = await page.evaluate(() => {
+			const sel = window.getSelection();
+			return !!sel && !sel.isCollapsed && sel.toString().length > 0;
+		});
+		expect(stillSelected, "the text selection must survive Escape").toBe(true);
+		const focusInEditor = await page.evaluate(
+			() => document.activeElement?.closest(".document-editor-host") != null,
+		);
+		expect(focusInEditor, "focus must return to the editor").toBe(true);
+	});
 });

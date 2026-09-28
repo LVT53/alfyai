@@ -4,6 +4,7 @@ import { db } from "../../src/lib/server/db";
 import { artifacts, users } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
 import { runReadArtifactTool } from "../../src/lib/server/services/normal-chat-tools/artifact-tools/read";
+import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import {
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT,
@@ -12,7 +13,12 @@ import {
 	encodeEditArtifactScenarioPayload,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
-import { createConversation, login, sendMessage } from "./helpers";
+import {
+	createConversation,
+	login,
+	sendMessage,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // Slice 1's T8/T9/T11 surfaces: change marks, Keep/Undo and the refusal
 // notice are unit-tested directly against a real Tiptap editor in
@@ -314,6 +320,182 @@ test.describe("the Document panel", () => {
 		await expect(page.getByRole("tab")).toHaveCount(3);
 	});
 
+	// Review 2.5 Important finding (rd/review-2-5.md:183-190): the ⋯ menu was
+	// `position: absolute` inside `.document-tabs`, whose own
+	// `overflow-x: auto` (needed so a long tab strip scrolls sideways
+	// instead of wrapping) coerces its unset `overflow-y` to `auto` too
+	// (same CSS-spec quirk as the nested-scroller finding elsewhere in this
+	// review) — clipping the menu the moment it dropped below the strip's
+	// own row height. Only reachable through a real browser's geometry
+	// (jsdom has no layout engine); keyboard/focus coverage lives in
+	// Tabs.test.ts.
+	test("the ⋯ menu on the active tab is not clipped by the strip's own overflow, and keyboard access works", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Trip",
+			markdown: "# Plan\n\nBook the hotel.\n\n# Budget\n\nEstimate: $500.",
+			tabs: [
+				{ id: "tab-plan", title: "Plan", startBlockId: "" },
+				{ id: "tab-budget", title: "Budget", startBlockId: "" },
+			],
+		});
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		// The panel's own open/push entrance motion can still be sliding the
+		// tab strip when this runs right after `openDocumentFromPanel`
+		// returns (same trap `artifact-document-selection-bubble.spec.ts`'s
+		// own comment documents) — reading the trigger's rect (for the click
+		// below) or the menu's rect (for the geometry checks further down)
+		// mid-slide would measure a moving target instead of the settled
+		// layout this test actually cares about.
+		const tabStrip = shell.getByTestId("document-tabs");
+		await waitForStableBoundingBox(tabStrip);
+
+		const trigger = page.getByRole("button", { name: "Tab options" });
+		await trigger.click();
+		const menu = page.getByRole("menu");
+		await expect(menu).toBeVisible();
+		const renameItem = menu.getByRole("menuitem", { name: "Rename" });
+		const deleteItem = menu.getByRole("menuitem", { name: "Delete tab" });
+		await expect(renameItem).toBeVisible();
+		await waitForStableBoundingBox(menu);
+
+		// `toBeVisible()` only checks CSS visibility, never actual paint
+		// order — `elementFromPoint` is the only way to catch "clipped by an
+		// ancestor's accidental overflow", exactly like the phone-sheet
+		// z-index regressions elsewhere in this suite.
+		const isOnTop = await menu.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + rect.height / 2,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the tab menu must be topmost, not clipped by the strip's own overflow",
+		).toBe(true);
+
+		// Focus starts on Rename, ArrowDown/Up cycle to Delete and wrap back.
+		await expect(renameItem).toBeFocused();
+		await page.keyboard.press("ArrowDown");
+		await expect(deleteItem).toBeFocused();
+		await page.keyboard.press("ArrowDown");
+		await expect(renameItem).toBeFocused();
+
+		// Escape closes the menu and returns focus to its own trigger.
+		await page.keyboard.press("Escape");
+		await expect(menu).toBeHidden();
+		await expect(trigger).toBeFocused();
+	});
+
+	// Review 2.5 Important finding (rd/review-2-5.md:191-197, triage "fix
+	// first"; ruling 61 "tabs show only their own section"): a brand-new tab
+	// used to own no block at all, so `buildTabSectionDecorations`'s own
+	// safety net ("active tab owns zero blocks -> show everything") always
+	// fired — the new, supposedly empty section showed the WHOLE document.
+	test("adding a tab shows only its own (empty) section, not the whole document — and that survives a reload", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		const title = "Trip";
+		const userId = await testUserId();
+		const record = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title,
+			markdown: "# Plan\n\nBook the hotel.\n\n# Budget\n\nEstimate: $500.",
+			author: "user",
+			summary: "Seeded for E2E",
+		});
+		const artifactId = record.id;
+		// Real startBlockIds, not "" — a real multi-tab document (built up
+		// through `Tabs.svelte`'s own `addTab`, now that this finding is
+		// fixed) never has two tabs sharing the empty-string placeholder;
+		// seeding it that way would leave `buildTabSectionDecorations`'s own
+		// ownership walk unable to tell the FIRST two tabs apart from each
+		// other (neither block's real id ever matches "") and prove nothing
+		// about the actual bug.
+		// Four blocks: "# Plan" heading, "Book the hotel." paragraph, "# Budget"
+		// heading, "Estimate: $500." paragraph — each tab anchors at its OWN
+		// heading (index 0 and 2), so the paragraph right after it inherits
+		// that ownership through the walk's own "carry the last matched tab
+		// forward" rule, exactly like a real multi-section document.
+		const blocks = parseDocument(record.body ?? "", { mint: false }).blocks;
+		expect(blocks, "the seed must produce four real blocks").toHaveLength(4);
+		const planBlockId = blocks[0]?.id;
+		const budgetBlockId = blocks[2]?.id;
+		expect(planBlockId, "the seed must produce four real blocks").toBeTruthy();
+		expect(
+			budgetBlockId,
+			"the seed must produce four real blocks",
+		).toBeTruthy();
+		await db
+			.update(artifacts)
+			.set({
+				metadataJson: JSON.stringify({
+					artifactType: "document",
+					title,
+					tabs: [
+						{ id: "tab-plan", title: "Plan", startBlockId: planBlockId },
+						{ id: "tab-budget", title: "Budget", startBlockId: budgetBlockId },
+					],
+				}),
+			})
+			.where(eq(artifacts.id, artifactId));
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+		await expect(page.getByText("Book the hotel.")).toBeVisible();
+
+		await page.getByRole("button", { name: "Add a tab" }).click();
+		const tabs = page.getByRole("tab");
+		await expect(tabs).toHaveCount(3);
+		await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "true");
+
+		// The bug: every other section's blocks stayed visible too.
+		await expect(page.getByText("Book the hotel.")).toBeHidden();
+		await expect(page.getByText("Estimate: $500.")).toBeHidden();
+
+		// Switching to an EXISTING tab still shows only its own content —
+		// the new tab's anchor did not steal ownership of anything else.
+		await tabs.nth(0).click();
+		await expect(page.getByText("Book the hotel.")).toBeVisible();
+		await expect(page.getByText("Estimate: $500.")).toBeHidden();
+
+		// Persists: the new section's own anchor block, and the OTHER two
+		// tabs' own content, all survive a reload (the new tab's empty
+		// paragraph must round-trip through the stored Markdown, not just
+		// exist for the current live session).
+		await expect
+			.poll(() => readStoredMetadata(artifactId), { timeout: 15_000 })
+			.toContain("New section");
+		await page.reload({ waitUntil: "networkidle" });
+		const tabsAfterReload = page.getByRole("tab");
+		await expect(tabsAfterReload).toHaveCount(3);
+		// A generous timeout absorbs the dev server's one-time compile of the
+		// Document editor's module graph if this reload happens to be the
+		// first-ever load of it in a fresh test run.
+		await expect(
+			page.getByText("Book the hotel.", { exact: false }),
+		).toBeAttached({ timeout: 30_000 });
+		await tabsAfterReload.nth(2).click();
+		// Wait for the click's own activation to register before reading
+		// content visibility — `aria-selected` and the decoration it drives
+		// both come from the same `handleTabActivate` call, but only the
+		// former has a role/attribute Playwright can retry against.
+		await expect(tabsAfterReload.nth(2)).toHaveAttribute(
+			"aria-selected",
+			"true",
+		);
+		await expect(page.getByText("Book the hotel.")).toBeHidden();
+		await expect(page.getByText("Estimate: $500.")).toBeHidden();
+	});
+
 	test("a status chip renders as a listbox with the localized label, and choosing another option writes the canonical token", async ({
 		page,
 	}) => {
@@ -381,7 +563,16 @@ test.describe("the Document panel", () => {
 		await page.keyboard.type("edited ");
 
 		await page.getByRole("button", { name: "Add a tab" }).click();
-		await expect(page.getByRole("tab")).toHaveCount(2);
+		const tabs = page.getByRole("tab");
+		await expect(tabs).toHaveCount(2);
+
+		// Review 2.5 (rd/review-2-5.md:191-197): adding a tab now correctly
+		// activates and shows ONLY the new (empty) section — the chip below
+		// lives in the ORIGINAL "Plan" tab, so this switches back to it first.
+		// Before that finding's fix, every block stayed visible regardless of
+		// the active tab (the exact bug), which is the only reason this test's
+		// sequence ever reached the chip without this step.
+		await tabs.nth(0).click();
 
 		const select = page.locator(".tracker-chip-select");
 		await select.selectOption("To book");
@@ -566,10 +757,16 @@ test.describe("the Document mobile toolbar", () => {
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		const conversationId = await createConversation(page, "Plan a trip");
+		// One cell carries a long, space-free token (an id-like string) that
+		// cannot line-wrap the way ordinary prose does — with wrapping,
+		// `table-layout: auto`'s default column sizing can shrink every
+		// OTHER cell's text onto more lines and fit inside 390px without the
+		// table itself ever needing to overflow, which would silently defeat
+		// the table's own horizontal-scroll assertion below.
 		const wideTable = [
 			"| Column Alpha | Column Beta | Column Gamma | Column Delta | Column Epsilon |",
 			"| --- | --- | --- | --- | --- |",
-			"| A rather long cell value here | Another long value | Yet more text in this cell | And even more content | The last column's long text |",
+			"| A rather long cell value here | AnUnbreakableTokenThatCannotWrapAcrossLines1234567890 | Yet more text in this cell | And even more content | The last column's long text |",
 		].join("\n");
 		await seedDocument({
 			conversationId,
@@ -587,6 +784,27 @@ test.describe("the Document mobile toolbar", () => {
 			clientWidth: document.documentElement.clientWidth,
 		}));
 		expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+
+		// Review 2.5 (rd/review-2-5.md:87-97): the horizontal scroll for a
+		// wide table moved from `.document-content-text` (which was also,
+		// accidentally, a second VERTICAL scroller — fixed separately) onto
+		// Tiptap's own `.tableWrapper` div (the live editor's real DOM
+		// parent of every `<table>` — a bare `table` element cannot scroll
+		// directly: `display: table` boxes compute `overflow` to `visible`
+		// regardless of the specified value). The unbreakable token in
+		// "Column Beta" above must still genuinely overflow that wrapper's
+		// own box and remain reachable by scrolling THERE, not just silently
+		// clipped — the page-level check above alone cannot tell "scrolls
+		// locally" apart from "cut off".
+		const tableOverflow = await page
+			.locator(".document-editor-host .tableWrapper")
+			.evaluate((el) => ({
+				scrollWidth: el.scrollWidth,
+				clientWidth: el.clientWidth,
+			}));
+		expect(tableOverflow.scrollWidth).toBeGreaterThan(
+			tableOverflow.clientWidth,
+		);
 	});
 });
 

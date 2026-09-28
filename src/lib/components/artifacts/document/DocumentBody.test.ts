@@ -95,6 +95,7 @@ const {
 	mockSummarizeRefusals,
 	mockRefusalReasonI18nKey,
 	mockSetActiveDocumentTab,
+	mockAppendEmptyTabSection,
 	mockSetCommentAnchors,
 	mockScrollToCommentAnchor,
 	mockSetAlfyWritingBlock,
@@ -124,6 +125,11 @@ const {
 	// tabSectionPluginKey) — a no-op here, since these tests use a fake
 	// editor with no real ProseMirror state to dispatch a transaction into.
 	mockSetActiveDocumentTab: vi.fn(),
+	// Review 2.5 (rd/review-2-5.md:191-197): mints a real anchor block for a
+	// brand-new tab. Returns `null` by default (this suite's fake editor has
+	// no real ProseMirror doc to mint against); a test that needs the
+	// "minted a real id" branch sets a return value explicitly.
+	mockAppendEmptyTabSection: vi.fn().mockReturnValue(null),
 	// Wave 2.5 Step 7: the comment-anchor decoration's own write side — same
 	// reasoning, a no-op against this suite's fake editor.
 	mockSetCommentAnchors: vi.fn(),
@@ -139,6 +145,7 @@ const {
 		options: Record<string, unknown>;
 		destroy: ReturnType<typeof vi.fn>;
 		isActive: ReturnType<typeof vi.fn>;
+		view: { focus: ReturnType<typeof vi.fn> };
 	}>,
 }));
 
@@ -157,6 +164,7 @@ vi.mock("./document-editor", () => ({
 	summarizeRefusals: mockSummarizeRefusals,
 	refusalReasonI18nKey: mockRefusalReasonI18nKey,
 	setActiveDocumentTab: mockSetActiveDocumentTab,
+	appendEmptyTabSection: mockAppendEmptyTabSection,
 	setCommentAnchors: mockSetCommentAnchors,
 	scrollToCommentAnchor: mockScrollToCommentAnchor,
 	setAlfyWritingBlock: mockSetAlfyWritingBlock,
@@ -207,6 +215,11 @@ function makeFakeEditor() {
 		// the selection-pending highlight — a static stub is enough here,
 		// since these tests never assert on the exact positions themselves.
 		state: { selection: { from: 0, to: 5 } },
+		// Review 2.5 (rd/review-2-5.md:198-207): `dismissSelectionBubble` calls
+		// `editor.view.focus()` directly (never the `chain()`/`commands` path
+		// above — Tiptap's own `commands.focus()` defers the real DOM focus,
+		// see that function's own comment), so this fake needs its own stub.
+		view: { focus: vi.fn() },
 		_chain: chain,
 	};
 }
@@ -219,6 +232,7 @@ function setupCreateDocumentEditor() {
 				options,
 				destroy: fake.destroy,
 				isActive: fake.isActive,
+				view: fake.view,
 			});
 			return fake;
 		},
@@ -833,6 +847,34 @@ describe("DocumentBody", () => {
 			// than an exact string two independent mints would rarely agree on.
 			expect(markdownArg).toMatch(/^<!--b:[a-z0-9]+-->\nHello\.\n$/);
 		});
+
+		// Review 2.5 (rd/review-2-5.md:191-197): the new tab used to save with
+		// `startBlockId: ""` — the anchor `appendEmptyTabSection` mints (a real
+		// ProseMirror/markdown concern, covered against a real editor in
+		// `document-editor.test.ts`) must overwrite it here before the save
+		// this suite's own fake editor cannot exercise end to end.
+		it("a newly minted anchor block's id becomes the new tab's startBlockId before it saves", async () => {
+			mockReadMarkdown.mockReturnValue("Hello.");
+			mockAppendEmptyTabSection.mockReturnValueOnce("p9k2m1");
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Add a tab" }));
+
+			await waitFor(() =>
+				expect(mockSaveDocumentTabs).toHaveBeenCalledTimes(1),
+			);
+			expect(mockAppendEmptyTabSection).toHaveBeenCalledTimes(1);
+			const [, tabsArg] = mockSaveDocumentTabs.mock.calls[0];
+			expect(tabsArg[0].startBlockId).toBe("p9k2m1");
+		});
 	});
 
 	// The margin and the selection bubble (Slice 1, T10).
@@ -913,6 +955,98 @@ describe("DocumentBody", () => {
 			await waitFor(() =>
 				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
 			);
+		});
+
+		// Review 2.5 (rd/review-2-5.md:198-207): Escape while focus is still on
+		// the pill's own button used to strand focus at `<body>` once that
+		// button unmounted — refocusing the editor is what actually leaves the
+		// selection "intact" (redesign §4.4) rather than just visually
+		// abandoned. `editor.view.focus()` specifically (never the
+		// `chain()`/`commands` path `makeFakeEditor`'s other stubs cover) — see
+		// `dismissSelectionBubble`'s own comment for why.
+		it("Escape while focus is on the pill's own button refocuses the editor", async () => {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 10, left: 20, right: 40, bottom: 30 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+
+			const askButton = screen.getByRole("button", { name: "Ask Alfy" });
+			askButton.focus();
+			expect(askButton).toHaveFocus();
+
+			await fireEvent.keyDown(document, { key: "Escape" });
+
+			expect(latestEditor().view.focus).toHaveBeenCalled();
+		});
+
+		// Review 2.5 (rd/review-2-5.md:198-207): `onTabIntoSelectionPill` is the
+		// callback `document-editor.ts`'s own ProseMirror `handleKeyDown` calls
+		// on a plain Tab over a non-empty selection (covered there against a
+		// real editor); this covers DocumentBody's own half of that contract —
+		// the option is wired through, and it actually reaches into the
+		// rendered bubble's first button.
+		it("onTabIntoSelectionPill focuses the pill's first button while the bubble is showing", async () => {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 10, left: 20, right: 40, bottom: 30 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+
+			const onTabIntoSelectionPill = latestEditor().options
+				.onTabIntoSelectionPill as () => boolean;
+			expect(onTabIntoSelectionPill).toBeTypeOf("function");
+			expect(onTabIntoSelectionPill()).toBe(true);
+			expect(screen.getByRole("button", { name: "Ask Alfy" })).toHaveFocus();
+		});
+
+		it("onTabIntoSelectionPill returns false when there is no selection bubble to focus", async () => {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(screen.queryByTestId("selection-bubble")).toBeNull();
+
+			const onTabIntoSelectionPill = latestEditor().options
+				.onTabIntoSelectionPill as () => boolean;
+			expect(onTabIntoSelectionPill()).toBe(false);
 		});
 
 		it("posts a comment from the bubble, with the live selection's anchor, and refreshes", async () => {
