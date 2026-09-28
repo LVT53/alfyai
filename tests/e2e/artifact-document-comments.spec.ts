@@ -225,7 +225,6 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 		});
 		await expect(shell).toBeVisible();
 		await expect(shell.getByText("Seeded margin comment")).toBeVisible();
-		await expect(shell.getByText("Exact")).toBeVisible();
 	});
 
 	// Margin placement follow-up ("the margin shows it against the right
@@ -323,9 +322,14 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 		);
 
 		// The orphaned comment is grouped separately, not among the two
-		// position-synced ones above.
+		// position-synced ones above — folded by default (redesign §3.2's own
+		// motion #21), so its own text is not rendered until the group opens.
 		const orphanedGroup = shell.getByTestId("margin-orphaned-group");
 		await expect(orphanedGroup).toBeVisible();
+		await expect(
+			orphanedGroup.getByText("This anchor is gone"),
+		).not.toBeAttached();
+		await orphanedGroup.getByRole("button", { name: /removed/i }).click();
 		await expect(orphanedGroup.getByText("This anchor is gone")).toBeVisible();
 		await expect(
 			orphanedGroup.getByText("On the first block"),

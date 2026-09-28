@@ -1449,6 +1449,12 @@ function saveNoticeText(notice: SaveNotice): string {
 		position: relative;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
+		/* `flex: 1` (not just `min-height`), same reasoning as the editor host
+		   below: this is still a flex CHILD of `.document-main`, and without
+		   it this grid sizes to its own content instead of filling whatever
+		   vertical room `.document-main` actually has (T11.1: the editor must
+		   keep >= 60% of a 390x844 viewport). */
+		flex: 1;
 		min-height: 240px;
 		overflow-y: auto;
 	}
