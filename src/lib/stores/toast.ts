@@ -6,6 +6,10 @@ export interface ToastEntry {
 	id: string;
 	type: ToastType;
 	message: string;
+	/** An optional inline action beside the message (redesign §9.3: "Toast.svelte for undo toasts") — e.g. "Undo". Requires `onAction` too, or it is not rendered. */
+	actionLabel?: string;
+	/** Runs the action, then dismisses the toast (Toast.svelte's own click handler) — a caller never has to call `dismissToast` itself. */
+	onAction?: () => void;
 }
 
 const DEFAULT_TOAST_DURATION_MS = 4000;
@@ -35,13 +39,20 @@ export function showToast({
 	type,
 	message,
 	duration = DEFAULT_TOAST_DURATION_MS,
+	actionLabel,
+	onAction,
 }: {
 	type: ToastType;
 	message: string;
 	duration?: number;
+	actionLabel?: string;
+	onAction?: () => void;
 }): string {
 	const id = `toast-${++idCounter}`;
-	toasts.update((entries) => [...entries, { id, type, message }]);
+	toasts.update((entries) => [
+		...entries,
+		{ id, type, message, actionLabel, onAction },
+	]);
 
 	if (duration > 0) {
 		dismissTimers.set(
