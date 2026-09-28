@@ -28,7 +28,6 @@ import {
 import {
 	type ChangePillCallbacks,
 	type ChangePillEntry,
-	type ChangePillStatus,
 	changePillPluginKey,
 } from "./change-pill-decoration";
 import {
@@ -192,7 +191,7 @@ export function setRefusedLines(
  * `changePillCallbacks` (`buildDocumentExtensions`'s optional third
  * argument) — `changePillPluginKey.getState` simply finds no plugin.
  */
-export type { ChangePillCallbacks, ChangePillEntry, ChangePillStatus };
+export type { ChangePillCallbacks, ChangePillEntry };
 
 export function setChangePills(
 	editor: Editor,
