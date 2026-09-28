@@ -2023,6 +2023,96 @@ function saveNoticeText(notice: SaveNotice): string {
 		outline-offset: 2px;
 	}
 
+	/* Wave 2.5 Step 9/11: the Ask-Alfy chain's own decorations
+	   (`alfy-writing-decoration.ts` builds these classes; this file's own job
+	   stays styling only, matching the comment-anchor block above). Values
+	   mirror the approved mockup's `.writing`/`.w-tag`/`.refused-line`
+	   exactly, with `--accent`/`--warning` mapped onto this app's own
+	   `--accent-fill`/`--warning-text` tokens. */
+	.document-editor-host :global(.document-content .alfy-writing-block) {
+		position: relative;
+		/* Dims the TEXT only via `color`, never `opacity` on the block itself
+		   — opacity would equally dim the gutter bar `::before` below (a
+		   sibling-in-spirit pseudo-element of this same element), which the
+		   mockup's own two-selector split (`.writing` vs `.writing > .w-text`)
+		   keeps at full brightness on purpose. */
+		color: color-mix(in srgb, var(--text-primary) 45%, transparent);
+	}
+
+	.document-editor-host :global(.document-content .alfy-writing-block::before) {
+		content: "";
+		position: absolute;
+		left: -16px;
+		top: 4px;
+		bottom: 4px;
+		width: 3px;
+		border-radius: 3px;
+		background: linear-gradient(
+			180deg,
+			var(--accent-fill) 0%,
+			color-mix(in srgb, var(--accent-fill) 20%, transparent) 50%,
+			var(--accent-fill) 100%
+		);
+		background-size: 100% 200%;
+		animation: alfy-writing-gutter-bar 1.2s linear infinite;
+	}
+
+	@keyframes alfy-writing-gutter-bar {
+		from {
+			background-position: 0 0;
+		}
+		to {
+			background-position: 0 200%;
+		}
+	}
+
+	.document-editor-host :global(.document-content .alfy-writing-tag) {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3125rem;
+		margin-left: 0.375rem;
+		vertical-align: 2px;
+		height: 22px;
+		padding: 0 0.5rem;
+		border-radius: var(--radius-full, 999px);
+		background-color: var(--accent-tint);
+		color: var(--accent-text);
+		font-family: var(--font-sans);
+		font-size: 0.72rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+
+	.document-editor-host :global(.document-content .alfy-writing-tag-icon) {
+		font-size: 0.7rem;
+	}
+
+	/* Redesign §4.2 "Refusal": "the refused line... gets a dashed amber rule
+	   in the gutter". */
+	.document-editor-host :global(.document-content .alfy-refused-line) {
+		position: relative;
+	}
+
+	.document-editor-host :global(.document-content .alfy-refused-line::after) {
+		content: "";
+		position: absolute;
+		left: -16px;
+		top: 3px;
+		bottom: 3px;
+		width: 0;
+		border-left: 2px dashed var(--warning-text);
+	}
+
+	/* Redesign §4.2 item 2: "the selection keeps a dashed amber 'pending'
+	   highlight so you still see what you are asking about" — live only
+	   while the selection composer is open. */
+	.document-editor-host :global(.document-content .selection-pending) {
+		background-color: var(--warning-tint);
+		border-bottom: 2px dashed var(--warning-text);
+		border-radius: 2px;
+	}
+
 	.document-editor-skeleton {
 		position: absolute;
 		inset: 0;
