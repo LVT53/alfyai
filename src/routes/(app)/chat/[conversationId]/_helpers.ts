@@ -342,6 +342,27 @@ export function shouldHydrateFileProductionJobsOnToolCall(
 	);
 }
 
+/**
+ * Wave 2.5 review (F2): "the in-chat card's version is stale" — a
+ * create_artifact/edit_artifact call's fresh versionNumber/
+ * pendingReviewCount reaches the chat card and panel list row only through
+ * `+page.svelte`'s `hydrateConversationDetail()` (it copies `artifacts` out
+ * of the fetched payload; `ThinkingBlock.svelte`'s
+ * `buildEnrichedToolActivityItem` derives the card's own `preview` by
+ * matching against that same array) — the stream's own inline metadata has
+ * no such field, so nothing else ever refreshes it without a full reload.
+ * A separate predicate from `shouldHydrateFileProductionJobsOnToolCall`
+ * above rather than folding artifact tool names into it: same trigger
+ * shape (fires once a tool call has actually concluded), different reason,
+ * kept distinguishable at the call site.
+ */
+export function shouldHydrateArtifactsOnToolCall(
+	name: string,
+	status: "running" | "done" | "failed",
+): boolean {
+	return status !== "running" && (name === "create_artifact" || name === "edit_artifact");
+}
+
 export function mergeFileProductionJob(
 	currentJobs: FileProductionJob[],
 	updatedJob: FileProductionJob,

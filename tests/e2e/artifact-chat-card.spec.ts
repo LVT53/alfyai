@@ -1,14 +1,35 @@
 import { expect, type Page, test } from "@playwright/test";
+import { eq } from "drizzle-orm";
+import { db } from "../../src/lib/server/db";
+import { users } from "../../src/lib/server/db/schema";
+import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
+import { runReadArtifactTool } from "../../src/lib/server/services/normal-chat-tools/artifact-tools/read";
 import {
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT,
 	AI_SMOKE_CREATE_ARTIFACT_MARKDOWN,
 	AI_SMOKE_CREATE_ARTIFACT_MARKER,
 	AI_SMOKE_CREATE_ARTIFACT_TITLE,
+	AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT,
+	AI_SMOKE_EDIT_ARTIFACT_MARKER,
 	AI_SMOKE_MODEL_ID,
+	encodeEditArtifactScenarioPayload,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import { createConversation, login, sendMessage } from "./helpers";
+
+/** Mirrors artifact-document.spec.ts's own private helper (each e2e file
+ *  keeps its own copy rather than sharing one — the established pattern
+ *  across this test suite). */
+async function testUserId(): Promise<string> {
+	const [user] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.email, "admin@local"))
+		.limit(1);
+	expect(user, "the e2e admin must exist").toBeTruthy();
+	return user.id;
+}
 
 // The in-chat card (Feature 2, the cross-kind task after Slice 1's merge):
 // today only a produced File gets a card in the chat message
@@ -273,6 +294,99 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			await expect(
 				page.getByRole("complementary", { name: "Document workspace" }),
 			).toBeVisible({ timeout: 30_000 });
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
+
+	// Wave 2.5 review F2 (291-293): "the in-chat card's version is stale" —
+	// a live edit_artifact call bumped a seeded v1 Document to v2, but the
+	// card kept reading "v1" because +page.svelte's hydrateConversationDetail
+	// (the turn-finalize refresh normal streaming completion calls) never
+	// copied `artifacts` out of the payload, unlike its sibling
+	// applyConversationDetailMetadata (the polling-fallback path) which
+	// always has. ThinkingBlock.svelte's buildEnrichedToolActivityItem derives
+	// the card's own `preview` — versionNumber included — by matching the
+	// tool call's artifactId against that same array, so the fix is the one
+	// missing field copy; no new plumbing needed.
+	test("the in-chat card's version follows a live edit_artifact call without a reload", async ({
+		page,
+	}) => {
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a trip");
+
+			// A real Document artifact, seeded directly (through the real
+			// service, never a raw insert) so it starts at v1 with genuine
+			// block ids/hashes — mirrors artifact-document.spec.ts's own T8
+			// live setup.
+			const userId = await testUserId();
+			const seeded = await createDocumentArtifact({
+				userId,
+				conversationId,
+				title: "Trip plan",
+				markdown: "Book the hotel.\n\nBook the flight.",
+				author: "user",
+				summary: "Seeded for E2E",
+			});
+			const readResult = await runReadArtifactTool({
+				userId,
+				conversationId,
+				artifactId: seeded.id,
+				detail: "blocks",
+				abortSignal: new AbortController().signal,
+			});
+			const blocks =
+				readResult.modelPayload.success && "blocks" in readResult.modelPayload
+					? (readResult.modelPayload.blocks as Array<{
+							blockId: string;
+							hash: string;
+							text: string;
+						}>)
+					: [];
+			const applyBlock = blocks.find((b) => b.text === "Book the hotel.");
+			const refuseBlock = blocks.find((b) => b.text === "Book the flight.");
+			expect(applyBlock, "the seeded 'Book the hotel.' block").toBeTruthy();
+			expect(refuseBlock, "the seeded 'Book the flight.' block").toBeTruthy();
+
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+
+			await openChatAndReload(page, conversationId);
+
+			const markerMessage = `${AI_SMOKE_EDIT_ARTIFACT_MARKER} ${encodeEditArtifactScenarioPayload(
+				{
+					artifactId: seeded.id,
+					applyBlockId: applyBlock?.blockId ?? "",
+					applyBaseHash: applyBlock?.hash ?? "",
+					refuseBlockId: refuseBlock?.blockId ?? "",
+				},
+			)}`;
+			await sendMessage(page, markerMessage);
+
+			await expect(
+				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			// No reload here — this is exactly the gap the review found: the
+			// turn is over, the card is already on screen, and the server-side
+			// version is already 2.
+			const card = page.getByTestId("artifact-card");
+			await expect(card).toBeVisible();
+			await expect(card.getByText("v2")).toBeVisible({ timeout: 10_000 });
+			await expect(card.getByText("v1")).not.toBeVisible();
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (temporaryProvider) {
