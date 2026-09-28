@@ -232,14 +232,23 @@ const artifactsDict = {
 			"This document was deleted while it was open. Your text is still here.",
 		"artifacts.document.deleted.saveCopy": "Save it as a new document",
 		"artifacts.document.notFound": "This document is not available.",
-		// The inline change mark's bar (Slice 1, T8): "Alfy · Keep · Undo".
+		// The inline change pill (Slice 1, T8; redesigned Wave 2.5 Step 10 as a
+		// ProseMirror widget decoration): "✦ Alfy · Keep · Undo", "Redo" after
+		// Undo (redesign §7.2 #13/#14: "Kept"/"Undone · Redo").
 		"artifacts.document.change.alfy": "Alfy",
 		"artifacts.document.change.keep": "Keep",
 		"artifacts.document.change.undo": "Undo",
-		"artifacts.document.change.keptNotice": "Kept.",
-		"artifacts.document.change.undoneNotice": "Undone — your text is back.",
+		"artifacts.document.change.redo": "Redo",
+		"artifacts.document.change.keptNotice": "Kept",
+		"artifacts.document.change.undoneNotice": "Undone",
 		"artifacts.document.change.commentCountA11y":
 			"{count} {count, plural, one {comment} other {comments}} on this change",
+		// §4.4: the pill is `role="group"` named "Alfy's change: '…'"; its own
+		// buttons keep short VISIBLE text (above) but a fuller accessible name.
+		"artifacts.document.change.groupLabel": "Alfy's change: {quote}",
+		"artifacts.document.change.keepA11y": "Keep Alfy's change",
+		"artifacts.document.change.undoA11y": "Undo Alfy's change",
+		"artifacts.document.change.redoA11y": "Redo Alfy's change",
 		// The visible refusal (Slice 1, T8) — "your words win" is only a
 		// feature if the user can see it happened.
 		"artifacts.document.refused.notice":
@@ -558,11 +567,15 @@ const artifactsDict = {
 		"artifacts.document.change.alfy": "Alfy",
 		"artifacts.document.change.keep": "Megtartom",
 		"artifacts.document.change.undo": "Visszavonom",
-		"artifacts.document.change.keptNotice": "Megtartva.",
-		"artifacts.document.change.undoneNotice":
-			"Visszavonva — a szöveged visszaállt.",
+		"artifacts.document.change.redo": "Újra",
+		"artifacts.document.change.keptNotice": "Megtartva",
+		"artifacts.document.change.undoneNotice": "Visszavonva",
 		"artifacts.document.change.commentCountA11y":
 			"{count} megjegyzés ehhez a módosításhoz",
+		"artifacts.document.change.groupLabel": "Alfy módosítása: {quote}",
+		"artifacts.document.change.keepA11y": "Alfy módosításának megtartása",
+		"artifacts.document.change.undoA11y": "Alfy módosításának visszavonása",
+		"artifacts.document.change.redoA11y": "Alfy módosításának megismétlése",
 		"artifacts.document.refused.notice":
 			"{count, plural, one {Alfy egy részt nem érintett, mert megváltoztattad.} other {Alfy néhány részt nem érintett, mert megváltoztattad.}}",
 		"artifacts.document.refused.changed":

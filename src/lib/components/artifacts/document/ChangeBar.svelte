@@ -1,75 +1,154 @@
 <script lang="ts">
 /**
- * The inline "Alfy · Keep · Undo" bar (Feature 2 · Artifacts, Slice 1, T8):
- * the visible half of `marks.ts`'s `AlfyChange` mark. Purely presentational —
- * no `@tiptap/*` import, so it stays outside the lazy editor boundary
- * (T7.8) and is safe for `DocumentBody.svelte` (or a future caller) to import
- * eagerly. The caller owns positioning it next to the marked text; this
- * component only knows its own three states.
+ * The inline "✦ Alfy · Keep · Undo" pill (Feature 2 · Artifacts, Slice 1,
+ * T8; redesigned Wave 2.5 Step 10, redesign.md §4.2 item 5/6, §7.2 rows
+ * #11/#13/#14, §9.2's own row: "becomes the inline pill... with Redo after
+ * Undo"). Purely presentational — no `@tiptap/*` import, so it stays outside
+ * the lazy editor boundary (T7.8). `change-pill-decoration.ts` mounts this
+ * component (Svelte 5's `mount`) into the ProseMirror widget decoration's own
+ * DOM node; that module owns POSITIONING, this component only knows its own
+ * three states.
  *
- * `status` covers the bar's whole lifecycle: `"pending"` is the live
- * Keep/Undo choice, and `"kept"` / `"undone"` are the brief confirmation the
- * caller shows for a moment before removing the bar entirely (spec:
- * `artifacts.document.change.keptNotice` / `.undoneNotice`).
+ * `status` covers the pill's whole lifecycle: `"pending"` is the live
+ * Keep/Undo choice, `"kept"` fades to nothing after a moment (its caller
+ * removes the pill; see `DocumentBody.svelte`'s `handleKeepChange`), and
+ * `"undone"` offers Redo for a brief window before the same happens.
+ *
+ * §4.4: the pill is `role="group"` named "Alfy's change: '…'"
+ * (`blockLabel`, already clamped by `blocks.ts`'s own label derivation); its
+ * buttons keep short VISIBLE text but a fuller accessible name each.
  */
-import { Sparkles } from "@lucide/svelte";
+import { Check, Sparkles, Undo2 } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 
 let {
 	status = "pending",
 	commentCount = 0,
+	blockLabel = "",
 	onKeep,
 	onUndo,
+	onRedo,
 }: {
 	status?: "pending" | "kept" | "undone";
 	commentCount?: number;
+	blockLabel?: string;
 	onKeep: () => void;
 	onUndo: () => void;
+	onRedo: () => void;
 } = $props();
 </script>
 
-<div class="alfy-change-bar" data-testid="alfy-change-bar" role="status">
-	<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
+<div
+	class="alfy-change-bar"
+	class:is-done={status !== 'pending'}
+	data-testid="alfy-change-bar"
+	role="group"
+	aria-label={$t('artifacts.document.change.groupLabel', { quote: blockLabel })}
+>
 	{#if status === 'pending'}
-		<span class="alfy-change-bar-label">{$t('artifacts.document.change.alfy')}</span>
-		{#if commentCount > 0}
-			<span
-				class="alfy-change-bar-comments"
-				aria-label={$t('artifacts.document.change.commentCountA11y', { count: commentCount })}
-			>
-				{commentCount}
-			</span>
-		{/if}
-		<span class="alfy-change-bar-sep" aria-hidden="true">·</span>
-		<button type="button" class="alfy-change-bar-action" onclick={onKeep}>
+		<span class="alfy-change-bar-who">
+			<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
+			<span class="alfy-change-bar-label">{$t('artifacts.document.change.alfy')}</span>
+			{#if commentCount > 0}
+				<span
+					class="alfy-change-bar-comments"
+					aria-label={$t('artifacts.document.change.commentCountA11y', { count: commentCount })}
+				>
+					{commentCount}
+				</span>
+			{/if}
+		</span>
+		<button
+			type="button"
+			class="alfy-change-bar-action alfy-change-bar-keep"
+			aria-label={$t('artifacts.document.change.keepA11y')}
+			onclick={onKeep}
+		>
+			<Check size={12} strokeWidth={2.5} aria-hidden="true" />
 			{$t('artifacts.document.change.keep')}
 		</button>
-		<span class="alfy-change-bar-sep" aria-hidden="true">·</span>
-		<button type="button" class="alfy-change-bar-action" onclick={onUndo}>
+		<button
+			type="button"
+			class="alfy-change-bar-action alfy-change-bar-undo"
+			aria-label={$t('artifacts.document.change.undoA11y')}
+			onclick={onUndo}
+		>
+			<Undo2 size={12} strokeWidth={2} aria-hidden="true" />
 			{$t('artifacts.document.change.undo')}
 		</button>
 	{:else if status === 'kept'}
+		<Check size={12} strokeWidth={2.5} class="alfy-change-bar-ok" aria-hidden="true" />
 		<span class="alfy-change-bar-notice">{$t('artifacts.document.change.keptNotice')}</span>
 	{:else}
+		<Undo2 size={12} strokeWidth={2} aria-hidden="true" />
 		<span class="alfy-change-bar-notice">{$t('artifacts.document.change.undoneNotice')}</span>
+		<button
+			type="button"
+			class="alfy-change-bar-action alfy-change-bar-undo"
+			aria-label={$t('artifacts.document.change.redoA11y')}
+			onclick={onRedo}
+		>
+			{$t('artifacts.document.change.redo')}
+		</button>
 	{/if}
 </div>
 
 <style>
+	/* Redesign §7.2 #11: arrives with the mark, scale 0.92 → 1 and fades in —
+	   app.css's global `prefers-reduced-motion` override collapses this to
+	   the resting (no-animation) state for free, the same mechanism
+	   `DocumentBody.svelte`'s own `.alfy-change.arrive` already relies on. */
 	.alfy-change-bar {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.3rem;
-		padding: 0.125rem 0.5rem;
+		gap: 0.125rem;
+		height: 1.625rem;
+		padding: 0 0.1875rem 0 0.5rem;
+		margin-left: 0.375rem;
+		vertical-align: 0.0625rem;
 		border-radius: var(--radius-full, 999px);
-		background-color: var(--surface-elevated);
-		color: var(--text-muted);
+		background-color: var(--surface-page);
+		border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+		box-shadow: var(--shadow-md);
+		color: var(--accent-text);
+		font-family: var(--font-sans);
 		font-size: var(--text-xs);
+		font-weight: 700;
+		letter-spacing: 0.02em;
 		white-space: nowrap;
+		transform-origin: left center;
+		animation: alfy-change-bar-in var(--duration-emphasis) var(--ease-emphasis) both;
+	}
+
+	@keyframes alfy-change-bar-in {
+		from {
+			opacity: 0;
+			transform: scale(0.92);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	.alfy-change-bar.is-done {
+		padding-right: 0.5rem;
+		color: var(--text-muted);
+		border-color: var(--border-default);
+		box-shadow: none;
+	}
+
+	.alfy-change-bar-who {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding-right: 0.375rem;
+		margin-right: 0.125rem;
+		border-right: 1px solid var(--border-default);
 	}
 
 	.alfy-change-bar-label {
-		font-weight: 600;
+		font-weight: 700;
 		color: var(--text-primary);
 	}
 
@@ -81,31 +160,64 @@ let {
 		height: 1rem;
 		padding: 0 0.25rem;
 		border-radius: var(--radius-full, 999px);
-		background-color: var(--surface-page);
+		background-color: var(--surface-elevated);
 		font-size: var(--text-2xs, 0.66rem);
 	}
 
-	.alfy-change-bar-sep {
-		color: var(--text-muted);
-	}
-
 	.alfy-change-bar-action {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		height: 1.25rem;
+		padding: 0 0.4375rem;
 		border: none;
-		background: none;
-		padding: 0;
-		color: var(--accent);
-		font-family: var(--font-sans);
-		font-size: inherit;
+		border-radius: var(--radius-full, 999px);
+		font-family: inherit;
+		font-size: 0.71875rem;
+		font-weight: 700;
 		cursor: pointer;
 	}
 
-	.alfy-change-bar-action:hover {
-		text-decoration: underline;
+	.alfy-change-bar-keep {
+		background-color: var(--accent-fill);
+		color: var(--on-accent);
+	}
+
+	.alfy-change-bar-keep:hover {
+		filter: brightness(1.08);
+	}
+
+	.alfy-change-bar-undo {
+		background: none;
+		color: var(--text-primary);
+	}
+
+	.alfy-change-bar-undo:hover {
+		background-color: var(--surface-elevated);
 	}
 
 	.alfy-change-bar-action:focus-visible {
-		outline: 2px solid var(--border-focus);
+		outline: 2px solid var(--focus-ring, var(--border-focus));
 		outline-offset: 1px;
+	}
+
+	/* Phones: the buttons stay visually compact but get a 44px hit area via
+	   an `::after` inset (redesign §4.4: "on phones they get a 44px hit
+	   area"), matching the mockup's own `[data-device="mobile"]` rule. */
+	@media (max-width: 480px) {
+		.alfy-change-bar-action {
+			position: relative;
+		}
+
+		.alfy-change-bar-action::after {
+			content: "";
+			position: absolute;
+			inset: -0.625rem -0.25rem;
+		}
+	}
+
+	.alfy-change-bar :global(.alfy-change-bar-ok) {
+		color: var(--success-text, var(--success));
 	}
 
 	.alfy-change-bar-notice {
