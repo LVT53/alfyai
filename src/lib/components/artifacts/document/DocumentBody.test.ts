@@ -66,6 +66,8 @@ const {
 	mockSummarizeRefusals,
 	mockRefusalReasonI18nKey,
 	mockSetActiveDocumentTab,
+	mockSetCommentAnchors,
+	mockScrollToCommentAnchor,
 	editorInstances,
 } = vi.hoisted(() => ({
 	mockCreateDocumentEditor: vi.fn(),
@@ -83,6 +85,10 @@ const {
 	// tabSectionPluginKey) — a no-op here, since these tests use a fake
 	// editor with no real ProseMirror state to dispatch a transaction into.
 	mockSetActiveDocumentTab: vi.fn(),
+	// Wave 2.5 Step 7: the comment-anchor decoration's own write side — same
+	// reasoning, a no-op against this suite's fake editor.
+	mockSetCommentAnchors: vi.fn(),
+	mockScrollToCommentAnchor: vi.fn(),
 	editorInstances: [] as Array<{
 		options: Record<string, unknown>;
 		destroy: ReturnType<typeof vi.fn>;
@@ -103,6 +109,8 @@ vi.mock("./document-editor", () => ({
 	summarizeRefusals: mockSummarizeRefusals,
 	refusalReasonI18nKey: mockRefusalReasonI18nKey,
 	setActiveDocumentTab: mockSetActiveDocumentTab,
+	setCommentAnchors: mockSetCommentAnchors,
+	scrollToCommentAnchor: mockScrollToCommentAnchor,
 }));
 
 // A fake stands in for the real Tiptap editor: `document-editor.test.ts`

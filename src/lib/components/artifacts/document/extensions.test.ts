@@ -1,3 +1,4 @@
+import type { Decoration } from "@tiptap/pm/view";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import { uiLanguage } from "$lib/stores/settings";
@@ -253,6 +254,19 @@ describe("extensions: tab section visibility", () => {
 });
 
 describe("extensions: CommentAnchors (redesign §3.2, Wave 2.5 Step 7)", () => {
+	/**
+	 * `Decoration`'s own `.d.ts` only exposes `from`/`to`/`spec` — `attrs` are
+	 * readable at runtime (`.type.attrs`, proven by these very tests passing)
+	 * but are not part of prosemirror-view's PUBLIC type, so `tsc` flags a
+	 * direct read. One narrow, explained cast here rather than three
+	 * unexplained ones inline.
+	 */
+	function decorationAttrs(decoration: Decoration): Record<string, string> {
+		return (
+			decoration as unknown as { type: { attrs: Record<string, string> } }
+		).type.attrs;
+	}
+
 	function firstBlockId(editor: ReturnType<typeof createDocumentEditor>): string {
 		let id: string | null = null;
 		editor.state.doc.forEach((node) => {
@@ -301,7 +315,7 @@ describe("extensions: CommentAnchors (redesign §3.2, Wave 2.5 Step 7)", () => {
 				null,
 			).find();
 			expect(decorations).toHaveLength(1);
-			const attrs = decorations[0].type.attrs as Record<string, string>;
+			const attrs = decorationAttrs(decorations[0]);
 			expect(attrs.class).toBe("comment-anchor");
 			expect(attrs["data-comment-anchor-id"]).toBe("c1");
 			expect(attrs.tabindex).toBe("0");
@@ -323,10 +337,10 @@ describe("extensions: CommentAnchors (redesign §3.2, Wave 2.5 Step 7)", () => {
 				"c1",
 			).find();
 			const byId = new Map(
-				decorations.map((d) => [
-					(d.type.attrs as Record<string, string>)["data-comment-anchor-id"],
-					d.type.attrs as Record<string, string>,
-				]),
+				decorations.map((d) => {
+					const attrs = decorationAttrs(d);
+					return [attrs["data-comment-anchor-id"], attrs] as const;
+				}),
 			);
 			expect(byId.get("c1")?.class).toBe("comment-anchor is-active");
 			expect(byId.get("c2")?.class).toBe("comment-anchor is-resolved");
