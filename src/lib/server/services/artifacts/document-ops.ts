@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactKv, artifacts, artifactVersions } from "$lib/server/db/schema";
+import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	type BlockKind,
 	buildIndex,
@@ -29,7 +30,6 @@ import {
 	type PatchResult,
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
-import { parseJsonRecord } from "$lib/server/utils/json";
 import { hashArtifactBody } from "./hash";
 import {
 	ALFY_SNAPSHOT_KV_KEY,

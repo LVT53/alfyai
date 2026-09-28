@@ -107,7 +107,11 @@ describe("computePendingReviewBlocks", () => {
 
 	it("a user edit to the same block in a later version acknowledges it automatically", () => {
 		const versions = [
-			{ versionNumber: 1, author: "user" as const, body: "<!--b:p1-->\nFirst." },
+			{
+				versionNumber: 1,
+				author: "user" as const,
+				body: "<!--b:p1-->\nFirst.",
+			},
 			{
 				versionNumber: 2,
 				author: "alfy" as const,
@@ -137,7 +141,11 @@ describe("computePendingReviewBlocks", () => {
 			},
 			// The user deletes exactly the block Alfy changed (p1); p2 was never
 			// touched by Alfy and stays out of the pending set either way.
-			{ versionNumber: 3, author: "user" as const, body: "<!--b:p2-->\nSecond." },
+			{
+				versionNumber: 3,
+				author: "user" as const,
+				body: "<!--b:p2-->\nSecond.",
+			},
 		];
 		const pending = computePendingReviewBlocks(1, [], versions);
 		expect(pending).toEqual([]);
@@ -145,7 +153,11 @@ describe("computePendingReviewBlocks", () => {
 
 	it("a block Alfy added (no parent counterpart) is pending as a new block, undo-by-delete", () => {
 		const versions = [
-			{ versionNumber: 1, author: "user" as const, body: "<!--b:p1-->\nFirst." },
+			{
+				versionNumber: 1,
+				author: "user" as const,
+				body: "<!--b:p1-->\nFirst.",
+			},
 			{
 				versionNumber: 2,
 				author: "alfy" as const,
@@ -232,7 +244,11 @@ async function readFirstBlock(
 	return { id: block.blockId, hash: block.hash };
 }
 
-function replaceBlockPatch(blockId: string, baseHash: string, text: string): PatchSet {
+function replaceBlockPatch(
+	blockId: string,
+	baseHash: string,
+	text: string,
+): PatchSet {
 	const op: PatchOp = {
 		opId: `op-${blockId}-${text}`,
 		kind: "replaceBlock",

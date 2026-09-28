@@ -28,8 +28,8 @@ import {
 import {
 	type ChangePillCallbacks,
 	type ChangePillEntry,
-	changePillPluginKey,
 	type ChangePillStatus,
+	changePillPluginKey,
 } from "./change-pill-decoration";
 import {
 	BLOCK_ID_ATTR,
@@ -194,7 +194,10 @@ export function setRefusedLines(
  */
 export type { ChangePillCallbacks, ChangePillEntry, ChangePillStatus };
 
-export function setChangePills(editor: Editor, entries: ChangePillEntry[]): void {
+export function setChangePills(
+	editor: Editor,
+	entries: ChangePillEntry[],
+): void {
 	const tr = editor.state.tr.setMeta(changePillPluginKey, entries);
 	tr.setMeta("addToHistory", false);
 	tr.setMeta("preventUpdate", true);

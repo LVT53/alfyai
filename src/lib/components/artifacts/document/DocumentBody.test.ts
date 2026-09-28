@@ -1944,7 +1944,10 @@ describe("DocumentBody", () => {
 					expect(mockSetChangePills).toHaveBeenCalledWith(
 						expect.anything(),
 						expect.arrayContaining([
-							expect.objectContaining({ changeId: "change-1", status: "pending" }),
+							expect.objectContaining({
+								changeId: "change-1",
+								status: "pending",
+							}),
 						]),
 					),
 				);
@@ -2026,7 +2029,10 @@ describe("DocumentBody", () => {
 					expect(mockSetChangePills).toHaveBeenCalledWith(
 						expect.anything(),
 						expect.arrayContaining([
-							expect.objectContaining({ changeId: "change-2", status: "pending" }),
+							expect.objectContaining({
+								changeId: "change-2",
+								status: "pending",
+							}),
 						]),
 					),
 				);
@@ -2118,7 +2124,10 @@ describe("DocumentBody", () => {
 					expect(mockSetChangePills).toHaveBeenCalledWith(
 						expect.anything(),
 						expect.arrayContaining([
-							expect.objectContaining({ changeId: "change-3", status: "pending" }),
+							expect.objectContaining({
+								changeId: "change-3",
+								status: "pending",
+							}),
 						]),
 					),
 				);
@@ -2148,7 +2157,10 @@ describe("DocumentBody", () => {
 					expect(mockSetChangePills).toHaveBeenCalledWith(
 						expect.anything(),
 						expect.arrayContaining([
-							expect.objectContaining({ changeId: "change-3", status: "pending" }),
+							expect.objectContaining({
+								changeId: "change-3",
+								status: "pending",
+							}),
 						]),
 					),
 				);
@@ -2159,7 +2171,10 @@ describe("DocumentBody", () => {
 				expect(mockSetChangePills).toHaveBeenCalledWith(
 					expect.anything(),
 					expect.arrayContaining([
-						expect.objectContaining({ changeId: "change-3", status: "pending" }),
+						expect.objectContaining({
+							changeId: "change-3",
+							status: "pending",
+						}),
 					]),
 				);
 			} finally {
@@ -2487,7 +2502,10 @@ describe("DocumentBody", () => {
 				expect(mockSetChangePills).toHaveBeenCalledWith(
 					expect.anything(),
 					expect.arrayContaining([
-						expect.objectContaining({ changeId: "change-4", status: "pending" }),
+						expect.objectContaining({
+							changeId: "change-4",
+							status: "pending",
+						}),
 					]),
 				),
 			);
@@ -2532,7 +2550,12 @@ describe("DocumentBody", () => {
 				status: "applied" as const,
 				label: null,
 				patches: [
-					{ op: "replaceBlock" as const, blockId: "p1", baseHash: "h1", text: "x" },
+					{
+						op: "replaceBlock" as const,
+						blockId: "p1",
+						baseHash: "h1",
+						text: "x",
+					},
 				],
 				refusedBlocks: [],
 				appliedCount: 1,
@@ -2570,9 +2593,7 @@ describe("DocumentBody", () => {
 			try {
 				await renderWithOnePending();
 
-				await fireEvent.click(
-					screen.getByRole("button", { name: /Keep all/ }),
-				);
+				await fireEvent.click(screen.getByRole("button", { name: /Keep all/ }));
 				// Status flips to "kept" immediately; the mark itself (and the
 				// pill list emptying out) waits for its own 1.4s settle window.
 				await vi.advanceTimersByTimeAsync(1400);

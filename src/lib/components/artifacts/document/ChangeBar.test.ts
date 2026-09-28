@@ -21,7 +21,10 @@ describe("ChangeBar", () => {
 	});
 
 	it("is a role=group named after the changed block", () => {
-		render(ChangeBar, { ...callbacks(), blockLabel: "Book the hotel by Friday" });
+		render(ChangeBar, {
+			...callbacks(),
+			blockLabel: "Book the hotel by Friday",
+		});
 		expect(
 			screen.getByRole("group", {
 				name: "Alfy's change: Book the hotel by Friday",

@@ -389,7 +389,6 @@ describe("marks: Keep and Undo", () => {
 		);
 		editor.destroy();
 	});
-
 });
 
 describe("marks: remarkAlfyChange", () => {

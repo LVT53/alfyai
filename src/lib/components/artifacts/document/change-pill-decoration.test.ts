@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildIndex, parseDocument } from "$lib/shared/artifact-document/blocks";
+import {
+	buildIndex,
+	parseDocument,
+} from "$lib/shared/artifact-document/blocks";
 import {
 	applyPatchSet,
 	type PatchOp,
@@ -50,7 +53,9 @@ function noopCallbacks(): ChangePillCallbacks {
 }
 
 /** `DecorationSet` does not expose a widget's own DOM without a live view attached — exercise the widget factory directly, the same way `alfy-writing-decoration.test.ts` does. */
-function widgetDom(set: ReturnType<typeof buildChangePillDecorations>): HTMLElement | null {
+function widgetDom(
+	set: ReturnType<typeof buildChangePillDecorations>,
+): HTMLElement | null {
 	const widget = (
 		set.find() as unknown as { type: { toDOM?: () => Node } }[]
 	).find((d) => typeof d.type.toDOM === "function");
@@ -61,7 +66,11 @@ function widgetDom(set: ReturnType<typeof buildChangePillDecorations>): HTMLElem
 describe("buildChangePillDecorations", () => {
 	it("returns an empty set for no entries", () => {
 		const { editor } = setup("First paragraph.");
-		const set = buildChangePillDecorations(editor.state.doc, [], noopCallbacks());
+		const set = buildChangePillDecorations(
+			editor.state.doc,
+			[],
+			noopCallbacks(),
+		);
 		expect(set.find()).toHaveLength(0);
 		editor.destroy();
 	});
