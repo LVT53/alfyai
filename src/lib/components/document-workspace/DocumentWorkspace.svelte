@@ -15,6 +15,7 @@ import {
 	reducedMotionAnimate,
 } from "$lib/utils/motion";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
+import { hasOpenDialog } from "$lib/components/ui/DialogShell.svelte";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
@@ -806,6 +807,15 @@ function handleWindowKeydown(event: KeyboardEvent) {
 	) {
 		return;
 	}
+
+	// This listener mounts with the shell itself, before any popover/sheet/
+	// composer that opens later — so it runs FIRST on a shared Escape press,
+	// before that layer's own `preventDefault()` has a chance to fire.
+	// Deferring to `hasOpenDialog()` (order-independent) instead of relying
+	// on `event.defaultPrevented` above is what keeps one Escape closing
+	// only the innermost layer (redesign §5.4) instead of the popover AND
+	// the expanded panel at once.
+	if (hasOpenDialog()) return;
 
 	// The list closes first, in any presentation; only then does Escape fall
 	// through to the panel's own (expanded-only) close behaviour.
