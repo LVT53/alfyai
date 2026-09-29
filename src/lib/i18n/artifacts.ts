@@ -580,8 +580,10 @@ const artifactsDict = {
 		"artifacts.canvas.toolbar": "Canvas tools",
 		"artifacts.canvas.tool.select": "Select",
 		"artifacts.canvas.tool.pan": "Pan",
-		"artifacts.canvas.undo": "Undo",
-		"artifacts.canvas.redo": "Redo",
+		// Ruling 16: these undo the reader's OWN steps; Alfy's changes and an
+		// earlier session's are restored through History, and are named differently.
+		"artifacts.canvas.undo": "Undo your last step",
+		"artifacts.canvas.redo": "Redo your step",
 		"artifacts.canvas.insert": "Insert",
 		"artifacts.canvas.insert.block": "Insert block",
 		"artifacts.canvas.insert.text": "Text",
@@ -646,6 +648,29 @@ const artifactsDict = {
 		// joins or leaves a frame by a drag.
 		"artifacts.canvas.movedIntoFrame": "Moved into the frame {frame}.",
 		"artifacts.canvas.movedOutOfFrame": "Moved out of the frame {frame}.",
+		// The drawing layer (S3-F): tools, inks, and what the layer says about itself.
+		"artifacts.canvas.tool.draw": "Draw",
+		"artifacts.canvas.tool.pen": "Pen",
+		"artifacts.canvas.tool.highlighter": "Highlighter",
+		"artifacts.canvas.tool.line": "Line",
+		"artifacts.canvas.tool.arrow": "Arrow",
+		"artifacts.canvas.tool.rect": "Rectangle",
+		"artifacts.canvas.tool.ellipse": "Ellipse",
+		"artifacts.canvas.tool.text": "Text",
+		"artifacts.canvas.tool.eraser": "Eraser",
+		"artifacts.canvas.drawTools": "Drawing tools",
+		"artifacts.canvas.ink.blue": "Blue ink",
+		"artifacts.canvas.ink.red": "Red ink",
+		"artifacts.canvas.ink.green": "Green ink",
+		"artifacts.canvas.ink.graphite": "Graphite ink",
+		"artifacts.canvas.drawingLayer": "Drawing layer",
+		"artifacts.canvas.drawingLayer.marks":
+			"{count} {count, plural, one {mark} other {marks}} drawn on the board.",
+		"artifacts.canvas.textMark": "Text on the board",
+		"artifacts.canvas.markDeleted": "Mark removed.",
+		"artifacts.canvas.markErased": "Marks erased.",
+		"artifacts.canvas.drawingLimit":
+			"The board holds at most {count} marks. Erase one to draw more.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1056,8 +1081,8 @@ const artifactsDict = {
 		"artifacts.canvas.toolbar": "Tábla eszközök",
 		"artifacts.canvas.tool.select": "Kijelölés",
 		"artifacts.canvas.tool.pan": "Mozgatás",
-		"artifacts.canvas.undo": "Visszavonás",
-		"artifacts.canvas.redo": "Újra",
+		"artifacts.canvas.undo": "Saját lépés visszavonása",
+		"artifacts.canvas.redo": "Saját lépés újra",
 		"artifacts.canvas.insert": "Beszúrás",
 		"artifacts.canvas.insert.block": "Blokk beszúrása",
 		"artifacts.canvas.insert.text": "Szöveg",
@@ -1122,6 +1147,28 @@ const artifactsDict = {
 		// A kettőspont a magyar rag nélkül old meg egy tetszőleges keretnevet.
 		"artifacts.canvas.movedIntoFrame": "Átkerült a keretbe: {frame}.",
 		"artifacts.canvas.movedOutOfFrame": "Kikerült a keretből: {frame}.",
+		"artifacts.canvas.tool.draw": "Rajzolás",
+		"artifacts.canvas.tool.pen": "Toll",
+		"artifacts.canvas.tool.highlighter": "Szövegkiemelő",
+		"artifacts.canvas.tool.line": "Vonal",
+		"artifacts.canvas.tool.arrow": "Nyíl",
+		"artifacts.canvas.tool.rect": "Téglalap",
+		"artifacts.canvas.tool.ellipse": "Ellipszis",
+		"artifacts.canvas.tool.text": "Szöveg",
+		"artifacts.canvas.tool.eraser": "Radír",
+		"artifacts.canvas.drawTools": "Rajzeszközök",
+		"artifacts.canvas.ink.blue": "Kék tinta",
+		"artifacts.canvas.ink.red": "Piros tinta",
+		"artifacts.canvas.ink.green": "Zöld tinta",
+		"artifacts.canvas.ink.graphite": "Grafitszürke tinta",
+		"artifacts.canvas.drawingLayer": "Rajzréteg",
+		// Nincs többes szám: a számnév után a főnév egyes számban marad.
+		"artifacts.canvas.drawingLayer.marks": "{count} rajzolt jel a táblán.",
+		"artifacts.canvas.textMark": "Szöveg a táblán",
+		"artifacts.canvas.markDeleted": "Jel törölve.",
+		"artifacts.canvas.markErased": "Jelek radírozva.",
+		"artifacts.canvas.drawingLimit":
+			"A táblán legfeljebb {count} jel lehet. Radírozz le egyet, hogy továbbrajzolhass.",
 	},
 } as const;
 

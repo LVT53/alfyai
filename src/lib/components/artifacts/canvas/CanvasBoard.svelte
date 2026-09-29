@@ -43,13 +43,17 @@ import {
 	SvelteFlow,
 	useSvelteFlow,
 	type Viewport,
+	ViewportPortal,
 } from "@xyflow/svelte";
 import { onDestroy, untrack } from "svelte";
 import { historyShortcutFor } from "$lib/components/artifacts/document/keyboard-shortcuts";
 import { t } from "$lib/i18n";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import type { Annotation, CanvasBody } from "$lib/shared/artifacts/canvas";
-import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
+import {
+	MAX_ANNOTATIONS_PER_BOARD,
+	normalizeCanvasBody,
+} from "$lib/shared/artifacts/canvas-body";
 import {
 	parentsFirst,
 	rehomeOnRemoval,
@@ -57,6 +61,7 @@ import {
 	reparentOnDrop,
 	withoutDanglingEdges,
 } from "./_lib/board";
+import { DEFAULT_INK, isDrawingTool, type Tool } from "./_lib/annotations";
 import { type BoardHistory, createBoardHistory } from "./_lib/board-history";
 import { provideBoardContext } from "./_lib/board-context";
 import {
@@ -74,7 +79,8 @@ import {
 } from "./_lib/block-registry";
 import { newId } from "./_lib/ids";
 import { placeInsertedBlock } from "./_lib/placement";
-import CanvasToolbar, { type BoardTool } from "./CanvasToolbar.svelte";
+import AnnotationLayer from "./AnnotationLayer.svelte";
+import CanvasToolbar from "./CanvasToolbar.svelte";
 import ZoomChip from "./ZoomChip.svelte";
 
 let {
@@ -111,9 +117,15 @@ const MINIMAP_ABOVE = 720;
 
 let boardEl = $state<HTMLElement | null>(null);
 let boardWidth = $state(0);
-let tool = $state<BoardTool>("select");
+let boardHeight = $state(0);
+let tool = $state<Tool>("select");
+/** The ink a new mark is drawn in (a colour token). */
+let ink = $state(DEFAULT_INK);
 let coarsePointer = $state(false);
 let announcement = $state("");
+/** The board is holding as many marks as it may, and a stroke was just refused: say so where a reader can see it. */
+let limitNotice = $state(false);
+let limitTimer: ReturnType<typeof setTimeout> | null = null;
 /** The frame a block being dragged would join if it were dropped now. */
 let dropTargetId = $state<string | null>(null);
 
@@ -187,6 +199,7 @@ $effect(() => {
 
 onDestroy(() => {
 	if (announceTimer) clearTimeout(announceTimer);
+	if (limitTimer) clearTimeout(limitTimer);
 	commit();
 });
 
@@ -281,6 +294,15 @@ function insertBlock(row: BlockRegistryEntry): void {
 
 // ---- The flow's own events ----------------------------------------------
 
+function handleLimit(): void {
+	limitNotice = true;
+	announce(
+		$t("artifacts.canvas.drawingLimit", { count: MAX_ANNOTATIONS_PER_BOARD }),
+	);
+	if (limitTimer) clearTimeout(limitTimer);
+	limitTimer = setTimeout(() => (limitNotice = false), 5000);
+}
+
 function announce(message: string): void {
 	announcement = message;
 	if (announceTimer) clearTimeout(announceTimer);
@@ -291,6 +313,30 @@ function handleBeforeConnect(connection: Connection): Edge {
 	// v1 adds the edge itself once this returns it, then fires `onconnect` as a
 	// notification: the id has to be stamped here, and only here.
 	return { ...connection, id: newId("e") };
+}
+
+// ---- Tools and marks ------------------------------------------------------
+
+function setTool(next: Tool): void {
+	tool = next;
+	// A block and a mark are never selected together: a tool that draws starts
+	// from a board with nothing picked, its toolbar and handles out of the way.
+	if (
+		(isDrawingTool(next) || next === "eraser") &&
+		nodes.some((node) => node.selected)
+	) {
+		nodes = nodes.map((node) =>
+			node.selected ? { ...node, selected: false } : node,
+		);
+	}
+}
+
+/** A gesture of the drawing layer is complete: it is one step of its own. */
+function handleAnnotations(next: Annotation[]): void {
+	if (readonly) return;
+	commit();
+	annotations = next;
+	commit();
 }
 
 // ---- Frames: adoption, release, removal ----------------------------------
@@ -419,9 +465,15 @@ $effect(() => {
 let compact = $derived(boardWidth > 0 && boardWidth < COMPACT_BELOW);
 let showMinimap = $derived(boardWidth >= MINIMAP_ABOVE && nodes.length > 0);
 let empty = $derived(nodes.length === 0 && annotations.length === 0);
-// A finger has no other way to pan, so on touch a drag on the pane always pans;
+// A tool that draws (or the eraser) owns the pointer: the drawing pad takes the
+// press, so a drag must not also move the camera or the blocks under it.
+let drawing = $derived(isDrawingTool(tool) || tool === "eraser");
+// A finger has no other way to pan, so on touch a drag on the pane always pans
+// (except while drawing: then it draws, and a second finger cancels the stroke);
 // with a pointer, a plain drag on the pane selects (middle and right buttons pan).
-let panOnDrag = $derived(tool === "pan" || coarsePointer ? true : [1, 2]);
+let panOnDrag = $derived(
+	tool === "pan" ? true : coarsePointer ? !drawing : [1, 2],
+);
 let selectionOnDrag = $derived(tool === "select" && !coarsePointer);
 let nodesDraggable = $derived(!readonly && tool === "select");
 // A board with blocks and no camera of its own is fitted on open, clear of the
@@ -473,6 +525,8 @@ function minimapColor(node: {
 	class="canvas-board"
 	bind:this={boardEl}
 	bind:clientWidth={boardWidth}
+	bind:clientHeight={boardHeight}
+	style:--canvas-board-width="{boardWidth}px"
 	data-testid="canvas-board"
 	data-tool={tool}
 >
@@ -485,7 +539,9 @@ function minimapColor(node: {
 		{canRedo}
 		disabled={readonly}
 		emphasizeInsert={empty}
-		ontoolchange={(next) => (tool = next)}
+		{ink}
+		oninkchange={(next) => (ink = next)}
+		ontoolchange={setTool}
 		onundo={undo}
 		onredo={redo}
 		oninsert={insertBlock}
@@ -520,6 +576,22 @@ function minimapColor(node: {
 		onmoveend={(_, camera) => oncamera?.(camera)}
 	>
 		<Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+		<!-- The drawing layer, in the viewport's front layer so every point is a board point. -->
+		<ViewportPortal target="front">
+			<AnnotationLayer
+				{annotations}
+				{viewport}
+				paneSize={{ width: boardWidth, height: boardHeight }}
+				{tool}
+				{ink}
+				{readonly}
+				toBoard={(point) => flow.screenToFlowPosition(point)}
+				onchange={handleAnnotations}
+				ontoolchange={setTool}
+				onannounce={announce}
+				onlimit={handleLimit}
+			/>
+		</ViewportPortal>
 		{#if showMinimap}
 			<MiniMap
 				width={132}
@@ -531,7 +603,14 @@ function minimapColor(node: {
 				style="margin-bottom: 52px;"
 			/>
 		{/if}
-		<Panel position="bottom-right" class={["canvas-corner", compact && "canvas-corner--compact"]}>
+		<Panel
+			position="bottom-right"
+			class={[
+				"canvas-corner",
+				compact && "canvas-corner--compact",
+				compact && drawing && "canvas-corner--under-tray",
+			]}
+		>
 			<ZoomChip
 				zoom={viewport.zoom}
 				onzoomin={() => zoomBy(ZOOM_STEP)}
@@ -544,6 +623,12 @@ function minimapColor(node: {
 	{#if empty}
 		<p class="canvas-empty" data-testid="canvas-empty">
 			{$t("artifacts.canvas.emptyBoard")}
+		</p>
+	{/if}
+
+	{#if limitNotice}
+		<p class="canvas-limit" role="status" data-testid="canvas-limit-notice">
+			{$t("artifacts.canvas.drawingLimit", { count: MAX_ANNOTATIONS_PER_BOARD })}
 		</p>
 	{/if}
 
@@ -617,6 +702,30 @@ function minimapColor(node: {
 	   sits just above it instead of under it. */
 	.canvas-board :global(.canvas-corner--compact) {
 		margin-bottom: 68px;
+	}
+
+	/* On a phone the drawing tools take the space above the toolbar, where the
+	   zoom sits; nothing zooms by button while a finger is drawing anyway. */
+	.canvas-board :global(.canvas-corner--under-tray) {
+		visibility: hidden;
+	}
+
+	.canvas-limit {
+		position: absolute;
+		top: 12px;
+		left: 50%;
+		z-index: var(--artifact-overlay-z);
+		max-width: calc(100% - 24px);
+		margin: 0;
+		padding: 8px 12px;
+		transform: translateX(-50%);
+		border: 1px solid var(--border-default);
+		border-radius: 10px;
+		background: var(--surface-page);
+		box-shadow: var(--shadow-sm);
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		text-align: center;
 	}
 
 	.canvas-empty {
