@@ -759,7 +759,8 @@ and Slides protocol reviews and anything touching ownership or deletion.
 | S3-F | frames, reparenting, connectors, the drawing layer (T3, T4) | — | S3-B | queued |
 | S3-C | comment pins on the shared comment parts; containment, archive, i18n audit (T5, T9) | — | S3-F | queued |
 | S3-A | Alfy's diff landing (arranging frame, tween, highlight) and the one-change review (T6 client, ruling 63) | — | S3-C, S3-T | queued |
-| S3-X | posters, PNG export, the refresh route; perf budget and chunk guard (T7, T8) | — | S3-A | queued |
+| S3-R | the chat-derived blocks (map, file, app, photo, live web), their "from this chat" inserts, the refresh route (T2's rest, T7's refresh) | — | S3-B | queued |
+| S3-X | posters and PNG export; the perf budget (T7, T8's perf half; S3-B takes the chunk guard) | — | S3-A, S3-R | queued |
 | RV-3 | **Opus** review: the Canvas protocol, the tools, the refresh route (outbound fetch), ownership | — | S3-T | queued |
 | S4-P | Slides panel: layouts, rail, stage, editor, card branch (T2) | off `feat/artifacts-slides` | S4-D (suite 4 result) | queued |
 | S4-O | Slides patches (`deck-ops.ts` on the shared mechanism), read/edit handlers, "Ask Alfy about this slide", suite 4's edit case (T3, T4) | off `feat/artifacts-slides` | S3-P merged into it, S4-P | queued |
