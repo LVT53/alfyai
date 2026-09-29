@@ -507,6 +507,26 @@ describe("file production activity rows", () => {
 		expect(item.alwaysOpen).toBe(true);
 	});
 
+	// Polish G2-A: a file that was deleted leaves its row (still "Created", still
+	// the job's title) with the deleted-file body pinned open, so the owner sees
+	// what happened and Regenerate without opening anything.
+	it("keeps a deleted file's row, named by its job, with the body open on its own", () => {
+		const item = buildFileProductionActivityItem(
+			job({
+				status: "succeeded",
+				files: [],
+				filesDeleted: { canRegenerate: true },
+			}),
+			translate,
+		);
+		expect(item.status).toBe("done");
+		expect(item.verb).toBe("Created");
+		expect(item.object).toBe("Cork weekend packing list");
+		expect(item.meta).toBe("");
+		expect(item.pinned).toBe(true);
+		expect(item.alwaysOpen).toBe(true);
+	});
+
 	it("maps a failed job onto the failed row + reason body", () => {
 		const item = buildFileProductionActivityItem(
 			job({ status: "failed", files: [] }),

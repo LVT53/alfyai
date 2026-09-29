@@ -7,7 +7,12 @@ import {
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
 import { saveSummaryFor } from "$lib/shared/artifacts/version-summaries";
-import { NOW, seedConversation, seedUser } from "./artifacts.test-helpers";
+import {
+	NOW,
+	seedConversation,
+	seedProducedFile,
+	seedUser,
+} from "./artifacts.test-helpers";
 import type { CreatableArtifactKind } from "./types";
 
 let memory: InMemoryDatabase;
@@ -1195,6 +1200,143 @@ describe("deleteArtifact", () => {
 		// The neighbour is whole: row, version history and all.
 		expect(artifactRow(neighbour.id)).toBeDefined();
 		expect(versionRows(neighbour.id)).toHaveLength(1);
+	});
+
+	// Polish G2-A: a produced file (the File kind, `generated_output`) is deleted
+	// the way its own store keeps it — the artifact row AND the chat file (row and
+	// bytes) it stands for — never one without the other, or the chat would
+	// keep offering a file the library no longer has.
+	describe("a produced file", () => {
+		function chatFileRows() {
+			return memory.db.select().from(schema.chatGeneratedFiles).all();
+		}
+
+		it("takes its chat file, its job link and its artifact — and nothing of another file", async () => {
+			const doomed = seedProducedFile(memory, {
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactId: "file-artifact-1",
+				filename: "Trip.pdf",
+			});
+			const kept = seedProducedFile(memory, {
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactId: "file-artifact-2",
+				filename: "Budget.xlsx",
+			});
+			memory.db
+				.insert(schema.fileProductionJobs)
+				.values({
+					id: "job-1",
+					conversationId: CONVERSATION,
+					assistantMessageId: `message-${doomed.artifactId}`,
+					userId: OWNER,
+					title: "Trip",
+					status: "succeeded",
+					requestJson: JSON.stringify({ title: "Trip" }),
+					createdAt: NOW,
+					updatedAt: NOW,
+				})
+				.run();
+			memory.db
+				.insert(schema.fileProductionJobFiles)
+				.values({
+					id: "link-1",
+					jobId: "job-1",
+					chatGeneratedFileId: doomed.chatFileId,
+					sortOrder: 0,
+					createdAt: NOW,
+				})
+				.run();
+
+			await expect(
+				deleteArtifact({ userId: OWNER, artifactId: doomed.artifactId }),
+			).resolves.toBe(true);
+
+			expect(artifactRow(doomed.artifactId)).toBeUndefined();
+			expect(chatFileRows().map((row) => row.id)).toEqual([kept.chatFileId]);
+			expect(
+				memory.db.select().from(schema.fileProductionJobFiles).all(),
+			).toEqual([]);
+			// The job itself stays: it is the record of what was asked for, which
+			// is what Regenerate makes the file again from.
+			expect(
+				memory.db.select().from(schema.fileProductionJobs).all(),
+			).toHaveLength(1);
+			expect(artifactRow(kept.artifactId)).toBeDefined();
+		});
+
+		it("takes every file a source-first document rendered", async () => {
+			const seeded = seedProducedFile(memory, {
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactId: "file-artifact-1",
+				filename: "Report.pdf",
+			});
+			memory.db
+				.insert(schema.chatGeneratedFiles)
+				.values({
+					id: "rendered-docx",
+					conversationId: CONVERSATION,
+					assistantMessageId: `message-${seeded.artifactId}`,
+					userId: OWNER,
+					filename: "Report.docx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					sizeBytes: 100,
+					storagePath: `${CONVERSATION}/Report.docx`,
+					createdAt: NOW,
+				})
+				.run();
+			const row = artifactRow(seeded.artifactId);
+			memory.db
+				.update(schema.artifacts)
+				.set({
+					metadataJson: JSON.stringify({
+						...JSON.parse(row?.metadataJson ?? "{}"),
+						generatedDocumentRenderedChatFileIds: ["rendered-docx"],
+					}),
+				})
+				.where(eq(schema.artifacts.id, seeded.artifactId))
+				.run();
+
+			await expect(
+				deleteArtifact({ userId: OWNER, artifactId: seeded.artifactId }),
+			).resolves.toBe(true);
+
+			expect(chatFileRows()).toEqual([]);
+			expect(artifactRow(seeded.artifactId)).toBeUndefined();
+		});
+
+		it("still removes an artifact whose chat file is already gone", async () => {
+			const seeded = seedProducedFile(memory, {
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactId: "file-artifact-1",
+				filename: "Trip.pdf",
+				withChatFile: false,
+			});
+
+			await expect(
+				deleteArtifact({ userId: OWNER, artifactId: seeded.artifactId }),
+			).resolves.toBe(true);
+			expect(artifactRow(seeded.artifactId)).toBeUndefined();
+		});
+
+		it("is not reachable by another user, and touches nothing when it is not", async () => {
+			const seeded = seedProducedFile(memory, {
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactId: "file-artifact-1",
+				filename: "Trip.pdf",
+			});
+
+			await expect(
+				deleteArtifact({ userId: STRANGER, artifactId: seeded.artifactId }),
+			).resolves.toBe(false);
+			expect(artifactRow(seeded.artifactId)).toBeDefined();
+			expect(chatFileRows()).toHaveLength(1);
+		});
 	});
 
 	it("keeps an incognito conversation's own artifact out of reach until the delete names that conversation", async () => {

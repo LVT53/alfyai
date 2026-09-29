@@ -29,6 +29,7 @@ export type {
 	ReclaimDeadWorkerFileProductionAttemptsInput,
 	ReconcileStaleFileProductionJobsInput,
 	RecoverStaleFileProductionAttemptsInput,
+	RegenerateFileProductionJobInput,
 	RetryFileProductionJobInput,
 } from "./job-ledger";
 export type {
@@ -104,6 +105,13 @@ export async function assignFileProductionJobsToAssistantMessage(
 ): ReturnType<JobLedgerModule["assignFileProductionJobsToAssistantMessage"]> {
 	const { assignFileProductionJobsToAssistantMessage } = await loadJobLedger();
 	return assignFileProductionJobsToAssistantMessage(...args);
+}
+
+export async function regenerateFileProductionJob(
+	...args: Parameters<JobLedgerModule["regenerateFileProductionJob"]>
+): ReturnType<JobLedgerModule["regenerateFileProductionJob"]> {
+	const { regenerateFileProductionJob } = await loadJobLedger();
+	return regenerateFileProductionJob(...args);
 }
 
 export async function cancelFileProductionJob(

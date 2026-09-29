@@ -1065,6 +1065,80 @@ export async function retryFileProductionJob(
 	return retried ? mapJobRow(retried, []) : null;
 }
 
+export interface RegenerateFileProductionJobInput {
+	userId: string;
+	jobId: string;
+	now?: Date;
+}
+
+/**
+ * Makes a produced file again after it was deleted: the SAME job goes back to
+ * `queued`, and the worker runs the request the job kept as a new attempt — so
+ * the file lands on the message that already carries the job, and every
+ * reference to the job stays true. Only a finished job with none of its files
+ * left and a stored request qualifies: a job that still has a file has nothing
+ * to make again, and one with no request has nothing to make it from.
+ */
+export async function regenerateFileProductionJob(
+	input: RegenerateFileProductionJobInput,
+): Promise<FileProductionJob | null> {
+	const now = input.now ?? new Date();
+	const requeued = db.transaction((tx) => {
+		const [existingJob] = tx
+			.select()
+			.from(fileProductionJobs)
+			.where(
+				and(
+					eq(fileProductionJobs.id, input.jobId),
+					eq(fileProductionJobs.userId, input.userId),
+					eq(fileProductionJobs.status, "succeeded"),
+				),
+			)
+			.limit(1)
+			.all();
+		if (!existingJob?.requestJson) return null;
+
+		const [remaining] = tx
+			.select({ id: fileProductionJobFiles.id })
+			.from(fileProductionJobFiles)
+			.where(eq(fileProductionJobFiles.jobId, existingJob.id))
+			.limit(1)
+			.all();
+		if (remaining) return null;
+
+		tx.update(fileProductionJobs)
+			.set({
+				status: "queued",
+				stage: null,
+				currentAttemptId: null,
+				retryable: false,
+				dismissed: false,
+				errorCode: null,
+				errorMessage: null,
+				completedAt: null,
+				cancelRequestedAt: null,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(fileProductionJobs.id, existingJob.id),
+					eq(fileProductionJobs.status, "succeeded"),
+				),
+			)
+			.run();
+
+		const [updatedJob] = tx
+			.select()
+			.from(fileProductionJobs)
+			.where(eq(fileProductionJobs.id, existingJob.id))
+			.limit(1)
+			.all();
+		return updatedJob ?? null;
+	});
+
+	return requeued ? mapJobRow(requeued, []) : null;
+}
+
 export async function cancelFileProductionJob(
 	input: CancelFileProductionJobInput,
 ): Promise<FileProductionJob | null> {

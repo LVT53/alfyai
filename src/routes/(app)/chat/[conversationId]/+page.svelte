@@ -34,7 +34,9 @@ import {
 } from "$lib/client/api/atlas";
 import {
 	cancelFileProductionJob as cancelFileProductionJobRequest,
+	chatFileStillExists,
 	dismissFileProductionJob as dismissFileProductionJobRequest,
+	regenerateFileProductionJob as regenerateFileProductionJobRequest,
 	retryFileProductionJob as retryFileProductionJobRequest,
 } from "$lib/client/api/file-production";
 import {
@@ -1414,6 +1416,14 @@ async function handleDeleteArtifact(
 ): Promise<void> {
 	if (!item.artifactId) return;
 	await deleteArtifactRequest(item.artifactId, data.conversation.id);
+	if (item.kind === "file") {
+		// A produced file's chat rows and its job come from the conversation
+		// detail: read it back, so they say the file was deleted.
+		const detail = await fetchConversationDetail(data.conversation.id).catch(
+			() => null,
+		);
+		if (detail) applyConversationDetailMetadata(detail);
+	}
 	showToast({
 		type: "success",
 		message: get(t)(`artifacts.delete.done.${item.kind ?? "file"}` as I18nKey),
@@ -1421,11 +1431,12 @@ async function handleDeleteArtifact(
 }
 
 /**
- * A chat card's Open for a Document/App/Canvas/Slides: find out first that the
- * item is still there. If the server has no such item any more (deleted in the
- * Knowledge library or another tab) the card flips to its deleted state and
- * the panel does not open; any other failure (offline, a 5xx) lets the panel
- * try, which shows its own state.
+ * A chat card's or file row's Open: find out first that the item is still
+ * there. If the server has no such item any more (deleted in another tab) the
+ * card flips to its deleted state — an artifact by its own 404, a produced
+ * file by reading the conversation detail back, which then says its job's
+ * files are gone — and the panel does not open. Any other failure (offline, a
+ * 5xx) lets the panel try, which shows its own state.
  */
 async function openArtifactFromChat(
 	document: DocumentWorkspaceItem,
@@ -1434,6 +1445,17 @@ async function openArtifactFromChat(
 		presentation?: "docked" | "expanded";
 	} = {},
 ) {
+	if (
+		document.source === "chat_generated_file" &&
+		document.previewUrl &&
+		!(await chatFileStillExists(document.previewUrl))
+	) {
+		const detail = await fetchConversationDetail(data.conversation.id).catch(
+			() => null,
+		);
+		if (detail) applyConversationDetailMetadata(detail);
+		return;
+	}
 	if (document.artifactId && document.kind && document.kind !== "file") {
 		try {
 			await fetchArtifact(document.artifactId, data.conversation.id);
@@ -2190,7 +2212,15 @@ async function handleRetryFileProductionJob(jobId: string) {
 	// placeholder, this is the defense-in-depth twin.
 	if (isPendingFileProductionJobId(jobId)) return;
 	try {
-		const job = await retryFileProductionJobRequest(jobId);
+		// A job whose files were deleted has nothing failed to retry: its card
+		// offers Regenerate, which queues the SAME job again from the request it
+		// kept. Both come back as the job, queued, and replace it in place.
+		const wasDeleted = fileProductionJobs.some(
+			(job) => job.id === jobId && job.filesDeleted,
+		);
+		const job = wasDeleted
+			? await regenerateFileProductionJobRequest(jobId)
+			: await retryFileProductionJobRequest(jobId);
 		fileProductionJobs = mergeFileProductionJob(fileProductionJobs, job);
 	} catch (err) {
 		sendError =

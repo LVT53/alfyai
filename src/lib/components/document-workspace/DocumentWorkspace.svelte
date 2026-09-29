@@ -276,11 +276,9 @@ $effect(() => {
 let deleteConfirmOpen = $state(false);
 let rowMenuOpenId = $state<string | null>(null);
 
-/** Whether an item can be deleted from here: the page can delete, and it is one of the family's own kinds (a produced file's delete is the file's own). */
+/** Whether an item can be deleted from here: the page can delete, and it is one of the family's own items (a produced file too — the family's delete takes it through its own store). */
 function canDeleteItem(item: DocumentWorkspaceItem): boolean {
-	return Boolean(
-		onDeleteArtifact && item.artifactId && item.kind && item.kind !== "file",
-	);
+	return Boolean(onDeleteArtifact && item.artifactId && item.kind);
 }
 
 /** Header Delete, confirmed: the page deletes; then back to the list — or out of the panel when nothing is left to list. */

@@ -2467,6 +2467,42 @@ describe("DocumentWorkspace Delete (polish G2-A)", () => {
 		expect(onDeleteArtifact).toHaveBeenCalledTimes(1);
 	});
 
+	// A produced file is deleted through the same route (the family's delete
+	// takes it through its own store), so the File kind gets the same controls.
+	it("offers a produced file's row the same overflow, in the file's own words", async () => {
+		const onDeleteArtifact = vi.fn(async () => {});
+		const fileRow = makeWorkspaceDocument({
+			id: "chat-file-1",
+			artifactId: "file-artifact-1",
+			kind: "file",
+			title: "Trip summary.pdf",
+		});
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+			activeDocumentId: "doc-x",
+			list: { open: true, items: [fileRow] },
+			onDeleteArtifact,
+		});
+		const list = await screen.findByTestId("artifact-panel-list");
+
+		await fireEvent.click(
+			within(list).getByRole("button", {
+				name: "More actions for Trip summary.pdf",
+			}),
+		);
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Delete file" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this file?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => expect(onDeleteArtifact).toHaveBeenCalledWith(fileRow));
+	});
+
 	it("draws no overflow when the page cannot delete", async () => {
 		renderWorkspace({
 			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],

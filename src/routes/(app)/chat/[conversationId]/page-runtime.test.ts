@@ -278,8 +278,14 @@ vi.mock("$lib/client/api/conversations", () => ({
 	runConversationContextCompression: vi.fn(),
 }));
 
-vi.mock("$lib/client/api/file-production", () => ({
+vi.mock("$lib/client/api/file-production", async (importOriginal) => ({
+	// The real existence check (a ranged read through the test's own fetch),
+	// the rest stubbed.
+	chatFileStillExists: (
+		await importOriginal<typeof import("$lib/client/api/file-production")>()
+	).chatFileStillExists,
 	cancelFileProductionJob: vi.fn(),
+	regenerateFileProductionJob: vi.fn(),
 	retryFileProductionJob: vi.fn(),
 }));
 
@@ -1079,9 +1085,7 @@ describe("chat page runtime integration", () => {
 		// rows for the same item. Each row is an ArtifactCard (chrome="row",
 		// redesign §5.2): the whole row is the button, named after its title.
 		const list = await screen.findByTestId("artifact-panel-list");
-		await fireEvent.click(
-			within(list).getByRole("button", { name: /Vienna trip summary\.pdf/ }),
-		);
+		await fireEvent.click(within(list).getByTestId("artifact-row"));
 
 		const shell = await screen.findByRole("complementary", {
 			name: "Document workspace",
@@ -1167,9 +1171,7 @@ describe("chat page runtime integration", () => {
 		// the panel is still showing.
 		await fireEvent.click(countButton);
 		const list = await screen.findByTestId("artifact-panel-list");
-		await fireEvent.click(
-			within(list).getByRole("button", { name: /Vienna trip summary\.pdf/ }),
-		);
+		await fireEvent.click(within(list).getByTestId("artifact-row"));
 		await screen.findByRole("complementary", { name: "Document workspace" });
 		expect(countButton).toHaveAttribute("aria-pressed", "true");
 
@@ -1785,6 +1787,254 @@ describe("chat page runtime integration", () => {
 			} finally {
 				vi.unstubAllGlobals();
 			}
+		});
+	});
+
+	// Polish G2-A: a produced file deleted from the panel leaves its row in the
+	// chat as a deleted file, and Regenerate queues the same job again.
+	describe("produced files that were deleted", () => {
+		const producedFile = {
+			id: "chat-file-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-file-1",
+			artifactId: "file-artifact-1",
+			documentFamilyId: null,
+			documentFamilyStatus: null,
+			documentLabel: null,
+			documentRole: null,
+			versionNumber: 1,
+			originConversationId: null,
+			originAssistantMessageId: null,
+			sourceChatFileId: null,
+			filename: "Trip summary.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 2048,
+			createdAt: 1,
+		};
+		const fileSummary = {
+			id: "file-artifact-1",
+			kind: "file" as const,
+			title: "Trip summary.pdf",
+			conversationId: "conv-1",
+			versionNumber: 0,
+			commentCount: 0,
+			updatedAt: Date.now(),
+		};
+		const jobBase = {
+			id: "job-file-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-file-1",
+			title: "Trip summary",
+			status: "succeeded" as const,
+			stage: null,
+			createdAt: 1,
+			updatedAt: 2,
+			warnings: [],
+			dismissed: false,
+			error: null,
+			sourceMode: null,
+		};
+		const message = {
+			id: "assistant-file-1",
+			role: "assistant" as const,
+			content: "Here is the trip summary.",
+			timestamp: 1,
+		};
+
+		it("shows the file's row as deleted once the panel has deleted it, and Regenerate queues the same job", async () => {
+			const { regenerateFileProductionJob } = await import(
+				"$lib/client/api/file-production"
+			);
+			vi.mocked(regenerateFileProductionJob).mockResolvedValue({
+				...jobBase,
+				status: "queued",
+				files: [],
+			});
+			vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+				conversationDetailFixture({
+					messages: [message],
+					generatedFiles: [],
+					artifacts: [],
+					fileProductionJobs: [
+						{
+							...jobBase,
+							files: [],
+							filesDeleted: { canRegenerate: true },
+						},
+					],
+				}),
+			);
+			const fetchMock = vi.fn(
+				async (_input: RequestInfo | URL, _init?: RequestInit) =>
+					new Response(JSON.stringify({ ok: true }), {
+						headers: { "Content-Type": "application/json" },
+					}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				renderPage(
+					pageData({
+						messages: [message],
+						generatedFiles: [producedFile],
+						artifacts: [fileSummary],
+						fileProductionJobs: [
+							{
+								...jobBase,
+								files: [
+									{
+										id: "chat-file-1",
+										filename: "Trip summary.pdf",
+										mimeType: "application/pdf",
+										sizeBytes: 2048,
+										downloadUrl: "/api/chat/files/chat-file-1/download",
+										previewUrl: "/api/chat/files/chat-file-1/preview",
+										artifactId: "file-artifact-1",
+									},
+								],
+							},
+						],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByTestId("artifact-count-button"),
+				);
+				const list = await screen.findByTestId("artifact-panel-list");
+				await fireEvent.click(
+					within(list).getByRole("button", {
+						name: "More actions for Trip summary.pdf",
+					}),
+				);
+				await fireEvent.click(
+					await screen.findByRole("menuitem", { name: "Delete file" }),
+				);
+				const dialog = await screen.findByRole("dialog", {
+					name: "Delete this file?",
+				});
+				await fireEvent.click(
+					within(dialog).getByRole("button", { name: "Delete" }),
+				);
+
+				await waitFor(() => {
+					expect(fetchMock).toHaveBeenCalledWith(
+						"/api/artifacts/file-artifact-1?conversationId=conv-1",
+						{ method: "DELETE" },
+					);
+				});
+				const row = await screen.findByTestId("file-row-deleted");
+				expect(row).toHaveTextContent("Trip summary");
+				expect(row).toHaveTextContent("The file has been deleted");
+
+				await fireEvent.click(
+					within(row).getByRole("button", { name: "Regenerate Trip summary" }),
+				);
+
+				await waitFor(() => {
+					expect(regenerateFileProductionJob).toHaveBeenCalledWith(
+						"job-file-1",
+					);
+				});
+				// The same job, queued again: the deleted row gives way to the work.
+				await waitFor(() => {
+					expect(screen.queryByTestId("file-row-deleted")).toBeNull();
+				});
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("flips a file's row to deleted when its Open finds the file gone, without opening the panel", async () => {
+			vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+				conversationDetailFixture({
+					messages: [message],
+					generatedFiles: [],
+					artifacts: [],
+					fileProductionJobs: [
+						{
+							...jobBase,
+							files: [],
+							filesDeleted: { canRegenerate: true },
+						},
+					],
+				}),
+			);
+			const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+				String(input).startsWith("/api/chat/files/")
+					? new Response("{}", { status: 404 })
+					: new Response("{}", {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				renderPage(
+					pageData({
+						messages: [message],
+						generatedFiles: [producedFile],
+						artifacts: [fileSummary],
+						fileProductionJobs: [
+							{
+								...jobBase,
+								files: [
+									{
+										id: "chat-file-1",
+										filename: "Trip summary.pdf",
+										mimeType: "application/pdf",
+										sizeBytes: 2048,
+										downloadUrl: "/api/chat/files/chat-file-1/download",
+										previewUrl: "/api/chat/files/chat-file-1/preview",
+										artifactId: "file-artifact-1",
+									},
+								],
+							},
+						],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByRole("button", {
+						name: "Preview Trip summary.pdf",
+					}),
+				);
+
+				expect(await screen.findByTestId("file-row-deleted")).toHaveTextContent(
+					"The file has been deleted",
+				);
+				expect(fetchMock).toHaveBeenCalledWith(
+					"/api/chat/files/chat-file-1/preview",
+					{ headers: { Range: "bytes=0-0" } },
+				);
+				expect(screen.queryByTestId("workspace-main")).toBeNull();
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("shows a file that was deleted elsewhere as deleted straight from the server's answer", async () => {
+			renderPage(
+				pageData({
+					messages: [message],
+					generatedFiles: [],
+					artifacts: [],
+					fileProductionJobs: [
+						{
+							...jobBase,
+							files: [],
+							filesDeleted: { canRegenerate: false },
+						},
+					],
+				}),
+			);
+
+			const row = await screen.findByTestId("file-row-deleted");
+			expect(row).toHaveTextContent("The file has been deleted");
+			expect(row).toHaveTextContent(
+				"It can't be regenerated: the original request wasn't kept.",
+			);
+			expect(
+				within(row).queryByRole("button", { name: /Regenerate/ }),
+			).toBeNull();
 		});
 	});
 
