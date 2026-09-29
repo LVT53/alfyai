@@ -2146,22 +2146,29 @@ async function hydrateConversationDetail(conversationId: string) {
 			attachedArtifacts = payload.attachedArtifacts ?? attachedArtifacts;
 		}
 		const metadataIsFresh = requestMetadataEpoch === detailMetadataEpoch;
+		// Wave 2.5 review (F2): a create_artifact/edit_artifact turn's fresh
+		// versionNumber/pendingReviewCount must reach the chat card and the panel
+		// list row without a reload — ThinkingBlock.svelte's
+		// buildEnrichedToolActivityItem derives the card's `preview` from exactly
+		// this array. It is applied whichever side of the freshness boundary the
+		// answer lands on (polish G2-A): a tool call finishing mid-turn asks for
+		// this refresh, and the turn's final stream metadata moves the boundary
+		// while it is in flight — but that metadata carries no artifact list, so
+		// the answer is still the newest word on it. Nothing goes backwards:
+		// versions and edit times only rise (`observedArtifact*`), and an id this
+		// browser deleted while the answer was in flight stays deleted (the ids
+		// are added to, never replaced).
+		artifacts = payload.artifacts ?? artifacts;
+		deletedArtifactIds = (payload.deletedArtifactIds ?? []).reduce(
+			markArtifactDeleted,
+			deletedArtifactIds,
+		);
 		if (metadataIsFresh) {
 			contextStatus = payload.contextStatus ?? contextStatus;
 			taskState = payload.taskState ?? taskState;
 			contextDebug = payload.contextDebug ?? contextDebug;
 			generatedFiles = payload.generatedFiles ?? generatedFiles;
 			fileProductionJobs = payload.fileProductionJobs ?? fileProductionJobs;
-			// Wave 2.5 review (F2): missing here (unlike its sibling
-			// applyConversationDetailMetadata, the polling-fallback path's
-			// version of this same field list, which already includes it) —
-			// a create_artifact/edit_artifact turn's fresh versionNumber/
-			// pendingReviewCount never reached the chat card or panel list row
-			// without a full reload, since ThinkingBlock.svelte's
-			// buildEnrichedToolActivityItem derives the card's `preview` from
-			// exactly this array.
-			artifacts = payload.artifacts ?? artifacts;
-			deletedArtifactIds = payload.deletedArtifactIds ?? deletedArtifactIds;
 			atlasJobs = payload.atlasJobs ?? atlasJobs;
 			contextCompressionMarkers =
 				payload.contextCompressionSnapshots ?? contextCompressionMarkers;

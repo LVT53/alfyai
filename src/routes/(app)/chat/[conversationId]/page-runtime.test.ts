@@ -1281,6 +1281,148 @@ describe("chat page runtime integration", () => {
 		}
 	});
 
+	// Polish G2-A (the artifact-chat-card e2e raced on it): an edit_artifact
+	// call finishing mid-turn asks for a fresh conversation detail, and the
+	// turn's final stream metadata then moves the freshness boundary. When the
+	// answer lands after that it used to be dropped whole, so the list (and the
+	// chat card built on it) kept the version from before the edit until a
+	// reload. The stream metadata carries no artifact list, so the answer's
+	// list is applied whichever side of the boundary it lands on.
+	it("shows the version an edit made during the turn even when the turn's final metadata lands before the refresh answers", async () => {
+		let answerDetail: (
+			detail: Awaited<ReturnType<typeof fetchConversationDetail>>,
+		) => void = () => {};
+		vi.mocked(fetchConversationDetail).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					answerDetail = resolve;
+				}),
+		);
+		const summary = {
+			id: "doc-1",
+			kind: "document" as const,
+			title: "Trip plan",
+			conversationId: "conv-1",
+			versionNumber: 1,
+			commentCount: 0,
+			updatedAt: Date.now(),
+		};
+		renderPage(pageData({ artifacts: [summary] }));
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Tighten the plan" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const { callbacks } = runtimeHarness.streamInvocations[0];
+
+		// The edit finishes: the page asks for a fresh detail. It is not
+		// answered yet.
+		callbacks.onToolCall?.(
+			"edit_artifact",
+			{ artifactId: "doc-1", patches: [] },
+			"done",
+			{ callId: "call-1" },
+		);
+		await waitFor(() => {
+			expect(fetchConversationDetail).toHaveBeenCalled();
+		});
+
+		// The turn ends first; its metadata moves the freshness boundary.
+		callbacks.onToken("Applied.");
+		callbacks.onEnd("Applied.", {
+			userMessageId: "server-user-1",
+			assistantMessageId: "assistant-1",
+			totalTokens: 12,
+		});
+
+		// Now the refresh answers: the edit made version 2.
+		answerDetail(
+			conversationDetailFixture({
+				artifacts: [{ ...summary, versionNumber: 2, updatedAt: Date.now() }],
+			}),
+		);
+
+		await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+		const list = await screen.findByTestId("artifact-panel-list");
+		await waitFor(() => {
+			expect(within(list).getByTestId("artifact-row")).toHaveTextContent("v2");
+		});
+	});
+
+	// The other side of applying that list whatever the boundary says: an answer
+	// that was asked for before an item was deleted here still lists it, and
+	// must not bring it back.
+	it("keeps an item deleted here deleted when a refresh asked for before the delete answers after it", async () => {
+		const { deleteArtifact } = await import("$lib/client/api/artifacts");
+		let answerDetail: (
+			detail: Awaited<ReturnType<typeof fetchConversationDetail>>,
+		) => void = () => {};
+		vi.mocked(fetchConversationDetail).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					answerDetail = resolve;
+				}),
+		);
+		const summary = (id: string, title: string) => ({
+			id,
+			kind: "document" as const,
+			title,
+			conversationId: "conv-1",
+			versionNumber: 1,
+			commentCount: 0,
+			updatedAt: Date.now(),
+		});
+		renderPage(pageData({ artifacts: [summary("doc-1", "Trip plan")] }));
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Tighten the plan" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		runtimeHarness.streamInvocations[0].callbacks.onToolCall?.(
+			"create_artifact",
+			{ artifactType: "document", title: "Packing list", body: "- socks" },
+			"done",
+			{ callId: "call-1" },
+		);
+		await waitFor(() => {
+			expect(fetchConversationDetail).toHaveBeenCalled();
+		});
+
+		// Meanwhile the first item is deleted here.
+		await deleteArtifact(
+			"doc-1",
+			"conv-1",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ ok: true }), {
+						headers: { "Content-Type": "application/json" },
+					}),
+			),
+		);
+		await waitFor(() => {
+			expect(screen.queryByTestId("artifact-count-button")).toBeNull();
+		});
+
+		// The answer was asked for before that: it still lists the deleted item,
+		// and lists the new one the turn made.
+		answerDetail(
+			conversationDetailFixture({
+				artifacts: [
+					summary("doc-1", "Trip plan"),
+					summary("doc-2", "Packing list"),
+				],
+				// The server's own answer at that time: nothing deleted yet.
+				deletedArtifactIds: [],
+			}),
+		);
+
+		await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+		const list = await screen.findByTestId("artifact-panel-list");
+		const rows = within(list).getAllByTestId("artifact-row");
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toHaveTextContent("Packing list");
+	});
+
 	// Polish G2-A: "edited 2 min ago" (the header's meta line) and the list
 	// row's time were still the snapshot taken when the item was loaded or
 	// opened. They follow the same announcements the version does.
