@@ -4,6 +4,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -79,6 +80,109 @@ describe("VersionsSheet", () => {
 		expect(screen.getByText("v1")).toBeInTheDocument();
 		// Only the two non-current rows offer Restore.
 		expect(screen.getAllByRole("button", { name: "Restore" })).toHaveLength(2);
+	});
+
+	// Polish G1-B: compact two-line rows, as in the approved mockup.
+	describe("rows", () => {
+		it("put avatar, name, version tag and time on the first line and the summary on the second", async () => {
+			mockFetchVersions.mockResolvedValue(VERSIONS);
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+			const rows = await screen.findAllByTestId("version-row");
+			expect(rows).toHaveLength(3);
+			const second = rows[1];
+			expect(within(second).getByText("Alfy")).toBeInTheDocument();
+			expect(within(second).getByText("v2")).toBeInTheDocument();
+			expect(
+				within(second).getByText("Added bookings table"),
+			).toBeInTheDocument();
+			// Line one carries the name, the tag and the time — and only the
+			// newest row's line one also carries the Current pill.
+			const lineOne = second.querySelector(".versions-line1");
+			expect(lineOne).toHaveTextContent(/Alfy\s*v2\s*1 min ago/);
+			expect(lineOne).not.toHaveTextContent("Current");
+			expect(second.querySelector(".versions-summary")).toHaveTextContent(
+				"Added bookings table",
+			);
+		});
+
+		it("mark only the newest as Current, with a small pill, and offer it no Restore", async () => {
+			mockFetchVersions.mockResolvedValue(VERSIONS);
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+			const rows = await screen.findAllByTestId("version-row");
+			expect(within(rows[0]).getByText("Current")).toBeInTheDocument();
+			expect(
+				within(rows[0]).queryByRole("button", { name: "Restore" }),
+			).not.toBeInTheDocument();
+			expect(within(rows[1]).queryByText("Current")).not.toBeInTheDocument();
+			expect(
+				within(rows[1]).getByRole("button", { name: "Restore" }),
+			).toBeInTheDocument();
+		});
+
+		it("keep a summary line even when a version has none, so every row is the same height", async () => {
+			mockFetchVersions.mockResolvedValue([
+				{ ...VERSIONS[0], summary: "" },
+				VERSIONS[1],
+			]);
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+			const rows = await screen.findAllByTestId("version-row");
+			expect(rows[0].querySelector(".versions-summary")).not.toBeNull();
+		});
+	});
+
+	// Keyboard: the question takes focus, and Cancel gives it back, so nobody
+	// loses their place in the list.
+	describe("the inline restore question and keyboard focus", () => {
+		it("moves focus onto its confirming button when it opens, and Cancel returns focus to that row's Restore button", async () => {
+			mockFetchVersions.mockResolvedValue(VERSIONS);
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+			const rows = await screen.findAllByTestId("version-row");
+			const row = rows[1];
+			const restore = within(row).getByRole("button", { name: "Restore" });
+			await fireEvent.click(restore);
+
+			// Now the row's Restore button is the confirming one.
+			await waitFor(() => {
+				expect(within(row).getByText(/Restore v2\?/)).toBeInTheDocument();
+			});
+			const confirming = within(row).getByRole("button", { name: "Restore" });
+			expect(confirming).not.toBe(restore);
+			await waitFor(() => expect(document.activeElement).toBe(confirming));
+
+			await fireEvent.click(
+				within(row).getByRole("button", { name: "Cancel" }),
+			);
+			await waitFor(() => {
+				const back = within(row).getByRole("button", { name: "Restore" });
+				expect(document.activeElement).toBe(back);
+			});
+			expect(within(row).queryByText(/Restore v2\?/)).not.toBeInTheDocument();
+		});
+
+		it("opens the question in the row's own action area, hiding that row's Restore button", async () => {
+			mockFetchVersions.mockResolvedValue(VERSIONS);
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+			const rows = await screen.findAllByTestId("version-row");
+			await fireEvent.click(
+				within(rows[2]).getByRole("button", { name: "Restore" }),
+			);
+
+			await waitFor(() => {
+				expect(within(rows[2]).getByText(/Restore v1\?/)).toBeInTheDocument();
+			});
+			// One question at a time, in one row; the others keep their Restore.
+			expect(screen.getAllByText(/Restore v\d\?/)).toHaveLength(1);
+			expect(
+				within(rows[1]).getByRole("button", { name: "Restore" }),
+			).toBeInTheDocument();
+			expect(rows[2].querySelector(".versions-action")).toBeNull();
+			expect(rows[1].querySelector(".versions-action")).not.toBeNull();
+		});
 	});
 
 	// rd/review-2-5.md:272-275 — the user-authored row showed a placeholder
@@ -179,6 +283,40 @@ describe("VersionsSheet", () => {
 				expect(
 					screen.getByText("visszaállítva: Szerkesztve"),
 				).toBeInTheDocument();
+			});
+		});
+
+		// Wave 2.5 polish G1-B (spec §4.2 item 6): undoing Alfy's change is a
+		// version of its own, and the list names it in the reader's language.
+		it("shows Undo of Alfy's change in Hungarian, and in English as stored", async () => {
+			mockFetchVersions.mockResolvedValue([
+				{
+					id: "v4",
+					versionNumber: 4,
+					author: "user",
+					summary: "Undid Alfy's change",
+					createdAt: Date.now(),
+				},
+			]);
+			uiLanguage.set("hu");
+
+			const { unmount } = render(VersionsSheet, {
+				artifactId: "artifact-1",
+				onClose: vi.fn(),
+			});
+
+			await waitFor(() => {
+				expect(
+					screen.getByText("Alfy módosításának visszavonása"),
+				).toBeInTheDocument();
+			});
+			expect(screen.queryByText("Undid Alfy's change")).not.toBeInTheDocument();
+			unmount();
+
+			uiLanguage.set("en");
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+			await waitFor(() => {
+				expect(screen.getByText("Undid Alfy's change")).toBeInTheDocument();
 			});
 		});
 

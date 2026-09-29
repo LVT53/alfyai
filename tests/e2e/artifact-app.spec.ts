@@ -8,7 +8,7 @@ import {
 	artifactVersions,
 	users,
 } from "../../src/lib/server/db/schema";
-import { createConversation, login } from "./helpers";
+import { createConversation, expectTopmost, login } from "./helpers";
 
 // The App kind, end to end (Feature 2 · Artifacts, Slice 2).
 //
@@ -621,18 +621,10 @@ test.describe("the App kind, in the panel", () => {
 		// the sheet itself, even though `toBeVisible` (a DOM/CSS check only,
 		// never actual paint order) still passed. Mirrors
 		// artifact-document-comments.spec.ts's own topmost regression test.
-		const isOnTop = await sheet.evaluate((node) => {
-			const rect = node.getBoundingClientRect();
-			const top = document.elementFromPoint(
-				rect.x + rect.width / 2,
-				rect.y + 10,
-			);
-			return !!top && node.contains(top);
+		await expectTopmost(sheet, {
+			message:
+				"the regenerate sheet must be the topmost element, not painted under the phone panel",
 		});
-		expect(
-			isOnTop,
-			"the regenerate sheet must be the topmost element, not painted under the phone panel",
-		).toBe(true);
 
 		await page.keyboard.press("Escape");
 		await expect(sheet).toBeHidden();
@@ -666,18 +658,10 @@ test.describe("the App kind, in the panel", () => {
 		// Before the z-index fix, `.app-regen-popover` (z-index: 60) painted
 		// UNDER `.workspace-shell-expanded` (z-index: 115) — `toBeVisible`
 		// never catches that, since it checks DOM/CSS, not paint order.
-		const isOnTop = await popover.evaluate((node) => {
-			const rect = node.getBoundingClientRect();
-			const top = document.elementFromPoint(
-				rect.x + rect.width / 2,
-				rect.y + 10,
-			);
-			return !!top && node.contains(top);
+		await expectTopmost(popover, {
+			message:
+				"the regenerate popover must paint above the expanded panel, not under it",
 		});
-		expect(
-			isOnTop,
-			"the regenerate popover must paint above the expanded panel, not under it",
-		).toBe(true);
 
 		// One Escape closes only the innermost layer (redesign §5.4) — the
 		// popover — never both at once. Before the fix, DocumentWorkspace's

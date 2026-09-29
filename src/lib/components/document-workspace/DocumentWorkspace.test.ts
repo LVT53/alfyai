@@ -9,6 +9,9 @@ import {
 	renderWorkspace,
 } from "./DocumentWorkspace.test-helpers";
 
+/** The open panel's landmark is named for the item it shows ("Vienna trip plan, Document"; review 276-279), so it is found by that shape. */
+const WORKSPACE_LANDMARK = /, (Document|App|Canvas|Slides|File)$/;
+
 vi.mock("$lib/services/markdown", () => ({
 	renderHighlightedText: vi.fn(
 		async (content: string) => `<pre><code>${content}</code></pre>`,
@@ -127,7 +130,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		await fireEvent.click(
 			within(desktopWorkspace).getByRole("button", {
@@ -195,7 +198,7 @@ describe("DocumentWorkspace", () => {
 		).toBeInTheDocument();
 		expect(within(rail).getByText("2")).toHaveAccessibleName("2 open");
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		const main = within(desktopWorkspace).getByTestId("workspace-main");
 		expect(main).toContainElement(rail);
@@ -228,7 +231,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(
 			within(desktopWorkspace).getByText("Active document"),
@@ -354,7 +357,7 @@ describe("DocumentWorkspace", () => {
 			onCloseWorkspace: vi.fn(),
 		});
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		frames.shift()?.(0);
 		await tick();
@@ -397,7 +400,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		const main = within(desktopWorkspace).getByTestId("workspace-main");
 
@@ -471,7 +474,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 
 		await fireEvent.pointerDown(desktopWorkspace);
@@ -555,7 +558,7 @@ describe("DocumentWorkspace", () => {
 			screen.getAllByRole("region", { name: "slides.pptx" }).length,
 		).toBeGreaterThan(0);
 		expect(
-			screen.getByRole("complementary", { name: /document workspace/i }),
+			screen.getByRole("complementary", { name: WORKSPACE_LANDMARK }),
 		).toHaveClass("workspace-shell-desktop");
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 	});
@@ -608,7 +611,7 @@ describe("DocumentWorkspace", () => {
 		).toBeGreaterThan(0);
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		await rerender({ activeDocumentId: "knowledge-xlsx" });
 
@@ -667,13 +670,13 @@ describe("DocumentWorkspace", () => {
 			"/api/chat/files/chat-image/preview",
 		);
 		let desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(desktopWorkspace).not.toHaveClass("workspace-shell-expanded");
 
 		await rerender({ presentation: "expanded" });
 		desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(desktopWorkspace).toHaveClass("workspace-shell-expanded");
 		expect(screen.getAllByAltText("chart.png").length).toBeGreaterThan(0);
@@ -724,7 +727,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 
 			expect(
@@ -770,7 +773,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 
 			expect(desktopWorkspace.style.width).toBe("950px");
@@ -798,7 +801,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 			const resizeHandle =
 				within(desktopWorkspace).getByTestId("resize-handle");
@@ -841,7 +844,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 			const resizeHandle =
 				within(desktopWorkspace).getByTestId("resize-handle");
@@ -887,7 +890,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 			const resizeHandle =
 				within(desktopWorkspace).getByTestId("resize-handle");
@@ -931,7 +934,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 			const resizeHandle =
 				within(desktopWorkspace).getByTestId("resize-handle");
@@ -982,7 +985,7 @@ describe("DocumentWorkspace", () => {
 			await rerender({ open: true });
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 
 			const classList = desktopWorkspace.className;
@@ -1017,7 +1020,7 @@ describe("DocumentWorkspace", () => {
 			await rerender({ open: true });
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 
 			const style = window.getComputedStyle(desktopWorkspace);
@@ -1068,7 +1071,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(
 			within(desktopWorkspace).getByText("Version History"),
@@ -1148,7 +1151,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(
 			within(desktopWorkspace).queryByTestId("open-documents-rail"),
@@ -1192,7 +1195,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(
 			within(desktopWorkspace).queryByRole("button", {
@@ -1288,7 +1291,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		await fireEvent.click(
 			within(desktopWorkspace).getByRole("button", {
@@ -1654,6 +1657,125 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			import("./__fixtures__/FakeArtifactBody.svelte");
 	}
 
+	// rd/review-2-5.md:276-279 — the landmark carried one generic name ("Document
+	// workspace") for every item, so a screen reader entering it heard nothing
+	// about what it held. It is named for the open item now.
+	describe("the panel landmark is named for what it shows (review 276-279)", () => {
+		it("names an open Document 'title, Document' — desktop landmark and phone region alike", async () => {
+			withDocumentLoader();
+			renderWorkspace({
+				documents: [
+					makeWorkspaceDocument({
+						id: "doc-1",
+						kind: "document",
+						title: "Vienna trip plan",
+						mimeType: null,
+					}),
+				],
+				activeDocumentId: "doc-1",
+			});
+			await screen.findByTestId("fake-artifact-body");
+			expect(
+				screen.getByRole("complementary", {
+					name: "Vienna trip plan, Document",
+				}),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("region", { name: "Vienna trip plan, Document" }),
+			).toBeInTheDocument();
+			expect(
+				screen.queryByRole("complementary", { name: "Document workspace" }),
+			).not.toBeInTheDocument();
+		});
+
+		it("names an item by its own kind: an App is 'title, App'", async () => {
+			renderWorkspace({
+				documents: [
+					makeWorkspaceDocument({
+						id: "app-1",
+						kind: "app",
+						title: "Budget tracker",
+						mimeType: null,
+					}),
+				],
+				activeDocumentId: "app-1",
+			});
+			expect(
+				await screen.findByRole("complementary", {
+					name: "Budget tracker, App",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("names a file (an upload or a produced file) 'filename, File'", async () => {
+			renderWorkspace({
+				documents: [
+					makeWorkspaceDocument({
+						id: "file-1",
+						title: "Quarterly report",
+					}),
+				],
+				activeDocumentId: "file-1",
+			});
+			expect(
+				await screen.findByRole("complementary", {
+					name: "Quarterly report, File",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("follows the selection: the name changes when another item opens", async () => {
+			withDocumentLoader();
+			const first = makeWorkspaceDocument({
+				id: "doc-1",
+				kind: "document",
+				title: "Vienna trip plan",
+				mimeType: null,
+			});
+			const second = makeWorkspaceDocument({
+				id: "doc-2",
+				kind: "document",
+				title: "Budget",
+				mimeType: null,
+			});
+			const { rerender } = renderWorkspace({
+				documents: [first, second],
+				activeDocumentId: "doc-1",
+			});
+			await screen.findByRole("complementary", {
+				name: "Vienna trip plan, Document",
+			});
+			await rerender({ documents: [first, second], activeDocumentId: "doc-2" });
+			expect(
+				await screen.findByRole("complementary", { name: "Budget, Document" }),
+			).toBeInTheDocument();
+		});
+
+		it("names the list for what it lists, not 'Document workspace'", async () => {
+			renderWorkspace({
+				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+				activeDocumentId: "doc-1",
+				list: {
+					open: true,
+					items: [
+						{
+							...makeWorkspaceDocument({
+								id: "list-1",
+								title: "Vienna itinerary",
+							}),
+						},
+					],
+					title: "What this chat made",
+				},
+			});
+			expect(
+				await screen.findByRole("complementary", {
+					name: "What this chat made",
+				}),
+			).toBeInTheDocument();
+		});
+	});
+
 	it("renders the shared header for an artifact-kind item, not the legacy eyebrow/source pill", async () => {
 		withDocumentLoader();
 		renderWorkspace({
@@ -1671,7 +1793,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 
 		await screen.findByTestId("fake-artifact-body");
 		const shell = screen.getAllByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		})[0];
 
 		expect(
@@ -1695,6 +1817,120 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		expect(
 			within(shell).queryByRole("button", { name: "History" }),
 		).not.toBeInTheDocument();
+	});
+
+	// Wave 2.5 polish G1-B (one version number everywhere): the open item now
+	// arrives as a NEW object whenever its version number moves. The body
+	// registers its panel actions once, when it mounts, so the workspace must
+	// reset them only when a DIFFERENT item is open — never because the same
+	// item's number changed, which would turn the version button back into
+	// plain text for good.
+	it("keeps the version button a button when the open item's own version number changes", async () => {
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeVersionedArtifactBody.svelte");
+		const doc = (versionNumber: number) =>
+			makeWorkspaceDocument({
+				id: "doc-1",
+				kind: "document",
+				title: "Vienna trip plan",
+				versionNumber,
+				mimeType: null,
+			});
+		const { rerender } = renderWorkspace({
+			documents: [doc(1)],
+			activeDocumentId: "doc-1",
+		});
+		await screen.findByTestId("fake-versioned-artifact-body");
+		const shell = screen.getAllByRole("complementary", {
+			name: WORKSPACE_LANDMARK,
+		})[0];
+		await waitFor(() => {
+			expect(
+				within(shell).getByRole("button", { name: "Version 1" }),
+			).toBeInTheDocument();
+		});
+
+		await rerender({ documents: [doc(4)], activeDocumentId: "doc-1" });
+
+		await waitFor(() => {
+			expect(
+				within(shell).getByTestId("artifact-version-pill"),
+			).toHaveTextContent("v4");
+		});
+		expect(
+			within(shell).getByRole("button", { name: "Version 4" }),
+		).toBeInTheDocument();
+	});
+
+	// Final polish D1 (rd/recheck2.md): the body registers its actions once, when
+	// it mounts, and the workspace used to null them on every change of the open
+	// item — after that swap the header never got them back. Whatever item the
+	// panel shows, in whatever order (a second Document, a file in between, back
+	// to the first), the header carries the controls of the body that is mounted
+	// for it.
+	it("gives every item the panel swaps to its own header controls: a second Document, a file in between, and back (final polish D1)", async () => {
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeVersionedArtifactBody.svelte");
+		const documents = [
+			makeWorkspaceDocument({
+				id: "doc-1",
+				kind: "document",
+				title: "Alpha",
+				versionNumber: 1,
+				mimeType: null,
+			}),
+			makeWorkspaceDocument({
+				id: "doc-2",
+				kind: "document",
+				title: "Beta",
+				versionNumber: 2,
+				mimeType: null,
+			}),
+			makeWorkspaceDocument({
+				id: "file-1",
+				kind: "file",
+				title: "Notes.pdf",
+				versionNumber: 1,
+				mimeType: "application/pdf",
+			}),
+		];
+		const { rerender } = renderWorkspace({
+			documents,
+			activeDocumentId: "doc-1",
+		});
+		const shell = () =>
+			screen.getAllByRole("complementary", { name: WORKSPACE_LANDMARK })[0];
+		const expectVersionsButton = async (title: string, version: string) => {
+			await waitFor(() => {
+				expect(
+					within(shell()).getByRole("heading", { name: title }),
+				).toBeInTheDocument();
+				expect(
+					within(shell()).getByRole("button", { name: `Version ${version}` }),
+				).toBeInTheDocument();
+			});
+		};
+
+		await screen.findByTestId("fake-versioned-artifact-body");
+		await expectVersionsButton("Alpha", "1");
+
+		await rerender({ documents, activeDocumentId: "doc-2" });
+		await expectVersionsButton("Beta", "2");
+
+		// A file has no body to register anything: its header must not keep the
+		// Document's button (a closure over a body that is gone).
+		await rerender({ documents, activeDocumentId: "file-1" });
+		await waitFor(() => {
+			expect(
+				within(shell()).getByRole("heading", { name: "Notes.pdf" }),
+			).toBeInTheDocument();
+		});
+		expect(
+			within(shell()).queryByRole("button", { name: /^Version \d+$/ }),
+		).not.toBeInTheDocument();
+
+		await rerender({ documents, activeDocumentId: "doc-1" });
+		await expectVersionsButton("Alpha", "1");
 	});
 
 	it("moves focus to the panel title when a document opens (redesign §5.4, Wave 2.5 review F2)", async () => {
@@ -1744,7 +1980,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 
 		await screen.findByTestId("fake-artifact-body");
 		const shell = screen.getAllByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		})[0];
 		expect(
 			within(shell).getByText("You and Alfy · edited 5 min ago"),
@@ -1763,7 +1999,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		});
 
 		const shell = await screen.findByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(within(shell).getByText("Active document")).toBeInTheDocument();
 		expect(
@@ -1782,7 +2018,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 
 		await screen.findByTestId("fake-artifact-body");
 		const shell = screen.getAllByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		})[0];
 		await fireEvent.click(
 			within(shell).getByRole("button", { name: "This chat" }),
@@ -1803,7 +2039,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 
 		await screen.findByTestId("fake-artifact-body");
 		const shell = screen.getAllByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		})[0];
 		await fireEvent.click(
 			within(shell).getByRole("button", { name: "Close document workspace" }),
@@ -1957,6 +2193,63 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 		);
 	});
 
+	// The parent can also close the list onto an item with no list row involved —
+	// the chat's own card Open — and the item must still arrive as the list's
+	// push, not with the direction the last push happened to leave behind (here
+	// the breadcrumb's, from the left).
+	it("pushes the item in from the right, immediately, when the parent closes the list with no list row pressed", async () => {
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeArtifactBody.svelte");
+		try {
+			const doc = makeWorkspaceDocument({
+				id: "doc-1",
+				kind: "document",
+				title: "Plan",
+			});
+			const { rerender, onListOpenChange, onSelectDocument } = renderWorkspace({
+				documents: [doc],
+				activeDocumentId: "doc-1",
+				list: { open: false, items: [doc] },
+			});
+			await screen.findByTestId("fake-artifact-body");
+			await tick();
+
+			const shell = screen.getAllByRole("complementary", {
+				name: WORKSPACE_LANDMARK,
+			})[0];
+			await fireEvent.click(
+				within(shell).getByRole("button", { name: /This chat/ }),
+			);
+			await rerender({
+				documents: [doc],
+				activeDocumentId: "doc-1",
+				list: { open: true, items: [doc] },
+			});
+			await tick();
+			animateSpy.mockClear();
+			vi.mocked(onListOpenChange).mockClear();
+
+			await rerender({
+				documents: [doc],
+				activeDocumentId: "doc-1",
+				list: { open: false, items: [doc] },
+			});
+			await tick();
+
+			expect(onSelectDocument).not.toHaveBeenCalled();
+			expect(onListOpenChange).not.toHaveBeenCalled();
+			expect(animateSpy).toHaveBeenCalledWith(
+				[
+					{ opacity: 0, transform: "translateX(32px)" },
+					{ opacity: 1, transform: "translateX(0)" },
+				],
+				expect.objectContaining({ delay: 0 }),
+			);
+		} finally {
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
 	it("pulls the list in from the left, immediately, from the header's breadcrumb", async () => {
 		ARTIFACT_BODIES.document = () =>
 			import("./__fixtures__/FakeArtifactBody.svelte");
@@ -1976,7 +2269,7 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 			animateSpy.mockClear();
 
 			const shell = screen.getAllByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			})[0];
 			await fireEvent.click(
 				within(shell).getByRole("button", { name: /This chat/ }),
@@ -2060,7 +2353,7 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		// exist in jsdom at once (no media query), so an unscoped query would
 		// see the header twice, exactly like every other panel test here.
 		const shell = await screen.findByRole("complementary", {
-			name: "Document workspace",
+			name: "What this chat made",
 		});
 		expect(within(shell).getByText("What this chat made")).toBeInTheDocument();
 
@@ -2136,7 +2429,7 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		// The panel itself is still open, showing the document.
 		expect(
 			screen.getAllByRole("complementary", {
-				name: "Document workspace",
+				name: "What this chat made",
 			}).length,
 		).toBeGreaterThan(0);
 	});
@@ -2226,6 +2519,528 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 			const list = await screen.findByTestId("artifact-panel-list");
 			expect(within(list).getByText("Old cached row")).toBeInTheDocument();
 			expect(within(list).queryByRole("checkbox")).not.toBeInTheDocument();
+		});
+	});
+});
+
+// Polish G2-A: Delete for whatever is open in the panel — from the header, and
+// from each list row's overflow. The workspace only asks and reports (the
+// page deletes); a finished delete goes back to the list, or closes the panel
+// when nothing is left to list.
+describe("DocumentWorkspace Delete (polish G2-A)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		global.fetch = vi.fn();
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeArtifactBody.svelte");
+	});
+
+	afterEach(() => {
+		delete ARTIFACT_BODIES.document;
+	});
+
+	const document1 = () =>
+		makeWorkspaceDocument({
+			id: "artifact:doc-1",
+			artifactId: "doc-1",
+			kind: "document",
+			title: "Vienna trip plan",
+			versionNumber: 2,
+			mimeType: null,
+		});
+
+	async function desktopShell() {
+		return (
+			await screen.findAllByRole("complementary", {
+				name: WORKSPACE_LANDMARK,
+			})
+		)[0];
+	}
+
+	it("offers Delete in the header of an open item, only when the page can delete", async () => {
+		renderWorkspace({
+			documents: [document1()],
+			activeDocumentId: "artifact:doc-1",
+		});
+		await screen.findByTestId("fake-artifact-body");
+		const shell = await desktopShell();
+		expect(
+			within(shell).queryByRole("button", { name: "Delete document" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("asks first, then deletes the open item and goes back to the list", async () => {
+		const onDeleteArtifact = vi.fn(async () => {});
+		const onListOpenChange = vi.fn();
+		const item = document1();
+		renderWorkspace({
+			documents: [item],
+			activeDocumentId: item.id,
+			list: {
+				open: false,
+				items: [
+					item,
+					makeWorkspaceDocument({
+						id: "artifact:doc-2",
+						artifactId: "doc-2",
+						kind: "document",
+						title: "Other",
+					}),
+				],
+			},
+			onDeleteArtifact,
+			onListOpenChange,
+		});
+		await screen.findByTestId("fake-artifact-body");
+		const shell = await desktopShell();
+
+		await fireEvent.click(
+			within(shell).getByRole("button", { name: "Delete document" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this document?",
+		});
+		expect(onDeleteArtifact).not.toHaveBeenCalled();
+
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => expect(onDeleteArtifact).toHaveBeenCalledWith(item));
+		await waitFor(() => expect(onListOpenChange).toHaveBeenCalledWith(true));
+	});
+
+	it("closes the panel instead when the deleted item was the last one", async () => {
+		const onDeleteArtifact = vi.fn(async () => {});
+		const onListOpenChange = vi.fn();
+		const onCloseWorkspace = vi.fn();
+		const item = document1();
+		renderWorkspace({
+			documents: [item],
+			activeDocumentId: item.id,
+			// The page has already dropped the deleted row by the time the
+			// delete resolves: nothing is left to list.
+			list: { open: false, items: [] },
+			onDeleteArtifact,
+			onListOpenChange,
+			onCloseWorkspace,
+		});
+		await screen.findByTestId("fake-artifact-body");
+		const shell = await desktopShell();
+
+		await fireEvent.click(
+			within(shell).getByRole("button", { name: "Delete document" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this document?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => expect(onCloseWorkspace).toHaveBeenCalled());
+		expect(onListOpenChange).not.toHaveBeenCalledWith(true);
+	});
+
+	it("keeps the item when the delete fails, and says so", async () => {
+		const onDeleteArtifact = vi.fn(async () => {
+			throw new Error("boom");
+		});
+		const onCloseWorkspace = vi.fn();
+		renderWorkspace({
+			documents: [document1()],
+			activeDocumentId: "artifact:doc-1",
+			list: { open: false, items: [document1()] },
+			onDeleteArtifact,
+			onCloseWorkspace,
+		});
+		await screen.findByTestId("fake-artifact-body");
+		const shell = await desktopShell();
+
+		await fireEvent.click(
+			within(shell).getByRole("button", { name: "Delete document" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this document?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		expect((await within(dialog).findByRole("alert")).textContent).toBe(
+			"Couldn't delete this. Try again.",
+		);
+		expect(onCloseWorkspace).not.toHaveBeenCalled();
+	});
+
+	it("lands focus on the list's heading once a deleted item's controls are gone", async () => {
+		const rows = [
+			makeWorkspaceDocument({
+				id: "artifact:doc-1",
+				artifactId: "doc-1",
+				kind: "document",
+				title: "Vienna itinerary",
+			}),
+			makeWorkspaceDocument({
+				id: "artifact:doc-2",
+				artifactId: "doc-2",
+				kind: "document",
+				title: "Packing list",
+			}),
+		];
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+			activeDocumentId: "doc-x",
+			list: { open: true, items: rows },
+			onDeleteArtifact: vi.fn(async () => {}),
+		});
+		const list = await screen.findByTestId("artifact-panel-list");
+		await fireEvent.click(
+			within(list).getByRole("button", {
+				name: "More actions for Vienna itinerary",
+			}),
+		);
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Delete document" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this document?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => {
+			expect(document.activeElement).toHaveAttribute(
+				"data-testid",
+				"artifact-panel-list-title",
+			);
+		});
+	});
+
+	it("gives each list row an overflow that leads to the same confirm, for that row's item", async () => {
+		const onDeleteArtifact = vi.fn(async () => {});
+		const rows = [
+			makeWorkspaceDocument({
+				id: "artifact:doc-1",
+				artifactId: "doc-1",
+				kind: "document",
+				title: "Vienna itinerary",
+			}),
+			makeWorkspaceDocument({
+				id: "artifact:app-1",
+				artifactId: "app-1",
+				kind: "app",
+				title: "Trip budget",
+			}),
+		];
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+			activeDocumentId: "doc-x",
+			list: { open: true, items: rows },
+			onDeleteArtifact,
+		});
+		const list = await screen.findByTestId("artifact-panel-list");
+
+		await fireEvent.click(
+			within(list).getByRole("button", {
+				name: "More actions for Trip budget",
+			}),
+		);
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Delete app" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this app?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => expect(onDeleteArtifact).toHaveBeenCalledWith(rows[1]));
+		expect(onDeleteArtifact).toHaveBeenCalledTimes(1);
+	});
+
+	it("closes the panel when the row just deleted was the last one, instead of leaving an empty list", async () => {
+		const onDeleteArtifact = vi.fn(async (_item: DocumentWorkspaceItem) => {});
+		const onCloseWorkspace = vi.fn();
+		const only = makeWorkspaceDocument({
+			id: "artifact:doc-1",
+			artifactId: "doc-1",
+			kind: "document",
+			title: "Vienna itinerary",
+		});
+		// The page has already dropped the deleted row by the time the delete
+		// resolves; the workspace is shown the list as it is then.
+		const { rerender } = renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+			activeDocumentId: "doc-x",
+			list: { open: true, items: [only] },
+			onDeleteArtifact: vi.fn(async (item: DocumentWorkspaceItem) => {
+				await onDeleteArtifact(item);
+				await rerender({
+					list: { open: true, items: [] },
+				});
+			}),
+			onCloseWorkspace,
+		});
+		const list = await screen.findByTestId("artifact-panel-list");
+		await fireEvent.click(
+			within(list).getByRole("button", {
+				name: "More actions for Vienna itinerary",
+			}),
+		);
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Delete document" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this document?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => expect(onCloseWorkspace).toHaveBeenCalled());
+	});
+
+	// A produced file is deleted through the same route (the family's delete
+	// takes it through its own store), so the File kind gets the same controls.
+	it("offers a produced file's row the same overflow, in the file's own words", async () => {
+		const onDeleteArtifact = vi.fn(async () => {});
+		const fileRow = makeWorkspaceDocument({
+			id: "chat-file-1",
+			artifactId: "file-artifact-1",
+			kind: "file",
+			title: "Trip summary.pdf",
+		});
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+			activeDocumentId: "doc-x",
+			list: { open: true, items: [fileRow] },
+			onDeleteArtifact,
+		});
+		const list = await screen.findByTestId("artifact-panel-list");
+
+		await fireEvent.click(
+			within(list).getByRole("button", {
+				name: "More actions for Trip summary.pdf",
+			}),
+		);
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Delete file" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this file?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => expect(onDeleteArtifact).toHaveBeenCalledWith(fileRow));
+	});
+
+	it("draws no overflow when the page cannot delete", async () => {
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+			activeDocumentId: "doc-x",
+			list: {
+				open: true,
+				items: [
+					makeWorkspaceDocument({
+						id: "artifact:doc-1",
+						artifactId: "doc-1",
+						kind: "document",
+						title: "Vienna itinerary",
+					}),
+				],
+			},
+		});
+		const list = await screen.findByTestId("artifact-panel-list");
+		expect(
+			within(list).queryByRole("button", { name: /More actions/ }),
+		).not.toBeInTheDocument();
+	});
+
+	// The security review's L2: the confirm promises a way back only for an item
+	// the chat can make again — the live list's word on it, in the header and in
+	// a row's overflow alike.
+	describe("what the confirm promises", () => {
+		it("offers the way back in the header's confirm when the list says the chat can make the item again", async () => {
+			const item = { ...document1(), canRegenerate: true };
+			renderWorkspace({
+				documents: [document1()],
+				activeDocumentId: "artifact:doc-1",
+				list: { open: false, items: [item] },
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			await screen.findByTestId("fake-artifact-body");
+			const shell = await desktopShell();
+
+			await fireEvent.click(
+				within(shell).getByRole("button", { name: "Delete document" }),
+			);
+
+			const dialog = await screen.findByRole("dialog", {
+				name: "Delete this document?",
+			});
+			expect(dialog.textContent).toContain(
+				"You can regenerate it from the chat.",
+			);
+			expect(dialog.textContent).not.toContain("can't be undone");
+		});
+
+		it("keeps the plain warning when the list says nothing about it", async () => {
+			renderWorkspace({
+				documents: [document1()],
+				activeDocumentId: "artifact:doc-1",
+				list: { open: false, items: [document1()] },
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			await screen.findByTestId("fake-artifact-body");
+			const shell = await desktopShell();
+
+			await fireEvent.click(
+				within(shell).getByRole("button", { name: "Delete document" }),
+			);
+
+			const dialog = await screen.findByRole("dialog", {
+				name: "Delete this document?",
+			});
+			expect(dialog.textContent).toContain("This can't be undone.");
+		});
+
+		it("says it per row, from a row's overflow", async () => {
+			renderWorkspace({
+				documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+				activeDocumentId: "doc-x",
+				list: {
+					open: true,
+					items: [
+						makeWorkspaceDocument({
+							id: "artifact:doc-1",
+							artifactId: "doc-1",
+							kind: "document",
+							title: "Vienna itinerary",
+							canRegenerate: true,
+						}),
+						makeWorkspaceDocument({
+							id: "artifact:doc-2",
+							artifactId: "doc-2",
+							kind: "document",
+							title: "Packing list",
+						}),
+					],
+				},
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			const list = await screen.findByTestId("artifact-panel-list");
+
+			await fireEvent.click(
+				within(list).getByRole("button", {
+					name: "More actions for Packing list",
+				}),
+			);
+			await fireEvent.click(
+				await screen.findByRole("menuitem", { name: "Delete document" }),
+			);
+			expect((await screen.findByRole("dialog")).textContent).toContain(
+				"This can't be undone.",
+			);
+		});
+	});
+
+	// The security review's L1: Delete acts only on what THIS conversation made.
+	// A fork's card names — and its panel opens — the parent's Document, which
+	// says where it was made; nothing in the header or the list offers to delete
+	// it from here.
+	describe("an item another conversation made", () => {
+		const parents = () =>
+			makeWorkspaceDocument({
+				id: "artifact:doc-1",
+				artifactId: "doc-1",
+				kind: "document",
+				title: "Vienna trip plan",
+				conversationId: "conv-parent",
+			});
+
+		it("has no Delete in the header of the open item", async () => {
+			renderWorkspace({
+				documents: [parents()],
+				activeDocumentId: "artifact:doc-1",
+				conversationId: "conv-fork",
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			await screen.findByTestId("fake-artifact-body");
+			const shell = await desktopShell();
+
+			expect(
+				within(shell).queryByRole("button", { name: "Delete document" }),
+			).not.toBeInTheDocument();
+		});
+
+		it("has the header's Delete when this conversation made it", async () => {
+			renderWorkspace({
+				documents: [{ ...parents(), conversationId: "conv-fork" }],
+				activeDocumentId: "artifact:doc-1",
+				conversationId: "conv-fork",
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			await screen.findByTestId("fake-artifact-body");
+			const shell = await desktopShell();
+
+			expect(
+				within(shell).getByRole("button", { name: "Delete document" }),
+			).toBeInTheDocument();
+		});
+
+		it("has no overflow on its list row, while a row this conversation made keeps its own", async () => {
+			renderWorkspace({
+				documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+				activeDocumentId: "doc-x",
+				conversationId: "conv-fork",
+				list: {
+					open: true,
+					items: [
+						parents(),
+						makeWorkspaceDocument({
+							id: "artifact:doc-2",
+							artifactId: "doc-2",
+							kind: "document",
+							title: "Packing list",
+							conversationId: "conv-fork",
+						}),
+					],
+				},
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			const list = await screen.findByTestId("artifact-panel-list");
+
+			expect(
+				within(list).queryByRole("button", {
+					name: "More actions for Vienna trip plan",
+				}),
+			).not.toBeInTheDocument();
+			expect(
+				within(list).getByRole("button", {
+					name: "More actions for Packing list",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("still offers Delete when the item does not say where it was made (nothing to contradict)", async () => {
+			renderWorkspace({
+				documents: [{ ...parents(), conversationId: undefined }],
+				activeDocumentId: "artifact:doc-1",
+				conversationId: "conv-fork",
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			await screen.findByTestId("fake-artifact-body");
+			const shell = await desktopShell();
+
+			expect(
+				within(shell).getByRole("button", { name: "Delete document" }),
+			).toBeInTheDocument();
 		});
 	});
 });

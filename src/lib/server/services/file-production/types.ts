@@ -151,4 +151,20 @@ export interface FileProductionJob {
 	 * since it never wrote the column at all.
 	 */
 	sourceMode: string | null;
+	/**
+	 * Set on a succeeded job whose files were all deleted (the panel's Delete of
+	 * a File): the chat says "The file has been deleted" instead of showing an
+	 * empty card. `canRegenerate`: the job kept the request it was made from, so
+	 * the same job can make the file again. A job that lost only some of its
+	 * files is not marked — its remaining files show as ever.
+	 */
+	filesDeleted?: { canRegenerate: boolean };
+	/**
+	 * Set on a succeeded job that kept the request it was made from: the same
+	 * job can make its files again, which is what lets the delete confirm say
+	 * "you can regenerate it from the chat" and not "it can't be undone".
+	 * Absent for a legacy job with no request and for any job that has not
+	 * succeeded.
+	 */
+	canRegenerate?: true;
 }

@@ -116,6 +116,9 @@ describe("buildChangePillDecorations", () => {
 		const bar = el?.querySelector('[data-testid="alfy-change-bar"]');
 		expect(bar).not.toBeNull();
 		expect(bar?.textContent).toContain("Keep");
+		// G3: the keyboard chord for Undo/Redo finds the change a focused pill
+		// button belongs to through this.
+		expect((el as HTMLElement).dataset.changeId).toBe(changeId);
 
 		const keepButton = el?.querySelector(
 			`button[aria-label="Keep Alfy's change"]`,

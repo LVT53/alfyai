@@ -23,6 +23,7 @@ import { t } from "$lib/i18n";
 import {
 	DOCUMENT_TOOLBAR_ACTIONS,
 	type DocumentToolbarActionId,
+	toolbarActionText,
 } from "./toolbar-actions";
 
 let {
@@ -76,7 +77,7 @@ function handleToolbarKeydown(event: KeyboardEvent): void {
 	{#each DOCUMENT_TOOLBAR_ACTIONS as action, index (action.id)}
 		{@const Icon = action.icon}
 		{@const isActive = !action.momentary && activeActionIds.has(action.id)}
-		{@const label = $t(action.labelKey, action.labelParams)}
+		{@const text = toolbarActionText(action, $t)}
 		{#if index > 0 && DOCUMENT_TOOLBAR_ACTIONS[index - 1].group !== action.group}
 			<span class="document-toolbar-divider" aria-hidden="true"></span>
 		{/if}
@@ -88,8 +89,9 @@ function handleToolbarKeydown(event: KeyboardEvent): void {
 			{disabled}
 			tabindex={index === rovingIndex ? 0 : -1}
 			aria-pressed={action.momentary ? undefined : isActive}
-			aria-label={label}
-			title={label}
+			aria-label={text.label}
+			aria-keyshortcuts={text.ariaKeyShortcuts}
+			title={text.label}
 			onclick={() => {
 				rovingIndex = index;
 				onAction(action.id);

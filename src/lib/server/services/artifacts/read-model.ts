@@ -4,6 +4,7 @@
 // payload the chat page already refreshes after a file-producing turn.
 import { and, count, desc, eq, inArray, max } from "drizzle-orm";
 import { db } from "$lib/server/db";
+import { selectInBatches } from "$lib/server/db/id-batches";
 import {
 	artifactComments,
 	artifacts,
@@ -223,4 +224,82 @@ export async function listArtifactsForConversation(params: {
 					: {}),
 		};
 	});
+}
+
+/**
+ * What became of the artifact ids a conversation's tool calls named, so a
+ * card can tell the two apart:
+ *
+ * - `deleted`: no item of the caller's holds the id any more (deleted in the
+ *   panel, the Knowledge library or another tab). Another user's row reads
+ *   exactly like a missing one — nothing about it, not even that it exists,
+ *   is revealed.
+ * - `unreachable`: the caller's OWN item, which exists but cannot be reached
+ *   from this conversation — the parent of a forked incognito chat (the fork
+ *   is incognito too, and a fork copies the parent's tool calls but never its
+ *   items), or a row whose chat link was cleared. It is not deleted, so the
+ *   card must not say so, and nothing may regenerate it: it is still there.
+ *   Containment is unchanged; only "there is one" is said, to its own owner.
+ *
+ * "Reachable" is the very same ownership condition every artifact read uses.
+ * A conversation that is not the caller's answers nothing at all.
+ */
+export async function listMissingArtifactIds(params: {
+	userId: string;
+	conversationId: string;
+	artifactIds: readonly string[];
+}): Promise<{ deleted: string[]; unreachable: string[] }> {
+	const wanted = [...new Set(params.artifactIds)];
+	if (wanted.length === 0) return { deleted: [], unreachable: [] };
+	const ownershipScope = await getArtifactOwnershipScope(params.userId, {
+		conversationId: params.conversationId,
+	});
+	if (!ownershipScope.conversationIds.has(params.conversationId)) {
+		return { deleted: [], unreachable: [] };
+	}
+
+	const reachable = new Set(
+		(
+			await selectInBatches(wanted, (batch) =>
+				db
+					.select({ id: artifacts.id })
+					.from(artifacts)
+					.where(
+						and(
+							inArray(artifacts.id, batch),
+							inArray(artifacts.type, FAMILY_ROW_TYPES),
+							buildArtifactCanonicalOwnershipCondition({
+								userId: params.userId,
+								ownershipScope,
+							}),
+						),
+					),
+			)
+		).map((row) => row.id),
+	);
+	const missing = wanted.filter((id) => !reachable.has(id));
+	if (missing.length === 0) return { deleted: [], unreachable: [] };
+
+	// Of those, the caller's own rows that are still there: out of reach, not
+	// gone. Only the caller's own — a stranger's id stays "missing".
+	const existing = new Set(
+		(
+			await selectInBatches(missing, (batch) =>
+				db
+					.select({ id: artifacts.id })
+					.from(artifacts)
+					.where(
+						and(
+							inArray(artifacts.id, batch),
+							inArray(artifacts.type, FAMILY_ROW_TYPES),
+							eq(artifacts.userId, params.userId),
+						),
+					),
+			)
+		).map((row) => row.id),
+	);
+	return {
+		deleted: missing.filter((id) => !existing.has(id)),
+		unreachable: missing.filter((id) => existing.has(id)),
+	};
 }

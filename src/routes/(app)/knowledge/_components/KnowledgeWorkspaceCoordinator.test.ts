@@ -4,6 +4,9 @@ import { WORKSPACE_CONVERSATION_DELETED_EVENT } from "$lib/client/document-works
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import KnowledgeWorkspaceCoordinator from "./KnowledgeWorkspaceCoordinator.svelte";
 
+/** The open panel's landmark is named for the item it shows ("Vienna trip plan, Document"; review 276-279), so it is found by that shape. */
+const WORKSPACE_LANDMARK = /, (Document|App|Canvas|Slides|File)$/;
+
 const { replaceStateMock } = vi.hoisted(() => ({
 	replaceStateMock: vi.fn(),
 }));
@@ -53,7 +56,7 @@ describe("KnowledgeWorkspaceCoordinator", () => {
 
 		await waitFor(() => {
 			expect(
-				screen.getByRole("complementary", { name: /document workspace/i }),
+				screen.getByRole("complementary", { name: WORKSPACE_LANDMARK }),
 			).toHaveClass("workspace-shell-expanded");
 		});
 
@@ -91,7 +94,7 @@ describe("KnowledgeWorkspaceCoordinator", () => {
 		});
 
 		await screen.findByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 
 		expect(
@@ -186,7 +189,7 @@ describe("KnowledgeWorkspaceCoordinator", () => {
 		});
 
 		await screen.findByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 
 		window.dispatchEvent(
@@ -198,7 +201,7 @@ describe("KnowledgeWorkspaceCoordinator", () => {
 		await waitFor(() => {
 			expect(
 				screen.queryByRole("complementary", {
-					name: /document workspace/i,
+					name: WORKSPACE_LANDMARK,
 				}),
 			).not.toBeInTheDocument();
 		});

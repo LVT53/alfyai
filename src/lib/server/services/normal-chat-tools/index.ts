@@ -626,8 +626,9 @@ async function resolveProduceFileVerdict(params: {
 		// file EXISTS. getConversationFileProductionJob resolves the job's file
 		// links against the chat-file rows and drops any that no longer resolve
 		// for this user, so a succeeded job can legitimately come back with an
-		// empty `files` — the same case listConversationFileProductionJobs
-		// already refuses to project. Reporting that as success would put the
+		// empty `files` — the same case listConversationFileProductionJobs now
+		// marks `filesDeleted` so the chat shows "the file has been deleted"
+		// instead of an empty card. Reporting that as success would put the
 		// tool right back in the business of announcing files that are not
 		// there, so it is reported as a failure instead.
 		if (verdict.job.files.length === 0) {

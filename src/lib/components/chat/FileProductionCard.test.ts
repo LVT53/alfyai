@@ -400,3 +400,95 @@ describe("FileProductionCard", () => {
 		uiLanguage.set("en");
 	});
 });
+
+// Polish G2-A: a produced file that was deleted says so, in the file's own row,
+// with no Open or Download — and offers Regenerate where the job kept the
+// request it was made from, or says why not.
+describe("FileProductionCard — a deleted file", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+	});
+
+	function deletedJob(canRegenerate = true) {
+		return makeJob({
+			status: "succeeded",
+			title: "Trip summary",
+			files: [],
+			filesDeleted: { canRegenerate },
+		});
+	}
+
+	it("names the file, says it was deleted, and offers no Open or Download", () => {
+		const { getByTestId, getByText, queryByRole } = render(FileProductionCard, {
+			job: deletedJob(),
+		});
+
+		const row = getByTestId("file-row-deleted");
+		expect(row).toHaveTextContent("Trip summary");
+		expect(getByText("The file has been deleted")).toBeInTheDocument();
+		expect(queryByRole("button", { name: /Open/ })).toBeNull();
+		expect(queryByRole("link")).toBeNull();
+	});
+
+	it("asks for the file to be made again by job id", async () => {
+		const onRetry = vi.fn();
+		const { getByRole } = render(FileProductionCard, {
+			job: deletedJob(),
+			onRetry,
+		});
+
+		await fireEvent.click(
+			getByRole("button", { name: "Regenerate Trip summary" }),
+		);
+
+		expect(onRetry).toHaveBeenCalledWith("job-1");
+	});
+
+	it("says why it cannot be made again when the job kept no request", () => {
+		const { getByText, queryByRole } = render(FileProductionCard, {
+			job: deletedJob(false),
+			onRetry: vi.fn(),
+		});
+
+		expect(
+			getByText("It can't be regenerated: the original request wasn't kept."),
+		).toBeInTheDocument();
+		expect(queryByRole("button", { name: /Regenerate/ })).toBeNull();
+	});
+
+	it("speaks Hungarian", () => {
+		uiLanguage.set("hu");
+		const { getByText, getByRole } = render(FileProductionCard, {
+			job: deletedJob(),
+			onRetry: vi.fn(),
+		});
+
+		expect(getByText("A fájl törölve lett")).toBeInTheDocument();
+		expect(
+			getByRole("button", { name: "Trip summary újragenerálása" }),
+		).toBeInTheDocument();
+	});
+
+	it("leaves a job that still has its files exactly as it was", () => {
+		const { queryByTestId, getByTestId } = render(FileProductionCard, {
+			job: makeJob({
+				status: "succeeded",
+				files: [
+					{
+						id: "file-1",
+						filename: "Trip.pdf",
+						mimeType: "application/pdf",
+						sizeBytes: 2048,
+						downloadUrl: "/api/chat/files/file-1/download",
+						previewUrl: "/api/chat/files/file-1/preview",
+						artifactId: null,
+					},
+				],
+			}),
+		});
+
+		expect(queryByTestId("file-row-deleted")).toBeNull();
+		expect(getByTestId("file-production-files")).toHaveTextContent("Trip.pdf");
+	});
+});

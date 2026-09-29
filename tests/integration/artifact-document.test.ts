@@ -464,7 +464,9 @@ describe("the Document type on a real database", () => {
 			.all();
 		expect(versions).toHaveLength(3);
 		const restored = versions.find((v) => v.versionNumber === 3);
-		expect(restored?.summary).toContain("Alfy wrote the first draft");
+		// A restore names the version it brought back (polish G2-A), rather than
+		// wrapping that version's own summary.
+		expect(restored?.summary).toBe("Restored v1");
 		expect(rawContentText(created.id)).toBe(
 			"Original text.".length ? firstVersion.body : "",
 		);

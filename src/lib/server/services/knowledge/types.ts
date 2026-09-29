@@ -275,7 +275,19 @@ export interface DocumentWorkspaceItem {
 	mimeType: string | null;
 	previewUrl?: string | null;
 	artifactId?: string | null;
+	/**
+	 * The conversation the item was made in, when it is known. The panel offers
+	 * Delete only on items its own conversation made, so an artifact opened from
+	 * a card carries its OWN conversation here (a fork's card can name its
+	 * parent's Document); left unset, nothing contradicts the panel's.
+	 */
 	conversationId?: string | null;
+	/**
+	 * `ArtifactCardSummary.regenerable`, carried through so the panel's Delete
+	 * confirm says "you can regenerate it from the chat" only for an item the
+	 * chat can really make again. Optional: unset means no source is known.
+	 */
+	canRegenerate?: boolean;
 	downloadUrl?: string | null;
 	/**
 	 * The artifact family kind (ADR-0066). Optional and defaults to `"file"`:

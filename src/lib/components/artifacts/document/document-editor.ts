@@ -6,8 +6,8 @@
  * Document never pays for Tiptap/ProseMirror's bytes.
  */
 import { Editor } from "@tiptap/core";
-import type { ResolvedPos } from "@tiptap/pm/model";
-import type { Transaction } from "@tiptap/pm/state";
+import { Node as PMNode, type ResolvedPos } from "@tiptap/pm/model";
+import type { EditorState, Transaction } from "@tiptap/pm/state";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import { ANCHOR_CONTEXT_CHARS } from "$lib/shared/artifact-document/anchor";
 import {
@@ -45,11 +45,13 @@ import {
 	SKIP_BLOCK_ID_PLUGIN,
 	tabSectionPluginKey,
 } from "./extensions";
+import { historyShortcutFor } from "./keyboard-shortcuts";
 import {
 	type AlfyChangeEntry,
-	alfyChangeDocRange,
 	applyAlfyChangeMarks,
 	keepAlfyChange,
+	type RedoBlock,
+	redoAlfyChange,
 	refusalReasonI18nKey,
 	remarkAlfyChange,
 	scrollToAlfyChange,
@@ -99,6 +101,18 @@ export function createDocumentEditor(
 		editorProps: {
 			attributes: { class: "document-content", spellcheck: "true" },
 			handleKeyDown: (_view, event) => {
+				// G3: the reader's own undo/redo, claimed even when there is nothing
+				// to undo — a key left unhandled falls through to the browser's own
+				// undo, which rewrites the DOM behind ProseMirror's back. This
+				// binding runs before the editor's own (`Mod-z` …), so it never runs
+				// twice, and reads the platform live (⌘ on a Mac, Ctrl elsewhere).
+				const history = historyShortcutFor(event);
+				if (history) {
+					event.preventDefault();
+					if (history === "undo") editor.commands.undo();
+					else editor.commands.redo();
+					return true;
+				}
 				if (event.key !== "Tab" || event.shiftKey || event.altKey) {
 					return false;
 				}
@@ -293,24 +307,111 @@ export function setChangePills(
 }
 
 /**
- * Replaces the document's content wholesale: used after Alfy's patch result
- * comes back (the new full markdown) and after an Undo (Contracts: Undo
- * reloads from a locally-recomputed markdown with one block reverted, never a
- * ProseMirror-position-based edit, so it cannot hit the wrong text). Absorbs
- * markers and mints anything missing, exactly like the initial load.
+ * Puts the server's content into the open editor: used after Alfy's patch
+ * result comes back (the new full markdown) and after a comment refresh that
+ * found a newer version. Markers are absorbed and anything missing minted,
+ * exactly like the initial load.
+ *
+ * This is a content sync, not something the reader typed, so it is applied
+ * OUTSIDE the reader's undo history and as the smallest replacement of whole
+ * top-level blocks (`contentSyncTransaction`): what the reader typed in a
+ * block the load leaves alone stays undoable (and the caret stays put), while
+ * the blocks it does replace are not part of that history. It used to be one
+ * undoable step that replaced the whole document, so Ctrl/Cmd+Z after Alfy's
+ * edit took Alfy's change back through the reader's own history — around
+ * Keep/Undo and the version bookkeeping — and buried the reader's earlier
+ * edits under a step whose inverse was the entire old document (G3).
+ *
+ * `preventUpdate` for the same reason `ensureBlockIds` sets it: replacing
+ * content programmatically must not fire `DocumentBody.svelte`'s
+ * `onUpdate`/`onDirty` — see `readMarkdown`'s comment for what happens when
+ * an internal dispatch fires `onUpdate`.
  */
 export function loadMarkdown(editor: Editor, markdown: string): void {
-	// `emitUpdate: false` (Tiptap's own `setContent` option) for the same
-	// reason `ensureBlockIds` below sets `preventUpdate` on its dispatch:
-	// replacing the whole document (Alfy's patch result, or an Undo) is a
-	// programmatic content sync, not a user edit, so it must not fire
-	// `DocumentBody.svelte`'s `onUpdate`/`onDirty` — see `readMarkdown`'s
-	// comment for what happens when an internal dispatch fires `onUpdate`.
-	editor.commands.setContent(markdown, {
-		contentType: "markdown",
-		emitUpdate: false,
-	});
+	const next = parseMarkdownDocument(editor, markdown);
+	const tr = next ? contentSyncTransaction(editor.state, next) : null;
+	if (tr) editor.view.dispatch(tr);
 	ensureBlockIds(editor);
+}
+
+/**
+ * The document `markdown` reads as, in `editor`'s own schema: parsed by a
+ * throwaway, detached editor (the same route `marks.ts`'s `undoAlfyChange`
+ * takes for one block) so markers are absorbed and ids minted by the very
+ * pipeline the initial load uses, then rebuilt from plain JSON so no node of
+ * the scratch schema ever reaches `editor`'s transaction. `null` outside a
+ * browser (nothing to build a scratch editor in).
+ */
+function parseMarkdownDocument(
+	editor: Editor,
+	markdown: string,
+): PMNode | null {
+	if (typeof document === "undefined") return null;
+	const scratch = document.createElement("div");
+	document.body.appendChild(scratch);
+	const temp = new Editor({
+		element: scratch,
+		extensions: buildDocumentExtensions(""),
+		content: markdown,
+		contentType: "markdown",
+	});
+	try {
+		ensureBlockIds(temp);
+		return PMNode.fromJSON(editor.state.schema, temp.state.doc.toJSON());
+	} finally {
+		temp.destroy();
+		scratch.remove();
+	}
+}
+
+/** The document position where top-level child `index` of `doc` starts. */
+function childOffset(doc: PMNode, index: number): number {
+	let offset = 0;
+	for (let i = 0; i < index; i++) offset += doc.child(i).nodeSize;
+	return offset;
+}
+
+/**
+ * The one transaction that turns `state.doc` into `next`: everything between
+ * the leading and the trailing run of top-level blocks the two documents share
+ * is replaced in one step. `null` when they are the same. Outside the undo
+ * history (`addToHistory: false`: the history maps its earlier entries through
+ * the step, so an entry inside the replaced range simply no longer applies)
+ * and silent (`preventUpdate`).
+ */
+function contentSyncTransaction(
+	state: EditorState,
+	next: PMNode,
+): Transaction | null {
+	const current = state.doc;
+	const shared = Math.min(current.childCount, next.childCount);
+	let head = 0;
+	while (head < shared && current.child(head).eq(next.child(head))) head++;
+	if (head === current.childCount && head === next.childCount) return null;
+
+	let currentEnd = current.childCount;
+	let nextEnd = next.childCount;
+	while (
+		currentEnd > head &&
+		nextEnd > head &&
+		current.child(currentEnd - 1).eq(next.child(nextEnd - 1))
+	) {
+		currentEnd--;
+		nextEnd--;
+	}
+
+	const replacement = next.content.cut(
+		childOffset(next, head),
+		childOffset(next, nextEnd),
+	);
+	const tr = state.tr.replaceWith(
+		childOffset(current, head),
+		childOffset(current, currentEnd),
+		replacement,
+	);
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	return tr;
 }
 
 /**
@@ -722,6 +823,22 @@ export function undoChange(
 }
 
 /**
+ * Redo after Undo (`marks.ts`'s `redoAlfyChange`): sets the block back to the
+ * text Alfy had applied and puts back the extra blocks a multi-block change
+ * had produced. Its own fresh extension list per call, like `undoChange`.
+ */
+export function redoChange(
+	editor: Editor,
+	entry: {
+		blockId: string;
+		appliedMarkdown: string;
+		insertedBlocks?: RedoBlock[];
+	},
+): boolean {
+	return redoAlfyChange(editor, entry, buildDocumentExtensions(""));
+}
+
+/**
  * Re-marks a whole block as an Alfy change under `changeId` — Redo (the
  * pill's own "Undone · Redo") and ruling 61's reload-restore both have no
  * op-level precision to re-derive, only "this block".
@@ -734,12 +851,19 @@ export function remarkChange(
 	return remarkAlfyChange(editor, changeId, blockId);
 }
 
-/** The change mark's own live document range, for the inline pill's widget decoration positioning while its mark is about to be replaced structurally (Undo). */
-export function changeDocRange(
+/**
+ * Where a block's own content ends — the position just after its last
+ * character — or `null` when the block is not in the document. The pill's
+ * "Undone · Redo" anchor (`ChangePillEntry.fallbackPos`) once Undo has replaced
+ * the block and taken its mark with it. Read AFTER Undo: the restored text can
+ * be shorter than the text the mark covered, and a position captured before
+ * would then point into the next block.
+ */
+export function blockContentEnd(
 	editor: Editor,
-	changeId: string,
-): { from: number; to: number } | null {
-	return alfyChangeDocRange(editor, changeId);
+	blockId: string,
+): number | null {
+	return findBlockNodeRange(editor.state.doc, blockId)?.contentEnd ?? null;
 }
 
 /** Scrolls a change's mark into view ("See what Alfy did", T8.4). */

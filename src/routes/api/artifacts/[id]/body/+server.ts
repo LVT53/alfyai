@@ -7,6 +7,10 @@ import {
 	updateArtifactBody,
 } from "$lib/server/services/artifacts";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
+import {
+	parseSaveSummaryKind,
+	saveSummaryFor,
+} from "$lib/shared/artifacts/version-summaries";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -62,6 +66,7 @@ export const PATCH: RequestHandler = async (event) => {
 		tabs?: unknown;
 		baseHash?: unknown;
 		coalesce?: unknown;
+		summaryKind?: unknown;
 	} | null;
 	if (!payload || typeof payload.body !== "string") {
 		return json({ ok: false, reason: "invalid_patch" }, { status: 400 });
@@ -81,6 +86,12 @@ export const PATCH: RequestHandler = async (event) => {
 	const baseHash =
 		typeof payload.baseHash === "string" ? payload.baseHash : undefined;
 	const coalesceUserEdits = payload.coalesce !== false;
+	// The version summary is one of a fixed vocabulary, chosen by NAME ("undid
+	// Alfy's change", spec §4.2 item 6) — never text the client supplies — so
+	// the Versions list can always show it in the reader's language. Anything
+	// unrecognised is an ordinary "Edited" save. A summary of its own also
+	// keeps the save out of a neighbouring "Edited" burst (ruling 47).
+	const summary = saveSummaryFor(parseSaveSummaryKind(payload.summaryKind));
 
 	const artifact = await getArtifact({
 		userId: user.id,
@@ -103,7 +114,7 @@ export const PATCH: RequestHandler = async (event) => {
 						tabs: suppliedTabs ?? documentTabsFromMetadata(artifact.metadata),
 					},
 					author: "user",
-					summary: "Edited",
+					summary,
 					expectVersion,
 					baseHash,
 					coalesceUserEdits,
@@ -114,7 +125,7 @@ export const PATCH: RequestHandler = async (event) => {
 					conversationId,
 					body: payload.body,
 					author: "user",
-					summary: "Edited",
+					summary,
 					expectVersion,
 					baseHash,
 					coalesceUserEdits,

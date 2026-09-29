@@ -17,10 +17,13 @@ import {
 	artifacts,
 	artifactVersions,
 } from "$lib/server/db/schema";
+import { deleteChatFile } from "$lib/server/services/chat-files";
+import { GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY } from "$lib/server/services/file-production/source-persistence";
 import {
 	buildArtifactCanonicalOwnershipCondition,
 	getArtifactOwnershipScope,
 } from "$lib/server/services/knowledge/store/core";
+import { deleteSemanticEmbeddingsForSubjects } from "$lib/server/services/semantic-embeddings";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { hashArtifactBody } from "./hash";
 import {
@@ -177,9 +180,10 @@ export async function readScopedArtifactRow(
 
 /**
  * Whether the family may write this row in place. Only the four new kinds are
- * edited, restored or deleted here: a File is a produced file, and AGENTS.md's
+ * edited or restored here: a File is a produced file, and AGENTS.md's
  * Knowledge Library rule (no in-app editing of generated files) still binds
- * it, so its id answers like any id the family cannot write.
+ * it, so its id answers like any id the family cannot write. (Deleting is not
+ * writing: `deleteArtifact` takes a File through its own store.)
  */
 export function isEditableArtifactRow(row: ArtifactRow): boolean {
 	return row.type === ARTIFACT_ROW_TYPE;
@@ -261,6 +265,23 @@ function currentBodyHash(
 	return row.contentText === null ? null : hashArtifactBody(row.contentText);
 }
 
+/**
+ * Whether ANY row of the `artifacts` table — any user's, any type — already
+ * holds this id. It is what `createArtifact({ id })` refuses with `id_taken`,
+ * and what Regenerate asks before it spends a model call on an item that is
+ * still there, just out of the chat's reach (the parent of a forked incognito
+ * chat). The answer is a bare yes or no about an id the caller already holds:
+ * nothing about the row is read out.
+ */
+export async function artifactIdInUse(artifactId: string): Promise<boolean> {
+	const [taken] = await db
+		.select({ id: artifacts.id })
+		.from(artifacts)
+		.where(eq(artifacts.id, artifactId))
+		.limit(1);
+	return Boolean(taken);
+}
+
 export async function createArtifact(input: CreateArtifactInput): Promise<
 	| { ok: true; artifact: ArtifactRecord }
 	| {
@@ -269,7 +290,8 @@ export async function createArtifact(input: CreateArtifactInput): Promise<
 				| "conversation_not_found"
 				| "too_large"
 				| "invalid_kind"
-				| "invalid_title";
+				| "invalid_title"
+				| "id_taken";
 	  }
 > {
 	// Pure input-shape checks first, before any DB round trip: a caller whose
@@ -302,7 +324,10 @@ export async function createArtifact(input: CreateArtifactInput): Promise<
 		return { ok: false, reason: "too_large" };
 	}
 
-	const id = randomUUID();
+	const id = input.id ?? randomUUID();
+	if (input.id !== undefined && (await artifactIdInUse(id))) {
+		return { ok: false, reason: "id_taken" };
+	}
 	const metadata: ArtifactMetadata = {
 		...(input.metadata ?? {}),
 		artifactType: input.kind,
@@ -610,17 +635,90 @@ export async function updateArtifactBody(
 }
 
 /**
+ * The chat files a produced-file artifact stands for — the one it was made
+ * from and, for a source-first document, every file the source was rendered
+ * to — deleted through the chat-file store (row and bytes; the job-file link
+ * goes with the row). The file-production JOB stays: it is the record of what
+ * was asked for, and what Regenerate makes the file again from.
+ */
+async function deleteProducedFileBytes(row: ArtifactRow): Promise<void> {
+	if (!row.conversationId) return;
+	const metadata = parseJsonRecord(row.metadataJson);
+	const chatFileIds = new Set<string>();
+	if (typeof metadata?.originalChatFileId === "string") {
+		chatFileIds.add(metadata.originalChatFileId);
+	}
+	const rendered = metadata?.[GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY];
+	if (Array.isArray(rendered)) {
+		for (const id of rendered) if (typeof id === "string") chatFileIds.add(id);
+	}
+	for (const chatFileId of chatFileIds) {
+		await deleteChatFile(row.conversationId, chatFileId);
+	}
+}
+
+type DeleteArtifactResult =
+	| { ok: true }
+	| {
+			ok: false;
+			/**
+			 * `not_found`: no such item within the caller's scope — a missing id,
+			 * someone else's, an incognito chat's own from another chat, or one
+			 * already deleted all answer alike. `not_made_here`: the item is the
+			 * caller's and reachable, but the chat that asked did not make it.
+			 */
+			reason: "not_found" | "not_made_here";
+	  };
+
+/**
  * A real delete: the row goes, and the `artifact_id` foreign keys take its
- * versions, comments and key-value rows with it (the connection runs with
- * `foreign_keys = ON`; tests/integration/artifact-spine.test.ts asserts it).
+ * versions, comments, key-value rows (Alfy's snapshot and an App's stored
+ * values), chunks, links in both directions and working-set items with it (the
+ * connection runs with `foreign_keys = ON`; tests/integration/artifact-spine
+ * .test.ts asserts it). The one thing no key reaches is the artifact's semantic
+ * embedding, which names its subject by a plain id, so it is removed here —
+ * after the row, and never allowed to undo the delete: a failure leaves a
+ * stray vector the maintenance sweep already collects.
+ *
+ * A delete that names the served conversation (`conversationId` — a chat
+ * panel's) acts only on what THAT conversation made. A fork copies its
+ * parent's tool calls and not its items, so the fork's card can name — and its
+ * panel open — the parent's Document, which any other non-incognito chat of the
+ * same user can read; the tools are already pinned to the item's own
+ * conversation (ruling 53), and so is this. That check comes after the scoped
+ * read, so a row the caller cannot reach still answers the one `not_found`.
  */
 export async function deleteArtifact(
 	params: { userId: string; artifactId: string } & ArtifactScopeOptions,
-): Promise<boolean> {
+): Promise<DeleteArtifactResult> {
 	const row = await readScopedArtifactRow(params);
-	if (!row || !isEditableArtifactRow(row)) return false;
-	return db.transaction(
+	if (!row) return { ok: false, reason: "not_found" };
+	if (params.conversationId && row.conversationId !== params.conversationId) {
+		return { ok: false, reason: "not_made_here" };
+	}
+	if (row.type === "generated_output") {
+		// A produced file: delete what it stands for first, so the chat is never
+		// left offering a file the library no longer has.
+		await deleteProducedFileBytes(row);
+	} else if (!isEditableArtifactRow(row)) {
+		return { ok: false, reason: "not_found" };
+	}
+	const removed = db.transaction(
 		(tx) =>
 			tx.delete(artifacts).where(eq(artifacts.id, row.id)).run().changes > 0,
 	);
+	if (!removed) return { ok: false, reason: "not_found" };
+	try {
+		await deleteSemanticEmbeddingsForSubjects({
+			userId: row.userId,
+			subjectType: "artifact",
+			subjectIds: [row.id],
+		});
+	} catch (error) {
+		console.warn("[ARTIFACTS] Deleted an artifact but not its embedding", {
+			artifactId: row.id,
+			error,
+		});
+	}
+	return { ok: true };
 }

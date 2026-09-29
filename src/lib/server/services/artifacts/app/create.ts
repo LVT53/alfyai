@@ -39,6 +39,8 @@ export interface CreateAppInput {
 	language: "en" | "hu";
 	modelId?: ModelId;
 	abortSignal?: AbortSignal;
+	/** Regenerate (polish G2-A): make the App under the id its chat cards already carry. Every tool call leaves it out. */
+	artifactId?: string;
 }
 
 export type CreateAppResult =
@@ -93,6 +95,7 @@ export async function createAppFromBrief(
 	const created = await createArtifact({
 		userId: input.userId,
 		conversationId: input.conversationId,
+		id: input.artifactId,
 		kind: "app",
 		title,
 		body: html,

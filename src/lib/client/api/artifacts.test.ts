@@ -1,11 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	parseDocument,
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 import {
+	type ArtifactChange,
 	askAlfyInComment,
 	createArtifactComment,
+	deleteArtifact,
 	downloadAppAsHtml,
 	exportArtifactDocument,
 	fetchArtifact,
@@ -14,10 +16,12 @@ import {
 	fetchConversationArtifacts,
 	readAppValue,
 	regenerateApp,
+	regenerateDeletedArtifact,
 	resolveArtifactComment,
 	restoreArtifactVersion,
 	saveArtifactBody,
 	saveDocumentTabs,
+	subscribeArtifactChanges,
 	toggleDocumentTask,
 	writeAppValue,
 } from "./artifacts";
@@ -818,5 +822,355 @@ describe("exportArtifactDocument", () => {
 		await expect(
 			exportArtifactDocument("artifact-1", "markdown", null, fetchMock),
 		).resolves.toEqual({ ok: false, reason: "not_found" });
+	});
+});
+
+// Wave 2.5 polish G1-B: one version number everywhere. Every response that
+// carries an artifact's current version is announced to whoever subscribed
+// (the chat page), so no surface has to keep its own stale copy. Polish G2-A
+// adds the time of the change to the same announcement, and a deletion to the
+// same channel.
+describe("version announcements", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	function listen() {
+		const heard: Array<[string, number]> = [];
+		const changes: ArtifactChange[] = [];
+		const unsubscribe = subscribeArtifactChanges((change) => {
+			changes.push(change);
+			if (change.type === "version") {
+				heard.push([change.artifactId, change.version]);
+			}
+		});
+		return { heard, changes, unsubscribe };
+	}
+
+	it("carries the artifact's own updatedAt when a fetch reports it", async () => {
+		const { changes, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				artifact: { id: "artifact-1", versionNumber: 7, updatedAt: 1234 },
+				versions: [],
+				comments: [],
+			}),
+		);
+		await fetchArtifact("artifact-1", null, fetchMock);
+		unsubscribe();
+		expect(changes).toEqual([
+			{
+				type: "version",
+				artifactId: "artifact-1",
+				version: 7,
+				updatedAt: 1234,
+			},
+		]);
+	});
+
+	it("stamps a successful write with the moment it was acknowledged", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-09-29T10:00:00.000Z"));
+		const { changes, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true, version: 4 }));
+		await saveArtifactBody("artifact-1", "Text.", 3, null, fetchMock);
+		await restoreArtifactVersion("artifact-1", "version-1", null, fetchMock);
+		unsubscribe();
+		const stamp = new Date("2026-09-29T10:00:00.000Z").getTime();
+		expect(changes).toEqual([
+			{
+				type: "version",
+				artifactId: "artifact-1",
+				version: 4,
+				updatedAt: stamp,
+			},
+			{
+				type: "version",
+				artifactId: "artifact-1",
+				version: 4,
+				updatedAt: stamp,
+			},
+		]);
+	});
+
+	it("says nothing about time for a version list, whose newest row is not the artifact's own updatedAt", async () => {
+		const { changes, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				versions: [
+					{
+						id: "b",
+						versionNumber: 5,
+						author: "user",
+						summary: "",
+						createdAt: 2,
+					},
+				],
+			}),
+		);
+		await fetchArtifactVersions("artifact-1", null, fetchMock);
+		unsubscribe();
+		expect(changes).toEqual([
+			{
+				type: "version",
+				artifactId: "artifact-1",
+				version: 5,
+				updatedAt: null,
+			},
+		]);
+	});
+
+	it("announces a deletion once the server has removed the item", async () => {
+		const { changes, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
+		await expect(
+			deleteArtifact("artifact-1", "conv-1", fetchMock),
+		).resolves.toEqual({ ok: true, alreadyGone: false });
+		unsubscribe();
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/artifacts/artifact-1?conversationId=conv-1",
+			{
+				method: "DELETE",
+			},
+		);
+		expect(changes).toEqual([{ type: "deleted", artifactId: "artifact-1" }]);
+	});
+
+	it("treats a 404 as already gone: announced as deleted, so an open card flips at once", async () => {
+		const { changes, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "not_found" }, 404),
+		);
+		await expect(
+			deleteArtifact("artifact-1", null, fetchMock),
+		).resolves.toEqual({ ok: true, alreadyGone: true });
+		unsubscribe();
+		expect(changes).toEqual([{ type: "deleted", artifactId: "artifact-1" }]);
+	});
+
+	it("throws and announces nothing when the delete itself fails", async () => {
+		const { changes, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "boom" }, 500),
+		);
+		await expect(
+			deleteArtifact("artifact-1", null, fetchMock),
+		).rejects.toMatchObject({ status: 500 });
+		unsubscribe();
+		expect(changes).toEqual([]);
+	});
+
+	it("announces the version a successful save reports", async () => {
+		const { heard, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true, version: 4 }));
+		await saveArtifactBody("artifact-1", "Text.", 3, null, fetchMock);
+		unsubscribe();
+		expect(heard).toEqual([["artifact-1", 4]]);
+	});
+
+	it("announces nothing for a refused save", async () => {
+		const { heard, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "version_conflict" }, 409),
+		);
+		await saveArtifactBody("artifact-1", "Text.", 3, null, fetchMock);
+		unsubscribe();
+		expect(heard).toEqual([]);
+	});
+
+	it("announces the version a tab save reports", async () => {
+		const { heard, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true, version: 6 }));
+		await saveDocumentTabs("artifact-1", [], "Text.", 5, null, fetchMock);
+		unsubscribe();
+		expect(heard).toEqual([["artifact-1", 6]]);
+	});
+
+	it("announces a fetched artifact's current version", async () => {
+		const { heard, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				artifact: { id: "artifact-1", versionNumber: 7 },
+				versions: [],
+				comments: [],
+			}),
+		);
+		await fetchArtifact("artifact-1", null, fetchMock);
+		unsubscribe();
+		expect(heard).toEqual([["artifact-1", 7]]);
+	});
+
+	it("announces the newest row of a fetched version list — the number the Versions popover shows", async () => {
+		const { heard, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				versions: [
+					{
+						id: "b",
+						versionNumber: 5,
+						author: "user",
+						summary: "",
+						createdAt: 2,
+					},
+					{
+						id: "a",
+						versionNumber: 4,
+						author: "alfy",
+						summary: "",
+						createdAt: 1,
+					},
+				],
+			}),
+		);
+		await fetchArtifactVersions("artifact-1", null, fetchMock);
+		unsubscribe();
+		expect(heard).toEqual([["artifact-1", 5]]);
+	});
+
+	it("announces nothing for an empty version list", async () => {
+		const { heard, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: true, versions: [] }),
+		);
+		await fetchArtifactVersions("artifact-1", null, fetchMock);
+		unsubscribe();
+		expect(heard).toEqual([]);
+	});
+
+	it("announces a restore's new version", async () => {
+		const { heard, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true, version: 9 }));
+		await restoreArtifactVersion("artifact-1", "version-1", null, fetchMock);
+		unsubscribe();
+		expect(heard).toEqual([["artifact-1", 9]]);
+	});
+
+	it("announces the version an App regeneration conflict reveals, and a success's", async () => {
+		const { heard, unsubscribe } = listen();
+		await regenerateApp(
+			"artifact-1",
+			"Make it blue",
+			2,
+			null,
+			vi.fn(async () =>
+				jsonResponse(
+					{ ok: false, reason: "version_conflict", version: 3 },
+					409,
+				),
+			),
+		);
+		await regenerateApp(
+			"artifact-1",
+			"Make it blue",
+			3,
+			null,
+			vi.fn(async () =>
+				jsonResponse({ ok: true, version: 4, title: "App", verification: {} }),
+			),
+		);
+		unsubscribe();
+		expect(heard).toEqual([
+			["artifact-1", 3],
+			["artifact-1", 4],
+		]);
+	});
+
+	it("stops announcing to a listener that unsubscribed, and keeps announcing to the others", async () => {
+		const first = listen();
+		const second = listen();
+		first.unsubscribe();
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true, version: 2 }));
+		await saveArtifactBody("artifact-1", "Text.", 1, null, fetchMock);
+		second.unsubscribe();
+		expect(first.heard).toEqual([]);
+		expect(second.heard).toEqual([["artifact-1", 2]]);
+	});
+
+	it("sends the save's summary kind when one is given", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse({ ok: true, version: 4 }),
+		);
+		await saveArtifactBody("artifact-1", "Text.", 3, null, fetchMock, {
+			summaryKind: "undid_alfy_change",
+		});
+		const call = fetchMock.mock.calls[0]?.[1];
+		expect(JSON.parse(String(call?.body))).toEqual({
+			body: "Text.",
+			expectVersion: 3,
+			summaryKind: "undid_alfy_change",
+		});
+	});
+});
+
+// Polish G2-A: "Regenerate" on a chat card whose Document or App was deleted.
+describe("regenerateDeletedArtifact", () => {
+	it("asks the conversation to make the item again, in the reader's language, and returns what came back", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				created: true,
+				artifactId: "doc-1",
+				kind: "document",
+				title: "Weekend",
+			}),
+		);
+
+		await expect(
+			regenerateDeletedArtifact("conv-1", "doc-1", "hu", fetchMock),
+		).resolves.toEqual({
+			ok: true,
+			created: true,
+			artifactId: "doc-1",
+			kind: "document",
+			title: "Weekend",
+		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/artifacts/doc-1/regenerate",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ language: "hu" }),
+			},
+		);
+	});
+
+	it("carries a refusal's reason instead of throwing", async () => {
+		for (const [status, reason] of [
+			[404, "not_found"],
+			[409, "no_stored_input"],
+			[409, "in_progress"],
+			[409, "unreachable"],
+		] as const) {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: false, reason }, status),
+			);
+			await expect(
+				regenerateDeletedArtifact("conv-1", "doc-1", "en", fetchMock),
+			).resolves.toEqual({ ok: false, reason });
+		}
+		const failed = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "failed", detail: "Nope." }, 422),
+		);
+		await expect(
+			regenerateDeletedArtifact("conv-1", "doc-1", "en", failed),
+		).resolves.toEqual({ ok: false, reason: "failed", detail: "Nope." });
+	});
+
+	it("reads an unreadable answer, or a dead connection, as a plain failure", async () => {
+		const html = vi.fn(async () => new Response("<html>", { status: 502 }));
+		await expect(
+			regenerateDeletedArtifact("conv-1", "doc-1", "en", html),
+		).resolves.toEqual({ ok: false, reason: "failed" });
+		const offline = vi.fn(async () => {
+			throw new TypeError("network");
+		});
+		await expect(
+			regenerateDeletedArtifact("conv-1", "doc-1", "en", offline),
+		).resolves.toEqual({ ok: false, reason: "failed" });
 	});
 });

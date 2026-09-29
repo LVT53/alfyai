@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, like, sql } from "drizzle-orm";
 import {
 	type MessageUserIntent,
 	parseMessageUserIntent,
@@ -35,6 +35,7 @@ import type {
 	WebCitationAudit,
 	WebCitationRepairSummary,
 } from "$lib/server/services/web-citation-audit";
+import { artifactCallsFromSegments } from "$lib/shared/artifacts/artifact-calls";
 import type {
 	InstructionScopeApplication,
 	InstructionSuggestion,
@@ -44,6 +45,14 @@ import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
 import { repairConversationMessageSequencesWithExecutor } from "./message-sequences";
+
+// The pure half of what a chat's messages say about their artifacts lives in
+// `shared/` — the chat page reads it too, on the messages it holds live — and
+// stays importable from here for the server.
+export {
+	artifactCallIdsFromMessages,
+	regenerableArtifactIdsFromMessages,
+} from "$lib/shared/artifacts/artifact-calls";
 
 type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	evidenceSummary?: MessageEvidenceSummary | null;
@@ -352,6 +361,7 @@ function projectMessageMetadata(
 	| "instructionsApplied"
 	| "instructionSuggestions"
 	| "projectFilesRead"
+	| "documentArtifactId"
 > {
 	const evidenceSummary =
 		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
@@ -418,6 +428,12 @@ function projectMessageMetadata(
 		instructionSuggestions: Array.isArray(metadata?.instructionSuggestions)
 			? metadata.instructionSuggestions
 			: undefined,
+		// The Document this message was kept as ("Open as document"), so the chat
+		// can tell which Documents it can make again.
+		documentArtifactId:
+			typeof metadata?.documentArtifactId === "string"
+				? metadata.documentArtifactId
+				: undefined,
 	};
 }
 
@@ -1042,6 +1058,44 @@ export async function updateMessageDocumentLink(
 		.update(messages)
 		.set({ metadataJson: JSON.stringify(next) })
 		.where(eq(messages.id, messageId));
+}
+
+/**
+ * The persisted `create_artifact` call that made `artifactId` in this
+ * conversation — the message it is on and the model's own arguments, which
+ * are what "Regenerate" makes the item from again. `null` when no successful
+ * create call of this conversation names that artifact (an edit never
+ * counts: it holds a summary, not the item). The SQL narrows to the messages
+ * whose stored calls mention the id at all; the parse decides.
+ */
+export async function getStoredCreateArtifactCall(params: {
+	conversationId: string;
+	artifactId: string;
+}): Promise<{ messageId: string; input: Record<string, unknown> } | null> {
+	const rows = await db
+		.select({ id: messages.id, toolCalls: messages.toolCalls })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, params.conversationId),
+				eq(messages.role, "assistant"),
+				like(messages.toolCalls, "%create_artifact%"),
+				like(messages.toolCalls, `%${params.artifactId}%`),
+			),
+		)
+		.orderBy(...messageOrderAsc());
+
+	for (const row of rows) {
+		const created = artifactCallsFromSegments(
+			readThinkingSegmentsFromRow(row),
+		).find(
+			(call) =>
+				call.name === "create_artifact" &&
+				call.artifactId === params.artifactId,
+		);
+		if (created) return { messageId: row.id, input: created.input };
+	}
+	return null;
 }
 
 export async function isAssistantMessageForkCopy(params: {

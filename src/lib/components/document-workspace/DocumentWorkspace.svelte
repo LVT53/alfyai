@@ -1,5 +1,5 @@
 <script lang="ts">
-import { tick } from "svelte";
+import { type Component, tick, untrack } from "svelte";
 import { browser } from "$app/environment";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
 import {
@@ -20,12 +20,14 @@ import { hasOpenDialog } from "$lib/components/ui/DialogShell.svelte";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
+import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	ARTIFACT_BODIES,
 	type ArtifactBodyLoader,
 	type ArtifactPanelBodyActions,
+	type ArtifactBodyProps,
 } from "$lib/components/artifacts/artifact-bodies";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
@@ -43,6 +45,8 @@ import {
 	Link,
 	LayoutGrid,
 	History,
+	MoreHorizontal,
+	Trash2,
 } from "@lucide/svelte";
 
 type DocumentPreviewRendererModule =
@@ -80,6 +84,7 @@ let {
 	onPresentationChange = undefined,
 	onListOpenChange = undefined,
 	onPendingReviewCountChange = undefined,
+	onDeleteArtifact = undefined,
 	currentUser = null,
 }: {
 	open?: boolean;
@@ -119,6 +124,16 @@ let {
 	onPendingReviewCountChange?:
 		| ((artifactId: string, count: number) => void)
 		| undefined;
+	/**
+	 * Polish G2-A: deletes an item for good — the page's own call (it owns the
+	 * conversation and what a deletion changes), which rejects when the item is
+	 * still there. Its presence is what turns Delete on: the header's trash
+	 * button for whatever is open, and an overflow on each list row. A host that
+	 * passes nothing (the Knowledge page, which has its own Delete) shows none.
+	 */
+	onDeleteArtifact?:
+		| ((item: DocumentWorkspaceItem) => Promise<void>)
+		| undefined;
 	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
 	currentUser?: {
 		id: string;
@@ -154,6 +169,13 @@ let activeDocument: WorkspaceDocument | null = $derived.by(() => {
  * review's own fix note suggests ("let the server restore... own it").
  * `alfyActivity` itself (unsuppressed) still feeds the row-level ephemeral
  * pending pill below and the chat card, neither of which replay anything.
+ *
+ * Final polish D2: this set is a panel-level notion and outlives every body —
+ * a body built later (the list and back, the panel closed and opened from the
+ * card, another item and back) is handed the same settled activity. The
+ * once-only rule therefore also lives in `DocumentBody.svelte`
+ * (`settledActivityKeyAtMount`): a body applies live only what was still
+ * running, or had not begun, when it mounted.
  *
  * rd/review-2-5.md fix agent C, round F2: an `open`-only check is not
  * enough, because `open` and `activeDocumentId` can both become true in the
@@ -227,26 +249,157 @@ function handleBodyPendingReviewCountChange(count: number): void {
 // this slice ships (the registry is empty) falls straight through to the
 // preview stack below, unchanged.
 let activeArtifactKind: ArtifactKind = $derived(activeDocument?.kind ?? "file");
+/**
+ * The panel landmark's accessible name while an item is open: what it shows
+ * ("Vienna trip plan, Document"), not one generic "Document workspace" for
+ * every item (rd/review-2-5.md:276-279). The list state is named for its own
+ * heading instead (see the two list landmarks below).
+ */
+let panelLandmarkLabel = $derived(
+	activeDocument
+		? $t("artifacts.panel.landmark", {
+				title: getDocumentTitle(activeDocument),
+				kind: $t(`artifacts.type.${activeArtifactKind}` as I18nKey),
+			})
+		: $t("documentWorkspace.documentWorkspace"),
+);
 let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 	ARTIFACT_BODIES[activeArtifactKind],
 );
 
-// Wave 2.5 Step 3: whatever sheet triggers the open body registered for
-// `ArtifactPanelHeader`'s version button / Download action (App/File
-// register nothing today, so this stays null for them and the header falls
-// back to plain text / the panel's own generic download link). Reset
-// whenever the open item itself changes — closing, switching documents, or
-// switching kind — so a stale closure over a document that is no longer
-// open can never be called; the newly-open body (if any) re-registers on
-// its own next tick.
-let bodyPanelActions = $state<ArtifactPanelBodyActions | null>(null);
-/** Wave 2.5 Step 8: the Comments button's own badge (Document only — every other kind never calls `onCommentCountChange`, so this just stays 0 and the button never renders for them). Reset alongside `bodyPanelActions` for the same reason: a stale count from the item just left must never linger on the newly-open one. */
-let documentOpenCommentCount = $state(0);
+// Wave 2.5 Step 3 / final polish D1: what the open body hands the panel header.
+// Its Versions/Download/Comments triggers (`ArtifactBodyProps.registerPanelActions`;
+// App registers only Download, File no body at all — the header falls back to
+// plain text / the panel's own generic download link), the Comments button's
+// badge (`onCommentCountChange`, Document only) and whether the comments are
+// showing (`onCommentsShownChange`, the button's pressed state).
+//
+// One record, stamped with the item its body was mounted for, and nothing ever
+// clears it: it counts only while it names the item that is open now. A swap
+// to another item — a second Document, an App, a file, the list and back —
+// therefore reads as "nothing yet" until that item's own body reports, and the
+// stale closures of a body that is gone can never be called. This replaces a
+// reset-on-swap effect: the body registers ONCE, when it mounts, and that
+// effect could run after the new body's registration in the very same flush
+// and wipe it, leaving the header without its controls until a reload.
+type BodyPanelReport = {
+	key: string;
+	actions: ArtifactPanelBodyActions | null;
+	commentCount: number;
+	commentsShown: boolean;
+};
+let bodyPanelReport = $state.raw<BodyPanelReport | null>(null);
+// The ITEM, never the object: `activeDocument` is a new object whenever its
+// version number (or any other field) moves, and a version change must neither
+// remount the body (its undo history, caret and pending changes outlive a Keep)
+// nor drop what it registered. `artifactId ?? id` is the id the body itself
+// loads by, and the key each body mount below carries.
+let activeBodyKey = $derived(
+	activeDocument ? (activeDocument.artifactId ?? activeDocument.id) : null,
+);
+let openBodyPanel = $derived(
+	bodyPanelReport !== null && bodyPanelReport.key === activeBodyKey
+		? bodyPanelReport
+		: null,
+);
+let bodyPanelActions = $derived(openBodyPanel?.actions ?? null);
+/** Wave 2.5 Step 8: the Comments button's own badge (Document only — every other kind never calls `onCommentCountChange`, so this just stays 0 and the button never renders for them). */
+let documentOpenCommentCount = $derived(openBodyPanel?.commentCount ?? 0);
+/** Whether the Document's comments are showing (the column beside the text, or the drawer/sheet) — the Comments button's pressed state. */
+let documentCommentsShown = $derived(openBodyPanel?.commentsShown ?? false);
+
+/**
+ * What a mounted body reports to the header, filed under the item that is open.
+ * A body only reports while it is the mounted one (each mount is keyed on its
+ * item), so the open item is the item it reports for. Untracked as a whole: it
+ * runs inside the body's own effects, which must not come to depend on the
+ * record they write.
+ */
+function reportFromBody(patch: Partial<Omit<BodyPanelReport, "key">>): void {
+	untrack(() => {
+		const key = activeBodyKey;
+		if (key === null) return;
+		const current: BodyPanelReport =
+			bodyPanelReport?.key === key
+				? bodyPanelReport
+				: { key, actions: null, commentCount: 0, commentsShown: false };
+		bodyPanelReport = { ...current, ...patch };
+	});
+}
+// Only the open item's id: `activeDocument` itself is a new object whenever its
+// version number (or any other field) moves — a confirm asked about one item
+// must close for a DIFFERENT item, never for the same item's number changing.
+let activeDocumentIdentity = $derived(activeDocument?.id);
 $effect(() => {
-	activeDocument?.id;
-	bodyPanelActions = null;
-	documentOpenCommentCount = 0;
+	activeDocumentIdentity;
+	deleteConfirmOpen = false;
 });
+
+// Polish G2-A (Delete): whether the header's confirm is open, and which list
+// row's overflow is (one at a time — a row id, null when none).
+let deleteConfirmOpen = $state(false);
+let rowMenuOpenId = $state<string | null>(null);
+
+/**
+ * Whether an item can be deleted from here: the page can delete, it is one of
+ * the family's own items (a produced file too — the family's delete takes it
+ * through its own store), and this conversation made it. An item that says it
+ * was made in another conversation (a fork's card naming its parent's
+ * Document) has no Delete: the server would refuse it, and the panel does not
+ * offer what will not work. An item that does not say where it was made has
+ * nothing to contradict.
+ */
+function canDeleteItem(item: DocumentWorkspaceItem): boolean {
+	if (!onDeleteArtifact || !item.artifactId || !item.kind) return false;
+	return !(
+		item.conversationId &&
+		conversationId &&
+		item.conversationId !== conversationId
+	);
+}
+
+/**
+ * Whether the chat can make this item again, read off the live list (the
+ * server's word, kept fresh) rather than the open tab's snapshot: what the
+ * Delete confirm may promise. An item the list does not know says nothing.
+ */
+function canRegenerateItem(item: DocumentWorkspaceItem): boolean {
+	return (
+		list?.items.some(
+			(row) => row.artifactId === item.artifactId && row.canRegenerate === true,
+		) ?? false
+	);
+}
+
+/** After a delete the control that had focus is gone: land on the list's heading, which names where the user is. */
+async function focusPanelListTitle(): Promise<void> {
+	await tick();
+	const shell = desktopShellElement ?? mobileShellElement;
+	shell
+		?.querySelector<HTMLElement>('[data-testid="artifact-panel-list-title"]')
+		?.focus();
+}
+
+/** Header Delete, confirmed: the page deletes; then back to the list — or out of the panel when nothing is left to list. */
+async function deleteOpenItem(item: DocumentWorkspaceItem): Promise<void> {
+	await onDeleteArtifact?.(item);
+	if ((list?.items.length ?? 0) > 0) {
+		handleBackToList();
+		void focusPanelListTitle();
+		return;
+	}
+	onCloseWorkspace();
+}
+
+/** A list row's Delete, confirmed: back to the list's heading — or out of the panel when that was the last row, since an empty list is nothing to show. */
+async function deleteFromList(item: DocumentWorkspaceItem): Promise<void> {
+	await onDeleteArtifact?.(item);
+	if ((list?.items.length ?? 0) === 0) {
+		onCloseWorkspace();
+		return;
+	}
+	await focusPanelListTitle();
+}
 
 // One cached module promise per kind, mirroring
 // ensureDocumentPreviewRendererModule below: a loader runs at most once no
@@ -267,6 +420,37 @@ function ensureArtifactBodyModule(
 	}
 	return cached;
 }
+
+/**
+ * The body component each kind resolved to, once its module has loaded. The
+ * body used to render inside `{#await ensureArtifactBodyModule(...)}`, and
+ * Svelte's `{#await}` shows its pending state whenever its expression is
+ * re-read and a `flushSync` (`tick()`) lands before the (already resolved)
+ * promise answers — which tore the whole body down and built it again (editor,
+ * caret, undo history, pending pills) after every Keep and any other flow that
+ * awaited `tick()`. A resolved module in state renders through a plain `{#if}`:
+ * nothing re-reads a promise, so the body outlives every re-render of the item.
+ */
+let loadedArtifactBodies = $state.raw<
+	Partial<Record<ArtifactKind, Component<ArtifactBodyProps>>>
+>({});
+$effect(() => {
+	const kind = activeArtifactKind;
+	const loader = activeArtifactBodyLoader;
+	if (!loader || loadedArtifactBodies[kind]) return;
+	let cancelled = false;
+	void ensureArtifactBodyModule(kind, loader).then((module) => {
+		if (!cancelled) {
+			loadedArtifactBodies = {
+				...loadedArtifactBodies,
+				[kind]: module.default,
+			};
+		}
+	});
+	return () => {
+		cancelled = true;
+	};
+});
 let compareMode = $state(false);
 let mobileDocumentsSheetOpen = $state(false);
 let compareDocumentId: string | null = $state(null);
@@ -299,7 +483,7 @@ let mobileShellElement: HTMLElement | null = $state(null);
  * only an entrance on whatever just arrived.
  */
 let desktopContentElement: HTMLElement | null = $state(null);
-/** What the NEXT `desktopContentElement` mount should play — set just before the state change that will cause it, per §7.2 rows #1/#3/#4. Panel-open default: content arrives from the right, 60ms after the panel itself does. */
+/** What the NEXT `desktopContentElement` mount should play — set just before the state change that will cause it (`handleBackToList`), or by the list-closing effect below, per §7.2 rows #1/#3/#4. Panel-open default: content arrives from the right, 60ms after the panel itself does. */
 let pendingEntrance: { direction: "left" | "right"; delay: number } = {
 	direction: "right",
 	delay: 60,
@@ -420,17 +604,37 @@ $effect(() => {
 	}
 });
 
+let shellWasShowing = false;
+let listWasOpen = false;
+/**
+ * The list → item push (§7.2 #3) follows the swap itself, so it plays the same
+ * whoever closed the list: a list row (`selectFromList`), or the parent on its
+ * own — a chat card's Open never touches this component. Only while the shell
+ * stays up: the panel's first open and its close keep §7.2 #1/#2. Runs right
+ * before the DOM update that mounts the incoming content, which is what the
+ * entrance effect below reads.
+ */
+$effect.pre(() => {
+	const showing = shouldShowWorkspaceShell;
+	const listOpen = Boolean(list?.open);
+	if (showing && shellWasShowing && listWasOpen && !listOpen) {
+		pendingEntrance = { direction: "right", delay: 0 };
+	}
+	shellWasShowing = showing;
+	listWasOpen = listOpen;
+});
+
 /**
  * Plays the entrance for whatever just mounted into `desktopContentElement`
  * — the panel's very first open (the default `pendingEntrance`, content from
  * the right, 60ms after the panel itself per §7.2 #1) and every list↔item
- * push within an already-open panel (§7.2 #3/#4, immediate: `selectFromList`
+ * push within an already-open panel (§7.2 #3/#4, immediate: the effect above
  * and the header's back-to-list path set `pendingEntrance` to the direction
- * the NEW content is arriving from just before they change the state that
- * swaps the branch). There is no separate exit animation: Svelte destroys
- * the outgoing branch synchronously when the state changes, so the outgoing
- * content is simply gone by the time this effect could see it — the
- * entrance below is what carries the motion.
+ * the NEW content is arriving from just before the branch swaps). There is
+ * no separate exit animation: Svelte destroys the outgoing branch
+ * synchronously when the state changes, so the outgoing content is simply
+ * gone by the time this effect could see it — the entrance below is what
+ * carries the motion.
  */
 $effect(() => {
 	const element = desktopContentElement;
@@ -978,12 +1182,9 @@ function closeArtifactList(): void {
 // every item the caller already builds today.
 //
 // §7.2 #3: "list slides 28px left and fades (exit); item slides in from 28px
-// right (enter)". Setting `pendingEntrance` here, just before the calls that
-// swap `list?.open` off, is what the item view's incoming
-// `desktopContentElement` picks up once Svelte mounts it a moment later —
-// see that effect's own doc comment for why there is no separate exit half.
+// right (enter)" — played by the list-closing effect above, which sees this
+// swap the same as any other that closes the list onto an item.
 function selectFromList(item: DocumentWorkspaceItem): void {
-	pendingEntrance = { direction: "right", delay: 0 };
 	onSelectDocument(item.id);
 	onListOpenChange?.(false);
 }
@@ -1194,11 +1395,34 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				<ul class="artifact-panel-list-rows">
 					{#each list.items as item (item.id)}
 						<li>
-							<ArtifactCard
-								view={artifactCardViewFor(item)}
-								chrome="row"
-								onOpen={() => selectFromList(item)}
-							/>
+							{#if canDeleteItem(item)}
+								<ArtifactCard
+									view={artifactCardViewFor(item)}
+									chrome="row"
+									onOpen={() => selectFromList(item)}
+								>
+									{#snippet rowMenu()}
+										{@const menuLabel = $t('artifacts.delete.rowMenu', { title: getDocumentTitle(item) })}
+										<button
+											type="button"
+											class="btn-icon-bare artifact-row-menu-button"
+											data-testid={`artifact-row-menu-${item.id}`}
+											aria-haspopup="menu"
+											aria-label={menuLabel}
+											title={menuLabel}
+											onclick={() => (rowMenuOpenId = item.id)}
+										>
+											<MoreHorizontal size={18} strokeWidth={2} aria-hidden="true" />
+										</button>
+									{/snippet}
+								</ArtifactCard>
+							{:else}
+								<ArtifactCard
+									view={artifactCardViewFor(item)}
+									chrome="row"
+									onOpen={() => selectFromList(item)}
+								/>
+							{/if}
 						</li>
 					{/each}
 				</ul>
@@ -1216,13 +1440,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		<section
 			bind:this={mobileShellElement}
 			class="workspace-shell workspace-shell-mobile"
-			aria-label={$t('documentWorkspace.documentWorkspace')}
+			aria-label={list.title ?? $t('artifacts.panel.title')}
 		>
 			<div class="workspace-header">
 				<div class="workspace-heading">
 					<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
 					<div class="workspace-title-row">
-						<div class="workspace-title">
+						<div class="workspace-title" data-testid="artifact-panel-list-title" tabindex="-1">
 							<span>{list.title ?? $t('artifacts.panel.title')}</span>
 						</div>
 						<div class="workspace-header-actions">
@@ -1252,14 +1476,14 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		class="workspace-shell workspace-shell-desktop transition fade"
 		class:workspace-fade-in={isVisible}
 		style:opacity={isVisible ? '1' : '0'}
-		aria-label={$t('documentWorkspace.documentWorkspace')}
+		aria-label={list.title ?? $t('artifacts.panel.title')}
 	>
 		<div class="workspace-content" bind:this={desktopContentElement}>
 			<div class="workspace-header">
 				<div class="workspace-heading">
 					<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
 					<div class="workspace-title-row">
-						<div class="workspace-title">
+						<div class="workspace-title" data-testid="artifact-panel-list-title" tabindex="-1">
 							<span>{list.title ?? $t('artifacts.panel.title')}</span>
 						</div>
 						<div class="workspace-header-actions">
@@ -1286,6 +1510,20 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			</div>
 		</div>
 	</aside>
+	{#if rowMenuOpenId}
+		{@const menuItem = list.items.find((candidate) => candidate.id === rowMenuOpenId)}
+		{#if menuItem && canDeleteItem(menuItem)}
+			<ArtifactDeletePopover
+				kind={menuItem.kind ?? 'file'}
+				title={getDocumentTitle(menuItem)}
+				anchorTestId={`artifact-row-menu-${menuItem.id}`}
+				regenerable={canRegenerateItem(menuItem)}
+				initialStage="menu"
+				onConfirm={() => deleteFromList(menuItem)}
+				onClose={() => (rowMenuOpenId = null)}
+			/>
+		{/if}
+	{/if}
 {:else if shouldRender && activeDocument}
 	{#snippet atlasDownloadControl(document: DocumentWorkspaceItem)}
 		{#if isAtlasOutputDocument(document)}
@@ -1396,16 +1634,24 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		and the version button above replaces History outright.
 	-->
 	{#snippet artifactHeaderActionsSnippet()}
-		{#if bodyPanelActions?.openComments}
+		{#if bodyPanelActions?.toggleComments}
+			<!-- One toggle for whichever comments surface applies (the column
+			     beside the text, the drawer on a narrow panel, the sheet on a
+			     phone): pressed while it is showing, never a second way in
+			     beside one that is already open. The name stays "Comments";
+			     the tooltip says what a press does. -->
 			<button
 				type="button"
 				class="btn-icon-bare workspace-comments-button"
 				data-testid="artifact-comments-button"
-				onclick={() => bodyPanelActions?.openComments?.()}
+				onclick={() => bodyPanelActions?.toggleComments?.()}
+				aria-pressed={documentCommentsShown}
 				aria-label={documentOpenCommentCount > 0
 					? $t('artifacts.document.margin.buttonA11y', { count: documentOpenCommentCount })
 					: $t('artifacts.document.margin.title')}
-				title={$t('artifacts.document.margin.title')}
+				title={documentCommentsShown
+					? $t('artifacts.document.margin.hide')
+					: $t('artifacts.document.margin.show')}
 			>
 				<MessageSquareText size={18} strokeWidth={2} aria-hidden="true" />
 				{#if documentOpenCommentCount > 0}
@@ -1431,6 +1677,20 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			</button>
 		{:else}
 			{@render atlasDownloadControl(activeDocument)}
+		{/if}
+		{#if canDeleteItem(activeDocument)}
+			{@const deleteLabel = $t(`artifacts.delete.button.${activeArtifactKind}` as I18nKey)}
+			<button
+				type="button"
+				class="btn-icon-bare workspace-delete-button"
+				data-testid="artifact-delete-button"
+				onclick={() => (deleteConfirmOpen = true)}
+				aria-haspopup="dialog"
+				aria-label={deleteLabel}
+				title={deleteLabel}
+			>
+				<Trash2 size={18} strokeWidth={2} aria-hidden="true" />
+			</button>
 		{/if}
 		{#if showPresentationToggle && presentation !== "expanded"}
 			<span class="artifact-panel-header-actions-div" aria-hidden="true"></span>
@@ -1464,7 +1724,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		<section
 			bind:this={mobileShellElement}
 			class="workspace-shell workspace-shell-mobile"
-			aria-label={$t('documentWorkspace.documentWorkspace')}
+			aria-label={panelLandmarkLabel}
 			data-testid="document-workspace-mobile-shell"
 		>
 			{#if activeDocument.kind}
@@ -1627,24 +1887,27 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 
 			<div class="workspace-body" data-testid="page-scroll-container-mobile">
 				{#if activeArtifactBodyLoader && shouldRenderMobilePreview}
-					{#await ensureArtifactBodyModule(activeArtifactKind, activeArtifactBodyLoader) then { default: ArtifactBody }}
-						<ArtifactBody
-							artifactId={activeDocument.artifactId ?? activeDocument.id}
-							kind={activeArtifactKind}
-							title={getDocumentTitle(activeDocument)}
-							body={null}
-							{conversationId}
-							alfyActivity={bodyAlfyActivity}
-							registerPanelActions={(actions) => {
-								bodyPanelActions = actions;
-							}}
-							onCommentCountChange={(count) => {
-								documentOpenCommentCount = count;
-							}}
-							onPendingReviewCountChange={handleBodyPendingReviewCountChange}
-							{currentUser}
-						/>
-					{/await}
+					{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
+					{#if ArtifactBody}
+						<!-- One body per open ITEM (final polish D1): keyed, so a swap to another
+						     item mounts a body that registers its own header controls. A version
+						     change keeps the key, so a Keep never rebuilds the editor. -->
+						{#key activeBodyKey}
+							<ArtifactBody
+								artifactId={activeDocument.artifactId ?? activeDocument.id}
+								kind={activeArtifactKind}
+								title={getDocumentTitle(activeDocument)}
+								body={null}
+								{conversationId}
+								alfyActivity={bodyAlfyActivity}
+								registerPanelActions={(actions) => reportFromBody({ actions })}
+								onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
+								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
+								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
+								{currentUser}
+							/>
+						{/key}
+					{/if}
 				{:else if compareMode && comparedDocument}
 					<div class="workspace-compare">
 					<div class="workspace-compare-header">
@@ -1755,7 +2018,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		}
 		style:opacity={isVisible ? '1' : '0'}
 		style:transform={desktopShellTransform}
-		aria-label={$t('documentWorkspace.documentWorkspace')}
+		aria-label={panelLandmarkLabel}
 	>
 		<div 
 			class="workspace-resize-handle" 
@@ -1939,24 +2202,27 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 
 	<div class="workspace-body" data-testid="page-scroll-container">
 		{#if activeArtifactBodyLoader && shouldRenderDesktopPreview}
-			{#await ensureArtifactBodyModule(activeArtifactKind, activeArtifactBodyLoader) then { default: ArtifactBody }}
-				<ArtifactBody
-					artifactId={activeDocument.artifactId ?? activeDocument.id}
-					kind={activeArtifactKind}
-					title={getDocumentTitle(activeDocument)}
-					body={null}
-					{conversationId}
-					alfyActivity={bodyAlfyActivity}
-					registerPanelActions={(actions) => {
-						bodyPanelActions = actions;
-					}}
-					onCommentCountChange={(count) => {
-						documentOpenCommentCount = count;
-					}}
-					onPendingReviewCountChange={handleBodyPendingReviewCountChange}
-					{currentUser}
-				/>
-			{/await}
+			{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
+			{#if ArtifactBody}
+				<!-- One body per open ITEM (final polish D1): keyed, so a swap to another
+				     item mounts a body that registers its own header controls. A version
+				     change keeps the key, so a Keep never rebuilds the editor. -->
+				{#key activeBodyKey}
+					<ArtifactBody
+						artifactId={activeDocument.artifactId ?? activeDocument.id}
+						kind={activeArtifactKind}
+						title={getDocumentTitle(activeDocument)}
+						body={null}
+						{conversationId}
+						alfyActivity={bodyAlfyActivity}
+						registerPanelActions={(actions) => reportFromBody({ actions })}
+						onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
+						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
+						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
+						{currentUser}
+					/>
+				{/key}
+			{/if}
 		{:else if compareMode && comparedDocument}
 			<div class="workspace-compare">
 				<div class="workspace-compare-header">
@@ -2045,6 +2311,17 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	</div>
 	</div>
 </aside>
+{#if deleteConfirmOpen && canDeleteItem(activeDocument)}
+	{@const deletingItem = activeDocument}
+	<ArtifactDeletePopover
+		kind={activeArtifactKind}
+		title={getDocumentTitle(deletingItem)}
+		anchorTestId="artifact-delete-button"
+		regenerable={canRegenerateItem(deletingItem)}
+		onConfirm={() => deleteOpenItem(deletingItem)}
+		onClose={() => (deleteConfirmOpen = false)}
+	/>
+{/if}
 {/if}
 
 <style>
@@ -2380,6 +2657,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	   `.btn-icon .count` uses. */
 	.workspace-comments-button {
 		position: relative;
+	}
+
+	/* Pressed = the comments are showing. The mockup's own `.btn-icon.is-on`:
+	   a quiet tint and the primary icon colour, no border. */
+	.workspace-comments-button[aria-pressed='true'] {
+		background-color: var(--surface-elevated);
+		color: var(--icon-primary);
 	}
 
 	.workspace-comments-count {
@@ -2936,6 +3220,33 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		height: 1.125rem;
 		margin: 0 0.25rem;
 		background: var(--border-default);
+	}
+
+	/* Polish G2-A: the row's overflow and the header's trash button. */
+	.artifact-row-menu-button {
+		display: grid;
+		place-items: center;
+		width: 2rem;
+		height: 2rem;
+		border-radius: var(--radius-md);
+		color: var(--icon-muted);
+	}
+
+	.artifact-row-menu-button:hover,
+	.artifact-row-menu-button:global([aria-expanded='true']) {
+		background: var(--surface-elevated);
+		color: var(--text-primary);
+	}
+
+	.workspace-delete-button:hover {
+		color: var(--danger);
+	}
+
+	@media (hover: none) and (pointer: coarse) {
+		.artifact-row-menu-button {
+			width: 44px;
+			height: 44px;
+		}
 	}
 
 	.artifact-panel-list-body {

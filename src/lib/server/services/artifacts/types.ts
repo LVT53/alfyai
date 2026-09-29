@@ -117,6 +117,16 @@ export interface ArtifactCardSummary {
 	 * is pending right now). Every other kind always omits this field.
 	 */
 	pendingReviewCount?: number;
+	/**
+	 * Set (to `true`, never `false`) when the chat can make this item again from
+	 * what it kept — a Document or App from the model's own `create_artifact`
+	 * arguments, a Document from the message it was opened as, a produced file
+	 * from its job's request. It is what lets the delete confirm say "you can
+	 * regenerate it from the chat" instead of "this can't be undone". Set by the
+	 * conversation detail read model, which has the messages and jobs; absent
+	 * means "no source is known", and the confirm keeps the plain warning.
+	 */
+	regenerable?: true;
 }
 
 export interface ArtifactDetail extends ArtifactCardSummary {
@@ -164,6 +174,12 @@ export type CreatableArtifactKind = Exclude<ArtifactKind, "file">;
 export interface CreateArtifactInput {
 	userId: string;
 	conversationId: string | null;
+	/**
+	 * A trusted server caller's own id for the row — Regenerate makes a deleted
+	 * item again under the id its chat cards already carry. Omit for a fresh
+	 * one (every other caller). Refused as `id_taken` when a row already has it.
+	 */
+	id?: string;
 	kind: CreatableArtifactKind;
 	title: string;
 	body?: string | null;

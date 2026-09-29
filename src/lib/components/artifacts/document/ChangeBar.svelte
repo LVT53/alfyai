@@ -20,6 +20,10 @@
  */
 import { Check, Sparkles, Undo2 } from "@lucide/svelte";
 import { t } from "$lib/i18n";
+import {
+	alfyChangeAriaKeyShortcuts,
+	alfyChangeShortcutLabel,
+} from "./keyboard-shortcuts";
 
 let {
 	status = "pending",
@@ -51,7 +55,12 @@ let {
  */
 let redoButtonEl = $state<HTMLButtonElement | undefined>();
 $effect(() => {
-	if (status === "undone") redoButtonEl?.focus();
+	if (status !== "undone") return;
+	// Only when the focus was dropped (the removed button had it, so it fell to
+	// `<body>`). An Undo by keyboard chord from the text (G3) leaves the focus
+	// where it is — in the text — and a pill must not pull it out of there.
+	const focused = document.activeElement;
+	if (!focused || focused === document.body) redoButtonEl?.focus();
 });
 </script>
 
@@ -88,6 +97,8 @@ $effect(() => {
 			type="button"
 			class="alfy-change-bar-action alfy-change-bar-undo"
 			aria-label={$t('artifacts.document.change.undoA11y')}
+			aria-keyshortcuts={alfyChangeAriaKeyShortcuts('undo')}
+			title={$t('artifacts.document.change.undoWithShortcut', { shortcut: alfyChangeShortcutLabel('undo') })}
 			onclick={onUndo}
 		>
 			<Undo2 size={12} strokeWidth={2} aria-hidden="true" />
@@ -104,6 +115,8 @@ $effect(() => {
 			type="button"
 			class="alfy-change-bar-action alfy-change-bar-undo"
 			aria-label={$t('artifacts.document.change.redoA11y')}
+			aria-keyshortcuts={alfyChangeAriaKeyShortcuts('redo')}
+			title={$t('artifacts.document.change.redoWithShortcut', { shortcut: alfyChangeShortcutLabel('redo') })}
 			onclick={onRedo}
 		>
 			{$t('artifacts.document.change.redo')}

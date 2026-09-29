@@ -23,6 +23,7 @@ import ArtifactCard, {
 } from "$lib/components/artifacts/ArtifactCard.svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
+import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { APP_VERIFY_LINE_KEYS } from "$lib/shared/artifacts/app-verify-labels";
@@ -52,6 +53,7 @@ let {
 	onToggleDocumentTask = undefined,
 	alfyActivity = null,
 	activeArtifactId = null,
+	deletedArtifacts = undefined,
 }: {
 	item: ToolActivityItem;
 	open?: boolean;
@@ -103,6 +105,12 @@ let {
 	 * or the panel is showing the list rather than a specific item.
 	 */
 	activeArtifactId?: string | null;
+	/**
+	 * Polish G2-A: which items were deleted (and the Regenerate that makes one
+	 * again). A card whose item is in `deletedIds` says so, muted, with no Open;
+	 * one whose item is in `unreachableIds` says it was made in the original chat.
+	 */
+	deletedArtifacts?: DeletedArtifacts | undefined;
 } = $props();
 
 type ArtifactActivityBody = Extract<ToolActivityBody, { kind: "artifact" }>;
@@ -125,6 +133,30 @@ type ArtifactFailedBody = Extract<
  * their slices add previews" means for Canvas/Slides today.
  */
 function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
+	// The security review's M1: the item exists but this chat cannot reach it
+	// (made in another chat). Not deleted — and not regenerable, not openable.
+	if (deletedArtifacts?.unreachableIds.includes(body.artifactId)) {
+		return {
+			id: body.artifactId,
+			kind: body.artifactKind,
+			title: body.artifactTitle,
+			unreachable: true,
+		};
+	}
+	// Polish G2-A: the item is gone — nothing else about it (preview, pending
+	// review, version) is true any more, and there is nothing to open.
+	if (deletedArtifacts?.deletedIds.includes(body.artifactId)) {
+		return {
+			id: body.artifactId,
+			kind: body.artifactKind,
+			title: body.artifactTitle,
+			deleted: true,
+			regenerating: deletedArtifacts.regeneratingIds.includes(body.artifactId),
+			regenerateUnavailable: deletedArtifacts.unavailableIds.includes(
+				body.artifactId,
+			),
+		};
+	}
 	const documentPreview =
 		body.artifactKind === "document"
 			? body.preview?.documentPreview
@@ -446,6 +478,7 @@ function handleToggle() {
 				view={artifactCardView(body)}
 				chrome="full"
 				onOpen={() => handleOpenArtifact(body)}
+				onRegenerate={deletedArtifacts?.onRegenerate}
 			/>
 		</div>
 	{/if}

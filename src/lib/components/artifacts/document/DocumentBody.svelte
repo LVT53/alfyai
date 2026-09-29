@@ -68,7 +68,6 @@ import {
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
-import RefusalNotice from "$lib/components/artifacts/RefusalNotice.svelte";
 import ReviewBar from "$lib/components/artifacts/ReviewBar.svelte";
 import { t } from "$lib/i18n";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
@@ -81,6 +80,7 @@ import {
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import { documentCommentsRailHidden } from "$lib/stores/ui";
 import { isPhoneViewport, watchPhoneViewport } from "$lib/utils/viewport.svelte";
 import {
 	MOTION_DURATION,
@@ -94,8 +94,17 @@ import {
 	type DocumentAlfyActivity,
 } from "./alfy-activity";
 import AlfyWriting from "./AlfyWriting.svelte";
+import { BLOCK_ID_ATTR } from "./block-attrs";
 import { COMPOSER_BUBBLE_SIZE, computeBubblePlacement } from "./bubble-placement";
 import { documentTabsFromCardMetadata } from "./card-view";
+import {
+	type AnchorBox,
+	commentAnchorTargets,
+	commentRailWidth,
+	countCommentsByTab,
+	pickFollowedComment,
+	resolveCommentAnchors,
+} from "./comment-threads";
 import CommentsSheet from "./CommentsSheet.svelte";
 import {
 	createDocumentAutosave,
@@ -109,11 +118,11 @@ import {
 import type {
 	AlfyChangeEntry,
 	ChangePillEntry,
-	CommentAnchorTarget,
 	Editor,
 } from "./document-editor";
 import DocumentToolbar from "./DocumentToolbar.svelte";
 import DownloadSheet from "./DownloadSheet.svelte";
+import { alfyChangeShortcutFor, historyShortcutFor } from "./keyboard-shortcuts";
 import MarginPanel from "./MarginPanel.svelte";
 import MobileToolbar from "./MobileToolbar.svelte";
 import SelectionBubble from "./SelectionBubble.svelte";
@@ -130,6 +139,7 @@ let {
 	onBodyChange,
 	registerPanelActions,
 	onCommentCountChange,
+	onCommentsShownChange,
 	onPendingReviewCountChange,
 	currentUser = null,
 }: ArtifactBodyProps = $props();
@@ -211,8 +221,9 @@ let applyAlfyChangesFn: typeof DocumentEditorModule.applyAlfyChanges | null =
 	null;
 let keepChangeFn: typeof DocumentEditorModule.keepChange | null = null;
 let undoChangeFn: typeof DocumentEditorModule.undoChange | null = null;
+let redoChangeFn: typeof DocumentEditorModule.redoChange | null = null;
 let remarkChangeFn: typeof DocumentEditorModule.remarkChange | null = null;
-let changeDocRangeFn: typeof DocumentEditorModule.changeDocRange | null = null;
+let blockContentEndFn: typeof DocumentEditorModule.blockContentEnd | null = null;
 let scrollToChangeFn: typeof DocumentEditorModule.scrollToChange | null = null;
 /** Wave 2.5 Step 10: pushes `pendingChanges` into the editor's own widget-decoration plugin — see `change-pill-decoration.ts`. */
 let setChangePillsFn: typeof DocumentEditorModule.setChangePills | null = null;
@@ -263,20 +274,36 @@ let selectionBubble = $state<
 let contentEl = $state<HTMLDivElement | undefined>();
 
 // ---- Redesign §3.2, Wave 2.5 Step 7: the rail's two-way link ---------------
-// `commentAnchors` is whatever `MarginPanel.svelte` last resolved (its own
-// `resolveTextAnchor` work, reported up rather than redone here);
-// `activeCommentId` is whichever thread is currently linked — hover/focus on
-// its card in the rail, or its own words in the text having been
-// clicked/focused — driving BOTH the rail's `.is-active` card chrome and the
-// editor's own decoration. `focusCommentRequest` is a ONE-SHOT signal (a
-// bumped token, never just the id) for "scroll the rail to and focus THIS
-// thread's card" — kept separate from `activeCommentId` on purpose: merely
-// hovering a card must never also yank scroll/keyboard focus toward it.
-let commentAnchors = $state<CommentAnchorTarget[]>([]);
-let activeCommentId = $state<string | null>(null);
+// Every thread's anchor is resolved ONCE here (`comment-threads.ts`) — the
+// editor's highlights need it whether or not any comment surface is showing,
+// and the rail/sheet/drawer take the same result as a prop instead of each
+// redoing the work on every keystroke. `activeCommentId` is whichever thread
+// is currently linked to its words: hover/focus on its card, or on its own
+// words in the text (`hoverCommentId`), or — when nothing is hovered — the
+// thread whose words are nearest the top of what the reader has scrolled to
+// (`followCommentId`). It drives BOTH the rail's `.is-active` card chrome
+// and the editor's own decoration. `focusCommentRequest` is a ONE-SHOT signal
+// (a bumped token, never just the id) for "scroll the list to and focus THIS
+// thread's card"; `revealCommentRequest` is its quieter sibling for "bring it
+// into view, leave focus alone" — both kept separate from `activeCommentId`
+// on purpose: merely hovering a card must never also yank scroll/keyboard
+// focus toward it.
+const commentResolutions = $derived(resolveCommentAnchors(comments, blocks));
+const commentAnchors = $derived(
+	commentAnchorTargets(comments, commentResolutions),
+);
+let hoverCommentId = $state<string | null>(null);
+let followCommentId = $state<string | null>(null);
+const activeCommentId = $derived(hoverCommentId ?? followCommentId);
 let focusCommentRequest = $state<{ commentId: string; token: number } | null>(
 	null,
 );
+let revealCommentRequest = $state<{
+	commentId: string;
+	token: number;
+	force?: boolean;
+} | null>(null);
+let revealCommentToken = 0;
 let setCommentAnchorsFn:
 	| typeof DocumentEditorModule.setCommentAnchors
 	| null = null;
@@ -285,22 +312,36 @@ let scrollToCommentAnchorFn:
 	| null = null;
 
 // ---- Wave 2.5 Step 8: the rail's phone sheet / narrow-panel drawer --------
-// `.document-content`'s own CSS mirrors this exact threshold under
-// `@container (min-width: 820px)` — the two must stay in step, since this is
-// the JS half deciding whether `CommentsSheet` should even mount, and the
-// CSS half is what actually hides the inline rail at the same width.
-const NARROW_PANEL_THRESHOLD_PX = 820;
+// One comments surface at a time, decided here from the panel's own measured
+// width (`commentRailWidth`, comment-threads.ts): the inline column beside
+// the text when there is room for it (its width narrowing before the text
+// does), a drawer over the text when there is not, a sheet on a phone. The
+// header's Comments button toggles whichever one applies — for the inline
+// column that is a per-device choice kept in the UI store; the drawer and the
+// sheet just open and close.
 let documentBodyEl = $state<HTMLDivElement | undefined>();
 let panelContainerWidth = $state(0);
 /** The review bar's own live rendered height (Review 2.5, rd/review-2-5.md:98-108) — read by the effect below and used to reserve enough bottom padding under the last paragraph. */
 let reviewBarSlotEl = $state<HTMLDivElement | undefined>();
 let reviewBarHeight = $state(0);
+/** The review bar is flush with the text's bottom edge (`.document-review-bar-slot`'s `bottom: 0`); the drawer stops a small gap above it. */
+const REVIEW_BAR_CLEARANCE_PX = 8;
 let isPhone = $state(isPhoneViewport());
-/** `0` means "not measured yet" (no ResizeObserver in this environment, e.g. jsdom) — treated as "not narrow" rather than a false-positive drawer. */
-let isNarrowPanel = $derived(
-	panelContainerWidth > 0 && panelContainerWidth < NARROW_PANEL_THRESHOLD_PX,
-);
+/** `0` (not measured yet — no ResizeObserver in this environment, e.g. jsdom) gets the full column rather than a false-positive drawer. */
+let inlineRailWidth = $derived(commentRailWidth(panelContainerWidth));
+let isNarrowPanel = $derived(inlineRailWidth === null);
 let commentsOverlayOpen = $state(false);
+/** The comment list's own view choices (Open/All, the removed-text fold), held here because the list is unmounted with its column, drawer or sheet and a choice kept inside it was lost every time (G2-B). Open by default (ruling 61); per document body, never persisted. */
+let commentFilter = $state<"open" | "all">("open");
+let commentOrphanedGroupOpen = $state(false);
+/** The inline column beside the text: room for it, not on a phone, and not switched off on this device. */
+let commentsRailShown = $derived(
+	!isPhone && !isNarrowPanel && !$documentCommentsRailHidden,
+);
+/** What the header's Comments button reports as pressed: whichever surface applies is showing. */
+let commentsShown = $derived(
+	isPhone || isNarrowPanel ? commentsOverlayOpen : commentsRailShown,
+);
 /** commentId -> the changeId its own `@Alfy` reply produced this session (`maybeAskAlfy` below) — ephemeral, like `pendingChanges` itself. */
 let changeIdByCommentId = $state<Map<string, string>>(new Map());
 let changeChipByCommentId = $derived.by(() => {
@@ -351,6 +392,12 @@ interface PendingAlfyChange {
 	isNewBlock?: boolean;
 	/** Captured from `blocks` state right before Undo replaces the text — Redo's own restore target. */
 	appliedMarkdown?: string;
+	/**
+	 * The extra blocks a multi-block change had added (`entry.insertedBlockIds`),
+	 * read from `blocks` state at the same moment — Undo deletes them, so this is
+	 * the only place their text survives for Redo to put back.
+	 */
+	appliedInsertedBlocks?: { blockId: string; markdown: string }[];
 	/** Captured right before Undo removes the mark structurally — the pill's own fallback anchor while `status` is `"undone"` (`change-pill-decoration.ts`'s own `fallbackPos`). */
 	fallbackPos?: number;
 }
@@ -389,6 +436,8 @@ let pendingReviewRestoreSettled = $state(false);
 let reviewIndex = $state(0);
 /** Keyed by changeId — cleared by Redo (cancels the pending removal) or by `removePendingChange` itself; a plain Map, never `$state`, since it drives no render on its own. */
 const undoSettleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** The change Undo ran on last — which "Undone · Redo" pill Redo's chord brings back when several are showing at once. */
+let lastUndoneChangeId: string | null = null;
 let refusalNotice = $state<{
 	message: string;
 	items: { label: string; reason: string }[];
@@ -406,27 +455,25 @@ function updateBlocksFromMarkdown(markdown: string): void {
 
 /**
  * `Tabs.svelte`'s badge (redesign §5.2): how many of THIS tab's own comment
- * THREADS (root comments, never replies) are still open. `mapBlocksToTabs`
- * (`shared/artifact-document/blocks.ts`) owns the block→tab walk itself —
- * the SAME one `MarginPanel.svelte`'s own per-tab comment scoping uses, so
- * the two never drift apart — recomputed here (rather than read back out of
- * the editor's decoration) because this needs to run whenever `comments`
- * changes too, not just `tabs`/`blocks`.
+ * THREADS (root comments, never replies) are still open. The counting itself
+ * is `countCommentsByTab` (comment-threads.ts) — the SAME one the rail's
+ * "in other tabs" rows and its header count use, so the number on a tab and
+ * the number in the rail can never disagree — recomputed here (rather than
+ * read back out of the editor's decoration) because this needs to run
+ * whenever `comments` changes too, not just `tabs`/`blocks`.
  */
 function computeTabBadgeCounts(
 	docBlocks: DocumentBlock[],
 	docComments: ArtifactComment[],
 	docTabs: DocumentTab[],
 ): Record<string, number> {
-	const blockIdToTabId = mapBlocksToTabs(docBlocks, docTabs);
-	if (blockIdToTabId.size === 0) return {};
 	const counts: Record<string, number> = {};
-	for (const comment of docComments) {
-		if (comment.status !== "open") continue;
-		if (!comment.anchor || comment.anchor.kind !== "text") continue;
-		const tabId = blockIdToTabId.get(comment.anchor.blockId);
-		if (!tabId) continue;
-		counts[tabId] = (counts[tabId] ?? 0) + 1;
+	for (const [tabId, own] of countCommentsByTab(
+		docComments,
+		docBlocks,
+		docTabs,
+	)) {
+		if (own.open > 0) counts[tabId] = own.open;
 	}
 	return counts;
 }
@@ -723,9 +770,20 @@ async function handleSelectionSubmit(
 ): Promise<void> {
 	const createdId = await postComment(anchor, body);
 	selectionBubble = null;
-	if (!sourceRect || prefersReducedMotion() || !contentEl) return;
+	// The new card belongs in view whether or not it flies there: ask the
+	// inline column (if it is showing) to bring it in, past its "the reader is
+	// using the list" guard — the reader is in the text, having just written it.
+	if (createdId && commentsRailShown) {
+		revealCommentToken += 1;
+		revealCommentRequest = {
+			commentId: createdId,
+			token: revealCommentToken,
+			force: true,
+		};
+	}
+	if (!sourceRect || prefersReducedMotion() || !documentBodyEl) return;
 	await tick();
-	const target = contentEl.querySelector(
+	const target = documentBodyEl.querySelector(
 		`[data-comment-id="${createdId}"]`,
 	);
 	if (!(target instanceof HTMLElement)) return;
@@ -829,6 +887,22 @@ async function handleCommentResolve(
  * `handledActivityKey` is set only once the call is actually about to be
  * processed, never as a side effect of merely having been seen.
  */
+/**
+ * Final polish D2: an activity that had already settled when THIS body mounted
+ * happened before it. The persisted review state (`restorePendingReview`, ruling
+ * 61) is the only source of what it changed — landing it live on top of that
+ * counts the change twice (one entry keyed by the op, one by the block), and the
+ * copy survives Undo and comes back after Keep. The panel builds a body again on
+ * every later open of the Document, and hands each one the panel's latest
+ * activity, so the once-only rule belongs here: a call is applied live by the
+ * body that was mounted while it was still running (or before it began), and by
+ * no body built after it settled. Captured once, at mount; `runLoad` resets
+ * `handledActivityKey` on every (re)load, which is why that cannot stand in for
+ * it.
+ */
+const settledActivityKeyAtMount = untrack(() =>
+	alfyActivity && alfyActivity.status !== "running" ? alfyActivity.key : null,
+);
 $effect(() => {
 	const activity = alfyActivity;
 	if (!activity || activity.artifactId !== boundArtifactId) {
@@ -846,6 +920,8 @@ $effect(() => {
 	// Settled (applied/refused/failed): the shimmer never outlives its call
 	// (T8.6), whatever else this activity turns out to mean.
 	alfyWritingLabel = null;
+	// Settled before this body existed: the server's review state owns it.
+	if (activity.key === settledActivityKeyAtMount) return;
 
 	const key = `${activity.key}:${activity.status}`;
 	if (key === handledActivityKey) return;
@@ -1014,35 +1090,47 @@ function handleKeepChange(changeId: string): void {
  * Undo: restores exactly this change's pre-edit text and treats that as a
  * USER edit — scheduled through the normal autosave path (T8's own rule),
  * not a second, silent write. Unlike Keep, the mark is gone the instant this
- * runs (`undoAlfyChange` replaces the whole node) — `changeDocRangeFn`
- * captures its LAST live position first, as the pill's own fallback anchor
- * for the "Undone · Redo" window (redesign §7.2 #14). `appliedMarkdown` is
- * ALSO captured first (from `blocks` state, still showing the pre-undo,
- * Alfy-applied text) — Redo's own restore target, since nothing else keeps
- * what Undo is about to overwrite.
+ * runs (`undoAlfyChange` replaces the whole node), so the pill's own fallback
+ * anchor for the "Undone · Redo" window (redesign §7.2 #14) is the end of the
+ * restored block — read AFTER Undo, since the restored text can be shorter
+ * than what the mark covered and an earlier position would then point into
+ * the next block. `appliedMarkdown` is captured first (from `blocks` state,
+ * still showing the pre-undo, Alfy-applied text) — Redo's own restore
+ * target, since nothing else keeps what Undo is about to overwrite.
  */
 function handleUndoChange(changeId: string): void {
 	if (!editor || !undoChangeFn) return;
 	const pending = pendingChanges.get(changeId);
 	if (!pending) return;
-	const fallbackPos = changeDocRangeFn?.(editor, changeId)?.to;
 	const appliedMarkdown = blocks.find(
 		(b) => b.id === pending.entry.blockId,
 	)?.markdown;
+	const appliedInsertedBlocks = (pending.entry.insertedBlockIds ?? []).flatMap(
+		(blockId) => {
+			const block = blocks.find((b) => b.id === blockId);
+			return block ? [{ blockId, markdown: block.markdown }] : [];
+		},
+	);
 	undoChangeFn(editor, {
 		...pending.entry,
 		isNewBlock: pending.isNewBlock,
 	});
+	const fallbackPos =
+		blockContentEndFn?.(editor, pending.entry.blockId) ?? undefined;
+	lastUndoneChangeId = changeId;
 	pendingChanges = new Map(pendingChanges).set(changeId, {
 		...pending,
 		status: "undone",
 		fallbackPos,
 		appliedMarkdown,
+		appliedInsertedBlocks,
 	});
 	announce($t("artifacts.document.change.undoneNotice"));
 	const canonical = currentCanonicalMarkdown();
 	if (canonical !== null) {
-		autosave?.schedule(canonical);
+		// Spec §4.2 item 6: "a version is recorded (\"Undid Alfy's change\")" —
+		// its own summary, not another anonymous "Edited".
+		autosave?.schedule(canonical, { summaryKind: "undid_alfy_change" });
 		updateBlocksFromMarkdown(canonical);
 	}
 	void acknowledgeReview([pending.entry.blockId]);
@@ -1051,28 +1139,29 @@ function handleUndoChange(changeId: string): void {
 }
 
 /**
- * Redo: reverses Undo within its own settle window — restores the captured
- * `appliedMarkdown` (the SAME mechanism as Undo, in reverse: `undoChangeFn`
- * is generically "set this block's content to X", never direction-specific)
- * and re-marks the block under the SAME `changeId` so the pill goes back to
- * `"pending"`. A change with `insertedBlockIds` in its live-session entry
- * loses those extra blocks on Redo (Undo already removed them, and only
- * `appliedMarkdown`'s own block is captured) — a deliberate, narrow
- * simplification; see the report's own deviations.
+ * Redo: reverses Undo within its own settle window — `redoChangeFn` sets the
+ * block back to the captured `appliedMarkdown` and puts back the extra blocks
+ * a multi-block change had added (`appliedInsertedBlocks`, captured by
+ * `handleUndoChange` before Undo deleted them), then the block is re-marked
+ * under the SAME `changeId` so the pill goes back to `"pending"`.
  */
 function handleRedoChange(changeId: string): void {
-	if (!editor || !undoChangeFn || !remarkChangeFn) return;
+	if (!editor || !redoChangeFn || !remarkChangeFn) return;
 	const pending = pendingChanges.get(changeId);
 	if (!pending || pending.status !== "undone") return;
+	// A Redo pressed on the pill itself: its button is about to be replaced by
+	// the pending pill's, and the focus it had would fall to <body>.
+	const focusWasOnPill = !!document.activeElement?.closest("[data-change-id]");
 	const timer = undoSettleTimers.get(changeId);
 	if (timer !== undefined) {
 		clearTimeout(timer);
 		undoSettleTimers.delete(changeId);
 	}
 	if (pending.appliedMarkdown !== undefined) {
-		undoChangeFn(editor, {
+		redoChangeFn(editor, {
 			blockId: pending.entry.blockId,
-			previousMarkdown: pending.appliedMarkdown,
+			appliedMarkdown: pending.appliedMarkdown,
+			insertedBlocks: pending.appliedInsertedBlocks,
 		});
 	}
 	remarkChangeFn(editor, changeId, pending.entry.blockId);
@@ -1085,6 +1174,24 @@ function handleRedoChange(changeId: string): void {
 	if (canonical !== null) {
 		autosave?.schedule(canonical);
 		updateBlocksFromMarkdown(canonical);
+	}
+	if (focusWasOnPill) void focusPillUndo(changeId);
+}
+
+/**
+ * After a Redo pressed on the pill itself (Enter or Space on its button): the
+ * pill is a fresh "pending" one and the focus fell to <body>. Puts it on the
+ * new Undo — the button the reader had just pressed — so Undo and Redo can be
+ * toggled from the keyboard without losing the place.
+ */
+async function focusPillUndo(changeId: string): Promise<void> {
+	await tick();
+	for (const pill of documentBodyEl?.querySelectorAll<HTMLElement>(
+		"[data-change-id]",
+	) ?? []) {
+		if (pill.dataset.changeId !== changeId) continue;
+		pill.querySelector<HTMLButtonElement>(".alfy-change-bar-undo")?.focus();
+		return;
 	}
 }
 
@@ -1111,6 +1218,124 @@ function handleUndoAllChanges(): void {
 		if (pending.status === "pending") handleUndoChange(changeId);
 	}
 }
+
+// ---- G3: keyboard ----------------------------------------------------------
+// Two families of keys, kept apart (`keyboard-shortcuts.ts` explains why):
+// the reader's own text history — ⌘/Ctrl+Z, ⌘/Ctrl+Shift+Z, ⌘/Ctrl+Y — which
+// the editor itself claims while the text has the focus (`document-editor.ts`)
+// and which this body claims for a focus that is anywhere else in the panel
+// (a toolbar button, a tab, a pill, the review bar); and Alfy's change — the
+// pill's own Undo and Redo, ⌘/Ctrl+Alt+Z and the same with Shift — which is
+// not in the text history and so has chords of its own.
+
+/** A field that has an undo of its own (a comment or reply box): the keys stay the browser's there. */
+const TEXT_FIELD_SELECTOR =
+	"textarea, input:not([type='checkbox']):not([type='radio']):not([type='button']):not([type='submit']):not([type='reset']):not([type='range']):not([type='file'])";
+
+/**
+ * The top-level block the caret is in, by its block id; `null` with no caret.
+ * Read from the browser's own selection first: ProseMirror learns of a click
+ * on the next `selectionchange`, so a chord pressed right after one would still
+ * find the previous position in the editor's state. The state is the fallback.
+ */
+function caretBlockId(): string | null {
+	const view = editor?.view;
+	const selection = window.getSelection?.();
+	let caret = editor?.state.selection.$from;
+	if (
+		view?.dom &&
+		typeof view.posAtDOM === "function" &&
+		selection?.anchorNode &&
+		view.dom.contains(selection.anchorNode)
+	) {
+		try {
+			caret = view.state.doc.resolve(
+				view.posAtDOM(selection.anchorNode, selection.anchorOffset),
+			);
+		} catch {
+			// A position the document no longer has: the editor's own state stands.
+		}
+	}
+	if (!caret || caret.depth < 1) return null;
+	const id = caret.node(1)?.attrs?.[BLOCK_ID_ATTR];
+	return typeof id === "string" ? id : null;
+}
+
+/**
+ * Which change an Alfy-change chord acts on: the one whose pill has the focus,
+ * else the one in the block the caret is in, else the one the review bar is
+ * showing (Undo) or the one Undo ran on last (Redo), else the first. Only
+ * changes in the state the chord needs — a pending change to undo, an undone
+ * one (inside its "Undone · Redo" window) to redo — count.
+ */
+function changeForChord(
+	status: "pending" | "undone",
+	target: HTMLElement | null,
+): string | null {
+	const matching = [...pendingChanges].filter(([, p]) => p.status === status);
+	if (matching.length === 0) return null;
+	const ids = new Set(matching.map(([id]) => id));
+	const pillId = target?.closest<HTMLElement>("[data-change-id]")?.dataset
+		.changeId;
+	if (pillId && ids.has(pillId)) return pillId;
+	const caretBlock = caretBlockId();
+	const atCaret = caretBlock
+		? matching.find(([, p]) => p.entry.blockId === caretBlock)
+		: undefined;
+	if (atCaret) return atCaret[0];
+	if (status === "pending") return pendingList[reviewIndex]?.[0] ?? matching[0][0];
+	if (lastUndoneChangeId && ids.has(lastUndoneChangeId)) {
+		return lastUndoneChangeId;
+	}
+	return matching[matching.length - 1][0];
+}
+
+/** `true` when there was a change for the chord to act on. */
+function runAlfyChangeShortcut(
+	action: "undo" | "redo",
+	target: HTMLElement | null,
+): boolean {
+	const changeId = changeForChord(
+		action === "undo" ? "pending" : "undone",
+		target,
+	);
+	if (!changeId) return false;
+	if (action === "undo") handleUndoChange(changeId);
+	else handleRedoChange(changeId);
+	return true;
+}
+
+/**
+ * Keys pressed anywhere inside the panel bubble up here. The editor has
+ * already handled its own (it marks them `defaultPrevented`); this is for the
+ * rest. A key from a text field keeps that field's own behaviour.
+ */
+function handleBodyKeydown(event: KeyboardEvent): void {
+	if (event.defaultPrevented || !editor) return;
+	const target = event.target instanceof HTMLElement ? event.target : null;
+	if (target?.closest(TEXT_FIELD_SELECTOR)) return;
+
+	const alfyChange = alfyChangeShortcutFor(event);
+	if (alfyChange) {
+		if (runAlfyChangeShortcut(alfyChange, target)) event.preventDefault();
+		return;
+	}
+
+	const history = historyShortcutFor(event);
+	// In the text the editor claimed the key itself. A control that lives
+	// inside the editor's DOM (a pill's button, a chip select, a task
+	// checkbox) is not the text: those come here.
+	const inText =
+		!!target?.closest(".ProseMirror") &&
+		!target.closest("button, select, input, .ProseMirror-widget");
+	if (history && !inText) {
+		// Focus is on a button, a tab or a pill: the same undo the toolbar's own
+		// button runs (which also brings the focus back into the text).
+		event.preventDefault();
+		handleToolbarAction(history);
+	}
+}
+// ---- end G3: keyboard -------------------------------------------------------
 
 /**
  * "See what Alfy did" / a comment's own change chip / the review bar's
@@ -1269,12 +1494,41 @@ function dismissRefusalNotice(): void {
  * flow the user would reach by selecting the text themselves), rather than
  * jumping straight into an open composer.
  */
-function handleAskAgainRefusal(): void {
+async function handleAskAgainRefusal(): Promise<void> {
 	const blockId = refusalNotice?.refusedBlockIds[0];
 	if (!blockId || !editor || !selectAndScrollToBlockFn) return;
+	// The card is listed wherever its line's tab is not showing too: a line
+	// in a section that is hidden cannot be selected until its tab is.
+	const targetTabId = mapBlocksToTabs(blocks, tabs).get(blockId);
+	if (targetTabId && targetTabId !== activeTabId) {
+		handleTabActivate(targetTabId);
+		await tick();
+	}
 	selectAndScrollToBlockFn(editor, blockId);
 	dismissRefusalNotice();
 }
+// The refusal card's own data for the comment list: "your words win" reads as
+// one of the comment family, at its line's position (a sheet or drawer lists
+// it first) — no longer a banner above the text.
+const marginRefusal = $derived(
+	refusalNotice
+		? {
+				blockId: refusalNotice.refusedBlockIds[0] ?? null,
+				message: refusalNotice.message,
+				items: refusalNotice.items,
+				seeChangeLabel: refusalNotice.seeChangeLabel ?? undefined,
+				onSeeChange: refusalNotice.seeChangeLabel ? handleSeeChange : undefined,
+				askAgainLabel: refusalNotice.refusedBlockIds[0]
+					? $t("artifacts.document.comment.askAgain")
+					: undefined,
+				onAskAgain: refusalNotice.refusedBlockIds[0]
+					? handleAskAgainRefusal
+					: undefined,
+				dismissLabel: $t("artifacts.document.refused.dismiss"),
+				onDismiss: dismissRefusalNotice,
+			}
+		: null,
+);
 // ---- end T8 live ---------------------------------------------------------
 
 // ---- T12: the download sheet -----------------------------------------------
@@ -1442,9 +1696,24 @@ function openDownloadSheet(): void {
 	downloadSheetOpen = true;
 }
 
-/** The header's Comments button (`registerPanelActions`, Wave 2.5 Step 8) and a tapped highlight's own fallback (`handleEditorAnchorActivate` below) both funnel through here. */
+/** A tapped highlight's own fallback (`handleEditorAnchorActivate` below): the drawer or sheet, opened where the inline column is not an option. */
 function openCommentsOverlay(): void {
 	commentsOverlayOpen = true;
+}
+
+/**
+ * The header's Comments button (`registerPanelActions`): ONE toggle for
+ * whichever comments surface applies — it never opens a second copy beside
+ * the one already showing. The inline column is switched off/on for this
+ * device (the UI store remembers it); the drawer and the sheet just open and
+ * close.
+ */
+function toggleComments(): void {
+	if (isPhone || isNarrowPanel) {
+		commentsOverlayOpen = !commentsOverlayOpen;
+		return;
+	}
+	documentCommentsRailHidden.update((hidden) => !hidden);
 }
 
 // Wave 2.5 Step 3: hands the panel header the sheet triggers above, so
@@ -1452,15 +1721,14 @@ function openCommentsOverlay(): void {
 // without knowing anything about Tiptap or this body's own state — see
 // `ArtifactBodyProps.registerPanelActions`. No dependency this effect reads
 // ever changes (the functions are stable closures over local `$state`
-// setters), so this runs once, after mount, like `onMount` — but as an
-// effect, a future need to re-register per `artifactId` (the panel's rail
-// can swap which item is open without remounting this body) is one
-// dependency read away rather than a rewrite.
+// setters), so this runs once, after mount, like `onMount`. That is enough
+// because the panel mounts one body per open item (final polish D1): a swap
+// to another item builds a new body, which registers here for itself.
 $effect(() => {
 	registerPanelActions?.({
 		openVersions: openVersionsSheet,
 		openDownload: openDownloadSheet,
-		openComments: openCommentsOverlay,
+		toggleComments,
 	});
 });
 
@@ -1471,6 +1739,9 @@ let openCommentCount = $derived(
 $effect(() => {
 	onCommentCountChange?.(openCommentCount);
 });
+$effect(() => {
+	onCommentsShownChange?.(commentsShown);
+});
 
 $effect(() => {
 	const stopWatchingViewport = watchPhoneViewport((phone) => {
@@ -1479,15 +1750,16 @@ $effect(() => {
 	return stopWatchingViewport;
 });
 
-// Tracks this body's own rendered width so the inline rail (CSS, the SAME
-// 820px threshold — see `NARROW_PANEL_THRESHOLD_PX`) and the overlay
-// (`commentsOverlayOpen`'s presentation, below) agree on when there is room
-// for the 300px column. Guarded: jsdom (this component's own tests) has no
-// ResizeObserver, and the panel must render correctly without one — see
-// `MarginPanel.svelte`'s own identical guard.
+// Tracks this body's own rendered width: `commentRailWidth` decides from it
+// whether the inline column fits beside the text (and how wide it is) or the
+// comments are a drawer. Read once straight away so the very first paint
+// already has the right surface, then kept live. Guarded: jsdom (this
+// component's own tests) has no ResizeObserver, and the panel must render
+// correctly without one.
 $effect(() => {
 	const el = documentBodyEl;
 	if (!el || typeof ResizeObserver === "undefined") return;
+	panelContainerWidth = el.getBoundingClientRect().width;
 	const observer = new ResizeObserver((entries) => {
 		const width = entries[0]?.contentRect.width;
 		if (width !== undefined) panelContainerWidth = width;
@@ -1519,8 +1791,8 @@ $effect(() => {
 });
 
 // Closes a stray-open overlay the moment the layout no longer needs one
-// (a window/panel resize back above the threshold) — otherwise the drawer
-// would float uselessly ALONGSIDE the now-visible inline rail.
+// (a window/panel resize wide enough for the inline column) — otherwise the
+// drawer would float uselessly ALONGSIDE it, a second copy of the comments.
 $effect(() => {
 	if (!isPhone && !isNarrowPanel) commentsOverlayOpen = false;
 });
@@ -1609,6 +1881,8 @@ function handleLinkAction(): void {
  */
 function handleTabActivate(tabId: string): void {
 	activeTabId = tabId;
+	// The thread the reader was on belongs to the section just left.
+	followCommentId = null;
 	if (editor) setActiveDocumentTabFn?.(editor, tabs, tabId);
 }
 
@@ -1676,14 +1950,20 @@ function bindAutosave(id: string, conversationId: string | null): void {
 		// (`handleSaveResult` below). Without a `baseHash` at all, the route
 		// has nothing to refuse a second tab's save against, and ruling 47's
 		// coalescing means both tabs' `expectVersion` can legally agree too.
-		save: (markdown) =>
+		save: (markdown, saveOptions) =>
 			saveArtifactBody(
 				id,
 				markdown,
 				versionNumber ?? undefined,
 				conversationId,
 				undefined,
-				{ baseHash: knownBodyHash ?? undefined },
+				{
+					baseHash: knownBodyHash ?? undefined,
+					// An Undo of Alfy's change records its own version summary.
+					...(saveOptions?.summaryKind
+						? { summaryKind: saveOptions.summaryKind }
+						: {}),
+				},
 			),
 		onResult: handleSaveResult,
 	});
@@ -1759,8 +2039,9 @@ async function runLoad(id: string): Promise<void> {
 		applyAlfyChangesFn = mod.applyAlfyChanges;
 		keepChangeFn = mod.keepChange;
 		undoChangeFn = mod.undoChange;
+		redoChangeFn = mod.redoChange;
 		remarkChangeFn = mod.remarkChange;
-		changeDocRangeFn = mod.changeDocRange;
+		blockContentEndFn = mod.blockContentEnd;
 		scrollToChangeFn = mod.scrollToChange;
 		setChangePillsFn = mod.setChangePills;
 		summarizeRefusalsFn = mod.summarizeRefusals;
@@ -1785,8 +2066,10 @@ async function runLoad(id: string): Promise<void> {
 		// document's own block id once this one's editor replaces it.
 		clearSelectionBubble();
 		changeIdByCommentId = new Map();
-		activeCommentId = null;
+		hoverCommentId = null;
+		followCommentId = null;
 		focusCommentRequest = null;
+		revealCommentRequest = null;
 		versionNumber = detail.artifact.versionNumber;
 		knownBodyHash = detail.artifact.bodyHash;
 		tabs = documentTabsFromCardMetadata(detail.artifact.metadata);
@@ -1847,10 +2130,79 @@ $effect(() => {
 	}
 });
 
-// Redesign §3.2, Wave 2.5 Step 7: pushes the rail's own already-resolved
-// anchors — and whichever thread is currently linked — into the live
-// decoration whenever either changes. `setCommentAnchorsFn` is `null` until
-// the lazy editor module resolves; nothing to decorate before that anyway.
+// Scroll-follow (the owner's walk-through: the comment list stays in view
+// while the text scrolls): as the reader scrolls the text, the thread whose
+// words are nearest the top of the reading area becomes the active one —
+// its words deepen, its card takes the active look — and the inline column
+// is asked to bring its card into view. Reads only (one rectangle per open
+// highlight, batched into a frame), and only while the inline column is
+// showing: nothing else has a list to keep in step. `MarginPanel` leaves its
+// scroll alone while the reader is using the list itself.
+$effect(() => {
+	const scroller = contentEl;
+	const host = editorEl;
+	if (!scroller || !host || !commentsRailShown) return;
+	let frame = 0;
+
+	function follow(): void {
+		frame = 0;
+		const open = new Set<string>();
+		for (const anchor of commentAnchors) {
+			if (!anchor.resolved) open.add(anchor.commentId);
+		}
+		// One pass over the text's highlights, in document order: a thread's
+		// words can be several spans (a mark in the middle splits one), so each
+		// thread's box is the union of its spans' line boxes. A span in a hidden
+		// section has no line boxes at all and adds nothing.
+		const boxes = new Map<string, AnchorBox>();
+		for (const span of host?.querySelectorAll("[data-comment-anchor-id]") ??
+			[]) {
+			const commentId = span.getAttribute("data-comment-anchor-id");
+			if (!commentId || !open.has(commentId)) continue;
+			for (const rect of span.getClientRects()) {
+				const box = boxes.get(commentId);
+				if (box) {
+					box.top = Math.min(box.top, rect.top);
+					box.bottom = Math.max(box.bottom, rect.bottom);
+				} else {
+					boxes.set(commentId, {
+						commentId,
+						top: rect.top,
+						bottom: rect.bottom,
+					});
+				}
+			}
+		}
+		const bounds = scroller?.getBoundingClientRect();
+		if (!bounds) return;
+		const next = pickFollowedComment([...boxes.values()], {
+			top: bounds.top,
+			bottom: bounds.bottom,
+		});
+		if (next === followCommentId) return;
+		followCommentId = next;
+		if (next) {
+			revealCommentToken += 1;
+			revealCommentRequest = { commentId: next, token: revealCommentToken };
+		}
+	}
+
+	function onScroll(): void {
+		if (!frame) frame = requestAnimationFrame(follow);
+	}
+
+	scroller.addEventListener("scroll", onScroll, { passive: true });
+	return () => {
+		scroller.removeEventListener("scroll", onScroll);
+		if (frame) cancelAnimationFrame(frame);
+	};
+});
+
+// Redesign §3.2, Wave 2.5 Step 7: pushes every thread's resolved anchor —
+// and whichever thread is currently linked — into the live decoration
+// whenever either changes, whether or not any comment surface is showing.
+// `setCommentAnchorsFn` is `null` until the lazy editor module resolves;
+// nothing to decorate before that anyway.
 $effect(() => {
 	const anchors = commentAnchors;
 	const active = activeCommentId;
@@ -1925,11 +2277,11 @@ function findCommentAnchorTarget(event: Event): HTMLElement | null {
 function handleEditorAnchorHoverIn(event: Event): void {
 	const target = findCommentAnchorTarget(event);
 	const commentId = target?.getAttribute("data-comment-anchor-id");
-	if (commentId) activeCommentId = commentId;
+	if (commentId) hoverCommentId = commentId;
 }
 
 function handleEditorAnchorHoverOut(event: Event): void {
-	if (findCommentAnchorTarget(event)) activeCommentId = null;
+	if (findCommentAnchorTarget(event)) hoverCommentId = null;
 }
 
 let focusCommentRequestToken = 0;
@@ -1939,15 +2291,25 @@ function handleEditorAnchorActivate(event: Event): void {
 	const commentId = target?.getAttribute("data-comment-anchor-id");
 	if (!commentId) return;
 	event.preventDefault();
-	activeCommentId = commentId;
+	hoverCommentId = commentId;
 	focusCommentRequestToken += 1;
-	focusCommentRequest = { commentId, token: focusCommentRequestToken };
-	// Wave 2.5 Step 8: the inline rail is hidden below the container's own
-	// 820px threshold, and never rendered at all on a phone — open the
-	// overlay so the thread `focusCommentRequest` just named has somewhere to
-	// actually appear (`CommentsSheet` renders the SAME `MarginPanel`, which
-	// already reacts to `focusCommentRequest` on mount, not just on change).
+	const token = focusCommentRequestToken;
+	focusCommentRequest = { commentId, token };
+	// The thread the request just named needs somewhere to appear: the
+	// drawer or sheet where the inline column is not an option, or the
+	// inline column itself when this device had switched it off. Whichever
+	// surface it is reacts to `focusCommentRequest` on mount, not just on
+	// change.
 	if (isPhone || isNarrowPanel) openCommentsOverlay();
+	else if ($documentCommentsRailHidden) documentCommentsRailHidden.set(false);
+	// A request left in place would be replayed by the NEXT surface that
+	// mounts (the column toggled off and on again): drop it once whichever
+	// surface was going to act on it has.
+	void tick().then(() =>
+		setTimeout(() => {
+			if (focusCommentRequest?.token === token) focusCommentRequest = null;
+		}, 0),
+	);
 }
 
 function handleEditorAnchorKeydown(event: KeyboardEvent): void {
@@ -1999,7 +2361,8 @@ function saveNoticeText(notice: SaveNotice): string {
 }
 </script>
 
-<div class="document-body" bind:this={documentBodyEl}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="document-body" bind:this={documentBodyEl} onkeydown={handleBodyKeydown}>
 	<!-- rd/review-2-5.md:217-222: the one shared announcer — see its own
 	     `announce()` doc comment above. Always mounted, regardless of load
 	     state, so a text change here is reliably picked up by screen readers
@@ -2037,189 +2400,206 @@ function saveNoticeText(notice: SaveNotice): string {
 			/>
 		</div>
 		<!-- T8 live: the planned-section shimmer while a matching create_artifact/
-		     edit_artifact call is in flight, and the refusal notice once a landed
-		     call left something untouched. Both sit above the scroll container so
-		     neither depends on — or fights with — the editor's own layout. -->
+		     edit_artifact call is in flight. It sits above the content row so it
+		     neither depends on — nor fights with — the editor's own layout. (The
+		     refusal notice used to sit here too; it is a card in the comment
+		     list now, beside the line it is about.) -->
 		{#if alfyWritingLabel !== null}
 			<AlfyWriting label={alfyWritingLabel} />
 		{/if}
-		{#if refusalNotice}
-			<RefusalNotice
-				message={refusalNotice.message}
-				items={refusalNotice.items}
-				seeChangeLabel={refusalNotice.seeChangeLabel ?? undefined}
-				onSeeChange={refusalNotice.seeChangeLabel ? handleSeeChange : undefined}
-				askAgainLabel={refusalNotice.refusedBlockIds[0]
-					? $t('artifacts.document.comment.askAgain')
-					: undefined}
-				onAskAgain={refusalNotice.refusedBlockIds[0]
-					? handleAskAgainRefusal
-					: undefined}
-				dismissLabel={$t('artifacts.document.refused.dismiss')}
-				onDismiss={dismissRefusalNotice}
-			/>
-		{/if}
-		<!-- Redesign §3.2, Wave 2.5 Step 7: "the comment rail is a 300 px column
-		     inside the SAME scroll container as the text" — `.document-content`
-		     is that one scroll container (still `contentEl`, unchanged identity,
-		     so every `localizePoint`/bubble computation below keeps working
-		     untouched — the change pill no longer needs it, Wave 2.5 Step 10: it
-		     is a ProseMirror widget decoration now, positioned in DOCUMENT space,
-		     not screen space); `.document-content-text` and `.document-content-rail`
-		     are its two grid columns. The rail collapses below 820 px (agent
-		     3b's own narrow-panel drawer picks up from there — rd3a-brief.md). -->
-		<div class="document-content" bind:this={contentEl}>
-			<div class="document-content-text">
-				{#if loadState === "not_found"}
-					<div class="document-notice" role="status">
-						<p>{$t('artifacts.document.notFound')}</p>
-					</div>
-				{:else}
-					{#if loadState === "load_error"}
-						<div class="document-notice" role="alert">
-							<p>{$t('artifacts.document.editor.failedToLoad')}</p>
-							<button type="button" class="btn-secondary" onclick={retryLoad}>
-								{$t('common.retry')}
-							</button>
+		<!-- The text and its comments, side by side. `.document-content` is a
+		     plain row that does not scroll; the TEXT column inside it is the one
+		     scroller (`contentEl` — every `localizePoint`/bubble computation
+		     below measures it), and the comment column beside it never scrolls
+		     away with the text: it keeps its own place and its own list scroll
+		     ("the comments themselves should scroll with the viewport, not just
+		     the section title" — the owner's words, on a version that laid both
+		     columns in one scroller). The change pill no longer needs `contentEl`
+		     (Wave 2.5 Step 10: a ProseMirror widget decoration, positioned in
+		     DOCUMENT space). Whether the column shows at all — and how wide it
+		     is — is `commentRailWidth`'s call from this body's own measured
+		     width; on a narrow panel or a phone the same list is a drawer/sheet
+		     instead, never both. -->
+		<div class="document-content">
+			<div class="document-content-text" bind:this={contentEl}>
+				<!-- One flow column inside the scroller, at least as tall as the scroller and
+				     as tall as the text: the review bar is `position: sticky` inside it, and a
+				     sticky element can only travel within its PARENT's box — the scroller's
+				     own box is only as tall as the viewport, so pinning the bar to it would
+				     let the bar scroll away with the text. -->
+				<div class="document-content-flow">
+					{#if loadState === "not_found"}
+						<div class="document-notice" role="status">
+							<p>{$t('artifacts.document.notFound')}</p>
 						</div>
-					{:else if saveNotice === 'deleted'}
-						<div class="document-notice" role="alert">
-							<p>{$t('artifacts.document.deleted')}</p>
-							<button type="button" class="btn-primary" onclick={handleSaveCopy}>
-								{$t('artifacts.document.deleted.saveCopy')}
-							</button>
+					{:else}
+						{#if loadState === "load_error"}
+							<div class="document-notice" role="alert">
+								<p>{$t('artifacts.document.editor.failedToLoad')}</p>
+								<button type="button" class="btn-secondary" onclick={retryLoad}>
+									{$t('common.retry')}
+								</button>
+							</div>
+						{:else if saveNotice === 'deleted'}
+							<div class="document-notice" role="alert">
+								<p>{$t('artifacts.document.deleted')}</p>
+								<button type="button" class="btn-primary" onclick={handleSaveCopy}>
+									{$t('artifacts.document.deleted.saveCopy')}
+								</button>
+							</div>
+						{/if}
+						<div
+							class="document-editor-host"
+							bind:this={editorEl}
+							role={tabs.length > 1 ? 'tabpanel' : undefined}
+							id={tabs.length > 1 ? `document-tabpanel-${activeTabId}` : undefined}
+							aria-labelledby={tabs.length > 1 ? `document-tab-${activeTabId}` : undefined}
+							style:padding-bottom={pendingList.length > 0
+								? `calc(1rem + ${reviewBarHeight}px)`
+								: undefined}
+						></div>
+						{#if loadState === 'loading'}
+							<div class="document-editor-skeleton" aria-hidden="true">
+								<span class="sr-only">{$t('common.loading')}</span>
+							</div>
+						{/if}
+						<!-- T10: the selection bubble, positioned against this same scroll container -->
+						{#if selectionBubble}
+							<SelectionBubble
+								position={selectionBubble}
+								quote={selectionBubble.quote}
+								onSubmit={async (body, sourceRect) => {
+									if (!selectionBubble) return;
+									await handleSelectionSubmit(
+										selectionBubble.anchor,
+										body,
+										sourceRect,
+									);
+								}}
+								onDismiss={dismissSelectionBubble}
+							/>
+						{/if}
+						<!-- T12, Wave 2.5 Step 8: the download popover, opened from the
+						     panel header's Download action — anchors itself to that
+						     button and portals onto <body>, so no wrapping anchor div is
+						     needed here any more. -->
+						{#if downloadSheetOpen}
+							<DownloadSheet
+								artifactId={boundArtifactId}
+								{title}
+								conversationId={panelConversationId}
+								onClose={() => (downloadSheetOpen = false)}
+							/>
+						{/if}
+						<!-- RV-1B, T6, Wave 2.5 Step 8: the versions popover, opened from
+						     the panel header's version button. A restore changes the
+						     stored body out from under the open editor, so it reloads
+						     through the same retryLoad() the "load failed, try again" path
+						     already uses, rather than a second reload path. -->
+						{#if versionsSheetOpen}
+							<VersionsSheet
+								artifactId={boundArtifactId}
+								conversationId={panelConversationId}
+								onClose={() => (versionsSheetOpen = false)}
+								onRestored={() => {
+									versionsSheetOpen = false;
+									retryLoad();
+								}}
+								currentUserId={currentUser?.id ?? null}
+								currentUserName={currentUser?.displayName ?? null}
+								currentUserProfilePicture={currentUser?.profilePicture ?? null}
+							/>
+						{/if}
+					{/if}
+					<!-- Wave 2.5 Step 10 / Review 2.5 (rd/review-2-5.md:98-108): the
+					     review bar, "at the bottom of the text column" (redesign
+					     §4.2 item 5, §8). The pill itself is no longer rendered
+					     here — Step 10 moved it into the editor's own DOM as a
+					     ProseMirror widget decoration (`change-pill-decoration.ts`).
+					     Nested INSIDE `.document-content-text` (not a sibling grid
+					     item of it) on purpose: `position: sticky` needs to be a
+					     normal-flow descendant of the scrolling ancestor
+					     (`.document-content`) to stick within its viewport, and
+					     nesting it here also confines its width to the text
+					     column alone — it used to span both grid columns and cover
+					     the rail's last rows (see this class's own CSS comment). -->
+					{#if pendingList.length > 0}
+						<div
+							class="document-review-bar-slot"
+							bind:this={reviewBarSlotEl}
+							in:reviewBarFly={{ y: 16, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
+							out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
+						>
+							<ReviewBar
+								docked
+								pendingCount={pendingList.length}
+								refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
+								currentIndex={reviewIndex}
+								onPrev={handleReviewPrev}
+								onNext={handleReviewNext}
+								onKeepAll={handleKeepAllChanges}
+								onUndoAll={handleUndoAllChanges}
+								onSeeRefused={refusalNotice ? handleSeeChange : undefined}
+							/>
 						</div>
 					{/if}
-					<div
-						class="document-editor-host"
-						bind:this={editorEl}
-						role={tabs.length > 1 ? 'tabpanel' : undefined}
-						id={tabs.length > 1 ? `document-tabpanel-${activeTabId}` : undefined}
-						aria-labelledby={tabs.length > 1 ? `document-tab-${activeTabId}` : undefined}
-						style:padding-bottom={pendingList.length > 0
-							? `calc(1rem + ${reviewBarHeight}px)`
-							: undefined}
-					></div>
-					{#if loadState === 'loading'}
-						<div class="document-editor-skeleton" aria-hidden="true">
-							<span class="sr-only">{$t('common.loading')}</span>
-						</div>
-					{/if}
-					<!-- T10: the selection bubble, positioned against this same scroll container -->
-					{#if selectionBubble}
-						<SelectionBubble
-							position={selectionBubble}
-							quote={selectionBubble.quote}
-							onSubmit={async (body, sourceRect) => {
-								if (!selectionBubble) return;
-								await handleSelectionSubmit(
-									selectionBubble.anchor,
-									body,
-									sourceRect,
-								);
-							}}
-							onDismiss={dismissSelectionBubble}
-						/>
-					{/if}
-					<!-- T12, Wave 2.5 Step 8: the download popover, opened from the
-					     panel header's Download action — anchors itself to that
-					     button and portals onto <body>, so no wrapping anchor div is
-					     needed here any more. -->
-					{#if downloadSheetOpen}
-						<DownloadSheet
-							artifactId={boundArtifactId}
-							{title}
-							conversationId={panelConversationId}
-							onClose={() => (downloadSheetOpen = false)}
-						/>
-					{/if}
-					<!-- RV-1B, T6, Wave 2.5 Step 8: the versions popover, opened from
-					     the panel header's version button. A restore changes the
-					     stored body out from under the open editor, so it reloads
-					     through the same retryLoad() the "load failed, try again" path
-					     already uses, rather than a second reload path. -->
-					{#if versionsSheetOpen}
-						<VersionsSheet
-							artifactId={boundArtifactId}
-							conversationId={panelConversationId}
-							onClose={() => (versionsSheetOpen = false)}
-							onRestored={() => {
-								versionsSheetOpen = false;
-								retryLoad();
-							}}
-							currentUserId={currentUser?.id ?? null}
-							currentUserName={currentUser?.displayName ?? null}
-							currentUserProfilePicture={currentUser?.profilePicture ?? null}
-						/>
-					{/if}
-				{/if}
-				<!-- Wave 2.5 Step 10 / Review 2.5 (rd/review-2-5.md:98-108): the
-				     review bar, "at the bottom of the text column" (redesign
-				     §4.2 item 5, §8). The pill itself is no longer rendered
-				     here — Step 10 moved it into the editor's own DOM as a
-				     ProseMirror widget decoration (`change-pill-decoration.ts`).
-				     Nested INSIDE `.document-content-text` (not a sibling grid
-				     item of it) on purpose: `position: sticky` needs to be a
-				     normal-flow descendant of the scrolling ancestor
-				     (`.document-content`) to stick within its viewport, and
-				     nesting it here also confines its width to the text
-				     column alone — it used to span both grid columns and cover
-				     the rail's last rows (see this class's own CSS comment). -->
-				{#if pendingList.length > 0}
-					<div
-						class="document-review-bar-slot"
-						bind:this={reviewBarSlotEl}
-						in:reviewBarFly={{ y: 16, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
-						out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
-					>
-						<ReviewBar
-							pendingCount={pendingList.length}
-							refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
-							currentIndex={reviewIndex}
-							onPrev={handleReviewPrev}
-							onNext={handleReviewNext}
-							onKeepAll={handleKeepAllChanges}
-							onUndoAll={handleUndoAllChanges}
-							onSeeRefused={refusalNotice ? handleSeeChange : undefined}
-						/>
-					</div>
-				{/if}
+				</div>
 			</div>
-			<!-- T10 / redesign §3.2: the comment rail, the grid's second column
-			     (≥820px container width only — see the `@container` rule below). -->
-			<aside class="document-content-rail" aria-label={$t('artifacts.document.margin.title')}>
-				<MarginPanel
-					{comments}
-					{blocks}
-					{contentEl}
-					{tabs}
-					{activeTabId}
-					changeStateByCommentId={changeChipByCommentId}
-					{activeCommentId}
-					focusRequest={focusCommentRequest}
-					onResolve={handleCommentResolve}
-					onSubmitReply={postReply}
-					onSeeChange={handleSeeChangeForComment}
-					onGotoAnchor={handleGotoCommentAnchor}
-					onActiveCommentChange={(id) => (activeCommentId = id)}
-					onAnchorsChange={(anchors) => (commentAnchors = anchors)}
-					onActivateTab={handleTabActivate}
-					currentUserId={currentUser?.id ?? null}
-					currentUserName={currentUser?.displayName ?? null}
-					currentUserProfilePicture={currentUser?.profilePicture ?? null}
-				/>
-			</aside>
-			<!-- Wave 2.5 Step 8: the SAME rail, below the container's 820px
-			     threshold — a phone sheet or a narrow-panel drawer, opened by the
-			     header's Comments button (`registerPanelActions`) or a tapped
+			<!-- T10 / redesign §3.2: the comment column, beside the text. Its width
+			     narrows (300 → 240 px) before the text column drops below
+			     480 px; below that there is no column, the header's Comments
+			     button opens the drawer instead. Switched off per device by the
+			     same button. -->
+			{#if commentsRailShown}
+				<aside
+					class="document-content-rail"
+					style:width={inlineRailWidth ? `${inlineRailWidth}px` : undefined}
+					aria-label={$t('artifacts.document.margin.title')}
+				>
+					<MarginPanel
+						{comments}
+						{blocks}
+						filter={commentFilter}
+						onFilterChange={(next) => (commentFilter = next)}
+						orphanedGroupOpen={commentOrphanedGroupOpen}
+						onOrphanedGroupOpenChange={(open) => (commentOrphanedGroupOpen = open)}
+						resolutions={commentResolutions}
+						{tabs}
+						{activeTabId}
+						refusal={marginRefusal}
+						changeStateByCommentId={changeChipByCommentId}
+						{activeCommentId}
+						focusRequest={focusCommentRequest}
+						revealRequest={revealCommentRequest}
+						onResolve={handleCommentResolve}
+						onSubmitReply={postReply}
+						onSeeChange={handleSeeChangeForComment}
+						onGotoAnchor={handleGotoCommentAnchor}
+						onActiveCommentChange={(id) => (hoverCommentId = id)}
+						onActivateTab={handleTabActivate}
+						currentUserId={currentUser?.id ?? null}
+						currentUserName={currentUser?.displayName ?? null}
+						currentUserProfilePicture={currentUser?.profilePicture ?? null}
+					/>
+				</aside>
+			{/if}
+			<!-- Wave 2.5 Step 8: the same comments where the inline column is not
+			     an option — a phone sheet or a drawer inside the panel, opened by
+			     the header's Comments button (`registerPanelActions`) or a tapped
 			     highlight (`handleEditorAnchorActivate`). -->
 			{#if commentsOverlayOpen}
 				<CommentsSheet
 					presentation={isPhone ? 'sheet' : 'drawer'}
 					{comments}
 					{blocks}
+					filter={commentFilter}
+					onFilterChange={(next) => (commentFilter = next)}
+					orphanedGroupOpen={commentOrphanedGroupOpen}
+					onOrphanedGroupOpenChange={(open) => (commentOrphanedGroupOpen = open)}
+					resolutions={commentResolutions}
 					{tabs}
 					{activeTabId}
+					refusal={marginRefusal}
 					changeStateByCommentId={changeChipByCommentId}
 					{activeCommentId}
 					focusRequest={focusCommentRequest}
@@ -2227,10 +2607,12 @@ function saveNoticeText(notice: SaveNotice): string {
 					onSubmitReply={postReply}
 					onSeeChange={handleSeeChangeForComment}
 					onGotoAnchor={handleGotoCommentAnchor}
-					onActiveCommentChange={(id) => (activeCommentId = id)}
-					onAnchorsChange={(anchors) => (commentAnchors = anchors)}
+					onActiveCommentChange={(id) => (hoverCommentId = id)}
 					onActivateTab={handleTabActivate}
 					onClose={() => (commentsOverlayOpen = false)}
+					bottomInset={pendingList.length > 0
+						? reviewBarHeight + REVIEW_BAR_CLEARANCE_PX
+						: 0}
 					currentUserId={currentUser?.id ?? null}
 					currentUserName={currentUser?.displayName ?? null}
 					currentUserProfilePicture={currentUser?.profilePicture ?? null}
@@ -2253,15 +2635,12 @@ function saveNoticeText(notice: SaveNotice): string {
 		min-height: 0;
 		background-color: var(--surface-page);
 		border-radius: var(--radius-md);
-		/* Wave 2.5 Step 8: `.document-content`/`.document-content-rail` below
-		   query THIS element's own rendered width (`@container`), not the
-		   viewport's (`@media`) — the panel this body sits inside can be
-		   narrower than the window (it is a resizable side panel, not
-		   necessarily full-width), which is exactly the "narrow desktop panel"
-		   redesign.md §3.2 describes. Matches the same unnamed-container-query
-		   shape already used by `StatGrid.svelte`/`SettingsConnectionsTab.svelte`.
-		   `NARROW_PANEL_THRESHOLD_PX` in the script is the JS half of this
-		   SAME 820px threshold — the two must stay in step. */
+		/* Wave 2.5 Step 8: this element's own rendered width is what decides
+		   whether the comment column fits beside the text (`commentRailWidth`,
+		   measured by a ResizeObserver in the script) — the panel this body
+		   sits inside can be narrower than the window (it is a resizable side
+		   panel, not necessarily full-width). `inline-size` containment also
+		   makes this the containing block for anything positioned inside it. */
 		container-type: inline-size;
 	}
 
@@ -2274,108 +2653,87 @@ function saveNoticeText(notice: SaveNotice): string {
 		min-height: 0;
 	}
 
-	/* Redesign §3.2, Wave 2.5 Step 7: "the comment rail is a 300 px column
-	   inside the SAME scroll container as the text" — a two-column grid, one
-	   `overflow-y`, so nothing anchored near the end (or the removed-text
-	   group) can sit below what the editor lets you scroll to (§3.1 problem
-	   6, the old scroll-sync effect's own failure mode). Below a container
-	   width of 820px there is no room for a real second column; the rail
-	   collapses here and Wave 2.5 Step 8's `CommentsSheet` (a phone sheet or a
-	   narrow-panel drawer) picks up from there instead. */
+	/* The text and its comments, side by side (the owner's walk-through:
+	   "the comments themselves should scroll with the viewport, not just the
+	   section title"). This row does not scroll: the text column is the one
+	   scroller, and the comment column next to it keeps its place and scrolls
+	   its own list, so however far the reader has scrolled the text, the
+	   comments stay in view. `overflow: hidden` also clips the drawer's slide
+	   in from the panel's own edge. */
 	.document-content {
 		position: relative;
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
+		display: flex;
+		flex-direction: row;
 		/* `flex: 1` (not just `min-height`), same reasoning as the editor host
-		   below: this is still a flex CHILD of `.document-main`, and without
-		   it this grid sizes to its own content instead of filling whatever
-		   vertical room `.document-main` actually has (T11.1: the editor must
-		   keep >= 60% of a 390x844 viewport). */
+		   below: this is a flex CHILD of `.document-main`, and without it this
+		   row sizes to its own content instead of filling whatever vertical
+		   room `.document-main` actually has (T11.1: the editor must keep >=
+		   60% of a 390x844 viewport). */
 		flex: 1;
+		min-width: 0;
 		min-height: 240px;
+		overflow: hidden;
+	}
+
+	/* THE reading scroller (`contentEl`): the text, its selection bubble and
+	   the sticky review bar. `position: relative` is the selection bubble's
+	   positioning context, so it scrolls with the words it points at.
+	   Review 2.5's nested-scroller fix (rd/review-2-5.md:87-97) still holds
+	   inside it: nothing WITHIN the text column may become a second vertical
+	   scroller — a wide table scrolls sideways on Tiptap's own `.tableWrapper`
+	   (below), never by putting `overflow-x` on this column's children. */
+	.document-content-text {
+		position: relative;
+		flex: 1 1 0;
+		min-width: 0;
 		overflow-y: auto;
 	}
 
-	@container (min-width: 820px) {
-		.document-content {
-			grid-template-columns: minmax(0, 1fr) 300px;
-		}
-	}
-
-	.document-content-text {
+	.document-content-flow {
 		display: flex;
 		flex-direction: column;
-		min-width: 0;
-		/* Review 2.5 Important finding (rd/review-2-5.md:87-97): RV-1B's own
-		   `overflow-x: auto` here was meant to give a wide table its own
-		   horizontal scrollbar without dragging the rail sideways — but ANY
-		   non-visible overflow-x makes the CSS overflow spec coerce this
-		   column's unset overflow-y (`visible` by default) into `auto` too,
-		   turning `.document-content-text` into a SECOND, independent
-		   vertical scroll container nested inside `.document-content`'s
-		   intended single one (redesign §3.2: "one scroll"). A real
-		   wheel-scroll over the text landed on this INNER scroller first,
-		   moving the highlighted text without moving the rail (a sibling
-		   grid column that only follows the OUTER `.document-content`) —
-		   the rail's cards drifted away from the words they annotate. This
-		   column must never independently overflow either axis; a wide
-		   table gets its own horizontal scrollbar directly on the `table`
-		   element below instead — its own height is always intrinsic
-		   (never constrained), so the SAME visible/auto coercion on ITS
-		   unset overflow-y is harmless: there is never vertical content to
-		   scroll within a table's own box. */
-		overflow: visible;
+		min-height: 100%;
 	}
 
+	/* The comment column: its own height, its own scrolling list
+	   (`MarginPanel`'s `.margin-panel-list`), a hairline between it and the
+	   text. Its width is set inline from `commentRailWidth`. */
 	.document-content-rail {
-		display: none;
+		display: flex;
+		flex: 0 0 auto;
+		flex-direction: column;
+		width: 300px;
 		min-width: 0;
+		min-height: 0;
 		border-left: 1px solid var(--border-subtle);
-	}
-
-	@container (min-width: 820px) {
-		.document-content-rail {
-			display: block;
-		}
+		background-color: var(--surface-page);
 	}
 
 	/* Wave 2.5 Step 10, revised by Review 2.5 (rd/review-2-5.md:98-108): "at
-	   the bottom of the text column" (redesign §4.2 item 5, §8). The
-	   ORIGINAL `position: absolute` version sat as a direct child of the
-	   scrolling `.document-content` on the theory that this "kept it pinned
-	   while the text scrolls underneath" — backwards: an absolutely
-	   positioned element's containing block is still whatever POSITIONED
-	   ancestor it renders inside, and `.document-content` (the SCROLLING
-	   element itself) was that ancestor, so the bar scrolled away WITH the
-	   text instead of staying pinned, and — being a child of the two-column
-	   grid rather than the text column alone — it spanned both columns and
-	   covered the rail's last rows. `position: sticky` here (now nested
-	   INSIDE `.document-content-text`, a normal-flow child after the editor
-	   host — see the markup comment) actually achieves "stays pinned to the
-	   bottom of the text column while the text scrolls": it sticks within
-	   `.document-content`'s own scrollport (its nearest actual scrolling
-	   ancestor) while its box lives in the text column's own normal flow,
-	   which is also what confines its width to that column instead of the
-	   whole grid. `.document-editor-host`'s own `padding-bottom` (see its
+	   the bottom of the text column" (redesign §4.2 item 5, §8). It was once
+	   `position: absolute` in a scroller shared with the comment column, so it
+	   scrolled away with the text and spanned both columns; `position:
+	   sticky` as the last child of `.document-content-flow` (the column
+	   inside the text scroller, as tall as the text — a sticky element only
+	   travels within its parent's box) pins it to the bottom of the visible
+	   text while it scrolls, and its box only ever spans the text, never the
+	   comment column beside it. `.document-editor-host`'s own `padding-bottom` (see its
 	   `style:padding-bottom` binding) reserves room, measured live from this
 	   element's own height, so the last paragraph can fully clear it before
 	   the column runs out of content to scroll through — the classic
 	   "sticky footer covers the last line" problem a plain `position:
-	   sticky` does not solve by itself. */
+	   sticky` does not solve by itself.
+
+	   G2-B: `bottom: 0` (it floated 14px above the edge, with text showing
+	   under it), full width of the text column, and `ReviewBar`'s `docked`
+	   look: flat, a rule on top. G3: a phone gets exactly the same — it used
+	   to keep a rounded card floating 64px up (`bottom: 4rem`, side insets),
+	   with the text showing beneath it in a long document, though nothing
+	   sits in that strip on the phone shell (the toolbar is at the top). */
 	.document-review-bar-slot {
 		position: sticky;
-		left: 1rem;
-		right: 1rem;
-		bottom: 0.875rem;
+		bottom: 0;
 		z-index: 5;
-	}
-
-	@media (max-width: 480px) {
-		.document-review-bar-slot {
-			left: 0.5rem;
-			right: 0.5rem;
-			bottom: 4rem;
-		}
 	}
 
 	/* `flex: 1` (not just `min-height`) so the editable canvas fills whatever
@@ -2523,12 +2881,30 @@ function saveNoticeText(notice: SaveNotice): string {
 		font-family: var(--font-serif);
 	}
 
+	/* The editor stores every task item as its own block, so a checklist is a
+	   run of one-item lists, each with its own `margin: 6px 0 16px` — which
+	   made every row ~20px looser than the mockup's one `<ul class="tasks">`
+	   (review 251-255). Only the run's first list keeps the top margin and its
+	   last list the bottom one; the space between two lists in a run is none. */
+	.document-editor-host :global(.document-content ul[data-type='taskList'] + ul[data-type='taskList']) {
+		margin-top: 0;
+	}
+
+	.document-editor-host :global(.document-content ul[data-type='taskList']:has(+ ul[data-type='taskList'])) {
+		margin-bottom: 0;
+	}
+
+	/* The mockup's `.task`: 15.5px at 1.45 with 4px above and below, and no
+	   outer margin (the generic `li` rule's 2px would open a gap between rows),
+	   a 30.5px row rhythm. */
 	.document-editor-host :global(.document-content li[data-checked]) {
 		display: flex;
 		align-items: flex-start;
 		gap: 10px;
+		margin: 0;
 		padding: 4px 0;
 		font-size: 15.5px;
+		line-height: 1.45;
 	}
 
 	.document-editor-host :global(.document-content li[data-checked] > label) {
@@ -2550,6 +2926,25 @@ function saveNoticeText(notice: SaveNotice): string {
 
 	.document-editor-host :global(.document-content li[data-checked] > div p) {
 		margin: 0;
+	}
+
+	/* The mockup's `.task[aria-checked="true"] .task-label` (redesign §7.2 #27):
+	   a ticked item's words are muted and struck through, so a finished list
+	   reads as finished, not just a filled box. Only the item's OWN paragraphs
+	   (`> div > p`): a task list nested under a ticked item has states of its own,
+	   and a line-through set on the whole `div` could not be undone by them.
+	   The line takes the muted colour of the text. The mockup draws it in left to
+	   right with a background-size trick that only strikes one line of a wrapped
+	   item, so this uses the real text decoration and lets the colour ease in;
+	   reduced motion collapses that (app.css). */
+	.document-editor-host :global(.document-content li[data-checked] > div > p) {
+		transition: color var(--duration-standard) var(--ease-out);
+	}
+
+	.document-editor-host :global(.document-content li[data-checked='true'] > div > p) {
+		color: var(--text-muted);
+		text-decoration: line-through;
+		text-decoration-thickness: 1px;
 	}
 
 	/* The tracker table (`@tiptap/extension-table`'s TableKit). This styles
@@ -2600,6 +2995,20 @@ function saveNoticeText(notice: SaveNotice): string {
 	.document-editor-host :global(.document-content td) {
 		padding: 9px 12px;
 		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	/* A cell holds a real paragraph, which kept the prose's 12px bottom
+	   margin: every row was ~12px taller than the mockup's 45px (37px header)
+	   and its content sat high in it. The cell's own padding is the spacing; a
+	   second paragraph in one cell still gets a small gap. */
+	.document-editor-host :global(.document-content td > p),
+	.document-editor-host :global(.document-content th > p) {
+		margin: 0;
+	}
+
+	.document-editor-host :global(.document-content td > p + p),
+	.document-editor-host :global(.document-content th > p + p) {
+		margin-top: 6px;
 	}
 
 	.document-editor-host :global(.document-content tr:last-child td) {
@@ -2657,6 +3066,48 @@ function saveNoticeText(notice: SaveNotice): string {
 		padding: 0;
 		margin: 0;
 		cursor: pointer;
+		/* A select is as wide as its longest option by default, which left
+		   "Kifizetve" with an empty tail the width of "Lefoglalandó" (review
+		   251-255). Sized to the chosen value it hugs its own text. Engines
+		   without `field-sizing` keep the longest-option width. */
+		field-sizing: content;
+	}
+
+	/* Phones: the tick and the chip keep the mockup's look and grow the
+	   finger's area to 44px (redesign §5.4; review 233-238). The tick's area is
+	   an invisible `::after` on the `<label>` that wraps it, exactly as the
+	   change pill does for its buttons — a tap on it reaches the box through
+	   the label. It extends 17px to the left (the editor's own side padding is
+	   free room), 10px to the right (the text starts 10px from the box) and
+	   6.75px above / 20.25px below the 17px box: rows are 30.5px apart, so each
+	   row's area ends where the next row's begins, halfway between the two
+	   boxes, and a tap always reaches the nearest tick (a symmetric area would
+	   hand everything below a box to the row under it). The box itself sits
+	   above its own area so it keeps its own mousedown handling. The chip's
+	   select is its own 44px target: taller than the 26px pill, pulled back
+	   into it by equal negative margins so the line does not grow. */
+	@media (max-width: 767px) {
+		.document-editor-host :global(.document-content li[data-checked] > label) {
+			position: relative;
+		}
+
+		.document-editor-host :global(.document-content li[data-checked] > label::after) {
+			content: '';
+			position: absolute;
+			inset: -6.75px -10px -20.25px -17px;
+		}
+
+		.document-editor-host :global(.document-content li[data-checked] input[type='checkbox']) {
+			position: relative;
+			z-index: 1;
+		}
+
+		.document-editor-host :global(.document-content .tracker-chip-select) {
+			min-width: 44px;
+			min-height: 44px;
+			margin: -9px -8px;
+			padding: 0 8px;
+		}
 	}
 
 	/* Step 2.2: Alfy's change mark (`marks.ts`'s `AlfyChange` Tiptap mark,

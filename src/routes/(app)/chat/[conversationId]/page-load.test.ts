@@ -233,6 +233,10 @@ describe("chat conversation page load", () => {
 			bootstrap: false,
 			generatedFiles: [],
 			fileProductionJobs: [],
+			// Polish G2-A: no card is told its item was deleted unless the
+			// server says so.
+			deletedArtifactIds: [],
+			unreachableArtifactIds: [],
 			contextCompressionSnapshots: [],
 			totalCostUsdMicros: 0,
 			totalTokens: 0,
@@ -240,6 +244,34 @@ describe("chat conversation page load", () => {
 			// (e.g. the mocked conversation-detail response reused here has no
 			// `pendingWrites` field at all).
 			pendingWrites: [],
+		});
+	});
+
+	it("carries the deleted-artifact ids the server names through to the page", async () => {
+		const fetch = vi.fn(async () => {
+			return new Response(
+				JSON.stringify({
+					conversation: conversationFixture("conv-1"),
+					messages: [],
+					deletedArtifactIds: ["doc-1", "app-2"],
+					// Exists, but made in another chat (the parent of a forked incognito chat).
+					unreachableArtifactIds: ["doc-3"],
+				}),
+				{ status: 200 },
+			);
+		});
+
+		const data = (await load(
+			makeLoadEvent(
+				fetch as unknown as typeof globalThis.fetch,
+				vi.fn(async () => appShellDataFixture()),
+				"http://localhost/chat/conv-1",
+			),
+		)) as LoadedPageData;
+
+		expect(data).toMatchObject({
+			deletedArtifactIds: ["doc-1", "app-2"],
+			unreachableArtifactIds: ["doc-3"],
 		});
 	});
 

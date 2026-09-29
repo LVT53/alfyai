@@ -10,6 +10,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactVersions } from "$lib/server/db/schema";
+import { restoredSummary } from "$lib/shared/artifacts/version-summaries";
 import { ARTIFACT_VERSIONS_DEFAULT_LIMIT } from "./limits";
 import { readScopedArtifactRow, updateArtifactBody } from "./record";
 import type {
@@ -61,6 +62,7 @@ async function findVersion(params: VersionTarget & { versionId: string }) {
 		.select({
 			body: artifactVersions.body,
 			summary: artifactVersions.summary,
+			versionNumber: artifactVersions.versionNumber,
 		})
 		.from(artifactVersions)
 		.where(
@@ -82,8 +84,8 @@ export async function getVersionBody(
 
 /**
  * Writes an earlier version's body back as a NEW version (author `user`,
- * summary `restored <that version's summary>`), numbered after the newest —
- * so the version being replaced stays in the history too.
+ * summary `Restored v<n>` naming the version it came from), numbered after the
+ * newest — so the version being replaced stays in the history too.
  */
 export async function restoreVersion(
 	params: VersionTarget & { versionId: string },
@@ -103,7 +105,7 @@ export async function restoreVersion(
 		includeIncognito: params.includeIncognito,
 		body: version.body,
 		author: "user",
-		summary: `restored ${version.summary}`,
+		summary: restoredSummary(version.versionNumber),
 	});
 	// The old body was under every cap when it was written, and there is no
 	// base hash to go stale, so the one refusal left is the row disappearing.

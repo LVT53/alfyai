@@ -177,6 +177,12 @@ The artifact surfaces should look like the same product.
 
 ### 3.2 Redesign
 
+> **Superseded in part by the owner's walk (2026-09-29, `docs/plans/claude-at-home-2/progress.md` → "Wave 2.5 polish"):**
+> the comment list stays in view while the text scrolls — a sticky column with its own scroll, cards in document order,
+> the thread nearest the reading position highlighted and followed — instead of cards placed at their words' height;
+> the header's comment icon toggles the one comments surface (column, narrow-panel drawer, phone sheet); the column
+> narrows to 240–300 px and becomes a drawer below a 720 px panel. The card anatomy, filter and linking below still hold.
+
 **Layout.** The comment rail is a 300 px column inside the *same* scroll container as the text (a
 two-column grid inside `.document-content`'s scroller). Cards are still placed beside their anchors with
 `margin-layout.ts`, but there is one scroll, so nothing is out of reach and the scroll-sync effect goes.

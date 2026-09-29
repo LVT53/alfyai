@@ -1,5 +1,12 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MOTION_DURATION, MOTION_EASING } from "$lib/utils/motion";
 import RefusalNotice from "./RefusalNotice.svelte";
 
 afterEach(() => {
@@ -96,7 +103,8 @@ describe("RefusalNotice", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "Ask again" }));
 		expect(onAskAgain).toHaveBeenCalledOnce();
 		await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
-		expect(onDismiss).toHaveBeenCalledOnce();
+		// The card leaves first (motion #22), then the caller clears it.
+		await waitFor(() => expect(onDismiss).toHaveBeenCalledOnce());
 	});
 
 	it("renders neither Ask again nor Dismiss without their own handlers", () => {
@@ -129,5 +137,112 @@ describe("RefusalNotice", () => {
 			screen.getByRole("button", { name: "Ask again" }),
 		).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+	});
+});
+
+// Redesign §7.2 #22: "Dismiss slides 8 px right and fades" — out standard ·
+// ease-in; reduced motion: instant. A Svelte out-transition cannot do this
+// (it never finishes under the repo's jsdom animation mock, and the caller
+// removes the card by clearing its own state), so the card animates itself
+// with the Web Animations API and only then asks the caller to clear it.
+describe("RefusalNotice: Dismiss leaves with motion (§7.2 #22)", () => {
+	const originalMatchMedia = window.matchMedia;
+	const originalAnimate = Element.prototype.animate;
+	afterEach(() => {
+		window.matchMedia = originalMatchMedia;
+		Element.prototype.animate = originalAnimate;
+	});
+
+	function renderDismissable() {
+		const onDismiss = vi.fn();
+		render(RefusalNotice, {
+			message: "Alfy left one part alone because you had changed it.",
+			dismissLabel: "Dismiss",
+			onDismiss,
+		});
+		return onDismiss;
+	}
+
+	/** An animation whose end the test controls. */
+	function controlledAnimation() {
+		let finish: () => void = () => {};
+		const finished = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		const animate = vi.fn(() => ({ finished, cancel: vi.fn() }));
+		Element.prototype.animate =
+			animate as unknown as typeof Element.prototype.animate;
+		return { animate, finish };
+	}
+
+	it("slides 8px right and fades over the standard duration, and only then clears the card", async () => {
+		const onDismiss = renderDismissable();
+		const { animate, finish } = controlledAnimation();
+
+		await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+		expect(animate).toHaveBeenCalledOnce();
+		const [keyframes, options] = animate.mock.calls[0] as unknown as [
+			Keyframe[],
+			KeyframeAnimationOptions,
+		];
+		expect(keyframes.at(-1)).toMatchObject({
+			opacity: 0,
+			transform: "translateX(8px)",
+		});
+		expect(options.duration).toBe(MOTION_DURATION.standard);
+		expect(options.easing).toBe(MOTION_EASING.in);
+		expect(onDismiss).not.toHaveBeenCalled();
+
+		finish();
+		await waitFor(() => expect(onDismiss).toHaveBeenCalledOnce());
+	});
+
+	it("animates the card itself", async () => {
+		renderDismissable();
+		const { animate } = controlledAnimation();
+		await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+		const target = animate.mock.contexts[0] as unknown as HTMLElement;
+		expect(target).toBe(screen.getByTestId("refusal-notice"));
+	});
+
+	it("clears the card at once under reduced motion, without an animation", async () => {
+		window.matchMedia = ((query: string) => ({
+			matches: query.includes("prefers-reduced-motion"),
+			media: query,
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+		})) as unknown as typeof window.matchMedia;
+		const onDismiss = renderDismissable();
+		const { animate } = controlledAnimation();
+
+		await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+		expect(animate).not.toHaveBeenCalled();
+		expect(onDismiss).toHaveBeenCalledOnce();
+	});
+
+	it("ignores a second click while it is leaving", async () => {
+		const onDismiss = renderDismissable();
+		const { animate, finish } = controlledAnimation();
+
+		const dismiss = screen.getByRole("button", { name: "Dismiss" });
+		await fireEvent.click(dismiss);
+		await fireEvent.click(dismiss);
+		finish();
+		await waitFor(() => expect(onDismiss).toHaveBeenCalledOnce());
+		expect(animate).toHaveBeenCalledOnce();
+	});
+
+	it("does not clear anything if the card is gone before its exit ends", async () => {
+		const onDismiss = renderDismissable();
+		const { finish } = controlledAnimation();
+		await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+		cleanup();
+		finish();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(onDismiss).not.toHaveBeenCalled();
 	});
 });

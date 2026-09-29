@@ -51,6 +51,9 @@ const artifactsDict = {
 		"artifacts.panel.back": "Back to the item",
 		"artifacts.panel.empty": "Nothing made here yet.",
 		"artifacts.panel.history": "History",
+		// The panel landmark's own name while an item is open: what it shows, not
+		// one generic name for every item (rd/review-2-5.md:276-279).
+		"artifacts.panel.landmark": "{title}, {kind}",
 		// The list row's / chat card's pending-review pill (redesign §5.2),
 		// fed by the PERSISTED `pendingReviewCount` (Wave 2.5 review, F1).
 		"artifacts.panel.pendingReview":
@@ -93,6 +96,69 @@ const artifactsDict = {
 		"artifacts.card.creatingSubtitle": "Alfy is writing…",
 		"artifacts.card.failedTitle": "Alfy couldn't make this.",
 		// The five kinds.
+		// Delete (polish G2-A): the panel header's and the list row's Delete, and
+		// its confirm. Every string names the KIND (ADR-0066) — never the
+		// engineering word — and each kind is its own key because Hungarian
+		// takes a different article and ending per noun.
+		"artifacts.delete.button.document": "Delete document",
+		"artifacts.delete.button.app": "Delete app",
+		"artifacts.delete.button.canvas": "Delete canvas",
+		"artifacts.delete.button.slides": "Delete slides",
+		"artifacts.delete.button.file": "Delete file",
+		"artifacts.delete.title.document": "Delete this document?",
+		"artifacts.delete.title.app": "Delete this app?",
+		"artifacts.delete.title.canvas": "Delete this canvas?",
+		"artifacts.delete.title.slides": "Delete these slides?",
+		"artifacts.delete.title.file": "Delete this file?",
+		"artifacts.delete.body.document":
+			"“{title}” and its versions and comments will be deleted. This can't be undone.",
+		"artifacts.delete.body.app":
+			"“{title}” and its saved data will be deleted. This can't be undone.",
+		"artifacts.delete.body.canvas":
+			"“{title}” and its versions and comments will be deleted. This can't be undone.",
+		"artifacts.delete.body.slides":
+			"“{title}” and its versions and comments will be deleted. This can't be undone.",
+		"artifacts.delete.body.file":
+			"“{title}” will be deleted. This can't be undone.",
+		// The same confirm for an item the chat can make again (the security
+		// review's L2): "can't be undone" is not true of it, so it says the way back.
+		"artifacts.delete.bodyRegenerable.document":
+			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.app":
+			"“{title}” and its saved data will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.canvas":
+			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.slides":
+			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.file":
+			"“{title}” will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.busy": "Deleting…",
+		"artifacts.delete.failed": "Couldn't delete this. Try again.",
+		"artifacts.delete.done.document": "Document deleted",
+		"artifacts.delete.done.app": "App deleted",
+		"artifacts.delete.done.canvas": "Canvas deleted",
+		"artifacts.delete.done.slides": "Slides deleted",
+		"artifacts.delete.done.file": "File deleted",
+		"artifacts.delete.rowMenu": "More actions for {title}",
+		// What a chat card or file row says once its item is gone (polish G2-A),
+		// per kind, and its Regenerate.
+		"artifacts.deleted.document": "This document was deleted",
+		"artifacts.deleted.app": "This app was deleted",
+		"artifacts.deleted.canvas": "This canvas was deleted",
+		"artifacts.deleted.slides": "These slides were deleted",
+		"artifacts.deleted.file": "The file has been deleted",
+		"artifacts.deleted.regenerate": "Regenerate",
+		"artifacts.deleted.regenerateA11y": "Regenerate {title}",
+		"artifacts.deleted.regenerating": "Regenerating…",
+		"artifacts.deleted.unavailable":
+			"It can't be regenerated: the original request wasn't kept.",
+		"artifacts.deleted.regenerateFailed":
+			"Couldn't regenerate this. Try again.",
+		"artifacts.deleted.regenerated": "Regenerated “{title}”",
+		// An item that exists but sits out of this chat's reach — the parent of a
+		// forked incognito chat (the security review's M1): not deleted, so it is
+		// never called that, and nothing offers to make it again.
+		"artifacts.madeInOriginalChat": "Made in the original chat",
 		"artifacts.type.file": "File",
 		"artifacts.type.document": "Document",
 		"artifacts.type.app": "App",
@@ -222,6 +288,11 @@ const artifactsDict = {
 		// Alfy-authored summary is free-form content and is shown as-is.
 		"artifacts.document.versions.summaryEdited": "Edited",
 		"artifacts.document.versions.summaryRestored": "restored {summary}",
+		"artifacts.document.versions.summaryRestoredFrom": "Restored v{n}",
+		"artifacts.document.versions.summaryUndidAlfyChange": "Undid Alfy's change",
+		"artifacts.document.versions.summaryFirstDraft":
+			"Alfy wrote the first draft",
+		"artifacts.document.versions.summarySavedAsCopy": "Saved as a new document",
 		// The lazy editor's shell and toolbar (Slice 1, T7).
 		"artifacts.document.editor.placeholder": "Write anything, or ask Alfy to.",
 		"artifacts.document.editor.failedToLoad": "The editor could not be loaded.",
@@ -238,6 +309,10 @@ const artifactsDict = {
 		"artifacts.document.toolbar.link": "Link",
 		"artifacts.document.toolbar.undo": "Undo",
 		"artifacts.document.toolbar.redo": "Redo",
+		// The tooltip and accessible name of those two buttons: the label and the
+		// keys that do the same ({shortcut} is ⌘Z, Ctrl+Y, … for the reader's platform).
+		"artifacts.document.toolbar.undoWithShortcut": "Undo ({shortcut})",
+		"artifacts.document.toolbar.redoWithShortcut": "Redo ({shortcut})",
 		"artifacts.document.toolbar.more": "More",
 		"artifacts.document.toolbar.download": "Download",
 		"artifacts.document.toolbar.history": "History",
@@ -269,6 +344,12 @@ const artifactsDict = {
 		"artifacts.document.change.keepA11y": "Keep Alfy's change",
 		"artifacts.document.change.undoA11y": "Undo Alfy's change",
 		"artifacts.document.change.redoA11y": "Redo Alfy's change",
+		// The tooltips of the pill's Undo and Redo: the same wording and the chord
+		// that does it from the keyboard ({shortcut}: ⌥⌘Z, Ctrl+Alt+Z, …).
+		"artifacts.document.change.undoWithShortcut":
+			"Undo Alfy's change ({shortcut})",
+		"artifacts.document.change.redoWithShortcut":
+			"Redo Alfy's change ({shortcut})",
 		// The visible refusal (Slice 1, T8) — "your words win" is only a
 		// feature if the user can see it happened.
 		"artifacts.document.refused.notice":
@@ -444,8 +525,24 @@ const artifactsDict = {
 		// title plus this counts suffix — never interpolated into one string,
 		// since a tab's title is arbitrary user text.
 		"artifacts.document.margin.otherTabs": "In other tabs",
-		"artifacts.document.margin.otherTabCounts":
-			"{open} open · {resolved} resolved",
+		// One row's counts are joined from these two so a zero never shows
+		// ("1 open", never "1 open · 0 resolved"); a tab's title is arbitrary
+		// user text and is never interpolated into either.
+		"artifacts.document.margin.otherTabOpen": "{count} open",
+		"artifacts.document.margin.otherTabResolved": "{count} resolved",
+		// The rail header's count (open threads on this tab) and its empty
+		// states. A document with one section has no "tab" to name.
+		"artifacts.document.margin.countA11y":
+			"{count} {count, plural, one {open comment} other {open comments}}",
+		"artifacts.document.margin.emptyDocument":
+			"No comments yet. Select text to start one.",
+		"artifacts.document.margin.emptyAllResolved":
+			"Every comment here is resolved.",
+		// The header's Comments button is a toggle for the comment column
+		// (the button's pressed state says which); its tooltip names the
+		// action rather than the noun.
+		"artifacts.document.margin.hide": "Hide comments",
+		"artifacts.document.margin.show": "Show comments",
 		// The download sheet (Slice 1, T12).
 		"artifacts.document.export.title": "Download {title}",
 		"artifacts.document.export.pdf": "PDF",
@@ -480,6 +577,7 @@ const artifactsDict = {
 		"artifacts.panel.back": "Vissza az elemhez",
 		"artifacts.panel.empty": "Itt még nem készült semmi.",
 		"artifacts.panel.history": "Előzmények",
+		"artifacts.panel.landmark": "{title}, {kind}",
 		"artifacts.panel.pendingReview": "{count} módosítás vár rád",
 		"artifacts.panel.reviewed": "Átnézve",
 		// No ICU plural here on purpose, matching cardSubtitle above: Hungarian
@@ -496,6 +594,57 @@ const artifactsDict = {
 		"artifacts.card.moreItems": "+{count} további",
 		"artifacts.card.creatingSubtitle": "Alfy éppen ír…",
 		"artifacts.card.failedTitle": "Alfynak ezt nem sikerült elkészítenie.",
+		"artifacts.delete.button.document": "Dokumentum törlése",
+		"artifacts.delete.button.app": "Alkalmazás törlése",
+		"artifacts.delete.button.canvas": "Tábla törlése",
+		"artifacts.delete.button.slides": "Diasor törlése",
+		"artifacts.delete.button.file": "Fájl törlése",
+		"artifacts.delete.title.document": "Törlöd ezt a dokumentumot?",
+		"artifacts.delete.title.app": "Törlöd ezt az alkalmazást?",
+		"artifacts.delete.title.canvas": "Törlöd ezt a táblát?",
+		"artifacts.delete.title.slides": "Törlöd ezt a diasort?",
+		"artifacts.delete.title.file": "Törlöd ezt a fájlt?",
+		"artifacts.delete.body.document":
+			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.app":
+			"„{title}” és a mentett adatai törlődnek. Ez nem vonható vissza.",
+		"artifacts.delete.body.canvas":
+			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.slides":
+			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.file": "„{title}” törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.bodyRegenerable.document":
+			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.app":
+			"„{title}” és a mentett adatai törlődnek. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.canvas":
+			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.slides":
+			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.file":
+			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.busy": "Törlés…",
+		"artifacts.delete.failed": "Nem sikerült törölni. Próbáld újra.",
+		"artifacts.delete.done.document": "Dokumentum törölve",
+		"artifacts.delete.done.app": "Alkalmazás törölve",
+		"artifacts.delete.done.canvas": "Tábla törölve",
+		"artifacts.delete.done.slides": "Diasor törölve",
+		"artifacts.delete.done.file": "Fájl törölve",
+		"artifacts.delete.rowMenu": "További műveletek: {title}",
+		"artifacts.deleted.document": "Ez a dokumentum törölve lett",
+		"artifacts.deleted.app": "Ez az alkalmazás törölve lett",
+		"artifacts.deleted.canvas": "Ez a tábla törölve lett",
+		"artifacts.deleted.slides": "Ez a diasor törölve lett",
+		"artifacts.deleted.file": "A fájl törölve lett",
+		"artifacts.deleted.regenerate": "Újragenerálás",
+		"artifacts.deleted.regenerateA11y": "{title} újragenerálása",
+		"artifacts.deleted.regenerating": "Újragenerálás…",
+		"artifacts.deleted.unavailable":
+			"Nem generálható újra: az eredeti kérés nem maradt meg.",
+		"artifacts.deleted.regenerateFailed":
+			"Nem sikerült újragenerálni. Próbáld újra.",
+		"artifacts.deleted.regenerated": "„{title}” újragenerálva",
+		"artifacts.madeInOriginalChat": "Az eredeti beszélgetésben készült",
 		"artifacts.type.file": "Fájl",
 		"artifacts.type.document": "Dokumentum",
 		"artifacts.type.app": "Alkalmazás",
@@ -606,6 +755,13 @@ const artifactsDict = {
 		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
 		"artifacts.document.versions.summaryEdited": "Szerkesztve",
 		"artifacts.document.versions.summaryRestored": "visszaállítva: {summary}",
+		"artifacts.document.versions.summaryRestoredFrom": "Visszaállítva: v{n}",
+		"artifacts.document.versions.summaryUndidAlfyChange":
+			"Alfy módosításának visszavonása",
+		"artifacts.document.versions.summaryFirstDraft":
+			"Alfy megírta az első vázlatot",
+		"artifacts.document.versions.summarySavedAsCopy":
+			"Mentve új dokumentumként",
 		"artifacts.document.editor.placeholder": "Írj bármit, vagy kérd meg Alfyt.",
 		"artifacts.document.editor.failedToLoad":
 			"A szerkesztőt nem sikerült betölteni.",
@@ -622,6 +778,8 @@ const artifactsDict = {
 		"artifacts.document.toolbar.link": "Hivatkozás",
 		"artifacts.document.toolbar.undo": "Visszavonás",
 		"artifacts.document.toolbar.redo": "Újra",
+		"artifacts.document.toolbar.undoWithShortcut": "Visszavonás ({shortcut})",
+		"artifacts.document.toolbar.redoWithShortcut": "Újra ({shortcut})",
 		"artifacts.document.toolbar.more": "Több",
 		"artifacts.document.toolbar.download": "Letöltés",
 		"artifacts.document.toolbar.history": "Előzmények",
@@ -654,6 +812,10 @@ const artifactsDict = {
 		"artifacts.document.change.keepA11y": "Megtartom — Alfy módosítása",
 		"artifacts.document.change.undoA11y": "Visszavonom — Alfy módosítása",
 		"artifacts.document.change.redoA11y": "Újra — Alfy módosítása",
+		"artifacts.document.change.undoWithShortcut":
+			"Visszavonom — Alfy módosítása ({shortcut})",
+		"artifacts.document.change.redoWithShortcut":
+			"Újra — Alfy módosítása ({shortcut})",
 		"artifacts.document.refused.notice":
 			"{count, plural, one {Alfy egy részt nem érintett, mert megváltoztattad.} other {Alfy néhány részt nem érintett, mert megváltoztattad.}}",
 		"artifacts.document.refused.changed":
@@ -760,8 +922,15 @@ const artifactsDict = {
 		"artifacts.document.margin.resolvedToggle": "{count} lezárva",
 		"artifacts.document.margin.showOpenOnly": "Csak a nyitottak",
 		"artifacts.document.margin.otherTabs": "Más füleken",
-		"artifacts.document.margin.otherTabCounts":
-			"{open} nyitott · {resolved} lezárva",
+		"artifacts.document.margin.otherTabOpen": "{count} nyitott",
+		"artifacts.document.margin.otherTabResolved": "{count} lezárva",
+		"artifacts.document.margin.countA11y": "{count} nyitott megjegyzés",
+		"artifacts.document.margin.emptyDocument":
+			"Még nincs megjegyzés. Jelölj ki szöveget egy új megjegyzéshez.",
+		"artifacts.document.margin.emptyAllResolved":
+			"Itt minden megjegyzés le van zárva.",
+		"artifacts.document.margin.hide": "Megjegyzések elrejtése",
+		"artifacts.document.margin.show": "Megjegyzések megjelenítése",
 		"artifacts.document.export.title": "{title} letöltése",
 		"artifacts.document.export.pdf": "PDF",
 		"artifacts.document.export.docx": "Word",

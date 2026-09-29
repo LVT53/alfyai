@@ -399,6 +399,108 @@ describe("ArtifactCard", () => {
 			).not.toBeInTheDocument();
 		});
 
+		// rd/review-2-5.md:276-279 — the row's name was the visible pieces run
+		// together ("Vienna trip plan Document · 3 tabs v6 2 min ago"): no pause
+		// between them and, when a caller's subtitle carries no kind, no kind at
+		// all. It reads as what the row is: title, kind, facts, version, time.
+		describe("the row's accessible name", () => {
+			it("says title, kind and facts, version, then time, comma-separated", () => {
+				render(ArtifactCard, {
+					view: view({
+						title: "Vienna trip plan",
+						subtitle: "Document · 3 tabs",
+						versionNumber: 6,
+						updatedAtLabel: "2 min ago",
+						openTargetId: "artifact-1",
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "Vienna trip plan, Document, 3 tabs, v6, 2 min ago",
+					}),
+				).toHaveAttribute("data-testid", "artifact-row");
+			});
+
+			it("still says the kind when the caller's own subtitle does not", () => {
+				render(ArtifactCard, {
+					view: view({
+						kind: "app",
+						title: "Budget tracker",
+						subtitle: "Split by traveller",
+						versionNumber: 2,
+						updatedAtLabel: "just now",
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "Budget tracker, App, Split by traveller, v2, just now",
+					}),
+				).toBeInTheDocument();
+			});
+
+			it("uses the bare kind label when there is no subtitle, and leaves out what is not there", () => {
+				render(ArtifactCard, {
+					view: view({ kind: "file", title: "Quarterly report.pdf" }),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", { name: "Quarterly report.pdf, File" }),
+				).toBeInTheDocument();
+			});
+
+			it("ends with the review state: a count of changes to review, or Reviewed", () => {
+				const { unmount } = render(ArtifactCard, {
+					view: view({
+						title: "Vienna trip plan",
+						versionNumber: 3,
+						updatedAtLabel: "5 min ago",
+						pendingReviewCount: 2,
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "Vienna trip plan, Document, v3, 5 min ago, 2 changes to review",
+					}),
+				).toBeInTheDocument();
+				unmount();
+				render(ArtifactCard, {
+					view: view({
+						title: "Vienna trip plan",
+						versionNumber: 3,
+						updatedAtLabel: "5 min ago",
+						pendingReviewCount: 0,
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "Vienna trip plan, Document, v3, 5 min ago, Reviewed",
+					}),
+				).toBeInTheDocument();
+			});
+
+			it("is spoken in the UI language", () => {
+				uiLanguage.set("hu");
+				render(ArtifactCard, {
+					view: view({
+						title: "Bécsi utazás",
+						subtitle: "Dokumentum · 3 fül",
+						versionNumber: 6,
+						updatedAtLabel: "2 perce",
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "Bécsi utazás, Dokumentum, 3 fül, v6, 2 perce",
+					}),
+				).toBeInTheDocument();
+			});
+		});
+
 		it("falls back to the bare kind label when the caller gives no subtitle (App, File, …)", () => {
 			render(ArtifactCard, {
 				view: view({ kind: "app", subtitle: null, versionNumber: 2 }),
@@ -472,5 +574,166 @@ describe("ArtifactCard", () => {
 			/^\s*import\s+.*FileProductionCard\.svelte['"]/m;
 		expect(staticImportPattern.test(source)).toBe(false);
 		expect(source).toContain('import("../chat/FileProductionCard.svelte")');
+	});
+});
+
+// Polish G2-A: a card whose item was deleted says so, muted, with no Open — and
+// offers Regenerate where the item can be made again, or says why not.
+describe("ArtifactCard — deleted (chrome=full)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+	});
+
+	it("says the item was deleted, in the kind's own words, and offers no Open", () => {
+		render(ArtifactCard, {
+			view: view({ deleted: true, openTargetId: "artifact-1" }),
+			onOpen: vi.fn(),
+		});
+
+		const card = screen.getByTestId("artifact-card");
+		expect(card).toHaveAttribute("data-state", "deleted");
+		expect(card).toHaveTextContent("Weekend checklist");
+		expect(screen.getByText("This document was deleted")).toBeInTheDocument();
+		// Nothing to open: no head button, no Open affordance.
+		expect(screen.queryByTestId("artifact-card-head")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /Open/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it.each([
+		["app", "This app was deleted", "Ez az alkalmazás törölve lett"],
+		["canvas", "This canvas was deleted", "Ez a tábla törölve lett"],
+		["slides", "These slides were deleted", "Ez a diasor törölve lett"],
+		["document", "This document was deleted", "Ez a dokumentum törölve lett"],
+	] as const)("names a deleted %s in both languages", (kind, english, hungarian) => {
+		const { unmount } = render(ArtifactCard, {
+			view: view({ kind, deleted: true }),
+		});
+		expect(screen.getByText(english)).toBeInTheDocument();
+		unmount();
+		uiLanguage.set("hu");
+		render(ArtifactCard, { view: view({ kind, deleted: true }) });
+		expect(screen.getByText(hungarian)).toBeInTheDocument();
+	});
+
+	it("offers Regenerate when the item can be made again, and asks for it by id", async () => {
+		const onRegenerate = vi.fn();
+		render(ArtifactCard, {
+			view: view({ id: "artifact-9", deleted: true }),
+			onRegenerate,
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Regenerate Weekend checklist" }),
+		);
+
+		expect(onRegenerate).toHaveBeenCalledWith("artifact-9");
+	});
+
+	it("shows the work under way and ignores another press", async () => {
+		const onRegenerate = vi.fn();
+		render(ArtifactCard, {
+			view: view({ deleted: true, regenerating: true }),
+			onRegenerate,
+		});
+
+		const busy = screen.getByRole("button", { name: /Regenerating…/ });
+		expect(busy).toBeDisabled();
+		expect(busy).toHaveAttribute("aria-busy", "true");
+		await fireEvent.click(busy);
+		expect(onRegenerate).not.toHaveBeenCalled();
+	});
+
+	it("says why it cannot be made again, instead of offering a button that would fail", () => {
+		render(ArtifactCard, {
+			view: view({ deleted: true, regenerateUnavailable: true }),
+			onRegenerate: vi.fn(),
+		});
+
+		expect(
+			screen.getByText(
+				"It can't be regenerated: the original request wasn't kept.",
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /Regenerate/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("draws no Regenerate when the host offers none", () => {
+		render(ArtifactCard, { view: view({ deleted: true }) });
+
+		expect(
+			screen.queryByRole("button", { name: /Regenerate/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("leaves a card that was not deleted exactly as it was", () => {
+		render(ArtifactCard, {
+			view: view({ openTargetId: "artifact-1" }),
+			onOpen: vi.fn(),
+			onRegenerate: vi.fn(),
+		});
+
+		expect(screen.getByTestId("artifact-card")).not.toHaveAttribute(
+			"data-state",
+		);
+		expect(screen.getByTestId("artifact-card-head")).toBeInTheDocument();
+		expect(screen.queryByText(/was deleted/)).not.toBeInTheDocument();
+	});
+});
+
+// The security review's M1: an item that EXISTS but is out of this chat's reach
+// (the parent of a forked incognito chat) is not "deleted". The card says where
+// it was made, muted, with nothing to open and nothing to regenerate.
+describe("ArtifactCard — exists, out of reach (chrome=full)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+	});
+
+	it("says it was made in the original chat, keeps the title, and offers neither Open nor Regenerate", () => {
+		render(ArtifactCard, {
+			view: view({ unreachable: true, openTargetId: "artifact-1" }),
+			onOpen: vi.fn(),
+			onRegenerate: vi.fn(),
+		});
+
+		const card = screen.getByTestId("artifact-card");
+		expect(card).toHaveAttribute("data-state", "unreachable");
+		expect(card).toHaveTextContent("Weekend checklist");
+		expect(screen.getByText("Made in the original chat")).toBeInTheDocument();
+		expect(screen.queryByText(/deleted/)).not.toBeInTheDocument();
+		expect(screen.queryByTestId("artifact-card-head")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /Open|Regenerate/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("says it in Hungarian too", () => {
+		uiLanguage.set("hu");
+		render(ArtifactCard, { view: view({ unreachable: true }) });
+
+		expect(
+			screen.getByText("Az eredeti beszélgetésben készült"),
+		).toBeInTheDocument();
+	});
+
+	it("wins over deleted: an item that is still there is never called deleted, whatever else says so", () => {
+		render(ArtifactCard, {
+			view: view({ unreachable: true, deleted: true }),
+			onRegenerate: vi.fn(),
+		});
+
+		expect(screen.getByTestId("artifact-card")).toHaveAttribute(
+			"data-state",
+			"unreachable",
+		);
+		expect(screen.queryByText(/deleted/)).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /Regenerate/ }),
+		).not.toBeInTheDocument();
 	});
 });

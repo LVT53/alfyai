@@ -15,6 +15,8 @@ vi.mock("$lib/server/services/conversation-forks", () => ({
 
 vi.mock("$lib/server/services/messages", () => ({
 	listMessageWindow: vi.fn(),
+	artifactCallIdsFromMessages: vi.fn(),
+	regenerableArtifactIdsFromMessages: vi.fn(),
 	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT: 100,
 }));
 
@@ -75,10 +77,14 @@ vi.mock("$lib/server/services/analytics", () => ({
 
 vi.mock("$lib/server/services/artifacts", () => ({
 	listArtifactsForConversation: vi.fn(),
+	listMissingArtifactIds: vi.fn(),
 }));
 
 import { getConversationCostSummary } from "$lib/server/services/analytics";
-import { listArtifactsForConversation } from "$lib/server/services/artifacts";
+import {
+	listArtifactsForConversation,
+	listMissingArtifactIds,
+} from "$lib/server/services/artifacts";
 import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
 import { listContextCompressionSnapshots } from "$lib/server/services/context-compression";
 import { getConversationDraft } from "$lib/server/services/conversation-drafts";
@@ -97,14 +103,21 @@ import {
 	listConversationArtifacts,
 } from "$lib/server/services/knowledge";
 import { listConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
-import { listMessageWindow } from "$lib/server/services/messages";
+import {
+	artifactCallIdsFromMessages,
+	listMessageWindow,
+	regenerableArtifactIdsFromMessages,
+} from "$lib/server/services/messages";
 import {
 	attachContinuityToTaskState,
 	getContextDebugState,
 	getConversationTaskState,
 	getProjectReferenceContext,
 } from "$lib/server/services/task-state";
-import { getConversationDetail } from "./read-model";
+import {
+	getConversationDetail,
+	getOlderConversationMessages,
+} from "./read-model";
 
 const mockGetConversation = vi.mocked(getConversation);
 const mockGetConversationDraft = vi.mocked(getConversationDraft);
@@ -139,6 +152,11 @@ const mockListConversationAtlasJobs = vi.mocked(listConversationAtlasJobs);
 const mockListArtifactsForConversation = vi.mocked(
 	listArtifactsForConversation,
 );
+const mockArtifactCallIdsFromMessages = vi.mocked(artifactCallIdsFromMessages);
+const mockRegenerableArtifactIdsFromMessages = vi.mocked(
+	regenerableArtifactIdsFromMessages,
+);
+const mockListMissingArtifactIds = vi.mocked(listMissingArtifactIds);
 
 describe("Conversation Detail Read Model", () => {
 	beforeEach(() => {
@@ -196,6 +214,12 @@ describe("Conversation Detail Read Model", () => {
 			totalTokens: 0,
 		});
 		mockListArtifactsForConversation.mockResolvedValue([]);
+		mockArtifactCallIdsFromMessages.mockReturnValue([]);
+		mockRegenerableArtifactIdsFromMessages.mockReturnValue([]);
+		mockListMissingArtifactIds.mockResolvedValue({
+			deleted: [],
+			unreachable: [],
+		});
 	});
 
 	it("returns the cheap bootstrap detail payload with stable defaults", async () => {
@@ -458,6 +482,193 @@ describe("Conversation Detail Read Model", () => {
 	// which only satisfies the field's real type), and explicitly here: the
 	// call itself carries the conversation scope the panel list and the
 	// header count both need, not a second query shape.
+	// Polish G2-A: a card that points at a deleted item must be able to say so.
+	// The tool calls name the artifacts (messages.ts); the artifact service
+	// says which of them are gone, under the ownership scope (never a second
+	// scope of the read model's own).
+	it("returns the ids of the artifacts this chat's tool calls named that no longer exist, and separately the ones that exist out of its reach", async () => {
+		const loaded = [
+			{
+				id: "assistant-1",
+				conversationId: "conv-1",
+				role: "assistant" as const,
+				content: "Made it.",
+				timestamp: 1_777_140_010,
+				createdAt: 1_777_140_010,
+			},
+		];
+		mockListMessageWindow.mockResolvedValue({
+			messages: loaded,
+			hasMoreBefore: false,
+		});
+		mockArtifactCallIdsFromMessages.mockReturnValue([
+			"doc-1",
+			"doc-2",
+			"doc-3",
+		]);
+		mockListMissingArtifactIds.mockResolvedValue({
+			deleted: ["doc-2"],
+			unreachable: ["doc-3"],
+		});
+
+		const detail = await getConversationDetail({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+
+		// Read off the messages already loaded — no second look at the table.
+		expect(mockArtifactCallIdsFromMessages).toHaveBeenCalledWith(loaded);
+		expect(mockListMissingArtifactIds).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactIds: ["doc-1", "doc-2", "doc-3"],
+		});
+		expect(detail?.deletedArtifactIds).toEqual(["doc-2"]);
+		// Exists, but not from here (the parent of a forked incognito chat): the
+		// card says where it was made instead of calling it deleted.
+		expect(detail?.unreachableArtifactIds).toEqual(["doc-3"]);
+	});
+
+	// The security review's L2: an item the chat can make again says so (the
+	// delete confirm reads it): the ones the loaded messages made or kept, and a
+	// produced file whose one job kept its request.
+	describe("regenerable artifacts", () => {
+		const summary = (id: string, kind: "document" | "app" | "file") => ({
+			id,
+			kind,
+			title: id,
+			conversationId: "conv-1",
+			versionNumber: 1,
+			commentCount: 0,
+			updatedAt: 1,
+		});
+		const fileJob = (
+			id: string,
+			files: Array<{ artifactId: string | null }>,
+			canRegenerate?: true,
+		) =>
+			({
+				id,
+				conversationId: "conv-1",
+				title: id,
+				status: "succeeded",
+				createdAt: 1,
+				updatedAt: 1,
+				files: files.map((file, index) => ({
+					id: `${id}-file-${index}`,
+					filename: `${id}-${index}.pdf`,
+					mimeType: "application/pdf",
+					sizeBytes: 1,
+					downloadUrl: "",
+					previewUrl: null,
+					artifactId: file.artifactId,
+				})),
+				warnings: [],
+				dismissed: false,
+				...(canRegenerate ? { canRegenerate } : {}),
+			}) as never;
+
+		it("flags a Document or App a message can make again, and no other", async () => {
+			const loaded = [
+				{
+					id: "assistant-1",
+					conversationId: "conv-1",
+					role: "assistant" as const,
+					content: "Made it.",
+					timestamp: 1,
+					createdAt: 1,
+				},
+			];
+			mockListMessageWindow.mockResolvedValue({
+				messages: loaded,
+				hasMoreBefore: false,
+			});
+			mockRegenerableArtifactIdsFromMessages.mockReturnValue([
+				"doc-made",
+				"doc-kept",
+			]);
+			mockListArtifactsForConversation.mockResolvedValue([
+				summary("doc-made", "document"),
+				summary("doc-kept", "document"),
+				summary("doc-copy", "document"),
+				summary("app-old", "app"),
+			]);
+
+			const detail = await getConversationDetail({
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
+
+			expect(mockRegenerableArtifactIdsFromMessages).toHaveBeenCalledWith(
+				loaded,
+			);
+			expect(
+				detail?.artifacts?.map((row) => [row.id, row.regenerable]),
+			).toEqual([
+				["doc-made", true],
+				["doc-kept", true],
+				["doc-copy", undefined],
+				["app-old", undefined],
+			]);
+		});
+
+		it("flags a produced file only when the job that made it kept its request and made nothing else", async () => {
+			mockListArtifactsForConversation.mockResolvedValue([
+				summary("file-single", "file"),
+				summary("file-legacy", "file"),
+				summary("file-shared-a", "file"),
+				summary("file-shared-b", "file"),
+			]);
+			mockListConversationFileProductionJobs.mockResolvedValue([
+				fileJob("job-single", [{ artifactId: "file-single" }], true),
+				fileJob("job-legacy", [{ artifactId: "file-legacy" }]),
+				// Two artifacts from one job: deleting one leaves the other, and a job
+				// with a file left cannot be made again.
+				fileJob(
+					"job-shared",
+					[{ artifactId: "file-shared-a" }, { artifactId: "file-shared-b" }],
+					true,
+				),
+			]);
+
+			const detail = await getConversationDetail({
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
+
+			expect(
+				detail?.artifacts?.map((row) => [row.id, row.regenerable]),
+			).toEqual([
+				["file-single", true],
+				["file-legacy", undefined],
+				["file-shared-a", undefined],
+				["file-shared-b", undefined],
+			]);
+		});
+
+		it("leaves the list exactly as the artifact service gave it when nothing can be made again", async () => {
+			const rows = [summary("doc-copy", "document")];
+			mockListArtifactsForConversation.mockResolvedValue(rows);
+
+			const detail = await getConversationDetail({
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
+
+			expect(detail?.artifacts).toBe(rows);
+		});
+	});
+
+	it("reports none deleted when no tool call named an artifact", async () => {
+		const detail = await getConversationDetail({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+
+		expect(detail?.deletedArtifactIds).toEqual([]);
+		expect(detail?.unreachableArtifactIds).toEqual([]);
+	});
+
 	it("scopes the artifacts call to the same user and conversation as everything else", async () => {
 		await getConversationDetail({
 			userId: "user-2",
@@ -565,5 +776,40 @@ describe("Conversation Detail Read Model", () => {
 		// extra queries that existed only to feed the projection.
 		expect(mockListConversationLinkedContextSources).not.toHaveBeenCalled();
 		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
+	});
+
+	it("carries the deleted-artifact ids of an older page too, read off that page's own messages", async () => {
+		const older = [
+			{
+				id: "assistant-old",
+				conversationId: "conv-1",
+				role: "assistant" as const,
+				content: "Made it a while ago.",
+				timestamp: 1_777_100_000,
+				createdAt: 1_777_100_000,
+			},
+		];
+		mockListMessageWindow.mockResolvedValue({
+			messages: older,
+			hasMoreBefore: true,
+		});
+		mockArtifactCallIdsFromMessages.mockReturnValue(["doc-old", "doc-away"]);
+		mockListMissingArtifactIds.mockResolvedValue({
+			deleted: ["doc-old"],
+			unreachable: ["doc-away"],
+		});
+
+		const page = await getOlderConversationMessages({
+			userId: "user-1",
+			conversationId: "conv-1",
+			offset: 100,
+		});
+
+		expect(mockArtifactCallIdsFromMessages).toHaveBeenCalledWith(older);
+		expect(page).toMatchObject({
+			hasMoreBefore: true,
+			deletedArtifactIds: ["doc-old"],
+			unreachableArtifactIds: ["doc-away"],
+		});
 	});
 });

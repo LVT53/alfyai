@@ -621,6 +621,17 @@ Rulings (orchestrator, 2026-09-27):
   pending changes flashes "Átnézve"/no dot for ~100–300 ms (the body reports 0 before its review state loads; a failed
   load leaves the 0 until reload). Ruling: fix it before the deploy — the owner walks exactly this flow — cost if wrong:
   ~1 h of wall-clock. Small fix agent on `fix/artifacts-rd-review-flash` (red→green e2e that polls the card every 40 ms).
+- **Wave 2.5 DONE and DEPLOYED (2026-09-29 ~02:45 UTC): `dev` = ai.dev = `1e755e0b`** (the whole redesign + review fixes +
+  the flash fix `0f607d39`, red→green e2e polling the card every 40 ms). Gates in `dev-int`: check 0/17, 13,772 tests, build
+  32/2, Fallow 124/4 (0 new), **Playwright 101/101**. Deploy health OK (`current -> releases/1e755e0b`). Live check
+  (`/root/verify-artifacts-w2.mjs`, real model): run 1 11/14, run 2 **13/14** — the edit path works (read → 1 edit, 0 refused,
+  v1 → v2, no duplicate); the red "edit landed" check is the script's own precondition (`absentBefore: false`: the model had
+  already written some target items into the new Document), as in Wave 2. The owner walks it next.
+- Left for later (all recorded above and in the reports): per-row accessible names in the panel list; the toast's
+  slide-out; the tab strip's `⋯`/`+` inside `role="tablist"`; the other [doc] minors (touch targets, sheet offsets, rail
+  copy/counts, prose details, Versions rows, refusal placement, Undo's summary); the review's "can wait" rows (deleted card
+  state, Redo after a multi-block insert, `undoAlfyChange` on an existing empty block, motion polish). The live-check script
+  should pick items the created Document cannot already contain.
 - Briefs for every agent: `docs/plans/claude-at-home-2/wave-2-5/` (`common.md` + `rd*-brief.md`); reports and
   screenshots in this session's scratchpad `rd/`.
 - Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
@@ -654,18 +665,59 @@ no server code changed. The owner inspects ai.dev and says when the rest resumes
 can be removed (branches merged). 3a's
 step 0 (task items) is already done by 5a: skip it.
 
+## Wave 2.5 polish — after the owner's walk (2026-09-29)
+
+**Owner's feedback on ai.dev `1e755e0b`:** the comment margin looks awkward, does not fit a laptop screen, scrolls away
+(only its title stays), and the header's comment icon opens a second copy instead of toggling the margin; the Versions
+popup is clunky; the chat header's count button should sit further right; add **Delete** for opened items (incl. "Open as
+document" ones) with deleted rows offering **Regenerate**; the **version numbers disagree** (v5 in the overview, v3
+inside, v4 at most in Versions); **keyboard undo/redo**; do the three follow-up chips and everything "knowingly left for
+later"; then stop and report. The owner also asked for Sonnet 5.5 for all Sonnet work (the Agent tool takes only the
+`sonnet` alias; each agent now reports its model ID).
+
+| Agent | Scope | Branch / worktree (port) | State |
+|---|---|---|---|
+| G1-A | Comment margin: mockup styling, list stays in view, header icon toggles it, laptop fit, sheet/drawer, copy/counts, refusal placement, sheet targets | `polish/artifacts-comments` / `art-g1a` (5500) | **merged** (`4c63a837`, 7 commits): the text column is the one scroller, the comment column a full-height sibling list of real cards (10 px gaps) with scroll-follow that leaves the list alone while it is in use; the header icon is one pressed toggle (column / drawer below a 720 px panel / phone sheet, remembered in the UI store); column = clamp(240, panel − 480, 300) — at 1280×800 docked the text column is 536 px; refusal card in the list and first in sheet/drawer; copy/counts; 44 px sheet targets; `margin-layout.ts` deleted. Model: `claude-sonnet-5-5` |
+| G1-B | Versions popover, one version number everywhere, Undo's summary, count button right, toast exit | `polish/artifacts-versions` / `art-g1b` (5505) | **merged** (`61e3accc`, 12 commits; one keep-both conflict in `DocumentWorkspace.svelte` resolved by the orchestrator): root cause of v5/v3/v4 — each surface read its own copy (conversation-detail refresh, the open-time snapshot, the server) and nothing fed saves/edits/undo/restores back; now `client/api/artifacts.ts` announces every version the server reports and the chat page keeps the highest per artifact for rows, cards and the open item; Versions popover rebuilt on a shared `AnchoredPopover` + `popover-placement` (Download too); Undo saves "Undid Alfy's change"; count button at the header's right end; toast exit 150 ms. Gates on G1-A+B: check 0/17, 13,925 tests, build 32/2, Fallow 124/4 (0 new), Playwright 115/115 |
+| G2-A | Delete (route + panel/list controls), deleted state on cards and file rows, Regenerate, live edit time, restore wording | `polish/artifacts-delete` / `art-g2a` (5510) | **merged** (`96d638b2`, 19 commits): `DELETE /api/artifacts/[id]` with a tested cascade; Delete in the panel header and each list row's overflow (confirm popover / phone sheet, toast); `deletedArtifactIds` + `filesDeleted` from the read model on cards and file rows, and the 404-on-Open flip; Regenerate for all four sources (create_artifact Document from its stored input, App via `createAppFromBrief`, produced file re-queued from `request_json`, Open-as-document re-run); live edit time; "Visszaállítva: vN"; fixed a pre-existing mid-turn refresh race in the chat page. Caveat: Knowledge's legacy delete of a produced file leaves its chat-file row (shows deleted on the next Open) |
+| G2-B | Document phone touch targets, prose details, review bar one row + flush at laptop widths, filter survives toggle, refusal Dismiss exit | `polish/artifacts-doc-polish` / `art-g2b` (5515) | **merged** (`f7ac2e97`, 8 commits): 44 px toolbar/chip/tick targets, checklist pitch 50.7 → 30.5 px (the mockup's), chip selects as wide as their value, table cell margins, the review bar one row and flush at 480–648 px text columns, Open/All and the removed-text fold kept across toggles, Dismiss slides out. Gates G1+G2-B: 13,936 tests, Playwright 123/123 |
+| G3 | Keyboard undo/redo, Undo empty-block bug, Redo multi-block, tabs ARIA + targets, named list rows, phone review bar flush, struck-through ticks | `polish/artifacts-keys-and-edges` / `art-g3` (5520) | **merged** (`66343962`, 14 commits; two keep-both conflicts — AGENTS.md notes, one e2e import — resolved by the orchestrator): shortcuts claimed across the panel (`keyboard-shortcuts.ts`), tooltips/aria-keyshortcuts name them, Alfy's change has Cmd/Ctrl+Alt+Z, an Alfy edit no longer enters the reader's text history, the pill's buttons work by keyboard (Enter used to split the paragraph), every Keep no longer rebuilds the body (`{#if}` instead of `{#await}`), the tab underline slides, tabs ARIA + 44 px, named rows and the item-named panel landmark, phone review bar flush, ticked tasks struck through, the topmost e2e checks wait for motion. Then `fix/artifacts-landmark-tests` (`f39ad27c`): two of S's tests used the old landmark name |
+
+Rulings (orchestrator):
+- Ruling: "the comments should scroll with the viewport" means the comment **list stays in view** — a sticky rail with its
+  own scroll, cards in document order, the thread nearest the reading position highlighted and followed (never while the
+  user is in the list), two-way linking kept; anchor-height placement is dropped for the desktop rail — cost if wrong: the
+  owner wanted anchored cards that follow differently; the list/follow logic is one component to rework.
+- Ruling: the header's comment icon toggles one comments surface (rail on desktop, drawer when narrow, sheet on phones),
+  remembered per device in the UI store; the rail starts hidden when the text column would fall under ~440 px.
+- Ruling: Delete is permanent behind an inline confirm (no soft delete), from the panel header and list rows; deleted rows
+  and cards show it with Regenerate from the stored source (keep-as-document message, `create_artifact` input, App brief,
+  file-production request) — cost if wrong: the owner wanted undo-able delete; a soft-delete column would be the change.
+- Ruling: G2-A's server side (the DELETE route and cascade, the deleted-state projection, four Regenerate paths that re-run
+  stored sources) gets a focused **Opus** security/data review beside G3 (`wave-2-5`/scratchpad `sec-review.md`) — it is
+  ownership and deletion code, the class the owner keeps Opus reviews for — cost if wrong: one Opus review's tokens.
+- **Opus security review of Delete/Regenerate (`wave-2-5/sec-review.md`): no Critical/High, no cross-user or incognito
+  leak; 1 Medium, 6 Low, 4 Info; "safe to ship to dev".** Rulings: M1 (a forked incognito chat's parent items shown as
+  deleted; Regenerate there burns a 120 s App generation then fails) is fixed now — "exists but out of reach" is its own
+  muted state ("Made in the original chat") and Regenerate refuses up front; L1 — Delete acts only on items this
+  conversation made (cost if wrong: deleting a parent's item needs the parent chat); L2 — the confirm copy says the item can
+  be regenerated from the chat where a stored source exists; L4 (orphan vector after a delete race) and L5 (two Documents
+  from two "Open as document" presses) fixed; L3 and L6 kept (the existing patterns of the file-job and App regenerate
+  routes) and listed for the release checklist. Fix agent S (`fix/artifacts-delete-review`, `art-secfix`, 5525) runs beside G3.
+- **Fix agent S merged** (`c48b7475`): M1 unreachable ≠ deleted ("Az eredeti beszélgetésben készült", Regenerate refuses 409
+  `unreachable` before any model call), L1 (409 `not_made_here`, no Delete shown), L2 honest copy where `regenerable`, L4
+  (the refresh checks the subject still exists), L5 (one keep per message at a time).
+- **Final re-check 2 (`wave-2-5/recheck2.md`): the owner's eight items OK except the phone "+" — but NOT READY:** D1 Critical
+  (after swapping to a second Document the header loses the comments toggle, Download and Versions until a reload — G3's
+  `{#if}` body + G1-B's id-keyed reset), D2 Important (a live Alfy edit replays on every later re-mount: doubled count,
+  phantom after Undo, a kept change pending again), D3 (phone "+" squeezed), D4 (live-made Document's confirm says "can't be
+  undone"). Fix agent P (`fix/artifacts-panel-swap`, `art-fxs`, 5530) fixes all four test-first; then a scoped re-check.
+- Ruling: G3 (keyboard, undo edge cases, tabs, named rows) runs last and alone, since named rows rewrite selectors in many
+  suites the other agents touch.
+
 ## Next action
 
-Resume Wave 2.5 after the weekly reset, in this session or a fresh one:
-1. `get_usage`; then create agent 5b's worktree from `feat/artifacts`: `git worktree add -b feat/artifacts-rd5b-app
-   ../art-rd5b feat/artifacts`, symlink `art-base/node_modules`, `DATABASE_PATH="$PWD/data/playwright-e2e-chat.db" npm run
-   db:prepare` (Node 22 on `PATH`).
-2. Write 5b's brief from the table row above, then dispatch it (Sonnet) with `wave-2-5/common.md` + that brief + the
-   hand-off sections of `rd1-report.md`, `rd2-report.md` and `rd5a-report.md` (all in `docs/plans/claude-at-home-2/wave-2-5/`; if the old session scratchpad is gone, point the
-   brief's report/screenshot paths at your own scratchpad).
-3. After it: `wave-2-5/gates.sh <worktree> <port> <label> [specs]` (summary in `/tmp/gates-<label>/summary.txt`, Fallow
-   baseline `~/.cache/alfyai-artifacts/fallow-baseline-00ef6d2a.json`), merge into `feat/artifacts`, update the table.
-4. Then 3a → 3b → 4a → 4b the same way, then one Opus visual/a11y review of `d933e2f8..feat/artifacts` (every surface,
-   both themes, HU, phone and desktop, reduced motion; include the deferred items above), one fix agent, merge
-   `feat/artifacts` → `dev` on the main checkout, gates in `dev-int`, push `dev`, deploy ai.dev, tell the owner what to look at.
-Budget guide from this session: a small agent ≈ 1 %, a three-step UI agent ≈ 4 % of the weekly limit.
+The redesign (Wave 2.5) is live on ai.dev (`1e755e0b`) for the owner's walk; fold their feedback in first. Then Wave 3 from
+`wave-3-handoff.md` (S3 Canvas, S4 Slides, the S6 remainder, focus-trap pass two), with the shared redesign pieces
+(`ArtifactPanelHeader`, `CommentCard`/`CommentThread`, `ReviewBar`, `RefusalNotice`, the sheet/popover patterns) reused as
+`redesign.md` §8 says. The merged `art-rd*`, `art-fx*`, `art-rdfix`, `rv-rd` worktrees can be removed.

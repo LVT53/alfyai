@@ -34,6 +34,11 @@ export interface CreateArtifactHandlerParams {
 	userId: string;
 	conversationId: string;
 	turnId: string;
+	/**
+	 * Regenerate (polish G2-A) makes a deleted item again under the id its chat
+	 * cards already carry; every tool call leaves this out and gets a fresh one.
+	 */
+	artifactId?: string;
 	title: string;
 	body: string;
 	/**

@@ -4,6 +4,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
@@ -99,6 +100,100 @@ describe("Tabs", () => {
 		const visibleBadge = screen.getByText("3");
 		expect(visibleBadge).toHaveAttribute("aria-hidden", "true");
 		expect(screen.getByText("3 open comments")).toBeInTheDocument();
+	});
+
+	// rd/review-2-5.md:223-228 (third sub-item, follow-up chip) — a tablist owns
+	// only tabs. The ⋯ (options of the active tab) and + (add a tab) buttons sat
+	// inside it, so a screen reader announced a tablist with two buttons in it.
+	describe("a tablist owns only tabs", () => {
+		it("keeps ⋯ and + outside the tablist element, still inside the strip", () => {
+			render(Tabs, {
+				tabs: tabs("Plan", "Budget", "Packing"),
+				activeTabId: "tab-1",
+				onActivate: vi.fn(),
+				onChange: vi.fn(),
+			});
+			const tablist = screen.getByRole("tablist");
+			const options = screen.getByRole("button", { name: "Tab options" });
+			const add = screen.getByRole("button", { name: "Add a tab" });
+			expect(tablist).not.toContainElement(options);
+			expect(tablist).not.toContainElement(add);
+			expect(screen.getByTestId("document-tabs")).toContainElement(tablist);
+			expect(screen.getByTestId("document-tabs")).toContainElement(options);
+			expect(screen.getByTestId("document-tabs")).toContainElement(add);
+		});
+
+		it("has nothing but tabs (and presentational wrappers) below it", () => {
+			render(Tabs, {
+				tabs: tabs("Plan", "Budget", "Packing"),
+				activeTabId: "tab-0",
+				onActivate: vi.fn(),
+				onChange: vi.fn(),
+			});
+			const tablist = screen.getByRole("tablist");
+			expect(within(tablist).getAllByRole("tab")).toHaveLength(3);
+			expect(within(tablist).queryAllByRole("button")).toHaveLength(0);
+			expect(tablist.querySelectorAll("button:not([role='tab'])")).toHaveLength(
+				0,
+			);
+		});
+
+		it("Tab order stays: the active tab, then ⋯, then +", async () => {
+			render(Tabs, {
+				tabs: tabs("Plan", "Budget", "Packing"),
+				activeTabId: "tab-1",
+				onActivate: vi.fn(),
+				onChange: vi.fn(),
+			});
+			const stops = Array.from(
+				screen
+					.getByTestId("document-tabs")
+					.querySelectorAll<HTMLElement>("button"),
+			).filter((el) => el.tabIndex >= 0);
+			expect(
+				stops.map(
+					(el) => el.getAttribute("aria-label") ?? el.textContent?.trim(),
+				),
+			).toEqual(["Budget", "Tab options", "Add a tab"]);
+		});
+
+		it("the arrow keys still move between tabs from the tablist element", async () => {
+			const onActivate = vi.fn();
+			render(Tabs, {
+				tabs: tabs("Plan", "Budget", "Packing"),
+				activeTabId: "tab-0",
+				onActivate,
+				onChange: vi.fn(),
+			});
+			await fireEvent.keyDown(screen.getByRole("tablist"), {
+				key: "ArrowRight",
+			});
+			expect(onActivate).toHaveBeenCalledWith("tab-1");
+		});
+
+		it("the ⋯ button belongs to the ACTIVE tab: it follows the selection and opens that tab's menu", async () => {
+			const onChange = vi.fn();
+			const { rerender } = render(Tabs, {
+				tabs: tabs("Plan", "Budget"),
+				activeTabId: "tab-0",
+				onActivate: vi.fn(),
+				onChange,
+			});
+			expect(
+				screen.getAllByRole("button", { name: "Tab options" }),
+			).toHaveLength(1);
+			await rerender({
+				tabs: tabs("Plan", "Budget"),
+				activeTabId: "tab-1",
+				onActivate: vi.fn(),
+				onChange,
+			});
+			expect(
+				screen.getAllByRole("button", { name: "Tab options" }),
+			).toHaveLength(1);
+			await openActiveTabMenu();
+			expect(screen.getByRole("menu")).toBeInTheDocument();
+		});
 	});
 
 	it("renders the sliding underline element once", () => {

@@ -45,9 +45,14 @@ export {
 	sanitizeDocumentFilename,
 } from "./export";
 export { hashArtifactBody } from "./hash";
+export { keepMessageAsDocument } from "./keep-message";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
-export { listArtifactsForConversation } from "./read-model";
 export {
+	listArtifactsForConversation,
+	listMissingArtifactIds,
+} from "./read-model";
+export {
+	artifactIdInUse,
 	createArtifact,
 	deleteArtifact,
 	getArtifact,

@@ -1,5 +1,9 @@
 import { getConversationCostSummary } from "$lib/server/services/analytics";
-import { listArtifactsForConversation } from "$lib/server/services/artifacts";
+import {
+	listArtifactsForConversation,
+	listMissingArtifactIds,
+} from "$lib/server/services/artifacts";
+import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import { getAtlasAvailability } from "$lib/server/services/atlas/availability";
 import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
 import {
@@ -18,14 +22,17 @@ import {
 	listConversationFileProductionJobs,
 	listConversationGeneratedFiles,
 } from "$lib/server/services/file-production/read-model";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
 	getConversationContextStatus,
 	getConversationWorkingSet,
 	listConversationArtifacts,
 } from "$lib/server/services/knowledge";
 import {
+	artifactCallIdsFromMessages,
 	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT,
 	listMessageWindow,
+	regenerableArtifactIdsFromMessages,
 } from "$lib/server/services/messages";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import {
@@ -33,6 +40,7 @@ import {
 	getContextDebugState,
 	getConversationTaskState,
 } from "$lib/server/services/task-state";
+import { markRegenerable } from "$lib/shared/artifacts/artifact-calls";
 
 // O1 (ADR-0022 amendment) — "full" is the only assembled view left; the
 // former "bootstrap"-vs-"first-render"-vs-"full" three-way split existed to
@@ -77,6 +85,56 @@ async function attachSourceForksToAssistantMessages(
 	});
 }
 
+/**
+ * What became of the artifacts the given messages' own tool calls made or
+ * edited — what an in-chat card needs to say "this document was deleted"
+ * (gone) or "made in the original chat" (still there, out of this chat's
+ * reach). The ids come off the messages the caller already loaded (this read
+ * is pinned to one `messages` query); which of them are gone or unreachable
+ * is the artifact service's to say, under the ownership scope.
+ */
+async function classifyMissingArtifacts(
+	userId: string,
+	conversationId: string,
+	loadedMessages: ChatMessage[],
+): Promise<{ deleted: string[]; unreachable: string[] }> {
+	return listMissingArtifactIds({
+		userId,
+		conversationId,
+		artifactIds: artifactCallIdsFromMessages(loadedMessages),
+	});
+}
+
+/**
+ * The artifact list with the items the chat can make again marked
+ * (`ArtifactCardSummary.regenerable`), so the delete confirm can tell
+ * "you can regenerate it from the chat" from "this can't be undone" for THIS
+ * item. Documents and Apps come off the loaded messages (a successful create
+ * call, or the message a Document was kept from); a produced file counts when
+ * its finished job kept its request AND it is the only artifact that job made
+ * — deleting one of two leaves the job a file, and a job with a file left
+ * cannot be made again. Anything not known to be regenerable is left exactly
+ * as the artifact service gave it, and the list itself when nothing is.
+ */
+function markRegenerableArtifacts(
+	rows: ArtifactCardSummary[],
+	messagesInWindow: ChatMessage[],
+	jobs: FileProductionJob[],
+): ArtifactCardSummary[] {
+	const regenerable = new Set(
+		regenerableArtifactIdsFromMessages(messagesInWindow),
+	);
+	for (const job of jobs) {
+		if (!job.canRegenerate) continue;
+		const madeArtifactIds = new Set(
+			job.files.flatMap((file) => (file.artifactId ? [file.artifactId] : [])),
+		);
+		const [only] = madeArtifactIds;
+		if (madeArtifactIds.size === 1 && only) regenerable.add(only);
+	}
+	return markRegenerable(rows, regenerable);
+}
+
 export async function getConversationDetail({
 	userId,
 	conversationId,
@@ -115,6 +173,9 @@ export async function getConversationDetail({
 		};
 	}
 
+	const messageWindowRequest = listMessageWindow(conversationId, {
+		limit: messageWindowLimit,
+	});
 	const [
 		messageWindow,
 		forkOrigin,
@@ -130,8 +191,9 @@ export async function getConversationDetail({
 		contextCompressionSnapshots,
 		costSummary,
 		artifacts,
+		missingArtifacts,
 	] = await Promise.all([
-		listMessageWindow(conversationId, { limit: messageWindowLimit }),
+		messageWindowRequest,
 		getConversationForkOrigin(conversationId),
 		listConversationArtifacts(userId, conversationId),
 		getConversationWorkingSet(userId, conversationId),
@@ -150,6 +212,9 @@ export async function getConversationDetail({
 		// S7): the same listArtifactsForConversation call the panel needs, not
 		// a second query per row.
 		listArtifactsForConversation({ userId, conversationId }),
+		messageWindowRequest.then((window) =>
+			classifyMissingArtifacts(userId, conversationId, window.messages),
+		),
 	]);
 	const taskStateWithContinuity = await attachContinuityToTaskState(
 		userId,
@@ -176,7 +241,13 @@ export async function getConversationDetail({
 		contextCompressionSnapshots: contextCompressionSnapshots.map(
 			serializeContextCompressionSnapshot,
 		),
-		artifacts,
+		artifacts: markRegenerableArtifacts(
+			artifacts,
+			messageWindow.messages,
+			fileProductionJobs,
+		),
+		deletedArtifactIds: missingArtifacts.deleted,
+		unreachableArtifactIds: missingArtifacts.unreachable,
 		bootstrap: false,
 		sidecarPending: false,
 		hasMoreMessages: messageWindow.hasMoreBefore,
@@ -204,6 +275,10 @@ export interface GetOlderConversationMessagesInput {
 export interface OlderConversationMessagesPage {
 	messages: ChatMessage[];
 	hasMoreBefore: boolean;
+	/** Of the artifacts these older messages' tool calls named, the ones that no longer exist — the same signal the detail carries for the loaded window. */
+	deletedArtifactIds: string[];
+	/** …and the ones that exist but are out of this conversation's reach (made in another chat). */
+	unreachableArtifactIds: string[];
 }
 
 export async function getOlderConversationMessages({
@@ -220,8 +295,15 @@ export async function getOlderConversationMessages({
 		userId,
 		page.messages,
 	);
+	const missing = await classifyMissingArtifacts(
+		userId,
+		conversationId,
+		page.messages,
+	);
 	return {
 		messages: messagesWithSourceForks,
 		hasMoreBefore: page.hasMoreBefore,
+		deletedArtifactIds: missing.deleted,
+		unreachableArtifactIds: missing.unreachable,
 	};
 }

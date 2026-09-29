@@ -6,7 +6,13 @@ import {
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
-import { NOW, seedConversation, seedUser } from "./artifacts.test-helpers";
+import { saveSummaryFor } from "$lib/shared/artifacts/version-summaries";
+import {
+	NOW,
+	seedConversation,
+	seedProducedFile,
+	seedUser,
+} from "./artifacts.test-helpers";
 import type { CreatableArtifactKind } from "./types";
 
 let memory: InMemoryDatabase;
@@ -32,6 +38,7 @@ const { ARTIFACT_BODY_MAX_BYTES, ARTIFACT_TITLE_MAX_CHARS } = await import(
 const OWNER = "user-owner";
 const STRANGER = "user-stranger";
 const CONVERSATION = "conv-owner";
+const OTHER_CONVERSATION = "conv-owner-other";
 const INCOGNITO = "conv-incognito";
 const STRANGER_CONVERSATION = "conv-stranger";
 
@@ -86,6 +93,7 @@ beforeEach(() => {
 	seedUser(memory, OWNER);
 	seedUser(memory, STRANGER);
 	seedConversation(memory, { id: CONVERSATION, userId: OWNER });
+	seedConversation(memory, { id: OTHER_CONVERSATION, userId: OWNER });
 	seedConversation(memory, {
 		id: INCOGNITO,
 		userId: OWNER,
@@ -145,6 +153,38 @@ describe("createArtifact", () => {
 			versionNumber: 1,
 			bodyHash: hashArtifactBody("- [ ] Book museum tickets"),
 		});
+	});
+
+	// Polish G2-A (Regenerate): an item made again from the call that made it
+	// keeps the id every chat card and message already points at, so the deleted
+	// state clears by itself and nothing has to be rewritten. Only a trusted
+	// server caller can name the id, and only a free one is ever used.
+	it("creates the row under the id it is given, version and all", async () => {
+		const artifact = await createDocument({ id: "kept-id" });
+
+		expect(artifact.id).toBe("kept-id");
+		expect(artifactRow("kept-id")).toMatchObject({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		expect(versionRows("kept-id")).toHaveLength(1);
+	});
+
+	it("refuses an id that is already taken, and leaves the row that has it alone", async () => {
+		const first = await createDocument({ title: "First" });
+
+		const second = await createArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			kind: "document",
+			title: "Second",
+			body: "Other text",
+			id: first.id,
+		});
+
+		expect(second).toEqual({ ok: false, reason: "id_taken" });
+		expect(artifactRow(first.id)).toMatchObject({ name: "First" });
+		expect(versionRows(first.id)).toHaveLength(1);
 	});
 
 	it("writes no version for an artifact created without a body", async () => {
@@ -737,6 +777,50 @@ describe("updateArtifactBody", () => {
 			expect(versionRows(artifact.id)).toHaveLength(3);
 		});
 
+		// Wave 2.5 polish G1-B: an Undo of Alfy's change is a user save with a
+		// summary of its own, so it is a version of its own — and typing after
+		// it is another one, never folded into it.
+		it("an Undo of Alfy's change records its own version, and ordinary typing after it starts another", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(NOW);
+			const artifact = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "alfy edited this",
+				author: "alfy",
+				summary: "Alfy's change",
+				coalesceUserEdits: true,
+			});
+			const undo = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "the text before Alfy",
+				author: "user",
+				summary: saveSummaryFor("undid_alfy_change"),
+				coalesceUserEdits: true,
+			});
+			vi.setSystemTime(new Date(NOW.getTime() + 30_000));
+			const typing = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "the text before Alfy, tweaked",
+				author: "user",
+				summary: saveSummaryFor(null),
+				coalesceUserEdits: true,
+			});
+
+			expect(undo.ok && undo.versionNumber).toBe(3);
+			expect(typing.ok && typing.versionNumber).toBe(4);
+			const rows = versionRows(artifact.id).sort(
+				(a, b) => a.versionNumber - b.versionNumber,
+			);
+			expect(rows.map((r) => r.summary).slice(2)).toEqual([
+				"Undid Alfy's change",
+				"Edited",
+			]);
+		});
+
 		it("never coalesces an Alfy write, and an Alfy write closes a user's burst", async () => {
 			vi.useFakeTimers();
 			vi.setSystemTime(NOW);
@@ -963,10 +1047,10 @@ describe("deleteArtifact", () => {
 
 		await expect(
 			deleteArtifact({ userId: STRANGER, artifactId: artifact.id }),
-		).resolves.toBe(false);
+		).resolves.toEqual({ ok: false, reason: "not_found" });
 		await expect(
 			deleteArtifact({ userId: OWNER, artifactId: artifact.id }),
-		).resolves.toBe(true);
+		).resolves.toEqual({ ok: true });
 
 		expect(artifactRow(artifact.id)).toBeUndefined();
 		expect(versionRows(artifact.id)).toEqual([]);
@@ -974,7 +1058,398 @@ describe("deleteArtifact", () => {
 		expect(memory.db.select().from(schema.artifactKv).all()).toEqual([]);
 		await expect(
 			deleteArtifact({ userId: OWNER, artifactId: artifact.id }),
-		).resolves.toBe(false);
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+	});
+
+	// A delete has to leave nothing that hangs off the artifact, and touch
+	// nothing that hangs off any other one. Real foreign keys take the child
+	// tables; `semantic_embeddings` names its subject by a plain id (no key),
+	// so the service removes those itself.
+	it("takes every child row with it — versions, comments, kv (Alfy's snapshot too), links both ways, chunks, working-set items and semantic embeddings — and only its own", async () => {
+		const doomed = await createDocument({ title: "Doomed" });
+		const neighbour = await createDocument({ title: "Neighbour" });
+		const seedFor = (artifactId: string, tag: string) => {
+			memory.db
+				.insert(schema.artifactComments)
+				.values({
+					id: `comment-${tag}`,
+					artifactId,
+					userId: OWNER,
+					anchorJson: JSON.stringify({ kind: "node", nodeId: "n1" }),
+					author: "user",
+					body: "Note",
+					createdAt: NOW,
+				})
+				.run();
+			memory.db
+				.insert(schema.artifactKv)
+				.values([
+					{
+						id: `kv-app-${tag}`,
+						artifactId,
+						key: "progress",
+						valueJson: "1",
+						updatedAt: NOW,
+					},
+					{
+						id: `kv-snapshot-${tag}`,
+						artifactId,
+						key: "alfy.snapshot",
+						valueJson: JSON.stringify({ docVersion: 1 }),
+						updatedAt: NOW,
+					},
+				])
+				.run();
+			memory.db
+				.insert(schema.artifactChunks)
+				.values({
+					id: `chunk-${tag}`,
+					artifactId,
+					userId: OWNER,
+					conversationId: CONVERSATION,
+					chunkIndex: 0,
+					contentText: "Book museum tickets",
+					createdAt: NOW,
+					updatedAt: NOW,
+				})
+				.run();
+			memory.db
+				.insert(schema.conversationWorkingSetItems)
+				.values({
+					id: `working-${tag}`,
+					userId: OWNER,
+					conversationId: CONVERSATION,
+					artifactId,
+					artifactType: "artifact",
+					createdAt: NOW,
+					updatedAt: NOW,
+				})
+				.run();
+			memory.db
+				.insert(schema.semanticEmbeddings)
+				.values({
+					id: `embedding-${tag}`,
+					userId: OWNER,
+					subjectType: "artifact",
+					subjectId: artifactId,
+					modelName: "test-embedder",
+					sourceTextHash: `hash-${tag}`,
+					dimensions: 2,
+					embeddingJson: "[0.1,0.2]",
+					createdAt: NOW,
+					updatedAt: NOW,
+				})
+				.run();
+		};
+		seedFor(doomed.id, "doomed");
+		seedFor(neighbour.id, "neighbour");
+		memory.db
+			.insert(schema.artifactLinks)
+			.values([
+				{
+					id: "link-out",
+					userId: OWNER,
+					artifactId: doomed.id,
+					relatedArtifactId: neighbour.id,
+					linkType: "supersedes",
+					createdAt: NOW,
+				},
+				{
+					id: "link-in",
+					userId: OWNER,
+					artifactId: neighbour.id,
+					relatedArtifactId: doomed.id,
+					linkType: "supersedes",
+					createdAt: NOW,
+				},
+				{
+					id: "link-other",
+					userId: OWNER,
+					artifactId: neighbour.id,
+					relatedArtifactId: null,
+					linkType: "used_in_output",
+					createdAt: NOW,
+				},
+			])
+			.run();
+
+		await expect(
+			deleteArtifact({ userId: OWNER, artifactId: doomed.id }),
+		).resolves.toEqual({ ok: true });
+
+		const idsOf = (rows: Array<{ id: string }>) => rows.map((row) => row.id);
+		expect(artifactRow(doomed.id)).toBeUndefined();
+		expect(versionRows(doomed.id)).toEqual([]);
+		expect(
+			idsOf(memory.db.select().from(schema.artifactComments).all()),
+		).toEqual(["comment-neighbour"]);
+		expect(
+			idsOf(memory.db.select().from(schema.artifactKv).all()).sort(),
+		).toEqual(["kv-app-neighbour", "kv-snapshot-neighbour"]);
+		expect(idsOf(memory.db.select().from(schema.artifactChunks).all())).toEqual(
+			["chunk-neighbour"],
+		);
+		expect(
+			idsOf(memory.db.select().from(schema.conversationWorkingSetItems).all()),
+		).toEqual(["working-neighbour"]);
+		expect(idsOf(memory.db.select().from(schema.artifactLinks).all())).toEqual([
+			"link-other",
+		]);
+		expect(
+			idsOf(memory.db.select().from(schema.semanticEmbeddings).all()),
+		).toEqual(["embedding-neighbour"]);
+
+		// The neighbour is whole: row, version history and all.
+		expect(artifactRow(neighbour.id)).toBeDefined();
+		expect(versionRows(neighbour.id)).toHaveLength(1);
+	});
+
+	// Polish G2-A: a produced file (the File kind, `generated_output`) is deleted
+	// the way its own store keeps it — the artifact row AND the chat file (row and
+	// bytes) it stands for — never one without the other, or the chat would
+	// keep offering a file the library no longer has.
+	describe("a produced file", () => {
+		function chatFileRows() {
+			return memory.db.select().from(schema.chatGeneratedFiles).all();
+		}
+
+		it("takes its chat file, its job link and its artifact — and nothing of another file", async () => {
+			const doomed = seedProducedFile(memory, {
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactId: "file-artifact-1",
+				filename: "Trip.pdf",
+			});
+			const kept = seedProducedFile(memory, {
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactId: "file-artifact-2",
+				filename: "Budget.xlsx",
+			});
+			memory.db
+				.insert(schema.fileProductionJobs)
+				.values({
+					id: "job-1",
+					conversationId: CONVERSATION,
+					assistantMessageId: `message-${doomed.artifactId}`,
+					userId: OWNER,
+					title: "Trip",
+					status: "succeeded",
+					requestJson: JSON.stringify({ title: "Trip" }),
+					createdAt: NOW,
+					updatedAt: NOW,
+				})
+				.run();
+			memory.db
+				.insert(schema.fileProductionJobFiles)
+				.values({
+					id: "link-1",
+					jobId: "job-1",
+					chatGeneratedFileId: doomed.chatFileId,
+					sortOrder: 0,
+					createdAt: NOW,
+				})
+				.run();
+
+			await expect(
+				deleteArtifact({ userId: OWNER, artifactId: doomed.artifactId }),
+			).resolves.toEqual({ ok: true });
+
+			expect(artifactRow(doomed.artifactId)).toBeUndefined();
+			expect(chatFileRows().map((row) => row.id)).toEqual([kept.chatFileId]);
+			expect(
+				memory.db.select().from(schema.fileProductionJobFiles).all(),
+			).toEqual([]);
+			// The job itself stays: it is the record of what was asked for, which
+			// is what Regenerate makes the file again from.
+			expect(
+				memory.db.select().from(schema.fileProductionJobs).all(),
+			).toHaveLength(1);
+			expect(artifactRow(kept.artifactId)).toBeDefined();
+		});
+
+		it("takes every file a source-first document rendered", async () => {
+			const seeded = seedProducedFile(memory, {
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactId: "file-artifact-1",
+				filename: "Report.pdf",
+			});
+			memory.db
+				.insert(schema.chatGeneratedFiles)
+				.values({
+					id: "rendered-docx",
+					conversationId: CONVERSATION,
+					assistantMessageId: `message-${seeded.artifactId}`,
+					userId: OWNER,
+					filename: "Report.docx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					sizeBytes: 100,
+					storagePath: `${CONVERSATION}/Report.docx`,
+					createdAt: NOW,
+				})
+				.run();
+			const row = artifactRow(seeded.artifactId);
+			memory.db
+				.update(schema.artifacts)
+				.set({
+					metadataJson: JSON.stringify({
+						...JSON.parse(row?.metadataJson ?? "{}"),
+						generatedDocumentRenderedChatFileIds: ["rendered-docx"],
+					}),
+				})
+				.where(eq(schema.artifacts.id, seeded.artifactId))
+				.run();
+
+			await expect(
+				deleteArtifact({ userId: OWNER, artifactId: seeded.artifactId }),
+			).resolves.toEqual({ ok: true });
+
+			expect(chatFileRows()).toEqual([]);
+			expect(artifactRow(seeded.artifactId)).toBeUndefined();
+		});
+
+		it("still removes an artifact whose chat file is already gone", async () => {
+			const seeded = seedProducedFile(memory, {
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactId: "file-artifact-1",
+				filename: "Trip.pdf",
+				withChatFile: false,
+			});
+
+			await expect(
+				deleteArtifact({ userId: OWNER, artifactId: seeded.artifactId }),
+			).resolves.toEqual({ ok: true });
+			expect(artifactRow(seeded.artifactId)).toBeUndefined();
+		});
+
+		it("is not reachable by another user, and touches nothing when it is not", async () => {
+			const seeded = seedProducedFile(memory, {
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactId: "file-artifact-1",
+				filename: "Trip.pdf",
+			});
+
+			await expect(
+				deleteArtifact({ userId: STRANGER, artifactId: seeded.artifactId }),
+			).resolves.toEqual({ ok: false, reason: "not_found" });
+			expect(artifactRow(seeded.artifactId)).toBeDefined();
+			expect(chatFileRows()).toHaveLength(1);
+		});
+	});
+
+	it("keeps an incognito conversation's own artifact out of reach until the delete names that conversation", async () => {
+		const artifact = await createDocument({ conversationId: INCOGNITO });
+
+		await expect(
+			deleteArtifact({ userId: OWNER, artifactId: artifact.id }),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+		expect(artifactRow(artifact.id)).toBeDefined();
+
+		// Naming a different own conversation reaches nothing new either.
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: artifact.id,
+				conversationId: CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+		expect(artifactRow(artifact.id)).toBeDefined();
+
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: artifact.id,
+				conversationId: INCOGNITO,
+			}),
+		).resolves.toEqual({ ok: true });
+		expect(artifactRow(artifact.id)).toBeUndefined();
+	});
+});
+
+// The security review's L1 (probe P3): a fork copies its parent's tool calls
+// and not its items, so the fork's card can name — and its panel open — the
+// parent's Document, which any of the user's other non-incognito chats can
+// read. A delete from a chat panel acts only on what THAT chat made.
+describe("deleteArtifact from a conversation's own panel", () => {
+	it("refuses an item another of the owner's chats made, with its own reason, and leaves it untouched (P3)", async () => {
+		const parents = await createDocument({ conversationId: CONVERSATION });
+
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: parents.id,
+				conversationId: OTHER_CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_made_here" });
+
+		expect(artifactRow(parents.id)).toBeDefined();
+		expect(versionRows(parents.id)).toHaveLength(1);
+		// The chat that made it can.
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: parents.id,
+				conversationId: CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: true });
+		expect(artifactRow(parents.id)).toBeUndefined();
+	});
+
+	it("refuses a produced file another chat made just the same", async () => {
+		const seeded = seedProducedFile(memory, {
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			artifactId: "file-artifact-p3",
+			filename: "plan.pdf",
+		});
+
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: seeded.artifactId,
+				conversationId: OTHER_CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_made_here" });
+		expect(artifactRow(seeded.artifactId)).toBeDefined();
+	});
+
+	it("says nothing more about a row its caller cannot reach: still the one not_found", async () => {
+		const strangers = await createDocument({
+			userId: STRANGER,
+			conversationId: STRANGER_CONVERSATION,
+		});
+		const secret = await createDocument({ conversationId: INCOGNITO });
+
+		// Someone else's row, whichever of their own chats the caller names.
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: strangers.id,
+				conversationId: CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+		// An incognito chat's own item, from another chat: out of reach, not "made elsewhere".
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: secret.id,
+				conversationId: CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+		expect(artifactRow(strangers.id)).toBeDefined();
+		expect(artifactRow(secret.id)).toBeDefined();
+	});
+
+	it("leaves a delete that names no conversation as it was: the caller's own reachable item goes", async () => {
+		const artifact = await createDocument({ conversationId: CONVERSATION });
+
+		await expect(
+			deleteArtifact({ userId: OWNER, artifactId: artifact.id }),
+		).resolves.toEqual({ ok: true });
 	});
 });
 

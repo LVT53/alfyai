@@ -8,7 +8,7 @@ import {
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
-import { createConversation, login } from "./helpers";
+import { createConversation, login, workspacePanel } from "./helpers";
 
 // Surfaces 1-3 of the artifact-surfaces mockup: the chat header's quiet
 // count button, the panel opening on its "what this chat made" list, and a
@@ -145,6 +145,100 @@ test.describe("the chat header's artifact count button and panel", () => {
 		await expect(countButton).toHaveAttribute("aria-pressed", "true");
 	});
 
+	// Wave 2.5 polish G1-B (owner: "the small button which opens the document
+	// sidebar could be pushed a bit more to the right"): the mockup's `#madeBtn`
+	// sits at the header's right end, 12px in — not 24px + its own padding in.
+	// The title must not move for it.
+	for (const viewport of [
+		{ width: 1440, height: 900 },
+		{ width: 1280, height: 800 },
+	]) {
+		test(`sits at the chat header's right end without moving the title, at ${viewport.width}x${viewport.height}`, async ({
+			page,
+		}) => {
+			await page.setViewportSize(viewport);
+			const conversationId = await createConversation(
+				page,
+				"A trip summary and a long enough title to be worth centring",
+			);
+			await seedProducedFile(conversationId);
+			await openChatAndReload(page, conversationId);
+
+			const header = page.locator(".chat-title-bar");
+			const button = page.getByTestId("artifact-count-button");
+			const title = header.getByRole("heading", { level: 1 });
+			const measure = async () => {
+				const h = await header.boundingBox();
+				const b = await button.boundingBox();
+				const t = await title.boundingBox();
+				expect(
+					h && b && t,
+					"header, button and title must have boxes",
+				).toBeTruthy();
+				const headerBox = h as { x: number; width: number };
+				const buttonBox = b as { x: number; width: number };
+				const titleBox = t as { x: number; width: number };
+				return {
+					// From the button's right edge to the header's right edge.
+					inset:
+						headerBox.x + headerBox.width - (buttonBox.x + buttonBox.width),
+					// How far the title's centre is from the header's centre.
+					offCentre:
+						titleBox.x +
+						titleBox.width / 2 -
+						(headerBox.x + headerBox.width / 2),
+					buttonLeft: buttonBox.x,
+					titleRight: titleBox.x + titleBox.width,
+				};
+			};
+
+			const closed = await measure();
+			// The mockup's 12px, give or take the button's own border.
+			expect(closed.inset).toBeGreaterThanOrEqual(8);
+			expect(closed.inset).toBeLessThanOrEqual(14);
+			expect(Math.abs(closed.offCentre)).toBeLessThanOrEqual(1);
+			expect(closed.titleRight).toBeLessThanOrEqual(closed.buttonLeft);
+
+			// With the panel open the chat column narrows; the button stays at
+			// its right end and the title stays centred.
+			await button.click();
+			await expect(page.getByTestId("artifact-panel-list")).toBeVisible();
+			await page.waitForTimeout(400);
+			const open = await measure();
+			expect(open.inset).toBeGreaterThanOrEqual(8);
+			expect(open.inset).toBeLessThanOrEqual(14);
+			expect(Math.abs(open.offCentre)).toBeLessThanOrEqual(1);
+			// Pressed, with its accessible name and count intact.
+			await expect(button).toHaveAttribute("aria-pressed", "true");
+			await expect(button).toContainText("1");
+		});
+	}
+
+	// Below the `lg` breakpoint the title bar is replaced by a compact row that
+	// carries the same button, right-aligned — it must sit at the same end.
+	test("sits at the right end of the compact row too, below the lg breakpoint", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 900, height: 700 });
+		const conversationId = await createConversation(page, "Compact header");
+		await seedProducedFile(conversationId);
+		await openChatAndReload(page, conversationId);
+
+		const row = page.locator(".chat-title-bar-compact");
+		const button = page.getByTestId("artifact-count-button-compact");
+		await expect(button).toBeVisible();
+		const r = await row.boundingBox();
+		const b = await button.boundingBox();
+		expect(r && b).toBeTruthy();
+		const inset =
+			(r as { x: number; width: number }).x +
+			(r as { x: number; width: number }).width -
+			((b as { x: number; width: number }).x +
+				(b as { x: number; width: number }).width);
+		expect(inset).toBeGreaterThanOrEqual(8);
+		expect(inset).toBeLessThanOrEqual(14);
+	});
+
 	test("opens the File's preview from the list, and closing returns to the chat", async ({
 		page,
 	}) => {
@@ -164,9 +258,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 			.getByTestId("artifact-row")
 			.click();
 
-		const shell = page.getByRole("complementary", {
-			name: "Document workspace",
-		});
+		const shell = workspacePanel(page);
 		await expect(shell).toBeVisible();
 		await expect(shell.getByTestId("page-scroll-container")).toBeVisible();
 
@@ -199,9 +291,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 		// carry this testid at every viewport (CSS, not a conditional, decides
 		// which is visible), so an unscoped page-wide query is ambiguous —
 		// see the earlier test's own `shell`-scoped check above.
-		const shell = page.getByRole("complementary", {
-			name: "Document workspace",
-		});
+		const shell = workspacePanel(page);
 		await expect(shell.getByTestId("page-scroll-container")).toBeVisible();
 
 		await page

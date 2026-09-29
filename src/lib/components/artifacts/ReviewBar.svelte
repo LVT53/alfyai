@@ -23,6 +23,18 @@
  * always-mounted announcer now owns every one of this surface's
  * announcements (the landing summary included); this component's own region
  * is a landmark by name only.
+ *
+ * G2-B (G1-A's laptop screenshots): beside the comment column the Hungarian
+ * bar wrapped to two rows and floated a strip above the text's bottom edge
+ * with text showing under it. Now it stays one row at every width a desktop
+ * text column can have (480px and up): the message gives way first (it wraps
+ * onto a second line, its basis is small), then the bar compacts in two
+ * container-query steps on its OWN width (never the window's — the column
+ * beside it decides): 40rem drops the buttons' icons; 34rem drops the
+ * position number, and the whole stepper while there is nothing to step
+ * through. `docked` is for a caller that pins the bar flush to the bottom of
+ * a text column: flat, full width, a rule on top instead of a floating card —
+ * on a phone too (G3), where it stacks its rows but stays flush.
  */
 import { Check, ChevronDown, ChevronUp, Sparkles, Undo2 } from "@lucide/svelte";
 import { t } from "$lib/i18n";
@@ -36,6 +48,7 @@ let {
 	onKeepAll,
 	onUndoAll,
 	onSeeRefused,
+	docked = false,
 }: {
 	/** Always > 0 while this component is mounted — the caller renders nothing otherwise (redesign §4.3: "no bar" once nothing is pending). */
 	pendingCount: number;
@@ -48,67 +61,79 @@ let {
 	onUndoAll: () => void;
 	/** Omitted when nothing was refused — there is nothing to jump to. */
 	onSeeRefused?: () => void;
+	/** Flat and flush: the caller pins the bar to the bottom edge of a text column, so it has no floating card's radius, sides or shadow (redesign §4.2: "at the bottom of the text column"). On a phone as well. */
+	docked?: boolean;
 } = $props();
 </script>
 
-<div
-	class="review-bar"
-	role="region"
-	aria-label={$t('artifacts.document.review.regionLabel')}
->
-	<div class="review-bar-msg">
-		<span class="review-bar-spark" aria-hidden="true">
-			<Sparkles size={14} strokeWidth={2} />
-		</span>
-		<span>
-			{$t('artifacts.document.review.summary', { count: pendingCount })}
-			{#if refusedCount > 0}
-				<button
-					type="button"
-					class="review-bar-left-link"
-					onclick={onSeeRefused}
-				>
-					{$t('artifacts.document.refused.reviewBarLeft', { count: refusedCount })}
-				</button>
-			{/if}
-		</span>
-	</div>
-	<div class="review-bar-nav">
-		<button
-			type="button"
-			class="btn-icon"
-			aria-label={$t('artifacts.document.review.prev')}
-			disabled={pendingCount < 2}
-			onclick={onPrev}
-		>
-			<ChevronUp size={16} strokeWidth={2} aria-hidden="true" />
-		</button>
-		<span class="review-bar-pos">{currentIndex + 1} / {pendingCount}</span>
-		<button
-			type="button"
-			class="btn-icon"
-			aria-label={$t('artifacts.document.review.next')}
-			disabled={pendingCount < 2}
-			onclick={onNext}
-		>
-			<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
-		</button>
-	</div>
-	<div class="review-bar-actions">
-		<button type="button" class="btn-secondary btn-sm" onclick={onUndoAll}>
-			<Undo2 size={13} strokeWidth={2} aria-hidden="true" />
-			{$t('artifacts.document.review.undoAll')}
-		</button>
-		<button type="button" class="btn-primary btn-sm" onclick={onKeepAll}>
-			<Check size={13} strokeWidth={2} aria-hidden="true" />
-			{$t('artifacts.document.review.keepAll')}
-		</button>
+<div class="review-bar-host">
+	<div
+		class="review-bar"
+		class:is-docked={docked}
+		class:is-single={pendingCount < 2}
+		role="region"
+		aria-label={$t('artifacts.document.review.regionLabel')}
+	>
+		<div class="review-bar-msg">
+			<span class="review-bar-spark" aria-hidden="true">
+				<Sparkles size={14} strokeWidth={2} />
+			</span>
+			<span>
+				{$t('artifacts.document.review.summary', { count: pendingCount })}
+				{#if refusedCount > 0}
+					<button
+						type="button"
+						class="review-bar-left-link"
+						onclick={onSeeRefused}
+					>
+						{$t('artifacts.document.refused.reviewBarLeft', { count: refusedCount })}
+					</button>
+				{/if}
+			</span>
+		</div>
+		<div class="review-bar-nav">
+			<button
+				type="button"
+				class="btn-icon"
+				aria-label={$t('artifacts.document.review.prev')}
+				disabled={pendingCount < 2}
+				onclick={onPrev}
+			>
+				<ChevronUp size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
+			<span class="review-bar-pos">{currentIndex + 1} / {pendingCount}</span>
+			<button
+				type="button"
+				class="btn-icon"
+				aria-label={$t('artifacts.document.review.next')}
+				disabled={pendingCount < 2}
+				onclick={onNext}
+			>
+				<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
+		</div>
+		<div class="review-bar-actions">
+			<button type="button" class="btn-secondary btn-sm" onclick={onUndoAll}>
+				<Undo2 size={13} strokeWidth={2} aria-hidden="true" />
+				{$t('artifacts.document.review.undoAll')}
+			</button>
+			<button type="button" class="btn-primary btn-sm" onclick={onKeepAll}>
+				<Check size={13} strokeWidth={2} aria-hidden="true" />
+				{$t('artifacts.document.review.keepAll')}
+			</button>
+		</div>
 	</div>
 </div>
 
 <style>
+	/* The bar's own width (the text column beside the comment column, not the
+	   window's) is what the compaction steps below query. */
+	.review-bar-host {
+		container: review-bar / inline-size;
+	}
+
 	/* Mirrors the mockup's `.review` exactly, minus positioning (the
-	   caller's own `position: absolute` wrapper places this on the page —
+	   caller's own `position: sticky` wrapper places this on the page —
 	   this component only knows its own internal layout). */
 	.review-bar {
 		display: flex;
@@ -123,12 +148,25 @@ let {
 		box-shadow: var(--shadow-lg);
 	}
 
+	/* Flush with the bottom of a text column: nothing of the text shows under
+	   or beside it, so no radius and no sides, just the rule on top. */
+	.review-bar.is-docked {
+		border-radius: 0;
+		border-width: 1px 0 0;
+		box-shadow: none;
+		/* On a phone the bar sits at the very bottom of the screen: keep its
+		   buttons clear of the home indicator (0 wherever there is none). */
+		padding-bottom: calc(0.4375rem + env(safe-area-inset-bottom, 0px));
+	}
+
+	/* The message is the part that gives way: a small basis instead of the
+	   mockup's 260px, so the controls never wrap under it. */
 	.review-bar-msg {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 		min-width: 0;
-		flex: 1 1 16.25rem;
+		flex: 1 1 5rem;
 		font-size: var(--text-sm);
 	}
 
@@ -162,10 +200,21 @@ let {
 
 	.review-bar-nav {
 		display: inline-flex;
+		flex: 0 0 auto;
 		align-items: center;
 		gap: 0.125rem;
 		font-size: var(--text-xs);
 		color: var(--text-muted);
+	}
+
+	/* The mockup's `.review-nav .btn-icon`: 28px, not the app's 40px ghost
+	   button (the global phone rule still lifts it to 44px, `!important`). */
+	.review-bar-nav :global(button.btn-icon) {
+		width: 1.75rem;
+		height: 1.75rem;
+		min-width: 0;
+		min-height: 0;
+		padding: 0;
 	}
 
 	.review-bar-pos {
@@ -176,14 +225,50 @@ let {
 
 	.review-bar-actions {
 		display: inline-flex;
+		flex: 0 0 auto;
 		gap: 0.375rem;
 		margin-left: auto;
+	}
+
+	/* The mockup's `.btn-sm` puts 5px between a button's icon and its label;
+	   the app's own `.btn-sm` puts none (same fix as the refusal card's). */
+	.review-bar-actions :global(button) {
+		gap: 0.3125rem;
+	}
+
+	/* Beside the comment column the bar is 480-650px wide, and the Hungarian
+	   labels alone ("Mindet visszavonom", "Mindet megtartom") take 275px. Two
+	   steps, each on the bar's own width; a phone (below) has its own layout. */
+	@media (min-width: 481px) {
+		@container review-bar (max-width: 40rem) {
+			.review-bar {
+				gap: 0.5rem;
+				padding-left: 0.75rem;
+			}
+
+			/* The labels say what the buttons do; the icons are decoration. */
+			.review-bar-actions :global(svg) {
+				display: none;
+			}
+		}
+
+		@container review-bar (max-width: 34rem) {
+			.review-bar-pos {
+				display: none;
+			}
+
+			/* One change: there is nothing to step through, and the stepper's
+			   arrows were disabled anyway. */
+			.review-bar.is-single .review-bar-nav {
+				display: none;
+			}
+		}
 	}
 
 	/* Redesign §4.4: 44px Keep all / Undo all on phones. Review 2.5 Critical
 	   finding (rd/review-2-5.md:45-56): under `flex-direction: column`, a
 	   flex-basis meant for the DESKTOP row layout (`.review-bar-msg`'s own
-	   `flex: 1 1 16.25rem` above) becomes a 260px HEIGHT basis instead of a
+	   `flex: 1 1 5rem` above) becomes a 260px HEIGHT basis instead of a
 	   width one — the message row alone ballooned to ~390px, covering half
 	   the document. `flex: 0 0 auto` here lets it size to its own wrapped
 	   content instead. */

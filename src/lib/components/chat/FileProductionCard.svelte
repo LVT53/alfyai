@@ -8,7 +8,10 @@
 //
 // While a job is producing, its row is pinned open (see
 // `buildFileProductionActivityItem`'s `alwaysOpen`), so row and body share one
-// background and read as a single element.
+// background and read as a single element. A job whose files were all deleted
+// (polish G2-A) says so in one muted row — no Open, no Download — and offers
+// Regenerate (through `onRetry`: the page asks the server to make the same job
+// again) where the job kept the request it was made from, or says why not.
 import { Download, FileText, RotateCw, Square, X } from "@lucide/svelte";
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
 import { handleDownloadAnchorClick } from "$lib/client/downloads";
@@ -163,7 +166,33 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 </script>
 
 {#snippet producedFiles()}
-	{#if job.files.length > 0}
+	{#if job.filesDeleted}
+		<div class="produced-files" data-testid="file-production-files">
+			<div class="file-row file-row-deleted" data-testid="file-row-deleted">
+				<FileText class="file-row-icon" size={14} strokeWidth={2} aria-hidden="true" />
+				<span class="file-deleted-text">
+					<span class="file-name" title={job.title}>{job.title}</span>
+					<span class="file-deleted-note">{$t('artifacts.deleted.file')}</span>
+					{#if !job.filesDeleted.canRegenerate}
+						<span class="file-deleted-note">{$t('artifacts.deleted.unavailable')}</span>
+					{/if}
+				</span>
+				{#if job.filesDeleted.canRegenerate && onRetry && !isPlaceholder}
+					<span class="file-actions">
+						<button
+							type="button"
+							class="mini-btn"
+							onclick={() => onRetry?.(job.id)}
+							aria-label={$t('artifacts.deleted.regenerateA11y', { title: job.title })}
+						>
+							<RotateCw size={12} strokeWidth={2} aria-hidden="true" />
+							{$t('artifacts.deleted.regenerate')}
+						</button>
+					</span>
+				{/if}
+			</div>
+		</div>
+	{:else if job.files.length > 0}
 		<div class="produced-files" data-testid="file-production-files">
 			{#each job.files as file (file.id)}
 				<div class="file-row">
@@ -374,6 +403,28 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--text-primary);
+	}
+
+	/* Polish G2-A: the row of a file that was deleted — muted, two short lines, and its
+	   Regenerate at the far end. */
+	.file-row-deleted:hover {
+		background: transparent;
+	}
+
+	.file-deleted-text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.file-row-deleted .file-name {
+		color: var(--text-muted);
+	}
+
+	.file-deleted-note {
+		color: var(--text-muted);
+		font-size: 0.72rem;
+		line-height: 1.4;
 	}
 
 	.file-size {

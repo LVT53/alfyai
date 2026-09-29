@@ -2,7 +2,10 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { artifacts, users } from "../../src/lib/server/db/schema";
-import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
+import {
+	createComment,
+	createDocumentArtifact,
+} from "../../src/lib/server/services/artifacts";
 import { runReadArtifactTool } from "../../src/lib/server/services/normal-chat-tools/artifact-tools/read";
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import {
@@ -18,6 +21,7 @@ import {
 	login,
 	sendMessage,
 	waitForStableBoundingBox,
+	workspacePanel,
 } from "./helpers";
 
 // Slice 1's T8/T9/T11 surfaces: change marks, Keep/Undo and the refusal
@@ -158,7 +162,7 @@ async function openDocumentFromPanel(page: Page) {
 	// is unique. Distinct identifiers side-step that entirely.
 	const shell = isMobile
 		? page.getByTestId("document-workspace-mobile-shell")
-		: page.getByRole("complementary", { name: "Document workspace" });
+		: workspacePanel(page);
 	const scrollContainer = shell.getByTestId(
 		isMobile ? "page-scroll-container-mobile" : "page-scroll-container",
 	);
@@ -628,18 +632,15 @@ test.describe("the Document mobile toolbar", () => {
 	test("at 390x844 the toolbar stays within its budget and the editor keeps most of the viewport", async ({
 		page,
 	}) => {
-		// RV-1B: this used to measure 53px, 5px over the 48px budget, even
-		// though MobileToolbar.svelte's own header comment computes 45px
-		// (2×4px padding + 1px border + 36px button). The global mobile
-		// stylesheet's "icon controls should meet the 44px target" rule
-		// (`src/app.css`'s `@media (max-width: 767px)` block) applies to
-		// every `.btn-icon-bare`, including this toolbar's, and its
-		// `!important` 44px silently overrode the component's own 36px —
-		// so the live DOM disagreed with the component's arithmetic by
-		// exactly the 8px difference between 44px and 36px. Fixed by
-		// opting this toolbar's buttons back out in `app.css`
-		// (`.mobile-toolbar .btn-icon-bare`), which is now specific enough
-		// to win over the general rule.
+		// RV-1B: this used to measure 53px, 5px over the 48px budget: the
+		// global mobile stylesheet's "icon controls should meet the 44px
+		// target" rule (`src/app.css`'s `@media (max-width: 767px)` block)
+		// makes every `.btn-icon-bare` 44px, this toolbar's included, on top
+		// of the row's own 2×4px padding. That was first answered by opting
+		// the buttons out to 36px; review 233-238 asked for the 44px targets
+		// back (redesign §5.4), so the buttons are 44px and the row has no
+		// vertical padding: 1px border + 44px button = 45px, inside the same
+		// budget (`artifact-document-touch-targets.spec.ts` asserts the 44px).
 		await page.setViewportSize({ width: 390, height: 844 });
 		const conversationId = await createConversation(page, "Plan a trip");
 		await seedDocument({
@@ -744,14 +745,15 @@ test.describe("the Document mobile toolbar", () => {
 	// overflow check only covers the panel LIST, never a document with real
 	// content (its own header comment says so explicitly). A wide table is
 	// the one block kind actually likely to force this: verified this
-	// currently holds because `.document-content`'s `overflow-y: auto`
-	// computes `overflow-x` to `auto` too (the CSS spec's "if one axis is
-	// visible and the other is not, visible becomes auto" rule), giving a
-	// wide table its own horizontal scrollbar inside the content area rather
-	// than leaking into the page — but that protection is implicit and
-	// undocumented anywhere in the CSS, so a future refactor of that one
-	// `overflow-y` declaration could silently reintroduce page-level
-	// horizontal scroll with nothing to catch it. This test is that catch.
+	// currently holds because the text column's `overflow-y: auto`
+	// (`.document-content-text`) computes `overflow-x` to `auto` too (the CSS
+	// spec's "if one axis is visible and the other is not, visible becomes
+	// auto" rule), giving a wide table its own horizontal scrollbar inside
+	// the content area rather than leaking into the page — but that
+	// protection is implicit and undocumented anywhere in the CSS, so a
+	// future refactor of that one `overflow-y` declaration could silently
+	// reintroduce page-level horizontal scroll with nothing to catch it. This
+	// test is that catch.
 	test("a wide table does not force horizontal page scroll at 390x844", async ({
 		page,
 	}) => {
@@ -1125,6 +1127,16 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			const refusalNotice = page.getByTestId("refusal-notice");
 			await expect(refusalNotice).toBeVisible();
 			await expect(refusalNotice.getByText("Book the flight.")).toBeVisible();
+			// "Your words win" reads as one of the comment family: a warning card
+			// in the comment column beside the refused line — not a banner above
+			// the text — and the refused line itself carries the dashed amber rule.
+			await expect(
+				page.locator(".document-content-rail").getByTestId("refusal-notice"),
+			).toBeVisible();
+			await expect(
+				page.locator(".document-content-text").getByTestId("refusal-notice"),
+			).toHaveCount(0);
+			await expect(editorContent.locator(".alfy-refused-line")).toHaveCount(1);
 			await expect(editorContent.getByText("Book the flight.")).toBeVisible();
 			await expect(page.getByText("This should never land.")).toHaveCount(0);
 
@@ -1175,6 +1187,139 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			await expect(page.getByTestId("alfy-change-bar")).toHaveCount(0);
 			await expect(
 				page.getByRole("region", { name: "Changes from Alfy" }),
+			).toHaveCount(0);
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
+
+	// The refusal note is one of the comment family: a warning card in the
+	// comment column at its LINE's position — between the threads whose words
+	// sit above and below it — never a banner above the text.
+	test("puts the refusal card in the comment column at its line's position, between the threads either side of it", async ({
+		page,
+	}) => {
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a trip");
+			const artifactId = await seedDocument({
+				conversationId,
+				title: "Trip plan",
+				markdown:
+					"Book the hotel.\n\nReserve dinner near the hotel.\n\nBook the flight.\n\nPack the bags the night before.",
+			});
+			const userId = await testUserId();
+			const readResult = await runReadArtifactTool({
+				userId,
+				conversationId,
+				artifactId,
+				detail: "blocks",
+				abortSignal: new AbortController().signal,
+			});
+			const blocks =
+				readResult.modelPayload.success && "blocks" in readResult.modelPayload
+					? (readResult.modelPayload.blocks as Array<{
+							blockId: string;
+							hash: string;
+							text: string;
+						}>)
+					: [];
+			const block = (text: string) => {
+				const found = blocks.find((b) => b.text === text);
+				expect(found, `the seeded block "${text}"`).toBeTruthy();
+				return found as { blockId: string; hash: string; text: string };
+			};
+			const dinner = block("Reserve dinner near the hotel.");
+			const bags = block("Pack the bags the night before.");
+			await createComment({
+				userId,
+				artifactId,
+				anchor: {
+					kind: "text",
+					blockId: dinner.blockId,
+					quote: "dinner",
+					prefix: "Reserve ",
+					suffix: " near the hotel.",
+				},
+				author: "user",
+				body: "Which restaurant?",
+			});
+			await createComment({
+				userId,
+				artifactId,
+				anchor: {
+					kind: "text",
+					blockId: bags.blockId,
+					quote: "bags",
+					prefix: "Pack the ",
+					suffix: " the night before.",
+				},
+				author: "user",
+				body: "Soft bag or suitcase?",
+			});
+
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+			await openChatAndReload(page, conversationId);
+			await openDocumentFromPanel(page);
+
+			const hotel = block("Book the hotel.");
+			const flight = block("Book the flight.");
+			await sendMessage(
+				page,
+				`${AI_SMOKE_EDIT_ARTIFACT_MARKER} ${encodeEditArtifactScenarioPayload({
+					artifactId,
+					applyBlockId: hotel.blockId,
+					applyBaseHash: hotel.hash,
+					refuseBlockId: flight.blockId,
+				})}`,
+			);
+			await expect(
+				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			const rail = page.locator(".document-content-rail");
+			await expect(rail.getByTestId("refusal-notice")).toBeVisible({
+				timeout: 10_000,
+			});
+			const order = await rail
+				.getByTestId(/margin-comment|refusal-notice/)
+				.evaluateAll((nodes) =>
+					nodes.map(
+						(node) => node.textContent?.replace(/\s+/g, " ").trim() ?? "",
+					),
+				);
+			expect(order).toHaveLength(3);
+			expect(order[0]).toContain("Which restaurant?");
+			expect(order[1]).toContain("Book the flight.");
+			expect(order[2]).toContain("Soft bag or suitcase?");
+
+			// §7.2 #22: Dismiss slides the card out (8px right, fading) and only
+			// then clears it and the dashed rule on its line; the two threads
+			// either side of it stay where they were.
+			await expect(
+				page.locator(".document-editor-host .alfy-refused-line"),
+			).toHaveCount(1);
+			await rail
+				.getByTestId("refusal-notice")
+				.getByRole("button", { name: "Dismiss" })
+				.click();
+			await expect(rail.getByTestId("refusal-notice")).toHaveCount(0);
+			await expect(rail.getByTestId("margin-comment")).toHaveCount(2);
+			await expect(
+				page.locator(".document-editor-host .alfy-refused-line"),
 			).toHaveCount(0);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
@@ -1269,9 +1414,7 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			// button — this is the "double count from the card path" finding's
 			// own trigger.
 			await card.click();
-			const shell = page.getByRole("complementary", {
-				name: "Document workspace",
-			});
+			const shell = workspacePanel(page);
 			await expect(shell).toBeVisible({ timeout: 30_000 });
 
 			// The header has a version button AND a time — opened straight from

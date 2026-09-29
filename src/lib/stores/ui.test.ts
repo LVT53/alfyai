@@ -64,3 +64,35 @@ describe("ui store project folder persistence", () => {
 		});
 	});
 });
+
+describe("ui store: the document comments rail preference", () => {
+	beforeEach(() => {
+		localStorage.clear();
+		vi.clearAllMocks();
+	});
+
+	it("is shown until someone hides it", async () => {
+		const { documentCommentsRailHidden } = await loadUiStore();
+		expect(get(documentCommentsRailHidden)).toBe(false);
+	});
+
+	it("remembers a hidden rail on this device", async () => {
+		localStorage.setItem("documentCommentsRailHidden", "true");
+		const { documentCommentsRailHidden } = await loadUiStore();
+		expect(get(documentCommentsRailHidden)).toBe(true);
+	});
+
+	it("persists each change", async () => {
+		const { documentCommentsRailHidden } = await loadUiStore();
+		documentCommentsRailHidden.set(true);
+		expect(localStorage.getItem("documentCommentsRailHidden")).toBe("true");
+		documentCommentsRailHidden.set(false);
+		expect(localStorage.getItem("documentCommentsRailHidden")).toBe("false");
+	});
+
+	it("falls back to shown when the stored value is not a boolean", async () => {
+		localStorage.setItem("documentCommentsRailHidden", "maybe");
+		const { documentCommentsRailHidden } = await loadUiStore();
+		expect(get(documentCommentsRailHidden)).toBe(false);
+	});
+});

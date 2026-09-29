@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import {
+	deleteArtifact,
 	getArtifact,
 	listComments,
 	listVersions,
@@ -46,4 +47,32 @@ export const GET: RequestHandler = async (event) => {
 	]);
 
 	return json({ ok: true, artifact, versions, comments });
+};
+
+// DELETE /api/artifacts/[id] — remove an item for good. The same scope as the
+// read above: `?conversationId=` names the served conversation (the only way
+// an incognito chat's own item can be reached, and only by its owner), and a
+// foreign id, a missing id and an already-deleted id all answer the one 404
+// body — never a 403, which would confirm the row exists. Success is
+// `{ ok: true }` (ruling 49). What hangs off the item (versions, comments,
+// stored values, links, embedding) goes with it inside `deleteArtifact`.
+//
+// A delete that names a conversation acts only on what THAT conversation made:
+// a fork's panel can open its parent's Document (a normal chat the same user
+// can read) but not delete it. That one answers 409 `not_made_here` — only
+// ever for an item the caller can already read, since it is decided after the
+// scoped read that answers everything else with the plain 404.
+export const DELETE: RequestHandler = async (event) => {
+	const user = requireApiUser(event);
+	const result = await deleteArtifact({
+		userId: user.id,
+		artifactId: event.params.id,
+		conversationId: event.url.searchParams.get("conversationId"),
+	});
+	if (!result.ok) {
+		return result.reason === "not_made_here"
+			? json({ ok: false, reason: "not_made_here" }, { status: 409 })
+			: json({ ok: false, reason: "not_found" }, { status: 404 });
+	}
+	return json({ ok: true });
 };

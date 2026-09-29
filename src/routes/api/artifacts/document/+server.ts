@@ -4,6 +4,7 @@ import {
 	createDocumentArtifact,
 	DocumentOperationError,
 } from "$lib/server/services/artifacts";
+import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import type { RequestHandler } from "./$types";
 
 // POST /api/artifacts/document — a bare "create a Document" entry point,
@@ -40,7 +41,7 @@ export const POST: RequestHandler = async (event) => {
 			title: payload.title,
 			markdown,
 			author: "user",
-			summary: "Saved as a new document",
+			summary: VERSION_SUMMARY.savedAsCopy,
 		});
 	} catch (error) {
 		// createDocumentArtifact throws its refusal (its contract has no union);

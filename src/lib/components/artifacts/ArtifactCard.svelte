@@ -26,7 +26,15 @@
 // not a nested log entry. `ArtifactCard.test.ts` and
 // `artifact-chat-card.spec.ts` assert the row+card pair together instead of
 // a single-title invariant for this chrome.
-import { Check, ChevronRight, CircleSlash, Sparkles } from "@lucide/svelte";
+import {
+	Check,
+	ChevronRight,
+	CircleSlash,
+	LoaderCircle,
+	RotateCw,
+	Sparkles,
+} from "@lucide/svelte";
+import type { Snippet } from "svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -110,6 +118,27 @@ export interface ArtifactCardView {
 	 */
 	failedReason?: string | null;
 	/**
+	 * `chrome="full"` only (polish G2-A): the item this card is about was
+	 * deleted (from the panel, the Knowledge library or another tab). The card
+	 * says so in the kind's own words, muted, with no Open — nothing to open —
+	 * and offers Regenerate where the host gives `onRegenerate`. Wins over every
+	 * other state: a deleted item has no preview, no pending review, no version.
+	 */
+	deleted?: boolean;
+	/**
+	 * `chrome="full"` only (the security review's M1): the item this card is
+	 * about EXISTS but is out of this chat's reach — it was made in another
+	 * chat (the parent of a forked incognito chat). Not deleted: the card says
+	 * where it was made, muted like a deleted one, with no Open (the chat
+	 * cannot reach it) and no Regenerate (it is still there). Wins over
+	 * `deleted`: an item that exists is never called deleted.
+	 */
+	unreachable?: boolean;
+	/** `deleted` only: the item is being made again right now — Regenerate shows the work and ignores another press. */
+	regenerating?: boolean;
+	/** `deleted` only: there is nothing to make it again from (the server said so). The card says why instead of offering a button that would fail. */
+	regenerateUnavailable?: boolean;
+	/**
 	 * `chrome="full"` only (Wave 2.5 Step 13): the App panel's own status-row
 	 * sentence ("Alfy checked the facts and fixed one thing."), already
 	 * localised by the caller through the same `APP_VERIFY_LINE_KEYS` map the
@@ -140,6 +169,8 @@ let {
 	onRetry = undefined,
 	onCancel = undefined,
 	onDismiss = undefined,
+	onRegenerate = undefined,
+	rowMenu = undefined,
 }: {
 	view: ArtifactCardView;
 	/** Live job state for the File kind in the chat. */
@@ -163,6 +194,15 @@ let {
 	onRetry?: ((jobId: string) => void) | undefined;
 	onCancel?: ((jobId: string) => void) | undefined;
 	onDismiss?: ((jobId: string) => void) | undefined;
+	/** `deleted` cards: Regenerate, by the card's own id. Absent, the card offers none. */
+	onRegenerate?: ((artifactId: string) => void) | undefined;
+	/**
+	 * `chrome="row"` only: the row's overflow control (polish G2-A), drawn as
+	 * a sibling of the row's button at its far end — never inside it, since a
+	 * button cannot hold a button. Revealed on hover and focus, always shown on
+	 * touch; the host owns what it opens.
+	 */
+	rowMenu?: Snippet | undefined;
 } = $props();
 
 const TICKABLE_VISIBLE_LIMIT = 5;
@@ -178,6 +218,44 @@ let hiddenTickableCount = $derived(
 			TICKABLE_VISIBLE_LIMIT,
 	),
 );
+
+/**
+ * `chrome="row"`'s accessible name (rd/review-2-5.md:276-279): what the row IS,
+ * as a short list a screen reader pauses through — title, kind and facts,
+ * version, time, and the review state — instead of the visible pieces run
+ * together. Every piece is one that is visible on the row, so the name still
+ * contains its label. The KIND is always there: a caller's subtitle ("Document
+ * · 3 tabs") usually carries it, and when one does not (an App's own line) it
+ * is put in front.
+ */
+let rowAccessibleName = $derived.by(() => {
+	const kindLabel = $t(`artifacts.type.${view.kind}` as I18nKey);
+	const detail = view.subtitle?.trim() ? view.subtitle : kindLabel;
+	const detailParts = detail
+		.split(/\s·\s/)
+		.map((part) => part.trim())
+		.filter(Boolean);
+	const sayKind = !detailParts.some(
+		(part) => part.toLowerCase() === kindLabel.toLowerCase(),
+	);
+	const reviewState = view.pendingReviewCount
+		? $t("artifacts.panel.pendingReview", { count: view.pendingReviewCount })
+		: view.pendingReviewCount === 0
+			? $t("artifacts.panel.reviewed")
+			: null;
+	return [
+		view.title,
+		...(sayKind ? [kindLabel] : []),
+		...detailParts,
+		view.versionNumber
+			? $t("artifacts.card.version", { n: view.versionNumber })
+			: null,
+		view.updatedAtLabel,
+		reviewState,
+	]
+		.filter((part): part is string => Boolean(part))
+		.join(", ");
+});
 
 // The File body is lazy: a chat page with no file-producing turn must not
 // pay for FileProductionCard's chunk. Cached so re-opening the same job
@@ -212,11 +290,13 @@ function handleOpen(): void {
 		<FileProductionBody {job} {onOpenDocument} {onRetry} {onCancel} {onDismiss} />
 	{/if}
 {:else if chrome === 'row'}
+	<div class="artifact-row-wrap" class:artifact-row-has-menu={Boolean(rowMenu)}>
 	<button
 		type="button"
 		class="artifact-row"
 		class:artifact-row-current={view.current}
 		data-testid="artifact-row"
+		aria-label={rowAccessibleName}
 		disabled={!view.openTargetId}
 		onclick={handleOpen}
 	>
@@ -259,6 +339,10 @@ function handleOpen(): void {
 			{/if}
 		</span>
 	</button>
+	{#if rowMenu}
+		<div class="artifact-row-menu">{@render rowMenu()}</div>
+	{/if}
+	</div>
 {:else}
 	{#snippet tickableBlock()}
 		{#if view.tickable}
@@ -301,10 +385,66 @@ function handleOpen(): void {
 	<div
 		class="artifact-card"
 		class:artifact-card-full={chrome === 'full'}
-		class:artifact-card-current={chrome === 'full' && view.current}
+		class:artifact-card-current={chrome === 'full' && view.current && !view.deleted && !view.unreachable}
+		class:artifact-card-deleted={chrome === 'full' && (view.deleted || view.unreachable)}
 		data-testid="artifact-card"
+		data-state={chrome === 'full' && view.unreachable
+			? 'unreachable'
+			: chrome === 'full' && view.deleted
+				? 'deleted'
+				: undefined}
 	>
-		{#if chrome === 'full'}
+		{#if chrome === 'full' && (view.deleted || view.unreachable)}
+			<!-- Polish G2-A: the item is gone. Not a button — there is nothing to
+			     open — but a plain head: the kind tile, the title, what happened
+			     and, where it can be made again, Regenerate. The security review's
+			     M1: an item that is still there but out of this chat's reach gets
+			     the same quiet head, saying where it was made — never "deleted",
+			     and never a Regenerate. -->
+			<div class="artifact-card-head artifact-card-head-static" data-testid="artifact-card-deleted">
+				<span class="artifact-card-icon" aria-hidden="true">
+					<KindIcon size={18} strokeWidth={1.75} aria-hidden="true" />
+				</span>
+				<span class="artifact-card-headtext">
+					<span class="artifact-card-title">{view.title}</span>
+					<span class="artifact-card-sub">
+						{#if view.unreachable}
+							<span>{$t('artifacts.madeInOriginalChat')}</span>
+						{:else}
+							<span>{$t(`artifacts.deleted.${view.kind}` as I18nKey)}</span>
+						{/if}
+					</span>
+					{#if view.regenerateUnavailable && !view.unreachable}
+						<span class="artifact-card-sub artifact-card-sub-note">
+							{$t('artifacts.deleted.unavailable')}
+						</span>
+					{/if}
+				</span>
+				{#if onRegenerate && !view.regenerateUnavailable && !view.unreachable}
+					<button
+						type="button"
+						class="artifact-card-regenerate"
+						data-testid="artifact-card-regenerate"
+						disabled={view.regenerating}
+						aria-busy={view.regenerating ? 'true' : undefined}
+						aria-label={view.regenerating
+							? $t('artifacts.deleted.regenerating')
+							: $t('artifacts.deleted.regenerateA11y', { title: view.title })}
+						onclick={() => {
+							if (!view.regenerating) onRegenerate?.(view.id);
+						}}
+					>
+						{#if view.regenerating}
+							<LoaderCircle size={14} strokeWidth={2.2} aria-hidden="true" />
+							{$t('artifacts.deleted.regenerating')}
+						{:else}
+							<RotateCw size={14} strokeWidth={2.2} aria-hidden="true" />
+							{$t('artifacts.deleted.regenerate')}
+						{/if}
+					</button>
+				{/if}
+			</div>
+		{:else if chrome === 'full'}
 			<!-- The head IS the button (redesign §5.2: "the head is one button") —
 			     icon, title, subtitle/version/pending-review line, and the
 			     trailing Open/Review affordance all live inside one control, never
@@ -438,6 +578,90 @@ function handleOpen(): void {
 		transition:
 			border-color var(--duration-standard) var(--ease-out),
 			box-shadow var(--duration-standard) var(--ease-out);
+	}
+
+	/* Polish G2-A: the item is gone. Quiet on purpose — a dashed outline and
+	   muted type, no shadow — so it reads as a record of something that was
+	   there, not as a deliverable to open. */
+	.artifact-card-deleted {
+		border-style: dashed;
+		background: transparent;
+		box-shadow: none;
+	}
+
+	.artifact-card-head-static {
+		cursor: default;
+	}
+
+	.artifact-card-deleted .artifact-card-icon {
+		background: var(--surface-elevated);
+		color: var(--icon-muted);
+	}
+
+	.artifact-card-deleted .artifact-card-title {
+		color: var(--text-muted);
+		font-weight: 600;
+	}
+
+	.artifact-card-sub-note {
+		display: block;
+		margin-top: 0.25rem;
+	}
+
+	.artifact-card-regenerate {
+		display: inline-flex;
+		flex: 0 0 auto;
+		align-items: center;
+		gap: 0.375rem;
+		min-height: 2rem;
+		padding: 0 0.625rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-page);
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: 0.78rem;
+		font-weight: 600;
+		white-space: nowrap;
+		cursor: pointer;
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	.artifact-card-regenerate:hover:not(:disabled) {
+		background: var(--surface-elevated);
+	}
+
+	.artifact-card-regenerate:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.artifact-card-regenerate:disabled {
+		cursor: progress;
+		opacity: 0.7;
+	}
+
+	/* The work under way: the spinner turns; reduced motion leaves it still. */
+	.artifact-card-regenerate[aria-busy='true'] :global(svg) {
+		animation: artifact-card-spin 1s linear infinite;
+	}
+
+	@keyframes artifact-card-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.artifact-card-regenerate[aria-busy='true'] :global(svg) {
+			animation: none;
+		}
+	}
+
+	@media (hover: none) and (pointer: coarse) {
+		.artifact-card-regenerate {
+			min-height: 44px;
+		}
 	}
 
 	/* The item this card is FOR is already open in the panel (redesign §5.2). */
@@ -728,6 +952,36 @@ function handleOpen(): void {
 	}
 
 	/* chrome="row" — the panel list's one-line-per-item row (redesign §5.2): the whole row is the button. */
+	.artifact-row-wrap {
+		position: relative;
+	}
+
+	/* Polish G2-A: a row that carries an overflow leaves its far end to it. */
+	.artifact-row-has-menu .artifact-row {
+		padding-right: 2.75rem;
+	}
+
+	.artifact-row-menu {
+		position: absolute;
+		top: 50%;
+		right: 0.375rem;
+		transform: translateY(-50%);
+		opacity: 0;
+		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	.artifact-row-wrap:hover .artifact-row-menu,
+	.artifact-row-wrap:focus-within .artifact-row-menu,
+	.artifact-row-menu:has(:global([aria-expanded='true'])) {
+		opacity: 1;
+	}
+
+	@media (hover: none) {
+		.artifact-row-menu {
+			opacity: 1;
+		}
+	}
+
 	.artifact-row {
 		display: grid;
 		grid-template-columns: 34px minmax(0, 1fr) auto;

@@ -83,6 +83,7 @@ vi.mock("./task-state/mappers", () => ({
 
 vi.mock("drizzle-orm", () => ({
 	eq: vi.fn(() => "eq"),
+	inArray: vi.fn(() => "inArray"),
 }));
 
 describe("semantic-embedding-refresh", () => {
@@ -151,6 +152,14 @@ describe("semantic-embedding-refresh", () => {
 			"./semantic-embedding-refresh"
 		);
 
+		// The row is there when the vector is written (the refresh checks).
+		artifactRows.push({
+			id: "artifact-1",
+			userId: "user-1",
+			name: "Proposal",
+			summary: "Draft summary",
+			contentText: "Full proposal body",
+		});
 		queueArtifactSemanticEmbeddingRefresh({
 			id: "artifact-1",
 			userId: "user-1",

@@ -5,6 +5,7 @@ import { fly } from "svelte/transition";
 import { t } from "$lib/i18n";
 import { dismissToast, toasts } from "$lib/stores/toast";
 import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
+import { toastExit } from "./toast-motion";
 
 // One mount point for the whole app (see (app)/+layout.svelte). Renders
 // every active $toasts entry as a stacked, top-right region so it never
@@ -24,11 +25,12 @@ import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 // here. The previous `y: -12` did the opposite (started above, descended).
 // Duration/easing now read from the shared tokens instead of a bare 200.
 //
-// No out: transition added here (the toast currently disappears instantly
-// on dismiss, unchanged) — an outro delays the real DOM removal until it
-// completes, which several existing tests assert happens synchronously with
-// the dismiss action; adding one is a bigger, separately-scoped change than
-// this Minor finding's own "it enters from above" complaint.
+// Exit (polish G1-B, redesign §7.2 #33 "out standard · ease-in"): the toast
+// sinks the 12px it rose and fades, over the standard duration — see
+// `toast-motion.ts`, whose numbers are tested directly (jsdom never runs an
+// outro to its end). Reduced motion: it leaves at once. An outro keeps the
+// element in the DOM until it ends, so a dismissed toast is gone a moment
+// later, not synchronously.
 const flyIn = reducedMotionAware(fly);
 </script>
 
@@ -46,6 +48,7 @@ const flyIn = reducedMotionAware(fly);
 			data-testid="toast-entry"
 			data-toast-type={toast.type}
 			in:flyIn={{ y: 12, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
+			out:toastExit
 		>
 			{#if toast.type === 'success'}
 				<CircleCheck size={18} strokeWidth={2} class="mt-[1px] shrink-0 text-success" aria-hidden="true" />
