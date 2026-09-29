@@ -29,7 +29,11 @@ other polish agent is merged before you; you run alone.
    keyboard behaviour), and on phones the tabs, `⋯` and `+` reach 44 px (review 233–238).
 5. **Named panel-list rows:** each row's accessible name says what it is (title, kind, time), and the ~10 suites that
    select rows by their old name are updated in the same change (review 276–279's first half).
-6. Confirm the third follow-up chip (the count-button dot follows the persisted review state) is covered by a test; if
+6. **The phone review bar** (from G2-B's report): on a phone it still floats about 64 px above the bottom with text showing
+   beneath it in a long document; make it flush with the bottom edge like the desktop bar (G2-B's), nothing visible
+   under it, the last lines still reachable.
+7. **Ticked task items** read struck through and muted, as the mockup's `.tasks` shows (both themes).
+8. Confirm the third follow-up chip (the count-button dot follows the persisted review state) is covered by a test; if
    not, add one.
 
 ## Proof
