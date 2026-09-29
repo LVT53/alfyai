@@ -3524,6 +3524,16 @@ function handleDrop(event: DragEvent) {
 		justify-content: flex-end;
 	}
 
+	/* Wave 2.5 polish G1-B (owner: "pushed a bit more to the right"): the
+	   mockup's `#madeBtn` sits 12px from the header's right edge, not 24px.
+	   The bar keeps its 24px gutter — so the title's centring, which comes
+	   from the two equal side columns, does not move — and the button leans
+	   12px into it. A negative margin on the button itself (not on its
+	   column) changes nothing about how the columns are sized. */
+	.chat-title-bar-actions .artifact-count-button {
+		margin-right: -0.75rem;
+	}
+
 	.chat-title-bar-compact {
 		flex-shrink: 0;
 		padding: var(--space-xs, 0.375rem) var(--space-sm, 0.625rem) 0;
