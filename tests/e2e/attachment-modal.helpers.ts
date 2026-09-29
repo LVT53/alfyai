@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 
-import { openConversationComposer } from "./helpers";
+import { openConversationComposer, workspacePanel } from "./helpers";
 
 const KNOWLEDGE_ROUTE_GLOB = "**/api/knowledge/**";
 // The client upload path is a two-step protocol: POST /upload/intent (returns a
@@ -173,7 +173,7 @@ export async function prepareAttachmentConversation(
 
 // The former attachment content modal was replaced by the document workspace:
 // clicking an attachment in a sent message opens the workspace side panel
-// (aria-label "Document workspace") and previews the artifact there. This opens
+// (a landmark named for the item, e.g. "report.pdf, File") and previews the artifact there. This opens
 // that workspace and returns its locator.
 export async function openAttachmentWorkspace(page: Page) {
 	// ...and in a SENT message it is the same pill six pixels shorter, with no
@@ -184,9 +184,7 @@ export async function openAttachmentWorkspace(page: Page) {
 	await page
 		.getByTestId("workspace-main")
 		.waitFor({ state: "visible", timeout: 10000 });
-	const workspace = page
-		.getByRole("complementary", { name: "Document workspace" })
-		.first();
+	const workspace = workspacePanel(page).first();
 	await workspace.waitFor({ state: "visible", timeout: 10000 });
 	return workspace;
 }

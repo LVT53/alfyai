@@ -380,6 +380,9 @@ import {
 } from "$lib/stores/conversations";
 import Page from "./+page.svelte";
 
+/** The open panel's landmark is named for the item it shows ("Vienna trip plan, Document"; review 276-279), so it is found by that shape. */
+const WORKSPACE_LANDMARK = /, (Document|App|Canvas|Slides|File)$/;
+
 function pageData(overrides: Record<string, unknown> = {}) {
 	return {
 		...appShellDataFixture(),
@@ -1006,7 +1009,7 @@ describe("chat page runtime integration", () => {
 		);
 
 		const shell = await screen.findByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(screen.getByTestId("workspace-main")).toHaveAttribute(
 			"data-presentation",
@@ -1090,7 +1093,7 @@ describe("chat page runtime integration", () => {
 		await fireEvent.click(within(list).getByTestId("artifact-row"));
 
 		const shell = await screen.findByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		});
 		await waitFor(() => {
 			expect(
@@ -1174,7 +1177,7 @@ describe("chat page runtime integration", () => {
 		await fireEvent.click(countButton);
 		const list = await screen.findByTestId("artifact-panel-list");
 		await fireEvent.click(within(list).getByTestId("artifact-row"));
-		await screen.findByRole("complementary", { name: "Document workspace" });
+		await screen.findByRole("complementary", { name: WORKSPACE_LANDMARK });
 		expect(countButton).toHaveAttribute("aria-pressed", "true");
 
 		await fireEvent.click(countButton);
@@ -1224,7 +1227,7 @@ describe("chat page runtime integration", () => {
 			await fireEvent.click(within(list).getByTestId("artifact-row"));
 
 			const shell = await screen.findByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			});
 			await waitFor(() => {
 				expect(
@@ -1464,7 +1467,7 @@ describe("chat page runtime integration", () => {
 			);
 			await fireEvent.click(within(list).getByTestId("artifact-row"));
 			const shell = await screen.findByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			});
 			await waitFor(() => {
 				expect(shell).toHaveTextContent("edited 3 h ago");
@@ -1556,7 +1559,7 @@ describe("chat page runtime integration", () => {
 			// The newest row first: Vienna trip plan.
 			await fireEvent.click(within(list).getAllByTestId("artifact-row")[0]);
 			const shell = await screen.findByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			});
 			await fireEvent.click(
 				await within(shell).findByRole("button", { name: "Delete document" }),
@@ -1631,7 +1634,7 @@ describe("chat page runtime integration", () => {
 			const list = await screen.findByTestId("artifact-panel-list");
 			await fireEvent.click(within(list).getByTestId("artifact-row"));
 			const shell = await screen.findByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			});
 			await fireEvent.click(
 				await within(shell).findByRole("button", { name: "Delete document" }),
@@ -1796,7 +1799,7 @@ describe("chat page runtime integration", () => {
 				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
 
 				await screen.findByRole("complementary", {
-					name: "Document workspace",
+					name: WORKSPACE_LANDMARK,
 				});
 				expect(screen.getByTestId("artifact-card")).not.toHaveAttribute(
 					"data-state",

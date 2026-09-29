@@ -16,7 +16,12 @@ import {
 	encodeEditArtifactScenarioPayload,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
-import { createConversation, login, sendMessage } from "./helpers";
+import {
+	createConversation,
+	login,
+	sendMessage,
+	workspacePanel,
+} from "./helpers";
 
 /** Mirrors artifact-document.spec.ts's own private helper (each e2e file
  *  keeps its own copy rather than sharing one — the established pattern
@@ -284,9 +289,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			// accessible name is the whole head's text, not the bare word
 			// "Open" — click by the head's own testid instead.
 			await card.getByTestId("artifact-card-head").click({ timeout: 30_000 });
-			const workspace = page.getByRole("complementary", {
-				name: "Document workspace",
-			});
+			const workspace = workspacePanel(page);
 			await expect(workspace).toBeVisible({ timeout: 30_000 });
 			// A cold dev-server run compiles the workspace's lazy preview chunk
 			// on this very first open, which can outrun the default 5s
@@ -316,9 +319,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			await cardAfterReload
 				.getByTestId("artifact-card-head")
 				.click({ timeout: 30_000 });
-			await expect(
-				page.getByRole("complementary", { name: "Document workspace" }),
-			).toBeVisible({ timeout: 30_000 });
+			await expect(workspacePanel(page)).toBeVisible({ timeout: 30_000 });
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (temporaryProvider) {

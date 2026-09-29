@@ -9,7 +9,12 @@ import {
 } from "../../src/lib/server/services/artifacts";
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createConversation,
+	login,
+	waitForStableBoundingBox,
+	workspacePanel,
+} from "./helpers";
 
 // Comments, anchoring and the @Alfy hook (Feature 2 · Artifacts, Slice 1,
 // Task T10) — the real routes, the real service, the real DB. Deliberately
@@ -221,9 +226,7 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 			.getByTestId("artifact-row")
 			.click();
 
-		const shell = page.getByRole("complementary", {
-			name: "Document workspace",
-		});
+		const shell = workspacePanel(page);
 		await expect(shell).toBeVisible();
 		await expect(shell.getByText("Seeded margin comment")).toBeVisible();
 	});
@@ -293,9 +296,7 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 			.getByTestId("artifact-row")
 			.click();
 
-		const shell = page.getByRole("complementary", {
-			name: "Document workspace",
-		});
+		const shell = workspacePanel(page);
 		await expect(shell).toBeVisible();
 
 		const items = shell.getByTestId("margin-comment");
@@ -348,7 +349,7 @@ function mobileShell(page: Page) {
 	return page.getByTestId("document-workspace-mobile-shell");
 }
 function desktopShell(page: Page) {
-	return page.getByRole("complementary", { name: "Document workspace" });
+	return workspacePanel(page);
 }
 
 // Wave 2.5 Step 8: comments away from the inline rail — the header's

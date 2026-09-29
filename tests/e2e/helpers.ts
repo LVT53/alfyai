@@ -218,3 +218,14 @@ export function buildAiSdkUiStreamBody(text: string): string {
 }
 
 export { TEST_EMAIL, TEST_PASSWORD };
+
+/**
+ * The open workspace panel's landmark name is the item it shows ("Trip notes,
+ * Document"; rd/review-2-5.md:276-279), so it is found by that shape and not by
+ * one fixed name. Matches the kind at the end, in English.
+ */
+const WORKSPACE_PANEL_NAME = /, (Document|App|Canvas|Slides|File)$/;
+
+export function workspacePanel(page: Page): Locator {
+	return page.getByRole("complementary", { name: WORKSPACE_PANEL_NAME });
+}

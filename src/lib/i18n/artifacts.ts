@@ -51,6 +51,9 @@ const artifactsDict = {
 		"artifacts.panel.back": "Back to the item",
 		"artifacts.panel.empty": "Nothing made here yet.",
 		"artifacts.panel.history": "History",
+		// The panel landmark's own name while an item is open: what it shows, not
+		// one generic name for every item (rd/review-2-5.md:276-279).
+		"artifacts.panel.landmark": "{title}, {kind}",
 		// The list row's / chat card's pending-review pill (redesign §5.2),
 		// fed by the PERSISTED `pendingReviewCount` (Wave 2.5 review, F1).
 		"artifacts.panel.pendingReview":
@@ -548,6 +551,7 @@ const artifactsDict = {
 		"artifacts.panel.back": "Vissza az elemhez",
 		"artifacts.panel.empty": "Itt még nem készült semmi.",
 		"artifacts.panel.history": "Előzmények",
+		"artifacts.panel.landmark": "{title}, {kind}",
 		"artifacts.panel.pendingReview": "{count} módosítás vár rád",
 		"artifacts.panel.reviewed": "Átnézve",
 		// No ICU plural here on purpose, matching cardSubtitle above: Hungarian

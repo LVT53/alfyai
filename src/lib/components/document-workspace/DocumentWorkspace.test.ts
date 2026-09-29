@@ -9,6 +9,9 @@ import {
 	renderWorkspace,
 } from "./DocumentWorkspace.test-helpers";
 
+/** The open panel's landmark is named for the item it shows ("Vienna trip plan, Document"; review 276-279), so it is found by that shape. */
+const WORKSPACE_LANDMARK = /, (Document|App|Canvas|Slides|File)$/;
+
 vi.mock("$lib/services/markdown", () => ({
 	renderHighlightedText: vi.fn(
 		async (content: string) => `<pre><code>${content}</code></pre>`,
@@ -127,7 +130,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		await fireEvent.click(
 			within(desktopWorkspace).getByRole("button", {
@@ -195,7 +198,7 @@ describe("DocumentWorkspace", () => {
 		).toBeInTheDocument();
 		expect(within(rail).getByText("2")).toHaveAccessibleName("2 open");
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		const main = within(desktopWorkspace).getByTestId("workspace-main");
 		expect(main).toContainElement(rail);
@@ -228,7 +231,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(
 			within(desktopWorkspace).getByText("Active document"),
@@ -354,7 +357,7 @@ describe("DocumentWorkspace", () => {
 			onCloseWorkspace: vi.fn(),
 		});
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		frames.shift()?.(0);
 		await tick();
@@ -397,7 +400,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		const main = within(desktopWorkspace).getByTestId("workspace-main");
 
@@ -471,7 +474,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 
 		await fireEvent.pointerDown(desktopWorkspace);
@@ -555,7 +558,7 @@ describe("DocumentWorkspace", () => {
 			screen.getAllByRole("region", { name: "slides.pptx" }).length,
 		).toBeGreaterThan(0);
 		expect(
-			screen.getByRole("complementary", { name: /document workspace/i }),
+			screen.getByRole("complementary", { name: WORKSPACE_LANDMARK }),
 		).toHaveClass("workspace-shell-desktop");
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 	});
@@ -608,7 +611,7 @@ describe("DocumentWorkspace", () => {
 		).toBeGreaterThan(0);
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		await rerender({ activeDocumentId: "knowledge-xlsx" });
 
@@ -667,13 +670,13 @@ describe("DocumentWorkspace", () => {
 			"/api/chat/files/chat-image/preview",
 		);
 		let desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(desktopWorkspace).not.toHaveClass("workspace-shell-expanded");
 
 		await rerender({ presentation: "expanded" });
 		desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(desktopWorkspace).toHaveClass("workspace-shell-expanded");
 		expect(screen.getAllByAltText("chart.png").length).toBeGreaterThan(0);
@@ -724,7 +727,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 
 			expect(
@@ -770,7 +773,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 
 			expect(desktopWorkspace.style.width).toBe("950px");
@@ -798,7 +801,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 			const resizeHandle =
 				within(desktopWorkspace).getByTestId("resize-handle");
@@ -841,7 +844,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 			const resizeHandle =
 				within(desktopWorkspace).getByTestId("resize-handle");
@@ -887,7 +890,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 			const resizeHandle =
 				within(desktopWorkspace).getByTestId("resize-handle");
@@ -931,7 +934,7 @@ describe("DocumentWorkspace", () => {
 			});
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 			const resizeHandle =
 				within(desktopWorkspace).getByTestId("resize-handle");
@@ -982,7 +985,7 @@ describe("DocumentWorkspace", () => {
 			await rerender({ open: true });
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 
 			const classList = desktopWorkspace.className;
@@ -1017,7 +1020,7 @@ describe("DocumentWorkspace", () => {
 			await rerender({ open: true });
 
 			const desktopWorkspace = screen.getByRole("complementary", {
-				name: /document workspace/i,
+				name: WORKSPACE_LANDMARK,
 			});
 
 			const style = window.getComputedStyle(desktopWorkspace);
@@ -1068,7 +1071,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(
 			within(desktopWorkspace).getByText("Version History"),
@@ -1148,7 +1151,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(
 			within(desktopWorkspace).queryByTestId("open-documents-rail"),
@@ -1192,7 +1195,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(
 			within(desktopWorkspace).queryByRole("button", {
@@ -1288,7 +1291,7 @@ describe("DocumentWorkspace", () => {
 		});
 
 		const desktopWorkspace = screen.getByRole("complementary", {
-			name: /document workspace/i,
+			name: WORKSPACE_LANDMARK,
 		});
 		await fireEvent.click(
 			within(desktopWorkspace).getByRole("button", {
@@ -1654,6 +1657,125 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			import("./__fixtures__/FakeArtifactBody.svelte");
 	}
 
+	// rd/review-2-5.md:276-279 — the landmark carried one generic name ("Document
+	// workspace") for every item, so a screen reader entering it heard nothing
+	// about what it held. It is named for the open item now.
+	describe("the panel landmark is named for what it shows (review 276-279)", () => {
+		it("names an open Document 'title, Document' — desktop landmark and phone region alike", async () => {
+			withDocumentLoader();
+			renderWorkspace({
+				documents: [
+					makeWorkspaceDocument({
+						id: "doc-1",
+						kind: "document",
+						title: "Vienna trip plan",
+						mimeType: null,
+					}),
+				],
+				activeDocumentId: "doc-1",
+			});
+			await screen.findByTestId("fake-artifact-body");
+			expect(
+				screen.getByRole("complementary", {
+					name: "Vienna trip plan, Document",
+				}),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("region", { name: "Vienna trip plan, Document" }),
+			).toBeInTheDocument();
+			expect(
+				screen.queryByRole("complementary", { name: "Document workspace" }),
+			).not.toBeInTheDocument();
+		});
+
+		it("names an item by its own kind: an App is 'title, App'", async () => {
+			renderWorkspace({
+				documents: [
+					makeWorkspaceDocument({
+						id: "app-1",
+						kind: "app",
+						title: "Budget tracker",
+						mimeType: null,
+					}),
+				],
+				activeDocumentId: "app-1",
+			});
+			expect(
+				await screen.findByRole("complementary", {
+					name: "Budget tracker, App",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("names a file (an upload or a produced file) 'filename, File'", async () => {
+			renderWorkspace({
+				documents: [
+					makeWorkspaceDocument({
+						id: "file-1",
+						title: "Quarterly report",
+					}),
+				],
+				activeDocumentId: "file-1",
+			});
+			expect(
+				await screen.findByRole("complementary", {
+					name: "Quarterly report, File",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("follows the selection: the name changes when another item opens", async () => {
+			withDocumentLoader();
+			const first = makeWorkspaceDocument({
+				id: "doc-1",
+				kind: "document",
+				title: "Vienna trip plan",
+				mimeType: null,
+			});
+			const second = makeWorkspaceDocument({
+				id: "doc-2",
+				kind: "document",
+				title: "Budget",
+				mimeType: null,
+			});
+			const { rerender } = renderWorkspace({
+				documents: [first, second],
+				activeDocumentId: "doc-1",
+			});
+			await screen.findByRole("complementary", {
+				name: "Vienna trip plan, Document",
+			});
+			await rerender({ documents: [first, second], activeDocumentId: "doc-2" });
+			expect(
+				await screen.findByRole("complementary", { name: "Budget, Document" }),
+			).toBeInTheDocument();
+		});
+
+		it("names the list for what it lists, not 'Document workspace'", async () => {
+			renderWorkspace({
+				documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+				activeDocumentId: "doc-1",
+				list: {
+					open: true,
+					items: [
+						{
+							...makeWorkspaceDocument({
+								id: "list-1",
+								title: "Vienna itinerary",
+							}),
+						},
+					],
+					title: "What this chat made",
+				},
+			});
+			expect(
+				await screen.findByRole("complementary", {
+					name: "What this chat made",
+				}),
+			).toBeInTheDocument();
+		});
+	});
+
 	it("renders the shared header for an artifact-kind item, not the legacy eyebrow/source pill", async () => {
 		withDocumentLoader();
 		renderWorkspace({
@@ -1671,7 +1793,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 
 		await screen.findByTestId("fake-artifact-body");
 		const shell = screen.getAllByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		})[0];
 
 		expect(
@@ -1720,7 +1842,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		});
 		await screen.findByTestId("fake-versioned-artifact-body");
 		const shell = screen.getAllByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		})[0];
 		await waitFor(() => {
 			expect(
@@ -1787,7 +1909,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 
 		await screen.findByTestId("fake-artifact-body");
 		const shell = screen.getAllByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		})[0];
 		expect(
 			within(shell).getByText("You and Alfy · edited 5 min ago"),
@@ -1806,7 +1928,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		});
 
 		const shell = await screen.findByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(within(shell).getByText("Active document")).toBeInTheDocument();
 		expect(
@@ -1825,7 +1947,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 
 		await screen.findByTestId("fake-artifact-body");
 		const shell = screen.getAllByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		})[0];
 		await fireEvent.click(
 			within(shell).getByRole("button", { name: "This chat" }),
@@ -1846,7 +1968,7 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 
 		await screen.findByTestId("fake-artifact-body");
 		const shell = screen.getAllByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		})[0];
 		await fireEvent.click(
 			within(shell).getByRole("button", { name: "Close document workspace" }),
@@ -2019,7 +2141,7 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 			animateSpy.mockClear();
 
 			const shell = screen.getAllByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			})[0];
 			await fireEvent.click(
 				within(shell).getByRole("button", { name: /This chat/ }),
@@ -2103,7 +2225,7 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		// exist in jsdom at once (no media query), so an unscoped query would
 		// see the header twice, exactly like every other panel test here.
 		const shell = await screen.findByRole("complementary", {
-			name: "Document workspace",
+			name: "What this chat made",
 		});
 		expect(within(shell).getByText("What this chat made")).toBeInTheDocument();
 
@@ -2179,7 +2301,7 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		// The panel itself is still open, showing the document.
 		expect(
 			screen.getAllByRole("complementary", {
-				name: "Document workspace",
+				name: "What this chat made",
 			}).length,
 		).toBeGreaterThan(0);
 	});
@@ -2303,7 +2425,7 @@ describe("DocumentWorkspace Delete (polish G2-A)", () => {
 	async function desktopShell() {
 		return (
 			await screen.findAllByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			})
 		)[0];
 	}

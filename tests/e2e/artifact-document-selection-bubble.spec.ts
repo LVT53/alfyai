@@ -8,7 +8,12 @@ import {
 } from "../../src/lib/server/services/artifacts";
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createConversation,
+	login,
+	waitForStableBoundingBox,
+	workspacePanel,
+} from "./helpers";
 
 // The Document editor's selection bubble ("Ask Alfy" / "Comment", T10.1) must
 // land right next to the live text selection, inside the visible page —
@@ -97,7 +102,7 @@ async function openDocumentFromPanel(page: Page): Promise<Locator> {
 	await list.getByTestId("artifact-row").first().click({ timeout: 30_000 });
 	const shell = isMobile
 		? page.getByTestId("document-workspace-mobile-shell")
-		: page.getByRole("complementary", { name: "Document workspace" });
+		: workspacePanel(page);
 	await expect(shell).toBeVisible({ timeout: 30_000 });
 	return shell;
 }

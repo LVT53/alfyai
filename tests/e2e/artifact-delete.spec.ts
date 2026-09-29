@@ -11,7 +11,7 @@ import {
 	users,
 } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
-import { createConversation, login } from "./helpers";
+import { createConversation, login, workspacePanel } from "./helpers";
 
 // Polish G2-A: Delete for what is open in the panel and for each list row,
 // what a chat card or file row says once its item is gone, and Regenerate.
@@ -113,9 +113,7 @@ test.describe("Delete and Regenerate — a Document made by create_artifact", ()
 
 		// Open it, then delete it from the header.
 		await card.getByTestId("artifact-card-head").click({ timeout: 30_000 });
-		const workspace = page.getByRole("complementary", {
-			name: "Document workspace",
-		});
+		const workspace = workspacePanel(page);
 		await expect(workspace).toBeVisible({ timeout: 30_000 });
 		await expect(workspace.getByText("Book the museum tickets.")).toBeVisible({
 			timeout: 30_000,
@@ -159,9 +157,7 @@ test.describe("Delete and Regenerate — a Document made by create_artifact", ()
 		expect(again?.id).toBe(made.id);
 		await page.getByTestId("artifact-card-head").click();
 		await expect(
-			page
-				.getByRole("complementary", { name: "Document workspace" })
-				.getByText("Book the museum tickets."),
+			workspacePanel(page).getByText("Book the museum tickets."),
 		).toBeVisible({ timeout: 30_000 });
 	});
 });

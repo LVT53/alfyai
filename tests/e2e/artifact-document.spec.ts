@@ -21,6 +21,7 @@ import {
 	login,
 	sendMessage,
 	waitForStableBoundingBox,
+	workspacePanel,
 } from "./helpers";
 
 // Slice 1's T8/T9/T11 surfaces: change marks, Keep/Undo and the refusal
@@ -161,7 +162,7 @@ async function openDocumentFromPanel(page: Page) {
 	// is unique. Distinct identifiers side-step that entirely.
 	const shell = isMobile
 		? page.getByTestId("document-workspace-mobile-shell")
-		: page.getByRole("complementary", { name: "Document workspace" });
+		: workspacePanel(page);
 	const scrollContainer = shell.getByTestId(
 		isMobile ? "page-scroll-container-mobile" : "page-scroll-container",
 	);
@@ -1413,9 +1414,7 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			// button — this is the "double count from the card path" finding's
 			// own trigger.
 			await card.click();
-			const shell = page.getByRole("complementary", {
-				name: "Document workspace",
-			});
+			const shell = workspacePanel(page);
 			await expect(shell).toBeVisible({ timeout: 30_000 });
 
 			// The header has a version button AND a time — opened straight from

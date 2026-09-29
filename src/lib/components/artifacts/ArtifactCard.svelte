@@ -210,6 +210,44 @@ let hiddenTickableCount = $derived(
 	),
 );
 
+/**
+ * `chrome="row"`'s accessible name (rd/review-2-5.md:276-279): what the row IS,
+ * as a short list a screen reader pauses through — title, kind and facts,
+ * version, time, and the review state — instead of the visible pieces run
+ * together. Every piece is one that is visible on the row, so the name still
+ * contains its label. The KIND is always there: a caller's subtitle ("Document
+ * · 3 tabs") usually carries it, and when one does not (an App's own line) it
+ * is put in front.
+ */
+let rowAccessibleName = $derived.by(() => {
+	const kindLabel = $t(`artifacts.type.${view.kind}` as I18nKey);
+	const detail = view.subtitle?.trim() ? view.subtitle : kindLabel;
+	const detailParts = detail
+		.split(/\s·\s/)
+		.map((part) => part.trim())
+		.filter(Boolean);
+	const sayKind = !detailParts.some(
+		(part) => part.toLowerCase() === kindLabel.toLowerCase(),
+	);
+	const reviewState = view.pendingReviewCount
+		? $t('artifacts.panel.pendingReview', { count: view.pendingReviewCount })
+		: view.pendingReviewCount === 0
+			? $t('artifacts.panel.reviewed')
+			: null;
+	return [
+		view.title,
+		...(sayKind ? [kindLabel] : []),
+		...detailParts,
+		view.versionNumber
+			? $t('artifacts.card.version', { n: view.versionNumber })
+			: null,
+		view.updatedAtLabel,
+		reviewState,
+	]
+		.filter((part): part is string => Boolean(part))
+		.join(', ');
+});
+
 // The File body is lazy: a chat page with no file-producing turn must not
 // pay for FileProductionCard's chunk. Cached so re-opening the same job
 // does not re-request the module.
@@ -249,6 +287,7 @@ function handleOpen(): void {
 		class="artifact-row"
 		class:artifact-row-current={view.current}
 		data-testid="artifact-row"
+		aria-label={rowAccessibleName}
 		disabled={!view.openTargetId}
 		onclick={handleOpen}
 	>

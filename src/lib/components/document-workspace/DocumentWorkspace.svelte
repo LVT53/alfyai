@@ -241,6 +241,20 @@ function handleBodyPendingReviewCountChange(count: number): void {
 // this slice ships (the registry is empty) falls straight through to the
 // preview stack below, unchanged.
 let activeArtifactKind: ArtifactKind = $derived(activeDocument?.kind ?? "file");
+/**
+ * The panel landmark's accessible name while an item is open: what it shows
+ * ("Vienna trip plan, Document"), not one generic "Document workspace" for
+ * every item (rd/review-2-5.md:276-279). The list state is named for its own
+ * heading instead (see the two list landmarks below).
+ */
+let panelLandmarkLabel = $derived(
+	activeDocument
+		? $t("artifacts.panel.landmark", {
+				title: getDocumentTitle(activeDocument),
+				kind: $t(`artifacts.type.${activeArtifactKind}` as I18nKey),
+			})
+		: $t("documentWorkspace.documentWorkspace"),
+);
 let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 	ARTIFACT_BODIES[activeArtifactKind],
 );
@@ -1302,7 +1316,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		<section
 			bind:this={mobileShellElement}
 			class="workspace-shell workspace-shell-mobile"
-			aria-label={$t('documentWorkspace.documentWorkspace')}
+			aria-label={list.title ?? $t('artifacts.panel.title')}
 		>
 			<div class="workspace-header">
 				<div class="workspace-heading">
@@ -1338,7 +1352,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		class="workspace-shell workspace-shell-desktop transition fade"
 		class:workspace-fade-in={isVisible}
 		style:opacity={isVisible ? '1' : '0'}
-		aria-label={$t('documentWorkspace.documentWorkspace')}
+		aria-label={list.title ?? $t('artifacts.panel.title')}
 	>
 		<div class="workspace-content" bind:this={desktopContentElement}>
 			<div class="workspace-header">
@@ -1585,7 +1599,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		<section
 			bind:this={mobileShellElement}
 			class="workspace-shell workspace-shell-mobile"
-			aria-label={$t('documentWorkspace.documentWorkspace')}
+			aria-label={panelLandmarkLabel}
 			data-testid="document-workspace-mobile-shell"
 		>
 			{#if activeDocument.kind}
@@ -1879,7 +1893,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		}
 		style:opacity={isVisible ? '1' : '0'}
 		style:transform={desktopShellTransform}
-		aria-label={$t('documentWorkspace.documentWorkspace')}
+		aria-label={panelLandmarkLabel}
 	>
 		<div 
 			class="workspace-resize-handle" 

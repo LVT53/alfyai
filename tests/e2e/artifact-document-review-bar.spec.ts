@@ -14,7 +14,12 @@ import {
 	seedDocument,
 	setUiLanguage,
 } from "./artifact-document-polish-helpers";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createConversation,
+	login,
+	waitForStableBoundingBox,
+	workspacePanel,
+} from "./helpers";
 
 // Review 2.5 findings on the review bar (rd/review-2-5.md:45-56, 98-108): a
 // phone-width bar that balloons to ~390px and covers half the document, and
@@ -110,7 +115,7 @@ async function openDocumentFromPanel(page: Page): Promise<Locator> {
 	await list.getByTestId("artifact-row").first().click({ timeout: 30_000 });
 	const shell = isMobile
 		? page.getByTestId("document-workspace-mobile-shell")
-		: page.getByRole("complementary", { name: "Document workspace" });
+		: workspacePanel(page);
 	await expect(shell).toBeVisible({ timeout: 30_000 });
 	return shell;
 }

@@ -120,7 +120,7 @@ describe("ProjectFilesDialog document workspace", () => {
 		await fireEvent.click(screen.getByTestId("project-file-preview"));
 
 		const shell = await screen.findByRole("complementary", {
-			name: "Document workspace",
+			name: "Wien itinerary.pdf, File",
 		});
 		expect(within(shell).getByText("Wien itinerary.pdf")).toBeInTheDocument();
 		// The Files modal itself is the one dialog; the preview does not draw a
