@@ -293,8 +293,11 @@ describe("the request a live case sends (ruling 62)", () => {
 		expect(answer("create_artifact", {})).toBeNull();
 		// A tool with no business in a board request is the step that is scored.
 		expect(answer("produce_file", {})).toBeNull();
-		expect(answer("map_route", {})).toBeNull();
-		expect(answer("run_python", {})).toBeNull();
+		expect(answer("email", {})).toBeNull();
+		expect(answer("calendar", {})).toBeNull();
+		// A place lookup and a spacing check are answered, and the model goes on.
+		expect(answer("map_route", {})).toMatch(/No place or route/);
+		expect(answer("run_python", {})).toMatch(/could not be run/);
 	});
 
 	it("answers the model's read of the board with the real payload, and an id it does not have with the not-found answer", () => {

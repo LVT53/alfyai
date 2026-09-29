@@ -232,6 +232,11 @@ const LOOKUP_STUBS: Record<string, string> = {
 	fetch_url: "The page could not be fetched.",
 	read_generated_file: "No matching file was found.",
 	files: "No matching file was found.",
+	// Seen in the first live runs of "arrange the Saturday notes": the model checks
+	// its spacing with a script, or looks a place up. The app answers both and the
+	// model goes on; ending the conversation there measured the app's answer, not the model.
+	run_python: "The code could not be run.",
+	map_route: "No place or route was found.",
 };
 
 /** What a case's tools start from: the stored board of an edit case, nothing for a create. */
