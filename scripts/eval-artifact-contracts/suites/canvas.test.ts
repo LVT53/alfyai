@@ -980,8 +980,7 @@ describe("the known-bad answers (ruling 59: hand-written, never a model call)", 
 		};
 	}
 
-	// Enabled by the commit that records the model's answers (`--write-responses`).
-	it.skip("replays the whole committed set with no model and no key, and every real case has its recorded answer", async () => {
+	it("replays the whole committed set with no model and no key, and every real case has its recorded answer", async () => {
 		const report = await runSuite(
 			"canvas",
 			{ replay: true, limit: null, only: null },
