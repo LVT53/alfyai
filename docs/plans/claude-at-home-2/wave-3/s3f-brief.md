@@ -10,8 +10,14 @@ measured — each one is a test here, never a hope.
   `feat/artifacts-s3-frames` (from `feat/artifacts` after S3-B's merge), e2e port **5440**, label `s3f`.
 - Report: `/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/cabde459-204b-43f4-96fb-60f3639a68a8/scratchpad/w3/s3f-report.md`;
   screenshots `…/scratchpad/w3/shots/s3f/`.
-- The parallel agent, if any, is named by the orchestrator when you start; you own `src/lib/components/artifacts/canvas/**`
-  and `tests/e2e/artifact-canvas*.spec.ts` for this round.
+- **Agent S3-T runs at the same time** (Canvas's model tools and eval): `normal-chat-tools/**`, `kind-prose.ts`, the
+  catalogue snapshots, `scripts/eval-artifact-contracts/**`. Stay out of those. You own
+  `src/lib/components/artifacts/canvas/**` and `tests/e2e/artifact-canvas*.spec.ts` this round.
+- **Dependencies first (Fallow must come back to the 124 baseline):** S3-B installed four packages; three are not imported
+  yet. Replace your `node_modules` symlink with your own `npm ci`, then remove `@xyflow/system` from `package.json`
+  (redundant: `@xyflow/svelte` 1.7.0 itself depends on exactly `0.0.83`, so the pin holds) and `html-to-image` (S3-X adds
+  it back when the PNG export imports it), regenerate the lockfile with npm, commit that alone. You import
+  `perfect-freehand` (the pen), which clears the third.
 
 ## Read first
 
@@ -21,8 +27,9 @@ Rulings: 12, **16** (two undos: your in-session steps vs Alfy's change / History
 `slice-3.md` by range: 106–136 (review focus 1–4), 517–583 (`pane-rect.ts`, `board.ts`'s geometry), 672–700
 (`annotations.ts`: what carries over from the prototype), 849–957 (frames and app-level reparenting, connectors, the
 drawing layer), 1096–1108 (portal and z-index traps), 1149–1161 (focus order), 1556–1627 (T3), 1628–1710 (T4). The
-prototype on `proto/artifact-canvas` (`git show proto/artifact-canvas:src/routes/prototype/canvas/…`) has the measured
-versions of `annotations.ts`, the pad and the reparent handler: read, do not copy.
+prototype branch the spec cites (`proto/artifact-canvas`) **no longer exists** (S3-B checked): build from the spec, the
+findings doc `docs/plans/claude-at-home-2-prototype-findings.md` (grep for canvas, pad, reparent, annotations) and
+`@xyflow/svelte`'s installed `.d.ts`.
 
 ## Step 1 · Frames, reparenting, connectors (T3)
 
