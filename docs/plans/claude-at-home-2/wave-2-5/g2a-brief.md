@@ -10,9 +10,10 @@ a reply into a Document); the artifacts service has `deleteArtifact` (`services/
 delete route and no delete control** anywhere in the panel; an open Document already has a deleted state
 (`artifacts.document.deleted.*`, "Mentés új dokumentumként").
 
-**Agent G2-B runs at the same time** on the Document's phone touch targets and prose details
-(`document/DocumentBody.svelte`'s CSS, the prose stylesheet, `MobileToolbar.svelte`, chip selects, task checkboxes): stay
-out of those.
+**Agent G2-B runs at the same time** on the Document's phone touch targets, prose details, the review bar's laptop layout,
+the comment filter and the refusal Dismiss motion (`document/DocumentBody.svelte`'s CSS, the prose stylesheet,
+`MobileToolbar.svelte`, `ReviewBar.svelte`, `MarginPanel.svelte`, `RefusalNotice.svelte`, chip selects, task checkboxes):
+stay out of those.
 
 - Worktree `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/.claude/worktrees/art-g2a`, branch
   `polish/artifacts-delete`, e2e port **5510**, label `g2a`.
@@ -54,6 +55,15 @@ Each deleted row/card offers Regenerate where a stored source exists, and says w
   file-production facade.
 The regenerated item replaces the deleted state on that row/card. If one path is disproportionate (for example a server
 mechanism that does not exist), build the others and report that one with a concrete proposal.
+
+## 4 · Two small leftovers from G1-B (read `rd/g1b-report.md`)
+
+- G1-B made every version the server reports flow through one announcement in `src/lib/client/api/artifacts.ts`, kept by
+  the chat page. The header's "edited N min ago" and the list row's relative time still read the open-time snapshot's
+  `updatedAt`: announce it with the version so they stay live. Announce deletions through the same channel, so an open
+  list/card flips to deleted at once.
+- A restored version's summary reads "visszaállítva: Szerkesztve" (restored + the old summary); make it name the
+  version it came from ("Visszaállítva: v3" / "Restored v3"), localized as G1-B's shared summary vocabulary does.
 
 ## Proof
 
