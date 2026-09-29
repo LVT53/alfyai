@@ -43,6 +43,7 @@ import {
 	Image,
 	LayoutDashboard,
 	Monitor,
+	Paperclip,
 	Presentation,
 	SquarePen,
 	Table,
@@ -88,6 +89,16 @@ const ARTIFACT_KIND_ICONS: Partial<Record<ArtifactKind, Component>> = {
 	canvas: LayoutDashboard,
 	slides: Presentation,
 };
+
+/** The top-row filter chip's own icon (redesign §6.2, Wave 2.5 review F2):
+ *  the same four kind icons the Name column uses above, for one consistent
+ *  icon per kind across this page, plus "uploaded"'s own Paperclip — "all"
+ *  gets none, matching the mockup's `kinds` array (index.html's `renderKb`). */
+function chipIcon(filter: DocumentTypeFilter): Component | null {
+	if (filter === "all") return null;
+	if (filter === "uploaded") return Paperclip;
+	return ARTIFACT_KIND_ICONS[filter] ?? null;
+}
 
 interface DocumentsListProps {
 	documents: KnowledgeDocumentItem[];
@@ -1374,6 +1385,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			{@const count = chipCount(filter)}
 			{@const isZero = count === 0}
 			{@const reasonId = `documents-filter-chip-reason-${filter}`}
+			{@const Icon = chipIcon(filter)}
 			<!-- `disabled` keeps a real browser from ever dispatching the click;
 			     the `isZero` guard in `onclick` below is the same rule enforced
 			     in JS, since `disabled` alone doesn't stop a synthetically
@@ -1393,6 +1405,9 @@ async function handleBulkDelete(): Promise<boolean> {
 				data-testid="documents-filter-chip-{filter}"
 				onclick={() => !isZero && handleTypeFilterChipClick(filter)}
 			>
+				{#if Icon}
+					<Icon size={14} strokeWidth={2} aria-hidden="true" />
+				{/if}
 				{$t(chipLabelKey(filter))} {count}
 			</button>
 			{#if isZero}
@@ -2870,6 +2885,25 @@ async function handleBulkDelete(): Promise<boolean> {
 	.documents-filter-chip:disabled:hover {
 		border-color: var(--border-default);
 		color: var(--text-muted);
+	}
+
+	/* Redesign §6.4 (Wave 2.5 review F2): 36px chips with a 44px hit area on
+	   phones, matching AppBody.svelte's own phone breakpoint. The ::after
+	   inset is the same trick ArtifactPanelHeader.svelte/ChangeBar.svelte use
+	   for their own phone controls. */
+	@media (max-width: 639px) {
+		.documents-filter-chip {
+			position: relative;
+			height: 2.25rem;
+		}
+
+		.documents-filter-chip::after {
+			content: "";
+			position: absolute;
+			/* 36px visible height + 2*4px = 44px; 4px each side widens the hit
+			   area without the chip row itself getting visibly wider. */
+			inset: -0.25rem;
+		}
 	}
 
 	/* The file family row (ruling 60): a visually subordinate second tier,

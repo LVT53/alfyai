@@ -99,6 +99,25 @@ export type ToolActivityBody =
 			artifactTitle: string;
 			preview?: ArtifactCardSummary;
 	  }
+	// Wave 2.5 Step 12/13: a create_artifact call still RUNNING, once its own
+	// call arguments already name a kind and a title (the model supplied
+	// both) — a skeleton standalone card, never a real id (there is none
+	// yet). edit_artifact's call arguments carry neither (only artifactId +
+	// patches), so an in-flight edit never gets this body — see
+	// `buildSettledToolActivityItem`'s own note on the running branch.
+	| { kind: "artifact-creating"; artifactKind: ArtifactKind; title: string }
+	// A SETTLED, business-level refusal (`ok: false`) of a create_artifact
+	// call — never edit_artifact, whose refusal keeps falling through to the
+	// generic identity/body below unchanged (tool-activity.test.ts's own
+	// pinned "shows the refusal, not a deliverable" rule). Distinct from a
+	// hard transport failure (`status === "failed"`), which already gets its
+	// own red-row-plus-error-body treatment elsewhere in this file.
+	| {
+			kind: "artifact-failed";
+			artifactKind: ArtifactKind;
+			title: string;
+			reason: string | null;
+	  }
 	// Same arrangement for an Atlas report: AtlasActivityBody.svelte renders the
 	// panel (stage line + plan while running, Report/Evidence/Plan tabs when
 	// done), threaded in as a snippet by AtlasActivityRow.svelte.
@@ -733,6 +752,18 @@ function buildSettledToolActivityItem(
 			typeof segment.input?.title === "string"
 				? segment.input.title
 				: undefined;
+		// Wave 2.5 Step 12/13: the RUNNING call's own kind, read from its call
+		// arguments (`artifactType`) rather than `metadata.artifactKind` above
+		// (metadata is the settled TOOL RESULT — never populated while running).
+		// create_artifact's schema always includes it; edit_artifact's never
+		// does, so this stays undefined for an in-flight edit exactly like
+		// `inputTitle` above.
+		const rawInputArtifactKind = segment.input?.artifactType;
+		const inputArtifactKind =
+			typeof rawInputArtifactKind === "string" &&
+			ARTIFACT_KINDS.includes(rawInputArtifactKind as ArtifactKind)
+				? (rawInputArtifactKind as ArtifactKind)
+				: undefined;
 		const object = artifactTitle ?? inputTitle ?? "";
 		const actionVerb = verb(
 			translate,
@@ -761,6 +792,18 @@ function buildSettledToolActivityItem(
 			};
 		}
 		if (status === "running" && object) {
+			// Wave 2.5 Step 12/13: create_artifact only (isEdit is false and its
+			// own call arguments carry a kind) gets the skeleton standalone card;
+			// edit_artifact keeps today's row (no card yet, body: null) — the
+			// brief's own "edit_artifact keeps today's row" line.
+			const creatingBody: ToolActivityBody | null =
+				!isEdit && inputArtifactKind
+					? {
+							kind: "artifact-creating",
+							artifactKind: inputArtifactKind,
+							title: object,
+						}
+					: null;
 			return {
 				...base,
 				verb: actionVerb,
@@ -769,15 +812,54 @@ function buildSettledToolActivityItem(
 				meta: "",
 				summaryLabel: actionVerb,
 				title: object,
-				body: null,
+				// Mirrors the settled card above: a skeleton card stays visible on
+				// its own rather than requiring a click to reveal itself.
+				pinned: Boolean(creatingBody),
+				alwaysOpen: Boolean(creatingBody),
+				body: creatingBody,
 			};
 		}
-		// A refusal (ok: false), or a settled call whose metadata came back
-		// malformed: never fabricate a card for something that did not, in
-		// fact, happen. Falls through to the generic identity/body below,
-		// which already shows the row's own failure — outputSummary carries
-		// the model-facing refusal reason (create.ts/edit.ts's own English
-		// text) into the body's "result" line.
+		// Wave 2.5 Step 12/13: a SETTLED, business-level refusal of create_artifact
+		// (never edit_artifact — see the "artifact-failed" body's own doc comment
+		// above) gets a standalone card saying so, with the model-facing reason.
+		// The row's own verb/title stay the SAME settled form a success would
+		// have had (this file's established philosophy for every OTHER failure:
+		// only the glyph and the body communicate it — see
+		// `buildToolActivityItem`'s own top comment) — `status` is overridden to
+		// "failed" so the glyph actually turns red for what is, from the user's
+		// side, a real failure (nothing was made), unlike a hard transport
+		// failure the segment itself never reports here (status stays "done").
+		if (
+			!isEdit &&
+			status === "done" &&
+			metadata?.ok === false &&
+			artifactKind &&
+			object
+		) {
+			return {
+				...base,
+				status: "failed",
+				verb: actionVerb,
+				object,
+				meta: "",
+				summaryLabel: `${actionVerb} ${object}`.trim(),
+				title: object,
+				pinned: true,
+				alwaysOpen: true,
+				body: {
+					kind: "artifact-failed",
+					artifactKind,
+					title: object,
+					reason: segment.outputSummary ?? null,
+				},
+			};
+		}
+		// A refusal (ok: false) with no usable kind, or a settled call whose
+		// success metadata came back malformed: never fabricate a card for
+		// something that did not, in fact, happen. Falls through to the generic
+		// identity/body below, which already shows the row's own failure —
+		// outputSummary carries the model-facing refusal reason (create.ts/
+		// edit.ts's own English text) into the body's "result" line.
 	}
 
 	if (iconType === "memory") {

@@ -1697,6 +1697,60 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("moves focus to the panel title when a document opens (redesign §5.4, Wave 2.5 review F2)", async () => {
+		// The review's own finding: opening the panel did not move focus to
+		// the title/first row, so a screen-reader user got no announcement of
+		// what just appeared. `data-testid="artifact-panel-title"` carries
+		// `tabindex="-1"` specifically so it is a valid focus target here.
+		withDocumentLoader();
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "doc-1",
+					kind: "document",
+					title: "Vienna trip plan",
+				}),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		await screen.findByTestId("fake-artifact-body");
+		await waitFor(() => {
+			expect(document.activeElement).toHaveAttribute(
+				"data-testid",
+				"artifact-panel-title",
+			);
+		});
+		expect(document.activeElement).toHaveTextContent("Vienna trip plan");
+	});
+
+	// Wave 2.5 review (F2, 294-296): "header meta" — "Document · v3 · just
+	// now" was missing the mockup's own authorship ("You and Alfy · edited
+	// {when}", index.html's editedWhen string).
+	it("shows the mockup's 'You and Alfy · edited …' authorship in the header meta", async () => {
+		withDocumentLoader();
+		const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "doc-1",
+					kind: "document",
+					title: "Vienna trip plan",
+					updatedAt: fiveMinutesAgo,
+				}),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		await screen.findByTestId("fake-artifact-body");
+		const shell = screen.getAllByRole("complementary", {
+			name: "Document workspace",
+		})[0];
+		expect(
+			within(shell).getByText("You and Alfy · edited 5 min ago"),
+		).toBeInTheDocument();
+	});
+
 	it("keeps the legacy header, unchanged, for an item with no kind", async () => {
 		renderWorkspace({
 			documents: [

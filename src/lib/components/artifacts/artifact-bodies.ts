@@ -51,12 +51,48 @@ export interface ArtifactBodyProps {
 	 * back to its plain-text version / the panel's own generic download link.
 	 */
 	registerPanelActions?: (actions: ArtifactPanelBodyActions) => void;
+	/**
+	 * Wave 2.5 Step 8: the live count behind the header's Comments button
+	 * badge (Document only, today) — a plain reactive report, not a
+	 * `registerPanelActions` field, because it changes continuously as
+	 * comments load/resolve rather than being a one-time trigger a body hands
+	 * up once. Fires from an `$effect` whenever the count changes; a kind
+	 * with no comments (App, File) simply never calls it, and the header
+	 * never shows the button at all.
+	 */
+	onCommentCountChange?: (openCount: number) => void;
+	/**
+	 * Wave 2.5 review (F1): the live count behind the persisted
+	 * `pendingReviewCount` — same shape/trigger contract as
+	 * `onCommentCountChange` above (a plain reactive report from an
+	 * `$effect`, not a one-time `registerPanelActions` trigger), so the
+	 * chat card, the list row and the count-button dot all update the
+	 * instant Keep/Undo/Keep-all changes the count, without waiting for a
+	 * full conversation-detail reload. Document only, today; a kind with no
+	 * review workflow (App, File) simply never calls it.
+	 */
+	onPendingReviewCountChange?: (count: number) => void;
+	/**
+	 * rd/review-2-5.md:272-275: the signed-in user's own id/name/profile
+	 * picture, for a "you" row (a comment, a version) to show the real avatar
+	 * instead of a placeholder "U" — the layout already resolves this
+	 * (`(app)/+layout.server.ts`'s `SessionUser`); bodies with such a row
+	 * (Document, today) thread it down to the leaf that renders `AvatarCircle`.
+	 * `null`/absent falls back to the old placeholder.
+	 */
+	currentUser?: {
+		id: string;
+		displayName: string;
+		profilePicture: string | null;
+	} | null;
 }
 
 /** See `ArtifactBodyProps.registerPanelActions`. Every field is optional: a body opts in to only the actions it actually owns a sheet for. */
 export interface ArtifactPanelBodyActions {
 	openVersions?: () => void;
 	openDownload?: () => void;
+	/** Wave 2.5 Step 8: opens the phone sheet / narrow-panel drawer holding the same rail `MarginPanel.svelte` renders inline at full width — see `CommentsSheet.svelte`. */
+	openComments?: () => void;
 }
 
 export type ArtifactBodyLoader = () => Promise<{

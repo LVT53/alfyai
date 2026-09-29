@@ -15,10 +15,11 @@ import {
 } from "./document-editor";
 import { buildDocumentExtensions } from "./extensions";
 import {
-	alfyChangeRect,
+	alfyChangeDocRange,
 	applyAlfyChangeMarks,
 	keepAlfyChange,
 	refusalReasonI18nKey,
+	remarkAlfyChange,
 	scrollToAlfyChange,
 	summarizeRefusals,
 	undoAlfyChange,
@@ -31,6 +32,7 @@ function undo(
 		blockId: string;
 		previousMarkdown: string;
 		insertedBlockIds?: string[];
+		isNewBlock?: boolean;
 	},
 ): boolean {
 	return undoAlfyChange(editor, entry, buildDocumentExtensions(""));
@@ -43,13 +45,14 @@ afterEach(() => {
 	element = null;
 });
 
-function mountEditor(markdown: string) {
+function mountEditor(markdown: string, onUpdate?: () => void) {
 	element = document.createElement("div");
 	document.body.appendChild(element);
 	return createDocumentEditor({
 		element,
 		markdown,
 		placeholder: "Write anything, or ask Alfy to.",
+		onUpdate,
 	});
 }
 
@@ -60,8 +63,8 @@ function mountEditor(markdown: string) {
  * `document-editor.test.ts` uses, and required here because
  * `applyAlfyChangeMarks` locates blocks in the live editor by id.
  */
-function setup(markdown: string) {
-	const editor = mountEditor(markdown);
+function setup(markdown: string, onUpdate?: () => void) {
+	const editor = mountEditor(markdown, onUpdate);
 	const parsed = parseDocument(readMarkdown(editor), { mint: false });
 	return { editor, blocks: parsed.blocks, snapshot: buildIndex(parsed.blocks) };
 }
@@ -349,6 +352,155 @@ describe("marks: Keep and Undo", () => {
 		expect(replay.outcomes[0].code).toBe("block_changed");
 		editor.destroy();
 	});
+
+	it("Undo of a ruling-61 reload-restored NEW block deletes it instead of replacing it with empty content", () => {
+		// A real op that produces a genuinely new block (`reblock`'s own mint),
+		// exactly like the "extra blocks" test above — but here the NEW block
+		// itself is what ruling 61's reload path would report as pending (no
+		// parent counterpart), never the first (existing) block.
+		const { editor, blocks, snapshot } = setup("Alpha.\n\nBeta.\n\nGamma.");
+		const target = blocks[1];
+		const replaceOp = op({
+			kind: "replaceBlock",
+			blockId: target.id,
+			baseHash: target.hash,
+			text: "Beta, revised.\n\nBeta's new second paragraph.",
+		});
+		const patch = patchOf([replaceOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		const insertedId = result.inverses[0].insertedBlockIds?.[0];
+		if (!insertedId) throw new Error("expected an inserted block id");
+
+		loadMarkdown(editor, result.markdown);
+		const beforeUndo = parseDocument(readMarkdown(editor), { mint: false });
+		expect(beforeUndo.blocks.map((b) => b.id)).toContain(insertedId);
+
+		const undone = undo(editor, {
+			blockId: insertedId,
+			previousMarkdown: "",
+			isNewBlock: true,
+		});
+		expect(undone).toBe(true);
+
+		const after = parseDocument(readMarkdown(editor), { mint: false });
+		expect(after.blocks.map((b) => b.id)).not.toContain(insertedId);
+		// The block it was NOT undoing (the first, existing one) is untouched.
+		expect(after.blocks.some((b) => b.markdown === "Beta, revised.")).toBe(
+			true,
+		);
+		editor.destroy();
+	});
+});
+
+describe("marks: remarkAlfyChange", () => {
+	it("marks a whole block, for a caller with no op-level precision (Redo, ruling 61's reload restore)", () => {
+		const { editor, blocks } = setup("Alpha.\n\nBeta.");
+		const target = blocks[1];
+
+		const marked = remarkAlfyChange(editor, "resurrected-change", target.id);
+		expect(marked).toBe(true);
+		expect(
+			element?.querySelector(`[data-alfy-change-id="resurrected-change"]`)
+				?.textContent,
+		).toBe("Beta.");
+
+		const range = alfyChangeDocRange(editor, "resurrected-change");
+		expect(range).not.toBeNull();
+		editor.destroy();
+	});
+
+	it("returns false for a block that is not in the document", () => {
+		const { editor } = setup("Alpha.");
+		expect(remarkAlfyChange(editor, "change-1", "no-such-block")).toBe(false);
+		editor.destroy();
+	});
+});
+
+// rd/review-2-5.md:109-121 — opening a Document with pending changes wrote an
+// empty "Edited" user version: `applyAlfyChangeMarks`/`keepAlfyChange`/
+// `remarkAlfyChange` are mark-only transactions (they add or remove the
+// AlfyChange mark over text a patch already applied elsewhere), but none of
+// them told Tiptap so — `DocumentBody.svelte`'s `handleUpdate` treated the
+// resulting `onUpdate` fire as a real user edit and autosaved. `undoAlfyChange`
+// is the control: Undo genuinely changes the document's content (ruling 61:
+// "Undo restores the parent's content... as a user edit") and must keep firing
+// `onUpdate` so it keeps producing a real saved version.
+describe("marks: mark-only transactions never fire onUpdate (rd/review-2-5.md:109-121)", () => {
+	it("applyAlfyChangeMarks does not fire onUpdate — a patch's mark-add is not itself a user edit", () => {
+		const onUpdate = vi.fn();
+		const { editor, blocks, snapshot } = setup("Alpha.\n\nBeta.", onUpdate);
+		const target = blocks[0];
+		const replaceOp = op({
+			kind: "replaceBlock",
+			blockId: target.id,
+			baseHash: target.hash,
+			text: "Alpha, revised.",
+		});
+		const patch = patchOf([replaceOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+
+		loadMarkdown(editor, result.markdown);
+		onUpdate.mockClear(); // isolate applyAlfyChangeMarks's own dispatch
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		expect(entries).toHaveLength(1);
+		expect(onUpdate).not.toHaveBeenCalled();
+		editor.destroy();
+	});
+
+	it("keepAlfyChange does not fire onUpdate — Keep's own persistence goes through the review API, not a body save", () => {
+		const onUpdate = vi.fn();
+		const { editor, blocks, snapshot } = setup("Alpha.\n\nBeta.", onUpdate);
+		const target = blocks[0];
+		const replaceOp = op({
+			kind: "replaceBlock",
+			blockId: target.id,
+			baseHash: target.hash,
+			text: "Alpha, revised.",
+		});
+		const patch = patchOf([replaceOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		onUpdate.mockClear();
+
+		const cleared = keepAlfyChange(editor, entries[0].changeId);
+		expect(cleared).toBe(true);
+		expect(onUpdate).not.toHaveBeenCalled();
+		editor.destroy();
+	});
+
+	it("remarkAlfyChange does not fire onUpdate — merely opening a document with a ruling-61 pending block must not autosave", () => {
+		const onUpdate = vi.fn();
+		const { editor, blocks } = setup("Alpha.\n\nBeta.", onUpdate);
+		onUpdate.mockClear();
+
+		const marked = remarkAlfyChange(editor, "restored-change", blocks[0].id);
+		expect(marked).toBe(true);
+		expect(onUpdate).not.toHaveBeenCalled();
+		editor.destroy();
+	});
+
+	it("undoAlfyChange DOES still fire onUpdate — Undo is a real, save-worthy edit, not a mark-only transaction", () => {
+		const onUpdate = vi.fn();
+		const { editor, blocks, snapshot } = setup("Alpha.\n\nBeta.", onUpdate);
+		const target = blocks[0];
+		const replaceOp = op({
+			kind: "replaceBlock",
+			blockId: target.id,
+			baseHash: target.hash,
+			text: "Alpha, revised.",
+		});
+		const patch = patchOf([replaceOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		onUpdate.mockClear();
+
+		const undone = undo(editor, entries[0]);
+		expect(undone).toBe(true);
+		expect(onUpdate).toHaveBeenCalledTimes(1);
+		editor.destroy();
+	});
 });
 
 describe("marks: summarizeRefusals / refusalReasonI18nKey", () => {
@@ -416,15 +568,15 @@ describe("marks: summarizeRefusals / refusalReasonI18nKey", () => {
 	});
 });
 
-describe("marks: alfyChangeRect / scrollToAlfyChange (the inline bar's positioning)", () => {
+describe("marks: alfyChangeDocRange / scrollToAlfyChange (the inline pill's positioning)", () => {
 	it("returns null for a changeId with no mark, without throwing", () => {
 		const { editor } = setup("First paragraph.");
-		expect(() => alfyChangeRect(editor, "no-such-change")).not.toThrow();
-		expect(alfyChangeRect(editor, "no-such-change")).toBeNull();
+		expect(() => alfyChangeDocRange(editor, "no-such-change")).not.toThrow();
+		expect(alfyChangeDocRange(editor, "no-such-change")).toBeNull();
 		expect(scrollToAlfyChange(editor, "no-such-change")).toBe(false);
 	});
 
-	it("combines the mark's start/end coords into one rect", () => {
+	it("finds the mark's own live document range", () => {
 		const { editor, blocks, snapshot } = setup(
 			"First paragraph.\n\nSecond paragraph.",
 		);
@@ -441,20 +593,9 @@ describe("marks: alfyChangeRect / scrollToAlfyChange (the inline bar's positioni
 		loadMarkdown(editor, result.markdown);
 		const entries = applyAlfyChangeMarks(editor, result, patch);
 
-		let call = 0;
-		editor.view.coordsAtPos = (() => {
-			call += 1;
-			// First call is the range's `from`, second is `to` — distinct
-			// values on each side prove the function combines both, not just
-			// one repeated coordinate.
-			return call === 1
-				? { top: 10, left: 20, right: 21, bottom: 40 }
-				: { top: 11, left: 29, right: 30, bottom: 41 };
-		}) as typeof editor.view.coordsAtPos;
-
-		const rect = alfyChangeRect(editor, entries[0].changeId);
-		// top/left come from the range's start coords, right/bottom from its end.
-		expect(rect).toEqual({ top: 10, left: 20, right: 30, bottom: 41 });
+		const range = alfyChangeDocRange(editor, entries[0].changeId);
+		expect(range).not.toBeNull();
+		expect(range?.from).toBeLessThan(range?.to ?? 0);
 	});
 
 	it("scrolls the mark's DOM node into view when one exists", () => {

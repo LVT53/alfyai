@@ -172,6 +172,7 @@ import {
 	isConversationReadOnly,
 	isOsFileDropEvent,
 	markPendingSkillUnavailable,
+	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
 	type DraftChangePayload,
 	type MessageEditPayload,
@@ -733,6 +734,7 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 		}
 	},
 	shouldHydrateFileProductionJobsOnToolCall,
+	shouldHydrateArtifactsOnToolCall,
 	applyStreamMetadata: (metadata) => {
 		if (metadata) {
 			markDetailMetadataFreshnessBoundary();
@@ -918,45 +920,79 @@ let isArtifactPanelOpen = $derived(
 );
 
 /**
- * Wave 2.5 Step 12 (redesign §9.2): "composer placeholder names the open
- * item" — looked up from `workspaceDocuments` (the panel's own open tabs),
- * never from `DocumentWorkspace.svelte`'s internal `activeDocument`
- * derivation, which this page has no access to. `null` whenever there is no
- * specific item actually ON SCREEN: the panel is closed, or it is open but
- * showing the LIST (`artifactListOpen`) rather than an item — the list has
- * no single "open item" to name, even if a document tab is still active
- * underneath it (push-navigation keeps that state so "back" is instant).
+ * Wave 2.5 Step 12/13 (redesign §9.2): the panel's own open item — looked up
+ * from `workspaceDocuments` (the panel's own open tabs), never from
+ * `DocumentWorkspace.svelte`'s internal `activeDocument` derivation, which
+ * this page has no access to. `null` whenever there is no specific item
+ * actually ON SCREEN: the panel is closed, or it is open but showing the
+ * LIST (`artifactListOpen`) rather than an item — the list has no single
+ * "open item" to name, even if a document tab is still active underneath it
+ * (push-navigation keeps that state so "back" is instant). Both
+ * `composerPlaceholder` and `activeArtifactId` below read from this one
+ * lookup rather than each re-deriving it.
  */
-let activeWorkspaceDocumentTitle = $derived(
+let activeWorkspaceDocument = $derived(
 	workspaceOpen && !artifactListOpen
 		? (workspaceDocuments.find(
 				(document) => document.id === activeWorkspaceDocumentId,
-			)?.title ?? null)
+			) ?? null)
 		: null,
 );
+/**
+ * Wave 2.5 Step 13: the bare artifact id of the panel's own open item,
+ * forwarded to every in-chat create_artifact/edit_artifact card
+ * (`ToolActivityRow`'s `activeArtifactId` prop) so the one card that matches
+ * shows "Open in panel" instead of "Open ›" — see that prop's own doc.
+ * Distinct from `activeWorkspaceDocumentId`, which is the workspace ITEM id
+ * ("artifact:" + id for the four new kinds, minted in
+ * `ToolActivityRow.svelte`'s own `handleOpenArtifact`), not the bare id a
+ * card's `body.artifactId` carries.
+ */
+let activeArtifactId = $derived(activeWorkspaceDocument?.artifactId ?? null);
+/** Wave 2.5 Step 12/13 (redesign §9.2): "composer placeholder names the open item" — App gets its own phrasing ("ask to CHANGE it"), every other kind keeps the generic "ask ABOUT it". */
 let composerPlaceholder = $derived(
-	activeWorkspaceDocumentTitle
-		? $t("artifacts.chat.composerPlaceholder", {
-				title: activeWorkspaceDocumentTitle,
-			})
+	activeWorkspaceDocument
+		? $t(
+				activeWorkspaceDocument.kind === "app"
+					? "artifacts.chat.composerPlaceholderApp"
+					: "artifacts.chat.composerPlaceholder",
+				{ title: activeWorkspaceDocument.title },
+			)
 		: null,
 );
 
 /**
- * Wave 2.5 Step 4 (redesign §5.2/§5.3): the count button's dot — "a change
- * waits while the panel is closed". Fed from `liveDocumentAlfyActivity`, the
- * page's existing ephemeral, session-only signal for "Alfy just finished a
- * create_artifact/edit_artifact call" (settled, not still running or
- * failed) — the SAME single derived value `ArtifactCard`'s row-level
- * pending-review pill reads (see `artifactCardViewFor` in
- * `DocumentWorkspace.svelte`). A later Wave 2.5 agent's durable "pending
- * review survives a reload" work replaces what feeds this value, not the
- * button markup that reads it.
+ * Wave 2.5 review (F1): the count button's dot — "a change waits while the
+ * panel is closed" — now reads the SAME persisted `artifacts` list the chat
+ * card and the panel's list row do (`row.pendingReviewCount`, populated on
+ * load/refresh and kept live by `handlePendingReviewCountChange` while a
+ * Document body is open), instead of independently re-deriving its own
+ * ephemeral guess from `liveDocumentAlfyActivity` — the bug this replaces:
+ * that guess never changed after Keep/Undo/Keep-all (nothing about them
+ * touches `$messages`, which is all `liveDocumentAlfyActivity` ever scans),
+ * so the dot could come back lit after the panel closed even once nothing
+ * was actually pending, and stayed dark after a reload even when something
+ * genuinely was (the ephemeral signal is deliberately suppressed for
+ * history — see `documentAlfyActivitySuppressKey` above).
+ *
+ * A row this page has NEVER heard a persisted count for yet (`pendingReviewCount`
+ * still `undefined` — mid-turn, before any conversation-detail load ever
+ * added this artifact) falls back to that same ephemeral signal, so a live,
+ * panel-closed edit still lights the dot instantly; once EITHER a real
+ * persisted count exists for that same artifact, it is what every future
+ * read trusts instead, never the frozen ephemeral one.
  */
 let hasUnreviewedArtifactChange = $derived(
-	liveDocumentAlfyActivity !== null &&
-		(liveDocumentAlfyActivity.status === "applied" ||
-			liveDocumentAlfyActivity.status === "refused"),
+	artifacts.some((row) => {
+		if (row.pendingReviewCount != null) return row.pendingReviewCount > 0;
+		return (
+			liveDocumentAlfyActivity !== null &&
+			liveDocumentAlfyActivity.artifactId === row.id &&
+			(liveDocumentAlfyActivity.status === "applied" ||
+				liveDocumentAlfyActivity.status === "refused") &&
+			liveDocumentAlfyActivity.appliedCount > 0
+		);
+	}),
 );
 let showArtifactPendingDot = $derived(
 	hasUnreviewedArtifactChange && !isArtifactPanelOpen,
@@ -1010,6 +1046,7 @@ function artifactToWorkspaceItem(
 		kind: summary.kind,
 		updatedAt: summary.updatedAt,
 		documentPreview: summary.documentPreview,
+		pendingReviewCount: summary.pendingReviewCount,
 	};
 }
 
@@ -1046,6 +1083,37 @@ async function handleToggleDocumentTask(
 			},
 		};
 	});
+}
+
+/**
+ * Wave 2.5 review (F1): the open Document body's own live report (through
+ * `DocumentWorkspace`'s `onPendingReviewCountChange`) lands here and patches
+ * the SAME `artifacts` state everything else reads — the same optimistic-
+ * patch shape `handleToggleDocumentTask` above already uses for
+ * `documentPreview`. Because the chat card's `body.preview` (`ThinkingBlock`)
+ * and the panel's own `artifactWorkspaceItems` (below) both derive from this
+ * one array, a Keep/Undo/Keep-all click updates the chat card, the list row
+ * and the count-button dot together, without a reload.
+ *
+ * Idempotent on purpose: `DocumentBody`'s own effect reports the CURRENT
+ * count on every render where it is read, including ones this page's own
+ * `artifacts` reassignment (below) itself causes downstream (`documents` →
+ * `activeDocument` → the body's props). Reassigning `artifacts` again with
+ * an UNCHANGED value would still mint new array/row references, which
+ * un-does nothing logically but keeps every dependent `$derived` (and, one
+ * more hop down, the body's own props) "changing" forever — Svelte's own
+ * `effect_update_depth_exceeded`. Bailing out when the count already
+ * matches breaks that cycle at its source.
+ */
+function handlePendingReviewCountChange(
+	artifactId: string,
+	count: number,
+): void {
+	const current = artifacts.find((row) => row.id === artifactId);
+	if (!current || current.pendingReviewCount === count) return;
+	artifacts = artifacts.map((row) =>
+		row.id === artifactId ? { ...row, pendingReviewCount: count } : row,
+	);
 }
 
 let artifactWorkspaceItems = $derived(artifacts.map(artifactToWorkspaceItem));
@@ -1831,6 +1899,15 @@ async function hydrateConversationDetail(conversationId: string) {
 			contextDebug = payload.contextDebug ?? contextDebug;
 			generatedFiles = payload.generatedFiles ?? generatedFiles;
 			fileProductionJobs = payload.fileProductionJobs ?? fileProductionJobs;
+			// Wave 2.5 review (F2): missing here (unlike its sibling
+			// applyConversationDetailMetadata, the polling-fallback path's
+			// version of this same field list, which already includes it) —
+			// a create_artifact/edit_artifact turn's fresh versionNumber/
+			// pendingReviewCount never reached the chat card or panel list row
+			// without a full reload, since ThinkingBlock.svelte's
+			// buildEnrichedToolActivityItem derives the card's `preview` from
+			// exactly this array.
+			artifacts = payload.artifacts ?? artifacts;
 			atlasJobs = payload.atlasJobs ?? atlasJobs;
 			contextCompressionMarkers =
 				payload.contextCompressionSnapshots ?? contextCompressionMarkers;
@@ -3241,6 +3318,7 @@ function handleDrop(event: DragEvent) {
 						{artifacts}
 						onToggleDocumentTask={handleToggleDocumentTask}
 						alfyActivity={liveDocumentAlfyActivity}
+						{activeArtifactId}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}
@@ -3346,6 +3424,8 @@ function handleDrop(event: DragEvent) {
 			onPresentationChange={(nextPresentation) => {
 				workspacePresentation = nextPresentation;
 			}}
+			onPendingReviewCountChange={handlePendingReviewCountChange}
+			currentUser={data.user}
 		/>
 	</div>
 

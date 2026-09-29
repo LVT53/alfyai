@@ -1,16 +1,22 @@
 <script lang="ts">
 /**
- * The one card every comment renders as (ruling 45): threads, status,
+ * The one card every comment MESSAGE renders as (ruling 45): threads,
  * replies, all share the same `artifact_comments` row shape (ruling 11), so
- * a Document reply and a future Canvas reply look the same. Created here for
- * Slice 1 (Document, T10); Slice 3 (Canvas) consumes this file rather than
- * forking its own — the `RefusalNotice.svelte` pattern.
+ * a Document reply and a future Canvas reply look the same. Redesigned for
+ * the Artifacts redesign (redesign.md §3.2/§8, Wave 2.5 Step 6): avatar,
+ * name, time, body with `@Alfy` highlighted, the Guess tag, and the change
+ * chip. Created for Slice 1 (Document, T10); Slice 3 (Canvas) consumes this
+ * file rather than forking its own — the `RefusalNotice.svelte` pattern.
  *
- * Purely presentational: it never calls the network itself. `onResolve` and
- * `onReplyClick` are omitted entirely by the caller for a comment that
- * cannot carry that action (a reply has no `onResolve`; nothing here decides
- * that on its own).
+ * One MESSAGE, never a whole thread: `document/CommentThread.svelte` renders
+ * the thread's own box (quote, connecting line, fold/peek, Reply/Resolve,
+ * the composer) and calls this once per message (the root, then each
+ * reply). Purely presentational and knows nothing about Tiptap or a live
+ * document — `isGuess`/`changeState`/`onSeeChange`/`onAskAgain` are all
+ * plain values and callbacks the caller (`CommentThread`) already resolved.
  */
+import { CircleSlash, Sparkles } from "@lucide/svelte";
+import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import { t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import {
@@ -22,12 +28,45 @@ import { formatRelativeTime } from "$lib/utils/time";
 
 let {
 	comment,
-	onResolve,
-	onReplyClick,
+	isGuess = false,
+	changeState,
+	onSeeChange,
+	onAskAgain,
+	currentUserId = null,
+	currentUserName = null,
+	currentUserProfilePicture = null,
 }: {
 	comment: ArtifactComment;
-	onResolve?: (resolved: boolean) => void;
-	onReplyClick?: () => void;
+	/**
+	 * True only for a thread's ROOT message, and only when Alfy started the
+	 * thread unprompted — a judgement call it made on its own (spec decision
+	 * 8, redesign §3.2 "Alfy's own notes"). `CommentThread` decides this
+	 * (`thread.parentId === null && thread.author === 'alfy'`); a REPLY from
+	 * Alfy inside a thread the user started is never tagged Guess.
+	 */
+	isGuess?: boolean;
+	/**
+	 * Set when THIS message's own `@Alfy` reply produced an edit still
+	 * tracked this session — `DocumentBody.svelte`'s `pendingChanges`, keyed
+	 * by the changeId this comment produced. Ephemeral like `ChangeBar`'s own
+	 * state (ruling: ADR-0066's ephemeral review state, not yet durable —
+	 * rd2's own hand-off note); `undefined` renders no chip at all, which is
+	 * also what a reload shows today.
+	 */
+	changeState?: "pending" | "kept" | "undone";
+	/** "See change" — scrolls to and flashes the change this message made. Omitted together with `changeState`. */
+	onSeeChange?: () => void;
+	/** The refused-reply quick action ("Ask again", §3.3's "Alfy refused" row) — opens the SAME reply composer `CommentThread`'s own Reply button does. Rendered only on a refusal message. */
+	onAskAgain?: () => void;
+	/**
+	 * rd/review-2-5.md:272-275: the signed-in user's own id/name/profile
+	 * picture — the current session, i.e. whoever "you" (`authorLabel` below)
+	 * refers to, since a Document has exactly one human collaborator. `null`
+	 * falls back to the old literal `"user"` placeholder.
+	 */
+	currentUserId?: string | null;
+	currentUserName?: string | null;
+	currentUserProfilePicture?: string | null;
 } = $props();
 
 let authorLabel = $derived(
@@ -74,64 +113,110 @@ let displayBody = $derived.by(() => {
 let isRefusal = $derived(
 	comment.author === "alfy" && comment.body === ALFY_REFUSED_MARKER,
 );
+
+/** Splits the (already-resolved) body on literal `@Alfy` mentions so the template can give each one accent styling — never on the raw marker text, which never reaches here as `@Alfy`-shaped content. */
+function splitMentions(text: string): { text: string; isMention: boolean }[] {
+	const parts = text.split(/(@Alfy)/gi);
+	return parts
+		.filter((part) => part.length > 0)
+		.map((part) => ({ text: part, isMention: /^@Alfy$/i.test(part) }));
+}
+let bodySegments = $derived(splitMentions(displayBody));
+
+let changeChipLabel = $derived(
+	changeState === "kept"
+		? $t("artifacts.document.comment.changeKept")
+		: changeState === "undone"
+			? $t("artifacts.document.comment.changeUndone")
+			: $t("artifacts.document.comment.changeEdited"),
+);
 </script>
 
-<article class="comment-card" class:comment-card-refused={isRefusal}>
+<div class="comment-card" class:comment-card-refused={isRefusal}>
 	<header class="comment-card-header">
+		{#if comment.author === 'alfy'}
+			<span class="comment-card-alfy-avatar" aria-hidden="true">
+				<Sparkles size={12} strokeWidth={2} />
+			</span>
+		{:else}
+			<AvatarCircle
+				userId={currentUserId ?? 'user'}
+				name={currentUserName}
+				profilePicture={currentUserProfilePicture}
+				size={22}
+			/>
+		{/if}
 		<span class="comment-card-author">{authorLabel}</span>
 		<time class="comment-card-time">{formatRelativeTime(comment.createdAt, { t: $t })}</time>
-		{#if comment.status === 'resolved'}
-			<span class="comment-card-badge">{$t('artifacts.document.comment.resolved')}</span>
+		{#if isGuess}
+			<span class="comment-card-guess-tag">{$t('artifacts.document.comment.guessTag')}</span>
 		{/if}
 	</header>
-	<p class="comment-card-body">{displayBody}</p>
+	<p class="comment-card-body">
+		{#each bodySegments as segment, index (index)}
+			{#if segment.isMention}<span class="comment-card-mention">{segment.text}</span>{:else}{segment.text}{/if}
+		{/each}
+	</p>
 	{#if hasPartialRefusal}
 		<p class="comment-card-partial-refusal">
 			{$t('artifacts.document.comment.alfyPartialRefusal')}
 		</p>
 	{/if}
-	{#if onResolve || onReplyClick}
-		<div class="comment-card-actions">
-			{#if onReplyClick}
-				<button type="button" class="btn-ghost btn-sm" onclick={onReplyClick}>
-					{$t('artifacts.document.comment.reply')}
-				</button>
-			{/if}
-			{#if onResolve}
-				<button
-					type="button"
-					class="btn-ghost btn-sm"
-					onclick={() => onResolve?.(comment.status !== 'resolved')}
-				>
-					{comment.status === 'resolved'
-						? $t('artifacts.document.comment.reopen')
-						: $t('artifacts.document.comment.resolve')}
+	{#if isRefusal}
+		<div class="comment-card-refusal-row">
+			<CircleSlash size={13} strokeWidth={2} aria-hidden="true" />
+			{#if onAskAgain}
+				<button type="button" class="btn-ghost btn-sm" onclick={onAskAgain}>
+					{$t('artifacts.document.comment.askAgain')}
 				</button>
 			{/if}
 		</div>
 	{/if}
-</article>
+	{#if changeState}
+		<div class="comment-card-change-chip">
+			<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
+			<span class="comment-card-change-label">{changeChipLabel}</span>
+			{#if onSeeChange}
+				<button type="button" class="comment-card-change-see" onclick={onSeeChange}>
+					{$t('artifacts.document.comment.seeChange')}
+				</button>
+			{/if}
+		</div>
+	{/if}
+</div>
 
 <style>
 	.comment-card {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
-		padding: 0.625rem 0.75rem;
-		border-radius: var(--radius-md);
-		background-color: var(--surface-page);
+		gap: 0.3rem;
 	}
 
 	.comment-card-refused {
-		background-color: var(--surface-overlay);
+		border-radius: var(--radius-md);
+		background-color: var(--warning-tint);
+		padding: 0.375rem 0.5rem;
+		margin: -0.375rem -0.5rem;
 	}
 
 	.comment-card-header {
 		display: flex;
-		align-items: baseline;
-		gap: 0.5rem;
-		font-size: 0.75rem;
+		align-items: center;
+		gap: 0.375rem;
+		font-size: var(--text-xs);
 		color: var(--text-muted);
+	}
+
+	.comment-card-alfy-avatar {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		flex-shrink: 0;
+		border-radius: var(--radius-full, 999px);
+		background-color: var(--accent-tint);
+		color: var(--accent-text);
 	}
 
 	.comment-card-author {
@@ -139,35 +224,83 @@ let isRefusal = $derived(
 		color: var(--text-primary);
 	}
 
-	.comment-card-badge {
+	.comment-card-guess-tag {
 		margin-left: auto;
 		padding: 0.0625rem 0.375rem;
 		border-radius: var(--radius-full, 999px);
-		background-color: var(--surface-elevated);
-		color: var(--text-muted);
-		font-size: 0.6875rem;
+		background-color: var(--accent-tint);
+		color: var(--accent-text);
+		font-size: var(--text-2xs, 0.66rem);
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
 	}
 
 	.comment-card-body {
 		margin: 0;
-		font-size: 0.875rem;
+		font-size: var(--text-sm);
 		color: var(--text-primary);
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}
 
-	/* RV-1B, coordinator item 8: a lighter-weight note than `.comment-card-refused`
-	   — this reply mostly succeeded, so it never changes the card's own background,
-	   it just makes the partial refusal readable instead of silent. */
+	.comment-card-mention {
+		color: var(--accent-text);
+		font-weight: 600;
+	}
+
+	/* RV-1B, coordinator item 8: a lighter-weight note than the refusal row
+	   below — this reply mostly succeeded, so it never changes the card's
+	   own background, it just makes the partial refusal readable instead of
+	   silent. */
 	.comment-card-partial-refusal {
 		margin: 0;
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		font-style: italic;
 		color: var(--text-muted);
 	}
 
-	.comment-card-actions {
+	.comment-card-refusal-row {
 		display: flex;
-		gap: 0.75rem;
+		align-items: center;
+		gap: 0.375rem;
+		color: var(--warning-text);
+	}
+
+	.comment-card-change-chip {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+		padding: 0.25rem 0.5rem;
+		border-radius: var(--radius-md);
+		background-color: var(--accent-tint);
+		color: var(--accent-text);
+		font-size: var(--text-xs);
+	}
+
+	.comment-card-change-label {
+		font-weight: 600;
+	}
+
+	.comment-card-change-see {
+		border: none;
+		background: none;
+		padding: 0;
+		margin-left: auto;
+		color: var(--accent-text);
+		font-family: var(--font-sans);
+		font-size: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.comment-card-change-see:hover {
+		text-decoration: underline;
+	}
+
+	.comment-card-change-see:focus-visible {
+		outline: 2px solid var(--focus-ring);
+		outline-offset: 2px;
 	}
 </style>

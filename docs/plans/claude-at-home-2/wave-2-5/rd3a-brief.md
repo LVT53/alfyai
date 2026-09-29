@@ -1,16 +1,23 @@
 # Agent 3a · Comment cards and the comment rail (redesign steps 6–7)
 
-Runs after agents 1, 2 and 5. Read the **hand-off sections** of `rd/rd1-report.md`, `rd/rd2-report.md` and
-`rd/rd5-report.md` first and reuse what they name. Agent 1 styled the comment highlight (`.comment-anchor`,
-`.is-active`, `.is-resolved` with `--comment-mark*`) but **no comment-anchor decoration exists yet**: you build it.
-Agent 3b (phone comments, the narrow-panel drawer, Versions/Download popovers) and agents 4a/4b (the editing chain)
-come after you.
+Agents 1, 2, 5a and 5k are merged (and live on ai.dev). **Agent 5b runs at the same time as you** on the App panel and
+the in-chat card (`AppBody.svelte`, `AppFrame.svelte`, `ArtifactCard.svelte`, `ToolActivityRow.svelte`, the chat page,
+`DocumentWorkspace.svelte`'s Open-documents rail): do not touch those. Read the **hand-off sections** of
+`rd/rd1-report.md`, `rd/rd2-report.md` and `rd/rd5a-report.md` first and reuse what they name. Agent 1 styled the comment
+highlight (`.comment-anchor`, `.is-active`, `.is-resolved` with `--comment-mark*`) but **no comment-anchor decoration
+exists yet**: you build it. Agent 3b (phone comments, the narrow-panel drawer, Versions/Download popovers) and agents
+4a/4b (the editing chain) come after you.
 
 - Worktree `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/.claude/worktrees/art-rd3a`, branch
   `feat/artifacts-rd3a-comments`, e2e port **5420**, label `rd3a`.
 - Report: `/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/7b83c54c-f41d-4571-8b3c-4cb3539fb5b2/scratchpad/rd/rd3a-report.md`
 - Screenshots: `…/scratchpad/rd/shots/rd3a/` (same scratchpad as the report).
 - Read first: `rd/common.md` next to this brief.
+- i18n: add your keys **inside the existing comment/margin blocks** of `src/lib/i18n/artifacts.ts` (EN and HU), never
+  at the end of the `en`/`hu` objects — agent 5b edits the same file in parallel.
+- The panel now slides in when it opens: an e2e that measures geometry must first wait for it to settle
+  (`waitForStableBoundingBox` in `tests/e2e/helpers.ts`), and list items open by clicking the row
+  (`getByTestId("artifact-row")`), not an "Open" button.
 
 ## Read in `redesign.md`
 
@@ -20,14 +27,6 @@ cards), §8's `CommentCard` / `CommentThread` / `CommentRail` rows (731–732), 
 `DocumentBody.svelte` (one scroll container) (771–775), §7 for the fold/reply animations. **Ruling 61's second point
 wins over the spec and the mockup:** the rail shows **Open** threads by default, with a quiet "N resolved" toggle to
 All; resolved threads fold to one line either way. Mockup: `#rail`, `.rail-filter`, `#railBody` and the thread cards.
-
-## Step 0 · Fix inline task items first (a defect from agent 1)
-
-Task items render with the checkbox on its own line **above** the text (agent 1's own screenshot
-`shots/rd1/rd1-document-1440-light-hu.png` and agent 2's `shots/rd2/document-hu-desktop-light.png` show it); spec §1/§5
-and the mockup's `.tasks` put the checkbox on the text's line. Fix it in the `.document-content` styles, test-first
-with a Playwright check that a task's checkbox and its first text line share one line box (their vertical centres
-within a few px), at 1440×900 and 390×844.
 
 ## Step 6 · Comment card and thread anatomy
 

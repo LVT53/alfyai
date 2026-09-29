@@ -535,11 +535,11 @@ resets 2026-09-28 08:59 UTC.
 | 2 | Panel shell (3–5) | `feat/artifacts-rd2-shell` / `art-rd2` (5410) | **merged** (`79109131`) — 20 commits `f9702a8f`…`33065621`: `ArtifactPanelHeader` (Document/App/File), `ArtifactCard chrome="row"` list, push navigation and panel motion, count button pressed state + dot, tabs that switch sections (a tab-range decoration; a new empty tab shows everything), `⋯` tab menu, grouped toolbar with roving tabindex and "Saved", phone More sheet on `DialogShell`. Gates: check 0/17, 13,528 tests, build 32/2, Fallow 124/4 (0 new), Playwright 68/68. Cost ≈ 4 % of the weekly budget (743 tool calls, 3 h 5 min) |
 | 5a | Task-item fix, in-chat cards (0, 12) | `feat/artifacts-rd5a-cards` / `art-rd5a` (5440) | **merged** — 7 commits `b2a3442f`…`82e70f72`: task items inline (agent 1's CSS keyed on a `data-type` Tiptap never renders; now `data-checked`), no timing on artifact cards, "1 tab" plural, a real standalone card outside the tool-row box, the live pending-review count on the card, the composer placeholder names the open item. Gates: check 0/17, 13,533 tests, build 32/2, Fallow 124/4 (0 new), Playwright 48/48. Cost ≈ 2 % (395 tool calls, 83 min). Stopped before step 14 on the budget |
 | 5k | Knowledge chips (14) | `feat/artifacts-rd5k-chips` / `art-rd5k` (5448) | **merged** — 2 commits `99129148`, `d437beaa`: zero chips disabled with a reason, "All files" chip, CSS reveal, one count source (the page's disagreeing pill removed), plurals, "uploaded" → "files" as the mockup words it. Gates: check 0/17, 13,537 tests, build 32/2, Fallow 124/4 (0 new), Playwright 42/42. Cost ≈ 1 % (175 tool calls, 34 min). Deferred: the per-chip 20 ms stagger and the collapse-out; unused `knowledge.documents.totalLabel`; "Alkalmazások 0" clips at 390 px HU (pre-existing) |
-| 5b | App panel (13), 5a's leftovers | `feat/artifacts-rd5b-app` / `art-rd5b` (5445) | waiting — brief = `rd5-brief.md`'s Step 13 (incl. the rail decision) + the deferred card items in `rd5a-report.md` (creating/failed/deleted states, "1 part left alone" pill, live `current` wiring, App fact-check field) |
-| 3a | Comment card/thread, the rail (6–7) | `feat/artifacts-rd3a-comments` / `art-rd3a` (5420) | waiting |
-| 3b | Phone comments, drawer, Versions/Download popovers (8 + §3.2) | `feat/artifacts-rd3b-sheets` / `art-rd3b` (5425) | waiting |
-| 4a | Selection pill/composer, Alfy writing, pinned refusal (9, 11) | `feat/artifacts-rd4a-compose` / `art-rd4a` (5430) | waiting |
-| 4b | Change pill, review bar, pending review across reloads (10 + ruling 61) | `feat/artifacts-rd4b-review` / `art-rd4b` (5435) | waiting |
+| 5b | App panel (13), 5a's leftovers | `feat/artifacts-rd5b-app` / `art-rd5b` (5445) | **merged** (`f1c29be8`) — 11 commits: App status row (verdict icons, collapsible note), segmented Preview/Code + "Change this app…", sandbox bar in `AppFrame`, regenerate popover (`focusTrap`, sheet on phones), non-blocking busy veil with real `inert`, failed regenerate keeps the prompt, v2 toast + Undo via `restoreArtifactVersion` (`Toast` gained `actionLabel`/`onAction`), Download in the header; Open-documents rail hidden for App too (its e2e moved to the panel list); in-chat card `current` live, creating, failed, App fact-check line (`shared/artifacts/app-verify-labels.ts`). Deferred: no Preview↔Code cross-fade, no header spinner while downloading, no HU shots of creating/failed cards (unit-tested) |
+| 3a | Comment card/thread, the rail (6–7) | `feat/artifacts-rd3a-comments` / `art-rd3a` (5420) | **merged** (`453807d0`) — 7 commits: `CommentCard` as one message row (avatar/sparkle, Guess tag, `@Alfy` highlight, change chip, refusal + Ask again), `CommentThread` owns the thread (quote/goto, fold/peek, reply composer that switches to Ask Alfy, typing placeholder), the comment-anchor decoration with two-way linking, `MarginPanel` as the rail inside `.document-content` (one scroll; scroll-sync deleted), ruling 61's Open/All as a quiet toggle, per-tab scoping (`mapBlocksToTabs`), removed-text group, other-tab rows. Deferred: the removed-text group is not tab-scoped (no stored "original tab"); the change chip's link is session-only |
+| 3b | Phone comments, drawer, Versions/Download popovers (8 + §3.2) | `feat/artifacts-rd3b-sheets` / `art-rd3b` (5425) | **merged** (`2dcc7250`) — 9 commits: `VersionsSheet`/`DownloadSheet` as anchored popovers (desktop) and `DialogShell` sheets (phone) with `focusTrap` + `portalToBody`, inline restore confirm, avatars, restore toast + Undo; `CommentsSheet.svelte` for the phone sheet and the narrow-panel drawer (container query at 820 px of the panel's own width); the header's Comments button with its open count. Fixed a real layering bug its screenshots caught (phone sheets under the workspace backdrop, z-95 vs z-50) with an `elementFromPoint` test. Deferred: the drawer ignores the workspace's "expanded" presentation; no wide-desktop rail-hide toggle |
+| 4a | Selection pill/composer, Alfy writing, pinned refusal (9, 11) | `feat/artifacts-rd4a-compose` / `art-rd4a` (5430) | **merged** (`78c6d44e`) — 14 commits: pill → 340 px composer (Ask with suggestions and effect line, Comment with the `@Alfy` switch, height-aware placement, travel to the margin), phone docked bar (fixed, with a window Escape) + sheet composer, "Alfy is writing" as block decorations with a 600 ms minimum (`alfy-writing-decoration.ts`), the refusal as the comment family's warning card (Ask again / Dismiss), the card's "1 part left alone" pill; fixed a fully refused edit showing "1 change to review" |
+| 4b | Change pill, review bar, pending review across reloads (10 + ruling 61) | `feat/artifacts-rd4b-review` / `art-rd4b` (5435) | **merged** (`39c6493c`) — 10 commits: `ChangeBar` as an inline "Alfy · Keep · Undo · Redo" pill (a widget decoration mounting a Svelte component), shared `ReviewBar.svelte`, ruling 61 end to end (`metadata_json` marker + kept list, pure `computePendingReviewBlocks` in `document-ops.ts`, `GET/POST /api/artifacts/[id]/review`, client calls, restore on load); a live e2e reloads, sees the marks, keeps one, reloads, sees one fewer. Open (for the review/fix pass): Redo after Undo loses extra blocks of a multi-block insert; the thread's change chip has no pending/kept badge after a reload; **the count button's dot does not follow the persisted state**; review-bar prev/next are 40 px on phones; **pre-existing: `undoAlfyChange` collapses an existing block whose previous text is legitimately empty**. The agent also opened two follow-up task chips for the owner (the dot, the Undo bug) |
 | R | Opus visual/a11y review (16) | `rv-rd` (5450) | waiting |
 
 Rulings (orchestrator, 2026-09-27):
@@ -570,6 +570,57 @@ Rulings (orchestrator, 2026-09-27):
   each newer Alfy version changed against its parent, minus kept, minus later user edits, minus deleted; creation never
   pending; an artifact without a marker has nothing pending until its next Alfy edit writes the marker — cost if wrong:
   a pending change made before the deploy is not re-shown (today's behaviour), or a column is needed later.
+- **Resumed 2026-09-28 after the weekly reset (0 %).** The owner allows two agents at a time. Ruling: rounds of two —
+  5b ∥ 3a (disjoint files; each adds i18n keys inside its own block), then 3b ∥ 4a (3b's phone sheet/drawer and popovers
+  in their own components, 4a's bubble/writing/refusal in theirs; each keeps `DocumentBody.svelte` edits to a mount and a
+  handler), then 4b alone, then the Opus review — cost if wrong: a merge conflict in `DocumentBody.svelte` or
+  `i18n/artifacts.ts` that one small agent resolves with tests. Every agent now runs all artifact e2e suites at the end.
+- Ruling (5b's card states): build "open in panel" live, "creating" (create only), "failed" without a Retry unless a real
+  retry path exists, and the App fact-check line only if the verdict is already stored; the "deleted" state has no server
+  signal (left for the review) and the "1 part left alone" pill goes to 4a with the refusal summary.
+- **Round one merged and gated (2026-09-28 17:01 UTC):** `feat/artifacts` = `f1c29be8` — check 0/17, 13,594 tests, build
+  32/2, Fallow 124/4 (0 new), Playwright 81/81 (every artifact suite, chat, conversation, knowledge). Round two (3b ∥ 4a)
+  branched from it and is running. Agent cost this round: 3a 714k tokens / 376 calls / 91 min; 5b 823k / 491 / 97 min.
+- **Round two merged and gated (2026-09-28 18:43 UTC):** `feat/artifacts` = `78c6d44e` (3b and 4a merged without a
+  conflict) — check 0/17, 13,647 tests, build 32/2, Fallow 124/4 (0 new), Playwright 86/86.
+- Ruling: the Opus review does not run beside 4b — the 5-hour window was at 66 % (4 Sonnet agents in 3.5 h) and an Opus
+  seat beside 4b would likely hit it and cut both off; the review starts after the 19:10 UTC window reset, on the final
+  head, in one pass — cost if wrong: about an hour of wall-clock.
+- **All eight build agents merged (2026-09-28 ~19:25 UTC): `feat/artifacts` = `39c6493c`.** Next: the final gates on this
+  head, the one Opus review (`wave-2-5/review-brief.md`, report only, findings tagged [doc]/[shell]), then two Sonnet fix
+  agents side by side (one per tag), then `dev`, gates in `dev-int`, push, deploy.
+- **Opus review done (2026-09-28 ~21:15 UTC, `wave-2-5/review-2-5.md`): 3 Critical, 15 Important, 20 Minor; "ready after
+  fixes".** Ruling 61's server side verified correct; no contrast failures. Fix plan: round F1 = A [shell + review-state
+  flow] ∥ B [Document layout, phone composer/review bar, popovers, tabs, pill keyboard]; round F2 = C [Document review
+  logic, versions, avatars, HU strings, cheap a11y minors] ∥ D [chat-side minors]; then one Sonnet re-check (phone pass +
+  live card flow), `dev`, deploy. The other [doc] minors (touch targets, sheet offsets, rail copy, prose, Versions rows,
+  refusal placement, Undo summary) and the review's "can wait" triage rows are left for later.
+- **Fix agent A merged** (`cf275a44`; 3 commits `8509e87b`…`01d54f54`): all six of its findings, the persisted
+  `pendingReviewCount` now the one source for the card, list row and dot (read model), the card-path double count, the
+  header's version/time from the card, the App sheet/popover layering, Escape stacking and padding. Gates: check 0/17,
+  13,691 tests, build 32/2, Fallow 124/4 (0 new), Playwright 88/89 → the one failure is a **pre-existing flake**
+  (`artifact-chat-card.spec.ts:190`, fails ~1 in 3 on the reviewed head `145c199e` too); handed to D. D started beside B.
+- **Fix agent B merged** (`c9df1e5e`; 9 commits `957bc07a`…`198ef385`): all eight Document-layout findings (phone composer
+  sheet on top, compact phone review bar with 44 px prev/next, one real scroll container so rail cards stay beside their
+  words, the review bar placement, expanded-panel popovers, the tab `⋯` menu, an empty new tab shows only its (empty)
+  section via a zero-width-space anchor — C verifies it never reaches saved text — and the pill by keyboard). Gates on
+  A+B: check 0/17, 13,712 tests, build 32/2, Fallow 124/4 (0 new), Playwright 99/99. C started beside D.
+- **Fix round F2 merged (2026-09-29 ~01:50 UTC):** D (`c344b7d6`, 10 commits: 44 px header/chip targets, panel focus on
+  open, App a11y, Knowledge chip icons, `btn-primary` hover contrast, the card's live version, "You and Alfy · edited"
+  meta, motion tokens, the chat-card e2e made deterministic; left: per-row accessible names in the list, which would
+  rewrite ~10 suites' selectors, and a toast `out:` transition jsdom cannot finish), the one-line T8 test fix (`b81d44ac`,
+  expects the live "v2" D's fix now shows), and C (`9ba6b85e`, 12 commits: no empty "Edited" version on open, the stepper
+  switches tabs, version-aware kept ids on the server, a user's edit acknowledges a pending block, real avatars, English
+  strings in the HU UI, the change pill's name, a polite live region, tabs ARIA, composer Escape, and **three real leaks of
+  B's empty-tab zero-width space fixed** (`read_artifact`, PDF/DOCX export, Markdown export); left: the tab strip's `⋯`/`+`
+  inside `role="tablist"` (a follow-up chip). Gates on `9ba6b85e`: check 0/17, 13,768 tests, build 32/2, Fallow 124/4 (0
+  new), **Playwright 100/100**. Next: the Sonnet re-check (`wave-2-5/recheck-brief.md`), then `dev` and deploy.
+- **Re-check done (Sonnet, `wave-2-5/recheck.md`): Critical 3/3, Important 15/15, fix-first 6/6 addressed**, both live passes
+  green in Hungarian (phone pass; edit → Átnézés → Mindet megtartom → reviewed, no dot → reload → nothing pending), the
+  empty-tab anchor stays out of saved text/exports/reads. One new Important in the fix diff: opening a Document with
+  pending changes flashes "Átnézve"/no dot for ~100–300 ms (the body reports 0 before its review state loads; a failed
+  load leaves the 0 until reload). Ruling: fix it before the deploy — the owner walks exactly this flow — cost if wrong:
+  ~1 h of wall-clock. Small fix agent on `fix/artifacts-rd-review-flash` (red→green e2e that polls the card every 40 ms).
 - Briefs for every agent: `docs/plans/claude-at-home-2/wave-2-5/` (`common.md` + `rd*-brief.md`); reports and
   screenshots in this session's scratchpad `rd/`.
 - Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
@@ -591,7 +642,15 @@ Rulings (orchestrator, 2026-09-27):
 
 **PAUSED 2026-09-27 ~17:50 UTC for the weekly limit** (the owner asked to continue to 98 % and keep 2 % for a later deploy;
 agents 5a and 5k ran on that basis; stopped at 97 %). Agents 1, 2, 5a and 5k are merged into `feat/artifacts`; nothing
-of the redesign is on `dev` or ai.dev yet (ai.dev = `29a07688`). Worktrees `art-rd1`, `art-rd2`, `art-rd5a`, `art-rd5k`
+of the redesign was on `dev` at that point.
+
+**First half DEPLOYED to ai.dev on the owner's request (2026-09-27 ~21:30 UTC): `dev` = ai.dev = `16c3ebb3`** (health OK,
+`current -> releases/16c3ebb3`). Before it: `fix/artifacts-rd-e2e-rows` — two older suites still clicked the list's removed
+"Open" button (agent 2's brief had not listed them), and the bubble geometry test measured `.document-content` during the
+panel's new entrance slide (`waitForStableBoundingBox` in `tests/e2e/helpers.ts`; test timing, the placement math is
+right). Gates in `dev-int`: check 0/17, 13,537 tests, build 32/2, Fallow 124/4 (0 new), **Playwright 81/81** (chat,
+conversation, every artifact suite, knowledge). The live model check (`/root/verify-artifacts-w2.mjs`) was not re-run:
+no server code changed. The owner inspects ai.dev and says when the rest resumes. Worktrees `art-rd1`, `art-rd2`, `art-rd5a`, `art-rd5k`
 can be removed (branches merged). 3a's
 step 0 (task items) is already done by 5a: skip it.
 

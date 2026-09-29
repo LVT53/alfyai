@@ -1,4 +1,5 @@
 <script lang="ts">
+import { tick } from "svelte";
 import { browser } from "$app/environment";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
 import {
@@ -15,6 +16,7 @@ import {
 	reducedMotionAnimate,
 } from "$lib/utils/motion";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
+import { hasOpenDialog } from "$lib/components/ui/DialogShell.svelte";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
@@ -34,6 +36,7 @@ import {
 	Download,
 	FileText,
 	Maximize2,
+	MessageSquareText,
 	X,
 	Sparkles,
 	ArrowLeftRight,
@@ -76,6 +79,8 @@ let {
 	onCloseWorkspace,
 	onPresentationChange = undefined,
 	onListOpenChange = undefined,
+	onPendingReviewCountChange = undefined,
+	currentUser = null,
 }: {
 	open?: boolean;
 	presentation?: "docked" | "expanded";
@@ -102,6 +107,24 @@ let {
 		| ((presentation: "docked" | "expanded") => void)
 		| undefined;
 	onListOpenChange?: ((open: boolean) => void) | undefined;
+	/**
+	 * Wave 2.5 review (F1): bubbles the open Document body's own live
+	 * `onPendingReviewCountChange` report (see `ArtifactBodyProps`'s doc
+	 * comment) up to the page, keyed by artifact id — so the page can patch
+	 * its own persisted `artifacts` list the same way `onToggleDocumentTask`'s
+	 * caller already does, and every reader of that list (the chat card, this
+	 * panel's own list row, the count-button dot) updates together. `undefined`
+	 * for a caller that has not wired durable review state yet.
+	 */
+	onPendingReviewCountChange?:
+		| ((artifactId: string, count: number) => void)
+		| undefined;
+	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
+	currentUser?: {
+		id: string;
+		displayName: string;
+		profilePicture: string | null;
+	} | null;
 } = $props();
 
 let activeDocument: WorkspaceDocument | null = $derived.by(() => {
@@ -113,6 +136,91 @@ let activeDocument: WorkspaceDocument | null = $derived.by(() => {
 		null
 	);
 });
+
+/**
+ * Wave 2.5 review (F1): "double count from the card path". Opened straight
+ * from the chat card AFTER an edit already settled while the panel was
+ * closed, the body's own mount-time restore (`runLoad` → `restorePendingReview`,
+ * keyed by block id) already reflects the just-landed change from the
+ * PERSISTED state — handing it `alfyActivity` too (keyed by op id) made it
+ * replay `landAlfyActivity` a second time for the same block, double-
+ * counting it. Only a key this panel was ACTUALLY open on the matching
+ * artifact for (at any point — including while it was still "running") is
+ * safe to replay: the body was mounted throughout that activity's own
+ * lifecycle, so `runLoad`'s restore ran BEFORE the change existed on the
+ * server, and the live landing is the only thing that ever adds it. A key
+ * never seen open stays suppressed for the body — even once the panel opens
+ * later — so the persisted restore is left to own it alone, exactly as the
+ * review's own fix note suggests ("let the server restore... own it").
+ * `alfyActivity` itself (unsuppressed) still feeds the row-level ephemeral
+ * pending pill below and the chat card, neither of which replay anything.
+ *
+ * rd/review-2-5.md fix agent C, round F2: an `open`-only check is not
+ * enough, because `open` and `activeDocumentId` can both become true in the
+ * SAME render that first hands this effect an already-settled activity
+ * (opening straight from the card sets both at once) — `open` alone cannot
+ * tell "the panel was open while this activity was still happening" from
+ * "the panel just opened, and happens to match a past activity that
+ * finished while it was closed." Gating on `alfyActivity.status === "running"`
+ * is not enough EITHER: a fake-provider (or simply fast) turn can settle
+ * between one render and the next, so this effect's FIRST look at a brand
+ * new key can just as easily already be "applied" for a document that WAS
+ * genuinely open and watching the whole time — the two cases are
+ * indistinguishable from the CURRENT render alone.
+ *
+ * The real distinguishing fact is history: was this specific key already
+ * stale (or nonexistent) at the moment this document MOST RECENTLY started
+ * being watched (the panel opening, or the active document switching to it
+ * while already open)? `staleKeyWhenWatchStarted` captures exactly that,
+ * once, right when watching starts — never re-armed while still watching,
+ * so a key that only shows up LATER, while still watching, is always new
+ * (and therefore safe) relative to it.
+ */
+let alfyActivitySeenOpenKeys = $state<Set<string>>(new Set());
+let previousWatch: { open: boolean; artifactId: string | null } = {
+	open: false,
+	artifactId: null,
+};
+const staleKeyWhenWatchStarted = new Map<string, string | null>();
+$effect(() => {
+	const artifactId = activeDocument?.artifactId ?? activeDocument?.id ?? null;
+	const watchStarted =
+		open &&
+		artifactId !== null &&
+		(!previousWatch.open || previousWatch.artifactId !== artifactId);
+	if (watchStarted && artifactId !== null) {
+		staleKeyWhenWatchStarted.set(
+			artifactId,
+			alfyActivity?.artifactId === artifactId ? alfyActivity.key : null,
+		);
+	}
+	previousWatch = { open, artifactId };
+
+	if (!open || !alfyActivity) return;
+	if (artifactId !== alfyActivity.artifactId) return;
+	if (alfyActivitySeenOpenKeys.has(alfyActivity.key)) return;
+	if (staleKeyWhenWatchStarted.get(artifactId) === alfyActivity.key) return;
+	alfyActivitySeenOpenKeys = new Set(alfyActivitySeenOpenKeys).add(
+		alfyActivity.key,
+	);
+});
+let bodyAlfyActivity = $derived(
+	alfyActivity && alfyActivitySeenOpenKeys.has(alfyActivity.key)
+		? alfyActivity
+		: null,
+);
+
+/**
+ * Wave 2.5 review (F1): the one call this panel makes into the page's own
+ * persisted-artifact-list plumbing, keyed by the SAME `artifactId` shape the
+ * body invocations already resolve (`activeDocument.artifactId ??
+ * activeDocument.id`) — see `onPendingReviewCountChange`'s own doc comment.
+ */
+function handleBodyPendingReviewCountChange(count: number): void {
+	const artifactId = activeDocument?.artifactId ?? activeDocument?.id;
+	if (!artifactId) return;
+	onPendingReviewCountChange?.(artifactId, count);
+}
 
 // The type-aware content area (Slice 0 Task S5): a kind with a registered
 // loader renders that body; a missing entry IS the File body, so every kind
@@ -132,9 +240,12 @@ let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 // open can never be called; the newly-open body (if any) re-registers on
 // its own next tick.
 let bodyPanelActions = $state<ArtifactPanelBodyActions | null>(null);
+/** Wave 2.5 Step 8: the Comments button's own badge (Document only — every other kind never calls `onCommentCountChange`, so this just stays 0 and the button never renders for them). Reset alongside `bodyPanelActions` for the same reason: a stale count from the item just left must never linger on the newly-open one. */
+let documentOpenCommentCount = $state(0);
 $effect(() => {
 	activeDocument?.id;
 	bodyPanelActions = null;
+	documentOpenCommentCount = 0;
 });
 
 // One cached module promise per kind, mirroring
@@ -244,8 +355,31 @@ $effect(() => {
 		lastDocumentId = activeDocument.id;
 		currentPage = activeDocument.currentPage ?? 1;
 		currentTotalPages = activeDocument.totalPages ?? 1;
+		void focusPanelTitleOnOpen();
 	}
 });
+
+/**
+ * Redesign §5.4 (Wave 2.5 review F2): opening the panel on a specific item —
+ * the first open, a list row click, or switching items via the count
+ * button/card — did not move focus, so a screen-reader user got no
+ * announcement of what just appeared. `tick()` waits for the branch swap
+ * (list → item, or the initial closed → open mount) to actually land in the
+ * DOM before querying for the title `ArtifactPanelHeader.svelte` renders
+ * (`data-testid="artifact-panel-title"`, `tabindex="-1"` so it is a valid
+ * programmatic focus target without joining the normal tab order). Queries
+ * whichever shell (mobile or desktop) is currently mounted rather than
+ * assuming one, since both bind their own ref and only one renders content
+ * for the active viewport at a time.
+ */
+async function focusPanelTitleOnOpen(): Promise<void> {
+	await tick();
+	const shell = desktopShellElement ?? mobileShellElement;
+	const title = shell?.querySelector<HTMLElement>(
+		'[data-testid="artifact-panel-title"]',
+	);
+	title?.focus();
+}
 
 $effect(() => {
 	if (shouldShowWorkspaceShell) {
@@ -517,17 +651,27 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 		item.updatedAt != null
 			? formatRelativeTime(item.updatedAt, { t: $t })
 			: null;
-	// The row's pending-review pill: the same ephemeral, session-only "a
-	// change just landed" signal the chat header's count-button dot reads
-	// (`alfyActivity`, already a prop here) — see
-	// `ArtifactCardView.pendingReviewCount`'s own doc comment for why this is
-	// expected to be superseded, not this field itself.
-	const pendingReviewCount =
+	// The row's pending-review pill (Wave 2.5 review, F1): `item.pendingReviewCount`
+	// is the PERSISTED count — `read-model.ts`'s `computeDocumentPendingReviewCounts`
+	// on load/refresh, kept live by this panel's own `handleBodyPendingReviewCountChange`
+	// while the body is open — and wins whenever it is set (0 included: that
+	// means "reviewed", still a real answer, never a reason to fall through).
+	// Only a row this page has NEVER heard a persisted count for (`undefined` —
+	// a brand-new item from mid-turn, before any conversation-detail load)
+	// falls back to the ephemeral, session-only `alfyActivity` guess, exactly
+	// like before. Wave 2.5 Step 11: only APPLIED changes count in that
+	// fallback — a fully refused call has nothing to review
+	// (`ToolActivityRow.svelte`'s own `artifactCardView` mirrors this exactly,
+	// including the same removed `Math.max(..., 1)` stopgap).
+	const ephemeralPendingReviewCount =
 		alfyActivity &&
 		alfyActivity.artifactId === (item.artifactId ?? item.id) &&
-		(alfyActivity.status === "applied" || alfyActivity.status === "refused")
-			? Math.max(alfyActivity.appliedCount, 1)
+		(alfyActivity.status === "applied" || alfyActivity.status === "refused") &&
+		alfyActivity.appliedCount > 0
+			? alfyActivity.appliedCount
 			: null;
+	const pendingReviewCount =
+		item.pendingReviewCount ?? ephemeralPendingReviewCount;
 	const rowExtras = {
 		updatedAtLabel,
 		pendingReviewCount,
@@ -798,6 +942,15 @@ function handleWindowKeydown(event: KeyboardEvent) {
 	) {
 		return;
 	}
+
+	// This listener mounts with the shell itself, before any popover/sheet/
+	// composer that opens later — so it runs FIRST on a shared Escape press,
+	// before that layer's own `preventDefault()` has a chance to fire.
+	// Deferring to `hasOpenDialog()` (order-independent) instead of relying
+	// on `event.defaultPrevented` above is what keeps one Escape closing
+	// only the innermost layer (redesign §5.4) instead of the popover AND
+	// the expanded panel at once.
+	if (hasOpenDialog()) return;
 
 	// The list closes first, in any presentation; only then does Escape fall
 	// through to the panel's own (expanded-only) close behaviour.
@@ -1235,22 +1388,44 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	{/snippet}
 
 	<!--
-		Wave 2.5 Step 3: `ArtifactPanelHeader`'s actions for an artifact-kind
-		item (Document/App/File) — Download, a divider, Expand, Close. Never
-		Comments (its open count isn't wired until a later agent's comment-
-		thread work lands — no disabled placeholder, per redesign §5.2) and
-		never the old grid/History buttons `artifactPanelActions()` above
-		draws for a legacy, non-artifact item: the breadcrumb replaces "back to
-		the list", and the version button above replaces History outright.
+		Wave 2.5 Step 3/8: `ArtifactPanelHeader`'s actions for an artifact-kind
+		item (Document/App/File) — Comments (Document only, matching the mockup's
+		own `.ph-actions` order), Download, a divider, Expand, Close. Never the
+		old grid/History buttons `artifactPanelActions()` above draws for a
+		legacy, non-artifact item: the breadcrumb replaces "back to the list",
+		and the version button above replaces History outright.
 	-->
 	{#snippet artifactHeaderActionsSnippet()}
+		{#if bodyPanelActions?.openComments}
+			<button
+				type="button"
+				class="btn-icon-bare workspace-comments-button"
+				data-testid="artifact-comments-button"
+				onclick={() => bodyPanelActions?.openComments?.()}
+				aria-label={documentOpenCommentCount > 0
+					? $t('artifacts.document.margin.buttonA11y', { count: documentOpenCommentCount })
+					: $t('artifacts.document.margin.title')}
+				title={$t('artifacts.document.margin.title')}
+			>
+				<MessageSquareText size={18} strokeWidth={2} aria-hidden="true" />
+				{#if documentOpenCommentCount > 0}
+					<span class="workspace-comments-count" aria-hidden="true">{documentOpenCommentCount}</span>
+				{/if}
+			</button>
+		{/if}
 		{#if bodyPanelActions?.openDownload}
+			{@const downloadLabel = $t(
+				activeArtifactKind === 'app'
+					? 'artifacts.app.action.download'
+					: 'artifacts.document.toolbar.download',
+			)}
 			<button
 				type="button"
 				class="btn-icon-bare workspace-download-button"
+				data-testid="artifact-download-button"
 				onclick={() => bodyPanelActions?.openDownload?.()}
-				aria-label={$t('artifacts.document.toolbar.download')}
-				title={$t('artifacts.document.toolbar.download')}
+				aria-label={downloadLabel}
+				title={downloadLabel}
 			>
 				<Download size={18} strokeWidth={2} aria-hidden="true" />
 			</button>
@@ -1298,7 +1473,11 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					title={getDocumentTitle(activeDocument)}
 					versionNumber={activeDocument.versionNumber && activeDocument.versionNumber > 0 ? activeDocument.versionNumber : null}
 					onVersions={bodyPanelActions?.openVersions}
-					meta={activeDocument.updatedAt != null ? formatRelativeTime(activeDocument.updatedAt, { t: $t }) : null}
+					meta={activeDocument.updatedAt != null
+					? $t('artifacts.header.editedBy', {
+							when: formatRelativeTime(activeDocument.updatedAt, { t: $t }),
+						})
+					: null}
 					itemCount={list?.items.length ?? null}
 					onBack={handleBackToList}
 					actions={artifactHeaderActionsSnippet}
@@ -1455,10 +1634,15 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							title={getDocumentTitle(activeDocument)}
 							body={null}
 							{conversationId}
-							{alfyActivity}
+							alfyActivity={bodyAlfyActivity}
 							registerPanelActions={(actions) => {
 								bodyPanelActions = actions;
 							}}
+							onCommentCountChange={(count) => {
+								documentOpenCommentCount = count;
+							}}
+							onPendingReviewCountChange={handleBodyPendingReviewCountChange}
+							{currentUser}
 						/>
 					{/await}
 				{:else if compareMode && comparedDocument}
@@ -1593,7 +1777,11 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				title={getDocumentTitle(activeDocument)}
 				versionNumber={activeDocument.versionNumber && activeDocument.versionNumber > 0 ? activeDocument.versionNumber : null}
 				onVersions={bodyPanelActions?.openVersions}
-				meta={activeDocument.updatedAt != null ? formatRelativeTime(activeDocument.updatedAt, { t: $t }) : null}
+				meta={activeDocument.updatedAt != null
+					? $t('artifacts.header.editedBy', {
+							when: formatRelativeTime(activeDocument.updatedAt, { t: $t }),
+						})
+					: null}
 				itemCount={list?.items.length ?? null}
 				onBack={handleBackToList}
 				actions={artifactHeaderActionsSnippet}
@@ -1691,17 +1879,23 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		data-presentation={presentation}
 		data-layout={documents.length > 1 ? "rail-and-preview" : "preview-only"}
 	>
-		{#if activeDocument.kind !== "document"}
+		{#if !activeDocument.kind}
 			<!--
-				Only the Document kind has a built replacement for
-				"switch between multiple open items while one stays visible"
-				(the breadcrumb back to the list, Wave 2.5 Step 3/4) — so only
-				Document hides the rail. App/Canvas/Slides/File keep it exactly
-				as before until each kind's own panel work (App-panel etc.,
-				later in this wave) makes its own intentional call; App in
-				particular still relies on the rail's persisted iframe
-				WindowProxy for its cross-app storage-isolation regression
-				coverage (tests/e2e/artifact-app.spec.ts).
+				Wave 2.5 Step 13: completes §9.2's original "hides OpenDocumentsRail
+				for every artifact kind" — App now hides it too (agent 2 had only
+				hidden it for Document; App's own panel work was still pending).
+				The panel's own breadcrumb back to "This chat" (list rows,
+				chrome="row") replaces the rail's "switch between multiple open
+				items" role for every artifact kind now: the security test that
+				used to switch Apps through the rail (its own persisted iframe
+				WindowProxy proved the cross-app storage-isolation guarantee) now
+				switches through the list instead — the SAME `{#key src}` remount
+				in AppFrame.svelte fires either way, so it is still exercising the
+				real mechanism, not a weaker substitute (see
+				tests/e2e/artifact-app.spec.ts). Canvas/Slides have no body yet, so
+				this is currently only observable for App/File; the rail still
+				serves legacy, non-artifact items (uploaded library documents,
+				old produced-file opens) that carry no `.kind` at all.
 			-->
 			<OpenDocumentsRail
 				{documents}
@@ -1752,10 +1946,15 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					title={getDocumentTitle(activeDocument)}
 					body={null}
 					{conversationId}
-					{alfyActivity}
+					alfyActivity={bodyAlfyActivity}
 					registerPanelActions={(actions) => {
 						bodyPanelActions = actions;
 					}}
+					onCommentCountChange={(count) => {
+						documentOpenCommentCount = count;
+					}}
+					onPendingReviewCountChange={handleBodyPendingReviewCountChange}
+					{currentUser}
 				/>
 			{/await}
 		{:else if compareMode && comparedDocument}
@@ -2174,6 +2373,30 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 
 	.workspace-expand-button:hover {
 		color: var(--text-primary);
+	}
+
+	/* Wave 2.5 Step 8: the header's Comments button — a plain icon button with
+	   an overlaid open-thread badge, the same shape the mockup's own
+	   `.btn-icon .count` uses. */
+	.workspace-comments-button {
+		position: relative;
+	}
+
+	.workspace-comments-count {
+		position: absolute;
+		top: 2px;
+		right: 1px;
+		min-width: 15px;
+		height: 15px;
+		padding: 0 4px;
+		border-radius: var(--radius-full);
+		background: var(--accent-fill);
+		color: var(--on-accent);
+		font-size: 9.5px;
+		font-weight: 700;
+		line-height: 15px;
+		letter-spacing: 0;
+		text-align: center;
 	}
 
 	.workspace-body {

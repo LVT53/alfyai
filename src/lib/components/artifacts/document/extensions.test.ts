@@ -1,3 +1,4 @@
+import type { Decoration } from "@tiptap/pm/view";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import { uiLanguage } from "$lib/stores/settings";
@@ -8,8 +9,11 @@ import {
 } from "./document-editor";
 import {
 	BLOCK_ID_ATTR,
+	buildCommentAnchorDecorations,
 	buildTabSectionDecorations,
 	CHIP_VALUE_ATTR,
+	type CommentAnchorTarget,
+	commentAnchorDocRange,
 	TRACKER_CHIP_NODE,
 } from "./extensions";
 
@@ -69,6 +73,9 @@ describe("extensions: TrackerChip", () => {
 			"Lemondva",
 		]);
 		expect(select?.value).toBe("Booked");
+		// rd/review-2-5.md:256-260 — the dropdown's own accessible name used to
+		// be the bare internal token "status", English even here.
+		expect(select?.getAttribute("aria-label")).toBe("Állapot");
 		editor.destroy();
 	});
 
@@ -93,6 +100,47 @@ describe("extensions: TrackerChip", () => {
 		const markdown = readMarkdown(editor);
 		expect(markdown).toContain('value="To book"');
 		expect(markdown).not.toContain("Lefoglalandó");
+		editor.destroy();
+	});
+});
+
+// rd/review-2-5.md:256-260 — Tiptap's own default task-item checkbox
+// accessible name ("Task item checkbox for {text}") is hardcoded English
+// inside @tiptap/extension-list, so it stayed English even under a Hungarian
+// UI. Localized via TaskItem's own `a11y.checkboxLabel` option.
+describe("extensions: TaskItem checkbox accessible name", () => {
+	it("names the checkbox with the item's own text, in English", () => {
+		const editor = mountEditor("- [ ] Book the hotel");
+		const checkbox = element?.querySelector<HTMLInputElement>(
+			'input[type="checkbox"]',
+		);
+		expect(checkbox?.getAttribute("aria-label")).toBe(
+			"Task item checkbox for Book the hotel",
+		);
+		editor.destroy();
+	});
+
+	it("names the checkbox in Hungarian under a Hungarian UI", () => {
+		uiLanguage.set("hu");
+		const editor = mountEditor("- [ ] Book the hotel");
+		const checkbox = element?.querySelector<HTMLInputElement>(
+			'input[type="checkbox"]',
+		);
+		expect(checkbox?.getAttribute("aria-label")).toBe(
+			"Feladat jelölőnégyzete: Book the hotel",
+		);
+		editor.destroy();
+	});
+
+	it("names an empty task item without crashing, localized", () => {
+		uiLanguage.set("hu");
+		const editor = mountEditor("- [ ] ");
+		const checkbox = element?.querySelector<HTMLInputElement>(
+			'input[type="checkbox"]',
+		);
+		expect(checkbox?.getAttribute("aria-label")).toBe(
+			"Feladat jelölőnégyzete: üres feladat",
+		);
 		editor.destroy();
 	});
 });
@@ -246,5 +294,127 @@ describe("extensions: tab section visibility", () => {
 		setActiveDocumentTab(editor, tabs, tabs[1].id);
 
 		expect(editor.can().undo()).toBe(canUndoBefore);
+	});
+});
+
+describe("extensions: CommentAnchors (redesign §3.2, Wave 2.5 Step 7)", () => {
+	/**
+	 * `Decoration`'s own `.d.ts` only exposes `from`/`to`/`spec` — `attrs` are
+	 * readable at runtime (`.type.attrs`, proven by these very tests passing)
+	 * but are not part of prosemirror-view's PUBLIC type, so `tsc` flags a
+	 * direct read. One narrow, explained cast here rather than three
+	 * unexplained ones inline.
+	 */
+	function decorationAttrs(decoration: Decoration): Record<string, string> {
+		return (
+			decoration as unknown as { type: { attrs: Record<string, string> } }
+		).type.attrs;
+	}
+
+	function firstBlockId(
+		editor: ReturnType<typeof createDocumentEditor>,
+	): string {
+		let id: string | null = null;
+		editor.state.doc.forEach((node) => {
+			if (id !== null) return;
+			const value = node.attrs?.[BLOCK_ID_ATTR];
+			if (typeof value === "string") id = value;
+		});
+		if (id === null) throw new Error("fixture has no identified block");
+		return id;
+	}
+
+	describe("commentAnchorDocRange", () => {
+		it("maps a block-relative character window onto the live doc's own positions", () => {
+			const editor = mountEditor("Hello world, this is a test.");
+			const blockId = firstBlockId(editor);
+			const from = "Hello world, this is a test.".indexOf("world");
+			const to = from + "world".length;
+
+			const range = commentAnchorDocRange(editor.state.doc, blockId, from, to);
+			expect(range).not.toBeNull();
+			expect(
+				editor.state.doc.textBetween(range?.from ?? 0, range?.to ?? 0),
+			).toBe("world");
+			editor.destroy();
+		});
+
+		it("returns null when the block id is not in the live doc", () => {
+			const editor = mountEditor("Hello world.");
+			const range = commentAnchorDocRange(
+				editor.state.doc,
+				"missing-block",
+				0,
+				5,
+			);
+			expect(range).toBeNull();
+			editor.destroy();
+		});
+	});
+
+	describe("buildCommentAnchorDecorations", () => {
+		it("decorates the resolved window with comment-anchor, focusable while open", () => {
+			const editor = mountEditor("Hello world, this is a test.");
+			const blockId = firstBlockId(editor);
+			const anchors: CommentAnchorTarget[] = [
+				{ commentId: "c1", blockId, from: 6, to: 11, resolved: false },
+			];
+
+			const decorations = buildCommentAnchorDecorations(
+				editor.state.doc,
+				anchors,
+				null,
+			).find();
+			expect(decorations).toHaveLength(1);
+			const attrs = decorationAttrs(decorations[0]);
+			expect(attrs.class).toBe("comment-anchor");
+			expect(attrs["data-comment-anchor-id"]).toBe("c1");
+			expect(attrs.tabindex).toBe("0");
+			expect(attrs.role).toBe("button");
+			editor.destroy();
+		});
+
+		it("adds is-active only for the active comment, and is-resolved for a resolved one, with no tabindex/role", () => {
+			const editor = mountEditor("Hello world, this is a test.");
+			const blockId = firstBlockId(editor);
+			const anchors: CommentAnchorTarget[] = [
+				{ commentId: "c1", blockId, from: 0, to: 5, resolved: false },
+				{ commentId: "c2", blockId, from: 6, to: 11, resolved: true },
+			];
+
+			const decorations = buildCommentAnchorDecorations(
+				editor.state.doc,
+				anchors,
+				"c1",
+			).find();
+			const byId = new Map(
+				decorations.map((d) => {
+					const attrs = decorationAttrs(d);
+					return [attrs["data-comment-anchor-id"], attrs] as const;
+				}),
+			);
+			expect(byId.get("c1")?.class).toBe("comment-anchor is-active");
+			expect(byId.get("c2")?.class).toBe("comment-anchor is-resolved");
+			expect(byId.get("c2")?.tabindex).toBeUndefined();
+			expect(byId.get("c2")?.role).toBeUndefined();
+			editor.destroy();
+		});
+
+		it("skips an anchor whose block is not in the live doc, without throwing", () => {
+			const editor = mountEditor("Hello world.");
+			const anchors: CommentAnchorTarget[] = [
+				{
+					commentId: "gone",
+					blockId: "missing",
+					from: 0,
+					to: 3,
+					resolved: false,
+				},
+			];
+			expect(
+				buildCommentAnchorDecorations(editor.state.doc, anchors, null).find(),
+			).toHaveLength(0);
+			editor.destroy();
+		});
 	});
 });

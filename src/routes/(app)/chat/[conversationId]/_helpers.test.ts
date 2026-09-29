@@ -27,6 +27,7 @@ import {
 	mergeFileProductionJob,
 	patchInstructionSuggestionInMessageList,
 	patchSkillDraftInMessageList,
+	shouldHydrateArtifactsOnToolCall,
 	shouldHydrateFileProductionJobsOnToolCall,
 	toFriendlySendError,
 } from "./_helpers";
@@ -561,6 +562,29 @@ describe("file production chat helpers", () => {
 		expect(
 			shouldHydrateFileProductionJobsOnToolCall("web_search", "failed"),
 		).toBe(false);
+	});
+
+	// Wave 2.5 review (F2): the in-chat card's version/pending-review pill
+	// went stale after a live edit because nothing hydrated `artifacts` on a
+	// create_artifact/edit_artifact call — see shouldHydrateArtifactsOnToolCall's
+	// own doc comment.
+	it("hydrates on a concluded create_artifact/edit_artifact call, and no other tool", () => {
+		expect(shouldHydrateArtifactsOnToolCall("create_artifact", "done")).toBe(
+			true,
+		);
+		expect(shouldHydrateArtifactsOnToolCall("edit_artifact", "done")).toBe(
+			true,
+		);
+		expect(shouldHydrateArtifactsOnToolCall("edit_artifact", "failed")).toBe(
+			true,
+		);
+		expect(shouldHydrateArtifactsOnToolCall("create_artifact", "running")).toBe(
+			false,
+		);
+		expect(shouldHydrateArtifactsOnToolCall("produce_file", "done")).toBe(
+			false,
+		);
+		expect(shouldHydrateArtifactsOnToolCall("web_search", "done")).toBe(false);
 	});
 
 	// Item 6 (UX-speed plan) — a produce_file tool call shows a "queued"

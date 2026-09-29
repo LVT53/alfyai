@@ -104,6 +104,7 @@ let {
 	conversationArtifacts = [],
 	onToggleDocumentTask = undefined,
 	alfyActivity = null,
+	activeArtifactId = null,
 }: {
 	message: ChatMessage;
 	isLast?: boolean;
@@ -185,6 +186,7 @@ let {
 		| undefined;
 	/** Forwarded to ThinkingBlock's standalone card (Wave 2.5 Step 12). See its own prop doc. */
 	alfyActivity?: DocumentAlfyActivity | null;
+	activeArtifactId?: string | null;
 } = $props();
 
 let copied = $state(false);
@@ -994,6 +996,7 @@ function sendFollowUp(question: string) {
 			{conversationArtifacts}
 			{onToggleDocumentTask}
 			{alfyActivity}
+			{activeArtifactId}
 		/>
 		{/if}
 		{#if isUser}

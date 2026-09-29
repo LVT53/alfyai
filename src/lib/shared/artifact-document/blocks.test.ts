@@ -5,6 +5,7 @@ import {
 	buildIndex,
 	countMarkers,
 	fnv1aHex,
+	mapBlocksToTabs,
 	mintBlockId,
 	normalizeMarkdown,
 	parseDocument,
@@ -596,5 +597,42 @@ describe("RV-1A: a list item's second paragraph stays in the item", () => {
 			"- [x] first\n\n  second",
 			"After the list.",
 		]);
+	});
+});
+
+// Wave 2.5 Step 7: `DocumentBody.svelte`'s tab badge counts and
+// `MarginPanel.svelte`'s own per-tab comment scoping both walk blocks this
+// one way, so they can never disagree about which tab a block belongs to.
+describe("mapBlocksToTabs", () => {
+	const blocks = [{ id: "p0" }, { id: "p1" }, { id: "p2" }, { id: "p3" }];
+
+	it("returns an empty map for zero or one tab — nothing is outside a single section", () => {
+		expect(mapBlocksToTabs(blocks, [])).toEqual(new Map());
+		expect(
+			mapBlocksToTabs(blocks, [{ id: "tab-0", startBlockId: "p0" }]),
+		).toEqual(new Map());
+	});
+
+	it("assigns each block to whichever tab's startBlockId most recently appeared at or before it", () => {
+		const tabs = [
+			{ id: "tab-0", startBlockId: "p0" },
+			{ id: "tab-1", startBlockId: "p2" },
+		];
+		const map = mapBlocksToTabs(blocks, tabs);
+		expect(map.get("p0")).toBe("tab-0");
+		expect(map.get("p1")).toBe("tab-0");
+		expect(map.get("p2")).toBe("tab-1");
+		expect(map.get("p3")).toBe("tab-1");
+	});
+
+	it("falls back to the first tab for a block before any recognised startBlockId", () => {
+		const tabs = [
+			{ id: "tab-0", startBlockId: "p1" },
+			{ id: "tab-1", startBlockId: "p3" },
+		];
+		const map = mapBlocksToTabs(blocks, tabs);
+		// "p0" names no tab's own startBlockId, so it falls back to the
+		// document's first tab rather than being left unassigned.
+		expect(map.get("p0")).toBe("tab-0");
 	});
 });

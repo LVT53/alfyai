@@ -85,6 +85,20 @@ describe("toast store", () => {
 		expect(get(toasts)).toHaveLength(0);
 	});
 
+	it("carries an optional action label and handler through to the entry (redesign §9.3 undo toasts)", () => {
+		const onAction = vi.fn();
+		showToast({
+			type: "success",
+			message: "Now showing v2",
+			actionLabel: "Undo",
+			onAction,
+		});
+
+		const entries = get(toasts);
+		expect(entries[0].actionLabel).toBe("Undo");
+		expect(entries[0].onAction).toBe(onAction);
+	});
+
 	it("clearToasts empties the queue and cancels every pending timer", () => {
 		showToast({ type: "success", message: "First" });
 		showToast({ type: "error", message: "Second" });

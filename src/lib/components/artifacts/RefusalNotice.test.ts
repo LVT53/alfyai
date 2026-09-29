@@ -82,4 +82,52 @@ describe("RefusalNotice", () => {
 		});
 		expect(screen.queryByRole("button")).not.toBeInTheDocument();
 	});
+
+	it("offers Ask again and Dismiss when both handlers and labels are given", async () => {
+		const onAskAgain = vi.fn();
+		const onDismiss = vi.fn();
+		render(RefusalNotice, {
+			message: "Alfy left one part alone because you had changed it.",
+			askAgainLabel: "Ask again",
+			onAskAgain,
+			dismissLabel: "Dismiss",
+			onDismiss,
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Ask again" }));
+		expect(onAskAgain).toHaveBeenCalledOnce();
+		await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+		expect(onDismiss).toHaveBeenCalledOnce();
+	});
+
+	it("renders neither Ask again nor Dismiss without their own handlers", () => {
+		render(RefusalNotice, {
+			message: "Alfy left one part alone because you had changed it.",
+		});
+		expect(
+			screen.queryByRole("button", { name: "Ask again" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Dismiss" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("stays the same pinned card regardless of how many actions it offers (data-testid stable)", () => {
+		render(RefusalNotice, {
+			message: "Alfy left one part alone because you had changed it.",
+			seeChangeLabel: "See what Alfy did",
+			onSeeChange: vi.fn(),
+			askAgainLabel: "Ask again",
+			onAskAgain: vi.fn(),
+			dismissLabel: "Dismiss",
+			onDismiss: vi.fn(),
+		});
+		expect(screen.getByTestId("refusal-notice")).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "See what Alfy did" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Ask again" }),
+		).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+	});
 });

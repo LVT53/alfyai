@@ -15,13 +15,16 @@
  * `artifact_kv` directly, restricted to kind `"document"`.
  */
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactKv, artifacts, artifactVersions } from "$lib/server/db/schema";
+import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	type BlockKind,
 	buildIndex,
+	type DocumentBlock,
 	parseDocument,
+	stripEmptyTabAnchorPlaceholder,
 } from "$lib/shared/artifact-document/blocks";
 import {
 	applyPatchSet,
@@ -273,9 +276,16 @@ export async function readDocumentForAlfy(
 			blocks: parsed.blocks.map((block) => ({
 				blockId: block.id,
 				kind: block.kind,
-				label: block.label,
+				// Wave 2.5 review, fix agent C (fix-agent-B finding 7): a
+				// brand-new, still-untouched tab's anchor paragraph is a single
+				// zero-width space (`appendEmptyTabSection`'s own placeholder) —
+				// real content to the STORED body (it must survive
+				// `saveDocumentBody`'s own re-canonicalisation), but Alfy should
+				// read it (both `label` and `text`) as the empty section it
+				// visibly is, not as one invisible character.
+				label: stripEmptyTabAnchorPlaceholder(block.label),
 				hash: block.hash,
-				text: block.markdown,
+				text: stripEmptyTabAnchorPlaceholder(block.markdown),
 			})),
 		};
 	});
@@ -344,15 +354,36 @@ export async function applyDocumentPatch(
 			snapshot: snapshot?.index ?? {},
 		});
 
+		const currentVersionNumber =
+			snapshot?.docVersion ?? readCurrentVersionNumber(db, scoped.id);
+
 		if (patchResult.applied === 0) {
 			return {
 				ok: true,
 				result: patchResult,
-				version:
-					snapshot?.docVersion ?? readCurrentVersionNumber(db, scoped.id),
+				version: currentVersionNumber,
 				versionId: readCurrentVersionId(db, scoped.id),
 			};
 		}
+
+		// Ruling 61's first point: "no marker yet, and the first new Alfy edit
+		// writes the marker as its parent version" — bootstrapped here, the one
+		// place an Alfy write actually lands, rather than lazily on a read
+		// (`getDocumentReviewState` stays read-only). `currentVersionNumber` is
+		// the version THIS patch is landing on top of, i.e. exactly "its parent
+		// version". A row that already has a marker (every later Alfy edit)
+		// leaves it for `acknowledgeDocumentReviewBlocks` to move.
+		const existingReview = readDocumentReviewMetadata(
+			parseArtifactMetadata(scoped.metadataJson),
+		);
+		const reviewMetadataPatch = existingReview
+			? undefined
+			: {
+					review: {
+						throughVersion: currentVersionNumber,
+						keptBlockIds: [] as string[],
+					} satisfies DocumentReviewMetadata,
+				};
 
 		const writeResult = await updateArtifactBody({
 			userId: params.userId,
@@ -363,6 +394,7 @@ export async function applyDocumentPatch(
 			author: "alfy",
 			summary: params.patch.label,
 			baseHash: hashArtifactBody(currentBody),
+			metadataPatch: reviewMetadataPatch,
 			snapshot: {
 				at: Date.now(),
 				docVersion: 0,
@@ -481,4 +513,458 @@ export async function saveDocumentBody(
 	});
 	if (!result.ok) return { ok: false, reason: result.reason };
 	return { ok: true, version: result.versionNumber, bodyHash: result.bodyHash };
+}
+
+// ---------------------------------------------------------------------------
+// Ruling 61's first point: a pending Alfy change survives a reload. Documents
+// only (Apps keep their own v2 toast + Undo). Stored on the artifact's own
+// `metadata_json` — no migration — as `{ review: { throughVersion,
+// keptBlockIds } }`: `throughVersion` is the last version number the user has
+// reviewed (always 0 — "no marker yet" — or an ALFY-authored version number,
+// never a user one, so the field's own meaning never drifts). Each
+// `keptBlockIds` entry is `"<blockId>@<alfyVersionNumber>"` (`encodeKeptBlock`
+// / `parseKeptBlockVersions`) — a bare block id is NOT enough, because Alfy
+// can change the SAME block again after it was kept: tying the entry to the
+// Alfy version it was kept against lets `computePendingReviewBlocks` tell "kept,
+// nothing since" from "kept, but Alfy touched it again in a later version" and
+// re-admit the block into the pending set in the second case (review found
+// this as a real bug — a kept block Alfy re-edited stayed silently "reviewed"
+// forever). The bootstrap write (an existing artifact's very first marker)
+// lives in `applyDocumentPatch` above, the one place an Alfy write actually
+// lands; everything below is either pure computation or the acknowledge
+// write, and NEITHER writes on a plain read — a GET recomputes from whatever
+// is currently stored rather than normalising it, so the only writer of this
+// metadata besides the bootstrap is `acknowledgeDocumentReviewBlocks`.
+// ---------------------------------------------------------------------------
+
+export interface DocumentReviewMetadata {
+	throughVersion: number;
+	keptBlockIds: string[];
+}
+
+/** Validates, never throws — malformed or missing metadata reads as "no marker yet". */
+function readDocumentReviewMetadata(
+	metadata: ArtifactMetadata | null,
+): DocumentReviewMetadata | null {
+	const raw = metadata?.review;
+	if (!raw || typeof raw !== "object") return null;
+	const { throughVersion, keptBlockIds } = raw as Record<string, unknown>;
+	if (typeof throughVersion !== "number" || throughVersion <= 0) return null;
+	const ids = Array.isArray(keptBlockIds)
+		? keptBlockIds.filter((id): id is string => typeof id === "string")
+		: [];
+	return { throughVersion, keptBlockIds: ids };
+}
+
+/** The stored form of one kept block id: tied to the Alfy version it was kept against. */
+function encodeKeptBlock(blockId: string, alfyVersionNumber: number): string {
+	return `${blockId}@${alfyVersionNumber}`;
+}
+
+/**
+ * `blockId → the highest Alfy version it has been kept against`. Block ids
+ * never contain `@` (`mintBlockId`'s charset is the prefix plus base-36
+ * digits), so splitting on the LAST `@` is unambiguous. A legacy or malformed
+ * entry (no parseable `@version` suffix) reads as version 0 — "kept, but not
+ * against any real Alfy version" — so it never permanently suppresses a real
+ * later Alfy change; it is simply superseded by that change's own version
+ * number the next time `computePendingReviewBlocks` runs. When the same block
+ * id was kept more than once across the document's life, the highest version
+ * wins (the most recent Keep/Undo is the one that matters).
+ */
+function parseKeptBlockVersions(
+	entries: readonly string[],
+): Map<string, number> {
+	const kept = new Map<string, number>();
+	for (const entry of entries) {
+		const at = entry.lastIndexOf("@");
+		const blockId = at === -1 ? entry : entry.slice(0, at);
+		if (!blockId) continue;
+		const versionText = at === -1 ? "" : entry.slice(at + 1);
+		const parsedVersion = Number.parseInt(versionText, 10);
+		const asOfVersion =
+			Number.isFinite(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0;
+		const existing = kept.get(blockId);
+		if (existing === undefined || asOfVersion > existing) {
+			kept.set(blockId, asOfVersion);
+		}
+	}
+	return kept;
+}
+
+/** One pending block: still-unreviewed Alfy content, plus what Undo restores. */
+export interface DocumentReviewPendingBlock {
+	blockId: string;
+	blockLabel: string;
+	/** The block's markdown as of the Alfy version's own parent — what Undo restores. Empty when `isNewBlock`. */
+	previousMarkdown: string;
+	/** True when the block did not exist before the Alfy version that (most recently) changed it — Undo deletes it rather than replacing it with empty content. */
+	isNewBlock: boolean;
+	/** Which Alfy version most recently changed this block — informational (ordering, tests). */
+	alfyVersionNumber: number;
+}
+
+interface ReviewVersionRow {
+	versionNumber: number;
+	author: ArtifactAuthor;
+	body: string;
+}
+
+function readVersionsAscending(
+	tx: ArtifactTransaction | typeof db,
+	artifactId: string,
+): ReviewVersionRow[] {
+	return tx
+		.select({
+			versionNumber: artifactVersions.versionNumber,
+			author: artifactVersions.author,
+			body: artifactVersions.body,
+		})
+		.from(artifactVersions)
+		.where(eq(artifactVersions.artifactId, artifactId))
+		.orderBy(asc(artifactVersions.versionNumber))
+		.all()
+		.map((row) => ({ ...row, author: row.author as ArtifactAuthor }));
+}
+
+/**
+ * Pure: every version's body is parsed at most once (`blocksFor`'s own
+ * cache) — each version is read as "current" once and, for its own child,
+ * as "parent" once more, so memoising avoids parsing the same body twice.
+ *
+ * For every version newer than `throughVersion`, diffs it against its
+ * immediate parent (`versionNumber - 1`; version numbers are contiguous —
+ * ruling 47 never leaves a gap) block by block, and keeps, per block id, only
+ * the MOST RECENT version that changed it. A block whose last change came
+ * from Alfy (never kept, still present in the latest version) is pending —
+ * this single "most recent change wins" rule is what quietly satisfies BOTH
+ * of ruling 61's other two "minus" clauses without tracking them separately:
+ * a user's own later edit to the same block becomes that block's most recent
+ * change (author "user"), so it is excluded the same way Undo's own
+ * resulting version excludes it (Undo is authored "user" too — ruling 61's
+ * "Undo... acknowledges them" is therefore belt-and-braces with the
+ * `keptBlockIds` write, not the only thing excluding it).
+ */
+export function computePendingReviewBlocks(
+	throughVersion: number,
+	keptBlockIds: readonly string[],
+	versions: ReviewVersionRow[],
+): DocumentReviewPendingBlock[] {
+	if (throughVersion <= 0 || versions.length === 0) return [];
+	const byNumber = new Map(versions.map((v) => [v.versionNumber, v]));
+	let latest = versions[0];
+	for (const v of versions) {
+		if (v.versionNumber > latest.versionNumber) latest = v;
+	}
+
+	const blocksCache = new Map<number, DocumentBlock[]>();
+	const blocksFor = (versionNumber: number): DocumentBlock[] => {
+		const cached = blocksCache.get(versionNumber);
+		if (cached) return cached;
+		const version = byNumber.get(versionNumber);
+		const blocks = version
+			? parseDocument(version.body, { mint: false }).blocks
+			: [];
+		blocksCache.set(versionNumber, blocks);
+		return blocks;
+	};
+
+	const latestIndex = new Map(
+		blocksFor(latest.versionNumber).map((b) => [b.id, b] as const),
+	);
+	const keptVersions = parseKeptBlockVersions(keptBlockIds);
+	const lastChange = new Map<
+		string,
+		{ versionNumber: number; author: ArtifactAuthor }
+	>();
+
+	const ordered = versions
+		.filter((v) => v.versionNumber > throughVersion)
+		.sort((a, b) => a.versionNumber - b.versionNumber);
+	for (const version of ordered) {
+		const parentIndex = buildIndex(blocksFor(version.versionNumber - 1));
+		for (const block of blocksFor(version.versionNumber)) {
+			const parentHash = parentIndex[block.id];
+			if (parentHash === undefined || parentHash !== block.hash) {
+				lastChange.set(block.id, {
+					versionNumber: version.versionNumber,
+					author: version.author,
+				});
+			}
+		}
+	}
+
+	const pending: DocumentReviewPendingBlock[] = [];
+	for (const [blockId, change] of lastChange) {
+		if (change.author !== "alfy") continue;
+		// Kept, but only up to the version it was kept against — Alfy changing
+		// the SAME block again in a later version re-admits it (the bug this
+		// version tie fixes: a bare, version-less kept id would suppress every
+		// future Alfy edit to that block, forever).
+		const keptAsOfVersion = keptVersions.get(blockId);
+		if (
+			keptAsOfVersion !== undefined &&
+			keptAsOfVersion >= change.versionNumber
+		) {
+			continue;
+		}
+		// "minus blocks that no longer exist" (ruling 61).
+		const current = latestIndex.get(blockId);
+		if (!current) continue;
+		const parentBlock = blocksFor(change.versionNumber - 1).find(
+			(b) => b.id === blockId,
+		);
+		pending.push({
+			blockId,
+			blockLabel: current.label,
+			previousMarkdown: parentBlock?.markdown ?? "",
+			isNewBlock: !parentBlock,
+			alfyVersionNumber: change.versionNumber,
+		});
+	}
+	// The order Alfy actually made them in, so the review bar's stepper and
+	// "which one is #1" agree with the version history.
+	pending.sort(
+		(a, b) =>
+			a.alfyVersionNumber - b.alfyVersionNumber ||
+			a.blockId.localeCompare(b.blockId),
+	);
+	return pending;
+}
+
+/**
+ * Bulk counterpart to `getDocumentReviewState`, for `read-model.ts`'s
+ * `listArtifactsForConversation` (Wave 2.5 review, F1: "one pending count
+ * per Document as the single source" — the chat card, the panel's list row
+ * and the header's count-button dot all read this ONE persisted number
+ * instead of each independently re-deriving their own from the ephemeral,
+ * session-only `liveDocumentAlfyActivity` signal, which could go stale in a
+ * different way for each of the three).
+ *
+ * Takes rows the caller already fetched (id + metadataJson — never a second
+ * query for those) and returns each DOCUMENT row's count, keyed by artifact
+ * id, through the exact same `computePendingReviewBlocks` a single-artifact
+ * `getDocumentReviewState` call already uses. A row with no `metadata.review`
+ * marker (never touched by Alfy) gets NO entry in the returned map — the
+ * caller's own "no entry" reads as "not reviewable", distinct from an entry
+ * of `0` ("reviewed"); this also means its version history is never even
+ * fetched, keeping the common case (most documents were never Alfy-edited)
+ * cheap: only a row that already has a marker pays for the extra query.
+ */
+export async function computeDocumentPendingReviewCounts(
+	rows: readonly { id: string; metadataJson: string | null }[],
+): Promise<Map<string, number>> {
+	const reviewById = new Map<string, DocumentReviewMetadata>();
+	for (const row of rows) {
+		const review = readDocumentReviewMetadata(
+			parseArtifactMetadata(row.metadataJson),
+		);
+		if (review) reviewById.set(row.id, review);
+	}
+	if (reviewById.size === 0) return new Map();
+
+	const ids = [...reviewById.keys()];
+	const versionRows = db
+		.select({
+			artifactId: artifactVersions.artifactId,
+			versionNumber: artifactVersions.versionNumber,
+			author: artifactVersions.author,
+			body: artifactVersions.body,
+		})
+		.from(artifactVersions)
+		.where(inArray(artifactVersions.artifactId, ids))
+		.orderBy(asc(artifactVersions.versionNumber))
+		.all();
+
+	const versionsById = new Map<string, ReviewVersionRow[]>();
+	for (const row of versionRows) {
+		const entry: ReviewVersionRow = {
+			versionNumber: row.versionNumber,
+			author: row.author as ArtifactAuthor,
+			body: row.body,
+		};
+		const list = versionsById.get(row.artifactId);
+		if (list) list.push(entry);
+		else versionsById.set(row.artifactId, [entry]);
+	}
+
+	const counts = new Map<string, number>();
+	for (const [id, review] of reviewById) {
+		const versions = versionsById.get(id) ?? [];
+		counts.set(
+			id,
+			computePendingReviewBlocks(
+				review.throughVersion,
+				review.keptBlockIds,
+				versions,
+			).length,
+		);
+	}
+	return counts;
+}
+
+/**
+ * Read-only (ruling 61: "the pending set... recomputed on load", never a
+ * write) — every version is read fresh and diffed against the CURRENTLY
+ * stored marker/kept-list, so this always answers the truth even for an
+ * artifact nobody has acknowledged anything on since the marker moved.
+ */
+export async function getDocumentReviewState(
+	params: { userId: string; artifactId: string } & ArtifactScopeOptions,
+): Promise<
+	| { ok: true; pending: DocumentReviewPendingBlock[] }
+	| { ok: false; reason: "not_found" | "not_a_document" }
+> {
+	let scoped: Awaited<ReturnType<typeof readScopedDocumentRow>>;
+	try {
+		scoped = await readScopedDocumentRow(params);
+	} catch (error) {
+		if (error instanceof DocumentOperationError) {
+			return {
+				ok: false,
+				reason: error.reason as "not_found" | "not_a_document",
+			};
+		}
+		throw error;
+	}
+	const review = readDocumentReviewMetadata(
+		parseArtifactMetadata(scoped.metadataJson),
+	);
+	if (!review) return { ok: true, pending: [] };
+	const versions = readVersionsAscending(db, scoped.id);
+	return {
+		ok: true,
+		pending: computePendingReviewBlocks(
+			review.throughVersion,
+			review.keptBlockIds,
+			versions,
+		),
+	};
+}
+
+/**
+ * Keep and Undo both "acknowledge" (ruling 61) — this is the one write for
+ * both: the caller (Keep, Undo, Keep all, Undo all) names the block ids it
+ * just resolved, and this adds them to `keptBlockIds` before recomputing.
+ * When that empties the pending set, the marker advances to the latest ALFY
+ * version (never a later user version — `throughVersion`'s own meaning never
+ * drifts) and `keptBlockIds` clears, exactly as ruling 61 states. A caller
+ * with nothing to acknowledge against an artifact that has no marker yet is a
+ * harmless no-op: there was never anything pending to acknowledge.
+ */
+export async function acknowledgeDocumentReviewBlocks(
+	params: {
+		userId: string;
+		artifactId: string;
+		blockIds: string[];
+	} & ArtifactScopeOptions,
+): Promise<
+	| { ok: true; pending: DocumentReviewPendingBlock[] }
+	| { ok: false; reason: "not_found" | "not_a_document" }
+> {
+	let scoped: Awaited<ReturnType<typeof readScopedDocumentRow>>;
+	try {
+		scoped = await readScopedDocumentRow(params);
+	} catch (error) {
+		if (error instanceof DocumentOperationError) {
+			return {
+				ok: false,
+				reason: error.reason as "not_found" | "not_a_document",
+			};
+		}
+		throw error;
+	}
+
+	return db.transaction((tx) => {
+		const current = tx
+			.select({ metadataJson: artifacts.metadataJson })
+			.from(artifacts)
+			.where(eq(artifacts.id, scoped.id))
+			.get();
+		if (!current) return { ok: false as const, reason: "not_found" as const };
+
+		const review = readDocumentReviewMetadata(
+			parseArtifactMetadata(current.metadataJson),
+		);
+		if (!review) return { ok: true as const, pending: [] };
+
+		const versions = readVersionsAscending(tx, scoped.id);
+
+		// The pending set BEFORE this acknowledge — the only source of truth for
+		// which ids may be acknowledged, and the version each one is tied to.
+		// A caller naming a block id that is not actually pending (stale,
+		// foreign, or simply made up — this endpoint takes a raw client POST
+		// body) is silently ignored rather than trusted and stored verbatim.
+		const pendingBefore = computePendingReviewBlocks(
+			review.throughVersion,
+			review.keptBlockIds,
+			versions,
+		);
+		const pendingVersionByBlockId = new Map(
+			pendingBefore.map((p) => [p.blockId, p.alfyVersionNumber] as const),
+		);
+		const validBlockIds = params.blockIds.filter((id) =>
+			pendingVersionByBlockId.has(id),
+		);
+
+		const keptVersions = parseKeptBlockVersions(review.keptBlockIds);
+		for (const id of validBlockIds) {
+			const asOfVersion = pendingVersionByBlockId.get(id);
+			if (asOfVersion === undefined) continue;
+			const existing = keptVersions.get(id);
+			if (existing === undefined || asOfVersion > existing) {
+				keptVersions.set(id, asOfVersion);
+			}
+		}
+		// Every valid id was, by construction, absent from `keptVersions` above
+		// (pending excludes anything already kept), so acknowledging at least
+		// one id always changes the stored set — no separate size comparison
+		// needed the way a flat id `Set` used to require.
+		const keptChanged = validBlockIds.length > 0;
+		const nextKeptEncoded = [...keptVersions]
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([id, version]) => encodeKeptBlock(id, version));
+
+		const pending = computePendingReviewBlocks(
+			review.throughVersion,
+			nextKeptEncoded,
+			versions,
+		);
+
+		let nextThroughVersion = review.throughVersion;
+		let nextKeptIds = nextKeptEncoded;
+		let advanced = false;
+		if (pending.length === 0) {
+			let latestAlfyVersion = 0;
+			for (const v of versions) {
+				if (v.author === "alfy" && v.versionNumber > latestAlfyVersion) {
+					latestAlfyVersion = v.versionNumber;
+				}
+			}
+			if (latestAlfyVersion > nextThroughVersion) {
+				nextThroughVersion = latestAlfyVersion;
+				advanced = true;
+			}
+			if (nextKeptIds.length > 0) {
+				nextKeptIds = [];
+				advanced = true;
+			}
+		}
+
+		if (keptChanged || advanced) {
+			const metadataJson = JSON.stringify({
+				...(parseJsonRecord(current.metadataJson) ?? {}),
+				review: {
+					throughVersion: nextThroughVersion,
+					keptBlockIds: nextKeptIds,
+				} satisfies DocumentReviewMetadata,
+			});
+			tx.update(artifacts)
+				.set({ metadataJson, updatedAt: new Date() })
+				.where(eq(artifacts.id, scoped.id))
+				.run();
+		}
+
+		return { ok: true as const, pending };
+	});
 }

@@ -4,6 +4,7 @@ import { db } from "../../src/lib/server/db";
 import { artifacts, users } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
 import { runReadArtifactTool } from "../../src/lib/server/services/normal-chat-tools/artifact-tools/read";
+import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import {
 	AI_SMOKE_API_KEY,
 	AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT,
@@ -12,7 +13,12 @@ import {
 	encodeEditArtifactScenarioPayload,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
-import { createConversation, login, sendMessage } from "./helpers";
+import {
+	createConversation,
+	login,
+	sendMessage,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // Slice 1's T8/T9/T11 surfaces: change marks, Keep/Undo and the refusal
 // notice are unit-tested directly against a real Tiptap editor in
@@ -314,6 +320,182 @@ test.describe("the Document panel", () => {
 		await expect(page.getByRole("tab")).toHaveCount(3);
 	});
 
+	// Review 2.5 Important finding (rd/review-2-5.md:183-190): the ⋯ menu was
+	// `position: absolute` inside `.document-tabs`, whose own
+	// `overflow-x: auto` (needed so a long tab strip scrolls sideways
+	// instead of wrapping) coerces its unset `overflow-y` to `auto` too
+	// (same CSS-spec quirk as the nested-scroller finding elsewhere in this
+	// review) — clipping the menu the moment it dropped below the strip's
+	// own row height. Only reachable through a real browser's geometry
+	// (jsdom has no layout engine); keyboard/focus coverage lives in
+	// Tabs.test.ts.
+	test("the ⋯ menu on the active tab is not clipped by the strip's own overflow, and keyboard access works", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		await seedDocument({
+			conversationId,
+			title: "Trip",
+			markdown: "# Plan\n\nBook the hotel.\n\n# Budget\n\nEstimate: $500.",
+			tabs: [
+				{ id: "tab-plan", title: "Plan", startBlockId: "" },
+				{ id: "tab-budget", title: "Budget", startBlockId: "" },
+			],
+		});
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+
+		// The panel's own open/push entrance motion can still be sliding the
+		// tab strip when this runs right after `openDocumentFromPanel`
+		// returns (same trap `artifact-document-selection-bubble.spec.ts`'s
+		// own comment documents) — reading the trigger's rect (for the click
+		// below) or the menu's rect (for the geometry checks further down)
+		// mid-slide would measure a moving target instead of the settled
+		// layout this test actually cares about.
+		const tabStrip = shell.getByTestId("document-tabs");
+		await waitForStableBoundingBox(tabStrip);
+
+		const trigger = page.getByRole("button", { name: "Tab options" });
+		await trigger.click();
+		const menu = page.getByRole("menu");
+		await expect(menu).toBeVisible();
+		const renameItem = menu.getByRole("menuitem", { name: "Rename" });
+		const deleteItem = menu.getByRole("menuitem", { name: "Delete tab" });
+		await expect(renameItem).toBeVisible();
+		await waitForStableBoundingBox(menu);
+
+		// `toBeVisible()` only checks CSS visibility, never actual paint
+		// order — `elementFromPoint` is the only way to catch "clipped by an
+		// ancestor's accidental overflow", exactly like the phone-sheet
+		// z-index regressions elsewhere in this suite.
+		const isOnTop = await menu.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + rect.height / 2,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			isOnTop,
+			"the tab menu must be topmost, not clipped by the strip's own overflow",
+		).toBe(true);
+
+		// Focus starts on Rename, ArrowDown/Up cycle to Delete and wrap back.
+		await expect(renameItem).toBeFocused();
+		await page.keyboard.press("ArrowDown");
+		await expect(deleteItem).toBeFocused();
+		await page.keyboard.press("ArrowDown");
+		await expect(renameItem).toBeFocused();
+
+		// Escape closes the menu and returns focus to its own trigger.
+		await page.keyboard.press("Escape");
+		await expect(menu).toBeHidden();
+		await expect(trigger).toBeFocused();
+	});
+
+	// Review 2.5 Important finding (rd/review-2-5.md:191-197, triage "fix
+	// first"; ruling 61 "tabs show only their own section"): a brand-new tab
+	// used to own no block at all, so `buildTabSectionDecorations`'s own
+	// safety net ("active tab owns zero blocks -> show everything") always
+	// fired — the new, supposedly empty section showed the WHOLE document.
+	test("adding a tab shows only its own (empty) section, not the whole document — and that survives a reload", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Plan a trip");
+		const title = "Trip";
+		const userId = await testUserId();
+		const record = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title,
+			markdown: "# Plan\n\nBook the hotel.\n\n# Budget\n\nEstimate: $500.",
+			author: "user",
+			summary: "Seeded for E2E",
+		});
+		const artifactId = record.id;
+		// Real startBlockIds, not "" — a real multi-tab document (built up
+		// through `Tabs.svelte`'s own `addTab`, now that this finding is
+		// fixed) never has two tabs sharing the empty-string placeholder;
+		// seeding it that way would leave `buildTabSectionDecorations`'s own
+		// ownership walk unable to tell the FIRST two tabs apart from each
+		// other (neither block's real id ever matches "") and prove nothing
+		// about the actual bug.
+		// Four blocks: "# Plan" heading, "Book the hotel." paragraph, "# Budget"
+		// heading, "Estimate: $500." paragraph — each tab anchors at its OWN
+		// heading (index 0 and 2), so the paragraph right after it inherits
+		// that ownership through the walk's own "carry the last matched tab
+		// forward" rule, exactly like a real multi-section document.
+		const blocks = parseDocument(record.body ?? "", { mint: false }).blocks;
+		expect(blocks, "the seed must produce four real blocks").toHaveLength(4);
+		const planBlockId = blocks[0]?.id;
+		const budgetBlockId = blocks[2]?.id;
+		expect(planBlockId, "the seed must produce four real blocks").toBeTruthy();
+		expect(
+			budgetBlockId,
+			"the seed must produce four real blocks",
+		).toBeTruthy();
+		await db
+			.update(artifacts)
+			.set({
+				metadataJson: JSON.stringify({
+					artifactType: "document",
+					title,
+					tabs: [
+						{ id: "tab-plan", title: "Plan", startBlockId: planBlockId },
+						{ id: "tab-budget", title: "Budget", startBlockId: budgetBlockId },
+					],
+				}),
+			})
+			.where(eq(artifacts.id, artifactId));
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+		await expect(page.getByText("Book the hotel.")).toBeVisible();
+
+		await page.getByRole("button", { name: "Add a tab" }).click();
+		const tabs = page.getByRole("tab");
+		await expect(tabs).toHaveCount(3);
+		await expect(tabs.nth(2)).toHaveAttribute("aria-selected", "true");
+
+		// The bug: every other section's blocks stayed visible too.
+		await expect(page.getByText("Book the hotel.")).toBeHidden();
+		await expect(page.getByText("Estimate: $500.")).toBeHidden();
+
+		// Switching to an EXISTING tab still shows only its own content —
+		// the new tab's anchor did not steal ownership of anything else.
+		await tabs.nth(0).click();
+		await expect(page.getByText("Book the hotel.")).toBeVisible();
+		await expect(page.getByText("Estimate: $500.")).toBeHidden();
+
+		// Persists: the new section's own anchor block, and the OTHER two
+		// tabs' own content, all survive a reload (the new tab's empty
+		// paragraph must round-trip through the stored Markdown, not just
+		// exist for the current live session).
+		await expect
+			.poll(() => readStoredMetadata(artifactId), { timeout: 15_000 })
+			.toContain("New section");
+		await page.reload({ waitUntil: "networkidle" });
+		const tabsAfterReload = page.getByRole("tab");
+		await expect(tabsAfterReload).toHaveCount(3);
+		// A generous timeout absorbs the dev server's one-time compile of the
+		// Document editor's module graph if this reload happens to be the
+		// first-ever load of it in a fresh test run.
+		await expect(
+			page.getByText("Book the hotel.", { exact: false }),
+		).toBeAttached({ timeout: 30_000 });
+		await tabsAfterReload.nth(2).click();
+		// Wait for the click's own activation to register before reading
+		// content visibility — `aria-selected` and the decoration it drives
+		// both come from the same `handleTabActivate` call, but only the
+		// former has a role/attribute Playwright can retry against.
+		await expect(tabsAfterReload.nth(2)).toHaveAttribute(
+			"aria-selected",
+			"true",
+		);
+		await expect(page.getByText("Book the hotel.")).toBeHidden();
+		await expect(page.getByText("Estimate: $500.")).toBeHidden();
+	});
+
 	test("a status chip renders as a listbox with the localized label, and choosing another option writes the canonical token", async ({
 		page,
 	}) => {
@@ -381,7 +563,16 @@ test.describe("the Document panel", () => {
 		await page.keyboard.type("edited ");
 
 		await page.getByRole("button", { name: "Add a tab" }).click();
-		await expect(page.getByRole("tab")).toHaveCount(2);
+		const tabs = page.getByRole("tab");
+		await expect(tabs).toHaveCount(2);
+
+		// Review 2.5 (rd/review-2-5.md:191-197): adding a tab now correctly
+		// activates and shows ONLY the new (empty) section — the chip below
+		// lives in the ORIGINAL "Plan" tab, so this switches back to it first.
+		// Before that finding's fix, every block stayed visible regardless of
+		// the active tab (the exact bug), which is the only reason this test's
+		// sequence ever reached the chip without this step.
+		await tabs.nth(0).click();
 
 		const select = page.locator(".tracker-chip-select");
 		await select.selectOption("To book");
@@ -566,10 +757,16 @@ test.describe("the Document mobile toolbar", () => {
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		const conversationId = await createConversation(page, "Plan a trip");
+		// One cell carries a long, space-free token (an id-like string) that
+		// cannot line-wrap the way ordinary prose does — with wrapping,
+		// `table-layout: auto`'s default column sizing can shrink every
+		// OTHER cell's text onto more lines and fit inside 390px without the
+		// table itself ever needing to overflow, which would silently defeat
+		// the table's own horizontal-scroll assertion below.
 		const wideTable = [
 			"| Column Alpha | Column Beta | Column Gamma | Column Delta | Column Epsilon |",
 			"| --- | --- | --- | --- | --- |",
-			"| A rather long cell value here | Another long value | Yet more text in this cell | And even more content | The last column's long text |",
+			"| A rather long cell value here | AnUnbreakableTokenThatCannotWrapAcrossLines1234567890 | Yet more text in this cell | And even more content | The last column's long text |",
 		].join("\n");
 		await seedDocument({
 			conversationId,
@@ -587,6 +784,27 @@ test.describe("the Document mobile toolbar", () => {
 			clientWidth: document.documentElement.clientWidth,
 		}));
 		expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+
+		// Review 2.5 (rd/review-2-5.md:87-97): the horizontal scroll for a
+		// wide table moved from `.document-content-text` (which was also,
+		// accidentally, a second VERTICAL scroller — fixed separately) onto
+		// Tiptap's own `.tableWrapper` div (the live editor's real DOM
+		// parent of every `<table>` — a bare `table` element cannot scroll
+		// directly: `display: table` boxes compute `overflow` to `visible`
+		// regardless of the specified value). The unbreakable token in
+		// "Column Beta" above must still genuinely overflow that wrapper's
+		// own box and remain reachable by scrolling THERE, not just silently
+		// clipped — the page-level check above alone cannot tell "scrolls
+		// locally" apart from "cut off".
+		const tableOverflow = await page
+			.locator(".document-editor-host .tableWrapper")
+			.evaluate((el) => ({
+				scrollWidth: el.scrollWidth,
+				clientWidth: el.clientWidth,
+			}));
+		expect(tableOverflow.scrollWidth).toBeGreaterThan(
+			tableOverflow.clientWidth,
+		);
 	});
 });
 
@@ -920,15 +1138,293 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			// `findLiveDocumentAlfyActivity` deliberately scans the WHOLE
 			// message history for the most recent Document call with no regard
 			// for age, so without `liveDocumentAlfyActivityExcluding`'s
-			// suppression this call would resurface its Keep/Undo mark and
-			// refusal notice on every fresh load of this conversation forever.
+			// suppression this call would resurface the refusal notice on every
+			// fresh load of this conversation forever — that suppression is
+			// still exactly what keeps `refusal-notice` gone below (refusals
+			// are not persisted; ruling 61 is Documents' applied changes only).
+			//
+			// Ruling 61: the applied block's own pill is NOT gone, though — a
+			// DIFFERENT, independent mechanism (`restorePendingReview`, fed by
+			// GET /api/artifacts/[id]/review, never the chat-history replay
+			// path above) marks it again because nobody has reviewed it yet.
 			await page.reload({ waitUntil: "networkidle" });
 			await openDocumentFromPanel(page);
 			await expect(
 				editorContent.getByText("Book the hotel by Friday."),
 			).toBeVisible();
-			await expect(page.getByTestId("alfy-change-bar")).toHaveCount(0);
+			await expect(page.getByTestId("alfy-change-bar")).toBeVisible({
+				timeout: 10_000,
+			});
 			await expect(page.getByTestId("refusal-notice")).toHaveCount(0);
+			await expect(
+				page.getByRole("region", { name: "Changes from Alfy" }),
+			).toContainText("Alfy changed 1 part.");
+
+			// Keep it, reload again: one fewer — the marker (and the
+			// acknowledged block id) persisted through the FIRST reload too, so
+			// this proves the write side (POST .../review) and the read side
+			// (GET .../review) actually round-trip, not just that a still-fresh
+			// marker happens to still cover this version.
+			await page.getByRole("button", { name: "Keep Alfy's change" }).click();
+			await expect(
+				page.getByRole("region", { name: "Changes from Alfy" }),
+			).toHaveCount(0, { timeout: 5_000 });
+
+			await page.reload({ waitUntil: "networkidle" });
+			await openDocumentFromPanel(page);
+			await expect(page.getByTestId("alfy-change-bar")).toHaveCount(0);
+			await expect(
+				page.getByRole("region", { name: "Changes from Alfy" }),
+			).toHaveCount(0);
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
+
+	// Wave 2.5 review (F1) — the review's own Verdict section, live: the chat
+	// card, the list row and the count-button dot must follow the PERSISTED
+	// review state (never stay stale after Keep all, never come back empty
+	// after a reload), and opening from the card (the main "Átnézés ›" path)
+	// must count each applied change exactly once, not twice. Reuses the
+	// SAME real edit_artifact scenario as the test above (one applied block,
+	// one refused) — the difference is the panel starts CLOSED, and the user
+	// opens it from the CARD, never from the count button.
+	test("the chat card, list row and count-button dot follow the persisted review state through Keep all and a reload", async ({
+		page,
+	}) => {
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a trip");
+			const artifactId = await seedDocument({
+				conversationId,
+				title: "Trip plan",
+				markdown: "Book the hotel.\n\nBook the flight.",
+			});
+
+			const userId = await testUserId();
+			const readResult = await runReadArtifactTool({
+				userId,
+				conversationId,
+				artifactId,
+				detail: "blocks",
+				abortSignal: new AbortController().signal,
+			});
+			const blocks =
+				readResult.modelPayload.success && "blocks" in readResult.modelPayload
+					? (readResult.modelPayload.blocks as Array<{
+							blockId: string;
+							hash: string;
+							text: string;
+						}>)
+					: [];
+			const applyBlock = blocks.find((b) => b.text === "Book the hotel.");
+			const refuseBlock = blocks.find((b) => b.text === "Book the flight.");
+			expect(applyBlock, "the seeded 'Book the hotel.' block").toBeTruthy();
+			expect(refuseBlock, "the seeded 'Book the flight.' block").toBeTruthy();
+
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+
+			// The panel starts CLOSED — never opened before the edit lands, and
+			// never opened through the count button below either.
+			await openChatAndReload(page, conversationId);
+
+			const markerMessage = `${AI_SMOKE_EDIT_ARTIFACT_MARKER} ${encodeEditArtifactScenarioPayload(
+				{
+					artifactId,
+					applyBlockId: applyBlock?.blockId ?? "",
+					applyBaseHash: applyBlock?.hash ?? "",
+					refuseBlockId: refuseBlock?.blockId ?? "",
+				},
+			)}`;
+			await sendMessage(page, markerMessage);
+			await expect(
+				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			// The in-chat card: one change counted (only the APPLIED block —
+			// the refused one has nothing to review, ruling 61).
+			const card = page.getByTestId("artifact-card-head");
+			await expect(card).toBeVisible({ timeout: 10_000 });
+			await expect(card).toContainText("1 change to review");
+
+			// The count button's dot lights up — a change waits while the
+			// panel is closed.
+			const countButton = page.getByTestId("artifact-count-button");
+			await expect(countButton.getByTestId("artifact-count-dot")).toBeVisible();
+
+			// Open from the CARD (the main "Átnézés ›" path), not the count
+			// button — this is the "double count from the card path" finding's
+			// own trigger.
+			await card.click();
+			const shell = page.getByRole("complementary", {
+				name: "Document workspace",
+			});
+			await expect(shell).toBeVisible({ timeout: 30_000 });
+
+			// The header has a version button AND a time — opened straight from
+			// the card, `handleOpenArtifact` (ToolActivityRow.svelte) must fill
+			// versionNumber/updatedAt from the card's own `body.preview`, or the
+			// header falls back to showing only the kind label (this finding's
+			// own evidence: "the meta line shows only 'Dokumentum'"). The
+			// version button is the only way into Versions from here. v2 — the
+			// seeded document started at v1 and this turn's one applied edit
+			// (the "Book the hotel." block) created v2 — because the header
+			// now follows the live version instead of the page's pre-turn
+			// `conversationArtifacts` snapshot (fixed in 9d6b1868).
+			await expect(shell.getByTestId("artifact-version-pill")).toContainText(
+				"v2",
+			);
+
+			// Exactly ONE applied change, never two, when opened this way.
+			const reviewRegion = page.getByRole("region", {
+				name: "Changes from Alfy",
+			});
+			await expect(reviewRegion).toContainText("Alfy changed 1 part.");
+
+			await page.getByRole("button", { name: "Keep all" }).click();
+			await expect(reviewRegion).toHaveCount(0, { timeout: 5_000 });
+
+			// Live, no reload: the card reads reviewed, and the dot is gone —
+			// both read the SAME persisted count the Keep-all click just
+			// advanced, not the frozen ephemeral "1 change" signal from
+			// earlier in this same turn.
+			await expect(card).toContainText("Reviewed");
+			await expect(card).not.toContainText("1 change to review");
+			await expect(countButton.getByTestId("artifact-count-dot")).toHaveCount(
+				0,
+			);
+
+			// A reload: still nothing pending — the persisted state, not a
+			// stale ephemeral one, is what both the card and the dot show on
+			// a fresh load too.
+			await page.reload({ waitUntil: "networkidle" });
+			await expect(page.getByTestId("artifact-card-head")).toContainText(
+				"Reviewed",
+			);
+			await expect(
+				page
+					.getByTestId("artifact-count-button")
+					.getByTestId("artifact-count-dot"),
+			).toHaveCount(0);
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
+
+	// Re-check "New breakage" (rd/recheck.md:117-140): opening the Document
+	// from the card raced `DocumentBody`'s own `restorePendingReview` fetch —
+	// the reporting effect fired with `0` before that fetch resolved,
+	// flashing the card (and the list row / count-button dot, which read the
+	// SAME persisted state) to "Reviewed" for ~100-300ms before
+	// self-correcting. A plain `expect(card).not.toContainText(...)` cannot
+	// catch this: Playwright's web-first assertions retry UNTIL they pass, so
+	// a transient wrong state that self-heals inside the retry window is
+	// invisible to them — exactly why the card-flow test above never caught
+	// it. This samples the card's own text on a fixed interval instead,
+	// without early-exiting on an already-correct read, the same way the
+	// re-check's own live repro did (polled every 40ms right after opening).
+	test("opening the panel from the card never flashes 'Reviewed' while a change is still pending (re-check regression)", async ({
+		page,
+	}) => {
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a trip");
+			const artifactId = await seedDocument({
+				conversationId,
+				title: "Trip plan",
+				markdown: "Book the hotel.\n\nBook the flight.",
+			});
+
+			const userId = await testUserId();
+			const readResult = await runReadArtifactTool({
+				userId,
+				conversationId,
+				artifactId,
+				detail: "blocks",
+				abortSignal: new AbortController().signal,
+			});
+			const blocks =
+				readResult.modelPayload.success && "blocks" in readResult.modelPayload
+					? (readResult.modelPayload.blocks as Array<{
+							blockId: string;
+							hash: string;
+							text: string;
+						}>)
+					: [];
+			const applyBlock = blocks.find((b) => b.text === "Book the hotel.");
+			const refuseBlock = blocks.find((b) => b.text === "Book the flight.");
+			expect(applyBlock, "the seeded 'Book the hotel.' block").toBeTruthy();
+			expect(refuseBlock, "the seeded 'Book the flight.' block").toBeTruthy();
+
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+
+			// The panel starts CLOSED, same as the card-flow test above — the
+			// flash is specifically about the moment it is FIRST opened.
+			await openChatAndReload(page, conversationId);
+
+			const markerMessage = `${AI_SMOKE_EDIT_ARTIFACT_MARKER} ${encodeEditArtifactScenarioPayload(
+				{
+					artifactId,
+					applyBlockId: applyBlock?.blockId ?? "",
+					applyBaseHash: applyBlock?.hash ?? "",
+					refuseBlockId: refuseBlock?.blockId ?? "",
+				},
+			)}`;
+			await sendMessage(page, markerMessage);
+			await expect(
+				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			const card = page.getByTestId("artifact-card-head");
+			await expect(card).toBeVisible({ timeout: 10_000 });
+			await expect(card).toContainText("1 change to review");
+
+			// Open from the CARD — the exact path the finding reproduced on.
+			await card.click();
+
+			const deadline = Date.now() + 1_500;
+			while (Date.now() < deadline) {
+				const text = (await card.textContent()) ?? "";
+				expect(
+					text,
+					"the card must never read reviewed/no-pending while its one change is still pending",
+				).not.toMatch(/Reviewed|Átnézve/);
+				await page.waitForTimeout(40);
+			}
+
+			// Sanity: the change was genuinely still open/pending throughout the
+			// poll above — otherwise a passing loop above would prove nothing.
+			const reviewRegion = page.getByRole("region", {
+				name: "Changes from Alfy",
+			});
+			await expect(reviewRegion).toContainText("Alfy changed 1 part.");
+			await expect(card).toContainText("1 change to review");
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (temporaryProvider) {

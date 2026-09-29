@@ -25,6 +25,7 @@ import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/al
 import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import { APP_VERIFY_LINE_KEYS } from "$lib/shared/artifacts/app-verify-labels";
 import {
 	extractHostname,
 	getFaviconUrl,
@@ -50,6 +51,7 @@ let {
 	conversationId = null,
 	onToggleDocumentTask = undefined,
 	alfyActivity = null,
+	activeArtifactId = null,
 }: {
 	item: ToolActivityItem;
 	open?: boolean;
@@ -91,9 +93,27 @@ let {
 	 * live Document turn, or for every other body kind.
 	 */
 	alfyActivity?: DocumentAlfyActivity | null;
+	/**
+	 * Wave 2.5 Step 13: the bare artifact id of whatever item is actually open
+	 * in the panel right now (the chat page's own `activeArtifactId`, resolved
+	 * from `activeWorkspaceDocumentId` through `workspaceDocuments`' own
+	 * `artifactId` field) — matched against this row's own
+	 * `body.artifactId` to show "Open in panel" instead of "Open ›" for the
+	 * one card that is the currently-open item. `null` when nothing is open,
+	 * or the panel is showing the list rather than a specific item.
+	 */
+	activeArtifactId?: string | null;
 } = $props();
 
 type ArtifactActivityBody = Extract<ToolActivityBody, { kind: "artifact" }>;
+type ArtifactCreatingBody = Extract<
+	ToolActivityBody,
+	{ kind: "artifact-creating" }
+>;
+type ArtifactFailedBody = Extract<
+	ToolActivityBody,
+	{ kind: "artifact-failed" }
+>;
 
 /**
  * The four new kinds' chat-card view (Feature 2, the cross-kind task): the
@@ -110,15 +130,50 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 			? body.preview?.documentPreview
 			: undefined;
 	// Mirrors `DocumentWorkspace.svelte`'s own `artifactCardViewFor` exactly
-	// (redesign §5.2, Wave 2.5 Step 12): the standalone card's "N changes to
-	// review" pill and "Review ›" affordance read the same ephemeral signal
-	// the panel list's row already does, matched to THIS card's own artifact.
-	const pendingReviewCount =
-		alfyActivity &&
-		alfyActivity.artifactId === body.artifactId &&
-		(alfyActivity.status === "applied" || alfyActivity.status === "refused")
-			? Math.max(alfyActivity.appliedCount, 1)
+	// (Wave 2.5 review, F1): `body.preview?.pendingReviewCount` is the
+	// PERSISTED count (`read-model.ts`'s `computeDocumentPendingReviewCounts`),
+	// kept live by the SAME `artifacts` state `+page.svelte` patches from the
+	// open body's own report — wins whenever it is set (0 included: "reviewed"
+	// is a real answer, never a reason to fall through). Only when this card's
+	// artifact has NEVER had a persisted count attached (a brand-new item from
+	// mid-turn, before any conversation-detail load) does it fall back to the
+	// ephemeral, session-only `alfyActivity` guess, exactly like before. Wave
+	// 2.5 Step 11: only APPLIED changes count in that fallback — a fully
+	// refused call (`appliedCount === 0`) has nothing to review, only
+	// something left alone (`refusedCount` below); the previous
+	// `Math.max(..., 1)` floor was a stopgap so a full refusal still showed
+	// SOMETHING before this pill existed (rd5a's own deviation note).
+	const isThisArtifact =
+		alfyActivity != null && alfyActivity.artifactId === body.artifactId;
+	const ephemeralPendingReviewCount =
+		isThisArtifact &&
+		(alfyActivity?.status === "applied" ||
+			alfyActivity?.status === "refused") &&
+		alfyActivity.appliedCount > 0
+			? alfyActivity.appliedCount
 			: null;
+	const pendingReviewCount =
+		body.preview?.pendingReviewCount ?? ephemeralPendingReviewCount;
+	// The in-chat card's own "N parts left alone" pill (redesign §4.2 "The
+	// chat side"): fed from the SAME `alfyActivity` a refusal already carries
+	// — `status === "refused"` is only ever true when `refusedBlocks.length`
+	// is (`alfy-activity.ts`'s own `buildDocumentAlfyActivity`).
+	const refusedCount =
+		isThisArtifact && alfyActivity?.status === "refused"
+			? alfyActivity.refusedBlocks.length
+			: null;
+	// Wave 2.5 Step 13: matched against the bare artifact id, never the
+	// workspace item id ("artifact:" + id) the panel itself uses — see
+	// `activeArtifactId`'s own prop doc above.
+	const current =
+		activeArtifactId != null && activeArtifactId === body.artifactId;
+	// App only, and only once its facts were actually checked — the same
+	// gate `AppBody.svelte`'s own status row uses (`verification?.checked`).
+	const appVerification =
+		body.artifactKind === "app" ? body.preview?.appVerification : undefined;
+	const factCheckLine = appVerification?.checked
+		? $t(APP_VERIFY_LINE_KEYS[appVerification.verdict])
+		: null;
 	if (documentPreview) {
 		return {
 			...documentArtifactCardViewFromPreview({
@@ -133,6 +188,8 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 					onToggleDocumentTask?.(body.artifactId, blockId, checked),
 			}),
 			pendingReviewCount,
+			refusedCount,
+			current,
 		};
 	}
 	return {
@@ -141,6 +198,39 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 		title: body.artifactTitle,
 		openTargetId: body.artifactId,
 		pendingReviewCount,
+		refusedCount,
+		current,
+		factCheckLine,
+	};
+}
+
+/** Wave 2.5 Step 12: the running create_artifact skeleton card — see the `"artifact-creating"` body's own doc comment in tool-activity.ts. */
+function artifactCreatingCardView(
+	body: ArtifactCreatingBody,
+): ArtifactCardView {
+	return {
+		id: `creating:${body.title}`,
+		kind: body.artifactKind,
+		title: body.title,
+		creating: true,
+	};
+}
+
+/**
+ * Wave 2.5 Step 12: the refused create_artifact "could not be made" card —
+ * see the `"artifact-failed"` body's own doc comment in tool-activity.ts.
+ * `reason` is effectively always set in practice (`runCreateArtifactTool`'s
+ * own failure path always writes an `outputSummary`); the fallback below is
+ * only a defensive backstop against a genuinely empty one, and is
+ * deliberately a DIFFERENT sentence than the card's own fixed title so the
+ * two lines never repeat each other.
+ */
+function artifactFailedCardView(body: ArtifactFailedBody): ArtifactCardView {
+	return {
+		id: `failed:${body.title}`,
+		kind: body.artifactKind,
+		title: body.title,
+		failedReason: body.reason || $t("artifacts.error.load"),
 	};
 }
 
@@ -162,6 +252,17 @@ function handleOpenArtifact(body: ArtifactActivityBody): void {
 		artifactId: body.artifactId,
 		conversationId,
 		kind: body.artifactKind,
+		// Wave 2.5 review (F1): without these, an item opened straight from
+		// the chat card had no `versionNumber`, so the header's version
+		// button never appeared and its meta line showed only the kind
+		// label — the version button was the only way into Versions, and
+		// "Átnézés ›" is the main way into a changed document. `body.preview`
+		// is the same server-computed `ArtifactCardSummary` already attached
+		// from `ConversationDetail.artifacts` for the pending-review pill
+		// above; `undefined` here (a live, mid-turn card with no preview
+		// yet) falls back to the previous behaviour unchanged.
+		versionNumber: body.preview?.versionNumber,
+		updatedAt: body.preview?.updatedAt,
 	});
 }
 
@@ -182,7 +283,11 @@ const isInteractive = $derived(hasBody && !item.alwaysOpen);
 // file-job, left exactly as it was), which still joins the row into one
 // shaded block. `isJoinedOpen` drives that shared box/join styling; the
 // artifact card renders through its own standalone wrapper below instead.
-const isStandaloneCard = $derived(item.body?.kind === "artifact");
+const isStandaloneCard = $derived(
+	item.body?.kind === "artifact" ||
+		item.body?.kind === "artifact-creating" ||
+		item.body?.kind === "artifact-failed",
+);
 const isJoinedOpen = $derived(isOpen && !isStandaloneCard);
 
 // The map body's MapLibre component is dynamic-imported the same way
@@ -345,7 +450,28 @@ function handleToggle() {
 		</div>
 	{/if}
 
-	{#if isOpen && item.body && item.body.kind !== 'artifact'}
+	{#if isOpen && item.body?.kind === 'artifact-creating'}
+		{@const body = item.body}
+		<!-- Wave 2.5 Step 12: the skeleton standalone card while create_artifact
+		     is still running — same standalone placement as the settled card
+		     above, no Open handler (nothing exists to open yet). -->
+		<div class="act-standalone-card" data-testid="tool-activity-standalone-card">
+			<ArtifactCard view={artifactCreatingCardView(body)} chrome="full" />
+		</div>
+	{/if}
+
+	{#if isOpen && item.body?.kind === 'artifact-failed'}
+		{@const body = item.body}
+		<!-- Wave 2.5 Step 12: the "could not be made" standalone card for a
+		     refused create_artifact — same standalone placement, no Open
+		     handler and no Retry: there is no real retry path for this call
+		     today (see rd5b's own report). -->
+		<div class="act-standalone-card" data-testid="tool-activity-standalone-card">
+			<ArtifactCard view={artifactFailedCardView(body)} chrome="full" />
+		</div>
+	{/if}
+
+	{#if isOpen && item.body && item.body.kind !== 'artifact' && item.body.kind !== 'artifact-creating' && item.body.kind !== 'artifact-failed'}
 		{@const body = item.body}
 		<div class="act-body" data-testid="tool-activity-body" transition:slideTransition={{ duration: 200 }}>
 			{#if body.kind === 'sources'}

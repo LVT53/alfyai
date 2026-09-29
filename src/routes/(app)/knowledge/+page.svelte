@@ -1122,6 +1122,7 @@ $effect(() => {
 		{documents}
 		openRequest={workspaceOpenRequest}
 		onJumpToSource={jumpToWorkspaceSource}
+		currentUser={data.user}
 	/>
 </div>
 

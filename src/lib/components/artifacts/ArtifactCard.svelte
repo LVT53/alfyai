@@ -26,7 +26,7 @@
 // not a nested log entry. `ArtifactCard.test.ts` and
 // `artifact-chat-card.spec.ts` assert the row+card pair together instead of
 // a single-title invariant for this chrome.
-import { ChevronRight, Sparkles } from "@lucide/svelte";
+import { Check, ChevronRight, CircleSlash, Sparkles } from "@lucide/svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -77,11 +77,46 @@ export interface ArtifactCardView {
 	 */
 	pendingReviewCount?: number | null;
 	/**
+	 * `chrome="full"` only (redesign §4.2 "The chat side", Wave 2.5 Step 11):
+	 * the count of undismissed refusal notes — independent from
+	 * `pendingReviewCount` above (the mockup's own `oneLeft`/`revLeft` copy
+	 * family treats them as two separate signals: "N changes to review" is
+	 * what got APPLIED, this is what Alfy left untouched). Shown as its own
+	 * pill beside `pendingReviewCount`'s. `null`/omitted/0 renders nothing.
+	 * The SAME ephemeral, session-only `alfyActivity` signal feeds both —
+	 * `ToolActivityRow.svelte`'s own `artifactCardView`.
+	 */
+	refusedCount?: number | null;
+	/**
 	 * `chrome="row"` and `chrome="full"`: this item is the one currently open
 	 * in the panel. A row is tinted; a standalone card is outlined in accent
 	 * and its head reads "Open in panel" instead of "Open ›" (redesign §5.2).
 	 */
 	current?: boolean;
+	/**
+	 * `chrome="full"` only (Wave 2.5 Step 12/13): a create_artifact call is
+	 * still running and its kind/title are already known. Swaps the body for
+	 * a shimmering skeleton and the subtitle for an "Alfy is writing…" line,
+	 * and disables the head (there is nothing to open yet — `openTargetId`
+	 * stays unset for this state). Mutually exclusive with `failedReason`.
+	 */
+	creating?: boolean;
+	/**
+	 * `chrome="full"` only (Wave 2.5 Step 12/13): a settled, business-level
+	 * refusal of create_artifact — already-resolved plain text (the tool's
+	 * own model-facing reason), never a code, mirroring `RefusalNotice`'s own
+	 * "each type resolves its own reason vocabulary before handing it here"
+	 * rule. `null`/omitted renders no failure state.
+	 */
+	failedReason?: string | null;
+	/**
+	 * `chrome="full"` only (Wave 2.5 Step 13): the App panel's own status-row
+	 * sentence ("Alfy checked the facts and fixed one thing."), already
+	 * localised by the caller through the same `APP_VERIFY_LINE_KEYS` map the
+	 * panel itself reads — never re-derived here. `null`/omitted (every other
+	 * kind, or an App whose verification was never checked) renders nothing.
+	 */
+	factCheckLine?: string | null;
 	tickable?: {
 		items: ArtifactCardTickableItem[];
 		/**
@@ -207,6 +242,16 @@ function handleOpen(): void {
 					<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
 					{$t('artifacts.panel.pendingReview', { count: view.pendingReviewCount })}
 				</span>
+			{:else if view.pendingReviewCount === 0}
+				<!-- Wave 2.5 review (F1): "reviewed" is a real, positive answer —
+				     a marker exists (Alfy edited this Document) and nothing is
+				     pending right now — distinct from a document that was never
+				     touched at all, which still falls through to the plain
+				     chevron below. -->
+				<span class="pill artifact-row-pill-reviewed">
+					<Check size={12} strokeWidth={2} aria-hidden="true" />
+					{$t('artifacts.panel.reviewed')}
+				</span>
 			{:else}
 				<span class="artifact-row-chev" aria-hidden="true">
 					<ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
@@ -277,7 +322,11 @@ function handleOpen(): void {
 				<span class="artifact-card-headtext">
 					<span class="artifact-card-title">{view.title}</span>
 					<span class="artifact-card-sub">
-						<span>{view.subtitle ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+						{#if view.creating}
+							<span class="artifact-card-sub-writing">{$t('artifacts.card.creatingSubtitle')}</span>
+						{:else}
+							<span>{view.subtitle ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+						{/if}
 						{#if view.versionNumber}
 							<span class="artifact-card-sep" aria-hidden="true">·</span>
 							<span>{$t('artifacts.card.version', { n: view.versionNumber })}</span>
@@ -287,12 +336,27 @@ function handleOpen(): void {
 								<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
 								{$t('artifacts.panel.pendingReview', { count: view.pendingReviewCount })}
 							</span>
+						{:else if view.pendingReviewCount === 0}
+							<!-- Wave 2.5 review (F1): "the card reads ✓ Reviewed" once
+							     Keep/Undo/Keep-all resolves every pending change — a
+							     positive confirmation, not silence, and never the
+							     stale "N to review" pill this replaces. -->
+							<span class="pill artifact-card-reviewed">
+								<Check size={12} strokeWidth={2} aria-hidden="true" />
+								{$t('artifacts.panel.reviewed')}
+							</span>
+						{/if}
+						{#if view.refusedCount}
+							<span class="pill artifact-card-refused">
+								<CircleSlash size={12} strokeWidth={2} aria-hidden="true" />
+								{$t('artifacts.panel.leftAlone', { count: view.refusedCount })}
+							</span>
 						{/if}
 					</span>
 				</span>
 				{#if view.openTargetId}
 					<span class="artifact-card-cta">
-						{#if view.pendingReviewCount}
+						{#if view.pendingReviewCount || view.refusedCount}
 							{$t('artifacts.card.review')}
 						{:else if view.current}
 							{$t('artifacts.card.openInPanel')}
@@ -304,10 +368,32 @@ function handleOpen(): void {
 				{/if}
 			</button>
 
-			{#if view.tickable}
-				<div class="artifact-card-body">
-					{@render tickableBlock()}
+			{#if view.creating}
+				<!-- Wave 2.5 Step 12 (redesign §7.2 row 25): three shimmering lines
+				     in place of whatever body this kind would eventually show —
+				     `app.css`'s global reduced-motion override already collapses
+				     the animation to a static skeleton (§7.3). -->
+				<div class="artifact-card-body artifact-card-skeleton" aria-hidden="true">
+					<span class="artifact-card-skel-line" style="width: 72%"></span>
+					<span class="artifact-card-skel-line" style="width: 58%"></span>
+					<span class="artifact-card-skel-line" style="width: 64%"></span>
 				</div>
+			{:else if view.failedReason}
+				<div class="artifact-card-body artifact-card-failed" role="alert">
+					<p class="artifact-card-failed-title">{$t('artifacts.card.failedTitle')}</p>
+					<p class="artifact-card-failed-reason">{view.failedReason}</p>
+				</div>
+			{:else}
+				{#if view.factCheckLine}
+					<div class="artifact-card-body artifact-card-factcheck">
+						{view.factCheckLine}
+					</div>
+				{/if}
+				{#if view.tickable}
+					<div class="artifact-card-body">
+						{@render tickableBlock()}
+					</div>
+				{/if}
 			{/if}
 		{:else}
 			{#if view.subtitle}
@@ -437,6 +523,13 @@ function handleOpen(): void {
 		opacity: 0.6;
 	}
 
+	/* Wave 2.5 Step 12: the mockup's `sub.innerHTML =
+	   '<span style="color:var(--accent-text)">Alfy is writing…</span>'` — the
+	   one thing that changes colour while a create_artifact call is running. */
+	.artifact-card-sub-writing {
+		color: var(--accent-text);
+	}
+
 	.artifact-card-pending {
 		display: inline-flex;
 		align-items: center;
@@ -446,6 +539,41 @@ function handleOpen(): void {
 		border-radius: var(--radius-full);
 		background: var(--accent-tint);
 		color: var(--accent-text);
+		font-size: 0.69rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+
+	/* Same shape as `.artifact-card-pending`, warning-toned to match
+	   `RefusalNotice.svelte`/`CommentCard.svelte`'s own refusal treatment —
+	   "the two should read as the same family" (rd3a's hand-off). */
+	.artifact-card-refused {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		height: 20px;
+		padding: 0 0.44rem;
+		border-radius: var(--radius-full);
+		background: var(--warning-tint);
+		color: var(--warning-text);
+		font-size: 0.69rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+
+	/* Same shape as `.artifact-card-pending`, success-toned — "the card reads
+	   ✓ Reviewed" (Wave 2.5 review, F1) once nothing is pending anymore. */
+	.artifact-card-reviewed {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		height: 20px;
+		padding: 0 0.44rem;
+		border-radius: var(--radius-full);
+		background: var(--success-tint);
+		color: var(--success-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
@@ -476,6 +604,62 @@ function handleOpen(): void {
 		display: flex;
 		flex-direction: column;
 		gap: 0.125rem;
+	}
+
+	/* Wave 2.5 Step 12 (redesign §7.2 row 25): the mockup's own `.skeleton` /
+	   `.skel-line` shimmer, reusing this card's existing tokens instead of a
+	   second colour system. `prefers-reduced-motion` collapses the animation
+	   to 0.01ms through app.css's existing global override (§7.3) — a static
+	   skeleton, never a spinning/looping one. */
+	.artifact-card-skeleton {
+		gap: 0.5rem;
+		padding-top: 0.25rem;
+	}
+
+	.artifact-card-skel-line {
+		height: 10px;
+		border-radius: 5px;
+		background: linear-gradient(
+			90deg,
+			var(--surface-elevated) 25%,
+			color-mix(in srgb, var(--accent) 10%, var(--surface-elevated)) 50%,
+			var(--surface-elevated) 75%
+		);
+		background-size: 200% 100%;
+		animation: artifact-card-shimmer 1.4s ease-in-out infinite;
+	}
+
+	@keyframes artifact-card-shimmer {
+		from {
+			background-position: 150% 0;
+		}
+		to {
+			background-position: -50% 0;
+		}
+	}
+
+	/* Wave 2.5 Step 12: a refused create_artifact's own "could not be made"
+	   card. Deliberately as calm as `RefusalNotice.svelte`'s own treatment —
+	   the row's glyph (turned red via `item.status === "failed"`) already
+	   signals the failure; the card explains it rather than shouting it. */
+	.artifact-card-failed-title {
+		margin: 0;
+		color: var(--text-primary);
+		font-size: 0.8125rem;
+		font-weight: 600;
+	}
+
+	.artifact-card-failed-reason {
+		margin: 0.125rem 0 0;
+		color: var(--text-muted);
+		font-size: 0.78rem;
+	}
+
+	/* Wave 2.5 Step 13: the App panel's own status-row sentence, echoed here —
+	   plain text, same muted tone as the subtitle line above it. */
+	.artifact-card-factcheck {
+		color: var(--text-muted);
+		font-size: 0.78rem;
 	}
 
 	.artifact-card-subtitle,
@@ -653,6 +837,23 @@ function handleOpen(): void {
 		border-radius: var(--radius-full);
 		background: var(--accent-tint);
 		color: var(--accent-text);
+		font-size: 0.69rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+
+	/* Same shape as `.artifact-row-pill`, success-toned — see
+	   `.artifact-card-reviewed`'s own doc comment. */
+	.artifact-row-pill-reviewed {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		height: 20px;
+		padding: 0 0.44rem;
+		border-radius: var(--radius-full);
+		background: var(--success-tint);
+		color: var(--success-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;

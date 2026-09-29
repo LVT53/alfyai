@@ -4,6 +4,8 @@ import {
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
+import { EMPTY_TAB_ANCHOR_PLACEHOLDER } from "$lib/shared/artifact-document/blocks";
+import type { PatchOp, PatchSet } from "$lib/shared/artifact-document/patch";
 import {
 	NOW,
 	seedConversation,
@@ -20,9 +22,12 @@ vi.mock("$lib/server/db", () => ({
 }));
 
 const {
+	acknowledgeDocumentReviewBlocks,
+	applyDocumentPatch,
 	createArtifact,
 	createDocumentArtifact,
 	listArtifactsForConversation,
+	readDocumentForAlfy,
 	updateArtifactBody,
 } = await import("./index");
 
@@ -48,6 +53,27 @@ async function create(
 	});
 	if (!result.ok) throw new Error(result.reason);
 	return result.artifact;
+}
+
+/**
+ * The generic `createArtifact` (`create` above) stores whatever body it is
+ * given verbatim — it has no idea a Document's body needs block-id markers
+ * minted first. `createDocumentArtifact` (the real Document creation path,
+ * also what `create_artifact`'s tool handler calls) does that minting, so a
+ * multi-block body here gets the SAME distinct ids the live app would give
+ * it. Module-scope (not nested in one describe) because both the
+ * documentPreview and pendingReviewCount suites below need real, patchable
+ * block ids.
+ */
+async function createDocumentWithBody(title: string, body: string) {
+	return createDocumentArtifact({
+		userId: OWNER,
+		conversationId: CONVERSATION,
+		title,
+		markdown: body,
+		author: "user",
+		summary: "Created",
+	});
 }
 
 function setUpdatedAt(id: string, at: Date) {
@@ -248,26 +274,6 @@ describe("listArtifactsForConversation — documentPreview (T9 steps 4/7)", () =
 		"- [ ] Snacks",
 	].join("\n");
 
-	/**
-	 * The generic `createArtifact` stores whatever body it is given verbatim —
-	 * it has no idea a Document's body needs block-id markers minted first.
-	 * `createDocumentArtifact` (the real Document creation path, also what
-	 * `create_artifact`'s tool handler calls) does that minting, so a
-	 * multi-block body here gets the SAME distinct ids the live app would give
-	 * it — using the plain `create()` helper above (backed by `createArtifact`
-	 * directly) here would silently collapse every block onto one id.
-	 */
-	async function createDocumentWithBody(title: string, body: string) {
-		return createDocumentArtifact({
-			userId: OWNER,
-			conversationId: CONVERSATION,
-			title,
-			markdown: body,
-			author: "user",
-			summary: "Created",
-		});
-	}
-
 	it("bounds tasks to the first five, in order, with the real block ids and checked state", async () => {
 		const doc = await createDocumentWithBody("Packing list", TASKS_BODY);
 
@@ -358,5 +364,270 @@ describe("listArtifactsForConversation — documentPreview (T9 steps 4/7)", () =
 
 		expect(row.kind).toBe("app");
 		expect(row.documentPreview).toBeUndefined();
+	});
+
+	// rd/review-2-5.md's fix-agent-B finding 7 (verified by fix agent C): a
+	// still-empty new tab's own anchor paragraph is a single zero-width space
+	// (`appendEmptyTabSection`) — real content to the STORED body, but the
+	// card preview has nothing to leak it THROUGH: `documentPreview` never
+	// carries body text at all (only tabCount/tasks/totalTaskCount, per the
+	// "never leaks the body itself" test above), so a still-empty tab is
+	// already safe by construction. This guards that staying true.
+	it("never leaks the empty-tab zero-width-space placeholder either — documentPreview has no body-text field to carry it", async () => {
+		await createDocumentWithBody(
+			"Trip plan",
+			`${TASKS_BODY}\n\n${EMPTY_TAB_ANCHOR_PLACEHOLDER}`,
+		);
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(JSON.stringify(row)).not.toContain(EMPTY_TAB_ANCHOR_PLACEHOLDER);
+	});
+});
+
+/**
+ * Wave 2.5 review (F1): `pendingReviewCount` is the PERSISTED count — the
+ * same one `getDocumentReviewState`/`computePendingReviewBlocks` (ruling 61)
+ * compute for a single artifact — never the ephemeral, session-only
+ * `liveDocumentAlfyActivity` signal the chat card/list row/count-button dot
+ * used to read independently. `readFirstBlock`/`replaceBlockPatch` mirror
+ * `document-ops.test.ts`'s own helpers exactly (the same real Alfy-edit
+ * flow), rather than hand-writing a second lower-fidelity patch shape.
+ */
+describe("listArtifactsForConversation — pendingReviewCount (Wave 2.5 review, F1)", () => {
+	async function readFirstBlock(
+		artifactId: string,
+		conversationId?: string,
+	): Promise<{ id: string; hash: string }> {
+		const doc = await readDocumentForAlfy({
+			userId: OWNER,
+			artifactId,
+			conversationId,
+		});
+		const [block] = doc.blocks;
+		if (!block) throw new Error("document has no blocks");
+		return { id: block.blockId, hash: block.hash };
+	}
+
+	function replaceBlockPatch(
+		blockId: string,
+		baseHash: string,
+		text: string,
+	): PatchSet {
+		const op: PatchOp = {
+			opId: `op-${blockId}-${text}`,
+			kind: "replaceBlock",
+			blockId,
+			baseHash,
+			blockLabel: "block",
+			text,
+		};
+		return { patchId: `patch-${blockId}-${text}`, label: "Edited", ops: [op] };
+	}
+
+	it("omits the field for a document Alfy never touched", async () => {
+		await createDocumentWithBody("Untouched", "# Notes\nJust text.");
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.pendingReviewCount).toBeUndefined();
+	});
+
+	it("counts a pending Alfy edit, and reads 0 (reviewed) once it is kept", async () => {
+		const doc = await createDocumentWithBody(
+			"Hotel plan",
+			"# Hotel\nBook the Ritz.",
+		);
+		const block = await readFirstBlock(doc.id);
+		await applyDocumentPatch({
+			userId: OWNER,
+			artifactId: doc.id,
+			conversationId: CONVERSATION,
+			patch: replaceBlockPatch(block.id, block.hash, "Book the Hilton."),
+		});
+
+		const [pending] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		expect(pending.pendingReviewCount).toBe(1);
+
+		const blockAgain = await readFirstBlock(doc.id);
+		await acknowledgeDocumentReviewBlocks({
+			userId: OWNER,
+			artifactId: doc.id,
+			blockIds: [blockAgain.id],
+		});
+
+		const [reviewed] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		// 0, not undefined/omitted — this is "reviewed", distinct from "never
+		// had anything to review".
+		expect(reviewed.pendingReviewCount).toBe(0);
+	});
+
+	it("counts two pending Alfy edits across two documents independently", async () => {
+		const first = await createDocumentWithBody("Plan A", "# A\nOne.");
+		const second = await createDocumentWithBody("Plan B", "# B\nTwo.");
+		const firstBlock = await readFirstBlock(first.id);
+		await applyDocumentPatch({
+			userId: OWNER,
+			artifactId: first.id,
+			conversationId: CONVERSATION,
+			patch: replaceBlockPatch(firstBlock.id, firstBlock.hash, "One, edited."),
+		});
+		const secondBlock = await readFirstBlock(second.id);
+		await applyDocumentPatch({
+			userId: OWNER,
+			artifactId: second.id,
+			conversationId: CONVERSATION,
+			patch: replaceBlockPatch(
+				secondBlock.id,
+				secondBlock.hash,
+				"Two, edited.",
+			),
+		});
+
+		const listed = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		const byId = new Map(listed.map((row) => [row.id, row]));
+		expect(byId.get(first.id)?.pendingReviewCount).toBe(1);
+		expect(byId.get(second.id)?.pendingReviewCount).toBe(1);
+	});
+
+	it("never leaks a pending count to a stranger, and scopes an incognito conversation to itself", async () => {
+		const doc = await createDocumentWithBody("Secret plan", "# Plan\nGo.");
+		const block = await readFirstBlock(doc.id, CONVERSATION);
+		await applyDocumentPatch({
+			userId: OWNER,
+			artifactId: doc.id,
+			conversationId: CONVERSATION,
+			patch: replaceBlockPatch(block.id, block.hash, "Go, edited."),
+		});
+
+		// A stranger's own listing call never reaches this conversation at
+		// all (the ownership scope check runs before pendingReviewCount is
+		// ever computed) — already covered generally above; re-asserted here
+		// against a row that specifically HAS a pending count, so a future
+		// regression that leaked scoping only for this new field would still
+		// be caught.
+		await expect(
+			listArtifactsForConversation({
+				userId: STRANGER,
+				conversationId: CONVERSATION,
+			}),
+		).resolves.toEqual([]);
+
+		const incognitoDoc = await createDocumentArtifact({
+			userId: OWNER,
+			conversationId: INCOGNITO,
+			title: "Incognito plan",
+			markdown: "# Plan\nStay hidden.",
+			author: "user",
+			summary: "Created",
+		});
+		const incognitoBlock = await readFirstBlock(incognitoDoc.id, INCOGNITO);
+		await applyDocumentPatch({
+			userId: OWNER,
+			artifactId: incognitoDoc.id,
+			conversationId: INCOGNITO,
+			patch: replaceBlockPatch(
+				incognitoBlock.id,
+				incognitoBlock.hash,
+				"Stay hidden, edited.",
+			),
+		});
+
+		const [insideIncognito] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: INCOGNITO,
+		});
+		expect(insideIncognito.pendingReviewCount).toBe(1);
+
+		// The SAME incognito document never appears — pending count included
+		// — when listing a different one of the owner's own conversations.
+		const fromOtherConversation = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		expect(fromOtherConversation.map((row) => row.id)).not.toContain(
+			incognitoDoc.id,
+		);
+	});
+});
+
+/** Bypasses the App's own generate-and-verify pipeline — this test only needs the STORED metadata shape `buildAppVerificationSummary` reads. */
+function setMetadataVerification(
+	id: string,
+	verification: Record<string, unknown> | undefined,
+) {
+	const row = memory.sqlite
+		.prepare("SELECT metadata_json FROM artifacts WHERE id = ?")
+		.get(id) as { metadata_json: string };
+	const metadata = JSON.parse(row.metadata_json);
+	if (verification === undefined) delete metadata.verification;
+	else metadata.verification = verification;
+	memory.sqlite
+		.prepare("UPDATE artifacts SET metadata_json = ? WHERE id = ?")
+		.run(JSON.stringify(metadata), id);
+}
+
+describe("listArtifactsForConversation — appVerification (Wave 2.5 Step 13)", () => {
+	it("surfaces the stored checked/verdict pair for an App whose facts were checked", async () => {
+		const app = await create(CONVERSATION, "Trip budget splitter", "app");
+		setMetadataVerification(app.id, { checked: true, verdict: "repaired" });
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.appVerification).toEqual({ checked: true, verdict: "repaired" });
+	});
+
+	it("is null (not missing) for an App whose facts were never checked", async () => {
+		const app = await create(CONVERSATION, "Quiet app", "app");
+		setMetadataVerification(app.id, undefined);
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.appVerification).toBeNull();
+	});
+
+	it("is null for a malformed verification shape rather than surfacing garbage", async () => {
+		const app = await create(CONVERSATION, "Odd app", "app");
+		setMetadataVerification(app.id, { checked: "yes", verdict: 3 });
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.appVerification).toBeNull();
+	});
+
+	it("omits appVerification entirely for a non-app kind", async () => {
+		await create(CONVERSATION, "Weekend plan", "document");
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(row.kind).toBe("document");
+		expect(row.appVerification).toBeUndefined();
 	});
 });

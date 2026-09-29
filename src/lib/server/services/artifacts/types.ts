@@ -75,6 +75,24 @@ export interface DocumentCardPreview {
 	totalTaskCount: number;
 }
 
+/**
+ * `kind: "app"` only (Wave 2.5 Step 13): the App panel's own status-row
+ * verdict, carried along so the in-chat card can show the same fact-check
+ * line without a second fetch. Mirrors the shape `AppBody.svelte` already
+ * reads off `metadata.verification` client-side — never the full
+ * `AppVerification` (findings, repairedHtml, …), which stays panel-only.
+ *
+ * `verdict` repeats `./app/verify.ts`'s own `AppVerificationVerdict` union as
+ * a literal rather than importing it: that module's own import graph
+ * (generation/verification/tool-recording) has no reason to run through this
+ * shared types file, and a real, small, stable four-value enum is cheaper to
+ * repeat here than to risk a new circular dependency over.
+ */
+export interface AppVerificationSummary {
+	checked: boolean;
+	verdict: "clean" | "repaired" | "uncertain" | "unavailable";
+}
+
 export interface ArtifactCardSummary {
 	id: string;
 	kind: ArtifactKind;
@@ -85,6 +103,20 @@ export interface ArtifactCardSummary {
 	commentCount: number;
 	updatedAt: number;
 	documentPreview?: DocumentCardPreview;
+	/** `kind: "app"` only; `null` when the App's facts were never checked. */
+	appVerification?: AppVerificationSummary | null;
+	/**
+	 * `kind: "document"` only (Wave 2.5 review, F1): the PERSISTED review
+	 * state — `document-ops.ts`'s `computePendingReviewBlocks`, through the
+	 * artifact's own stored `metadata.review` marker (ruling 61) — never the
+	 * ephemeral, session-only `liveDocumentAlfyActivity` signal the chat card,
+	 * list row and count-button dot used to read independently (and could
+	 * each go stale in a different way). `undefined` for a document that has
+	 * never had an Alfy edit land (no marker yet — nothing to review, ever):
+	 * distinct from `0`, which means "reviewed" (a marker exists and nothing
+	 * is pending right now). Every other kind always omits this field.
+	 */
+	pendingReviewCount?: number;
 }
 
 export interface ArtifactDetail extends ArtifactCardSummary {

@@ -18,14 +18,21 @@ import {
 	parseDocument,
 	readTaskBlock,
 } from "$lib/shared/artifact-document/blocks";
-import { documentTabsFromMetadata } from "./document-ops";
+import {
+	computeDocumentPendingReviewCounts,
+	documentTabsFromMetadata,
+} from "./document-ops";
 import {
 	FAMILY_ROW_TYPES,
 	kindForArtifactRow,
 	parseArtifactMetadata,
 	titleForArtifactRow,
 } from "./record";
-import type { ArtifactCardSummary, DocumentCardPreview } from "./types";
+import type {
+	AppVerificationSummary,
+	ArtifactCardSummary,
+	DocumentCardPreview,
+} from "./types";
 
 /** T9 steps 4/7's bounded checklist: never more than this many task items travel with the card summary. */
 const DOCUMENT_PREVIEW_TASK_LIMIT = 5;
@@ -59,6 +66,35 @@ function buildDocumentPreview(row: {
 		}
 	}
 	return { tabCount, tasks, totalTaskCount };
+}
+
+/**
+ * Wave 2.5 Step 13: the App panel's own status-row verdict (`AppBody.svelte`
+ * reads the identical `metadata.verification` shape client-side), projected
+ * through the facade so the in-chat card's fact-check line does not need a
+ * second fetch. `null` when the App's facts were never checked (a legacy row,
+ * or a kind the classifier found nothing checkable in) — distinct from
+ * `undefined`, which `documentPreview`'s own sibling field uses for "not this
+ * kind" (the caller below only calls this for `kind === "app"` rows).
+ */
+function buildAppVerificationSummary(row: {
+	metadataJson: string | null;
+}): AppVerificationSummary | null {
+	const metadata = parseArtifactMetadata(row.metadataJson);
+	const verification = metadata?.verification as
+		| { checked?: unknown; verdict?: unknown }
+		| undefined;
+	if (
+		!verification ||
+		typeof verification.checked !== "boolean" ||
+		typeof verification.verdict !== "string"
+	) {
+		return null;
+	}
+	return {
+		checked: verification.checked,
+		verdict: verification.verdict as AppVerificationSummary["verdict"],
+	};
 }
 
 /**
@@ -128,7 +164,18 @@ export async function listArtifactsForConversation(params: {
 	if (listed.length === 0) return [];
 
 	const ids = listed.map((row) => row.id);
-	const [versionRows, commentRows] = await Promise.all([
+	// Wave 2.5 review (F1): the persisted per-Document pending-review count —
+	// the chat card, the list row (below) and the header's count-button dot
+	// all read this SAME number instead of each re-deriving their own from
+	// the ephemeral `liveDocumentAlfyActivity` session signal. Scoped to
+	// `kind === "document"` rows only; `computeDocumentPendingReviewCounts`
+	// itself already skips the version-history query for a row with no
+	// review marker, so this stays cheap for a conversation with no pending
+	// Alfy edits at all.
+	const documentMetadataRows = listed
+		.filter((row) => kindForArtifactRow(row) === "document")
+		.map((row) => ({ id: row.id, metadataJson: row.metadataJson }));
+	const [versionRows, commentRows, pendingReviewCountById] = await Promise.all([
 		db
 			.select({
 				artifactId: artifactVersions.artifactId,
@@ -145,6 +192,7 @@ export async function listArtifactsForConversation(params: {
 			.from(artifactComments)
 			.where(inArray(artifactComments.artifactId, ids))
 			.groupBy(artifactComments.artifactId),
+		computeDocumentPendingReviewCounts(documentMetadataRows),
 	]);
 	const newestVersionById = new Map(
 		versionRows.map((row) => [row.artifactId, row.newest ?? 0]),
@@ -164,8 +212,15 @@ export async function listArtifactsForConversation(params: {
 			commentCount: commentCountById.get(row.id) ?? 0,
 			updatedAt: row.updatedAt.getTime(),
 			...(kind === "document"
-				? { documentPreview: buildDocumentPreview(row) }
-				: {}),
+				? {
+						documentPreview: buildDocumentPreview(row),
+						...(pendingReviewCountById.has(row.id)
+							? { pendingReviewCount: pendingReviewCountById.get(row.id) }
+							: {}),
+					}
+				: kind === "app"
+					? { appVerification: buildAppVerificationSummary(row) }
+					: {}),
 		};
 	});
 }

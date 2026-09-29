@@ -74,8 +74,27 @@ export interface BubblePlacement {
 	placement: "above" | "below";
 }
 
-/** `.selection-bubble`'s own `min-width: 12rem` and its default (non-composing, two-action-row) rendered height. */
+/**
+ * `.selection-bubble`'s own `min-width: 12rem` and its default (non-
+ * composing, two-action-row) rendered height. Not exported: `DocumentBody.svelte`
+ * always places the bubble against `COMPOSER_BUBBLE_SIZE` below instead (the
+ * grown composer's footprint, so growing in place never needs a re-flip) —
+ * this stays the internal default for any caller that omits `bubbleSize`.
+ */
 const DEFAULT_BUBBLE_SIZE: BubbleSize = { width: 192, height: 92 };
+
+/**
+ * The grown composer's own footprint (redesign §4.2 item 2: "the pill grows
+ * into a 340 px composer"; §9.2's `SelectionBubble.svelte` row: "composer-
+ * height-aware flip"). `DocumentBody.svelte`'s `updateSelectionBubble` always
+ * places the bubble against THIS size, never the smaller resting pill's —
+ * the pill only ever grows in place (motion #8), so a placement computed for
+ * the small pill could leave no room once it grows, forcing a visible jump.
+ * Sizing for the composer's TALLEST realistic content (Ask mode: header,
+ * textarea, a wrapped suggestion-chip row, the effect line, the action row)
+ * keeps this a safe, if occasionally conservative, upper bound.
+ */
+export const COMPOSER_BUBBLE_SIZE: BubbleSize = { width: 340, height: 320 };
 
 /** Breathing room kept between the bubble and the selection, and between the bubble and the container's own visible edge. */
 const SELECTION_GAP_PX = 8;

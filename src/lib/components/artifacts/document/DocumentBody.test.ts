@@ -24,6 +24,8 @@ const {
 	mockExportArtifactDocument,
 	mockFetchArtifactVersions,
 	mockRestoreArtifactVersion,
+	mockFetchDocumentReviewState,
+	mockAcknowledgeDocumentReviewBlocks,
 } = vi.hoisted(() => ({
 	mockFetchArtifact: vi.fn(),
 	mockSaveArtifactBody: vi.fn(),
@@ -38,6 +40,11 @@ const {
 	// needed to exist here before.
 	mockFetchArtifactVersions: vi.fn(),
 	mockRestoreArtifactVersion: vi.fn(),
+	// Ruling 61: defaults to "nothing pending" so every test that never cares
+	// about this stays unaffected; the suite's own describe block overrides
+	// these per test.
+	mockFetchDocumentReviewState: vi.fn().mockResolvedValue([]),
+	mockAcknowledgeDocumentReviewBlocks: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("$lib/client/api/artifacts", () => ({
@@ -51,7 +58,27 @@ vi.mock("$lib/client/api/artifacts", () => ({
 	fetchArtifactVersions: mockFetchArtifactVersions,
 	restoreArtifactVersion: mockRestoreArtifactVersion,
 	exportArtifactDocument: mockExportArtifactDocument,
+	fetchDocumentReviewState: mockFetchDocumentReviewState,
+	acknowledgeDocumentReviewBlocks: mockAcknowledgeDocumentReviewBlocks,
 }));
+
+// Wave 2.5 Step 8: jsdom's default `window.innerWidth` (1024) already means
+// "not phone" for every OTHER test in this file, matching the real
+// `isPhoneViewport()` this mock replaces — so this only changes behaviour in
+// the one describe block below that flips `mockViewportState.isPhone` to
+// drive the phone-sheet branch without a real resize.
+const { mockViewportState } = vi.hoisted(() => ({
+	mockViewportState: { isPhone: false },
+}));
+vi.mock("$lib/utils/viewport.svelte", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/utils/viewport.svelte")>();
+	return {
+		...actual,
+		isPhoneViewport: () => mockViewportState.isPhone,
+		watchPhoneViewport: () => () => {},
+	};
+});
 
 const {
 	mockCreateDocumentEditor,
@@ -61,11 +88,21 @@ const {
 	mockApplyAlfyChanges,
 	mockKeepChange,
 	mockUndoChange,
-	mockChangeMarkRect,
+	mockRemarkChange,
+	mockChangeDocRange,
 	mockScrollToChange,
+	mockSetChangePills,
 	mockSummarizeRefusals,
 	mockRefusalReasonI18nKey,
 	mockSetActiveDocumentTab,
+	mockAppendEmptyTabSection,
+	mockSetCommentAnchors,
+	mockScrollToCommentAnchor,
+	mockSetAlfyWritingBlock,
+	mockSetSelectionPending,
+	mockSetRefusedLines,
+	mockBlockRect,
+	mockSelectAndScrollToBlock,
 	editorInstances,
 } = vi.hoisted(() => ({
 	mockCreateDocumentEditor: vi.fn(),
@@ -75,18 +112,40 @@ const {
 	mockApplyAlfyChanges: vi.fn(),
 	mockKeepChange: vi.fn(),
 	mockUndoChange: vi.fn(),
-	mockChangeMarkRect: vi.fn(),
+	// Wave 2.5 Step 10: the inline pill's own Redo / ruling 61's reload-restore
+	// re-marking, and the pill's positioning fallback — no-ops against this
+	// suite's fake editor, same reasoning as the comment-anchor mocks below.
+	mockRemarkChange: vi.fn().mockReturnValue(true),
+	mockChangeDocRange: vi.fn().mockReturnValue(null),
 	mockScrollToChange: vi.fn(),
+	mockSetChangePills: vi.fn(),
 	mockSummarizeRefusals: vi.fn(),
 	mockRefusalReasonI18nKey: vi.fn(),
 	// Wave 2.5 Step 5: the tab-range visibility trigger (extensions.ts'
 	// tabSectionPluginKey) — a no-op here, since these tests use a fake
 	// editor with no real ProseMirror state to dispatch a transaction into.
 	mockSetActiveDocumentTab: vi.fn(),
+	// Review 2.5 (rd/review-2-5.md:191-197): mints a real anchor block for a
+	// brand-new tab. Returns `null` by default (this suite's fake editor has
+	// no real ProseMirror doc to mint against); a test that needs the
+	// "minted a real id" branch sets a return value explicitly.
+	mockAppendEmptyTabSection: vi.fn().mockReturnValue(null),
+	// Wave 2.5 Step 7: the comment-anchor decoration's own write side — same
+	// reasoning, a no-op against this suite's fake editor.
+	mockSetCommentAnchors: vi.fn(),
+	mockScrollToCommentAnchor: vi.fn(),
+	// Wave 2.5 Step 9/11: the Ask-Alfy chain's own decoration write sides —
+	// same reasoning, no-ops against this suite's fake editor.
+	mockSetAlfyWritingBlock: vi.fn(),
+	mockSetSelectionPending: vi.fn(),
+	mockSetRefusedLines: vi.fn(),
+	mockBlockRect: vi.fn().mockReturnValue(null),
+	mockSelectAndScrollToBlock: vi.fn().mockReturnValue(true),
 	editorInstances: [] as Array<{
 		options: Record<string, unknown>;
 		destroy: ReturnType<typeof vi.fn>;
 		isActive: ReturnType<typeof vi.fn>;
+		view: { focus: ReturnType<typeof vi.fn> };
 	}>,
 }));
 
@@ -98,11 +157,21 @@ vi.mock("./document-editor", () => ({
 	applyAlfyChanges: mockApplyAlfyChanges,
 	keepChange: mockKeepChange,
 	undoChange: mockUndoChange,
-	changeMarkRect: mockChangeMarkRect,
+	remarkChange: mockRemarkChange,
+	changeDocRange: mockChangeDocRange,
 	scrollToChange: mockScrollToChange,
+	setChangePills: mockSetChangePills,
 	summarizeRefusals: mockSummarizeRefusals,
 	refusalReasonI18nKey: mockRefusalReasonI18nKey,
 	setActiveDocumentTab: mockSetActiveDocumentTab,
+	appendEmptyTabSection: mockAppendEmptyTabSection,
+	setCommentAnchors: mockSetCommentAnchors,
+	scrollToCommentAnchor: mockScrollToCommentAnchor,
+	setAlfyWritingBlock: mockSetAlfyWritingBlock,
+	setSelectionPending: mockSetSelectionPending,
+	setRefusedLines: mockSetRefusedLines,
+	blockRect: mockBlockRect,
+	selectAndScrollToBlock: mockSelectAndScrollToBlock,
 }));
 
 // A fake stands in for the real Tiptap editor: `document-editor.test.ts`
@@ -141,6 +210,16 @@ function makeFakeEditor() {
 		chain: vi.fn(() => chain),
 		isActive,
 		destroy,
+		// Wave 2.5 Step 9: `updateSelectionBubble` reads the live selection's
+		// own raw positions directly (`editor.state.selection.from`/`to`) for
+		// the selection-pending highlight — a static stub is enough here,
+		// since these tests never assert on the exact positions themselves.
+		state: { selection: { from: 0, to: 5 } },
+		// Review 2.5 (rd/review-2-5.md:198-207): `dismissSelectionBubble` calls
+		// `editor.view.focus()` directly (never the `chain()`/`commands` path
+		// above — Tiptap's own `commands.focus()` defers the real DOM focus,
+		// see that function's own comment), so this fake needs its own stub.
+		view: { focus: vi.fn() },
 		_chain: chain,
 	};
 }
@@ -153,6 +232,7 @@ function setupCreateDocumentEditor() {
 				options,
 				destroy: fake.destroy,
 				isActive: fake.isActive,
+				view: fake.view,
 			});
 			return fake;
 		},
@@ -201,6 +281,7 @@ describe("DocumentBody", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		editorInstances.length = 0;
+		mockViewportState.isPhone = false;
 		setupCreateDocumentEditor();
 		mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
 		mockSaveArtifactBody.mockResolvedValue({ ok: true, version: 2 });
@@ -210,7 +291,8 @@ describe("DocumentBody", () => {
 		mockReadSelectionAnchorContext.mockReturnValue(null);
 		mockApplyAlfyChanges.mockReturnValue([]);
 		mockSummarizeRefusals.mockReturnValue(null);
-		mockChangeMarkRect.mockReturnValue(null);
+		mockRemarkChange.mockReturnValue(true);
+		mockChangeDocRange.mockReturnValue(null);
 		mockKeepChange.mockReturnValue(true);
 		mockUndoChange.mockReturnValue(true);
 		mockScrollToChange.mockReturnValue(true);
@@ -708,6 +790,63 @@ describe("DocumentBody", () => {
 			expect(tabButtons[0]).toHaveAttribute("aria-selected", "true");
 		});
 
+		// rd/review-2-5.md:223-228 — every tab's own aria-controls pointed at a
+		// "document-tabpanel-{id}" that no element ever carried; the editor
+		// host now carries that id for whichever tab is currently active.
+		it("gives the editor host role=tabpanel with the active tab's own id, updated when the active tab changes", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					metadata: {
+						artifactType: "document",
+						title: "Trip plan",
+						tabs: [
+							{ id: "tab-1", title: "Plan", startBlockId: "p1" },
+							{ id: "tab-2", title: "Budget", startBlockId: "p2" },
+						],
+					},
+				}),
+			);
+			const { container } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			const editorHost = container.querySelector(".document-editor-host");
+			expect(editorHost).toHaveAttribute("role", "tabpanel");
+			expect(editorHost).toHaveAttribute("id", "document-tabpanel-tab-1");
+			expect(editorHost).toHaveAttribute(
+				"aria-labelledby",
+				"document-tab-tab-1",
+			);
+
+			await fireEvent.click(screen.getByRole("tab", { name: "Budget" }));
+			expect(editorHost).toHaveAttribute("id", "document-tabpanel-tab-2");
+			expect(editorHost).toHaveAttribute(
+				"aria-labelledby",
+				"document-tab-tab-2",
+			);
+		});
+
+		it("omits the tabpanel role/id for a single-tab document — there is no tablist for it to pair with", async () => {
+			const { container } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			const editorHost = container.querySelector(".document-editor-host");
+			expect(editorHost).not.toHaveAttribute("role");
+			expect(editorHost).not.toHaveAttribute("id");
+		});
+
 		it("switching the active tab does not reload the editor module or the document", async () => {
 			mockFetchArtifact.mockResolvedValue(
 				ARTIFACT_DETAIL({
@@ -765,6 +904,34 @@ describe("DocumentBody", () => {
 			// than an exact string two independent mints would rarely agree on.
 			expect(markdownArg).toMatch(/^<!--b:[a-z0-9]+-->\nHello\.\n$/);
 		});
+
+		// Review 2.5 (rd/review-2-5.md:191-197): the new tab used to save with
+		// `startBlockId: ""` — the anchor `appendEmptyTabSection` mints (a real
+		// ProseMirror/markdown concern, covered against a real editor in
+		// `document-editor.test.ts`) must overwrite it here before the save
+		// this suite's own fake editor cannot exercise end to end.
+		it("a newly minted anchor block's id becomes the new tab's startBlockId before it saves", async () => {
+			mockReadMarkdown.mockReturnValue("Hello.");
+			mockAppendEmptyTabSection.mockReturnValueOnce("p9k2m1");
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Add a tab" }));
+
+			await waitFor(() =>
+				expect(mockSaveDocumentTabs).toHaveBeenCalledTimes(1),
+			);
+			expect(mockAppendEmptyTabSection).toHaveBeenCalledTimes(1);
+			const [, tabsArg] = mockSaveDocumentTabs.mock.calls[0];
+			expect(tabsArg[0].startBlockId).toBe("p9k2m1");
+		});
 	});
 
 	// The margin and the selection bubble (Slice 1, T10).
@@ -800,7 +967,9 @@ describe("DocumentBody", () => {
 			await waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
-			expect(screen.getByText("No comments yet.")).toBeInTheDocument();
+			expect(
+				screen.getByText("No comments on this tab. Select text to start one."),
+			).toBeInTheDocument();
 		});
 
 		it("renders a fetched comment in the margin", async () => {
@@ -845,6 +1014,98 @@ describe("DocumentBody", () => {
 			);
 		});
 
+		// Review 2.5 (rd/review-2-5.md:198-207): Escape while focus is still on
+		// the pill's own button used to strand focus at `<body>` once that
+		// button unmounted — refocusing the editor is what actually leaves the
+		// selection "intact" (redesign §4.4) rather than just visually
+		// abandoned. `editor.view.focus()` specifically (never the
+		// `chain()`/`commands` path `makeFakeEditor`'s other stubs cover) — see
+		// `dismissSelectionBubble`'s own comment for why.
+		it("Escape while focus is on the pill's own button refocuses the editor", async () => {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 10, left: 20, right: 40, bottom: 30 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+
+			const askButton = screen.getByRole("button", { name: "Ask Alfy" });
+			askButton.focus();
+			expect(askButton).toHaveFocus();
+
+			await fireEvent.keyDown(document, { key: "Escape" });
+
+			expect(latestEditor().view.focus).toHaveBeenCalled();
+		});
+
+		// Review 2.5 (rd/review-2-5.md:198-207): `onTabIntoSelectionPill` is the
+		// callback `document-editor.ts`'s own ProseMirror `handleKeyDown` calls
+		// on a plain Tab over a non-empty selection (covered there against a
+		// real editor); this covers DocumentBody's own half of that contract —
+		// the option is wired through, and it actually reaches into the
+		// rendered bubble's first button.
+		it("onTabIntoSelectionPill focuses the pill's first button while the bubble is showing", async () => {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 10, left: 20, right: 40, bottom: 30 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+
+			const onTabIntoSelectionPill = latestEditor().options
+				.onTabIntoSelectionPill as () => boolean;
+			expect(onTabIntoSelectionPill).toBeTypeOf("function");
+			expect(onTabIntoSelectionPill()).toBe(true);
+			expect(screen.getByRole("button", { name: "Ask Alfy" })).toHaveFocus();
+		});
+
+		it("onTabIntoSelectionPill returns false when there is no selection bubble to focus", async () => {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(screen.queryByTestId("selection-bubble")).toBeNull();
+
+			const onTabIntoSelectionPill = latestEditor().options
+				.onTabIntoSelectionPill as () => boolean;
+			expect(onTabIntoSelectionPill()).toBe(false);
+		});
+
 		it("posts a comment from the bubble, with the live selection's anchor, and refreshes", async () => {
 			mockCreateArtifactComment.mockResolvedValue(commentFixture());
 			mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
@@ -876,7 +1137,10 @@ describe("DocumentBody", () => {
 			await fireEvent.input(screen.getByRole("textbox"), {
 				target: { value: "Too early?" },
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+			// Comment mode's own send button relabels to "Ask Alfy" only once the
+			// draft mentions @Alfy (redesign §4.2's "@Alfy switch") — plain text
+			// keeps the "Comment" label.
+			await fireEvent.click(screen.getByRole("button", { name: "Comment" }));
 
 			await waitFor(() =>
 				expect(mockCreateArtifactComment).toHaveBeenCalledWith(
@@ -897,6 +1161,10 @@ describe("DocumentBody", () => {
 			expect(mockAskAlfyInComment).not.toHaveBeenCalled();
 			// Refreshed at least once after the post (initial load + refresh).
 			expect(mockFetchArtifact).toHaveBeenCalledTimes(2);
+			// rd/review-2-5.md:217-222 — fed into the one shared announcer.
+			expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+				"Comment added.",
+			);
 		});
 
 		it("asks Alfy after posting a comment that mentions @Alfy", async () => {
@@ -941,15 +1209,25 @@ describe("DocumentBody", () => {
 			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 			const textbox = screen.getByRole("textbox") as HTMLTextAreaElement;
 			await fireEvent.input(textbox, {
-				target: { value: "@Alfy change it." },
+				target: { value: "change it." },
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+			// Ask mode's own send button stays labelled "Ask Alfy" (redesign
+			// §4.2 item 2) — it transparently prefixes the @Alfy mention on
+			// submit, so the draft the user types (below) never has to spell it.
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 
 			await waitFor(() =>
 				expect(mockAskAlfyInComment).toHaveBeenCalledWith(
 					"artifact-1",
 					"comment-1",
 					null,
+				),
+			);
+			// rd/review-2-5.md:217-222 — Alfy's own reply landing is fed into the
+			// one shared announcer, overwriting the earlier "Comment added."
+			await waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Alfy replied.",
 				),
 			);
 		});
@@ -999,9 +1277,12 @@ describe("DocumentBody", () => {
 			);
 			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 			await fireEvent.input(screen.getByRole("textbox"), {
-				target: { value: "@Alfy change it." },
+				target: { value: "change it." },
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+			// Ask mode's own send button stays labelled "Ask Alfy" (redesign
+			// §4.2 item 2) — it transparently prefixes the @Alfy mention on
+			// submit, so the draft the user types (below) never has to spell it.
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 
 			await waitFor(() =>
 				expect(mockLoadMarkdown).toHaveBeenCalledWith(
@@ -1064,9 +1345,12 @@ describe("DocumentBody", () => {
 			);
 			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 			await fireEvent.input(screen.getByRole("textbox"), {
-				target: { value: "@Alfy change it." },
+				target: { value: "change it." },
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+			// Ask mode's own send button stays labelled "Ask Alfy" (redesign
+			// §4.2 item 2) — it transparently prefixes the @Alfy mention on
+			// submit, so the draft the user types (below) never has to spell it.
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 
 			await waitFor(() =>
 				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
@@ -1081,8 +1365,17 @@ describe("DocumentBody", () => {
 			expect(reconstructed.outcomes).toEqual([
 				expect.objectContaining({ blockId: "p1", status: "applied" }),
 			]);
+			// Wave 2.5 Step 10: the pill is a ProseMirror widget decoration now,
+			// pushed into the (mocked) editor through `setChangePills` rather than
+			// rendered by DocumentBody's own template — `mockSetChangePills`'s own
+			// most recent call is the pill's own source of truth here.
 			await waitFor(() =>
-				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({ status: "pending" }),
+					]),
+				),
 			);
 		});
 
@@ -1126,15 +1419,105 @@ describe("DocumentBody", () => {
 			);
 			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 			await fireEvent.input(screen.getByRole("textbox"), {
-				target: { value: "@Alfy is this a good idea?" },
+				target: { value: "is this a good idea?" },
 			});
-			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+			// Ask mode's own send button stays labelled "Ask Alfy" (redesign
+			// §4.2 item 2) — it transparently prefixes the @Alfy mention on
+			// submit, so the draft the user types (below) never has to spell it.
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
 
 			await waitFor(() =>
 				expect(mockAskAlfyInComment).toHaveBeenCalledTimes(1),
 			);
 			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
-			expect(screen.queryByTestId("alfy-change-bar")).not.toBeInTheDocument();
+			expect(mockSetChangePills).not.toHaveBeenCalledWith(
+				expect.anything(),
+				expect.arrayContaining([expect.anything()]),
+			);
+		});
+
+		it("shows 'Alfy is writing' in place on the target block for at least 600ms, even when the reply is instant", async () => {
+			mockCreateArtifactComment.mockResolvedValue(
+				commentFixture({ body: "@Alfy change it." }),
+			);
+			// Resolves on the very next microtask — the fastest a real call
+			// could ever settle — so only the 600ms floor keeps it visible.
+			mockAskAlfyInComment.mockResolvedValue({
+				outcome: "answered",
+				applied: 0,
+				refused: 0,
+				version: 1,
+				reply: commentFixture({
+					id: "comment-2",
+					author: "alfy",
+					body: "Done.",
+				}),
+			});
+			mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
+
+			// Setup (mount, selection) runs under REAL timers — only the final
+			// send is measured under fake ones, so `waitFor`'s own internal
+			// polling never has to interact with faked time.
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 0, left: 0, right: 0, bottom: 0 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "change it." },
+			});
+
+			vi.useFakeTimers();
+			try {
+				await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+				// Flushes the already-resolved mock promise chain
+				// (postComment -> maybeAskAlfy -> askAlfyInComment ->
+				// refreshAfterCommentChange) without advancing past the 600ms
+				// floor itself.
+				await vi.advanceTimersByTimeAsync(0);
+
+				expect(mockSetAlfyWritingBlock).toHaveBeenCalledWith(
+					expect.anything(),
+					{ blockId: "p1", tagLabel: "Alfy is writing…" },
+				);
+				// The reply has already settled, but the in-place decoration must
+				// still be showing — never cleared before the 600ms floor.
+				expect(mockSetAlfyWritingBlock).not.toHaveBeenCalledWith(
+					expect.anything(),
+					null,
+				);
+
+				await vi.advanceTimersByTimeAsync(599);
+				expect(mockSetAlfyWritingBlock).not.toHaveBeenCalledWith(
+					expect.anything(),
+					null,
+				);
+
+				await vi.advanceTimersByTimeAsync(1);
+				expect(mockSetAlfyWritingBlock).toHaveBeenLastCalledWith(
+					expect.anything(),
+					null,
+				);
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 
 		it("resolves a comment through the margin's own action", async () => {
@@ -1162,6 +1545,12 @@ describe("DocumentBody", () => {
 					"comment-1",
 					true,
 					"conv-1",
+				),
+			);
+			// rd/review-2-5.md:217-222 — fed into the one shared announcer.
+			await waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Comment resolved.",
 				),
 			);
 		});
@@ -1299,10 +1688,12 @@ describe("DocumentBody", () => {
 			await fireEvent.click(
 				within(dialog).getByRole("button", { name: "Restore" }),
 			);
-			// The confirm dialog's own confirm button — NOT scoped by role/name
-			// (ConfirmDialog's title/confirm text are both "Restore" too, the
-			// same as the row's own button), so this uses its fixed testid.
-			await fireEvent.click(screen.getByTestId("confirm-delete"));
+			// Wave 2.5 Step 8: the confirm is inline (never a modal) — the SAME
+			// row's trigger button is replaced by its own "Restore v1? …" confirm,
+			// which re-queries as the (now only) "Restore" button in the dialog.
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Restore" }),
+			);
 
 			await waitFor(() =>
 				expect(mockRestoreArtifactVersion).toHaveBeenCalledWith(
@@ -1358,6 +1749,131 @@ describe("DocumentBody", () => {
 				await screen.findByRole("button", { name: "PDF" }),
 			).toBeInTheDocument();
 			expect(screen.queryByRole("dialog", { name: "Versions" })).toBeNull();
+		});
+	});
+
+	// Wave 2.5 Step 8: comments away from the inline rail — the header's
+	// Comments button (via `registerPanelActions`), a tapped highlight, and
+	// the live open-thread count both flow through `CommentsSheet.svelte`.
+	// The width-driven "narrow desktop panel" branch needs a real
+	// ResizeObserver/layout, which jsdom does not have — that half is the
+	// brief's own Playwright suite's job; this covers the phone-sheet branch
+	// and the count callback, both reachable by mocking `isPhoneViewport`.
+	describe("comments away from the rail (Wave 2.5 Step 8)", () => {
+		it("hands the header an openComments trigger that opens the phone sheet", async () => {
+			mockViewportState.isPhone = true;
+			const registerPanelActions = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+				registerPanelActions,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
+			expect(screen.queryByRole("dialog")).toBeNull();
+
+			actions.openComments();
+
+			expect(
+				await screen.findByRole("dialog", { name: "Comments" }),
+			).toBeInTheDocument();
+		});
+
+		it("reports the open (non-resolved) comment count, across every tab", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({}, [
+					{
+						id: "c1",
+						artifactId: "artifact-1",
+						parentId: null,
+						anchor: null,
+						author: "user",
+						body: "Open one",
+						status: "open",
+						createdAt: 1,
+						replies: [],
+					},
+					{
+						id: "c2",
+						artifactId: "artifact-1",
+						parentId: null,
+						anchor: null,
+						author: "user",
+						body: "Resolved one",
+						status: "resolved",
+						createdAt: 1,
+						replies: [],
+					},
+				]),
+			);
+			const onCommentCountChange = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+				onCommentCountChange,
+			});
+
+			await waitFor(() =>
+				expect(onCommentCountChange).toHaveBeenLastCalledWith(1),
+			);
+		});
+
+		it("a tapped highlighted phrase opens the phone sheet at that thread too", async () => {
+			mockViewportState.isPhone = true;
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nOne proper concert." }, [
+					{
+						id: "c1",
+						artifactId: "artifact-1",
+						parentId: null,
+						// The anchor's own resolution is irrelevant here — this test
+						// only exercises the click→overlay wiring, not placement.
+						anchor: null,
+						author: "user",
+						body: "Anna says it sells out early.",
+						status: "open",
+						createdAt: 1,
+						replies: [],
+					},
+				]),
+			);
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(screen.queryByRole("dialog")).toBeNull();
+
+			// This suite's fake editor host has no real ProseMirror decorations to
+			// click through, so the anchor-activate path is driven the same way
+			// the existing T10 comment tests drive it elsewhere in this file: a
+			// synthetic click on a `.comment-anchor[role="button"]` span, which is
+			// all `handleEditorAnchorActivate`'s own DOM delegation reads.
+			const editorHost = document.querySelector(".document-editor-host");
+			const span = document.createElement("span");
+			span.className = "comment-anchor";
+			span.setAttribute("role", "button");
+			span.setAttribute("data-comment-anchor-id", "c1");
+			editorHost?.appendChild(span);
+			await fireEvent.click(span);
+
+			expect(
+				await screen.findByRole("dialog", { name: "Comments" }),
+			).toBeInTheDocument();
 		});
 	});
 
@@ -1495,7 +2011,12 @@ describe("DocumentBody", () => {
 				"<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond.",
 			);
 			await waitFor(() =>
-				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({ status: "pending" }),
+					]),
+				),
 			);
 		});
 
@@ -1582,55 +2103,98 @@ describe("DocumentBody", () => {
 				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
 			);
 			await waitFor(() =>
-				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({ status: "pending" }),
+					]),
+				),
 			);
 		});
 
-		it("Keep clears the mark and leaves the text; a second patch to the same block then applies", async () => {
-			mockApplyAlfyChanges.mockReturnValue([
-				{
-					changeId: "change-1",
-					blockId: "p1",
-					blockLabel: "First.",
-					previousMarkdown: "First.",
-				},
-			]);
-			const { rerender } = render(DocumentBody, {
-				artifactId: "artifact-1",
-				kind: "document",
-				title: "Trip plan",
-				body: null,
-				alfyActivity: null,
-			});
-			await waitFor(() =>
-				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
-			);
+		it("Keep clears the mark (after its own settle delay) and leaves the text; a second patch to the same block then applies", async () => {
+			vi.useFakeTimers();
+			try {
+				mockApplyAlfyChanges.mockReturnValue([
+					{
+						changeId: "change-1",
+						blockId: "p1",
+						blockLabel: "First.",
+						previousMarkdown: "First.",
+					},
+				]);
+				const { rerender } = render(DocumentBody, {
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: null,
+				});
+				await vi.waitFor(() =>
+					expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+				);
 
-			await rerender({
-				artifactId: "artifact-1",
-				kind: "document",
-				title: "Trip plan",
-				body: null,
-				alfyActivity: {
-					...runningActivity(),
-					status: "applied",
-					patches: [
-						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
-					],
-					appliedCount: 1,
-				},
-			});
-			await waitFor(() =>
-				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
-			);
+				await rerender({
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: {
+						...runningActivity(),
+						status: "applied",
+						patches: [
+							{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+						],
+						appliedCount: 1,
+					},
+				});
+				await vi.waitFor(() =>
+					expect(mockSetChangePills).toHaveBeenCalledWith(
+						expect.anything(),
+						expect.arrayContaining([
+							expect.objectContaining({
+								changeId: "change-1",
+								status: "pending",
+							}),
+						]),
+					),
+				);
 
-			await fireEvent.click(screen.getByText("Keep"));
+				// The pill's own Keep button calls straight back into
+				// `changePillCallbacks.onKeep` (`change-pill-decoration.ts`'s own
+				// binding) — DocumentBody's own reaction to THAT firing is this
+				// suite's job; `ChangeBar.test.ts`/`change-pill-decoration.test.ts`
+				// already cover the button itself.
+				const { onKeep } = latestEditor().options.changePillCallbacks as {
+					onKeep: (changeId: string) => void;
+				};
+				onKeep("change-1");
 
-			expect(mockKeepChange).toHaveBeenCalledWith(
-				expect.anything(),
-				"change-1",
-			);
-			expect(screen.getByText("Kept.")).toBeInTheDocument();
+				// Status flips to "kept" immediately (redesign §7.2 #13's own
+				// "Kept" state) — the mark itself is NOT cleared yet.
+				await vi.waitFor(() =>
+					expect(mockSetChangePills).toHaveBeenCalledWith(
+						expect.anything(),
+						expect.arrayContaining([
+							expect.objectContaining({ changeId: "change-1", status: "kept" }),
+						]),
+					),
+				);
+				expect(mockKeepChange).not.toHaveBeenCalled();
+
+				await vi.advanceTimersByTimeAsync(1400);
+				expect(mockKeepChange).toHaveBeenCalledWith(
+					expect.anything(),
+					"change-1",
+				);
+				// Settled: removed from the pill list entirely.
+				expect(mockSetChangePills).toHaveBeenLastCalledWith(
+					expect.anything(),
+					[],
+				);
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 
 		it("Undo restores the previous text through undoChange and schedules an autosave", async () => {
@@ -1670,11 +2234,23 @@ describe("DocumentBody", () => {
 					},
 				});
 				await vi.waitFor(() =>
-					expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+					expect(mockSetChangePills).toHaveBeenCalledWith(
+						expect.anything(),
+						expect.arrayContaining([
+							expect.objectContaining({
+								changeId: "change-2",
+								status: "pending",
+							}),
+						]),
+					),
 				);
 
 				mockReadMarkdown.mockReturnValue(TWO_BLOCK_BODY);
-				await fireEvent.click(screen.getByText("Undo"));
+				mockChangeDocRange.mockReturnValueOnce({ from: 0, to: 5 });
+				const { onUndo } = latestEditor().options.changePillCallbacks as {
+					onUndo: (changeId: string) => void;
+				};
+				onUndo("change-2");
 
 				expect(mockUndoChange).toHaveBeenCalledWith(
 					expect.anything(),
@@ -1683,13 +2259,131 @@ describe("DocumentBody", () => {
 						previousMarkdown: "First.",
 					}),
 				);
-				expect(
-					screen.getByText("Undone — your text is back."),
-				).toBeInTheDocument();
+				// Undo flips status immediately (its own mark is gone the instant
+				// this runs — unlike Keep, there is no settle-delay for the text
+				// change itself, only for the pill's own "Undone · Redo" window).
+				await vi.waitFor(() =>
+					expect(mockSetChangePills).toHaveBeenCalledWith(
+						expect.anything(),
+						expect.arrayContaining([
+							expect.objectContaining({
+								changeId: "change-2",
+								status: "undone",
+								fallbackPos: 5,
+							}),
+						]),
+					),
+				);
 
 				vi.advanceTimersByTime(800);
 				await vi.waitFor(() =>
 					expect(mockSaveArtifactBody).toHaveBeenCalledTimes(1),
+				);
+
+				// Settles after its own 5s window.
+				vi.advanceTimersByTime(5000);
+				await vi.waitFor(() =>
+					expect(mockSetChangePills).toHaveBeenLastCalledWith(
+						expect.anything(),
+						[],
+					),
+				);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("Redo cancels Undo's settle timer, restores the applied text, and re-marks the block as pending", async () => {
+			vi.useFakeTimers();
+			try {
+				mockApplyAlfyChanges.mockReturnValue([
+					{
+						changeId: "change-3",
+						blockId: "p1",
+						blockLabel: "First.",
+						previousMarkdown: "First.",
+					},
+				]);
+				const { rerender } = render(DocumentBody, {
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: null,
+				});
+				await vi.waitFor(() =>
+					expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+				);
+				await rerender({
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: {
+						...runningActivity(),
+						status: "applied",
+						patches: [
+							{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+						],
+						appliedCount: 1,
+					},
+				});
+				await vi.waitFor(() =>
+					expect(mockSetChangePills).toHaveBeenCalledWith(
+						expect.anything(),
+						expect.arrayContaining([
+							expect.objectContaining({
+								changeId: "change-3",
+								status: "pending",
+							}),
+						]),
+					),
+				);
+
+				mockReadMarkdown.mockReturnValue(TWO_BLOCK_BODY);
+				const callbacks = latestEditor().options.changePillCallbacks as {
+					onUndo: (changeId: string) => void;
+					onRedo: (changeId: string) => void;
+				};
+				callbacks.onUndo("change-3");
+				mockUndoChange.mockClear();
+
+				callbacks.onRedo("change-3");
+				// Redo reuses undoChange in reverse (marks.ts's own "generic set
+				// this block's content" reasoning) — restoring the CAPTURED
+				// applied text, then re-marking under the SAME changeId.
+				expect(mockUndoChange).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({ blockId: "p1" }),
+				);
+				expect(mockRemarkChange).toHaveBeenCalledWith(
+					expect.anything(),
+					"change-3",
+					"p1",
+				);
+				await vi.waitFor(() =>
+					expect(mockSetChangePills).toHaveBeenCalledWith(
+						expect.anything(),
+						expect.arrayContaining([
+							expect.objectContaining({
+								changeId: "change-3",
+								status: "pending",
+							}),
+						]),
+					),
+				);
+
+				// The cancelled Undo timer never fires — Redo already returned
+				// this to "pending", so a stray removal 5s later would be wrong.
+				vi.advanceTimersByTime(5000);
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({
+							changeId: "change-3",
+							status: "pending",
+						}),
+					]),
 				);
 			} finally {
 				vi.useRealTimers();
@@ -1765,6 +2459,112 @@ describe("DocumentBody", () => {
 			);
 		});
 
+		it("the refusal card's Ask again re-selects the refused line and dismisses the card", async () => {
+			mockApplyAlfyChanges.mockReturnValue([]);
+			mockSummarizeRefusals.mockReturnValue({
+				count: 1,
+				items: [
+					{ blockId: "p2", blockLabel: "Second.", code: "block_changed" },
+				],
+			});
+			mockRefusalReasonI18nKey.mockReturnValue(
+				"artifacts.document.refused.changed",
+			);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					...runningActivity(),
+					status: "refused",
+					patches: [
+						{ op: "replaceBlock", blockId: "p2", baseHash: "h2", text: "y" },
+					],
+					refusedBlocks: [{ blockId: "p2", reason: "block_changed" }],
+					appliedCount: 0,
+				},
+			});
+
+			await waitFor(() =>
+				expect(screen.getByTestId("refusal-notice")).toBeInTheDocument(),
+			);
+			// The dashed gutter rule lands on the SAME refused block the card names.
+			expect(mockSetRefusedLines).toHaveBeenCalledWith(expect.anything(), {
+				blockIds: ["p2"],
+			});
+
+			await fireEvent.click(screen.getByRole("button", { name: "Ask again" }));
+			expect(mockSelectAndScrollToBlock).toHaveBeenCalledWith(
+				expect.anything(),
+				"p2",
+			);
+			expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument();
+		});
+
+		it("the refusal card's Dismiss clears the card and its line's dashed rule", async () => {
+			mockApplyAlfyChanges.mockReturnValue([]);
+			mockSummarizeRefusals.mockReturnValue({
+				count: 1,
+				items: [
+					{ blockId: "p2", blockLabel: "Second.", code: "block_changed" },
+				],
+			});
+			mockRefusalReasonI18nKey.mockReturnValue(
+				"artifacts.document.refused.changed",
+			);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					...runningActivity(),
+					status: "refused",
+					patches: [
+						{ op: "replaceBlock", blockId: "p2", baseHash: "h2", text: "y" },
+					],
+					refusedBlocks: [{ blockId: "p2", reason: "block_changed" }],
+					appliedCount: 0,
+				},
+			});
+			await waitFor(() =>
+				expect(screen.getByTestId("refusal-notice")).toBeInTheDocument(),
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+			expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument();
+			expect(mockSetRefusedLines).toHaveBeenLastCalledWith(
+				expect.anything(),
+				null,
+			);
+		});
+
 		it("a failed call clears the shimmer without leaving any notice behind", async () => {
 			const { rerender } = render(DocumentBody, {
 				artifactId: "artifact-1",
@@ -1792,8 +2592,770 @@ describe("DocumentBody", () => {
 				expect(screen.queryByText(/Alfy is writing/)).not.toBeInTheDocument(),
 			);
 			expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument();
-			expect(screen.queryByTestId("alfy-change-bar")).not.toBeInTheDocument();
+			expect(mockSetChangePills).not.toHaveBeenCalledWith(
+				expect.anything(),
+				expect.arrayContaining([expect.anything()]),
+			);
 			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("ruling 61: a pending Alfy change survives a reload", () => {
+		it("marks each block the server reports as pending, on load", async () => {
+			mockFetchDocumentReviewState.mockResolvedValueOnce([
+				{
+					blockId: "p1",
+					blockLabel: "Hello.",
+					previousMarkdown: "Hi.",
+					isNewBlock: false,
+					alfyVersionNumber: 2,
+				},
+			]);
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(mockFetchDocumentReviewState).toHaveBeenCalledWith(
+					"artifact-1",
+					null,
+				),
+			);
+			await waitFor(() =>
+				expect(mockRemarkChange).toHaveBeenCalledWith(
+					expect.anything(),
+					"p1",
+					"p1",
+				),
+			);
+			await waitFor(() =>
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({
+							changeId: "p1",
+							blockId: "p1",
+							status: "pending",
+						}),
+					]),
+				),
+			);
+		});
+
+		it("a failed review-state fetch reads as nothing pending, without crashing the load", async () => {
+			mockFetchDocumentReviewState.mockRejectedValueOnce(new Error("network"));
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(mockFetchDocumentReviewState).toHaveBeenCalledTimes(1),
+			);
+			expect(mockRemarkChange).not.toHaveBeenCalled();
+		});
+
+		it("acknowledges the block through the browser API on Keep", async () => {
+			// `reconstructDocumentPatch` (the real function, not mocked) needs the
+			// pre-edit block genuinely present to build its own inverse from.
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nFirst." }),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-4",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "call-ack",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+			await waitFor(() =>
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({
+							changeId: "change-4",
+							status: "pending",
+						}),
+					]),
+				),
+			);
+
+			const { onKeep } = latestEditor().options.changePillCallbacks as {
+				onKeep: (changeId: string) => void;
+			};
+			onKeep("change-4");
+
+			await waitFor(() =>
+				expect(mockAcknowledgeDocumentReviewBlocks).toHaveBeenCalledWith(
+					"artifact-1",
+					["p1"],
+					null,
+				),
+			);
+		});
+
+		// rd/review-2-5.md:141-148 — a user's own edit of a pending block did not
+		// acknowledge it in the live session: the pill and the acknowledge call
+		// only ever fired from an explicit Keep/Undo click, so typing over the
+		// SAME block left it stuck "pending" (and a later Undo would have thrown
+		// the user's own typing away, restoring Alfy's pre-edit text instead).
+		it("the user's own edit of a pending block acknowledges it, the same as Keep", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nFirst." }),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-5",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "call-user-edit",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+			await waitFor(() =>
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({
+							changeId: "change-5",
+							status: "pending",
+						}),
+					]),
+				),
+			);
+
+			// The user keeps typing in the SAME block — not a Keep/Undo click.
+			simulateTyping("<!--b:p1-->\nFirst, edited by the user instead.");
+
+			await waitFor(() =>
+				expect(mockAcknowledgeDocumentReviewBlocks).toHaveBeenCalledWith(
+					"artifact-1",
+					["p1"],
+					null,
+				),
+			);
+			// The mark is cleared the same way Keep clears it (no lingering pill).
+			expect(mockKeepChange).toHaveBeenCalledWith(
+				expect.anything(),
+				"change-5",
+			);
+			expect(mockSetChangePills).toHaveBeenLastCalledWith(
+				expect.anything(),
+				[],
+			);
+		});
+
+		it("does NOT acknowledge a pending block the user never touched", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+				}),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-6",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "call-other-block-edit",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+			await waitFor(() =>
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({
+							changeId: "change-6",
+							status: "pending",
+						}),
+					]),
+				),
+			);
+			mockSetChangePills.mockClear();
+
+			// Edits the OTHER block (p2) — p1's own pending change must survive.
+			simulateTyping(
+				"<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond, edited by the user.",
+			);
+			await waitFor(() => expect(mockReadMarkdown).toHaveBeenCalled());
+
+			expect(mockAcknowledgeDocumentReviewBlocks).not.toHaveBeenCalled();
+			expect(mockKeepChange).not.toHaveBeenCalled();
+		});
+	});
+
+	// Re-check "New breakage" (rd/recheck.md:117-140): `pendingChanges` starts
+	// empty on every load, so the reporting effect used to fire with `0` the
+	// instant this component mounted — before `restorePendingReview`'s own
+	// network round trip ever confirmed the true pending set. That flashed
+	// the chat card/list row/count-button dot to "reviewed" for ~100-300ms
+	// before self-correcting, and a failed fetch left the wrong `0` uncorrected
+	// until reload. The fix gates the callback on the initial restore having
+	// settled successfully.
+	describe("re-check fix: onPendingReviewCountChange gates on a settled restore", () => {
+		it("never reports before the initial restore settles, then reports the real count once it does", async () => {
+			let resolveReview!: (
+				value: Awaited<ReturnType<typeof mockFetchDocumentReviewState>>,
+			) => void;
+			mockFetchDocumentReviewState.mockReturnValueOnce(
+				new Promise((resolve) => {
+					resolveReview = resolve;
+				}),
+			);
+			const onPendingReviewCountChange = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				onPendingReviewCountChange,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(mockFetchDocumentReviewState).toHaveBeenCalledTimes(1),
+			);
+			// The editor is up and the restore is in flight — the OLD bug
+			// reported `0` right here, before the network round trip ever
+			// confirmed it.
+			expect(onPendingReviewCountChange).not.toHaveBeenCalled();
+
+			resolveReview([
+				{
+					blockId: "p1",
+					blockLabel: "Hello.",
+					previousMarkdown: "Hi.",
+					isNewBlock: false,
+					alfyVersionNumber: 2,
+				},
+			]);
+
+			await waitFor(() =>
+				expect(onPendingReviewCountChange).toHaveBeenCalledWith(1),
+			);
+			// Exactly one call, with the real count — never a `0` first.
+			expect(onPendingReviewCountChange).toHaveBeenCalledTimes(1);
+		});
+
+		it("reports 0 once a restore that genuinely finds nothing pending settles", async () => {
+			mockFetchDocumentReviewState.mockResolvedValueOnce([]);
+			const onPendingReviewCountChange = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				onPendingReviewCountChange,
+			});
+			await waitFor(() =>
+				expect(mockFetchDocumentReviewState).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(onPendingReviewCountChange).toHaveBeenCalledWith(0),
+			);
+		});
+
+		it("does not report at all when the initial restore fails, leaving the persisted count alone", async () => {
+			mockFetchDocumentReviewState.mockRejectedValueOnce(new Error("network"));
+			const onPendingReviewCountChange = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				onPendingReviewCountChange,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(mockFetchDocumentReviewState).toHaveBeenCalledTimes(1),
+			);
+			expect(onPendingReviewCountChange).not.toHaveBeenCalled();
+		});
+
+		it("still reports a later genuine change (a new Alfy edit) after a settled restore", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nFirst." }),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "flash-change-1",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const onPendingReviewCountChange = vi.fn();
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+				onPendingReviewCountChange,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(onPendingReviewCountChange).toHaveBeenCalledWith(0),
+			);
+			onPendingReviewCountChange.mockClear();
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				onPendingReviewCountChange,
+				alfyActivity: {
+					key: "flash-call",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+
+			await waitFor(() =>
+				expect(onPendingReviewCountChange).toHaveBeenCalledWith(1),
+			);
+		});
+	});
+
+	describe("Wave 2.5 Step 10: the review bar", () => {
+		beforeEach(() => {
+			// `reconstructDocumentPatch` (the real function, not mocked) needs the
+			// pre-edit block genuinely present to build its own inverse from.
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nFirst." }),
+			);
+		});
+
+		function applyOneChange() {
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "rb-change-1",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			return {
+				key: "rb-call",
+				artifactId: "artifact-1",
+				toolName: "edit_artifact" as const,
+				status: "applied" as const,
+				label: null,
+				patches: [
+					{
+						op: "replaceBlock" as const,
+						blockId: "p1",
+						baseHash: "h1",
+						text: "x",
+					},
+				],
+				refusedBlocks: [],
+				appliedCount: 1,
+			};
+		}
+
+		/** `getByRole("region", …)` finds the bar itself — robust against the summary text sitting inside a nested `<span>` alongside the (absent, here) "Left N alone" link, unlike a bare `getByText`. */
+		async function renderWithOnePending() {
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: applyOneChange(),
+			});
+			await vi.waitFor(() =>
+				expect(
+					screen.getByRole("region", { name: "Changes from Alfy" }),
+				).toHaveTextContent("Alfy changed 1 part."),
+			);
+		}
+
+		it("shows the review bar with the pending count once a change lands, and empties the pending list once Keep all settles", async () => {
+			vi.useFakeTimers();
+			try {
+				await renderWithOnePending();
+
+				await fireEvent.click(screen.getByRole("button", { name: /Keep all/ }));
+				// Status flips to "kept" immediately; the mark itself (and the
+				// pill list emptying out) waits for its own 1.4s settle window.
+				await vi.advanceTimersByTimeAsync(1400);
+				expect(mockKeepChange).toHaveBeenCalledWith(
+					expect.anything(),
+					"rb-change-1",
+				);
+				// The data-level truth once settled — the bar's own OUT transition
+				// (redesign §7.2 #12) is a real-animation-frame concern jsdom does
+				// not emulate reliably; Playwright covers it seeing the bar leave.
+				expect(mockSetChangePills).toHaveBeenLastCalledWith(
+					expect.anything(),
+					[],
+				);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		// rd/review-2-5.md:217-222 — the review bar's own former role="status"
+		// unreliably announced its own landing summary (a region already
+		// carrying text at insertion is commonly not announced); the shared
+		// announcer now carries it instead, and Keep/Undo announce themselves
+		// through the SAME mechanism rather than relying on the pill's own text
+		// becoming visible.
+		it("announces the landing summary once a change lands, and Kept once Keep settles", async () => {
+			await renderWithOnePending();
+			expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+				"Alfy changed 1 part.",
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: /Keep all/ }));
+
+			await vi.waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Kept",
+				),
+			);
+		});
+
+		it("announces Undone once Undo runs", async () => {
+			await renderWithOnePending();
+
+			await fireEvent.click(screen.getByRole("button", { name: /Undo all/ }));
+
+			await vi.waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Undone",
+				),
+			);
+		});
+
+		// rd/review-2-5.md:210-216 — Keep's own resulting "kept" pill state has
+		// no button left inside it (unlike Undo's "undone" state, which keeps
+		// its own Redo button — see ChangeBar.test.ts), so the Keep button that
+		// had focus was destroyed by the widget's own remount with nothing to
+		// take its place, dropping focus to <body>.
+		it("moves focus to the editor once Keep empties the pending list entirely", async () => {
+			await renderWithOnePending();
+
+			await fireEvent.click(screen.getByRole("button", { name: /Keep all/ }));
+
+			await vi.waitFor(() =>
+				expect(latestEditor().view.focus).toHaveBeenCalled(),
+			);
+		});
+
+		it("moves focus to a review-bar button when another change is still pending after Keep", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+				}),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "rb-change-a",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+				{
+					changeId: "rb-change-b",
+					blockId: "p2",
+					blockLabel: "Second.",
+					previousMarkdown: "Second.",
+				},
+			]);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "rb-call-focus",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact" as const,
+					status: "applied" as const,
+					label: null,
+					patches: [
+						{
+							op: "replaceBlock" as const,
+							blockId: "p1",
+							baseHash: "h1",
+							text: "x",
+						},
+						{
+							op: "replaceBlock" as const,
+							blockId: "p2",
+							baseHash: "h1",
+							text: "y",
+						},
+					],
+					refusedBlocks: [],
+					appliedCount: 2,
+				},
+			});
+			await vi.waitFor(() =>
+				expect(screen.getByRole("button", { name: "Next change" })),
+			);
+
+			const { onKeep } = latestEditor().options.changePillCallbacks as {
+				onKeep: (changeId: string) => void;
+			};
+			onKeep("rb-change-a"); // keep only ONE of the two pending changes
+
+			// Prev/Next are BOTH disabled with only one change left to step to —
+			// the fix must skip past them to a real, focusable button, never
+			// silently fail because the first button in DOM order is disabled.
+			await vi.waitFor(() => {
+				expect(screen.getByRole("button", { name: /Undo all/ })).toBe(
+					document.activeElement,
+				);
+			});
+			expect(latestEditor().view.focus).not.toHaveBeenCalled();
+		});
+
+		it("Undo all calls undoChange for every pending change", async () => {
+			await renderWithOnePending();
+
+			await fireEvent.click(screen.getByRole("button", { name: /Undo all/ }));
+			expect(mockUndoChange).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ blockId: "p1" }),
+			);
+		});
+
+		it("the stepper's Next scrolls to the change through scrollToChange", async () => {
+			await renderWithOnePending();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Next change" }),
+			);
+			expect(mockScrollToChange).toHaveBeenCalledWith(
+				expect.anything(),
+				"rb-change-1",
+			);
+		});
+
+		// rd/review-2-5.md:122-129 — the stepper's Next/Previous never switched
+		// tabs, so a pending change living in a tab other than the active one
+		// was unreachable (its block sits in a `display:none` section).
+		it("the stepper switches tabs first when the next change lives in a different tab", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+					metadata: {
+						artifactType: "document",
+						title: "Trip plan",
+						tabs: [
+							{ id: "tab-1", title: "Plan", startBlockId: "p1" },
+							{ id: "tab-2", title: "Budget", startBlockId: "p2" },
+						],
+					},
+				}),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "rb-change-1",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+				{
+					changeId: "rb-change-2",
+					blockId: "p2",
+					blockLabel: "Second.",
+					previousMarkdown: "Second.",
+				},
+			]);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			// tab-1 (the first tab) is active by default — its own row's "Next"
+			// stays on tab-1 until the stepper reaches p2's change, in tab-2.
+			expect(screen.getAllByRole("tab")[0]).toHaveAttribute(
+				"aria-selected",
+				"true",
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "rb-call-2tabs",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact" as const,
+					status: "applied" as const,
+					label: null,
+					patches: [
+						{
+							op: "replaceBlock" as const,
+							blockId: "p1",
+							baseHash: "h1",
+							text: "x",
+						},
+						{
+							op: "replaceBlock" as const,
+							blockId: "p2",
+							baseHash: "h1",
+							text: "y",
+						},
+					],
+					refusedBlocks: [],
+					appliedCount: 2,
+				},
+			});
+			await vi.waitFor(() =>
+				expect(screen.getByRole("button", { name: "Next change" })),
+			);
+
+			// reviewIndex starts at 0 — the FIRST pending entry (p1, already in
+			// the active tab-1). Advancing to the second (p2, tab-2) must switch
+			// tabs before scrolling.
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Next change" }),
+			);
+			expect(mockSetActiveDocumentTab).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.anything(),
+				"tab-2",
+			);
+			expect(mockScrollToChange).toHaveBeenCalledWith(
+				expect.anything(),
+				"rb-change-2",
+			);
 		});
 	});
 });

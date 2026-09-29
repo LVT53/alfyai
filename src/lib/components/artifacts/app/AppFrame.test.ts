@@ -93,6 +93,16 @@ describe("AppFrame — the sandbox and the served route", () => {
 		expect(iframe.getAttribute("sandbox")).toBe(APP_IFRAME_SANDBOX);
 	});
 
+	// Wave 2.5 Step 13 (redesign §6.2): "the sandbox promise is a thin bar on
+	// the frame itself" — lives here, not in AppBody, since this is the one
+	// component that actually runs the app.
+	it("shows the sandbox promise bar above the frame", () => {
+		const { getByText } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		expect(
+			getByText("Runs sandboxed · no internet · keeps your data"),
+		).toBeInTheDocument();
+	});
+
 	it("never carries allow-same-origin or any other sandbox token beyond scripts and forms", () => {
 		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
 		const iframe = getIframe(container);

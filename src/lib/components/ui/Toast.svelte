@@ -1,9 +1,10 @@
 <script lang="ts">
 import { CircleAlert, CircleCheck, X } from "@lucide/svelte";
+import { cubicOut } from "svelte/easing";
 import { fly } from "svelte/transition";
 import { t } from "$lib/i18n";
 import { dismissToast, toasts } from "$lib/stores/toast";
-import { reducedMotionAware } from "$lib/utils/motion";
+import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
 
 // One mount point for the whole app (see (app)/+layout.svelte). Renders
 // every active $toasts entry as a stacked, top-right region so it never
@@ -15,6 +16,19 @@ import { reducedMotionAware } from "$lib/utils/motion";
 // first toast lands on that row and swallows the clicks meant for the row's own
 // button — the shell publishes the row's measured height, and 0 when there is
 // no row.
+//
+// Wave 2.5 review (F2), redesign §7.2 #33 ("rises 12px and fades in... in
+// emphasis · ease-emphasis"): `fly`'s `y` is the starting offset for `in:`,
+// not a literal direction — a POSITIVE value starts the toast 12px BELOW its
+// resting spot and animates it up into place, which is what "rises" means
+// here. The previous `y: -12` did the opposite (started above, descended).
+// Duration/easing now read from the shared tokens instead of a bare 200.
+//
+// No out: transition added here (the toast currently disappears instantly
+// on dismiss, unchanged) — an outro delays the real DOM removal until it
+// completes, which several existing tests assert happens synchronously with
+// the dismiss action; adding one is a bigger, separately-scoped change than
+// this Minor finding's own "it enters from above" complaint.
 const flyIn = reducedMotionAware(fly);
 </script>
 
@@ -31,7 +45,7 @@ const flyIn = reducedMotionAware(fly);
 			role={toast.type === 'error' ? 'alert' : 'status'}
 			data-testid="toast-entry"
 			data-toast-type={toast.type}
-			in:flyIn={{ y: -12, duration: 200 }}
+			in:flyIn={{ y: 12, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
 		>
 			{#if toast.type === 'success'}
 				<CircleCheck size={18} strokeWidth={2} class="mt-[1px] shrink-0 text-success" aria-hidden="true" />
@@ -39,6 +53,18 @@ const flyIn = reducedMotionAware(fly);
 				<CircleAlert size={18} strokeWidth={2} class="mt-[1px] shrink-0 text-danger" aria-hidden="true" />
 			{/if}
 			<p class="flex-1 text-sm leading-5 text-text-primary">{toast.message}</p>
+			{#if toast.actionLabel && toast.onAction}
+				<button
+					type="button"
+					class="toast-entry-action shrink-0"
+					onclick={() => {
+						toast.onAction?.();
+						dismissToast(toast.id);
+					}}
+				>
+					{toast.actionLabel}
+				</button>
+			{/if}
 			<button
 				type="button"
 				class="btn-icon-bare -m-1.5 shrink-0"
@@ -63,5 +89,27 @@ const flyIn = reducedMotionAware(fly);
 
 	.toast-entry-error {
 		border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+	}
+
+	.toast-entry-action {
+		border: 0;
+		background: none;
+		padding: 0;
+		color: var(--accent-text);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		cursor: pointer;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.toast-entry-action:hover {
+		opacity: 0.85;
+	}
+
+	.toast-entry-action:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+		border-radius: var(--radius-sm, 4px);
 	}
 </style>

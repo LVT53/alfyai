@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { chipLabel, chipValues, STATUS_CHIP_VALUES } from "./chips";
+import {
+	chipFieldLabel,
+	chipLabel,
+	chipValues,
+	STATUS_CHIP_VALUES,
+} from "./chips";
 
 describe("chips: chipValues", () => {
 	it("lists the status kind's fixed vocabulary in order", () => {
@@ -45,5 +50,20 @@ describe("chips: chipLabel", () => {
 
 	it('shows an unparsable date verbatim instead of "Invalid Date"', () => {
 		expect(chipLabel("date", "not-a-date", "en")).toBe("not-a-date");
+	});
+});
+
+// rd/review-2-5.md:256-260 — the chip dropdown's own accessible name was the
+// bare internal `ChipKind` value ("status"), English even in the Hungarian
+// UI.
+describe("chips: chipFieldLabel", () => {
+	it("names the status field, per locale", () => {
+		expect(chipFieldLabel("status", "en")).toBe("Status");
+		expect(chipFieldLabel("status", "hu")).toBe("Állapot");
+	});
+
+	it("names the date field, per locale", () => {
+		expect(chipFieldLabel("date", "en")).toBe("Date");
+		expect(chipFieldLabel("date", "hu")).toBe("Dátum");
 	});
 });

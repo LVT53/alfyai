@@ -10,26 +10,48 @@ import type { ResolvedPos } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import { ANCHOR_CONTEXT_CHARS } from "$lib/shared/artifact-document/anchor";
-import { MARKER_PREFIX } from "$lib/shared/artifact-document/blocks";
+import {
+	EMPTY_TAB_ANCHOR_PLACEHOLDER,
+	MARKER_PREFIX,
+} from "$lib/shared/artifact-document/blocks";
 import type {
 	PatchResult,
 	PatchSet,
 } from "$lib/shared/artifact-document/patch";
+import { MOTION_EASING, prefersReducedMotion } from "$lib/utils/motion";
+import {
+	type AlfyWritingTarget,
+	alfyWritingPluginKey,
+	findBlockNodeRange,
+	type RefusedLinesTarget,
+	refusedLinesPluginKey,
+	type SelectionPendingTarget,
+	selectionPendingPluginKey,
+} from "./alfy-writing-decoration";
+import {
+	type ChangePillCallbacks,
+	type ChangePillEntry,
+	changePillPluginKey,
+} from "./change-pill-decoration";
 import {
 	BLOCK_ID_ATTR,
 	BLOCK_MARKER_NODE,
 	blockIdPluginKey,
 	buildDocumentExtensions,
+	type CommentAnchorTarget,
+	commentAnchorDocRange,
+	commentAnchorPluginKey,
 	ensureBlockIds,
 	SKIP_BLOCK_ID_PLUGIN,
 	tabSectionPluginKey,
 } from "./extensions";
 import {
 	type AlfyChangeEntry,
-	alfyChangeRect,
+	alfyChangeDocRange,
 	applyAlfyChangeMarks,
 	keepAlfyChange,
 	refusalReasonI18nKey,
+	remarkAlfyChange,
 	scrollToAlfyChange,
 	summarizeRefusals,
 	undoAlfyChange,
@@ -43,6 +65,22 @@ export interface CreateDocumentEditorOptions {
 	onDirty?: () => void;
 	onSelectionUpdate?: () => void;
 	onUpdate?: () => void;
+	/** Wave 2.5 Step 10: the inline pill's own Keep/Undo/Redo — see `change-pill-decoration.ts`. */
+	changePillCallbacks?: ChangePillCallbacks;
+	/**
+	 * Review 2.5 (rd/review-2-5.md:198-207): Tab from a non-collapsed
+	 * selection reached the editor's OWN next focusable DOM node first (a
+	 * comment highlight span, a chip select, a change pill, a task
+	 * checkbox) — the selection bubble/pill came after every one of those,
+	 * so keyboard-only Ask Alfy/Comment was unreachable (only the
+	 * ⌘/Ctrl+Alt+M shortcut worked). Called from `handleKeyDown` below on a
+	 * plain Tab press over a non-empty selection; returning `true` (it
+	 * focused the pill's first button) suppresses Tab's own default so
+	 * focus does not ALSO jump to that next highlight. `DocumentBody.svelte`
+	 * implements this — the bubble itself is a Tiptap-free, purely
+	 * presentational sibling this module has no reference to.
+	 */
+	onTabIntoSelectionPill?: () => boolean;
 }
 
 /** Builds the one editor instance a `DocumentBody` owns, with ids already ensured. */
@@ -51,12 +89,24 @@ export function createDocumentEditor(
 ): Editor {
 	const editor = new Editor({
 		element: options.element,
-		extensions: buildDocumentExtensions(options.placeholder),
+		extensions: buildDocumentExtensions(
+			options.placeholder,
+			options.changePillCallbacks,
+		),
 		content: options.markdown,
 		contentType: "markdown",
 		editable: options.editable ?? true,
 		editorProps: {
 			attributes: { class: "document-content", spellcheck: "true" },
+			handleKeyDown: (_view, event) => {
+				if (event.key !== "Tab" || event.shiftKey || event.altKey) {
+					return false;
+				}
+				if (editor.state.selection.empty) return false;
+				if (!options.onTabIntoSelectionPill?.()) return false;
+				event.preventDefault();
+				return true;
+			},
 		},
 		onUpdate: () => {
 			options.onDirty?.();
@@ -90,6 +140,153 @@ export function setActiveDocumentTab(
 		tabs,
 		activeTabId,
 	});
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
+}
+
+/**
+ * Review 2.5 (rd/review-2-5.md:191-197, rd2's own suggested fix): a brand-new
+ * tab used to start with no block of its own (`Tabs.svelte`'s `addTab` sets
+ * `startBlockId: ""`), so `buildTabSectionDecorations`'s own "active tab
+ * owns zero blocks -> show everything" safety net always fired — an empty
+ * new section showed the WHOLE document instead.
+ *
+ * Appends one paragraph and returns its minted id: `extensions.ts`'s
+ * `BlockIds` extension mints an id for any un-identified block on EVERY
+ * doc-changing transaction (its own `appendTransaction`, the same mechanism
+ * `ensureBlockIds` drives at load time), so by the time `.run()` returns the
+ * new paragraph already carries a real one — nothing here mints it by hand.
+ *
+ * The paragraph's own text is a single zero-width space (`​`), not
+ * truly empty — `blocks.ts`'s own `splitIntoSegments` documents, by design,
+ * that "a trailing marker with no following block is dropped" (a blank line
+ * has no Markdown syntax for "an empty block with this id" at all, and
+ * `saveDocumentBody` re-canonicalises through that same parser on every
+ * save), so a LITERALLY empty paragraph's marker — and with it, this tab's
+ * only anchor — silently vanished on the very next save, reviving the exact
+ * bug this function exists to fix the moment the document was reopened
+ * (confirmed empirically while writing this function's own test suite). A
+ * zero-width space is invisible to the user but not blank to `.trim()`, so
+ * the block survives. The selection below SELECTS that one character (not a
+ * collapsed caret after it) so the user's first keystroke replaces it
+ * outright, leaving no stray invisible character behind.
+ *
+ * A real, undo-able transaction on purpose (never the load-time
+ * `addToHistory: false` shape `setActiveDocumentTab` above uses) — this is
+ * user-initiated content, not bookkeeping, so it autosaves and Undo removes
+ * it like any other edit. `null` only if the schema has no paragraph node
+ * (never true for this Document's own fixed schema — defensive, not a real
+ * branch).
+ *
+ * The placeholder character itself is `blocks.ts`'s own exported
+ * `EMPTY_TAB_ANCHOR_PLACEHOLDER` (a single source of truth for the one
+ * function that writes it here and the one function that strips it,
+ * `stripEmptyTabAnchorPlaceholder`, for every reader outside the live editor
+ * — see that module's own doc comment).
+ */
+export function appendEmptyTabSection(editor: Editor): string | null {
+	if (!editor.schema.nodes.paragraph) return null;
+	const endPos = editor.state.doc.content.size;
+	editor
+		.chain()
+		.focus()
+		.insertContentAt(endPos, {
+			type: "paragraph",
+			content: [{ type: "text", text: EMPTY_TAB_ANCHOR_PLACEHOLDER }],
+		})
+		.run();
+	const docEnd = editor.state.doc.content.size;
+	const charStart = docEnd - 1 - EMPTY_TAB_ANCHOR_PLACEHOLDER.length;
+	editor
+		.chain()
+		.focus()
+		.setTextSelection({ from: charStart, to: docEnd - 1 })
+		.scrollIntoView()
+		.run();
+	const id = editor.state.doc.lastChild?.attrs?.[BLOCK_ID_ATTR];
+	return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+export type { CommentAnchorTarget };
+
+/**
+ * Redesign §3.2/§9.2, Wave 2.5 Step 7: the two-way link's write side.
+ * `MarginPanel.svelte` re-resolves every comment's anchor on every relevant
+ * change (`resolveTextAnchor` against `blocks`, already its own job — T10)
+ * and reports the result up through `DocumentBody.svelte`, which calls this
+ * once per change, mirroring `setActiveDocumentTab`'s own no-op-for-history
+ * dispatch pattern exactly. `activeCommentId` is whichever thread is
+ * currently linked — hover/focus on its card, or its own words having been
+ * clicked/focused — `null` when nothing is.
+ */
+export function setCommentAnchors(
+	editor: Editor,
+	anchors: CommentAnchorTarget[],
+	activeCommentId: string | null,
+): void {
+	const tr = editor.state.tr.setMeta(commentAnchorPluginKey, {
+		anchors,
+		activeCommentId,
+	});
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
+}
+
+export type { AlfyWritingTarget, RefusedLinesTarget, SelectionPendingTarget };
+
+/**
+ * Wave 2.5 Step 9/11: the Ask-Alfy chain's three write sides, all mirroring
+ * `setCommentAnchors`'s own no-op-for-history dispatch pattern exactly (see
+ * `alfy-writing-decoration.ts`'s header). `null` clears each one.
+ */
+export function setAlfyWritingBlock(
+	editor: Editor,
+	target: AlfyWritingTarget | null,
+): void {
+	const tr = editor.state.tr.setMeta(alfyWritingPluginKey, target);
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
+}
+
+export function setSelectionPending(
+	editor: Editor,
+	target: SelectionPendingTarget | null,
+): void {
+	const tr = editor.state.tr.setMeta(selectionPendingPluginKey, target);
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
+}
+
+export function setRefusedLines(
+	editor: Editor,
+	target: RefusedLinesTarget | null,
+): void {
+	const tr = editor.state.tr.setMeta(refusedLinesPluginKey, target);
+	tr.setMeta("addToHistory", false);
+	tr.setMeta("preventUpdate", true);
+	editor.view.dispatch(tr);
+}
+
+/**
+ * Wave 2.5 Step 10: pushes the CURRENT pending/kept/undone change list into
+ * the editor — `DocumentBody.svelte`'s own `pendingChanges` map, mapped to
+ * `ChangePillEntry[]`, is the one source; this is the one write side (mirrors
+ * `setAlfyWritingBlock`/`setSelectionPending`/`setRefusedLines` above
+ * exactly). A no-op when the editor's own extension list never registered
+ * `changePillCallbacks` (`buildDocumentExtensions`'s optional third
+ * argument) — `changePillPluginKey.getState` simply finds no plugin.
+ */
+export type { ChangePillCallbacks, ChangePillEntry };
+
+export function setChangePills(
+	editor: Editor,
+	entries: ChangePillEntry[],
+): void {
+	const tr = editor.state.tr.setMeta(changePillPluginKey, entries);
 	tr.setMeta("addToHistory", false);
 	tr.setMeta("preventUpdate", true);
 	editor.view.dispatch(tr);
@@ -518,22 +715,154 @@ export function undoChange(
 		blockId: string;
 		previousMarkdown: string;
 		insertedBlockIds?: string[];
+		isNewBlock?: boolean;
 	},
 ): boolean {
 	return undoAlfyChange(editor, entry, buildDocumentExtensions(""));
 }
 
-/** The change mark's on-screen rect, for the inline bar's own positioning. */
-export function changeMarkRect(
+/**
+ * Re-marks a whole block as an Alfy change under `changeId` — Redo (the
+ * pill's own "Undone · Redo") and ruling 61's reload-restore both have no
+ * op-level precision to re-derive, only "this block".
+ */
+export function remarkChange(
 	editor: Editor,
 	changeId: string,
-): { top: number; left: number; right: number; bottom: number } | null {
-	return alfyChangeRect(editor, changeId);
+	blockId: string,
+): boolean {
+	return remarkAlfyChange(editor, changeId, blockId);
+}
+
+/** The change mark's own live document range, for the inline pill's widget decoration positioning while its mark is about to be replaced structurally (Undo). */
+export function changeDocRange(
+	editor: Editor,
+	changeId: string,
+): { from: number; to: number } | null {
+	return alfyChangeDocRange(editor, changeId);
 }
 
 /** Scrolls a change's mark into view ("See what Alfy did", T8.4). */
 export function scrollToChange(editor: Editor, changeId: string): boolean {
 	return scrollToAlfyChange(editor, changeId);
+}
+
+/** A block's own on-screen rect, for the pinned refusal card's own positioning (redesign §4.2 "Refusal": "pinned beside the refused line") — mirrors `changeMarkRect`'s exact shape and jsdom fallback. */
+export function blockRect(
+	editor: Editor,
+	blockId: string,
+): { top: number; left: number; right: number; bottom: number } | null {
+	const range = findBlockNodeRange(editor.state.doc, blockId);
+	if (!range) return null;
+	try {
+		const start = editor.view.coordsAtPos(range.nodeStart + 1);
+		const end = editor.view.coordsAtPos(range.contentEnd);
+		return {
+			top: start.top,
+			left: start.left,
+			right: end.right,
+			bottom: end.bottom,
+		};
+	} catch {
+		// jsdom (unit tests) does not implement real layout — a real browser
+		// always has it (Playwright exercises this for real).
+		return null;
+	}
+}
+
+/**
+ * Selects a whole block's text and scrolls it into view — the refusal
+ * card's "Ask again" (redesign §4.2 "Refusal"): re-surfaces the selection
+ * pill at the refused line rather than reopening a composer directly, so it
+ * reads as the SAME ask flow the user would reach by selecting the text
+ * themselves. `true` when the block was found and selected.
+ */
+export function selectAndScrollToBlock(
+	editor: Editor,
+	blockId: string,
+): boolean {
+	const range = findBlockNodeRange(editor.state.doc, blockId);
+	if (!range) return false;
+	const from = range.nodeStart + 1;
+	const to = range.contentEnd;
+	if (from >= to) return false;
+	editor.chain().focus().setTextSelection({ from, to }).scrollIntoView().run();
+	return true;
+}
+
+/**
+ * The `.comment-anchor` mark's resting/peak visual states (motion #17: "a 3
+ * px ring and deeper tint that fades"). Kept here, next to the one function
+ * that plays them, rather than read back out of a computed style — mirrors
+ * `--comment-mark`/`--comment-mark-active`/`--comment-rule`
+ * (`DocumentBody.svelte`'s own Step 2.3 styles) by hand, the same trade-off
+ * `motion.ts`'s own `MOTION_DURATION`/`MOTION_EASING` already make for every
+ * other WAAPI call in this feature.
+ */
+const COMMENT_ANCHOR_FLASH_PEAK: Keyframe = {
+	backgroundColor: "var(--comment-mark-active)",
+	boxShadow: "0 0 0 3px var(--comment-rule)",
+};
+const COMMENT_ANCHOR_FLASH_RESTING: Keyframe = {
+	backgroundColor: "var(--comment-mark)",
+	boxShadow: "0 2px 0 -0.5px var(--comment-rule)",
+};
+/** Motion #17's own total, an explicit exception to `MOTION_DURATION.settle` (700 ms) — the spec names 900 ms for this one animation by hand. */
+const COMMENT_ANCHOR_FLASH_MS = 900;
+
+/**
+ * "The quote button (goes to the anchor)" (Wave 2.5 Step 6) plus motion #17:
+ * scrolls the live doc to a comment's resolved anchor and flashes it. Not
+ * `reducedMotionAnimate` (`motion.ts`): that helper's reduced-motion path
+ * jumps straight to the FINAL keyframe with no hold, but §7.3 rule 3
+ * requires this ONE animation to hold a STATIC ring for the full 900 ms
+ * under reduced motion too ("the flashed words get a static ring for
+ * 900ms") — a real intermediate state, not just skipping to rest.
+ */
+export function scrollToCommentAnchor(
+	editor: Editor,
+	blockId: string,
+	from: number,
+	to: number,
+): boolean {
+	const range = commentAnchorDocRange(editor.state.doc, blockId, from, to);
+	if (!range) return false;
+	let element: HTMLElement | null = null;
+	try {
+		const dom = editor.view.domAtPos(range.from).node;
+		element =
+			dom.nodeType === Node.ELEMENT_NODE
+				? (dom as HTMLElement)
+				: dom.parentElement;
+		element = element?.closest<HTMLElement>(".comment-anchor") ?? element;
+		element?.scrollIntoView({ block: "center", behavior: "smooth" });
+	} catch {
+		// jsdom (unit tests) does not implement real layout — a real browser
+		// always has it (Playwright exercises this for real).
+		return false;
+	}
+	if (!element) return false;
+	// A non-null `const` alias: TS cannot narrow a captured `let` inside the
+	// closures below, and this element is never reassigned past this point.
+	const el = element;
+
+	if (prefersReducedMotion()) {
+		Object.assign(el.style, COMMENT_ANCHOR_FLASH_PEAK);
+		window.setTimeout(() => {
+			el.style.backgroundColor = "";
+			el.style.boxShadow = "";
+		}, COMMENT_ANCHOR_FLASH_MS);
+		return true;
+	}
+	const animation = el.animate(
+		[COMMENT_ANCHOR_FLASH_PEAK, COMMENT_ANCHOR_FLASH_RESTING],
+		{ duration: COMMENT_ANCHOR_FLASH_MS, easing: MOTION_EASING.out },
+	);
+	animation.addEventListener("finish", () => {
+		el.style.backgroundColor = "";
+		el.style.boxShadow = "";
+	});
+	return true;
 }
 
 export type { Editor };

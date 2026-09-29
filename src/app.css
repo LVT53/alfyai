@@ -615,7 +615,13 @@ body {
 		padding: 0.3125rem 0.75rem;
 	}
 	.btn-primary:hover {
-		background-color: color-mix(in srgb, var(--accent) 18%, transparent);
+		/* Wave 2.5 review (F2): this used to darken to an 18% tint on hover,
+		   which measured 4.36:1 for --accent-text on it in light — under the
+		   4.5:1 minimum the 12% resting tint above was specifically chosen to
+		   clear (artifact-color-contrast.test.ts). Keeping the SAME 12% tint
+		   on hover keeps that already-verified ratio; only the border darkens
+		   to still read as a hover state. */
+		background-color: color-mix(in srgb, var(--accent) 12%, transparent);
 		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 	}
 

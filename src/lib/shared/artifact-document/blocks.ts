@@ -13,8 +13,38 @@
  * it has an id.
  */
 
+import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
+
 export const MARKER_PREFIX = "<!--b:";
 const MARKER_RE = /^<!--b:([A-Za-z0-9_.-]+)-->$/;
+
+/**
+ * `document-editor.ts`'s `appendEmptyTabSection` (ruling 61's third point,
+ * "Tabs show only their own section") writes this single zero-width space as
+ * a brand-new tab's anchor paragraph — real enough that `splitIntoSegments`
+ * below never drops its marker as "a trailing marker with no following
+ * block" the way a truly empty paragraph's would, but never meant to be seen
+ * outside the live editor. A reader that hands this text to something other
+ * than the editor itself (an export, `read_artifact`, any future card
+ * preview) should read it as empty text, never as one invisible character —
+ * `stripEmptyTabAnchorPlaceholder` below is the one place that does that
+ * (Wave 2.5 review, fix agent C: rd/review-2-5.md's fix-agent-B finding 7).
+ */
+export const EMPTY_TAB_ANCHOR_PLACEHOLDER = "​";
+
+/**
+ * Strips the exact zero-width-space placeholder above out of text meant for
+ * anything other than the live editor. Every caller outside the editor
+ * itself (export, `read_artifact`) should read this block's text through
+ * here rather than the raw stored Markdown — the placeholder must keep
+ * surviving `saveDocumentBody`'s own re-canonicalisation (never stripped at
+ * SAVE time — that would revive the exact whole-document bug this mechanism
+ * exists to fix), so this is deliberately a per-reader transform, not a
+ * write-time or storage-time one.
+ */
+export function stripEmptyTabAnchorPlaceholder(text: string): string {
+	return text.replaceAll(EMPTY_TAB_ANCHOR_PLACEHOLDER, "");
+}
 
 export type BlockKind =
 	| "paragraph"
@@ -453,6 +483,43 @@ export function buildIndex(blocks: DocumentBlock[]): Record<string, string> {
 	const index: Record<string, string> = {};
 	for (const block of blocks) index[block.id] = block.hash;
 	return index;
+}
+
+/**
+ * `id → owning tab id` (redesign §5.2 "Tabs show only their own section",
+ * ruling 61's third point): each block belongs to whichever tab's
+ * `startBlockId` most recently appeared at or before it, in document order —
+ * the SAME assignment rule `extensions.ts`'s `buildTabSectionDecorations`
+ * applies to the live ProseMirror doc, mirrored here for `DocumentBlock[]`
+ * so `DocumentBody.svelte`'s tab badge counts and `MarginPanel.svelte`'s own
+ * per-tab comment scoping (Wave 2.5 Step 7) both walk blocks exactly once,
+ * the same way, instead of drifting apart. Returns an EMPTY map for zero or
+ * one tab — "only one section, nothing is outside it" — which callers can
+ * treat as "no real scoping" without a separate `tabs.length <= 1` check of
+ * their own.
+ *
+ * `DocumentTab` is a type-only import from `$lib/server/services/artifacts/
+ * serialize/document` — erased at compile time, so this module (importable
+ * from the server AND the browser, this file's own header comment) never
+ * gains a runtime dependency on server code. `document-editor.ts` and
+ * `DocumentBody.svelte` already import that same type the same way.
+ */
+export function mapBlocksToTabs(
+	blocks: Pick<DocumentBlock, "id">[],
+	tabs: Pick<DocumentTab, "id" | "startBlockId">[],
+): Map<string, string> {
+	const blockIdToTabId = new Map<string, string>();
+	if (tabs.length <= 1) return blockIdToTabId;
+	const startBlockIdToTabId = new Map(
+		tabs.map((tab) => [tab.startBlockId, tab.id] as const),
+	);
+	let currentTabId = tabs[0]?.id ?? "";
+	for (const block of blocks) {
+		const owningTabId = startBlockIdToTabId.get(block.id);
+		if (owningTabId !== undefined) currentTabId = owningTabId;
+		blockIdToTabId.set(block.id, currentTabId);
+	}
+	return blockIdToTabId;
 }
 
 /** Count of `<!--b:` occurrences — the size cost, made visible (and a T1.3 assertion). */

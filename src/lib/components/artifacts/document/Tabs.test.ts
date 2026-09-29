@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import Tabs from "./Tabs.svelte";
@@ -77,6 +83,22 @@ describe("Tabs", () => {
 		expect(budgetTab).toHaveTextContent("3");
 		const planTab = screen.getByRole("tab", { name: "Plan" });
 		expect(planTab).not.toHaveTextContent(/\d/);
+	});
+
+	// rd/review-2-5.md:223-228 — the badge read as a bare number to a screen
+	// reader ("Áttekintés 3"); the visible digit is now aria-hidden and an
+	// sr-only phrase explains what it counts.
+	it("hides the bare digit from the accessibility tree and names what it counts instead", () => {
+		render(Tabs, {
+			tabs: tabs("Plan", "Budget"),
+			activeTabId: "tab-0",
+			onActivate: vi.fn(),
+			onChange: vi.fn(),
+			badgeCounts: { "tab-1": 3 },
+		});
+		const visibleBadge = screen.getByText("3");
+		expect(visibleBadge).toHaveAttribute("aria-hidden", "true");
+		expect(screen.getByText("3 open comments")).toBeInTheDocument();
 	});
 
 	it("renders the sliding underline element once", () => {
@@ -206,6 +228,72 @@ describe("Tabs", () => {
 				screen.getByRole("menuitem", { name: "Delete tab" }),
 			).toBeInTheDocument();
 			expect(menu).toBeInTheDocument();
+		});
+
+		// Review 2.5 (rd/review-2-5.md:183-190): before this fix, focus stayed
+		// on ⋯ after opening (ArrowDown did nothing), and Escape did not close
+		// the menu at all — this describe block covers both, plus the portal
+		// itself (only reachable through a real browser's geometry, so that
+		// half lives in the e2e suite instead).
+		describe("keyboard access (rd/review-2-5.md:183-190)", () => {
+			it("focuses the first item (Rename) the moment the menu opens", async () => {
+				render(Tabs, {
+					tabs: tabs("Plan", "Budget"),
+					activeTabId: "tab-0",
+					onActivate: vi.fn(),
+					onChange: vi.fn(),
+				});
+				await openActiveTabMenu();
+				await waitFor(() => {
+					expect(
+						screen.getByRole("menuitem", { name: "Rename" }),
+					).toHaveFocus();
+				});
+			});
+
+			it("ArrowDown/ArrowUp cycle Rename/Delete with wraparound", async () => {
+				render(Tabs, {
+					tabs: tabs("Plan", "Budget"),
+					activeTabId: "tab-0",
+					onActivate: vi.fn(),
+					onChange: vi.fn(),
+				});
+				await openActiveTabMenu();
+				const rename = screen.getByRole("menuitem", { name: "Rename" });
+				const del = screen.getByRole("menuitem", { name: "Delete tab" });
+				await waitFor(() => expect(rename).toHaveFocus());
+
+				await fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
+				expect(del).toHaveFocus();
+
+				// Wraps past the last item back to the first.
+				await fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
+				expect(rename).toHaveFocus();
+
+				// Wraps the other way past the first item back to the last.
+				await fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowUp" });
+				expect(del).toHaveFocus();
+			});
+
+			it("Escape closes the menu and returns focus to the ⋯ trigger", async () => {
+				render(Tabs, {
+					tabs: tabs("Plan", "Budget"),
+					activeTabId: "tab-0",
+					onActivate: vi.fn(),
+					onChange: vi.fn(),
+				});
+				const trigger = screen.getByRole("button", { name: "Tab options" });
+				await openActiveTabMenu();
+				await waitFor(() =>
+					expect(
+						screen.getByRole("menuitem", { name: "Rename" }),
+					).toHaveFocus(),
+				);
+
+				await fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+				expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+				expect(trigger).toHaveFocus();
+			});
 		});
 
 		it("renaming persists the new title and leaves every other tab byte-identical", async () => {

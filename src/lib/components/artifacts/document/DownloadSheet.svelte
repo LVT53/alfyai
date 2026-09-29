@@ -6,13 +6,34 @@
  * resulting job is an ordinary produced file, so the File card (retry,
  * progress, download) is what the user watches next, not a second progress
  * UI here (the plan's own rule: "the panel does not poll a second time").
+ *
+ * Redesigned Wave 2.5 Step 8 (redesign.md §3.2/§9.2/§9.3): a popover anchored
+ * to the panel header's own Download button
+ * (`[data-testid="artifact-download-button"]` — `DocumentWorkspace.svelte`'s
+ * `artifactHeaderActionsSnippet`, rendered once per mobile/desktop shell) on
+ * desktop, a `DialogShell` sheet on phones — the exact
+ * anchored-popover-desktop/sheet-phone shape `VersionsSheet.svelte` (and,
+ * before it, `AppBody.svelte`'s regenerate popover) already use.
  */
 import { X } from "@lucide/svelte";
+import { scale } from "svelte/transition";
 import {
 	exportArtifactDocument,
 	type ExportArtifactDocumentFormat,
 } from "$lib/client/api/artifacts";
+import DialogShell, {
+	deregisterDialog,
+	isTopmostDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import { focusTrap } from "$lib/utils/focus-trap";
+import { reducedMotionAware } from "$lib/utils/motion";
+import { portalToBody } from "$lib/utils/portal";
+import {
+	isPhoneViewport,
+	watchPhoneViewport,
+} from "$lib/utils/viewport.svelte";
 
 let {
 	artifactId,
@@ -72,34 +93,107 @@ async function download(format: ExportArtifactDocumentFormat): Promise<void> {
 function retry(): void {
 	error = null;
 }
+
+// ---- Wave 2.5 Step 8: anchored popover (desktop) / sheet (phone) ----------
+let isPhone = $state(isPhoneViewport());
+let popoverStyle = $state<string | undefined>(undefined);
+const popoverId = Symbol("document-download-popover");
+const popoverScale = reducedMotionAware(scale);
+
+/** The Download button lives in `DocumentWorkspace.svelte`'s shared header-actions snippet, rendered once per shell (mobile/desktop) — both copies share this testid, so this picks whichever one is actually rendered (the other is `display: none` behind a breakpoint). Same query shape as `VersionsSheet.svelte`'s own anchor lookup. */
+function findAnchorEl(): HTMLElement | null {
+	const candidates = document.querySelectorAll<HTMLElement>(
+		'[data-testid="artifact-download-button"]',
+	);
+	for (const el of candidates) {
+		if (el.getClientRects().length > 0) return el;
+	}
+	return null;
+}
+
+// Review 2.5 (rd/review-2-5.md:168-175): right-aligning to the trigger's
+// RIGHT edge (extending `POPOVER_WIDTH` further left from there) put the
+// sibling Versions popover off-screen entirely in the expanded panel (the
+// header buttons sit near the panel's own left edge) and bleeding out of
+// the panel over the chat column in docked mode — the same bug applies
+// here. Anchoring to the trigger's LEFT edge instead, clamped into the
+// viewport on both sides, keeps the popover beside its own trigger in
+// every presentation.
+const POPOVER_WIDTH = 300;
+const VIEWPORT_MARGIN = 12;
+
+function measurePopover(): void {
+	if (typeof window === "undefined") return;
+	const anchor = findAnchorEl();
+	if (!anchor) return;
+	const rect = anchor.getBoundingClientRect();
+	const width = Math.min(
+		POPOVER_WIDTH,
+		window.innerWidth - VIEWPORT_MARGIN * 2,
+	);
+	const maxLeft = Math.max(
+		VIEWPORT_MARGIN,
+		window.innerWidth - width - VIEWPORT_MARGIN,
+	);
+	const left = Math.min(Math.max(rect.left, VIEWPORT_MARGIN), maxLeft);
+	popoverStyle = `top: ${rect.bottom + 8}px; left: ${left}px;`;
+}
+
+$effect(() => {
+	const stopWatchingViewport = watchPhoneViewport((phone) => {
+		isPhone = phone;
+	});
+	return stopWatchingViewport;
+});
+
+$effect(() => {
+	if (isPhone) return;
+	registerDialog(popoverId);
+	measurePopover();
+	const handleReflow = () => measurePopover();
+	const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+		const target = event.target as Node;
+		if (findAnchorEl()?.contains(target)) return;
+		const popover = document.querySelector(
+			'[data-testid="document-download-popover"]',
+		);
+		if (popover && !popover.contains(target)) onClose();
+	};
+	window.addEventListener("resize", handleReflow);
+	window.addEventListener("scroll", handleReflow, true);
+	document.addEventListener("mousedown", handlePointerDown);
+	document.addEventListener("touchstart", handlePointerDown, { passive: true });
+	return () => {
+		deregisterDialog(popoverId);
+		window.removeEventListener("resize", handleReflow);
+		window.removeEventListener("scroll", handleReflow, true);
+		document.removeEventListener("mousedown", handlePointerDown);
+		document.removeEventListener("touchstart", handlePointerDown);
+	};
+});
+
+const popoverFocusTrap = focusTrap({
+	isTopmost: () => isTopmostDialog(popoverId),
+	onEscape: (event) => {
+		event.preventDefault();
+		event.stopImmediatePropagation();
+		onClose();
+	},
+	focus: { defer: true },
+	restoreFocusOnCleanup: true,
+});
 </script>
 
-<div
-	class="download-sheet"
-	role="dialog"
-	aria-label={$t('artifacts.document.export.title', { title })}
->
-	<div class="download-sheet-header">
-		<h2 class="download-sheet-title">
-			{$t('artifacts.document.export.title', { title })}
-		</h2>
-		<button
-			type="button"
-			class="btn-icon-bare"
-			aria-label={$t('artifacts.document.export.close')}
-			onclick={onClose}
-		>
-			<X size={16} strokeWidth={2} aria-hidden="true" />
-		</button>
-	</div>
-
+{#snippet downloadOptions()}
 	{#if error}
-		<p class="download-sheet-error" role="alert">{errorText(error)}</p>
-		<button type="button" class="btn-secondary" onclick={retry}>
-			{$t('artifacts.document.export.tryAgain')}
-		</button>
+		<div class="download-popover-options download-popover-options-column">
+			<p class="download-popover-error" role="alert">{errorText(error)}</p>
+			<button type="button" class="btn-secondary" onclick={retry}>
+				{$t('artifacts.document.export.tryAgain')}
+			</button>
+		</div>
 	{:else}
-		<div class="download-sheet-options">
+		<div class="download-popover-options">
 			<button
 				type="button"
 				class="btn-secondary"
@@ -126,52 +220,111 @@ function retry(): void {
 			</button>
 		</div>
 		{#if submitting}
-			<p class="download-sheet-status" role="status">
+			<p class="download-popover-status" role="status">
 				{$t('artifacts.document.export.preparing')}
 			</p>
 		{/if}
 	{/if}
-</div>
+{/snippet}
+
+{#if isPhone}
+	<!-- zIndexClass: opened from a button inside the mobile shell, whose own
+	     `.workspace-mobile-backdrop` sits at `z-index: 95` — DialogShell's
+	     default `z-50` would paint behind it. Same fix, same value, as
+	     `MobileToolbar.svelte`'s own "More" sheet / `CommentsSheet.svelte`. -->
+	<DialogShell
+		title={$t('artifacts.document.export.title', { title })}
+		phonePresentation="sheet"
+		zIndexClass="z-[150]"
+		onClose={onClose}
+	>
+		{@render downloadOptions()}
+	</DialogShell>
+{:else}
+	<div
+		class="download-popover"
+		style={popoverStyle}
+		role="dialog"
+		aria-modal="true"
+		aria-label={$t('artifacts.document.export.title', { title })}
+		data-testid="document-download-popover"
+		use:portalToBody
+		{@attach popoverFocusTrap}
+		transition:popoverScale={{ duration: 150, start: 0.98 }}
+	>
+		<div class="download-popover-head">
+			<h2>{$t('artifacts.document.export.title', { title })}</h2>
+			<button
+				type="button"
+				class="btn-icon-bare"
+				aria-label={$t('artifacts.document.export.close')}
+				onclick={onClose}
+			>
+				<X size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
+		</div>
+		{@render downloadOptions()}
+	</div>
+{/if}
 
 <style>
-	.download-sheet {
+	.download-popover {
+		position: fixed;
+		/* Review 2.5 (rd/review-2-5.md:168-175): 60 rendered UNDER the
+		   expanded panel shell (`DocumentWorkspace.svelte`'s
+		   `.workspace-shell-expanded`, z-index 115). 130 clears it, matching
+		   the existing precedent `ConfirmDialog.svelte` already sets as its
+		   own default `zIndexClass="z-[130]"` for "must be above other
+		   floating chrome". */
+		z-index: 130;
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
-		padding: 1rem;
-		border-radius: var(--radius-md);
+		width: min(300px, calc(100vw - 24px));
+		padding-bottom: 1rem;
+		border-radius: var(--radius-lg, 12px);
 		background-color: var(--surface-overlay);
-		box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
+		border: 1px solid var(--border-default);
+		box-shadow: var(--shadow-lg);
 	}
 
-	.download-sheet-header {
+	.download-popover-head {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
 		gap: 0.5rem;
+		padding: 0.75rem 0.625rem 0 0.875rem;
 	}
 
-	.download-sheet-title {
+	.download-popover-head h2 {
+		flex: 1;
 		margin: 0;
-		font-size: 0.9375rem;
-		font-weight: 600;
+		font-size: 0.84rem;
+		font-weight: 700;
 		color: var(--text-primary);
+		overflow-wrap: break-word;
 	}
 
-	.download-sheet-options {
+	.download-popover-options {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.5rem;
+		padding: 0 0.875rem;
 	}
 
-	.download-sheet-error {
+	.download-popover-options-column {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.download-popover-error {
 		margin: 0;
 		font-size: 0.8125rem;
 		color: var(--danger);
 	}
 
-	.download-sheet-status {
+	.download-popover-status {
 		margin: 0;
+		padding: 0 0.875rem;
 		font-size: 0.8125rem;
 		color: var(--text-muted);
 	}

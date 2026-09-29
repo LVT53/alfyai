@@ -28,10 +28,15 @@ export {
 	runAlfyCommentReply,
 } from "./comments";
 export {
+	acknowledgeDocumentReviewBlocks,
 	applyDocumentPatch,
+	computePendingReviewBlocks,
 	createDocumentArtifact,
 	DocumentOperationError,
+	type DocumentReviewMetadata,
+	type DocumentReviewPendingBlock,
 	documentTabsFromMetadata,
+	getDocumentReviewState,
 	readDocumentForAlfy,
 	saveDocumentBody,
 } from "./document-ops";

@@ -50,6 +50,7 @@ import {
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { StarterKit } from "@tiptap/starter-kit";
 import { get } from "svelte/store";
+import artifactsDict from "$lib/i18n/artifacts";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import {
 	type BlockKind,
@@ -57,8 +58,13 @@ import {
 	mintBlockId,
 } from "$lib/shared/artifact-document/blocks";
 import { uiLanguage } from "$lib/stores/settings";
+import { alfyWritingChainExtensions } from "./alfy-writing-decoration";
 import { BLOCK_ID_ATTR, BLOCK_MARKER_NODE } from "./block-attrs";
-import { chipLabel, chipValues } from "./chips";
+import {
+	buildChangePillExtension,
+	type ChangePillCallbacks,
+} from "./change-pill-decoration";
+import { chipFieldLabel, chipLabel, chipValues } from "./chips";
 import { AlfyChange } from "./marks";
 
 // Re-exported for every existing caller (`document-editor.ts`,
@@ -477,7 +483,7 @@ const TrackerChip = Node.create({
 			if (options.length > 0) {
 				const select = document.createElement("select");
 				select.className = "tracker-chip-select";
-				select.setAttribute("aria-label", kind);
+				select.setAttribute("aria-label", chipFieldLabel(kind, locale));
 				for (const value of options) {
 					const option = document.createElement("option");
 					option.value = value;
@@ -687,13 +693,224 @@ const TabSections = Extension.create({
 	},
 });
 
-export function buildDocumentExtensions(placeholder: string) {
+/**
+ * Two-way linking between a comment thread and its anchored words (redesign
+ * §3.2/§9.2, Wave 2.5 Step 7): a resting `.comment-anchor` mark
+ * (`DocumentBody.svelte`'s own styles — Step 2.3, unwired until this),
+ * `.is-active` while its thread is linked (hover/focus on the card, or the
+ * words themselves were clicked/focused), `.is-resolved` once its thread is
+ * resolved. Plugin state only, exactly like `tabSectionPluginKey` above:
+ * `document-editor.ts`'s `setCommentAnchors` is the one place that
+ * dispatches it, driven by whatever `MarginPanel.svelte` already resolved
+ * (`resolveTextAnchor` against `blocks`) — this file never re-derives anchor
+ * resolution itself, only turns an already-resolved (blockId, from, to)
+ * window into a live decoration.
+ */
+export const commentAnchorPluginKey = new PluginKey<CommentAnchorPluginState>(
+	"documentCommentAnchors",
+);
+
+/**
+ * One already-resolved comment thread's anchor. Deliberately the SAME shape
+ * `MarginPanel.svelte` builds locally under its own name — that component
+ * must stay free of `@tiptap/*` (its own header comment), so it cannot
+ * import this type; duplicating a five-field shape is cheaper than crossing
+ * that boundary.
+ */
+export interface CommentAnchorTarget {
+	commentId: string;
+	blockId: string;
+	/** Character offsets into that block's OWN visible text (`blockVisibleText`'s contract) — never a ProseMirror position; see `commentAnchorDocRange` below for why. */
+	from: number;
+	to: number;
+	resolved: boolean;
+}
+
+interface CommentAnchorPluginState {
+	anchors: CommentAnchorTarget[];
+	activeCommentId: string | null;
+}
+
+const EMPTY_COMMENT_ANCHOR_STATE: CommentAnchorPluginState = {
+	anchors: [],
+	activeCommentId: null,
+};
+
+/**
+ * Maps a block-relative character offset (`blockVisibleText`'s own contract
+ * — `resolveTextAnchor`'s `from`/`to`) onto the LIVE document's ProseMirror
+ * position, by binary search over `doc.textBetween(blockStart, p, "\n")`'s
+ * length. `blockVisibleText`'s own doc comment guarantees "'\n' between the
+ * text blocks inside it... exactly where the editor puts one", so this reuses
+ * the SAME separator `readSelectionAnchorContext` already captures anchors
+ * with, rather than a second, hand-rolled Markdown-stripping walk that could
+ * silently drift from it. `textBetween`'s length only grows as `p` grows, so
+ * the search always converges on the first position whose accumulated text
+ * reaches `target` — exactly at a real character boundary, since a text
+ * anchor's own `from`/`to` are always real character offsets, never inside a
+ * non-text atom.
+ */
+function positionAtCharOffset(
+	doc: PMNode,
+	blockStart: number,
+	blockEnd: number,
+	target: number,
+): number {
+	let lo = blockStart;
+	let hi = blockEnd;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		const length = doc.textBetween(blockStart, mid, "\n").length;
+		if (length < target) lo = mid + 1;
+		else hi = mid;
+	}
+	return lo;
+}
+
+/** The live doc's own top-level block node matching `blockId`, and its content bounds — `null` when that block is not (or not currently) in the doc. */
+function findBlockContentRange(
+	doc: PMNode,
+	blockId: string,
+): { start: number; end: number } | null {
+	let result: { start: number; end: number } | null = null;
+	doc.forEach((node, offset) => {
+		if (result !== null) return;
+		if (node.attrs?.[BLOCK_ID_ATTR] !== blockId) return;
+		result = { start: offset + 1, end: offset + node.nodeSize - 1 };
+	});
+	return result;
+}
+
+/**
+ * The live doc range for one already-resolved comment anchor, or `null` when
+ * its block is not currently in the doc. Exported for `document-editor.ts`'s
+ * own scroll-to-anchor helper — the ONE other place that needs this mapping,
+ * so it is never re-derived a second way.
+ */
+export function commentAnchorDocRange(
+	doc: PMNode,
+	blockId: string,
+	from: number,
+	to: number,
+): { from: number; to: number } | null {
+	const range = findBlockContentRange(doc, blockId);
+	if (!range) return null;
+	return {
+		from: positionAtCharOffset(doc, range.start, range.end, from),
+		to: positionAtCharOffset(doc, range.start, range.end, to),
+	};
+}
+
+/**
+ * One decoration per resolved, non-orphaned comment anchor. Interactive
+ * (focusable, clickable) only while its thread is OPEN: a resolved thread's
+ * highlight goes back to reading as plain text (redesign §3.4's own a11y
+ * note — "highlights are focusable only while their thread is open"), which
+ * also matches the rail's own Open-by-default filter (ruling 61): a
+ * resolved anchor with nothing reachable to jump to by default should not be
+ * a live tab stop either.
+ */
+export function buildCommentAnchorDecorations(
+	doc: PMNode,
+	anchors: CommentAnchorTarget[],
+	activeCommentId: string | null,
+): DecorationSet {
+	if (anchors.length === 0) return DecorationSet.empty;
+	const decorations: Decoration[] = [];
+	for (const anchor of anchors) {
+		const range = commentAnchorDocRange(
+			doc,
+			anchor.blockId,
+			anchor.from,
+			anchor.to,
+		);
+		if (!range || range.from >= range.to) continue;
+		const classes = ["comment-anchor"];
+		if (anchor.commentId === activeCommentId) classes.push("is-active");
+		if (anchor.resolved) classes.push("is-resolved");
+		const attrs: Record<string, string> = {
+			class: classes.join(" "),
+			"data-comment-anchor-id": anchor.commentId,
+		};
+		if (!anchor.resolved) {
+			attrs.tabindex = "0";
+			attrs.role = "button";
+		}
+		decorations.push(Decoration.inline(range.from, range.to, attrs));
+	}
+	return DecorationSet.create(doc, decorations);
+}
+
+const CommentAnchors = Extension.create({
+	name: "documentCommentAnchors",
+
+	addProseMirrorPlugins() {
+		return [
+			new Plugin<CommentAnchorPluginState>({
+				key: commentAnchorPluginKey,
+				state: {
+					init: () => EMPTY_COMMENT_ANCHOR_STATE,
+					apply(tr, value) {
+						return tr.getMeta(commentAnchorPluginKey) ?? value;
+					},
+				},
+				props: {
+					decorations(state) {
+						const pluginState =
+							commentAnchorPluginKey.getState(state) ??
+							EMPTY_COMMENT_ANCHOR_STATE;
+						return buildCommentAnchorDecorations(
+							state.doc,
+							pluginState.anchors,
+							pluginState.activeCommentId,
+						);
+					},
+				},
+			}),
+		];
+	},
+});
+
+/**
+ * `TaskItem`'s own default `a11y.checkboxLabel` ("Task item checkbox for
+ * {text}") is hardcoded English inside `@tiptap/extension-list` itself —
+ * localized here (rd/review-2-5.md:256-260) the same way `chips.ts` reads
+ * the current UI language: a plain `get(uiLanguage)` read, never a Svelte
+ * `$t` subscription, since this runs inside Tiptap's own node-rendering
+ * code, not a component.
+ */
+function taskItemCheckboxLabel(node: PMNode): string {
+	const locale = get(uiLanguage) === "hu" ? "hu" : "en";
+	const dict = locale === "hu" ? artifactsDict.hu : artifactsDict.en;
+	const text =
+		node.textContent || dict["artifacts.document.taskItem.emptyTaskItem"];
+	return dict["artifacts.document.taskItem.checkboxLabel"].replace(
+		"{text}",
+		text,
+	);
+}
+
+/**
+ * `changePillCallbacks` is optional (defaults to no-ops, `change-pill-
+ * decoration.ts`'s own `NOOP_CALLBACKS`) so every caller that never renders a
+ * pill for real — `undoAlfyChange`'s own temp/detached editor (`marks.ts`),
+ * and any test that does not care about it — never has to supply one.
+ * `DocumentBody.svelte`'s own `createDocumentEditor` call is the one caller
+ * that does.
+ */
+export function buildDocumentExtensions(
+	placeholder: string,
+	changePillCallbacks?: ChangePillCallbacks,
+) {
 	return [
 		StarterKit.configure({
 			link: { openOnClick: false, autolink: false },
 		}),
 		TaskList,
-		TaskItem.configure({ nested: true }),
+		TaskItem.configure({
+			nested: true,
+			a11y: { checkboxLabel: (node) => taskItemCheckboxLabel(node) },
+		}),
 		TableKit.configure({ table: { resizable: false } }),
 		Placeholder.configure({ placeholder }),
 		Markdown.configure({ indentation: { style: "space", size: 2 } }),
@@ -703,5 +920,15 @@ export function buildDocumentExtensions(placeholder: string) {
 		TrackerChip,
 		ImageAsPlainText,
 		TabSections,
+		CommentAnchors,
+		// Wave 2.5 Step 9/11: the Ask-Alfy chain's three small decorations
+		// (in-place "Alfy is writing", the selection's pending highlight, the
+		// refused-line rule) — see `alfy-writing-decoration.ts`'s own header.
+		...alfyWritingChainExtensions,
+		// Wave 2.5 Step 10: the inline "Alfy · Keep · Undo" pill, as a widget
+		// decoration — see `change-pill-decoration.ts`'s own header.
+		...(changePillCallbacks
+			? [buildChangePillExtension(changePillCallbacks)]
+			: []),
 	];
 }

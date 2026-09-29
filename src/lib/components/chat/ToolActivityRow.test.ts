@@ -555,6 +555,57 @@ describe("ToolActivityRow", () => {
 			expect(head).toHaveTextContent("Review");
 		});
 
+		// Redesign §4.2 "The chat side", Wave 2.5 Step 11: the two pills are
+		// independent signals shown side by side.
+		it("shows both the pending-review and left-alone pills for a partial refusal", () => {
+			const { getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(artifactSegment(), "row-partial", get(t)),
+				alfyActivity: {
+					key: "call-1",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "refused",
+					label: null,
+					patches: [],
+					refusedBlocks: [{ blockId: "p2", reason: "block_changed" }],
+					appliedCount: 1,
+				},
+			});
+
+			const head = getByTestId("artifact-card-head");
+			expect(head).toHaveTextContent("1 change to review");
+			expect(head).toHaveTextContent("1 part left alone");
+			expect(head).toHaveTextContent("Review");
+		});
+
+		// A fully refused call has nothing applied — the card must not claim
+		// "N changes to review" for zero applied changes (the old
+		// `Math.max(appliedCount, 1)` stopgap this pill replaces did).
+		it("shows only the left-alone pill, still with 'Review', for a full refusal", () => {
+			const { getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(
+					artifactSegment(),
+					"row-full-refusal",
+					get(t),
+				),
+				alfyActivity: {
+					key: "call-1",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "refused",
+					label: null,
+					patches: [],
+					refusedBlocks: [{ blockId: "p1", reason: "block_changed" }],
+					appliedCount: 0,
+				},
+			});
+
+			const head = getByTestId("artifact-card-head");
+			expect(head).not.toHaveTextContent("change to review");
+			expect(head).toHaveTextContent("1 part left alone");
+			expect(head).toHaveTextContent("Review");
+		});
+
 		it("ignores alfyActivity about a DIFFERENT artifact", () => {
 			const { getByTestId } = render(ToolActivityRow, {
 				item: buildToolActivityItem(artifactSegment(), "row-other", get(t)),
@@ -573,6 +624,119 @@ describe("ToolActivityRow", () => {
 			const head = getByTestId("artifact-card-head");
 			expect(head).not.toHaveTextContent("changes to review");
 			expect(head).toHaveTextContent("Open");
+		});
+
+		// Wave 2.5 Step 13: wires ArtifactCardView.current to the panel's own
+		// open item, matched by the bare artifact id (never the workspace item
+		// id "artifact:" + id — see `activeArtifactId`'s own prop doc).
+		it("outlines the card and reads 'Open in panel' when activeArtifactId matches this card's own artifact", () => {
+			const { getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(artifactSegment(), "row-current", get(t)),
+				activeArtifactId: "artifact-1",
+			});
+
+			const head = getByTestId("artifact-card-head");
+			expect(head).toHaveTextContent("Open in panel");
+		});
+
+		it("reads plain 'Open' when activeArtifactId names a DIFFERENT artifact", () => {
+			const { getByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(
+					artifactSegment(),
+					"row-not-current",
+					get(t),
+				),
+				activeArtifactId: "some-other-artifact",
+			});
+
+			const head = getByTestId("artifact-card-head");
+			expect(head).not.toHaveTextContent("Open in panel");
+			expect(head).toHaveTextContent("Open");
+		});
+
+		// Wave 2.5 Step 13: the App's fact-check line, read off `body.preview.
+		// appVerification` — attached by `ThinkingBlock.svelte` from
+		// `ConversationDetail.artifacts`, exactly like the Document card's own
+		// `documentPreview` (this row only ever reads `item.body`, never
+		// `conversationArtifacts` itself, so the test builds that same shape
+		// directly rather than through a prop this component does not have).
+		it("shows the App's fact-check line on the card once its facts were checked", () => {
+			const segment = artifactSegment({
+				name: "create_artifact",
+				input: { artifactType: "app", title: "Trip budget splitter" },
+				metadata: {
+					ok: true,
+					artifactId: "app-1",
+					artifactKind: "app",
+					artifactTitle: "Trip budget splitter",
+				},
+			});
+			const built = buildToolActivityItem(segment, "row-factcheck", get(t));
+			const withPreview: ToolActivityItem = {
+				...built,
+				body: {
+					...(built.body as Extract<
+						ToolActivityItem["body"],
+						{ kind: "artifact" }
+					>),
+					preview: {
+						id: "app-1",
+						kind: "app",
+						title: "Trip budget splitter",
+						conversationId: "conv-1",
+						versionNumber: 1,
+						commentCount: 0,
+						updatedAt: 0,
+						appVerification: { checked: true, verdict: "repaired" },
+					},
+				},
+			};
+			const { getByTestId } = render(ToolActivityRow, { item: withPreview });
+
+			const head = getByTestId("artifact-card-head");
+			expect(head.parentElement).toHaveTextContent(
+				"Alfy checked the facts and fixed one thing.",
+			);
+		});
+
+		it("shows a skeleton standalone card while create_artifact is running, from the model's own call arguments", () => {
+			const { getByTestId, queryByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(
+					toolCall({
+						name: "create_artifact",
+						input: { artifactType: "app", title: "Trip budget splitter" },
+						status: "running",
+					}),
+					"row-creating",
+					get(t),
+				),
+			});
+
+			const card = getByTestId("tool-activity-standalone-card");
+			expect(card).toHaveTextContent("Alfy is writing…");
+			expect(queryByTestId("tool-activity-body")).not.toBeInTheDocument();
+		});
+
+		it("shows a failed standalone card with the reason for a refused create_artifact", () => {
+			const { getByTestId, queryByTestId } = render(ToolActivityRow, {
+				item: buildToolActivityItem(
+					toolCall({
+						name: "create_artifact",
+						input: { artifactType: "app", title: "Trip budget splitter" },
+						status: "done",
+						outputSummary: "Could not create the app: the brief was empty.",
+						metadata: { ok: false, artifactKind: "app" },
+					}),
+					"row-failed",
+					get(t),
+				),
+			});
+
+			const card = getByTestId("tool-activity-standalone-card");
+			expect(card).toHaveTextContent(
+				"Could not create the app: the brief was empty.",
+			);
+			expect(queryByTestId("tool-activity-body")).not.toBeInTheDocument();
 		});
 
 		it("a reload's persisted segment renders the exact same card — no live-only state involved", () => {
