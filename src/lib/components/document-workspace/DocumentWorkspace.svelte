@@ -242,10 +242,13 @@ let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 let bodyPanelActions = $state<ArtifactPanelBodyActions | null>(null);
 /** Wave 2.5 Step 8: the Comments button's own badge (Document only — every other kind never calls `onCommentCountChange`, so this just stays 0 and the button never renders for them). Reset alongside `bodyPanelActions` for the same reason: a stale count from the item just left must never linger on the newly-open one. */
 let documentOpenCommentCount = $state(0);
+/** Whether the Document's comments are showing (the column beside the text, or the drawer/sheet) — the Comments button's pressed state. Reset with the count, for the same reason. */
+let documentCommentsShown = $state(false);
 $effect(() => {
 	activeDocument?.id;
 	bodyPanelActions = null;
 	documentOpenCommentCount = 0;
+	documentCommentsShown = false;
 });
 
 // One cached module promise per kind, mirroring
@@ -1396,16 +1399,24 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		and the version button above replaces History outright.
 	-->
 	{#snippet artifactHeaderActionsSnippet()}
-		{#if bodyPanelActions?.openComments}
+		{#if bodyPanelActions?.toggleComments}
+			<!-- One toggle for whichever comments surface applies (the column
+			     beside the text, the drawer on a narrow panel, the sheet on a
+			     phone): pressed while it is showing, never a second way in
+			     beside one that is already open. The name stays "Comments";
+			     the tooltip says what a press does. -->
 			<button
 				type="button"
 				class="btn-icon-bare workspace-comments-button"
 				data-testid="artifact-comments-button"
-				onclick={() => bodyPanelActions?.openComments?.()}
+				onclick={() => bodyPanelActions?.toggleComments?.()}
+				aria-pressed={documentCommentsShown}
 				aria-label={documentOpenCommentCount > 0
 					? $t('artifacts.document.margin.buttonA11y', { count: documentOpenCommentCount })
 					: $t('artifacts.document.margin.title')}
-				title={$t('artifacts.document.margin.title')}
+				title={documentCommentsShown
+					? $t('artifacts.document.margin.hide')
+					: $t('artifacts.document.margin.show')}
 			>
 				<MessageSquareText size={18} strokeWidth={2} aria-hidden="true" />
 				{#if documentOpenCommentCount > 0}
@@ -1640,6 +1651,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							}}
 							onCommentCountChange={(count) => {
 								documentOpenCommentCount = count;
+							}}
+							onCommentsShownChange={(shown) => {
+								documentCommentsShown = shown;
 							}}
 							onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 							{currentUser}
@@ -1952,6 +1966,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					}}
 					onCommentCountChange={(count) => {
 						documentOpenCommentCount = count;
+					}}
+					onCommentsShownChange={(shown) => {
+						documentCommentsShown = shown;
 					}}
 					onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 					{currentUser}
@@ -2380,6 +2397,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	   `.btn-icon .count` uses. */
 	.workspace-comments-button {
 		position: relative;
+	}
+
+	/* Pressed = the comments are showing. The mockup's own `.btn-icon.is-on`:
+	   a quiet tint and the primary icon colour, no border. */
+	.workspace-comments-button[aria-pressed='true'] {
+		background-color: var(--surface-elevated);
+		color: var(--icon-primary);
 	}
 
 	.workspace-comments-count {

@@ -62,6 +62,13 @@ export interface ArtifactBodyProps {
 	 */
 	onCommentCountChange?: (openCount: number) => void;
 	/**
+	 * Whether the body's comments are showing right now — the inline column
+	 * beside the text, or the drawer/sheet on a narrow panel or a phone —
+	 * so the header's Comments button can be a pressed toggle rather than a
+	 * second way in. Same reactive-report shape as `onCommentCountChange`.
+	 */
+	onCommentsShownChange?: (shown: boolean) => void;
+	/**
 	 * Wave 2.5 review (F1): the live count behind the persisted
 	 * `pendingReviewCount` — same shape/trigger contract as
 	 * `onCommentCountChange` above (a plain reactive report from an
@@ -91,8 +98,13 @@ export interface ArtifactBodyProps {
 export interface ArtifactPanelBodyActions {
 	openVersions?: () => void;
 	openDownload?: () => void;
-	/** Wave 2.5 Step 8: opens the phone sheet / narrow-panel drawer holding the same rail `MarginPanel.svelte` renders inline at full width — see `CommentsSheet.svelte`. */
-	openComments?: () => void;
+	/**
+	 * Shows or hides the body's comments — whichever surface applies at the
+	 * moment (the inline column, the narrow-panel drawer, the phone sheet).
+	 * One toggle, never a second way in; `onCommentsShownChange` above reports
+	 * the resulting state.
+	 */
+	toggleComments?: () => void;
 }
 
 export type ArtifactBodyLoader = () => Promise<{

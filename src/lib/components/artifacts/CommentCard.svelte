@@ -133,7 +133,7 @@ let changeChipLabel = $derived(
 </script>
 
 <div class="comment-card" class:comment-card-refused={isRefusal}>
-	<header class="comment-card-header">
+	<span class="comment-card-avatar">
 		{#if comment.author === 'alfy'}
 			<span class="comment-card-alfy-avatar" aria-hidden="true">
 				<Sparkles size={12} strokeWidth={2} />
@@ -146,6 +146,8 @@ let changeChipLabel = $derived(
 				size={22}
 			/>
 		{/if}
+	</span>
+	<header class="comment-card-header">
 		<span class="comment-card-author">{authorLabel}</span>
 		<time class="comment-card-time">{formatRelativeTime(comment.createdAt, { t: $t })}</time>
 		{#if isGuess}
@@ -186,10 +188,27 @@ let changeChipLabel = $derived(
 </div>
 
 <style>
+	/* The mockup's message row: the avatar in its own narrow column, the
+	   name line and the text stacked to its right, so a thread's messages
+	   share one left edge for their words (redesign §3.2's anatomy). */
 	.comment-card {
-		display: flex;
-		flex-direction: column;
-		gap: 0.3rem;
+		display: grid;
+		grid-template-columns: 22px minmax(0, 1fr);
+		column-gap: 0.5625rem;
+		row-gap: 0.125rem;
+	}
+
+	.comment-card > :not(.comment-card-avatar) {
+		grid-column: 2;
+		min-width: 0;
+	}
+
+	.comment-card-avatar {
+		grid-column: 1;
+		grid-row: 1 / span 6;
+		align-self: start;
+		margin-top: 0.0625rem;
+		line-height: 0;
 	}
 
 	.comment-card-refused {
@@ -201,9 +220,9 @@ let changeChipLabel = $derived(
 
 	.comment-card-header {
 		display: flex;
-		align-items: center;
+		align-items: baseline;
 		gap: 0.375rem;
-		font-size: var(--text-xs);
+		font-size: 0.78125rem;
 		color: var(--text-muted);
 	}
 
@@ -220,25 +239,27 @@ let changeChipLabel = $derived(
 	}
 
 	.comment-card-author {
-		font-weight: 600;
+		font-weight: 700;
 		color: var(--text-primary);
+	}
+
+	.comment-card-time {
+		font-size: 0.71875rem;
 	}
 
 	.comment-card-guess-tag {
 		margin-left: auto;
-		padding: 0.0625rem 0.375rem;
-		border-radius: var(--radius-full, 999px);
-		background-color: var(--accent-tint);
-		color: var(--accent-text);
-		font-size: var(--text-2xs, 0.66rem);
-		font-weight: 600;
+		font-size: 0.65625rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
 		text-transform: uppercase;
-		letter-spacing: 0.02em;
+		color: var(--accent-text);
 	}
 
 	.comment-card-body {
 		margin: 0;
 		font-size: var(--text-sm);
+		line-height: 1.5;
 		color: var(--text-primary);
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
@@ -246,7 +267,7 @@ let changeChipLabel = $derived(
 
 	.comment-card-mention {
 		color: var(--accent-text);
-		font-weight: 600;
+		font-weight: 700;
 	}
 
 	/* RV-1B, coordinator item 8: a lighter-weight note than the refusal row
@@ -272,8 +293,9 @@ let changeChipLabel = $derived(
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 0.375rem;
-		padding: 0.25rem 0.5rem;
-		border-radius: var(--radius-md);
+		margin-top: 0.25rem;
+		padding: 0.375rem 0.5rem;
+		border-radius: var(--radius-lg);
 		background-color: var(--accent-tint);
 		color: var(--accent-text);
 		font-size: var(--text-xs);
@@ -302,5 +324,17 @@ let changeChipLabel = $derived(
 	.comment-card-change-see:focus-visible {
 		outline: 2px solid var(--focus-ring);
 		outline-offset: 2px;
+	}
+
+	@media (max-width: 767px) {
+		.comment-card-change-see {
+			position: relative;
+		}
+
+		.comment-card-change-see::after {
+			content: '';
+			position: absolute;
+			inset: -0.875rem -0.5rem;
+		}
 	}
 </style>

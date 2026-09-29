@@ -6,11 +6,13 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
+import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	parseDocument,
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
+import { documentCommentsRailHidden } from "$lib/stores/ui";
 import type { DocumentAlfyActivity } from "./alfy-activity";
 
 const {
@@ -282,6 +284,9 @@ describe("DocumentBody", () => {
 		vi.clearAllMocks();
 		editorInstances.length = 0;
 		mockViewportState.isPhone = false;
+		// The per-device "hide the comment column" choice lives in a module-level
+		// store, so one test's toggle must not leak into the next.
+		documentCommentsRailHidden.set(false);
 		setupCreateDocumentEditor();
 		mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
 		mockSaveArtifactBody.mockResolvedValue({ ok: true, version: 2 });
@@ -968,7 +973,7 @@ describe("DocumentBody", () => {
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
 			expect(
-				screen.getByText("No comments on this tab. Select text to start one."),
+				screen.getByText("No comments yet. Select text to start one."),
 			).toBeInTheDocument();
 		});
 
@@ -1760,7 +1765,7 @@ describe("DocumentBody", () => {
 	// brief's own Playwright suite's job; this covers the phone-sheet branch
 	// and the count callback, both reachable by mocking `isPhoneViewport`.
 	describe("comments away from the rail (Wave 2.5 Step 8)", () => {
-		it("hands the header an openComments trigger that opens the phone sheet", async () => {
+		it("hands the header a toggleComments trigger that opens the phone sheet, and closes it again", async () => {
 			mockViewportState.isPhone = true;
 			const registerPanelActions = vi.fn();
 			render(DocumentBody, {
@@ -1778,11 +1783,15 @@ describe("DocumentBody", () => {
 			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
 			expect(screen.queryByRole("dialog")).toBeNull();
 
-			actions.openComments();
+			actions.toggleComments();
 
 			expect(
 				await screen.findByRole("dialog", { name: "Comments" }),
 			).toBeInTheDocument();
+
+			// One toggle, not a second way in: the same trigger closes it.
+			actions.toggleComments();
+			await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 		});
 
 		it("reports the open (non-resolved) comment count, across every tab", async () => {
@@ -1874,6 +1883,402 @@ describe("DocumentBody", () => {
 			expect(
 				await screen.findByRole("dialog", { name: "Comments" }),
 			).toBeInTheDocument();
+		});
+	});
+
+	// The owner's walk-through of the redesign: the comments column stays in
+	// view while the text scrolls, the header's Comments button toggles it
+	// instead of opening a second copy, and it narrows before the text does.
+	describe("the comment column: toggle, width, scroll-follow", () => {
+		const TEXT = "<!--b:p1-->\nOne proper concert and a long lunch.";
+		function thread(id: string, quote: string, prefix: string, suffix: string) {
+			return {
+				id,
+				artifactId: "artifact-1",
+				parentId: null,
+				anchor: { kind: "text", blockId: "p1", quote, prefix, suffix },
+				author: "user",
+				body: `About ${quote}`,
+				status: "open",
+				createdAt: 1,
+				replies: [],
+			};
+		}
+		const TWO_THREADS = [
+			thread("c1", "proper concert", "One ", " and a long lunch."),
+			thread("c2", "long lunch", "concert and a ", "."),
+		];
+
+		function stubPanelWidth(width: number) {
+			vi.stubGlobal(
+				"ResizeObserver",
+				class {
+					constructor(
+						private readonly callback: (entries: unknown[]) => void,
+					) {}
+					observe(target: Element) {
+						this.callback([{ target, contentRect: { width, height: 100 } }]);
+					}
+					unobserve() {}
+					disconnect() {}
+				},
+			);
+		}
+
+		function mount(extra: Record<string, unknown> = {}) {
+			return render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+				...extra,
+			});
+		}
+
+		afterEach(() => {
+			vi.unstubAllGlobals();
+			vi.restoreAllMocks();
+		});
+
+		it("the header's toggle hides and shows the inline column, remembers it, and reports its state", async () => {
+			const registerPanelActions = vi.fn();
+			const onCommentsShownChange = vi.fn();
+			mount({ registerPanelActions, onCommentsShownChange });
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
+			expect(document.querySelector(".document-content-rail")).not.toBeNull();
+			await waitFor(() =>
+				expect(onCommentsShownChange).toHaveBeenLastCalledWith(true),
+			);
+
+			actions.toggleComments();
+			await waitFor(() =>
+				expect(document.querySelector(".document-content-rail")).toBeNull(),
+			);
+			expect(onCommentsShownChange).toHaveBeenLastCalledWith(false);
+			expect(localStorage.getItem("documentCommentsRailHidden")).toBe("true");
+
+			actions.toggleComments();
+			await waitFor(() =>
+				expect(document.querySelector(".document-content-rail")).not.toBeNull(),
+			);
+			expect(onCommentsShownChange).toHaveBeenLastCalledWith(true);
+			expect(localStorage.getItem("documentCommentsRailHidden")).toBe("false");
+		});
+
+		it("starts hidden when this device switched the column off", async () => {
+			documentCommentsRailHidden.set(true);
+			const registerPanelActions = vi.fn();
+			mount({ registerPanelActions });
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+			expect(document.querySelector(".document-content-rail")).toBeNull();
+			// The text takes the freed width: it is still the whole content row.
+			expect(document.querySelector(".document-content-text")).not.toBeNull();
+		});
+
+		it("gives the column the full 300px on a roomy panel", async () => {
+			stubPanelWidth(1000);
+			mount();
+			await waitFor(() =>
+				expect(document.querySelector(".document-content-rail")).not.toBeNull(),
+			);
+			expect(
+				(document.querySelector(".document-content-rail") as HTMLElement).style
+					.width,
+			).toBe("300px");
+		});
+
+		it("narrows the column, not the text, on a laptop-sized panel", async () => {
+			stubPanelWidth(750);
+			mount();
+			await waitFor(() =>
+				expect(document.querySelector(".document-content-rail")).not.toBeNull(),
+			);
+			// 750 - 480 (the text's own minimum) = 270 for the column.
+			expect(
+				(document.querySelector(".document-content-rail") as HTMLElement).style
+					.width,
+			).toBe("270px");
+		});
+
+		it("on a panel too narrow for both, shows no inline column: the toggle opens and closes a drawer, one surface at a time", async () => {
+			stubPanelWidth(600);
+			const registerPanelActions = vi.fn();
+			const onCommentsShownChange = vi.fn();
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+			);
+			mount({ registerPanelActions, onCommentsShownChange });
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(document.querySelector(".document-content-rail")).toBeNull();
+			expect(screen.queryByTestId("comments-drawer")).toBeNull();
+			await waitFor(() =>
+				expect(onCommentsShownChange).toHaveBeenLastCalledWith(false),
+			);
+
+			actions.toggleComments();
+			expect(await screen.findByTestId("comments-drawer")).toBeInTheDocument();
+			expect(onCommentsShownChange).toHaveBeenLastCalledWith(true);
+			// Never a second copy beside the first.
+			expect(screen.getAllByTestId("margin-panel-list")).toHaveLength(1);
+
+			actions.toggleComments();
+			await waitFor(() =>
+				expect(screen.queryByTestId("comments-drawer")).toBeNull(),
+			);
+			expect(onCommentsShownChange).toHaveBeenLastCalledWith(false);
+		});
+
+		it("clicking highlighted words brings a switched-off column back", async () => {
+			Element.prototype.scrollIntoView = vi.fn();
+			documentCommentsRailHidden.set(true);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+			);
+			mount();
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(document.querySelector(".document-content-rail")).toBeNull();
+
+			const span = document.createElement("span");
+			span.className = "comment-anchor";
+			span.setAttribute("role", "button");
+			span.setAttribute("data-comment-anchor-id", "c2");
+			document.querySelector(".document-editor-host")?.appendChild(span);
+			await fireEvent.click(span);
+
+			await waitFor(() =>
+				expect(document.querySelector(".document-content-rail")).not.toBeNull(),
+			);
+			expect(get(documentCommentsRailHidden)).toBe(false);
+			// The request is consumed once the column has been shown, not left
+			// to steal focus the next time it is toggled back on.
+			await waitFor(() =>
+				expect(screen.getByTestId("margin-panel-list")).toBeInTheDocument(),
+			);
+		});
+
+		it("puts Alfy's refusal card in the comment column, beside its line, never above the text", async () => {
+			mockApplyAlfyChanges.mockReturnValue([]);
+			mockSummarizeRefusals.mockReturnValue({
+				count: 1,
+				items: [
+					{
+						blockId: "p1",
+						blockLabel: "One proper concert",
+						code: "block_changed",
+					},
+				],
+			});
+			mockRefusalReasonI18nKey.mockReturnValue(
+				"artifacts.document.refused.changed",
+			);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+			);
+			const { rerender } = mount({ alfyActivity: null });
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+				alfyActivity: {
+					key: "call-1",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "refused",
+					label: "Edit",
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					refusedBlocks: [{ blockId: "p1", reason: "block_changed" }],
+					appliedCount: 0,
+				},
+			});
+			const notice = await screen.findByTestId("refusal-notice");
+			expect(notice.closest(".document-content-rail")).not.toBeNull();
+			expect(notice.closest(".document-content-text")).toBeNull();
+		});
+
+		describe("scroll-follow", () => {
+			function rectsOf(top: number, bottom: number) {
+				return () =>
+					[
+						{
+							top,
+							bottom,
+							left: 0,
+							right: 10,
+							width: 10,
+							height: bottom - top,
+						},
+					] as unknown as DOMRectList;
+			}
+
+			async function mountWithHighlights() {
+				mockFetchArtifact.mockResolvedValue(
+					ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+				);
+				mount();
+				await waitFor(() =>
+					expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+				);
+				await waitFor(() =>
+					expect(screen.getAllByTestId("margin-comment")).toHaveLength(2),
+				);
+				const host = document.querySelector(
+					".document-editor-host",
+				) as HTMLElement;
+				const spans = new Map<string, HTMLElement>();
+				for (const id of ["c1", "c2"]) {
+					const span = document.createElement("span");
+					span.className = "comment-anchor";
+					span.setAttribute("role", "button");
+					span.setAttribute("data-comment-anchor-id", id);
+					host.appendChild(span);
+					spans.set(id, span);
+				}
+				const scroller = document.querySelector(
+					".document-content-text",
+				) as HTMLElement;
+				scroller.getBoundingClientRect = () =>
+					({
+						top: 100,
+						bottom: 600,
+						left: 0,
+						right: 400,
+						width: 400,
+						height: 500,
+					}) as DOMRect;
+				// A real frame callback never runs inside the call that scheduled it.
+				vi.spyOn(window, "requestAnimationFrame").mockImplementation(
+					(callback: FrameRequestCallback) => {
+						setTimeout(() => callback(0), 0);
+						return 1;
+					},
+				);
+				return { spans, scroller };
+			}
+
+			function spanOf(
+				spans: Map<string, HTMLElement>,
+				id: string,
+			): HTMLElement {
+				const span = spans.get(id);
+				if (!span) throw new Error(`no highlight span for ${id}`);
+				return span;
+			}
+
+			function activeArgs() {
+				return mockSetCommentAnchors.mock.calls.at(-1)?.[2] ?? null;
+			}
+			function cardOf(id: string): HTMLElement {
+				return document.querySelector(
+					`[data-testid="margin-comment"][data-comment-id="${id}"]`,
+				) as HTMLElement;
+			}
+
+			it("makes the thread whose words are nearest the top the active one, and brings its card into view", async () => {
+				const scrollIntoView = vi.fn();
+				Element.prototype.scrollIntoView = scrollIntoView;
+				const { spans, scroller } = await mountWithHighlights();
+				spanOf(spans, "c1").getClientRects = rectsOf(420, 440);
+				spanOf(spans, "c2").getClientRects = rectsOf(150, 170);
+
+				await fireEvent.scroll(scroller);
+
+				await waitFor(() => expect(activeArgs()).toBe("c2"));
+				expect(cardOf("c2").className).toContain("is-active");
+				expect(cardOf("c1").className).not.toContain("is-active");
+				expect(scrollIntoView).toHaveBeenCalledTimes(1);
+				expect(scrollIntoView.mock.instances[0]).toBe(cardOf("c2"));
+			});
+
+			it("moves on to the next thread as the reader scrolls past the first", async () => {
+				Element.prototype.scrollIntoView = vi.fn();
+				const { spans, scroller } = await mountWithHighlights();
+				spanOf(spans, "c1").getClientRects = rectsOf(150, 170);
+				spanOf(spans, "c2").getClientRects = rectsOf(420, 440);
+				await fireEvent.scroll(scroller);
+				await waitFor(() => expect(activeArgs()).toBe("c1"));
+
+				spanOf(spans, "c1").getClientRects = rectsOf(-200, -180);
+				spanOf(spans, "c2").getClientRects = rectsOf(120, 140);
+				await fireEvent.scroll(scroller);
+				await waitFor(() => expect(activeArgs()).toBe("c2"));
+			});
+
+			it("leaves no thread active when no highlight is in view", async () => {
+				Element.prototype.scrollIntoView = vi.fn();
+				const { spans, scroller } = await mountWithHighlights();
+				spanOf(spans, "c1").getClientRects = rectsOf(150, 170);
+				spanOf(spans, "c2").getClientRects = rectsOf(420, 440);
+				await fireEvent.scroll(scroller);
+				await waitFor(() => expect(activeArgs()).toBe("c1"));
+
+				spanOf(spans, "c1").getClientRects = rectsOf(-500, -480);
+				spanOf(spans, "c2").getClientRects = rectsOf(900, 920);
+				await fireEvent.scroll(scroller);
+				await waitFor(() => expect(activeArgs()).toBeNull());
+			});
+
+			it("does not move the list while the pointer is inside it, but still marks the thread", async () => {
+				const scrollIntoView = vi.fn();
+				Element.prototype.scrollIntoView = scrollIntoView;
+				const { spans, scroller } = await mountWithHighlights();
+				spanOf(spans, "c1").getClientRects = rectsOf(420, 440);
+				spanOf(spans, "c2").getClientRects = rectsOf(150, 170);
+				await fireEvent.pointerEnter(screen.getByTestId("margin-panel-list"));
+
+				await fireEvent.scroll(scroller);
+
+				await waitFor(() => expect(activeArgs()).toBe("c2"));
+				expect(scrollIntoView).not.toHaveBeenCalled();
+			});
+
+			it("lets hovering a card win over the followed thread, and gives way to it again after", async () => {
+				Element.prototype.scrollIntoView = vi.fn();
+				const { spans, scroller } = await mountWithHighlights();
+				spanOf(spans, "c1").getClientRects = rectsOf(420, 440);
+				spanOf(spans, "c2").getClientRects = rectsOf(150, 170);
+				await fireEvent.scroll(scroller);
+				await waitFor(() => expect(activeArgs()).toBe("c2"));
+
+				await fireEvent.mouseEnter(cardOf("c1"));
+				await waitFor(() => expect(activeArgs()).toBe("c1"));
+				await fireEvent.mouseLeave(cardOf("c1"));
+				await waitFor(() => expect(activeArgs()).toBe("c2"));
+			});
+
+			it("does not follow the text at all once the column is hidden", async () => {
+				const scrollIntoView = vi.fn();
+				Element.prototype.scrollIntoView = scrollIntoView;
+				documentCommentsRailHidden.set(true);
+				mockFetchArtifact.mockResolvedValue(
+					ARTIFACT_DETAIL({ body: TEXT }, TWO_THREADS),
+				);
+				mount();
+				await waitFor(() =>
+					expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+				);
+				const scroller = document.querySelector(
+					".document-content-text",
+				) as HTMLElement;
+				const before = mockSetCommentAnchors.mock.calls.length;
+				await fireEvent.scroll(scroller);
+				expect(scrollIntoView).not.toHaveBeenCalled();
+				expect(mockSetCommentAnchors.mock.calls.length).toBe(before);
+			});
 		});
 	});
 

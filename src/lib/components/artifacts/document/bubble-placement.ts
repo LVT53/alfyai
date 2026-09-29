@@ -1,7 +1,7 @@
 /**
  * The selection bubble's placement math (Feature 2 · Artifacts, Slice 1, T10
  * follow-up — "the overlay ... is always off screen, not by the cursor").
- * Pure and DOM-free on purpose, mirroring `margin-layout.ts`'s own split:
+ * Pure and DOM-free on purpose, mirroring `comment-threads.ts`'s own split:
  * `DocumentBody.svelte` measures the live selection and the scroll container
  * (`contentEl.getBoundingClientRect()`, its `scrollLeft`/`scrollTop`/
  * `clientWidth`/`clientHeight`) and hands the numbers in; this module only

@@ -9,7 +9,7 @@ Client state management using Svelte writable stores. Owns browser state, optimi
 | `conversations.ts` | Conversation list with optimistic create/delete/rename/move. Reconciles server snapshots with local pending state. |
 | `projects.ts` | Project folders for conversation organization. Simple CRUD updates. |
 | `settings.ts` | Model selection, title language, and UI language. Syncs to localStorage and server preferences. |
-| `ui.ts` | Sidebar open/collapsed state, responsive breakpoint handling, current conversation tracking. |
+| `ui.ts` | Sidebar open/collapsed state, responsive breakpoint handling, current conversation tracking, and the per-device "hide the Document comment column" choice. |
 | `avatar.ts` | Profile picture state with cache-busting timestamp for fresh fetches after upload. |
 | `theme.ts` | Light/dark/system theme with OS preference detection and localStorage persistence. |
 | `_local-storage.ts` | Shared localStorage read/write utility (not a store). Used by `theme.ts` and `settings.ts`. |

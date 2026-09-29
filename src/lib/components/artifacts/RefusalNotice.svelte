@@ -13,11 +13,12 @@
  * `CircleSlash`/`--warning-tint`, matching `CommentCard.svelte`'s own
  * refusal-message treatment exactly (rd3a's hand-off: "the two should read
  * as the same family, not two different visual languages for 'Alfy
- * refused'") — with its own "Ask again"/"Dismiss" actions. `DocumentBody.svelte`
- * pins it beside the refused block (`document-editor.ts`'s `blockRect`) and
- * marks the line itself with the dashed gutter rule
- * (`alfy-writing-decoration.ts`'s `setRefusedLines`) — this component only
- * renders the card.
+ * refused'") — with its own "Ask again"/"Dismiss" actions. `MarginPanel.svelte`
+ * lists it among the comment threads, at its line's position (first in a
+ * phone sheet or a drawer — the owner's walk-through: a card of the comment
+ * family, not a banner above the text), and `DocumentBody.svelte` marks the
+ * line itself with the dashed gutter rule (`alfy-writing-decoration.ts`'s
+ * `setRefusedLines`) — this component only renders the card.
  *
  * Deliberately generic: it takes already-localised strings, never a
  * `RefusalReason` code or an i18n key. Each type owns its own reason
@@ -82,7 +83,7 @@ let {
 	{#if (onAskAgain && askAgainLabel) || (onDismiss && dismissLabel)}
 		<div class="refusal-notice-actions">
 			{#if onAskAgain && askAgainLabel}
-				<button type="button" class="btn-ghost btn-sm" onclick={onAskAgain}>
+				<button type="button" class="btn-secondary btn-sm" onclick={onAskAgain}>
 					<Sparkles size={13} strokeWidth={2} aria-hidden="true" />
 					{askAgainLabel}
 				</button>
@@ -97,17 +98,19 @@ let {
 </div>
 
 <style>
-	/* `--warning-tint`/`--warning-text` — the same pairing
-	   `CommentCard.svelte`'s own `.comment-card-refused`/`.comment-card-
-	   refusal-row` use, so a refusal reads as one visual language everywhere
-	   it appears. */
+	/* A card of the comment family (redesign §4.2 "Refusal"): the same shape
+	   as a thread card in the comment column — radius, border weight,
+	   padding — on the warning tint, so a refusal sits among the comments it
+	   is listed with as one of them, not a banner. `--warning-tint` /
+	   `--warning-text` are the same pairing `CommentCard.svelte`'s own
+	   refusal message uses. */
 	.refusal-notice {
 		display: flex;
 		flex-direction: column;
 		gap: 0.375rem;
-		padding: 0.625rem 0.75rem;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
+		padding: 0.625rem 0.75rem 0.5rem;
+		border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+		border-radius: var(--radius-lg);
 		background-color: var(--warning-tint);
 		color: var(--text-primary);
 		font-size: var(--text-sm);
@@ -116,7 +119,7 @@ let {
 	.refusal-notice-head {
 		display: flex;
 		align-items: flex-start;
-		gap: 0.375rem;
+		gap: 0.4375rem;
 		color: var(--warning-text);
 	}
 
@@ -127,7 +130,9 @@ let {
 
 	.refusal-notice-message {
 		margin: 0;
-		color: var(--text-primary);
+		font-weight: 700;
+		line-height: 1.4;
+		color: var(--warning-text);
 	}
 
 	.refusal-notice-items {
@@ -135,14 +140,21 @@ let {
 		flex-direction: column;
 		gap: 0.125rem;
 		margin: 0;
-		padding: 0;
+		padding: 0 0 0 1.4375rem;
 		list-style: none;
 		color: var(--text-muted);
 		font-size: var(--text-xs);
+		line-height: 1.45;
+	}
+
+	.refusal-notice-items strong {
+		font-weight: 600;
+		color: var(--text-primary);
 	}
 
 	.refusal-notice-see-change {
 		align-self: flex-start;
+		margin-left: 1.4375rem;
 		border: none;
 		background: none;
 		padding: 0;
@@ -165,5 +177,27 @@ let {
 		display: flex;
 		align-items: center;
 		gap: 0.25rem;
+		margin-left: 1rem;
+	}
+
+	.refusal-notice-actions :global(button) {
+		gap: 0.3125rem;
+	}
+
+	/* Phone sheet: nothing that is tapped is smaller than 44px (§3.4). */
+	@media (max-width: 767px) {
+		.refusal-notice-actions :global(button) {
+			min-height: 44px;
+		}
+
+		.refusal-notice-see-change {
+			position: relative;
+		}
+
+		.refusal-notice-see-change::after {
+			content: '';
+			position: absolute;
+			inset: -0.875rem -0.5rem;
+		}
 	}
 </style>
