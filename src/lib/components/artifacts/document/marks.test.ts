@@ -11,14 +11,15 @@ import {
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
 import {
+	blockContentEnd,
 	createDocumentEditor,
 	loadMarkdown,
 	readMarkdown,
 } from "./document-editor";
 import { buildDocumentExtensions } from "./extensions";
 import {
-	alfyChangeDocRange,
 	applyAlfyChangeMarks,
+	findAlfyChangeMarkRange,
 	keepAlfyChange,
 	type RedoBlock,
 	redoAlfyChange,
@@ -604,6 +605,52 @@ describe("marks: Redo after Undo of a multi-block change", () => {
 	});
 });
 
+// The "Undone · Redo" pill is anchored where the restored block ends. The old
+// anchor was the END of the mark's range, captured before Undo: once Undo made
+// the text shorter, that position pointed into the NEXT block, so the pill
+// showed up inside another paragraph's text.
+describe("marks: where the Undone pill anchors after Undo", () => {
+	it("blockContentEnd is the end of the restored block, even when Undo made it shorter", () => {
+		const { editor, blocks, snapshot } = setup(
+			"Alpha.\n\nBeta.\n\nGamma keeps the document long after Beta shrinks back, so the old position is still inside it.",
+		);
+		const target = blocks[1];
+		const patch = patchOf([
+			op({
+				kind: "replaceBlock",
+				blockId: target.id,
+				baseHash: target.hash,
+				text: "Beta, rewritten at some length by Alfy, so that undoing it shortens the block.",
+			}),
+		]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		const markEndBeforeUndo = findAlfyChangeMarkRange(
+			editor.state.doc,
+			entries[0].changeId,
+		)?.to as number;
+
+		undo(editor, entries[0]);
+
+		const end = blockContentEnd(editor, target.id) as number;
+		const $end = editor.state.doc.resolve(end);
+		expect($end.parent.attrs.blockId).toBe(target.id);
+		expect($end.parentOffset).toBe($end.parent.content.size);
+		// The position the pill used to take is no longer inside that block.
+		expect(
+			editor.state.doc.resolve(markEndBeforeUndo).parent.attrs.blockId,
+		).toBe(blocks[2].id);
+		editor.destroy();
+	});
+
+	it("blockContentEnd is null for a block that is not in the document", () => {
+		const { editor } = setup("Alpha.");
+		expect(blockContentEnd(editor, "no-such-block")).toBeNull();
+		editor.destroy();
+	});
+});
+
 describe("marks: remarkAlfyChange", () => {
 	it("marks a whole block, for a caller with no op-level precision (Redo, ruling 61's reload restore)", () => {
 		const { editor, blocks } = setup("Alpha.\n\nBeta.");
@@ -616,7 +663,10 @@ describe("marks: remarkAlfyChange", () => {
 				?.textContent,
 		).toBe("Beta.");
 
-		const range = alfyChangeDocRange(editor, "resurrected-change");
+		const range = findAlfyChangeMarkRange(
+			editor.state.doc,
+			"resurrected-change",
+		);
 		expect(range).not.toBeNull();
 		editor.destroy();
 	});
@@ -780,11 +830,15 @@ describe("marks: summarizeRefusals / refusalReasonI18nKey", () => {
 	});
 });
 
-describe("marks: alfyChangeDocRange / scrollToAlfyChange (the inline pill's positioning)", () => {
+describe("marks: findAlfyChangeMarkRange / scrollToAlfyChange (the inline pill's positioning)", () => {
 	it("returns null for a changeId with no mark, without throwing", () => {
 		const { editor } = setup("First paragraph.");
-		expect(() => alfyChangeDocRange(editor, "no-such-change")).not.toThrow();
-		expect(alfyChangeDocRange(editor, "no-such-change")).toBeNull();
+		expect(() =>
+			findAlfyChangeMarkRange(editor.state.doc, "no-such-change"),
+		).not.toThrow();
+		expect(
+			findAlfyChangeMarkRange(editor.state.doc, "no-such-change"),
+		).toBeNull();
 		expect(scrollToAlfyChange(editor, "no-such-change")).toBe(false);
 	});
 
@@ -805,7 +859,10 @@ describe("marks: alfyChangeDocRange / scrollToAlfyChange (the inline pill's posi
 		loadMarkdown(editor, result.markdown);
 		const entries = applyAlfyChangeMarks(editor, result, patch);
 
-		const range = alfyChangeDocRange(editor, entries[0].changeId);
+		const range = findAlfyChangeMarkRange(
+			editor.state.doc,
+			entries[0].changeId,
+		);
 		expect(range).not.toBeNull();
 		expect(range?.from).toBeLessThan(range?.to ?? 0);
 	});

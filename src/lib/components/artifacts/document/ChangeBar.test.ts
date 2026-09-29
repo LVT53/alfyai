@@ -97,6 +97,77 @@ describe("ChangeBar", () => {
 		);
 	});
 
+	// G3: the Alfy-change chord (⌘/Ctrl+Alt+Z) can undo a change with the focus
+	// still in the text. The pill's Redo button is re-mounted then too, but
+	// nothing dropped the focus, so it must not be pulled out of the text.
+	it("leaves the focus alone when something else already holds it (an Undo by keyboard from the text)", () => {
+		const editor = document.createElement("div");
+		editor.tabIndex = 0;
+		document.body.appendChild(editor);
+		editor.focus();
+		expect(document.activeElement).toBe(editor);
+
+		render(ChangeBar, { ...callbacks(), status: "undone" });
+		expect(document.activeElement).toBe(editor);
+		editor.remove();
+	});
+
+	// G3: the documented chords for Alfy's own Undo and Redo, in the tooltip
+	// and for assistive technology — the accessible names stay as they were.
+	describe("the keyboard shortcut on Undo and Redo", () => {
+		const setPlatform = (value: string) =>
+			Object.defineProperty(window.navigator, "platform", {
+				value,
+				configurable: true,
+			});
+		afterEach(() => {
+			Reflect.deleteProperty(window.navigator, "platform");
+		});
+
+		it("says Ctrl+Alt+Z in Undo's tooltip and lists it in aria-keyshortcuts, without renaming the button", () => {
+			setPlatform("Win32");
+			render(ChangeBar, callbacks());
+			const undo = screen.getByRole("button", { name: "Undo Alfy's change" });
+			expect(undo).toHaveAttribute("title", "Undo Alfy's change (Ctrl+Alt+Z)");
+			expect(undo).toHaveAttribute("aria-keyshortcuts", "Control+Alt+Z");
+		});
+
+		it("says Ctrl+Alt+Shift+Z on Redo", () => {
+			setPlatform("Win32");
+			render(ChangeBar, { ...callbacks(), status: "undone" });
+			const redo = screen.getByRole("button", { name: "Redo Alfy's change" });
+			expect(redo).toHaveAttribute(
+				"title",
+				"Redo Alfy's change (Ctrl+Alt+Shift+Z)",
+			);
+			expect(redo).toHaveAttribute("aria-keyshortcuts", "Control+Alt+Shift+Z");
+		});
+
+		it("writes the Mac keys on a Mac", () => {
+			setPlatform("MacIntel");
+			render(ChangeBar, callbacks());
+			const undo = screen.getByRole("button", { name: "Undo Alfy's change" });
+			expect(undo).toHaveAttribute("title", "Undo Alfy's change (⌥⌘Z)");
+			expect(undo).toHaveAttribute("aria-keyshortcuts", "Meta+Alt+Z");
+		});
+
+		it("is worded in Hungarian in the Hungarian UI", () => {
+			setPlatform("Win32");
+			uiLanguage.set("hu");
+			render(ChangeBar, callbacks());
+			expect(
+				screen.getByRole("button", { name: /^Visszavonom/ }),
+			).toHaveAttribute("title", "Visszavonom — Alfy módosítása (Ctrl+Alt+Z)");
+		});
+
+		it("gives Keep no chord (it is reached with Tab and Enter)", () => {
+			render(ChangeBar, callbacks());
+			expect(
+				screen.getByRole("button", { name: "Keep Alfy's change" }),
+			).not.toHaveAttribute("aria-keyshortcuts");
+		});
+	});
+
 	it("does not steal focus when mounted pending (the common case: a fresh live Alfy edit landing)", () => {
 		render(ChangeBar, callbacks());
 		expect(screen.getByRole("button", { name: "Keep Alfy's change" })).not.toBe(

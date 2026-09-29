@@ -315,22 +315,6 @@ export function keepAlfyChange(editor: Editor, changeId: string): boolean {
 }
 
 /**
- * The change mark's own live document range — `null` once the mark is gone
- * (already Kept — Keep clears it — or Undone: Undo replaces the whole node,
- * so nothing carries `changeId` any more). The inline pill's own widget
- * decoration (Wave 2.5 Step 10) uses this to position itself while pending,
- * and callers that are ABOUT to remove the mark structurally (Undo) capture
- * it first, as a fallback anchor for the brief "Undone · Redo" window when
- * the live lookup can no longer find anything.
- */
-export function alfyChangeDocRange(
-	editor: Editor,
-	changeId: string,
-): { from: number; to: number } | null {
-	return findAlfyChangeRange(editor, changeId);
-}
-
-/**
  * Marks a WHOLE block with `AlfyChange{changeId}` — the same coarse
  * whole-block fallback `applyAlfyChangeMarks` already uses when a precise
  * text range cannot be found, reused here for two callers that have no
