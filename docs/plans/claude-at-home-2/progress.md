@@ -615,6 +615,12 @@ Rulings (orchestrator, 2026-09-27):
   B's empty-tab zero-width space fixed** (`read_artifact`, PDF/DOCX export, Markdown export); left: the tab strip's `⋯`/`+`
   inside `role="tablist"` (a follow-up chip). Gates on `9ba6b85e`: check 0/17, 13,768 tests, build 32/2, Fallow 124/4 (0
   new), **Playwright 100/100**. Next: the Sonnet re-check (`wave-2-5/recheck-brief.md`), then `dev` and deploy.
+- **Re-check done (Sonnet, `wave-2-5/recheck.md`): Critical 3/3, Important 15/15, fix-first 6/6 addressed**, both live passes
+  green in Hungarian (phone pass; edit → Átnézés → Mindet megtartom → reviewed, no dot → reload → nothing pending), the
+  empty-tab anchor stays out of saved text/exports/reads. One new Important in the fix diff: opening a Document with
+  pending changes flashes "Átnézve"/no dot for ~100–300 ms (the body reports 0 before its review state loads; a failed
+  load leaves the 0 until reload). Ruling: fix it before the deploy — the owner walks exactly this flow — cost if wrong:
+  ~1 h of wall-clock. Small fix agent on `fix/artifacts-rd-review-flash` (red→green e2e that polls the card every 40 ms).
 - Briefs for every agent: `docs/plans/claude-at-home-2/wave-2-5/` (`common.md` + `rd*-brief.md`); reports and
   screenshots in this session's scratchpad `rd/`.
 - Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
