@@ -202,6 +202,26 @@
 		--success-text: #166534;
 		--success-tint: color-mix(in srgb, var(--success) 11%, transparent);
 
+		/* Semantic Tokens - Canvas (Feature 2, Slice 3): the four sticky-note
+		   fills, the map block's paper tint and the four drawing inks. Note
+		   text is --text-primary on every fill in both themes; the pairs are
+		   held by `artifact-color-contrast.test.ts`. The inks are drawn on
+		   --surface-page (a graphic, so 3:1 is the bar). */
+		--sticky-yellow: #fdf2c4;
+		--sticky-mint: #d8efe0;
+		--sticky-blue: #dbe7f6;
+		--sticky-plain: #eceae3;
+		--map-paper: #e9e6dc;
+		--ink-blue: #2f6fd0;
+		--ink-red: #c0392b;
+		--ink-green: #2e7d4f;
+		--ink-graphite: #59636e;
+		/* The layer a board's own overlays (toolbar, notices, menus) sit on
+		   INSIDE the board, which is its own stacking context: above
+		   @xyflow/svelte's selection layer (z-index 2000), never competing with
+		   the app's sheets, which are outside it. Same value in both themes. */
+		--artifact-overlay-z: 2100;
+
 		/* Incognito, one-way (docs/plans/incognito-one-way-spec.md §4) — the
 		   ambient tint. `.stage--incognito` overrides --surface-page,
 		   --surface-elevated, --surface-message-user and --border-default
@@ -297,6 +317,17 @@
 		--warning-tint: color-mix(in srgb, var(--warning) 15%, transparent);
 		--success-text: #4ade80;
 		--success-tint: color-mix(in srgb, var(--success) 14%, transparent);
+
+		/* Canvas — dark pair. See the light root's own comment. */
+		--sticky-yellow: #4a4222;
+		--sticky-mint: #22402f;
+		--sticky-blue: #24384d;
+		--sticky-plain: #333330;
+		--map-paper: #2c2b28;
+		--ink-blue: #6ea1f0;
+		--ink-red: #ef7a6c;
+		--ink-green: #5ec98a;
+		--ink-graphite: #aab4be;
 
 		/* Incognito, one-way — dark pair. See the light-mode block above. */
 		--incognito-surface-page: #111214;
