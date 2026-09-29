@@ -239,6 +239,18 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 	else redo();
 }
 
+// ---- Zoom ----------------------------------------------------------------
+
+const ZOOM_STEP = 1.2;
+
+// Not `flow.zoomIn()`: `useSvelteFlow()` reads those two off the store that
+// exists when it is CALLED, and the board calls it above the `<SvelteFlow>` it
+// renders, where that is the provider's placeholder (no pan/zoom instance, so
+// they answer `false` and do nothing). Every other member reads the live store.
+function zoomBy(factor: number): void {
+	void flow.setZoom(flow.getZoom() * factor);
+}
+
 // ---- Insert --------------------------------------------------------------
 
 function insertBlock(row: BlockRegistryEntry): void {
@@ -522,8 +534,8 @@ function minimapColor(node: {
 		<Panel position="bottom-right" class={["canvas-corner", compact && "canvas-corner--compact"]}>
 			<ZoomChip
 				zoom={viewport.zoom}
-				onzoomin={() => flow.zoomIn()}
-				onzoomout={() => flow.zoomOut()}
+				onzoomin={() => zoomBy(ZOOM_STEP)}
+				onzoomout={() => zoomBy(1 / ZOOM_STEP)}
 				onfit={() => flow.fitView({ ...fitViewOptions, duration: prefersReducedMotion() ? 0 : 200 })}
 			/>
 		</Panel>

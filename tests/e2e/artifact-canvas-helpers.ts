@@ -165,3 +165,23 @@ export async function dragBetween(
 	await page.mouse.move(to.x, to.y, { steps });
 	await page.mouse.up();
 }
+
+/** The marks a board was saved with, in the order they were drawn. */
+export async function storedAnnotations(artifactId: string) {
+	return (await storedBoard(artifactId)).annotations;
+}
+
+/** The camera as the viewport element carries it, so a test can say "it did not move". */
+export async function cameraOf(
+	page: Page,
+): Promise<{ x: number; y: number; zoom: number }> {
+	return page.evaluate(() => {
+		const viewport = document.querySelector(".svelte-flow__viewport");
+		const match =
+			/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)\s*scale\((-?[\d.]+)\)/.exec(
+				(viewport as HTMLElement | null)?.style.transform ?? "",
+			);
+		if (!match) return { x: 0, y: 0, zoom: 1 };
+		return { x: Number(match[1]), y: Number(match[2]), zoom: Number(match[3]) };
+	});
+}

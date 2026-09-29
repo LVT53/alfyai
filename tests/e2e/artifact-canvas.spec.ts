@@ -13,6 +13,7 @@ import {
 	emptyCanvasBody,
 } from "../../src/lib/shared/artifacts/canvas-body";
 import {
+	cameraOf,
 	nodeCount,
 	openCanvasPanel,
 	openChatAndReload,
@@ -654,6 +655,28 @@ test.describe("the Canvas kind, in the panel", () => {
 				node && node.top >= board.top - 1 && node.bottom <= board.bottom + 1,
 			).toBe(true);
 		}
+	});
+
+	test("the zoom buttons zoom the board, in and out, and the level says so", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Zoom me");
+		await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const level = page.getByTestId("canvas-zoom-level");
+		const before = (await cameraOf(page)).zoom;
+		await page.getByTestId("canvas-zoom-in").click();
+		await expect
+			.poll(async () => (await cameraOf(page)).zoom)
+			.toBeCloseTo(before * 1.2, 2);
+		await expect(level).toHaveText(`${Math.round(before * 1.2 * 100)}%`);
+		await page.getByTestId("canvas-zoom-out").click();
+		await page.getByTestId("canvas-zoom-out").click();
+		await expect
+			.poll(async () => (await cameraOf(page)).zoom)
+			.toBeCloseTo(before / 1.2, 2);
 	});
 
 	test("a bare pan is not a save", async ({ page }) => {
