@@ -24,17 +24,15 @@ import FrameNode from "../nodes/FrameNode.svelte";
 import MissingKindNode from "../nodes/MissingKindNode.svelte";
 import StickyNode from "../nodes/StickyNode.svelte";
 import TextNode from "../nodes/TextNode.svelte";
-import { BLOCK_META, type BlockMeta } from "./block-meta";
+import { BLOCK_META, type BlockMeta, type RegisteredKind } from "./block-meta";
 
 export type BlockRegistryEntry = BlockMeta & {
-	kind: BlockKind;
+	kind: RegisteredKind;
 	/** The Svelte Flow node component: the shell around the block, and the block inside it. */
 	component: NodeTypes[string];
 	/** Validates the block's data, from a stored board or a change. */
 	schema: z.ZodType<CanvasBlockData>;
 };
-
-type RegisteredKind = keyof typeof BLOCK_META;
 
 function entry(
 	kind: RegisteredKind,

@@ -125,6 +125,9 @@ export const BLOCK_META = {
 	},
 } as const satisfies Partial<Record<BlockKind, BlockMeta>>;
 
+/** A kind this build has a meta row (and so a node component) for. */
+export type RegisteredKind = keyof typeof BLOCK_META;
+
 /**
  * What a stored block whose kind has no row above renders as: a known kind
  * that has no component in this build yet, drawn as a card that says so. (A

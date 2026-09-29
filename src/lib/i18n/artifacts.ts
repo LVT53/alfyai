@@ -632,6 +632,16 @@ const artifactsDict = {
 		"artifacts.canvas.tooLarge": "This board is too big to save.",
 		"artifacts.canvas.deletedWhileOpen": "This board was deleted.",
 		"artifacts.canvas.noAccess": "You do not have access to this board.",
+		// What the flow library reads out for its own elements, in the reader's language.
+		"artifacts.canvas.a11y.node":
+			"Press Enter or Space to select a block. Press Delete to remove it and Escape to let go.",
+		"artifacts.canvas.a11y.nodeKeyboard":
+			"Press Enter or Space to select a block. You can then use the arrow keys to move it. Press Delete to remove it and Escape to let go.",
+		"artifacts.canvas.a11y.moved":
+			"Moved the selected block. New position, x: {x}, y: {y}",
+		"artifacts.canvas.a11y.edge":
+			"Press Enter or Space to select a connection. You can then press Delete to remove it or Escape to let go.",
+		"artifacts.canvas.a11y.handle": "Connection point",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1095,6 +1105,16 @@ const artifactsDict = {
 		"artifacts.canvas.tooLarge": "Ez a tábla túl nagy a mentéshez.",
 		"artifacts.canvas.deletedWhileOpen": "Ezt a táblát törölték.",
 		"artifacts.canvas.noAccess": "Nincs hozzáférésed ehhez a táblához.",
+		// Amit a folyamatkezelő könyvtár felolvas a saját elemeiről, az olvasó nyelvén.
+		"artifacts.canvas.a11y.node":
+			"Az Enter vagy a szóköz kijelöli a blokkot. A Delete törli, az Escape elengedi.",
+		"artifacts.canvas.a11y.nodeKeyboard":
+			"Az Enter vagy a szóköz kijelöli a blokkot. Utána a nyílbillentyűkkel mozgathatod. A Delete törli, az Escape elengedi.",
+		"artifacts.canvas.a11y.moved":
+			"A kijelölt blokk elmozdult. Új helye: x: {x}, y: {y}",
+		"artifacts.canvas.a11y.edge":
+			"Az Enter vagy a szóköz kijelöli a kapcsolatot. Utána a Delete törli, az Escape elengedi.",
+		"artifacts.canvas.a11y.handle": "Kapcsolódási pont",
 	},
 } as const;
 

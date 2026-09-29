@@ -14,6 +14,7 @@ import {
 } from "$lib/shared/artifacts/canvas-blocks";
 import { BLOCK_META } from "../_lib/block-meta";
 import { useBoardContext } from "../_lib/board-context";
+import { focusWhenShown } from "../_lib/focus";
 import NodeShell from "../NodeShell.svelte";
 
 type FrameData = Extract<CanvasBlockData, { kind: "frame" }>;
@@ -37,8 +38,8 @@ $effect(() => {
 
 $effect(() => {
 	if (!editing || !input) return;
-	input.focus();
-	input.select();
+	const target = input;
+	return focusWhenShown(target, () => target.select());
 });
 
 function startEditing(): void {

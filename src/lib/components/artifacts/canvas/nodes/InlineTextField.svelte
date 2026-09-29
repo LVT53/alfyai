@@ -10,6 +10,8 @@
  * text. `maxlength` is the same number the body's schema enforces on save,
  * because a block past it would be dropped, not clipped.
  */
+import { focusWhenShown } from "../_lib/focus";
+
 let {
 	value,
 	placeholder,
@@ -31,12 +33,15 @@ let {
 
 let field = $state<HTMLTextAreaElement | null>(null);
 
-// Focus once the textarea exists, with the caret after the last character.
+// Focus once the textarea exists (and its block is showing), with the caret
+// after the last character.
 $effect(() => {
 	if (!editing || !field) return;
-	field.focus();
-	const end = field.value.length;
-	field.setSelectionRange(end, end);
+	const target = field;
+	return focusWhenShown(target, () => {
+		const end = target.value.length;
+		target.setSelectionRange(end, end);
+	});
 });
 
 function stop(): void {
