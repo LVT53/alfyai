@@ -33,6 +33,7 @@ const PROJECT_FOLDER_EXPANDED_KEY = "projectFolderExpanded";
 const SIDEBAR_PROJECTS_EXPANDED_KEY = "sidebarProjectsExpanded";
 const SIDEBAR_CHATS_EXPANDED_KEY = "sidebarChatsExpanded";
 const SIDEBAR_PINNED_EXPANDED_KEY = "sidebarPinnedExpanded";
+const DOCUMENT_COMMENTS_RAIL_HIDDEN_KEY = "documentCommentsRailHidden";
 
 const isValidBool = (v: string): v is "true" | "false" =>
 	v === "true" || v === "false";
@@ -248,6 +249,24 @@ sidebarChatsExpanded.subscribe((value) =>
 );
 sidebarPinnedExpanded.subscribe((value) =>
 	persist(SIDEBAR_PINNED_EXPANDED_KEY, value ? "true" : "false"),
+);
+
+/**
+ * Whether the person switched the Document's comment column off on this
+ * device (the panel header's Comments button). Off is the exception: the
+ * column is shown whenever the panel is wide enough to hold it beside the
+ * text, so the stored value only ever records "hidden". Local-only, like the
+ * other layout preferences here; a narrow panel and a phone open comments as
+ * a drawer or sheet instead, and those are never remembered.
+ */
+const initialDocumentCommentsRailHiddenValue = browser
+	? read(DOCUMENT_COMMENTS_RAIL_HIDDEN_KEY, "false", isValidBool)
+	: "false";
+export const documentCommentsRailHidden = writable<boolean>(
+	initialDocumentCommentsRailHiddenValue === "true",
+);
+documentCommentsRailHidden.subscribe((value) =>
+	persist(DOCUMENT_COMMENTS_RAIL_HIDDEN_KEY, value ? "true" : "false"),
 );
 
 export async function setSidebarProjectsExpandedAndSync(
