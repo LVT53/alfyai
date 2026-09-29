@@ -258,6 +258,61 @@ test.describe("The panel header follows the item the panel shows (D1)", () => {
 		await useHeaderControls(page, "a Document after an App");
 	});
 
+	// The phone shell mounts the body at its own site in the workspace, with the
+	// same header actions.
+	test("on a phone, a second Document opened from the list has its header controls too", async ({
+		page,
+	}) => {
+		test.setTimeout(180_000);
+		await setUiLanguage("en");
+		await login(page);
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(page, "Panel swap phone");
+		await seedDocument(conversationId, {
+			markdown: "First.\n\nSecond.",
+			title: "Alpha",
+		});
+		await seedDocument(conversationId, {
+			markdown: "Third.\n\nFourth.",
+			title: "Beta",
+		});
+		await openChat(page, conversationId);
+
+		const shell = page.getByTestId("document-workspace-mobile-shell");
+		const list = page.getByTestId("artifact-panel-list-mobile");
+		const expectControls = async (title: string, label: string) => {
+			await expect(
+				shell.getByRole("heading", { name: title }),
+				`${label}: the panel is on ${title}`,
+			).toBeVisible({ timeout: 30_000 });
+			await expect(
+				shell.locator(".document-editor-host .ProseMirror"),
+				`${label}: ${title}'s text`,
+			).toBeVisible({ timeout: 30_000 });
+			for (const [name, control] of [
+				["the Comments toggle", shell.getByTestId("artifact-comments-button")],
+				["the Download button", shell.getByTestId("artifact-download-button")],
+				[
+					"the Versions button",
+					shell.locator('button[data-testid="artifact-version-pill"]'),
+				],
+			] as const) {
+				await expect(control, `${label}: ${name}`).toBeVisible({
+					timeout: 15_000,
+				});
+			}
+		};
+
+		await page.getByTestId("artifact-count-button-compact").click();
+		await list.getByRole("button", { name: /^Alpha, Document/ }).click();
+		await expectControls("Alpha", "the first Document");
+
+		await shell.locator(".artifact-panel-header-crumb").click();
+		await expect(list).toBeVisible();
+		await list.getByRole("button", { name: /^Beta, Document/ }).click();
+		await expectControls("Beta", "the second Document");
+	});
+
 	test("chat card → another card, with the panel staying open: the second Document has its header controls too", async ({
 		page,
 	}) => {
