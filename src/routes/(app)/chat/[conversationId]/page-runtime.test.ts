@@ -1993,6 +1993,67 @@ describe("chat page runtime integration", () => {
 			}
 		});
 
+		// The panel's list state wins over an open item, so an Open that only
+		// added the item to the panel's tabs left the reader on the list: pressing
+		// a card's Open with "what this chat made" showing did nothing.
+		it("leaves the panel's list for the item when a card's Open is pressed while the list shows", async () => {
+			const { recordDocumentWorkspaceOpen } = await import(
+				"$lib/client/api/knowledge"
+			);
+			vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+			const { ARTIFACT_BODIES } = await import(
+				"$lib/components/artifacts/artifact-bodies"
+			);
+			ARTIFACT_BODIES.document = () =>
+				import(
+					"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+				);
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					jsonResponse({
+						ok: true,
+						artifact: { ...documentSummary(), body: "# Plan", bodyHash: "h" },
+						versions: [],
+						comments: [],
+					}),
+				),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [documentSummary()],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByTestId("artifact-count-button"),
+				);
+				await screen.findByTestId("artifact-panel-list");
+				expect(
+					screen.queryByRole("complementary", { name: WORKSPACE_LANDMARK }),
+				).toBeNull();
+
+				await fireEvent.click(screen.getByTestId("artifact-card-head"));
+
+				const panel = await screen.findByRole("complementary", {
+					name: WORKSPACE_LANDMARK,
+				});
+				expect(
+					within(panel).getByTestId("artifact-panel-title"),
+				).toHaveTextContent("Vienna trip plan");
+				expect(screen.queryByTestId("artifact-panel-list")).toBeNull();
+				// The item is what the panel shows now, so its card says so.
+				expect(screen.getByTestId("artifact-card-head")).toHaveTextContent(
+					"Open in panel",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+				delete ARTIFACT_BODIES.document;
+			}
+		});
+
 		// The security review's L2: the panel's Delete confirm promises "you can
 		// regenerate it from the chat" only for an item the chat can make again —
 		// one the server says so of (`ArtifactCardSummary.regenerable`, read off the
