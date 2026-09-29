@@ -400,6 +400,158 @@ describe("document-editor", () => {
 		editor.destroy();
 	});
 
+	// G3 (keyboard undo/redo): loading the server's content into the open
+	// editor (Alfy's edit landing, a comment refresh that found a newer
+	// version) is not something the reader typed. It used to be ONE undoable
+	// step that replaced the whole document, so Ctrl/Cmd+Z after Alfy's edit
+	// took Alfy's change back through the reader's own history — around
+	// Keep/Undo and the version bookkeeping — and, whatever the reader had
+	// typed elsewhere, a later Undo had nothing valid left to undo. The load
+	// is applied as the smallest replacement of whole blocks, outside the
+	// history, so what the reader typed in blocks the load left alone stays
+	// undoable and the loaded blocks are not part of it.
+	describe("loadMarkdown and the reader's own undo history (G3)", () => {
+		function textOf(editor: Editor): string {
+			return editor.getText({ blockSeparator: " | " });
+		}
+		function typeAt(editor: Editor, blockIndex: number, text: string): void {
+			let pos = 0;
+			editor.state.doc.forEach((node, offset, index) => {
+				if (index === blockIndex) pos = offset + node.nodeSize - 1;
+			});
+			editor.commands.insertContentAt(pos, text);
+		}
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("is not an undo step: undo() after a load leaves the loaded text alone", () => {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+			const editor = mountEditor("<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.");
+			typeAt(editor, 0, " typed");
+			expect(textOf(editor)).toBe("Alpha. typed | Beta.");
+
+			vi.setSystemTime(new Date("2026-01-01T00:00:10Z"));
+			loadMarkdown(
+				editor,
+				"<!--b:p1-->\nAlpha. typed\n\n<!--b:p2-->\nBeta, rewritten by Alfy.",
+			);
+			expect(textOf(editor)).toBe("Alpha. typed | Beta, rewritten by Alfy.");
+
+			// One undo takes back what the reader typed — not what Alfy wrote.
+			editor.commands.undo();
+			expect(textOf(editor)).toBe("Alpha. | Beta, rewritten by Alfy.");
+			editor.destroy();
+		});
+
+		it("keeps what the reader typed in a block the load left alone undoable, and redoable, after the load", () => {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+			const editor = mountEditor("<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.");
+			typeAt(editor, 0, " one");
+			vi.setSystemTime(new Date("2026-01-01T00:00:05Z"));
+			typeAt(editor, 0, " two");
+			editor.commands.undo();
+			expect(textOf(editor)).toBe("Alpha. one | Beta.");
+
+			vi.setSystemTime(new Date("2026-01-01T00:00:10Z"));
+			loadMarkdown(
+				editor,
+				"<!--b:p1-->\nAlpha. one\n\n<!--b:p2-->\nBeta, rewritten.",
+			);
+
+			// The undone " two" is still there to redo...
+			expect(editor.can().redo()).toBe(true);
+			editor.commands.redo();
+			expect(textOf(editor)).toBe("Alpha. one two | Beta, rewritten.");
+			// ...and " one" is still there to undo.
+			editor.commands.undo();
+			editor.commands.undo();
+			expect(textOf(editor)).toBe("Alpha. | Beta, rewritten.");
+			editor.destroy();
+		});
+
+		it("drops the reader's earlier edits INSIDE a block the load replaced (they no longer apply), never undoing Alfy's text", () => {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+			const editor = mountEditor("<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.");
+			typeAt(editor, 1, " mine");
+			vi.setSystemTime(new Date("2026-01-01T00:00:10Z"));
+			loadMarkdown(
+				editor,
+				"<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta, rewritten by Alfy.",
+			);
+			editor.commands.undo();
+			expect(textOf(editor)).toBe("Alpha. | Beta, rewritten by Alfy.");
+			editor.destroy();
+		});
+
+		it("touches only the blocks that differ: an untouched block keeps its node, and the caret in it stays put", () => {
+			const editor = mountEditor(
+				"<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.\n\n<!--b:p3-->\nGamma.",
+			);
+			const untouchedBefore = editor.state.doc.child(0);
+			editor.commands.setTextSelection(4);
+			loadMarkdown(
+				editor,
+				"<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta, longer now.\n\n<!--b:p3-->\nGamma.",
+			);
+			expect(editor.state.doc.child(0)).toBe(untouchedBefore);
+			expect(editor.state.selection.from).toBe(4);
+			expect(textOf(editor)).toBe("Alpha. | Beta, longer now. | Gamma.");
+			editor.destroy();
+		});
+
+		it("handles blocks added in front, in the middle and at the end, and blocks removed", () => {
+			const editor = mountEditor(
+				"<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.\n\n<!--b:p3-->\nGamma.",
+			);
+			loadMarkdown(
+				editor,
+				"<!--b:p0-->\nNew first.\n\n<!--b:p1-->\nAlpha.\n\n<!--b:p3-->\nGamma.\n\n<!--b:p4-->\nNew last.",
+			);
+			expect(textOf(editor)).toBe("New first. | Alpha. | Gamma. | New last.");
+			expect(readMarkdown(editor)).toBe(
+				"<!--b:p0-->\n\nNew first.\n\n<!--b:p1-->\n\nAlpha.\n\n<!--b:p3-->\n\nGamma.\n\n<!--b:p4-->\n\nNew last.",
+			);
+			editor.destroy();
+		});
+
+		it("is a no-op for content the editor already has: no transaction, no history entry", () => {
+			const editor = mountEditor("<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.");
+			const before = editor.state;
+			loadMarkdown(editor, readMarkdown(editor));
+			expect(editor.state.doc.eq(before.doc)).toBe(true);
+			expect(editor.can().undo()).toBe(false);
+			editor.destroy();
+		});
+
+		it("still loads a whole different document (nothing in common)", () => {
+			const editor = mountEditor("<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.");
+			loadMarkdown(editor, "<!--b:q1-->\nCompletely new.");
+			expect(textOf(editor)).toBe("Completely new.");
+			expect(readMarkdown(editor)).toContain("<!--b:q1-->");
+			editor.destroy();
+		});
+
+		it("does not fire onUpdate — a content sync is not a user edit", () => {
+			const onUpdate = vi.fn();
+			element = document.createElement("div");
+			document.body.appendChild(element);
+			const editor = createDocumentEditor({
+				element,
+				markdown: "<!--b:p1-->\nAlpha.",
+				placeholder: "x",
+				onUpdate,
+			});
+			loadMarkdown(editor, "<!--b:p1-->\nAlpha, changed.");
+			expect(onUpdate).not.toHaveBeenCalled();
+			editor.destroy();
+		});
+	});
+
 	// Review 2.5 (rd/review-2-5.md:191-197): a brand-new tab used to start
 	// with no block of its own, so the whole document showed inside what
 	// should have been an empty new section — `Tabs.svelte`'s own
