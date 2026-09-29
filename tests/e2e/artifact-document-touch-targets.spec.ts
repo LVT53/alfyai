@@ -159,6 +159,59 @@ test.describe("Document phone touch targets (review 233-238)", () => {
 		expect(Math.abs(ink.width - budget.width)).toBeLessThan(1.5);
 	});
 
+	// Final polish D3 (rd/recheck2.md): the + is a flex item of the scrolling
+	// strip, and once the tabs used up the strip's width it shrank — 14x44 with
+	// four tabs at 390px, 41x44 with three — well under a fingertip.
+	for (const { width, tabCount } of [
+		{ width: 390, tabCount: 4 },
+		{ width: 360, tabCount: 3 },
+	]) {
+		test(`the + stays 44x44 when ${tabCount} tabs overflow the strip at ${width}px`, async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width, height: 844 });
+			const conversationId = await createConversation(page, "Overflowing tabs");
+			const titles = [
+				"Trip overview",
+				"Detailed itinerary",
+				"Budget and costs",
+				"Packing list",
+			].slice(0, tabCount);
+			await seedDocument(conversationId, {
+				markdown: titles.map((title) => `# ${title}\n\nText.`).join("\n\n"),
+				tabs: titles.map((title, index) => ({
+					id: `tab-${index}`,
+					title,
+					startBlockId: "",
+				})),
+			});
+			const shell = await openDocument(page, conversationId);
+			const strip = shell.getByTestId("document-tabs");
+			await waitForStableBoundingBox(strip);
+			await expect(shell.getByRole("tab")).toHaveCount(tabCount);
+			// The case is only the case when a 44px + does not fit beside the tabs
+			// (the strip then scrolls; before the fix the + gave way instead).
+			const roomBesideTabs = await strip.evaluate((el) => {
+				const list = el.querySelector<HTMLElement>('[role="tablist"]');
+				const style = getComputedStyle(el);
+				const padding =
+					Number.parseFloat(style.paddingLeft) +
+					Number.parseFloat(style.paddingRight);
+				return (
+					el.clientWidth - padding - (list?.getBoundingClientRect().width ?? 0)
+				);
+			});
+			expect(
+				roomBesideTabs,
+				"less than a 44px + fits beside the tabs",
+			).toBeLessThan(44);
+
+			const add = await box(shell.getByRole("button", { name: "Add a tab" }));
+			expect(add.width, "the + width").toBeGreaterThanOrEqual(43.5);
+			expect(add.height, "the + height").toBeGreaterThanOrEqual(43.5);
+		});
+	}
+
 	test("a document with one section keeps a 44px + on a phone", async ({
 		page,
 	}) => {
