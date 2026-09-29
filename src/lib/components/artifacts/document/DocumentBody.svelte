@@ -321,8 +321,8 @@ let panelContainerWidth = $state(0);
 /** The review bar's own live rendered height (Review 2.5, rd/review-2-5.md:98-108) — read by the effect below and used to reserve enough bottom padding under the last paragraph. */
 let reviewBarSlotEl = $state<HTMLDivElement | undefined>();
 let reviewBarHeight = $state(0);
-/** The review bar floats 14px above the text's bottom edge (`.document-review-bar-slot`'s `bottom`); the drawer stops that far plus a small gap above the bar. */
-const REVIEW_BAR_CLEARANCE_PX = 22;
+/** The review bar is flush with the text's bottom edge (`.document-review-bar-slot`'s `bottom: 0`); the drawer stops a small gap above it. */
+const REVIEW_BAR_CLEARANCE_PX = 8;
 let isPhone = $state(isPhoneViewport());
 /** `0` (not measured yet — no ResizeObserver in this environment, e.g. jsdom) gets the full column rather than a false-positive drawer. */
 let inlineRailWidth = $derived(commentRailWidth(panelContainerWidth));
@@ -2343,6 +2343,7 @@ function saveNoticeText(notice: SaveNotice): string {
 							out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
 						>
 							<ReviewBar
+								docked
 								pendingCount={pendingList.length}
 								refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
 								currentIndex={reviewIndex}
@@ -2525,12 +2526,14 @@ function saveNoticeText(notice: SaveNotice): string {
 	   element's own height, so the last paragraph can fully clear it before
 	   the column runs out of content to scroll through — the classic
 	   "sticky footer covers the last line" problem a plain `position:
-	   sticky` does not solve by itself. */
+	   sticky` does not solve by itself.
+
+	   G2-B: `bottom: 0` (it floated 14px above the edge, with text showing
+	   under it), full width of the text column, and `ReviewBar`'s `docked`
+	   look: flat, a rule on top. A phone (below) keeps the floating card. */
 	.document-review-bar-slot {
 		position: sticky;
-		left: 1rem;
-		right: 1rem;
-		bottom: 0.875rem;
+		bottom: 0;
 		z-index: 5;
 	}
 

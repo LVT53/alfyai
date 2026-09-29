@@ -97,6 +97,30 @@ describe("ReviewBar", () => {
 		expect(onUndoAll).toHaveBeenCalledOnce();
 	});
 
+	// G2-B: the layout hooks its CSS keys off (jsdom has no layout engine, so
+	// the one-row / flush geometry itself is asserted in the e2e suite).
+	it("is a floating card by default, and flat and flush only when docked", () => {
+		render(ReviewBar, { pendingCount: 2, currentIndex: 0, ...callbacks() });
+		expect(screen.getByRole("region")).not.toHaveClass("is-docked");
+		cleanup();
+		render(ReviewBar, {
+			pendingCount: 2,
+			currentIndex: 0,
+			docked: true,
+			...callbacks(),
+		});
+		expect(screen.getByRole("region")).toHaveClass("is-docked");
+	});
+
+	it("marks a bar with nothing to step through, so a narrow bar can drop the stepper but keep it in the DOM", () => {
+		render(ReviewBar, { pendingCount: 1, currentIndex: 0, ...callbacks() });
+		expect(screen.getByRole("region")).toHaveClass("is-single");
+		expect(screen.getByRole("button", { name: "Next change" })).toBeDisabled();
+		cleanup();
+		render(ReviewBar, { pendingCount: 2, currentIndex: 0, ...callbacks() });
+		expect(screen.getByRole("region")).not.toHaveClass("is-single");
+	});
+
 	it("shows no refusal link when nothing was refused", () => {
 		render(ReviewBar, { pendingCount: 1, currentIndex: 0, ...callbacks() });
 		expect(screen.queryByText(/Left \d+ alone/)).not.toBeInTheDocument();

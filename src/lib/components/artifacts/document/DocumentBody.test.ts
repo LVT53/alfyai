@@ -3488,6 +3488,10 @@ describe("DocumentBody", () => {
 					screen.getByRole("region", { name: "Changes from Alfy" }),
 				).toHaveTextContent("Alfy changed 1 part."),
 			);
+			// Flush with the bottom of the text column, not a floating card.
+			expect(
+				screen.getByRole("region", { name: "Changes from Alfy" }),
+			).toHaveClass("is-docked");
 		}
 
 		it("shows the review bar with the pending count once a change lands, and empties the pending list once Keep all settles", async () => {
