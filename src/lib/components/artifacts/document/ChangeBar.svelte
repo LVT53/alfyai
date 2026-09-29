@@ -36,6 +36,23 @@ let {
 	onUndo: () => void;
 	onRedo: () => void;
 } = $props();
+
+/**
+ * rd/review-2-5.md:210-216: Keep/Undo re-mount this widget under a new
+ * `change-pill-decoration.ts` key (`${changeId}:${status}`) — the OLD button
+ * that had focus is destroyed with the old DOM node, dropping focus to
+ * `<body>`. `status: "undone"` is reachable only by the user's own just-now
+ * Undo click (never a fresh load or a live Alfy edit landing — both of those
+ * always start `"pending"`), so autofocusing this instance's OWN Redo button
+ * on mount is always "focus follows the action just taken", never a
+ * surprise steal. `"kept"` has no button left to focus in the pill itself —
+ * `DocumentBody.svelte`'s `handleKeepChange` moves focus externally instead
+ * (the review bar, or back into the document).
+ */
+let redoButtonEl = $state<HTMLButtonElement | undefined>();
+$effect(() => {
+	if (status === "undone") redoButtonEl?.focus();
+});
 </script>
 
 <div
@@ -83,6 +100,7 @@ let {
 		<Undo2 size={12} strokeWidth={2} aria-hidden="true" />
 		<span class="alfy-change-bar-notice">{$t('artifacts.document.change.undoneNotice')}</span>
 		<button
+			bind:this={redoButtonEl}
 			type="button"
 			class="alfy-change-bar-action alfy-change-bar-undo"
 			aria-label={$t('artifacts.document.change.redoA11y')}

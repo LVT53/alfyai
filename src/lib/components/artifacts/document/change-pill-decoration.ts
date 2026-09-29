@@ -46,6 +46,13 @@ export interface ChangePillEntry {
 	status: ChangePillStatus;
 	commentCount: number;
 	/**
+	 * The changed block's own label — `ChangeBar`'s `role="group"` accessible
+	 * name is "Alfy's change: {blockLabel}" (rd/review-2-5.md:210-216: this
+	 * field was missing entirely, so the name always rendered with an empty
+	 * quote, e.g. "Alfy módosítása: ").
+	 */
+	blockLabel: string;
+	/**
 	 * A document position captured BEFORE an action that removes the mark
 	 * structurally (Undo replaces the whole node — `marks.ts`'s own doc
 	 * comment) — the fallback anchor for the brief "Undone · Redo" window,
@@ -102,6 +109,7 @@ export function buildChangePillDecorations(
 						props: {
 							status: entry.status,
 							commentCount: entry.commentCount,
+							blockLabel: entry.blockLabel,
 							onKeep: () => callbacks.onKeep(entry.changeId),
 							onUndo: () => callbacks.onUndo(entry.changeId),
 							onRedo: () => callbacks.onRedo(entry.changeId),

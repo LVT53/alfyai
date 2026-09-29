@@ -2707,7 +2707,10 @@ describe("DocumentBody", () => {
 				expect(mockSetChangePills).toHaveBeenCalledWith(
 					expect.anything(),
 					expect.arrayContaining([
-						expect.objectContaining({ changeId: "change-5", status: "pending" }),
+						expect.objectContaining({
+							changeId: "change-5",
+							status: "pending",
+						}),
 					]),
 				),
 			);
@@ -2723,7 +2726,10 @@ describe("DocumentBody", () => {
 				),
 			);
 			// The mark is cleared the same way Keep clears it (no lingering pill).
-			expect(mockKeepChange).toHaveBeenCalledWith(expect.anything(), "change-5");
+			expect(mockKeepChange).toHaveBeenCalledWith(
+				expect.anything(),
+				"change-5",
+			);
 			expect(mockSetChangePills).toHaveBeenLastCalledWith(
 				expect.anything(),
 				[],
@@ -2732,7 +2738,9 @@ describe("DocumentBody", () => {
 
 		it("does NOT acknowledge a pending block the user never touched", async () => {
 			mockFetchArtifact.mockResolvedValue(
-				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond." }),
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+				}),
 			);
 			mockApplyAlfyChanges.mockReturnValue([
 				{
@@ -2774,7 +2782,10 @@ describe("DocumentBody", () => {
 				expect(mockSetChangePills).toHaveBeenCalledWith(
 					expect.anything(),
 					expect.arrayContaining([
-						expect.objectContaining({ changeId: "change-6", status: "pending" }),
+						expect.objectContaining({
+							changeId: "change-6",
+							status: "pending",
+						}),
 					]),
 				),
 			);
@@ -2877,6 +2888,101 @@ describe("DocumentBody", () => {
 			} finally {
 				vi.useRealTimers();
 			}
+		});
+
+		// rd/review-2-5.md:210-216 — Keep's own resulting "kept" pill state has
+		// no button left inside it (unlike Undo's "undone" state, which keeps
+		// its own Redo button — see ChangeBar.test.ts), so the Keep button that
+		// had focus was destroyed by the widget's own remount with nothing to
+		// take its place, dropping focus to <body>.
+		it("moves focus to the editor once Keep empties the pending list entirely", async () => {
+			await renderWithOnePending();
+
+			await fireEvent.click(screen.getByRole("button", { name: /Keep all/ }));
+
+			await vi.waitFor(() =>
+				expect(latestEditor().view.focus).toHaveBeenCalled(),
+			);
+		});
+
+		it("moves focus to a review-bar button when another change is still pending after Keep", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+				}),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "rb-change-a",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+				{
+					changeId: "rb-change-b",
+					blockId: "p2",
+					blockLabel: "Second.",
+					previousMarkdown: "Second.",
+				},
+			]);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "rb-call-focus",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact" as const,
+					status: "applied" as const,
+					label: null,
+					patches: [
+						{
+							op: "replaceBlock" as const,
+							blockId: "p1",
+							baseHash: "h1",
+							text: "x",
+						},
+						{
+							op: "replaceBlock" as const,
+							blockId: "p2",
+							baseHash: "h1",
+							text: "y",
+						},
+					],
+					refusedBlocks: [],
+					appliedCount: 2,
+				},
+			});
+			await vi.waitFor(() =>
+				expect(screen.getByRole("button", { name: "Next change" })),
+			);
+
+			const { onKeep } = latestEditor().options.changePillCallbacks as {
+				onKeep: (changeId: string) => void;
+			};
+			onKeep("rb-change-a"); // keep only ONE of the two pending changes
+
+			// Prev/Next are BOTH disabled with only one change left to step to —
+			// the fix must skip past them to a real, focusable button, never
+			// silently fail because the first button in DOM order is disabled.
+			await vi.waitFor(() => {
+				expect(screen.getByRole("button", { name: /Undo all/ })).toBe(
+					document.activeElement,
+				);
+			});
+			expect(latestEditor().view.focus).not.toHaveBeenCalled();
 		});
 
 		it("Undo all calls undoChange for every pending change", async () => {

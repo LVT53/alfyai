@@ -96,7 +96,15 @@ describe("buildChangePillDecorations", () => {
 		const onKeep = vi.fn();
 		const set = buildChangePillDecorations(
 			editor.state.doc,
-			[{ changeId, blockId: target.id, status: "pending", commentCount: 0 }],
+			[
+				{
+					changeId,
+					blockId: target.id,
+					status: "pending",
+					commentCount: 0,
+					blockLabel: "First, edited.",
+				},
+			],
 			{ onKeep, onUndo: vi.fn(), onRedo: vi.fn() },
 		);
 		expect(set.find()).toHaveLength(1);
@@ -120,6 +128,49 @@ describe("buildChangePillDecorations", () => {
 		editor.destroy();
 	});
 
+	// rd/review-2-5.md:210-216 — `blockLabel` was missing from `ChangePillEntry`
+	// entirely, so the mounted pill's `role="group"` name always rendered with
+	// an empty quote ("Alfy's change: ").
+	it("names the mounted pill's group after the entry's own blockLabel", () => {
+		const { editor, blocks, snapshot } = setup("First paragraph.");
+		const target = blocks[0];
+		const replaceOp = op({
+			kind: "replaceBlock",
+			blockId: target.id,
+			baseHash: target.hash,
+			text: "Book the hotel by Friday.",
+		});
+		const patch = patchOf([replaceOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		const changeId = entries[0].changeId;
+
+		const set = buildChangePillDecorations(
+			editor.state.doc,
+			[
+				{
+					changeId,
+					blockId: target.id,
+					status: "pending",
+					commentCount: 0,
+					blockLabel: "Book the hotel by Friday.",
+				},
+			],
+			noopCallbacks(),
+		);
+		const el = widgetDom(set);
+		document.body.appendChild(el as HTMLElement);
+
+		const group = el?.querySelector('[role="group"]');
+		expect(group?.getAttribute("aria-label")).toBe(
+			"Alfy's change: Book the hotel by Friday.",
+		);
+
+		el?.remove();
+		editor.destroy();
+	});
+
 	it("skips an entry whose mark is gone and has no fallback position", () => {
 		const { editor } = setup("First paragraph.");
 		const set = buildChangePillDecorations(
@@ -130,6 +181,7 @@ describe("buildChangePillDecorations", () => {
 					blockId: "no-such-block",
 					status: "undone",
 					commentCount: 0,
+					blockLabel: "",
 				},
 			],
 			noopCallbacks(),
@@ -148,6 +200,7 @@ describe("buildChangePillDecorations", () => {
 					blockId: "does-not-matter",
 					status: "undone",
 					commentCount: 0,
+					blockLabel: "First paragraph.",
 					fallbackPos: 1,
 				},
 			],
@@ -167,6 +220,7 @@ describe("buildChangePillDecorations", () => {
 					blockId: "does-not-matter",
 					status: "undone",
 					commentCount: 0,
+					blockLabel: "First paragraph.",
 					fallbackPos: 99_999,
 				},
 			],

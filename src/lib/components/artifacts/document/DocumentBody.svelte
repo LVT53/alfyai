@@ -914,6 +914,43 @@ async function acknowledgeReview(blockIds: string[]): Promise<void> {
 }
 
 /**
+ * rd/review-2-5.md:210-216: Keep's OWN resulting "kept" pill state renders no
+ * button at all (just a checkmark and a notice), unlike Undo's own "undone"
+ * state (which keeps a Redo button `ChangeBar.svelte` autofocuses itself) —
+ * so the Keep button that had focus is destroyed by the widget's own remount
+ * with nothing inside the pill left to take its place, dropping focus to
+ * `<body>`. Moves it to the review bar's own first button when one is still
+ * showing (more pending changes remain after this one), or back into the
+ * document itself when Keep just emptied the pending list entirely (the
+ * review bar unmounts, per `DocumentBody.svelte`'s own `{#if pendingList.length
+ * > 0}`).
+ */
+async function focusAfterKeep(): Promise<void> {
+	await tick();
+	// `pendingList.length` (the reactive truth), never bare DOM presence: the
+	// review bar's own OUT transition keeps its element (and its never-
+	// disabled Keep-all/Undo-all buttons) in the DOM for a moment after
+	// `pendingList` already reads empty, so querying the DOM alone would
+	// focus a control that is already on its way out, no better than losing
+	// focus once ITS OWN removal completes moments later.
+	// `:not([disabled])` — the stepper's own Prev/Next are disabled with only
+	// one pending change left (nothing to step to), which a plain "first
+	// button" query would still hand back; a disabled button silently
+	// refuses focus, so that would look identical to the original bug.
+	const reviewBarButton =
+		pendingList.length > 0
+			? reviewBarSlotEl?.querySelector<HTMLButtonElement>(
+					"button:not([disabled])",
+				)
+			: null;
+	if (reviewBarButton) {
+		reviewBarButton.focus();
+		return;
+	}
+	editor?.view.focus();
+}
+
+/**
  * Keep: clears exactly this change's mark, leaves the text. The mark's own
  * CLEAR is deferred to the end of the pill's 1.4s "Kept" window (redesign
  * §7.2 #13) rather than instant, so `change-pill-decoration.ts`'s own live
@@ -928,6 +965,7 @@ function handleKeepChange(changeId: string): void {
 		status: "kept",
 	});
 	void acknowledgeReview([pending.entry.blockId]);
+	void focusAfterKeep();
 	setTimeout(() => {
 		if (editor && keepChangeFn) keepChangeFn(editor, changeId);
 		removePendingChange(changeId);
@@ -1767,6 +1805,7 @@ $effect(() => {
 			blockId: pending.entry.blockId,
 			status: pending.status,
 			commentCount: 0,
+			blockLabel: pending.entry.blockLabel,
 			fallbackPos: pending.fallbackPos,
 		}),
 	);

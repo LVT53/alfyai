@@ -613,9 +613,14 @@ const artifactsDict = {
 		"artifacts.document.change.commentCountA11y":
 			"{count} megjegyzés ehhez a módosításhoz",
 		"artifacts.document.change.groupLabel": "Alfy módosítása: {quote}",
-		"artifacts.document.change.keepA11y": "Alfy módosításának megtartása",
-		"artifacts.document.change.undoA11y": "Alfy módosításának visszavonása",
-		"artifacts.document.change.redoA11y": "Alfy módosításának megismétlése",
+		// WCAG 2.5.3 Label in Name (rd/review-2-5.md:210-216): each accessible
+		// name must literally CONTAIN its button's own visible text
+		// ("Megtartom"/"Visszavonom"/"Újra" above) — the previous possessive
+		// phrasing ("...megtartása"/"...visszavonása"/"...megismétlése") used a
+		// different word form and did not.
+		"artifacts.document.change.keepA11y": "Megtartom — Alfy módosítása",
+		"artifacts.document.change.undoA11y": "Visszavonom — Alfy módosítása",
+		"artifacts.document.change.redoA11y": "Újra — Alfy módosítása",
 		"artifacts.document.refused.notice":
 			"{count, plural, one {Alfy egy részt nem érintett, mert megváltoztattad.} other {Alfy néhány részt nem érintett, mert megváltoztattad.}}",
 		"artifacts.document.refused.changed":
