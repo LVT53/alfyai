@@ -27,11 +27,15 @@ import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { parseCanvasCreateBody } from "./canvas-model";
-import { CREATE_ARTIFACT_HANDLERS } from "./create";
+import { CREATE_ARTIFACT_HANDLERS, runCreateArtifactTool } from "./create";
 import { buildEditArtifactModelInputSchema, runEditArtifactTool } from "./edit";
 import {
 	CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE,
+	createArtifactBodyFormat,
 	EDIT_ARTIFACT_CANVAS_EXAMPLE,
+	editArtifactExampleClause,
+	editArtifactOpsFieldDescription,
+	editArtifactRuleClause,
 } from "./kind-prose";
 import { READ_ARTIFACT_HANDLERS, runReadArtifactTool } from "./read";
 
@@ -180,6 +184,32 @@ describe("create_artifact.canvas", () => {
 				versionId: first.id,
 			}),
 		).toBe(record?.body);
+	});
+
+	it("records what the turn made on the tool call: the id, the kind and the title the panel and the evidence read", async () => {
+		const result = await runCreateArtifactTool({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			artifactType: "canvas",
+			title: "Vienna weekend",
+			body: CREATE_BODY,
+			language: "en",
+			abortSignal: abortSignal(),
+		});
+		expect(result.modelPayload).toMatchObject({
+			success: true,
+			artifactType: "canvas",
+			title: "Vienna weekend",
+		});
+		if (!result.modelPayload.success) return;
+		expect(result.metadata).toEqual({
+			ok: true,
+			artifactId: result.modelPayload.artifactId,
+			artifactKind: "canvas",
+			artifactTitle: "Vienna weekend",
+		});
+		expect(result.outputSummary).toBe('Created Canvas "Vienna weekend"');
 	});
 
 	it("makes an empty board of {}", async () => {
@@ -682,6 +712,27 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 		) as unknown as { properties: { ops: Record<string, unknown> } };
 		expect(JSON.stringify(shown.properties.ops)).not.toContain("add_frame");
 		expect(shown.properties.ops).toMatchObject({ type: "array" });
+	});
+
+	it("names no op in prose that the schema does not have", () => {
+		const kinds = ["canvas"] as const;
+		const prose = [
+			editArtifactRuleClause(kinds, "en"),
+			editArtifactRuleClause(kinds, "hu"),
+			editArtifactExampleClause(kinds, "en"),
+			editArtifactExampleClause(kinds, "hu"),
+			editArtifactOpsFieldDescription(kinds) ?? "",
+			createArtifactBodyFormat(kinds),
+		].join(" ");
+		const mentioned = prose.match(/\b(?:add|remove|update)_[a-z]+\b/g) ?? [];
+		expect(mentioned.length).toBeGreaterThan(0);
+		for (const name of mentioned) {
+			expect(BOARD_OP_NAMES as readonly string[], name).toContain(name);
+		}
+		// And every "op" a worked example sends is one of them.
+		for (const op of EDIT_ARTIFACT_CANVAS_EXAMPLE.ops) {
+			expect(BOARD_OP_NAMES as readonly string[]).toContain(op.op);
+		}
 	});
 
 	it("parses the edit example, whole, through the advertised schema — and its ops through the validator against a real board with zero refusals", () => {

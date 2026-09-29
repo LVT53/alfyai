@@ -130,6 +130,33 @@ ssh -N -o ExitOnForwardFailure=yes -L 30020:192.168.1.96:30000 alfyroot & T=$!; 
 npx tsx scripts/eval-artifact-contracts/run.ts --suite canvas --replay
 ```
 
+**What the live runs measured** (`qwen3-6-27b`, thinking off, sequential, 5 repeats of the
+six cases each; the committed `fixtures/canvas/responses/` are one such run). A measurement,
+not a pass: the suite's bar is a clean first try, and it is not met. "Good" means nothing
+was wrong with any call and the board the conversation left passes the rubric.
+
+| Description | Answers | Good | Arrange | Add Sunday (en / hu) | Remove and connect | Create (en / hu) |
+|---|---|---|---|---|---|---|
+| v1 (as first registered) | 30 | 18 | 3/5 | 3/5 / 3/5 | 5/5 | 2/5 / 2/5 |
+| final (note size, arrows are not blocks) | 30 | **24** | 3/5 | 5/5 / 5/5 | 5/5 | 3/5 / 3/5 |
+
+What failed, over the 30 final answers: a note or a frame that sticks out of its frame (3),
+two frames overlapping (1), an arrow filed with the blocks in a create body (3 boards; a create
+body of 16 to 24 nodes in one JSON string), an invalid `tone` (1). What failed in v1's 30: the
+same, plus notes on top of each other (4) and frames sized short of their notes (6). The edit
+cases with a stored board are the reliable half (Add Sunday 10/10 and Remove and connect 5/5
+with the final wording); the arrange case is the one that needs arithmetic (five notes into a
+460x360 frame) and the model gets it right 3 times in 5. The first 24 answers, recorded before
+the harness answered `run_python` and `map_route` (the model checks spacing with a script, or
+looks a place up), scored 13 good.
+
+Two ways to make a board were compared on the create cases, 20 answers each: the board in the
+`body` (12 good) against an empty board followed by `edit_artifact` ops (11 good). The
+structured ops did not beat the JSON string: an array of ops that the tool-call parser cannot
+read (a brace short after a nested checklist) arrives as text, which the tool now says
+(`tool-args.ts`); it was mended in the next step in 4 of 6 answers, and an arrow filed with the
+blocks in 6 of 6.
+
 ## What each type slice adds (ruling 44)
 
 Per `decisions.md` ruling 44, each type slice writes:
