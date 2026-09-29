@@ -163,25 +163,28 @@ function handleSheetAction(id: DocumentToolbarActionId): void {
 
 <style>
 	/*
-	 * The row's total height is this container's own top+bottom padding plus
-	 * its border plus the tallest child (the buttons) — box-sizing is
-	 * border-box (Tailwind's Preflight, `src/app.css`), so a button's own
-	 * padding does NOT add to its `min-height`. Budget, at 390×844 (T11.1,
-	 * the prototype's own 226px/137px figures being exactly what this stays
-	 * well under): 2×4px padding + 1px border + 36px button = 45px ≤ 48px.
+	 * The row's total height is its border plus the tallest child (the
+	 * buttons) — box-sizing is border-box (Tailwind's Preflight,
+	 * `src/app.css`), so a button's own padding does NOT add to its
+	 * `min-height`. The buttons are the 44px phone target (redesign §5.4;
+	 * review 233-238; the global `.btn-icon-bare` rule in `src/app.css` says the
+	 * same), so the row has no vertical padding of its own: budget, at 390×844
+	 * (T11.1, the prototype's own 226px/137px figures being exactly what this
+	 * stays well under): 1px border + 44px button = 45px ≤ 48px. Seven buttons
+	 * and their gaps are 320px, which fits a 360px phone with the 8px sides.
 	 */
 	.mobile-toolbar {
 		display: flex;
 		align-items: center;
 		gap: 0.125rem;
-		padding: 0.25rem 0.5rem;
+		padding: 0 0.5rem;
 		border-bottom: 1px solid var(--border-subtle);
 		background-color: var(--surface-page);
 	}
 
 	.mobile-toolbar-button {
-		min-height: 36px;
-		min-width: 36px;
+		min-height: 44px;
+		min-width: 44px;
 		padding: 0.25rem;
 	}
 

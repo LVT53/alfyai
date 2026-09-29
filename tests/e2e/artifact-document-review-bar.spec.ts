@@ -8,6 +8,12 @@ import {
 	createDocumentArtifact,
 	readDocumentForAlfy,
 } from "../../src/lib/server/services/artifacts";
+import {
+	box,
+	openDocument,
+	seedDocument,
+	setUiLanguage,
+} from "./artifact-document-polish-helpers";
 import { createConversation, login, waitForStableBoundingBox } from "./helpers";
 
 // Review 2.5 findings on the review bar (rd/review-2-5.md:45-56, 98-108): a
@@ -366,4 +372,107 @@ test.describe("Comments drawer and the review bar (owner walk-through)", () => {
 		});
 		expect(reachable, "Keep all must not be covered by the drawer").toBe(true);
 	});
+});
+
+// G1-A's laptop screenshots (Hungarian UI, the comment column beside the text):
+// the bar wrapped to two rows (96px) at 1280-1512 wide and floated a strip
+// above the text's bottom edge with text showing under it. It stays one row at
+// every width the text column can have (480px and up) and is flush with the
+// bottom of the text, with nothing showing under or beside it. The phone layout
+// (above) is untouched.
+test.describe("Review bar at laptop widths, in Hungarian (G1-A screenshots)", () => {
+	test.beforeEach(async ({ page }) => {
+		await setUiLanguage("hu");
+		await login(page);
+	});
+	test.afterEach(async () => {
+		await setUiLanguage("en");
+	});
+
+	const filler = Array.from(
+		{ length: 40 },
+		(_, i) =>
+			`Töltelék bekezdés ${i}: elég hosszú szöveg ahhoz, hogy a görgethető oszlop a review sáv alá is érjen, és lássuk, mi látszik alatta.`,
+	);
+
+	for (const [width, height, pendingOps] of [
+		[1280, 800, 1],
+		[1366, 768, 1],
+		[1440, 900, 1],
+		[1512, 982, 1],
+		[1110, 800, 1],
+		[1280, 800, 2],
+		[1110, 800, 2],
+	] as const) {
+		test(`one row, flush with the bottom of the text, nothing showing under it (${width}x${height}, ${pendingOps} pending)`, async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width, height });
+			const conversationId = await createConversation(page, "Review bar HU");
+			await seedDocument(conversationId, {
+				markdown: [
+					"Első bekezdés a szállodáról.",
+					"Második bekezdés a repülőről.",
+					...filler,
+				].join("\n\n"),
+				title: "Bécsi utazás",
+				pendingOps,
+			});
+			const shell = await openDocument(page, conversationId);
+			const bar = shell.getByRole("region", { name: "Alfy módosításai" });
+			await expect(bar).toBeVisible({ timeout: 30_000 });
+			await waitForStableBoundingBox(bar);
+			const scroller = shell.locator(".document-content-text");
+			const barBox = await box(bar);
+			const scrollerBox = await box(scroller);
+
+			// The narrowest inline column (a 720px panel) leaves the text 480px.
+			expect(scrollerBox.width).toBeGreaterThanOrEqual(479);
+
+			// One row of controls: a 28-30px button plus the bar's padding; the
+			// message may take a second line, never a second row of buttons.
+			expect(barBox.height, "the bar's height").toBeLessThanOrEqual(72);
+			const spans: { top: number; bottom: number }[] = [];
+			for (const selector of [".review-bar-nav", ".review-bar-actions"]) {
+				const part = bar.locator(selector);
+				if (!(await part.isVisible())) continue;
+				const b = await box(part);
+				spans.push({ top: b.y, bottom: b.y + b.height });
+			}
+			const message = await box(bar.locator(".review-bar-msg"));
+			spans.push({ top: message.y, bottom: message.y + message.height });
+			for (const a of spans) {
+				for (const b of spans) {
+					expect(
+						Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top),
+						"the bar's parts share one row",
+					).toBeGreaterThan(0);
+				}
+			}
+
+			// Flush with the bottom of the text column...
+			const scrollerBottom = scrollerBox.y + scrollerBox.height;
+			expect(
+				Math.abs(barBox.y + barBox.height - scrollerBottom),
+				"the bar's bottom edge vs the text column's",
+			).toBeLessThanOrEqual(1);
+
+			// ...with nothing of the text showing beneath or beside it: the bottom
+			// pixel row belongs to the bar at its left, middle and right.
+			for (const fraction of [0.01, 0.5, 0.99]) {
+				const hit = await bar.evaluate(
+					(el, args) => {
+						const rect = el.getBoundingClientRect();
+						const top = document.elementFromPoint(
+							rect.left + rect.width * args.fraction,
+							rect.bottom - 1,
+						);
+						return !!top && el.contains(top);
+					},
+					{ fraction },
+				);
+				expect(hit, `the bar paints the bottom row at ${fraction}`).toBe(true);
+			}
+		});
+	}
 });

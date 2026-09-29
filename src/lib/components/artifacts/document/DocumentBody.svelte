@@ -321,13 +321,16 @@ let panelContainerWidth = $state(0);
 /** The review bar's own live rendered height (Review 2.5, rd/review-2-5.md:98-108) — read by the effect below and used to reserve enough bottom padding under the last paragraph. */
 let reviewBarSlotEl = $state<HTMLDivElement | undefined>();
 let reviewBarHeight = $state(0);
-/** The review bar floats 14px above the text's bottom edge (`.document-review-bar-slot`'s `bottom`); the drawer stops that far plus a small gap above the bar. */
-const REVIEW_BAR_CLEARANCE_PX = 22;
+/** The review bar is flush with the text's bottom edge (`.document-review-bar-slot`'s `bottom: 0`); the drawer stops a small gap above it. */
+const REVIEW_BAR_CLEARANCE_PX = 8;
 let isPhone = $state(isPhoneViewport());
 /** `0` (not measured yet — no ResizeObserver in this environment, e.g. jsdom) gets the full column rather than a false-positive drawer. */
 let inlineRailWidth = $derived(commentRailWidth(panelContainerWidth));
 let isNarrowPanel = $derived(inlineRailWidth === null);
 let commentsOverlayOpen = $state(false);
+/** The comment list's own view choices (Open/All, the removed-text fold), held here because the list is unmounted with its column, drawer or sheet and a choice kept inside it was lost every time (G2-B). Open by default (ruling 61); per document body, never persisted. */
+let commentFilter = $state<"open" | "all">("open");
+let commentOrphanedGroupOpen = $state(false);
 /** The inline column beside the text: room for it, not on a phone, and not switched off on this device. */
 let commentsRailShown = $derived(
 	!isPhone && !isNarrowPanel && !$documentCommentsRailHidden,
@@ -2351,6 +2354,7 @@ function saveNoticeText(notice: SaveNotice): string {
 							out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
 						>
 							<ReviewBar
+								docked
 								pendingCount={pendingList.length}
 								refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
 								currentIndex={reviewIndex}
@@ -2378,6 +2382,10 @@ function saveNoticeText(notice: SaveNotice): string {
 					<MarginPanel
 						{comments}
 						{blocks}
+						filter={commentFilter}
+						onFilterChange={(next) => (commentFilter = next)}
+						orphanedGroupOpen={commentOrphanedGroupOpen}
+						onOrphanedGroupOpenChange={(open) => (commentOrphanedGroupOpen = open)}
 						resolutions={commentResolutions}
 						{tabs}
 						{activeTabId}
@@ -2407,6 +2415,10 @@ function saveNoticeText(notice: SaveNotice): string {
 					presentation={isPhone ? 'sheet' : 'drawer'}
 					{comments}
 					{blocks}
+					filter={commentFilter}
+					onFilterChange={(next) => (commentFilter = next)}
+					orphanedGroupOpen={commentOrphanedGroupOpen}
+					onOrphanedGroupOpenChange={(open) => (commentOrphanedGroupOpen = open)}
 					resolutions={commentResolutions}
 					{tabs}
 					{activeTabId}
@@ -2533,12 +2545,14 @@ function saveNoticeText(notice: SaveNotice): string {
 	   element's own height, so the last paragraph can fully clear it before
 	   the column runs out of content to scroll through — the classic
 	   "sticky footer covers the last line" problem a plain `position:
-	   sticky` does not solve by itself. */
+	   sticky` does not solve by itself.
+
+	   G2-B: `bottom: 0` (it floated 14px above the edge, with text showing
+	   under it), full width of the text column, and `ReviewBar`'s `docked`
+	   look: flat, a rule on top. A phone (below) keeps the floating card. */
 	.document-review-bar-slot {
 		position: sticky;
-		left: 1rem;
-		right: 1rem;
-		bottom: 0.875rem;
+		bottom: 0;
 		z-index: 5;
 	}
 
@@ -2695,12 +2709,30 @@ function saveNoticeText(notice: SaveNotice): string {
 		font-family: var(--font-serif);
 	}
 
+	/* The editor stores every task item as its own block, so a checklist is a
+	   run of one-item lists, each with its own `margin: 6px 0 16px` — which
+	   made every row ~20px looser than the mockup's one `<ul class="tasks">`
+	   (review 251-255). Only the run's first list keeps the top margin and its
+	   last list the bottom one; the space between two lists in a run is none. */
+	.document-editor-host :global(.document-content ul[data-type='taskList'] + ul[data-type='taskList']) {
+		margin-top: 0;
+	}
+
+	.document-editor-host :global(.document-content ul[data-type='taskList']:has(+ ul[data-type='taskList'])) {
+		margin-bottom: 0;
+	}
+
+	/* The mockup's `.task`: 15.5px at 1.45 with 4px above and below, and no
+	   outer margin (the generic `li` rule's 2px would open a gap between rows),
+	   a 30.5px row rhythm. */
 	.document-editor-host :global(.document-content li[data-checked]) {
 		display: flex;
 		align-items: flex-start;
 		gap: 10px;
+		margin: 0;
 		padding: 4px 0;
 		font-size: 15.5px;
+		line-height: 1.45;
 	}
 
 	.document-editor-host :global(.document-content li[data-checked] > label) {
@@ -2774,6 +2806,20 @@ function saveNoticeText(notice: SaveNotice): string {
 		border-bottom: 1px solid var(--border-subtle);
 	}
 
+	/* A cell holds a real paragraph, which kept the prose's 12px bottom
+	   margin: every row was ~12px taller than the mockup's 45px (37px header)
+	   and its content sat high in it. The cell's own padding is the spacing; a
+	   second paragraph in one cell still gets a small gap. */
+	.document-editor-host :global(.document-content td > p),
+	.document-editor-host :global(.document-content th > p) {
+		margin: 0;
+	}
+
+	.document-editor-host :global(.document-content td > p + p),
+	.document-editor-host :global(.document-content th > p + p) {
+		margin-top: 6px;
+	}
+
 	.document-editor-host :global(.document-content tr:last-child td) {
 		border-bottom: 0;
 	}
@@ -2829,6 +2875,48 @@ function saveNoticeText(notice: SaveNotice): string {
 		padding: 0;
 		margin: 0;
 		cursor: pointer;
+		/* A select is as wide as its longest option by default, which left
+		   "Kifizetve" with an empty tail the width of "Lefoglalandó" (review
+		   251-255). Sized to the chosen value it hugs its own text. Engines
+		   without `field-sizing` keep the longest-option width. */
+		field-sizing: content;
+	}
+
+	/* Phones: the tick and the chip keep the mockup's look and grow the
+	   finger's area to 44px (redesign §5.4; review 233-238). The tick's area is
+	   an invisible `::after` on the `<label>` that wraps it, exactly as the
+	   change pill does for its buttons — a tap on it reaches the box through
+	   the label. It extends 17px to the left (the editor's own side padding is
+	   free room), 10px to the right (the text starts 10px from the box) and
+	   6.75px above / 20.25px below the 17px box: rows are 30.5px apart, so each
+	   row's area ends where the next row's begins, halfway between the two
+	   boxes, and a tap always reaches the nearest tick (a symmetric area would
+	   hand everything below a box to the row under it). The box itself sits
+	   above its own area so it keeps its own mousedown handling. The chip's
+	   select is its own 44px target: taller than the 26px pill, pulled back
+	   into it by equal negative margins so the line does not grow. */
+	@media (max-width: 767px) {
+		.document-editor-host :global(.document-content li[data-checked] > label) {
+			position: relative;
+		}
+
+		.document-editor-host :global(.document-content li[data-checked] > label::after) {
+			content: '';
+			position: absolute;
+			inset: -6.75px -10px -20.25px -17px;
+		}
+
+		.document-editor-host :global(.document-content li[data-checked] input[type='checkbox']) {
+			position: relative;
+			z-index: 1;
+		}
+
+		.document-editor-host :global(.document-content .tracker-chip-select) {
+			min-width: 44px;
+			min-height: 44px;
+			margin: -9px -8px;
+			padding: 0 8px;
+		}
 	}
 
 	/* Step 2.2: Alfy's change mark (`marks.ts`'s `AlfyChange` Tiptap mark,

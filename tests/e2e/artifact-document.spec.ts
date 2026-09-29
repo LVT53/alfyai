@@ -631,18 +631,15 @@ test.describe("the Document mobile toolbar", () => {
 	test("at 390x844 the toolbar stays within its budget and the editor keeps most of the viewport", async ({
 		page,
 	}) => {
-		// RV-1B: this used to measure 53px, 5px over the 48px budget, even
-		// though MobileToolbar.svelte's own header comment computes 45px
-		// (2×4px padding + 1px border + 36px button). The global mobile
-		// stylesheet's "icon controls should meet the 44px target" rule
-		// (`src/app.css`'s `@media (max-width: 767px)` block) applies to
-		// every `.btn-icon-bare`, including this toolbar's, and its
-		// `!important` 44px silently overrode the component's own 36px —
-		// so the live DOM disagreed with the component's arithmetic by
-		// exactly the 8px difference between 44px and 36px. Fixed by
-		// opting this toolbar's buttons back out in `app.css`
-		// (`.mobile-toolbar .btn-icon-bare`), which is now specific enough
-		// to win over the general rule.
+		// RV-1B: this used to measure 53px, 5px over the 48px budget: the
+		// global mobile stylesheet's "icon controls should meet the 44px
+		// target" rule (`src/app.css`'s `@media (max-width: 767px)` block)
+		// makes every `.btn-icon-bare` 44px, this toolbar's included, on top
+		// of the row's own 2×4px padding. That was first answered by opting
+		// the buttons out to 36px; review 233-238 asked for the 44px targets
+		// back (redesign §5.4), so the buttons are 44px and the row has no
+		// vertical padding: 1px border + 44px button = 45px, inside the same
+		// budget (`artifact-document-touch-targets.spec.ts` asserts the 44px).
 		await page.setViewportSize({ width: 390, height: 844 });
 		const conversationId = await createConversation(page, "Plan a trip");
 		await seedDocument({
@@ -1307,6 +1304,22 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			expect(order[0]).toContain("Which restaurant?");
 			expect(order[1]).toContain("Book the flight.");
 			expect(order[2]).toContain("Soft bag or suitcase?");
+
+			// §7.2 #22: Dismiss slides the card out (8px right, fading) and only
+			// then clears it and the dashed rule on its line; the two threads
+			// either side of it stay where they were.
+			await expect(
+				page.locator(".document-editor-host .alfy-refused-line"),
+			).toHaveCount(1);
+			await rail
+				.getByTestId("refusal-notice")
+				.getByRole("button", { name: "Dismiss" })
+				.click();
+			await expect(rail.getByTestId("refusal-notice")).toHaveCount(0);
+			await expect(rail.getByTestId("margin-comment")).toHaveCount(2);
+			await expect(
+				page.locator(".document-editor-host .alfy-refused-line"),
+			).toHaveCount(0);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (temporaryProvider) {

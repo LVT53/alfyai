@@ -1967,6 +1967,70 @@ describe("DocumentBody", () => {
 			expect(localStorage.getItem("documentCommentsRailHidden")).toBe("false");
 		});
 
+		// G2-B: the Open/All choice used to live in the mounted list, so switching
+		// the column off and on (or closing and reopening the drawer) put it back
+		// to Open and hid the resolved threads the reader had just asked to see.
+		it("keeps the Open/All choice when the column is switched off and on again", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, [
+					TWO_THREADS[0],
+					{ ...TWO_THREADS[1], status: "resolved" },
+				]),
+			);
+			const registerPanelActions = vi.fn();
+			mount({ registerPanelActions });
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "1 resolved" }),
+			);
+			expect(
+				screen.getByRole("button", { name: "Show open only" }),
+			).toBeInTheDocument();
+
+			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
+			actions.toggleComments();
+			await waitFor(() =>
+				expect(document.querySelector(".document-content-rail")).toBeNull(),
+			);
+			actions.toggleComments();
+			await waitFor(() =>
+				expect(document.querySelector(".document-content-rail")).not.toBeNull(),
+			);
+			expect(
+				screen.getByRole("button", { name: "Show open only" }),
+			).toBeInTheDocument();
+		});
+
+		it("keeps the Open/All choice when the drawer is closed and opened again", async () => {
+			stubPanelWidth(600);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: TEXT }, [
+					TWO_THREADS[0],
+					{ ...TWO_THREADS[1], status: "resolved" },
+				]),
+			);
+			const registerPanelActions = vi.fn();
+			mount({ registerPanelActions });
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
+			actions.toggleComments();
+			await fireEvent.click(
+				await screen.findByRole("button", { name: "1 resolved" }),
+			);
+			expect(
+				screen.getByRole("button", { name: "Show open only" }),
+			).toBeInTheDocument();
+
+			actions.toggleComments();
+			await waitFor(() =>
+				expect(screen.queryByTestId("comments-drawer")).toBeNull(),
+			);
+			actions.toggleComments();
+			expect(
+				await screen.findByRole("button", { name: "Show open only" }),
+			).toBeInTheDocument();
+		});
+
 		it("starts hidden when this device switched the column off", async () => {
 			documentCommentsRailHidden.set(true);
 			const registerPanelActions = vi.fn();
@@ -2973,7 +3037,10 @@ describe("DocumentBody", () => {
 
 			await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 
-			expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument();
+			// The card slides out first (§7.2 #22), then the caller clears it.
+			await waitFor(() =>
+				expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument(),
+			);
 			expect(mockSetRefusedLines).toHaveBeenLastCalledWith(
 				expect.anything(),
 				null,
@@ -3498,6 +3565,10 @@ describe("DocumentBody", () => {
 					screen.getByRole("region", { name: "Changes from Alfy" }),
 				).toHaveTextContent("Alfy changed 1 part."),
 			);
+			// Flush with the bottom of the text column, not a floating card.
+			expect(
+				screen.getByRole("region", { name: "Changes from Alfy" }),
+			).toHaveClass("is-docked");
 		}
 
 		it("shows the review bar with the pending count once a change lands, and empties the pending list once Keep all settles", async () => {
