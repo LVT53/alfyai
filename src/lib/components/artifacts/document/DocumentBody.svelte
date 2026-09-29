@@ -373,6 +373,18 @@ function announce(message: string): void {
 	announcement = message;
 }
 let pendingChanges = $state<Map<string, PendingAlfyChange>>(new Map());
+/**
+ * Re-check "New breakage": `pendingChanges` above starts empty on every
+ * load, so the reporting effect below used to fire with `0` the instant
+ * this component mounted — before `restorePendingReview`'s own network
+ * round trip ever confirmed the true pending set, flashing the chat card/
+ * list row/count-button dot to "Reviewed" for ~100-300ms. Gates that effect
+ * until THIS load's restore has settled successfully; a failed restore
+ * leaves this `false` for the rest of the load, so nothing overwrites the
+ * persisted count with a guessed `0`. Reset alongside `pendingChanges`
+ * itself on every new `runLoad`.
+ */
+let pendingReviewRestoreSettled = $state(false);
 /** The review bar's own stepper position (0-based) into the CURRENTLY pending entries, in Map-insertion order. */
 let reviewIndex = $state(0);
 /** Keyed by changeId — cleared by Redo (cancels the pending removal) or by `removePendingChange` itself; a plain Map, never `$state`, since it drives no render on its own. */
@@ -1150,7 +1162,13 @@ $effect(() => {
 // persisted-count plumbing (see `ArtifactBodyProps.onPendingReviewCountChange`'s
 // own doc comment) — so the chat card, the list row and the count-button dot
 // all reflect Keep/Undo/Keep-all the instant they happen, without a reload.
+// Gated on `pendingReviewRestoreSettled` (see its own doc comment) so the
+// pre-restore empty `Map` is never mistaken for a confirmed "nothing
+// pending" — only a settled restore, or a later genuine mutation (Keep,
+// Undo, Keep all, a new Alfy edit, a user edit that acknowledges a block),
+// reports from here on.
 $effect(() => {
+	if (!pendingReviewRestoreSettled) return;
 	onPendingReviewCountChange?.(pendingList.length);
 });
 // rd/review-2-5.md:217-222: the review bar's own "Alfy changed N parts"
@@ -1206,10 +1224,17 @@ async function restorePendingReview(
 		pending = await fetchDocumentReviewState(artifactIdAtCall, conversationId);
 	} catch {
 		// Best-effort (see `acknowledgeReview`'s own comment) — reads the same
-		// as "no marker yet": nothing pending.
+		// as "no marker yet": nothing pending. Deliberately does NOT set
+		// `pendingReviewRestoreSettled` — see the re-check "New breakage": a
+		// failed fetch must not be reported as a confirmed zero, so the
+		// reporting effect stays gated and the persisted count stands.
 		return;
 	}
-	if (myToken !== loadToken || !editor || pending.length === 0) return;
+	if (myToken !== loadToken) return;
+	// The server gave a definitive answer for THIS load — safe to report
+	// from here on, whether or not there turns out to be anything pending.
+	pendingReviewRestoreSettled = true;
+	if (!editor || pending.length === 0) return;
 
 	const nextPending = new Map(pendingChanges);
 	for (const block of pending) {
@@ -1752,6 +1777,7 @@ async function runLoad(id: string): Promise<void> {
 		// itself is fully derived by the `alfyActivity` effect above, so it
 		// is not reset here — doing so would race that effect on first mount).
 		pendingChanges = new Map();
+		pendingReviewRestoreSettled = false;
 		reviewIndex = 0;
 		refusalNotice = null;
 		handledActivityKey = "";
