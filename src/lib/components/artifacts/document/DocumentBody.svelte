@@ -2687,12 +2687,30 @@ function saveNoticeText(notice: SaveNotice): string {
 		font-family: var(--font-serif);
 	}
 
+	/* The editor stores every task item as its own block, so a checklist is a
+	   run of one-item lists, each with its own `margin: 6px 0 16px` — which
+	   made every row ~20px looser than the mockup's one `<ul class="tasks">`
+	   (review 251-255). Only the run's first list keeps the top margin and its
+	   last list the bottom one; the space between two lists in a run is none. */
+	.document-editor-host :global(.document-content ul[data-type='taskList'] + ul[data-type='taskList']) {
+		margin-top: 0;
+	}
+
+	.document-editor-host :global(.document-content ul[data-type='taskList']:has(+ ul[data-type='taskList'])) {
+		margin-bottom: 0;
+	}
+
+	/* The mockup's `.task`: 15.5px at 1.45 with 4px above and below, and no
+	   outer margin (the generic `li` rule's 2px would open a gap between rows),
+	   a 30.5px row rhythm. */
 	.document-editor-host :global(.document-content li[data-checked]) {
 		display: flex;
 		align-items: flex-start;
 		gap: 10px;
+		margin: 0;
 		padding: 4px 0;
 		font-size: 15.5px;
+		line-height: 1.45;
 	}
 
 	.document-editor-host :global(.document-content li[data-checked] > label) {
@@ -2821,6 +2839,11 @@ function saveNoticeText(notice: SaveNotice): string {
 		padding: 0;
 		margin: 0;
 		cursor: pointer;
+		/* A select is as wide as its longest option by default, which left
+		   "Kifizetve" with an empty tail the width of "Lefoglalandó" (review
+		   251-255). Sized to the chosen value it hugs its own text. Engines
+		   without `field-sizing` keep the longest-option width. */
+		field-sizing: content;
 	}
 
 	/* Step 2.2: Alfy's change mark (`marks.ts`'s `AlfyChange` Tiptap mark,
