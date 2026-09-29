@@ -99,6 +99,35 @@ describe("MobileToolbar", () => {
 		);
 	});
 
+	// G3: a phone with a hardware keyboard (an iPad) has the same shortcuts, so
+	// the Undo button on the row says them like the desktop toolbar's does; the
+	// Redo item in the sheet keeps its plain visible label and carries them for
+	// assistive technology only.
+	it("names the keyboard shortcut on Undo, and gives Redo its aria-keyshortcuts in the sheet", async () => {
+		Object.defineProperty(window.navigator, "platform", {
+			value: "Win32",
+			configurable: true,
+		});
+		try {
+			render(MobileToolbar, { onAction: vi.fn() });
+			const undo = screen.getByRole("button", { name: "Undo (Ctrl+Z)" });
+			expect(undo).toHaveAttribute("title", "Undo (Ctrl+Z)");
+			expect(undo).toHaveAttribute("aria-keyshortcuts", "Control+Z");
+
+			await fireEvent.click(screen.getByRole("button", { name: "More" }));
+			const redo = screen
+				.getByRole("dialog")
+				.querySelector<HTMLElement>(
+					"[aria-keyshortcuts='Control+Y Control+Shift+Z']",
+				);
+			expect(redo).not.toBeNull();
+			expect(redo).toHaveTextContent("Redo");
+			expect(redo?.textContent).not.toContain("Ctrl");
+		} finally {
+			Reflect.deleteProperty(window.navigator, "platform");
+		}
+	});
+
 	it("disables every action while the editor is not ready", () => {
 		render(MobileToolbar, { disabled: true, onAction: vi.fn() });
 		const toolbar = screen.getByRole("toolbar", { name: "Document" });

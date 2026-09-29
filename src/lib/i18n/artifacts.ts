@@ -293,6 +293,10 @@ const artifactsDict = {
 		"artifacts.document.toolbar.link": "Link",
 		"artifacts.document.toolbar.undo": "Undo",
 		"artifacts.document.toolbar.redo": "Redo",
+		// The tooltip and accessible name of those two buttons: the label and the
+		// keys that do the same ({shortcut} is ⌘Z, Ctrl+Y, … for the reader's platform).
+		"artifacts.document.toolbar.undoWithShortcut": "Undo ({shortcut})",
+		"artifacts.document.toolbar.redoWithShortcut": "Redo ({shortcut})",
 		"artifacts.document.toolbar.more": "More",
 		"artifacts.document.toolbar.download": "Download",
 		"artifacts.document.toolbar.history": "History",
@@ -324,6 +328,12 @@ const artifactsDict = {
 		"artifacts.document.change.keepA11y": "Keep Alfy's change",
 		"artifacts.document.change.undoA11y": "Undo Alfy's change",
 		"artifacts.document.change.redoA11y": "Redo Alfy's change",
+		// The tooltips of the pill's Undo and Redo: the same wording and the chord
+		// that does it from the keyboard ({shortcut}: ⌥⌘Z, Ctrl+Alt+Z, …).
+		"artifacts.document.change.undoWithShortcut":
+			"Undo Alfy's change ({shortcut})",
+		"artifacts.document.change.redoWithShortcut":
+			"Redo Alfy's change ({shortcut})",
 		// The visible refusal (Slice 1, T8) — "your words win" is only a
 		// feature if the user can see it happened.
 		"artifacts.document.refused.notice":
@@ -741,6 +751,8 @@ const artifactsDict = {
 		"artifacts.document.toolbar.link": "Hivatkozás",
 		"artifacts.document.toolbar.undo": "Visszavonás",
 		"artifacts.document.toolbar.redo": "Újra",
+		"artifacts.document.toolbar.undoWithShortcut": "Visszavonás ({shortcut})",
+		"artifacts.document.toolbar.redoWithShortcut": "Újra ({shortcut})",
 		"artifacts.document.toolbar.more": "Több",
 		"artifacts.document.toolbar.download": "Letöltés",
 		"artifacts.document.toolbar.history": "Előzmények",
@@ -773,6 +785,10 @@ const artifactsDict = {
 		"artifacts.document.change.keepA11y": "Megtartom — Alfy módosítása",
 		"artifacts.document.change.undoA11y": "Visszavonom — Alfy módosítása",
 		"artifacts.document.change.redoA11y": "Újra — Alfy módosítása",
+		"artifacts.document.change.undoWithShortcut":
+			"Visszavonom — Alfy módosítása ({shortcut})",
+		"artifacts.document.change.redoWithShortcut":
+			"Újra — Alfy módosítása ({shortcut})",
 		"artifacts.document.refused.notice":
 			"{count, plural, one {Alfy egy részt nem érintett, mert megváltoztattad.} other {Alfy néhány részt nem érintett, mert megváltoztattad.}}",
 		"artifacts.document.refused.changed":

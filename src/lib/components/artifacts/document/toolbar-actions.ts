@@ -31,6 +31,11 @@ import {
 	Undo2,
 } from "@lucide/svelte";
 import type { I18nKey } from "$lib/i18n";
+import {
+	type HistoryShortcut,
+	historyAriaKeyShortcuts,
+	historyShortcutLabel,
+} from "./keyboard-shortcuts";
 
 export type DocumentToolbarActionId =
 	| "bold"
@@ -71,6 +76,11 @@ export interface DocumentToolbarAction {
 	 * pressed state mirrors `editor.isActive(...)` at the current selection.
 	 */
 	momentary?: boolean;
+	/**
+	 * The keyboard shortcut of a history action (Undo, Redo): its tooltip and
+	 * accessible name say the keys, in `withShortcutLabelKey`'s wording.
+	 */
+	shortcut?: { action: HistoryShortcut; withShortcutLabelKey: I18nKey };
 	/** Which toolbar group this belongs to (redesign §5.2's grouped, dividered layout). Consecutive actions with the same `group` sit together; a divider renders wherever it changes. */
 	group: number;
 }
@@ -149,6 +159,10 @@ export const DOCUMENT_TOOLBAR_ACTIONS: DocumentToolbarAction[] = [
 		id: "undo",
 		icon: Undo2,
 		labelKey: "artifacts.document.toolbar.undo",
+		shortcut: {
+			action: "undo",
+			withShortcutLabelKey: "artifacts.document.toolbar.undoWithShortcut",
+		},
 		momentary: true,
 		group: 5,
 	},
@@ -156,7 +170,35 @@ export const DOCUMENT_TOOLBAR_ACTIONS: DocumentToolbarAction[] = [
 		id: "redo",
 		icon: Redo2,
 		labelKey: "artifacts.document.toolbar.redo",
+		shortcut: {
+			action: "redo",
+			withShortcutLabelKey: "artifacts.document.toolbar.redoWithShortcut",
+		},
 		momentary: true,
 		group: 5,
 	},
 ];
+
+/**
+ * What a toolbar button says about itself: its label, and for a history action
+ * the label with the reader's platform keys ("Undo (Ctrl+Z)") plus the same
+ * keys for `aria-keyshortcuts`. `translate` is the caller's `$t`, so this file
+ * stays a plain module.
+ */
+export function toolbarActionText(
+	action: DocumentToolbarAction,
+	translate: (key: I18nKey, params?: Record<string, number | string>) => string,
+): { label: string; ariaKeyShortcuts: string | undefined } {
+	if (!action.shortcut) {
+		return {
+			label: translate(action.labelKey, action.labelParams),
+			ariaKeyShortcuts: undefined,
+		};
+	}
+	return {
+		label: translate(action.shortcut.withShortcutLabelKey, {
+			shortcut: historyShortcutLabel(action.shortcut.action),
+		}),
+		ariaKeyShortcuts: historyAriaKeyShortcuts(action.shortcut.action),
+	};
+}

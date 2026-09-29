@@ -729,6 +729,125 @@ describe("document-editor", () => {
 		});
 	});
 
+	// G3: keyboard undo and redo. Dispatches REAL key events at the editor's
+	// own DOM, so this is the actual `editorProps.handleKeyDown` wiring. jsdom
+	// reports no platform, so ⌘ is Ctrl here unless a test says it is a Mac.
+	describe("keyboard undo and redo (G3)", () => {
+		function press(editor: Editor, init: KeyboardEventInit): KeyboardEvent {
+			const event = new KeyboardEvent("keydown", {
+				bubbles: true,
+				cancelable: true,
+				...init,
+			});
+			editor.view.dom.dispatchEvent(event);
+			return event;
+		}
+		const ctrl = (key: string, extra: KeyboardEventInit = {}) => ({
+			key,
+			code: `Key${key.toUpperCase()}`,
+			ctrlKey: true,
+			...extra,
+		});
+		const meta = (key: string, extra: KeyboardEventInit = {}) => ({
+			key,
+			code: `Key${key.toUpperCase()}`,
+			metaKey: true,
+			...extra,
+		});
+		function textOf(editor: Editor): string {
+			return editor.getText({ blockSeparator: " | " });
+		}
+		function typeAtEnd(editor: Editor, text: string): void {
+			editor.commands.insertContentAt(
+				editor.state.doc.child(0).nodeSize - 1,
+				text,
+			);
+		}
+		function setPlatform(value: string | undefined): void {
+			Object.defineProperty(window.navigator, "platform", {
+				value,
+				configurable: true,
+			});
+		}
+
+		afterEach(() => {
+			vi.useRealTimers();
+			Reflect.deleteProperty(window.navigator, "platform");
+		});
+
+		function typedTwice(): Editor {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+			const editor = mountEditor("<!--b:p1-->\nAlpha.");
+			typeAtEnd(editor, " one");
+			vi.setSystemTime(new Date("2026-01-01T00:00:05Z"));
+			typeAtEnd(editor, " two");
+			expect(textOf(editor)).toBe("Alpha. one two");
+			return editor;
+		}
+
+		it("Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo (Windows and Linux keys)", () => {
+			const editor = typedTwice();
+			const undo = press(editor, ctrl("z"));
+			expect(undo.defaultPrevented).toBe(true);
+			expect(textOf(editor)).toBe("Alpha. one");
+			press(editor, ctrl("z"));
+			expect(textOf(editor)).toBe("Alpha.");
+
+			press(editor, ctrl("Z", { shiftKey: true }));
+			expect(textOf(editor)).toBe("Alpha. one");
+			const redo = press(editor, ctrl("y"));
+			expect(redo.defaultPrevented).toBe(true);
+			expect(textOf(editor)).toBe("Alpha. one two");
+			editor.destroy();
+		});
+
+		it("Cmd+Z undoes, Cmd+Shift+Z and Cmd+Y redo on a Mac", () => {
+			// (`prosemirror-keymap` reads the platform once, at import, so the
+			// editor's own binding still thinks it is ⌘-less here; the Mac chords
+			// are this module's own, which read it live.)
+			setPlatform("MacIntel");
+			const editor = typedTwice();
+			press(editor, meta("z"));
+			expect(textOf(editor)).toBe("Alpha. one");
+			press(editor, meta("Z", { shiftKey: true }));
+			expect(textOf(editor)).toBe("Alpha. one two");
+			press(editor, meta("z"));
+			press(editor, meta("y"));
+			expect(textOf(editor)).toBe("Alpha. one two");
+			editor.destroy();
+		});
+
+		it("claims the key even with nothing to undo or redo, so the browser's own undo never runs on a document ProseMirror owns", () => {
+			const editor = mountEditor("<!--b:p1-->\nAlpha.");
+			expect(editor.can().undo()).toBe(false);
+			expect(press(editor, ctrl("z")).defaultPrevented).toBe(true);
+			expect(
+				press(editor, ctrl("Z", { shiftKey: true })).defaultPrevented,
+			).toBe(true);
+			expect(press(editor, ctrl("y")).defaultPrevented).toBe(true);
+			expect(textOf(editor)).toBe("Alpha.");
+			editor.destroy();
+		});
+
+		it("undoes once per press, not twice (the editor's own binding and this one do not both run)", () => {
+			const editor = typedTwice();
+			press(editor, ctrl("z"));
+			expect(textOf(editor)).toBe("Alpha. one");
+			editor.destroy();
+		});
+
+		it("leaves Alfy's own chord (Alt held) and other letters to whoever owns them", () => {
+			const editor = typedTwice();
+			expect(press(editor, ctrl("z", { altKey: true })).defaultPrevented).toBe(
+				false,
+			);
+			expect(press(editor, ctrl("x")).defaultPrevented).toBe(false);
+			expect(textOf(editor)).toBe("Alpha. one two");
+			editor.destroy();
+		});
+	});
+
 	// Review 2.5 Important finding (rd/review-2-5.md:198-207): Tab from a
 	// non-collapsed selection reached the editor's own next focusable DOM
 	// node first (a comment highlight, a chip select, a change pill, a task

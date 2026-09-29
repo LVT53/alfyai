@@ -45,9 +45,9 @@ import {
 	SKIP_BLOCK_ID_PLUGIN,
 	tabSectionPluginKey,
 } from "./extensions";
+import { historyShortcutFor } from "./keyboard-shortcuts";
 import {
 	type AlfyChangeEntry,
-	alfyChangeDocRange,
 	applyAlfyChangeMarks,
 	keepAlfyChange,
 	type RedoBlock,
@@ -101,6 +101,18 @@ export function createDocumentEditor(
 		editorProps: {
 			attributes: { class: "document-content", spellcheck: "true" },
 			handleKeyDown: (_view, event) => {
+				// G3: the reader's own undo/redo, claimed even when there is nothing
+				// to undo — a key left unhandled falls through to the browser's own
+				// undo, which rewrites the DOM behind ProseMirror's back. This
+				// binding runs before the editor's own (`Mod-z` …), so it never runs
+				// twice, and reads the platform live (⌘ on a Mac, Ctrl elsewhere).
+				const history = historyShortcutFor(event);
+				if (history) {
+					event.preventDefault();
+					if (history === "undo") editor.commands.undo();
+					else editor.commands.redo();
+					return true;
+				}
 				if (event.key !== "Tab" || event.shiftKey || event.altKey) {
 					return false;
 				}
@@ -839,12 +851,19 @@ export function remarkChange(
 	return remarkAlfyChange(editor, changeId, blockId);
 }
 
-/** The change mark's own live document range, for the inline pill's widget decoration positioning while its mark is about to be replaced structurally (Undo). */
-export function changeDocRange(
+/**
+ * Where a block's own content ends — the position just after its last
+ * character — or `null` when the block is not in the document. The pill's
+ * "Undone · Redo" anchor (`ChangePillEntry.fallbackPos`) once Undo has replaced
+ * the block and taken its mark with it. Read AFTER Undo: the restored text can
+ * be shorter than the text the mark covered, and a position captured before
+ * would then point into the next block.
+ */
+export function blockContentEnd(
 	editor: Editor,
-	changeId: string,
-): { from: number; to: number } | null {
-	return alfyChangeDocRange(editor, changeId);
+	blockId: string,
+): number | null {
+	return findBlockNodeRange(editor.state.doc, blockId)?.contentEnd ?? null;
 }
 
 /** Scrolls a change's mark into view ("See what Alfy did", T8.4). */
