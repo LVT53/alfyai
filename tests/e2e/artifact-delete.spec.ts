@@ -11,26 +11,21 @@ import {
 	users,
 } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
-import {
-	AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT,
-	AI_SMOKE_CREATE_ARTIFACT_MARKER,
-	AI_SMOKE_CREATE_ARTIFACT_TITLE,
-} from "../fixtures/ai/openai-compatible-scenarios";
-import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
-import {
-	createTemporaryFakeProviderModel,
-	deleteTemporaryProvider,
-	snapshotUserModelPreference,
-	updateUserModelPreference,
-} from "./artifact-live-edit.helpers";
-import { createConversation, login, sendMessage } from "./helpers";
+import { createConversation, login } from "./helpers";
 
 // Polish G2-A: Delete for what is open in the panel and for each list row,
 // what a chat card or file row says once its item is gone, and Regenerate.
-// The first test drives a REAL create_artifact call through the fake provider
-// (the mechanism artifact-chat-card.spec.ts established), because what
-// Regenerate makes the Document again from is the arguments that real call
-// left on the message — a seeded stand-in would prove nothing about them.
+//
+// The Document a `create_artifact` call made is seeded the way that call leaves
+// it: the artifact through the same creator the tool's handler uses, and the
+// message with the persisted tool-call segment (the model's own arguments and
+// the call's result metadata) that Regenerate makes it again from. It is not
+// driven through the fake provider on purpose: that provider chooses its
+// scenario by looking for a marker anywhere in the request, and the request
+// quotes earlier conversations (a task's objective), so an edit marker left by
+// a spec that ran before turned this create into an edit (found in the full
+// gate run). The real call was walked once, in isolation, and the persisted
+// arguments are what this seeds.
 
 async function testUserId(): Promise<string> {
 	const [user] = await db
@@ -60,112 +55,114 @@ async function listItems(page: Page, conversationId: string) {
 	}, conversationId);
 }
 
-test.describe("Delete and Regenerate — a real create_artifact call", () => {
-	const fakeProvider = createOpenAICompatibleProviderHarness();
+const CREATED_TITLE = "Weekend plan";
+const CREATED_BODY = "# Weekend plan\n\nBook the museum tickets.";
 
-	test.beforeAll(async () => {
-		await fakeProvider.start();
-	});
-
-	test.afterAll(async () => {
-		await fakeProvider.stop();
-	});
-
-	test.beforeEach(async () => {
-		await fakeProvider.reset();
-	});
-
+test.describe("Delete and Regenerate — a Document made by create_artifact", () => {
 	test("deletes the Document from the panel header, the card says so, Regenerate brings it back under the same id", async ({
 		page,
 	}) => {
-		test.setTimeout(180_000);
 		await login(page);
-		const previousModelPreference = await snapshotUserModelPreference(page);
-		let temporaryProvider: {
-			providerId: string;
-			selectedModel: string;
-		} | null = null;
-		try {
-			const conversationId = await createConversation(page, "Plan a weekend");
-			temporaryProvider = await createTemporaryFakeProviderModel(
-				page,
-				fakeProvider.baseURL,
-			);
-			await updateUserModelPreference(page, temporaryProvider.selectedModel);
-			await openChatAndReload(page, conversationId);
-			await sendMessage(page, AI_SMOKE_CREATE_ARTIFACT_MARKER);
-			await expect(
-				page.getByText(AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT),
-			).toBeVisible({ timeout: 30_000 });
-			const card = page.getByTestId("artifact-card");
-			await expect(card).toBeVisible();
-			const [made] = await listItems(page, conversationId);
-			expect(made?.title).toBe(AI_SMOKE_CREATE_ARTIFACT_TITLE);
-
-			// Open it, then delete it from the header.
-			await card.getByTestId("artifact-card-head").click({ timeout: 30_000 });
-			const workspace = page.getByRole("complementary", {
-				name: "Document workspace",
-			});
-			await expect(workspace).toBeVisible({ timeout: 30_000 });
-			await expect(workspace.getByText("Book the museum tickets.")).toBeVisible(
+		const conversationId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		const made = await createDocumentArtifact({
+			userId: uid,
+			conversationId,
+			title: CREATED_TITLE,
+			markdown: CREATED_BODY,
+			author: "alfy",
+			summary: "Alfy wrote the first draft",
+		});
+		// The message the pipeline persists for that call: the model's own
+		// arguments, and the result metadata (`runCreateArtifactTool`'s) the card
+		// is drawn from.
+		await db.insert(messages).values({
+			id: randomUUID(),
+			conversationId,
+			messageSequence: 900,
+			role: "assistant",
+			content: "Made the document.",
+			toolCalls: JSON.stringify([
 				{
-					timeout: 30_000,
+					type: "tool_call",
+					callId: "e2e-create-call",
+					name: "create_artifact",
+					input: {
+						artifactType: "document",
+						title: CREATED_TITLE,
+						body: CREATED_BODY,
+					},
+					status: "done",
+					outputSummary: `Created Document "${CREATED_TITLE}"`,
+					sourceType: "tool",
+					metadata: {
+						ok: true,
+						artifactId: made.id,
+						artifactKind: "document",
+						artifactTitle: CREATED_TITLE,
+					},
 				},
-			);
-			await workspace.getByRole("button", { name: "Delete document" }).click();
-			const dialog = page.getByRole("dialog", {
-				name: "Delete this document?",
-			});
-			await expect(dialog).toBeVisible();
-			await expect(dialog).toContainText(AI_SMOKE_CREATE_ARTIFACT_TITLE);
-			await expect(dialog).toContainText("This can't be undone.");
-			await dialog.getByRole("button", { name: "Delete" }).click();
+			]),
+			createdAt: new Date(),
+		});
+		await openChatAndReload(page, conversationId);
+		const card = page.getByTestId("artifact-card");
+		await expect(card).toBeVisible();
+		const [listed] = await listItems(page, conversationId);
+		expect(listed?.id).toBe(made.id);
 
-			// The only item: the panel leaves with it, the card flips, a toast says so.
-			await expect(page.getByTestId("workspace-main")).toBeHidden();
-			await expect(page.getByTestId("artifact-count-button")).toBeHidden();
-			await expect(page.getByTestId("artifact-card")).toHaveAttribute(
-				"data-state",
-				"deleted",
-			);
-			await expect(page.getByText("This document was deleted")).toBeVisible();
-			await expect(page.getByTestId("artifact-card-head")).toHaveCount(0);
-			await expect(page.getByText("Document deleted")).toBeVisible();
-			expect(await listItems(page, conversationId)).toEqual([]);
+		// Open it, then delete it from the header.
+		await card.getByTestId("artifact-card-head").click({ timeout: 30_000 });
+		const workspace = page.getByRole("complementary", {
+			name: "Document workspace",
+		});
+		await expect(workspace).toBeVisible({ timeout: 30_000 });
+		await expect(workspace.getByText("Book the museum tickets.")).toBeVisible({
+			timeout: 30_000,
+		});
+		await workspace.getByRole("button", { name: "Delete document" }).click();
+		const dialog = page.getByRole("dialog", { name: "Delete this document?" });
+		await expect(dialog).toBeVisible();
+		await expect(dialog).toContainText(CREATED_TITLE);
+		await expect(dialog).toContainText("This can't be undone.");
+		await dialog.getByRole("button", { name: "Delete" }).click();
 
-			// A reload keeps it deleted: the server's own answer, not page state.
-			await page.reload({ waitUntil: "networkidle" });
-			const cardAfterReload = page.getByTestId("artifact-card");
-			await expect(cardAfterReload).toHaveAttribute("data-state", "deleted");
+		// The only item: the panel leaves with it, the card flips, a toast says so.
+		await expect(page.getByTestId("workspace-main")).toBeHidden();
+		await expect(page.getByTestId("artifact-count-button")).toBeHidden();
+		await expect(page.getByTestId("artifact-card")).toHaveAttribute(
+			"data-state",
+			"deleted",
+		);
+		await expect(page.getByText("This document was deleted")).toBeVisible();
+		await expect(page.getByTestId("artifact-card-head")).toHaveCount(0);
+		await expect(page.getByText("Document deleted")).toBeVisible();
+		expect(await listItems(page, conversationId)).toEqual([]);
 
-			// Regenerate: the same id, from the arguments the model gave.
-			await cardAfterReload
-				.getByRole("button", {
-					name: `Regenerate ${AI_SMOKE_CREATE_ARTIFACT_TITLE}`,
-				})
-				.click();
-			await expect(page.getByTestId("artifact-card-head")).toBeVisible({
-				timeout: 30_000,
-			});
-			await expect(page.getByTestId("artifact-card")).not.toHaveAttribute(
-				"data-state",
-				"deleted",
-			);
-			const [again] = await listItems(page, conversationId);
-			expect(again?.id).toBe(made.id);
-			await page.getByTestId("artifact-card-head").click();
-			await expect(
-				page
-					.getByRole("complementary", { name: "Document workspace" })
-					.getByText("Book the museum tickets."),
-			).toBeVisible({ timeout: 30_000 });
-		} finally {
-			await updateUserModelPreference(page, previousModelPreference);
-			if (temporaryProvider) {
-				await deleteTemporaryProvider(page, temporaryProvider.providerId);
-			}
-		}
+		// A reload keeps it deleted: the server's own answer, not page state.
+		await page.reload({ waitUntil: "networkidle" });
+		const cardAfterReload = page.getByTestId("artifact-card");
+		await expect(cardAfterReload).toHaveAttribute("data-state", "deleted");
+
+		// Regenerate: the same id, from the arguments the model gave.
+		await cardAfterReload
+			.getByRole("button", { name: `Regenerate ${CREATED_TITLE}` })
+			.click();
+		await expect(page.getByTestId("artifact-card-head")).toBeVisible({
+			timeout: 30_000,
+		});
+		await expect(page.getByTestId("artifact-card")).not.toHaveAttribute(
+			"data-state",
+			"deleted",
+		);
+		const [again] = await listItems(page, conversationId);
+		expect(again?.id).toBe(made.id);
+		await page.getByTestId("artifact-card-head").click();
+		await expect(
+			page
+				.getByRole("complementary", { name: "Document workspace" })
+				.getByText("Book the museum tickets."),
+		).toBeVisible({ timeout: 30_000 });
 	});
 });
 
