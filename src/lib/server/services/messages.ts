@@ -35,6 +35,7 @@ import type {
 	WebCitationAudit,
 	WebCitationRepairSummary,
 } from "$lib/server/services/web-citation-audit";
+import { artifactCallsFromSegments } from "$lib/shared/artifacts/artifact-calls";
 import type {
 	InstructionScopeApplication,
 	InstructionSuggestion,
@@ -44,6 +45,14 @@ import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
 import { repairConversationMessageSequencesWithExecutor } from "./message-sequences";
+
+// The pure half of what a chat's messages say about their artifacts lives in
+// `shared/` — the chat page reads it too, on the messages it holds live — and
+// stays importable from here for the server.
+export {
+	artifactCallIdsFromMessages,
+	regenerableArtifactIdsFromMessages,
+} from "$lib/shared/artifacts/artifact-calls";
 
 type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	evidenceSummary?: MessageEvidenceSummary | null;
@@ -1049,80 +1058,6 @@ export async function updateMessageDocumentLink(
 		.update(messages)
 		.set({ metadataJson: JSON.stringify(next) })
 		.where(eq(messages.id, messageId));
-}
-
-/**
- * The successful `create_artifact` / `edit_artifact` calls in a list of
- * thinking segments: the one record of which artifact a chat card is about
- * and (for a create) of the model's own arguments. A refused call, a call
- * that named no artifact and every other tool are left out.
- */
-function artifactCallsFromSegments(
-	segments: readonly ThinkingSegment[] | undefined,
-): Array<{
-	name: "create_artifact" | "edit_artifact";
-	artifactId: string;
-	input: Record<string, unknown>;
-}> {
-	const calls: ReturnType<typeof artifactCallsFromSegments> = [];
-	for (const segment of segments ?? []) {
-		if (segment.type !== "tool_call") continue;
-		if (segment.name !== "create_artifact" && segment.name !== "edit_artifact")
-			continue;
-		if (segment.status === "failed" || segment.metadata?.ok === false) continue;
-		const artifactId = segment.metadata?.artifactId;
-		if (typeof artifactId !== "string" || artifactId.length === 0) continue;
-		calls.push({
-			name: segment.name,
-			artifactId,
-			input: segment.input ?? {},
-		});
-	}
-	return calls;
-}
-
-/**
- * The ids of the artifacts these messages' own tool calls made or edited,
- * each once, in the order first seen — read off the messages the caller
- * already holds, so it costs no query. Whether they still exist is the
- * artifact service's to say (`listMissingArtifactIds`): that is how a chat
- * card learns its item was deleted.
- */
-export function artifactCallIdsFromMessages(
-	messageList: ReadonlyArray<Pick<ChatMessage, "thinkingSegments">>,
-): string[] {
-	const ids = new Set<string>();
-	for (const message of messageList) {
-		for (const call of artifactCallsFromSegments(message.thinkingSegments)) {
-			ids.add(call.artifactId);
-		}
-	}
-	return [...ids];
-}
-
-/**
- * The ids of the artifacts these messages can make again — read off the
- * messages the caller already holds, so it costs no query: the ones a
- * successful `create_artifact` call made (Regenerate makes them again from the
- * model's own arguments; an edit never counts, it holds a summary, not the
- * item) and the Document a message was kept as (pressing "Open as document"
- * again makes it from the message). Each once, in the order first seen. It is
- * what lets the delete confirm promise "you can regenerate it from the chat"
- * only for an item the chat really can make again.
- */
-export function regenerableArtifactIdsFromMessages(
-	messageList: ReadonlyArray<
-		Pick<ChatMessage, "thinkingSegments" | "documentArtifactId">
-	>,
-): string[] {
-	const ids = new Set<string>();
-	for (const message of messageList) {
-		for (const call of artifactCallsFromSegments(message.thinkingSegments)) {
-			if (call.name === "create_artifact") ids.add(call.artifactId);
-		}
-		if (message.documentArtifactId) ids.add(message.documentArtifactId);
-	}
-	return [...ids];
 }
 
 /**

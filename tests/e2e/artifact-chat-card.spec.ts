@@ -328,6 +328,65 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 		}
 	});
 
+	// Final polish D4 (rd/recheck2.md): a Document made by a create_artifact call
+	// of THIS turn could already be made again from the chat — the deleted card
+	// offers Regenerate — but the delete confirm said "can't be undone" until a
+	// reload, because the list it reads the promise from is only marked from
+	// messages the server has persisted.
+	test('Delete on a Document made in this very turn promises Regenerate, not "can\'t be undone", without a reload', async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a weekend");
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+			await openChatAndReload(page, conversationId);
+
+			await sendMessage(page, AI_SMOKE_CREATE_ARTIFACT_MARKER);
+			await expect(
+				page.getByText(AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			// No reload: the turn is over and the card is on screen.
+			await page
+				.getByTestId("artifact-card")
+				.getByTestId("artifact-card-head")
+				.click({ timeout: 30_000 });
+			const workspace = workspacePanel(page);
+			await expect(workspace).toBeVisible({ timeout: 30_000 });
+			await workspace
+				.getByRole("button", { name: "Delete document" })
+				.click({ timeout: 15_000 });
+			const dialog = page.getByRole("dialog", {
+				name: "Delete this document?",
+			});
+			await expect(dialog).toBeVisible();
+			await expect(dialog).toContainText(AI_SMOKE_CREATE_ARTIFACT_TITLE);
+			await expect(dialog).toContainText(
+				"You can regenerate it from the chat.",
+			);
+			await expect(dialog).not.toContainText("can't be undone");
+			await page.keyboard.press("Escape");
+			await expect(dialog).toHaveCount(0);
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
+
 	// Wave 2.5 review F2 (291-293): "the in-chat card's version is stale" —
 	// a live edit_artifact call bumped a seeded v1 Document to v2, but the
 	// card kept reading "v1" because +page.svelte's hydrateConversationDetail
