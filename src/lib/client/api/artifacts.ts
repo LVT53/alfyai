@@ -27,6 +27,7 @@ import {
 } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import type { OpRefusal, OpsDiff } from "$lib/shared/artifacts/ops";
 import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
 import { _unwrapList } from "./_utils";
 import {
@@ -423,6 +424,13 @@ export type SaveArtifactBodyResult =
 			 * hand-built response (or an older cached one) still decodes.
 			 */
 			bodyHash?: string;
+			/**
+			 * A board save only, and only when the server had to leave something
+			 * out (a block of an unknown kind, an edge to nothing, a stroke past
+			 * the cap): how many of each. The caller's own copy still has them, so
+			 * this is the one place it hears the stored board differs.
+			 */
+			dropped?: { nodes: number; edges: number; annotations: number };
 	  }
 	| {
 			ok: false;
@@ -487,6 +495,69 @@ export async function saveArtifactBody(
 	if (payload.ok)
 		announceArtifactVersion(artifactId, payload.version, Date.now());
 	return payload;
+}
+
+export type ApplyArtifactOpsResult =
+	| {
+			ok: true;
+			/** The version the diff landed in, or the current one when nothing changed. */
+			versionId: string;
+			version: number;
+			applied: number;
+			/** Each op that was skipped: its place in the diff, its name, what it named, and why. */
+			refused: OpRefusal[];
+			/** False when nothing was written: every op refused, or ops that change nothing (a highlight). */
+			changed: boolean;
+	  }
+	| { ok: false; reason: "version_conflict"; version: number }
+	| {
+			ok: false;
+			reason: "invalid_diff" | "unsupported_kind" | "not_found" | "too_large";
+			detail?: string;
+	  };
+
+/**
+ * An id-addressed change to an artifact — `POST /api/artifacts/[id]/ops`,
+ * ruling 14's one route for every kind's diff (a board's `BoardDiff` today).
+ * `baseVersionId` is the version the diff was made against; a stale one is a
+ * `version_conflict` carrying the version the artifact is really at, and the
+ * caller reloads. A documented refusal comes back as a value, like
+ * `saveArtifactBody`'s, so the panel decides what it means; only a failure of
+ * the request itself throws. There is no `saveCanvasBody`: the board's own
+ * saves go through `saveArtifactBody` (ruling 64).
+ *
+ * The version a landed diff reports is announced through the same channel a
+ * body save uses, so the list row, the in-chat card and the header follow it.
+ */
+export async function applyArtifactOps(
+	artifactId: string,
+	baseVersionId: string,
+	diff: OpsDiff<{ op: string }>,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<ApplyArtifactOpsResult> {
+	const response = await requestResponse(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/ops${withConversationQuery(conversationId)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ baseVersionId, diff }),
+		},
+		fetchImpl,
+	);
+	const result = (await response.json()) as ApplyArtifactOpsResult;
+	if (result.ok) {
+		// A write just happened, so "now" is when it changed; a diff that wrote
+		// nothing only says which version the artifact is at.
+		announceArtifactVersion(
+			artifactId,
+			result.version,
+			result.changed ? Date.now() : null,
+		);
+	} else if (result.reason === "version_conflict") {
+		announceArtifactVersion(artifactId, result.version, null);
+	}
+	return result;
 }
 
 export type ToggleDocumentTaskResult =

@@ -9,7 +9,8 @@
 // tables directly (the account data archive, which reads everything a user
 // owns on purpose, is the one named exception — see its own header).
 
-// Slice 3 (Canvas): the board's own save seam. Each type slice appends one block.
+// Slice 3 (Canvas): the board's own save seam and the ops envelope every
+// kind's id-addressed changes go through. Each type slice appends one block.
 export { saveCanvasBoard } from "./canvas-ops";
 export {
 	ARTIFACT_CATALOGUE_MAX,
@@ -50,6 +51,15 @@ export {
 export { hashArtifactBody } from "./hash";
 export { keepMessageAsDocument } from "./keep-message";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
+export {
+	applyArtifactOps,
+	OPS_BRANCHES,
+	type OpsBranch,
+	type OpsBranchOutcome,
+	type OpsEnvelopeFailureReason,
+	type OpsEnvelopeInput,
+	type OpsEnvelopeResult,
+} from "./ops";
 export {
 	listArtifactsForConversation,
 	listMissingArtifactIds,
