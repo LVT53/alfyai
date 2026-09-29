@@ -2764,6 +2764,25 @@ function saveNoticeText(notice: SaveNotice): string {
 		margin: 0;
 	}
 
+	/* The mockup's `.task[aria-checked="true"] .task-label` (redesign §7.2 #27):
+	   a ticked item's words are muted and struck through, so a finished list
+	   reads as finished, not just a filled box. Only the item's OWN paragraphs
+	   (`> div > p`): a task list nested under a ticked item has states of its own,
+	   and a line-through set on the whole `div` could not be undone by them.
+	   The line takes the muted colour of the text. The mockup draws it in left to
+	   right with a background-size trick that only strikes one line of a wrapped
+	   item, so this uses the real text decoration and lets the colour ease in;
+	   reduced motion collapses that (app.css). */
+	.document-editor-host :global(.document-content li[data-checked] > div > p) {
+		transition: color var(--duration-standard) var(--ease-out);
+	}
+
+	.document-editor-host :global(.document-content li[data-checked='true'] > div > p) {
+		color: var(--text-muted);
+		text-decoration: line-through;
+		text-decoration-thickness: 1px;
+	}
+
 	/* The tracker table (`@tiptap/extension-table`'s TableKit). This styles
 	   the bare `table` directly, matching the mockup's `.doc-table` (not
 	   `.doc-table-wrap`) — width/border/radius stay here, unchanged. */
