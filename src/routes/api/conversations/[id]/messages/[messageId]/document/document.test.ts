@@ -140,6 +140,37 @@ describe("POST /api/conversations/[id]/messages/[messageId]/document", () => {
 		expect(second.body.created).toBe(false);
 	});
 
+	// Polish G2-A (Regenerate for a Document made with "Open as document"): the
+	// message's link points at something deleted since, so asking again makes a
+	// fresh Document from the same reply and re-links the message to it — the
+	// same action, on the same message, run again.
+	it("makes a fresh Document from the same reply once the kept one was deleted, and re-links the message", async () => {
+		seedConversationAndMessage({ content: "A plan for Saturday." });
+		const first = await postDocument();
+		const { deleteArtifact } = await import("$lib/server/services/artifacts");
+		await expect(
+			deleteArtifact({
+				userId: "route-owner",
+				artifactId: first.body.artifactId as string,
+			}),
+		).resolves.toBe(true);
+
+		const again = await postDocument();
+
+		expect(again.status).toBe(200);
+		expect(again.body.created).toBe(true);
+		expect(again.body.artifactId).not.toBe(first.body.artifactId);
+		expect(rawContentText(again.body.artifactId as string)).toContain(
+			"A plan for Saturday.",
+		);
+		// Now the message points at the new one: asking a third time opens it.
+		const third = await postDocument();
+		expect(third.body).toMatchObject({
+			created: false,
+			artifactId: again.body.artifactId,
+		});
+	});
+
 	it("answers not_found for an empty message", async () => {
 		seedConversationAndMessage({ content: "" });
 
