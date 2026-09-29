@@ -31,7 +31,11 @@ import type {
 	CanvasEdge,
 	CanvasNode,
 } from "$lib/shared/artifacts/canvas";
-import { MODEL_CREATABLE_DATA_SCHEMAS } from "$lib/shared/artifacts/canvas-blocks";
+import {
+	DEFAULT_NODE_HEIGHT,
+	MODEL_CREATABLE_DATA_SCHEMAS,
+	NODE_WIDTH,
+} from "$lib/shared/artifacts/canvas-blocks";
 import { emptyCanvasBody } from "$lib/shared/artifacts/canvas-body";
 import type { OpRefusal } from "$lib/shared/artifacts/ops";
 import { describeJsonSlip } from "./tool-args";
@@ -39,13 +43,15 @@ import { describeJsonSlip } from "./tool-args";
 // ── What read_artifact shows ─────────────────────────────────────────────
 
 /**
- * The footprint a node without a stored size is given: the same constants
- * `_lib/board.ts`'s `nodeRect` falls back to before the panel has measured it
- * (slice-3.md §The board `_lib` modules). A model arranging a board needs sizes
- * to keep notes from covering each other; a frame always carries its own.
+ * The footprint a node without a stored size is given: declared once, in
+ * `canvas-blocks.ts`, and read by the board's geometry (`_lib/board.ts`) too,
+ * so the sizes a model arranges by and the ones the board hit-tests with cannot
+ * drift. Kept under these names because the eval scores against them.
  */
-export const BOARD_NODE_WIDTH = 190;
-export const BOARD_DEFAULT_NODE_HEIGHT = 84;
+export {
+	DEFAULT_NODE_HEIGHT as BOARD_DEFAULT_NODE_HEIGHT,
+	NODE_WIDTH as BOARD_NODE_WIDTH,
+};
 
 /** Enough of a note to know which one it is; `detail: "full"` has the rest. */
 const LABEL_MAX_CHARS = 300;
@@ -93,8 +99,8 @@ function readNodeBlock(node: CanvasNode): Record<string, unknown> {
 		label: labelOf(node),
 		x: node.position.x,
 		y: node.position.y,
-		width: node.width ?? frame?.width ?? BOARD_NODE_WIDTH,
-		height: node.height ?? frame?.height ?? BOARD_DEFAULT_NODE_HEIGHT,
+		width: node.width ?? frame?.width ?? NODE_WIDTH,
+		height: node.height ?? frame?.height ?? DEFAULT_NODE_HEIGHT,
 		...(node.parentId === undefined ? {} : { parentId: node.parentId }),
 		...(data.kind === "sticky" ? { tone: data.tone } : {}),
 		...(data.kind === "checklist"

@@ -31,6 +31,17 @@ export const CHECKLIST_ITEM_MAX_CHARS = 1_000;
 const PHOTO_MAX_ITEMS = 50;
 const SOURCES_MAX = 50;
 
+/**
+ * What a node that stores no size of its own is taken to occupy until the
+ * panel has measured it. Declared once, here, because two readers must agree
+ * to the pixel: the board's geometry (`_lib/board.ts`: where a dropped block's
+ * centre is, which frame it lands in) and the model's view of a board
+ * (`canvas-model.ts`: the sizes Alfy arranges notes by). A number defined in
+ * each would drift, and the model would leave gaps the board does not have.
+ */
+export const NODE_WIDTH = 190;
+export const DEFAULT_NODE_HEIGHT = 84;
+
 const idSchema = z.string().min(1).max(ID_MAX_CHARS);
 const labelSchema = z.string().max(LABEL_MAX_CHARS);
 
