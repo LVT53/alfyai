@@ -659,6 +659,26 @@ stop at each milestone for the owner's check).*
 - The S6 remainder follows Slides without waiting for S5b: ruling 31's order only governs appends to the shared
   containment suite, which stays append-only either way.
 
+## 66. A deck is fact-checked before it is written
+
+*Owner, 2026-09-29, after suite 4's live run missed its bar (7/16 decks clean; 9/16 carried a number or name from the
+model's own knowledge, 5 of them only in speaker notes; 0 language misses in 69 decks): "Agreed with your
+recommendation" — option (c) of `wave-3/s4d-report.md` §7.* ADR-0066's rule applied: the design changes, not the bar.
+- **Before a deck is written**, the Slides create path runs a verification pass on the App pattern (Slice 2's
+  verifier, rulings 52 and 57): list the specifics in the deck — numbers, dates, times, prices, names, places — that the
+  user's own material (the conversation and the sources the turn used) does not contain; check the general-knowledge ones
+  with `research_web`; **remove or neutrally rephrase whatever cannot be confirmed**; then write. A personal specific
+  (a train time, a price, a booking, a person) is never "confirmed" by the web — if the user did not give it, it goes.
+  Speaker notes are checked like slide text.
+- It runs inside `create_artifact`'s 120 s (ruling 40) with its own deadline and the abort signal (ruling 53). Running
+  out of time removes the unconfirmed specifics rather than writing them; it never fails the create.
+- The result is recorded with the version (what was checked, confirmed with its source, removed) and shown the way an
+  App's fact check is: one quiet line on the card and in the panel ("Alfy checked 6 details; removed 2 it couldn't
+  confirm"), localized. Alfy's later edits that add text to a deck go through the same check.
+- **Suite 4's bar stays "zero unsupported specifics"**, measured on the deck as written, where a specific confirmed by the
+  verifier counts as sourced (its source recorded next to the response), over three repeats, reported as a rate.
+- Cost if wrong: one extra model pass (plus bounded web checks) per deck, about 20–60 s.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.

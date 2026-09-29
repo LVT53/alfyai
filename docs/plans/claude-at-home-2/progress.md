@@ -762,7 +762,8 @@ and Slides protocol reviews and anything touching ownership or deletion.
 | S3-R | the chat-derived blocks (map, file, app, photo, live web), their "from this chat" inserts, the refresh route (T2's rest, T7's refresh) | — | S3-B | queued |
 | S3-X | posters and PNG export; the perf budget (T7, T8's perf half; S3-B takes the chunk guard) | — | S3-A, S3-R | queued |
 | RV-3 | **Opus** review: the Canvas protocol, the tools, the refresh route (outbound fetch), ownership | — | S3-T | queued |
-| S4-P | Slides panel: layouts, rail, stage, editor, card branch (T2) | off `feat/artifacts-slides` | S4-D (suite 4 result) | queued |
+| S4-V | **Ruling 66 (owner, 2026-09-29):** the deck fact-check before write (App verifier pattern), its result on the version, suite 4 re-scored after it; first merges `feat/artifacts` into `feat/artifacts-slides` (S4-D §8's conflicts: catalogue snapshots and ceiling re-measured) | off `feat/artifacts-slides` | S3-T merged | queued |
+| S4-P | Slides panel: layouts, rail, stage, editor, card branch with the fact-check line (T2) | off `feat/artifacts-slides` | S4-D | queued |
 | S4-O | Slides patches (`deck-ops.ts` on the shared mechanism), read/edit handlers, "Ask Alfy about this slide", suite 4's edit case (T3, T4) | off `feat/artifacts-slides` | S3-P merged into it, S4-P | queued |
 | S4-X | speaker notes, present mode, PPTX export (T5, T6) | off `feat/artifacts-slides` | S4-P | queued |
 | RV-4 | **Opus** review: Slides patches and the PPTX program | — | S4-O | queued |
