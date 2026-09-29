@@ -513,7 +513,18 @@ async function cancelRestore(versionId: string): Promise<void> {
 		.versions-restore {
 			min-height: 44px;
 			min-width: 44px;
-			padding: 0 12px;
+			padding: 0 10px;
+			font-size: 12px;
+		}
+
+		/* Its own column costs the summary room, so the summary may take a
+		   second line instead of being cut off — a phone has the height. */
+		.versions-summary {
+			display: -webkit-box;
+			-webkit-box-orient: vertical;
+			-webkit-line-clamp: 2;
+			line-clamp: 2;
+			white-space: normal;
 		}
 
 		.versions-confirm {
