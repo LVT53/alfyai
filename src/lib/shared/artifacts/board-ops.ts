@@ -420,7 +420,7 @@ function creationLimit(
 	if (body.nodes.length >= MAX_NODES_PER_BOARD) {
 		return refuse(
 			"limit_exceeded",
-			`The board already holds the most it can (${MAX_NODES_PER_BOARD} nodes).`,
+			`The board already holds the most it can (${MAX_NODES_PER_BOARD} nodes); remove nodes it does not need first.`,
 			id,
 		);
 	}
@@ -493,7 +493,11 @@ function stepAddNode(
 	}
 	if (spec.parentId !== undefined) {
 		if (spec.parentId === spec.id) {
-			return refuse("self_parent", "A node cannot be inside itself.", spec.id);
+			return refuse(
+				"self_parent",
+				"A node cannot be inside itself. Set parentId to another frame's id, or leave it out.",
+				spec.id,
+			);
 		}
 		const parent = findNode(body, spec.parentId);
 		if (!parent || parent.type !== "frame") {
@@ -509,7 +513,7 @@ function stepAddNode(
 		if (closesLoop(body, spec.id, spec.parentId)) {
 			return refuse(
 				"cycle",
-				`A frame cannot sit inside a frame that is inside it ("${spec.parentId}").`,
+				`A frame cannot sit inside a frame that is inside it ("${spec.parentId}"). Set parentId to another frame's id, or leave it out.`,
 				spec.id,
 			);
 		}

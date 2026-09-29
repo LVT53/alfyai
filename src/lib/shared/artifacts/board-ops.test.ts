@@ -1044,3 +1044,161 @@ describe("refusal messages", () => {
 		}
 	});
 });
+
+// Ruling 62: a wrong guess is corrected in one step, so no refusal the model
+// reads may stop at "no". Each case is the refusal the model would get, and what
+// it must contain to be acted on (the ids that exist, the kinds it may add, the
+// fields of the kind, or what to do instead).
+describe("every refusal names what would have worked (ruling 62)", () => {
+	function refusalOf(body: CanvasBody, ...ops: unknown[]): string {
+		const { refused } = validateBoardDiff(unchecked(...ops), body);
+		expect(refused).toHaveLength(1);
+		return refused[0].detail;
+	}
+
+	const CASES: Array<[string, () => string, RegExp[]]> = [
+		[
+			"unknown_id (a node)",
+			() =>
+				refusalOf(sampleBoard(), {
+					op: "move",
+					id: "nope",
+					to: { x: 1, y: 1 },
+				}),
+			[/Node ids: .*note-1/],
+		],
+		[
+			"unknown_id (an edge)",
+			() => refusalOf(sampleBoard(), { op: "remove_edge", id: "nope" }),
+			[/Edge ids: .*edge-1/],
+		],
+		[
+			"duplicate_id",
+			() => refusalOf(sampleBoard(), addSticky("note-1")),
+			[/choose a new id/],
+		],
+		[
+			"unknown_kind",
+			() =>
+				refusalOf(sampleBoard(), {
+					op: "add_node",
+					node: {
+						id: "m",
+						type: "map",
+						position: { x: 0, y: 0 },
+						data: { kind: "map" },
+					},
+				}),
+			[/frame, sticky, text, checklist, chart/],
+		],
+		[
+			"kind_mismatch (add_node)",
+			() =>
+				refusalOf(sampleBoard(), {
+					op: "add_node",
+					node: {
+						id: "k",
+						type: "sticky",
+						position: { x: 0, y: 0 },
+						data: { kind: "text", text: "t" },
+					},
+				}),
+			[/same kind/],
+		],
+		[
+			"kind_mismatch (update_node)",
+			() =>
+				refusalOf(sampleBoard(), {
+					op: "update_node",
+					id: "note-1",
+					data: { kind: "text" },
+				}),
+			[/Remove it and add the new one/],
+		],
+		[
+			"missing_parent",
+			() => refusalOf(sampleBoard(), addSticky("p", { parentId: "nowhere" })),
+			[/Frames: .*frame-a/, /earlier/],
+		],
+		[
+			"self_parent",
+			() =>
+				refusalOf(sampleBoard(), {
+					op: "add_node",
+					node: {
+						id: "loop",
+						type: "frame",
+						parentId: "loop",
+						position: { x: 0, y: 0 },
+						data: { kind: "frame", label: "L", width: 100, height: 100 },
+					},
+				}),
+			[/parentId/],
+		],
+		[
+			"cycle",
+			() => {
+				const body = sampleBoard();
+				body.nodes.push({
+					id: "inner",
+					type: "frame",
+					parentId: "outer",
+					position: { x: 0, y: 0 },
+					data: { kind: "frame", label: "inner", width: 50, height: 50 },
+				});
+				return refusalOf(body, {
+					op: "add_node",
+					node: {
+						id: "outer",
+						type: "frame",
+						parentId: "inner",
+						position: { x: 0, y: 0 },
+						data: { kind: "frame", label: "outer", width: 100, height: 100 },
+					},
+				});
+			},
+			[/parentId/],
+		],
+		[
+			"invalid_data (a field the block does not have)",
+			() =>
+				refusalOf(sampleBoard(), {
+					op: "update_node",
+					id: "note-1",
+					data: { colour: "red" },
+				}),
+			[/Fields of sticky: kind, text, tone/],
+		],
+		[
+			"invalid_data (a value the block does not take)",
+			() =>
+				refusalOf(sampleBoard(), {
+					op: "update_node",
+					id: "note-1",
+					data: { tone: "red" },
+				}),
+			[/Fields of sticky: kind, text, tone/],
+		],
+		[
+			"limit_exceeded (a board that is full)",
+			() => refusalOf(fillBoard(MAX_NODES_PER_BOARD), addSticky("one-more")),
+			[/remove nodes/],
+		],
+		[
+			"limit_exceeded (too many new nodes in one change)",
+			() => {
+				const ops = Array.from({ length: MAX_NEW_NODES_PER_DIFF + 1 }, (_, i) =>
+					addSticky(`new-${i}`),
+				);
+				const { refused } = validateBoardDiff(diff(...ops), sampleBoard());
+				return refused[0].detail;
+			},
+			[/second change/],
+		],
+	];
+
+	it.each(CASES)("%s", (_name, detailOf, patterns) => {
+		const detail = detailOf();
+		for (const pattern of patterns) expect(detail).toMatch(pattern);
+	});
+});
