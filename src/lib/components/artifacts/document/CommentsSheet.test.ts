@@ -79,15 +79,97 @@ describe("CommentsSheet", () => {
 		).toBeInTheDocument();
 	});
 
-	it("presentation='drawer': renders a portaled drawer, named Comments", async () => {
+	it("presentation='drawer': renders a drawer inside the panel it belongs to, named Comments", async () => {
 		render(CommentsSheet, baseProps({ presentation: "drawer" }));
 
 		const drawer = screen.getByTestId("comments-drawer");
 		expect(drawer).toHaveAttribute("aria-label", "Comments");
-		expect(drawer.parentElement).toBe(document.body);
+		// Not portaled to the page: it is positioned against the panel's own
+		// content row, so it starts below the panel's header and follows the
+		// panel when it is docked or expanded.
+		expect(drawer.parentElement).not.toBe(document.body);
 		expect(
 			within(drawer).getByText("Anna says the Musikverein sells out early."),
 		).toBeInTheDocument();
+	});
+
+	it("the drawer's close button sits in the comments header row, not a row of its own above it", () => {
+		render(CommentsSheet, baseProps({ presentation: "drawer" }));
+
+		const drawer = screen.getByTestId("comments-drawer");
+		const header = drawer.querySelector(".margin-panel-header");
+		expect(header).not.toBeNull();
+		expect(
+			within(header as HTMLElement).getByRole("button", { name: "Close" }),
+		).toBeInTheDocument();
+	});
+
+	describe("stacks plainly, refusal note first, threads grouped by tab", () => {
+		const tabbed = {
+			blocks: [
+				{ ...BLOCK, id: "p1", markdown: "one proper concert", label: "one" },
+				{
+					...BLOCK,
+					id: "p2",
+					markdown: "a long lunch at the cafe",
+					label: "two",
+				},
+			],
+			tabs: [
+				{ id: "tab-a", title: "Overview", startBlockId: "p1" },
+				{ id: "tab-b", title: "Day by day", startBlockId: "p2" },
+			],
+			activeTabId: "tab-b",
+			comments: [
+				{
+					...COMMENT,
+					id: "on-b",
+					body: "About lunch.",
+					anchor: {
+						kind: "text" as const,
+						blockId: "p2",
+						quote: "long lunch",
+						prefix: "a ",
+						suffix: " at the cafe",
+					},
+				},
+				COMMENT,
+			],
+			refusal: {
+				blockId: "p2",
+				message: "Alfy left one part alone because you had changed it.",
+				items: [],
+			},
+		};
+
+		it.each([
+			"sheet",
+			"drawer",
+		] as const)("%s: the note, then Overview's thread, then Day by day's — every tab, in tab order", async (presentation) => {
+			render(CommentsSheet, baseProps({ presentation, ...tabbed }));
+			const list = await screen.findByTestId("margin-panel-list");
+			const order = within(list)
+				.getAllByTestId(/margin-comment|refusal-notice/)
+				.map((el) => el.getAttribute("data-comment-id") ?? "refusal");
+			expect(order).toEqual(["refusal", "c1", "on-b"]);
+			expect(
+				within(list)
+					.getAllByRole("heading", { level: 3 })
+					.map((h) => h.textContent),
+			).toEqual(["Overview", "Day by day"]);
+			expect(within(list).queryByText("In other tabs")).toBeNull();
+		});
+
+		it.each([
+			"sheet",
+			"drawer",
+		] as const)("%s: no card is offset to an anchor's height", async (presentation) => {
+			render(CommentsSheet, baseProps({ presentation, ...tabbed }));
+			await screen.findByTestId("margin-panel-list");
+			for (const card of screen.getAllByTestId("margin-comment")) {
+				expect(card.getAttribute("style") ?? "").not.toMatch(/top/);
+			}
+		});
 	});
 
 	it("the drawer closes on Escape and, once torn down, returns focus to whatever opened it", async () => {

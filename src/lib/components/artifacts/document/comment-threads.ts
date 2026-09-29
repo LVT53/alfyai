@@ -62,6 +62,15 @@ export interface AnchorBox {
 	bottom: number;
 }
 
+/**
+ * The text keeps at least this much room beside the comment column — its
+ * own 20px side padding included, so about 440px of words a line: what still
+ * reads as a comfortable line length.
+ */
+export const MIN_TEXT_COLUMN_PX = 480;
+export const MIN_RAIL_WIDTH_PX = 240;
+export const MAX_RAIL_WIDTH_PX = 300;
+
 /** A highlight whose last line is within this many pixels of the top edge has effectively scrolled past. */
 export const FOLLOW_TOP_SLOP_PX = 4;
 
@@ -278,4 +287,20 @@ export function pickFollowedComment(
 		}
 	}
 	return best?.commentId ?? null;
+}
+
+/**
+ * How wide the inline comment column is for a panel `panelWidth` px wide:
+ * the full 300px when there is room, narrower (down to 240px) as the panel
+ * narrows so the TEXT keeps its reading width, and `null` when even a 240px
+ * column would leave the text under `MIN_TEXT_COLUMN_PX` — there the column
+ * is a drawer, opened from the header's Comments button, not a squeeze.
+ * `0` means the panel has not been measured yet: assume room rather than
+ * flash a drawer.
+ */
+export function commentRailWidth(panelWidth: number): number | null {
+	if (panelWidth <= 0) return MAX_RAIL_WIDTH_PX;
+	const room = panelWidth - MIN_TEXT_COLUMN_PX;
+	if (room < MIN_RAIL_WIDTH_PX) return null;
+	return Math.min(MAX_RAIL_WIDTH_PX, room);
 }

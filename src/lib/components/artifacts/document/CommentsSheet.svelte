@@ -1,31 +1,25 @@
 <script lang="ts">
 /**
- * Comments away from the inline rail (Feature 2 · Artifacts, Wave 2.5 Step 8,
- * redesign.md §3.2/§3.3/§9.2/§9.3): a phone bottom sheet from the header's
- * Comments button or a tapped highlight, and a 280px drawer over the right
- * edge of the text on a narrow desktop panel ("Below a panel width of 820 px
- * the rail becomes a 280 px drawer over the right edge of the text, toggled
- * by the header's Comments button").
+ * Comments away from the inline column (Feature 2 · Artifacts, Wave 2.5 Step
+ * 8, redesign.md §3.2/§3.3/§9.2/§9.3; reworked after the owner's walk-through
+ * of the redesign): a phone bottom sheet from the header's Comments button or
+ * a tapped highlight, and a drawer over the right edge of the text on a
+ * panel too narrow to hold the column beside it.
  *
- * Wraps `MarginPanel.svelte` AS ITS CONTENT, unchanged — rd3a's own hand-off:
- * "Agent 3b's phone sheet / narrow drawer should reuse this component AS ITS
- * CONTENT and change only the wrapping chrome... the state
- * (activeCommentId/focusCommentRequest/commentAnchors) and the editor-side
- * event delegation already live in DocumentBody.svelte and need no new
- * plumbing for a narrower viewport, only a different presentation." This file
- * owns presentation only, never comment state.
+ * Wraps `MarginPanel.svelte` AS ITS CONTENT — this file owns presentation
+ * only, never comment state (`DocumentBody.svelte` does) — in its `grouped`
+ * layout: there is no text beside a sheet or a drawer to sit next to, so it
+ * is a plain stack, the refusal note first, then every tab's threads under
+ * that tab's name, then the removed-text group (§3.2 "Phone").
  *
- * Deliberately never forwards `contentEl`: `MarginPanel`'s own "beside the
- * block" placement measures the TEXT's scroll container, which is not where
- * this component renders (a floating sheet/drawer, not the shared scroll
- * container `.document-content` — redesign §3.2's "one scroll" applies only
- * to the ≥820px inline rail). Withholding `contentEl` puts `MarginPanel` into
- * its own already-built fallback — "the plain stacked list… the moment there
- * is no room to place things beside anything" (`MarginPanel.svelte`'s own doc
- * comment) — exactly the shape a disconnected overlay needs, so there is
- * nothing new to build here for that case.
+ * The drawer lives INSIDE the panel it belongs to: it slides in from the
+ * panel's own right edge, starts below the panel's header, tabs and toolbar
+ * (so the header's Comments button — the toggle that closes it — is never
+ * covered), and follows the panel wherever it is, docked or expanded. It
+ * used to be fixed to the browser window's edge from the top down, which
+ * covered the panel's own actions and missed the expanded presentation
+ * altogether.
  */
-import { X } from "@lucide/svelte";
 import { fly } from "svelte/transition";
 import type { ComponentProps } from "svelte";
 import DialogShell, {
@@ -36,7 +30,6 @@ import DialogShell, {
 import { t } from "$lib/i18n";
 import { focusTrap } from "$lib/utils/focus-trap";
 import { reducedMotionAware } from "$lib/utils/motion";
-import { portalToBody } from "$lib/utils/portal";
 // MarginPanel is a genuine runtime import for the two <MarginPanel {...} />
 // mounts in the template below, on top of typing MarginPanelProps via
 // ComponentProps<typeof MarginPanel> — biome's import-usage check only sees
@@ -44,7 +37,10 @@ import { portalToBody } from "$lib/utils/portal";
 // biome-ignore lint/style/useImportType: see above — import type would break both template mounts
 import MarginPanel from "./MarginPanel.svelte";
 
-type MarginPanelProps = Omit<ComponentProps<typeof MarginPanel>, "contentEl">;
+type MarginPanelProps = Omit<
+	ComponentProps<typeof MarginPanel>,
+	"layout" | "onClose" | "revealRequest"
+>;
 
 let {
 	presentation,
@@ -56,7 +52,7 @@ let {
 	onClose: () => void;
 } = $props();
 
-/** The quote button ("goes to the anchor") jumps back into the main text — closing first so the reader can actually see the flash-scroll it triggers, on both the phone sheet (which otherwise fully covers the text) and the narrow drawer (which covers its own edge of it). */
+/** The quote button and a click on a card jump back into the main text — closing first so the reader can actually see the flash-scroll it triggers, on both the phone sheet (which otherwise fully covers the text) and the narrow drawer (which covers its own edge of it). */
 function handleGotoAnchor(blockId: string, from: number, to: number): void {
 	marginPanelProps.onGotoAnchor?.(blockId, from, to);
 	onClose();
@@ -84,10 +80,10 @@ const drawerFocusTrap = focusTrap({
 </script>
 
 {#if presentation === 'sheet'}
-	<!-- `MarginPanel` already draws its own "Comments" `<h2>` (plus the "N
-	     resolved" toggle) as its rail header — `titleVisuallyHidden` keeps
-	     `DialogShell`'s title as the sheet's ACCESSIBLE name without a second,
-	     visually duplicate heading. -->
+	<!-- `MarginPanel` already draws its own "Comments" `<h2>` (plus the count
+	     and the "N resolved" toggle) as its header — `titleVisuallyHidden`
+	     keeps `DialogShell`'s title as the sheet's ACCESSIBLE name without a
+	     second, visually duplicate heading. -->
 	<!-- zIndexClass: this sheet opens from a button INSIDE
 	     `DocumentWorkspace.svelte`'s mobile shell, whose own
 	     `.workspace-mobile-backdrop` sits at `z-index: 95` — DialogShell's
@@ -103,7 +99,7 @@ const drawerFocusTrap = focusTrap({
 		zIndexClass="z-[150]"
 		onClose={onClose}
 	>
-		<MarginPanel {...marginPanelProps} onGotoAnchor={handleGotoAnchor} />
+		<MarginPanel {...marginPanelProps} layout="grouped" onGotoAnchor={handleGotoAnchor} />
 	</DialogShell>
 {:else}
 	<div
@@ -112,66 +108,40 @@ const drawerFocusTrap = focusTrap({
 		aria-modal="true"
 		aria-label={$t('artifacts.document.margin.title')}
 		data-testid="comments-drawer"
-		use:portalToBody
 		{@attach drawerFocusTrap}
 		transition:drawerFly={{ duration: 220, x: 280 }}
 	>
-		<!-- Same reasoning as the sheet above: no second "Comments" heading
-		     here — `MarginPanel`'s own header row is the first thing inside
-		     `.comments-drawer-body`, and `aria-label` on this dialog already
-		     carries the accessible name. -->
-		<div class="comments-drawer-head">
-			<button
-				type="button"
-				class="btn-icon-bare"
-				onclick={onClose}
-				aria-label={$t('common.close')}
-			>
-				<X size={16} strokeWidth={2} aria-hidden="true" />
-			</button>
-		</div>
-		<div class="comments-drawer-body">
-			<MarginPanel {...marginPanelProps} onGotoAnchor={handleGotoAnchor} />
-		</div>
+		<!-- No second "Comments" heading and no separate header row: `MarginPanel`'s
+		     own header carries the title, the count, the filter and — given
+		     `onClose` — the close button, and `aria-label` above names the
+		     dialog. -->
+		<MarginPanel
+			{...marginPanelProps}
+			layout="grouped"
+			onGotoAnchor={handleGotoAnchor}
+			{onClose}
+		/>
 	</div>
 {/if}
 
 <style>
-	/* Fixed to the viewport's own right edge rather than measured against the
-	   panel's rect: correct for the panel's default docked presentation
-	   (flush against the viewport's right edge, and the only presentation
-	   narrow enough to ever reach the 820px threshold at the widths this
-	   feature ships screenshots for — see the brief). The panel's separate
-	   "expanded" (centred, margins on both sides) presentation is not
-	   width-matched against this drawer; a future pass can measure the
-	   panel's own rect the way `VersionsSheet.svelte`/`DownloadSheet.svelte`
-	   measure their trigger buttons, if that combination ever needs it. */
+	/* Positioned against `.document-content` (the row holding the text and,
+	   when there is room, the comment column): the drawer's top edge is the
+	   text area's top edge — below the panel's header, tabs and toolbar — and
+	   its right edge is the panel's, docked or expanded. Above the text
+	   column's own sticky review bar (z-index 5); below the popovers that are
+	   portaled to the page (Versions, Download: 130). */
 	.comments-drawer {
-		position: fixed;
+		position: absolute;
 		top: 0;
 		right: 0;
 		bottom: 0;
-		z-index: 55;
+		z-index: 20;
 		display: flex;
 		flex-direction: column;
-		width: 280px;
-		max-width: 88vw;
+		width: min(280px, 88%);
 		background: var(--surface-page);
 		border-left: 1px solid var(--border-default);
 		box-shadow: var(--shadow-lg);
-	}
-
-	.comments-drawer-head {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		flex: 0 0 auto;
-		padding: 0.5rem 0.5rem 0 0;
-	}
-
-	.comments-drawer-body {
-		flex: 1 1 auto;
-		min-height: 0;
-		overflow-y: auto;
 	}
 </style>

@@ -444,8 +444,24 @@ const artifactsDict = {
 		// title plus this counts suffix — never interpolated into one string,
 		// since a tab's title is arbitrary user text.
 		"artifacts.document.margin.otherTabs": "In other tabs",
-		"artifacts.document.margin.otherTabCounts":
-			"{open} open · {resolved} resolved",
+		// One row's counts are joined from these two so a zero never shows
+		// ("1 open", never "1 open · 0 resolved"); a tab's title is arbitrary
+		// user text and is never interpolated into either.
+		"artifacts.document.margin.otherTabOpen": "{count} open",
+		"artifacts.document.margin.otherTabResolved": "{count} resolved",
+		// The rail header's count (open threads on this tab) and its empty
+		// states. A document with one section has no "tab" to name.
+		"artifacts.document.margin.countA11y":
+			"{count} {count, plural, one {open comment} other {open comments}}",
+		"artifacts.document.margin.emptyDocument":
+			"No comments yet. Select text to start one.",
+		"artifacts.document.margin.emptyAllResolved":
+			"Every comment here is resolved.",
+		// The header's Comments button is a toggle for the comment column
+		// (the button's pressed state says which); its tooltip names the
+		// action rather than the noun.
+		"artifacts.document.margin.hide": "Hide comments",
+		"artifacts.document.margin.show": "Show comments",
 		// The download sheet (Slice 1, T12).
 		"artifacts.document.export.title": "Download {title}",
 		"artifacts.document.export.pdf": "PDF",
@@ -760,8 +776,15 @@ const artifactsDict = {
 		"artifacts.document.margin.resolvedToggle": "{count} lezárva",
 		"artifacts.document.margin.showOpenOnly": "Csak a nyitottak",
 		"artifacts.document.margin.otherTabs": "Más füleken",
-		"artifacts.document.margin.otherTabCounts":
-			"{open} nyitott · {resolved} lezárva",
+		"artifacts.document.margin.otherTabOpen": "{count} nyitott",
+		"artifacts.document.margin.otherTabResolved": "{count} lezárva",
+		"artifacts.document.margin.countA11y": "{count} nyitott megjegyzés",
+		"artifacts.document.margin.emptyDocument":
+			"Még nincs megjegyzés. Jelölj ki szöveget egy új megjegyzéshez.",
+		"artifacts.document.margin.emptyAllResolved":
+			"Itt minden megjegyzés le van zárva.",
+		"artifacts.document.margin.hide": "Megjegyzések elrejtése",
+		"artifacts.document.margin.show": "Megjegyzések megjelenítése",
 		"artifacts.document.export.title": "{title} letöltése",
 		"artifacts.document.export.pdf": "PDF",
 		"artifacts.document.export.docx": "Word",

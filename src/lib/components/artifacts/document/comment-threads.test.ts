@@ -4,6 +4,7 @@ import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import { makeBlock } from "$lib/shared/artifact-document/blocks";
 import {
 	commentAnchorTargets,
+	commentRailWidth,
 	countCommentsByTab,
 	groupResolvableByTab,
 	orderCommentsByPosition,
@@ -304,5 +305,45 @@ describe("pickFollowedComment", () => {
 				viewport,
 			),
 		).toBe("shown");
+	});
+});
+
+describe("commentRailWidth", () => {
+	it("gives a roomy panel the full 300px column", () => {
+		expect(commentRailWidth(1000)).toBe(300);
+		expect(commentRailWidth(1240)).toBe(300);
+	});
+
+	it("narrows the column, never the text, as the panel narrows", () => {
+		expect(commentRailWidth(760)).toBe(280);
+		expect(commentRailWidth(740)).toBe(260);
+		expect(commentRailWidth(720)).toBe(240);
+	});
+
+	it("says there is no room for an inline column once the text would drop below 480px", () => {
+		expect(commentRailWidth(719)).toBeNull();
+		expect(commentRailWidth(600)).toBeNull();
+	});
+
+	it("assumes there is room before the panel has been measured", () => {
+		expect(commentRailWidth(0)).toBe(300);
+	});
+
+	it("keeps 480px or more for the text at every panel width that shows the column", () => {
+		for (let width = 720; width <= 1700; width += 7) {
+			const rail = commentRailWidth(width);
+			expect(rail).not.toBeNull();
+			expect(rail).toBeGreaterThanOrEqual(240);
+			expect(rail).toBeLessThanOrEqual(300);
+			expect(width - (rail ?? 0)).toBeGreaterThanOrEqual(480);
+		}
+	});
+
+	it("is what the laptop layouts get: the docked panel at 1280, 1366, 1440 and 1512 wide windows", () => {
+		// The docked panel is min(68% of the window, 950px), less its 1px border.
+		for (const window of [1280, 1366, 1440, 1512]) {
+			const panel = Math.min(window * 0.68, 950) - 1;
+			expect(commentRailWidth(panel)).toBe(300);
+		}
 	});
 });

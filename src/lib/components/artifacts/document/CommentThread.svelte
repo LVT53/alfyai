@@ -5,10 +5,11 @@
  * 2.5 Step 6): the quote line, the root message, every reply, the shared
  * Reply/Resolve actions, the fold/peek once resolved, and the reply composer
  * that turns into Ask Alfy. `MarginPanel.svelte` owns the card's own
- * positioning/border/active-link chrome (`.margin-panel-item`) and passes
- * this component an already-resolved quote — this file never touches Tiptap,
- * a live document, or anchor resolution itself (`document/margin-layout.ts`'s
- * own boundary).
+ * border/surface/active-link chrome (`.margin-panel-item`) and passes this
+ * component an already-resolved quote — this file draws what is INSIDE the
+ * card (padded sections, so a resolved thread's one-line fold can run edge
+ * to edge) and never touches Tiptap, a live document, or anchor resolution
+ * itself (`document/comment-threads.ts`'s own boundary).
  *
  * Posting and the resolve toggle are the CALLER's own network calls
  * (`DocumentBody.svelte`'s margin block owns `createArtifactComment` /
@@ -20,7 +21,6 @@ import {
 	Check,
 	ChevronDown,
 	CornerDownLeft,
-	Quote,
 	RotateCcw,
 	Sparkles,
 } from "@lucide/svelte";
@@ -120,34 +120,14 @@ function truncate(text: string, max: number): string {
 	const trimmed = text.trim();
 	return trimmed.length > max ? `${trimmed.slice(0, max).trimEnd()}…` : trimmed;
 }
-let foldedPreview = $derived(
-	truncate(quote ?? thread.body, FOLDED_PREVIEW_MAX),
-);
+/** The mockup's fold line reads the thread's first words, not its quote: the quote row is part of the full thread and folds away with it. */
+let foldedPreview = $derived(truncate(thread.body, FOLDED_PREVIEW_MAX));
 let foldedA11yLabel = $derived(
 	`${$t("artifacts.document.comment.peekThread")}: ${foldedPreview}`,
 );
 </script>
 
 <div class="comment-thread">
-	{#if quote}
-		<div class="comment-thread-quote-row">
-			<button
-				type="button"
-				class="comment-thread-quote"
-				class:comment-thread-quote-struck={quoteStruck}
-				onclick={onGoto}
-				disabled={!onGoto}
-				aria-label={$t('artifacts.document.comment.quoteA11y', { quote })}
-			>
-				<Quote size={12} strokeWidth={2} aria-hidden="true" />
-				<span class="comment-thread-quote-text">{quote}</span>
-			</button>
-			{#if quoteMoved}
-				<span class="comment-thread-quote-moved">· {$t('artifacts.document.anchor.moved').toLowerCase()}</span>
-			{/if}
-		</div>
-	{/if}
-
 	<div class="comment-thread-collapsible" class:is-expanded={isFolded}>
 		<div class="comment-thread-collapsible-inner">
 			<!-- Rendered only while folded: an interactive element sitting in the
@@ -174,105 +154,126 @@ let foldedA11yLabel = $derived(
 	<div class="comment-thread-collapsible" class:is-expanded={!isFolded}>
 		<div class="comment-thread-collapsible-inner">
 			{#if !isFolded}
-			<div class="comment-thread-messages">
-				<CommentCard
-					comment={thread}
-					isGuess={isGuessThread}
-					changeState={changeStateByCommentId[thread.id]}
-					onSeeChange={onSeeChange ? () => onSeeChange(thread.id) : undefined}
-					onAskAgain={openReply}
-					{currentUserId}
-					{currentUserName}
-					{currentUserProfilePicture}
-				/>
-				{#each thread.replies as reply (reply.id)}
-					<div class="comment-thread-reply">
+				{#if quote}
+					<div class="comment-thread-quote-row">
+						<button
+							type="button"
+							class="comment-thread-quote"
+							class:comment-thread-quote-struck={quoteStruck}
+							onclick={onGoto}
+							disabled={!onGoto}
+							aria-label={$t('artifacts.document.comment.quoteA11y', { quote })}
+						>
+							<span class="comment-thread-quote-rule" aria-hidden="true"></span>
+							<span class="comment-thread-quote-text">{quote}</span>
+						</button>
+						{#if quoteMoved}
+							<span class="comment-thread-quote-moved">· {$t('artifacts.document.anchor.moved').toLowerCase()}</span>
+						{/if}
+					</div>
+				{/if}
+
+				<div class="comment-thread-messages">
+					<div class="comment-thread-message">
 						<CommentCard
-							comment={reply}
-							changeState={changeStateByCommentId[reply.id]}
-							onSeeChange={onSeeChange ? () => onSeeChange(reply.id) : undefined}
+							comment={thread}
+							isGuess={isGuessThread}
+							changeState={changeStateByCommentId[thread.id]}
+							onSeeChange={onSeeChange ? () => onSeeChange(thread.id) : undefined}
 							onAskAgain={openReply}
 							{currentUserId}
 							{currentUserName}
 							{currentUserProfilePicture}
 						/>
 					</div>
-				{/each}
-			</div>
-
-			{#if !replying}
-				<div class="comment-thread-actions">
-					<button type="button" class="btn-ghost btn-sm" onclick={openReply}>
-						<CornerDownLeft size={13} strokeWidth={2} aria-hidden="true" />
-						{$t('artifacts.document.comment.reply')}
-					</button>
-					<button
-						type="button"
-						class="btn-ghost btn-sm"
-						onclick={() => onResolve(thread.status !== 'resolved')}
-					>
-						{#if thread.status === 'resolved'}
-							<RotateCcw size={13} strokeWidth={2} aria-hidden="true" />
-							{$t('artifacts.document.comment.reopen')}
-						{:else}
-							<Check size={13} strokeWidth={2} aria-hidden="true" />
-							{$t('artifacts.document.comment.resolve')}
-						{/if}
-					</button>
-				</div>
-			{/if}
-
-			{#if replying}
-				<div class="comment-thread-composer">
-					<textarea
-						class="comment-thread-textarea"
-						placeholder={$t('artifacts.document.comment.replyPlaceholder')}
-						bind:value={draftText}
-						disabled={posting}
-						onkeydown={handleComposerKeydown}
-					></textarea>
-					{#if mentionsAlfy && !posting}
-						<p class="comment-thread-ask-hint">{$t('artifacts.document.comment.askAlfyHint')}</p>
-					{/if}
-					{#if posting && mentionsAlfy}
-						<div class="comment-thread-typing" role="status">
-							<span class="comment-thread-typing-dots" aria-hidden="true">
-								<span></span><span></span><span></span>
-							</span>
-							<span>{$t('artifacts.document.comment.alfyTyping')}</span>
+					{#each thread.replies as reply (reply.id)}
+						<div class="comment-thread-message">
+							<CommentCard
+								comment={reply}
+								changeState={changeStateByCommentId[reply.id]}
+								onSeeChange={onSeeChange ? () => onSeeChange(reply.id) : undefined}
+								onAskAgain={openReply}
+								{currentUserId}
+								{currentUserName}
+								{currentUserProfilePicture}
+							/>
 						</div>
-					{/if}
-					<div class="comment-thread-composer-actions">
-						<button
-							type="button"
-							class="btn-secondary"
-							onclick={cancelReply}
-							disabled={posting}
-						>
-							{$t('artifacts.document.comment.cancel')}
+					{/each}
+				</div>
+
+				{#if !replying}
+					<div class="comment-thread-actions">
+						<button type="button" class="btn-ghost btn-sm" onclick={openReply}>
+							<CornerDownLeft size={13} strokeWidth={2} aria-hidden="true" />
+							{$t('artifacts.document.comment.reply')}
 						</button>
 						<button
 							type="button"
-							class={mentionsAlfy ? 'btn-primary' : 'btn-secondary'}
-							onclick={submitReply}
-							disabled={posting || !draftText.trim()}
+							class="btn-ghost btn-sm"
+							onclick={() => onResolve(thread.status !== 'resolved')}
 						>
-							{#if mentionsAlfy}
-								<Sparkles size={13} strokeWidth={2} aria-hidden="true" />
-								{posting ? $t('artifacts.document.comment.askingAlfy') : $t('artifacts.document.comment.ask')}
+							{#if thread.status === 'resolved'}
+								<RotateCcw size={13} strokeWidth={2} aria-hidden="true" />
+								{$t('artifacts.document.comment.reopen')}
 							{:else}
-								<CornerDownLeft size={13} strokeWidth={2} aria-hidden="true" />
-								{$t('artifacts.document.comment.reply')}
+								<Check size={13} strokeWidth={2} aria-hidden="true" />
+								{$t('artifacts.document.comment.resolve')}
 							{/if}
 						</button>
 					</div>
-					{#if postError}
-						<p class="comment-thread-error" role="alert">
-							{$t('artifacts.document.comment.postError')}
-						</p>
-					{/if}
-				</div>
-			{/if}
+				{/if}
+
+				{#if replying}
+					<div class="comment-thread-composer">
+						<textarea
+							class="comment-thread-textarea"
+							placeholder={$t('artifacts.document.comment.replyPlaceholder')}
+							bind:value={draftText}
+							disabled={posting}
+							onkeydown={handleComposerKeydown}
+						></textarea>
+						{#if mentionsAlfy && !posting}
+							<p class="comment-thread-ask-hint">{$t('artifacts.document.comment.askAlfyHint')}</p>
+						{/if}
+						{#if posting && mentionsAlfy}
+							<div class="comment-thread-typing" role="status">
+								<span class="comment-thread-typing-dots" aria-hidden="true">
+									<span></span><span></span><span></span>
+								</span>
+								<span>{$t('artifacts.document.comment.alfyTyping')}</span>
+							</div>
+						{/if}
+						<div class="comment-thread-composer-actions">
+							<button
+								type="button"
+								class="btn-secondary"
+								onclick={cancelReply}
+								disabled={posting}
+							>
+								{$t('artifacts.document.comment.cancel')}
+							</button>
+							<button
+								type="button"
+								class={mentionsAlfy ? 'btn-primary' : 'btn-secondary'}
+								onclick={submitReply}
+								disabled={posting || !draftText.trim()}
+							>
+								{#if mentionsAlfy}
+									<Sparkles size={13} strokeWidth={2} aria-hidden="true" />
+									{posting ? $t('artifacts.document.comment.askingAlfy') : $t('artifacts.document.comment.ask')}
+								{:else}
+									<CornerDownLeft size={13} strokeWidth={2} aria-hidden="true" />
+									{$t('artifacts.document.comment.reply')}
+								{/if}
+							</button>
+						</div>
+						{#if postError}
+							<p class="comment-thread-error" role="alert">
+								{$t('artifacts.document.comment.postError')}
+							</p>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -282,26 +283,33 @@ let foldedA11yLabel = $derived(
 	.comment-thread {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
 	}
 
+	/* The quote is a line with an amber rule, not a button that looks like a
+	   button: italic serif (it quotes the document), muted, and only
+	   underlined when it is going somewhere. A removed-text thread's rule is
+	   dashed and its words struck through. */
 	.comment-thread-quote-row {
 		display: flex;
 		align-items: baseline;
 		gap: 0.375rem;
+		padding: 0.5625rem 0.75rem 0;
 	}
 
 	.comment-thread-quote {
 		display: flex;
 		align-items: center;
-		gap: 0.3rem;
+		gap: 0.5rem;
 		min-width: 0;
+		position: relative;
 		border: none;
 		background: none;
 		padding: 0;
 		color: var(--text-muted);
-		font-size: var(--text-xs);
+		font-family: var(--font-serif);
+		font-size: 0.78125rem;
 		font-style: italic;
+		text-align: left;
 		cursor: pointer;
 	}
 
@@ -309,8 +317,22 @@ let foldedA11yLabel = $derived(
 		cursor: default;
 	}
 
+	.comment-thread-quote-rule {
+		flex: 0 0 3px;
+		align-self: stretch;
+		min-height: 0.875rem;
+		border-radius: 2px;
+		background-color: var(--comment-rule);
+	}
+
+	.comment-thread-quote:not(:disabled):hover {
+		color: var(--text-primary);
+	}
+
 	.comment-thread-quote:not(:disabled):hover .comment-thread-quote-text {
 		text-decoration: underline;
+		text-decoration-color: var(--comment-rule);
+		text-underline-offset: 0.2em;
 	}
 
 	.comment-thread-quote:focus-visible {
@@ -326,12 +348,22 @@ let foldedA11yLabel = $derived(
 
 	.comment-thread-quote-struck .comment-thread-quote-text {
 		text-decoration: line-through;
+		text-decoration-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
+	}
+
+	.comment-thread-quote-struck .comment-thread-quote-rule {
+		background: repeating-linear-gradient(
+			180deg,
+			var(--text-muted) 0 3px,
+			transparent 3px 6px
+		);
+		opacity: 0.6;
 	}
 
 	.comment-thread-quote-moved {
 		flex-shrink: 0;
 		color: var(--text-muted);
-		font-size: var(--text-2xs, 0.66rem);
+		font-size: 0.6875rem;
 	}
 
 	/* A CSS-only height reveal (grid-template-rows 0fr -> 1fr): no JS
@@ -352,23 +384,26 @@ let foldedA11yLabel = $derived(
 		min-height: 0;
 	}
 
+	/* The card around a resolved thread is already dashed; the fold line is
+	   the card's whole content, so it carries no border of its own. */
 	.comment-thread-folded-line {
 		display: flex;
 		align-items: center;
-		gap: 0.375rem;
+		gap: 0.5rem;
 		width: 100%;
-		border: 1px dashed var(--border-default);
-		border-radius: var(--radius-md);
+		border: none;
+		border-radius: var(--radius-lg);
 		background: none;
-		padding: 0.375rem 0.625rem;
+		padding: 0.5625rem 0.75rem;
 		color: var(--success-text);
-		font-size: var(--text-xs);
+		font-family: var(--font-sans);
+		font-size: 0.78125rem;
 		cursor: pointer;
 	}
 
 	.comment-thread-folded-line:focus-visible {
 		outline: 2px solid var(--focus-ring);
-		outline-offset: 2px;
+		outline-offset: -2px;
 	}
 
 	.comment-thread-folded-text {
@@ -389,54 +424,79 @@ let foldedA11yLabel = $derived(
 	.comment-thread-messages {
 		display: flex;
 		flex-direction: column;
-		gap: 0.625rem;
+		padding: 0.5rem 0.75rem 0.25rem;
 	}
 
-	.comment-thread-reply {
+	/* The thin line that joins one message's avatar to the next
+	   (redesign §3.2: "thread line joins avatars"). */
+	.comment-thread-message {
 		position: relative;
-		margin-left: 0.75rem;
-		padding-left: 0.75rem;
-		border-left: 2px solid var(--border-subtle);
+		padding: 0.375rem 0;
 	}
 
+	.comment-thread-message + .comment-thread-message::before {
+		content: '';
+		position: absolute;
+		top: -0.25rem;
+		left: 10.5px;
+		width: 1px;
+		height: 0.75rem;
+		background-color: var(--border-default);
+	}
+
+	/* Reply / Resolve sit under the words, not under the avatar. */
 	.comment-thread-actions {
 		display: flex;
-		gap: 0.75rem;
-		margin-top: 0.375rem;
+		align-items: center;
+		gap: 0.125rem;
+		padding: 0 0.5rem 0.5rem 2.25rem;
+	}
+
+	.comment-thread-actions :global(.btn-ghost) {
+		color: var(--text-muted);
+		gap: 0.25rem;
 	}
 
 	.comment-thread-composer {
 		display: flex;
 		flex-direction: column;
-		gap: 0.375rem;
-		margin-top: 0.5rem;
+		gap: 0.5rem;
+		padding: 0 0.75rem 0.75rem;
 	}
 
 	.comment-thread-textarea {
-		min-height: 3.5rem;
-		padding: 0.5rem;
+		width: 100%;
+		min-height: 3.75rem;
+		padding: 0.5rem 0.625rem;
 		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		background-color: var(--surface-page);
+		border-radius: var(--radius-lg);
+		background-color: var(--surface-overlay);
 		color: var(--text-primary);
 		font: inherit;
 		font-size: var(--text-sm);
-		resize: vertical;
+		line-height: 1.45;
+		resize: none;
+	}
+
+	.comment-thread-textarea:focus {
+		outline: none;
+		border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+		box-shadow: 0 0 0 3px var(--accent-tint);
 	}
 
 	.comment-thread-ask-hint {
 		margin: 0;
 		color: var(--accent-text);
-		font-size: var(--text-2xs, 0.66rem);
+		font-size: 0.71875rem;
+		line-height: 1.4;
 	}
 
 	.comment-thread-typing {
 		display: flex;
 		align-items: center;
 		gap: 0.375rem;
-		color: var(--text-muted);
+		color: var(--accent-text);
 		font-size: var(--text-xs);
-		font-style: italic;
 	}
 
 	.comment-thread-typing-dots {
@@ -445,10 +505,10 @@ let foldedA11yLabel = $derived(
 	}
 
 	.comment-thread-typing-dots span {
-		width: 4px;
-		height: 4px;
+		width: 5px;
+		height: 5px;
 		border-radius: var(--radius-full, 999px);
-		background-color: var(--text-muted);
+		background-color: currentColor;
 		animation: comment-thread-typing-bounce 1s ease-in-out infinite;
 	}
 
@@ -464,10 +524,12 @@ let foldedA11yLabel = $derived(
 		0%,
 		80%,
 		100% {
-			opacity: 0.3;
+			opacity: 0.25;
+			transform: translateY(0);
 		}
 		40% {
 			opacity: 1;
+			transform: translateY(-2px);
 		}
 	}
 
@@ -487,5 +549,25 @@ let foldedA11yLabel = $derived(
 		margin: 0;
 		font-size: var(--text-xs);
 		color: var(--danger);
+	}
+
+	/* Phone sheet: nothing that is tapped is smaller than 44px (§3.4). The
+	   quote keeps its look and grows an invisible hit area; the ghost
+	   buttons and the fold line are simply taller. */
+	@media (max-width: 767px) {
+		.comment-thread-quote::after {
+			content: '';
+			position: absolute;
+			inset: -0.75rem 0;
+		}
+
+		.comment-thread-actions :global(.btn-ghost),
+		.comment-thread-composer-actions button {
+			min-height: 44px;
+		}
+
+		.comment-thread-folded-line {
+			min-height: 44px;
+		}
 	}
 </style>

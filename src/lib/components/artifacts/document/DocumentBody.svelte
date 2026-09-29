@@ -68,7 +68,6 @@ import {
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
-import RefusalNotice from "$lib/components/artifacts/RefusalNotice.svelte";
 import ReviewBar from "$lib/components/artifacts/ReviewBar.svelte";
 import { t } from "$lib/i18n";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
@@ -81,6 +80,7 @@ import {
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import { documentCommentsRailHidden } from "$lib/stores/ui";
 import { isPhoneViewport, watchPhoneViewport } from "$lib/utils/viewport.svelte";
 import {
 	MOTION_DURATION,
@@ -96,6 +96,14 @@ import {
 import AlfyWriting from "./AlfyWriting.svelte";
 import { COMPOSER_BUBBLE_SIZE, computeBubblePlacement } from "./bubble-placement";
 import { documentTabsFromCardMetadata } from "./card-view";
+import {
+	type AnchorBox,
+	commentAnchorTargets,
+	commentRailWidth,
+	countCommentsByTab,
+	pickFollowedComment,
+	resolveCommentAnchors,
+} from "./comment-threads";
 import CommentsSheet from "./CommentsSheet.svelte";
 import {
 	createDocumentAutosave,
@@ -109,7 +117,6 @@ import {
 import type {
 	AlfyChangeEntry,
 	ChangePillEntry,
-	CommentAnchorTarget,
 	Editor,
 } from "./document-editor";
 import DocumentToolbar from "./DocumentToolbar.svelte";
@@ -130,6 +137,7 @@ let {
 	onBodyChange,
 	registerPanelActions,
 	onCommentCountChange,
+	onCommentsShownChange,
 	onPendingReviewCountChange,
 	currentUser = null,
 }: ArtifactBodyProps = $props();
@@ -263,20 +271,36 @@ let selectionBubble = $state<
 let contentEl = $state<HTMLDivElement | undefined>();
 
 // ---- Redesign §3.2, Wave 2.5 Step 7: the rail's two-way link ---------------
-// `commentAnchors` is whatever `MarginPanel.svelte` last resolved (its own
-// `resolveTextAnchor` work, reported up rather than redone here);
-// `activeCommentId` is whichever thread is currently linked — hover/focus on
-// its card in the rail, or its own words in the text having been
-// clicked/focused — driving BOTH the rail's `.is-active` card chrome and the
-// editor's own decoration. `focusCommentRequest` is a ONE-SHOT signal (a
-// bumped token, never just the id) for "scroll the rail to and focus THIS
-// thread's card" — kept separate from `activeCommentId` on purpose: merely
-// hovering a card must never also yank scroll/keyboard focus toward it.
-let commentAnchors = $state<CommentAnchorTarget[]>([]);
-let activeCommentId = $state<string | null>(null);
+// Every thread's anchor is resolved ONCE here (`comment-threads.ts`) — the
+// editor's highlights need it whether or not any comment surface is showing,
+// and the rail/sheet/drawer take the same result as a prop instead of each
+// redoing the work on every keystroke. `activeCommentId` is whichever thread
+// is currently linked to its words: hover/focus on its card, or on its own
+// words in the text (`hoverCommentId`), or — when nothing is hovered — the
+// thread whose words are nearest the top of what the reader has scrolled to
+// (`followCommentId`). It drives BOTH the rail's `.is-active` card chrome
+// and the editor's own decoration. `focusCommentRequest` is a ONE-SHOT signal
+// (a bumped token, never just the id) for "scroll the list to and focus THIS
+// thread's card"; `revealCommentRequest` is its quieter sibling for "bring it
+// into view, leave focus alone" — both kept separate from `activeCommentId`
+// on purpose: merely hovering a card must never also yank scroll/keyboard
+// focus toward it.
+const commentResolutions = $derived(resolveCommentAnchors(comments, blocks));
+const commentAnchors = $derived(
+	commentAnchorTargets(comments, commentResolutions),
+);
+let hoverCommentId = $state<string | null>(null);
+let followCommentId = $state<string | null>(null);
+const activeCommentId = $derived(hoverCommentId ?? followCommentId);
 let focusCommentRequest = $state<{ commentId: string; token: number } | null>(
 	null,
 );
+let revealCommentRequest = $state<{
+	commentId: string;
+	token: number;
+	force?: boolean;
+} | null>(null);
+let revealCommentToken = 0;
 let setCommentAnchorsFn:
 	| typeof DocumentEditorModule.setCommentAnchors
 	| null = null;
@@ -285,22 +309,31 @@ let scrollToCommentAnchorFn:
 	| null = null;
 
 // ---- Wave 2.5 Step 8: the rail's phone sheet / narrow-panel drawer --------
-// `.document-content`'s own CSS mirrors this exact threshold under
-// `@container (min-width: 820px)` — the two must stay in step, since this is
-// the JS half deciding whether `CommentsSheet` should even mount, and the
-// CSS half is what actually hides the inline rail at the same width.
-const NARROW_PANEL_THRESHOLD_PX = 820;
+// One comments surface at a time, decided here from the panel's own measured
+// width (`commentRailWidth`, comment-threads.ts): the inline column beside
+// the text when there is room for it (its width narrowing before the text
+// does), a drawer over the text when there is not, a sheet on a phone. The
+// header's Comments button toggles whichever one applies — for the inline
+// column that is a per-device choice kept in the UI store; the drawer and the
+// sheet just open and close.
 let documentBodyEl = $state<HTMLDivElement | undefined>();
 let panelContainerWidth = $state(0);
 /** The review bar's own live rendered height (Review 2.5, rd/review-2-5.md:98-108) — read by the effect below and used to reserve enough bottom padding under the last paragraph. */
 let reviewBarSlotEl = $state<HTMLDivElement | undefined>();
 let reviewBarHeight = $state(0);
 let isPhone = $state(isPhoneViewport());
-/** `0` means "not measured yet" (no ResizeObserver in this environment, e.g. jsdom) — treated as "not narrow" rather than a false-positive drawer. */
-let isNarrowPanel = $derived(
-	panelContainerWidth > 0 && panelContainerWidth < NARROW_PANEL_THRESHOLD_PX,
-);
+/** `0` (not measured yet — no ResizeObserver in this environment, e.g. jsdom) gets the full column rather than a false-positive drawer. */
+let inlineRailWidth = $derived(commentRailWidth(panelContainerWidth));
+let isNarrowPanel = $derived(inlineRailWidth === null);
 let commentsOverlayOpen = $state(false);
+/** The inline column beside the text: room for it, not on a phone, and not switched off on this device. */
+let commentsRailShown = $derived(
+	!isPhone && !isNarrowPanel && !$documentCommentsRailHidden,
+);
+/** What the header's Comments button reports as pressed: whichever surface applies is showing. */
+let commentsShown = $derived(
+	isPhone || isNarrowPanel ? commentsOverlayOpen : commentsRailShown,
+);
 /** commentId -> the changeId its own `@Alfy` reply produced this session (`maybeAskAlfy` below) — ephemeral, like `pendingChanges` itself. */
 let changeIdByCommentId = $state<Map<string, string>>(new Map());
 let changeChipByCommentId = $derived.by(() => {
@@ -406,27 +439,25 @@ function updateBlocksFromMarkdown(markdown: string): void {
 
 /**
  * `Tabs.svelte`'s badge (redesign §5.2): how many of THIS tab's own comment
- * THREADS (root comments, never replies) are still open. `mapBlocksToTabs`
- * (`shared/artifact-document/blocks.ts`) owns the block→tab walk itself —
- * the SAME one `MarginPanel.svelte`'s own per-tab comment scoping uses, so
- * the two never drift apart — recomputed here (rather than read back out of
- * the editor's decoration) because this needs to run whenever `comments`
- * changes too, not just `tabs`/`blocks`.
+ * THREADS (root comments, never replies) are still open. The counting itself
+ * is `countCommentsByTab` (comment-threads.ts) — the SAME one the rail's
+ * "in other tabs" rows and its header count use, so the number on a tab and
+ * the number in the rail can never disagree — recomputed here (rather than
+ * read back out of the editor's decoration) because this needs to run
+ * whenever `comments` changes too, not just `tabs`/`blocks`.
  */
 function computeTabBadgeCounts(
 	docBlocks: DocumentBlock[],
 	docComments: ArtifactComment[],
 	docTabs: DocumentTab[],
 ): Record<string, number> {
-	const blockIdToTabId = mapBlocksToTabs(docBlocks, docTabs);
-	if (blockIdToTabId.size === 0) return {};
 	const counts: Record<string, number> = {};
-	for (const comment of docComments) {
-		if (comment.status !== "open") continue;
-		if (!comment.anchor || comment.anchor.kind !== "text") continue;
-		const tabId = blockIdToTabId.get(comment.anchor.blockId);
-		if (!tabId) continue;
-		counts[tabId] = (counts[tabId] ?? 0) + 1;
+	for (const [tabId, own] of countCommentsByTab(
+		docComments,
+		docBlocks,
+		docTabs,
+	)) {
+		if (own.open > 0) counts[tabId] = own.open;
 	}
 	return counts;
 }
@@ -723,9 +754,20 @@ async function handleSelectionSubmit(
 ): Promise<void> {
 	const createdId = await postComment(anchor, body);
 	selectionBubble = null;
-	if (!sourceRect || prefersReducedMotion() || !contentEl) return;
+	// The new card belongs in view whether or not it flies there: ask the
+	// inline column (if it is showing) to bring it in, past its "the reader is
+	// using the list" guard — the reader is in the text, having just written it.
+	if (createdId && commentsRailShown) {
+		revealCommentToken += 1;
+		revealCommentRequest = {
+			commentId: createdId,
+			token: revealCommentToken,
+			force: true,
+		};
+	}
+	if (!sourceRect || prefersReducedMotion() || !documentBodyEl) return;
 	await tick();
-	const target = contentEl.querySelector(
+	const target = documentBodyEl.querySelector(
 		`[data-comment-id="${createdId}"]`,
 	);
 	if (!(target instanceof HTMLElement)) return;
@@ -1269,12 +1311,41 @@ function dismissRefusalNotice(): void {
  * flow the user would reach by selecting the text themselves), rather than
  * jumping straight into an open composer.
  */
-function handleAskAgainRefusal(): void {
+async function handleAskAgainRefusal(): Promise<void> {
 	const blockId = refusalNotice?.refusedBlockIds[0];
 	if (!blockId || !editor || !selectAndScrollToBlockFn) return;
+	// The card is listed wherever its line's tab is not showing too: a line
+	// in a section that is hidden cannot be selected until its tab is.
+	const targetTabId = mapBlocksToTabs(blocks, tabs).get(blockId);
+	if (targetTabId && targetTabId !== activeTabId) {
+		handleTabActivate(targetTabId);
+		await tick();
+	}
 	selectAndScrollToBlockFn(editor, blockId);
 	dismissRefusalNotice();
 }
+// The refusal card's own data for the comment list: "your words win" reads as
+// one of the comment family, at its line's position (a sheet or drawer lists
+// it first) — no longer a banner above the text.
+const marginRefusal = $derived(
+	refusalNotice
+		? {
+				blockId: refusalNotice.refusedBlockIds[0] ?? null,
+				message: refusalNotice.message,
+				items: refusalNotice.items,
+				seeChangeLabel: refusalNotice.seeChangeLabel ?? undefined,
+				onSeeChange: refusalNotice.seeChangeLabel ? handleSeeChange : undefined,
+				askAgainLabel: refusalNotice.refusedBlockIds[0]
+					? $t("artifacts.document.comment.askAgain")
+					: undefined,
+				onAskAgain: refusalNotice.refusedBlockIds[0]
+					? handleAskAgainRefusal
+					: undefined,
+				dismissLabel: $t("artifacts.document.refused.dismiss"),
+				onDismiss: dismissRefusalNotice,
+			}
+		: null,
+);
 // ---- end T8 live ---------------------------------------------------------
 
 // ---- T12: the download sheet -----------------------------------------------
@@ -1442,9 +1513,24 @@ function openDownloadSheet(): void {
 	downloadSheetOpen = true;
 }
 
-/** The header's Comments button (`registerPanelActions`, Wave 2.5 Step 8) and a tapped highlight's own fallback (`handleEditorAnchorActivate` below) both funnel through here. */
+/** A tapped highlight's own fallback (`handleEditorAnchorActivate` below): the drawer or sheet, opened where the inline column is not an option. */
 function openCommentsOverlay(): void {
 	commentsOverlayOpen = true;
+}
+
+/**
+ * The header's Comments button (`registerPanelActions`): ONE toggle for
+ * whichever comments surface applies — it never opens a second copy beside
+ * the one already showing. The inline column is switched off/on for this
+ * device (the UI store remembers it); the drawer and the sheet just open and
+ * close.
+ */
+function toggleComments(): void {
+	if (isPhone || isNarrowPanel) {
+		commentsOverlayOpen = !commentsOverlayOpen;
+		return;
+	}
+	documentCommentsRailHidden.update((hidden) => !hidden);
 }
 
 // Wave 2.5 Step 3: hands the panel header the sheet triggers above, so
@@ -1460,7 +1546,7 @@ $effect(() => {
 	registerPanelActions?.({
 		openVersions: openVersionsSheet,
 		openDownload: openDownloadSheet,
-		openComments: openCommentsOverlay,
+		toggleComments,
 	});
 });
 
@@ -1471,6 +1557,9 @@ let openCommentCount = $derived(
 $effect(() => {
 	onCommentCountChange?.(openCommentCount);
 });
+$effect(() => {
+	onCommentsShownChange?.(commentsShown);
+});
 
 $effect(() => {
 	const stopWatchingViewport = watchPhoneViewport((phone) => {
@@ -1479,15 +1568,16 @@ $effect(() => {
 	return stopWatchingViewport;
 });
 
-// Tracks this body's own rendered width so the inline rail (CSS, the SAME
-// 820px threshold — see `NARROW_PANEL_THRESHOLD_PX`) and the overlay
-// (`commentsOverlayOpen`'s presentation, below) agree on when there is room
-// for the 300px column. Guarded: jsdom (this component's own tests) has no
-// ResizeObserver, and the panel must render correctly without one — see
-// `MarginPanel.svelte`'s own identical guard.
+// Tracks this body's own rendered width: `commentRailWidth` decides from it
+// whether the inline column fits beside the text (and how wide it is) or the
+// comments are a drawer. Read once straight away so the very first paint
+// already has the right surface, then kept live. Guarded: jsdom (this
+// component's own tests) has no ResizeObserver, and the panel must render
+// correctly without one.
 $effect(() => {
 	const el = documentBodyEl;
 	if (!el || typeof ResizeObserver === "undefined") return;
+	panelContainerWidth = el.getBoundingClientRect().width;
 	const observer = new ResizeObserver((entries) => {
 		const width = entries[0]?.contentRect.width;
 		if (width !== undefined) panelContainerWidth = width;
@@ -1519,8 +1609,8 @@ $effect(() => {
 });
 
 // Closes a stray-open overlay the moment the layout no longer needs one
-// (a window/panel resize back above the threshold) — otherwise the drawer
-// would float uselessly ALONGSIDE the now-visible inline rail.
+// (a window/panel resize wide enough for the inline column) — otherwise the
+// drawer would float uselessly ALONGSIDE it, a second copy of the comments.
 $effect(() => {
 	if (!isPhone && !isNarrowPanel) commentsOverlayOpen = false;
 });
@@ -1609,6 +1699,8 @@ function handleLinkAction(): void {
  */
 function handleTabActivate(tabId: string): void {
 	activeTabId = tabId;
+	// The thread the reader was on belongs to the section just left.
+	followCommentId = null;
 	if (editor) setActiveDocumentTabFn?.(editor, tabs, tabId);
 }
 
@@ -1785,8 +1877,10 @@ async function runLoad(id: string): Promise<void> {
 		// document's own block id once this one's editor replaces it.
 		clearSelectionBubble();
 		changeIdByCommentId = new Map();
-		activeCommentId = null;
+		hoverCommentId = null;
+		followCommentId = null;
 		focusCommentRequest = null;
+		revealCommentRequest = null;
 		versionNumber = detail.artifact.versionNumber;
 		knownBodyHash = detail.artifact.bodyHash;
 		tabs = documentTabsFromCardMetadata(detail.artifact.metadata);
@@ -1847,10 +1941,74 @@ $effect(() => {
 	}
 });
 
-// Redesign §3.2, Wave 2.5 Step 7: pushes the rail's own already-resolved
-// anchors — and whichever thread is currently linked — into the live
-// decoration whenever either changes. `setCommentAnchorsFn` is `null` until
-// the lazy editor module resolves; nothing to decorate before that anyway.
+// Scroll-follow (the owner's walk-through: the comment list stays in view
+// while the text scrolls): as the reader scrolls the text, the thread whose
+// words are nearest the top of the reading area becomes the active one —
+// its words deepen, its card takes the active look — and the inline column
+// is asked to bring its card into view. Reads only (one rectangle per open
+// highlight, batched into a frame), and only while the inline column is
+// showing: nothing else has a list to keep in step. `MarginPanel` leaves its
+// scroll alone while the reader is using the list itself.
+$effect(() => {
+	const scroller = contentEl;
+	const host = editorEl;
+	if (!scroller || !host || !commentsRailShown) return;
+	let frame = 0;
+
+	function boxOf(commentId: string): AnchorBox | null {
+		const spans = host?.querySelectorAll(
+			`[data-comment-anchor-id="${commentId}"]`,
+		);
+		if (!spans || spans.length === 0) return null;
+		let top = Number.POSITIVE_INFINITY;
+		let bottom = Number.NEGATIVE_INFINITY;
+		for (const span of spans) {
+			for (const rect of span.getClientRects()) {
+				top = Math.min(top, rect.top);
+				bottom = Math.max(bottom, rect.bottom);
+			}
+		}
+		return top <= bottom ? { commentId, top, bottom } : null;
+	}
+
+	function follow(): void {
+		frame = 0;
+		const boxes: AnchorBox[] = [];
+		for (const anchor of commentAnchors) {
+			if (anchor.resolved) continue;
+			const box = boxOf(anchor.commentId);
+			if (box) boxes.push(box);
+		}
+		const bounds = scroller?.getBoundingClientRect();
+		if (!bounds) return;
+		const next = pickFollowedComment(boxes, {
+			top: bounds.top,
+			bottom: bounds.bottom,
+		});
+		if (next === followCommentId) return;
+		followCommentId = next;
+		if (next) {
+			revealCommentToken += 1;
+			revealCommentRequest = { commentId: next, token: revealCommentToken };
+		}
+	}
+
+	function onScroll(): void {
+		if (!frame) frame = requestAnimationFrame(follow);
+	}
+
+	scroller.addEventListener("scroll", onScroll, { passive: true });
+	return () => {
+		scroller.removeEventListener("scroll", onScroll);
+		if (frame) cancelAnimationFrame(frame);
+	};
+});
+
+// Redesign §3.2, Wave 2.5 Step 7: pushes every thread's resolved anchor —
+// and whichever thread is currently linked — into the live decoration
+// whenever either changes, whether or not any comment surface is showing.
+// `setCommentAnchorsFn` is `null` until the lazy editor module resolves;
+// nothing to decorate before that anyway.
 $effect(() => {
 	const anchors = commentAnchors;
 	const active = activeCommentId;
@@ -1925,11 +2083,11 @@ function findCommentAnchorTarget(event: Event): HTMLElement | null {
 function handleEditorAnchorHoverIn(event: Event): void {
 	const target = findCommentAnchorTarget(event);
 	const commentId = target?.getAttribute("data-comment-anchor-id");
-	if (commentId) activeCommentId = commentId;
+	if (commentId) hoverCommentId = commentId;
 }
 
 function handleEditorAnchorHoverOut(event: Event): void {
-	if (findCommentAnchorTarget(event)) activeCommentId = null;
+	if (findCommentAnchorTarget(event)) hoverCommentId = null;
 }
 
 let focusCommentRequestToken = 0;
@@ -1939,15 +2097,25 @@ function handleEditorAnchorActivate(event: Event): void {
 	const commentId = target?.getAttribute("data-comment-anchor-id");
 	if (!commentId) return;
 	event.preventDefault();
-	activeCommentId = commentId;
+	hoverCommentId = commentId;
 	focusCommentRequestToken += 1;
-	focusCommentRequest = { commentId, token: focusCommentRequestToken };
-	// Wave 2.5 Step 8: the inline rail is hidden below the container's own
-	// 820px threshold, and never rendered at all on a phone — open the
-	// overlay so the thread `focusCommentRequest` just named has somewhere to
-	// actually appear (`CommentsSheet` renders the SAME `MarginPanel`, which
-	// already reacts to `focusCommentRequest` on mount, not just on change).
+	const token = focusCommentRequestToken;
+	focusCommentRequest = { commentId, token };
+	// The thread the request just named needs somewhere to appear: the
+	// drawer or sheet where the inline column is not an option, or the
+	// inline column itself when this device had switched it off. Whichever
+	// surface it is reacts to `focusCommentRequest` on mount, not just on
+	// change.
 	if (isPhone || isNarrowPanel) openCommentsOverlay();
+	else if ($documentCommentsRailHidden) documentCommentsRailHidden.set(false);
+	// A request left in place would be replayed by the NEXT surface that
+	// mounts (the column toggled off and on again): drop it once whichever
+	// surface was going to act on it has.
+	void tick().then(() =>
+		setTimeout(() => {
+			if (focusCommentRequest?.token === token) focusCommentRequest = null;
+		}, 0),
+	);
 }
 
 function handleEditorAnchorKeydown(event: KeyboardEvent): void {
@@ -2037,39 +2205,28 @@ function saveNoticeText(notice: SaveNotice): string {
 			/>
 		</div>
 		<!-- T8 live: the planned-section shimmer while a matching create_artifact/
-		     edit_artifact call is in flight, and the refusal notice once a landed
-		     call left something untouched. Both sit above the scroll container so
-		     neither depends on — or fights with — the editor's own layout. -->
+		     edit_artifact call is in flight. It sits above the content row so it
+		     neither depends on — nor fights with — the editor's own layout. (The
+		     refusal notice used to sit here too; it is a card in the comment
+		     list now, beside the line it is about.) -->
 		{#if alfyWritingLabel !== null}
 			<AlfyWriting label={alfyWritingLabel} />
 		{/if}
-		{#if refusalNotice}
-			<RefusalNotice
-				message={refusalNotice.message}
-				items={refusalNotice.items}
-				seeChangeLabel={refusalNotice.seeChangeLabel ?? undefined}
-				onSeeChange={refusalNotice.seeChangeLabel ? handleSeeChange : undefined}
-				askAgainLabel={refusalNotice.refusedBlockIds[0]
-					? $t('artifacts.document.comment.askAgain')
-					: undefined}
-				onAskAgain={refusalNotice.refusedBlockIds[0]
-					? handleAskAgainRefusal
-					: undefined}
-				dismissLabel={$t('artifacts.document.refused.dismiss')}
-				onDismiss={dismissRefusalNotice}
-			/>
-		{/if}
-		<!-- Redesign §3.2, Wave 2.5 Step 7: "the comment rail is a 300 px column
-		     inside the SAME scroll container as the text" — `.document-content`
-		     is that one scroll container (still `contentEl`, unchanged identity,
-		     so every `localizePoint`/bubble computation below keeps working
-		     untouched — the change pill no longer needs it, Wave 2.5 Step 10: it
-		     is a ProseMirror widget decoration now, positioned in DOCUMENT space,
-		     not screen space); `.document-content-text` and `.document-content-rail`
-		     are its two grid columns. The rail collapses below 820 px (agent
-		     3b's own narrow-panel drawer picks up from there — rd3a-brief.md). -->
-		<div class="document-content" bind:this={contentEl}>
-			<div class="document-content-text">
+		<!-- The text and its comments, side by side. `.document-content` is a
+		     plain row that does not scroll; the TEXT column inside it is the one
+		     scroller (`contentEl` — every `localizePoint`/bubble computation
+		     below measures it), and the comment column beside it never scrolls
+		     away with the text: it keeps its own place and its own list scroll
+		     ("the comments themselves should scroll with the viewport, not just
+		     the section title" — the owner's words, on a version that laid both
+		     columns in one scroller). The change pill no longer needs `contentEl`
+		     (Wave 2.5 Step 10: a ProseMirror widget decoration, positioned in
+		     DOCUMENT space). Whether the column shows at all — and how wide it
+		     is — is `commentRailWidth`'s call from this body's own measured
+		     width; on a narrow panel or a phone the same list is a drawer/sheet
+		     instead, never both. -->
+		<div class="document-content">
+			<div class="document-content-text" bind:this={contentEl}>
 				{#if loadState === "not_found"}
 					<div class="document-notice" role="status">
 						<p>{$t('artifacts.document.notFound')}</p>
@@ -2185,41 +2342,53 @@ function saveNoticeText(notice: SaveNotice): string {
 					</div>
 				{/if}
 			</div>
-			<!-- T10 / redesign §3.2: the comment rail, the grid's second column
-			     (≥820px container width only — see the `@container` rule below). -->
-			<aside class="document-content-rail" aria-label={$t('artifacts.document.margin.title')}>
-				<MarginPanel
-					{comments}
-					{blocks}
-					{contentEl}
-					{tabs}
-					{activeTabId}
-					changeStateByCommentId={changeChipByCommentId}
-					{activeCommentId}
-					focusRequest={focusCommentRequest}
-					onResolve={handleCommentResolve}
-					onSubmitReply={postReply}
-					onSeeChange={handleSeeChangeForComment}
-					onGotoAnchor={handleGotoCommentAnchor}
-					onActiveCommentChange={(id) => (activeCommentId = id)}
-					onAnchorsChange={(anchors) => (commentAnchors = anchors)}
-					onActivateTab={handleTabActivate}
-					currentUserId={currentUser?.id ?? null}
-					currentUserName={currentUser?.displayName ?? null}
-					currentUserProfilePicture={currentUser?.profilePicture ?? null}
-				/>
-			</aside>
-			<!-- Wave 2.5 Step 8: the SAME rail, below the container's 820px
-			     threshold — a phone sheet or a narrow-panel drawer, opened by the
-			     header's Comments button (`registerPanelActions`) or a tapped
+			<!-- T10 / redesign §3.2: the comment column, beside the text. Its width
+			     narrows (300 → 240 px) before the text column drops below
+			     480 px; below that there is no column, the header's Comments
+			     button opens the drawer instead. Switched off per device by the
+			     same button. -->
+			{#if commentsRailShown}
+				<aside
+					class="document-content-rail"
+					style:width={inlineRailWidth ? `${inlineRailWidth}px` : undefined}
+					aria-label={$t('artifacts.document.margin.title')}
+				>
+					<MarginPanel
+						{comments}
+						{blocks}
+						resolutions={commentResolutions}
+						{tabs}
+						{activeTabId}
+						refusal={marginRefusal}
+						changeStateByCommentId={changeChipByCommentId}
+						{activeCommentId}
+						focusRequest={focusCommentRequest}
+						revealRequest={revealCommentRequest}
+						onResolve={handleCommentResolve}
+						onSubmitReply={postReply}
+						onSeeChange={handleSeeChangeForComment}
+						onGotoAnchor={handleGotoCommentAnchor}
+						onActiveCommentChange={(id) => (hoverCommentId = id)}
+						onActivateTab={handleTabActivate}
+						currentUserId={currentUser?.id ?? null}
+						currentUserName={currentUser?.displayName ?? null}
+						currentUserProfilePicture={currentUser?.profilePicture ?? null}
+					/>
+				</aside>
+			{/if}
+			<!-- Wave 2.5 Step 8: the same comments where the inline column is not
+			     an option — a phone sheet or a drawer inside the panel, opened by
+			     the header's Comments button (`registerPanelActions`) or a tapped
 			     highlight (`handleEditorAnchorActivate`). -->
 			{#if commentsOverlayOpen}
 				<CommentsSheet
 					presentation={isPhone ? 'sheet' : 'drawer'}
 					{comments}
 					{blocks}
+					resolutions={commentResolutions}
 					{tabs}
 					{activeTabId}
+					refusal={marginRefusal}
 					changeStateByCommentId={changeChipByCommentId}
 					{activeCommentId}
 					focusRequest={focusCommentRequest}
@@ -2227,8 +2396,7 @@ function saveNoticeText(notice: SaveNotice): string {
 					onSubmitReply={postReply}
 					onSeeChange={handleSeeChangeForComment}
 					onGotoAnchor={handleGotoCommentAnchor}
-					onActiveCommentChange={(id) => (activeCommentId = id)}
-					onAnchorsChange={(anchors) => (commentAnchors = anchors)}
+					onActiveCommentChange={(id) => (hoverCommentId = id)}
 					onActivateTab={handleTabActivate}
 					onClose={() => (commentsOverlayOpen = false)}
 					currentUserId={currentUser?.id ?? null}
@@ -2253,15 +2421,12 @@ function saveNoticeText(notice: SaveNotice): string {
 		min-height: 0;
 		background-color: var(--surface-page);
 		border-radius: var(--radius-md);
-		/* Wave 2.5 Step 8: `.document-content`/`.document-content-rail` below
-		   query THIS element's own rendered width (`@container`), not the
-		   viewport's (`@media`) — the panel this body sits inside can be
-		   narrower than the window (it is a resizable side panel, not
-		   necessarily full-width), which is exactly the "narrow desktop panel"
-		   redesign.md §3.2 describes. Matches the same unnamed-container-query
-		   shape already used by `StatGrid.svelte`/`SettingsConnectionsTab.svelte`.
-		   `NARROW_PANEL_THRESHOLD_PX` in the script is the JS half of this
-		   SAME 820px threshold — the two must stay in step. */
+		/* Wave 2.5 Step 8: this element's own rendered width is what decides
+		   whether the comment column fits beside the text (`commentRailWidth`,
+		   measured by a ResizeObserver in the script) — the panel this body
+		   sits inside can be narrower than the window (it is a resizable side
+		   panel, not necessarily full-width). `inline-size` containment also
+		   makes this the containing block for anything positioned inside it. */
 		container-type: inline-size;
 	}
 
@@ -2274,89 +2439,66 @@ function saveNoticeText(notice: SaveNotice): string {
 		min-height: 0;
 	}
 
-	/* Redesign §3.2, Wave 2.5 Step 7: "the comment rail is a 300 px column
-	   inside the SAME scroll container as the text" — a two-column grid, one
-	   `overflow-y`, so nothing anchored near the end (or the removed-text
-	   group) can sit below what the editor lets you scroll to (§3.1 problem
-	   6, the old scroll-sync effect's own failure mode). Below a container
-	   width of 820px there is no room for a real second column; the rail
-	   collapses here and Wave 2.5 Step 8's `CommentsSheet` (a phone sheet or a
-	   narrow-panel drawer) picks up from there instead. */
+	/* The text and its comments, side by side (the owner's walk-through:
+	   "the comments themselves should scroll with the viewport, not just the
+	   section title"). This row does not scroll: the text column is the one
+	   scroller, and the comment column next to it keeps its place and scrolls
+	   its own list, so however far the reader has scrolled the text, the
+	   comments stay in view. `overflow: hidden` also clips the drawer's slide
+	   in from the panel's own edge. */
 	.document-content {
 		position: relative;
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
+		display: flex;
+		flex-direction: row;
 		/* `flex: 1` (not just `min-height`), same reasoning as the editor host
-		   below: this is still a flex CHILD of `.document-main`, and without
-		   it this grid sizes to its own content instead of filling whatever
-		   vertical room `.document-main` actually has (T11.1: the editor must
-		   keep >= 60% of a 390x844 viewport). */
+		   below: this is a flex CHILD of `.document-main`, and without it this
+		   row sizes to its own content instead of filling whatever vertical
+		   room `.document-main` actually has (T11.1: the editor must keep >=
+		   60% of a 390x844 viewport). */
 		flex: 1;
+		min-width: 0;
 		min-height: 240px;
+		overflow: hidden;
+	}
+
+	/* THE reading scroller (`contentEl`): the text, its selection bubble and
+	   the sticky review bar. `position: relative` is the selection bubble's
+	   positioning context, so it scrolls with the words it points at.
+	   Review 2.5's nested-scroller fix (rd/review-2-5.md:87-97) still holds
+	   inside it: nothing WITHIN the text column may become a second vertical
+	   scroller — a wide table scrolls sideways on Tiptap's own `.tableWrapper`
+	   (below), never by putting `overflow-x` on this column's children. */
+	.document-content-text {
+		position: relative;
+		display: flex;
+		flex: 1 1 0;
+		flex-direction: column;
+		min-width: 0;
 		overflow-y: auto;
 	}
 
-	@container (min-width: 820px) {
-		.document-content {
-			grid-template-columns: minmax(0, 1fr) 300px;
-		}
-	}
-
-	.document-content-text {
-		display: flex;
-		flex-direction: column;
-		min-width: 0;
-		/* Review 2.5 Important finding (rd/review-2-5.md:87-97): RV-1B's own
-		   `overflow-x: auto` here was meant to give a wide table its own
-		   horizontal scrollbar without dragging the rail sideways — but ANY
-		   non-visible overflow-x makes the CSS overflow spec coerce this
-		   column's unset overflow-y (`visible` by default) into `auto` too,
-		   turning `.document-content-text` into a SECOND, independent
-		   vertical scroll container nested inside `.document-content`'s
-		   intended single one (redesign §3.2: "one scroll"). A real
-		   wheel-scroll over the text landed on this INNER scroller first,
-		   moving the highlighted text without moving the rail (a sibling
-		   grid column that only follows the OUTER `.document-content`) —
-		   the rail's cards drifted away from the words they annotate. This
-		   column must never independently overflow either axis; a wide
-		   table gets its own horizontal scrollbar directly on the `table`
-		   element below instead — its own height is always intrinsic
-		   (never constrained), so the SAME visible/auto coercion on ITS
-		   unset overflow-y is harmless: there is never vertical content to
-		   scroll within a table's own box. */
-		overflow: visible;
-	}
-
+	/* The comment column: its own height, its own scrolling list
+	   (`MarginPanel`'s `.margin-panel-list`), a hairline between it and the
+	   text. Its width is set inline from `commentRailWidth`. */
 	.document-content-rail {
-		display: none;
+		display: flex;
+		flex: 0 0 auto;
+		flex-direction: column;
+		width: 300px;
 		min-width: 0;
+		min-height: 0;
 		border-left: 1px solid var(--border-subtle);
-	}
-
-	@container (min-width: 820px) {
-		.document-content-rail {
-			display: block;
-		}
+		background-color: var(--surface-page);
 	}
 
 	/* Wave 2.5 Step 10, revised by Review 2.5 (rd/review-2-5.md:98-108): "at
-	   the bottom of the text column" (redesign §4.2 item 5, §8). The
-	   ORIGINAL `position: absolute` version sat as a direct child of the
-	   scrolling `.document-content` on the theory that this "kept it pinned
-	   while the text scrolls underneath" — backwards: an absolutely
-	   positioned element's containing block is still whatever POSITIONED
-	   ancestor it renders inside, and `.document-content` (the SCROLLING
-	   element itself) was that ancestor, so the bar scrolled away WITH the
-	   text instead of staying pinned, and — being a child of the two-column
-	   grid rather than the text column alone — it spanned both columns and
-	   covered the rail's last rows. `position: sticky` here (now nested
-	   INSIDE `.document-content-text`, a normal-flow child after the editor
-	   host — see the markup comment) actually achieves "stays pinned to the
-	   bottom of the text column while the text scrolls": it sticks within
-	   `.document-content`'s own scrollport (its nearest actual scrolling
-	   ancestor) while its box lives in the text column's own normal flow,
-	   which is also what confines its width to that column instead of the
-	   whole grid. `.document-editor-host`'s own `padding-bottom` (see its
+	   the bottom of the text column" (redesign §4.2 item 5, §8). It was once
+	   `position: absolute` in a scroller shared with the comment column, so it
+	   scrolled away with the text and spanned both columns; `position:
+	   sticky` as the last normal-flow child of the text column — itself the
+	   scroller now — pins it to the column's bottom while the text scrolls,
+	   and its box only ever spans the text, never the comment column beside
+	   it. `.document-editor-host`'s own `padding-bottom` (see its
 	   `style:padding-bottom` binding) reserves room, measured live from this
 	   element's own height, so the last paragraph can fully clear it before
 	   the column runs out of content to scroll through — the classic
