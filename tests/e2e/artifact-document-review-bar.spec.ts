@@ -161,11 +161,16 @@ test.describe("Review bar on phone (Wave 2.5 review fix, Critical)", () => {
 });
 
 // Review 2.5 Important finding (rd/review-2-5.md:98-108): `position: absolute`
-// on a direct child of the SCROLLING `.document-content` scrolled away WITH
-// the text (an absolutely positioned element's containing block is its
-// nearest positioned ancestor's box, which was the scroller itself here — not
-// "pinned" at all), spanned both grid columns (covering the rail's last
-// rows), and left no room for the last paragraph to clear it.
+// on a direct child of the scroller scrolled away WITH the text (an
+// absolutely positioned element's containing block is its nearest positioned
+// ancestor's box, which was the scroller itself here — not "pinned" at all),
+// spanned both columns (covering the rail's last rows), and left no room for
+// the last paragraph to clear it. The text column is the scroller now
+// (`.document-content-text`), the comment column is its sibling, and the bar
+// is `position: sticky` in a flow column inside the scroller — sticky can
+// only travel within its parent's box, so a scroller that was ITS OWN parent
+// let the bar scroll away with the text (found by this very test's sibling
+// screenshot, not by any role/text query).
 test.describe("Review bar positioning while scrolling (Wave 2.5 review fix, Important)", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
@@ -209,7 +214,7 @@ test.describe("Review bar positioning while scrolling (Wave 2.5 review fix, Impo
 			.getByText(lastParagraphText, { exact: false });
 		await expect(lastParagraph).toBeAttached({ timeout: 30_000 });
 
-		const outerScroller = shell.locator(".document-main > .document-content");
+		const outerScroller = shell.locator(".document-content-text");
 		await outerScroller.evaluate((el) => {
 			el.scrollTop = el.scrollHeight;
 		});

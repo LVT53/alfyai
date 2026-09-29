@@ -432,13 +432,14 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 		).toBeVisible();
 	});
 
-	// A panel width below 820px but a viewport width above BOTH the chat
-	// page's own desktop-count-button breakpoint (Tailwind's `lg`, 1024px)
-	// and the workspace's own desktop-shell breakpoint (768px) — the docked
-	// panel is `min(68vw, 950px)`, so 1100px viewport width gives a 748px
-	// panel: too narrow for the inline rail, wide enough that every OTHER
-	// piece of chrome still reads as "desktop".
-	test("narrow desktop panel: the rail becomes a drawer, toggled by the header's Comments button", async ({
+	// A panel too narrow for the comment column beside the text (under 720px:
+	// the text keeps at least 480px, so the column needs 240px more) but a
+	// viewport wide enough that every OTHER piece of chrome still reads as
+	// "desktop" — above BOTH the chat page's own desktop-count-button
+	// breakpoint (Tailwind's `lg`, 1024px) and the workspace's own
+	// desktop-shell breakpoint (768px). The docked panel is 68% of what is
+	// left beside the 48px sidebar rail, so a 1024px window gives ~695px.
+	test("narrow desktop panel: the comments are a drawer inside the panel, below its header, toggled by the header's Comments button", async ({
 		page,
 	}) => {
 		const conversationId = await createConversation(page, "Narrow panel");
@@ -455,7 +456,7 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 			body: "Seeded for the narrow-panel drawer",
 		});
 
-		await page.setViewportSize({ width: 1100, height: 800 });
+		await page.setViewportSize({ width: 1024, height: 768 });
 		await openChatAndReload(page, conversationId);
 		await page.getByTestId("artifact-count-button").click();
 		await page
@@ -465,19 +466,55 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 
 		const shell = desktopShell(page);
 		await expect(shell).toBeVisible({ timeout: 30_000 });
-		// The inline rail is the redesign's own `.document-content-rail` —
-		// `display: none` below the container's 820px threshold.
-		await expect(shell.locator(".document-content-rail")).not.toBeVisible();
+		// No inline column: there is no room for it beside the text.
+		await expect(shell.locator(".document-content-rail")).toHaveCount(0);
 
 		const commentsButton = shell.getByTestId("artifact-comments-button");
+		await expect(commentsButton).toHaveAttribute("aria-pressed", "false");
 		await commentsButton.click();
+		await expect(commentsButton).toHaveAttribute("aria-pressed", "true");
 
-		const drawer = page.getByTestId("comments-drawer");
+		const drawer = shell.getByTestId("comments-drawer");
 		await expect(drawer).toBeVisible();
 		await expect(
 			drawer.getByText("Seeded for the narrow-panel drawer"),
 		).toBeVisible();
+		// One surface at a time: the drawer is the only comment list.
+		await expect(page.getByTestId("margin-panel-list")).toHaveCount(1);
 
+		// Inside the panel, below its header, tabs and toolbar: the drawer
+		// starts where the text starts, so the header's own actions — the
+		// Comments button that closes it — are never covered.
+		await waitForStableBoundingBox(drawer);
+		const textBox = await shell.locator(".document-content-text").boundingBox();
+		const drawerBox = await drawer.boundingBox();
+		const buttonBox = await commentsButton.boundingBox();
+		expect(textBox && drawerBox && buttonBox).toBeTruthy();
+		expect(drawerBox?.y ?? 0).toBeGreaterThanOrEqual((textBox?.y ?? 0) - 1);
+		expect(drawerBox?.y ?? 0).toBeGreaterThanOrEqual(
+			(buttonBox?.y ?? 0) + (buttonBox?.height ?? 0),
+		);
+		const buttonIsTopmost = await commentsButton.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + rect.height / 2,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(
+			buttonIsTopmost,
+			"the header's Comments button stays uncovered",
+		).toBe(true);
+
+		// The same button closes it again — never a second way in.
+		await commentsButton.click();
+		await expect(drawer).toBeHidden();
+		await expect(commentsButton).toHaveAttribute("aria-pressed", "false");
+
+		// Escape closes it too, and returns focus to the button.
+		await commentsButton.click();
+		await expect(drawer).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(drawer).toBeHidden();
 		await expect(commentsButton).toBeFocused();
@@ -727,17 +764,13 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 	});
 });
 
-// Review 2.5 Important finding (rd/review-2-5.md:87-97): "the rail is a 300px
-// column inside the SAME scroll container as the text ... one scroll" (§3.2)
-// was actually two nested scrollers — `.document-content-text`'s own
-// `overflow-x: auto` made the CSS overflow spec coerce its unset
-// `overflow-y` to `auto` too (a non-visible overflow-x forces a `visible`
-// overflow-y to become `auto`), giving it an independent vertical scroller
-// nested inside `.document-content`'s intended single one. A real user's
-// wheel-scroll over the text picks the INNERMOST scrollable ancestor first,
-// so the rail (a sibling grid column of `.document-content-text`, moving
-// only with the OUTER `.document-content`) drifted away from the highlights
-// it points at.
+// A long document with a comment on some of its paragraphs. History: Review
+// 2.5's "one scroll" fix (rd/review-2-5.md:87-97) put the text and the comment
+// rail in one shared scroller, with cards placed at their anchors' heights —
+// then the owner's walk-through asked for the opposite ("the comments
+// themselves should scroll with the viewport, not just the section title"):
+// the text column is the one scroller, and the comment column beside it keeps
+// its place, with a list that scrolls on its own and follows the reader.
 async function seedLongDocumentWithComments(
 	conversationId: string,
 	targets: { index: number; quote: string; commentBody: string }[],
@@ -777,180 +810,432 @@ async function seedLongDocumentWithComments(
 	return { artifact, blocks, comments: created };
 }
 
-test.describe("Document scroll is a single scroller (Wave 2.5 review fix)", () => {
+const LONG_DOCUMENT_TARGETS = [3, 8, 13, 18, 23, 28, 33, 40].map((index) => ({
+	index,
+	quote: `Marker ${index} keeps its place in the document.`,
+	commentBody: `Comment on paragraph ${index}`,
+}));
+
+async function openLongDocument(page: Page, title: string) {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	const conversationId = await createConversation(page, title);
+	const seeded = await seedLongDocumentWithComments(
+		conversationId,
+		LONG_DOCUMENT_TARGETS,
+	);
+	await openChatAndReload(page, conversationId);
+	await page.getByTestId("artifact-count-button").click();
+	await page
+		.getByTestId("artifact-panel-list")
+		.getByTestId("artifact-row")
+		.click({ timeout: 30_000 });
+	const shell = desktopShell(page);
+	await expect(shell).toBeVisible();
+	// Every paragraph must be in the DOM before measuring scroll heights — a
+	// generous timeout absorbs the dev server's one-time compile of the
+	// Document editor's module graph on the very first Document opened in a
+	// test run (matches `artifact-document.spec.ts`'s own established pattern).
+	await expect(
+		shell
+			.locator(".document-editor-host")
+			.getByText("Marker 40 keeps its place in the document.", {
+				exact: false,
+			}),
+	).toBeAttached({ timeout: 30_000 });
+	await expect(shell.getByTestId("margin-comment")).toHaveCount(
+		LONG_DOCUMENT_TARGETS.length,
+	);
+	return { shell, ...seeded };
+}
+
+test.describe("The comment column stays in view while the text scrolls (owner walk-through)", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
 	});
 
-	test("`.document-content-text` has no scrollable overflow of its own", async ({
+	test("the text column is the one scroller: the row around it and the column beside it never scroll away", async ({
 		page,
 	}) => {
-		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(
-			page,
-			"Long document, one scroller",
-		);
-		await seedLongDocumentWithComments(conversationId, [
-			{
-				index: 3,
-				quote: "Marker Charlie reserves the window seat.",
-				commentBody: "Early comment",
-			},
-			{
-				index: 40,
-				quote: "Marker Omega confirms the late checkout.",
-				commentBody: "Late comment",
-			},
-		]);
-		await openChatAndReload(page, conversationId);
-		await page.getByTestId("artifact-count-button").click();
-		await page
-			.getByTestId("artifact-panel-list")
-			.getByTestId("artifact-row")
-			.click({ timeout: 30_000 });
+		const { shell } = await openLongDocument(page, "One scroller for the text");
+		const text = shell.locator(".document-content-text");
+		const row = shell.locator(".document-main > .document-content");
+		const rail = shell.locator(".document-content-rail");
+		await waitForStableBoundingBox(text);
 
-		const shell = desktopShell(page);
-		await expect(shell).toBeVisible();
-		const textColumn = shell.locator(".document-content-text");
-		await expect(textColumn).toBeVisible();
-		// All 45 paragraphs must actually be in the DOM before measuring
-		// scroll heights below — a generous timeout absorbs the dev server's
-		// one-time compile of the Document editor's module graph (Tiptap and
-		// everything it pulls in) on the very first Document ever opened in a
-		// test run (matches `artifact-document.spec.ts`'s own established
-		// pattern); measuring mid-load would read a not-yet-laid-out DOM and
-		// silently pass both assertions below for the wrong reason.
-		await expect(
-			shell
+		// The text column itself scrolls...
+		expect(
+			await text.evaluate((el) => el.scrollHeight - el.clientHeight),
+		).toBeGreaterThan(50);
+		// ...and nothing around or inside it does: the row that holds the text
+		// and the comment column is not a scroller, and the editor does not
+		// scroll on its own inside the column (Review 2.5's nested-scroller
+		// bug must stay fixed).
+		expect(
+			await row.evaluate((el) => el.scrollHeight - el.clientHeight),
+		).toBeLessThanOrEqual(1);
+		expect(
+			await shell
 				.locator(".document-editor-host")
-				.getByText("Marker Omega confirms the late checkout.", {
-					exact: false,
-				}),
-		).toBeAttached({ timeout: 30_000 });
+				.evaluate((el) => getComputedStyle(el).overflowY),
+		).toBe("visible");
 
-		// The intended single scroller (`.document-content`) must itself be
-		// scrollable — otherwise this test would trivially pass because
-		// NOTHING scrolls anywhere.
-		const outerOverflow = await shell
-			.locator(".document-main > .document-content")
-			.evaluate((el) => el.scrollHeight - el.clientHeight);
-		expect(outerOverflow).toBeGreaterThan(50);
-
-		// The bug: `.document-content-text` had its OWN scrollHeight beyond
-		// its clientHeight — a second, nested scroll container. After the
-		// fix, this column never independently overflows: whatever height
-		// its content needs, `.document-content` (its scrolling ancestor)
-		// is the one that grows a scrollbar for it.
-		const innerOverflow = await textColumn.evaluate(
-			(el) => el.scrollHeight - el.clientHeight,
-		);
-		expect(innerOverflow).toBeLessThanOrEqual(1);
+		// Scrolling the text moves the text, not the comment column.
+		const railBefore = await rail.boundingBox();
+		await text.evaluate((el) => {
+			el.scrollTop = el.scrollHeight;
+		});
+		await waitForStableBoundingBox(rail);
+		const railAfter = await rail.boundingBox();
+		expect(railAfter?.y).toBeCloseTo(railBefore?.y ?? -1, 0);
+		expect(railAfter?.height).toBeCloseTo(railBefore?.height ?? -1, 0);
+		await expect(rail).toBeInViewport({ ratio: 0.9 });
 	});
 
-	test("a rail card stays aligned with its highlight after scrolling a long commented document", async ({
+	test("the list keeps its place as the text scrolls, and follows the words the reader is on", async ({
 		page,
 	}) => {
-		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(
-			page,
-			"Long document, rail sync",
+		const { shell } = await openLongDocument(page, "List follows the text");
+		const text = shell.locator(".document-content-text");
+		const list = shell.getByTestId("margin-panel-list");
+		await waitForStableBoundingBox(text);
+		await waitForStableBoundingBox(list);
+
+		const textBox = await text.boundingBox();
+		expect(textBox).not.toBeNull();
+		// A real wheel gesture over the TEXT, in several steps, down to the
+		// last paragraphs — the way the owner scrolls.
+		await page.mouse.move(
+			(textBox?.x ?? 0) + (textBox?.width ?? 0) / 2,
+			(textBox?.y ?? 0) + 120,
 		);
-		const { comments } = await seedLongDocumentWithComments(conversationId, [
-			{
-				index: 3,
-				quote: "Marker Charlie reserves the window seat.",
-				commentBody: "Early comment",
-			},
-			{
-				index: 40,
-				quote: "Marker Omega confirms the late checkout.",
-				commentBody: "Late comment",
-			},
-		]);
-		const earlyCommentId = comments[0]?.commentId;
-		expect(earlyCommentId).toBeTruthy();
+		for (let step = 0; step < 8; step += 1) {
+			await page.mouse.wheel(0, 700);
+			await page.waitForTimeout(80);
+		}
 
-		await openChatAndReload(page, conversationId);
-		await page.getByTestId("artifact-count-button").click();
-		await page
-			.getByTestId("artifact-panel-list")
-			.getByTestId("artifact-row")
-			.click({ timeout: 30_000 });
+		// The active card is the one whose words are nearest the top of what is
+		// on screen — computed independently here from the highlights' own
+		// rectangles — and it is brought into view in the list.
+		await expect
+			.poll(
+				async () =>
+					page.evaluate(() => {
+						const scroller = document.querySelector(
+							".document-content-text",
+						) as HTMLElement;
+						const bounds = scroller.getBoundingClientRect();
+						let best: { id: string; top: number } | null = null;
+						for (const span of document.querySelectorAll(
+							".comment-anchor[data-comment-anchor-id]",
+						)) {
+							const rect = span.getBoundingClientRect();
+							if (rect.height === 0) continue;
+							if (rect.bottom <= bounds.top + 4 || rect.top >= bounds.bottom)
+								continue;
+							const top = Math.max(rect.top, bounds.top);
+							if (!best || top < best.top) {
+								best = {
+									id: span.getAttribute("data-comment-anchor-id") ?? "",
+									top,
+								};
+							}
+						}
+						const active = document.querySelector(
+							"[data-testid='margin-comment'].is-active",
+						);
+						return {
+							expected: best?.id ?? null,
+							active: active?.getAttribute("data-comment-id") ?? null,
+						};
+					}),
+				{ timeout: 10_000 },
+			)
+			.toMatchObject({ expected: expect.any(String) });
+		await expect
+			.poll(
+				async () =>
+					page.evaluate(() => {
+						const active = document.querySelector(
+							"[data-testid='margin-comment'].is-active",
+						) as HTMLElement | null;
+						const listEl = document.querySelector(
+							"[data-testid='margin-panel-list']",
+						) as HTMLElement;
+						if (!active) return "no active card";
+						const card = active.getBoundingClientRect();
+						const bounds = listEl.getBoundingClientRect();
+						return card.top >= bounds.top - 1 &&
+							card.bottom <= bounds.bottom + 1
+							? "in view"
+							: `out of view (${Math.round(card.top)}..${Math.round(card.bottom)} vs ${Math.round(bounds.top)}..${Math.round(bounds.bottom)})`;
+					}),
+				{ timeout: 10_000 },
+			)
+			.toBe("in view");
+		const followed = await page.evaluate(() => {
+			const active = document.querySelector(
+				"[data-testid='margin-comment'].is-active",
+			);
+			return active?.textContent ?? "";
+		});
+		expect(followed).toMatch(/Comment on paragraph (3|8|13|18|23|28|33|40)/);
+		// The list itself scrolled to get there (eight cards do not fit).
+		expect(await list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+		// And the column never moved: it is still where it was.
+		await expect(shell.locator(".document-content-rail")).toBeInViewport({
+			ratio: 0.9,
+		});
+	});
 
-		const shell = desktopShell(page);
-		// A generous timeout absorbs the dev server's one-time compile of the
-		// Document editor's module graph on the very first Document ever
-		// opened in a test run (matches `artifact-document.spec.ts`'s own
-		// established pattern) — without this, the highlight locator below
-		// waits on an element that does not exist yet and runs out the whole
-		// test timeout instead of failing (or passing) for the right reason.
-		await expect(
-			shell
-				.locator(".document-editor-host")
-				.getByText("Marker Omega confirms the late checkout.", {
-					exact: false,
-				}),
-		).toBeAttached({ timeout: 30_000 });
-
-		const outerScroller = shell.locator(".document-main > .document-content");
-		await waitForStableBoundingBox(outerScroller);
-
-		const earlyHighlight = shell.locator(
-			`[data-comment-anchor-id="${earlyCommentId}"]`,
+	test("does not fight the reader: with the pointer inside the list, the text scrolling leaves the list where it is", async ({
+		page,
+	}) => {
+		const { shell } = await openLongDocument(page, "List does not fight");
+		const text = shell.locator(".document-content-text");
+		const list = shell.getByTestId("margin-panel-list");
+		await waitForStableBoundingBox(list);
+		const listBox = await list.boundingBox();
+		await page.mouse.move(
+			(listBox?.x ?? 0) + (listBox?.width ?? 0) / 2,
+			(listBox?.y ?? 0) + 40,
 		);
-		const earlyCard = shell
+		const before = await list.evaluate((el) => el.scrollTop);
+
+		await text.evaluate((el) => {
+			el.scrollTop = el.scrollHeight;
+		});
+		// Give the follow (one animation frame plus a smooth scroll, had it
+		// been allowed) time to act.
+		await page.waitForTimeout(900);
+
+		expect(await list.evaluate((el) => el.scrollTop)).toBe(before);
+	});
+
+	test("cards are stacked with even gaps, in the order their words appear", async ({
+		page,
+	}) => {
+		const { shell } = await openLongDocument(page, "Even gaps");
+		const cards = shell.getByTestId("margin-comment");
+		await waitForStableBoundingBox(cards.first());
+		const boxes: { y: number; height: number }[] = [];
+		const bodies: string[] = [];
+		for (let i = 0; i < LONG_DOCUMENT_TARGETS.length; i += 1) {
+			const card = cards.nth(i);
+			const box = await card.boundingBox();
+			expect(box).not.toBeNull();
+			boxes.push(box as { y: number; height: number });
+			bodies.push((await card.textContent()) ?? "");
+		}
+		// Document order: paragraph 3 first, paragraph 40 last.
+		LONG_DOCUMENT_TARGETS.forEach((target, i) => {
+			expect(bodies[i]).toContain(`Comment on paragraph ${target.index}`);
+		});
+		// Even gaps: every gap between neighbours is the same, 8-12px.
+		const gaps = boxes
+			.slice(1)
+			.map((box, i) => box.y - (boxes[i].y + boxes[i].height));
+		for (const gap of gaps) {
+			expect(gap).toBeGreaterThanOrEqual(8);
+			expect(gap).toBeLessThanOrEqual(12);
+			expect(gap).toBeCloseTo(gaps[0], 0);
+		}
+	});
+
+	test("clicking a card takes the text to its words; clicking the words brings the card into view", async ({
+		page,
+	}) => {
+		const { shell, comments } = await openLongDocument(page, "Two-way link");
+		const text = shell.locator(".document-content-text");
+		const lastComment = comments[comments.length - 1];
+		const lastCard = shell
 			.getByTestId("margin-comment")
-			.filter({ hasText: "Early comment" });
-		await waitForStableBoundingBox(earlyHighlight);
-		await waitForStableBoundingBox(earlyCard);
-		const beforeHighlightBox = await earlyHighlight.boundingBox();
-		const beforeCardBox = await earlyCard.boundingBox();
-		expect(beforeHighlightBox, "the highlight must be visible").not.toBeNull();
-		expect(beforeCardBox, "the rail card must be visible").not.toBeNull();
-		// The card's own header/padding naturally offsets it from its
-		// highlight's exact baseline even at rest (they are never expected
-		// to sit pixel-for-pixel level — the file's own pre-existing
-		// ordering test above only checks card/card, never card/highlight).
-		// What must NOT change is this offset, once scrolling is involved.
-		const offsetBefore =
-			(beforeCardBox as { y: number }).y -
-			(beforeHighlightBox as { y: number }).y;
+			.filter({ hasText: "Comment on paragraph 40" });
+		await lastCard.scrollIntoViewIfNeeded();
+		const before = await text.evaluate((el) => el.scrollTop);
+		await lastCard.getByText("Comment on paragraph 40").click();
+		await expect
+			.poll(async () => text.evaluate((el) => el.scrollTop), { timeout: 8_000 })
+			.toBeGreaterThan(before + 500);
+		await expect(
+			shell.locator(`[data-comment-anchor-id="${lastComment?.commentId}"]`),
+		).toBeInViewport();
 
-		// A real mouse-wheel scroll, hovering over the TEXT (never the rail),
-		// small enough (120px) to stay under `.document-content-text`'s own
-		// ~200px of bugged internal overflow (measured by the sibling test
-		// above) so this exercises PURE inner-scroller drift, never native
-		// scroll-chaining to the outer container once the inner one maxes
-		// out — chaining would coordinate both scrollers back into
-		// alignment and mask the bug, exactly like `scrollIntoViewIfNeeded()`
-		// would (deliberately not used here for that reason). A real wheel
-		// gesture lands on whichever element the browser picks as the
-		// nearest scrollable ancestor under the cursor — in the bugged
-		// version that is `.document-content-text` itself, leaving the rail
-		// (a SIBLING column, moved only by the OUTER `.document-content`)
-		// behind. This is the same vector the review's own evidence measured
-		// ("`.document-content-text` scrolls on its own").
-		const textBox = await shell.locator(".document-content-text").boundingBox();
-		expect(textBox, "the text column must be visible").not.toBeNull();
-		const { x, y, width } = textBox as { x: number; y: number; width: number };
-		await page.mouse.move(x + width / 2, y + 40);
-		await page.mouse.wheel(0, 120);
-		await waitForStableBoundingBox(earlyHighlight);
-		await waitForStableBoundingBox(earlyCard);
-
-		const afterHighlightBox = await earlyHighlight.boundingBox();
-		const afterCardBox = await earlyCard.boundingBox();
-		expect(afterHighlightBox, "the highlight must be visible").not.toBeNull();
-		expect(afterCardBox, "the rail card must be visible").not.toBeNull();
-		const offsetAfter =
-			(afterCardBox as { y: number }).y -
-			(afterHighlightBox as { y: number }).y;
-
-		// The bug moved the highlight (inside the accidentally-scrolled
-		// `.document-content-text`) without moving the card (inside the
-		// sibling `.document-content-rail`, which only follows the OUTER
-		// scroller) — a ~120px swing in this offset. A single scroller
-		// moves both together, so the offset barely changes.
-		expect(Math.abs(offsetAfter - offsetBefore)).toBeLessThan(20);
+		// And back: scroll the text to the top, click the words of comment 40
+		// after scrolling to them, and the card is focused in the list.
+		const firstCard = shell
+			.getByTestId("margin-comment")
+			.filter({ hasText: /Comment on paragraph 3(?!\d)/ });
+		await text.evaluate((el) => {
+			el.scrollTop = 0;
+		});
+		const firstHighlight = shell.locator(
+			`[data-comment-anchor-id="${comments[0]?.commentId}"]`,
+		);
+		await expect(firstHighlight).toBeVisible();
+		await firstHighlight.click();
+		await expect(firstCard).toBeFocused();
+		await expect(firstCard).toBeInViewport();
 	});
 });
+
+// The header's Comments button is ONE toggle (the owner: "it looks like I can
+// open comments 2 times ... it would be much better if that icon just closed
+// and opened the already open comments sidebar").
+test.describe("The header's Comments button toggles the column (owner walk-through)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("pressed while the column shows; pressing it hides the column and gives the text the width; remembered on this device", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Toggle the column");
+		const { artifact, block } = await seedDocumentWithBlock(
+			conversationId,
+			"Book the flight to Vienna.",
+		);
+		await createComment({
+			userId: await testUserId(),
+			artifactId: artifact.id,
+			anchor: anchorFor(block.id, block.markdown, "flight"),
+			author: "user",
+			body: "Toggle me",
+		});
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const shell = desktopShell(page);
+		const button = shell.getByTestId("artifact-comments-button");
+		const rail = shell.locator(".document-content-rail");
+		const text = shell.locator(".document-content-text");
+		await expect(rail).toBeVisible({ timeout: 30_000 });
+		await expect(button).toHaveAttribute("aria-pressed", "true");
+		await waitForStableBoundingBox(text);
+		const widthWithColumn = (await text.boundingBox())?.width ?? 0;
+
+		await button.click();
+		await expect(rail).toHaveCount(0);
+		await expect(button).toHaveAttribute("aria-pressed", "false");
+		// Never a second copy of the comments while it is off.
+		await expect(page.getByTestId("comments-drawer")).toHaveCount(0);
+		await expect(page.getByTestId("margin-panel-list")).toHaveCount(0);
+		await waitForStableBoundingBox(text);
+		const widthWithout = (await text.boundingBox())?.width ?? 0;
+		expect(widthWithout).toBeGreaterThan(widthWithColumn + 250);
+
+		// Remembered per device: still off after a reload.
+		await openChatAndReload(page, conversationId);
+		// The panel may come back on its own, already on the document (the
+		// chat remembers what was open): only open it when it did not.
+		const countButton = page.getByTestId("artifact-count-button");
+		await expect(countButton).toBeVisible({ timeout: 20_000 });
+		if ((await countButton.getAttribute("aria-pressed")) !== "true") {
+			await countButton.click();
+		}
+		const row = page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row");
+		await expect(
+			row.or(shell.getByTestId("artifact-comments-button")),
+		).toBeVisible({ timeout: 30_000 });
+		if (await row.count()) await row.click();
+		await expect(shell.getByTestId("artifact-comments-button")).toHaveAttribute(
+			"aria-pressed",
+			"false",
+			{ timeout: 30_000 },
+		);
+		await expect(shell.locator(".document-content-rail")).toHaveCount(0);
+
+		// And back on.
+		await shell.getByTestId("artifact-comments-button").click();
+		await expect(shell.locator(".document-content-rail")).toBeVisible();
+		await expect(shell.getByText("Toggle me")).toBeVisible();
+	});
+});
+
+// Laptop fit (the owner: "it doesn't really fit properly on my laptop's
+// screen"): with the chat and the panel side by side — and with the panel
+// expanded — the text keeps a comfortable reading width and the column
+// narrows (300 -> 240px) before the text does.
+for (const [width, height] of [
+	[1280, 800],
+	[1366, 768],
+	[1440, 900],
+	[1512, 982],
+] as const) {
+	test.describe(`Laptop fit at ${width}x${height} (owner walk-through)`, () => {
+		test.beforeEach(async ({ page }) => {
+			await login(page);
+		});
+
+		test("the text column keeps its reading width beside the chat, and expanded", async ({
+			page,
+		}) => {
+			const conversationId = await createConversation(
+				page,
+				`Laptop fit ${width}`,
+			);
+			const { artifact, block } = await seedDocumentWithBlock(
+				conversationId,
+				"Book the flight to Vienna. It leaves early in the morning and lands before lunch.",
+			);
+			await createComment({
+				userId: await testUserId(),
+				artifactId: artifact.id,
+				anchor: anchorFor(block.id, block.markdown, "flight"),
+				author: "user",
+				body: "Laptop fit comment",
+			});
+			await page.setViewportSize({ width, height });
+			await openChatAndReload(page, conversationId);
+			await page.getByTestId("artifact-count-button").click();
+			await page
+				.getByTestId("artifact-panel-list")
+				.getByTestId("artifact-row")
+				.click({ timeout: 30_000 });
+			const shell = desktopShell(page);
+			const rail = shell.locator(".document-content-rail");
+			const text = shell.locator(".document-content-text");
+			const prose = shell.locator(".document-editor-host .document-content");
+			await expect(rail).toBeVisible({ timeout: 30_000 });
+
+			async function widths() {
+				await waitForStableBoundingBox(text);
+				await waitForStableBoundingBox(rail);
+				await waitForStableBoundingBox(prose);
+				return {
+					text: (await text.boundingBox())?.width ?? 0,
+					rail: (await rail.boundingBox())?.width ?? 0,
+					prose: (await prose.boundingBox())?.width ?? 0,
+				};
+			}
+
+			const docked = await widths();
+			// The text column keeps at least 480px (440px of words a line) and
+			// the column is 240-300px, whichever the panel has room for.
+			expect(docked.text).toBeGreaterThanOrEqual(480);
+			expect(docked.prose).toBeGreaterThanOrEqual(440);
+			expect(docked.rail).toBeGreaterThanOrEqual(240);
+			expect(docked.rail).toBeLessThanOrEqual(300);
+			await expect(shell.getByText("Laptop fit comment")).toBeVisible();
+
+			await shell.locator(".workspace-expand-button").click();
+			await expect(shell).toHaveClass(/workspace-shell-expanded/);
+			const expanded = await widths();
+			expect(expanded.text).toBeGreaterThanOrEqual(480);
+			expect(expanded.prose).toBeGreaterThanOrEqual(440);
+			expect(expanded.rail).toBeGreaterThanOrEqual(240);
+			expect(expanded.rail).toBeLessThanOrEqual(300);
+			// (Reported for the record; the assertions above are the contract.)
+			test.info().annotations.push({
+				type: "measured",
+				description: `docked text ${Math.round(docked.text)} rail ${Math.round(docked.rail)} prose ${Math.round(docked.prose)}; expanded text ${Math.round(expanded.text)} rail ${Math.round(expanded.rail)} prose ${Math.round(expanded.prose)}`,
+			});
+		});
+	});
+}

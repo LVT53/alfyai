@@ -2227,120 +2227,127 @@ function saveNoticeText(notice: SaveNotice): string {
 		     instead, never both. -->
 		<div class="document-content">
 			<div class="document-content-text" bind:this={contentEl}>
-				{#if loadState === "not_found"}
-					<div class="document-notice" role="status">
-						<p>{$t('artifacts.document.notFound')}</p>
-					</div>
-				{:else}
-					{#if loadState === "load_error"}
-						<div class="document-notice" role="alert">
-							<p>{$t('artifacts.document.editor.failedToLoad')}</p>
-							<button type="button" class="btn-secondary" onclick={retryLoad}>
-								{$t('common.retry')}
-							</button>
+				<!-- One flow column inside the scroller, at least as tall as the scroller and
+				     as tall as the text: the review bar is `position: sticky` inside it, and a
+				     sticky element can only travel within its PARENT's box — the scroller's
+				     own box is only as tall as the viewport, so pinning the bar to it would
+				     let the bar scroll away with the text. -->
+				<div class="document-content-flow">
+					{#if loadState === "not_found"}
+						<div class="document-notice" role="status">
+							<p>{$t('artifacts.document.notFound')}</p>
 						</div>
-					{:else if saveNotice === 'deleted'}
-						<div class="document-notice" role="alert">
-							<p>{$t('artifacts.document.deleted')}</p>
-							<button type="button" class="btn-primary" onclick={handleSaveCopy}>
-								{$t('artifacts.document.deleted.saveCopy')}
-							</button>
+					{:else}
+						{#if loadState === "load_error"}
+							<div class="document-notice" role="alert">
+								<p>{$t('artifacts.document.editor.failedToLoad')}</p>
+								<button type="button" class="btn-secondary" onclick={retryLoad}>
+									{$t('common.retry')}
+								</button>
+							</div>
+						{:else if saveNotice === 'deleted'}
+							<div class="document-notice" role="alert">
+								<p>{$t('artifacts.document.deleted')}</p>
+								<button type="button" class="btn-primary" onclick={handleSaveCopy}>
+									{$t('artifacts.document.deleted.saveCopy')}
+								</button>
+							</div>
+						{/if}
+						<div
+							class="document-editor-host"
+							bind:this={editorEl}
+							role={tabs.length > 1 ? 'tabpanel' : undefined}
+							id={tabs.length > 1 ? `document-tabpanel-${activeTabId}` : undefined}
+							aria-labelledby={tabs.length > 1 ? `document-tab-${activeTabId}` : undefined}
+							style:padding-bottom={pendingList.length > 0
+								? `calc(1rem + ${reviewBarHeight}px)`
+								: undefined}
+						></div>
+						{#if loadState === 'loading'}
+							<div class="document-editor-skeleton" aria-hidden="true">
+								<span class="sr-only">{$t('common.loading')}</span>
+							</div>
+						{/if}
+						<!-- T10: the selection bubble, positioned against this same scroll container -->
+						{#if selectionBubble}
+							<SelectionBubble
+								position={selectionBubble}
+								quote={selectionBubble.quote}
+								onSubmit={async (body, sourceRect) => {
+									if (!selectionBubble) return;
+									await handleSelectionSubmit(
+										selectionBubble.anchor,
+										body,
+										sourceRect,
+									);
+								}}
+								onDismiss={dismissSelectionBubble}
+							/>
+						{/if}
+						<!-- T12, Wave 2.5 Step 8: the download popover, opened from the
+						     panel header's Download action — anchors itself to that
+						     button and portals onto <body>, so no wrapping anchor div is
+						     needed here any more. -->
+						{#if downloadSheetOpen}
+							<DownloadSheet
+								artifactId={boundArtifactId}
+								{title}
+								conversationId={panelConversationId}
+								onClose={() => (downloadSheetOpen = false)}
+							/>
+						{/if}
+						<!-- RV-1B, T6, Wave 2.5 Step 8: the versions popover, opened from
+						     the panel header's version button. A restore changes the
+						     stored body out from under the open editor, so it reloads
+						     through the same retryLoad() the "load failed, try again" path
+						     already uses, rather than a second reload path. -->
+						{#if versionsSheetOpen}
+							<VersionsSheet
+								artifactId={boundArtifactId}
+								conversationId={panelConversationId}
+								onClose={() => (versionsSheetOpen = false)}
+								onRestored={() => {
+									versionsSheetOpen = false;
+									retryLoad();
+								}}
+								currentUserId={currentUser?.id ?? null}
+								currentUserName={currentUser?.displayName ?? null}
+								currentUserProfilePicture={currentUser?.profilePicture ?? null}
+							/>
+						{/if}
+					{/if}
+					<!-- Wave 2.5 Step 10 / Review 2.5 (rd/review-2-5.md:98-108): the
+					     review bar, "at the bottom of the text column" (redesign
+					     §4.2 item 5, §8). The pill itself is no longer rendered
+					     here — Step 10 moved it into the editor's own DOM as a
+					     ProseMirror widget decoration (`change-pill-decoration.ts`).
+					     Nested INSIDE `.document-content-text` (not a sibling grid
+					     item of it) on purpose: `position: sticky` needs to be a
+					     normal-flow descendant of the scrolling ancestor
+					     (`.document-content`) to stick within its viewport, and
+					     nesting it here also confines its width to the text
+					     column alone — it used to span both grid columns and cover
+					     the rail's last rows (see this class's own CSS comment). -->
+					{#if pendingList.length > 0}
+						<div
+							class="document-review-bar-slot"
+							bind:this={reviewBarSlotEl}
+							in:reviewBarFly={{ y: 16, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
+							out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
+						>
+							<ReviewBar
+								pendingCount={pendingList.length}
+								refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
+								currentIndex={reviewIndex}
+								onPrev={handleReviewPrev}
+								onNext={handleReviewNext}
+								onKeepAll={handleKeepAllChanges}
+								onUndoAll={handleUndoAllChanges}
+								onSeeRefused={refusalNotice ? handleSeeChange : undefined}
+							/>
 						</div>
 					{/if}
-					<div
-						class="document-editor-host"
-						bind:this={editorEl}
-						role={tabs.length > 1 ? 'tabpanel' : undefined}
-						id={tabs.length > 1 ? `document-tabpanel-${activeTabId}` : undefined}
-						aria-labelledby={tabs.length > 1 ? `document-tab-${activeTabId}` : undefined}
-						style:padding-bottom={pendingList.length > 0
-							? `calc(1rem + ${reviewBarHeight}px)`
-							: undefined}
-					></div>
-					{#if loadState === 'loading'}
-						<div class="document-editor-skeleton" aria-hidden="true">
-							<span class="sr-only">{$t('common.loading')}</span>
-						</div>
-					{/if}
-					<!-- T10: the selection bubble, positioned against this same scroll container -->
-					{#if selectionBubble}
-						<SelectionBubble
-							position={selectionBubble}
-							quote={selectionBubble.quote}
-							onSubmit={async (body, sourceRect) => {
-								if (!selectionBubble) return;
-								await handleSelectionSubmit(
-									selectionBubble.anchor,
-									body,
-									sourceRect,
-								);
-							}}
-							onDismiss={dismissSelectionBubble}
-						/>
-					{/if}
-					<!-- T12, Wave 2.5 Step 8: the download popover, opened from the
-					     panel header's Download action — anchors itself to that
-					     button and portals onto <body>, so no wrapping anchor div is
-					     needed here any more. -->
-					{#if downloadSheetOpen}
-						<DownloadSheet
-							artifactId={boundArtifactId}
-							{title}
-							conversationId={panelConversationId}
-							onClose={() => (downloadSheetOpen = false)}
-						/>
-					{/if}
-					<!-- RV-1B, T6, Wave 2.5 Step 8: the versions popover, opened from
-					     the panel header's version button. A restore changes the
-					     stored body out from under the open editor, so it reloads
-					     through the same retryLoad() the "load failed, try again" path
-					     already uses, rather than a second reload path. -->
-					{#if versionsSheetOpen}
-						<VersionsSheet
-							artifactId={boundArtifactId}
-							conversationId={panelConversationId}
-							onClose={() => (versionsSheetOpen = false)}
-							onRestored={() => {
-								versionsSheetOpen = false;
-								retryLoad();
-							}}
-							currentUserId={currentUser?.id ?? null}
-							currentUserName={currentUser?.displayName ?? null}
-							currentUserProfilePicture={currentUser?.profilePicture ?? null}
-						/>
-					{/if}
-				{/if}
-				<!-- Wave 2.5 Step 10 / Review 2.5 (rd/review-2-5.md:98-108): the
-				     review bar, "at the bottom of the text column" (redesign
-				     §4.2 item 5, §8). The pill itself is no longer rendered
-				     here — Step 10 moved it into the editor's own DOM as a
-				     ProseMirror widget decoration (`change-pill-decoration.ts`).
-				     Nested INSIDE `.document-content-text` (not a sibling grid
-				     item of it) on purpose: `position: sticky` needs to be a
-				     normal-flow descendant of the scrolling ancestor
-				     (`.document-content`) to stick within its viewport, and
-				     nesting it here also confines its width to the text
-				     column alone — it used to span both grid columns and cover
-				     the rail's last rows (see this class's own CSS comment). -->
-				{#if pendingList.length > 0}
-					<div
-						class="document-review-bar-slot"
-						bind:this={reviewBarSlotEl}
-						in:reviewBarFly={{ y: 16, duration: MOTION_DURATION.emphasis, easing: cubicOut }}
-						out:reviewBarFly={{ y: 16, duration: MOTION_DURATION.standard, easing: cubicIn }}
-					>
-						<ReviewBar
-							pendingCount={pendingList.length}
-							refusedCount={refusalNotice?.refusedBlockIds.length ?? 0}
-							currentIndex={reviewIndex}
-							onPrev={handleReviewPrev}
-							onNext={handleReviewNext}
-							onKeepAll={handleKeepAllChanges}
-							onUndoAll={handleUndoAllChanges}
-							onSeeRefused={refusalNotice ? handleSeeChange : undefined}
-						/>
-					</div>
-				{/if}
+				</div>
 			</div>
 			<!-- T10 / redesign §3.2: the comment column, beside the text. Its width
 			     narrows (300 → 240 px) before the text column drops below
@@ -2470,11 +2477,15 @@ function saveNoticeText(notice: SaveNotice): string {
 	   (below), never by putting `overflow-x` on this column's children. */
 	.document-content-text {
 		position: relative;
-		display: flex;
 		flex: 1 1 0;
-		flex-direction: column;
 		min-width: 0;
 		overflow-y: auto;
+	}
+
+	.document-content-flow {
+		display: flex;
+		flex-direction: column;
+		min-height: 100%;
 	}
 
 	/* The comment column: its own height, its own scrolling list
@@ -2495,10 +2506,11 @@ function saveNoticeText(notice: SaveNotice): string {
 	   the bottom of the text column" (redesign §4.2 item 5, §8). It was once
 	   `position: absolute` in a scroller shared with the comment column, so it
 	   scrolled away with the text and spanned both columns; `position:
-	   sticky` as the last normal-flow child of the text column — itself the
-	   scroller now — pins it to the column's bottom while the text scrolls,
-	   and its box only ever spans the text, never the comment column beside
-	   it. `.document-editor-host`'s own `padding-bottom` (see its
+	   sticky` as the last child of `.document-content-flow` (the column
+	   inside the text scroller, as tall as the text — a sticky element only
+	   travels within its parent's box) pins it to the bottom of the visible
+	   text while it scrolls, and its box only ever spans the text, never the
+	   comment column beside it. `.document-editor-host`'s own `padding-bottom` (see its
 	   `style:padding-bottom` binding) reserves room, measured live from this
 	   element's own height, so the last paragraph can fully clear it before
 	   the column runs out of content to scroll through — the classic

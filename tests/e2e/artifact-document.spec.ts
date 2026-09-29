@@ -1125,6 +1125,16 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			const refusalNotice = page.getByTestId("refusal-notice");
 			await expect(refusalNotice).toBeVisible();
 			await expect(refusalNotice.getByText("Book the flight.")).toBeVisible();
+			// "Your words win" reads as one of the comment family: a warning card
+			// in the comment column beside the refused line — not a banner above
+			// the text — and the refused line itself carries the dashed amber rule.
+			await expect(
+				page.locator(".document-content-rail").getByTestId("refusal-notice"),
+			).toBeVisible();
+			await expect(
+				page.locator(".document-content-text").getByTestId("refusal-notice"),
+			).toHaveCount(0);
+			await expect(editorContent.locator(".alfy-refused-line")).toHaveCount(1);
 			await expect(editorContent.getByText("Book the flight.")).toBeVisible();
 			await expect(page.getByText("This should never land.")).toHaveCount(0);
 
