@@ -168,6 +168,66 @@ export async function waitForStableBoundingBox(
 	}
 }
 
+/**
+ * Waits until no finite animation or transition is running anywhere on the page.
+ * `waitForStableBoundingBox` only sees a rect that stopped changing across two
+ * frames, so a sheet whose entrance has not started yet (the first frames on a
+ * busy machine) reads as settled at its off-screen start position; asking
+ * `elementFromPoint` there finds nothing at all. Looping covers an animation
+ * that starts another (a backdrop, then the sheet).
+ */
+export async function waitForMotionToSettle(page: Page): Promise<void> {
+	await page.evaluate(async () => {
+		const nextFrames = () =>
+			new Promise<void>((resolve) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+			);
+		for (let round = 0; round < 6; round++) {
+			await nextFrames();
+			const running = document
+				.getAnimations()
+				.filter(
+					(animation) =>
+						animation.playState !== "finished" &&
+						animation.effect?.getComputedTiming().iterations !== Infinity,
+				);
+			if (running.length === 0) return;
+			await Promise.all(
+				running.map((animation) => animation.finished.catch(() => undefined)),
+			);
+		}
+	});
+}
+
+/**
+ * Asserts an element paints on top at its probe point (10px below its top edge,
+ * or its centre): the thing `toBeVisible()` cannot see, since it checks CSS and
+ * not paint order (a sheet at the default z-index passes it while painting under
+ * the phone panel). Waits for the entrance motion to settle, then retries the
+ * probe until it answers, so it is a fact about the settled layout and not about
+ * whichever frame the test happened to read.
+ */
+export async function expectTopmost(
+	locator: Locator,
+	options: { message: string; probe?: "top" | "center" },
+): Promise<void> {
+	await waitForMotionToSettle(locator.page());
+	await expect
+		.poll(
+			() =>
+				locator.evaluate((node, probe) => {
+					const rect = node.getBoundingClientRect();
+					const top = document.elementFromPoint(
+						rect.x + rect.width / 2,
+						probe === "top" ? rect.y + 10 : rect.y + rect.height / 2,
+					);
+					return !!top && node.contains(top);
+				}, options.probe ?? "top"),
+			{ message: options.message, timeout: 5000 },
+		)
+		.toBe(true);
+}
+
 export function buildAiSdkUiStreamBody(text: string): string {
 	const words = text.split(" ");
 	const chunks = [

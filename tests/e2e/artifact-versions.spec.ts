@@ -20,7 +20,12 @@ import {
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
-import { createConversation, login, sendMessage } from "./helpers";
+import {
+	createConversation,
+	login,
+	sendMessage,
+	waitForMotionToSettle,
+} from "./helpers";
 
 // Wave 2.5 polish G1-B (owner: "the version numbers are all over the place —
 // in the overview I see v5, inside it's only v3, and in the versions tab I
@@ -546,15 +551,22 @@ test.describe("the Versions sheet on a phone", () => {
 		const rows = dialog.getByTestId("version-row");
 		await expect(rows).toHaveCount(5);
 		// Really on top: the sheet's own row is what a tap at its centre reaches.
-		const box = await boxOf(rows.first());
-		const topmost = await page.evaluate(
-			({ x, y }) =>
-				document
-					.elementFromPoint(x, y)
-					?.closest('[data-testid="version-row"]') !== null,
-			{ x: box.x + box.width / 2, y: box.y + box.height / 2 },
-		);
-		expect(topmost).toBe(true);
+		await waitForMotionToSettle(page);
+		await expect
+			.poll(
+				async () => {
+					const box = await boxOf(rows.first());
+					return page.evaluate(
+						({ x, y }) =>
+							document
+								.elementFromPoint(x, y)
+								?.closest('[data-testid="version-row"]') !== null,
+						{ x: box.x + box.width / 2, y: box.y + box.height / 2 },
+					);
+				},
+				{ message: "a tap at the sheet's first row reaches that row" },
+			)
+			.toBe(true);
 		const width = (await boxOf(dialog)).width;
 		expect(width).toBeLessThanOrEqual(390);
 	});
