@@ -3027,7 +3027,10 @@ describe("DocumentBody", () => {
 
 			await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 
-			expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument();
+			// The card slides out first (§7.2 #22), then the caller clears it.
+			await waitFor(() =>
+				expect(screen.queryByTestId("refusal-notice")).not.toBeInTheDocument(),
+			);
 			expect(mockSetRefusedLines).toHaveBeenLastCalledWith(
 				expect.anything(),
 				null,

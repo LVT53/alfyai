@@ -1304,6 +1304,22 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			expect(order[0]).toContain("Which restaurant?");
 			expect(order[1]).toContain("Book the flight.");
 			expect(order[2]).toContain("Soft bag or suitcase?");
+
+			// §7.2 #22: Dismiss slides the card out (8px right, fading) and only
+			// then clears it and the dashed rule on its line; the two threads
+			// either side of it stay where they were.
+			await expect(
+				page.locator(".document-editor-host .alfy-refused-line"),
+			).toHaveCount(1);
+			await rail
+				.getByTestId("refusal-notice")
+				.getByRole("button", { name: "Dismiss" })
+				.click();
+			await expect(rail.getByTestId("refusal-notice")).toHaveCount(0);
+			await expect(rail.getByTestId("margin-comment")).toHaveCount(2);
+			await expect(
+				page.locator(".document-editor-host .alfy-refused-line"),
+			).toHaveCount(0);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (temporaryProvider) {

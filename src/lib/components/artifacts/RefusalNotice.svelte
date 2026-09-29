@@ -29,6 +29,12 @@
  * component must not need to know either vocabulary.
  */
 import { CircleSlash, Sparkles } from "@lucide/svelte";
+import {
+	MOTION_DURATION,
+	MOTION_EASING,
+	prefersReducedMotion,
+	reducedMotionAnimate,
+} from "$lib/utils/motion";
 
 let {
 	message,
@@ -54,12 +60,51 @@ let {
 	onAskAgain?: (() => void) | undefined;
 	/** Already-localised label for "Dismiss" (e.g. `artifacts.document.refused.dismiss`). Required together with `onDismiss`. */
 	dismissLabel?: string | undefined;
-	/** Clears this notice. Omitted when the caller has no dismiss state to clear. */
+	/** Clears this notice — called once the card has left (slid 8px right and faded, redesign §7.2 #22; at once under reduced motion). Omitted when the caller has no dismiss state to clear. */
 	onDismiss?: (() => void) | undefined;
 } = $props();
+
+let cardEl = $state<HTMLDivElement | undefined>();
+/** Set while the card is leaving, so a second tap does not start a second exit. */
+let leaving = false;
+/** The card can be removed under its own exit (the note's line was edited, the panel closed): then nobody is left to ask. */
+let mounted = true;
+$effect(() => () => {
+	mounted = false;
+});
+
+/**
+ * §7.2 #22: "Dismiss slides 8 px right and fades" — out standard · ease-in;
+ * reduced motion: instant. A Svelte `out:` transition on the parent's `{#if}`
+ * would not do: it never finishes under the repo's jsdom animation mock, and
+ * the caller clears the card by clearing its own state, so the card animates
+ * itself and only then hands the clearing back.
+ */
+async function handleDismiss(): Promise<void> {
+	if (!onDismiss || leaving) return;
+	if (!cardEl || prefersReducedMotion()) {
+		onDismiss();
+		return;
+	}
+	leaving = true;
+	await reducedMotionAnimate(
+		cardEl,
+		[
+			{ opacity: 1, transform: "none" },
+			{ opacity: 0, transform: "translateX(8px)" },
+		],
+		{ duration: MOTION_DURATION.standard, easing: MOTION_EASING.in },
+	).finished;
+	if (mounted) onDismiss();
+}
 </script>
 
-<div class="refusal-notice" role="status" data-testid="refusal-notice">
+<div
+	class="refusal-notice"
+	role="status"
+	data-testid="refusal-notice"
+	bind:this={cardEl}
+>
 	<div class="refusal-notice-head">
 		<CircleSlash size={14} strokeWidth={2} class="refusal-notice-icon" aria-hidden="true" />
 		<p class="refusal-notice-message">{message}</p>
@@ -89,7 +134,7 @@ let {
 				</button>
 			{/if}
 			{#if onDismiss && dismissLabel}
-				<button type="button" class="btn-ghost btn-sm" onclick={onDismiss}>
+				<button type="button" class="btn-ghost btn-sm" onclick={handleDismiss}>
 					{dismissLabel}
 				</button>
 			{/if}

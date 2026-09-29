@@ -3,6 +3,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1041,7 +1042,8 @@ describe("MarginPanel (the redesign's rail, Wave 2.5 Step 7)", () => {
 			await fireEvent.click(screen.getByRole("button", { name: "Ask again" }));
 			await fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 			expect(refusal.onAskAgain).toHaveBeenCalledTimes(1);
-			expect(refusal.onDismiss).toHaveBeenCalledTimes(1);
+			// The card leaves first (§7.2 #22), then hands the clearing back.
+			await waitFor(() => expect(refusal.onDismiss).toHaveBeenCalledTimes(1));
 		});
 	});
 
