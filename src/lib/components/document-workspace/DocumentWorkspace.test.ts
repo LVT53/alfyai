@@ -1862,6 +1862,77 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		).toBeInTheDocument();
 	});
 
+	// Final polish D1 (rd/recheck2.md): the body registers its actions once, when
+	// it mounts, and the workspace used to null them on every change of the open
+	// item — after that swap the header never got them back. Whatever item the
+	// panel shows, in whatever order (a second Document, a file in between, back
+	// to the first), the header carries the controls of the body that is mounted
+	// for it.
+	it("gives every item the panel swaps to its own header controls: a second Document, a file in between, and back (final polish D1)", async () => {
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeVersionedArtifactBody.svelte");
+		const documents = [
+			makeWorkspaceDocument({
+				id: "doc-1",
+				kind: "document",
+				title: "Alpha",
+				versionNumber: 1,
+				mimeType: null,
+			}),
+			makeWorkspaceDocument({
+				id: "doc-2",
+				kind: "document",
+				title: "Beta",
+				versionNumber: 2,
+				mimeType: null,
+			}),
+			makeWorkspaceDocument({
+				id: "file-1",
+				kind: "file",
+				title: "Notes.pdf",
+				versionNumber: 1,
+				mimeType: "application/pdf",
+			}),
+		];
+		const { rerender } = renderWorkspace({
+			documents,
+			activeDocumentId: "doc-1",
+		});
+		const shell = () =>
+			screen.getAllByRole("complementary", { name: WORKSPACE_LANDMARK })[0];
+		const expectVersionsButton = async (title: string, version: string) => {
+			await waitFor(() => {
+				expect(
+					within(shell()).getByRole("heading", { name: title }),
+				).toBeInTheDocument();
+				expect(
+					within(shell()).getByRole("button", { name: `Version ${version}` }),
+				).toBeInTheDocument();
+			});
+		};
+
+		await screen.findByTestId("fake-versioned-artifact-body");
+		await expectVersionsButton("Alpha", "1");
+
+		await rerender({ documents, activeDocumentId: "doc-2" });
+		await expectVersionsButton("Beta", "2");
+
+		// A file has no body to register anything: its header must not keep the
+		// Document's button (a closure over a body that is gone).
+		await rerender({ documents, activeDocumentId: "file-1" });
+		await waitFor(() => {
+			expect(
+				within(shell()).getByRole("heading", { name: "Notes.pdf" }),
+			).toBeInTheDocument();
+		});
+		expect(
+			within(shell()).queryByRole("button", { name: /^Version \d+$/ }),
+		).not.toBeInTheDocument();
+
+		await rerender({ documents, activeDocumentId: "doc-1" });
+		await expectVersionsButton("Alpha", "1");
+	});
+
 	it("moves focus to the panel title when a document opens (redesign §5.4, Wave 2.5 review F2)", async () => {
 		// The review's own finding: opening the panel did not move focus to
 		// the title/first row, so a screen-reader user got no announcement of

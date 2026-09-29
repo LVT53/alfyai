@@ -1703,10 +1703,9 @@ function toggleComments(): void {
 // without knowing anything about Tiptap or this body's own state — see
 // `ArtifactBodyProps.registerPanelActions`. No dependency this effect reads
 // ever changes (the functions are stable closures over local `$state`
-// setters), so this runs once, after mount, like `onMount` — but as an
-// effect, a future need to re-register per `artifactId` (the panel's rail
-// can swap which item is open without remounting this body) is one
-// dependency read away rather than a rewrite.
+// setters), so this runs once, after mount, like `onMount`. That is enough
+// because the panel mounts one body per open item (final polish D1): a swap
+// to another item builds a new body, which registers here for itself.
 $effect(() => {
 	registerPanelActions?.({
 		openVersions: openVersionsSheet,
