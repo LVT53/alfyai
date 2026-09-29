@@ -3,6 +3,7 @@ import { requireApiUser } from "$lib/server/api/auth";
 import {
 	documentTabsFromMetadata,
 	getArtifact,
+	saveCanvasBoard,
 	saveDocumentBody,
 	updateArtifactBody,
 } from "$lib/server/services/artifacts";
@@ -119,25 +120,40 @@ export const PATCH: RequestHandler = async (event) => {
 					baseHash,
 					coalesceUserEdits,
 				})
-			: await updateArtifactBody({
-					userId: user.id,
-					artifactId,
-					conversationId,
-					body: payload.body,
-					author: "user",
-					summary,
-					expectVersion,
-					baseHash,
-					coalesceUserEdits,
-				}).then((r) =>
-					r.ok
-						? {
-								ok: true as const,
-								version: r.versionNumber,
-								bodyHash: r.bodyHash,
-							}
-						: r,
-				);
+			: artifact.kind === "canvas"
+				? // Ruling 12: a board is stored in its canonical form and hashed as
+					// stored, so it goes through the Canvas's own save seam — never the
+					// client's JSON straight to `updateArtifactBody`.
+					await saveCanvasBoard({
+						userId: user.id,
+						artifactId,
+						conversationId,
+						body: payload.body,
+						author: "user",
+						summary,
+						expectVersion,
+						baseHash,
+						coalesceUserEdits,
+					})
+				: await updateArtifactBody({
+						userId: user.id,
+						artifactId,
+						conversationId,
+						body: payload.body,
+						author: "user",
+						summary,
+						expectVersion,
+						baseHash,
+						coalesceUserEdits,
+					}).then((r) =>
+						r.ok
+							? {
+									ok: true as const,
+									version: r.versionNumber,
+									bodyHash: r.bodyHash,
+								}
+							: r,
+					);
 
 	if (!result.ok) {
 		const status =
@@ -148,7 +164,10 @@ export const PATCH: RequestHandler = async (event) => {
 					: result.reason === "version_conflict" || result.reason === "stale"
 						? 409
 						: 400;
-		return json({ ok: false, reason: result.reason }, { status });
+		// A board that is not a board is the same refusal as any unreadable body.
+		const reason =
+			result.reason === "invalid_body" ? "invalid_patch" : result.reason;
+		return json({ ok: false, reason }, { status });
 	}
 
 	// RV-1B, coordinator item 6: `bodyHash` rides along on every success (not
@@ -157,5 +176,20 @@ export const PATCH: RequestHandler = async (event) => {
 	// which kind it is saving. `json()`'s own `JSON.stringify` drops an
 	// `undefined` value entirely, so a branch that genuinely has none (none
 	// does today) still answers exactly the old two-field shape.
-	return json({ ok: true, version: result.version, bodyHash: result.bodyHash });
+	// A Canvas save that had to leave something out says so (a block of an
+	// unknown kind, an edge to nothing): the client's copy still has it, and a
+	// reload would otherwise be the first it hears of it.
+	const dropped = (
+		result as {
+			dropped?: { nodes: number; edges: number; annotations: number };
+		}
+	).dropped;
+	const leftOut =
+		dropped && dropped.nodes + dropped.edges + dropped.annotations > 0;
+	return json({
+		ok: true,
+		version: result.version,
+		bodyHash: result.bodyHash,
+		...(leftOut ? { dropped } : {}),
+	});
 };

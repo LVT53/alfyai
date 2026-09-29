@@ -8,6 +8,9 @@
 // export block each; nothing outside this directory queries the artifact
 // tables directly (the account data archive, which reads everything a user
 // owns on purpose, is the one named exception — see its own header).
+
+// Slice 3 (Canvas): the board's own save seam. Each type slice appends one block.
+export { saveCanvasBoard } from "./canvas-ops";
 export {
 	ARTIFACT_CATALOGUE_MAX,
 	ARTIFACT_CATALOGUE_TITLE_MAX_CHARS,
