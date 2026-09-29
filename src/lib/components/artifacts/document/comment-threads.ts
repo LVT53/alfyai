@@ -67,12 +67,12 @@ export interface AnchorBox {
  * own 20px side padding included, so about 440px of words a line: what still
  * reads as a comfortable line length.
  */
-export const MIN_TEXT_COLUMN_PX = 480;
-export const MIN_RAIL_WIDTH_PX = 240;
-export const MAX_RAIL_WIDTH_PX = 300;
+const MIN_TEXT_COLUMN_PX = 480;
+const MIN_RAIL_WIDTH_PX = 240;
+const MAX_RAIL_WIDTH_PX = 300;
 
 /** A highlight whose last line is within this many pixels of the top edge has effectively scrolled past. */
-export const FOLLOW_TOP_SLOP_PX = 4;
+const FOLLOW_TOP_SLOP_PX = 4;
 
 const AFTER_EVERY_BLOCK = Number.MAX_SAFE_INTEGER;
 

@@ -747,14 +747,15 @@ test.describe("the Document mobile toolbar", () => {
 	// overflow check only covers the panel LIST, never a document with real
 	// content (its own header comment says so explicitly). A wide table is
 	// the one block kind actually likely to force this: verified this
-	// currently holds because `.document-content`'s `overflow-y: auto`
-	// computes `overflow-x` to `auto` too (the CSS spec's "if one axis is
-	// visible and the other is not, visible becomes auto" rule), giving a
-	// wide table its own horizontal scrollbar inside the content area rather
-	// than leaking into the page — but that protection is implicit and
-	// undocumented anywhere in the CSS, so a future refactor of that one
-	// `overflow-y` declaration could silently reintroduce page-level
-	// horizontal scroll with nothing to catch it. This test is that catch.
+	// currently holds because the text column's `overflow-y: auto`
+	// (`.document-content-text`) computes `overflow-x` to `auto` too (the CSS
+	// spec's "if one axis is visible and the other is not, visible becomes
+	// auto" rule), giving a wide table its own horizontal scrollbar inside
+	// the content area rather than leaking into the page — but that
+	// protection is implicit and undocumented anywhere in the CSS, so a
+	// future refactor of that one `overflow-y` declaration could silently
+	// reintroduce page-level horizontal scroll with nothing to catch it. This
+	// test is that catch.
 	test("a wide table does not force horizontal page scroll at 390x844", async ({
 		page,
 	}) => {

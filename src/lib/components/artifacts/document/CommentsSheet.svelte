@@ -45,11 +45,14 @@ type MarginPanelProps = Omit<
 let {
 	presentation,
 	onClose,
+	bottomInset = 0,
 	...marginPanelProps
 }: MarginPanelProps & {
 	/** "sheet" on phones (a `DialogShell`), "drawer" on a narrow desktop panel (redesign §3.2) — the caller already knows which from its own viewport/container-width tracking, so this component only ever renders ONE shape at a time. */
 	presentation: "sheet" | "drawer";
 	onClose: () => void;
+	/** The drawer stops this many pixels above the panel's bottom edge, so something pinned there — the review bar, whose Keep all / Undo all are the very thing someone reading comments about a change wants next — is never covered by it. The sheet has its own scrim and ignores it. */
+	bottomInset?: number;
 } = $props();
 
 /** The quote button and a click on a card jump back into the main text — closing first so the reader can actually see the flash-scroll it triggers, on both the phone sheet (which otherwise fully covers the text) and the narrow drawer (which covers its own edge of it). */
@@ -108,6 +111,7 @@ const drawerFocusTrap = focusTrap({
 		aria-modal="true"
 		aria-label={$t('artifacts.document.margin.title')}
 		data-testid="comments-drawer"
+		style:bottom={bottomInset > 0 ? `${bottomInset}px` : undefined}
 		{@attach drawerFocusTrap}
 		transition:drawerFly={{ duration: 220, x: 280 }}
 	>

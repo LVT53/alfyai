@@ -321,6 +321,8 @@ let panelContainerWidth = $state(0);
 /** The review bar's own live rendered height (Review 2.5, rd/review-2-5.md:98-108) — read by the effect below and used to reserve enough bottom padding under the last paragraph. */
 let reviewBarSlotEl = $state<HTMLDivElement | undefined>();
 let reviewBarHeight = $state(0);
+/** The review bar floats 14px above the text's bottom edge (`.document-review-bar-slot`'s `bottom`); the drawer stops that far plus a small gap above the bar. */
+const REVIEW_BAR_CLEARANCE_PX = 22;
 let isPhone = $state(isPhoneViewport());
 /** `0` (not measured yet — no ResizeObserver in this environment, e.g. jsdom) gets the full column rather than a false-positive drawer. */
 let inlineRailWidth = $derived(commentRailWidth(panelContainerWidth));
@@ -1955,33 +1957,38 @@ $effect(() => {
 	if (!scroller || !host || !commentsRailShown) return;
 	let frame = 0;
 
-	function boxOf(commentId: string): AnchorBox | null {
-		const spans = host?.querySelectorAll(
-			`[data-comment-anchor-id="${commentId}"]`,
-		);
-		if (!spans || spans.length === 0) return null;
-		let top = Number.POSITIVE_INFINITY;
-		let bottom = Number.NEGATIVE_INFINITY;
-		for (const span of spans) {
-			for (const rect of span.getClientRects()) {
-				top = Math.min(top, rect.top);
-				bottom = Math.max(bottom, rect.bottom);
-			}
-		}
-		return top <= bottom ? { commentId, top, bottom } : null;
-	}
-
 	function follow(): void {
 		frame = 0;
-		const boxes: AnchorBox[] = [];
+		const open = new Set<string>();
 		for (const anchor of commentAnchors) {
-			if (anchor.resolved) continue;
-			const box = boxOf(anchor.commentId);
-			if (box) boxes.push(box);
+			if (!anchor.resolved) open.add(anchor.commentId);
+		}
+		// One pass over the text's highlights, in document order: a thread's
+		// words can be several spans (a mark in the middle splits one), so each
+		// thread's box is the union of its spans' line boxes. A span in a hidden
+		// section has no line boxes at all and adds nothing.
+		const boxes = new Map<string, AnchorBox>();
+		for (const span of host?.querySelectorAll("[data-comment-anchor-id]") ??
+			[]) {
+			const commentId = span.getAttribute("data-comment-anchor-id");
+			if (!commentId || !open.has(commentId)) continue;
+			for (const rect of span.getClientRects()) {
+				const box = boxes.get(commentId);
+				if (box) {
+					box.top = Math.min(box.top, rect.top);
+					box.bottom = Math.max(box.bottom, rect.bottom);
+				} else {
+					boxes.set(commentId, {
+						commentId,
+						top: rect.top,
+						bottom: rect.bottom,
+					});
+				}
+			}
 		}
 		const bounds = scroller?.getBoundingClientRect();
 		if (!bounds) return;
-		const next = pickFollowedComment(boxes, {
+		const next = pickFollowedComment([...boxes.values()], {
 			top: bounds.top,
 			bottom: bounds.bottom,
 		});
@@ -2406,6 +2413,9 @@ function saveNoticeText(notice: SaveNotice): string {
 					onActiveCommentChange={(id) => (hoverCommentId = id)}
 					onActivateTab={handleTabActivate}
 					onClose={() => (commentsOverlayOpen = false)}
+					bottomInset={pendingList.length > 0
+						? reviewBarHeight + REVIEW_BAR_CLEARANCE_PX
+						: 0}
 					currentUserId={currentUser?.id ?? null}
 					currentUserName={currentUser?.displayName ?? null}
 					currentUserProfilePicture={currentUser?.profilePicture ?? null}

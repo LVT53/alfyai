@@ -78,7 +78,7 @@ import {
 } from "./comment-threads";
 
 /** The refusal card's own data: where its line is, plus everything `RefusalNotice` renders. */
-export type MarginRefusal = { blockId: string | null } & ComponentProps<
+type MarginRefusal = { blockId: string | null } & ComponentProps<
 	typeof RefusalNotice
 >;
 

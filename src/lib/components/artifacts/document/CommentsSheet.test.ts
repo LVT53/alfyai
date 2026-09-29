@@ -93,6 +93,19 @@ describe("CommentsSheet", () => {
 		).toBeInTheDocument();
 	});
 
+	it("the drawer stops above whatever is pinned to the panel's bottom (the review bar), so it never covers it", () => {
+		render(
+			CommentsSheet,
+			baseProps({ presentation: "drawer", bottomInset: 118 }),
+		);
+		expect(screen.getByTestId("comments-drawer").style.bottom).toBe("118px");
+	});
+
+	it("the drawer reaches the panel's bottom edge when nothing is pinned there", () => {
+		render(CommentsSheet, baseProps({ presentation: "drawer" }));
+		expect(screen.getByTestId("comments-drawer").style.bottom).toBe("");
+	});
+
 	it("the drawer's close button sits in the comments header row, not a row of its own above it", () => {
 		render(CommentsSheet, baseProps({ presentation: "drawer" }));
 

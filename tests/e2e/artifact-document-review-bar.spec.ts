@@ -4,6 +4,7 @@ import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
 import {
 	applyDocumentPatch,
+	createComment,
 	createDocumentArtifact,
 	readDocumentForAlfy,
 } from "../../src/lib/server/services/artifacts";
@@ -283,5 +284,86 @@ test.describe("Review bar positioning while scrolling (Wave 2.5 review fix, Impo
 		expect(pageErrors, `no page errors, got: ${pageErrors.join("; ")}`).toEqual(
 			[],
 		);
+	});
+});
+
+// The drawer (a panel too narrow for the comment column) covers the right edge
+// of the text — where the review bar's Keep all / Undo all live. Someone
+// reading a comment about Alfy's change wants exactly those next, so the
+// drawer stops above the bar instead of hiding it.
+test.describe("Comments drawer and the review bar (owner walk-through)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("at a narrow panel the drawer stops above the review bar, and Keep all stays reachable", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 768 });
+		const conversationId = await createConversation(
+			page,
+			"Drawer above the review bar",
+		);
+		const paragraphs = [
+			"Book the flight to Vienna.",
+			"Reserve the hotel near the river.",
+			...Array.from(
+				{ length: 12 },
+				(_, i) =>
+					`Filler paragraph number ${i} pads out the document with enough sentences of ordinary text to have some height.`,
+			),
+		];
+		const artifactId = await seedPendingChanges(conversationId, paragraphs, 2);
+		const userId = await testUserId();
+		const read = await readDocumentForAlfy({
+			userId,
+			artifactId,
+			conversationId,
+		});
+		const target = read.blocks[3];
+		expect(target, "a filler block to comment on").toBeTruthy();
+		await createComment({
+			userId,
+			artifactId,
+			anchor: {
+				kind: "text",
+				blockId: target.blockId,
+				quote: "Filler",
+				prefix: "",
+				suffix: target.text.slice("Filler".length),
+			},
+			author: "user",
+			body: "A comment the drawer shows",
+		});
+
+		await openChatAndReload(page, conversationId);
+		const shell = await openDocumentFromPanel(page);
+		const bar = shell.getByRole("region", { name: "Changes from Alfy" });
+		await expect(bar).toBeVisible({ timeout: 30_000 });
+		await shell.getByTestId("artifact-comments-button").click();
+		const drawer = shell.getByTestId("comments-drawer");
+		await expect(drawer).toBeVisible();
+		await expect(drawer.getByText("A comment the drawer shows")).toBeVisible();
+		await waitForStableBoundingBox(drawer);
+		await waitForStableBoundingBox(bar);
+
+		const drawerBox = await drawer.boundingBox();
+		const barBox = await bar.boundingBox();
+		expect(drawerBox && barBox).toBeTruthy();
+		expect((drawerBox?.y ?? 0) + (drawerBox?.height ?? 0)).toBeLessThanOrEqual(
+			(barBox?.y ?? 0) + 1,
+		);
+
+		const keepAll = bar.getByRole("button", { name: /Keep all/i });
+		await expect(keepAll).toBeVisible();
+		const reachable = await keepAll.evaluate((node) => {
+			const rect = node.getBoundingClientRect();
+			const top = document.elementFromPoint(
+				rect.x + rect.width / 2,
+				rect.y + rect.height / 2,
+			);
+			return !!top && node.contains(top);
+		});
+		expect(reachable, "Keep all must not be covered by the drawer").toBe(true);
 	});
 });
