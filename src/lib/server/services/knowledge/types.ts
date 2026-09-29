@@ -275,6 +275,12 @@ export interface DocumentWorkspaceItem {
 	mimeType: string | null;
 	previewUrl?: string | null;
 	artifactId?: string | null;
+	/**
+	 * The conversation the item was made in, when it is known. The panel offers
+	 * Delete only on items its own conversation made, so an artifact opened from
+	 * a card carries its OWN conversation here (a fork's card can name its
+	 * parent's Document); left unset, nothing contradicts the panel's.
+	 */
 	conversationId?: string | null;
 	downloadUrl?: string | null;
 	/**

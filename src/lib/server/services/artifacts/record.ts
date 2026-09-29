@@ -657,6 +657,19 @@ async function deleteProducedFileBytes(row: ArtifactRow): Promise<void> {
 	}
 }
 
+type DeleteArtifactResult =
+	| { ok: true }
+	| {
+			ok: false;
+			/**
+			 * `not_found`: no such item within the caller's scope — a missing id,
+			 * someone else's, an incognito chat's own from another chat, or one
+			 * already deleted all answer alike. `not_made_here`: the item is the
+			 * caller's and reachable, but the chat that asked did not make it.
+			 */
+			reason: "not_found" | "not_made_here";
+	  };
+
 /**
  * A real delete: the row goes, and the `artifact_id` foreign keys take its
  * versions, comments, key-value rows (Alfy's snapshot and an App's stored
@@ -666,24 +679,35 @@ async function deleteProducedFileBytes(row: ArtifactRow): Promise<void> {
  * embedding, which names its subject by a plain id, so it is removed here —
  * after the row, and never allowed to undo the delete: a failure leaves a
  * stray vector the maintenance sweep already collects.
+ *
+ * A delete that names the served conversation (`conversationId` — a chat
+ * panel's) acts only on what THAT conversation made. A fork copies its
+ * parent's tool calls and not its items, so the fork's card can name — and its
+ * panel open — the parent's Document, which any other non-incognito chat of the
+ * same user can read; the tools are already pinned to the item's own
+ * conversation (ruling 53), and so is this. That check comes after the scoped
+ * read, so a row the caller cannot reach still answers the one `not_found`.
  */
 export async function deleteArtifact(
 	params: { userId: string; artifactId: string } & ArtifactScopeOptions,
-): Promise<boolean> {
+): Promise<DeleteArtifactResult> {
 	const row = await readScopedArtifactRow(params);
-	if (!row) return false;
+	if (!row) return { ok: false, reason: "not_found" };
+	if (params.conversationId && row.conversationId !== params.conversationId) {
+		return { ok: false, reason: "not_made_here" };
+	}
 	if (row.type === "generated_output") {
 		// A produced file: delete what it stands for first, so the chat is never
 		// left offering a file the library no longer has.
 		await deleteProducedFileBytes(row);
 	} else if (!isEditableArtifactRow(row)) {
-		return false;
+		return { ok: false, reason: "not_found" };
 	}
 	const removed = db.transaction(
 		(tx) =>
 			tx.delete(artifacts).where(eq(artifacts.id, row.id)).run().changes > 0,
 	);
-	if (!removed) return false;
+	if (!removed) return { ok: false, reason: "not_found" };
 	try {
 		await deleteSemanticEmbeddingsForSubjects({
 			userId: row.userId,
@@ -696,5 +720,5 @@ export async function deleteArtifact(
 			error,
 		});
 	}
-	return true;
+	return { ok: true };
 }

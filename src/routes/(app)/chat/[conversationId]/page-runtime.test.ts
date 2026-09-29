@@ -1916,6 +1916,87 @@ describe("chat page runtime integration", () => {
 			}
 		});
 
+		// The security review's L1: a fork's card can name (and open) the parent's
+		// Document, but Delete acts only on what this chat made — the panel does
+		// not offer it, and the item says where it was made.
+		describe("Delete on an item opened from a card", () => {
+			async function openFromCard(madeIn: string, listed: boolean) {
+				const { recordDocumentWorkspaceOpen } = await import(
+					"$lib/client/api/knowledge"
+				);
+				vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+				const { ARTIFACT_BODIES } = await import(
+					"$lib/components/artifacts/artifact-bodies"
+				);
+				ARTIFACT_BODIES.document = () =>
+					import(
+						"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+					);
+				vi.stubGlobal(
+					"fetch",
+					vi.fn(async () =>
+						jsonResponse({
+							ok: true,
+							artifact: {
+								...documentSummary(),
+								conversationId: madeIn,
+								body: "# Plan",
+								bodyHash: "h",
+							},
+							versions: [],
+							comments: [],
+						}),
+					),
+				);
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: listed ? [documentSummary()] : [],
+					}),
+				);
+				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
+				return (
+					await screen.findAllByRole("complementary", {
+						name: "Document workspace",
+					})
+				)[0];
+			}
+
+			it("offers none for the parent's Document, which another chat made", async () => {
+				const { ARTIFACT_BODIES } = await import(
+					"$lib/components/artifacts/artifact-bodies"
+				);
+				try {
+					const shell = await openFromCard("conv-parent", false);
+
+					await screen.findByTestId("fake-artifact-body");
+					expect(
+						within(shell).queryByRole("button", { name: "Delete document" }),
+					).not.toBeInTheDocument();
+				} finally {
+					vi.unstubAllGlobals();
+					delete ARTIFACT_BODIES.document;
+				}
+			});
+
+			it("offers it for this chat's own Document", async () => {
+				const { ARTIFACT_BODIES } = await import(
+					"$lib/components/artifacts/artifact-bodies"
+				);
+				try {
+					const shell = await openFromCard("conv-1", true);
+
+					await screen.findByTestId("fake-artifact-body");
+					expect(
+						within(shell).getByRole("button", { name: "Delete document" }),
+					).toBeInTheDocument();
+				} finally {
+					vi.unstubAllGlobals();
+					delete ARTIFACT_BODIES.document;
+				}
+			});
+		});
+
 		it("makes it again on Regenerate, and the card is a card again", async () => {
 			const { toasts, clearToasts } = await import("$lib/stores/toast");
 			clearToasts();

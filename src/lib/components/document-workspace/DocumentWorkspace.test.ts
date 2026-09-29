@@ -2611,4 +2611,98 @@ describe("DocumentWorkspace Delete (polish G2-A)", () => {
 			within(list).queryByRole("button", { name: /More actions/ }),
 		).not.toBeInTheDocument();
 	});
+
+	// The security review's L1: Delete acts only on what THIS conversation made.
+	// A fork's card names — and its panel opens — the parent's Document, which
+	// says where it was made; nothing in the header or the list offers to delete
+	// it from here.
+	describe("an item another conversation made", () => {
+		const parents = () =>
+			makeWorkspaceDocument({
+				id: "artifact:doc-1",
+				artifactId: "doc-1",
+				kind: "document",
+				title: "Vienna trip plan",
+				conversationId: "conv-parent",
+			});
+
+		it("has no Delete in the header of the open item", async () => {
+			renderWorkspace({
+				documents: [parents()],
+				activeDocumentId: "artifact:doc-1",
+				conversationId: "conv-fork",
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			await screen.findByTestId("fake-artifact-body");
+			const shell = await desktopShell();
+
+			expect(
+				within(shell).queryByRole("button", { name: "Delete document" }),
+			).not.toBeInTheDocument();
+		});
+
+		it("has the header's Delete when this conversation made it", async () => {
+			renderWorkspace({
+				documents: [{ ...parents(), conversationId: "conv-fork" }],
+				activeDocumentId: "artifact:doc-1",
+				conversationId: "conv-fork",
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			await screen.findByTestId("fake-artifact-body");
+			const shell = await desktopShell();
+
+			expect(
+				within(shell).getByRole("button", { name: "Delete document" }),
+			).toBeInTheDocument();
+		});
+
+		it("has no overflow on its list row, while a row this conversation made keeps its own", async () => {
+			renderWorkspace({
+				documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+				activeDocumentId: "doc-x",
+				conversationId: "conv-fork",
+				list: {
+					open: true,
+					items: [
+						parents(),
+						makeWorkspaceDocument({
+							id: "artifact:doc-2",
+							artifactId: "doc-2",
+							kind: "document",
+							title: "Packing list",
+							conversationId: "conv-fork",
+						}),
+					],
+				},
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			const list = await screen.findByTestId("artifact-panel-list");
+
+			expect(
+				within(list).queryByRole("button", {
+					name: "More actions for Vienna trip plan",
+				}),
+			).not.toBeInTheDocument();
+			expect(
+				within(list).getByRole("button", {
+					name: "More actions for Packing list",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("still offers Delete when the item does not say where it was made (nothing to contradict)", async () => {
+			renderWorkspace({
+				documents: [{ ...parents(), conversationId: undefined }],
+				activeDocumentId: "artifact:doc-1",
+				conversationId: "conv-fork",
+				onDeleteArtifact: vi.fn(async () => {}),
+			});
+			await screen.findByTestId("fake-artifact-body");
+			const shell = await desktopShell();
+
+			expect(
+				within(shell).getByRole("button", { name: "Delete document" }),
+			).toBeInTheDocument();
+		});
+	});
 });

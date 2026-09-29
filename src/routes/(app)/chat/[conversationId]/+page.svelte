@@ -1114,6 +1114,7 @@ function artifactToWorkspaceItem(
 		title: summary.title,
 		mimeType: null,
 		artifactId: summary.id,
+		conversationId: summary.conversationId,
 		versionNumber: summary.versionNumber,
 		kind: summary.kind,
 		updatedAt: summary.updatedAt,
@@ -1478,6 +1479,7 @@ async function openArtifactFromChat(
 		presentation?: "docked" | "expanded";
 	} = {},
 ) {
+	let target = document;
 	if (
 		document.source === "chat_generated_file" &&
 		document.previewUrl &&
@@ -1492,7 +1494,17 @@ async function openArtifactFromChat(
 	}
 	if (document.artifactId && document.kind && document.kind !== "file") {
 		try {
-			await fetchArtifact(document.artifactId, data.conversation.id);
+			const opened = await fetchArtifact(
+				document.artifactId,
+				data.conversation.id,
+			);
+			// The item says which conversation made it: a fork's card can name its
+			// parent's Document, and Delete is offered only on what this chat made.
+			target = {
+				...document,
+				conversationId:
+					opened.artifact.conversationId ?? document.conversationId,
+			};
 		} catch (error) {
 			if (error instanceof ApiError && error.status === 404) {
 				// Gone — or only out of this chat's reach (its chat became incognito,
@@ -1512,7 +1524,7 @@ async function openArtifactFromChat(
 			}
 		}
 	}
-	openWorkspaceDocument(document, options);
+	openWorkspaceDocument(target, options);
 }
 
 /**

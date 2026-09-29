@@ -153,7 +153,7 @@ describe("POST /api/conversations/[id]/messages/[messageId]/document", () => {
 				userId: "route-owner",
 				artifactId: first.body.artifactId as string,
 			}),
-		).resolves.toBe(true);
+		).resolves.toEqual({ ok: true });
 
 		const again = await postDocument();
 

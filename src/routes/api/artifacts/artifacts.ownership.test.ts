@@ -251,6 +251,49 @@ describe("DELETE /api/artifacts/[id]", () => {
 		}
 	});
 
+	// The security review's L1: a fork's card can name — and its panel open —
+	// the parent's Document (the parent is a normal chat the fork's owner can
+	// read), but a delete from a chat's panel acts only on what THAT chat made.
+	it("refuses, with its own reason, an item another of the caller's chats made — and leaves it alone", async () => {
+		const artifactId = await seedOwnDocument(); // made in OWNER_OTHER
+		seedConversation(memory, { id: "conv-fork", userId: OWNER });
+
+		const fromTheFork = await deleteArtifactRoute(
+			deleteEvent({ artifactId, userId: OWNER, conversationId: "conv-fork" }),
+		);
+
+		expect(fromTheFork.status).toBe(409);
+		expect(await fromTheFork.json()).toEqual({
+			ok: false,
+			reason: "not_made_here",
+		});
+		expect(stored(artifactId)).toBeDefined();
+
+		// The chat that made it can.
+		const fromItsOwnChat = await deleteArtifactRoute(
+			deleteEvent({ artifactId, userId: OWNER, conversationId: OWNER_OTHER }),
+		);
+		expect(fromItsOwnChat.status).toBe(200);
+		expect(stored(artifactId)).toBeUndefined();
+	});
+
+	it("never says 'made in another chat' about a row the caller cannot reach: a stranger naming their own chat gets the plain 404", async () => {
+		const artifactId = await seedOwnDocument();
+		seedConversation(memory, { id: "conv-stranger-own", userId: STRANGER });
+
+		const response = await deleteArtifactRoute(
+			deleteEvent({
+				artifactId,
+				userId: STRANGER,
+				conversationId: "conv-stranger-own",
+			}),
+		);
+
+		expect(response.status).toBe(404);
+		expect(await response.json()).toEqual({ ok: false, reason: "not_found" });
+		expect(stored(artifactId)).toBeDefined();
+	});
+
 	it("cannot reach an incognito chat's artifact without naming that chat — and then only for its owner", async () => {
 		const artifactId = await seedIncognitoDocument();
 
