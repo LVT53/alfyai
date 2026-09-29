@@ -731,8 +731,8 @@ Rulings (orchestrator):
 
 ## Next action
 
-The owner checks the polished redesign on ai.dev (`f6701fce`). If it checks out, the next phase is Wave 3 from
-`wave-3-handoff.md` (S3 Canvas, S4 Slides, the S6 remainder, focus-trap pass two), reusing the shared pieces (`ArtifactPanelHeader`,
+**The owner approved the polished redesign on ai.dev (`f6701fce`), 2026-09-29: "All good".** The next phase is Wave 3 from
+`wave-3-handoff.md` (S3 Canvas, S4 Slides, the S6 remainder, focus-trap pass two), launched by the owner in a fresh session (a task card was put up) from the rewritten `wave-3-handoff.md`, reusing the shared pieces (`ArtifactPanelHeader`,
 `CommentCard`/`CommentThread`, `ReviewBar`, `RefusalNotice`, `AnchoredPopover`, the sheet patterns, `keyboard-shortcuts.ts`).
 Sub-agents: `sonnet` now resolves to `claude-sonnet-5-5`. The merged `art-rd*`, `art-fx*`, `art-g*`, `art-secfix`, `art-rdfix`
 and `rv-rd` worktrees can be removed.
