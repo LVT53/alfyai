@@ -665,6 +665,37 @@ no server code changed. The owner inspects ai.dev and says when the rest resumes
 can be removed (branches merged). 3a's
 step 0 (task items) is already done by 5a: skip it.
 
+## Wave 2.5 polish — after the owner's walk (2026-09-29)
+
+**Owner's feedback on ai.dev `1e755e0b`:** the comment margin looks awkward, does not fit a laptop screen, scrolls away
+(only its title stays), and the header's comment icon opens a second copy instead of toggling the margin; the Versions
+popup is clunky; the chat header's count button should sit further right; add **Delete** for opened items (incl. "Open as
+document" ones) with deleted rows offering **Regenerate**; the **version numbers disagree** (v5 in the overview, v3
+inside, v4 at most in Versions); **keyboard undo/redo**; do the three follow-up chips and everything "knowingly left for
+later"; then stop and report. The owner also asked for Sonnet 5.5 for all Sonnet work (the Agent tool takes only the
+`sonnet` alias; each agent now reports its model ID).
+
+| Agent | Scope | Branch / worktree (port) | State |
+|---|---|---|---|
+| G1-A | Comment margin: mockup styling, list stays in view, header icon toggles it, laptop fit, sheet/drawer, copy/counts, refusal placement, sheet targets | `polish/artifacts-comments` / `art-g1a` (5500) | running |
+| G1-B | Versions popover, one version number everywhere, Undo's summary, count button right, toast exit | `polish/artifacts-versions` / `art-g1b` (5505) | running |
+| G2-A | Delete (route + panel/list controls), deleted state on cards and file rows, Regenerate | `polish/artifacts-delete` / `art-g2a` (5510) | waiting |
+| G2-B | Document phone touch targets, prose details | `polish/artifacts-doc-polish` / `art-g2b` (5515) | waiting |
+| G3 | Keyboard undo/redo, Undo empty-block bug, Redo multi-block, tabs ARIA + targets, named list rows | `polish/artifacts-keys-and-edges` / `art-g3` (5520) | waiting |
+
+Rulings (orchestrator):
+- Ruling: "the comments should scroll with the viewport" means the comment **list stays in view** — a sticky rail with its
+  own scroll, cards in document order, the thread nearest the reading position highlighted and followed (never while the
+  user is in the list), two-way linking kept; anchor-height placement is dropped for the desktop rail — cost if wrong: the
+  owner wanted anchored cards that follow differently; the list/follow logic is one component to rework.
+- Ruling: the header's comment icon toggles one comments surface (rail on desktop, drawer when narrow, sheet on phones),
+  remembered per device in the UI store; the rail starts hidden when the text column would fall under ~440 px.
+- Ruling: Delete is permanent behind an inline confirm (no soft delete), from the panel header and list rows; deleted rows
+  and cards show it with Regenerate from the stored source (keep-as-document message, `create_artifact` input, App brief,
+  file-production request) — cost if wrong: the owner wanted undo-able delete; a soft-delete column would be the change.
+- Ruling: G3 (keyboard, undo edge cases, tabs, named rows) runs last and alone, since named rows rewrite selectors in many
+  suites the other agents touch.
+
 ## Next action
 
 The redesign (Wave 2.5) is live on ai.dev (`1e755e0b`) for the owner's walk; fold their feedback in first. Then Wave 3 from
