@@ -5204,8 +5204,8 @@ describe("advertised artifact kinds match the registry (only tell the model what
 			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("canvas");
 			expect(tools.create_artifact.description).toContain(
 				lang === "en"
-					? "canvas for a board of things arranged in space"
-					: "canvas térben elrendezett dolgok táblájához",
+					? "canvas for a board of notes and frames arranged in space, with arrows between them"
+					: "canvas térben elrendezett jegyzetek és keretek táblájához, nyilakkal összekötve",
 			);
 		}
 	});
@@ -5474,25 +5474,28 @@ describe("tool description hygiene", () => {
 	// Registering Canvas's create handler (Feature 2, Wave 3, ruling 62) spent
 	// that headroom, as this note said it would: create_artifact now offers
 	// "canvas", and edit_artifact's description gained the Canvas rule (ids from
-	// read_artifact, no baseHash, the 40-op and 24-new-node limits, frames first)
-	// and ONE compact worked example (kind-prose.ts's EDIT_ARTIFACT_CANVAS_EXAMPLE,
-	// parsed by canvas-handlers.test.ts through the executed `ops` schema and
-	// `validateBoardDiff`). The op names are NOT repeated in prose: the `ops`
-	// schema, now the board vocabulary's own (edit.ts), carries them. Re-measured
-	// with Canvas in the catalogue: 4,974 en / 8,073 hu (201 en / 291 hu spent).
-	// The ceiling below is that measurement plus the SAME small margin as before
-	// (26 en / 27 hu). The schemas cost more than the descriptions and are not
-	// counted by this ceiling — the frozen snapshot shows them: the whole
-	// catalogue went from 33,935 to 40,370 characters (en), 37,406 to 43,884
-	// (hu); the `ops` schema is about 4.9k of that, and create_artifact's `body`
-	// field carries the board example.
+	// read_artifact, no baseHash, the 40-op and 24-new-node limits, frames first,
+	// the size of a note) and ONE compact worked example (kind-prose.ts's
+	// EDIT_ARTIFACT_CANVAS_EXAMPLE, parsed by canvas-handlers.test.ts through the
+	// executed `ops` schema and `validateBoardDiff`). The op names are NOT
+	// repeated in prose: the `ops` schema, now the board vocabulary's own
+	// (edit.ts), carries them. Re-measured with Canvas in the catalogue: 5,002 en
+	// / 8,117 hu (229 en / 335 hu spent). The size-of-a-note sentence is 28 en
+	// tokens of that, and earns them: the first live runs (24 answers) had 4
+	// boards with notes on top of each other; the same request set with the
+	// sentence (18 answers) had none. The ceiling below is that measurement plus
+	// the SAME small margin as before (26 en / 27 hu). The schemas cost more than
+	// the descriptions and are not counted by this ceiling — the frozen snapshot
+	// shows them: the whole catalogue went from 33,935 to 40,634 characters (en),
+	// 37,406 to 44,163 (hu); the `ops` schema is about 4.9k of that, and
+	// create_artifact's `body` field carries the board example.
 	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
 	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 5000, hu: 8100 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 5028, hu: 8144 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);
