@@ -230,22 +230,22 @@ let rowAccessibleName = $derived.by(() => {
 		(part) => part.toLowerCase() === kindLabel.toLowerCase(),
 	);
 	const reviewState = view.pendingReviewCount
-		? $t('artifacts.panel.pendingReview', { count: view.pendingReviewCount })
+		? $t("artifacts.panel.pendingReview", { count: view.pendingReviewCount })
 		: view.pendingReviewCount === 0
-			? $t('artifacts.panel.reviewed')
+			? $t("artifacts.panel.reviewed")
 			: null;
 	return [
 		view.title,
 		...(sayKind ? [kindLabel] : []),
 		...detailParts,
 		view.versionNumber
-			? $t('artifacts.card.version', { n: view.versionNumber })
+			? $t("artifacts.card.version", { n: view.versionNumber })
 			: null,
 		view.updatedAtLabel,
 		reviewState,
 	]
 		.filter((part): part is string => Boolean(part))
-		.join(', ');
+		.join(", ");
 });
 
 // The File body is lazy: a chat page with no file-producing turn must not
