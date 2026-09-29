@@ -222,6 +222,37 @@ describe("parseCanvasCreateBody — the board a create_artifact call carries", (
 			expect(error).toContain("edit_artifact");
 		});
 
+		it("a body with a brace short, quoting where it went wrong", () => {
+			const board = `{"nodes":[{"id":"a","type":"checklist","position":{"x":0,"y":0},"data":{"kind":"checklist","items":[{"id":"1","text":"x","done":false}]}, {"id":"b"}],"edges":[]}`;
+			const error = refusal(board);
+			expect(error).toMatch(/not valid JSON \(.* at character \d+\)\./);
+			expect(error).toContain("Near: ...");
+			expect(error).toContain('{"id":"b"}');
+			expect(error).toMatch(/every \{ and \[ is closed/);
+		});
+
+		it("an arrow listed among the blocks, saying where arrows go", () => {
+			for (const entry of [
+				{ id: "e1", type: "edge", source: "a", target: "b" },
+				{ id: "e2", source: "a", target: "b" },
+			]) {
+				const error = refusal(body([sticky("a"), sticky("b"), entry]));
+				expect(error).toContain(`nodes[2] "${entry.id}": is an edge`);
+				expect(error).toContain('edges go in the "edges" array');
+			}
+		});
+
+		it("a block listed among the arrows, saying where blocks go", () => {
+			const error = refusal(
+				body(
+					[sticky("a")],
+					[{ id: "n2", type: "sticky", position: { x: 0, y: 0 }, data: {} }],
+				),
+			);
+			expect(error).toContain('edges[0] "n2": is a block');
+			expect(error).toContain('blocks go in the "nodes" array');
+		});
+
 		it("JSON that is not a board object", () => {
 			expect(refusal("[1,2]")).toMatch(/object/);
 			expect(refusal('"hello"')).toMatch(/object/);

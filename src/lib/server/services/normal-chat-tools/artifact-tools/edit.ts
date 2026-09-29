@@ -40,6 +40,7 @@ import {
 	advertisedArtifactKinds,
 	type CreatableArtifactKind,
 } from "./kind-registry";
+import { jsonArrayArg } from "./tool-args";
 
 /**
  * `patches`'s real, executed shape (Document's five ops — `patchOpInputSchema`
@@ -108,8 +109,8 @@ export function buildEditArtifactModelInputSchema(
 /** Executed against: the caps are the server's, and they are enforced here. */
 export const editArtifactInputSchema = z.object({
 	artifactId: z.string().min(1),
-	patches: z.array(z.unknown()).min(1).max(40).optional(),
-	ops: z.array(z.unknown()).min(1).max(40).optional(),
+	patches: jsonArrayArg("patches").min(1).max(40).optional(),
+	ops: jsonArrayArg("ops").min(1).max(40).optional(),
 	summary: z.string().min(1).max(200).optional(),
 });
 

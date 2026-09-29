@@ -34,6 +34,7 @@ import type {
 import { MODEL_CREATABLE_DATA_SCHEMAS } from "$lib/shared/artifacts/canvas-blocks";
 import { emptyCanvasBody } from "$lib/shared/artifacts/canvas-body";
 import type { OpRefusal } from "$lib/shared/artifacts/ops";
+import { describeJsonSlip } from "./tool-args";
 
 // ── What read_artifact shows ─────────────────────────────────────────────
 
@@ -194,6 +195,13 @@ function nodeShapeProblem(value: unknown): string | null {
 	if (!isRecord(value)) {
 		return `must be an object {id, type, position, data}, not ${describeValue(value)}.`;
 	}
+	// The mistake models make most: an arrow listed with the blocks.
+	if (
+		value.type === "edge" ||
+		(value.source !== undefined && value.target !== undefined)
+	) {
+		return `is an edge (it has ${value.type === "edge" ? 'type "edge"' : "source and target"}), and edges go in the "edges" array as {id, source, target} — not in "nodes".`;
+	}
 	const missing: string[] = [];
 	if (!isText(value.id, 128))
 		missing.push("id (a string of 1 to 128 characters)");
@@ -210,6 +218,9 @@ function nodeShapeProblem(value: unknown): string | null {
 function edgeShapeProblem(value: unknown): string | null {
 	if (!isRecord(value)) {
 		return `must be an object {id, source, target}, not ${describeValue(value)}.`;
+	}
+	if (value.data !== undefined || value.position !== undefined) {
+		return `is a block (it has ${value.data !== undefined ? "data" : "position"}), and blocks go in the "nodes" array — not in "edges".`;
 	}
 	const missing: string[] = [];
 	if (!isText(value.id, 128)) missing.push("id");
@@ -288,16 +299,14 @@ export function parseCanvasCreateBody(raw: string): CanvasCreateResult {
 	const text = raw.trim();
 	if (text === "") return { ok: true, body: emptyCanvasBody() };
 
-	let value: unknown;
-	try {
-		value = JSON.parse(text);
-	} catch (error) {
-		const why = error instanceof Error ? error.message : "it could not be read";
+	const slip = describeJsonSlip(text);
+	if (slip) {
 		return {
 			ok: false,
-			error: `The body is not valid JSON (${why}). ${CREATE_SHAPE_HINT} If the JSON keeps failing, make an empty board with body {} and add the blocks with edit_artifact.`,
+			error: `The body is not valid JSON (${slip.reason}).${slip.near} Check that every { and [ is closed, especially in nested lists. ${CREATE_SHAPE_HINT} If the JSON keeps failing, make an empty board with body {} and add the blocks with edit_artifact.`,
 		};
 	}
+	const value: unknown = JSON.parse(text);
 	if (!isRecord(value)) {
 		return {
 			ok: false,
