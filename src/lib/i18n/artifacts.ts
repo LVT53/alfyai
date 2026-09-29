@@ -556,6 +556,25 @@ const artifactsDict = {
 			"This document isn't in a conversation yet, so it can't be exported.",
 		"artifacts.document.export.tryAgain": "Try again",
 		"artifacts.document.export.close": "Close",
+		// Slice 3 (Canvas), the ops protocol's own strings: why a change to the
+		// board was skipped (`board-ops.ts`'s `refusalLabelKey`), and the one line
+		// for a change that could not be read at all. The board's own strings
+		// (toolbar, blocks, pins) are the board agent's block.
+		"artifacts.canvas.invalidDiff":
+			"That change could not be read, so nothing moved.",
+		"artifacts.canvas.refusal.unknown_id":
+			"nothing is at that position any more",
+		"artifacts.canvas.refusal.duplicate_id": "that id already exists",
+		"artifacts.canvas.refusal.unknown_kind": "unknown block type",
+		"artifacts.canvas.refusal.kind_mismatch":
+			"a block cannot change type in place",
+		"artifacts.canvas.refusal.missing_parent":
+			"the frame it belongs to is missing",
+		"artifacts.canvas.refusal.self_parent": "a frame cannot contain itself",
+		"artifacts.canvas.refusal.cycle": "a frame cannot sit inside its own frame",
+		"artifacts.canvas.refusal.invalid_data":
+			"the block's content was not valid",
+		"artifacts.canvas.refusal.limit_exceeded": "the board is at its limit",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -943,6 +962,24 @@ const artifactsDict = {
 			"Ez a dokumentum még nincs beszélgetéshez rendelve, ezért nem exportálható.",
 		"artifacts.document.export.tryAgain": "Újrapróbálom",
 		"artifacts.document.export.close": "Bezárás",
+		// Slice 3 (Canvas), a protokoll saját szövegei: miért maradt ki egy
+		// módosítás a táblából, és az egy sor arra az esetre, ha egy módosítást
+		// egyáltalán nem sikerült értelmezni.
+		"artifacts.canvas.invalidDiff":
+			"Ezt a módosítást nem sikerült értelmezni, ezért semmi sem mozdult el.",
+		"artifacts.canvas.refusal.unknown_id": "már nincs ott semmi",
+		"artifacts.canvas.refusal.duplicate_id": "ez az azonosító már létezik",
+		"artifacts.canvas.refusal.unknown_kind": "ismeretlen blokktípus",
+		"artifacts.canvas.refusal.kind_mismatch":
+			"a blokk típusa nem változhat meg helyben",
+		"artifacts.canvas.refusal.missing_parent":
+			"hiányzik a keret, amihez tartozna",
+		"artifacts.canvas.refusal.self_parent":
+			"a keret nem tartalmazhatja önmagát",
+		"artifacts.canvas.refusal.cycle": "a keret nem kerülhet a saját keretébe",
+		"artifacts.canvas.refusal.invalid_data":
+			"a blokk tartalma nem volt érvényes",
+		"artifacts.canvas.refusal.limit_exceeded": "a tábla elérte a korlátját",
 	},
 } as const;
 

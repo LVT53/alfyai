@@ -5,6 +5,7 @@ import {
 } from "$lib/shared/artifact-document/blocks";
 import {
 	type ArtifactChange,
+	applyArtifactOps,
 	askAlfyInComment,
 	createArtifactComment,
 	deleteArtifact,
@@ -429,6 +430,30 @@ describe("artifacts client API", () => {
 
 			const call = fetchMock.mock.calls[0]?.[1];
 			expect(JSON.parse(String(call?.body))).toEqual({ body: "Text." });
+		});
+
+		it("passes on what the server had to leave out of a board save", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					version: 3,
+					bodyHash: "h",
+					dropped: { nodes: 1, edges: 0, annotations: 2 },
+				}),
+			);
+			const result = await saveArtifactBody(
+				"artifact-1",
+				"{}",
+				2,
+				null,
+				fetchMock,
+			);
+			expect(result).toEqual({
+				ok: true,
+				version: 3,
+				bodyHash: "h",
+				dropped: { nodes: 1, edges: 0, annotations: 2 },
+			});
 		});
 	});
 
@@ -1172,5 +1197,202 @@ describe("regenerateDeletedArtifact", () => {
 		await expect(
 			regenerateDeletedArtifact("conv-1", "doc-1", "en", offline),
 		).resolves.toEqual({ ok: false, reason: "failed" });
+	});
+});
+
+// Slice 3 (Canvas), T6: an id-addressed change to an artifact. One call per
+// diff, one version announced per landed diff (the same announcement a body
+// save makes), and a documented refusal comes back as a value, never a throw.
+describe("applyArtifactOps", () => {
+	const diff = {
+		id: "diff-1",
+		summary: "Tidied",
+		ops: [{ op: "move", id: "note-1", to: { x: 1, y: 2 } }],
+	};
+	const landed = {
+		ok: true,
+		versionId: "version-3",
+		version: 3,
+		applied: 1,
+		refused: [],
+		changed: true,
+	};
+
+	function listen() {
+		const heard: [string, number, number | null][] = [];
+		const unsubscribe = subscribeArtifactChanges((change) => {
+			if (change.type === "version") {
+				heard.push([change.artifactId, change.version, change.updatedAt]);
+			}
+		});
+		return { heard, unsubscribe };
+	}
+
+	it("posts { baseVersionId, diff } to the artifact's ops route and returns what it answers", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse(landed),
+		);
+
+		const result = await applyArtifactOps(
+			"artifact-1",
+			"version-2",
+			diff,
+			null,
+			fetchMock,
+		);
+
+		expect(result).toEqual(landed);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe("/api/artifacts/artifact-1/ops");
+		expect(init?.method).toBe("POST");
+		expect(new Headers(init?.headers).get("Content-Type")).toBe(
+			"application/json",
+		);
+		expect(JSON.parse(String(init?.body))).toEqual({
+			baseVersionId: "version-2",
+			diff,
+		});
+	});
+
+	it("names the conversation for a board made in an incognito chat, and encodes the id", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse(landed),
+		);
+
+		await applyArtifactOps("a/b c", "v", diff, "conv-1", fetchMock);
+
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"/api/artifacts/a%2Fb%20c/ops?conversationId=conv-1",
+		);
+	});
+
+	it("announces the version a landed diff reports, as changed just now", async () => {
+		const { heard, unsubscribe } = listen();
+		await applyArtifactOps(
+			"artifact-1",
+			"version-2",
+			diff,
+			null,
+			vi.fn(async () => jsonResponse(landed)),
+		);
+		unsubscribe();
+		expect(heard).toHaveLength(1);
+		expect(heard[0][0]).toBe("artifact-1");
+		expect(heard[0][1]).toBe(3);
+		expect(heard[0][2]).toBeGreaterThan(0);
+	});
+
+	it("announces the version a diff that changed nothing is still at, without claiming it changed", async () => {
+		const { heard, unsubscribe } = listen();
+		await applyArtifactOps(
+			"artifact-1",
+			"version-2",
+			diff,
+			null,
+			vi.fn(async () =>
+				jsonResponse({
+					...landed,
+					version: 2,
+					versionId: "version-2",
+					applied: 0,
+					changed: false,
+				}),
+			),
+		);
+		unsubscribe();
+		expect(heard).toEqual([["artifact-1", 2, null]]);
+	});
+
+	it("returns a stale-base conflict as a value and announces the version it reveals", async () => {
+		const { heard, unsubscribe } = listen();
+		const result = await applyArtifactOps(
+			"artifact-1",
+			"version-1",
+			diff,
+			null,
+			vi.fn(async () =>
+				jsonResponse(
+					{ ok: false, reason: "version_conflict", version: 4 },
+					409,
+				),
+			),
+		);
+		unsubscribe();
+		expect(result).toEqual({
+			ok: false,
+			reason: "version_conflict",
+			version: 4,
+		});
+		expect(heard).toEqual([["artifact-1", 4, null]]);
+	});
+
+	it("returns every other documented refusal as a value, carries its detail, and announces nothing", async () => {
+		const { heard, unsubscribe } = listen();
+		for (const [status, body] of [
+			[
+				400,
+				{
+					ok: false,
+					reason: "invalid_diff",
+					detail: "ops[0].op: not a known op. Valid ops: move.",
+				},
+			],
+			[
+				400,
+				{
+					ok: false,
+					reason: "unsupported_kind",
+					detail: "A document cannot be changed with ops.",
+				},
+			],
+			[404, { ok: false, reason: "not_found" }],
+			[413, { ok: false, reason: "too_large" }],
+		] as const) {
+			const result = await applyArtifactOps(
+				"artifact-1",
+				"v",
+				diff,
+				null,
+				vi.fn(async () => jsonResponse(body, status)),
+			);
+			expect(result).toEqual(body);
+		}
+		unsubscribe();
+		expect(heard).toEqual([]);
+	});
+
+	it("does not announce a version for a diff every op of which was refused", async () => {
+		const { heard, unsubscribe } = listen();
+		const result = await applyArtifactOps(
+			"artifact-1",
+			"version-2",
+			diff,
+			null,
+			vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					versionId: "version-2",
+					version: 2,
+					applied: 0,
+					changed: false,
+					refused: [
+						{
+							index: 0,
+							op: "move",
+							id: "note-1",
+							reason: "unknown_id",
+							detail: "no such node",
+						},
+					],
+				}),
+			),
+		);
+		unsubscribe();
+		if (!result.ok) throw new Error("expected a value");
+		expect(result.refused).toHaveLength(1);
+		expect(heard).toEqual([["artifact-1", 2, null]]);
 	});
 });

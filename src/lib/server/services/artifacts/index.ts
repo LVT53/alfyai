@@ -8,6 +8,10 @@
 // export block each; nothing outside this directory queries the artifact
 // tables directly (the account data archive, which reads everything a user
 // owns on purpose, is the one named exception — see its own header).
+
+// Slice 3 (Canvas): the board's own save seam and the ops envelope every
+// kind's id-addressed changes go through. Each type slice appends one block.
+export { saveCanvasBoard } from "./canvas-ops";
 export {
 	ARTIFACT_CATALOGUE_MAX,
 	ARTIFACT_CATALOGUE_TITLE_MAX_CHARS,
@@ -48,6 +52,15 @@ export { hashArtifactBody } from "./hash";
 export { keepMessageAsDocument } from "./keep-message";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
 export {
+	applyArtifactOps,
+	OPS_BRANCHES,
+	type OpsBranch,
+	type OpsBranchOutcome,
+	type OpsEnvelopeFailureReason,
+	type OpsEnvelopeInput,
+	type OpsEnvelopeResult,
+} from "./ops";
+export {
 	listArtifactsForConversation,
 	listMissingArtifactIds,
 } from "./read-model";
@@ -65,6 +78,14 @@ export {
 	type FileArtifactDescriptor,
 	getArtifactSerializer,
 } from "./serialize";
+// The one gate a board passes on its way into storage, for a writer that makes
+// a board rather than saves one (the model's create handler): canonical, hashed
+// as written, refused past its caps.
+export {
+	type CanvasBoardRefusal,
+	canvasBodyHash,
+	prepareCanvasBoard,
+} from "./serialize/canvas";
 export type {
 	Anchor,
 	ArtifactAuthor,
