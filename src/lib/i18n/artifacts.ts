@@ -291,8 +291,18 @@ const artifactsDict = {
 		// part and left 1 alone. Review it below the text.") — the region is
 		// already populated with both sentences when it enters the DOM.
 		"artifacts.document.review.regionLabel": "Changes from Alfy",
+		// A `{count}` nested INSIDE a plural branch (the form this key used
+		// before) never resolves: `index.ts`'s own plural regex captures each
+		// branch as `[^{}]*` (no braces allowed inside), so a branch
+		// containing its own `{count}` fails to match the plural pattern at
+		// all, leaving the raw `{count, plural, ...}` template in the
+		// rendered text (masked in this file's own tests, since
+		// `toHaveTextContent`'s substring match still finds "Alfy changed 3
+		// parts." INSIDE that unresolved template). `{count}` now sits
+		// OUTSIDE the plural block instead, the same shape `panel.count`/
+		// `panel.pendingReview` above already use correctly.
 		"artifacts.document.review.summary":
-			"{count, plural, one {Alfy changed 1 part.} other {Alfy changed {count} parts.}}",
+			"Alfy changed {count} {count, plural, one {part} other {parts}}.",
 		"artifacts.document.review.prev": "Previous change",
 		"artifacts.document.review.next": "Next change",
 		"artifacts.document.review.keepAll": "Keep all",
@@ -309,6 +319,13 @@ const artifactsDict = {
 		"artifacts.document.tab.deleteConfirm": "Delete “{name}” and its text?",
 		"artifacts.document.tab.renamePrompt": "Rename this tab",
 		"artifacts.document.tab.newTabTitle": "New section",
+		// The tab strip's own open-comment badge (rd/review-2-5.md:223-228):
+		// the visible number is `aria-hidden`, this sr-only phrase is what a
+		// screen reader hears instead of a bare "3". `{count}` sits OUTSIDE
+		// the plural block on purpose — see `review.summary`'s own comment
+		// above for why a `{count}` nested INSIDE a branch never resolves.
+		"artifacts.document.tab.openCommentsA11y":
+			"{count} {count, plural, one {open comment} other {open comments}}",
 		// Tracker chips (Slice 1, T9) — stored values are canonical English
 		// tokens; only the label is localised (Global Constraints, Review Focus 8).
 		"artifacts.document.chip.status.Booked": "Booked",
@@ -662,6 +679,8 @@ const artifactsDict = {
 			"Törlöd a(z) „{name}” fület és a szövegét?",
 		"artifacts.document.tab.renamePrompt": "Nevezd át ezt a fület",
 		"artifacts.document.tab.newTabTitle": "Új szakasz",
+		// No ICU plural here either, same reasoning as cardSubtitle above.
+		"artifacts.document.tab.openCommentsA11y": "{count} nyitott megjegyzés",
 		"artifacts.document.chip.status.Booked": "Lefoglalva",
 		"artifacts.document.chip.status.ToBook": "Lefoglalandó",
 		"artifacts.document.chip.status.Paid": "Kifizetve",

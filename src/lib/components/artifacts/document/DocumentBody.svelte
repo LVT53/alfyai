@@ -2067,6 +2067,9 @@ function saveNoticeText(notice: SaveNotice): string {
 					<div
 						class="document-editor-host"
 						bind:this={editorEl}
+						role={tabs.length > 1 ? 'tabpanel' : undefined}
+						id={tabs.length > 1 ? `document-tabpanel-${activeTabId}` : undefined}
+						aria-labelledby={tabs.length > 1 ? `document-tab-${activeTabId}` : undefined}
 						style:padding-bottom={pendingList.length > 0
 							? `calc(1rem + ${reviewBarHeight}px)`
 							: undefined}

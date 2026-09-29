@@ -790,6 +790,63 @@ describe("DocumentBody", () => {
 			expect(tabButtons[0]).toHaveAttribute("aria-selected", "true");
 		});
 
+		// rd/review-2-5.md:223-228 — every tab's own aria-controls pointed at a
+		// "document-tabpanel-{id}" that no element ever carried; the editor
+		// host now carries that id for whichever tab is currently active.
+		it("gives the editor host role=tabpanel with the active tab's own id, updated when the active tab changes", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					metadata: {
+						artifactType: "document",
+						title: "Trip plan",
+						tabs: [
+							{ id: "tab-1", title: "Plan", startBlockId: "p1" },
+							{ id: "tab-2", title: "Budget", startBlockId: "p2" },
+						],
+					},
+				}),
+			);
+			const { container } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			const editorHost = container.querySelector(".document-editor-host");
+			expect(editorHost).toHaveAttribute("role", "tabpanel");
+			expect(editorHost).toHaveAttribute("id", "document-tabpanel-tab-1");
+			expect(editorHost).toHaveAttribute(
+				"aria-labelledby",
+				"document-tab-tab-1",
+			);
+
+			await fireEvent.click(screen.getByRole("tab", { name: "Budget" }));
+			expect(editorHost).toHaveAttribute("id", "document-tabpanel-tab-2");
+			expect(editorHost).toHaveAttribute(
+				"aria-labelledby",
+				"document-tab-tab-2",
+			);
+		});
+
+		it("omits the tabpanel role/id for a single-tab document — there is no tablist for it to pair with", async () => {
+			const { container } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			const editorHost = container.querySelector(".document-editor-host");
+			expect(editorHost).not.toHaveAttribute("role");
+			expect(editorHost).not.toHaveAttribute("id");
+		});
+
 		it("switching the active tab does not reload the editor module or the document", async () => {
 			mockFetchArtifact.mockResolvedValue(
 				ARTIFACT_DETAIL({
