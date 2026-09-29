@@ -2467,6 +2467,48 @@ describe("DocumentWorkspace Delete (polish G2-A)", () => {
 		expect(onDeleteArtifact).toHaveBeenCalledTimes(1);
 	});
 
+	it("closes the panel when the row just deleted was the last one, instead of leaving an empty list", async () => {
+		const onDeleteArtifact = vi.fn(async () => {});
+		const onCloseWorkspace = vi.fn();
+		const only = makeWorkspaceDocument({
+			id: "artifact:doc-1",
+			artifactId: "doc-1",
+			kind: "document",
+			title: "Vienna itinerary",
+		});
+		// The page has already dropped the deleted row by the time the delete
+		// resolves; the workspace is shown the list as it is then.
+		const { rerender } = renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+			activeDocumentId: "doc-x",
+			list: { open: true, items: [only] },
+			onDeleteArtifact: vi.fn(async (item) => {
+				await onDeleteArtifact(item);
+				await rerender({
+					list: { open: true, items: [] },
+				});
+			}),
+			onCloseWorkspace,
+		});
+		const list = await screen.findByTestId("artifact-panel-list");
+		await fireEvent.click(
+			within(list).getByRole("button", {
+				name: "More actions for Vienna itinerary",
+			}),
+		);
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Delete document" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this document?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => expect(onCloseWorkspace).toHaveBeenCalled());
+	});
+
 	// A produced file is deleted through the same route (the family's delete
 	// takes it through its own store), so the File kind gets the same controls.
 	it("offers a produced file's row the same overflow, in the file's own words", async () => {

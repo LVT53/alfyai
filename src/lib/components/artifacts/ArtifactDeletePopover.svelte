@@ -190,4 +190,19 @@ async function confirm(): Promise<void> {
 			min-height: 44px;
 		}
 	}
+
+	/* On a phone this content sits in the sheet, which already insets it: the
+	   popover's own side padding would push it in a second time, out of line
+	   with the sheet's heading. */
+	@media (max-width: 639.98px) {
+		.artifact-delete-confirm {
+			padding-left: 0;
+			padding-right: 0;
+		}
+
+		.artifact-delete-menu {
+			padding-left: 0;
+			padding-right: 0;
+		}
+	}
 </style>

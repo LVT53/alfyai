@@ -291,9 +291,13 @@ async function deleteOpenItem(item: DocumentWorkspaceItem): Promise<void> {
 	onCloseWorkspace();
 }
 
-/** A list row's Delete, confirmed. The row is gone afterwards, and so is the button that had focus: put focus back on the list. */
+/** A list row's Delete, confirmed. The row is gone afterwards, and so is the button that had focus: put focus back on the list — or leave the panel when that was the last row, since an empty list is nothing to show. */
 async function deleteFromList(item: DocumentWorkspaceItem): Promise<void> {
 	await onDeleteArtifact?.(item);
+	if ((list?.items.length ?? 0) === 0) {
+		onCloseWorkspace();
+		return;
+	}
 	await tick();
 	const shell = desktopShellElement ?? mobileShellElement;
 	shell
