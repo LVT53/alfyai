@@ -140,15 +140,17 @@ was wrong with any call and the board the conversation left passes the rubric.
 | v1 (as first registered) | 30 | 18 | 3/5 | 3/5 / 3/5 | 5/5 | 2/5 / 2/5 |
 | final (note size, arrows are not blocks) | 30 | **24** | 3/5 | 5/5 / 5/5 | 5/5 | 3/5 / 3/5 |
 
-What failed, over the 30 final answers: a note or a frame that sticks out of its frame (3),
-two frames overlapping (1), an arrow filed with the blocks in a create body (3 boards; a create
-body of 16 to 24 nodes in one JSON string), an invalid `tone` (1). What failed in v1's 30: the
-same, plus notes on top of each other (4) and frames sized short of their notes (6). The edit
-cases with a stored board are the reliable half (Add Sunday 10/10 and Remove and connect 5/5
-with the final wording); the arrange case is the one that needs arithmetic (five notes into a
-460x360 frame) and the model gets it right 3 times in 5. The first 24 answers, recorded before
-the harness answered `run_python` and `map_route` (the model checks spacing with a script, or
-looks a place up), scored 13 good.
+What failed, over the 30 final answers (6 bad): a note that sticks out of its frame (3: the
+model sized or enlarged the frame a note short — arithmetic on 84-tall notes), two frames
+overlapping (1), one board whose arrows were filed with the blocks (1), an invalid `tone` (1,
+mended in the next step). In v1's 30 (12 bad): notes or frames on top of each other (4), notes
+sticking out of their frame (6), a mistyped id in an `add_edge` (2, mended), arrows filed with the
+blocks (2), a script call still open at the last step (1). The edit cases with a stored board are
+the reliable half (Add Sunday 10/10 and Remove and connect 5/5 with the final wording); the
+arrange case is the one that needs arithmetic (five notes into a 460x360 frame) and the model
+gets it right 3 times in 5. The first 24 answers, recorded before the harness answered
+`run_python` and `map_route` (the model checks spacing with a script, or looks a place up),
+scored 13 good.
 
 Two ways to make a board were compared on the create cases, 20 answers each: the board in the
 `body` (12 good) against an empty board followed by `edit_artifact` ops (11 good). The
