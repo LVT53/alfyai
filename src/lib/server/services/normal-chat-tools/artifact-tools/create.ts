@@ -136,6 +136,7 @@ CREATE_ARTIFACT_HANDLERS.document = async (params) => {
 			markdown: params.body,
 			author: "alfy",
 			summary: VERSION_SUMMARY.alfyFirstDraft,
+			artifactId: params.artifactId,
 		});
 		return {
 			ok: true,
@@ -175,6 +176,7 @@ CREATE_ARTIFACT_HANDLERS.app = async (params) => {
 		title: params.title,
 		language: params.language,
 		abortSignal: params.abortSignal,
+		artifactId: params.artifactId,
 	});
 	if (!result.ok) {
 		return { ok: false, reason: result.detail };
@@ -218,6 +220,7 @@ export async function runCreateArtifactTool(
 		body: params.body,
 		language: params.language,
 		abortSignal: params.abortSignal,
+		artifactId: params.artifactId,
 	});
 
 	if (!result.ok) {

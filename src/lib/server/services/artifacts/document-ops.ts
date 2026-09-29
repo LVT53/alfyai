@@ -436,11 +436,14 @@ export async function createDocumentArtifact(params: {
 	markdown?: string;
 	author: ArtifactAuthor;
 	summary: string;
+	/** Regenerate (polish G2-A): make the Document under the id its chat cards already carry. */
+	artifactId?: string;
 }): Promise<ArtifactRecord> {
 	const body = createBody({ title: params.title, markdown: params.markdown });
 	const result = await createArtifact({
 		userId: params.userId,
 		conversationId: params.conversationId,
+		id: params.artifactId,
 		kind: "document",
 		title: params.title,
 		body: serialize(body),

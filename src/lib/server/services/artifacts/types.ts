@@ -164,6 +164,12 @@ export type CreatableArtifactKind = Exclude<ArtifactKind, "file">;
 export interface CreateArtifactInput {
 	userId: string;
 	conversationId: string | null;
+	/**
+	 * A trusted server caller's own id for the row — Regenerate makes a deleted
+	 * item again under the id its chat cards already carry. Omit for a fresh
+	 * one (every other caller). Refused as `id_taken` when a row already has it.
+	 */
+	id?: string;
 	kind: CreatableArtifactKind;
 	title: string;
 	body?: string | null;

@@ -16,6 +16,7 @@ import {
 	fetchConversationArtifacts,
 	readAppValue,
 	regenerateApp,
+	regenerateDeletedArtifact,
 	resolveArtifactComment,
 	restoreArtifactVersion,
 	saveArtifactBody,
@@ -1103,5 +1104,72 @@ describe("version announcements", () => {
 			expectVersion: 3,
 			summaryKind: "undid_alfy_change",
 		});
+	});
+});
+
+// Polish G2-A: "Regenerate" on a chat card whose Document or App was deleted.
+describe("regenerateDeletedArtifact", () => {
+	it("asks the conversation to make the item again, in the reader's language, and returns what came back", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				created: true,
+				artifactId: "doc-1",
+				kind: "document",
+				title: "Weekend",
+			}),
+		);
+
+		await expect(
+			regenerateDeletedArtifact("conv-1", "doc-1", "hu", fetchMock),
+		).resolves.toEqual({
+			ok: true,
+			created: true,
+			artifactId: "doc-1",
+			kind: "document",
+			title: "Weekend",
+		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/artifacts/doc-1/regenerate",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ language: "hu" }),
+			},
+		);
+	});
+
+	it("carries a refusal's reason instead of throwing", async () => {
+		for (const [status, reason] of [
+			[404, "not_found"],
+			[409, "no_stored_input"],
+			[409, "in_progress"],
+		] as const) {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: false, reason }, status),
+			);
+			await expect(
+				regenerateDeletedArtifact("conv-1", "doc-1", "en", fetchMock),
+			).resolves.toEqual({ ok: false, reason });
+		}
+		const failed = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "failed", detail: "Nope." }, 422),
+		);
+		await expect(
+			regenerateDeletedArtifact("conv-1", "doc-1", "en", failed),
+		).resolves.toEqual({ ok: false, reason: "failed", detail: "Nope." });
+	});
+
+	it("reads an unreadable answer, or a dead connection, as a plain failure", async () => {
+		const html = vi.fn(async () => new Response("<html>", { status: 502 }));
+		await expect(
+			regenerateDeletedArtifact("conv-1", "doc-1", "en", html),
+		).resolves.toEqual({ ok: false, reason: "failed" });
+		const offline = vi.fn(async () => {
+			throw new TypeError("network");
+		});
+		await expect(
+			regenerateDeletedArtifact("conv-1", "doc-1", "en", offline),
+		).resolves.toEqual({ ok: false, reason: "failed" });
 	});
 });

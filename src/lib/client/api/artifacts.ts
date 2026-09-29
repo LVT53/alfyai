@@ -26,6 +26,7 @@ import {
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
 import { _unwrapList } from "./_utils";
 import {
@@ -196,6 +197,57 @@ export async function deleteArtifact(
 	}
 	announceArtifactChange({ type: "deleted", artifactId });
 	return { ok: true, alreadyGone };
+}
+
+export type RegenerateDeletedArtifactResult =
+	| {
+			ok: true;
+			/** `false`: the item exists again already (made by an earlier click or another tab); nothing was written. */
+			created: boolean;
+			artifactId: string;
+			kind: ArtifactKind;
+			title: string;
+	  }
+	| {
+			ok: false;
+			reason: "not_found" | "no_stored_input" | "in_progress" | "failed";
+			detail?: string;
+	  };
+
+/**
+ * "Regenerate" on a chat card whose Document or App was deleted
+ * (`POST /api/conversations/[id]/artifacts/[artifactId]/regenerate`): the
+ * server makes it again from the arguments the model gave `create_artifact`,
+ * under the id the card already carries. Every documented refusal is a normal
+ * return value with its reason (the card says which); an unreadable answer or
+ * a dead connection is a plain `failed`. `language` is the reader's interface
+ * language, which an App is made in.
+ */
+export async function regenerateDeletedArtifact(
+	conversationId: string,
+	artifactId: string,
+	language: "en" | "hu",
+	fetchImpl: FetchLike = fetch,
+): Promise<RegenerateDeletedArtifactResult> {
+	try {
+		const response = await requestResponse(
+			`/api/conversations/${encodeURIComponent(conversationId)}/artifacts/${encodeURIComponent(artifactId)}/regenerate`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ language }),
+			},
+			fetchImpl,
+		);
+		const payload = (await response
+			.json()
+			.catch(() => null)) as RegenerateDeletedArtifactResult | null;
+		return payload && typeof payload.ok === "boolean"
+			? payload
+			: { ok: false, reason: "failed" };
+	} catch {
+		return { ok: false, reason: "failed" };
+	}
 }
 
 export async function fetchConversationArtifacts(

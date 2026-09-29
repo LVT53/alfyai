@@ -270,7 +270,8 @@ export async function createArtifact(input: CreateArtifactInput): Promise<
 				| "conversation_not_found"
 				| "too_large"
 				| "invalid_kind"
-				| "invalid_title";
+				| "invalid_title"
+				| "id_taken";
 	  }
 > {
 	// Pure input-shape checks first, before any DB round trip: a caller whose
@@ -303,7 +304,15 @@ export async function createArtifact(input: CreateArtifactInput): Promise<
 		return { ok: false, reason: "too_large" };
 	}
 
-	const id = randomUUID();
+	const id = input.id ?? randomUUID();
+	if (input.id !== undefined) {
+		const [taken] = await db
+			.select({ id: artifacts.id })
+			.from(artifacts)
+			.where(eq(artifacts.id, id))
+			.limit(1);
+		if (taken) return { ok: false, reason: "id_taken" };
+	}
 	const metadata: ArtifactMetadata = {
 		...(input.metadata ?? {}),
 		artifactType: input.kind,

@@ -331,6 +331,46 @@ describe("CREATE_ARTIFACT_HANDLERS.app (Task A7)", () => {
 		});
 	});
 
+	// Polish G2-A (Regenerate): a deleted App is made again under the id its
+	// chat cards already carry.
+	it("hands an id it was given to createAppFromBrief, and to no other kind's params when none was given", async () => {
+		createAppFromBrief.mockResolvedValue({
+			ok: true,
+			artifactId: "artifact-kept",
+			title: "Trip cost splitter",
+			verification: { checked: false, verdict: "clean", reason: null },
+		});
+
+		await runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "regenerate:artifact-kept",
+			title: "Trip cost splitter",
+			body: "Split costs.",
+			language: "en",
+			artifactType: "app",
+			abortSignal: new AbortController().signal,
+			artifactId: "artifact-kept",
+		});
+		expect(createAppFromBrief).toHaveBeenLastCalledWith(
+			expect.objectContaining({ artifactId: "artifact-kept" }),
+		);
+
+		await runCreateArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			title: "Trip cost splitter",
+			body: "Split costs.",
+			language: "en",
+			artifactType: "app",
+			abortSignal: new AbortController().signal,
+		});
+		expect(createAppFromBrief).toHaveBeenLastCalledWith(
+			expect.objectContaining({ artifactId: undefined }),
+		);
+	});
+
 	it("threads the turn's resolved language through to createAppFromBrief unchanged (ruling 55)", async () => {
 		createAppFromBrief.mockResolvedValue({
 			ok: true,

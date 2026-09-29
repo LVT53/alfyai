@@ -148,6 +148,38 @@ describe("createArtifact", () => {
 		});
 	});
 
+	// Polish G2-A (Regenerate): an item made again from the call that made it
+	// keeps the id every chat card and message already points at, so the deleted
+	// state clears by itself and nothing has to be rewritten. Only a trusted
+	// server caller can name the id, and only a free one is ever used.
+	it("creates the row under the id it is given, version and all", async () => {
+		const artifact = await createDocument({ id: "kept-id" });
+
+		expect(artifact.id).toBe("kept-id");
+		expect(artifactRow("kept-id")).toMatchObject({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		expect(versionRows("kept-id")).toHaveLength(1);
+	});
+
+	it("refuses an id that is already taken, and leaves the row that has it alone", async () => {
+		const first = await createDocument({ title: "First" });
+
+		const second = await createArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			kind: "document",
+			title: "Second",
+			body: "Other text",
+			id: first.id,
+		});
+
+		expect(second).toEqual({ ok: false, reason: "id_taken" });
+		expect(artifactRow(first.id)).toMatchObject({ name: "First" });
+		expect(versionRows(first.id)).toHaveLength(1);
+	});
+
 	it("writes no version for an artifact created without a body", async () => {
 		const artifact = await createDocument({ kind: "canvas", body: null });
 
