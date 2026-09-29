@@ -44,6 +44,8 @@ import {
 import { updateInstructionSuggestionStatus } from "$lib/client/api/conversations";
 import {
 	deleteArtifact as deleteArtifactRequest,
+	fetchArtifact,
+	regenerateDeletedArtifact,
 	subscribeArtifactChanges,
 	toggleDocumentTask,
 } from "$lib/client/api/artifacts";
@@ -90,7 +92,9 @@ import {
 	selectedReasoningDepth,
 	setSelectedModel,
 	setSelectedReasoningDepth,
+	uiLanguage,
 } from "$lib/stores/settings";
+import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import CloudConnectorWarningModal from "$lib/components/chat/CloudConnectorWarningModal.svelte";
 import { isProviderModelId } from "$lib/model-types";
@@ -564,6 +568,16 @@ let observedArtifactTimes = $state.raw<ObservedArtifactTimes>(
 let deletedArtifactIds = $state.raw<readonly string[]>(
 	initialDeletedArtifactIds,
 );
+// Regenerate on a deleted card: which items are being made again right now,
+// and which the server said cannot be (nothing stored to make them from).
+let regeneratingArtifactIds = $state.raw<readonly string[]>([]);
+let unavailableArtifactIds = $state.raw<readonly string[]>([]);
+let deletedArtifactsForCards = $derived<DeletedArtifacts>({
+	deletedIds: deletedArtifactIds,
+	regeneratingIds: regeneratingArtifactIds,
+	unavailableIds: unavailableArtifactIds,
+	onRegenerate: handleRegenerateArtifact,
+});
 let liveArtifacts = $derived(
 	dropDeletedArtifacts(artifacts, deletedArtifactIds).map((row) =>
 		withCurrentSummaryUpdatedAt(
@@ -1404,6 +1418,77 @@ async function handleDeleteArtifact(
 		type: "success",
 		message: get(t)(`artifacts.delete.done.${item.kind ?? "file"}` as I18nKey),
 	});
+}
+
+/**
+ * A chat card's Open for a Document/App/Canvas/Slides: find out first that the
+ * item is still there. If the server has no such item any more (deleted in the
+ * Knowledge library or another tab) the card flips to its deleted state and
+ * the panel does not open; any other failure (offline, a 5xx) lets the panel
+ * try, which shows its own state.
+ */
+async function openArtifactFromChat(
+	document: DocumentWorkspaceItem,
+	options: {
+		preservePresentation?: boolean;
+		presentation?: "docked" | "expanded";
+	} = {},
+) {
+	if (document.artifactId && document.kind && document.kind !== "file") {
+		try {
+			await fetchArtifact(document.artifactId, data.conversation.id);
+		} catch (error) {
+			if (error instanceof ApiError && error.status === 404) {
+				handleArtifactDeleted(document.artifactId);
+				return;
+			}
+		}
+	}
+	openWorkspaceDocument(document, options);
+}
+
+/**
+ * Regenerate on a deleted Document or App card: the server makes it again from
+ * the arguments the model gave `create_artifact` (kept on the message), under
+ * the id the card already carries — so once conversation detail is read back
+ * the card is a card again, with no rewriting. A refusal because nothing was
+ * kept says so on the card; any other failure says so in a toast and leaves
+ * Regenerate there to try again.
+ */
+async function handleRegenerateArtifact(artifactId: string) {
+	if (regeneratingArtifactIds.includes(artifactId)) return;
+	regeneratingArtifactIds = [...regeneratingArtifactIds, artifactId];
+	try {
+		const result = await regenerateDeletedArtifact(
+			data.conversation.id,
+			artifactId,
+			get(uiLanguage) === "hu" ? "hu" : "en",
+		);
+		if (result.ok) {
+			deletedArtifactIds = deletedArtifactIds.filter((id) => id !== artifactId);
+			const detail = await fetchConversationDetail(data.conversation.id).catch(
+				() => null,
+			);
+			if (detail) applyConversationDetailMetadata(detail);
+			showToast({
+				type: "success",
+				message: get(t)("artifacts.deleted.regenerated", {
+					title: result.title,
+				}),
+			});
+		} else if (result.reason === "no_stored_input") {
+			unavailableArtifactIds = [...unavailableArtifactIds, artifactId];
+		} else {
+			showToast({
+				type: "error",
+				message: get(t)("artifacts.deleted.regenerateFailed"),
+			});
+		}
+	} finally {
+		regeneratingArtifactIds = regeneratingArtifactIds.filter(
+			(id) => id !== artifactId,
+		);
+	}
 }
 
 function closeWorkspace() {
@@ -3451,11 +3536,12 @@ function handleDrop(event: DragEvent) {
 						{forkingMessageId}
 						showingLinkedMessage={linkedMessageConversationId === data.conversation.id}
 						readOnly={isConversationReadOnlyForChat}
-						onOpenDocument={openWorkspaceDocument}
+						onOpenDocument={openArtifactFromChat}
 						artifacts={liveArtifacts}
 						onToggleDocumentTask={handleToggleDocumentTask}
 						alfyActivity={liveDocumentAlfyActivity}
 						{activeArtifactId}
+						deletedArtifacts={deletedArtifactsForCards}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}

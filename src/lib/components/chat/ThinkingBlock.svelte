@@ -49,6 +49,7 @@ import {
 	type ToolActivityItem,
 } from "$lib/utils/tool-activity";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
+import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
@@ -134,6 +135,7 @@ let {
 	// "Open in panel" for whichever one is the panel's own open item. See
 	// ToolActivityRow's own prop doc.
 	activeArtifactId = null,
+	deletedArtifacts = undefined,
 }: {
 	content?: string;
 	thinkingIsDone?: boolean;
@@ -158,6 +160,8 @@ let {
 		| undefined;
 	alfyActivity?: DocumentAlfyActivity | null;
 	activeArtifactId?: string | null;
+	/** Polish G2-A: which items were deleted, and the Regenerate that makes one again. See ToolActivityRow's own prop doc. */
+	deletedArtifacts?: DeletedArtifacts | undefined;
 } = $props();
 
 /**
@@ -1099,6 +1103,7 @@ function toggleFullReasoning(): void {
 			{onToggleDocumentTask}
 			{alfyActivity}
 			{activeArtifactId}
+			{deletedArtifacts}
 		/>
 	{:else if activityItems.length > 0 && !expanded}
 		{#if activitySummary.length > 0}
@@ -1147,6 +1152,7 @@ function toggleFullReasoning(): void {
 					{onToggleDocumentTask}
 					{alfyActivity}
 					{activeArtifactId}
+					{deletedArtifacts}
 				/>
 			</div>
 		{/if}
@@ -1212,6 +1218,7 @@ function toggleFullReasoning(): void {
 									{onToggleDocumentTask}
 									{alfyActivity}
 									{activeArtifactId}
+									{deletedArtifacts}
 								/>
 							{:else if entry.kind === 'thought_step'}
 								{@render thoughtStepEntry(entry.step)}
@@ -1242,6 +1249,7 @@ function toggleFullReasoning(): void {
 							{onToggleDocumentTask}
 							{alfyActivity}
 							{activeArtifactId}
+							{deletedArtifacts}
 						/>
 					{:else if entry.kind === 'connector-group'}
 						<ToolActivityRow

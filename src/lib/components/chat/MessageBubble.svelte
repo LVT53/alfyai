@@ -33,6 +33,7 @@ import type {
 	AtlasProfile,
 } from "$lib/server/services/atlas/public-types";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
+import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
@@ -105,6 +106,7 @@ let {
 	onToggleDocumentTask = undefined,
 	alfyActivity = null,
 	activeArtifactId = null,
+	deletedArtifacts = undefined,
 }: {
 	message: ChatMessage;
 	isLast?: boolean;
@@ -187,6 +189,8 @@ let {
 	/** Forwarded to ThinkingBlock's standalone card (Wave 2.5 Step 12). See its own prop doc. */
 	alfyActivity?: DocumentAlfyActivity | null;
 	activeArtifactId?: string | null;
+	/** Polish G2-A: which items were deleted, and the Regenerate that makes one again. See ToolActivityRow's own prop doc. */
+	deletedArtifacts?: DeletedArtifacts | undefined;
 } = $props();
 
 let copied = $state(false);
@@ -997,6 +1001,7 @@ function sendFollowUp(question: string) {
 			{onToggleDocumentTask}
 			{alfyActivity}
 			{activeArtifactId}
+			{deletedArtifacts}
 		/>
 		{/if}
 		{#if isUser}

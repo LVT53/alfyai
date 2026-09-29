@@ -1507,6 +1507,287 @@ describe("chat page runtime integration", () => {
 		}
 	});
 
+	// Polish G2-A: what a chat card does once its item is gone — from the server
+	// (a reload), live (an Open that finds it gone), and Regenerate.
+	describe("cards of deleted items", () => {
+		function createDocumentMessage() {
+			return {
+				id: "assistant-art-1",
+				role: "assistant" as const,
+				content: "I made you a plan.",
+				timestamp: 1,
+				thinkingSegments: [
+					{
+						type: "tool_call" as const,
+						callId: "call-1",
+						name: "create_artifact",
+						input: {
+							artifactType: "document",
+							title: "Vienna trip plan",
+							body: "# Plan",
+						},
+						status: "done" as const,
+						outputSummary: 'Created Document "Vienna trip plan"',
+						metadata: {
+							ok: true,
+							artifactId: "doc-1",
+							artifactKind: "document",
+							artifactTitle: "Vienna trip plan",
+						},
+					},
+				],
+			};
+		}
+
+		const documentSummary = () => ({
+			id: "doc-1",
+			kind: "document" as const,
+			title: "Vienna trip plan",
+			conversationId: "conv-1",
+			versionNumber: 1,
+			commentCount: 0,
+			updatedAt: Date.now(),
+		});
+
+		function jsonResponse(body: unknown, status = 200) {
+			return new Response(JSON.stringify(body), {
+				status,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		it("shows a card the server says is deleted as deleted — muted, no Open, with Regenerate", async () => {
+			renderPage(
+				pageData({
+					messages: [createDocumentMessage()],
+					artifacts: [],
+					deletedArtifactIds: ["doc-1"],
+				}),
+			);
+
+			const card = await screen.findByTestId("artifact-card");
+			expect(card).toHaveAttribute("data-state", "deleted");
+			expect(card).toHaveTextContent("This document was deleted");
+			expect(screen.queryByTestId("artifact-card-head")).toBeNull();
+			expect(
+				within(card).getByRole("button", {
+					name: "Regenerate Vienna trip plan",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("flips a card to deleted when its Open finds the item gone, without opening the panel", async () => {
+			const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+				String(input).startsWith("/api/artifacts/")
+					? jsonResponse({ ok: false, reason: "not_found" }, 404)
+					: jsonResponse({}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [documentSummary()],
+					}),
+				);
+
+				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
+
+				await waitFor(() => {
+					expect(screen.getByTestId("artifact-card")).toHaveAttribute(
+						"data-state",
+						"deleted",
+					);
+				});
+				expect(fetchMock).toHaveBeenCalledWith(
+					"/api/artifacts/doc-1?conversationId=conv-1",
+				);
+				expect(screen.queryByTestId("workspace-main")).toBeNull();
+				// The header's count follows: nothing is left to list.
+				expect(screen.queryByTestId("artifact-count-button")).toBeNull();
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("still opens an item that exists", async () => {
+			const { recordDocumentWorkspaceOpen } = await import(
+				"$lib/client/api/knowledge"
+			);
+			vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+			const { ARTIFACT_BODIES } = await import(
+				"$lib/components/artifacts/artifact-bodies"
+			);
+			ARTIFACT_BODIES.document = () =>
+				import(
+					"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+				);
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					jsonResponse({
+						ok: true,
+						artifact: { ...documentSummary(), body: "# Plan", bodyHash: "h" },
+						versions: [],
+						comments: [],
+					}),
+				),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [documentSummary()],
+					}),
+				);
+
+				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
+
+				await screen.findByRole("complementary", {
+					name: "Document workspace",
+				});
+				expect(screen.getByTestId("artifact-card")).not.toHaveAttribute(
+					"data-state",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+				delete ARTIFACT_BODIES.document;
+			}
+		});
+
+		it("makes it again on Regenerate, and the card is a card again", async () => {
+			const { toasts, clearToasts } = await import("$lib/stores/toast");
+			clearToasts();
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					created: true,
+					artifactId: "doc-1",
+					kind: "document",
+					title: "Vienna trip plan",
+				}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+				conversationDetailFixture({
+					messages: [createDocumentMessage()],
+					artifacts: [documentSummary()],
+					deletedArtifactIds: [],
+				}),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [],
+						deletedArtifactIds: ["doc-1"],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByRole("button", {
+						name: "Regenerate Vienna trip plan",
+					}),
+				);
+
+				await waitFor(() => {
+					expect(fetchMock).toHaveBeenCalledWith(
+						"/api/conversations/conv-1/artifacts/doc-1/regenerate",
+						expect.objectContaining({ method: "POST" }),
+					);
+				});
+				await waitFor(() => {
+					expect(screen.getByTestId("artifact-card")).not.toHaveAttribute(
+						"data-state",
+					);
+				});
+				expect(screen.getByTestId("artifact-card-head")).toBeInTheDocument();
+				expect(screen.getByTestId("artifact-count-button")).toBeInTheDocument();
+				expect(get(toasts).map((toast) => toast.message)).toContain(
+					"Regenerated “Vienna trip plan”",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("says why when there is nothing to make it again from", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					jsonResponse({ ok: false, reason: "no_stored_input" }, 409),
+				),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [],
+						deletedArtifactIds: ["doc-1"],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByRole("button", {
+						name: "Regenerate Vienna trip plan",
+					}),
+				);
+
+				expect(
+					await screen.findByText(
+						"It can't be regenerated: the original request wasn't kept.",
+					),
+				).toBeInTheDocument();
+				expect(
+					screen.queryByRole("button", { name: /Regenerate Vienna trip plan/ }),
+				).not.toBeInTheDocument();
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("keeps the card deleted, and offers Regenerate again, when making it fails", async () => {
+			const { toasts, clearToasts } = await import("$lib/stores/toast");
+			clearToasts();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					jsonResponse({ ok: false, reason: "failed", detail: "Nope." }, 422),
+				),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [],
+						deletedArtifactIds: ["doc-1"],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByRole("button", {
+						name: "Regenerate Vienna trip plan",
+					}),
+				);
+
+				await waitFor(() => {
+					expect(get(toasts).map((toast) => toast.message)).toContain(
+						"Couldn't regenerate this. Try again.",
+					);
+				});
+				expect(screen.getByTestId("artifact-card")).toHaveAttribute(
+					"data-state",
+					"deleted",
+				);
+				expect(
+					screen.getByRole("button", { name: "Regenerate Vienna trip plan" }),
+				).toBeEnabled();
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+	});
+
 	it("drains a queued follow-up after polling reconciles a waiting stream completion", async () => {
 		let resolveDetail: (
 			value:

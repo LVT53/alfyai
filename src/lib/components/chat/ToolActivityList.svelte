@@ -6,6 +6,7 @@
 // block is expanded.
 import type { Snippet } from "svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
+import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ToolActivityItem } from "$lib/utils/tool-activity";
@@ -28,6 +29,7 @@ let {
 	onToggleDocumentTask = undefined,
 	alfyActivity = null,
 	activeArtifactId = null,
+	deletedArtifacts = undefined,
 }: {
 	items: ToolActivityItem[];
 	openKeys: Set<string>;
@@ -48,6 +50,8 @@ let {
 	alfyActivity?: DocumentAlfyActivity | null;
 	/** Forwarded to each row's standalone card. See ToolActivityRow's own prop doc. */
 	activeArtifactId?: string | null;
+	/** Polish G2-A: which items were deleted, and the Regenerate that makes one again. See ToolActivityRow's own prop doc. */
+	deletedArtifacts?: DeletedArtifacts | undefined;
 } = $props();
 </script>
 
@@ -66,6 +70,7 @@ let {
 			{onToggleDocumentTask}
 			{alfyActivity}
 			{activeArtifactId}
+			{deletedArtifacts}
 		/>
 		{@render afterItem?.(item)}
 	{/each}

@@ -22,6 +22,7 @@ import type {
 	AtlasProfile,
 } from "$lib/server/services/atlas/public-types";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
+import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
@@ -75,6 +76,7 @@ let {
 	onToggleDocumentTask = undefined,
 	alfyActivity = null,
 	activeArtifactId = null,
+	deletedArtifacts = undefined,
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
@@ -180,6 +182,8 @@ let {
 	/** Forwarded to every message's in-chat card (Wave 2.5 Step 12). See ThinkingBlock's own prop doc. */
 	alfyActivity?: DocumentAlfyActivity | null;
 	activeArtifactId?: string | null;
+	/** Polish G2-A: which items were deleted, and the Regenerate that makes one again. See ToolActivityRow's own prop doc. */
+	deletedArtifacts?: DeletedArtifacts | undefined;
 } = $props();
 
 const flyOut = reducedMotionAware(fly);
@@ -1052,6 +1056,7 @@ async function scrollToMessage(messageId: string) {
 					{onToggleDocumentTask}
 					{alfyActivity}
 					{activeArtifactId}
+					{deletedArtifacts}
 				/>
 				{#if message.role === "assistant" && !isIncognito}
 					<!-- The rows sit under the reply that prompted them, outside the
