@@ -22,7 +22,8 @@
     "db:studio": "drizzle-kit studio",
     "seed:mock": "tsx scripts/seed-mock-conversation.ts",
     "eval:artifacts": "tsx scripts/eval-artifact-contracts/run.ts",
-    "eval:artifacts:replay": "tsx scripts/eval-artifact-contracts/run.ts --replay --suite all"
+    "eval:artifacts:replay": "tsx scripts/eval-artifact-contracts/run.ts --replay --suite all",
+    "eval:artifacts:tools": "tsx scripts/eval-artifact-contracts/run-tool-suite.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",

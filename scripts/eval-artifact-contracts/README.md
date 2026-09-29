@@ -79,6 +79,57 @@ the `edit_artifact` patch contract (`slice-1.md` Task T13) —
   the format — that fixture exists to prove the SCORER catches it if it
   ever does, not to reproduce a failure this model actually has).
 
+**Slice 3** (Wave 3) adds `canvas`: can the real model hold the Canvas contract — read
+a board with `read_artifact`, change it with `edit_artifact` ops, make one with
+`create_artifact`? Its cases go **through the real tools** (ruling 62), which
+`client.ts` cannot carry and ruling 44 keeps closed, so this slice ships beside the
+core:
+
+- `tool-path.ts` — sends the whole tool catalogue exactly as a chat turn does (read
+  from the app's own frozen `tool-catalogue.<lang>.snapshot.txt`, never re-typed) and
+  reads the answer back as a recorded envelope (`toolCalls`, `content`,
+  `finishReason`, and any `priorSteps`). A case may name tools a conversation would
+  not have (`withoutTools`) and take a bounded follow-up: a lookup the suite can
+  answer is answered and the model goes on, at most 4 steps; the call that is scored
+  is never answered.
+- `run-tool-suite.ts` — hands the harness's own `runSuite` a client built on it: the
+  same known-bad-first gate, one retry and circuit breaker. A known-bad case is
+  **never sent**: its hand-written answer is served from disk (ruling 59).
+  `npm run eval:artifacts:tools -- --suite canvas`.
+- `suites/canvas.ts`, `fixtures/canvas/` — six requests, each declaring its language
+  (ruling 65): the prototype's "arrange Saturday" on a board whose notes are piled up,
+  a Sunday frame with three stickies (English and Hungarian), "remove the museum note
+  and connect lunch to the walk", and a board for a Vienna weekend from nothing
+  (English and Hungarian). An edit case carries the artifact catalogue block the app
+  appends to the message, and when the model reads the board it is handed the real
+  `read_artifact` payload (`canvasReadBlocks`, compared with the tool's own answer by
+  a test). The scorer applies the model's ops with the app's own vocabulary
+  (`boardOpsArraySchema`, `validateBoardDiff` through `runOps`) and checks the board
+  they leave: every diff parses and lands (a refusal is a miss), every requested item
+  is there, nothing sticks out of its frame, no two nodes overlap (footprint: a node's
+  stored size, or 190x84), labels are not empty, nothing was removed that the request
+  did not name, and the new words are in the declared language. A create is judged
+  through `parseCanvasCreateBody`, the tool's own parse. Every reason starts with the
+  check that found it (`routing:`, `tool-args:`, `schema:`, `refusal:`, `request:`,
+  `frames:`, `overlap:`, `labels:`, `removed:`, `language:`, `note:`, `ok:`).
+- Known-bad (hand-written, `responses/canvas-known-bad-*.json`): a diff that leaves two
+  notes piled up, one that moves a note out of its frame, one with an op the vocabulary
+  does not have, one that removes a note the request never named. Each fails for
+  exactly the reason it exists; a test proves `runSuite` refuses to count real scores if
+  one is let through.
+
+```bash
+# Live, through the tunnel on the runner's own port, one command:
+ssh -N -o ExitOnForwardFailure=yes -L 30020:192.168.1.96:30000 alfyroot & T=$!; sleep 2; \
+  EVAL_ARTIFACTS_BASE_URL=http://127.0.0.1:30020/v1 EVAL_ARTIFACTS_MODEL=qwen3-6-27b \
+  npx tsx scripts/eval-artifact-contracts/run-tool-suite.ts --suite canvas; kill $T
+#   --repeat 3            three sequential runs, to estimate a rate
+#   --write-responses     record the answers under fixtures/canvas/responses/
+#   --responses-out DIR   keep every answer of every run for a closer look
+# Replay (no model, no key):
+npx tsx scripts/eval-artifact-contracts/run.ts --suite canvas --replay
+```
+
 ## What each type slice adds (ruling 44)
 
 Per `decisions.md` ruling 44, each type slice writes:

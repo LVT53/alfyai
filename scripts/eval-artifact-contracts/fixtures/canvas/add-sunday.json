@@ -1,0 +1,10 @@
+{
+	"id": "add-sunday",
+	"description": "Add a frame and three notes inside it to a tidy board: add_frame first, children with parentId and frame-relative positions, and room found on a board that already has things on it.",
+	"language": "en",
+	"kind": "edit",
+	"board": "vienna-tidy",
+	"artifactId": "3f6b2a94-7c1e-4d55-9a0e-5b2f1c8d7e10",
+	"title": "Vienna weekend",
+	"request": "Add a frame for Sunday with three stickies: brunch, a walk in the Prater, and the train home."
+}

@@ -1,0 +1,10 @@
+{
+	"id": "remove-and-connect",
+	"description": "Remove one node and add one edge: remove_node takes its edges with it, and the new edge needs an id the model chooses and two ids that exist.",
+	"language": "en",
+	"kind": "edit",
+	"board": "vienna-tidy",
+	"artifactId": "3f6b2a94-7c1e-4d55-9a0e-5b2f1c8d7e10",
+	"title": "Vienna weekend",
+	"request": "Remove the museum note and connect lunch to the walk with an arrow."
+}

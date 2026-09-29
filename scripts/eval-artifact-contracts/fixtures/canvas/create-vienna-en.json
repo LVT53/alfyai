@@ -1,0 +1,7 @@
+{
+	"id": "create-vienna-en",
+	"description": "Make a board from nothing: create_artifact's board JSON, judged by the same strict parse the tool runs.",
+	"language": "en",
+	"kind": "create",
+	"request": "Make me a board for planning a weekend in Vienna."
+}
