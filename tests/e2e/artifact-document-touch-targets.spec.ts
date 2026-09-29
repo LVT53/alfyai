@@ -6,7 +6,7 @@ import {
 	seedDocument,
 	tapArea,
 } from "./artifact-document-polish-helpers";
-import { createConversation, login } from "./helpers";
+import { createConversation, login, waitForStableBoundingBox } from "./helpers";
 
 test.describe("Document phone touch targets (review 233-238)", () => {
 	test.beforeEach(async ({ page }) => {
@@ -103,5 +103,71 @@ test.describe("Document phone touch targets (review 233-238)", () => {
 		await expect(items.nth(5)).toHaveAttribute("data-checked", "false");
 		await page.mouse.click(last.x + last.width / 2, last.y + last.height + 15);
 		await expect(items.nth(5)).toHaveAttribute("data-checked", "true");
+	});
+
+	// Review 233-238: the tabs were 28px tall, the ⋯ 20x20 and the + 24x24.
+	test("the tabs, the ⋯ and the + reach 44px, and the ⋯ still sits right after the active tab's label", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(page, "Tab targets");
+		await seedDocument(conversationId, {
+			markdown: "# Plan\n\nBook the hotel.\n\n# Budget\n\nEstimate: 500.",
+			tabs: [
+				{ id: "tab-plan", title: "Plan", startBlockId: "" },
+				{ id: "tab-budget", title: "Budget", startBlockId: "" },
+			],
+		});
+		const shell = await openDocument(page, conversationId);
+		const strip = shell.getByTestId("document-tabs");
+		await waitForStableBoundingBox(strip);
+
+		const tabs = shell.getByRole("tab");
+		await expect(tabs).toHaveCount(2);
+		for (let i = 0; i < 2; i++) {
+			const b = await box(tabs.nth(i));
+			expect(b.height, `tab ${i} height`).toBeGreaterThanOrEqual(43.5);
+			expect(b.width, `tab ${i} width`).toBeGreaterThanOrEqual(43.5);
+		}
+		const options = shell.getByRole("button", { name: "Tab options" });
+		const add = shell.getByRole("button", { name: "Add a tab" });
+		for (const [name, control] of [
+			["options", options],
+			["add", add],
+		] as const) {
+			const b = await box(control);
+			expect(b.width, `${name} width`).toBeGreaterThanOrEqual(43.5);
+			expect(b.height, `${name} height`).toBeGreaterThanOrEqual(43.5);
+		}
+
+		// Nothing overlaps: the ⋯ starts where the active tab's label ends, and the
+		// next tab starts after the ⋯ (the active tab reserves the room).
+		const active = await box(tabs.nth(0));
+		const optionsBox = await box(options);
+		const next = await box(tabs.nth(1));
+		expect(optionsBox.x).toBeGreaterThanOrEqual(active.x + active.width - 0.5);
+		expect(optionsBox.x - (active.x + active.width)).toBeLessThan(8);
+		expect(next.x).toBeGreaterThanOrEqual(
+			optionsBox.x + optionsBox.width - 0.5,
+		);
+		// The sliding underline sits under the active tab, not at the strip's start.
+		await shell.getByRole("tab", { name: "Budget" }).click();
+		await waitForStableBoundingBox(shell.locator(".document-tabs-ink"));
+		const ink = await box(shell.locator(".document-tabs-ink"));
+		const budget = await box(shell.getByRole("tab", { name: "Budget" }));
+		expect(Math.abs(ink.x - budget.x)).toBeLessThan(1.5);
+		expect(Math.abs(ink.width - budget.width)).toBeLessThan(1.5);
+	});
+
+	test("a document with one section keeps a 44px + on a phone", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(page, "Single tab target");
+		await seedDocument(conversationId, { markdown: "Some text." });
+		const shell = await openDocument(page, conversationId);
+		const add = await box(shell.getByRole("button", { name: "Add a tab" }));
+		expect(add.width).toBeGreaterThanOrEqual(43.5);
+		expect(add.height).toBeGreaterThanOrEqual(43.5);
 	});
 });
