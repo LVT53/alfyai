@@ -422,7 +422,10 @@ const noteIn = reducedMotionAware(fly);
 	resolution: AnchorResolution,
 	struck: boolean,
 )}
-	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -- a click on the card body is a pointer shortcut for the quote button inside it, which is the keyboard-accessible way to the same place -->
+	<!-- A click on the card body is a pointer shortcut for the quote button
+	     inside it, which is the keyboard-accessible way to the same place — so
+	     the card itself deliberately has no key handler. -->
+	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 	<article
 		class="margin-panel-item"
 		class:is-active={activeCommentId === comment.id}

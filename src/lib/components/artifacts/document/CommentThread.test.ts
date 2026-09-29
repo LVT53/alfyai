@@ -140,6 +140,57 @@ describe("CommentThread", () => {
 			).toBeInTheDocument();
 		});
 
+		it("reads the thread's first words on the fold line, with how many replies it holds", () => {
+			render(CommentThread, {
+				thread: makeThread({
+					status: "resolved",
+					body: "Is €540 still the rate?",
+					replies: [
+						{
+							id: "reply-1",
+							artifactId: "artifact-1",
+							parentId: "root-1",
+							anchor: null,
+							author: "alfy",
+							body: "Yes, through October.",
+							status: "open",
+							createdAt: Date.now(),
+							replies: [],
+						},
+					],
+				}),
+				quote: "Naschmarkt",
+				onResolve: vi.fn(),
+				onSubmitReply: vi.fn(),
+			});
+			const fold = screen.getByRole("button", { name: /Show the full thread/ });
+			expect(fold).toHaveTextContent("Is €540 still the rate?");
+			expect(fold).toHaveTextContent("+1");
+		});
+
+		it("the quote goes with the full thread: hidden while folded, back once peeked", async () => {
+			render(CommentThread, {
+				thread: makeThread({
+					status: "resolved",
+					body: "Is €540 still the rate?",
+				}),
+				quote: "Naschmarkt",
+				onGoto: vi.fn(),
+				onResolve: vi.fn(),
+				onSubmitReply: vi.fn(),
+			});
+			expect(
+				screen.queryByRole("button", { name: /Show “Naschmarkt” in the text/ }),
+			).not.toBeInTheDocument();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: /Is €540 still the rate/i }),
+			);
+			expect(
+				screen.getByRole("button", { name: /Show “Naschmarkt” in the text/ }),
+			).toBeInTheDocument();
+		});
+
 		it("never folds an open thread", () => {
 			render(CommentThread, {
 				thread: makeThread({ status: "open" }),

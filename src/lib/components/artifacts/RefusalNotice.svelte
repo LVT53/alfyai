@@ -180,8 +180,8 @@ let {
 		margin-left: 1rem;
 	}
 
-	.refusal-notice-actions :global(.btn-ghost) {
-		gap: 0.25rem;
+	.refusal-notice-actions :global(button) {
+		gap: 0.3125rem;
 	}
 
 	/* Phone sheet: nothing that is tapped is smaller than 44px (§3.4). */
