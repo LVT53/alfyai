@@ -24,6 +24,21 @@ entries are your pattern: `normal-chat-tools/artifact-tools/{create,read,edit}.t
 (`EDIT_ARTIFACT_DOCUMENT_EXAMPLE`, `editArtifactExampleClause`, `editArtifactOpsFieldDescription`),
 `document-handlers.test.ts`, `recreate.ts`; the eval pattern is `scripts/eval-artifact-contracts/suites/document.ts`.
 
+**Reuse S4-D's real-tool eval path — do not build a second one.** S4-D (Slides, on `feat/artifacts-s4-deck`, not merged
+into `feat/artifacts` until Slides is whole) added a generic path that sends a case through the real catalogue:
+`scripts/eval-artifact-contracts/tool-path.ts` (+ its test) and `run-tool-suite.ts` (+ test). Bring the generic files into
+your branch with `git checkout feat/artifacts-s4-deck -- <paths>` (list them with `git diff --stat
+feat/artifacts...feat/artifacts-s4-deck -- scripts/eval-artifact-contracts/`; take nothing Slides-specific — no
+`suites/slides.ts`, no `fixtures/slides/`), register `canvas` in `run-tool-suite.ts`'s `TOOL_SUITES` in place of `slides`,
+and keep `tool-path.ts` byte-identical unless you must change it (say so in the report: the orchestrator merges the two
+branches later). Read S4-D's report §4 (`…/scratchpad/w3/s4d-report.md`, lines 69–158) first: the model opens with lookups
+(`memory_context`, `use_skill`, `image_search`, `read_generated_file`) that the path answers and follows; ~14.6k prompt
+tokens per case; thinking off; a 12-answer run has a spread of about ±2, so run 3 repeats and report a rate; commit the
+scorer before the first live run, and put any scorer change made after seeing answers in its own commit with a before/after
+re-score of the recorded answers. S4-D also measured that about 1 in 10 first attempts fumbles **JSON inside the `body`
+string**: if Canvas's create body shows the same, prefer guidance that creates the board small and then places blocks with
+`edit_artifact` ops (structured, schema-checked), and measure it.
+
 ## Step 1 · The Canvas handlers
 
 - **create**: `body` is the board JSON (nodes with `id`, `type`, `position`, `data`, optional `parentId`; `edges`) or
