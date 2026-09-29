@@ -481,3 +481,138 @@ test.describe("Review bar at laptop widths, in Hungarian (G1-A screenshots)", ()
 		});
 	}
 });
+
+// G2-B's open item: the phone still floated the bar 64px above the panel's
+// bottom edge as a rounded card, with text showing under it in a long document.
+// It is flush now, like the laptop bar: full width of the text, nothing showing
+// under or beside it, and the last lines still scroll clear of it.
+test.describe("Review bar on a phone, flush with the bottom (Hungarian)", () => {
+	test.beforeEach(async ({ page }) => {
+		await setUiLanguage("hu");
+		await login(page);
+	});
+	test.afterEach(async () => {
+		await setUiLanguage("en");
+	});
+
+	const filler = Array.from(
+		{ length: 30 },
+		(_, i) =>
+			`Töltelék bekezdés ${i}: elég hosszú szöveg ahhoz, hogy a görgethető oszlop a review sáv alá is érjen, és lássuk, mi látszik alatta.`,
+	);
+	const lastLine =
+		"Az utolsó sor a dokumentumban, amelynek a sáv fölött is teljesen olvashatónak kell maradnia.";
+
+	for (const [width, height, pendingOps] of [
+		[390, 844, 1],
+		[390, 844, 2],
+		[360, 740, 2],
+	] as const) {
+		test(`flush with the bottom of the text, full width, nothing under it, the last line reachable (${width}x${height}, ${pendingOps} pending)`, async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width, height });
+			const conversationId = await createConversation(page, "Review bar phone");
+			await seedDocument(conversationId, {
+				markdown: [
+					"Első bekezdés a szállodáról.",
+					"Második bekezdés a repülőről.",
+					...filler,
+					lastLine,
+				].join("\n\n"),
+				title: "Bécsi utazás",
+				pendingOps,
+			});
+			const shell = await openDocument(page, conversationId);
+			const bar = shell.getByRole("region", { name: "Alfy módosításai" });
+			await expect(bar).toBeVisible({ timeout: 30_000 });
+			await waitForStableBoundingBox(bar);
+			const scroller = shell.locator(".document-content-text");
+			const barBox = await box(bar);
+			const scrollerBox = await box(scroller);
+
+			// Flush with the bottom of the text column, and as wide as it is (no
+			// side margins showing text beside the card).
+			const scrollerBottom = scrollerBox.y + scrollerBox.height;
+			expect(
+				Math.abs(barBox.y + barBox.height - scrollerBottom),
+				"the bar's bottom edge vs the text column's",
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(barBox.x - scrollerBox.x),
+				"the bar's left edge vs the text column's",
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(barBox.x + barBox.width - (scrollerBox.x + scrollerBox.width)),
+				"the bar's right edge vs the text column's",
+			).toBeLessThanOrEqual(1);
+
+			// Nothing of the text shows beneath or beside it: every point of the
+			// bar's bottom row and its two side columns belongs to the bar.
+			for (const [fx, fy] of [
+				[0.01, 0.99],
+				[0.5, 0.99],
+				[0.99, 0.99],
+				[0.005, 0.5],
+				[0.995, 0.5],
+				[0.005, 0.01],
+			] as const) {
+				const hit = await bar.evaluate(
+					(el, args) => {
+						const rect = el.getBoundingClientRect();
+						const top = document.elementFromPoint(
+							rect.left + rect.width * args.fx,
+							rect.top + rect.height * args.fy,
+						);
+						return !!top && el.contains(top);
+					},
+					{ fx, fy },
+				);
+				expect(hit, `the bar paints (${fx}, ${fy})`).toBe(true);
+			}
+
+			// A bar, not a card: no rounded corners, no shadow.
+			const look = await bar.evaluate((el) => {
+				const style = getComputedStyle(el);
+				return {
+					radius: style.borderTopLeftRadius,
+					shadow: style.boxShadow,
+				};
+			});
+			expect(look.radius).toBe("0px");
+			expect(look.shadow).toBe("none");
+
+			// The last line scrolls fully clear of it.
+			const last = shell
+				.locator(".document-editor-host")
+				.getByText(lastLine, { exact: false });
+			await expect(last).toBeAttached({ timeout: 30_000 });
+			await scroller.evaluate((el) => {
+				el.scrollTop = el.scrollHeight;
+			});
+			await waitForStableBoundingBox(bar);
+			await waitForStableBoundingBox(last);
+			const lastBox = await box(last);
+			const barAfter = await box(bar);
+			expect(
+				lastBox.y + lastBox.height,
+				"the last line ends above the bar",
+			).toBeLessThanOrEqual(barAfter.y + 1);
+			const onTop = await last.evaluate((node) => {
+				const rect = node.getBoundingClientRect();
+				const top = document.elementFromPoint(
+					rect.x + rect.width / 2,
+					rect.y + rect.height / 2,
+				);
+				return !!top && node.contains(top);
+			});
+			expect(onTop, "the last line paints above nothing").toBe(true);
+
+			// The buttons keep their 44px targets.
+			for (const name of [/Mindet megtartom/, /Mindet visszavonom/]) {
+				const b = await box(bar.getByRole("button", { name }));
+				expect(b.height, `${name}`).toBeGreaterThanOrEqual(43.5);
+			}
+		});
+	}
+});

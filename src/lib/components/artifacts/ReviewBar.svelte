@@ -33,7 +33,8 @@
  * beside it decides): 40rem drops the buttons' icons; 34rem drops the
  * position number, and the whole stepper while there is nothing to step
  * through. `docked` is for a caller that pins the bar flush to the bottom of
- * a text column: flat, full width, a rule on top instead of a floating card.
+ * a text column: flat, full width, a rule on top instead of a floating card —
+ * on a phone too (G3), where it stacks its rows but stays flush.
  */
 import { Check, ChevronDown, ChevronUp, Sparkles, Undo2 } from "@lucide/svelte";
 import { t } from "$lib/i18n";
@@ -60,7 +61,7 @@ let {
 	onUndoAll: () => void;
 	/** Omitted when nothing was refused — there is nothing to jump to. */
 	onSeeRefused?: () => void;
-	/** Flat and flush: the caller pins the bar to the bottom edge of a text column, so it has no floating card's radius, sides or shadow (redesign §4.2: "at the bottom of the text column"). A phone still gets the card. */
+	/** Flat and flush: the caller pins the bar to the bottom edge of a text column, so it has no floating card's radius, sides or shadow (redesign §4.2: "at the bottom of the text column"). On a phone as well. */
 	docked?: boolean;
 } = $props();
 </script>
@@ -153,6 +154,9 @@ let {
 		border-radius: 0;
 		border-width: 1px 0 0;
 		box-shadow: none;
+		/* On a phone the bar sits at the very bottom of the screen: keep its
+		   buttons clear of the home indicator (0 wherever there is none). */
+		padding-bottom: calc(0.4375rem + env(safe-area-inset-bottom, 0px));
 	}
 
 	/* The message is the part that gives way: a small basis instead of the
@@ -272,13 +276,6 @@ let {
 		.review-bar {
 			flex-direction: column;
 			align-items: stretch;
-		}
-
-		/* A phone keeps the floating card, above the text's bottom edge. */
-		.review-bar.is-docked {
-			border-radius: 0.75rem;
-			border-width: 1px;
-			box-shadow: var(--shadow-lg);
 		}
 
 		.review-bar-msg {

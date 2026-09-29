@@ -2562,19 +2562,14 @@ function saveNoticeText(notice: SaveNotice): string {
 
 	   G2-B: `bottom: 0` (it floated 14px above the edge, with text showing
 	   under it), full width of the text column, and `ReviewBar`'s `docked`
-	   look: flat, a rule on top. A phone (below) keeps the floating card. */
+	   look: flat, a rule on top. G3: a phone gets exactly the same — it used
+	   to keep a rounded card floating 64px up (`bottom: 4rem`, side insets),
+	   with the text showing beneath it in a long document, though nothing
+	   sits in that strip on the phone shell (the toolbar is at the top). */
 	.document-review-bar-slot {
 		position: sticky;
 		bottom: 0;
 		z-index: 5;
-	}
-
-	@media (max-width: 480px) {
-		.document-review-bar-slot {
-			left: 0.5rem;
-			right: 0.5rem;
-			bottom: 4rem;
-		}
 	}
 
 	/* `flex: 1` (not just `min-height`) so the editable canvas fills whatever
