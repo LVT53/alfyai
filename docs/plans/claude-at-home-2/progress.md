@@ -712,12 +712,27 @@ Rulings (orchestrator):
   `{#if}` body + G1-B's id-keyed reset), D2 Important (a live Alfy edit replays on every later re-mount: doubled count,
   phantom after Undo, a kept change pending again), D3 (phone "+" squeezed), D4 (live-made Document's confirm says "can't be
   undone"). Fix agent P (`fix/artifacts-panel-swap`, `art-fxs`, 5530) fixes all four test-first; then a scoped re-check.
+- **Fix agent P merged** (D1–D4; header state as one item-stamped record, body keyed on the item; a settled Alfy activity
+  never replays on a re-mount; "+" `flex: none`; `markRegenerable` live), scoped re-check: all four ADDRESSED, the two
+  rewritten tests not weakened, no new breakage, "ready for the owner". Then `fix/artifacts-card-open-from-list`
+  (`cde55c2d`): a chat card's Open now leaves the panel list (pre-existing; found by the re-check).
+- **Polish DONE and DEPLOYED (2026-09-29 ~18:00 UTC): `dev` = ai.dev = `f6701fce`.** Release gates in `dev-int`: check 0/17,
+  14,219 tests, build 32/2, Fallow 124/4 (0 new), **Playwright 177/177**; health OK. Live check (real model) 11/14 three
+  times: create, App, Hungarian and incognito pass; the three edit checks never ran an edit because the model now writes
+  the target items into the first draft (`absentBefore: false`). The edit handler is unchanged since `1e755e0b`, whose
+  live edit passed (v1 → v2). `/root/verify-artifacts-w2.mjs` needs edit items a packing checklist cannot already hold.
+- Left open (recorded): L3/L6 (file-job and App regenerate follow their siblings' existing patterns); `regenerable` reads
+  only the loaded message window (older items get "can't be undone"); a refusal card is session-only and does not return
+  after a re-mount; the workspace's F1/F2 seen-keys guard is now partly redundant; toolbar tooltips are native titles; Redo
+  does not un-acknowledge server-side; the tick strike fades instead of wiping; Knowledge's legacy delete of a produced file
+  leaves its chat-file row until the next Open; the redesign spec's §3.2 carries a supersession note.
 - Ruling: G3 (keyboard, undo edge cases, tabs, named rows) runs last and alone, since named rows rewrite selectors in many
   suites the other agents touch.
 
 ## Next action
 
-The redesign (Wave 2.5) is live on ai.dev (`1e755e0b`) for the owner's walk; fold their feedback in first. Then Wave 3 from
-`wave-3-handoff.md` (S3 Canvas, S4 Slides, the S6 remainder, focus-trap pass two), with the shared redesign pieces
-(`ArtifactPanelHeader`, `CommentCard`/`CommentThread`, `ReviewBar`, `RefusalNotice`, the sheet/popover patterns) reused as
-`redesign.md` §8 says. The merged `art-rd*`, `art-fx*`, `art-rdfix`, `rv-rd` worktrees can be removed.
+The owner checks the polished redesign on ai.dev (`f6701fce`). If it checks out, the next phase is Wave 3 from
+`wave-3-handoff.md` (S3 Canvas, S4 Slides, the S6 remainder, focus-trap pass two), reusing the shared pieces (`ArtifactPanelHeader`,
+`CommentCard`/`CommentThread`, `ReviewBar`, `RefusalNotice`, `AnchoredPopover`, the sheet patterns, `keyboard-shortcuts.ts`).
+Sub-agents: `sonnet` now resolves to `claude-sonnet-5-5`. The merged `art-rd*`, `art-fx*`, `art-g*`, `art-secfix`, `art-rdfix`
+and `rv-rd` worktrees can be removed.
