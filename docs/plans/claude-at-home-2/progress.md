@@ -605,6 +605,16 @@ Rulings (orchestrator, 2026-09-27):
   words, the review bar placement, expanded-panel popovers, the tab `⋯` menu, an empty new tab shows only its (empty)
   section via a zero-width-space anchor — C verifies it never reaches saved text — and the pill by keyboard). Gates on
   A+B: check 0/17, 13,712 tests, build 32/2, Fallow 124/4 (0 new), Playwright 99/99. C started beside D.
+- **Fix round F2 merged (2026-09-29 ~01:50 UTC):** D (`c344b7d6`, 10 commits: 44 px header/chip targets, panel focus on
+  open, App a11y, Knowledge chip icons, `btn-primary` hover contrast, the card's live version, "You and Alfy · edited"
+  meta, motion tokens, the chat-card e2e made deterministic; left: per-row accessible names in the list, which would
+  rewrite ~10 suites' selectors, and a toast `out:` transition jsdom cannot finish), the one-line T8 test fix (`b81d44ac`,
+  expects the live "v2" D's fix now shows), and C (`9ba6b85e`, 12 commits: no empty "Edited" version on open, the stepper
+  switches tabs, version-aware kept ids on the server, a user's edit acknowledges a pending block, real avatars, English
+  strings in the HU UI, the change pill's name, a polite live region, tabs ARIA, composer Escape, and **three real leaks of
+  B's empty-tab zero-width space fixed** (`read_artifact`, PDF/DOCX export, Markdown export); left: the tab strip's `⋯`/`+`
+  inside `role="tablist"` (a follow-up chip). Gates on `9ba6b85e`: check 0/17, 13,768 tests, build 32/2, Fallow 124/4 (0
+  new), **Playwright 100/100**. Next: the Sonnet re-check (`wave-2-5/recheck-brief.md`), then `dev` and deploy.
 - Briefs for every agent: `docs/plans/claude-at-home-2/wave-2-5/` (`common.md` + `rd*-brief.md`); reports and
   screenshots in this session's scratchpad `rd/`.
 - Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
