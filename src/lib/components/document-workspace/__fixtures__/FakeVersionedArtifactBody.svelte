@@ -6,11 +6,14 @@
 	button. Not a real kind body — do not import this outside test files.
 -->
 <script lang="ts">
+import { onMount } from "svelte";
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
 
 let { artifactId, registerPanelActions }: ArtifactBodyProps = $props();
 
-registerPanelActions?.({ openVersions: () => {} });
+onMount(() => {
+	registerPanelActions?.({ openVersions: () => {} });
+});
 </script>
 
 <div data-testid="fake-versioned-artifact-body" data-artifact-id={artifactId}></div>
