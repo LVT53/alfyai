@@ -10,9 +10,12 @@ canvas comment — an Alfy edit plus a reply in the thread, through the one ops 
   local port **30040** (only for one live `@Alfy` check at the end).
 - Report: `/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/cabde459-204b-43f4-96fb-60f3639a68a8/scratchpad/w3/s3c-report.md`;
   screenshots `…/scratchpad/w3/shots/s3c/`.
-- The parallel agent is named when you start; you own `src/lib/components/artifacts/canvas/**`,
-  `src/lib/shared/artifacts/comments.ts`, the canvas branch of `services/artifacts/comments.ts`, and
-  `tests/e2e/artifact-canvas*.spec.ts` this round.
+- **Agent S4-V (Slides' fact check, on `feat/artifacts-slides`) runs at the same time; S3-Z (containment, the workspace
+  restore, the arrow refile) or S3-R (the chat-derived blocks) may join later.** You own
+  `src/lib/components/artifacts/canvas/**` except what S3-R's brief names (`nodes/{Map,File,App,Photo,LiveWeb}Node.svelte`,
+  the registry rows for those kinds), `src/lib/shared/artifacts/comments.ts`, the canvas branch of
+  `services/artifacts/comments.ts`, and `tests/e2e/artifact-canvas*.spec.ts` (add your own spec file,
+  `artifact-canvas-comments.spec.ts`, so a parallel agent's e2e never conflicts with yours).
 
 ## Read first
 
@@ -23,6 +26,10 @@ redeclares), 49, 51, 53, 61 (Open/All and the resolved fold), **62**, 63. `slice
 comment interface and the canvas resolver — read with ruling 45), 958–983 (comment pins), 1096–1108 (the portal/z-index
 traps), 1711–1790 (T5). `docs/design/artifacts-redesign/redesign.md` §8 (729–744) and AGENTS.md's Artifacts section
 (the comment list that stays in view, the header toggle, the item-stamped header report).
+
+**Chunk budget (orchestrator ruling after S3-F):** the Canvas editor's initial chunk is 67.0 kB gzip against the spec's
+65 kB. Do not add to it: the comment layer, list and `@Alfy` client code load on demand (when the board has threads or
+the Comment tool/comments button is used), and report the chunk size before and after.
 
 ## Step 1 · Pins, the resolver and the Comment tool
 
