@@ -575,6 +575,73 @@ const artifactsDict = {
 		"artifacts.canvas.refusal.invalid_data":
 			"the block's content was not valid",
 		"artifacts.canvas.refusal.limit_exceeded": "the board is at its limit",
+		// Slice 3 (Canvas), the board's own strings: toolbar, insert menu,
+		// blocks, the states of the panel's content area, the save line.
+		"artifacts.canvas.toolbar": "Canvas tools",
+		"artifacts.canvas.tool.select": "Select",
+		"artifacts.canvas.tool.pan": "Pan",
+		"artifacts.canvas.undo": "Undo",
+		"artifacts.canvas.redo": "Redo",
+		"artifacts.canvas.insert": "Insert",
+		"artifacts.canvas.insert.block": "Insert block",
+		"artifacts.canvas.insert.text": "Text",
+		"artifacts.canvas.insert.sticky": "Sticky note",
+		"artifacts.canvas.insert.frame": "Frame",
+		"artifacts.canvas.insert.chart": "Chart",
+		"artifacts.canvas.insert.checklist": "Checklist",
+		"artifacts.canvas.blockCount":
+			"{count} {count, plural, one {block} other {blocks}}",
+		"artifacts.canvas.blockMissingKind":
+			"This block's type is not supported any more.",
+		"artifacts.canvas.blockDropped":
+			"{count} block(s) could not be read and were left out.",
+		"artifacts.canvas.dismiss": "Dismiss",
+		"artifacts.canvas.deleteBlock": "Delete block",
+		"artifacts.canvas.nodeDeleted": "Deleted from the board.",
+		"artifacts.canvas.tone": "Note colour",
+		"artifacts.canvas.tone.yellow": "Yellow",
+		"artifacts.canvas.tone.mint": "Mint",
+		"artifacts.canvas.tone.blue": "Blue",
+		"artifacts.canvas.tone.plain": "Plain",
+		"artifacts.canvas.stickyPlaceholder": "Write a note…",
+		"artifacts.canvas.textPlaceholder": "Write something…",
+		"artifacts.canvas.frameName": "Frame name",
+		"artifacts.canvas.checklistReadOnlyNote":
+			"Ticks here are saved with the board.",
+		"artifacts.canvas.checklistPlaceholder": "New item",
+		"artifacts.canvas.checklistAdd": "Add item",
+		"artifacts.canvas.checklistRemove": "Remove item",
+		"artifacts.canvas.checklistToggle": "{name}: toggle done",
+		"artifacts.canvas.zoom": "Zoom",
+		"artifacts.canvas.zoomIn": "Zoom in",
+		"artifacts.canvas.zoomOut": "Zoom out",
+		"artifacts.canvas.fitView": "Fit to view",
+		"artifacts.canvas.minimap": "Board overview",
+		"artifacts.canvas.emptyBoard": "Empty board. Insert a block or draw on it.",
+		"artifacts.canvas.loading": "Opening the board…",
+		"artifacts.canvas.loadFailed": "Could not open the board.",
+		"artifacts.canvas.retry": "Retry",
+		"artifacts.canvas.reload": "Reload",
+		"artifacts.canvas.saved": "Saved",
+		"artifacts.canvas.saving": "Saving…",
+		"artifacts.canvas.saveFailed": "Could not save the board.",
+		"artifacts.canvas.saveConflict":
+			"Someone changed the board while you were drawing. Reload to see the newest version.",
+		"artifacts.canvas.offline":
+			"You are offline. Your drawing is kept and will be saved when the connection is back.",
+		"artifacts.canvas.tooLarge": "This board is too big to save.",
+		"artifacts.canvas.deletedWhileOpen": "This board was deleted.",
+		"artifacts.canvas.noAccess": "You do not have access to this board.",
+		// What the flow library reads out for its own elements, in the reader's language.
+		"artifacts.canvas.a11y.node":
+			"Press Enter or Space to select a block. Press Delete to remove it and Escape to let go.",
+		"artifacts.canvas.a11y.nodeKeyboard":
+			"Press Enter or Space to select a block. You can then use the arrow keys to move it. Press Delete to remove it and Escape to let go.",
+		"artifacts.canvas.a11y.moved":
+			"Moved the selected block. New position, x: {x}, y: {y}",
+		"artifacts.canvas.a11y.edge":
+			"Press Enter or Space to select a connection. You can then press Delete to remove it or Escape to let go.",
+		"artifacts.canvas.a11y.handle": "Connection point",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -980,6 +1047,74 @@ const artifactsDict = {
 		"artifacts.canvas.refusal.invalid_data":
 			"a blokk tartalma nem volt érvényes",
 		"artifacts.canvas.refusal.limit_exceeded": "a tábla elérte a korlátját",
+		// Slice 3 (Canvas), a tábla saját szövegei: eszköztár, beszúrás menü,
+		// blokkok, a panel tartalmi területének állapotai, a mentés sora.
+		"artifacts.canvas.toolbar": "Tábla eszközök",
+		"artifacts.canvas.tool.select": "Kijelölés",
+		"artifacts.canvas.tool.pan": "Mozgatás",
+		"artifacts.canvas.undo": "Visszavonás",
+		"artifacts.canvas.redo": "Újra",
+		"artifacts.canvas.insert": "Beszúrás",
+		"artifacts.canvas.insert.block": "Blokk beszúrása",
+		"artifacts.canvas.insert.text": "Szöveg",
+		"artifacts.canvas.insert.sticky": "Jegyzet",
+		"artifacts.canvas.insert.frame": "Keret",
+		"artifacts.canvas.insert.chart": "Diagram",
+		"artifacts.canvas.insert.checklist": "Ellenőrzőlista",
+		// Nincs ICU többesszám, a cardSubtitle okán: a magyar főnév számnév
+		// után egyes számban marad.
+		"artifacts.canvas.blockCount": "{count} blokk",
+		"artifacts.canvas.blockMissingKind": "Ez a blokktípus már nem támogatott.",
+		"artifacts.canvas.blockDropped":
+			"{count} blokkot nem sikerült beolvasni, kimaradtak.",
+		"artifacts.canvas.dismiss": "Elrejtés",
+		"artifacts.canvas.deleteBlock": "Blokk törlése",
+		"artifacts.canvas.nodeDeleted": "Törölve a tábláról.",
+		"artifacts.canvas.tone": "Jegyzet színe",
+		"artifacts.canvas.tone.yellow": "Sárga",
+		"artifacts.canvas.tone.mint": "Menta",
+		"artifacts.canvas.tone.blue": "Kék",
+		"artifacts.canvas.tone.plain": "Sima",
+		"artifacts.canvas.stickyPlaceholder": "Írj egy jegyzetet…",
+		"artifacts.canvas.textPlaceholder": "Írj valamit…",
+		"artifacts.canvas.frameName": "Keret neve",
+		"artifacts.canvas.checklistReadOnlyNote":
+			"Az itt bejelölt pipák a táblával együtt mentődnek.",
+		"artifacts.canvas.checklistPlaceholder": "Új elem",
+		"artifacts.canvas.checklistAdd": "Elem hozzáadása",
+		"artifacts.canvas.checklistRemove": "Elem törlése",
+		"artifacts.canvas.checklistToggle": "{name}: kész állapot váltása",
+		"artifacts.canvas.zoom": "Nagyítás",
+		"artifacts.canvas.zoomIn": "Nagyítás",
+		"artifacts.canvas.zoomOut": "Kicsinyítés",
+		"artifacts.canvas.fitView": "Illesztés a nézetbe",
+		"artifacts.canvas.minimap": "Tábla áttekintése",
+		"artifacts.canvas.emptyBoard":
+			"Üres tábla. Szúrj be egy blokkot, vagy rajzolj rá.",
+		"artifacts.canvas.loading": "Tábla megnyitása…",
+		"artifacts.canvas.loadFailed": "Nem sikerült megnyitni a táblát.",
+		"artifacts.canvas.retry": "Újra",
+		"artifacts.canvas.reload": "Újratöltés",
+		"artifacts.canvas.saved": "Mentve",
+		"artifacts.canvas.saving": "Mentés…",
+		"artifacts.canvas.saveFailed": "Nem sikerült menteni a táblát.",
+		"artifacts.canvas.saveConflict":
+			"Valaki módosította a táblát, amíg rajzoltál. Töltsd újra, hogy a legfrissebbet lásd.",
+		"artifacts.canvas.offline":
+			"Nincs kapcsolat. A rajzod megmarad, és visszatér a mentés, amint újra van hálózat.",
+		"artifacts.canvas.tooLarge": "Ez a tábla túl nagy a mentéshez.",
+		"artifacts.canvas.deletedWhileOpen": "Ezt a táblát törölték.",
+		"artifacts.canvas.noAccess": "Nincs hozzáférésed ehhez a táblához.",
+		// Amit a folyamatkezelő könyvtár felolvas a saját elemeiről, az olvasó nyelvén.
+		"artifacts.canvas.a11y.node":
+			"Az Enter vagy a szóköz kijelöli a blokkot. A Delete törli, az Escape elengedi.",
+		"artifacts.canvas.a11y.nodeKeyboard":
+			"Az Enter vagy a szóköz kijelöli a blokkot. Utána a nyílbillentyűkkel mozgathatod. A Delete törli, az Escape elengedi.",
+		"artifacts.canvas.a11y.moved":
+			"A kijelölt blokk elmozdult. Új helye: x: {x}, y: {y}",
+		"artifacts.canvas.a11y.edge":
+			"Az Enter vagy a szóköz kijelöli a kapcsolatot. Utána a Delete törli, az Escape elengedi.",
+		"artifacts.canvas.a11y.handle": "Kapcsolódási pont",
 	},
 } as const;
 

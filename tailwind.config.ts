@@ -71,8 +71,27 @@ export default {
 					text: 'var(--warning-text)',
 					tint: 'var(--warning-tint)'
 				},
+				// Canvas (Feature 2, Slice 3): the four sticky-note fills, the map
+				// block's paper tint and the four drawing inks — see app.css.
+				sticky: {
+					yellow: 'var(--sticky-yellow)',
+					mint: 'var(--sticky-mint)',
+					blue: 'var(--sticky-blue)',
+					plain: 'var(--sticky-plain)'
+				},
+				'map-paper': 'var(--map-paper)',
+				ink: {
+					blue: 'var(--ink-blue)',
+					red: 'var(--ink-red)',
+					green: 'var(--ink-green)',
+					graphite: 'var(--ink-graphite)'
+				},
 				// Focus Ring
 				'focus-ring': 'var(--focus-ring)'
+			},
+			zIndex: {
+				// A board's own overlays, inside the board's stacking context.
+				'artifact-overlay': 'var(--artifact-overlay-z)'
 			},
 			spacing: {
 				'xs': 'var(--space-xs)',

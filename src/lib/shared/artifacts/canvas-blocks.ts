@@ -20,12 +20,14 @@ import type { ArtifactSource } from "./sources";
 // Generous on purpose: the board's real cap is its byte size, and a limit that
 // drops a node on the user's own save is worse than a long note. These only
 // exist so a runaway value is refused with a reason.
-const LABEL_MAX_CHARS = 500;
-const TEXT_MAX_CHARS = 20_000;
+// The board's own inputs enforce the same numbers (`maxlength`), because a
+// node past them is DROPPED on save, not clipped.
+export const LABEL_MAX_CHARS = 500;
+export const TEXT_MAX_CHARS = 20_000;
 const CHART_CODE_MAX_CHARS = 100_000;
 const ID_MAX_CHARS = 128;
-const CHECKLIST_MAX_ITEMS = 200;
-const CHECKLIST_ITEM_MAX_CHARS = 1_000;
+export const CHECKLIST_MAX_ITEMS = 200;
+export const CHECKLIST_ITEM_MAX_CHARS = 1_000;
 const PHOTO_MAX_ITEMS = 50;
 const SOURCES_MAX = 50;
 
@@ -34,7 +36,7 @@ const labelSchema = z.string().max(LABEL_MAX_CHARS);
 
 // ── Shared pieces ────────────────────────────────────────────────────────
 
-const STICKY_TONES = ["yellow", "mint", "blue", "plain"] as const;
+export const STICKY_TONES = ["yellow", "mint", "blue", "plain"] as const;
 const stickyToneSchema = z.enum(STICKY_TONES);
 
 /** A poster is a generated PNG file, produced by the existing chat-files storage. */

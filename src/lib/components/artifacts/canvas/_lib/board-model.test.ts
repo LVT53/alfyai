@@ -1,0 +1,175 @@
+import { describe, expect, it } from "vitest";
+import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
+import {
+	boardJson,
+	normalizeCanvasBody,
+} from "$lib/shared/artifacts/canvas-body";
+import {
+	cloneBoard,
+	sampleBoard,
+} from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
+import {
+	bodyOfState,
+	DEFAULT_CAMERA,
+	hasStoredCamera,
+	structuralJson,
+	toFlowNodes,
+} from "./board-model";
+
+function stateOf(body: CanvasBody) {
+	return {
+		nodes: toFlowNodes(body.nodes),
+		edges: body.edges,
+		viewport: body.viewport,
+		annotations: body.annotations,
+	};
+}
+
+describe("stored nodes to library nodes", () => {
+	it("gives a frame the fields that put it behind what it groups and make it draggable by its chip only", () => {
+		const frame = toFlowNodes(sampleBoard().nodes).find(
+			(n) => n.type === "frame",
+		);
+		expect(frame).toMatchObject({
+			zIndex: -1,
+			dragHandle: ".canvas-node__chip",
+			style: "pointer-events: none;",
+		});
+	});
+
+	it("gives a note none of those", () => {
+		const note = toFlowNodes(sampleBoard().nodes).find(
+			(n) => n.type === "sticky",
+		);
+		expect(note?.zIndex).toBeUndefined();
+		expect(note?.dragHandle).toBeUndefined();
+		expect(note?.style).toBeUndefined();
+	});
+
+	it("lets a frame with no size of its own on the node take the one in its data", () => {
+		const bare: CanvasNode = {
+			id: "f",
+			type: "frame",
+			position: { x: 0, y: 0 },
+			data: { kind: "frame", label: "", width: 300, height: 200 },
+		};
+		expect(toFlowNodes([bare])[0]).toMatchObject({ width: 300, height: 200 });
+	});
+
+	it("does not touch the nodes it was given", () => {
+		const board = sampleBoard();
+		const before = JSON.stringify(board.nodes);
+		toFlowNodes(board.nodes);
+		expect(JSON.stringify(board.nodes)).toBe(before);
+	});
+});
+
+describe("the live board back to a body", () => {
+	it("round-trips a canonical board to the same canonical JSON", () => {
+		const board = sampleBoard();
+		expect(boardJson(bodyOfState(stateOf(board)))).toBe(boardJson(board));
+	});
+
+	it("puts a resized frame's size into its data, so the two never disagree", () => {
+		const board = cloneBoard(sampleBoard());
+		const state = stateOf(board);
+		const frame = state.nodes.find((n) => n.type === "frame");
+		if (!frame) throw new Error("fixture has a frame");
+		frame.width = 480;
+		frame.height = 320;
+		const stored = bodyOfState(state).nodes.find((n) => n.type === "frame");
+		expect(stored).toMatchObject({
+			width: 480,
+			height: 320,
+			data: { kind: "frame", width: 480, height: 320 },
+		});
+		// The canonical form a save writes carries the same two numbers twice.
+		const written = normalizeCanvasBody(
+			JSON.parse(boardJson(bodyOfState(state))),
+		).body;
+		expect(written.nodes.find((n) => n.type === "frame")).toMatchObject({
+			width: 480,
+			data: { width: 480 },
+		});
+	});
+
+	it("keeps an edge's four fields and drops what the library added", () => {
+		const state = stateOf(sampleBoard());
+		const body = bodyOfState({
+			...state,
+			edges: [
+				{
+					id: "e",
+					source: "note-1",
+					target: "text-1",
+					label: "then",
+					sourceHandle: "bottom",
+					selected: true,
+				} as never,
+				{ id: "e2", source: "note-1", target: "text-1" },
+			],
+		});
+		expect(body.edges).toEqual([
+			{ id: "e", source: "note-1", target: "text-1", label: "then" },
+			{ id: "e2", source: "note-1", target: "text-1" },
+		]);
+	});
+
+	it("keeps the annotations it holds, untouched, for a board that has strokes it does not draw", () => {
+		const board = sampleBoard();
+		expect(bodyOfState(stateOf(board)).annotations).toEqual(board.annotations);
+	});
+});
+
+describe("what counts as a change", () => {
+	it("is not a change when only the camera moved", () => {
+		const board = sampleBoard();
+		const panned = { ...board, viewport: { x: 900, y: -40, zoom: 0.4 } };
+		expect(structuralJson(panned)).toBe(structuralJson(board));
+		expect(boardJson(panned)).not.toBe(boardJson(board));
+	});
+
+	it("is a change when a block's words, a position or a tick changed", () => {
+		const board = sampleBoard();
+		const edited = cloneBoard(board);
+		const note = edited.nodes.find((n) => n.id === "note-museum");
+		if (note?.data.kind !== "sticky") throw new Error("fixture");
+		note.data.text = "Museum, 15:00";
+		expect(structuralJson(edited)).not.toBe(structuralJson(board));
+
+		const moved = cloneBoard(board);
+		moved.nodes[2].position.x += 10;
+		expect(structuralJson(moved)).not.toBe(structuralJson(board));
+
+		const ticked = cloneBoard(board);
+		const list = ticked.nodes.find((n) => n.id === "todo-1");
+		if (list?.data.kind !== "checklist") throw new Error("fixture");
+		list.data.items[1].done = true;
+		expect(structuralJson(ticked)).not.toBe(structuralJson(board));
+	});
+
+	it("is not a change when only what the library writes back changed (selection, measurement, dragging)", () => {
+		const board = sampleBoard();
+		const live = cloneBoard(board);
+		live.nodes[0] = {
+			...live.nodes[0],
+			selected: true,
+			dragging: true,
+			measured: { width: 361, height: 299 },
+		};
+		expect(structuralJson(live)).toBe(structuralJson(board));
+	});
+
+	it("tells a board that was never panned from one that was", () => {
+		expect(
+			hasStoredCamera({ ...sampleBoard(), viewport: DEFAULT_CAMERA }),
+		).toBe(false);
+		expect(hasStoredCamera(sampleBoard())).toBe(true);
+		expect(
+			hasStoredCamera({
+				...sampleBoard(),
+				viewport: { x: 0, y: 0, zoom: 1.5 },
+			}),
+		).toBe(true);
+	});
+});

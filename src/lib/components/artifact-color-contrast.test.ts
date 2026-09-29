@@ -177,3 +177,52 @@ describe("artifact redesign token contrast (§9.1)", () => {
 		expect(contrastRatio(accent, surfacePage)).toBeLessThan(MIN_RATIO);
 	});
 });
+
+// Feature 2, Slice 3 (Canvas): a note's text is --text-primary on every sticky
+// fill, so each pair has to clear body-text contrast in both themes; a note
+// must also stand off the board's page a little (a fill that vanishes into
+// --surface-page is not a note); the four drawing inks are graphics, so 3:1
+// (WCAG 1.4.11) against the page they are drawn on.
+describe("Canvas token contrast (Slice 3)", () => {
+	const themes = [":root", ".dark"] as const;
+	const themeLabel = { ":root": "light", ".dark": "dark" } as const;
+	const MIN_GRAPHIC_RATIO = 3;
+	const MIN_NOTE_EDGE_RATIO = 1.05;
+
+	for (const selector of themes) {
+		const theme = themeLabel[selector];
+		const surfacePage = tokenValue(selector, "surface-page");
+
+		for (const tone of ["yellow", "mint", "blue", "plain"] as const) {
+			it(`${theme}: --text-primary clears ${MIN_RATIO}:1 on --sticky-${tone}`, () => {
+				const fill = tokenValue(selector, `sticky-${tone}`);
+				const ink = tokenValue(selector, "text-primary");
+				const ratio = contrastRatio(ink, fill);
+				expect(
+					ratio,
+					`--text-primary ${ink} on --sticky-${tone} ${fill} in ${theme} is ${ratio.toFixed(2)}:1`,
+				).toBeGreaterThanOrEqual(MIN_RATIO);
+			});
+
+			it(`${theme}: --sticky-${tone} stands off --surface-page`, () => {
+				const fill = tokenValue(selector, `sticky-${tone}`);
+				const ratio = contrastRatio(fill, surfacePage);
+				expect(
+					ratio,
+					`--sticky-${tone} ${fill} against --surface-page ${surfacePage} in ${theme} is ${ratio.toFixed(2)}:1`,
+				).toBeGreaterThanOrEqual(MIN_NOTE_EDGE_RATIO);
+			});
+		}
+
+		for (const ink of ["blue", "red", "green", "graphite"] as const) {
+			it(`${theme}: --ink-${ink} clears ${MIN_GRAPHIC_RATIO}:1 on --surface-page`, () => {
+				const colour = tokenValue(selector, `ink-${ink}`);
+				const ratio = contrastRatio(colour, surfacePage);
+				expect(
+					ratio,
+					`--ink-${ink} ${colour} on --surface-page ${surfacePage} in ${theme} is ${ratio.toFixed(2)}:1`,
+				).toBeGreaterThanOrEqual(MIN_GRAPHIC_RATIO);
+			});
+		}
+	}
+});

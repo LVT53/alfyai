@@ -699,6 +699,66 @@ describe("ToolActivityRow", () => {
 			);
 		});
 
+		// Slice 3: a board's card says how many blocks it holds, from the count
+		// the server put on `body.preview.canvasPreview` — the chat never loads the
+		// board to say it.
+		it("shows a board's block count on its card, from the server's preview", () => {
+			const segment = artifactSegment({
+				name: "create_artifact",
+				input: { artifactType: "canvas", title: "Vienna trip board" },
+				metadata: {
+					ok: true,
+					artifactId: "board-1",
+					artifactKind: "canvas",
+					artifactTitle: "Vienna trip board",
+				},
+			});
+			const built = buildToolActivityItem(segment, "row-canvas", get(t));
+			const withPreview: ToolActivityItem = {
+				...built,
+				body: {
+					...(built.body as Extract<
+						ToolActivityItem["body"],
+						{ kind: "artifact" }
+					>),
+					preview: {
+						id: "board-1",
+						kind: "canvas",
+						title: "Vienna trip board",
+						conversationId: "conv-1",
+						versionNumber: 7,
+						commentCount: 0,
+						updatedAt: 0,
+						canvasPreview: { blockCount: 11 },
+					},
+				},
+			};
+			const { getByTestId } = render(ToolActivityRow, { item: withPreview });
+
+			expect(getByTestId("artifact-card-head")).toHaveTextContent(
+				"Canvas · 11 blocks · v7",
+			);
+		});
+
+		it("says just Canvas on a board's card until its count has arrived (a board made mid-turn)", () => {
+			const built = buildToolActivityItem(
+				artifactSegment({
+					input: { artifactType: "canvas", title: "Vienna trip board" },
+					metadata: {
+						ok: true,
+						artifactId: "board-1",
+						artifactKind: "canvas",
+						artifactTitle: "Vienna trip board",
+					},
+				}),
+				"row-canvas-live",
+				get(t),
+			);
+			const { getByTestId } = render(ToolActivityRow, { item: built });
+			expect(getByTestId("artifact-card-head")).not.toHaveTextContent("block");
+			expect(getByTestId("artifact-card-head")).toHaveTextContent("Canvas");
+		});
+
 		it("shows a skeleton standalone card while create_artifact is running, from the model's own call arguments", () => {
 			const { getByTestId, queryByTestId } = render(ToolActivityRow, {
 				item: buildToolActivityItem(

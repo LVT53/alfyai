@@ -76,6 +76,16 @@ export interface DocumentCardPreview {
 }
 
 /**
+ * `kind: "canvas"` only (Slice 3): what a board's card says about it without
+ * shipping the board — how many blocks it holds. Counted by the board's own
+ * reader (`normalizeCanvasBody`), so a block of a kind nobody knows is not
+ * counted, and the card and the panel agree.
+ */
+export interface CanvasCardPreview {
+	blockCount: number;
+}
+
+/**
  * `kind: "app"` only (Wave 2.5 Step 13): the App panel's own status-row
  * verdict, carried along so the in-chat card can show the same fact-check
  * line without a second fetch. Mirrors the shape `AppBody.svelte` already
@@ -105,6 +115,8 @@ export interface ArtifactCardSummary {
 	documentPreview?: DocumentCardPreview;
 	/** `kind: "app"` only; `null` when the App's facts were never checked. */
 	appVerification?: AppVerificationSummary | null;
+	/** `kind: "canvas"` only. */
+	canvasPreview?: CanvasCardPreview;
 	/**
 	 * `kind: "document"` only (Wave 2.5 review, F1): the PERSISTED review
 	 * state — `document-ops.ts`'s `computePendingReviewBlocks`, through the

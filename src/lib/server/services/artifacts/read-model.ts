@@ -19,6 +19,7 @@ import {
 	parseDocument,
 	readTaskBlock,
 } from "$lib/shared/artifact-document/blocks";
+import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
 import {
 	computeDocumentPendingReviewCounts,
 	documentTabsFromMetadata,
@@ -32,6 +33,7 @@ import {
 import type {
 	AppVerificationSummary,
 	ArtifactCardSummary,
+	CanvasCardPreview,
 	DocumentCardPreview,
 } from "./types";
 
@@ -67,6 +69,23 @@ function buildDocumentPreview(row: {
 		}
 	}
 	return { tabCount, tasks, totalTaskCount };
+}
+
+/**
+ * A board's card line: how many blocks it holds, read the way the panel reads
+ * it. A body that is empty or is not a board counts as none, never a throw: a
+ * card must not be the thing that fails a whole conversation load.
+ */
+function buildCanvasPreview(row: {
+	contentText: string | null;
+}): CanvasCardPreview {
+	if (!row.contentText?.trim()) return { blockCount: 0 };
+	try {
+		const { body } = normalizeCanvasBody(JSON.parse(row.contentText));
+		return { blockCount: body.nodes.length };
+	} catch {
+		return { blockCount: 0 };
+	}
 }
 
 /**
@@ -131,8 +150,9 @@ export async function listArtifactsForConversation(params: {
 			conversationId: artifacts.conversationId,
 			updatedAt: artifacts.updatedAt,
 			// T9 steps 4/7: only ever read to COMPUTE `documentPreview` below
-			// (`buildDocumentPreview`) for a `kind: "document"` row — the raw
-			// text itself never reaches `ArtifactCardSummary`.
+			// (`buildDocumentPreview`) for a `kind: "document"` row, and a board's
+			// block count (`buildCanvasPreview`) — the raw text itself never
+			// reaches `ArtifactCardSummary`.
 			contentText: artifacts.contentText,
 		})
 		.from(artifacts)
@@ -221,7 +241,9 @@ export async function listArtifactsForConversation(params: {
 					}
 				: kind === "app"
 					? { appVerification: buildAppVerificationSummary(row) }
-					: {}),
+					: kind === "canvas"
+						? { canvasPreview: buildCanvasPreview(row) }
+						: {}),
 		};
 	});
 }
