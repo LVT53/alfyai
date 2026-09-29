@@ -3425,6 +3425,7 @@ function handleDrop(event: DragEvent) {
 				workspacePresentation = nextPresentation;
 			}}
 			onPendingReviewCountChange={handlePendingReviewCountChange}
+			currentUser={data.user}
 		/>
 	</div>
 

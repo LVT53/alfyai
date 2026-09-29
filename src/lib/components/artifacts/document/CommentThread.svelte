@@ -41,6 +41,9 @@ let {
 	onSubmitReply,
 	onGoto,
 	onSeeChange,
+	currentUserId = null,
+	currentUserName = null,
+	currentUserProfilePicture = null,
 }: {
 	thread: ArtifactComment;
 	/** The anchor's own quote text, already resolved by the caller — `null` when this thread has no text anchor (a malformed/unparseable one; T10.9). */
@@ -58,6 +61,10 @@ let {
 	onGoto?: () => void;
 	/** commentId -> "see the change this message made", passed through to whichever CommentCard(s) carry a changeState. */
 	onSeeChange?: (commentId: string) => void;
+	/** rd/review-2-5.md:272-275: the signed-in user's own id/name/profile picture, passed straight through to `CommentCard` for a real "you" avatar. `null` falls back to the placeholder. */
+	currentUserId?: string | null;
+	currentUserName?: string | null;
+	currentUserProfilePicture?: string | null;
 } = $props();
 
 /** Alfy's own notes (spec decision 8, redesign §3.2): a thread whose FIRST message is Alfy's own, unprompted — never a reply inside a thread the user started. */
@@ -174,6 +181,9 @@ let foldedA11yLabel = $derived(
 					changeState={changeStateByCommentId[thread.id]}
 					onSeeChange={onSeeChange ? () => onSeeChange(thread.id) : undefined}
 					onAskAgain={openReply}
+					{currentUserId}
+					{currentUserName}
+					{currentUserProfilePicture}
 				/>
 				{#each thread.replies as reply (reply.id)}
 					<div class="comment-thread-reply">
@@ -182,6 +192,9 @@ let foldedA11yLabel = $derived(
 							changeState={changeStateByCommentId[reply.id]}
 							onSeeChange={onSeeChange ? () => onSeeChange(reply.id) : undefined}
 							onAskAgain={openReply}
+							{currentUserId}
+							{currentUserName}
+							{currentUserProfilePicture}
 						/>
 					</div>
 				{/each}

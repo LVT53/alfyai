@@ -103,6 +103,9 @@ let {
 	onActiveCommentChange,
 	onAnchorsChange,
 	onActivateTab,
+	currentUserId = null,
+	currentUserName = null,
+	currentUserProfilePicture = null,
 }: {
 	comments: ArtifactComment[];
 	blocks: DocumentBlock[];
@@ -130,6 +133,10 @@ let {
 	onAnchorsChange?: (anchors: CommentAnchorTarget[]) => void;
 	/** An "in other tabs" row was clicked — switches the active tab (agent 2's own tab-switching machinery, `DocumentBody.svelte`'s `handleTabActivate`). */
 	onActivateTab?: (tabId: string) => void;
+	/** rd/review-2-5.md:272-275: the signed-in user's own id/name/profile picture, passed straight through to `CommentThread`/`CommentCard` for a real "you" avatar. `null` falls back to the placeholder. */
+	currentUserId?: string | null;
+	currentUserName?: string | null;
+	currentUserProfilePicture?: string | null;
 } = $props();
 
 function resolutionFor(comment: ArtifactComment): AnchorResolution {
@@ -494,6 +501,9 @@ function gotoFor(comment: ArtifactComment): (() => void) | undefined {
 			{onSubmitReply}
 			onGoto={struck ? undefined : gotoFor(comment)}
 			onSeeChange={onSeeChange ? (commentId) => onSeeChange(commentId) : undefined}
+			{currentUserId}
+			{currentUserName}
+			{currentUserProfilePicture}
 		/>
 	</article>
 {/snippet}

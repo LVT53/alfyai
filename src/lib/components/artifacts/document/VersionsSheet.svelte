@@ -49,12 +49,24 @@ let {
 	conversationId = null,
 	onClose,
 	onRestored,
+	currentUserId = null,
+	currentUserName = null,
+	currentUserProfilePicture = null,
 }: {
 	artifactId: string;
 	conversationId?: string | null;
 	onClose: () => void;
 	/** Fires with the NEW version number after a successful restore. */
 	onRestored?: (version: number) => void;
+	/**
+	 * rd/review-2-5.md:272-275: the signed-in user's own id/name/profile
+	 * picture, for a "you" row's real avatar instead of the old literal
+	 * `"user"` placeholder — see `ArtifactBodyProps.currentUser`'s own doc
+	 * comment.
+	 */
+	currentUserId?: string | null;
+	currentUserName?: string | null;
+	currentUserProfilePicture?: string | null;
 } = $props();
 
 let versions = $state<ArtifactVersionSummary[]>([]);
@@ -85,6 +97,35 @@ function authorLabel(author: string): string {
 	return author === "alfy"
 		? $t("artifacts.document.versions.byAlfy")
 		: $t("artifacts.document.versions.byUser");
+}
+
+const RESTORED_SUMMARY_PREFIX = "restored ";
+
+/**
+ * Maps the server's own fixed-vocabulary version summaries onto localized
+ * text (rd/review-2-5.md:256-260): the save route's own literal `"Edited"`
+ * (`/api/artifacts/[id]/body`) and this file's own restore handler's own
+ * `` `restored ${summary}` `` wrapper (`versions.ts`) were shown verbatim,
+ * English-only, even in the Hungarian UI. An Alfy-authored summary (the
+ * patch's own free-form label, e.g. "Booked the hotel") is real content and
+ * is never touched — only these two known, enum-like tokens are translated;
+ * anything else (including a summary that merely happens to start with the
+ * same prefix by coincidence) is shown exactly as stored.
+ */
+function summaryLabel(summary: string): string {
+	if (summary === "Edited") {
+		return $t("artifacts.document.versions.summaryEdited");
+	}
+	if (summary.startsWith(RESTORED_SUMMARY_PREFIX)) {
+		const inner = summary.slice(RESTORED_SUMMARY_PREFIX.length);
+		return $t("artifacts.document.versions.summaryRestored", {
+			summary:
+				inner === "Edited"
+					? $t("artifacts.document.versions.summaryEdited")
+					: inner,
+		});
+	}
+	return summary;
 }
 
 async function confirmRestore(target: ArtifactVersionSummary) {
@@ -254,7 +295,12 @@ const popoverFocusTrap = focusTrap({
 								<Sparkles size={12} strokeWidth={2} />
 							</span>
 						{:else}
-							<AvatarCircle userId="user" size={22} />
+							<AvatarCircle
+								userId={currentUserId ?? 'user'}
+								name={currentUserName}
+								profilePicture={currentUserProfilePicture}
+								size={22}
+							/>
 						{/if}
 					</div>
 					<div class="versions-popover-row-main">
@@ -273,7 +319,7 @@ const popoverFocusTrap = focusTrap({
 							{/if}
 						</div>
 						{#if version.summary}
-							<div class="versions-popover-summary">{version.summary}</div>
+							<div class="versions-popover-summary">{summaryLabel(version.summary)}</div>
 						{/if}
 						{#if !current}
 							{#if confirmTargetId === version.id}

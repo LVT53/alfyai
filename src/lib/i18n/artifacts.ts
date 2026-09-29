@@ -216,6 +216,12 @@ const artifactsDict = {
 		"artifacts.document.versions.restoreError":
 			"Could not restore this version.",
 		"artifacts.document.versions.empty": "No earlier versions yet.",
+		// A version's own summary line (rd/review-2-5.md:256-260): the save
+		// route's literal "Edited" and the restore handler's "restored …"
+		// wrapper are the only two server-written tokens localized here — an
+		// Alfy-authored summary is free-form content and is shown as-is.
+		"artifacts.document.versions.summaryEdited": "Edited",
+		"artifacts.document.versions.summaryRestored": "restored {summary}",
 		// The lazy editor's shell and toolbar (Slice 1, T7).
 		"artifacts.document.editor.placeholder": "Write anything, or ask Alfy to.",
 		"artifacts.document.editor.failedToLoad": "The editor could not be loaded.",
@@ -292,8 +298,18 @@ const artifactsDict = {
 		// part and left 1 alone. Review it below the text.") — the region is
 		// already populated with both sentences when it enters the DOM.
 		"artifacts.document.review.regionLabel": "Changes from Alfy",
+		// A `{count}` nested INSIDE a plural branch (the form this key used
+		// before) never resolves: `index.ts`'s own plural regex captures each
+		// branch as `[^{}]*` (no braces allowed inside), so a branch
+		// containing its own `{count}` fails to match the plural pattern at
+		// all, leaving the raw `{count, plural, ...}` template in the
+		// rendered text (masked in this file's own tests, since
+		// `toHaveTextContent`'s substring match still finds "Alfy changed 3
+		// parts." INSIDE that unresolved template). `{count}` now sits
+		// OUTSIDE the plural block instead, the same shape `panel.count`/
+		// `panel.pendingReview` above already use correctly.
 		"artifacts.document.review.summary":
-			"{count, plural, one {Alfy changed 1 part.} other {Alfy changed {count} parts.}}",
+			"Alfy changed {count} {count, plural, one {part} other {parts}}.",
 		"artifacts.document.review.prev": "Previous change",
 		"artifacts.document.review.next": "Next change",
 		"artifacts.document.review.keepAll": "Keep all",
@@ -310,12 +326,30 @@ const artifactsDict = {
 		"artifacts.document.tab.deleteConfirm": "Delete “{name}” and its text?",
 		"artifacts.document.tab.renamePrompt": "Rename this tab",
 		"artifacts.document.tab.newTabTitle": "New section",
+		// The tab strip's own open-comment badge (rd/review-2-5.md:223-228):
+		// the visible number is `aria-hidden`, this sr-only phrase is what a
+		// screen reader hears instead of a bare "3". `{count}` sits OUTSIDE
+		// the plural block on purpose — see `review.summary`'s own comment
+		// above for why a `{count}` nested INSIDE a branch never resolves.
+		"artifacts.document.tab.openCommentsA11y":
+			"{count} {count, plural, one {open comment} other {open comments}}",
 		// Tracker chips (Slice 1, T9) — stored values are canonical English
 		// tokens; only the label is localised (Global Constraints, Review Focus 8).
 		"artifacts.document.chip.status.Booked": "Booked",
 		"artifacts.document.chip.status.ToBook": "To book",
 		"artifacts.document.chip.status.Paid": "Paid",
 		"artifacts.document.chip.status.Cancelled": "Cancelled",
+		// The chip dropdown's own accessible name (rd/review-2-5.md:256-260):
+		// the FIELD's name ("Status"), distinct from the value labels above.
+		"artifacts.document.chip.statusFieldLabel": "Status",
+		"artifacts.document.chip.dateFieldLabel": "Date",
+		// The task checklist checkbox's own accessible name
+		// (rd/review-2-5.md:256-260) — Tiptap's own default is English-only
+		// ("Task item checkbox for …"); localized here via TaskItem's `a11y`
+		// option.
+		"artifacts.document.taskItem.checkboxLabel":
+			"Task item checkbox for {text}",
+		"artifacts.document.taskItem.emptyTaskItem": "empty task item",
 		// The mobile toolbar's overflow sheet (Slice 1, T11). `toolbar.more`
 		// already exists (T7) as the trigger button's own label.
 		"artifacts.document.toolbar.moreSheetTitle": "More formatting",
@@ -354,6 +388,14 @@ const artifactsDict = {
 			"Alfy answers here and can edit the text. You keep or undo the change.",
 		"artifacts.document.comment.peekThread": "Show the full thread",
 		"artifacts.document.comment.quoteA11y": "Show “{quote}” in the text",
+		// Fed into DocumentBody.svelte's one shared announcer
+		// (rd/review-2-5.md:217-222) — Keep/Undo reuse the existing
+		// change.keptNotice/undoneNotice keys above rather than duplicating
+		// them here.
+		"artifacts.document.announce.commentAdded": "Comment added.",
+		"artifacts.document.announce.commentResolved": "Comment resolved.",
+		"artifacts.document.announce.commentReopened": "Comment reopened.",
+		"artifacts.document.announce.alfyReplied": "Alfy replied.",
 		// The selection pill and composer (redesign §4.2 items 1–2, §9.2's
 		// SelectionBubble.svelte row, Wave 2.5 Step 9). `comment.ask`/`comment.add`
 		// above are reused for both the pill's own buttons AND the composer's
@@ -562,6 +604,8 @@ const artifactsDict = {
 		"artifacts.document.versions.restoreError":
 			"Nem sikerült visszaállítani ezt a változatot.",
 		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
+		"artifacts.document.versions.summaryEdited": "Szerkesztve",
+		"artifacts.document.versions.summaryRestored": "visszaállítva: {summary}",
 		"artifacts.document.editor.placeholder": "Írj bármit, vagy kérd meg Alfyt.",
 		"artifacts.document.editor.failedToLoad":
 			"A szerkesztőt nem sikerült betölteni.",
@@ -602,9 +646,14 @@ const artifactsDict = {
 		"artifacts.document.change.commentCountA11y":
 			"{count} megjegyzés ehhez a módosításhoz",
 		"artifacts.document.change.groupLabel": "Alfy módosítása: {quote}",
-		"artifacts.document.change.keepA11y": "Alfy módosításának megtartása",
-		"artifacts.document.change.undoA11y": "Alfy módosításának visszavonása",
-		"artifacts.document.change.redoA11y": "Alfy módosításának megismétlése",
+		// WCAG 2.5.3 Label in Name (rd/review-2-5.md:210-216): each accessible
+		// name must literally CONTAIN its button's own visible text
+		// ("Megtartom"/"Visszavonom"/"Újra" above) — the previous possessive
+		// phrasing ("...megtartása"/"...visszavonása"/"...megismétlése") used a
+		// different word form and did not.
+		"artifacts.document.change.keepA11y": "Megtartom — Alfy módosítása",
+		"artifacts.document.change.undoA11y": "Visszavonom — Alfy módosítása",
+		"artifacts.document.change.redoA11y": "Újra — Alfy módosítása",
 		"artifacts.document.refused.notice":
 			"{count, plural, one {Alfy egy részt nem érintett, mert megváltoztattad.} other {Alfy néhány részt nem érintett, mert megváltoztattad.}}",
 		"artifacts.document.refused.changed":
@@ -638,10 +687,17 @@ const artifactsDict = {
 			"Törlöd a(z) „{name}” fület és a szövegét?",
 		"artifacts.document.tab.renamePrompt": "Nevezd át ezt a fület",
 		"artifacts.document.tab.newTabTitle": "Új szakasz",
+		// No ICU plural here either, same reasoning as cardSubtitle above.
+		"artifacts.document.tab.openCommentsA11y": "{count} nyitott megjegyzés",
 		"artifacts.document.chip.status.Booked": "Lefoglalva",
 		"artifacts.document.chip.status.ToBook": "Lefoglalandó",
 		"artifacts.document.chip.status.Paid": "Kifizetve",
 		"artifacts.document.chip.status.Cancelled": "Lemondva",
+		"artifacts.document.chip.statusFieldLabel": "Állapot",
+		"artifacts.document.chip.dateFieldLabel": "Dátum",
+		"artifacts.document.taskItem.checkboxLabel":
+			"Feladat jelölőnégyzete: {text}",
+		"artifacts.document.taskItem.emptyTaskItem": "üres feladat",
 		"artifacts.document.toolbar.moreSheetTitle": "További formázás",
 		"artifacts.document.anchor.moved": "Elmozdult",
 		"artifacts.document.comment.ask": "Alfy megkérdezése",
@@ -674,6 +730,10 @@ const artifactsDict = {
 			"Alfy itt válaszol, és szerkesztheti is a szöveget. A módosítást megtarthatod vagy visszavonhatod.",
 		"artifacts.document.comment.peekThread": "Szál megnyitása",
 		"artifacts.document.comment.quoteA11y": "„{quote}” megmutatása a szövegben",
+		"artifacts.document.announce.commentAdded": "Megjegyzés hozzáadva.",
+		"artifacts.document.announce.commentResolved": "Megjegyzés lezárva.",
+		"artifacts.document.announce.commentReopened": "Megjegyzés újranyitva.",
+		"artifacts.document.announce.alfyReplied": "Alfy válaszolt.",
 		"artifacts.document.comment.selectionToolbar": "Kijelölés",
 		"artifacts.document.comment.askHeader":
 			"Alfy megkérdezése erről: „{quote}”",

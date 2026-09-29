@@ -7,7 +7,10 @@ import {
 	sanitizeDocumentFilename,
 } from "$lib/server/services/artifacts";
 import { submitFileProductionIntake } from "$lib/server/services/file-production";
-import { parseDocument } from "$lib/shared/artifact-document/blocks";
+import {
+	parseDocument,
+	stripEmptyTabAnchorPlaceholder,
+} from "$lib/shared/artifact-document/blocks";
 import type { RequestHandler } from "./$types";
 
 type ExportFormat = "pdf" | "docx" | "markdown";
@@ -80,8 +83,13 @@ export const POST: RequestHandler = async (event) => {
 						// carries one, so the file is the blocks joined: a line
 						// that merely looks like a marker inside a code block is
 						// content and stays (a line filter dropped it, RV-1A).
+						// `stripEmptyTabAnchorPlaceholder` (Wave 2.5 review,
+						// fix-agent-B finding 7): a still-empty new tab's own
+						// paragraph is one zero-width space, real content to the
+						// STORED body but not something an exported .md file
+						// should carry as if the user had typed it.
 						content: blocks
-							.map((block) => block.markdown)
+							.map((block) => stripEmptyTabAnchorPlaceholder(block.markdown))
 							.join("\n\n")
 							.trim(),
 						files: [{ filename: `${filename}.md`, outputType: "md" }],

@@ -255,6 +255,46 @@ describe("SelectionBubble", () => {
 		expect(onDismiss).toHaveBeenCalled();
 	});
 
+	// rd/review-2-5.md:229-232 — Escape used to be wired to the textarea
+	// alone, so it did nothing from a suggestion chip or the Cancel button —
+	// the composer stayed open. Handled on the composer's own container now,
+	// so it works from anywhere inside it.
+	it("Escape from a suggestion chip dismisses the composer too, not just from the textarea", async () => {
+		const onSubmit = vi.fn();
+		const onDismiss = vi.fn();
+		stubViewport(false);
+		render(SelectionBubble, {
+			position: { x: 0, y: 0 },
+			quote: "x",
+			onSubmit,
+			onDismiss,
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+		const chip = screen.getByRole("button", { name: "Shorter" });
+		chip.focus();
+		await fireEvent.keyDown(chip, { key: "Escape" });
+		expect(onSubmit).not.toHaveBeenCalled();
+		expect(onDismiss).toHaveBeenCalled();
+	});
+
+	it("Escape from the Cancel button dismisses the composer too", async () => {
+		const onSubmit = vi.fn();
+		const onDismiss = vi.fn();
+		stubViewport(false);
+		render(SelectionBubble, {
+			position: { x: 0, y: 0 },
+			quote: "x",
+			onSubmit,
+			onDismiss,
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+		const cancelButton = screen.getByRole("button", { name: "Cancel" });
+		cancelButton.focus();
+		await fireEvent.keyDown(cancelButton, { key: "Escape" });
+		expect(onSubmit).not.toHaveBeenCalled();
+		expect(onDismiss).toHaveBeenCalled();
+	});
+
 	it("Cmd/Ctrl+Enter submits from the composer", async () => {
 		const onSubmit = vi.fn().mockResolvedValue(undefined);
 		stubViewport(false);

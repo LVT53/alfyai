@@ -73,6 +73,9 @@ describe("extensions: TrackerChip", () => {
 			"Lemondva",
 		]);
 		expect(select?.value).toBe("Booked");
+		// rd/review-2-5.md:256-260 — the dropdown's own accessible name used to
+		// be the bare internal token "status", English even here.
+		expect(select?.getAttribute("aria-label")).toBe("Állapot");
 		editor.destroy();
 	});
 
@@ -97,6 +100,47 @@ describe("extensions: TrackerChip", () => {
 		const markdown = readMarkdown(editor);
 		expect(markdown).toContain('value="To book"');
 		expect(markdown).not.toContain("Lefoglalandó");
+		editor.destroy();
+	});
+});
+
+// rd/review-2-5.md:256-260 — Tiptap's own default task-item checkbox
+// accessible name ("Task item checkbox for {text}") is hardcoded English
+// inside @tiptap/extension-list, so it stayed English even under a Hungarian
+// UI. Localized via TaskItem's own `a11y.checkboxLabel` option.
+describe("extensions: TaskItem checkbox accessible name", () => {
+	it("names the checkbox with the item's own text, in English", () => {
+		const editor = mountEditor("- [ ] Book the hotel");
+		const checkbox = element?.querySelector<HTMLInputElement>(
+			'input[type="checkbox"]',
+		);
+		expect(checkbox?.getAttribute("aria-label")).toBe(
+			"Task item checkbox for Book the hotel",
+		);
+		editor.destroy();
+	});
+
+	it("names the checkbox in Hungarian under a Hungarian UI", () => {
+		uiLanguage.set("hu");
+		const editor = mountEditor("- [ ] Book the hotel");
+		const checkbox = element?.querySelector<HTMLInputElement>(
+			'input[type="checkbox"]',
+		);
+		expect(checkbox?.getAttribute("aria-label")).toBe(
+			"Feladat jelölőnégyzete: Book the hotel",
+		);
+		editor.destroy();
+	});
+
+	it("names an empty task item without crashing, localized", () => {
+		uiLanguage.set("hu");
+		const editor = mountEditor("- [ ] ");
+		const checkbox = element?.querySelector<HTMLInputElement>(
+			'input[type="checkbox"]',
+		);
+		expect(checkbox?.getAttribute("aria-label")).toBe(
+			"Feladat jelölőnégyzete: üres feladat",
+		);
 		editor.destroy();
 	});
 });

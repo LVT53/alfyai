@@ -131,6 +131,7 @@ let {
 	registerPanelActions,
 	onCommentCountChange,
 	onPendingReviewCountChange,
+	currentUser = null,
 }: ArtifactBodyProps = $props();
 
 type LoadState = "loading" | "ready" | "load_error" | "not_found";
@@ -354,6 +355,23 @@ interface PendingAlfyChange {
 	fallbackPos?: number;
 }
 let alfyWritingLabel = $state<string | null>(null);
+/**
+ * rd/review-2-5.md:217-222: one shared, visually hidden `aria-live="polite"`
+ * region (rendered once, near the top of this component's template),
+ * ALWAYS present in the DOM — unlike `ReviewBar.svelte`'s own former
+ * `role="status"`, a region that already carries text the moment it mounts
+ * is commonly NOT announced; a later text CHANGE on an already-mounted live
+ * region is what reliably is. Fed by comment added/resolved, Alfy's own
+ * reply landing (the review bar's own "Alfy changed N parts" summary AND an
+ * `@Alfy` comment reply), and Keep/Undone — the four events the review
+ * named. `ReviewBar.svelte`'s own region is now a plain, non-live
+ * `role="region"`; it never announces itself, and a stepper move no longer
+ * re-reads the whole bar.
+ */
+let announcement = $state("");
+function announce(message: string): void {
+	announcement = message;
+}
 let pendingChanges = $state<Map<string, PendingAlfyChange>>(new Map());
 /** The review bar's own stepper position (0-based) into the CURRENTLY pending entries, in Map-insertion order. */
 let reviewIndex = $state(0);
@@ -612,6 +630,7 @@ async function maybeAskAlfy(
 			conversationId,
 		);
 		outcome = result.outcome;
+		announce($t("artifacts.document.announce.alfyReplied"));
 	} catch {
 		// The reply (or refusal) already lives in the thread when the call
 		// succeeds; a failed call here just leaves the thread as it was — the
@@ -666,6 +685,7 @@ async function postComment(anchor: Anchor, body: string): Promise<string> {
 		undefined,
 		conversationId,
 	);
+	announce($t("artifacts.document.announce.commentAdded"));
 	await refreshAfterCommentChange();
 	if (mentionsAlfy(body)) {
 		await maybeAskAlfy(created.id, textAnchorBlockId(anchor));
@@ -750,6 +770,7 @@ async function postReply(parentId: string, body: string): Promise<void> {
 		parentId,
 		conversationId,
 	);
+	announce($t("artifacts.document.announce.commentAdded"));
 	await refreshAfterCommentChange();
 	if (mentionsAlfy(body)) {
 		await maybeAskAlfy(created.id, findThreadBlockId(parentId));
@@ -767,6 +788,11 @@ async function handleCommentResolve(
 			commentId,
 			resolved,
 			conversationId,
+		);
+		announce(
+			resolved
+				? $t("artifacts.document.announce.commentResolved")
+				: $t("artifacts.document.announce.commentReopened"),
 		);
 	} finally {
 		await refreshAfterCommentChange();
@@ -913,6 +939,43 @@ async function acknowledgeReview(blockIds: string[]): Promise<void> {
 }
 
 /**
+ * rd/review-2-5.md:210-216: Keep's OWN resulting "kept" pill state renders no
+ * button at all (just a checkmark and a notice), unlike Undo's own "undone"
+ * state (which keeps a Redo button `ChangeBar.svelte` autofocuses itself) —
+ * so the Keep button that had focus is destroyed by the widget's own remount
+ * with nothing inside the pill left to take its place, dropping focus to
+ * `<body>`. Moves it to the review bar's own first button when one is still
+ * showing (more pending changes remain after this one), or back into the
+ * document itself when Keep just emptied the pending list entirely (the
+ * review bar unmounts, per `DocumentBody.svelte`'s own `{#if pendingList.length
+ * > 0}`).
+ */
+async function focusAfterKeep(): Promise<void> {
+	await tick();
+	// `pendingList.length` (the reactive truth), never bare DOM presence: the
+	// review bar's own OUT transition keeps its element (and its never-
+	// disabled Keep-all/Undo-all buttons) in the DOM for a moment after
+	// `pendingList` already reads empty, so querying the DOM alone would
+	// focus a control that is already on its way out, no better than losing
+	// focus once ITS OWN removal completes moments later.
+	// `:not([disabled])` — the stepper's own Prev/Next are disabled with only
+	// one pending change left (nothing to step to), which a plain "first
+	// button" query would still hand back; a disabled button silently
+	// refuses focus, so that would look identical to the original bug.
+	const reviewBarButton =
+		pendingList.length > 0
+			? reviewBarSlotEl?.querySelector<HTMLButtonElement>(
+					"button:not([disabled])",
+				)
+			: null;
+	if (reviewBarButton) {
+		reviewBarButton.focus();
+		return;
+	}
+	editor?.view.focus();
+}
+
+/**
  * Keep: clears exactly this change's mark, leaves the text. The mark's own
  * CLEAR is deferred to the end of the pill's 1.4s "Kept" window (redesign
  * §7.2 #13) rather than instant, so `change-pill-decoration.ts`'s own live
@@ -926,7 +989,9 @@ function handleKeepChange(changeId: string): void {
 		...pending,
 		status: "kept",
 	});
+	announce($t("artifacts.document.change.keptNotice"));
 	void acknowledgeReview([pending.entry.blockId]);
+	void focusAfterKeep();
 	setTimeout(() => {
 		if (editor && keepChangeFn) keepChangeFn(editor, changeId);
 		removePendingChange(changeId);
@@ -962,6 +1027,7 @@ function handleUndoChange(changeId: string): void {
 		fallbackPos,
 		appliedMarkdown,
 	});
+	announce($t("artifacts.document.change.undoneNotice"));
 	const canonical = currentCanonicalMarkdown();
 	if (canonical !== null) {
 		autosave?.schedule(canonical);
@@ -1034,14 +1100,37 @@ function handleUndoAllChanges(): void {
 	}
 }
 
-/** "See what Alfy did" / a comment's own change chip — scrolls to one already-applied change's own mark. */
-function seeChange(changeId: string): void {
+/**
+ * "See what Alfy did" / a comment's own change chip / the review bar's
+ * stepper — scrolls to one already-applied change's own mark. rd/review-2-5.md:122-129:
+ * a change living in a tab other than the active one sits inside a
+ * `display:none` section (ruling 61's "tabs show only their own section"),
+ * so scrolling straight to it did nothing visible — this switches to the
+ * change's own tab FIRST (via the same `handleTabActivate` a click on the
+ * tab strip uses) and waits a `tick()` for that section to actually become
+ * visible before scrolling. The changeId → blockId lookup goes through
+ * `pendingChanges` (the same map every change pill/the review bar itself
+ * reads) rather than searching the live document, since every caller here
+ * only ever names a changeId that is (or very recently was) one of its
+ * entries.
+ */
+async function seeChange(changeId: string): Promise<void> {
 	if (!editor || !scrollToChangeFn) return;
+	const blockId = pendingChanges.get(changeId)?.entry.blockId;
+	if (blockId) {
+		const targetTabId = mapBlocksToTabs(blocks, tabs).get(blockId);
+		if (targetTabId && targetTabId !== activeTabId) {
+			handleTabActivate(targetTabId);
+			await tick();
+		}
+	}
 	scrollToChangeFn(editor, changeId);
 }
 
 function handleSeeChange(): void {
-	if (refusalNotice?.firstAppliedChangeId) seeChange(refusalNotice.firstAppliedChangeId);
+	if (refusalNotice?.firstAppliedChangeId) {
+		void seeChange(refusalNotice.firstAppliedChangeId);
+	}
 }
 
 // ---- Wave 2.5 Step 10: the review bar's own stepper ------------------------
@@ -1064,19 +1153,34 @@ $effect(() => {
 $effect(() => {
 	onPendingReviewCountChange?.(pendingList.length);
 });
+// rd/review-2-5.md:217-222: the review bar's own "Alfy changed N parts"
+// summary used to rely on `role="status"` announcing itself on mount — most
+// screen readers do not, since the region already carries text the moment
+// it appears. Re-announced through the shared announcer instead, on any
+// INCREASE (the bar first appearing, or a further Alfy edit landing while it
+// is already showing) — never on a decrease, which is Keep/Undo's own
+// announcement's job, not this one's.
+let previousPendingCount = 0;
+$effect(() => {
+	const count = pendingList.length;
+	if (count > previousPendingCount) {
+		announce($t("artifacts.document.review.summary", { count }));
+	}
+	previousPendingCount = count;
+});
 
 function handleReviewPrev(): void {
 	if (pendingList.length === 0) return;
 	reviewIndex = (reviewIndex - 1 + pendingList.length) % pendingList.length;
 	const [changeId] = pendingList[reviewIndex];
-	seeChange(changeId);
+	void seeChange(changeId);
 }
 
 function handleReviewNext(): void {
 	if (pendingList.length === 0) return;
 	reviewIndex = (reviewIndex + 1) % pendingList.length;
 	const [changeId] = pendingList[reviewIndex];
-	seeChange(changeId);
+	void seeChange(changeId);
 }
 // ---- end Wave 2.5 Step 10 review bar stepper ------------------------------
 
@@ -1195,14 +1299,65 @@ function handleDirty(): void {
 	onDirtyChange?.(true);
 }
 
+/**
+ * Ruling 61: "a user's own edit to such a block acknowledges it" — server-side
+ * this was already true after a reload (`document-ops.ts`'s own
+ * `computePendingReviewBlocks` treats a later user-authored version as the
+ * block's most recent change, which excludes it), but nothing told the LIVE
+ * session the same thing: the pill and the review bar's own count kept
+ * showing a change the user had, in effect, already resolved by typing over
+ * it, and Undo would then restore the PRE-ALFY text, throwing the user's own
+ * edit away with it (rd/review-2-5.md:141-148).
+ *
+ * Compares every still-pending block's hash before/after this update (`blocks`
+ * state is still the PRE-update value here — the caller reassigns it right
+ * after this returns); a block whose hash changed (edited) or that no longer
+ * exists (deleted) is dropped from the live `pendingChanges` map — the same
+ * `setChangePills` effect that renders the pills reacts to this — and its
+ * mark cleared exactly as Keep does, immediately rather than through Keep's
+ * own 1.4s settle window: there is no "Kept" feedback to show, since the user
+ * never clicked anything.
+ */
+function acknowledgePendingBlocksTouchedByUserEdit(
+	nextBlocks: DocumentBlock[],
+): void {
+	if (pendingChanges.size === 0) return;
+	const previousHashById = new Map(blocks.map((b) => [b.id, b.hash]));
+	const nextHashById = new Map(nextBlocks.map((b) => [b.id, b.hash]));
+
+	const touchedChangeIds: string[] = [];
+	const touchedBlockIds: string[] = [];
+	for (const [changeId, pending] of pendingChanges) {
+		if (pending.status !== "pending") continue;
+		const blockId = pending.entry.blockId;
+		const before = previousHashById.get(blockId);
+		if (before === undefined) continue; // nothing to compare against yet
+		if (nextHashById.get(blockId) === before) continue; // untouched
+		touchedChangeIds.push(changeId);
+		touchedBlockIds.push(blockId);
+	}
+	if (touchedChangeIds.length === 0) return;
+
+	const next = new Map(pendingChanges);
+	for (const changeId of touchedChangeIds) next.delete(changeId);
+	pendingChanges = next;
+
+	if (editor && keepChangeFn) {
+		for (const changeId of touchedChangeIds) keepChangeFn(editor, changeId);
+	}
+	void acknowledgeReview(touchedBlockIds);
+}
+
 function handleUpdate(): void {
 	updateActiveActionIds();
 	const canonical = currentCanonicalMarkdown();
 	if (canonical !== null) {
 		autosave?.schedule(canonical);
+		const nextBlocks = parseDocument(canonical, { mint: false }).blocks;
+		acknowledgePendingBlocksTouchedByUserEdit(nextBlocks);
 		// Keeps the margin's anchor resolution live as the user types, not just
 		// after the next full reload.
-		updateBlocksFromMarkdown(canonical);
+		blocks = nextBlocks;
 	}
 }
 
@@ -1692,6 +1847,7 @@ $effect(() => {
 			blockId: pending.entry.blockId,
 			status: pending.status,
 			commentCount: 0,
+			blockLabel: pending.entry.blockLabel,
 			fallbackPos: pending.fallbackPos,
 		}),
 	);
@@ -1713,7 +1869,7 @@ function handleGotoCommentAnchor(
 /** The change chip's own "See change" — the SAME scroll-to-change `handleSeeChange` below already uses for the refusal notice, resolved from whichever changeId this comment's own `@Alfy` reply produced. */
 function handleSeeChangeForComment(commentId: string): void {
 	const changeId = changeIdByCommentId.get(commentId);
-	if (changeId) seeChange(changeId);
+	if (changeId) void seeChange(changeId);
 }
 
 /**
@@ -1818,6 +1974,13 @@ function saveNoticeText(notice: SaveNotice): string {
 </script>
 
 <div class="document-body" bind:this={documentBodyEl}>
+	<!-- rd/review-2-5.md:217-222: the one shared announcer — see its own
+	     `announce()` doc comment above. Always mounted, regardless of load
+	     state, so a text change here is reliably picked up by screen readers
+	     from the very first thing this component ever announces. -->
+	<div class="sr-only" role="status" aria-live="polite" data-testid="document-announcer">
+		{announcement}
+	</div>
 	<div class="document-main">
 		{#if editorReady}
 			<Tabs
@@ -1904,6 +2067,9 @@ function saveNoticeText(notice: SaveNotice): string {
 					<div
 						class="document-editor-host"
 						bind:this={editorEl}
+						role={tabs.length > 1 ? 'tabpanel' : undefined}
+						id={tabs.length > 1 ? `document-tabpanel-${activeTabId}` : undefined}
+						aria-labelledby={tabs.length > 1 ? `document-tab-${activeTabId}` : undefined}
 						style:padding-bottom={pendingList.length > 0
 							? `calc(1rem + ${reviewBarHeight}px)`
 							: undefined}
@@ -1955,6 +2121,9 @@ function saveNoticeText(notice: SaveNotice): string {
 								versionsSheetOpen = false;
 								retryLoad();
 							}}
+							currentUserId={currentUser?.id ?? null}
+							currentUserName={currentUser?.displayName ?? null}
+							currentUserProfilePicture={currentUser?.profilePicture ?? null}
 						/>
 					{/if}
 				{/if}
@@ -2009,6 +2178,9 @@ function saveNoticeText(notice: SaveNotice): string {
 					onActiveCommentChange={(id) => (activeCommentId = id)}
 					onAnchorsChange={(anchors) => (commentAnchors = anchors)}
 					onActivateTab={handleTabActivate}
+					currentUserId={currentUser?.id ?? null}
+					currentUserName={currentUser?.displayName ?? null}
+					currentUserProfilePicture={currentUser?.profilePicture ?? null}
 				/>
 			</aside>
 			<!-- Wave 2.5 Step 8: the SAME rail, below the container's 820px
@@ -2033,6 +2205,9 @@ function saveNoticeText(notice: SaveNotice): string {
 					onAnchorsChange={(anchors) => (commentAnchors = anchors)}
 					onActivateTab={handleTabActivate}
 					onClose={() => (commentsOverlayOpen = false)}
+					currentUserId={currentUser?.id ?? null}
+					currentUserName={currentUser?.displayName ?? null}
+					currentUserProfilePicture={currentUser?.profilePicture ?? null}
 				/>
 			{/if}
 		</div>

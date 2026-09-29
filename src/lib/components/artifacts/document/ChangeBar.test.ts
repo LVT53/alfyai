@@ -1,9 +1,11 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { uiLanguage } from "$lib/stores/settings";
 import ChangeBar from "./ChangeBar.svelte";
 
 afterEach(() => {
 	cleanup();
+	uiLanguage.set("en");
 });
 
 function callbacks() {
@@ -82,5 +84,52 @@ describe("ChangeBar", () => {
 			screen.getByRole("button", { name: "Redo Alfy's change" }),
 		);
 		expect(onRedo).toHaveBeenCalledOnce();
+	});
+
+	// rd/review-2-5.md:210-216 — Keep/Undo re-mount this widget under a new
+	// key, destroying whichever button had focus; "undone" is reachable only
+	// via the user's own just-now Undo click, so autofocusing this fresh
+	// instance's own Redo button is always correct, never a surprise.
+	it("autofocuses its own Redo button once mounted in the undone state", () => {
+		render(ChangeBar, { ...callbacks(), status: "undone" });
+		expect(screen.getByRole("button", { name: "Redo Alfy's change" })).toBe(
+			document.activeElement,
+		);
+	});
+
+	it("does not steal focus when mounted pending (the common case: a fresh live Alfy edit landing)", () => {
+		render(ChangeBar, callbacks());
+		expect(screen.getByRole("button", { name: "Keep Alfy's change" })).not.toBe(
+			document.activeElement,
+		);
+	});
+
+	// WCAG 2.5.3 Label in Name — each button's accessible name must literally
+	// contain its own visible text, so a voice-control user saying the
+	// visible word activates the right control. The Hungarian a11y strings
+	// used to name-check "Alfy módosítása" and a DIFFERENT word form of the
+	// action ("megtartása"/"visszavonása"/"megismétlése") than the visible
+	// buttons ("Megtartom"/"Visszavonom"/"Újra").
+	describe("Hungarian accessible names contain their own visible text (WCAG 2.5.3)", () => {
+		it("Keep", () => {
+			uiLanguage.set("hu");
+			render(ChangeBar, callbacks());
+			const button = screen.getByRole("button", { name: /^Megtartom/ });
+			expect(button).toHaveTextContent("Megtartom");
+		});
+
+		it("Undo", () => {
+			uiLanguage.set("hu");
+			render(ChangeBar, callbacks());
+			const button = screen.getByRole("button", { name: /^Visszavonom/ });
+			expect(button).toHaveTextContent("Visszavonom");
+		});
+
+		it("Redo", () => {
+			uiLanguage.set("hu");
+			render(ChangeBar, { ...callbacks(), status: "undone" });
+			const button = screen.getByRole("button", { name: /^Újra/ });
+			expect(button).toHaveTextContent("Újra");
+		});
 	});
 });

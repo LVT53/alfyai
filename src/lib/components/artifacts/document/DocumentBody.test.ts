@@ -790,6 +790,63 @@ describe("DocumentBody", () => {
 			expect(tabButtons[0]).toHaveAttribute("aria-selected", "true");
 		});
 
+		// rd/review-2-5.md:223-228 — every tab's own aria-controls pointed at a
+		// "document-tabpanel-{id}" that no element ever carried; the editor
+		// host now carries that id for whichever tab is currently active.
+		it("gives the editor host role=tabpanel with the active tab's own id, updated when the active tab changes", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					metadata: {
+						artifactType: "document",
+						title: "Trip plan",
+						tabs: [
+							{ id: "tab-1", title: "Plan", startBlockId: "p1" },
+							{ id: "tab-2", title: "Budget", startBlockId: "p2" },
+						],
+					},
+				}),
+			);
+			const { container } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			const editorHost = container.querySelector(".document-editor-host");
+			expect(editorHost).toHaveAttribute("role", "tabpanel");
+			expect(editorHost).toHaveAttribute("id", "document-tabpanel-tab-1");
+			expect(editorHost).toHaveAttribute(
+				"aria-labelledby",
+				"document-tab-tab-1",
+			);
+
+			await fireEvent.click(screen.getByRole("tab", { name: "Budget" }));
+			expect(editorHost).toHaveAttribute("id", "document-tabpanel-tab-2");
+			expect(editorHost).toHaveAttribute(
+				"aria-labelledby",
+				"document-tab-tab-2",
+			);
+		});
+
+		it("omits the tabpanel role/id for a single-tab document — there is no tablist for it to pair with", async () => {
+			const { container } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			const editorHost = container.querySelector(".document-editor-host");
+			expect(editorHost).not.toHaveAttribute("role");
+			expect(editorHost).not.toHaveAttribute("id");
+		});
+
 		it("switching the active tab does not reload the editor module or the document", async () => {
 			mockFetchArtifact.mockResolvedValue(
 				ARTIFACT_DETAIL({
@@ -1104,6 +1161,10 @@ describe("DocumentBody", () => {
 			expect(mockAskAlfyInComment).not.toHaveBeenCalled();
 			// Refreshed at least once after the post (initial load + refresh).
 			expect(mockFetchArtifact).toHaveBeenCalledTimes(2);
+			// rd/review-2-5.md:217-222 — fed into the one shared announcer.
+			expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+				"Comment added.",
+			);
 		});
 
 		it("asks Alfy after posting a comment that mentions @Alfy", async () => {
@@ -1160,6 +1221,13 @@ describe("DocumentBody", () => {
 					"artifact-1",
 					"comment-1",
 					null,
+				),
+			);
+			// rd/review-2-5.md:217-222 — Alfy's own reply landing is fed into the
+			// one shared announcer, overwriting the earlier "Comment added."
+			await waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Alfy replied.",
 				),
 			);
 		});
@@ -1477,6 +1545,12 @@ describe("DocumentBody", () => {
 					"comment-1",
 					true,
 					"conv-1",
+				),
+			);
+			// rd/review-2-5.md:217-222 — fed into the one shared announcer.
+			await waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Comment resolved.",
 				),
 			);
 		});
@@ -2657,6 +2731,149 @@ describe("DocumentBody", () => {
 				),
 			);
 		});
+
+		// rd/review-2-5.md:141-148 — a user's own edit of a pending block did not
+		// acknowledge it in the live session: the pill and the acknowledge call
+		// only ever fired from an explicit Keep/Undo click, so typing over the
+		// SAME block left it stuck "pending" (and a later Undo would have thrown
+		// the user's own typing away, restoring Alfy's pre-edit text instead).
+		it("the user's own edit of a pending block acknowledges it, the same as Keep", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nFirst." }),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-5",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "call-user-edit",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+			await waitFor(() =>
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({
+							changeId: "change-5",
+							status: "pending",
+						}),
+					]),
+				),
+			);
+
+			// The user keeps typing in the SAME block — not a Keep/Undo click.
+			simulateTyping("<!--b:p1-->\nFirst, edited by the user instead.");
+
+			await waitFor(() =>
+				expect(mockAcknowledgeDocumentReviewBlocks).toHaveBeenCalledWith(
+					"artifact-1",
+					["p1"],
+					null,
+				),
+			);
+			// The mark is cleared the same way Keep clears it (no lingering pill).
+			expect(mockKeepChange).toHaveBeenCalledWith(
+				expect.anything(),
+				"change-5",
+			);
+			expect(mockSetChangePills).toHaveBeenLastCalledWith(
+				expect.anything(),
+				[],
+			);
+		});
+
+		it("does NOT acknowledge a pending block the user never touched", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+				}),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-6",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "call-other-block-edit",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+			await waitFor(() =>
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({
+							changeId: "change-6",
+							status: "pending",
+						}),
+					]),
+				),
+			);
+			mockSetChangePills.mockClear();
+
+			// Edits the OTHER block (p2) — p1's own pending change must survive.
+			simulateTyping(
+				"<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond, edited by the user.",
+			);
+			await waitFor(() => expect(mockReadMarkdown).toHaveBeenCalled());
+
+			expect(mockAcknowledgeDocumentReviewBlocks).not.toHaveBeenCalled();
+			expect(mockKeepChange).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("Wave 2.5 Step 10: the review bar", () => {
@@ -2696,7 +2913,7 @@ describe("DocumentBody", () => {
 			};
 		}
 
-		/** `getByRole("status", …)` finds the bar itself — robust against the summary text sitting inside a nested `<span>` alongside the (absent, here) "Left N alone" link, unlike a bare `getByText`. */
+		/** `getByRole("region", …)` finds the bar itself — robust against the summary text sitting inside a nested `<span>` alongside the (absent, here) "Left N alone" link, unlike a bare `getByText`. */
 		async function renderWithOnePending() {
 			const { rerender } = render(DocumentBody, {
 				artifactId: "artifact-1",
@@ -2717,7 +2934,7 @@ describe("DocumentBody", () => {
 			});
 			await vi.waitFor(() =>
 				expect(
-					screen.getByRole("status", { name: "Changes from Alfy" }),
+					screen.getByRole("region", { name: "Changes from Alfy" }),
 				).toHaveTextContent("Alfy changed 1 part."),
 			);
 		}
@@ -2747,6 +2964,134 @@ describe("DocumentBody", () => {
 			}
 		});
 
+		// rd/review-2-5.md:217-222 — the review bar's own former role="status"
+		// unreliably announced its own landing summary (a region already
+		// carrying text at insertion is commonly not announced); the shared
+		// announcer now carries it instead, and Keep/Undo announce themselves
+		// through the SAME mechanism rather than relying on the pill's own text
+		// becoming visible.
+		it("announces the landing summary once a change lands, and Kept once Keep settles", async () => {
+			await renderWithOnePending();
+			expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+				"Alfy changed 1 part.",
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: /Keep all/ }));
+
+			await vi.waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Kept",
+				),
+			);
+		});
+
+		it("announces Undone once Undo runs", async () => {
+			await renderWithOnePending();
+
+			await fireEvent.click(screen.getByRole("button", { name: /Undo all/ }));
+
+			await vi.waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Undone",
+				),
+			);
+		});
+
+		// rd/review-2-5.md:210-216 — Keep's own resulting "kept" pill state has
+		// no button left inside it (unlike Undo's "undone" state, which keeps
+		// its own Redo button — see ChangeBar.test.ts), so the Keep button that
+		// had focus was destroyed by the widget's own remount with nothing to
+		// take its place, dropping focus to <body>.
+		it("moves focus to the editor once Keep empties the pending list entirely", async () => {
+			await renderWithOnePending();
+
+			await fireEvent.click(screen.getByRole("button", { name: /Keep all/ }));
+
+			await vi.waitFor(() =>
+				expect(latestEditor().view.focus).toHaveBeenCalled(),
+			);
+		});
+
+		it("moves focus to a review-bar button when another change is still pending after Keep", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+				}),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "rb-change-a",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+				{
+					changeId: "rb-change-b",
+					blockId: "p2",
+					blockLabel: "Second.",
+					previousMarkdown: "Second.",
+				},
+			]);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "rb-call-focus",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact" as const,
+					status: "applied" as const,
+					label: null,
+					patches: [
+						{
+							op: "replaceBlock" as const,
+							blockId: "p1",
+							baseHash: "h1",
+							text: "x",
+						},
+						{
+							op: "replaceBlock" as const,
+							blockId: "p2",
+							baseHash: "h1",
+							text: "y",
+						},
+					],
+					refusedBlocks: [],
+					appliedCount: 2,
+				},
+			});
+			await vi.waitFor(() =>
+				expect(screen.getByRole("button", { name: "Next change" })),
+			);
+
+			const { onKeep } = latestEditor().options.changePillCallbacks as {
+				onKeep: (changeId: string) => void;
+			};
+			onKeep("rb-change-a"); // keep only ONE of the two pending changes
+
+			// Prev/Next are BOTH disabled with only one change left to step to —
+			// the fix must skip past them to a real, focusable button, never
+			// silently fail because the first button in DOM order is disabled.
+			await vi.waitFor(() => {
+				expect(screen.getByRole("button", { name: /Undo all/ })).toBe(
+					document.activeElement,
+				);
+			});
+			expect(latestEditor().view.focus).not.toHaveBeenCalled();
+		});
+
 		it("Undo all calls undoChange for every pending change", async () => {
 			await renderWithOnePending();
 
@@ -2766,6 +3111,104 @@ describe("DocumentBody", () => {
 			expect(mockScrollToChange).toHaveBeenCalledWith(
 				expect.anything(),
 				"rb-change-1",
+			);
+		});
+
+		// rd/review-2-5.md:122-129 — the stepper's Next/Previous never switched
+		// tabs, so a pending change living in a tab other than the active one
+		// was unreachable (its block sits in a `display:none` section).
+		it("the stepper switches tabs first when the next change lives in a different tab", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.",
+					metadata: {
+						artifactType: "document",
+						title: "Trip plan",
+						tabs: [
+							{ id: "tab-1", title: "Plan", startBlockId: "p1" },
+							{ id: "tab-2", title: "Budget", startBlockId: "p2" },
+						],
+					},
+				}),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "rb-change-1",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+				{
+					changeId: "rb-change-2",
+					blockId: "p2",
+					blockLabel: "Second.",
+					previousMarkdown: "Second.",
+				},
+			]);
+
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			// tab-1 (the first tab) is active by default — its own row's "Next"
+			// stays on tab-1 until the stepper reaches p2's change, in tab-2.
+			expect(screen.getAllByRole("tab")[0]).toHaveAttribute(
+				"aria-selected",
+				"true",
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "rb-call-2tabs",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact" as const,
+					status: "applied" as const,
+					label: null,
+					patches: [
+						{
+							op: "replaceBlock" as const,
+							blockId: "p1",
+							baseHash: "h1",
+							text: "x",
+						},
+						{
+							op: "replaceBlock" as const,
+							blockId: "p2",
+							baseHash: "h1",
+							text: "y",
+						},
+					],
+					refusedBlocks: [],
+					appliedCount: 2,
+				},
+			});
+			await vi.waitFor(() =>
+				expect(screen.getByRole("button", { name: "Next change" })),
+			);
+
+			// reviewIndex starts at 0 — the FIRST pending entry (p1, already in
+			// the active tab-1). Advancing to the second (p2, tab-2) must switch
+			// tabs before scrolling.
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Next change" }),
+			);
+			expect(mockSetActiveDocumentTab).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.anything(),
+				"tab-2",
+			);
+			expect(mockScrollToChange).toHaveBeenCalledWith(
+				expect.anything(),
+				"rb-change-2",
 			);
 		});
 	});

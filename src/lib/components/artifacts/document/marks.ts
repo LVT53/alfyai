@@ -233,6 +233,14 @@ export function applyAlfyChangeMarks(
 
 	if (changed) {
 		tr.setMeta("addToHistory", false);
+		// Mark-only (Fix agent C, rd/review-2-5.md:109-121): this transaction
+		// only ADDS the AlfyChange mark over text a patch already applied
+		// elsewhere — it is not itself a user edit. Without `preventUpdate`,
+		// Tiptap's own `Editor` still treats a mark-only change as
+		// `docChanged` and fires `update` regardless, which reached
+		// `DocumentBody.svelte`'s `handleUpdate` → autosave and wrote a
+		// spurious, byte-identical version.
+		tr.setMeta("preventUpdate", true);
 		editor.view.dispatch(tr);
 	}
 	return entries;
@@ -293,6 +301,11 @@ export function keepAlfyChange(editor: Editor, changeId: string): boolean {
 
 	const tr = editor.state.tr.removeMark(range.from, range.to, markType);
 	tr.setMeta("addToHistory", false);
+	// Mark-only, like `applyAlfyChangeMarks` above: Keep's own persistence
+	// (acknowledging the block) goes through `acknowledgeDocumentReviewBlocks`,
+	// not a document body save — clearing the mark here must not also queue
+	// an autosave.
+	tr.setMeta("preventUpdate", true);
 	editor.view.dispatch(tr);
 	return true;
 }
@@ -336,6 +349,12 @@ export function remarkAlfyChange(
 		markType.create({ [ALFY_CHANGE_ATTR]: changeId }),
 	);
 	tr.setMeta("addToHistory", false);
+	// Mark-only, like `applyAlfyChangeMarks`/`keepAlfyChange` above. Ruling
+	// 61's reload-restore is the case that matters most: without this, merely
+	// OPENING a Document with unreviewed Alfy changes re-marked every pending
+	// block and each mark-add fired `update` → autosave → a new, empty
+	// "Edited" version, every single time the document was opened.
+	tr.setMeta("preventUpdate", true);
 	editor.view.dispatch(tr);
 	return true;
 }

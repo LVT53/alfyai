@@ -1157,7 +1157,7 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			});
 			await expect(page.getByTestId("refusal-notice")).toHaveCount(0);
 			await expect(
-				page.getByRole("status", { name: "Changes from Alfy" }),
+				page.getByRole("region", { name: "Changes from Alfy" }),
 			).toContainText("Alfy changed 1 part.");
 
 			// Keep it, reload again: one fewer — the marker (and the
@@ -1167,14 +1167,14 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			// marker happens to still cover this version.
 			await page.getByRole("button", { name: "Keep Alfy's change" }).click();
 			await expect(
-				page.getByRole("status", { name: "Changes from Alfy" }),
+				page.getByRole("region", { name: "Changes from Alfy" }),
 			).toHaveCount(0, { timeout: 5_000 });
 
 			await page.reload({ waitUntil: "networkidle" });
 			await openDocumentFromPanel(page);
 			await expect(page.getByTestId("alfy-change-bar")).toHaveCount(0);
 			await expect(
-				page.getByRole("status", { name: "Changes from Alfy" }),
+				page.getByRole("region", { name: "Changes from Alfy" }),
 			).toHaveCount(0);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
@@ -1289,7 +1289,7 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			);
 
 			// Exactly ONE applied change, never two, when opened this way.
-			const reviewRegion = page.getByRole("status", {
+			const reviewRegion = page.getByRole("region", {
 				name: "Changes from Alfy",
 			});
 			await expect(reviewRegion).toContainText("Alfy changed 1 part.");

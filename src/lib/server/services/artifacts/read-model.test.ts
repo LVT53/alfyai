@@ -4,6 +4,7 @@ import {
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
+import { EMPTY_TAB_ANCHOR_PLACEHOLDER } from "$lib/shared/artifact-document/blocks";
 import type { PatchOp, PatchSet } from "$lib/shared/artifact-document/patch";
 import {
 	NOW,
@@ -363,6 +364,27 @@ describe("listArtifactsForConversation — documentPreview (T9 steps 4/7)", () =
 
 		expect(row.kind).toBe("app");
 		expect(row.documentPreview).toBeUndefined();
+	});
+
+	// rd/review-2-5.md's fix-agent-B finding 7 (verified by fix agent C): a
+	// still-empty new tab's own anchor paragraph is a single zero-width space
+	// (`appendEmptyTabSection`) — real content to the STORED body, but the
+	// card preview has nothing to leak it THROUGH: `documentPreview` never
+	// carries body text at all (only tabCount/tasks/totalTaskCount, per the
+	// "never leaks the body itself" test above), so a still-empty tab is
+	// already safe by construction. This guards that staying true.
+	it("never leaks the empty-tab zero-width-space placeholder either — documentPreview has no body-text field to carry it", async () => {
+		await createDocumentWithBody(
+			"Trip plan",
+			`${TASKS_BODY}\n\n${EMPTY_TAB_ANCHOR_PLACEHOLDER}`,
+		);
+
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+
+		expect(JSON.stringify(row)).not.toContain(EMPTY_TAB_ANCHOR_PLACEHOLDER);
 	});
 });
 

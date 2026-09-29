@@ -85,6 +85,22 @@ describe("Tabs", () => {
 		expect(planTab).not.toHaveTextContent(/\d/);
 	});
 
+	// rd/review-2-5.md:223-228 — the badge read as a bare number to a screen
+	// reader ("Áttekintés 3"); the visible digit is now aria-hidden and an
+	// sr-only phrase explains what it counts.
+	it("hides the bare digit from the accessibility tree and names what it counts instead", () => {
+		render(Tabs, {
+			tabs: tabs("Plan", "Budget"),
+			activeTabId: "tab-0",
+			onActivate: vi.fn(),
+			onChange: vi.fn(),
+			badgeCounts: { "tab-1": 3 },
+		});
+		const visibleBadge = screen.getByText("3");
+		expect(visibleBadge).toHaveAttribute("aria-hidden", "true");
+		expect(screen.getByText("3 open comments")).toBeInTheDocument();
+	});
+
 	it("renders the sliding underline element once", () => {
 		const { container } = render(Tabs, {
 			tabs: tabs("Plan", "Budget"),

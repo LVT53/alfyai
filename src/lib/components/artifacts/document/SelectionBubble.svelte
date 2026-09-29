@@ -198,6 +198,15 @@ async function submit(): Promise<void> {
 	}
 }
 
+/**
+ * rd/review-2-5.md:229-232: on the DESKTOP composer's own wrapping
+ * `role="dialog"` (not just the textarea, which is where this used to live
+ * alone) so Escape — and ⌘/Ctrl+Enter — work from a suggestion chip or the
+ * Cancel/Send buttons too, not only while focus happens to be in the
+ * textarea itself. The phone sheet needs no equivalent: `DialogShell`'s own
+ * `focusTrap` already owns Escape there (`onClose={cancel}`, window-level,
+ * independent of which descendant currently has focus).
+ */
 function handleComposerKeydown(event: KeyboardEvent): void {
 	if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
 		event.preventDefault();
@@ -239,7 +248,6 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 			: $t('artifacts.document.comment.placeholder')}
 		bind:value={draftText}
 		disabled={posting}
-		onkeydown={handleComposerKeydown}
 	></textarea>
 	{#if mode === 'ask'}
 		<div class="selection-bubble-chips">
@@ -325,7 +333,13 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 				{@render triggerButtons()}
 			</div>
 		{:else}
-			<div class="selection-bubble-composer" role="dialog" aria-label={composerLabel}>
+			<div
+				class="selection-bubble-composer"
+				role="dialog"
+				tabindex="-1"
+				aria-label={composerLabel}
+				onkeydown={handleComposerKeydown}
+			>
 				{@render composerFields()}
 			</div>
 		{/if}

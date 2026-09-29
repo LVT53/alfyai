@@ -72,6 +72,19 @@ export interface ArtifactBodyProps {
 	 * review workflow (App, File) simply never calls it.
 	 */
 	onPendingReviewCountChange?: (count: number) => void;
+	/**
+	 * rd/review-2-5.md:272-275: the signed-in user's own id/name/profile
+	 * picture, for a "you" row (a comment, a version) to show the real avatar
+	 * instead of a placeholder "U" — the layout already resolves this
+	 * (`(app)/+layout.server.ts`'s `SessionUser`); bodies with such a row
+	 * (Document, today) thread it down to the leaf that renders `AvatarCircle`.
+	 * `null`/absent falls back to the old placeholder.
+	 */
+	currentUser?: {
+		id: string;
+		displayName: string;
+		profilePicture: string | null;
+	} | null;
 }
 
 /** See `ArtifactBodyProps.registerPanelActions`. Every field is optional: a body opts in to only the actions it actually owns a sheet for. */

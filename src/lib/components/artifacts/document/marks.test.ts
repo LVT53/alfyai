@@ -45,13 +45,14 @@ afterEach(() => {
 	element = null;
 });
 
-function mountEditor(markdown: string) {
+function mountEditor(markdown: string, onUpdate?: () => void) {
 	element = document.createElement("div");
 	document.body.appendChild(element);
 	return createDocumentEditor({
 		element,
 		markdown,
 		placeholder: "Write anything, or ask Alfy to.",
+		onUpdate,
 	});
 }
 
@@ -62,8 +63,8 @@ function mountEditor(markdown: string) {
  * `document-editor.test.ts` uses, and required here because
  * `applyAlfyChangeMarks` locates blocks in the live editor by id.
  */
-function setup(markdown: string) {
-	const editor = mountEditor(markdown);
+function setup(markdown: string, onUpdate?: () => void) {
+	const editor = mountEditor(markdown, onUpdate);
 	const parsed = parseDocument(readMarkdown(editor), { mint: false });
 	return { editor, blocks: parsed.blocks, snapshot: buildIndex(parsed.blocks) };
 }
@@ -411,6 +412,93 @@ describe("marks: remarkAlfyChange", () => {
 	it("returns false for a block that is not in the document", () => {
 		const { editor } = setup("Alpha.");
 		expect(remarkAlfyChange(editor, "change-1", "no-such-block")).toBe(false);
+		editor.destroy();
+	});
+});
+
+// rd/review-2-5.md:109-121 — opening a Document with pending changes wrote an
+// empty "Edited" user version: `applyAlfyChangeMarks`/`keepAlfyChange`/
+// `remarkAlfyChange` are mark-only transactions (they add or remove the
+// AlfyChange mark over text a patch already applied elsewhere), but none of
+// them told Tiptap so — `DocumentBody.svelte`'s `handleUpdate` treated the
+// resulting `onUpdate` fire as a real user edit and autosaved. `undoAlfyChange`
+// is the control: Undo genuinely changes the document's content (ruling 61:
+// "Undo restores the parent's content... as a user edit") and must keep firing
+// `onUpdate` so it keeps producing a real saved version.
+describe("marks: mark-only transactions never fire onUpdate (rd/review-2-5.md:109-121)", () => {
+	it("applyAlfyChangeMarks does not fire onUpdate — a patch's mark-add is not itself a user edit", () => {
+		const onUpdate = vi.fn();
+		const { editor, blocks, snapshot } = setup("Alpha.\n\nBeta.", onUpdate);
+		const target = blocks[0];
+		const replaceOp = op({
+			kind: "replaceBlock",
+			blockId: target.id,
+			baseHash: target.hash,
+			text: "Alpha, revised.",
+		});
+		const patch = patchOf([replaceOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+
+		loadMarkdown(editor, result.markdown);
+		onUpdate.mockClear(); // isolate applyAlfyChangeMarks's own dispatch
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		expect(entries).toHaveLength(1);
+		expect(onUpdate).not.toHaveBeenCalled();
+		editor.destroy();
+	});
+
+	it("keepAlfyChange does not fire onUpdate — Keep's own persistence goes through the review API, not a body save", () => {
+		const onUpdate = vi.fn();
+		const { editor, blocks, snapshot } = setup("Alpha.\n\nBeta.", onUpdate);
+		const target = blocks[0];
+		const replaceOp = op({
+			kind: "replaceBlock",
+			blockId: target.id,
+			baseHash: target.hash,
+			text: "Alpha, revised.",
+		});
+		const patch = patchOf([replaceOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		onUpdate.mockClear();
+
+		const cleared = keepAlfyChange(editor, entries[0].changeId);
+		expect(cleared).toBe(true);
+		expect(onUpdate).not.toHaveBeenCalled();
+		editor.destroy();
+	});
+
+	it("remarkAlfyChange does not fire onUpdate — merely opening a document with a ruling-61 pending block must not autosave", () => {
+		const onUpdate = vi.fn();
+		const { editor, blocks } = setup("Alpha.\n\nBeta.", onUpdate);
+		onUpdate.mockClear();
+
+		const marked = remarkAlfyChange(editor, "restored-change", blocks[0].id);
+		expect(marked).toBe(true);
+		expect(onUpdate).not.toHaveBeenCalled();
+		editor.destroy();
+	});
+
+	it("undoAlfyChange DOES still fire onUpdate — Undo is a real, save-worthy edit, not a mark-only transaction", () => {
+		const onUpdate = vi.fn();
+		const { editor, blocks, snapshot } = setup("Alpha.\n\nBeta.", onUpdate);
+		const target = blocks[0];
+		const replaceOp = op({
+			kind: "replaceBlock",
+			blockId: target.id,
+			baseHash: target.hash,
+			text: "Alpha, revised.",
+		});
+		const patch = patchOf([replaceOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		onUpdate.mockClear();
+
+		const undone = undo(editor, entries[0]);
+		expect(undone).toBe(true);
+		expect(onUpdate).toHaveBeenCalledTimes(1);
 		editor.destroy();
 	});
 });

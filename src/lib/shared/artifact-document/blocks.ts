@@ -18,6 +18,34 @@ import type { DocumentTab } from "$lib/server/services/artifacts/serialize/docum
 export const MARKER_PREFIX = "<!--b:";
 const MARKER_RE = /^<!--b:([A-Za-z0-9_.-]+)-->$/;
 
+/**
+ * `document-editor.ts`'s `appendEmptyTabSection` (ruling 61's third point,
+ * "Tabs show only their own section") writes this single zero-width space as
+ * a brand-new tab's anchor paragraph — real enough that `splitIntoSegments`
+ * below never drops its marker as "a trailing marker with no following
+ * block" the way a truly empty paragraph's would, but never meant to be seen
+ * outside the live editor. A reader that hands this text to something other
+ * than the editor itself (an export, `read_artifact`, any future card
+ * preview) should read it as empty text, never as one invisible character —
+ * `stripEmptyTabAnchorPlaceholder` below is the one place that does that
+ * (Wave 2.5 review, fix agent C: rd/review-2-5.md's fix-agent-B finding 7).
+ */
+export const EMPTY_TAB_ANCHOR_PLACEHOLDER = "​";
+
+/**
+ * Strips the exact zero-width-space placeholder above out of text meant for
+ * anything other than the live editor. Every caller outside the editor
+ * itself (export, `read_artifact`) should read this block's text through
+ * here rather than the raw stored Markdown — the placeholder must keep
+ * surviving `saveDocumentBody`'s own re-canonicalisation (never stripped at
+ * SAVE time — that would revive the exact whole-document bug this mechanism
+ * exists to fix), so this is deliberately a per-reader transform, not a
+ * write-time or storage-time one.
+ */
+export function stripEmptyTabAnchorPlaceholder(text: string): string {
+	return text.replaceAll(EMPTY_TAB_ANCHOR_PLACEHOLDER, "");
+}
+
 export type BlockKind =
 	| "paragraph"
 	| "heading"

@@ -250,7 +250,10 @@ $effect(() => {
 				>
 					<span>{tab.title}</span>
 					{#if badgeCount > 0}
-						<span class="document-tab-badge">{badgeCount}</span>
+						<span class="document-tab-badge" aria-hidden="true">{badgeCount}</span>
+						<span class="sr-only">
+							{$t('artifacts.document.tab.openCommentsA11y', { count: badgeCount })}
+						</span>
 					{/if}
 				</button>
 				{#if isActive}
@@ -497,5 +500,17 @@ $effect(() => {
 	.document-tab-add:focus-visible {
 		outline: 2px solid var(--border-focus);
 		outline-offset: 1px;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 </style>

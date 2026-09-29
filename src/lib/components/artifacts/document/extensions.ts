@@ -50,6 +50,7 @@ import {
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { StarterKit } from "@tiptap/starter-kit";
 import { get } from "svelte/store";
+import artifactsDict from "$lib/i18n/artifacts";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import {
 	type BlockKind,
@@ -63,7 +64,7 @@ import {
 	buildChangePillExtension,
 	type ChangePillCallbacks,
 } from "./change-pill-decoration";
-import { chipLabel, chipValues } from "./chips";
+import { chipFieldLabel, chipLabel, chipValues } from "./chips";
 import { AlfyChange } from "./marks";
 
 // Re-exported for every existing caller (`document-editor.ts`,
@@ -482,7 +483,7 @@ const TrackerChip = Node.create({
 			if (options.length > 0) {
 				const select = document.createElement("select");
 				select.className = "tracker-chip-select";
-				select.setAttribute("aria-label", kind);
+				select.setAttribute("aria-label", chipFieldLabel(kind, locale));
 				for (const value of options) {
 					const option = document.createElement("option");
 					option.value = value;
@@ -871,6 +872,25 @@ const CommentAnchors = Extension.create({
 });
 
 /**
+ * `TaskItem`'s own default `a11y.checkboxLabel` ("Task item checkbox for
+ * {text}") is hardcoded English inside `@tiptap/extension-list` itself —
+ * localized here (rd/review-2-5.md:256-260) the same way `chips.ts` reads
+ * the current UI language: a plain `get(uiLanguage)` read, never a Svelte
+ * `$t` subscription, since this runs inside Tiptap's own node-rendering
+ * code, not a component.
+ */
+function taskItemCheckboxLabel(node: PMNode): string {
+	const locale = get(uiLanguage) === "hu" ? "hu" : "en";
+	const dict = locale === "hu" ? artifactsDict.hu : artifactsDict.en;
+	const text =
+		node.textContent || dict["artifacts.document.taskItem.emptyTaskItem"];
+	return dict["artifacts.document.taskItem.checkboxLabel"].replace(
+		"{text}",
+		text,
+	);
+}
+
+/**
  * `changePillCallbacks` is optional (defaults to no-ops, `change-pill-
  * decoration.ts`'s own `NOOP_CALLBACKS`) so every caller that never renders a
  * pill for real — `undoAlfyChange`'s own temp/detached editor (`marks.ts`),
@@ -887,7 +907,10 @@ export function buildDocumentExtensions(
 			link: { openOnClick: false, autolink: false },
 		}),
 		TaskList,
-		TaskItem.configure({ nested: true }),
+		TaskItem.configure({
+			nested: true,
+			a11y: { checkboxLabel: (node) => taskItemCheckboxLabel(node) },
+		}),
 		TableKit.configure({ table: { resizable: false } }),
 		Placeholder.configure({ placeholder }),
 		Markdown.configure({ indentation: { style: "space", size: 2 } }),

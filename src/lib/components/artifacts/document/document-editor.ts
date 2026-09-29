@@ -10,7 +10,10 @@ import type { ResolvedPos } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import { ANCHOR_CONTEXT_CHARS } from "$lib/shared/artifact-document/anchor";
-import { MARKER_PREFIX } from "$lib/shared/artifact-document/blocks";
+import {
+	EMPTY_TAB_ANCHOR_PLACEHOLDER,
+	MARKER_PREFIX,
+} from "$lib/shared/artifact-document/blocks";
 import type {
 	PatchResult,
 	PatchSet,
@@ -175,9 +178,13 @@ export function setActiveDocumentTab(
  * it like any other edit. `null` only if the schema has no paragraph node
  * (never true for this Document's own fixed schema — defensive, not a real
  * branch).
+ *
+ * The placeholder character itself is `blocks.ts`'s own exported
+ * `EMPTY_TAB_ANCHOR_PLACEHOLDER` (a single source of truth for the one
+ * function that writes it here and the one function that strips it,
+ * `stripEmptyTabAnchorPlaceholder`, for every reader outside the live editor
+ * — see that module's own doc comment).
  */
-const EMPTY_TAB_SECTION_PLACEHOLDER = "​";
-
 export function appendEmptyTabSection(editor: Editor): string | null {
 	if (!editor.schema.nodes.paragraph) return null;
 	const endPos = editor.state.doc.content.size;
@@ -186,11 +193,11 @@ export function appendEmptyTabSection(editor: Editor): string | null {
 		.focus()
 		.insertContentAt(endPos, {
 			type: "paragraph",
-			content: [{ type: "text", text: EMPTY_TAB_SECTION_PLACEHOLDER }],
+			content: [{ type: "text", text: EMPTY_TAB_ANCHOR_PLACEHOLDER }],
 		})
 		.run();
 	const docEnd = editor.state.doc.content.size;
-	const charStart = docEnd - 1 - EMPTY_TAB_SECTION_PLACEHOLDER.length;
+	const charStart = docEnd - 1 - EMPTY_TAB_ANCHOR_PLACEHOLDER.length;
 	editor
 		.chain()
 		.focus()
