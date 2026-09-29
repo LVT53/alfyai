@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	buildIndex,
+	EMPTY_TAB_ANCHOR_PLACEHOLDER,
 	parseDocument,
+	stripEmptyTabAnchorPlaceholder,
 } from "$lib/shared/artifact-document/blocks";
 import {
 	applyPatchSet,
@@ -18,6 +20,8 @@ import {
 	alfyChangeDocRange,
 	applyAlfyChangeMarks,
 	keepAlfyChange,
+	type RedoBlock,
+	redoAlfyChange,
 	refusalReasonI18nKey,
 	remarkAlfyChange,
 	scrollToAlfyChange,
@@ -36,6 +40,18 @@ function undo(
 	},
 ): boolean {
 	return undoAlfyChange(editor, entry, buildDocumentExtensions(""));
+}
+
+/** Same fresh-extensions rule as `undo` above. */
+function redo(
+	editor: ReturnType<typeof createDocumentEditor>,
+	entry: {
+		blockId: string;
+		appliedMarkdown: string;
+		insertedBlocks?: RedoBlock[];
+	},
+): boolean {
+	return redoAlfyChange(editor, entry, buildDocumentExtensions(""));
 }
 
 let element: HTMLElement | null = null;
@@ -388,6 +404,202 @@ describe("marks: Keep and Undo", () => {
 		expect(after.blocks.some((b) => b.markdown === "Beta, revised.")).toBe(
 			true,
 		);
+		editor.destroy();
+	});
+});
+
+// Follow-up chip (rd4b deviation 5) — a block that already existed but whose
+// text was blank before Alfy filled it in is NOT a block Alfy added: Undo has
+// to put a blank block back, not delete it and not let it fall out of the
+// document. The Markdown model cannot store an empty block at all (a marker
+// with no text after it is dropped on the next save — `blocks.ts`'s
+// `splitIntoSegments`), so "restore a blank block" has to mean the one
+// blank a save keeps: the zero-width-space anchor a new tab already uses.
+describe("marks: Undo of an existing block whose previous text is blank", () => {
+	it("keeps the block, with its id, through a save and reload — the document does not lose a block", () => {
+		const { editor, blocks } = setup("Alpha.\n\nBeta.\n\nGamma.");
+		const idsBefore = blocks.map((b) => b.id);
+
+		const undone = undo(editor, {
+			blockId: blocks[1].id,
+			previousMarkdown: "",
+		});
+		expect(undone).toBe(true);
+
+		// What the autosave posts and the server stores: the canonical form.
+		const saved = parseDocument(readMarkdown(editor), { mint: false });
+		expect(saved.blocks.map((b) => b.id)).toEqual(idsBefore);
+		expect(stripEmptyTabAnchorPlaceholder(saved.blocks[1].markdown)).toBe("");
+		expect(saved.blocks[0].markdown).toBe("Alpha.");
+		expect(saved.blocks[2].markdown).toBe("Gamma.");
+
+		// ...and reading it back gives the same three blocks again.
+		element?.remove();
+		const reloaded = mountEditor(saved.markdown);
+		const reread = parseDocument(readMarkdown(reloaded), { mint: false });
+		expect(reread.blocks.map((b) => b.id)).toEqual(idsBefore);
+		reloaded.destroy();
+		editor.destroy();
+	});
+
+	it("reads as blank to everyone outside the editor (the placeholder is the only text)", () => {
+		const { editor, blocks } = setup("Alpha.\n\nBeta.");
+		undo(editor, { blockId: blocks[1].id, previousMarkdown: "" });
+		const after = parseDocument(readMarkdown(editor), { mint: false });
+		expect(after.blocks[1].markdown).toBe(EMPTY_TAB_ANCHOR_PLACEHOLDER);
+		editor.destroy();
+	});
+
+	it("a block that Alfy ADDED (isNewBlock) is still removed, never left behind as a blank one", () => {
+		const { editor, blocks } = setup("Alpha.\n\nBeta.\n\nGamma.");
+		const undone = undo(editor, {
+			blockId: blocks[1].id,
+			previousMarkdown: "",
+			isNewBlock: true,
+		});
+		expect(undone).toBe(true);
+		const after = parseDocument(readMarkdown(editor), { mint: false });
+		expect(after.blocks.map((b) => b.id)).toEqual([blocks[0].id, blocks[2].id]);
+		editor.destroy();
+	});
+
+	it("tells the two apart in the same document: one Undo deletes the added block, the next restores the blank one", () => {
+		const { editor, blocks } = setup("Alpha.\n\nBeta.\n\nGamma.");
+		undo(editor, {
+			blockId: blocks[0].id,
+			previousMarkdown: "",
+			isNewBlock: true,
+		});
+		undo(editor, { blockId: blocks[2].id, previousMarkdown: "" });
+		const after = parseDocument(readMarkdown(editor), { mint: false });
+		expect(after.blocks.map((b) => b.id)).toEqual([blocks[1].id, blocks[2].id]);
+		expect(after.blocks[0].markdown).toBe("Beta.");
+		expect(stripEmptyTabAnchorPlaceholder(after.blocks[1].markdown)).toBe("");
+		editor.destroy();
+	});
+});
+
+// rd4b deviation 1: Redo after Undo restored the first block only — the extra
+// blocks a multi-block insert had produced stayed gone.
+describe("marks: Redo after Undo of a multi-block change", () => {
+	function multiBlockChange() {
+		const { editor, blocks, snapshot } = setup("Alpha.\n\nBeta.\n\nGamma.");
+		const target = blocks[1];
+		const patch = patchOf([
+			op({
+				kind: "replaceBlock",
+				blockId: target.id,
+				baseHash: target.hash,
+				text: "Beta, revised.\n\nBeta's second paragraph.\n\n- a list Alfy added",
+			}),
+		]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		const applied = parseDocument(readMarkdown(editor), { mint: false });
+		return { editor, blocks, entries, applied };
+	}
+
+	it("puts back the first block's applied text AND every block the insert added, in order, with their ids", () => {
+		const { editor, entries, applied } = multiBlockChange();
+		const entry = entries[0];
+		expect(entry.insertedBlockIds).toHaveLength(2);
+		expect(applied.blocks).toHaveLength(5);
+
+		// What DocumentBody captures from its blocks state before it undoes.
+		const appliedMarkdown = applied.blocks.find((b) => b.id === entry.blockId)
+			?.markdown as string;
+		const insertedBlocks: RedoBlock[] = (entry.insertedBlockIds ?? []).map(
+			(blockId) => ({
+				blockId,
+				markdown: applied.blocks.find((b) => b.id === blockId)
+					?.markdown as string,
+			}),
+		);
+
+		expect(undo(editor, entry)).toBe(true);
+		const undone = parseDocument(readMarkdown(editor), { mint: false });
+		expect(undone.blocks).toHaveLength(3);
+
+		expect(
+			redo(editor, { blockId: entry.blockId, appliedMarkdown, insertedBlocks }),
+		).toBe(true);
+		const redone = parseDocument(readMarkdown(editor), { mint: false });
+		expect(redone.blocks.map((b) => [b.id, b.markdown])).toEqual(
+			applied.blocks.map((b) => [b.id, b.markdown]),
+		);
+		editor.destroy();
+	});
+
+	it("Undo, Redo, Undo again lands on the original document each time", () => {
+		const { editor, blocks, entries, applied } = multiBlockChange();
+		const entry = entries[0];
+		const appliedMarkdown = applied.blocks.find((b) => b.id === entry.blockId)
+			?.markdown as string;
+		const insertedBlocks: RedoBlock[] = (entry.insertedBlockIds ?? []).map(
+			(blockId) => ({
+				blockId,
+				markdown: applied.blocks.find((b) => b.id === blockId)
+					?.markdown as string,
+			}),
+		);
+		undo(editor, entry);
+		redo(editor, { blockId: entry.blockId, appliedMarkdown, insertedBlocks });
+		undo(editor, entry);
+		const after = parseDocument(readMarkdown(editor), { mint: false });
+		expect(after.blocks.map((b) => [b.id, b.markdown])).toEqual(
+			blocks.map((b) => [b.id, b.markdown]),
+		);
+		editor.destroy();
+	});
+
+	it("is a no-op for a block that is already there (a second Redo adds nothing twice)", () => {
+		const { editor, entries, applied } = multiBlockChange();
+		const entry = entries[0];
+		const appliedMarkdown = applied.blocks.find((b) => b.id === entry.blockId)
+			?.markdown as string;
+		const insertedBlocks: RedoBlock[] = (entry.insertedBlockIds ?? []).map(
+			(blockId) => ({
+				blockId,
+				markdown: applied.blocks.find((b) => b.id === blockId)
+					?.markdown as string,
+			}),
+		);
+		undo(editor, entry);
+		redo(editor, { blockId: entry.blockId, appliedMarkdown, insertedBlocks });
+		redo(editor, { blockId: entry.blockId, appliedMarkdown, insertedBlocks });
+		const after = parseDocument(readMarkdown(editor), { mint: false });
+		expect(after.blocks.map((b) => b.id)).toEqual(
+			applied.blocks.map((b) => b.id),
+		);
+		editor.destroy();
+	});
+
+	it("a change with no inserted blocks redoes exactly like before (the first block's text)", () => {
+		const { editor, blocks, snapshot } = setup("Alpha.\n\nBeta.\n\nGamma.");
+		const target = blocks[1];
+		const patch = patchOf([
+			op({
+				kind: "replaceBlock",
+				blockId: target.id,
+				baseHash: target.hash,
+				text: "Beta, revised.",
+			}),
+		]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		undo(editor, entries[0]);
+		redo(editor, {
+			blockId: entries[0].blockId,
+			appliedMarkdown: "Beta, revised.",
+		});
+		const after = parseDocument(readMarkdown(editor), { mint: false });
+		expect(after.blocks.map((b) => b.markdown)).toEqual([
+			"Alpha.",
+			"Beta, revised.",
+			"Gamma.",
+		]);
 		editor.destroy();
 	});
 });

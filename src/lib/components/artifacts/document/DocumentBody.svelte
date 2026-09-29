@@ -219,6 +219,7 @@ let applyAlfyChangesFn: typeof DocumentEditorModule.applyAlfyChanges | null =
 	null;
 let keepChangeFn: typeof DocumentEditorModule.keepChange | null = null;
 let undoChangeFn: typeof DocumentEditorModule.undoChange | null = null;
+let redoChangeFn: typeof DocumentEditorModule.redoChange | null = null;
 let remarkChangeFn: typeof DocumentEditorModule.remarkChange | null = null;
 let changeDocRangeFn: typeof DocumentEditorModule.changeDocRange | null = null;
 let scrollToChangeFn: typeof DocumentEditorModule.scrollToChange | null = null;
@@ -389,6 +390,12 @@ interface PendingAlfyChange {
 	isNewBlock?: boolean;
 	/** Captured from `blocks` state right before Undo replaces the text — Redo's own restore target. */
 	appliedMarkdown?: string;
+	/**
+	 * The extra blocks a multi-block change had added (`entry.insertedBlockIds`),
+	 * read from `blocks` state at the same moment — Undo deletes them, so this is
+	 * the only place their text survives for Redo to put back.
+	 */
+	appliedInsertedBlocks?: { blockId: string; markdown: string }[];
 	/** Captured right before Undo removes the mark structurally — the pill's own fallback anchor while `status` is `"undone"` (`change-pill-decoration.ts`'s own `fallbackPos`). */
 	fallbackPos?: number;
 }
@@ -1076,6 +1083,12 @@ function handleUndoChange(changeId: string): void {
 	const appliedMarkdown = blocks.find(
 		(b) => b.id === pending.entry.blockId,
 	)?.markdown;
+	const appliedInsertedBlocks = (pending.entry.insertedBlockIds ?? []).flatMap(
+		(blockId) => {
+			const block = blocks.find((b) => b.id === blockId);
+			return block ? [{ blockId, markdown: block.markdown }] : [];
+		},
+	);
 	undoChangeFn(editor, {
 		...pending.entry,
 		isNewBlock: pending.isNewBlock,
@@ -1085,6 +1098,7 @@ function handleUndoChange(changeId: string): void {
 		status: "undone",
 		fallbackPos,
 		appliedMarkdown,
+		appliedInsertedBlocks,
 	});
 	announce($t("artifacts.document.change.undoneNotice"));
 	const canonical = currentCanonicalMarkdown();
@@ -1100,17 +1114,14 @@ function handleUndoChange(changeId: string): void {
 }
 
 /**
- * Redo: reverses Undo within its own settle window — restores the captured
- * `appliedMarkdown` (the SAME mechanism as Undo, in reverse: `undoChangeFn`
- * is generically "set this block's content to X", never direction-specific)
- * and re-marks the block under the SAME `changeId` so the pill goes back to
- * `"pending"`. A change with `insertedBlockIds` in its live-session entry
- * loses those extra blocks on Redo (Undo already removed them, and only
- * `appliedMarkdown`'s own block is captured) — a deliberate, narrow
- * simplification; see the report's own deviations.
+ * Redo: reverses Undo within its own settle window — `redoChangeFn` sets the
+ * block back to the captured `appliedMarkdown` and puts back the extra blocks
+ * a multi-block change had added (`appliedInsertedBlocks`, captured by
+ * `handleUndoChange` before Undo deleted them), then the block is re-marked
+ * under the SAME `changeId` so the pill goes back to `"pending"`.
  */
 function handleRedoChange(changeId: string): void {
-	if (!editor || !undoChangeFn || !remarkChangeFn) return;
+	if (!editor || !redoChangeFn || !remarkChangeFn) return;
 	const pending = pendingChanges.get(changeId);
 	if (!pending || pending.status !== "undone") return;
 	const timer = undoSettleTimers.get(changeId);
@@ -1119,9 +1130,10 @@ function handleRedoChange(changeId: string): void {
 		undoSettleTimers.delete(changeId);
 	}
 	if (pending.appliedMarkdown !== undefined) {
-		undoChangeFn(editor, {
+		redoChangeFn(editor, {
 			blockId: pending.entry.blockId,
-			previousMarkdown: pending.appliedMarkdown,
+			appliedMarkdown: pending.appliedMarkdown,
+			insertedBlocks: pending.appliedInsertedBlocks,
 		});
 	}
 	remarkChangeFn(editor, changeId, pending.entry.blockId);
@@ -1864,6 +1876,7 @@ async function runLoad(id: string): Promise<void> {
 		applyAlfyChangesFn = mod.applyAlfyChanges;
 		keepChangeFn = mod.keepChange;
 		undoChangeFn = mod.undoChange;
+		redoChangeFn = mod.redoChange;
 		remarkChangeFn = mod.remarkChange;
 		changeDocRangeFn = mod.changeDocRange;
 		scrollToChangeFn = mod.scrollToChange;

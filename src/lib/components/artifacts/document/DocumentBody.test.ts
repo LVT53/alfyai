@@ -90,6 +90,7 @@ const {
 	mockApplyAlfyChanges,
 	mockKeepChange,
 	mockUndoChange,
+	mockRedoChange,
 	mockRemarkChange,
 	mockChangeDocRange,
 	mockScrollToChange,
@@ -114,6 +115,7 @@ const {
 	mockApplyAlfyChanges: vi.fn(),
 	mockKeepChange: vi.fn(),
 	mockUndoChange: vi.fn(),
+	mockRedoChange: vi.fn().mockReturnValue(true),
 	// Wave 2.5 Step 10: the inline pill's own Redo / ruling 61's reload-restore
 	// re-marking, and the pill's positioning fallback — no-ops against this
 	// suite's fake editor, same reasoning as the comment-anchor mocks below.
@@ -159,6 +161,7 @@ vi.mock("./document-editor", () => ({
 	applyAlfyChanges: mockApplyAlfyChanges,
 	keepChange: mockKeepChange,
 	undoChange: mockUndoChange,
+	redoChange: mockRedoChange,
 	remarkChange: mockRemarkChange,
 	changeDocRange: mockChangeDocRange,
 	scrollToChange: mockScrollToChange,
@@ -2828,13 +2831,14 @@ describe("DocumentBody", () => {
 				mockUndoChange.mockClear();
 
 				callbacks.onRedo("change-3");
-				// Redo reuses undoChange in reverse (marks.ts's own "generic set
-				// this block's content" reasoning) — restoring the CAPTURED
-				// applied text, then re-marking under the SAME changeId.
-				expect(mockUndoChange).toHaveBeenCalledWith(
+				// Redo has its own function now (marks.ts's `redoAlfyChange`): it
+				// restores the CAPTURED applied text, then the block is re-marked
+				// under the SAME changeId. It never goes through Undo's function.
+				expect(mockRedoChange).toHaveBeenCalledWith(
 					expect.anything(),
 					expect.objectContaining({ blockId: "p1" }),
 				);
+				expect(mockUndoChange).not.toHaveBeenCalled();
 				expect(mockRemarkChange).toHaveBeenCalledWith(
 					expect.anything(),
 					"change-3",
@@ -2867,6 +2871,81 @@ describe("DocumentBody", () => {
 			} finally {
 				vi.useRealTimers();
 			}
+		});
+
+		it("Redo puts back the extra blocks a multi-block change added, from what the document read before Undo removed them", async () => {
+			// The document as it stands once Alfy's edit has landed: the first
+			// block revised, and a second block the same op produced.
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst, revised.\n\n<!--b:p2-->\nAlfy's second paragraph.",
+				}),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-4",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+					insertedBlockIds: ["p2"],
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					...runningActivity(),
+					status: "applied",
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					appliedCount: 1,
+				},
+			});
+			await vi.waitFor(() =>
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({
+							changeId: "change-4",
+							status: "pending",
+						}),
+					]),
+				),
+			);
+
+			mockReadMarkdown.mockReturnValue(
+				"<!--b:p1-->\nFirst.\n\n<!--b:p3-->\nThird.",
+			);
+			const callbacks = latestEditor().options.changePillCallbacks as {
+				onUndo: (changeId: string) => void;
+				onRedo: (changeId: string) => void;
+			};
+			callbacks.onUndo("change-4");
+			callbacks.onRedo("change-4");
+
+			expect(mockRedoChange).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					blockId: "p1",
+					appliedMarkdown: "First, revised.",
+					insertedBlocks: [
+						{ blockId: "p2", markdown: "Alfy's second paragraph." },
+					],
+				}),
+			);
 		});
 
 		it("shows the refusal notice naming the block's label and reason, with a working 'See what Alfy did'", async () => {

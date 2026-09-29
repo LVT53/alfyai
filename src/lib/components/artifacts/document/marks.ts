@@ -31,6 +31,10 @@
 import { Editor, type Extensions, Mark, mergeAttributes } from "@tiptap/core";
 import { Node as PMNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
+import {
+	EMPTY_TAB_ANCHOR_PLACEHOLDER,
+	stripEmptyTabAnchorPlaceholder,
+} from "$lib/shared/artifact-document/blocks";
 import type {
 	PatchResult,
 	PatchSet,
@@ -430,13 +434,17 @@ export function scrollToAlfyChange(editor: Editor, changeId: string): boolean {
  *
  * `entry.isNewBlock` (ruling 61: a reload-restored pending change for a block
  * Alfy ADDED, with no parent counterpart) means "restoring the parent" is
- * removing the block, never replacing it with parsed-empty content — an empty
- * `previousMarkdown` is otherwise ambiguous with a block that already existed
- * but was itself blank before the op (e.g. Alfy filled in an empty
- * paragraph), which this function is NOT asked to tell apart from a deletion
- * on its own; `isNewBlock` is the caller's explicit answer. Only ruling 61's
- * reload path ever sets it; the live session's own `AlfyChangeEntry` never
- * does.
+ * removing the block. That is the caller's explicit answer to the one
+ * question an empty `previousMarkdown` cannot answer by itself: a block Alfy
+ * added (delete it) and a block that existed but was itself blank before the
+ * op (put a blank one back — never let the document lose a block). The
+ * Markdown model has no way to store an empty block (a marker with nothing
+ * after it is dropped on the next save, `blocks.ts`'s `splitIntoSegments`), so
+ * a blank one is restored as the same single zero-width space a brand-new
+ * tab's anchor paragraph uses (`EMPTY_TAB_ANCHOR_PLACEHOLDER`): invisible,
+ * kept by a save, and read as empty text by every reader outside the editor.
+ * Only ruling 61's reload path ever sets `isNewBlock`; the live session's own
+ * `AlfyChangeEntry` never does.
  */
 export function undoAlfyChange(
 	editor: Editor,
@@ -458,28 +466,13 @@ export function undoAlfyChange(
 		return true;
 	}
 
-	const scratch = document.createElement("div");
-	document.body.appendChild(scratch);
-	const temp = new Editor({
-		element: scratch,
+	const restored = parseBlockNodes(
+		editor,
+		[{ blockId: entry.blockId, markdown: entry.previousMarkdown }],
 		extensions,
-		content: entry.previousMarkdown,
-		contentType: "markdown",
-	});
-	const rawNode = temp.state.doc.firstChild;
-	if (!rawNode) {
-		temp.destroy();
-		scratch.remove();
-		return false;
-	}
-	const rawJSON = rawNode.toJSON() as { attrs?: Record<string, unknown> };
-	temp.destroy();
-	scratch.remove();
-
-	const replacement = PMNode.fromJSON(editor.state.schema, {
-		...rawJSON,
-		attrs: { ...rawJSON.attrs, [BLOCK_ID_ATTR]: entry.blockId },
-	});
+	);
+	const replacement = restored?.[0];
+	if (!replacement) return false;
 
 	const tr = editor.state.tr.replaceWith(target.from, target.to, replacement);
 	if (entry.insertedBlockIds && entry.insertedBlockIds.length > 0) {
@@ -488,6 +481,117 @@ export function undoAlfyChange(
 	tr.setMeta("addToHistory", false);
 	editor.view.dispatch(tr);
 	return true;
+}
+
+/** A block Undo took out of the document, kept by the caller so Redo can put it back: its id and its own Markdown as of just before Undo ran. */
+export interface RedoBlock {
+	blockId: string;
+	markdown: string;
+}
+
+/**
+ * Redo, the mirror of `undoAlfyChange`: sets `entry.blockId`'s node back to
+ * the text Alfy had applied (`appliedMarkdown`) AND puts back every extra
+ * block the op's text had produced (`insertedBlocks`, the ones Undo deleted
+ * through `insertedBlockIds`), in order and directly after that block, each
+ * with the id it had — so a later Undo, the review state and any comment
+ * anchored there all still find them. Before this, Redo restored the first
+ * block only and a multi-block change came back short.
+ *
+ * A block already in the document is skipped, so a second call adds nothing
+ * twice. Dispatched with `addToHistory: false`, exactly like Undo: neither
+ * direction is a step in the user's own text history.
+ */
+export function redoAlfyChange(
+	editor: Editor,
+	entry: {
+		blockId: string;
+		appliedMarkdown: string;
+		insertedBlocks?: RedoBlock[];
+	},
+	extensions: Extensions,
+): boolean {
+	const target = findBlockRange(editor, entry.blockId);
+	if (!target) return false;
+
+	const present = new Set<string>();
+	editor.state.doc.forEach((node) => {
+		const id = node.attrs?.[BLOCK_ID_ATTR];
+		if (typeof id === "string") present.add(id);
+	});
+	const missing = (entry.insertedBlocks ?? []).filter(
+		(block) => !present.has(block.blockId),
+	);
+
+	const nodes = parseBlockNodes(
+		editor,
+		[{ blockId: entry.blockId, markdown: entry.appliedMarkdown }, ...missing],
+		extensions,
+	);
+	if (!nodes) return false;
+	const [primary, ...extras] = nodes;
+
+	const tr = editor.state.tr.replaceWith(target.from, target.to, primary);
+	let insertAt = target.from + primary.nodeSize;
+	for (const node of extras) {
+		tr.insert(insertAt, node);
+		insertAt += node.nodeSize;
+	}
+	tr.setMeta("addToHistory", false);
+	editor.view.dispatch(tr);
+	return true;
+}
+
+/**
+ * Builds the top-level node each `items[i].markdown` reads as, carrying
+ * `items[i].blockId`, in `editor`'s OWN schema — or `null` when a snippet
+ * yields no node at all. The one throwaway, detached `Editor` parses every
+ * snippet (one per call, not one per block): see `undoAlfyChange`'s comment
+ * above for why the node is rebuilt from plain JSON and why `extensions`
+ * must be a fresh list.
+ *
+ * A blank snippet becomes the zero-width-space placeholder paragraph (see
+ * `undoAlfyChange`): an empty node would not survive the next save.
+ */
+function parseBlockNodes(
+	editor: Editor,
+	items: RedoBlock[],
+	extensions: Extensions,
+): PMNode[] | null {
+	const scratch = document.createElement("div");
+	document.body.appendChild(scratch);
+	const temp = new Editor({
+		element: scratch,
+		extensions,
+		content: "",
+		contentType: "markdown",
+	});
+	try {
+		const nodes: PMNode[] = [];
+		for (const item of items) {
+			const blank = stripEmptyTabAnchorPlaceholder(item.markdown).trim() === "";
+			temp.commands.setContent(
+				blank ? EMPTY_TAB_ANCHOR_PLACEHOLDER : item.markdown,
+				{
+					contentType: "markdown",
+					emitUpdate: false,
+				},
+			);
+			const raw = temp.state.doc.firstChild;
+			if (!raw) return null;
+			const rawJSON = raw.toJSON() as { attrs?: Record<string, unknown> };
+			nodes.push(
+				PMNode.fromJSON(editor.state.schema, {
+					...rawJSON,
+					attrs: { ...rawJSON.attrs, [BLOCK_ID_ATTR]: item.blockId },
+				}),
+			);
+		}
+		return nodes;
+	} finally {
+		temp.destroy();
+		scratch.remove();
+	}
 }
 
 /**

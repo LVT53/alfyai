@@ -50,6 +50,8 @@ import {
 	alfyChangeDocRange,
 	applyAlfyChangeMarks,
 	keepAlfyChange,
+	type RedoBlock,
+	redoAlfyChange,
 	refusalReasonI18nKey,
 	remarkAlfyChange,
 	scrollToAlfyChange,
@@ -719,6 +721,22 @@ export function undoChange(
 	},
 ): boolean {
 	return undoAlfyChange(editor, entry, buildDocumentExtensions(""));
+}
+
+/**
+ * Redo after Undo (`marks.ts`'s `redoAlfyChange`): sets the block back to the
+ * text Alfy had applied and puts back the extra blocks a multi-block change
+ * had produced. Its own fresh extension list per call, like `undoChange`.
+ */
+export function redoChange(
+	editor: Editor,
+	entry: {
+		blockId: string;
+		appliedMarkdown: string;
+		insertedBlocks?: RedoBlock[];
+	},
+): boolean {
+	return redoAlfyChange(editor, entry, buildDocumentExtensions(""));
 }
 
 /**
