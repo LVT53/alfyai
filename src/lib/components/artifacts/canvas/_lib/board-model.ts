@@ -17,6 +17,7 @@ import type {
 } from "$lib/shared/artifacts/canvas";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { metaFor } from "./block-meta";
+import { facingHandles, withoutDanglingEdges } from "./board";
 
 type Camera = CanvasBody["viewport"];
 
@@ -25,6 +26,12 @@ export const DEFAULT_CAMERA: Camera = { x: 0, y: 0, zoom: 1 };
 
 /** A node as Svelte Flow is handed it: the live node plus the fields the library reads. */
 export type FlowNode = CanvasNode & { dragHandle?: string; style?: string };
+
+/** An edge as Svelte Flow is handed it: the stored one plus the sides it runs between (the body stores none). */
+export type FlowEdge = CanvasEdge & {
+	sourceHandle?: string;
+	targetHandle?: string;
+};
 
 type BoardState = {
 	nodes: readonly CanvasNode[];
@@ -50,6 +57,26 @@ export function toFlowNodes(nodes: readonly CanvasNode[]): FlowNode[] {
 	});
 }
 
+/**
+ * Stored edges to library edges: each takes the sides that face its two ends
+ * (`facingHandles`), because the body carries no handle ids and the library
+ * would otherwise run every edge from a block's bottom to another's top. An
+ * edge with an end that is not on the board is handed over as it is.
+ */
+export function toFlowEdges(
+	edges: readonly CanvasEdge[],
+	nodes: readonly CanvasNode[],
+): FlowEdge[] {
+	const byId = new Map(nodes.map((node) => [node.id, node]));
+	return edges.map((edge) => {
+		const source = byId.get(edge.source);
+		const target = byId.get(edge.target);
+		return source && target
+			? { ...edge, ...facingHandles(source, target, nodes) }
+			: { ...edge };
+	});
+}
+
 /** A frame's size is on the node and in its data, and the two are kept equal: the node's (which a resize moves) wins. */
 function withFrameSizeInData(node: CanvasNode): CanvasNode {
 	if (node.data.kind !== "frame") return node;
@@ -64,13 +91,15 @@ export function bodyOfState(state: BoardState): CanvasBody {
 		version: 1,
 		nodes: state.nodes.map(withFrameSizeInData),
 		// The library adds fields of its own to an edge (handles, selection);
-		// the body keeps four.
-		edges: state.edges.map(({ id, source, target, label }) => ({
-			id,
-			source,
-			target,
-			...(label ? { label } : {}),
-		})),
+		// the body keeps four. No edge may point at a block that is not there.
+		edges: withoutDanglingEdges(state.edges, state.nodes).map(
+			({ id, source, target, label }) => ({
+				id,
+				source,
+				target,
+				...(label ? { label } : {}),
+			}),
+		),
 		viewport: { ...state.viewport },
 		annotations: [...state.annotations],
 	};

@@ -39,6 +39,7 @@ let {
 	title = "",
 	meta = "",
 	tone,
+	dropTarget = false,
 	activate,
 	header,
 	toolbar,
@@ -59,6 +60,8 @@ let {
 	meta?: string;
 	/** A note's paper (sticky tone). */
 	tone?: string;
+	/** A frame the block being dragged would join if it were dropped now: it wears the accent while it does. */
+	dropTarget?: boolean;
 	/** Enter or F2 while the block itself has focus (a text block opens for editing). */
 	activate?: () => void;
 	/** Replaces a card's default header, and is a frame's label chip. */
@@ -143,10 +146,12 @@ function deleteBlock(): void {
 <div
 	class="canvas-node canvas-node--{chrome}"
 	class:canvas-node--selected={selected}
+	class:canvas-node--drop={dropTarget}
 	data-testid="canvas-node"
 	data-node-id={id}
 	data-kind={kind}
 	data-selected={selected ? "true" : "false"}
+	data-drop-target={dropTarget ? "true" : undefined}
 	data-missing={blockMeta.kind === "missing" ? "true" : undefined}
 	{@attach wrapperBehaviour}
 >
@@ -319,6 +324,26 @@ function deleteBlock(): void {
 	.canvas-node--frame.canvas-node--selected .canvas-node__box {
 		border-color: var(--accent);
 		outline: none;
+	}
+
+	/* Where a block being dragged would land: the frame lights up, so a drop is
+	   never a surprise. The change is instant under reduced motion. */
+	.canvas-node--frame.canvas-node--drop .canvas-node__box {
+		border-style: solid;
+		border-color: var(--accent);
+		background: var(--accent-tint);
+	}
+
+	.canvas-node--frame .canvas-node__box {
+		transition:
+			background-color 120ms ease,
+			border-color 120ms ease;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.canvas-node--frame .canvas-node__box {
+			transition: none;
+		}
 	}
 
 	.canvas-node__chip {

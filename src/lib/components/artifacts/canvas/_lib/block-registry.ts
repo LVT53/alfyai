@@ -25,6 +25,7 @@ import MissingKindNode from "../nodes/MissingKindNode.svelte";
 import StickyNode from "../nodes/StickyNode.svelte";
 import TextNode from "../nodes/TextNode.svelte";
 import { BLOCK_META, type BlockMeta, type RegisteredKind } from "./block-meta";
+import { newId } from "./ids";
 
 export type BlockRegistryEntry = BlockMeta & {
 	kind: RegisteredKind;
@@ -134,7 +135,7 @@ export function defaultDataFor(kind: RegisteredKind): CanvasBlockData {
 export function newBlockNode(
 	kind: RegisteredKind,
 	position: Pt,
-	id: string = crypto.randomUUID(),
+	id: string = newId(kind),
 ): CanvasNode {
 	const meta = BLOCK_META[kind];
 	return {

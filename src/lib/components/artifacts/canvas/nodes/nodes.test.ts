@@ -30,6 +30,7 @@ function board(
 		readonly: false,
 		requestEdit() {},
 		takeEditRequest: () => false,
+		dropTargetId: null,
 		...overrides,
 	};
 }

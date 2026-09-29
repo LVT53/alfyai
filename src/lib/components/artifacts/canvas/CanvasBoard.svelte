@@ -19,12 +19,17 @@
  * (so the edge id is stamped in `onbeforeconnect`, never in `onconnect`, or one
  * drag makes two edges), and there is `snapGrid`, not `snapToGrid`.
  *
- * Seams for the slices after this one: strokes and pins render through a
+ * Frames: Svelte Flow moves a child with its frame but never adopts, so a drop
+ * is judged here (`onnodedragstop` -> `reparentOnDrop`) and the block's
+ * `parentId` and position rewritten; while the drag is on, `onnodedrag` lights
+ * the frame that would take it. A frame that is deleted does not take the blocks
+ * inside it (`onbeforedelete` re-homes them: the ops protocol does the same).
+ *
+ * Seams for the slices after this one: pins render through a second
  * `<ViewportPortal target="front">` inside the flow (explicit `z-index: 2`, and
- * sized from the visible pane, never from the board); frames' reparenting is an
- * `onnodedragstop` handler; connectors and their labels are the `edges` state
- * and `onbeforeconnect`; a diff from Alfy arrives as new `nodes` state through
- * `applyBody`-style replacement followed by `commit`'s bookkeeping.
+ * sized from the visible pane, never from the board); a diff from Alfy arrives
+ * as new `nodes` state through `applyBody`-style replacement followed by
+ * `commit`'s bookkeeping.
  */
 import "@xyflow/svelte/dist/base.css";
 import {
@@ -45,6 +50,13 @@ import { t } from "$lib/i18n";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import type { Annotation, CanvasBody } from "$lib/shared/artifacts/canvas";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
+import {
+	parentsFirst,
+	rehomeOnRemoval,
+	type ReparentPatch,
+	reparentOnDrop,
+	withoutDanglingEdges,
+} from "./_lib/board";
 import { type BoardHistory, createBoardHistory } from "./_lib/board-history";
 import { provideBoardContext } from "./_lib/board-context";
 import {
@@ -52,6 +64,7 @@ import {
 	type FlowNode,
 	hasStoredCamera,
 	structuralJson,
+	toFlowEdges,
 	toFlowNodes,
 } from "./_lib/board-model";
 import {
@@ -59,6 +72,7 @@ import {
 	boardNodeTypes,
 	newBlockNode,
 } from "./_lib/block-registry";
+import { newId } from "./_lib/ids";
 import { placeInsertedBlock } from "./_lib/placement";
 import CanvasToolbar, { type BoardTool } from "./CanvasToolbar.svelte";
 import ZoomChip from "./ZoomChip.svelte";
@@ -84,7 +98,7 @@ const flow = useSvelteFlow();
 const nodeTypes = boardNodeTypes();
 
 let nodes = $state.raw<FlowNode[]>(toFlowNodes(initial.nodes));
-let edges = $state.raw<Edge[]>(initial.edges.map((edge) => ({ ...edge })));
+let edges = $state.raw<Edge[]>(toFlowEdges(initial.edges, initial.nodes));
 let viewport = $state.raw<Viewport>({ ...initial.viewport });
 // Carried, written back and undone with the rest; drawn by the drawing layer.
 let annotations = $state.raw<Annotation[]>([...initial.annotations]);
@@ -100,6 +114,8 @@ let boardWidth = $state(0);
 let tool = $state<BoardTool>("select");
 let coarsePointer = $state(false);
 let announcement = $state("");
+/** The frame a block being dragged would join if it were dropped now. */
+let dropTargetId = $state<string | null>(null);
 
 const history: BoardHistory = createBoardHistory();
 let canUndo = $state(false);
@@ -118,6 +134,9 @@ provideBoardContext({
 	},
 	takeEditRequest(id) {
 		return editRequests.delete(id);
+	},
+	get dropTargetId() {
+		return dropTargetId;
 	},
 });
 
@@ -182,7 +201,7 @@ export function flush(): CanvasBody {
 function restore(json: string): void {
 	const restored = normalizeCanvasBody(JSON.parse(json)).body;
 	nodes = toFlowNodes(restored.nodes);
-	edges = restored.edges.map((edge) => ({ ...edge }));
+	edges = toFlowEdges(restored.edges, restored.nodes);
 	annotations = restored.annotations;
 	committedJson = json;
 	onchange(snapshot());
@@ -250,17 +269,129 @@ function insertBlock(row: BlockRegistryEntry): void {
 
 // ---- The flow's own events ----------------------------------------------
 
+function announce(message: string): void {
+	announcement = message;
+	if (announceTimer) clearTimeout(announceTimer);
+	announceTimer = setTimeout(() => (announcement = ""), 3000);
+}
+
 function handleBeforeConnect(connection: Connection): Edge {
 	// v1 adds the edge itself once this returns it, then fires `onconnect` as a
 	// notification: the id has to be stamped here, and only here.
-	return { ...connection, id: crypto.randomUUID() };
+	return { ...connection, id: newId("e") };
 }
 
+// ---- Frames: adoption, release, removal ----------------------------------
+
+/** The library measures every block it draws; the geometry reads that, not a guess. */
+function measured(node: FlowNode): FlowNode {
+	const size = flow.getInternalNode(node.id)?.measured;
+	return size?.width && size?.height
+		? { ...node, measured: { width: size.width, height: size.height } }
+		: node;
+}
+
+/** What dropping the dragged blocks where they are now would change about them, by block id. */
+function adoptions(dragged: readonly FlowNode[]): Map<string, ReparentPatch> {
+	const dropped = new Map(dragged.map((node) => [node.id, node]));
+	// What the drag reported is where they are; the board's own copy may lag it by a frame.
+	const all = nodes.map((node) => measured(dropped.get(node.id) ?? node));
+	const patches = new Map<string, ReparentPatch>();
+	for (const node of dragged) {
+		const now = all.find((candidate) => candidate.id === node.id) ?? node;
+		const patch = reparentOnDrop(now, all);
+		if (patch) patches.set(node.id, patch);
+	}
+	return patches;
+}
+
+function frameName(id: string | undefined): string {
+	const frame =
+		id === undefined ? undefined : nodes.find((node) => node.id === id);
+	const label = frame?.data.kind === "frame" ? frame.data.label.trim() : "";
+	return label || $t("artifacts.canvas.insert.frame");
+}
+
+function handleNodeDrag({
+	targetNode,
+	nodes: dragged,
+}: {
+	targetNode: FlowNode | null;
+	nodes: FlowNode[];
+}): void {
+	if (readonly || !targetNode) return;
+	dropTargetId = adoptions(dragged).get(targetNode.id)?.parentId ?? null;
+}
+
+// `onnodedragstop`, lowercase: the camelCase spelling is accepted as an unknown
+// prop and silently never fires, and then nothing is ever adopted.
+function handleNodeDragStop({ nodes: dragged }: { nodes: FlowNode[] }): void {
+	dropTargetId = null;
+	if (readonly) return;
+	const patches = adoptions(dragged);
+	if (patches.size === 0) return;
+	const [[firstId, first]] = [...patches];
+	const before = nodes.find((node) => node.id === firstId)?.parentId;
+	nodes = parentsFirst(
+		nodes.map((node) => {
+			const patch = patches.get(node.id);
+			return patch ? { ...node, ...patch, dragging: false } : node;
+		}),
+	);
+	announce(
+		first.parentId === undefined
+			? $t("artifacts.canvas.movedOutOfFrame", { frame: frameName(before) })
+			: $t("artifacts.canvas.movedIntoFrame", {
+					frame: frameName(first.parentId),
+				}),
+	);
+}
+
+// The library cascades a delete to a frame's children. A frame removed to tidy
+// up must not cost a reader their notes, so the ones nobody selected are taken
+// out of the deletion and moved up to where the frame was (the ops protocol's
+// `remove_node` does the same), along with their connections.
+async function handleBeforeDelete({
+	nodes: doomed,
+	edges: doomedEdges,
+}: {
+	nodes: FlowNode[];
+	edges: Edge[];
+}): Promise<{ nodes: FlowNode[]; edges: Edge[] }> {
+	const doomedIds = new Set(doomed.map((node) => node.id));
+	const spared = new Set(
+		doomed
+			.filter(
+				(node) =>
+					node.parentId !== undefined &&
+					doomedIds.has(node.parentId) &&
+					!node.selected,
+			)
+			.map((node) => node.id),
+	);
+	if (spared.size === 0) return { nodes: doomed, edges: doomedEdges };
+	const removed = new Set([...doomedIds].filter((id) => !spared.has(id)));
+	for (const [id, patch] of rehomeOnRemoval(removed, nodes)) {
+		flow.updateNode(id, patch);
+	}
+	return {
+		nodes: doomed.filter((node) => removed.has(node.id)),
+		// A connection goes only if one of its ends does, or if it was asked for by itself.
+		edges: doomedEdges.filter(
+			(edge) =>
+				removed.has(edge.source) ||
+				removed.has(edge.target) ||
+				!(doomedIds.has(edge.source) || doomedIds.has(edge.target)),
+		),
+	};
+}
+
+// A notification, not a veto: the library has filtered its own store already.
+// No connection may point at a block that is no longer there.
 function handleDelete(): void {
+	edges = withoutDanglingEdges(edges, nodes);
 	commit();
-	announcement = $t("artifacts.canvas.nodeDeleted");
-	if (announceTimer) clearTimeout(announceTimer);
-	announceTimer = setTimeout(() => (announcement = ""), 3000);
+	announce($t("artifacts.canvas.nodeDeleted"));
 }
 
 $effect(() => {
@@ -370,6 +501,9 @@ function minimapColor(node: {
 		{ariaLabelConfig}
 		isValidConnection={(connection) => connection.source !== connection.target}
 		onbeforeconnect={handleBeforeConnect}
+		onnodedrag={handleNodeDrag}
+		onnodedragstop={handleNodeDragStop}
+		onbeforedelete={handleBeforeDelete}
 		ondelete={handleDelete}
 		onmoveend={(_, camera) => oncamera?.(camera)}
 	>

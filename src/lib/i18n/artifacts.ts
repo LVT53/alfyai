@@ -642,6 +642,10 @@ const artifactsDict = {
 		"artifacts.canvas.a11y.edge":
 			"Press Enter or Space to select a connection. You can then press Delete to remove it or Escape to let go.",
 		"artifacts.canvas.a11y.handle": "Connection point",
+		// Frames and reparenting (S3-F): what a screen reader hears when a block
+		// joins or leaves a frame by a drag.
+		"artifacts.canvas.movedIntoFrame": "Moved into the frame {frame}.",
+		"artifacts.canvas.movedOutOfFrame": "Moved out of the frame {frame}.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1115,6 +1119,9 @@ const artifactsDict = {
 		"artifacts.canvas.a11y.edge":
 			"Az Enter vagy a szóköz kijelöli a kapcsolatot. Utána a Delete törli, az Escape elengedi.",
 		"artifacts.canvas.a11y.handle": "Kapcsolódási pont",
+		// A kettőspont a magyar rag nélkül old meg egy tetszőleges keretnevet.
+		"artifacts.canvas.movedIntoFrame": "Átkerült a keretbe: {frame}.",
+		"artifacts.canvas.movedOutOfFrame": "Kikerült a keretből: {frame}.",
 	},
 } as const;
 

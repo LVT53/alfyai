@@ -13,6 +13,7 @@ import {
 	DEFAULT_CAMERA,
 	hasStoredCamera,
 	structuralJson,
+	toFlowEdges,
 	toFlowNodes,
 } from "./board-model";
 
@@ -118,6 +119,48 @@ describe("the live board back to a body", () => {
 	it("keeps the annotations it holds, untouched, for a board that has strokes it does not draw", () => {
 		const board = sampleBoard();
 		expect(bodyOfState(stateOf(board)).annotations).toEqual(board.annotations);
+	});
+});
+
+describe("edges", () => {
+	it("gives each stored edge the sides that face its two ends, so a reopened board draws what was drawn", () => {
+		const body = sampleBoard();
+		const [first] = body.edges;
+		const source = body.nodes.find((n) => n.id === first.source);
+		const target = body.nodes.find((n) => n.id === first.target);
+		expect(source && target).toBeTruthy();
+		const [flow] = toFlowEdges(body.edges, body.nodes);
+		expect(flow).toMatchObject({
+			id: first.id,
+			source: first.source,
+			target: first.target,
+		});
+		expect(typeof flow.sourceHandle).toBe("string");
+		expect(typeof flow.targetHandle).toBe("string");
+	});
+
+	it("leaves an edge alone when one of its ends is not on the board", () => {
+		const edges = [{ id: "e", source: "a", target: "gone" }];
+		const nodes = sampleBoard().nodes.map((n) => ({
+			...n,
+			id: n.id === "note-1" ? "a" : n.id,
+		}));
+		expect(toFlowEdges(edges, nodes)).toEqual(edges);
+	});
+
+	it("never saves an edge that points at a block that is not there", () => {
+		const body = sampleBoard();
+		const state = stateOf(body);
+		const withoutNote = {
+			...state,
+			nodes: state.nodes.filter((n) => n.id !== "note-1"),
+		};
+		const saved = bodyOfState(withoutNote);
+		const ids = new Set(saved.nodes.map((n) => n.id));
+		expect(
+			saved.edges.every((e) => ids.has(e.source) && ids.has(e.target)),
+		).toBe(true);
+		expect(saved.edges.length).toBeLessThan(body.edges.length);
 	});
 });
 
