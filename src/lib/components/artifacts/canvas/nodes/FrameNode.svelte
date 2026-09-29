@@ -86,6 +86,7 @@ function handleKeydown(event: KeyboardEvent): void {
 	{selected}
 	minWidth={minSize.width}
 	minHeight={minSize.height}
+	dropTarget={board.dropTargetId === id}
 	summary={data.label}
 	activate={startEditing}
 	header={chip}

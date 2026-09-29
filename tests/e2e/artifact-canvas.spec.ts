@@ -1,18 +1,26 @@
 import { randomUUID } from "node:crypto";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
 	artifactVersions,
 	messages,
-	users,
 } from "../../src/lib/server/db/schema";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import {
 	boardJson,
 	emptyCanvasBody,
 } from "../../src/lib/shared/artifacts/canvas-body";
+import {
+	cameraOf,
+	nodeCount,
+	openCanvasPanel,
+	openChatAndReload,
+	savedStatus,
+	seedCanvas,
+	storedBoard,
+} from "./artifact-canvas-helpers";
 import { createConversation, expectTopmost, login } from "./helpers";
 
 // The Canvas kind, in the panel (Feature 2 · Artifacts, Slice 3, the board
@@ -105,118 +113,6 @@ function seededBoard(): CanvasBody {
 		viewport: { x: 0, y: 0, zoom: 1 },
 		annotations: [],
 	};
-}
-
-async function testUserId(): Promise<string> {
-	const [user] = await db
-		.select({ id: users.id })
-		.from(users)
-		.where(eq(users.email, "admin@local"))
-		.limit(1);
-	expect(user, "the e2e admin must exist").toBeTruthy();
-	return user.id;
-}
-
-async function seedCanvas(
-	conversationId: string,
-	body: CanvasBody,
-	title = "Weekend board",
-): Promise<string> {
-	const userId = await testUserId();
-	const artifactId = randomUUID();
-	const now = new Date();
-	const json = boardJson(body);
-	await db.insert(artifacts).values({
-		id: artifactId,
-		userId,
-		conversationId,
-		type: "artifact",
-		retrievalClass: "durable",
-		name: title,
-		contentText: json,
-		metadataJson: JSON.stringify({ artifactType: "canvas", title }),
-		createdAt: now,
-		updatedAt: now,
-	});
-	await db.insert(artifactVersions).values({
-		id: randomUUID(),
-		artifactId,
-		userId,
-		versionNumber: 1,
-		author: "alfy",
-		summary: "Alfy made the board",
-		body: json,
-		bodyHash: "seed-hash",
-		createdAt: now,
-	});
-	return artifactId;
-}
-
-async function storedBoard(artifactId: string): Promise<CanvasBody> {
-	const [row] = await db
-		.select({ contentText: artifacts.contentText })
-		.from(artifacts)
-		.where(eq(artifacts.id, artifactId))
-		.limit(1);
-	return JSON.parse(row.contentText ?? "{}") as CanvasBody;
-}
-
-async function openChatAndReload(page: Page, conversationId: string) {
-	await page.evaluate((id) => {
-		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
-	}, conversationId);
-	await page.goto(`/chat/${conversationId}`);
-	await page.reload({ waitUntil: "networkidle" });
-}
-
-/** Opens the panel on the chat's one Canvas (the count button, then its row); a no-op when the reload already restored it. */
-async function openCanvasPanel(page: Page) {
-	const isMobile = (page.viewportSize()?.width ?? 1440) < 768;
-	const editor = page.getByTestId("canvas-editor");
-	const alreadyShowing = await editor
-		.waitFor({ state: "visible", timeout: 2_000 })
-		.then(() => true)
-		.catch(() => false);
-	if (!alreadyShowing) {
-		await page
-			.getByTestId(
-				isMobile ? "artifact-count-button-compact" : "artifact-count-button",
-			)
-			.click();
-		await page
-			.getByTestId(
-				isMobile ? "artifact-panel-list-mobile" : "artifact-panel-list",
-			)
-			.getByTestId("artifact-row")
-			.first()
-			.click();
-	}
-	await expect(editor).toBeVisible();
-	// The loading skeleton gives way to the board.
-	await expect(page.getByTestId("canvas-board")).toBeVisible({
-		timeout: 15_000,
-	});
-	// Svelte Flow reveals a node only once it has measured it.
-	await expect(async () => {
-		const hidden = await page
-			.locator(".svelte-flow__node")
-			.evaluateAll(
-				(nodes) =>
-					nodes.filter((node) => getComputedStyle(node).visibility === "hidden")
-						.length,
-			);
-		expect(hidden).toBe(0);
-	}).toPass({ timeout: 10_000 });
-}
-
-async function nodeCount(page: Page): Promise<number> {
-	return page.getByTestId("canvas-node").count();
-}
-
-async function savedStatus(page: Page) {
-	await expect(page.getByTestId("canvas-save-status")).toHaveText(/Saved/, {
-		timeout: 10_000,
-	});
 }
 
 test.describe("the Canvas kind, in the panel", () => {
@@ -761,6 +657,28 @@ test.describe("the Canvas kind, in the panel", () => {
 		}
 	});
 
+	test("the zoom buttons zoom the board, in and out, and the level says so", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Zoom me");
+		await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const level = page.getByTestId("canvas-zoom-level");
+		const before = (await cameraOf(page)).zoom;
+		await page.getByTestId("canvas-zoom-in").click();
+		await expect
+			.poll(async () => (await cameraOf(page)).zoom)
+			.toBeCloseTo(before * 1.2, 2);
+		await expect(level).toHaveText(`${Math.round(before * 1.2 * 100)}%`);
+		await page.getByTestId("canvas-zoom-out").click();
+		await page.getByTestId("canvas-zoom-out").click();
+		await expect
+			.poll(async () => (await cameraOf(page)).zoom)
+			.toBeCloseTo(before / 1.2, 2);
+	});
+
 	test("a bare pan is not a save", async ({ page }) => {
 		const conversationId = await createConversation(page, "Look around");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
@@ -1042,7 +960,7 @@ test.describe("the Canvas kind, in the panel", () => {
 
 		const toolbar = page.getByRole("toolbar", { name: "Canvas tools" });
 		await expect(toolbar).toBeVisible();
-		for (const name of ["Select", "Pan", "Undo", "Redo", "Insert"]) {
+		for (const name of ["Select", "Pan", "Draw", "Undo", "Redo", "Insert"]) {
 			await expect(toolbar.getByRole("button", { name })).toBeVisible();
 		}
 		// A mode says whether it is on; the menu button says what it opens.
@@ -1070,11 +988,13 @@ test.describe("the Canvas kind, in the panel", () => {
 			page.getByRole("group", { name: "Checklist: Pack" }),
 		).toBeVisible();
 
-		// Tab order: Select, Pan (Undo and Redo are off with nothing to undo), Insert,
-		// then on into the blocks.
+		// Tab order: Select, Pan, Draw (Undo and Redo are off with nothing to undo),
+		// Insert, then on into the blocks.
 		await toolbar.getByRole("button", { name: "Select" }).focus();
 		await page.keyboard.press("Tab");
 		await expect(toolbar.getByRole("button", { name: "Pan" })).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(toolbar.getByRole("button", { name: "Draw" })).toBeFocused();
 		await page.keyboard.press("Tab");
 		await expect(toolbar.getByRole("button", { name: "Insert" })).toBeFocused();
 		await page.keyboard.press("Tab");

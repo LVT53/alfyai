@@ -15,6 +15,8 @@ export interface CanvasBoardContext {
 	requestEdit(id: string): void;
 	/** True exactly once, for the node the last insert asked to edit; the request is spent by the answer. */
 	takeEditRequest(id: string): boolean;
+	/** The frame the block being dragged would join if it were dropped now (it wears a highlight), or null. */
+	readonly dropTargetId: string | null;
 }
 
 const BOARD_CONTEXT = Symbol("artifact-canvas-board");
@@ -26,6 +28,7 @@ const STANDALONE: CanvasBoardContext = {
 	takeEditRequest() {
 		return false;
 	},
+	dropTargetId: null,
 };
 
 export function provideBoardContext(context: CanvasBoardContext): void {
