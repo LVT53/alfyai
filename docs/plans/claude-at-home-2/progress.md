@@ -696,6 +696,14 @@ Rulings (orchestrator):
 - Ruling: G2-A's server side (the DELETE route and cascade, the deleted-state projection, four Regenerate paths that re-run
   stored sources) gets a focused **Opus** security/data review beside G3 (`wave-2-5`/scratchpad `sec-review.md`) — it is
   ownership and deletion code, the class the owner keeps Opus reviews for — cost if wrong: one Opus review's tokens.
+- **Opus security review of Delete/Regenerate (`wave-2-5/sec-review.md`): no Critical/High, no cross-user or incognito
+  leak; 1 Medium, 6 Low, 4 Info; "safe to ship to dev".** Rulings: M1 (a forked incognito chat's parent items shown as
+  deleted; Regenerate there burns a 120 s App generation then fails) is fixed now — "exists but out of reach" is its own
+  muted state ("Made in the original chat") and Regenerate refuses up front; L1 — Delete acts only on items this
+  conversation made (cost if wrong: deleting a parent's item needs the parent chat); L2 — the confirm copy says the item can
+  be regenerated from the chat where a stored source exists; L4 (orphan vector after a delete race) and L5 (two Documents
+  from two "Open as document" presses) fixed; L3 and L6 kept (the existing patterns of the file-job and App regenerate
+  routes) and listed for the release checklist. Fix agent S (`fix/artifacts-delete-review`, `art-secfix`, 5525) runs beside G3.
 - Ruling: G3 (keyboard, undo edge cases, tabs, named rows) runs last and alone, since named rows rewrite selectors in many
   suites the other agents touch.
 
