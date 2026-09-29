@@ -276,9 +276,35 @@ $effect(() => {
 let deleteConfirmOpen = $state(false);
 let rowMenuOpenId = $state<string | null>(null);
 
-/** Whether an item can be deleted from here: the page can delete, and it is one of the family's own items (a produced file too — the family's delete takes it through its own store). */
+/**
+ * Whether an item can be deleted from here: the page can delete, it is one of
+ * the family's own items (a produced file too — the family's delete takes it
+ * through its own store), and this conversation made it. An item that says it
+ * was made in another conversation (a fork's card naming its parent's
+ * Document) has no Delete: the server would refuse it, and the panel does not
+ * offer what will not work. An item that does not say where it was made has
+ * nothing to contradict.
+ */
 function canDeleteItem(item: DocumentWorkspaceItem): boolean {
-	return Boolean(onDeleteArtifact && item.artifactId && item.kind);
+	if (!onDeleteArtifact || !item.artifactId || !item.kind) return false;
+	return !(
+		item.conversationId &&
+		conversationId &&
+		item.conversationId !== conversationId
+	);
+}
+
+/**
+ * Whether the chat can make this item again, read off the live list (the
+ * server's word, kept fresh) rather than the open tab's snapshot: what the
+ * Delete confirm may promise. An item the list does not know says nothing.
+ */
+function canRegenerateItem(item: DocumentWorkspaceItem): boolean {
+	return (
+		list?.items.some(
+			(row) => row.artifactId === item.artifactId && row.canRegenerate === true,
+		) ?? false
+	);
 }
 
 /** After a delete the control that had focus is gone: land on the list's heading, which names where the user is. */
@@ -1379,6 +1405,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				kind={menuItem.kind ?? 'file'}
 				title={getDocumentTitle(menuItem)}
 				anchorTestId={`artifact-row-menu-${menuItem.id}`}
+				regenerable={canRegenerateItem(menuItem)}
 				initialStage="menu"
 				onConfirm={() => deleteFromList(menuItem)}
 				onClose={() => (rowMenuOpenId = null)}
@@ -2178,6 +2205,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		kind={activeArtifactKind}
 		title={getDocumentTitle(deletingItem)}
 		anchorTestId="artifact-delete-button"
+		regenerable={canRegenerateItem(deletingItem)}
 		onConfirm={() => deleteOpenItem(deletingItem)}
 		onClose={() => (deleteConfirmOpen = false)}
 	/>

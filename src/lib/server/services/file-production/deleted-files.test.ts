@@ -118,6 +118,34 @@ beforeEach(() => {
 		.run();
 });
 
+// The security review's L2: the delete confirm promises "you can regenerate it
+// from the chat" only for a file whose job kept the request it was made from,
+// which is what the chat says while the files are still there.
+describe("a finished job that kept its request", () => {
+	it("says so while its file is still there, and a job without one or one that failed does not", async () => {
+		seedJob({ id: "job-kept" });
+		seedFileForJob("job-kept", "file-kept");
+		seedJob({
+			id: "job-legacy",
+			origin: "legacy_generated_file",
+			requestJson: null,
+		});
+		seedFileForJob("job-legacy", "file-legacy", "Legacy.md");
+		seedJob({
+			id: "job-failed",
+			status: "failed",
+			errorCode: "renderer_timeout",
+		});
+
+		const jobs = await listConversationFileProductionJobs(OWNER, CONVERSATION);
+		const byId = new Map(jobs.map((job) => [job.id, job]));
+
+		expect(byId.get("job-kept")?.canRegenerate).toBe(true);
+		expect(byId.get("job-legacy")?.canRegenerate).toBeUndefined();
+		expect(byId.get("job-failed")?.canRegenerate).toBeUndefined();
+	});
+});
+
 describe("a job whose files were all deleted", () => {
 	it("stays in the conversation's list, marked deleted, with a way to make it again when it kept its request", async () => {
 		seedJob({ id: "job-1" });

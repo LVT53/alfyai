@@ -56,6 +56,14 @@ export interface ConversationDetail {
 	 * would fail. Only ids the caller's own conversation names.
 	 */
 	deletedArtifactIds?: string[];
+	/**
+	 * …and the ones that still exist but cannot be reached from THIS
+	 * conversation — the parent of a forked incognito chat (a fork copies the
+	 * tool calls, never the items, and inherits incognito). Not deleted: the
+	 * card says "made in the original chat" and offers neither Open nor
+	 * Regenerate. Only ever the caller's own items.
+	 */
+	unreachableArtifactIds?: string[];
 	atlasJobs?: AtlasJobCard[];
 	atlasAvailability?: AtlasAvailability | null;
 	contextCompressionSnapshots?: ContextCompressionMarker[];

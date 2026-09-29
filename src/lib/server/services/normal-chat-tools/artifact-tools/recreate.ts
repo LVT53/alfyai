@@ -9,9 +9,9 @@
 // (`create_artifact`'s own 120 s ceiling and the request's abort), a handler
 // checks it before any write, and the per-turn cap does not apply because this
 // is not a turn. One regeneration of one item runs at a time, so a double
-// click cannot make it twice.
+// click — or a second chat of the same user — cannot make it twice.
 
-import { getArtifact } from "$lib/server/services/artifacts";
+import { artifactIdInUse, getArtifact } from "$lib/server/services/artifacts";
 import { getConversation } from "$lib/server/services/conversations";
 import { getStoredCreateArtifactCall } from "$lib/server/services/messages";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
@@ -35,10 +35,18 @@ export type RecreateArtifactResult =
 			 * `not_found`: not the caller's conversation (one answer for a missing chat
 			 * and someone else's). `no_stored_input`: no successful create call of this
 			 * chat names the item, or its arguments are no longer acceptable. `in_progress`:
-			 * this item is already being made. `failed`: the kind's handler refused or the
-			 * call was aborted; `detail` is its own model-safe reason.
+			 * this item is already being made. `unreachable`: an item holds this id
+			 * already but the chat cannot reach it (the parent of a forked incognito
+			 * chat): it is not deleted, so it is not made again — refused before any
+			 * work. `failed`: the kind's handler refused or the call was aborted;
+			 * `detail` is its own model-safe reason.
 			 */
-			reason: "not_found" | "no_stored_input" | "in_progress" | "failed";
+			reason:
+				| "not_found"
+				| "no_stored_input"
+				| "in_progress"
+				| "unreachable"
+				| "failed";
 			detail?: string;
 	  };
 
@@ -58,7 +66,10 @@ export async function recreateArtifactFromStoredCall(params: {
 	);
 	if (!conversation) return { ok: false, reason: "not_found" };
 
-	const key = `${params.conversationId}:${params.artifactId}`;
+	// Keyed by the id alone: a fork copies its parent's calls, so two chats of
+	// the same user can both offer Regenerate for one id — and only one item can
+	// ever hold it.
+	const key = params.artifactId;
 	if (regenerating.has(key)) return { ok: false, reason: "in_progress" };
 	regenerating.add(key);
 	try {
@@ -85,6 +96,15 @@ export async function recreateArtifactFromStoredCall(params: {
 			? buildCreateArtifactInputSchema().safeParse(stored.input)
 			: null;
 		if (!input?.success) return { ok: false, reason: "no_stored_input" };
+
+		// The item is not in this chat's scope — but that does not make it gone. A
+		// fork of an incognito chat copies the parent's calls and not its items,
+		// so the id can well be taken by an item the chat cannot reach; making it
+		// again would fail at the very end (an App only after a full model run).
+		// Say so before any work.
+		if (await artifactIdInUse(params.artifactId)) {
+			return { ok: false, reason: "unreachable" };
+		}
 
 		const result = await runCreateArtifactTool({
 			userId: params.userId,

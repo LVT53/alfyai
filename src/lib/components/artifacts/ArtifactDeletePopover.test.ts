@@ -13,6 +13,7 @@ function renderPopover(
 	overrides: Partial<{
 		kind: "document" | "app" | "canvas" | "slides" | "file";
 		title: string;
+		regenerable: boolean;
 		initialStage: "confirm" | "menu";
 		onConfirm: () => Promise<void>;
 		onClose: () => void;
@@ -53,6 +54,72 @@ describe("ArtifactDeletePopover", () => {
 		});
 		expect(dialog.textContent).toContain("“Weekend in Vienna”");
 		expect(dialog.textContent).toContain("This can't be undone.");
+	});
+
+	// The security review's L2: "This can't be undone" is false once the chat can
+	// make the item again. It is promised only where a source is kept.
+	describe("when the chat can make the item again", () => {
+		it("says so instead of that it cannot be undone", async () => {
+			renderPopover({ regenerable: true });
+
+			const dialog = await screen.findByRole("dialog", {
+				name: "Delete this document?",
+			});
+			expect(dialog.textContent).toContain("“Weekend in Vienna”");
+			expect(dialog.textContent).toContain(
+				"You can regenerate it from the chat.",
+			);
+			expect(dialog.textContent).not.toContain("can't be undone");
+		});
+
+		it.each([
+			["document", "and its versions and comments will be deleted"],
+			["app", "and its saved data will be deleted"],
+			["canvas", "and its versions and comments will be deleted"],
+			["slides", "and its versions and comments will be deleted"],
+			["file", "will be deleted"],
+		] as const)("keeps what a %s loses, and adds the way back", async (kind, loses) => {
+			renderPopover({ kind, regenerable: true });
+
+			const dialog = await screen.findByRole("dialog");
+			expect(dialog.textContent).toContain(loses);
+			expect(dialog.textContent).toContain(
+				"You can regenerate it from the chat.",
+			);
+		});
+
+		it("says it in Hungarian", async () => {
+			uiLanguage.set("hu");
+			renderPopover({ regenerable: true });
+
+			const dialog = await screen.findByRole("dialog", {
+				name: "Törlöd ezt a dokumentumot?",
+			});
+			expect(dialog.textContent).toContain(
+				"A beszélgetésből újra létrehozhatod.",
+			);
+			expect(dialog.textContent).not.toContain("Ez nem vonható vissza.");
+		});
+
+		it("also from a row's overflow, which leads to the same confirm", async () => {
+			renderPopover({ regenerable: true, initialStage: "menu" });
+
+			await fireEvent.click(
+				await screen.findByRole("menuitem", { name: "Delete document" }),
+			);
+
+			expect(
+				await screen.findByText(/You can regenerate it from the chat\./),
+			).toBeTruthy();
+		});
+	});
+
+	it("keeps the plain warning when nothing is kept to make the item again from", async () => {
+		renderPopover({ regenerable: false });
+
+		const dialog = await screen.findByRole("dialog");
+		expect(dialog.textContent).toContain("This can't be undone.");
+		expect(dialog.textContent).not.toContain("regenerate");
 	});
 
 	it("uses the kind's own words for an app", async () => {

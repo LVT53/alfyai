@@ -23,6 +23,7 @@ let {
 	kind,
 	title,
 	anchorTestId,
+	regenerable = false,
 	initialStage = "confirm",
 	onConfirm,
 	onClose,
@@ -32,6 +33,12 @@ let {
 	title: string;
 	/** `data-testid` of the trigger button the popover hangs from. */
 	anchorTestId: string;
+	/**
+	 * The chat kept what it takes to make this item again, so "you can
+	 * regenerate it from the chat" is true; without one the confirm says it
+	 * cannot be undone, which is then the whole truth.
+	 */
+	regenerable?: boolean;
 	initialStage?: "confirm" | "menu";
 	/** Does the delete. Resolves when the item is gone; rejects when it is not. */
 	onConfirm: () => Promise<void>;
@@ -95,7 +102,10 @@ async function confirm(): Promise<void> {
 	{:else}
 		<div class="artifact-delete-confirm">
 			<p class="artifact-delete-body">
-				{$t(`artifacts.delete.body.${kind}` as I18nKey, { title })}
+				{$t(
+					`artifacts.delete.${regenerable ? 'bodyRegenerable' : 'body'}.${kind}` as I18nKey,
+					{ title },
+				)}
 			</p>
 			{#if failed}
 				<p class="artifact-delete-error" role="alert">{$t('artifacts.delete.failed')}</p>

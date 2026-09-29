@@ -8,6 +8,13 @@
 export interface DeletedArtifacts {
 	/** Ids of the items this chat's cards point at that no longer exist. */
 	readonly deletedIds: readonly string[];
+	/**
+	 * Ids of the items this chat's cards point at that STILL exist but sit out
+	 * of this chat's reach (made in another chat — the parent of a forked
+	 * incognito chat). Not deleted: their cards say where they were made and
+	 * offer neither Open nor Regenerate. Wins over `deletedIds`.
+	 */
+	readonly unreachableIds: readonly string[];
 	/** Ids being made again right now. */
 	readonly regeneratingIds: readonly string[];
 	/** Ids the server said have nothing left to be made again from. */

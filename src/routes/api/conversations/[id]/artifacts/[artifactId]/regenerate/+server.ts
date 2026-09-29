@@ -11,7 +11,9 @@ import type { RequestHandler } from "./$types";
 // (`recreateArtifactFromStoredCall`) owns the conversation scope, the stored
 // call, the per-kind handlers and the one-at-a-time rule; this only maps its
 // answer to a status and gives it the budget `create_artifact` runs in — its
-// own ceiling, and the request's abort.
+// own ceiling, and the request's abort. 409 says the item cannot be made
+// (nothing kept to make it from, one already being made, or — `unreachable` —
+// an item still holds the id but the chat cannot reach it).
 //
 // `{ language }` (optional, "en" | "hu") is the reader's interface language: a
 // regeneration is not a turn with a reply language of its own (ruling 55), so
@@ -40,6 +42,7 @@ export const POST: RequestHandler = async (event) => {
 			return json({ ok: false, reason: "not_found" }, { status: 404 });
 		case "no_stored_input":
 		case "in_progress":
+		case "unreachable":
 			return json({ ok: false, reason: result.reason }, { status: 409 });
 		default:
 			return json(

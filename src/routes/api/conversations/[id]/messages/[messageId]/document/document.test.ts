@@ -93,6 +93,18 @@ function rawContentText(artifactId: string): string {
 	return row?.contentText ?? "";
 }
 
+function documentRowCount(): number {
+	const sqlite = new Database(dbPath);
+	const db = drizzle(sqlite, { schema });
+	const rows = db
+		.select({ id: schema.artifacts.id })
+		.from(schema.artifacts)
+		.where(eq(schema.artifacts.conversationId, "route-conversation"))
+		.all();
+	sqlite.close();
+	return rows.length;
+}
+
 describe("POST /api/conversations/[id]/messages/[messageId]/document", () => {
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-keep-as-document-route-${randomUUID()}.db`;
@@ -140,6 +152,78 @@ describe("POST /api/conversations/[id]/messages/[messageId]/document", () => {
 		expect(second.body.created).toBe(false);
 	});
 
+	// The security review's L5: "idempotent" held for presses one after another,
+	// not for two at once (a second tab, a double click): both saw no live link
+	// and both made a Document, and the message kept only the last. A press that
+	// arrives while the first is making the Document gets that Document.
+	it("makes one Document for two presses that arrive together, and gives both of them that one", async () => {
+		seedConversationAndMessage({ content: "A plan for Saturday." });
+
+		const [a, b] = await Promise.all([postDocument(), postDocument()]);
+
+		expect([a.status, b.status]).toEqual([200, 200]);
+		expect(a.body.artifactId).toBe(b.body.artifactId);
+		expect([a.body.created, b.body.created].sort()).toEqual([false, true]);
+		expect(documentRowCount()).toBe(1);
+		// The message points at it: a later press opens the same one.
+		const later = await postDocument();
+		expect(later.body).toMatchObject({
+			created: false,
+			artifactId: a.body.artifactId,
+		});
+	});
+
+	it("still makes only one fresh Document when two presses arrive together after the kept one was deleted", async () => {
+		seedConversationAndMessage({ content: "A plan for Saturday." });
+		const first = await postDocument();
+		const { deleteArtifact } = await import("$lib/server/services/artifacts");
+		await deleteArtifact({
+			userId: "route-owner",
+			artifactId: first.body.artifactId as string,
+		});
+		expect(documentRowCount()).toBe(0);
+
+		const [a, b] = await Promise.all([postDocument(), postDocument()]);
+
+		expect(a.body.artifactId).toBe(b.body.artifactId);
+		expect(a.body.artifactId).not.toBe(first.body.artifactId);
+		expect(documentRowCount()).toBe(1);
+	});
+
+	it("answers each of two presses for different messages with that message's own Document", async () => {
+		seedConversationAndMessage({ content: "A plan for Saturday." });
+		const sqlite = new Database(dbPath);
+		const db = drizzle(sqlite, { schema });
+		db.insert(schema.messages)
+			.values({
+				id: "route-assistant-2",
+				conversationId: "route-conversation",
+				messageSequence: 3,
+				role: "assistant",
+				content: "A plan for Sunday.",
+				createdAt: new Date("2026-09-25T09:01:00.000Z"),
+			})
+			.run();
+		sqlite.close();
+		const { POST } = await import("./+server");
+		const press = async (messageId: string) => {
+			const response = await POST({
+				params: { id: "route-conversation", messageId },
+				locals: { user: { id: "route-owner" } },
+			} as unknown as Parameters<typeof POST>[0]);
+			return (await response.json()) as Record<string, unknown>;
+		};
+
+		const [saturday, sunday] = await Promise.all([
+			press("route-assistant"),
+			press("route-assistant-2"),
+		]);
+
+		expect(saturday.artifactId).not.toBe(sunday.artifactId);
+		expect([saturday.created, sunday.created]).toEqual([true, true]);
+		expect(documentRowCount()).toBe(2);
+	});
+
 	// Polish G2-A (Regenerate for a Document made with "Open as document"): the
 	// message's link points at something deleted since, so asking again makes a
 	// fresh Document from the same reply and re-links the message to it — the
@@ -153,7 +237,7 @@ describe("POST /api/conversations/[id]/messages/[messageId]/document", () => {
 				userId: "route-owner",
 				artifactId: first.body.artifactId as string,
 			}),
-		).resolves.toBe(true);
+		).resolves.toEqual({ ok: true });
 
 		const again = await postDocument();
 

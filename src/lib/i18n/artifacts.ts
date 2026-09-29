@@ -117,6 +117,18 @@ const artifactsDict = {
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.file":
 			"“{title}” will be deleted. This can't be undone.",
+		// The same confirm for an item the chat can make again (the security
+		// review's L2): "can't be undone" is not true of it, so it says the way back.
+		"artifacts.delete.bodyRegenerable.document":
+			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.app":
+			"“{title}” and its saved data will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.canvas":
+			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.slides":
+			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.file":
+			"“{title}” will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.busy": "Deleting…",
 		"artifacts.delete.failed": "Couldn't delete this. Try again.",
 		"artifacts.delete.done.document": "Document deleted",
@@ -140,6 +152,10 @@ const artifactsDict = {
 		"artifacts.deleted.regenerateFailed":
 			"Couldn't regenerate this. Try again.",
 		"artifacts.deleted.regenerated": "Regenerated “{title}”",
+		// An item that exists but sits out of this chat's reach — the parent of a
+		// forked incognito chat (the security review's M1): not deleted, so it is
+		// never called that, and nothing offers to make it again.
+		"artifacts.madeInOriginalChat": "Made in the original chat",
 		"artifacts.type.file": "File",
 		"artifacts.type.document": "Document",
 		"artifacts.type.app": "App",
@@ -583,6 +599,16 @@ const artifactsDict = {
 		"artifacts.delete.body.slides":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.file": "„{title}” törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.bodyRegenerable.document":
+			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.app":
+			"„{title}” és a mentett adatai törlődnek. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.canvas":
+			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.slides":
+			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.file":
+			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.busy": "Törlés…",
 		"artifacts.delete.failed": "Nem sikerült törölni. Próbáld újra.",
 		"artifacts.delete.done.document": "Dokumentum törölve",
@@ -604,6 +630,7 @@ const artifactsDict = {
 		"artifacts.deleted.regenerateFailed":
 			"Nem sikerült újragenerálni. Próbáld újra.",
 		"artifacts.deleted.regenerated": "„{title}” újragenerálva",
+		"artifacts.madeInOriginalChat": "Az eredeti beszélgetésben készült",
 		"artifacts.type.file": "Fájl",
 		"artifacts.type.document": "Dokumentum",
 		"artifacts.type.app": "Alkalmazás",

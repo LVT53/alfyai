@@ -107,7 +107,8 @@ let {
 	activeArtifactId?: string | null;
 	/**
 	 * Polish G2-A: which items were deleted (and the Regenerate that makes one
-	 * again). A card whose item is in `deletedIds` says so, muted, with no Open.
+	 * again). A card whose item is in `deletedIds` says so, muted, with no Open;
+	 * one whose item is in `unreachableIds` says it was made in the original chat.
 	 */
 	deletedArtifacts?: DeletedArtifacts | undefined;
 } = $props();
@@ -132,6 +133,16 @@ type ArtifactFailedBody = Extract<
  * their slices add previews" means for Canvas/Slides today.
  */
 function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
+	// The security review's M1: the item exists but this chat cannot reach it
+	// (made in another chat). Not deleted — and not regenerable, not openable.
+	if (deletedArtifacts?.unreachableIds.includes(body.artifactId)) {
+		return {
+			id: body.artifactId,
+			kind: body.artifactKind,
+			title: body.artifactTitle,
+			unreachable: true,
+		};
+	}
 	// Polish G2-A: the item is gone — nothing else about it (preview, pending
 	// review, version) is true any more, and there is nothing to open.
 	if (deletedArtifacts?.deletedIds.includes(body.artifactId)) {

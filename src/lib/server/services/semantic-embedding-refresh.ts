@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { artifacts, conversationTaskStates } from "$lib/server/db/schema";
@@ -93,6 +93,33 @@ export function buildTaskStateEmbeddingSourceText(
 	return source || null;
 }
 
+/**
+ * Which of these subjects still exist. A refresh awaits a TEI call — real
+ * I/O — between reading its subject and writing the vector, and a delete that
+ * lands in that gap has already removed the row and its vector: writing one
+ * anyway leaves an orphan, and Regenerate makes an item again under the SAME
+ * id, so the stale vector would attach to the new item. Read right before the
+ * write, with nothing but microtasks in between.
+ */
+async function listExistingSubjectIds(
+	subjectType: RefreshableSubject["subjectType"],
+	subjectIds: string[],
+): Promise<Set<string>> {
+	if (subjectIds.length === 0) return new Set();
+	if (subjectType === "artifact") {
+		const rows = await db
+			.select({ id: artifacts.id })
+			.from(artifacts)
+			.where(inArray(artifacts.id, subjectIds));
+		return new Set(rows.map((row) => row.id));
+	}
+	const rows = await db
+		.select({ taskId: conversationTaskStates.taskId })
+		.from(conversationTaskStates)
+		.where(inArray(conversationTaskStates.taskId, subjectIds));
+	return new Set(rows.map((row) => row.taskId));
+}
+
 async function refreshSubjectEmbeddings(
 	subjects: RefreshableSubject[],
 ): Promise<number> {
@@ -144,19 +171,28 @@ async function refreshSubjectEmbeddings(
 				continue;
 			}
 
-			await Promise.all(
-				batch.map((subject, embeddingIndex) =>
-					upsertSemanticEmbedding({
-						userId: subject.userId,
-						subjectType: subject.subjectType,
-						subjectId: subject.subjectId,
-						modelName,
-						sourceText: subject.sourceText,
-						embedding: embeddings[embeddingIndex] ?? [],
-					}),
-				),
+			// Only for subjects that are still there: one deleted while the
+			// embedding was being fetched gets no vector (see above).
+			const existing = await listExistingSubjectIds(
+				batch[0]?.subjectType ?? "artifact",
+				batch.map((subject) => subject.subjectId),
 			);
-			refreshed += batch.length;
+			const writes = batch.flatMap((subject, embeddingIndex) =>
+				existing.has(subject.subjectId)
+					? [
+							upsertSemanticEmbedding({
+								userId: subject.userId,
+								subjectType: subject.subjectType,
+								subjectId: subject.subjectId,
+								modelName,
+								sourceText: subject.sourceText,
+								embedding: embeddings[embeddingIndex] ?? [],
+							}),
+						]
+					: [],
+			);
+			await Promise.all(writes);
+			refreshed += writes.length;
 		}
 	}
 

@@ -236,6 +236,7 @@ describe("chat conversation page load", () => {
 			// Polish G2-A: no card is told its item was deleted unless the
 			// server says so.
 			deletedArtifactIds: [],
+			unreachableArtifactIds: [],
 			contextCompressionSnapshots: [],
 			totalCostUsdMicros: 0,
 			totalTokens: 0,
@@ -253,6 +254,8 @@ describe("chat conversation page load", () => {
 					conversation: conversationFixture("conv-1"),
 					messages: [],
 					deletedArtifactIds: ["doc-1", "app-2"],
+					// Exists, but made in another chat (the parent of a forked incognito chat).
+					unreachableArtifactIds: ["doc-3"],
 				}),
 				{ status: 200 },
 			);
@@ -266,7 +269,10 @@ describe("chat conversation page load", () => {
 			),
 		)) as LoadedPageData;
 
-		expect(data).toMatchObject({ deletedArtifactIds: ["doc-1", "app-2"] });
+		expect(data).toMatchObject({
+			deletedArtifactIds: ["doc-1", "app-2"],
+			unreachableArtifactIds: ["doc-3"],
+		});
 	});
 
 	it("loads pending writes in parallel with conversation detail (Issue 7.5)", async () => {

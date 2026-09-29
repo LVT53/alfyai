@@ -38,6 +38,7 @@ const { ARTIFACT_BODY_MAX_BYTES, ARTIFACT_TITLE_MAX_CHARS } = await import(
 const OWNER = "user-owner";
 const STRANGER = "user-stranger";
 const CONVERSATION = "conv-owner";
+const OTHER_CONVERSATION = "conv-owner-other";
 const INCOGNITO = "conv-incognito";
 const STRANGER_CONVERSATION = "conv-stranger";
 
@@ -92,6 +93,7 @@ beforeEach(() => {
 	seedUser(memory, OWNER);
 	seedUser(memory, STRANGER);
 	seedConversation(memory, { id: CONVERSATION, userId: OWNER });
+	seedConversation(memory, { id: OTHER_CONVERSATION, userId: OWNER });
 	seedConversation(memory, {
 		id: INCOGNITO,
 		userId: OWNER,
@@ -1045,10 +1047,10 @@ describe("deleteArtifact", () => {
 
 		await expect(
 			deleteArtifact({ userId: STRANGER, artifactId: artifact.id }),
-		).resolves.toBe(false);
+		).resolves.toEqual({ ok: false, reason: "not_found" });
 		await expect(
 			deleteArtifact({ userId: OWNER, artifactId: artifact.id }),
-		).resolves.toBe(true);
+		).resolves.toEqual({ ok: true });
 
 		expect(artifactRow(artifact.id)).toBeUndefined();
 		expect(versionRows(artifact.id)).toEqual([]);
@@ -1056,7 +1058,7 @@ describe("deleteArtifact", () => {
 		expect(memory.db.select().from(schema.artifactKv).all()).toEqual([]);
 		await expect(
 			deleteArtifact({ userId: OWNER, artifactId: artifact.id }),
-		).resolves.toBe(false);
+		).resolves.toEqual({ ok: false, reason: "not_found" });
 	});
 
 	// A delete has to leave nothing that hangs off the artifact, and touch
@@ -1173,7 +1175,7 @@ describe("deleteArtifact", () => {
 
 		await expect(
 			deleteArtifact({ userId: OWNER, artifactId: doomed.id }),
-		).resolves.toBe(true);
+		).resolves.toEqual({ ok: true });
 
 		const idsOf = (rows: Array<{ id: string }>) => rows.map((row) => row.id);
 		expect(artifactRow(doomed.id)).toBeUndefined();
@@ -1251,7 +1253,7 @@ describe("deleteArtifact", () => {
 
 			await expect(
 				deleteArtifact({ userId: OWNER, artifactId: doomed.artifactId }),
-			).resolves.toBe(true);
+			).resolves.toEqual({ ok: true });
 
 			expect(artifactRow(doomed.artifactId)).toBeUndefined();
 			expect(chatFileRows().map((row) => row.id)).toEqual([kept.chatFileId]);
@@ -1302,7 +1304,7 @@ describe("deleteArtifact", () => {
 
 			await expect(
 				deleteArtifact({ userId: OWNER, artifactId: seeded.artifactId }),
-			).resolves.toBe(true);
+			).resolves.toEqual({ ok: true });
 
 			expect(chatFileRows()).toEqual([]);
 			expect(artifactRow(seeded.artifactId)).toBeUndefined();
@@ -1319,7 +1321,7 @@ describe("deleteArtifact", () => {
 
 			await expect(
 				deleteArtifact({ userId: OWNER, artifactId: seeded.artifactId }),
-			).resolves.toBe(true);
+			).resolves.toEqual({ ok: true });
 			expect(artifactRow(seeded.artifactId)).toBeUndefined();
 		});
 
@@ -1333,7 +1335,7 @@ describe("deleteArtifact", () => {
 
 			await expect(
 				deleteArtifact({ userId: STRANGER, artifactId: seeded.artifactId }),
-			).resolves.toBe(false);
+			).resolves.toEqual({ ok: false, reason: "not_found" });
 			expect(artifactRow(seeded.artifactId)).toBeDefined();
 			expect(chatFileRows()).toHaveLength(1);
 		});
@@ -1344,7 +1346,7 @@ describe("deleteArtifact", () => {
 
 		await expect(
 			deleteArtifact({ userId: OWNER, artifactId: artifact.id }),
-		).resolves.toBe(false);
+		).resolves.toEqual({ ok: false, reason: "not_found" });
 		expect(artifactRow(artifact.id)).toBeDefined();
 
 		// Naming a different own conversation reaches nothing new either.
@@ -1354,7 +1356,7 @@ describe("deleteArtifact", () => {
 				artifactId: artifact.id,
 				conversationId: CONVERSATION,
 			}),
-		).resolves.toBe(false);
+		).resolves.toEqual({ ok: false, reason: "not_found" });
 		expect(artifactRow(artifact.id)).toBeDefined();
 
 		await expect(
@@ -1363,8 +1365,91 @@ describe("deleteArtifact", () => {
 				artifactId: artifact.id,
 				conversationId: INCOGNITO,
 			}),
-		).resolves.toBe(true);
+		).resolves.toEqual({ ok: true });
 		expect(artifactRow(artifact.id)).toBeUndefined();
+	});
+});
+
+// The security review's L1 (probe P3): a fork copies its parent's tool calls
+// and not its items, so the fork's card can name — and its panel open — the
+// parent's Document, which any of the user's other non-incognito chats can
+// read. A delete from a chat panel acts only on what THAT chat made.
+describe("deleteArtifact from a conversation's own panel", () => {
+	it("refuses an item another of the owner's chats made, with its own reason, and leaves it untouched (P3)", async () => {
+		const parents = await createDocument({ conversationId: CONVERSATION });
+
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: parents.id,
+				conversationId: OTHER_CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_made_here" });
+
+		expect(artifactRow(parents.id)).toBeDefined();
+		expect(versionRows(parents.id)).toHaveLength(1);
+		// The chat that made it can.
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: parents.id,
+				conversationId: CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: true });
+		expect(artifactRow(parents.id)).toBeUndefined();
+	});
+
+	it("refuses a produced file another chat made just the same", async () => {
+		const seeded = seedProducedFile(memory, {
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			artifactId: "file-artifact-p3",
+			filename: "plan.pdf",
+		});
+
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: seeded.artifactId,
+				conversationId: OTHER_CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_made_here" });
+		expect(artifactRow(seeded.artifactId)).toBeDefined();
+	});
+
+	it("says nothing more about a row its caller cannot reach: still the one not_found", async () => {
+		const strangers = await createDocument({
+			userId: STRANGER,
+			conversationId: STRANGER_CONVERSATION,
+		});
+		const secret = await createDocument({ conversationId: INCOGNITO });
+
+		// Someone else's row, whichever of their own chats the caller names.
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: strangers.id,
+				conversationId: CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+		// An incognito chat's own item, from another chat: out of reach, not "made elsewhere".
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: secret.id,
+				conversationId: CONVERSATION,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+		expect(artifactRow(strangers.id)).toBeDefined();
+		expect(artifactRow(secret.id)).toBeDefined();
+	});
+
+	it("leaves a delete that names no conversation as it was: the caller's own reachable item goes", async () => {
+		const artifact = await createDocument({ conversationId: CONVERSATION });
+
+		await expect(
+			deleteArtifact({ userId: OWNER, artifactId: artifact.id }),
+		).resolves.toEqual({ ok: true });
 	});
 });
 

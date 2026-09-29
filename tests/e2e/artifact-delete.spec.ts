@@ -5,12 +5,14 @@ import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
 	chatGeneratedFiles,
+	conversations,
 	fileProductionJobFiles,
 	fileProductionJobs,
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
+import { createConversationFork } from "../../src/lib/server/services/conversation-forks";
 import { createConversation, login } from "./helpers";
 
 // Polish G2-A: Delete for what is open in the panel and for each list row,
@@ -124,7 +126,10 @@ test.describe("Delete and Regenerate — a Document made by create_artifact", ()
 		const dialog = page.getByRole("dialog", { name: "Delete this document?" });
 		await expect(dialog).toBeVisible();
 		await expect(dialog).toContainText(CREATED_TITLE);
-		await expect(dialog).toContainText("This can't be undone.");
+		// The chat kept the model's own arguments, so it can make this again: the
+		// confirm says the way back, not that it cannot be undone.
+		await expect(dialog).toContainText("You can regenerate it from the chat.");
+		await expect(dialog).not.toContainText("can't be undone");
 		await dialog.getByRole("button", { name: "Delete" }).click();
 
 		// The only item: the panel leaves with it, the card flips, a toast says so.
@@ -209,6 +214,9 @@ test.describe("Delete from the panel list", () => {
 		await page.getByRole("menuitem", { name: "Delete document" }).click();
 		const dialog = page.getByRole("dialog", { name: "Delete this document?" });
 		await expect(dialog).toContainText("Vienna itinerary");
+		// Seeded with no create call and no message it was kept from: nothing is
+		// kept to make it again from, so the plain warning is the whole truth.
+		await expect(dialog).toContainText("This can't be undone.");
 		await dialog.getByRole("button", { name: "Delete" }).click();
 
 		await expect(list.getByTestId("artifact-row")).toHaveCount(1);
@@ -326,6 +334,8 @@ test.describe("A produced file that was deleted", () => {
 			.click();
 		await page.getByRole("menuitem", { name: "Delete file" }).click();
 		const dialog = page.getByRole("dialog", { name: "Delete this file?" });
+		// The job kept its request, so the file can be made again.
+		await expect(dialog).toContainText("You can regenerate it from the chat.");
 		await dialog.getByRole("button", { name: "Delete" }).click();
 
 		// The chat's row for the file now says it is gone.
@@ -373,5 +383,108 @@ test.describe("A produced file that was deleted", () => {
 			.from(fileProductionJobs)
 			.where(eq(fileProductionJobs.id, jobId));
 		expect(after?.status).not.toBe("succeeded");
+	});
+});
+
+// The security review's M1 and L1, in the browser: the fork of an incognito
+// chat copies the parent's tool calls and not its items, and is incognito too.
+// The parent's Document exists but is out of the fork's reach — the card says
+// where it was made, never that it was deleted, and offers neither Open nor
+// Regenerate. Containment is what it was: the fork lists and reads nothing.
+test.describe("A fork of an incognito chat", () => {
+	test("calls the parent's Document 'made in the original chat', not deleted", async ({
+		page,
+	}) => {
+		await login(page);
+		const parentId = await createConversation(page, "Incognito plan");
+		await db
+			.update(conversations)
+			.set({ memoryIncognito: true })
+			.where(eq(conversations.id, parentId));
+		const uid = await testUserId();
+		const made = await createDocumentArtifact({
+			userId: uid,
+			conversationId: parentId,
+			title: CREATED_TITLE,
+			markdown: CREATED_BODY,
+			author: "alfy",
+			summary: "Alfy wrote the first draft",
+		});
+		const parentMessageId = randomUUID();
+		await db.insert(messages).values({
+			id: parentMessageId,
+			conversationId: parentId,
+			messageSequence: 900,
+			role: "assistant",
+			content: "Made the document.",
+			toolCalls: JSON.stringify([
+				{
+					type: "tool_call",
+					callId: "e2e-fork-create-call",
+					name: "create_artifact",
+					input: {
+						artifactType: "document",
+						title: CREATED_TITLE,
+						body: CREATED_BODY,
+					},
+					status: "done",
+					outputSummary: `Created Document "${CREATED_TITLE}"`,
+					sourceType: "tool",
+					metadata: {
+						ok: true,
+						artifactId: made.id,
+						artifactKind: "document",
+						artifactTitle: CREATED_TITLE,
+					},
+				},
+			]),
+			createdAt: new Date(),
+		});
+		const fork = await createConversationFork({
+			userId: uid,
+			sourceConversationId: parentId,
+			sourceMessageId: parentMessageId,
+		});
+		expect(fork.conversation.memoryIncognito).toBe(true);
+
+		await openChatAndReload(page, fork.conversation.id);
+
+		const card = page.getByTestId("artifact-card");
+		await expect(card).toHaveAttribute("data-state", "unreachable");
+		await expect(card).toContainText(CREATED_TITLE);
+		await expect(card).toContainText("Made in the original chat");
+		await expect(page.getByText(/was deleted/)).toHaveCount(0);
+		await expect(page.getByTestId("artifact-card-head")).toHaveCount(0);
+		await expect(card.getByRole("button", { name: /Regenerate/ })).toHaveCount(
+			0,
+		);
+
+		// Containment is untouched: the fork lists none of it, and cannot read it.
+		expect(await listItems(page, fork.conversation.id)).toEqual([]);
+		const status = await page.evaluate(
+			async ([id, conversation]) => {
+				const response = await fetch(
+					`/api/artifacts/${id}?conversationId=${conversation}`,
+				);
+				return response.status;
+			},
+			[made.id, fork.conversation.id],
+		);
+		expect(status).toBe(404);
+		// And nothing can make a second one under that id.
+		const regenerate = await page.evaluate(
+			async ([id, conversation]) => {
+				const response = await fetch(
+					`/api/conversations/${conversation}/artifacts/${id}/regenerate`,
+					{ method: "POST" },
+				);
+				return { status: response.status, body: await response.json() };
+			},
+			[made.id, fork.conversation.id],
+		);
+		expect(regenerate).toEqual({
+			status: 409,
+			body: { ok: false, reason: "unreachable" },
+		});
 	});
 });

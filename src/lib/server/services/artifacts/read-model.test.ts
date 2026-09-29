@@ -634,11 +634,14 @@ describe("listArtifactsForConversation — appVerification (Wave 2.5 Step 13)", 
 	});
 });
 
-// Polish G2-A: which of the artifacts a chat's tool calls named are gone. A
-// deleted row leaves nothing behind, so "missing" is read against the same
-// ownership scope as every other artifact read — which also means an id the
-// caller cannot reach (another user's, or an incognito chat's own when it is
-// not the served one) reads as missing, and reveals nothing about the row.
+// Polish G2-A + the security review's M1: of the artifacts a chat's tool calls
+// named, which are GONE and which merely sit out of this chat's reach. A
+// deleted row leaves nothing behind, so "gone" is "no row of the caller's own
+// holds the id"; an item that exists but cannot be reached from the served
+// conversation (the parent of a forked incognito chat, a row whose chat link
+// was cleared) is a different answer, "unreachable" — the card must not call
+// it deleted, and Regenerate must never make a second one. Another user's row
+// is neither: it reads exactly like a missing one and reveals nothing.
 describe("listMissingArtifactIds", () => {
 	it("names the artifacts that no longer exist, and only those", async () => {
 		const kept = await create(CONVERSATION, "Kept");
@@ -651,7 +654,7 @@ describe("listMissingArtifactIds", () => {
 				conversationId: CONVERSATION,
 				artifactIds: [kept.id, gone.id, "never-was"],
 			}),
-		).resolves.toEqual([gone.id, "never-was"]);
+		).resolves.toEqual({ deleted: [gone.id, "never-was"], unreachable: [] });
 	});
 
 	it("answers nothing for an empty list", async () => {
@@ -661,7 +664,7 @@ describe("listMissingArtifactIds", () => {
 				conversationId: CONVERSATION,
 				artifactIds: [],
 			}),
-		).resolves.toEqual([]);
+		).resolves.toEqual({ deleted: [], unreachable: [] });
 	});
 
 	it("reads another user's artifact exactly like a missing one: reachable by nobody but its owner", async () => {
@@ -673,13 +676,14 @@ describe("listMissingArtifactIds", () => {
 			STRANGER,
 		);
 
+		// Not "unreachable": that would say the row exists.
 		await expect(
 			listMissingArtifactIds({
 				userId: OWNER,
 				conversationId: CONVERSATION,
 				artifactIds: [stranger.id],
 			}),
-		).resolves.toEqual([stranger.id]);
+		).resolves.toEqual({ deleted: [stranger.id], unreachable: [] });
 		// …while for its owner it exists.
 		await expect(
 			listMissingArtifactIds({
@@ -687,10 +691,10 @@ describe("listMissingArtifactIds", () => {
 				conversationId: "conv-stranger-own",
 				artifactIds: [stranger.id],
 			}),
-		).resolves.toEqual([]);
+		).resolves.toEqual({ deleted: [], unreachable: [] });
 	});
 
-	it("finds an incognito chat's own artifact when that chat is the served one, and not from any other chat", async () => {
+	it("finds an incognito chat's own artifact when that chat is the served one, and calls it unreachable (not deleted) from any other chat", async () => {
 		const secret = await create(INCOGNITO, "Secret plan");
 
 		await expect(
@@ -699,14 +703,55 @@ describe("listMissingArtifactIds", () => {
 				conversationId: INCOGNITO,
 				artifactIds: [secret.id],
 			}),
-		).resolves.toEqual([]);
+		).resolves.toEqual({ deleted: [], unreachable: [] });
 		await expect(
 			listMissingArtifactIds({
 				userId: OWNER,
 				conversationId: CONVERSATION,
 				artifactIds: [secret.id],
 			}),
-		).resolves.toEqual([secret.id]);
+		).resolves.toEqual({ deleted: [], unreachable: [secret.id] });
+	});
+
+	it("calls the parent's item of a forked incognito chat unreachable, not deleted (probe P4)", async () => {
+		// The fork of an incognito chat is incognito too, so the parent sits
+		// outside the fork's scope even though both are the owner's.
+		const forkOfIncognito = "conv-incognito-fork";
+		seedConversation(memory, {
+			id: forkOfIncognito,
+			userId: OWNER,
+			memoryIncognito: true,
+		});
+		const parentsDoc = await create(INCOGNITO, "Parent's document");
+		const gone = await create(INCOGNITO, "Parent's deleted document");
+		await deleteArtifact({
+			userId: OWNER,
+			artifactId: gone.id,
+			conversationId: INCOGNITO,
+		});
+
+		await expect(
+			listMissingArtifactIds({
+				userId: OWNER,
+				conversationId: forkOfIncognito,
+				artifactIds: [parentsDoc.id, gone.id],
+			}),
+		).resolves.toEqual({ deleted: [gone.id], unreachable: [parentsDoc.id] });
+	});
+
+	it("calls a row whose chat link was cleared unreachable: it exists, nothing reaches it from a chat", async () => {
+		const orphaned = await create(CONVERSATION, "Kept by an outside reference");
+		memory.sqlite
+			.prepare("UPDATE artifacts SET conversation_id = NULL WHERE id = ?")
+			.run(orphaned.id);
+
+		await expect(
+			listMissingArtifactIds({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactIds: [orphaned.id],
+			}),
+		).resolves.toEqual({ deleted: [], unreachable: [orphaned.id] });
 	});
 
 	it("says nothing at all about a conversation that is not the caller's", async () => {
@@ -718,6 +763,6 @@ describe("listMissingArtifactIds", () => {
 				conversationId: CONVERSATION,
 				artifactIds: [mine.id, "never-was"],
 			}),
-		).resolves.toEqual([]);
+		).resolves.toEqual({ deleted: [], unreachable: [] });
 	});
 });

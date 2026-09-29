@@ -352,6 +352,7 @@ function projectMessageMetadata(
 	| "instructionsApplied"
 	| "instructionSuggestions"
 	| "projectFilesRead"
+	| "documentArtifactId"
 > {
 	const evidenceSummary =
 		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
@@ -418,6 +419,12 @@ function projectMessageMetadata(
 		instructionSuggestions: Array.isArray(metadata?.instructionSuggestions)
 			? metadata.instructionSuggestions
 			: undefined,
+		// The Document this message was kept as ("Open as document"), so the chat
+		// can tell which Documents it can make again.
+		documentArtifactId:
+			typeof metadata?.documentArtifactId === "string"
+				? metadata.documentArtifactId
+				: undefined,
 	};
 }
 
@@ -1089,6 +1096,31 @@ export function artifactCallIdsFromMessages(
 		for (const call of artifactCallsFromSegments(message.thinkingSegments)) {
 			ids.add(call.artifactId);
 		}
+	}
+	return [...ids];
+}
+
+/**
+ * The ids of the artifacts these messages can make again — read off the
+ * messages the caller already holds, so it costs no query: the ones a
+ * successful `create_artifact` call made (Regenerate makes them again from the
+ * model's own arguments; an edit never counts, it holds a summary, not the
+ * item) and the Document a message was kept as (pressing "Open as document"
+ * again makes it from the message). Each once, in the order first seen. It is
+ * what lets the delete confirm promise "you can regenerate it from the chat"
+ * only for an item the chat really can make again.
+ */
+export function regenerableArtifactIdsFromMessages(
+	messageList: ReadonlyArray<
+		Pick<ChatMessage, "thinkingSegments" | "documentArtifactId">
+	>,
+): string[] {
+	const ids = new Set<string>();
+	for (const message of messageList) {
+		for (const call of artifactCallsFromSegments(message.thinkingSegments)) {
+			if (call.name === "create_artifact") ids.add(call.artifactId);
+		}
+		if (message.documentArtifactId) ids.add(message.documentArtifactId);
 	}
 	return [...ids];
 }

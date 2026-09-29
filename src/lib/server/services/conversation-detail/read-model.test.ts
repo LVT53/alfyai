@@ -16,6 +16,7 @@ vi.mock("$lib/server/services/conversation-forks", () => ({
 vi.mock("$lib/server/services/messages", () => ({
 	listMessageWindow: vi.fn(),
 	artifactCallIdsFromMessages: vi.fn(),
+	regenerableArtifactIdsFromMessages: vi.fn(),
 	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT: 100,
 }));
 
@@ -105,6 +106,7 @@ import { listConversationLinkedContextSources } from "$lib/server/services/linke
 import {
 	artifactCallIdsFromMessages,
 	listMessageWindow,
+	regenerableArtifactIdsFromMessages,
 } from "$lib/server/services/messages";
 import {
 	attachContinuityToTaskState,
@@ -151,6 +153,9 @@ const mockListArtifactsForConversation = vi.mocked(
 	listArtifactsForConversation,
 );
 const mockArtifactCallIdsFromMessages = vi.mocked(artifactCallIdsFromMessages);
+const mockRegenerableArtifactIdsFromMessages = vi.mocked(
+	regenerableArtifactIdsFromMessages,
+);
 const mockListMissingArtifactIds = vi.mocked(listMissingArtifactIds);
 
 describe("Conversation Detail Read Model", () => {
@@ -210,7 +215,11 @@ describe("Conversation Detail Read Model", () => {
 		});
 		mockListArtifactsForConversation.mockResolvedValue([]);
 		mockArtifactCallIdsFromMessages.mockReturnValue([]);
-		mockListMissingArtifactIds.mockResolvedValue([]);
+		mockRegenerableArtifactIdsFromMessages.mockReturnValue([]);
+		mockListMissingArtifactIds.mockResolvedValue({
+			deleted: [],
+			unreachable: [],
+		});
 	});
 
 	it("returns the cheap bootstrap detail payload with stable defaults", async () => {
@@ -477,7 +486,7 @@ describe("Conversation Detail Read Model", () => {
 	// The tool calls name the artifacts (messages.ts); the artifact service
 	// says which of them are gone, under the ownership scope (never a second
 	// scope of the read model's own).
-	it("returns the ids of the artifacts this chat's tool calls named that no longer exist", async () => {
+	it("returns the ids of the artifacts this chat's tool calls named that no longer exist, and separately the ones that exist out of its reach", async () => {
 		const loaded = [
 			{
 				id: "assistant-1",
@@ -492,8 +501,15 @@ describe("Conversation Detail Read Model", () => {
 			messages: loaded,
 			hasMoreBefore: false,
 		});
-		mockArtifactCallIdsFromMessages.mockReturnValue(["doc-1", "doc-2"]);
-		mockListMissingArtifactIds.mockResolvedValue(["doc-2"]);
+		mockArtifactCallIdsFromMessages.mockReturnValue([
+			"doc-1",
+			"doc-2",
+			"doc-3",
+		]);
+		mockListMissingArtifactIds.mockResolvedValue({
+			deleted: ["doc-2"],
+			unreachable: ["doc-3"],
+		});
 
 		const detail = await getConversationDetail({
 			userId: "user-1",
@@ -505,9 +521,142 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockListMissingArtifactIds).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
-			artifactIds: ["doc-1", "doc-2"],
+			artifactIds: ["doc-1", "doc-2", "doc-3"],
 		});
 		expect(detail?.deletedArtifactIds).toEqual(["doc-2"]);
+		// Exists, but not from here (the parent of a forked incognito chat): the
+		// card says where it was made instead of calling it deleted.
+		expect(detail?.unreachableArtifactIds).toEqual(["doc-3"]);
+	});
+
+	// The security review's L2: an item the chat can make again says so (the
+	// delete confirm reads it): the ones the loaded messages made or kept, and a
+	// produced file whose one job kept its request.
+	describe("regenerable artifacts", () => {
+		const summary = (id: string, kind: "document" | "app" | "file") => ({
+			id,
+			kind,
+			title: id,
+			conversationId: "conv-1",
+			versionNumber: 1,
+			commentCount: 0,
+			updatedAt: 1,
+		});
+		const fileJob = (
+			id: string,
+			files: Array<{ artifactId: string | null }>,
+			canRegenerate?: true,
+		) =>
+			({
+				id,
+				conversationId: "conv-1",
+				title: id,
+				status: "succeeded",
+				createdAt: 1,
+				updatedAt: 1,
+				files: files.map((file, index) => ({
+					id: `${id}-file-${index}`,
+					filename: `${id}-${index}.pdf`,
+					mimeType: "application/pdf",
+					sizeBytes: 1,
+					downloadUrl: "",
+					previewUrl: null,
+					artifactId: file.artifactId,
+				})),
+				warnings: [],
+				dismissed: false,
+				...(canRegenerate ? { canRegenerate } : {}),
+			}) as never;
+
+		it("flags a Document or App a message can make again, and no other", async () => {
+			const loaded = [
+				{
+					id: "assistant-1",
+					conversationId: "conv-1",
+					role: "assistant" as const,
+					content: "Made it.",
+					timestamp: 1,
+					createdAt: 1,
+				},
+			];
+			mockListMessageWindow.mockResolvedValue({
+				messages: loaded,
+				hasMoreBefore: false,
+			});
+			mockRegenerableArtifactIdsFromMessages.mockReturnValue([
+				"doc-made",
+				"doc-kept",
+			]);
+			mockListArtifactsForConversation.mockResolvedValue([
+				summary("doc-made", "document"),
+				summary("doc-kept", "document"),
+				summary("doc-copy", "document"),
+				summary("app-old", "app"),
+			]);
+
+			const detail = await getConversationDetail({
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
+
+			expect(mockRegenerableArtifactIdsFromMessages).toHaveBeenCalledWith(
+				loaded,
+			);
+			expect(
+				detail?.artifacts?.map((row) => [row.id, row.regenerable]),
+			).toEqual([
+				["doc-made", true],
+				["doc-kept", true],
+				["doc-copy", undefined],
+				["app-old", undefined],
+			]);
+		});
+
+		it("flags a produced file only when the job that made it kept its request and made nothing else", async () => {
+			mockListArtifactsForConversation.mockResolvedValue([
+				summary("file-single", "file"),
+				summary("file-legacy", "file"),
+				summary("file-shared-a", "file"),
+				summary("file-shared-b", "file"),
+			]);
+			mockListConversationFileProductionJobs.mockResolvedValue([
+				fileJob("job-single", [{ artifactId: "file-single" }], true),
+				fileJob("job-legacy", [{ artifactId: "file-legacy" }]),
+				// Two artifacts from one job: deleting one leaves the other, and a job
+				// with a file left cannot be made again.
+				fileJob(
+					"job-shared",
+					[{ artifactId: "file-shared-a" }, { artifactId: "file-shared-b" }],
+					true,
+				),
+			]);
+
+			const detail = await getConversationDetail({
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
+
+			expect(
+				detail?.artifacts?.map((row) => [row.id, row.regenerable]),
+			).toEqual([
+				["file-single", true],
+				["file-legacy", undefined],
+				["file-shared-a", undefined],
+				["file-shared-b", undefined],
+			]);
+		});
+
+		it("leaves the list exactly as the artifact service gave it when nothing can be made again", async () => {
+			const rows = [summary("doc-copy", "document")];
+			mockListArtifactsForConversation.mockResolvedValue(rows);
+
+			const detail = await getConversationDetail({
+				userId: "user-1",
+				conversationId: "conv-1",
+			});
+
+			expect(detail?.artifacts).toBe(rows);
+		});
 	});
 
 	it("reports none deleted when no tool call named an artifact", async () => {
@@ -517,6 +666,7 @@ describe("Conversation Detail Read Model", () => {
 		});
 
 		expect(detail?.deletedArtifactIds).toEqual([]);
+		expect(detail?.unreachableArtifactIds).toEqual([]);
 	});
 
 	it("scopes the artifacts call to the same user and conversation as everything else", async () => {
@@ -643,8 +793,11 @@ describe("Conversation Detail Read Model", () => {
 			messages: older,
 			hasMoreBefore: true,
 		});
-		mockArtifactCallIdsFromMessages.mockReturnValue(["doc-old"]);
-		mockListMissingArtifactIds.mockResolvedValue(["doc-old"]);
+		mockArtifactCallIdsFromMessages.mockReturnValue(["doc-old", "doc-away"]);
+		mockListMissingArtifactIds.mockResolvedValue({
+			deleted: ["doc-old"],
+			unreachable: ["doc-away"],
+		});
 
 		const page = await getOlderConversationMessages({
 			userId: "user-1",
@@ -656,6 +809,7 @@ describe("Conversation Detail Read Model", () => {
 		expect(page).toMatchObject({
 			hasMoreBefore: true,
 			deletedArtifactIds: ["doc-old"],
+			unreachableArtifactIds: ["doc-away"],
 		});
 	});
 });

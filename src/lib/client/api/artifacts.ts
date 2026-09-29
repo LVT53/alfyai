@@ -210,7 +210,12 @@ export type RegenerateDeletedArtifactResult =
 	  }
 	| {
 			ok: false;
-			reason: "not_found" | "no_stored_input" | "in_progress" | "failed";
+			reason:
+				| "not_found"
+				| "no_stored_input"
+				| "in_progress"
+				| "unreachable"
+				| "failed";
 			detail?: string;
 	  };
 

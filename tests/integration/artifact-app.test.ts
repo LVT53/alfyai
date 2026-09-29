@@ -79,7 +79,7 @@ describe("full erasure of an App", () => {
 
 		const deleted = await deleteArtifact({ userId: OWNER, artifactId: app.id });
 
-		expect(deleted).toBe(true);
+		expect(deleted).toEqual({ ok: true });
 		expect(
 			memory.db
 				.select()

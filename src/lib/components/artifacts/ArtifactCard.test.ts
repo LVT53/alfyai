@@ -582,3 +582,56 @@ describe("ArtifactCard — deleted (chrome=full)", () => {
 		expect(screen.queryByText(/was deleted/)).not.toBeInTheDocument();
 	});
 });
+
+// The security review's M1: an item that EXISTS but is out of this chat's reach
+// (the parent of a forked incognito chat) is not "deleted". The card says where
+// it was made, muted, with nothing to open and nothing to regenerate.
+describe("ArtifactCard — exists, out of reach (chrome=full)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+	});
+
+	it("says it was made in the original chat, keeps the title, and offers neither Open nor Regenerate", () => {
+		render(ArtifactCard, {
+			view: view({ unreachable: true, openTargetId: "artifact-1" }),
+			onOpen: vi.fn(),
+			onRegenerate: vi.fn(),
+		});
+
+		const card = screen.getByTestId("artifact-card");
+		expect(card).toHaveAttribute("data-state", "unreachable");
+		expect(card).toHaveTextContent("Weekend checklist");
+		expect(screen.getByText("Made in the original chat")).toBeInTheDocument();
+		expect(screen.queryByText(/deleted/)).not.toBeInTheDocument();
+		expect(screen.queryByTestId("artifact-card-head")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /Open|Regenerate/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("says it in Hungarian too", () => {
+		uiLanguage.set("hu");
+		render(ArtifactCard, { view: view({ unreachable: true }) });
+
+		expect(
+			screen.getByText("Az eredeti beszélgetésben készült"),
+		).toBeInTheDocument();
+	});
+
+	it("wins over deleted: an item that is still there is never called deleted, whatever else says so", () => {
+		render(ArtifactCard, {
+			view: view({ unreachable: true, deleted: true }),
+			onRegenerate: vi.fn(),
+		});
+
+		expect(screen.getByTestId("artifact-card")).toHaveAttribute(
+			"data-state",
+			"unreachable",
+		);
+		expect(screen.queryByText(/deleted/)).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /Regenerate/ }),
+		).not.toBeInTheDocument();
+	});
+});

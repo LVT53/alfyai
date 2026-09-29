@@ -400,6 +400,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		fileProductionJobs: [],
 		artifacts: [],
 		deletedArtifactIds: [] as string[],
+		unreachableArtifactIds: [] as string[],
 		pendingWrites: [],
 		contextCompressionSnapshots: [],
 		atlasJobs: [],
@@ -1762,6 +1763,114 @@ describe("chat page runtime integration", () => {
 			}
 		});
 
+		// The security review's M1: an item that EXISTS but sits out of this
+		// chat's reach (the parent of a forked incognito chat) is not deleted —
+		// the card says where it was made, and offers neither Open nor Regenerate.
+		it("shows a card whose item exists out of this chat's reach as made in the original chat, not deleted", async () => {
+			renderPage(
+				pageData({
+					messages: [createDocumentMessage()],
+					artifacts: [],
+					unreachableArtifactIds: ["doc-1"],
+				}),
+			);
+
+			const card = await screen.findByTestId("artifact-card");
+			expect(card).toHaveAttribute("data-state", "unreachable");
+			expect(card).toHaveTextContent("Vienna trip plan");
+			expect(card).toHaveTextContent("Made in the original chat");
+			expect(card).not.toHaveTextContent("deleted");
+			expect(screen.queryByTestId("artifact-card-head")).toBeNull();
+			expect(
+				within(card).queryByRole("button", { name: /Regenerate/ }),
+			).toBeNull();
+		});
+
+		it("does not call an item deleted when its Open's 404 turns out to be 'out of reach' once the server is asked", async () => {
+			const { toasts, clearToasts } = await import("$lib/stores/toast");
+			clearToasts();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (input: RequestInfo | URL) =>
+					String(input).startsWith("/api/artifacts/")
+						? jsonResponse({ ok: false, reason: "not_found" }, 404)
+						: jsonResponse({}),
+				),
+			);
+			// Its chat became incognito after this page loaded: the read misses, but
+			// the item is still there.
+			vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+				conversationDetailFixture({
+					messages: [createDocumentMessage()],
+					artifacts: [],
+					deletedArtifactIds: [],
+					unreachableArtifactIds: ["doc-1"],
+				}),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [documentSummary()],
+					}),
+				);
+
+				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
+
+				await waitFor(() => {
+					expect(screen.getByTestId("artifact-card")).toHaveAttribute(
+						"data-state",
+						"unreachable",
+					);
+				});
+				expect(screen.queryByTestId("workspace-main")).toBeNull();
+				expect(get(toasts).map((toast) => toast.message)).not.toContain(
+					"This document was deleted",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("turns a deleted card into 'made in the original chat' when Regenerate is refused because the item still exists", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					jsonResponse({ ok: false, reason: "unreachable" }, 409),
+				),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [],
+						deletedArtifactIds: ["doc-1"],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByRole("button", {
+						name: "Regenerate Vienna trip plan",
+					}),
+				);
+
+				await waitFor(() => {
+					expect(screen.getByTestId("artifact-card")).toHaveAttribute(
+						"data-state",
+						"unreachable",
+					);
+				});
+				expect(screen.getByTestId("artifact-card")).toHaveTextContent(
+					"Made in the original chat",
+				);
+				expect(
+					screen.queryByRole("button", { name: /Regenerate Vienna trip plan/ }),
+				).not.toBeInTheDocument();
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
 		it("still opens an item that exists", async () => {
 			const { recordDocumentWorkspaceOpen } = await import(
 				"$lib/client/api/knowledge"
@@ -1805,6 +1914,119 @@ describe("chat page runtime integration", () => {
 				vi.unstubAllGlobals();
 				delete ARTIFACT_BODIES.document;
 			}
+		});
+
+		// The security review's L2: the panel's Delete confirm promises "you can
+		// regenerate it from the chat" only for an item the server says the chat
+		// can make again (`ArtifactCardSummary.regenerable`).
+		it.each([
+			[true, "You can regenerate it from the chat.", "can't be undone"],
+			[undefined, "This can't be undone.", "regenerate it"],
+		] as const)("tells a list row's delete confirm what the server said about making it again (regenerable: %s)", async (regenerable, promised, notPromised) => {
+			renderPage(
+				pageData({
+					messages: [createDocumentMessage()],
+					artifacts: [{ ...documentSummary(), regenerable }],
+				}),
+			);
+
+			await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+			const list = await screen.findByTestId("artifact-panel-list");
+			await fireEvent.click(
+				within(list).getByRole("button", {
+					name: "More actions for Vienna trip plan",
+				}),
+			);
+			await fireEvent.click(
+				await screen.findByRole("menuitem", { name: "Delete document" }),
+			);
+
+			const dialog = await screen.findByRole("dialog", {
+				name: "Delete this document?",
+			});
+			expect(dialog.textContent).toContain(promised);
+			expect(dialog.textContent).not.toContain(notPromised);
+		});
+
+		// The security review's L1: a fork's card can name (and open) the parent's
+		// Document, but Delete acts only on what this chat made — the panel does
+		// not offer it, and the item says where it was made.
+		describe("Delete on an item opened from a card", () => {
+			async function openFromCard(madeIn: string, listed: boolean) {
+				const { recordDocumentWorkspaceOpen } = await import(
+					"$lib/client/api/knowledge"
+				);
+				vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+				const { ARTIFACT_BODIES } = await import(
+					"$lib/components/artifacts/artifact-bodies"
+				);
+				ARTIFACT_BODIES.document = () =>
+					import(
+						"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+					);
+				vi.stubGlobal(
+					"fetch",
+					vi.fn(async () =>
+						jsonResponse({
+							ok: true,
+							artifact: {
+								...documentSummary(),
+								conversationId: madeIn,
+								body: "# Plan",
+								bodyHash: "h",
+							},
+							versions: [],
+							comments: [],
+						}),
+					),
+				);
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: listed ? [documentSummary()] : [],
+					}),
+				);
+				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
+				return (
+					await screen.findAllByRole("complementary", {
+						name: "Document workspace",
+					})
+				)[0];
+			}
+
+			it("offers none for the parent's Document, which another chat made", async () => {
+				const { ARTIFACT_BODIES } = await import(
+					"$lib/components/artifacts/artifact-bodies"
+				);
+				try {
+					const shell = await openFromCard("conv-parent", false);
+
+					await screen.findByTestId("fake-artifact-body");
+					expect(
+						within(shell).queryByRole("button", { name: "Delete document" }),
+					).not.toBeInTheDocument();
+				} finally {
+					vi.unstubAllGlobals();
+					delete ARTIFACT_BODIES.document;
+				}
+			});
+
+			it("offers it for this chat's own Document", async () => {
+				const { ARTIFACT_BODIES } = await import(
+					"$lib/components/artifacts/artifact-bodies"
+				);
+				try {
+					const shell = await openFromCard("conv-1", true);
+
+					await screen.findByTestId("fake-artifact-body");
+					expect(
+						within(shell).getByRole("button", { name: "Delete document" }),
+					).toBeInTheDocument();
+				} finally {
+					vi.unstubAllGlobals();
+					delete ARTIFACT_BODIES.document;
+				}
+			});
 		});
 
 		it("makes it again on Regenerate, and the card is a card again", async () => {

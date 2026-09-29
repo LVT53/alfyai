@@ -315,9 +315,10 @@ describe("recreateArtifactFromStoredCall", () => {
 			})
 			.run();
 
-		await expect(regenerate()).resolves.toMatchObject({
+		// Refused before any work: the id is taken, whoever holds it.
+		await expect(regenerate()).resolves.toEqual({
 			ok: false,
-			reason: "failed",
+			reason: "unreachable",
 		});
 		const theirs = memory.db
 			.select()
@@ -359,6 +360,41 @@ describe("recreateArtifactFromStoredCall", () => {
 		}
 	});
 
+	it("runs one regeneration of an id at a time even when two of the owner's chats hold its call", async () => {
+		// A fork copies the parent's calls, so both chats can offer Regenerate for
+		// the very same id: the second must not start a second generation.
+		seedConversation(memory, { id: "conv-2", userId: OWNER });
+		for (const conversationId of [CONVERSATION, "conv-2"]) {
+			seedCreateCall({
+				artifactId: "slides-1",
+				conversationId,
+				input: { artifactType: "slides", title: "Deck", body: "{}" },
+			});
+		}
+		let release: () => void = () => {};
+		CREATE_ARTIFACT_HANDLERS.slides = () =>
+			new Promise((resolve) => {
+				release = () =>
+					resolve({
+						ok: true,
+						value: { artifactId: "slides-1", title: "Deck" },
+					});
+			});
+		try {
+			const first = regenerate({ artifactId: "slides-1" });
+			await new Promise((resolve) => setTimeout(resolve, 20));
+
+			await expect(
+				regenerate({ artifactId: "slides-1", conversationId: "conv-2" }),
+			).resolves.toEqual({ ok: false, reason: "in_progress" });
+
+			release();
+			await expect(first).resolves.toMatchObject({ ok: true, created: true });
+		} finally {
+			delete CREATE_ARTIFACT_HANDLERS.slides;
+		}
+	});
+
 	it("writes nothing when the caller already gave up", async () => {
 		seedCreateCall({ artifactId: "doc-1", input: DOCUMENT_INPUT });
 		const controller = new AbortController();
@@ -370,5 +406,106 @@ describe("recreateArtifactFromStoredCall", () => {
 		expect(
 			await getArtifact({ userId: OWNER, artifactId: "doc-1" }),
 		).toBeNull();
+	});
+});
+
+// The security review's M1 (probes P1, P2, P4): a fork of an incognito chat
+// copies the parent's tool calls but not its items, and is incognito itself,
+// so the parent's items EXIST while sitting outside the fork's reach. Nothing
+// may make a second one under the same id: the id is taken, and the refusal
+// comes before any model work, with its own reason.
+describe("recreateArtifactFromStoredCall, for an item that exists out of the chat's reach", () => {
+	const PARENT = "conv-incognito-parent";
+	const FORK = "conv-incognito-fork";
+
+	function seedParentItem(
+		id: string,
+		kind: "document" | "app",
+		title: string,
+	): void {
+		memory.db
+			.insert(schema.artifacts)
+			.values({
+				id,
+				userId: OWNER,
+				conversationId: PARENT,
+				type: "artifact",
+				retrievalClass: "durable",
+				name: title,
+				contentText: `${title} body`,
+				metadataJson: JSON.stringify({ artifactType: kind, title }),
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+	}
+
+	beforeEach(() => {
+		seedConversation(memory, {
+			id: PARENT,
+			userId: OWNER,
+			memoryIncognito: true,
+		});
+		seedConversation(memory, {
+			id: FORK,
+			userId: OWNER,
+			memoryIncognito: true,
+		});
+	});
+
+	it("refuses an App up front: the generator (the model) is never called (P1)", async () => {
+		seedParentItem("app-x", "app", "Trip budget");
+		seedCreateCall({
+			artifactId: "app-x",
+			conversationId: FORK,
+			input: {
+				artifactType: "app",
+				title: "Trip budget",
+				body: "Split trip costs between three friends.",
+			},
+		});
+
+		await expect(
+			regenerate({ conversationId: FORK, artifactId: "app-x" }),
+		).resolves.toEqual({ ok: false, reason: "unreachable" });
+
+		expect(createAppFromBrief).not.toHaveBeenCalled();
+	});
+
+	it("refuses a Document with its own reason, not a generic failure, and leaves the parent's item as it was (P2)", async () => {
+		seedParentItem("doc-i", "document", "Weekend in Vienna");
+		seedCreateCall({
+			artifactId: "doc-i",
+			conversationId: FORK,
+			input: DOCUMENT_INPUT,
+		});
+
+		await expect(
+			regenerate({ conversationId: FORK, artifactId: "doc-i" }),
+		).resolves.toEqual({ ok: false, reason: "unreachable" });
+
+		const rows = memory.db
+			.select()
+			.from(schema.artifacts)
+			.all()
+			.filter((row) => row.id === "doc-i");
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			conversationId: PARENT,
+			name: "Weekend in Vienna",
+			contentText: "Weekend in Vienna body",
+		});
+	});
+
+	it("still makes an item again when it is really gone, in the same fork", async () => {
+		seedCreateCall({
+			artifactId: "doc-gone",
+			conversationId: FORK,
+			input: DOCUMENT_INPUT,
+		});
+
+		await expect(
+			regenerate({ conversationId: FORK, artifactId: "doc-gone" }),
+		).resolves.toMatchObject({ ok: true, created: true });
 	});
 });
