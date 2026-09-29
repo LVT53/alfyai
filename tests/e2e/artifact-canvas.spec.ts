@@ -259,6 +259,32 @@ test.describe("the Canvas kind, in the panel", () => {
 		).toBeVisible();
 	});
 
+	test("draws the edges a board was saved with, label and all", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Saved edges");
+		await seedCanvas(conversationId, {
+			...seededBoard(),
+			edges: [
+				{ id: "edge-1", source: BOARD.note, target: BOARD.text, label: "then" },
+			],
+		});
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		// One edge, joining the two blocks it names, with the words it was saved with.
+		await expect(page.locator(".svelte-flow__edge")).toHaveCount(1);
+		await expect(
+			page
+				.locator(".svelte-flow__edge-label, .svelte-flow__edge-text")
+				.filter({ hasText: "then" })
+				.first(),
+		).toBeAttached();
+		const path = page.locator(".svelte-flow__edge-path").first();
+		const d = await path.getAttribute("d");
+		expect(d && d.length > 10).toBe(true);
+	});
+
 	test("says what an empty board is for, and points at Insert", async ({
 		page,
 	}) => {
