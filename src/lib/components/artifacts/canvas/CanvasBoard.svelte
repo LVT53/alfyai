@@ -364,7 +364,7 @@ function minimapColor(node: {
 		{nodesDraggable}
 		nodesConnectable={!readonly}
 		connectionMode={ConnectionMode.Loose}
-		deleteKey={["Backspace", "Delete"]}
+		deleteKey={readonly ? null : ["Backspace", "Delete"]}
 		elevateNodesOnSelect={false}
 		attributionPosition="bottom-left"
 		{ariaLabelConfig}

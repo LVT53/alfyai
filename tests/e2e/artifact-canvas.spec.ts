@@ -5,6 +5,7 @@ import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
 	artifactVersions,
+	messages,
 	users,
 } from "../../src/lib/server/db/schema";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
@@ -822,6 +823,153 @@ test.describe("the Canvas kind, in the panel", () => {
 		await expect(page.getByTestId("canvas-node")).toHaveCount(6);
 		await notice.getByRole("button", { name: "Dismiss" }).click();
 		await expect(notice).toHaveCount(0);
+	});
+
+	test("keeps working through a dropped connection: says so, and saves again when it is back", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Offline");
+		const artifactId = await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		await page.route("**/api/artifacts/*/body**", (route) =>
+			route.abort("connectionrefused"),
+		);
+		await page.getByRole("checkbox", { name: "Charger: toggle done" }).check();
+		const banner = page.getByTestId("canvas-offline");
+		await expect(banner).toBeVisible({ timeout: 10_000 });
+		await expect(banner).toContainText("You are offline.");
+		// "Saved" stays off while nothing has been saved.
+		await expect(page.getByTestId("canvas-save-status")).not.toHaveText(
+			/Saved/,
+		);
+		// The board itself is still the reader's to use.
+		await expect(page.getByTestId("canvas-insert-button")).toBeEnabled();
+
+		await page.unroute("**/api/artifacts/*/body**");
+		await page.evaluate(() => window.dispatchEvent(new Event("online")));
+		await savedStatus(page);
+		await expect(banner).toHaveCount(0);
+		const list = (await storedBoard(artifactId)).nodes.find(
+			(node) => node.id === BOARD.list,
+		);
+		expect(list?.data).toMatchObject({
+			items: [{ done: true }, { done: true }],
+		});
+	});
+
+	test("offers a retry when a save is refused, and says so when the board is too big or gone", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Refused saves");
+		await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		// A refusal that is not the reader's doing: a Retry, and it works.
+		let refuse = true;
+		await page.route("**/api/artifacts/*/body**", (route) =>
+			refuse
+				? route.fulfill({
+						status: 400,
+						contentType: "application/json",
+						body: JSON.stringify({ ok: false, reason: "invalid_patch" }),
+					})
+				: route.continue(),
+		);
+		const charger = page.getByRole("checkbox", {
+			name: "Charger: toggle done",
+		});
+		await charger.check();
+		const failed = page.getByTestId("canvas-save-failed");
+		await expect(failed).toContainText("Could not save the board.", {
+			timeout: 10_000,
+		});
+		refuse = false;
+		await failed.getByRole("button", { name: "Retry" }).click();
+		await savedStatus(page);
+		await expect(failed).toHaveCount(0);
+
+		// Too big to save: a sentence, not silence.
+		await page.unroute("**/api/artifacts/*/body**");
+		await page.route("**/api/artifacts/*/body**", (route) =>
+			route.fulfill({
+				status: 413,
+				contentType: "application/json",
+				body: JSON.stringify({ ok: false, reason: "too_large" }),
+			}),
+		);
+		await charger.uncheck();
+		await expect(page.getByTestId("canvas-too-large")).toContainText(
+			"This board is too big to save.",
+			{ timeout: 10_000 },
+		);
+
+		// Deleted while open: the board area says so, and no further writes are tried.
+		await page.unroute("**/api/artifacts/*/body**");
+		await page.route("**/api/artifacts/*/body**", (route) =>
+			route.fulfill({
+				status: 404,
+				contentType: "application/json",
+				body: JSON.stringify({ ok: false, reason: "not_found" }),
+			}),
+		);
+		await charger.check();
+		await expect(page.getByTestId("canvas-deleted")).toContainText(
+			"This board was deleted.",
+			{ timeout: 10_000 },
+		);
+		await expect(page.getByTestId("canvas-board")).toHaveCount(0);
+	});
+
+	test("the chat's card says what the board holds and opens it", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Card and board");
+		const artifactId = await seedCanvas(
+			conversationId,
+			seededBoard(),
+			"Weekend board",
+		);
+		// The message a create_artifact call leaves behind (artifact-delete.spec.ts's shape).
+		await db.insert(messages).values({
+			id: randomUUID(),
+			conversationId,
+			messageSequence: 900,
+			role: "assistant",
+			content: "Made the board.",
+			toolCalls: JSON.stringify([
+				{
+					type: "tool_call",
+					callId: "e2e-canvas-call",
+					name: "create_artifact",
+					input: { artifactType: "canvas", title: "Weekend board" },
+					status: "done",
+					outputSummary: 'Created Canvas "Weekend board"',
+					sourceType: "tool",
+					metadata: {
+						ok: true,
+						artifactId,
+						artifactKind: "canvas",
+						artifactTitle: "Weekend board",
+					},
+				},
+			]),
+			createdAt: new Date(),
+		});
+		await openChatAndReload(page, conversationId);
+
+		const head = page.getByTestId("artifact-card-head");
+		await expect(head).toContainText("Canvas · 6 blocks");
+		await expect(head).toContainText("v1");
+		// No board is drawn in the chat: the card is the head, nothing more.
+		await expect(page.locator(".svelte-flow")).toHaveCount(0);
+		await head.click();
+		await expect(page.getByTestId("canvas-board")).toBeVisible({
+			timeout: 15_000,
+		});
+		await expect(page.getByTestId("canvas-node")).toHaveCount(6);
 	});
 
 	test("offers a retry when the board cannot be opened", async ({ page }) => {
