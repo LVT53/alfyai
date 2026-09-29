@@ -235,6 +235,85 @@ describe("PATCH /api/artifacts/[id]/body", () => {
 	// second tab's save without this round trip — `payload.baseHash` reaching
 	// the service call, and the NEW hash coming back so the caller has
 	// something to send next time.
+	// Wave 2.5 polish G1-B (review-2-5.md:269-271, spec §4.2 item 6): undoing
+	// Alfy's change is saved through the same autosave path, but records its
+	// own version summary instead of "Edited". The route accepts a NAME from
+	// a fixed vocabulary, never free text.
+	describe("the save's summary", () => {
+		it("stores an ordinary save as Edited", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture);
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
+
+			await PATCH(makeEvent({ body: { body: "New text.", expectVersion: 2 } }));
+
+			expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+				expect.objectContaining({ summary: "Edited" }),
+			);
+		});
+
+		it("stores an Undo of Alfy's change under its own summary", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture);
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
+
+			await PATCH(
+				makeEvent({
+					body: {
+						body: "Undone text.",
+						expectVersion: 2,
+						summaryKind: "undid_alfy_change",
+					},
+				}),
+			);
+
+			expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+				expect.objectContaining({
+					summary: "Undid Alfy's change",
+					author: "user",
+					coalesceUserEdits: true,
+				}),
+			);
+		});
+
+		it("never stores free text: an unknown kind is an ordinary Edited save", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture);
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
+
+			await PATCH(
+				makeEvent({
+					body: {
+						body: "New text.",
+						summaryKind: "Deleted the whole thing",
+						summary: "Deleted the whole thing",
+					},
+				}),
+			);
+
+			expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+				expect.objectContaining({ summary: "Edited" }),
+			);
+		});
+
+		it("carries the kind through the generic path of a non-document kind too", async () => {
+			mockGetArtifact.mockResolvedValue({ ...documentFixture, kind: "app" });
+			mockUpdateArtifactBody.mockResolvedValue({
+				ok: true,
+				versionId: "v",
+				bodyHash: "h",
+				versionNumber: 3,
+			});
+
+			await PATCH(
+				makeEvent({
+					body: { body: "New.", summaryKind: "undid_alfy_change" },
+				}),
+			);
+
+			expect(mockUpdateArtifactBody).toHaveBeenCalledWith(
+				expect.objectContaining({ summary: "Undid Alfy's change" }),
+			);
+		});
+	});
+
 	describe("RV-1B, coordinator item 6: baseHash guard round trip", () => {
 		it("forwards the request's baseHash to saveDocumentBody", async () => {
 			mockGetArtifact.mockResolvedValue(documentFixture);

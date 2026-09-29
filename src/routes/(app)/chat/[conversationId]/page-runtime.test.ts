@@ -1180,6 +1180,103 @@ describe("chat page runtime integration", () => {
 		expect(countButton).toHaveAttribute("aria-pressed", "false");
 	});
 
+	// Wave 2.5 polish G1-B (owner: "the version numbers are all over the place"):
+	// the list row and the header's version button used to keep the number they
+	// were loaded or opened with. Every version the server reports through the
+	// artifacts client (a save, a restore, the Versions list) now reaches both.
+	it("keeps the panel header's version button and the list row on the number the server last reported", async () => {
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		const { ARTIFACT_BODIES } = await import(
+			"$lib/components/artifacts/artifact-bodies"
+		);
+		const { saveArtifactBody } = await import("$lib/client/api/artifacts");
+		ARTIFACT_BODIES.document = () =>
+			import(
+				"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+			);
+		try {
+			renderPage(
+				pageData({
+					artifacts: [
+						{
+							id: "doc-1",
+							kind: "document",
+							title: "Vienna trip plan",
+							conversationId: "conv-1",
+							versionNumber: 1,
+							commentCount: 0,
+							updatedAt: Date.now(),
+						},
+					],
+				}),
+			);
+
+			await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+			const list = await screen.findByTestId("artifact-panel-list");
+			expect(within(list).getByTestId("artifact-row")).toHaveTextContent("v1");
+			await fireEvent.click(within(list).getByTestId("artifact-row"));
+
+			const shell = await screen.findByRole("complementary", {
+				name: "Document workspace",
+			});
+			await waitFor(() => {
+				expect(
+					within(shell).getByTestId("artifact-version-pill"),
+				).toHaveTextContent("v1");
+			});
+
+			// A save, somewhere in the panel, is answered with version 4.
+			await saveArtifactBody(
+				"doc-1",
+				"New text.",
+				1,
+				"conv-1",
+				vi.fn(
+					async () =>
+						new Response(JSON.stringify({ ok: true, version: 4 }), {
+							headers: { "Content-Type": "application/json" },
+						}),
+				),
+			);
+
+			await waitFor(() => {
+				expect(
+					within(shell).getByTestId("artifact-version-pill"),
+				).toHaveTextContent("v4");
+			});
+			// A late, older answer never pulls it back.
+			await saveArtifactBody(
+				"doc-1",
+				"Older text.",
+				1,
+				"conv-1",
+				vi.fn(
+					async () =>
+						new Response(JSON.stringify({ ok: true, version: 2 }), {
+							headers: { "Content-Type": "application/json" },
+						}),
+				),
+			);
+			expect(
+				within(shell).getByTestId("artifact-version-pill"),
+			).toHaveTextContent("v4");
+
+			// Back to the list: its row says the same.
+			await fireEvent.click(
+				within(shell).getByRole("button", { name: /This chat/ }),
+			);
+			const listAgain = await screen.findByTestId("artifact-panel-list");
+			expect(within(listAgain).getByTestId("artifact-row")).toHaveTextContent(
+				"v4",
+			);
+		} finally {
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
 	it("drains a queued follow-up after polling reconciles a waiting stream completion", async () => {
 		let resolveDetail: (
 			value:

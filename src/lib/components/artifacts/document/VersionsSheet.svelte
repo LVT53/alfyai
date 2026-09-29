@@ -1,48 +1,41 @@
 <script lang="ts">
 /**
  * The Document's version history (Slice 1, T6; redesigned Wave 2.5 Step 8,
- * redesign.md §3.2/§9.2/§9.3): a popover anchored to the panel header's own
- * version button (`v6 ▾`, `[data-testid="artifact-version-pill"]` —
- * `ArtifactPanelHeader.svelte`, rendered once per mobile/desktop shell in
- * `DocumentWorkspace.svelte`, so the lookup picks whichever copy is actually
- * visible) on desktop, a `DialogShell` sheet on phones — the same
- * anchored-popover-desktop/sheet-phone shape `AppBody.svelte`'s regenerate
- * popover already established (rd5b's own hand-off note): rect-based
- * `position: fixed` placement, `focusTrap` joined to `DialogShell`'s own
- * topmost stack so Escape here never also closes some OTHER open dialog, and
- * `portalToBody` so the panel's own overflow can never clip it.
+ * redesign.md §3.2/§9.2/§9.3, rebuilt in polish G1-B): a popover anchored under
+ * the panel header's own version button (`v6 ▾`,
+ * `[data-testid="artifact-version-pill"]`) on desktop, a bottom sheet on
+ * phones — both are `AnchoredPopover.svelte`'s job (placement inside the
+ * panel, dialog stack, Escape, focus return); this file is what goes in it.
  *
- * Newest first, as the server already orders them; the newest row is
- * "Current" and carries no Restore button — restoring it would be a no-op
- * that still burns a version number. A restore is itself a new version
- * (never coalesced, ruling 47), so nothing here can lose work: the version
- * being replaced stays in the list too. Restoring asks inline (never a
- * separate modal — redesign §3.2: "asks inline") and, on success, closes
- * (matching the mockup's own `doRestore`) and hands a toast with Undo.
+ * Compact two-line rows, as in the approved mockup: avatar (the signed-in
+ * user's own, or Alfy's sparkle), name, version tag and relative time on the
+ * first line — the newest row also carries a small "Current" pill — and the
+ * version's summary, in the reader's language, on the second. Newest first,
+ * as the server orders them; the newest is Current and carries no Restore,
+ * since restoring it would be a no-op that still burns a version number. A
+ * restore is itself a new version (never coalesced, ruling 47), so nothing
+ * here can lose work: the version being replaced stays in the list too.
+ *
+ * Restore appears on hover or keyboard focus (always on touch) over the
+ * row's right end WITHOUT taking space from it — the summary keeps its full
+ * width at rest and every row keeps the same height — and asks inline (never
+ * a separate modal — redesign §3.2), the question taking the row's action
+ * area. On success it closes and hands a toast with Undo.
  */
-import { RotateCcw, Sparkles, X } from "@lucide/svelte";
-import { scale } from "svelte/transition";
+import { RotateCcw, Sparkles } from "@lucide/svelte";
+import { tick } from "svelte";
+import type { Attachment } from "svelte/attachments";
 import {
 	fetchArtifactVersions,
 	restoreArtifactVersion,
 } from "$lib/client/api/artifacts";
+import AnchoredPopover from "$lib/components/artifacts/AnchoredPopover.svelte";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
-import DialogShell, {
-	deregisterDialog,
-	isTopmostDialog,
-	registerDialog,
-} from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
-import { showToast } from "$lib/stores/toast";
 import type { ArtifactVersionSummary } from "$lib/server/services/artifacts/types";
-import { focusTrap } from "$lib/utils/focus-trap";
-import { reducedMotionAware } from "$lib/utils/motion";
-import { portalToBody } from "$lib/utils/portal";
+import { showToast } from "$lib/stores/toast";
 import { formatRelativeTime } from "$lib/utils/time";
-import {
-	isPhoneViewport,
-	watchPhoneViewport,
-} from "$lib/utils/viewport.svelte";
+import { localizeVersionSummary } from "./version-summary";
 
 let {
 	artifactId,
@@ -99,35 +92,6 @@ function authorLabel(author: string): string {
 		: $t("artifacts.document.versions.byUser");
 }
 
-const RESTORED_SUMMARY_PREFIX = "restored ";
-
-/**
- * Maps the server's own fixed-vocabulary version summaries onto localized
- * text (rd/review-2-5.md:256-260): the save route's own literal `"Edited"`
- * (`/api/artifacts/[id]/body`) and this file's own restore handler's own
- * `` `restored ${summary}` `` wrapper (`versions.ts`) were shown verbatim,
- * English-only, even in the Hungarian UI. An Alfy-authored summary (the
- * patch's own free-form label, e.g. "Booked the hotel") is real content and
- * is never touched — only these two known, enum-like tokens are translated;
- * anything else (including a summary that merely happens to start with the
- * same prefix by coincidence) is shown exactly as stored.
- */
-function summaryLabel(summary: string): string {
-	if (summary === "Edited") {
-		return $t("artifacts.document.versions.summaryEdited");
-	}
-	if (summary.startsWith(RESTORED_SUMMARY_PREFIX)) {
-		const inner = summary.slice(RESTORED_SUMMARY_PREFIX.length);
-		return $t("artifacts.document.versions.summaryRestored", {
-			summary:
-				inner === "Edited"
-					? $t("artifacts.document.versions.summaryEdited")
-					: inner,
-		});
-	}
-	return summary;
-}
-
 async function confirmRestore(target: ArtifactVersionSummary) {
 	confirmTargetId = null;
 	// Captured BEFORE the restore so the toast's Undo can put back whatever
@@ -180,118 +144,59 @@ async function handleUndo(versionId: string): Promise<void> {
 	}
 }
 
-// ---- Wave 2.5 Step 8: anchored popover (desktop) / sheet (phone) ----------
-let isPhone = $state(isPhoneViewport());
-let popoverStyle = $state<string | undefined>(undefined);
-const popoverId = Symbol("document-versions-popover");
-const popoverScale = reducedMotionAware(scale);
+// ---- keyboard focus around the inline confirm --------------------------
+// Opening the question moves focus onto its confirming button; Cancel gives
+// focus back to the row's own Restore button, so a keyboard user never loses
+// their place in the list.
+const restoreButtons = new Map<string, HTMLElement>();
 
-/** The version button lives in `ArtifactPanelHeader.svelte`, rendered once per shell (mobile/desktop) by `DocumentWorkspace.svelte` — both copies share this testid, so this picks whichever one is actually rendered (the other is `display: none` behind a breakpoint). Same query shape as `AppBody.svelte`'s own click-outside check. */
-function findAnchorEl(): HTMLElement | null {
-	const candidates = document.querySelectorAll<HTMLElement>(
-		'[data-testid="artifact-version-pill"]',
-	);
-	for (const el of candidates) {
-		if (el.getClientRects().length > 0) return el;
-	}
-	return null;
+function trackRestoreButton(versionId: string): Attachment<HTMLElement> {
+	return (node) => {
+		restoreButtons.set(versionId, node);
+		return () => {
+			if (restoreButtons.get(versionId) === node) {
+				restoreButtons.delete(versionId);
+			}
+		};
+	};
 }
 
-// Review 2.5 (rd/review-2-5.md:168-175): right-aligning to the trigger's
-// RIGHT edge (extending `POPOVER_WIDTH` further left from there) put the
-// popover off-screen entirely in the expanded panel (the version button
-// sits near the panel's own left edge) and bleeding out of the panel over
-// the chat column in docked mode. Anchoring to the trigger's LEFT edge
-// instead, clamped into the viewport on both sides, keeps the popover
-// beside its own trigger in every presentation.
-const POPOVER_WIDTH = 340;
-const VIEWPORT_MARGIN = 12;
+const focusOnMount: Attachment<HTMLElement> = (node) => {
+	node.focus();
+};
 
-function measurePopover(): void {
-	if (typeof window === "undefined") return;
-	const anchor = findAnchorEl();
-	if (!anchor) return;
-	const rect = anchor.getBoundingClientRect();
-	const width = Math.min(
-		POPOVER_WIDTH,
-		window.innerWidth - VIEWPORT_MARGIN * 2,
-	);
-	const maxLeft = Math.max(
-		VIEWPORT_MARGIN,
-		window.innerWidth - width - VIEWPORT_MARGIN,
-	);
-	const left = Math.min(Math.max(rect.left, VIEWPORT_MARGIN), maxLeft);
-	popoverStyle = `top: ${rect.bottom + 8}px; left: ${left}px;`;
+async function cancelRestore(versionId: string): Promise<void> {
+	confirmTargetId = null;
+	await tick();
+	restoreButtons.get(versionId)?.focus();
 }
-
-$effect(() => {
-	const stopWatchingViewport = watchPhoneViewport((phone) => {
-		isPhone = phone;
-	});
-	return stopWatchingViewport;
-});
-
-$effect(() => {
-	if (isPhone) return;
-	registerDialog(popoverId);
-	measurePopover();
-	const handleReflow = () => measurePopover();
-	const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-		const target = event.target as Node;
-		if (findAnchorEl()?.contains(target)) return;
-		const popover = document.querySelector(
-			'[data-testid="document-versions-popover"]',
-		);
-		if (popover && !popover.contains(target)) onClose();
-	};
-	window.addEventListener("resize", handleReflow);
-	window.addEventListener("scroll", handleReflow, true);
-	document.addEventListener("mousedown", handlePointerDown);
-	document.addEventListener("touchstart", handlePointerDown, { passive: true });
-	return () => {
-		deregisterDialog(popoverId);
-		window.removeEventListener("resize", handleReflow);
-		window.removeEventListener("scroll", handleReflow, true);
-		document.removeEventListener("mousedown", handlePointerDown);
-		document.removeEventListener("touchstart", handlePointerDown);
-	};
-});
-
-const popoverFocusTrap = focusTrap({
-	isTopmost: () => isTopmostDialog(popoverId),
-	onEscape: (event) => {
-		event.preventDefault();
-		event.stopImmediatePropagation();
-		onClose();
-	},
-	focus: { defer: true },
-	restoreFocusOnCleanup: true,
-});
 </script>
 
 {#snippet versionsList()}
 	{#if loading}
-		<div class="versions-popover-state">{$t('common.loading')}</div>
+		<div class="versions-state">{$t('common.loading')}</div>
 	{:else if loadError}
-		<div class="versions-popover-state versions-popover-error">
+		<div class="versions-state versions-state-error">
 			<span>{$t('artifacts.document.versions.loadError')}</span>
 			<button type="button" class="btn-secondary" onclick={load}>
 				{$t('common.retry')}
 			</button>
 		</div>
 	{:else if versions.length === 0}
-		<div class="versions-popover-state">{$t('artifacts.document.versions.empty')}</div>
+		<div class="versions-state">{$t('artifacts.document.versions.empty')}</div>
 	{:else}
-		<ul class="versions-popover-list">
+		<ul class="versions-list" data-testid="versions-list">
 			{#each versions as version, index (version.id)}
 				{@const current = index === 0}
 				<li
-					class="versions-popover-row"
-					class:versions-popover-row-current={current}
+					class="versions-row"
+					class:versions-row-current={current}
+					data-testid="version-row"
+					data-version={version.versionNumber}
 				>
-					<div class="versions-popover-row-avatar">
+					<span class="versions-avatar">
 						{#if version.author === 'alfy'}
-							<span class="versions-popover-alfy-avatar" aria-hidden="true">
+							<span class="versions-alfy-avatar" aria-hidden="true">
 								<Sparkles size={12} strokeWidth={2} />
 							</span>
 						{:else}
@@ -302,38 +207,37 @@ const popoverFocusTrap = focusTrap({
 								size={22}
 							/>
 						{/if}
-					</div>
-					<div class="versions-popover-row-main">
-						<div class="versions-popover-row-line1">
-							<span class="versions-popover-author">{authorLabel(version.author)}</span>
-							<span class="versions-popover-version">
-								{$t('artifacts.card.version', { n: version.versionNumber })}
+					</span>
+					<span class="versions-line1">
+						<span class="versions-author">{authorLabel(version.author)}</span>
+						<span class="versions-num">
+							{$t('artifacts.card.version', { n: version.versionNumber })}
+						</span>
+						<span class="versions-time">
+							{formatRelativeTime(version.createdAt, { t: $t })}
+						</span>
+						{#if current}
+							<span class="versions-current">
+								{$t('artifacts.document.versions.current')}
 							</span>
-							<span class="versions-popover-time">
-								{formatRelativeTime(version.createdAt, { t: $t })}
-							</span>
-							{#if current}
-								<span class="versions-popover-badge">
-									{$t('artifacts.document.versions.current')}
-								</span>
-							{/if}
-						</div>
-						{#if version.summary}
-							<div class="versions-popover-summary">{summaryLabel(version.summary)}</div>
 						{/if}
-						{#if !current}
-							{#if confirmTargetId === version.id}
-								<div class="versions-popover-confirm">
-									<span>
-										{$t('artifacts.document.versions.restoreConfirm', {
-											v: version.versionNumber,
-										})}
-									</span>
-									<span class="versions-popover-confirm-grow"></span>
+					</span>
+					<span class="versions-summary">
+						{localizeVersionSummary(version.summary, $t)}
+					</span>
+					{#if !current}
+						{#if confirmTargetId === version.id}
+							<div class="versions-confirm">
+								<span class="versions-confirm-text">
+									{$t('artifacts.document.versions.restoreConfirm', {
+										v: version.versionNumber,
+									})}
+								</span>
+								<span class="versions-confirm-actions">
 									<button
 										type="button"
 										class="btn-ghost btn-sm"
-										onclick={() => (confirmTargetId = null)}
+										onclick={() => cancelRestore(version.id)}
 									>
 										{$t('common.cancel')}
 									</button>
@@ -342,112 +246,53 @@ const popoverFocusTrap = focusTrap({
 										class="btn-primary btn-sm"
 										disabled={restoringId === version.id}
 										onclick={() => confirmRestore(version)}
+										{@attach focusOnMount}
 									>
 										<RotateCcw size={12} strokeWidth={2} aria-hidden="true" />
 										{$t('artifacts.document.versions.restore')}
 									</button>
-								</div>
-							{:else}
+								</span>
+							</div>
+						{:else}
+							<span class="versions-action">
 								<button
 									type="button"
-									class="btn-secondary btn-sm versions-popover-restore"
+									class="versions-restore"
 									disabled={restoringId === version.id}
 									onclick={() => (confirmTargetId = version.id)}
+									{@attach trackRestoreButton(version.id)}
 								>
 									<RotateCcw size={12} strokeWidth={2} aria-hidden="true" />
 									{$t('artifacts.document.versions.restore')}
 								</button>
-							{/if}
+							</span>
 						{/if}
-					</div>
+					{/if}
 				</li>
 			{/each}
 		</ul>
 	{/if}
 
 	{#if restoreError}
-		<div class="versions-popover-state versions-popover-error">
+		<div class="versions-state versions-state-error">
 			{$t('artifacts.document.versions.restoreError')}
 		</div>
 	{/if}
 {/snippet}
 
-{#if isPhone}
-	<!-- zIndexClass: opened from a button inside the mobile shell, whose own
-	     `.workspace-mobile-backdrop` sits at `z-index: 95` — DialogShell's
-	     default `z-50` would paint behind it. Same fix, same value, as
-	     `MobileToolbar.svelte`'s own "More" sheet / `CommentsSheet.svelte`. -->
-	<DialogShell
-		title={$t('artifacts.document.versions.title')}
-		phonePresentation="sheet"
-		zIndexClass="z-[150]"
-		onClose={onClose}
-	>
-		{@render versionsList()}
-	</DialogShell>
-{:else}
-	<div
-		class="versions-popover"
-		style={popoverStyle}
-		role="dialog"
-		aria-modal="true"
-		aria-label={$t('artifacts.document.versions.title')}
-		data-testid="document-versions-popover"
-		use:portalToBody
-		{@attach popoverFocusTrap}
-		transition:popoverScale={{ duration: 150, start: 0.98 }}
-	>
-		<div class="versions-popover-head">
-			<h2>{$t('artifacts.document.versions.title')}</h2>
-			<button
-				type="button"
-				class="btn-icon-bare"
-				onclick={onClose}
-				aria-label={$t('common.close')}
-			>
-				<X size={16} strokeWidth={2} aria-hidden="true" />
-			</button>
-		</div>
-		{@render versionsList()}
-	</div>
-{/if}
+<AnchoredPopover
+	title={$t('artifacts.document.versions.title')}
+	anchorTestId="artifact-version-pill"
+	popoverTestId="document-versions-popover"
+	closeLabel={$t('common.close')}
+	width={340}
+	{onClose}
+>
+	{@render versionsList()}
+</AnchoredPopover>
 
 <style>
-	.versions-popover {
-		position: fixed;
-		/* Review 2.5 (rd/review-2-5.md:168-175): 60 rendered UNDER the
-		   expanded panel shell (`DocumentWorkspace.svelte`'s
-		   `.workspace-shell-expanded`, z-index 115). 130 clears it, matching
-		   the existing precedent `ConfirmDialog.svelte` already sets as its
-		   own default `zIndexClass="z-[130]"` for "must be above other
-		   floating chrome". */
-		z-index: 130;
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		width: min(340px, calc(100vw - 24px));
-		border-radius: var(--radius-lg, 12px);
-		background: var(--surface-overlay);
-		border: 1px solid var(--border-default);
-		box-shadow: var(--shadow-lg);
-	}
-
-	.versions-popover-head {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem 0.625rem 0.375rem 0.875rem;
-	}
-
-	.versions-popover-head h2 {
-		flex: 1;
-		margin: 0;
-		font-size: 0.84rem;
-		font-weight: 700;
-		color: var(--text-primary);
-	}
-
-	.versions-popover-state {
+	.versions-state {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -457,45 +302,46 @@ const popoverFocusTrap = focusTrap({
 		font-size: 13px;
 	}
 
-	.versions-popover-error {
+	.versions-state-error {
 		color: var(--danger);
 	}
 
-	.versions-popover-list {
+	.versions-list {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
 		margin: 0;
 		padding: 0 6px 8px;
 		list-style: none;
-		max-height: 330px;
-		overflow-y: auto;
 	}
 
-	.versions-popover-row {
+	/* Two lines, one grid: the avatar spans both, the summary sits under the
+	   first line. Every row is the same height whether or not it offers
+	   Restore — that button is overlaid on the right end while hovered or
+	   focused, never laid out beside the text. */
+	.versions-row {
+		position: relative;
 		display: grid;
 		grid-template-columns: 22px minmax(0, 1fr);
-		gap: 2px 8px;
-		align-items: start;
+		column-gap: 10px;
+		row-gap: 2px;
+		align-items: center;
 		padding: 8px;
-		border-radius: var(--radius-md);
+		border-radius: 9px;
 	}
 
-	.versions-popover-row:hover,
-	.versions-popover-row:focus-within {
+	/* The newest row has nothing to act on, so it has no hover state. */
+	.versions-row:not(.versions-row-current):hover,
+	.versions-row:focus-within {
 		background: var(--surface-elevated);
 	}
 
-	.versions-popover-row-current {
-		background: var(--surface-page);
-	}
-
-	.versions-popover-row-avatar {
+	.versions-avatar {
+		grid-column: 1;
 		grid-row: 1 / span 2;
-		padding-top: 1px;
+		display: inline-flex;
 	}
 
-	.versions-popover-alfy-avatar {
+	.versions-alfy-avatar {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -505,88 +351,184 @@ const popoverFocusTrap = focusTrap({
 		border-radius: var(--radius-full, 999px);
 		background-color: var(--accent-tint);
 		color: var(--accent-text);
-		font-size: 11px;
 	}
 
-	.versions-popover-row-main {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-	}
-
-	.versions-popover-row-line1 {
+	.versions-line1 {
+		grid-column: 2;
+		grid-row: 1;
 		display: flex;
 		align-items: baseline;
-		flex-wrap: wrap;
-		gap: 4px 6px;
+		gap: 6px;
+		min-width: 0;
 		font-size: 12.5px;
+		line-height: 1.25;
 	}
 
-	.versions-popover-author {
+	.versions-author {
 		font-weight: 700;
 		color: var(--text-primary);
 	}
 
-	.versions-popover-version {
+	.versions-num {
 		font-size: 11px;
 		font-weight: 700;
 		color: var(--text-muted);
 	}
 
-	.versions-popover-time {
-		color: var(--text-muted);
-	}
-
-	.versions-popover-badge {
-		margin-left: auto;
-		font-size: 11px;
-		color: var(--text-muted);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-		padding: 1px 6px;
-	}
-
-	.versions-popover-summary {
-		font-size: 12.5px;
-		color: var(--text-muted);
+	.versions-time {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		color: var(--text-muted);
 	}
 
-	/* Redesign §3.2: "Restore appears on hover or focus (always shown on
-	   touch)". A keyboard user still reaches it via Tab regardless of
-	   opacity — this only hides it visually until the row is meaningfully
-	   engaged with. */
-	.versions-popover-restore {
-		align-self: flex-start;
+	.versions-current {
+		display: inline-flex;
+		align-items: center;
+		align-self: center;
+		height: 20px;
+		padding: 0 7px;
+		border-radius: var(--radius-full, 999px);
+		background: var(--surface-elevated);
+		color: var(--text-muted);
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
+
+	.versions-summary {
+		grid-column: 2;
+		grid-row: 2;
+		min-height: 1.25em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 12.5px;
+		line-height: 1.25;
+		color: var(--text-muted);
+	}
+
+	/* Restore, redesign §3.2: "appears on hover or focus (always shown on
+	   touch)". Overlaid on the row's right end, vertically centred, over a
+	   short fade so the text it covers is not cut off hard; a keyboard user
+	   still reaches it with Tab whatever its opacity, and focusing it shows
+	   it. */
+	.versions-action {
+		position: absolute;
+		top: 0;
+		right: 0;
+		bottom: 0;
+		display: flex;
+		align-items: center;
+		padding: 0 8px 0 28px;
+		border-radius: 0 9px 9px 0;
+		background: linear-gradient(
+			to right,
+			transparent,
+			var(--surface-elevated) 24px
+		);
 		opacity: 0;
 		transition: opacity var(--duration-standard) var(--ease-out);
 	}
 
-	.versions-popover-row:hover .versions-popover-restore,
-	.versions-popover-row:focus-within .versions-popover-restore {
+	.versions-row:hover .versions-action,
+	.versions-row:focus-within .versions-action {
 		opacity: 1;
 	}
 
-	@media (hover: none) and (pointer: coarse) {
-		.versions-popover-restore {
-			opacity: 1;
-		}
+	.versions-restore {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		height: 24px;
+		padding: 0 9px;
+		border: 1px solid var(--border-default);
+		border-radius: 8px;
+		background: var(--surface-page);
+		color: var(--text-primary);
+		font-size: 11.5px;
+		font-weight: 600;
+		white-space: nowrap;
+		cursor: pointer;
 	}
 
-	.versions-popover-confirm {
+	.versions-restore:hover {
+		background: var(--surface-overlay);
+	}
+
+	.versions-restore:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.versions-restore:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+
+	/* The question takes the row's action area: on its own line under the
+	   summary, spanning the text column. */
+	.versions-confirm {
+		grid-column: 2;
+		grid-row: 3;
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 6px;
-		padding-top: 4px;
+		gap: 6px 8px;
+		padding-top: 6px;
 		font-size: 12px;
 		color: var(--text-muted);
 	}
 
-	.versions-popover-confirm-grow {
-		flex: 1 1 auto;
+	.versions-confirm-text {
+		flex: 1 1 12rem;
+	}
+
+	.versions-confirm-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		margin-left: auto;
+	}
+
+	/* Touch: no hover to reveal it, so Restore is always there, as its own
+	   column beside the text (44px target) rather than over it. */
+	@media (hover: none) and (pointer: coarse) {
+		.versions-row {
+			grid-template-columns: 22px minmax(0, 1fr) auto;
+		}
+
+		.versions-action {
+			position: static;
+			grid-column: 3;
+			grid-row: 1 / span 2;
+			padding: 0;
+			border-radius: 0;
+			background: none;
+			opacity: 1;
+		}
+
+		.versions-restore {
+			min-height: 44px;
+			min-width: 44px;
+			padding: 0 10px;
+			font-size: 12px;
+		}
+
+		/* Its own column costs the summary room, so the summary may take a
+		   second line instead of being cut off — a phone has the height. */
+		.versions-summary {
+			display: -webkit-box;
+			-webkit-box-orient: vertical;
+			-webkit-line-clamp: 2;
+			line-clamp: 2;
+			white-space: normal;
+		}
+
+		.versions-confirm {
+			grid-column: 2 / span 2;
+		}
 	}
 </style>

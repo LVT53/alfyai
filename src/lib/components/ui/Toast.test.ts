@@ -4,6 +4,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearToasts, showToast } from "$lib/stores/toast";
 import Toast from "./Toast.svelte";
 
+// A toast now leaves through an outro (redesign §7.2 #33), and jsdom never
+// runs an outro to its end — so the tests below that are about DISMISSAL
+// itself (the timer, the action, the close button) ask for reduced motion,
+// whose exit is instant by the spec's own §7.3. The exit's motion has its own
+// tests: `toast-motion.test.ts` for its numbers, the "exit" describe below
+// for the wiring, and Playwright for the real thing.
+const originalMatchMedia = window.matchMedia;
+
+function stubReducedMotion(reduce: boolean) {
+	window.matchMedia = vi.fn((query: string) => ({
+		matches: reduce && query.includes("prefers-reduced-motion"),
+		media: query,
+		addEventListener: vi.fn(),
+		removeEventListener: vi.fn(),
+		addListener: vi.fn(),
+		removeListener: vi.fn(),
+		dispatchEvent: vi.fn(),
+		onchange: null,
+	})) as unknown as typeof window.matchMedia;
+}
+
 describe("Toast", () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
@@ -13,6 +34,8 @@ describe("Toast", () => {
 	afterEach(() => {
 		clearToasts();
 		vi.useRealTimers();
+		window.matchMedia = originalMatchMedia;
+		vi.restoreAllMocks();
 	});
 
 	it("renders nothing when there are no active toasts", () => {
@@ -50,6 +73,7 @@ describe("Toast", () => {
 	});
 
 	it("auto-dismisses a toast after its duration elapses", async () => {
+		stubReducedMotion(true);
 		render(Toast);
 
 		showToast({ type: "success", message: "Bye soon", duration: 1000 });
@@ -63,6 +87,7 @@ describe("Toast", () => {
 	});
 
 	it("renders an inline action button and runs it, then dismisses the toast, on click", async () => {
+		stubReducedMotion(true);
 		render(Toast);
 		const onAction = vi.fn();
 
@@ -94,6 +119,7 @@ describe("Toast", () => {
 	});
 
 	it("dismisses a toast via its manual close button", async () => {
+		stubReducedMotion(true);
 		render(Toast);
 
 		showToast({ type: "success", message: "Close me", duration: 0 });
@@ -103,5 +129,53 @@ describe("Toast", () => {
 		await fireEvent.click(closeButton);
 
 		expect(screen.queryByTestId("toast-entry")).not.toBeInTheDocument();
+	});
+
+	describe("exit (redesign §7.2 #33)", () => {
+		it("starts its exit animation on dismiss: the standard 150ms, fading out and sinking 12px", async () => {
+			stubReducedMotion(false);
+			const animate = vi.spyOn(Element.prototype, "animate");
+			render(Toast);
+			showToast({ type: "success", message: "Bye", duration: 0 });
+			await tick();
+			animate.mockClear();
+
+			await fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+			// Svelte starts an outro with a dummy animation and begins the real one
+			// when that finishes; jsdom finishes nothing on its own, so finish it.
+			for (const result of animate.mock.results) {
+				(result.value as { onfinish?: () => void }).onfinish?.();
+			}
+
+			const exit = animate.mock.calls.find(
+				([, options]) =>
+					(options as KeyframeAnimationOptions | undefined)?.duration === 150,
+			);
+			expect(exit, "the toast's outro animation").toBeTruthy();
+			const keyframes = exit?.[0] as Keyframe[];
+			expect(keyframes[0]).toMatchObject({
+				opacity: "1",
+				transform: "translateY(0px)",
+			});
+			expect(keyframes[keyframes.length - 1]).toMatchObject({
+				opacity: "0",
+				transform: "translateY(12px)",
+			});
+		});
+
+		it("leaves at once under reduced motion: no animation, nothing left in the DOM", async () => {
+			stubReducedMotion(true);
+			const animate = vi.spyOn(Element.prototype, "animate");
+			render(Toast);
+			showToast({ type: "success", message: "Bye", duration: 0 });
+			await tick();
+			animate.mockClear();
+
+			await fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+			expect(screen.queryByTestId("toast-entry")).not.toBeInTheDocument();
+			expect(animate).not.toHaveBeenCalled();
+		});
 	});
 });

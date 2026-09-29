@@ -244,8 +244,13 @@ let bodyPanelActions = $state<ArtifactPanelBodyActions | null>(null);
 let documentOpenCommentCount = $state(0);
 /** Whether the Document's comments are showing (the column beside the text, or the drawer/sheet) — the Comments button's pressed state. Reset with the count, for the same reason. */
 let documentCommentsShown = $state(false);
+// Only the open item's id: `activeDocument` itself is a new object whenever
+// its version number (or any other field) moves — the reset below must fire
+// for a DIFFERENT item, never for the same item's number changing, since the
+// body registers its actions once, when it mounts, and would never re-register.
+let activeDocumentIdentity = $derived(activeDocument?.id);
 $effect(() => {
-	activeDocument?.id;
+	activeDocumentIdentity;
 	bodyPanelActions = null;
 	documentOpenCommentCount = 0;
 	documentCommentsShown = false;

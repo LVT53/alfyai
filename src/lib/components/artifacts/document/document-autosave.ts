@@ -18,6 +18,8 @@
  *     never be retried on every keystroke.
  */
 
+import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
+
 export interface DocumentAutosaveResult {
 	ok: boolean;
 	reason?: string;
@@ -26,9 +28,19 @@ export interface DocumentAutosaveResult {
 	bodyHash?: string;
 }
 
+/**
+ * What a save says about itself besides "the user typed". `summaryKind` names
+ * one of the fixed version summaries (Undo of Alfy's change today); it stays
+ * with the queued save for the whole debounce window — typing right after an
+ * Undo is still part of that save — and applies to that one save only.
+ */
+export interface DocumentAutosaveSaveOptions {
+	summaryKind?: SaveSummaryKind;
+}
+
 export interface DocumentAutosaveHandle {
 	/** Queues `markdown` to save after the debounce delay. A no-op once stopped. */
-	schedule: (markdown: string) => void;
+	schedule: (markdown: string, options?: DocumentAutosaveSaveOptions) => void;
 	/** Cancels any pending timer and saves immediately, if anything is queued. */
 	flush: () => Promise<DocumentAutosaveResult | null>;
 	/** Stops accepting new schedules (a non-transient refusal: too_large, not_found). */
@@ -40,13 +52,17 @@ export interface DocumentAutosaveHandle {
 }
 
 export function createDocumentAutosave(options: {
-	save: (markdown: string) => Promise<DocumentAutosaveResult>;
+	save: (
+		markdown: string,
+		saveOptions?: DocumentAutosaveSaveOptions,
+	) => Promise<DocumentAutosaveResult>;
 	onResult?: (result: DocumentAutosaveResult, markdown: string) => void;
 	delayMs?: number;
 }): DocumentAutosaveHandle {
 	const delayMs = options.delayMs ?? 800;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let pending: string | null = null;
+	let pendingSummaryKind: SaveSummaryKind | undefined;
 	let stopped = false;
 	let inFlight: Promise<DocumentAutosaveResult> | null = null;
 
@@ -57,8 +73,15 @@ export function createDocumentAutosave(options: {
 		}
 	}
 
-	async function runSave(markdown: string): Promise<DocumentAutosaveResult> {
-		const run = options.save(markdown).then(
+	async function runSave(
+		markdown: string,
+		saveOptions?: DocumentAutosaveSaveOptions,
+	): Promise<DocumentAutosaveResult> {
+		// Called with the markdown alone when there is nothing more to say, so a
+		// plain autosave reaches `save` exactly as it always has.
+		const run = (
+			saveOptions ? options.save(markdown, saveOptions) : options.save(markdown)
+		).then(
 			(result) => {
 				options.onResult?.(result, markdown);
 				return result;
@@ -82,29 +105,48 @@ export function createDocumentAutosave(options: {
 		return result;
 	}
 
+	/** Hands the queued save over — its markdown and the kind it carries — and empties the queue. */
+	function takePending(): {
+		markdown: string;
+		saveOptions?: DocumentAutosaveSaveOptions;
+	} | null {
+		const markdown = pending;
+		const summaryKind = pendingSummaryKind;
+		pending = null;
+		pendingSummaryKind = undefined;
+		if (markdown === null) return null;
+		return summaryKind
+			? { markdown, saveOptions: { summaryKind } }
+			: { markdown };
+	}
+
 	return {
-		schedule(markdown: string) {
+		schedule(markdown: string, scheduleOptions?: DocumentAutosaveSaveOptions) {
 			if (stopped) return;
 			pending = markdown;
+			// Sticky until this queue is saved: a later plain schedule inside the
+			// same window must not turn an Undo's save back into an ordinary one.
+			if (scheduleOptions?.summaryKind) {
+				pendingSummaryKind = scheduleOptions.summaryKind;
+			}
 			clearTimer();
 			timer = setTimeout(() => {
 				timer = null;
-				const markdownToSave = pending;
-				pending = null;
-				if (markdownToSave !== null) void runSave(markdownToSave);
+				const next = takePending();
+				if (next) void runSave(next.markdown, next.saveOptions);
 			}, delayMs);
 		},
 		async flush() {
 			clearTimer();
-			const markdownToSave = pending;
-			pending = null;
-			if (markdownToSave !== null) return runSave(markdownToSave);
+			const next = takePending();
+			if (next) return runSave(next.markdown, next.saveOptions);
 			return inFlight;
 		},
 		stop() {
 			stopped = true;
 			clearTimer();
 			pending = null;
+			pendingSummaryKind = undefined;
 		},
 		resume() {
 			stopped = false;

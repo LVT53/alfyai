@@ -6,6 +6,7 @@ import {
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
+import { saveSummaryFor } from "$lib/shared/artifacts/version-summaries";
 import { NOW, seedConversation, seedUser } from "./artifacts.test-helpers";
 import type { CreatableArtifactKind } from "./types";
 
@@ -735,6 +736,50 @@ describe("updateArtifactBody", () => {
 			});
 
 			expect(versionRows(artifact.id)).toHaveLength(3);
+		});
+
+		// Wave 2.5 polish G1-B: an Undo of Alfy's change is a user save with a
+		// summary of its own, so it is a version of its own — and typing after
+		// it is another one, never folded into it.
+		it("an Undo of Alfy's change records its own version, and ordinary typing after it starts another", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(NOW);
+			const artifact = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "alfy edited this",
+				author: "alfy",
+				summary: "Alfy's change",
+				coalesceUserEdits: true,
+			});
+			const undo = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "the text before Alfy",
+				author: "user",
+				summary: saveSummaryFor("undid_alfy_change"),
+				coalesceUserEdits: true,
+			});
+			vi.setSystemTime(new Date(NOW.getTime() + 30_000));
+			const typing = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "the text before Alfy, tweaked",
+				author: "user",
+				summary: saveSummaryFor(null),
+				coalesceUserEdits: true,
+			});
+
+			expect(undo.ok && undo.versionNumber).toBe(3);
+			expect(typing.ok && typing.versionNumber).toBe(4);
+			const rows = versionRows(artifact.id).sort(
+				(a, b) => a.versionNumber - b.versionNumber,
+			);
+			expect(rows.map((r) => r.summary).slice(2)).toEqual([
+				"Undid Alfy's change",
+				"Edited",
+			]);
 		});
 
 		it("never coalesces an Alfy write, and an Alfy write closes a user's burst", async () => {

@@ -222,6 +222,10 @@ const artifactsDict = {
 		// Alfy-authored summary is free-form content and is shown as-is.
 		"artifacts.document.versions.summaryEdited": "Edited",
 		"artifacts.document.versions.summaryRestored": "restored {summary}",
+		"artifacts.document.versions.summaryUndidAlfyChange": "Undid Alfy's change",
+		"artifacts.document.versions.summaryFirstDraft":
+			"Alfy wrote the first draft",
+		"artifacts.document.versions.summarySavedAsCopy": "Saved as a new document",
 		// The lazy editor's shell and toolbar (Slice 1, T7).
 		"artifacts.document.editor.placeholder": "Write anything, or ask Alfy to.",
 		"artifacts.document.editor.failedToLoad": "The editor could not be loaded.",
@@ -622,6 +626,12 @@ const artifactsDict = {
 		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
 		"artifacts.document.versions.summaryEdited": "Szerkesztve",
 		"artifacts.document.versions.summaryRestored": "visszaállítva: {summary}",
+		"artifacts.document.versions.summaryUndidAlfyChange":
+			"Alfy módosításának visszavonása",
+		"artifacts.document.versions.summaryFirstDraft":
+			"Alfy megírta az első vázlatot",
+		"artifacts.document.versions.summarySavedAsCopy":
+			"Mentve új dokumentumként",
 		"artifacts.document.editor.placeholder": "Írj bármit, vagy kérd meg Alfyt.",
 		"artifacts.document.editor.failedToLoad":
 			"A szerkesztőt nem sikerült betölteni.",

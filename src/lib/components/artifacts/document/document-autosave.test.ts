@@ -103,4 +103,76 @@ describe("createDocumentAutosave", () => {
 		expect(save).not.toHaveBeenCalled();
 		expect(result).toBeNull();
 	});
+
+	// Wave 2.5 polish G1-B: undoing Alfy's change is saved through this same
+	// loop, but records its own version summary.
+	describe("a save's summary kind (Undo of Alfy's change)", () => {
+		it("carries the kind to the save that follows it", async () => {
+			const save = vi.fn().mockResolvedValue({ ok: true, version: 4 });
+			const autosave = createDocumentAutosave({ save, delayMs: 800 });
+
+			autosave.schedule("undone", { summaryKind: "undid_alfy_change" });
+			vi.advanceTimersByTime(800);
+
+			await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+			expect(save).toHaveBeenCalledWith("undone", {
+				summaryKind: "undid_alfy_change",
+			});
+		});
+
+		it("keeps it for the whole debounce window, so typing right after the Undo does not turn the save back into an ordinary one", async () => {
+			const save = vi.fn().mockResolvedValue({ ok: true, version: 4 });
+			const autosave = createDocumentAutosave({ save, delayMs: 800 });
+
+			autosave.schedule("undone", { summaryKind: "undid_alfy_change" });
+			vi.advanceTimersByTime(300);
+			autosave.schedule("undone, then typed");
+			vi.advanceTimersByTime(800);
+
+			await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+			expect(save).toHaveBeenCalledWith("undone, then typed", {
+				summaryKind: "undid_alfy_change",
+			});
+		});
+
+		it("applies to that one save only; the next burst is an ordinary save again", async () => {
+			const save = vi.fn().mockResolvedValue({ ok: true, version: 4 });
+			const autosave = createDocumentAutosave({ save, delayMs: 800 });
+
+			autosave.schedule("undone", { summaryKind: "undid_alfy_change" });
+			vi.advanceTimersByTime(800);
+			await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+			autosave.schedule("typed later");
+			vi.advanceTimersByTime(800);
+			await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+			expect(save).toHaveBeenLastCalledWith("typed later");
+		});
+
+		it("flush() saves with it too", async () => {
+			const save = vi.fn().mockResolvedValue({ ok: true, version: 4 });
+			const autosave = createDocumentAutosave({ save, delayMs: 800 });
+
+			autosave.schedule("undone", { summaryKind: "undid_alfy_change" });
+			await autosave.flush();
+
+			expect(save).toHaveBeenCalledWith("undone", {
+				summaryKind: "undid_alfy_change",
+			});
+		});
+
+		it("stop() forgets a kind that never got to save", async () => {
+			const save = vi.fn().mockResolvedValue({ ok: true, version: 4 });
+			const autosave = createDocumentAutosave({ save, delayMs: 800 });
+
+			autosave.schedule("undone", { summaryKind: "undid_alfy_change" });
+			autosave.stop();
+			autosave.resume();
+			autosave.schedule("typed");
+			vi.advanceTimersByTime(800);
+
+			await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+			expect(save).toHaveBeenCalledWith("typed");
+		});
+	});
 });

@@ -41,7 +41,17 @@ import {
 	saveSkillDraft as saveSkillDraftRequest,
 } from "$lib/client/api/skills";
 import { updateInstructionSuggestionStatus } from "$lib/client/api/conversations";
-import { toggleDocumentTask } from "$lib/client/api/artifacts";
+import {
+	subscribeArtifactVersions,
+	toggleDocumentTask,
+} from "$lib/client/api/artifacts";
+import {
+	NO_OBSERVED_ARTIFACT_VERSIONS,
+	type ObservedArtifactVersions,
+	observeArtifactVersion,
+	withCurrentItemVersion,
+	withCurrentSummaryVersion,
+} from "$lib/client/artifact-versions";
 import { ApiError } from "$lib/client/api/http";
 import {
 	recordDocumentWorkspaceOpen,
@@ -524,6 +534,20 @@ let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 // alongside generatedFiles/fileProductionJobs everywhere they are, never a
 // second fetch path.
 let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
+// Wave 2.5 polish G1-B (one version number everywhere): the highest version
+// the server has told this browser about, per artifact — fed by every save,
+// fetch, restore and version-list read (`subscribeArtifactVersions`), so the
+// list row, the chat card and the panel header's button all read the number
+// the Versions list shows instead of a copy taken when the list was loaded
+// or the item was opened.
+let observedArtifactVersions = $state.raw<ObservedArtifactVersions>(
+	NO_OBSERVED_ARTIFACT_VERSIONS,
+);
+let liveArtifacts = $derived(
+	artifacts.map((row) =>
+		withCurrentSummaryVersion(row, observedArtifactVersions),
+	),
+);
 let artifactListOpen = $state(false);
 // Read by closeWorkspace() to return focus to the button that opens "what
 // this chat made" when the panel closes — both refs exist because the
@@ -903,7 +927,7 @@ let availableWorkspaceDocuments = $derived(
 // nothing), never a second query: `artifacts` is the same conversation
 // detail payload field generatedFiles/fileProductionJobs already refresh
 // from.
-let artifactCount = $derived(artifacts.length);
+let artifactCount = $derived(liveArtifacts.length);
 
 /**
  * Wave 2.5 Step 4 (redesign §5.3): "pressed (panel open)" means the panel is
@@ -1116,7 +1140,22 @@ function handlePendingReviewCountChange(
 	);
 }
 
-let artifactWorkspaceItems = $derived(artifacts.map(artifactToWorkspaceItem));
+let artifactWorkspaceItems = $derived(
+	liveArtifacts.map(artifactToWorkspaceItem),
+);
+
+// The panel keeps each open item as the snapshot taken when it was opened —
+// saved across reloads with the number it had then. The header's version
+// button reads that item, so it takes the current number from the same live
+// list the rows and cards read.
+let currentArtifactVersionById = $derived(
+	new Map(liveArtifacts.map((row) => [row.id, row.versionNumber])),
+);
+let liveWorkspaceDocuments = $derived(
+	workspaceDocuments.map((document) =>
+		withCurrentItemVersion(document, currentArtifactVersionById),
+	),
+);
 
 // The panel's list rows call the existing onSelectDocument(item.id) path
 // (Task S5) rather than a second lookup, so every item this slice can open
@@ -1834,6 +1873,18 @@ onMount(() => {
 		.then((p) => (personalityProfiles = p))
 		.catch(() => {});
 });
+
+// One version number everywhere (see `observedArtifactVersions`): a save, an
+// Alfy edit, an Undo or a restore anywhere in the panel reaches every surface.
+onMount(() =>
+	subscribeArtifactVersions((artifactId, version) => {
+		observedArtifactVersions = observeArtifactVersion(
+			observedArtifactVersions,
+			artifactId,
+			version,
+		);
+	}),
+);
 
 onDestroy(() => {
 	if (browser) {
@@ -3315,7 +3366,7 @@ function handleDrop(event: DragEvent) {
 						showingLinkedMessage={linkedMessageConversationId === data.conversation.id}
 						readOnly={isConversationReadOnlyForChat}
 						onOpenDocument={openWorkspaceDocument}
-						{artifacts}
+						artifacts={liveArtifacts}
 						onToggleDocumentTask={handleToggleDocumentTask}
 						alfyActivity={liveDocumentAlfyActivity}
 						{activeArtifactId}
@@ -3401,7 +3452,7 @@ function handleDrop(event: DragEvent) {
 			open={workspaceOpen}
 			presentation={workspacePresentation}
 			{returnToDockedOnExpandedClose}
-			documents={workspaceDocuments}
+			documents={liveWorkspaceDocuments}
 			availableDocuments={availableWorkspaceDocumentsWithArtifacts}
 			activeDocumentId={activeWorkspaceDocumentId}
 			conversationId={data.conversation.id}
@@ -3471,6 +3522,16 @@ function handleDrop(event: DragEvent) {
 
 	.chat-title-bar-actions {
 		justify-content: flex-end;
+	}
+
+	/* Wave 2.5 polish G1-B (owner: "pushed a bit more to the right"): the
+	   mockup's `#madeBtn` sits 12px from the header's right edge, not 24px.
+	   The bar keeps its 24px gutter — so the title's centring, which comes
+	   from the two equal side columns, does not move — and the button leans
+	   12px into it. A negative margin on the button itself (not on its
+	   column) changes nothing about how the columns are sized. */
+	.chat-title-bar-actions .artifact-count-button {
+		margin-right: -0.75rem;
 	}
 
 	.chat-title-bar-compact {
