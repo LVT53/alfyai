@@ -2876,6 +2876,152 @@ describe("DocumentBody", () => {
 		});
 	});
 
+	// Re-check "New breakage" (rd/recheck.md:117-140): `pendingChanges` starts
+	// empty on every load, so the reporting effect used to fire with `0` the
+	// instant this component mounted — before `restorePendingReview`'s own
+	// network round trip ever confirmed the true pending set. That flashed
+	// the chat card/list row/count-button dot to "reviewed" for ~100-300ms
+	// before self-correcting, and a failed fetch left the wrong `0` uncorrected
+	// until reload. The fix gates the callback on the initial restore having
+	// settled successfully.
+	describe("re-check fix: onPendingReviewCountChange gates on a settled restore", () => {
+		it("never reports before the initial restore settles, then reports the real count once it does", async () => {
+			let resolveReview!: (
+				value: Awaited<ReturnType<typeof mockFetchDocumentReviewState>>,
+			) => void;
+			mockFetchDocumentReviewState.mockReturnValueOnce(
+				new Promise((resolve) => {
+					resolveReview = resolve;
+				}),
+			);
+			const onPendingReviewCountChange = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				onPendingReviewCountChange,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(mockFetchDocumentReviewState).toHaveBeenCalledTimes(1),
+			);
+			// The editor is up and the restore is in flight — the OLD bug
+			// reported `0` right here, before the network round trip ever
+			// confirmed it.
+			expect(onPendingReviewCountChange).not.toHaveBeenCalled();
+
+			resolveReview([
+				{
+					blockId: "p1",
+					blockLabel: "Hello.",
+					previousMarkdown: "Hi.",
+					isNewBlock: false,
+					alfyVersionNumber: 2,
+				},
+			]);
+
+			await waitFor(() =>
+				expect(onPendingReviewCountChange).toHaveBeenCalledWith(1),
+			);
+			// Exactly one call, with the real count — never a `0` first.
+			expect(onPendingReviewCountChange).toHaveBeenCalledTimes(1);
+		});
+
+		it("reports 0 once a restore that genuinely finds nothing pending settles", async () => {
+			mockFetchDocumentReviewState.mockResolvedValueOnce([]);
+			const onPendingReviewCountChange = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				onPendingReviewCountChange,
+			});
+			await waitFor(() =>
+				expect(mockFetchDocumentReviewState).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(onPendingReviewCountChange).toHaveBeenCalledWith(0),
+			);
+		});
+
+		it("does not report at all when the initial restore fails, leaving the persisted count alone", async () => {
+			mockFetchDocumentReviewState.mockRejectedValueOnce(new Error("network"));
+			const onPendingReviewCountChange = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				onPendingReviewCountChange,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(mockFetchDocumentReviewState).toHaveBeenCalledTimes(1),
+			);
+			expect(onPendingReviewCountChange).not.toHaveBeenCalled();
+		});
+
+		it("still reports a later genuine change (a new Alfy edit) after a settled restore", async () => {
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({ body: "<!--b:p1-->\nFirst." }),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "flash-change-1",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const onPendingReviewCountChange = vi.fn();
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+				onPendingReviewCountChange,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(onPendingReviewCountChange).toHaveBeenCalledWith(0),
+			);
+			onPendingReviewCountChange.mockClear();
+
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				onPendingReviewCountChange,
+				alfyActivity: {
+					key: "flash-call",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: null,
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+
+			await waitFor(() =>
+				expect(onPendingReviewCountChange).toHaveBeenCalledWith(1),
+			);
+		});
+	});
+
 	describe("Wave 2.5 Step 10: the review bar", () => {
 		beforeEach(() => {
 			// `reconstructDocumentPatch` (the real function, not mocked) needs the

@@ -1326,6 +1326,112 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			}
 		}
 	});
+
+	// Re-check "New breakage" (rd/recheck.md:117-140): opening the Document
+	// from the card raced `DocumentBody`'s own `restorePendingReview` fetch —
+	// the reporting effect fired with `0` before that fetch resolved,
+	// flashing the card (and the list row / count-button dot, which read the
+	// SAME persisted state) to "Reviewed" for ~100-300ms before
+	// self-correcting. A plain `expect(card).not.toContainText(...)` cannot
+	// catch this: Playwright's web-first assertions retry UNTIL they pass, so
+	// a transient wrong state that self-heals inside the retry window is
+	// invisible to them — exactly why the card-flow test above never caught
+	// it. This samples the card's own text on a fixed interval instead,
+	// without early-exiting on an already-correct read, the same way the
+	// re-check's own live repro did (polled every 40ms right after opening).
+	test("opening the panel from the card never flashes 'Reviewed' while a change is still pending (re-check regression)", async ({
+		page,
+	}) => {
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a trip");
+			const artifactId = await seedDocument({
+				conversationId,
+				title: "Trip plan",
+				markdown: "Book the hotel.\n\nBook the flight.",
+			});
+
+			const userId = await testUserId();
+			const readResult = await runReadArtifactTool({
+				userId,
+				conversationId,
+				artifactId,
+				detail: "blocks",
+				abortSignal: new AbortController().signal,
+			});
+			const blocks =
+				readResult.modelPayload.success && "blocks" in readResult.modelPayload
+					? (readResult.modelPayload.blocks as Array<{
+							blockId: string;
+							hash: string;
+							text: string;
+						}>)
+					: [];
+			const applyBlock = blocks.find((b) => b.text === "Book the hotel.");
+			const refuseBlock = blocks.find((b) => b.text === "Book the flight.");
+			expect(applyBlock, "the seeded 'Book the hotel.' block").toBeTruthy();
+			expect(refuseBlock, "the seeded 'Book the flight.' block").toBeTruthy();
+
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+
+			// The panel starts CLOSED, same as the card-flow test above — the
+			// flash is specifically about the moment it is FIRST opened.
+			await openChatAndReload(page, conversationId);
+
+			const markerMessage = `${AI_SMOKE_EDIT_ARTIFACT_MARKER} ${encodeEditArtifactScenarioPayload(
+				{
+					artifactId,
+					applyBlockId: applyBlock?.blockId ?? "",
+					applyBaseHash: applyBlock?.hash ?? "",
+					refuseBlockId: refuseBlock?.blockId ?? "",
+				},
+			)}`;
+			await sendMessage(page, markerMessage);
+			await expect(
+				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			const card = page.getByTestId("artifact-card-head");
+			await expect(card).toBeVisible({ timeout: 10_000 });
+			await expect(card).toContainText("1 change to review");
+
+			// Open from the CARD — the exact path the finding reproduced on.
+			await card.click();
+
+			const deadline = Date.now() + 1_500;
+			while (Date.now() < deadline) {
+				const text = (await card.textContent()) ?? "";
+				expect(
+					text,
+					"the card must never read reviewed/no-pending while its one change is still pending",
+				).not.toMatch(/Reviewed|Átnézve/);
+				await page.waitForTimeout(40);
+			}
+
+			// Sanity: the change was genuinely still open/pending throughout the
+			// poll above — otherwise a passing loop above would prove nothing.
+			const reviewRegion = page.getByRole("region", {
+				name: "Changes from Alfy",
+			});
+			await expect(reviewRegion).toContainText("Alfy changed 1 part.");
+			await expect(card).toContainText("1 change to review");
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
 });
 
 async function snapshotUserModelPreference(page: Page): Promise<string | null> {
