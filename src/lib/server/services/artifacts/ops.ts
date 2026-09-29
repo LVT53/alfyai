@@ -20,6 +20,7 @@ import {
 	parseOpsEnvelope,
 	runOps,
 } from "$lib/shared/artifacts/ops";
+import type { DocumentReviewMetadata } from "./document-ops";
 import { getArtifact, updateArtifactBody } from "./record";
 import { canvasSerializer, prepareCanvasBoard } from "./serialize/canvas";
 import type { ArtifactKind, ArtifactScopeOptions } from "./types";
@@ -209,12 +210,35 @@ export async function applyArtifactOps(
 		};
 	}
 
+	// Ruling 63: an Alfy diff is ONE pending change, and a pending change survives
+	// a reload through ruling 61's review marker on the artifact's own metadata.
+	// The marker is bootstrapped here, the one place an Alfy write lands, exactly
+	// as `applyDocumentPatch` does it: absent, it names the version this write
+	// lands on top of (so this version is the first one waiting for review); once
+	// it exists, only the reader's Keep or Undo moves it.
+	const review = artifact.metadata.review as
+		| Partial<DocumentReviewMetadata>
+		| null
+		| undefined;
+	const hasMarker =
+		typeof review === "object" &&
+		review !== null &&
+		typeof review.throughVersion === "number" &&
+		review.throughVersion > 0;
 	const written = await updateArtifactBody({
 		...scope,
 		body: outcome.body,
 		author: "alfy",
 		summary: outcome.summary,
 		baseHash: artifact.bodyHash ?? undefined,
+		metadataPatch: hasMarker
+			? undefined
+			: {
+					review: {
+						throughVersion: newest.versionNumber,
+						keptBlockIds: [],
+					} satisfies DocumentReviewMetadata,
+				},
 	});
 	if (!written.ok) {
 		if (written.reason === "too_large") {

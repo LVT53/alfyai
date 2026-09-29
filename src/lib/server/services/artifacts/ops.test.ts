@@ -236,6 +236,56 @@ describe("applyArtifactOps — a diff that lands", () => {
 	});
 });
 
+describe("applyArtifactOps — the change is one pending change (ruling 63)", () => {
+	async function reviewMarker(id: string) {
+		const artifact = await getArtifact({ userId: OWNER, artifactId: id });
+		return artifact?.metadata.review;
+	}
+
+	it("writes ruling 61's review marker on the first Alfy change, naming the version it landed on top of", async () => {
+		const id = await createBoard();
+		expect(await reviewMarker(id)).toBeUndefined();
+
+		const result = await apply(
+			id,
+			payload(await currentVersionId(id), [moveNote]),
+		);
+
+		expect(result.ok).toBe(true);
+		expect(await reviewMarker(id)).toEqual({
+			throughVersion: 1,
+			keptBlockIds: [],
+		});
+	});
+
+	it("leaves the marker where the reader put it on a later Alfy change", async () => {
+		const id = await createBoard();
+		await apply(id, payload(await currentVersionId(id), [moveNote]));
+		const after = await reviewMarker(id);
+
+		await apply(
+			id,
+			payload(await currentVersionId(id), [
+				{ op: "move", id: "note-museum", to: { x: 1, y: 1 } },
+			]),
+		);
+
+		expect(await reviewMarker(id)).toEqual(after);
+		expect(versionRows(id)).toHaveLength(3);
+	});
+
+	it("writes no marker when nothing was written", async () => {
+		const id = await createBoard();
+
+		await apply(
+			id,
+			payload(await currentVersionId(id), [{ op: "remove_node", id: "ghost" }]),
+		);
+
+		expect(await reviewMarker(id)).toBeUndefined();
+	});
+});
+
 describe("applyArtifactOps — a diff that changes nothing writes nothing", () => {
 	it("leaves the board untouched when every op is refused, and says which version it is still at", async () => {
 		const id = await createBoard();
