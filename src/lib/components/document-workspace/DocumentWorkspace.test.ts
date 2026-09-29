@@ -2193,6 +2193,63 @@ describe("DocumentWorkspace panel motion (Wave 2.5 Step 4)", () => {
 		);
 	});
 
+	// The parent can also close the list onto an item with no list row involved —
+	// the chat's own card Open — and the item must still arrive as the list's
+	// push, not with the direction the last push happened to leave behind (here
+	// the breadcrumb's, from the left).
+	it("pushes the item in from the right, immediately, when the parent closes the list with no list row pressed", async () => {
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeArtifactBody.svelte");
+		try {
+			const doc = makeWorkspaceDocument({
+				id: "doc-1",
+				kind: "document",
+				title: "Plan",
+			});
+			const { rerender, onListOpenChange, onSelectDocument } = renderWorkspace({
+				documents: [doc],
+				activeDocumentId: "doc-1",
+				list: { open: false, items: [doc] },
+			});
+			await screen.findByTestId("fake-artifact-body");
+			await tick();
+
+			const shell = screen.getAllByRole("complementary", {
+				name: WORKSPACE_LANDMARK,
+			})[0];
+			await fireEvent.click(
+				within(shell).getByRole("button", { name: /This chat/ }),
+			);
+			await rerender({
+				documents: [doc],
+				activeDocumentId: "doc-1",
+				list: { open: true, items: [doc] },
+			});
+			await tick();
+			animateSpy.mockClear();
+			vi.mocked(onListOpenChange).mockClear();
+
+			await rerender({
+				documents: [doc],
+				activeDocumentId: "doc-1",
+				list: { open: false, items: [doc] },
+			});
+			await tick();
+
+			expect(onSelectDocument).not.toHaveBeenCalled();
+			expect(onListOpenChange).not.toHaveBeenCalled();
+			expect(animateSpy).toHaveBeenCalledWith(
+				[
+					{ opacity: 0, transform: "translateX(32px)" },
+					{ opacity: 1, transform: "translateX(0)" },
+				],
+				expect.objectContaining({ delay: 0 }),
+			);
+		} finally {
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
 	it("pulls the list in from the left, immediately, from the header's breadcrumb", async () => {
 		ARTIFACT_BODIES.document = () =>
 			import("./__fixtures__/FakeArtifactBody.svelte");

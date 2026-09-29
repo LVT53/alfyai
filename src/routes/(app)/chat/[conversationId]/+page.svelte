@@ -1333,6 +1333,9 @@ function openWorkspaceDocument(
 	workspaceDocuments = result.documents;
 	activeWorkspaceDocumentId = result.activeDocumentId;
 	workspaceOpen = result.isOpen;
+	// The panel's list wins over an open item, so opening a specific item —
+	// from a chat card, "Open as document", a list row — leaves the list.
+	artifactListOpen = false;
 	workspacePresentation = getWorkspacePresentationAfterDocumentOpen(
 		workspacePresentation,
 		options,
@@ -1396,6 +1399,7 @@ function selectWorkspaceDocument(documentId: string) {
 	}
 	activeWorkspaceDocumentId = documentId;
 	workspaceOpen = true;
+	artifactListOpen = false;
 	const document =
 		workspaceDocuments.find((entry) => entry.id === documentId) ?? null;
 	if (browser && document?.artifactId) {

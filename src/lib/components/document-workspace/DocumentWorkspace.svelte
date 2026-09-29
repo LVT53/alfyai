@@ -483,7 +483,7 @@ let mobileShellElement: HTMLElement | null = $state(null);
  * only an entrance on whatever just arrived.
  */
 let desktopContentElement: HTMLElement | null = $state(null);
-/** What the NEXT `desktopContentElement` mount should play — set just before the state change that will cause it, per §7.2 rows #1/#3/#4. Panel-open default: content arrives from the right, 60ms after the panel itself does. */
+/** What the NEXT `desktopContentElement` mount should play — set just before the state change that will cause it (`handleBackToList`), or by the list-closing effect below, per §7.2 rows #1/#3/#4. Panel-open default: content arrives from the right, 60ms after the panel itself does. */
 let pendingEntrance: { direction: "left" | "right"; delay: number } = {
 	direction: "right",
 	delay: 60,
@@ -604,17 +604,37 @@ $effect(() => {
 	}
 });
 
+let shellWasShowing = false;
+let listWasOpen = false;
+/**
+ * The list → item push (§7.2 #3) follows the swap itself, so it plays the same
+ * whoever closed the list: a list row (`selectFromList`), or the parent on its
+ * own — a chat card's Open never touches this component. Only while the shell
+ * stays up: the panel's first open and its close keep §7.2 #1/#2. Runs right
+ * before the DOM update that mounts the incoming content, which is what the
+ * entrance effect below reads.
+ */
+$effect.pre(() => {
+	const showing = shouldShowWorkspaceShell;
+	const listOpen = Boolean(list?.open);
+	if (showing && shellWasShowing && listWasOpen && !listOpen) {
+		pendingEntrance = { direction: "right", delay: 0 };
+	}
+	shellWasShowing = showing;
+	listWasOpen = listOpen;
+});
+
 /**
  * Plays the entrance for whatever just mounted into `desktopContentElement`
  * — the panel's very first open (the default `pendingEntrance`, content from
  * the right, 60ms after the panel itself per §7.2 #1) and every list↔item
- * push within an already-open panel (§7.2 #3/#4, immediate: `selectFromList`
+ * push within an already-open panel (§7.2 #3/#4, immediate: the effect above
  * and the header's back-to-list path set `pendingEntrance` to the direction
- * the NEW content is arriving from just before they change the state that
- * swaps the branch). There is no separate exit animation: Svelte destroys
- * the outgoing branch synchronously when the state changes, so the outgoing
- * content is simply gone by the time this effect could see it — the
- * entrance below is what carries the motion.
+ * the NEW content is arriving from just before the branch swaps). There is
+ * no separate exit animation: Svelte destroys the outgoing branch
+ * synchronously when the state changes, so the outgoing content is simply
+ * gone by the time this effect could see it — the entrance below is what
+ * carries the motion.
  */
 $effect(() => {
 	const element = desktopContentElement;
@@ -1162,12 +1182,9 @@ function closeArtifactList(): void {
 // every item the caller already builds today.
 //
 // §7.2 #3: "list slides 28px left and fades (exit); item slides in from 28px
-// right (enter)". Setting `pendingEntrance` here, just before the calls that
-// swap `list?.open` off, is what the item view's incoming
-// `desktopContentElement` picks up once Svelte mounts it a moment later —
-// see that effect's own doc comment for why there is no separate exit half.
+// right (enter)" — played by the list-closing effect above, which sees this
+// swap the same as any other that closes the list onto an item.
 function selectFromList(item: DocumentWorkspaceItem): void {
-	pendingEntrance = { direction: "right", delay: 0 };
 	onSelectDocument(item.id);
 	onListOpenChange?.(false);
 }
