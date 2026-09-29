@@ -38,7 +38,7 @@ export interface CanvasToolsOptions {
 }
 
 /** One call the model made to one of the three tools, and what was wrong with it (nothing, when `lines` is empty). */
-export interface CanvasToolEvent {
+interface CanvasToolEvent {
 	name: string;
 	/** Whether it changed or made the board. */
 	wrote: boolean;
@@ -384,5 +384,3 @@ export function createCanvasTools(options: CanvasToolsOptions) {
 		writes: () => events.filter((event) => event.wrote).length,
 	};
 }
-
-export type CanvasTools = ReturnType<typeof createCanvasTools>;
