@@ -140,6 +140,10 @@ const artifactsDict = {
 		"artifacts.deleted.regenerateFailed":
 			"Couldn't regenerate this. Try again.",
 		"artifacts.deleted.regenerated": "Regenerated “{title}”",
+		// An item that exists but sits out of this chat's reach — the parent of a
+		// forked incognito chat (the security review's M1): not deleted, so it is
+		// never called that, and nothing offers to make it again.
+		"artifacts.madeInOriginalChat": "Made in the original chat",
 		"artifacts.type.file": "File",
 		"artifacts.type.document": "Document",
 		"artifacts.type.app": "App",
@@ -604,6 +608,7 @@ const artifactsDict = {
 		"artifacts.deleted.regenerateFailed":
 			"Nem sikerült újragenerálni. Próbáld újra.",
 		"artifacts.deleted.regenerated": "„{title}” újragenerálva",
+		"artifacts.madeInOriginalChat": "Az eredeti beszélgetésben készült",
 		"artifacts.type.file": "Fájl",
 		"artifacts.type.document": "Dokumentum",
 		"artifacts.type.app": "Alkalmazás",

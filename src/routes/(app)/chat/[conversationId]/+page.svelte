@@ -262,6 +262,7 @@ const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
 const initialArtifacts = getData().artifacts ?? [];
 const initialDeletedArtifactIds = getData().deletedArtifactIds ?? [];
+const initialUnreachableArtifactIds = getData().unreachableArtifactIds ?? [];
 const initialAtlasJobs = getData().atlasJobs ?? [];
 const initialPendingWrites = getData().pendingWrites ?? [];
 const initialContextCompressionSnapshots =
@@ -570,12 +571,19 @@ let observedArtifactTimes = $state.raw<ObservedArtifactTimes>(
 let deletedArtifactIds = $state.raw<readonly string[]>(
 	initialDeletedArtifactIds,
 );
+// The ids this chat's cards point at that still EXIST but are out of its reach
+// (made in another chat — the parent of a forked incognito chat). Not deleted:
+// their cards say where they were made, and nothing regenerates them.
+let unreachableArtifactIds = $state.raw<readonly string[]>(
+	initialUnreachableArtifactIds,
+);
 // Regenerate on a deleted card: which items are being made again right now,
 // and which the server said cannot be (nothing stored to make them from).
 let regeneratingArtifactIds = $state.raw<readonly string[]>([]);
 let unavailableArtifactIds = $state.raw<readonly string[]>([]);
 let deletedArtifactsForCards = $derived<DeletedArtifacts>({
 	deletedIds: deletedArtifactIds,
+	unreachableIds: unreachableArtifactIds,
 	regeneratingIds: regeneratingArtifactIds,
 	unavailableIds: unavailableArtifactIds,
 	onRegenerate: handleRegenerateArtifact,
@@ -1438,6 +1446,23 @@ function announceItemGone(kind: NonNullable<DocumentWorkspaceItem["kind"]>) {
 	});
 }
 
+/** The same for a card that flipped to "made in the original chat": the item is there, this chat just cannot open it. */
+function announceItemUnreachable() {
+	showToast({ type: "error", message: get(t)("artifacts.madeInOriginalChat") });
+}
+
+/**
+ * An item this chat's card points at turned out to exist out of this chat's
+ * reach (made in another chat): it is not deleted, so it leaves the deleted
+ * ids and joins the unreachable ones, and nothing offers to make it again.
+ */
+function handleArtifactUnreachable(artifactId: string) {
+	deletedArtifactIds = deletedArtifactIds.filter((id) => id !== artifactId);
+	if (!unreachableArtifactIds.includes(artifactId)) {
+		unreachableArtifactIds = [...unreachableArtifactIds, artifactId];
+	}
+}
+
 /**
  * A chat card's or file row's Open: find out first that the item is still
  * there. If the server has no such item any more (deleted in another tab) the
@@ -1470,6 +1495,17 @@ async function openArtifactFromChat(
 			await fetchArtifact(document.artifactId, data.conversation.id);
 		} catch (error) {
 			if (error instanceof ApiError && error.status === 404) {
+				// Gone — or only out of this chat's reach (its chat became incognito,
+				// say)? The read answers 404 for both; the server can tell them apart.
+				const detail = await fetchConversationDetail(
+					data.conversation.id,
+				).catch(() => null);
+				if (detail?.unreachableArtifactIds?.includes(document.artifactId)) {
+					applyConversationDetailMetadata(detail);
+					handleArtifactUnreachable(document.artifactId);
+					announceItemUnreachable();
+					return;
+				}
 				handleArtifactDeleted(document.artifactId);
 				announceItemGone(document.kind);
 				return;
@@ -1510,6 +1546,10 @@ async function handleRegenerateArtifact(artifactId: string) {
 			});
 		} else if (result.reason === "no_stored_input") {
 			unavailableArtifactIds = [...unavailableArtifactIds, artifactId];
+		} else if (result.reason === "unreachable") {
+			// It was never gone: an item still holds this id, out of this chat's
+			// reach. Say where it was made, and stop offering to make it again.
+			handleArtifactUnreachable(artifactId);
 		} else {
 			showToast({
 				type: "error",
@@ -1758,6 +1798,7 @@ function resetState() {
 	fileProductionJobs = data.fileProductionJobs ?? [];
 	artifacts = data.artifacts ?? [];
 	deletedArtifactIds = data.deletedArtifactIds ?? [];
+	unreachableArtifactIds = data.unreachableArtifactIds ?? [];
 	atlasJobs = data.atlasJobs ?? [];
 	pendingWrites = data.pendingWrites ?? [];
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
@@ -1879,6 +1920,9 @@ function applyConversationDetailMetadata(
 	}
 	if (detail.deletedArtifactIds) {
 		deletedArtifactIds = [...detail.deletedArtifactIds];
+	}
+	if (detail.unreachableArtifactIds) {
+		unreachableArtifactIds = [...detail.unreachableArtifactIds];
 	}
 	if (detail.atlasJobs) {
 		atlasJobs = [...detail.atlasJobs];
@@ -2163,6 +2207,8 @@ async function hydrateConversationDetail(conversationId: string) {
 			markArtifactDeleted,
 			deletedArtifactIds,
 		);
+		unreachableArtifactIds =
+			payload.unreachableArtifactIds ?? unreachableArtifactIds;
 		if (metadataIsFresh) {
 			contextStatus = payload.contextStatus ?? contextStatus;
 			taskState = payload.taskState ?? taskState;

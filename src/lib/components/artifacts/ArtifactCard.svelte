@@ -125,6 +125,15 @@ export interface ArtifactCardView {
 	 * other state: a deleted item has no preview, no pending review, no version.
 	 */
 	deleted?: boolean;
+	/**
+	 * `chrome="full"` only (the security review's M1): the item this card is
+	 * about EXISTS but is out of this chat's reach — it was made in another
+	 * chat (the parent of a forked incognito chat). Not deleted: the card says
+	 * where it was made, muted like a deleted one, with no Open (the chat
+	 * cannot reach it) and no Regenerate (it is still there). Wins over
+	 * `deleted`: an item that exists is never called deleted.
+	 */
+	unreachable?: boolean;
 	/** `deleted` only: the item is being made again right now — Regenerate shows the work and ignores another press. */
 	regenerating?: boolean;
 	/** `deleted` only: there is nothing to make it again from (the server said so). The card says why instead of offering a button that would fail. */
@@ -337,15 +346,22 @@ function handleOpen(): void {
 	<div
 		class="artifact-card"
 		class:artifact-card-full={chrome === 'full'}
-		class:artifact-card-current={chrome === 'full' && view.current && !view.deleted}
-		class:artifact-card-deleted={chrome === 'full' && view.deleted}
+		class:artifact-card-current={chrome === 'full' && view.current && !view.deleted && !view.unreachable}
+		class:artifact-card-deleted={chrome === 'full' && (view.deleted || view.unreachable)}
 		data-testid="artifact-card"
-		data-state={chrome === 'full' && view.deleted ? 'deleted' : undefined}
+		data-state={chrome === 'full' && view.unreachable
+			? 'unreachable'
+			: chrome === 'full' && view.deleted
+				? 'deleted'
+				: undefined}
 	>
-		{#if chrome === 'full' && view.deleted}
+		{#if chrome === 'full' && (view.deleted || view.unreachable)}
 			<!-- Polish G2-A: the item is gone. Not a button — there is nothing to
 			     open — but a plain head: the kind tile, the title, what happened
-			     and, where it can be made again, Regenerate. -->
+			     and, where it can be made again, Regenerate. The security review's
+			     M1: an item that is still there but out of this chat's reach gets
+			     the same quiet head, saying where it was made — never "deleted",
+			     and never a Regenerate. -->
 			<div class="artifact-card-head artifact-card-head-static" data-testid="artifact-card-deleted">
 				<span class="artifact-card-icon" aria-hidden="true">
 					<KindIcon size={18} strokeWidth={1.75} aria-hidden="true" />
@@ -353,15 +369,19 @@ function handleOpen(): void {
 				<span class="artifact-card-headtext">
 					<span class="artifact-card-title">{view.title}</span>
 					<span class="artifact-card-sub">
-						<span>{$t(`artifacts.deleted.${view.kind}` as I18nKey)}</span>
+						{#if view.unreachable}
+							<span>{$t('artifacts.madeInOriginalChat')}</span>
+						{:else}
+							<span>{$t(`artifacts.deleted.${view.kind}` as I18nKey)}</span>
+						{/if}
 					</span>
-					{#if view.regenerateUnavailable}
+					{#if view.regenerateUnavailable && !view.unreachable}
 						<span class="artifact-card-sub artifact-card-sub-note">
 							{$t('artifacts.deleted.unavailable')}
 						</span>
 					{/if}
 				</span>
-				{#if onRegenerate && !view.regenerateUnavailable}
+				{#if onRegenerate && !view.regenerateUnavailable && !view.unreachable}
 					<button
 						type="button"
 						class="artifact-card-regenerate"

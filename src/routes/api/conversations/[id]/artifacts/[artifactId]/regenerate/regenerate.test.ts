@@ -135,6 +135,12 @@ describe("POST /api/conversations/[id]/artifacts/[artifactId]/regenerate", () =>
 			{ ok: false, reason: "in_progress" },
 		],
 		[
+			// Exists, out of the chat's reach: not deleted, so not made again (M1).
+			{ ok: false, reason: "unreachable" },
+			409,
+			{ ok: false, reason: "unreachable" },
+		],
+		[
 			{ ok: false, reason: "failed", detail: "The request was cancelled." },
 			422,
 			{ ok: false, reason: "failed", detail: "The request was cancelled." },

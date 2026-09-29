@@ -51,6 +51,7 @@ export {
 	listMissingArtifactIds,
 } from "./read-model";
 export {
+	artifactIdInUse,
 	createArtifact,
 	deleteArtifact,
 	getArtifact,

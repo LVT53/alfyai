@@ -1144,6 +1144,7 @@ describe("regenerateDeletedArtifact", () => {
 			[404, "not_found"],
 			[409, "no_stored_input"],
 			[409, "in_progress"],
+			[409, "unreachable"],
 		] as const) {
 			const fetchMock = vi.fn(async () =>
 				jsonResponse({ ok: false, reason }, status),

@@ -82,17 +82,18 @@ async function attachSourceForksToAssistantMessages(
 }
 
 /**
- * The artifacts the given messages' own tool calls made or edited that no
- * longer exist — what an in-chat card needs to say "this document was
- * deleted". The ids come off the messages the caller already loaded (this
- * read is pinned to one `messages` query); whether they still exist is the
- * artifact service's to say, under the ownership scope.
+ * What became of the artifacts the given messages' own tool calls made or
+ * edited — what an in-chat card needs to say "this document was deleted"
+ * (gone) or "made in the original chat" (still there, out of this chat's
+ * reach). The ids come off the messages the caller already loaded (this read
+ * is pinned to one `messages` query); which of them are gone or unreachable
+ * is the artifact service's to say, under the ownership scope.
  */
-async function listDeletedArtifactIds(
+async function classifyMissingArtifacts(
 	userId: string,
 	conversationId: string,
 	loadedMessages: ChatMessage[],
-): Promise<string[]> {
+): Promise<{ deleted: string[]; unreachable: string[] }> {
 	return listMissingArtifactIds({
 		userId,
 		conversationId,
@@ -156,7 +157,7 @@ export async function getConversationDetail({
 		contextCompressionSnapshots,
 		costSummary,
 		artifacts,
-		deletedArtifactIds,
+		missingArtifacts,
 	] = await Promise.all([
 		messageWindowRequest,
 		getConversationForkOrigin(conversationId),
@@ -178,7 +179,7 @@ export async function getConversationDetail({
 		// a second query per row.
 		listArtifactsForConversation({ userId, conversationId }),
 		messageWindowRequest.then((window) =>
-			listDeletedArtifactIds(userId, conversationId, window.messages),
+			classifyMissingArtifacts(userId, conversationId, window.messages),
 		),
 	]);
 	const taskStateWithContinuity = await attachContinuityToTaskState(
@@ -207,7 +208,8 @@ export async function getConversationDetail({
 			serializeContextCompressionSnapshot,
 		),
 		artifacts,
-		deletedArtifactIds,
+		deletedArtifactIds: missingArtifacts.deleted,
+		unreachableArtifactIds: missingArtifacts.unreachable,
 		bootstrap: false,
 		sidecarPending: false,
 		hasMoreMessages: messageWindow.hasMoreBefore,
@@ -237,6 +239,8 @@ export interface OlderConversationMessagesPage {
 	hasMoreBefore: boolean;
 	/** Of the artifacts these older messages' tool calls named, the ones that no longer exist — the same signal the detail carries for the loaded window. */
 	deletedArtifactIds: string[];
+	/** …and the ones that exist but are out of this conversation's reach (made in another chat). */
+	unreachableArtifactIds: string[];
 }
 
 export async function getOlderConversationMessages({
@@ -253,13 +257,15 @@ export async function getOlderConversationMessages({
 		userId,
 		page.messages,
 	);
+	const missing = await classifyMissingArtifacts(
+		userId,
+		conversationId,
+		page.messages,
+	);
 	return {
 		messages: messagesWithSourceForks,
 		hasMoreBefore: page.hasMoreBefore,
-		deletedArtifactIds: await listDeletedArtifactIds(
-			userId,
-			conversationId,
-			page.messages,
-		),
+		deletedArtifactIds: missing.deleted,
+		unreachableArtifactIds: missing.unreachable,
 	};
 }

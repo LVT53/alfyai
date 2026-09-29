@@ -265,6 +265,23 @@ function currentBodyHash(
 	return row.contentText === null ? null : hashArtifactBody(row.contentText);
 }
 
+/**
+ * Whether ANY row of the `artifacts` table — any user's, any type — already
+ * holds this id. It is what `createArtifact({ id })` refuses with `id_taken`,
+ * and what Regenerate asks before it spends a model call on an item that is
+ * still there, just out of the chat's reach (the parent of a forked incognito
+ * chat). The answer is a bare yes or no about an id the caller already holds:
+ * nothing about the row is read out.
+ */
+export async function artifactIdInUse(artifactId: string): Promise<boolean> {
+	const [taken] = await db
+		.select({ id: artifacts.id })
+		.from(artifacts)
+		.where(eq(artifacts.id, artifactId))
+		.limit(1);
+	return Boolean(taken);
+}
+
 export async function createArtifact(input: CreateArtifactInput): Promise<
 	| { ok: true; artifact: ArtifactRecord }
 	| {
@@ -308,13 +325,8 @@ export async function createArtifact(input: CreateArtifactInput): Promise<
 	}
 
 	const id = input.id ?? randomUUID();
-	if (input.id !== undefined) {
-		const [taken] = await db
-			.select({ id: artifacts.id })
-			.from(artifacts)
-			.where(eq(artifacts.id, id))
-			.limit(1);
-		if (taken) return { ok: false, reason: "id_taken" };
+	if (input.id !== undefined && (await artifactIdInUse(id))) {
+		return { ok: false, reason: "id_taken" };
 	}
 	const metadata: ArtifactMetadata = {
 		...(input.metadata ?? {}),

@@ -210,7 +210,10 @@ describe("Conversation Detail Read Model", () => {
 		});
 		mockListArtifactsForConversation.mockResolvedValue([]);
 		mockArtifactCallIdsFromMessages.mockReturnValue([]);
-		mockListMissingArtifactIds.mockResolvedValue([]);
+		mockListMissingArtifactIds.mockResolvedValue({
+			deleted: [],
+			unreachable: [],
+		});
 	});
 
 	it("returns the cheap bootstrap detail payload with stable defaults", async () => {
@@ -477,7 +480,7 @@ describe("Conversation Detail Read Model", () => {
 	// The tool calls name the artifacts (messages.ts); the artifact service
 	// says which of them are gone, under the ownership scope (never a second
 	// scope of the read model's own).
-	it("returns the ids of the artifacts this chat's tool calls named that no longer exist", async () => {
+	it("returns the ids of the artifacts this chat's tool calls named that no longer exist, and separately the ones that exist out of its reach", async () => {
 		const loaded = [
 			{
 				id: "assistant-1",
@@ -492,8 +495,15 @@ describe("Conversation Detail Read Model", () => {
 			messages: loaded,
 			hasMoreBefore: false,
 		});
-		mockArtifactCallIdsFromMessages.mockReturnValue(["doc-1", "doc-2"]);
-		mockListMissingArtifactIds.mockResolvedValue(["doc-2"]);
+		mockArtifactCallIdsFromMessages.mockReturnValue([
+			"doc-1",
+			"doc-2",
+			"doc-3",
+		]);
+		mockListMissingArtifactIds.mockResolvedValue({
+			deleted: ["doc-2"],
+			unreachable: ["doc-3"],
+		});
 
 		const detail = await getConversationDetail({
 			userId: "user-1",
@@ -505,9 +515,12 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockListMissingArtifactIds).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
-			artifactIds: ["doc-1", "doc-2"],
+			artifactIds: ["doc-1", "doc-2", "doc-3"],
 		});
 		expect(detail?.deletedArtifactIds).toEqual(["doc-2"]);
+		// Exists, but not from here (the parent of a forked incognito chat): the
+		// card says where it was made instead of calling it deleted.
+		expect(detail?.unreachableArtifactIds).toEqual(["doc-3"]);
 	});
 
 	it("reports none deleted when no tool call named an artifact", async () => {
@@ -517,6 +530,7 @@ describe("Conversation Detail Read Model", () => {
 		});
 
 		expect(detail?.deletedArtifactIds).toEqual([]);
+		expect(detail?.unreachableArtifactIds).toEqual([]);
 	});
 
 	it("scopes the artifacts call to the same user and conversation as everything else", async () => {
@@ -643,8 +657,11 @@ describe("Conversation Detail Read Model", () => {
 			messages: older,
 			hasMoreBefore: true,
 		});
-		mockArtifactCallIdsFromMessages.mockReturnValue(["doc-old"]);
-		mockListMissingArtifactIds.mockResolvedValue(["doc-old"]);
+		mockArtifactCallIdsFromMessages.mockReturnValue(["doc-old", "doc-away"]);
+		mockListMissingArtifactIds.mockResolvedValue({
+			deleted: ["doc-old"],
+			unreachable: ["doc-away"],
+		});
 
 		const page = await getOlderConversationMessages({
 			userId: "user-1",
@@ -656,6 +673,7 @@ describe("Conversation Detail Read Model", () => {
 		expect(page).toMatchObject({
 			hasMoreBefore: true,
 			deletedArtifactIds: ["doc-old"],
+			unreachableArtifactIds: ["doc-away"],
 		});
 	});
 });

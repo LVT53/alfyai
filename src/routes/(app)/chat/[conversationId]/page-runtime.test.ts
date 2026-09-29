@@ -400,6 +400,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		fileProductionJobs: [],
 		artifacts: [],
 		deletedArtifactIds: [] as string[],
+		unreachableArtifactIds: [] as string[],
 		pendingWrites: [],
 		contextCompressionSnapshots: [],
 		atlasJobs: [],
@@ -1757,6 +1758,114 @@ describe("chat page runtime integration", () => {
 				expect(get(toasts).map((toast) => toast.message)).toContain(
 					"This document was deleted",
 				);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		// The security review's M1: an item that EXISTS but sits out of this
+		// chat's reach (the parent of a forked incognito chat) is not deleted —
+		// the card says where it was made, and offers neither Open nor Regenerate.
+		it("shows a card whose item exists out of this chat's reach as made in the original chat, not deleted", async () => {
+			renderPage(
+				pageData({
+					messages: [createDocumentMessage()],
+					artifacts: [],
+					unreachableArtifactIds: ["doc-1"],
+				}),
+			);
+
+			const card = await screen.findByTestId("artifact-card");
+			expect(card).toHaveAttribute("data-state", "unreachable");
+			expect(card).toHaveTextContent("Vienna trip plan");
+			expect(card).toHaveTextContent("Made in the original chat");
+			expect(card).not.toHaveTextContent("deleted");
+			expect(screen.queryByTestId("artifact-card-head")).toBeNull();
+			expect(
+				within(card).queryByRole("button", { name: /Regenerate/ }),
+			).toBeNull();
+		});
+
+		it("does not call an item deleted when its Open's 404 turns out to be 'out of reach' once the server is asked", async () => {
+			const { toasts, clearToasts } = await import("$lib/stores/toast");
+			clearToasts();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (input: RequestInfo | URL) =>
+					String(input).startsWith("/api/artifacts/")
+						? jsonResponse({ ok: false, reason: "not_found" }, 404)
+						: jsonResponse({}),
+				),
+			);
+			// Its chat became incognito after this page loaded: the read misses, but
+			// the item is still there.
+			vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+				conversationDetailFixture({
+					messages: [createDocumentMessage()],
+					artifacts: [],
+					deletedArtifactIds: [],
+					unreachableArtifactIds: ["doc-1"],
+				}),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [documentSummary()],
+					}),
+				);
+
+				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
+
+				await waitFor(() => {
+					expect(screen.getByTestId("artifact-card")).toHaveAttribute(
+						"data-state",
+						"unreachable",
+					);
+				});
+				expect(screen.queryByTestId("workspace-main")).toBeNull();
+				expect(get(toasts).map((toast) => toast.message)).not.toContain(
+					"This document was deleted",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("turns a deleted card into 'made in the original chat' when Regenerate is refused because the item still exists", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					jsonResponse({ ok: false, reason: "unreachable" }, 409),
+				),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [],
+						deletedArtifactIds: ["doc-1"],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByRole("button", {
+						name: "Regenerate Vienna trip plan",
+					}),
+				);
+
+				await waitFor(() => {
+					expect(screen.getByTestId("artifact-card")).toHaveAttribute(
+						"data-state",
+						"unreachable",
+					);
+				});
+				expect(screen.getByTestId("artifact-card")).toHaveTextContent(
+					"Made in the original chat",
+				);
+				expect(
+					screen.queryByRole("button", { name: /Regenerate Vienna trip plan/ }),
+				).not.toBeInTheDocument();
 			} finally {
 				vi.unstubAllGlobals();
 			}
