@@ -39,6 +39,29 @@ test.describe("Document prose details (review 251-255)", () => {
 		}
 	});
 
+	// The mockup's `.doc-table td`: 9px above and below a 26px chip (or one
+	// 23px line of text) — 45px rows and a 37px header. A cell's paragraph
+	// used to keep the prose's 12px bottom margin, which made every row ~12px
+	// taller and the content sit high in it.
+	test("tracker table rows are as tall as the mockup's, with nothing hanging under the cell content", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(page, "Table rhythm");
+		await seedDocument(conversationId, { markdown: PROSE_MARKDOWN });
+		const shell = await openDocument(page, conversationId);
+		const rows = shell.locator(".document-editor-host tr");
+		await expect(rows).toHaveCount(3);
+		const header = await box(rows.nth(0));
+		expect(header.height, "header row").toBeGreaterThan(35);
+		expect(header.height, "header row").toBeLessThan(39);
+		for (const i of [1, 2]) {
+			const row = await box(rows.nth(i));
+			expect(row.height, `body row ${i}`).toBeGreaterThan(43);
+			expect(row.height, `body row ${i}`).toBeLessThan(47);
+		}
+	});
+
 	test("a status chip is as wide as the value it shows, not its longest option", async ({
 		page,
 	}) => {

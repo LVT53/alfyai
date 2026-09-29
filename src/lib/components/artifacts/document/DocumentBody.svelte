@@ -2798,6 +2798,20 @@ function saveNoticeText(notice: SaveNotice): string {
 		border-bottom: 1px solid var(--border-subtle);
 	}
 
+	/* A cell holds a real paragraph, which kept the prose's 12px bottom
+	   margin: every row was ~12px taller than the mockup's 45px (37px header)
+	   and its content sat high in it. The cell's own padding is the spacing; a
+	   second paragraph in one cell still gets a small gap. */
+	.document-editor-host :global(.document-content td > p),
+	.document-editor-host :global(.document-content th > p) {
+		margin: 0;
+	}
+
+	.document-editor-host :global(.document-content td > p + p),
+	.document-editor-host :global(.document-content th > p + p) {
+		margin-top: 6px;
+	}
+
 	.document-editor-host :global(.document-content tr:last-child td) {
 		border-bottom: 0;
 	}
