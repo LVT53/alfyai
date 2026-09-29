@@ -66,62 +66,62 @@ let {
 </script>
 
 <div class="review-bar-host">
-<div
-	class="review-bar"
-	class:is-docked={docked}
-	class:is-single={pendingCount < 2}
-	role="region"
-	aria-label={$t('artifacts.document.review.regionLabel')}
->
-	<div class="review-bar-msg">
-		<span class="review-bar-spark" aria-hidden="true">
-			<Sparkles size={14} strokeWidth={2} />
-		</span>
-		<span>
-			{$t('artifacts.document.review.summary', { count: pendingCount })}
-			{#if refusedCount > 0}
-				<button
-					type="button"
-					class="review-bar-left-link"
-					onclick={onSeeRefused}
-				>
-					{$t('artifacts.document.refused.reviewBarLeft', { count: refusedCount })}
-				</button>
-			{/if}
-		</span>
+	<div
+		class="review-bar"
+		class:is-docked={docked}
+		class:is-single={pendingCount < 2}
+		role="region"
+		aria-label={$t('artifacts.document.review.regionLabel')}
+	>
+		<div class="review-bar-msg">
+			<span class="review-bar-spark" aria-hidden="true">
+				<Sparkles size={14} strokeWidth={2} />
+			</span>
+			<span>
+				{$t('artifacts.document.review.summary', { count: pendingCount })}
+				{#if refusedCount > 0}
+					<button
+						type="button"
+						class="review-bar-left-link"
+						onclick={onSeeRefused}
+					>
+						{$t('artifacts.document.refused.reviewBarLeft', { count: refusedCount })}
+					</button>
+				{/if}
+			</span>
+		</div>
+		<div class="review-bar-nav">
+			<button
+				type="button"
+				class="btn-icon"
+				aria-label={$t('artifacts.document.review.prev')}
+				disabled={pendingCount < 2}
+				onclick={onPrev}
+			>
+				<ChevronUp size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
+			<span class="review-bar-pos">{currentIndex + 1} / {pendingCount}</span>
+			<button
+				type="button"
+				class="btn-icon"
+				aria-label={$t('artifacts.document.review.next')}
+				disabled={pendingCount < 2}
+				onclick={onNext}
+			>
+				<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
+			</button>
+		</div>
+		<div class="review-bar-actions">
+			<button type="button" class="btn-secondary btn-sm" onclick={onUndoAll}>
+				<Undo2 size={13} strokeWidth={2} aria-hidden="true" />
+				{$t('artifacts.document.review.undoAll')}
+			</button>
+			<button type="button" class="btn-primary btn-sm" onclick={onKeepAll}>
+				<Check size={13} strokeWidth={2} aria-hidden="true" />
+				{$t('artifacts.document.review.keepAll')}
+			</button>
+		</div>
 	</div>
-	<div class="review-bar-nav">
-		<button
-			type="button"
-			class="btn-icon"
-			aria-label={$t('artifacts.document.review.prev')}
-			disabled={pendingCount < 2}
-			onclick={onPrev}
-		>
-			<ChevronUp size={16} strokeWidth={2} aria-hidden="true" />
-		</button>
-		<span class="review-bar-pos">{currentIndex + 1} / {pendingCount}</span>
-		<button
-			type="button"
-			class="btn-icon"
-			aria-label={$t('artifacts.document.review.next')}
-			disabled={pendingCount < 2}
-			onclick={onNext}
-		>
-			<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
-		</button>
-	</div>
-	<div class="review-bar-actions">
-		<button type="button" class="btn-secondary btn-sm" onclick={onUndoAll}>
-			<Undo2 size={13} strokeWidth={2} aria-hidden="true" />
-			{$t('artifacts.document.review.undoAll')}
-		</button>
-		<button type="button" class="btn-primary btn-sm" onclick={onKeepAll}>
-			<Check size={13} strokeWidth={2} aria-hidden="true" />
-			{$t('artifacts.document.review.keepAll')}
-		</button>
-	</div>
-</div>
 </div>
 
 <style>
