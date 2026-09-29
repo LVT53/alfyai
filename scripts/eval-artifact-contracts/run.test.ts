@@ -670,13 +670,13 @@ describe("main — nothing configured / --help", () => {
 
 	it("exits 0 with an explanation when no suite has any cases registered", async () => {
 		// The real cases.ts registry stays empty for a suite until its type
-		// slice appends it (ruling 44) — "canvas" (Slice 3) is still
-		// unregistered as of Slice 1, so this proves the "nothing configured"
-		// path against production reality, not a mock. ("document" itself is
-		// no longer a valid stand-in here: Slice 1 registered it for real.)
+		// slice appends it (ruling 44), so a name no slice will ever register
+		// proves the "nothing configured" path against production reality, not a
+		// mock. (Every real suite name gets registered in turn — "document" in
+		// Slice 1, "canvas" in Slice 3 — so none of them is a stable stand-in.)
 		const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-		const exitCode = await main(["--suite", "canvas"]);
+		const exitCode = await main(["--suite", "stand-in-suite"]);
 
 		expect(exitCode).toBe(0);
 		expect(logSpy).toHaveBeenCalledWith(

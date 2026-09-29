@@ -2,6 +2,7 @@
 // as it lands — `document` (Slice 1), `app` and `verification` (Slice 2,
 // below), `canvas` (Slice 3), `slides` (Slice 4). See decisions.md ruling 44.
 import { APP_EVAL_CASES } from "./suites/apps";
+import { CANVAS_EVAL_CASES } from "./suites/canvas";
 import { DOCUMENT_EVAL_CASES } from "./suites/document";
 import { VERIFICATION_EVAL_CASES } from "./suites/verification";
 import type { EvalCase } from "./types";
@@ -56,4 +57,5 @@ export const EVAL_CASES: Record<string, EvalCase[]> = {
 	document: DOCUMENT_EVAL_CASES,
 	app: assertUniqueCaseIds("app", APP_EVAL_CASES),
 	verification: assertUniqueCaseIds("verification", VERIFICATION_EVAL_CASES),
+	canvas: assertUniqueCaseIds("canvas", CANVAS_EVAL_CASES),
 };

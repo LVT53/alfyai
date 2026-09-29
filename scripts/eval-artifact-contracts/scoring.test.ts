@@ -109,31 +109,34 @@ describe("scoreArtifactEvalAttempt", () => {
 // back to the generic scorer for any suite with nothing registered — never a
 // throw for an unknown suite name, since that would make a type slice's very
 // first run (before it registers anything) a crash instead of an honest
-// placeholder. Slice 1 has now registered a real `document` scorer (below),
-// so these two tests use "canvas" (Slice 3, still unregistered here) as the
-// stand-in instead — using "document" would either assert the wrong thing
-// or, via this describe's own cleanup, delete Slice 1's real registration
-// out from under any test that runs after this one in the same process.
+// placeholder. Every real suite name gets registered by its slice in turn
+// (document, app, verification, canvas, slides), so these two tests use a
+// synthetic name no slice will ever register instead — a real one would either
+// assert the wrong thing or, via this describe's own cleanup, delete a slice's
+// real registration out from under any test that runs after this one in the
+// same process.
+const STAND_IN_SUITE = "stand-in-suite";
+
 describe("getSuiteScorer", () => {
 	afterEach(() => {
-		delete SUITE_SCORERS.canvas;
+		delete SUITE_SCORERS[STAND_IN_SUITE];
 	});
 
 	it("falls back to the generic scorer for an unregistered suite", () => {
-		expect(getSuiteScorer("canvas")).toBe(scoreArtifactEvalAttempt);
+		expect(getSuiteScorer(STAND_IN_SUITE)).toBe(scoreArtifactEvalAttempt);
 		expect(getSuiteScorer("nonexistent-suite-name")).toBe(
 			scoreArtifactEvalAttempt,
 		);
 	});
 
 	it("dispatches to a suite's own scorer once one is registered", () => {
-		const canvasScorer: SuiteScorer = () => ({
+		const standInScorer: SuiteScorer = () => ({
 			verdict: "good",
-			reasons: ["canvas rule"],
+			reasons: ["stand-in rule"],
 		});
-		SUITE_SCORERS.canvas = canvasScorer;
+		SUITE_SCORERS[STAND_IN_SUITE] = standInScorer;
 
-		expect(getSuiteScorer("canvas")).toBe(canvasScorer);
+		expect(getSuiteScorer(STAND_IN_SUITE)).toBe(standInScorer);
 		// Registering one suite's scorer never affects another's fallback.
 		// "app" is no longer a fitting stand-in here (Slice 2 has since
 		// registered its own scorer for it) — a synthetic name keeps this

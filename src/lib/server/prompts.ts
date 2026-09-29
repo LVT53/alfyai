@@ -2,8 +2,8 @@
 // These are stored here instead of env vars because they're too long and complex
 
 // The artifact-kinds clause below names exactly the kinds create_artifact can
-// make today — Document and App (advertisedArtifactKinds() in
-// artifact-tools/kind-registry.ts; Canvas/Slides have no create handler yet).
+// make today — Document, App and Canvas (advertisedArtifactKinds() in
+// artifact-tools/kind-registry.ts; Slides has no create handler yet).
 // It is a plain literal, NOT computed from that registry at load time on
 // purpose: ALFYAI_NEMOTRON_PROMPT is the cached system prompt (ADR-0055), so
 // it must stay byte-identical for the life of the process regardless of
@@ -16,7 +16,7 @@
 // this string and the registry ever disagree, so a future wave cannot
 // register a new kind's handler and forget to update this paragraph by hand.
 const ARTIFACT_KINDS_PARAGRAPH =
-	"You can also keep something as a Document or App item beside the chat, so the user can come back to it and edit it with you. Offer one when they will return to the work; the tool descriptions say when, and which type.";
+	"You can also keep something as a Document, App or Canvas item beside the chat, so the user can come back to it and edit it with you. Offer one when they will return to the work; the tool descriptions say when, and which type.";
 
 // AlfyAI default prompt. Runtime prompt assembly adds the current model display name.
 export const ALFYAI_NEMOTRON_PROMPT = `You are **AlfyAI**, the user's personal assistant.

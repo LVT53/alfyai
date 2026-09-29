@@ -1,0 +1,7 @@
+{
+	"id": "create-vienna-hu",
+	"description": "The same request in Hungarian: the board's words must be Hungarian.",
+	"language": "hu",
+	"kind": "create",
+	"request": "Készíts nekem egy táblát egy bécsi hétvége megtervezéséhez."
+}

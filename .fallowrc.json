@@ -11,6 +11,7 @@
 		"scripts/audit-thought-step-honesty.ts",
 		"scripts/recompute-parallel-billing.ts",
 		"scripts/eval-artifact-contracts/run.ts",
+		"scripts/eval-artifact-contracts/run-tool-suite.ts",
 		"static/sw.js"
 	],
 	"ignoreDependencies": ["pptxgenjs"],
