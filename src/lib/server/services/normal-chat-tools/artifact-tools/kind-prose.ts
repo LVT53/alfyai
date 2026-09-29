@@ -11,10 +11,17 @@
 // cross-checked against this file's output by a test — see its own comment
 // for why.
 //
-// Canvas and Slides keep their fragments here, unemitted while
-// advertisedArtifactKinds() excludes them, so registering their create
-// handler (Wave 3 / Wave 4) is the only thing that makes them appear —
-// nobody has to remember a second place to update the model-facing text.
+// Slides keeps its fragment here, unemitted while advertisedArtifactKinds()
+// excludes it, so registering its create handler (Wave 4) is the only thing
+// that makes it appear — nobody has to remember a second place to update the
+// model-facing text. Canvas registered in Wave 3: its limits are read off the
+// board vocabulary (`board-ops.ts`), never re-typed, and the op names live only
+// in the `ops` schema the model is shown — prose that listed them a second time
+// could drift from it (ruling 62), and the schema already carries them.
+import {
+	MAX_NEW_NODES_PER_DIFF,
+	MAX_OPS_PER_DIFF,
+} from "$lib/shared/artifacts/board-ops";
 import type { CreatableArtifactKind } from "./kind-registry";
 
 /** No-Oxford-comma list join matching this tool family's existing prose
@@ -33,6 +40,40 @@ export function joinOr(items: readonly string[]): string {
 function joinVagy(items: readonly string[]): string {
 	return joinList(items, "vagy");
 }
+
+/**
+ * create_artifact's ONE worked example of a Canvas `body` (the board JSON the
+ * `body` field describes) — a frame with two notes inside it and an arrow
+ * between them. Exported so a test can feed it to the real create parser
+ * (`canvas-model.ts`'s `parseCanvasCreateBody`) and prove it makes a board with
+ * nothing refused: what the description shows is what the handler accepts.
+ * Child positions are relative to their frame's top-left corner.
+ */
+export const CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE = {
+	nodes: [
+		{
+			id: "sat",
+			type: "frame",
+			position: { x: 40, y: 40 },
+			data: { kind: "frame", label: "Saturday", width: 300, height: 220 },
+		},
+		{
+			id: "museum",
+			type: "sticky",
+			parentId: "sat",
+			position: { x: 20, y: 60 },
+			data: { kind: "sticky", text: "Museum, 10:00", tone: "yellow" },
+		},
+		{
+			id: "lunch",
+			type: "sticky",
+			parentId: "sat",
+			position: { x: 20, y: 150 },
+			data: { kind: "sticky", text: "Lunch at the market", tone: "mint" },
+		},
+	],
+	edges: [{ id: "e1", source: "museum", target: "lunch" }],
+} as const;
 
 interface KindCopy {
 	labelEn: string;
@@ -92,8 +133,6 @@ const KIND_COPY: Record<CreatableArtifactKind, KindCopy> = {
 		editRuleHu:
 			"Az Alkalmazásokat itt nem szerkesztjük — készíts helyette egy új Alkalmazást a változtatásokkal.",
 	},
-	// Not yet advertised (no create handler registered — see
-	// advertisedArtifactKinds() in create.ts). Kept ready for Wave 3.
 	canvas: {
 		labelEn: "Canvas",
 		labelHu: "Tábla",
@@ -101,14 +140,12 @@ const KIND_COPY: Record<CreatableArtifactKind, KindCopy> = {
 		createChoiceEn:
 			"canvas for a board of things arranged in space — frames, notes, arrows, blocks",
 		createChoiceHu:
-			"canvas térben elrendezett dolgok tábájához — keretek, jegyzetek, nyilak, blokkok",
+			"canvas térben elrendezett dolgok táblájához — keretek, jegyzetek, nyilak, blokkok",
 		useCaseEn: "board",
 		useCaseHu: "táblához",
-		bodyFormatEn: "Canvas: the board JSON, or empty for a new board.",
-		editRuleEn:
-			"Canvas: send ops (add_frame, add_node, move, add_edge, remove_edge, update_node, remove_node, highlight), at most 40.",
-		editRuleHu:
-			"Tábláknál: küldj ops-ot (add_frame, add_node, move, add_edge, remove_edge, update_node, remove_node, highlight), legfeljebb 40-et.",
+		bodyFormatEn: `Canvas: the board as JSON, e.g. ${JSON.stringify(CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE)} — or {} for an empty board.`,
+		editRuleEn: `Canvas: send ops, one per change to the board, addressing nodes and edges by the ids read_artifact gave (there is no baseHash) — at most ${MAX_OPS_PER_DIFF} ops and ${MAX_NEW_NODES_PER_DIFF} new nodes. A frame goes earlier in the list than what goes inside it.`,
+		editRuleHu: `Tábláknál: küldj ops-ot, a tábla minden módosításához egy műveletet, a blokkokat és nyilakat a read_artifact által adott azonosítókkal címezve (baseHash nincs) — legfeljebb ${MAX_OPS_PER_DIFF} műveletet és ${MAX_NEW_NODES_PER_DIFF} új blokkot. A keret előbb szerepeljen a listában, mint ami benne van.`,
 	},
 	// Not yet advertised (no create handler registered — see
 	// advertisedArtifactKinds() in create.ts). Kept ready for Wave 4.
@@ -279,16 +316,63 @@ export const EDIT_ARTIFACT_DOCUMENT_EXAMPLE = {
 	],
 } as const;
 
-/** edit_artifact's compact worked example, shown only while Document is
- *  advertised — Slides would need its own once it has a create handler and
- *  an op schema of its own; Canvas's ops are a different, unadvertised shape. */
+/**
+ * edit_artifact's ONE worked example for a Canvas: a frame, a note inside it
+ * (frame-relative position), an arrow to a note that is already on the board,
+ * and a move — the four shapes a model gets wrong when it has only prose (a flat
+ * op against a nested `node`/`edge`, a frame's child in board coordinates). It
+ * names ids from `sampleBoard()`, the fixture a test lands it on. Exported for
+ * the same reason the Document's is: the test feeds `ops` to the executed schema
+ * (`boardOpsArraySchema`) and to `validateBoardDiff` and proves nothing is refused.
+ */
+export const EDIT_ARTIFACT_CANVAS_EXAMPLE = {
+	artifactId: "a2",
+	ops: [
+		{
+			op: "add_frame",
+			id: "sun",
+			label: "Sunday",
+			position: { x: 40, y: 480 },
+			size: { width: 360, height: 260 },
+		},
+		{
+			op: "add_node",
+			node: {
+				id: "brunch",
+				type: "sticky",
+				parentId: "sun",
+				position: { x: 20, y: 60 },
+				data: { kind: "sticky", text: "Brunch, 10:30", tone: "yellow" },
+			},
+		},
+		{
+			op: "add_edge",
+			edge: { id: "e2", source: "brunch", target: "note-museum" },
+		},
+		{ op: "move", id: "note-museum", to: { x: 500, y: 140 } },
+	],
+	summary: "Planned Sunday",
+} as const;
+
+/** edit_artifact's compact worked examples, one per kind that edits in place
+ *  and is advertised: the Document's, then the Canvas's. Slides would need its
+ *  own once it has a create handler and an op schema of its own. */
 export function editArtifactExampleClause(
 	kinds: readonly CreatableArtifactKind[],
 	lang: "en" | "hu",
 ): string {
-	if (!kinds.includes("document")) return "";
-	const json = JSON.stringify(EDIT_ARTIFACT_DOCUMENT_EXAMPLE);
-	return lang === "en" ? `Example: ${json}.` : `Példa: ${json}.`;
+	const examples: string[] = [];
+	if (kinds.includes("document")) {
+		const json = JSON.stringify(EDIT_ARTIFACT_DOCUMENT_EXAMPLE);
+		examples.push(lang === "en" ? `Example: ${json}.` : `Példa: ${json}.`);
+	}
+	if (kinds.includes("canvas")) {
+		const json = JSON.stringify(EDIT_ARTIFACT_CANVAS_EXAMPLE);
+		examples.push(
+			lang === "en" ? `Canvas example: ${json}.` : `Tábla-példa: ${json}.`,
+		);
+	}
+	return examples.join(" ");
 }
 
 /** edit_artifact's `patches` field description (EN only), or undefined when
@@ -307,10 +391,12 @@ export function editArtifactPatchesFieldDescription(
 }
 
 /** edit_artifact's `ops` field description (EN only), or undefined while
- *  Canvas is not advertised — ops would have nothing to operate on. */
+ *  Canvas is not advertised — ops would have nothing to operate on. Like the
+ *  `patches` description it points at the schema, which carries each op's
+ *  fields: the words here are only what a schema cannot say. */
 export function editArtifactOpsFieldDescription(
 	kinds: readonly CreatableArtifactKind[],
 ): string | undefined {
 	if (!kinds.includes("canvas")) return undefined;
-	return "Canvas only: [{op:'add_frame'|'add_node'|'move'|'add_edge'|'remove_edge'|'update_node'|'remove_node'|'highlight', ...}], at most 40.";
+	return "Canvas only, one op per change to the board — each op's exact fields are in this array's own schema. Address nodes and edges by the ids read_artifact gave; you choose the id of anything you add.";
 }

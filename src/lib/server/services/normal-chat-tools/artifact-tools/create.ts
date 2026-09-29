@@ -14,10 +14,15 @@
 // kind-registry.ts's own header for the real circular import that chain
 // caused when advertisedArtifactKinds() lived here instead).
 import { z } from "zod";
-import { createDocumentArtifact } from "$lib/server/services/artifacts";
+import {
+	createArtifact,
+	createDocumentArtifact,
+	prepareCanvasBoard,
+} from "$lib/server/services/artifacts";
 import { createAppFromBrief } from "$lib/server/services/artifacts/app/create";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { truncateText } from "../shared";
+import { parseCanvasCreateBody } from "./canvas-model";
 import { artifactKindEnumPhrase, createArtifactBodyFormat } from "./kind-prose";
 import {
 	advertisedArtifactKinds,
@@ -184,6 +189,78 @@ CREATE_ARTIFACT_HANDLERS.app = async (params) => {
 	return {
 		ok: true,
 		value: { artifactId: result.artifactId, title: result.title },
+	};
+};
+
+/**
+ * The Canvas branch (Slice 3): the model's `body` is the board JSON — or empty,
+ * or `{}`, for an empty board. `parseCanvasCreateBody` judges it by the board's
+ * own vocabulary (the same validator an edit runs), and any refusal refuses the
+ * WHOLE create with a message that names the fix: a board quietly thinner than
+ * the one the model described is worse than one that says why it was not made.
+ * What is stored went through `prepareCanvasBoard`, the one gate a board passes
+ * on its way into storage (canonical JSON, its caps, the family's one hash), and
+ * is written under the id it is given when Regenerate re-runs this handler.
+ * Ruling 53: the abort signal is checked before the write, and a failure writes
+ * nothing.
+ */
+CREATE_ARTIFACT_HANDLERS.canvas = async (params) => {
+	if (params.abortSignal.aborted) {
+		return { ok: false, reason: "The request was cancelled." };
+	}
+	const parsed = parseCanvasCreateBody(params.body);
+	if (!parsed.ok) return { ok: false, reason: parsed.error };
+
+	const prepared = prepareCanvasBoard(JSON.stringify(parsed.body));
+	if (!prepared.ok) {
+		return {
+			ok: false,
+			reason:
+				prepared.reason === "invalid_body"
+					? "The board could not be read. Send it as a JSON object with nodes and edges."
+					: "The board is larger than a board may be. Make it smaller: fewer or shorter blocks.",
+		};
+	}
+	// The board was judged block by block above, so nothing should be left out
+	// here — but a board that lost a block on its way in would be the silent kind
+	// of thin, so it is refused instead of stored.
+	const dropped = [
+		...prepared.dropped.nodes,
+		...prepared.dropped.edges,
+		...prepared.dropped.annotations,
+	];
+	if (dropped.length > 0) {
+		return {
+			ok: false,
+			reason: `Nothing was created: the board would have left out ${dropped.slice(0, 6).join(", ")}. Check those ids and call create_artifact again.`,
+		};
+	}
+	if (params.abortSignal.aborted) {
+		return { ok: false, reason: "The request was cancelled." };
+	}
+
+	const created = await createArtifact({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		id: params.artifactId,
+		kind: "canvas",
+		title: params.title,
+		body: prepared.json,
+		author: "alfy",
+		versionSummary: VERSION_SUMMARY.alfyFirstDraft,
+	});
+	if (!created.ok) {
+		return {
+			ok: false,
+			reason:
+				created.reason === "invalid_title"
+					? "The board needs a title."
+					: "Could not create the board.",
+		};
+	}
+	return {
+		ok: true,
+		value: { artifactId: created.artifact.id, title: created.artifact.title },
 	};
 };
 

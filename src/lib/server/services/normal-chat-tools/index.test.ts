@@ -53,7 +53,11 @@ import {
 	CREATE_ARTIFACT_HANDLERS,
 	MAX_CREATE_ARTIFACT_CALLS_PER_TURN,
 } from "./artifact-tools/create";
-import { EDIT_ARTIFACT_DOCUMENT_EXAMPLE } from "./artifact-tools/kind-prose";
+import {
+	CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE,
+	EDIT_ARTIFACT_CANVAS_EXAMPLE,
+	EDIT_ARTIFACT_DOCUMENT_EXAMPLE,
+} from "./artifact-tools/kind-prose";
 import {
 	createNormalChatTools,
 	isProduceFileRequest,
@@ -5141,15 +5145,16 @@ describe("advertised artifact kinds match the registry (only tell the model what
 		);
 	}
 
-	const CANVAS_SLIDES_MARKERS = {
-		en: ["canvas", "Canvas", "slides", "Slides"],
-		hu: ["Tábla", "tábla", "Diasor", "diasor"],
+	// Canvas registered in Wave 3; Slides has no create handler yet.
+	const SLIDES_MARKERS = {
+		en: ["slides", "Slides"],
+		hu: ["Diasor", "diasor"],
 	} as const;
 
 	it.each([
 		"en",
 		"hu",
-	] as const)("with today's registry, no create_artifact/read_artifact/edit_artifact %s text mentions canvas or slides", (lang) => {
+	] as const)("with today's registry, no create_artifact/read_artifact/edit_artifact %s text mentions slides", (lang) => {
 		const tools = buildArtifactTools(lang);
 		const surfaces = [
 			tools.create_artifact.description,
@@ -5161,36 +5166,48 @@ describe("advertised artifact kinds match the registry (only tell the model what
 		];
 
 		for (const surface of surfaces) {
-			for (const marker of CANVAS_SLIDES_MARKERS[lang]) {
+			for (const marker of SLIDES_MARKERS[lang]) {
 				expect(surface, `${lang} marker "${marker}"`).not.toContain(marker);
 			}
 		}
 	});
 
-	it("registering a fake canvas create handler makes its create_artifact fragment and enum value appear, through the real wiring", () => {
+	it("registering a fake slides create handler makes its create_artifact fragment and enum value appear, through the real wiring", () => {
 		try {
-			CREATE_ARTIFACT_HANDLERS.canvas = async () => ({
+			CREATE_ARTIFACT_HANDLERS.slides = async () => ({
 				ok: false,
 				reason: "not used by this test",
 			});
 
 			const tools = buildArtifactTools("en");
 
-			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("canvas");
+			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("slides");
 			expect(tools.create_artifact.description).toContain(
-				"canvas for a board of things arranged in space",
+				"slides for a small ordered deck to present",
 			);
 		} finally {
-			delete CREATE_ARTIFACT_HANDLERS.canvas;
+			delete CREATE_ARTIFACT_HANDLERS.slides;
 		}
 	});
 
-	it("removing canvas's handler again drops it from create_artifact's schema and description", () => {
+	it("removing slides's handler again drops it from create_artifact's schema and description", () => {
 		const before = buildArtifactTools("en");
 		expect(schemaJson(before.create_artifact.inputSchema)).not.toContain(
-			"canvas",
+			"slides",
 		);
-		expect(before.create_artifact.description).not.toContain("canvas for");
+		expect(before.create_artifact.description).not.toContain("slides for");
+	});
+
+	it("Canvas is registered: create_artifact offers it, in both languages, with the board's own words", () => {
+		for (const lang of ["en", "hu"] as const) {
+			const tools = buildArtifactTools(lang);
+			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("canvas");
+			expect(tools.create_artifact.description).toContain(
+				lang === "en"
+					? "canvas for a board of things arranged in space"
+					: "canvas térben elrendezett dolgok táblájához",
+			);
+		}
 	});
 });
 
@@ -5248,6 +5265,79 @@ describe("edit_artifact's Document op contract is shown to the model, in both la
 			lang === "en"
 				? "Never make a new item to work around a refused edit"
 				: "Elutasított szerkesztés megkerülésére soha ne hozz létre új elemet",
+		);
+	});
+});
+
+// Ruling 62, through the REAL wiring (createNormalChatTools, both languages):
+// the Canvas `ops` the model is shown is the board vocabulary's own schema, the
+// description carries the worked example the tests parse, and create_artifact's
+// `body` shows the board a create accepts. A regression in the assembly path
+// (edit.ts's schema factory, kind-prose.ts, index.ts's description builders) is
+// caught here rather than by the next live check.
+describe("edit_artifact and create_artifact show the Canvas contract to the model, in both languages (ruling 62)", () => {
+	function buildArtifactTools(lang: "en" | "hu") {
+		return createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			language: lang,
+		}).tools;
+	}
+
+	function schemaJson(inputSchema: unknown): string {
+		return JSON.stringify(
+			(inputSchema as { jsonSchema?: unknown })?.jsonSchema ?? inputSchema,
+		);
+	}
+
+	it("the schema shown to the model carries all eight op names, and only the five blocks it may add", () => {
+		const schema = schemaJson(
+			buildArtifactTools("en").edit_artifact.inputSchema,
+		);
+		for (const op of [
+			"add_frame",
+			"add_node",
+			"move",
+			"add_edge",
+			"remove_edge",
+			"update_node",
+			"remove_node",
+			"highlight",
+		]) {
+			expect(schema).toContain(`"const":"${op}"`);
+		}
+		for (const kind of ["frame", "sticky", "text", "checklist", "chart"]) {
+			expect(schema).toContain(`"const":"${kind}"`);
+		}
+		for (const kind of ["map", "file", "app", "photo", "liveweb"]) {
+			expect(schema).not.toContain(`"const":"${kind}"`);
+		}
+		// The Document's five ops are still there beside them.
+		expect(schema).toContain('"const":"replaceBlock"');
+	});
+
+	it.each([
+		"en",
+		"hu",
+	] as const)("the %s edit description carries the Canvas worked example and the Document's", (lang) => {
+		const description = buildArtifactTools(lang).edit_artifact.description;
+		expect(description).toContain(JSON.stringify(EDIT_ARTIFACT_CANVAS_EXAMPLE));
+		expect(description).toContain(
+			JSON.stringify(EDIT_ARTIFACT_DOCUMENT_EXAMPLE),
+		);
+	});
+
+	it("create_artifact's body field shows the board a create accepts", () => {
+		const schema = schemaJson(
+			buildArtifactTools("en").create_artifact.inputSchema,
+		);
+		// Inside a JSON schema string the example's quotes are escaped once more.
+		expect(schema).toContain(
+			JSON.stringify(JSON.stringify(CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE)).slice(
+				1,
+				-1,
+			),
 		);
 	});
 });
@@ -5381,12 +5471,28 @@ describe("tool description hygiene", () => {
 	// before (26 en / 27 hu), for the same reason as every earlier raise: a
 	// tripwire, not a round number.
 	//
+	// Registering Canvas's create handler (Feature 2, Wave 3, ruling 62) spent
+	// that headroom, as this note said it would: create_artifact now offers
+	// "canvas", and edit_artifact's description gained the Canvas rule (ids from
+	// read_artifact, no baseHash, the 40-op and 24-new-node limits, frames first)
+	// and ONE compact worked example (kind-prose.ts's EDIT_ARTIFACT_CANVAS_EXAMPLE,
+	// parsed by canvas-handlers.test.ts through the executed `ops` schema and
+	// `validateBoardDiff`). The op names are NOT repeated in prose: the `ops`
+	// schema, now the board vocabulary's own (edit.ts), carries them. Re-measured
+	// with Canvas in the catalogue: 4,974 en / 8,073 hu (201 en / 291 hu spent).
+	// The ceiling below is that measurement plus the SAME small margin as before
+	// (26 en / 27 hu). The schemas cost more than the descriptions and are not
+	// counted by this ceiling — the frozen snapshot shows them: the whole
+	// catalogue went from 33,935 to 40,370 characters (en), 37,406 to 43,884
+	// (hu); the `ops` schema is about 4.9k of that, and create_artifact's `body`
+	// field carries the board example.
+	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
 	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 4799, hu: 7809 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 5000, hu: 8100 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);

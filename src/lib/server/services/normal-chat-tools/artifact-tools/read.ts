@@ -8,9 +8,15 @@ import {
 	listArtifactCatalogueEntries,
 	readDocumentForAlfy,
 } from "$lib/server/services/artifacts";
+import type { CanvasBody } from "$lib/shared/artifacts/canvas";
+import {
+	boardJson,
+	normalizeCanvasBody,
+} from "$lib/shared/artifacts/canvas-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { MAX_INLINE_TEXT_CHARS } from "../files";
 import { truncateText } from "../shared";
+import { canvasReadBlocks } from "./canvas-model";
 import type { CreatableArtifactKind } from "./create";
 
 export const readArtifactInputSchema = z.object({
@@ -124,6 +130,36 @@ export const READ_ARTIFACT_HANDLERS: Partial<
 		const body = read.blocks.map((block) => block.text).join("\n\n");
 		return { blocks, body };
 	},
+};
+
+/** A stored board, read without trust; a body that is not a board reads as an empty one. */
+function readStoredBoard(stored: string | null): CanvasBody | null {
+	if (!stored) return null;
+	try {
+		return normalizeCanvasBody(JSON.parse(stored)).body;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The Canvas branch (Slice 3): `blocks` lists every node and edge with the ids
+ * an op must name (`canvas-model.ts`'s `canvasReadBlocks`); `full` adds the
+ * board's canonical JSON, which the shell bounds like any body. A board has no
+ * hashes and nothing to snapshot — an op is judged against the board as it is
+ * when it lands — so a read writes nothing.
+ */
+READ_ARTIFACT_HANDLERS.canvas = async (params) => {
+	if (params.abortSignal.aborted) return {};
+	const record = await getArtifact({
+		userId: params.userId,
+		artifactId: params.artifactId,
+		conversationId: params.conversationId,
+	});
+	const board = readStoredBoard(record?.body ?? null);
+	const blocks = board ? canvasReadBlocks(board) : [];
+	if (params.detail === "blocks") return { blocks };
+	return { blocks, body: board ? boardJson(board) : (record?.body ?? "") };
 };
 
 /**

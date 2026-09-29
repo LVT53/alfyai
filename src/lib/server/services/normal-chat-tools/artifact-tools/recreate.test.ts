@@ -169,6 +169,88 @@ describe("recreateArtifactFromStoredCall", () => {
 		).not.toBeNull();
 	});
 
+	// Slice 3: a deleted board comes back from the board JSON the model itself
+	// gave `create_artifact`, under the id its cards carry — through the same
+	// handler the tool ran, so what is stored is judged and canonical again.
+	it("makes a deleted Canvas again from its stored board, under the id its cards carry", async () => {
+		const input = {
+			artifactType: "canvas",
+			title: "Vienna weekend",
+			body: JSON.stringify({
+				nodes: [
+					{
+						id: "n1",
+						type: "sticky",
+						position: { x: 40, y: 40 },
+						data: { kind: "sticky", text: "Museum", tone: "yellow" },
+					},
+				],
+				edges: [],
+			}),
+		};
+		seedCreateCall({ artifactId: "board-1", input });
+
+		const result = await regenerate({ artifactId: "board-1" });
+
+		expect(result).toEqual({
+			ok: true,
+			created: true,
+			artifactId: "board-1",
+			kind: "canvas",
+			title: "Vienna weekend",
+		});
+		const artifact = await getArtifact({
+			userId: OWNER,
+			artifactId: "board-1",
+			conversationId: CONVERSATION,
+		});
+		expect(artifact).toMatchObject({
+			id: "board-1",
+			kind: "canvas",
+			conversationId: CONVERSATION,
+			versionNumber: 1,
+		});
+		expect(JSON.parse(artifact?.body ?? "{}").nodes).toHaveLength(1);
+
+		// And again after a delete: the same call brings the same board back.
+		await deleteArtifact({ userId: OWNER, artifactId: "board-1" });
+		expect(
+			await getArtifact({ userId: OWNER, artifactId: "board-1" }),
+		).toBeNull();
+		expect(await regenerate({ artifactId: "board-1" })).toMatchObject({
+			ok: true,
+			created: true,
+			artifactId: "board-1",
+		});
+	});
+
+	it("reports a stored board the handler now refuses, and creates nothing", async () => {
+		seedCreateCall({
+			artifactId: "board-1",
+			input: {
+				artifactType: "canvas",
+				title: "Vienna weekend",
+				body: JSON.stringify({
+					nodes: [
+						{
+							id: "m1",
+							type: "map",
+							position: { x: 0, y: 0 },
+							data: { kind: "map" },
+						},
+					],
+				}),
+			},
+		});
+
+		const result = await regenerate({ artifactId: "board-1" });
+
+		expect(result).toMatchObject({ ok: false, reason: "failed" });
+		expect(
+			await getArtifact({ userId: OWNER, artifactId: "board-1" }),
+		).toBeNull();
+	});
+
 	it("makes a deleted App again from its stored brief through the App generator, keeping the id", async () => {
 		seedCreateCall({
 			artifactId: "app-1",
