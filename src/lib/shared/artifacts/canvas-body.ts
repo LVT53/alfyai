@@ -28,7 +28,7 @@ export const MAX_POINTS_PER_STROKE = 1200;
 const ID_MAX_CHARS = 128;
 const EDGE_LABEL_MAX_CHARS = 500;
 const ANNOTATION_COLOR_MAX_CHARS = 64;
-const ANNOTATION_TEXT_MAX_CHARS = 2_000;
+export const ANNOTATION_TEXT_MAX_CHARS = 2_000;
 const ANNOTATION_SIZE_MAX = 1_000;
 
 export type CanvasDropReport = {
@@ -184,7 +184,7 @@ function readEdge(value: unknown): CanvasEdge | null {
  * the flick. Picks the recorded points nearest to evenly spaced marks along the
  * path, always keeps both ends, and never invents a point.
  */
-function decimateStroke(points: Pt[], max: number): Pt[] {
+export function decimateStroke(points: Pt[], max: number): Pt[] {
 	if (points.length <= max) return points;
 	const last = points.length - 1;
 	const along = new Array<number>(points.length);
