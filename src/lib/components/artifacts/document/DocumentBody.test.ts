@@ -1104,6 +1104,10 @@ describe("DocumentBody", () => {
 			expect(mockAskAlfyInComment).not.toHaveBeenCalled();
 			// Refreshed at least once after the post (initial load + refresh).
 			expect(mockFetchArtifact).toHaveBeenCalledTimes(2);
+			// rd/review-2-5.md:217-222 — fed into the one shared announcer.
+			expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+				"Comment added.",
+			);
 		});
 
 		it("asks Alfy after posting a comment that mentions @Alfy", async () => {
@@ -1160,6 +1164,13 @@ describe("DocumentBody", () => {
 					"artifact-1",
 					"comment-1",
 					null,
+				),
+			);
+			// rd/review-2-5.md:217-222 — Alfy's own reply landing is fed into the
+			// one shared announcer, overwriting the earlier "Comment added."
+			await waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Alfy replied.",
 				),
 			);
 		});
@@ -1477,6 +1488,12 @@ describe("DocumentBody", () => {
 					"comment-1",
 					true,
 					"conv-1",
+				),
+			);
+			// rd/review-2-5.md:217-222 — fed into the one shared announcer.
+			await waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Comment resolved.",
 				),
 			);
 		});
@@ -2839,7 +2856,7 @@ describe("DocumentBody", () => {
 			};
 		}
 
-		/** `getByRole("status", …)` finds the bar itself — robust against the summary text sitting inside a nested `<span>` alongside the (absent, here) "Left N alone" link, unlike a bare `getByText`. */
+		/** `getByRole("region", …)` finds the bar itself — robust against the summary text sitting inside a nested `<span>` alongside the (absent, here) "Left N alone" link, unlike a bare `getByText`. */
 		async function renderWithOnePending() {
 			const { rerender } = render(DocumentBody, {
 				artifactId: "artifact-1",
@@ -2860,7 +2877,7 @@ describe("DocumentBody", () => {
 			});
 			await vi.waitFor(() =>
 				expect(
-					screen.getByRole("status", { name: "Changes from Alfy" }),
+					screen.getByRole("region", { name: "Changes from Alfy" }),
 				).toHaveTextContent("Alfy changed 1 part."),
 			);
 		}
@@ -2888,6 +2905,39 @@ describe("DocumentBody", () => {
 			} finally {
 				vi.useRealTimers();
 			}
+		});
+
+		// rd/review-2-5.md:217-222 — the review bar's own former role="status"
+		// unreliably announced its own landing summary (a region already
+		// carrying text at insertion is commonly not announced); the shared
+		// announcer now carries it instead, and Keep/Undo announce themselves
+		// through the SAME mechanism rather than relying on the pill's own text
+		// becoming visible.
+		it("announces the landing summary once a change lands, and Kept once Keep settles", async () => {
+			await renderWithOnePending();
+			expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+				"Alfy changed 1 part.",
+			);
+
+			await fireEvent.click(screen.getByRole("button", { name: /Keep all/ }));
+
+			await vi.waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Kept",
+				),
+			);
+		});
+
+		it("announces Undone once Undo runs", async () => {
+			await renderWithOnePending();
+
+			await fireEvent.click(screen.getByRole("button", { name: /Undo all/ }));
+
+			await vi.waitFor(() =>
+				expect(screen.getByTestId("document-announcer")).toHaveTextContent(
+					"Undone",
+				),
+			);
 		});
 
 		// rd/review-2-5.md:210-216 — Keep's own resulting "kept" pill state has

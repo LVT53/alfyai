@@ -9,12 +9,20 @@
  * board / the slide", §8) is the CALLER's job: this component lays out its
  * own content but does not place itself on the page.
  *
- * Doubles as its own polite landing announcement (§4.4: "Alfy changed 1 part
- * and left 1 alone. Review it below the text.") — `role="status"` implies
- * `aria-live="polite"`, and the region is already populated with both
- * sentences the moment it mounts (the caller only renders this component
- * once `pendingCount > 0`), so most screen readers pick it up on insertion
- * without a second, separate announcer.
+ * rd/review-2-5.md:217-222: a plain, non-live, NAMED `role="region"` — it
+ * used to be `role="status"`, on the theory that the region's own text
+ * (already populated the moment it mounts, since the caller only renders
+ * this component once `pendingCount > 0`) would double as its own polite
+ * landing announcement (§4.4: "Alfy changed 1 part and left 1 alone. Review
+ * it below the text."). Two real problems with that: most screen readers do
+ * not announce a region that already carries text at the moment of
+ * insertion (only a text CHANGE on an already-mounted live region reliably
+ * is), and because the stepper's own buttons live INSIDE that same live
+ * region, moving `currentIndex` re-announced the WHOLE bar — buttons and
+ * all — on every Prev/Next click. `DocumentBody.svelte`'s own shared,
+ * always-mounted announcer now owns every one of this surface's
+ * announcements (the landing summary included); this component's own region
+ * is a landmark by name only.
  */
 import { Check, ChevronDown, ChevronUp, Sparkles, Undo2 } from "@lucide/svelte";
 import { t } from "$lib/i18n";
@@ -45,7 +53,7 @@ let {
 
 <div
 	class="review-bar"
-	role="status"
+	role="region"
 	aria-label={$t('artifacts.document.review.regionLabel')}
 >
 	<div class="review-bar-msg">

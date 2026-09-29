@@ -126,7 +126,7 @@ test.describe("Review bar on phone (Wave 2.5 review fix, Critical)", () => {
 		await openChatAndReload(page, conversationId);
 		await openDocumentFromPanel(page);
 
-		const bar = page.getByRole("status", { name: "Changes from Alfy" });
+		const bar = page.getByRole("region", { name: "Changes from Alfy" });
 		await expect(bar).toBeVisible();
 		await waitForStableBoundingBox(bar);
 
@@ -196,7 +196,7 @@ test.describe("Review bar positioning while scrolling (Wave 2.5 review fix, Impo
 		await openChatAndReload(page, conversationId);
 		const shell = await openDocumentFromPanel(page);
 
-		const bar = shell.getByRole("status", { name: "Changes from Alfy" });
+		const bar = shell.getByRole("region", { name: "Changes from Alfy" });
 		await expect(bar).toBeVisible();
 
 		// Wait for the document to actually finish rendering (a generous

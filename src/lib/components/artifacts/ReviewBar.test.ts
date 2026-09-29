@@ -16,9 +16,14 @@ function callbacks() {
 }
 
 describe("ReviewBar", () => {
+	// rd/review-2-5.md:217-222: this region is now a plain, non-live
+	// role="region" — DocumentBody.svelte's own shared announcer owns the
+	// landing summary's actual announcement (see that component's own
+	// "announce" tests); this component still shows the same text, just
+	// never announces itself.
 	it("shows the singular summary and 1 / 1 for one pending change", () => {
 		render(ReviewBar, { pendingCount: 1, currentIndex: 0, ...callbacks() });
-		expect(screen.getByRole("status")).toHaveTextContent(
+		expect(screen.getByRole("region")).toHaveTextContent(
 			"Alfy changed 1 part.",
 		);
 		expect(screen.getByText("1 / 1")).toBeInTheDocument();
@@ -26,7 +31,7 @@ describe("ReviewBar", () => {
 
 	it("shows the plural summary and the current position for several", () => {
 		render(ReviewBar, { pendingCount: 3, currentIndex: 1, ...callbacks() });
-		expect(screen.getByRole("status")).toHaveTextContent(
+		expect(screen.getByRole("region")).toHaveTextContent(
 			"Alfy changed 3 parts.",
 		);
 		expect(screen.getByText("2 / 3")).toBeInTheDocument();

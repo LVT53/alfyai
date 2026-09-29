@@ -364,6 +364,14 @@ const artifactsDict = {
 			"Alfy answers here and can edit the text. You keep or undo the change.",
 		"artifacts.document.comment.peekThread": "Show the full thread",
 		"artifacts.document.comment.quoteA11y": "Show “{quote}” in the text",
+		// Fed into DocumentBody.svelte's one shared announcer
+		// (rd/review-2-5.md:217-222) — Keep/Undo reuse the existing
+		// change.keptNotice/undoneNotice keys above rather than duplicating
+		// them here.
+		"artifacts.document.announce.commentAdded": "Comment added.",
+		"artifacts.document.announce.commentResolved": "Comment resolved.",
+		"artifacts.document.announce.commentReopened": "Comment reopened.",
+		"artifacts.document.announce.alfyReplied": "Alfy replied.",
 		// The selection pill and composer (redesign §4.2 items 1–2, §9.2's
 		// SelectionBubble.svelte row, Wave 2.5 Step 9). `comment.ask`/`comment.add`
 		// above are reused for both the pill's own buttons AND the composer's
@@ -695,6 +703,10 @@ const artifactsDict = {
 			"Alfy itt válaszol, és szerkesztheti is a szöveget. A módosítást megtarthatod vagy visszavonhatod.",
 		"artifacts.document.comment.peekThread": "Szál megnyitása",
 		"artifacts.document.comment.quoteA11y": "„{quote}” megmutatása a szövegben",
+		"artifacts.document.announce.commentAdded": "Megjegyzés hozzáadva.",
+		"artifacts.document.announce.commentResolved": "Megjegyzés lezárva.",
+		"artifacts.document.announce.commentReopened": "Megjegyzés újranyitva.",
+		"artifacts.document.announce.alfyReplied": "Alfy válaszolt.",
 		"artifacts.document.comment.selectionToolbar": "Kijelölés",
 		"artifacts.document.comment.askHeader":
 			"Alfy megkérdezése erről: „{quote}”",

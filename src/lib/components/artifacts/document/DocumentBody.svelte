@@ -355,6 +355,23 @@ interface PendingAlfyChange {
 	fallbackPos?: number;
 }
 let alfyWritingLabel = $state<string | null>(null);
+/**
+ * rd/review-2-5.md:217-222: one shared, visually hidden `aria-live="polite"`
+ * region (rendered once, near the top of this component's template),
+ * ALWAYS present in the DOM — unlike `ReviewBar.svelte`'s own former
+ * `role="status"`, a region that already carries text the moment it mounts
+ * is commonly NOT announced; a later text CHANGE on an already-mounted live
+ * region is what reliably is. Fed by comment added/resolved, Alfy's own
+ * reply landing (the review bar's own "Alfy changed N parts" summary AND an
+ * `@Alfy` comment reply), and Keep/Undone — the four events the review
+ * named. `ReviewBar.svelte`'s own region is now a plain, non-live
+ * `role="region"`; it never announces itself, and a stepper move no longer
+ * re-reads the whole bar.
+ */
+let announcement = $state("");
+function announce(message: string): void {
+	announcement = message;
+}
 let pendingChanges = $state<Map<string, PendingAlfyChange>>(new Map());
 /** The review bar's own stepper position (0-based) into the CURRENTLY pending entries, in Map-insertion order. */
 let reviewIndex = $state(0);
@@ -613,6 +630,7 @@ async function maybeAskAlfy(
 			conversationId,
 		);
 		outcome = result.outcome;
+		announce($t("artifacts.document.announce.alfyReplied"));
 	} catch {
 		// The reply (or refusal) already lives in the thread when the call
 		// succeeds; a failed call here just leaves the thread as it was — the
@@ -667,6 +685,7 @@ async function postComment(anchor: Anchor, body: string): Promise<string> {
 		undefined,
 		conversationId,
 	);
+	announce($t("artifacts.document.announce.commentAdded"));
 	await refreshAfterCommentChange();
 	if (mentionsAlfy(body)) {
 		await maybeAskAlfy(created.id, textAnchorBlockId(anchor));
@@ -751,6 +770,7 @@ async function postReply(parentId: string, body: string): Promise<void> {
 		parentId,
 		conversationId,
 	);
+	announce($t("artifacts.document.announce.commentAdded"));
 	await refreshAfterCommentChange();
 	if (mentionsAlfy(body)) {
 		await maybeAskAlfy(created.id, findThreadBlockId(parentId));
@@ -768,6 +788,11 @@ async function handleCommentResolve(
 			commentId,
 			resolved,
 			conversationId,
+		);
+		announce(
+			resolved
+				? $t("artifacts.document.announce.commentResolved")
+				: $t("artifacts.document.announce.commentReopened"),
 		);
 	} finally {
 		await refreshAfterCommentChange();
@@ -964,6 +989,7 @@ function handleKeepChange(changeId: string): void {
 		...pending,
 		status: "kept",
 	});
+	announce($t("artifacts.document.change.keptNotice"));
 	void acknowledgeReview([pending.entry.blockId]);
 	void focusAfterKeep();
 	setTimeout(() => {
@@ -1001,6 +1027,7 @@ function handleUndoChange(changeId: string): void {
 		fallbackPos,
 		appliedMarkdown,
 	});
+	announce($t("artifacts.document.change.undoneNotice"));
 	const canonical = currentCanonicalMarkdown();
 	if (canonical !== null) {
 		autosave?.schedule(canonical);
@@ -1125,6 +1152,21 @@ $effect(() => {
 // all reflect Keep/Undo/Keep-all the instant they happen, without a reload.
 $effect(() => {
 	onPendingReviewCountChange?.(pendingList.length);
+});
+// rd/review-2-5.md:217-222: the review bar's own "Alfy changed N parts"
+// summary used to rely on `role="status"` announcing itself on mount — most
+// screen readers do not, since the region already carries text the moment
+// it appears. Re-announced through the shared announcer instead, on any
+// INCREASE (the bar first appearing, or a further Alfy edit landing while it
+// is already showing) — never on a decrease, which is Keep/Undo's own
+// announcement's job, not this one's.
+let previousPendingCount = 0;
+$effect(() => {
+	const count = pendingList.length;
+	if (count > previousPendingCount) {
+		announce($t("artifacts.document.review.summary", { count }));
+	}
+	previousPendingCount = count;
 });
 
 function handleReviewPrev(): void {
@@ -1932,6 +1974,13 @@ function saveNoticeText(notice: SaveNotice): string {
 </script>
 
 <div class="document-body" bind:this={documentBodyEl}>
+	<!-- rd/review-2-5.md:217-222: the one shared announcer — see its own
+	     `announce()` doc comment above. Always mounted, regardless of load
+	     state, so a text change here is reliably picked up by screen readers
+	     from the very first thing this component ever announces. -->
+	<div class="sr-only" role="status" aria-live="polite" data-testid="document-announcer">
+		{announcement}
+	</div>
 	<div class="document-main">
 		{#if editorReady}
 			<Tabs
