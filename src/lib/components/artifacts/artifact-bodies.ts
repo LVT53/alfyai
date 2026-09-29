@@ -43,12 +43,15 @@ export interface ArtifactBodyProps {
 	 * "history"/"download" actions, now removed from the toolbar — redesign
 	 * §5.2: "there is one History entry … and it sits where the version is").
 	 * A body that owns such a sheet calls this once its trigger functions are
-	 * ready (an `$effect`, not a one-time `onMount`, so a body whose
-	 * `artifactId` changes under it — the panel's rail can swap which item is
-	 * open without remounting the body — re-registers for the NEW item rather
-	 * than leaving the panel holding a closure over the old one); a kind with
-	 * no such sheet (App, File) simply never calls it, and the header falls
-	 * back to its plain-text version / the panel's own generic download link.
+	 * ready, when it mounts. The panel mounts ONE body per open item (it keys
+	 * the mount on the item, so a version change never rebuilds it, and a swap
+	 * to another item always builds a body of its own) and files what a body
+	 * reports under that item: a registration counts only while its item is the
+	 * one open, so the header can never call a closure over a body that is gone
+	 * and every item's body gets its own controls; a kind with no such sheet
+	 * (App has only Download, File no body at all) registers only what it has,
+	 * and the header falls back to its plain-text version / the panel's own
+	 * generic download link.
 	 */
 	registerPanelActions?: (actions: ArtifactPanelBodyActions) => void;
 	/**

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { type Component, tick } from "svelte";
+import { type Component, tick, untrack } from "svelte";
 import { browser } from "$app/environment";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
 import {
@@ -170,6 +170,13 @@ let activeDocument: WorkspaceDocument | null = $derived.by(() => {
  * `alfyActivity` itself (unsuppressed) still feeds the row-level ephemeral
  * pending pill below and the chat card, neither of which replay anything.
  *
+ * Final polish D2: this set is a panel-level notion and outlives every body —
+ * a body built later (the list and back, the panel closed and opened from the
+ * card, another item and back) is handed the same settled activity. The
+ * once-only rule therefore also lives in `DocumentBody.svelte`
+ * (`settledActivityKeyAtMount`): a body applies live only what was still
+ * running, or had not begun, when it mounted.
+ *
  * rd/review-2-5.md fix agent C, round F2: an `open`-only check is not
  * enough, because `open` and `activeDocumentId` can both become true in the
  * SAME render that first hands this effect an already-settled activity
@@ -260,29 +267,71 @@ let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 	ARTIFACT_BODIES[activeArtifactKind],
 );
 
-// Wave 2.5 Step 3: whatever sheet triggers the open body registered for
-// `ArtifactPanelHeader`'s version button / Download action (App/File
-// register nothing today, so this stays null for them and the header falls
-// back to plain text / the panel's own generic download link). Reset
-// whenever the open item itself changes — closing, switching documents, or
-// switching kind — so a stale closure over a document that is no longer
-// open can never be called; the newly-open body (if any) re-registers on
-// its own next tick.
-let bodyPanelActions = $state<ArtifactPanelBodyActions | null>(null);
-/** Wave 2.5 Step 8: the Comments button's own badge (Document only — every other kind never calls `onCommentCountChange`, so this just stays 0 and the button never renders for them). Reset alongside `bodyPanelActions` for the same reason: a stale count from the item just left must never linger on the newly-open one. */
-let documentOpenCommentCount = $state(0);
-/** Whether the Document's comments are showing (the column beside the text, or the drawer/sheet) — the Comments button's pressed state. Reset with the count, for the same reason. */
-let documentCommentsShown = $state(false);
-// Only the open item's id: `activeDocument` itself is a new object whenever
-// its version number (or any other field) moves — the reset below must fire
-// for a DIFFERENT item, never for the same item's number changing, since the
-// body registers its actions once, when it mounts, and would never re-register.
+// Wave 2.5 Step 3 / final polish D1: what the open body hands the panel header.
+// Its Versions/Download/Comments triggers (`ArtifactBodyProps.registerPanelActions`;
+// App registers only Download, File no body at all — the header falls back to
+// plain text / the panel's own generic download link), the Comments button's
+// badge (`onCommentCountChange`, Document only) and whether the comments are
+// showing (`onCommentsShownChange`, the button's pressed state).
+//
+// One record, stamped with the item its body was mounted for, and nothing ever
+// clears it: it counts only while it names the item that is open now. A swap
+// to another item — a second Document, an App, a file, the list and back —
+// therefore reads as "nothing yet" until that item's own body reports, and the
+// stale closures of a body that is gone can never be called. This replaces a
+// reset-on-swap effect: the body registers ONCE, when it mounts, and that
+// effect could run after the new body's registration in the very same flush
+// and wipe it, leaving the header without its controls until a reload.
+type BodyPanelReport = {
+	key: string;
+	actions: ArtifactPanelBodyActions | null;
+	commentCount: number;
+	commentsShown: boolean;
+};
+let bodyPanelReport = $state.raw<BodyPanelReport | null>(null);
+// The ITEM, never the object: `activeDocument` is a new object whenever its
+// version number (or any other field) moves, and a version change must neither
+// remount the body (its undo history, caret and pending changes outlive a Keep)
+// nor drop what it registered. `artifactId ?? id` is the id the body itself
+// loads by, and the key each body mount below carries.
+let activeBodyKey = $derived(
+	activeDocument ? (activeDocument.artifactId ?? activeDocument.id) : null,
+);
+let openBodyPanel = $derived(
+	bodyPanelReport !== null && bodyPanelReport.key === activeBodyKey
+		? bodyPanelReport
+		: null,
+);
+let bodyPanelActions = $derived(openBodyPanel?.actions ?? null);
+/** Wave 2.5 Step 8: the Comments button's own badge (Document only — every other kind never calls `onCommentCountChange`, so this just stays 0 and the button never renders for them). */
+let documentOpenCommentCount = $derived(openBodyPanel?.commentCount ?? 0);
+/** Whether the Document's comments are showing (the column beside the text, or the drawer/sheet) — the Comments button's pressed state. */
+let documentCommentsShown = $derived(openBodyPanel?.commentsShown ?? false);
+
+/**
+ * What a mounted body reports to the header, filed under the item that is open.
+ * A body only reports while it is the mounted one (each mount is keyed on its
+ * item), so the open item is the item it reports for. Untracked as a whole: it
+ * runs inside the body's own effects, which must not come to depend on the
+ * record they write.
+ */
+function reportFromBody(patch: Partial<Omit<BodyPanelReport, "key">>): void {
+	untrack(() => {
+		const key = activeBodyKey;
+		if (key === null) return;
+		const current: BodyPanelReport =
+			bodyPanelReport?.key === key
+				? bodyPanelReport
+				: { key, actions: null, commentCount: 0, commentsShown: false };
+		bodyPanelReport = { ...current, ...patch };
+	});
+}
+// Only the open item's id: `activeDocument` itself is a new object whenever its
+// version number (or any other field) moves — a confirm asked about one item
+// must close for a DIFFERENT item, never for the same item's number changing.
 let activeDocumentIdentity = $derived(activeDocument?.id);
 $effect(() => {
 	activeDocumentIdentity;
-	bodyPanelActions = null;
-	documentOpenCommentCount = 0;
-	documentCommentsShown = false;
 	deleteConfirmOpen = false;
 });
 
@@ -1823,25 +1872,24 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				{#if activeArtifactBodyLoader && shouldRenderMobilePreview}
 					{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
 					{#if ArtifactBody}
-						<ArtifactBody
-							artifactId={activeDocument.artifactId ?? activeDocument.id}
-							kind={activeArtifactKind}
-							title={getDocumentTitle(activeDocument)}
-							body={null}
-							{conversationId}
-							alfyActivity={bodyAlfyActivity}
-							registerPanelActions={(actions) => {
-								bodyPanelActions = actions;
-							}}
-							onCommentCountChange={(count) => {
-								documentOpenCommentCount = count;
-							}}
-							onCommentsShownChange={(shown) => {
-								documentCommentsShown = shown;
-							}}
-							onPendingReviewCountChange={handleBodyPendingReviewCountChange}
-							{currentUser}
-						/>
+						<!-- One body per open ITEM (final polish D1): keyed, so a swap to another
+						     item mounts a body that registers its own header controls. A version
+						     change keeps the key, so a Keep never rebuilds the editor. -->
+						{#key activeBodyKey}
+							<ArtifactBody
+								artifactId={activeDocument.artifactId ?? activeDocument.id}
+								kind={activeArtifactKind}
+								title={getDocumentTitle(activeDocument)}
+								body={null}
+								{conversationId}
+								alfyActivity={bodyAlfyActivity}
+								registerPanelActions={(actions) => reportFromBody({ actions })}
+								onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
+								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
+								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
+								{currentUser}
+							/>
+						{/key}
 					{/if}
 				{:else if compareMode && comparedDocument}
 					<div class="workspace-compare">
@@ -2139,25 +2187,24 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		{#if activeArtifactBodyLoader && shouldRenderDesktopPreview}
 			{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
 			{#if ArtifactBody}
-				<ArtifactBody
-					artifactId={activeDocument.artifactId ?? activeDocument.id}
-					kind={activeArtifactKind}
-					title={getDocumentTitle(activeDocument)}
-					body={null}
-					{conversationId}
-					alfyActivity={bodyAlfyActivity}
-					registerPanelActions={(actions) => {
-						bodyPanelActions = actions;
-					}}
-					onCommentCountChange={(count) => {
-						documentOpenCommentCount = count;
-					}}
-					onCommentsShownChange={(shown) => {
-						documentCommentsShown = shown;
-					}}
-					onPendingReviewCountChange={handleBodyPendingReviewCountChange}
-					{currentUser}
-				/>
+				<!-- One body per open ITEM (final polish D1): keyed, so a swap to another
+				     item mounts a body that registers its own header controls. A version
+				     change keeps the key, so a Keep never rebuilds the editor. -->
+				{#key activeBodyKey}
+					<ArtifactBody
+						artifactId={activeDocument.artifactId ?? activeDocument.id}
+						kind={activeArtifactKind}
+						title={getDocumentTitle(activeDocument)}
+						body={null}
+						{conversationId}
+						alfyActivity={bodyAlfyActivity}
+						registerPanelActions={(actions) => reportFromBody({ actions })}
+						onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
+						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
+						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
+						{currentUser}
+					/>
+				{/key}
 			{/if}
 		{:else if compareMode && comparedDocument}
 			<div class="workspace-compare">

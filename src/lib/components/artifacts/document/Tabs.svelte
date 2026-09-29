@@ -528,6 +528,9 @@ $effect(() => {
 
 	.document-tab-add {
 		display: inline-flex;
+		/* A flex item of the scrolling strip: it keeps its own size and the strip
+		   scrolls instead — squeezed by the tabs it was 14px wide on a phone. */
+		flex: none;
 		align-items: center;
 		justify-content: center;
 		width: 1.5rem;

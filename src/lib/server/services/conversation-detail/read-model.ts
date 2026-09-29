@@ -40,6 +40,7 @@ import {
 	getContextDebugState,
 	getConversationTaskState,
 } from "$lib/server/services/task-state";
+import { markRegenerable } from "$lib/shared/artifacts/artifact-calls";
 
 // O1 (ADR-0022 amendment) — "full" is the only assembled view left; the
 // former "bootstrap"-vs-"first-render"-vs-"full" three-way split existed to
@@ -131,10 +132,7 @@ function markRegenerableArtifacts(
 		const [only] = madeArtifactIds;
 		if (madeArtifactIds.size === 1 && only) regenerable.add(only);
 	}
-	if (!rows.some((row) => regenerable.has(row.id))) return rows;
-	return rows.map((row) =>
-		regenerable.has(row.id) ? { ...row, regenerable: true as const } : row,
-	);
+	return markRegenerable(rows, regenerable);
 }
 
 export async function getConversationDetail({

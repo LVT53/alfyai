@@ -1994,15 +1994,29 @@ describe("chat page runtime integration", () => {
 		});
 
 		// The security review's L2: the panel's Delete confirm promises "you can
-		// regenerate it from the chat" only for an item the server says the chat
-		// can make again (`ArtifactCardSummary.regenerable`).
+		// regenerate it from the chat" only for an item the chat can make again —
+		// one the server says so of (`ArtifactCardSummary.regenerable`, read off the
+		// messages it has persisted), or one the messages this page holds carry the
+		// create call of (final polish D4: the turn that just ended, whose message
+		// the last server read did not have yet).
 		it.each([
-			[true, "You can regenerate it from the chat.", "can't be undone"],
-			[undefined, "This can't be undone.", "regenerate it"],
-		] as const)("tells a list row's delete confirm what the server said about making it again (regenerable: %s)", async (regenerable, promised, notPromised) => {
+			// [what the server said, whether the page's messages carry the create call, the promise made, the one not made]
+			[true, false, "You can regenerate it from the chat.", "can't be undone"],
+			[undefined, false, "This can't be undone.", "regenerate it"],
+			[
+				undefined,
+				true,
+				"You can regenerate it from the chat.",
+				"can't be undone",
+			],
+		] as const)("tells a list row's delete confirm whether the chat can make it again (server: %s, create call in the page's messages: %s)", async (regenerable, callInMessages, promised, notPromised) => {
 			renderPage(
 				pageData({
-					messages: [createDocumentMessage()],
+					messages: [
+						callInMessages
+							? createDocumentMessage()
+							: { ...createDocumentMessage(), thinkingSegments: [] },
+					],
 					artifacts: [{ ...documentSummary(), regenerable }],
 				}),
 			);

@@ -74,6 +74,10 @@ import {
 } from "$lib/client/api/knowledge";
 import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
 import type { OpenInstructionDialog } from "$lib/client/instruction-command";
+import {
+	markRegenerable,
+	regenerableArtifactIdsFromMessages,
+} from "$lib/shared/artifacts/artifact-calls";
 import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
@@ -588,12 +592,29 @@ let deletedArtifactsForCards = $derived<DeletedArtifacts>({
 	unavailableIds: unavailableArtifactIds,
 	onRegenerate: handleRegenerateArtifact,
 });
+// Final polish D4: the server marks an item `regenerable` from the messages it
+// has persisted, and a Document made by a create_artifact call of the turn that
+// is still running (or has only just ended) is in none of them yet — the
+// delete confirm then said "can't be undone" for something the deleted card
+// offers to make again. The messages held here carry the same tool calls the
+// server will read, so they mark it live. Keyed by the ids' text so a token
+// streaming in, which changes `$messages` but not this, hands `liveArtifacts`
+// (and everything derived from it) nothing new.
+let regenerableIdsKey = $derived(
+	regenerableArtifactIdsFromMessages($messages).join("|"),
+);
+let regenerableFromMessages = $derived(
+	new Set(regenerableIdsKey ? regenerableIdsKey.split("|") : []),
+);
 let liveArtifacts = $derived(
-	dropDeletedArtifacts(artifacts, deletedArtifactIds).map((row) =>
-		withCurrentSummaryUpdatedAt(
-			withCurrentSummaryVersion(row, observedArtifactVersions),
-			observedArtifactTimes,
+	markRegenerable(
+		dropDeletedArtifacts(artifacts, deletedArtifactIds).map((row) =>
+			withCurrentSummaryUpdatedAt(
+				withCurrentSummaryVersion(row, observedArtifactVersions),
+				observedArtifactTimes,
+			),
 		),
+		regenerableFromMessages,
 	),
 );
 let artifactListOpen = $state(false);
