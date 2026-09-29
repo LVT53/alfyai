@@ -135,9 +135,7 @@ $effect(() => {
 	const handlePointerDown = (event: MouseEvent | TouchEvent) => {
 		const target = event.target as Node;
 		if (findAnchorEl()?.contains(target)) return;
-		const popover = document.querySelector(
-			`[data-testid="${popoverTestId}"]`,
-		);
+		const popover = document.querySelector(`[data-testid="${popoverTestId}"]`);
 		if (popover && !popover.contains(target)) onClose();
 	};
 	window.addEventListener("resize", handleReflow);

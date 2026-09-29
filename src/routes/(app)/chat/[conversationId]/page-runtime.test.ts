@@ -1223,9 +1223,9 @@ describe("chat page runtime integration", () => {
 				name: "Document workspace",
 			});
 			await waitFor(() => {
-				expect(within(shell).getByTestId("artifact-version-pill")).toHaveTextContent(
-					"v1",
-				);
+				expect(
+					within(shell).getByTestId("artifact-version-pill"),
+				).toHaveTextContent("v1");
 			});
 
 			// A save, somewhere in the panel, is answered with version 4.
@@ -1234,17 +1234,18 @@ describe("chat page runtime integration", () => {
 				"New text.",
 				1,
 				"conv-1",
-				vi.fn(async () =>
-					new Response(JSON.stringify({ ok: true, version: 4 }), {
-						headers: { "Content-Type": "application/json" },
-					}),
+				vi.fn(
+					async () =>
+						new Response(JSON.stringify({ ok: true, version: 4 }), {
+							headers: { "Content-Type": "application/json" },
+						}),
 				),
 			);
 
 			await waitFor(() => {
-				expect(within(shell).getByTestId("artifact-version-pill")).toHaveTextContent(
-					"v4",
-				);
+				expect(
+					within(shell).getByTestId("artifact-version-pill"),
+				).toHaveTextContent("v4");
 			});
 			// A late, older answer never pulls it back.
 			await saveArtifactBody(
@@ -1252,15 +1253,16 @@ describe("chat page runtime integration", () => {
 				"Older text.",
 				1,
 				"conv-1",
-				vi.fn(async () =>
-					new Response(JSON.stringify({ ok: true, version: 2 }), {
-						headers: { "Content-Type": "application/json" },
-					}),
+				vi.fn(
+					async () =>
+						new Response(JSON.stringify({ ok: true, version: 2 }), {
+							headers: { "Content-Type": "application/json" },
+						}),
 				),
 			);
-			expect(within(shell).getByTestId("artifact-version-pill")).toHaveTextContent(
-				"v4",
-			);
+			expect(
+				within(shell).getByTestId("artifact-version-pill"),
+			).toHaveTextContent("v4");
 
 			// Back to the list: its row says the same.
 			await fireEvent.click(
