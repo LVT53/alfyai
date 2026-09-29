@@ -21,6 +21,7 @@ import {
 	buildArtifactCanonicalOwnershipCondition,
 	getArtifactOwnershipScope,
 } from "$lib/server/services/knowledge/store/core";
+import { deleteSemanticEmbeddingsForSubjects } from "$lib/server/services/semantic-embeddings";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { hashArtifactBody } from "./hash";
 import {
@@ -611,16 +612,35 @@ export async function updateArtifactBody(
 
 /**
  * A real delete: the row goes, and the `artifact_id` foreign keys take its
- * versions, comments and key-value rows with it (the connection runs with
- * `foreign_keys = ON`; tests/integration/artifact-spine.test.ts asserts it).
+ * versions, comments, key-value rows (Alfy's snapshot and an App's stored
+ * values), chunks, links in both directions and working-set items with it (the
+ * connection runs with `foreign_keys = ON`; tests/integration/artifact-spine
+ * .test.ts asserts it). The one thing no key reaches is the artifact's semantic
+ * embedding, which names its subject by a plain id, so it is removed here —
+ * after the row, and never allowed to undo the delete: a failure leaves a
+ * stray vector the maintenance sweep already collects.
  */
 export async function deleteArtifact(
 	params: { userId: string; artifactId: string } & ArtifactScopeOptions,
 ): Promise<boolean> {
 	const row = await readScopedArtifactRow(params);
 	if (!row || !isEditableArtifactRow(row)) return false;
-	return db.transaction(
+	const removed = db.transaction(
 		(tx) =>
 			tx.delete(artifacts).where(eq(artifacts.id, row.id)).run().changes > 0,
 	);
+	if (!removed) return false;
+	try {
+		await deleteSemanticEmbeddingsForSubjects({
+			userId: row.userId,
+			subjectType: "artifact",
+			subjectIds: [row.id],
+		});
+	} catch (error) {
+		console.warn("[ARTIFACTS] Deleted an artifact but not its embedding", {
+			artifactId: row.id,
+			error,
+		});
+	}
+	return true;
 }

@@ -1021,6 +1021,177 @@ describe("deleteArtifact", () => {
 			deleteArtifact({ userId: OWNER, artifactId: artifact.id }),
 		).resolves.toBe(false);
 	});
+
+	// A delete has to leave nothing that hangs off the artifact, and touch
+	// nothing that hangs off any other one. Real foreign keys take the child
+	// tables; `semantic_embeddings` names its subject by a plain id (no key),
+	// so the service removes those itself.
+	it("takes every child row with it — versions, comments, kv (Alfy's snapshot too), links both ways, chunks, working-set items and semantic embeddings — and only its own", async () => {
+		const doomed = await createDocument({ title: "Doomed" });
+		const neighbour = await createDocument({ title: "Neighbour" });
+		const seedFor = (artifactId: string, tag: string) => {
+			memory.db
+				.insert(schema.artifactComments)
+				.values({
+					id: `comment-${tag}`,
+					artifactId,
+					userId: OWNER,
+					anchorJson: JSON.stringify({ kind: "node", nodeId: "n1" }),
+					author: "user",
+					body: "Note",
+					createdAt: NOW,
+				})
+				.run();
+			memory.db
+				.insert(schema.artifactKv)
+				.values([
+					{
+						id: `kv-app-${tag}`,
+						artifactId,
+						key: "progress",
+						valueJson: "1",
+						updatedAt: NOW,
+					},
+					{
+						id: `kv-snapshot-${tag}`,
+						artifactId,
+						key: "alfy.snapshot",
+						valueJson: JSON.stringify({ docVersion: 1 }),
+						updatedAt: NOW,
+					},
+				])
+				.run();
+			memory.db
+				.insert(schema.artifactChunks)
+				.values({
+					id: `chunk-${tag}`,
+					artifactId,
+					userId: OWNER,
+					conversationId: CONVERSATION,
+					chunkIndex: 0,
+					contentText: "Book museum tickets",
+					createdAt: NOW,
+					updatedAt: NOW,
+				})
+				.run();
+			memory.db
+				.insert(schema.conversationWorkingSetItems)
+				.values({
+					id: `working-${tag}`,
+					userId: OWNER,
+					conversationId: CONVERSATION,
+					artifactId,
+					artifactType: "artifact",
+					createdAt: NOW,
+					updatedAt: NOW,
+				})
+				.run();
+			memory.db
+				.insert(schema.semanticEmbeddings)
+				.values({
+					id: `embedding-${tag}`,
+					userId: OWNER,
+					subjectType: "artifact",
+					subjectId: artifactId,
+					modelName: "test-embedder",
+					sourceTextHash: `hash-${tag}`,
+					dimensions: 2,
+					embeddingJson: "[0.1,0.2]",
+					createdAt: NOW,
+					updatedAt: NOW,
+				})
+				.run();
+		};
+		seedFor(doomed.id, "doomed");
+		seedFor(neighbour.id, "neighbour");
+		memory.db
+			.insert(schema.artifactLinks)
+			.values([
+				{
+					id: "link-out",
+					userId: OWNER,
+					artifactId: doomed.id,
+					relatedArtifactId: neighbour.id,
+					linkType: "supersedes",
+					createdAt: NOW,
+				},
+				{
+					id: "link-in",
+					userId: OWNER,
+					artifactId: neighbour.id,
+					relatedArtifactId: doomed.id,
+					linkType: "supersedes",
+					createdAt: NOW,
+				},
+				{
+					id: "link-other",
+					userId: OWNER,
+					artifactId: neighbour.id,
+					relatedArtifactId: null,
+					linkType: "used_in_output",
+					createdAt: NOW,
+				},
+			])
+			.run();
+
+		await expect(
+			deleteArtifact({ userId: OWNER, artifactId: doomed.id }),
+		).resolves.toBe(true);
+
+		const idsOf = (rows: Array<{ id: string }>) => rows.map((row) => row.id);
+		expect(artifactRow(doomed.id)).toBeUndefined();
+		expect(versionRows(doomed.id)).toEqual([]);
+		expect(
+			idsOf(memory.db.select().from(schema.artifactComments).all()),
+		).toEqual(["comment-neighbour"]);
+		expect(
+			idsOf(memory.db.select().from(schema.artifactKv).all()).sort(),
+		).toEqual(["kv-app-neighbour", "kv-snapshot-neighbour"]);
+		expect(idsOf(memory.db.select().from(schema.artifactChunks).all())).toEqual(
+			["chunk-neighbour"],
+		);
+		expect(
+			idsOf(memory.db.select().from(schema.conversationWorkingSetItems).all()),
+		).toEqual(["working-neighbour"]);
+		expect(idsOf(memory.db.select().from(schema.artifactLinks).all())).toEqual([
+			"link-other",
+		]);
+		expect(
+			idsOf(memory.db.select().from(schema.semanticEmbeddings).all()),
+		).toEqual(["embedding-neighbour"]);
+
+		// The neighbour is whole: row, version history and all.
+		expect(artifactRow(neighbour.id)).toBeDefined();
+		expect(versionRows(neighbour.id)).toHaveLength(1);
+	});
+
+	it("keeps an incognito conversation's own artifact out of reach until the delete names that conversation", async () => {
+		const artifact = await createDocument({ conversationId: INCOGNITO });
+
+		await expect(
+			deleteArtifact({ userId: OWNER, artifactId: artifact.id }),
+		).resolves.toBe(false);
+		expect(artifactRow(artifact.id)).toBeDefined();
+
+		// Naming a different own conversation reaches nothing new either.
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: artifact.id,
+				conversationId: CONVERSATION,
+			}),
+		).resolves.toBe(false);
+		expect(artifactRow(artifact.id)).toBeDefined();
+
+		await expect(
+			deleteArtifact({
+				userId: OWNER,
+				artifactId: artifact.id,
+				conversationId: INCOGNITO,
+			}),
+		).resolves.toBe(true);
+		expect(artifactRow(artifact.id)).toBeUndefined();
+	});
 });
 
 describe("kindForArtifactRow", () => {

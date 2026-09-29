@@ -5,11 +5,13 @@
 // always 404'd. This file proves the fix with two real users in an in-memory
 // database, not mocks: naming the artifact's own incognito conversation
 // widens the read for its owner, and for nobody and nothing else.
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInMemoryDatabase,
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
+import * as schema from "$lib/server/db/schema";
 import {
 	seedConversation,
 	seedUser,
@@ -24,7 +26,9 @@ vi.mock("$lib/server/db", () => ({
 }));
 
 const { createArtifact } = await import("$lib/server/services/artifacts");
-const { GET: getArtifactDetail } = await import("./[id]/+server");
+const { DELETE: deleteArtifactRoute, GET: getArtifactDetail } = await import(
+	"./[id]/+server"
+);
 const { GET: listConversationArtifacts } = await import("./+server");
 
 const OWNER = "user-owner";
@@ -54,6 +58,23 @@ function listEvent(params: { userId: string | null; conversationId: string }) {
 		url: new URL(
 			`http://localhost/api/artifacts?conversationId=${encodeURIComponent(params.conversationId)}`,
 		),
+		locals: {
+			user: params.userId ? { id: params.userId, role: "user" } : undefined,
+		},
+	} as never;
+}
+
+function deleteEvent(params: {
+	artifactId: string;
+	userId: string | null;
+	conversationId?: string | null;
+}) {
+	const query = params.conversationId
+		? `?conversationId=${encodeURIComponent(params.conversationId)}`
+		: "";
+	return {
+		params: { id: params.artifactId },
+		url: new URL(`http://localhost/api/artifacts/${params.artifactId}${query}`),
 		locals: {
 			user: params.userId ? { id: params.userId, role: "user" } : undefined,
 		},
@@ -155,5 +176,104 @@ describe("GET /api/artifacts/[id]?conversationId=… — incognito self-open", (
 			expect(body).toEqual(EXPECTED);
 			expect(JSON.stringify(body)).toBe(JSON.stringify(EXPECTED));
 		}
+	});
+});
+
+// Delete (polish G2-A): the same scope as the read, so a delete reaches exactly
+// the artifacts a read does — and answers a foreign id and a missing id with
+// one and the same 404, since anything else would confirm the row exists.
+describe("DELETE /api/artifacts/[id]", () => {
+	function stored(artifactId: string) {
+		return memory.db
+			.select({ id: schema.artifacts.id })
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, artifactId))
+			.get();
+	}
+
+	async function seedOwnDocument() {
+		const result = await createArtifact({
+			userId: OWNER,
+			conversationId: OWNER_OTHER,
+			kind: "document",
+			title: "Weekend checklist",
+			body: "- [ ] Book the train",
+		});
+		if (!result.ok) throw new Error(result.reason);
+		return result.artifact.id;
+	}
+
+	it("throws 401 with no signed-in user (requireApiUser), and deletes nothing", async () => {
+		const artifactId = await seedOwnDocument();
+
+		await expect(
+			deleteArtifactRoute(deleteEvent({ artifactId, userId: null })),
+		).rejects.toMatchObject({ status: 401 });
+		expect(stored(artifactId)).toBeDefined();
+	});
+
+	it("removes the owner's artifact and answers { ok: true }", async () => {
+		const artifactId = await seedOwnDocument();
+
+		const response = await deleteArtifactRoute(
+			deleteEvent({ artifactId, userId: OWNER }),
+		);
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ ok: true });
+		expect(stored(artifactId)).toBeUndefined();
+		// Gone means gone for the read too.
+		const read = await getArtifactDetail(
+			detailEvent({ artifactId, userId: OWNER }),
+		);
+		expect(read.status).toBe(404);
+	});
+
+	it("answers the same 404 for a second delete, a foreign id and a missing id — and leaves the foreign row alone", async () => {
+		const artifactId = await seedOwnDocument();
+		const EXPECTED = JSON.stringify({ ok: false, reason: "not_found" });
+
+		const foreign = await deleteArtifactRoute(
+			deleteEvent({ artifactId, userId: STRANGER }),
+		);
+		expect(stored(artifactId)).toBeDefined();
+		const missing = await deleteArtifactRoute(
+			deleteEvent({ artifactId: "no-such-artifact", userId: OWNER }),
+		);
+		await deleteArtifactRoute(deleteEvent({ artifactId, userId: OWNER }));
+		const again = await deleteArtifactRoute(
+			deleteEvent({ artifactId, userId: OWNER }),
+		);
+
+		for (const response of [foreign, missing, again]) {
+			expect(response.status).toBe(404);
+			expect(JSON.stringify(await response.json())).toBe(EXPECTED);
+		}
+	});
+
+	it("cannot reach an incognito chat's artifact without naming that chat — and then only for its owner", async () => {
+		const artifactId = await seedIncognitoDocument();
+
+		const anonymous = await deleteArtifactRoute(
+			deleteEvent({ artifactId, userId: OWNER }),
+		);
+		const otherOwnChat = await deleteArtifactRoute(
+			deleteEvent({ artifactId, userId: OWNER, conversationId: OWNER_OTHER }),
+		);
+		const stranger = await deleteArtifactRoute(
+			deleteEvent({ artifactId, userId: STRANGER, conversationId: INCOGNITO }),
+		);
+		for (const response of [anonymous, otherOwnChat, stranger]) {
+			expect(response.status).toBe(404);
+			expect(await response.json()).toEqual({ ok: false, reason: "not_found" });
+		}
+		expect(stored(artifactId)).toBeDefined();
+
+		const own = await deleteArtifactRoute(
+			deleteEvent({ artifactId, userId: OWNER, conversationId: INCOGNITO }),
+		);
+		expect(own.status).toBe(200);
+		expect(await own.json()).toEqual({ ok: true });
+		expect(stored(artifactId)).toBeUndefined();
 	});
 });
