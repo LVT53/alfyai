@@ -61,9 +61,16 @@ function versionOf(text: string | null | undefined): string | null {
 	return text?.match(/\bv(\d+)\b/)?.[0] ?? null;
 }
 
-/** The desktop shell's own version button (both shells are real DOM nodes; only the visible one counts). */
+/**
+ * The desktop shell's own version button (both shells are real DOM nodes;
+ * only the visible one counts). Until the Document's body has loaded and
+ * registered its Versions action the same pill is plain text, not a button —
+ * on a cold dev server that is several seconds — so only the button counts.
+ */
 function headerPill(page: Page): Locator {
-	return page.locator('[data-testid="artifact-version-pill"]:visible').first();
+	return page
+		.locator('button[data-testid="artifact-version-pill"]:visible')
+		.first();
 }
 
 async function openDocumentFromPanel(page: Page): Promise<void> {
@@ -92,7 +99,12 @@ async function readSurfaces(page: Page, withCard: boolean) {
 	await headerPill(page).click();
 	const popover = page.getByTestId("document-versions-popover");
 	await expect(popover).toBeVisible();
-	await expect(popover.getByRole("listitem").first()).toBeVisible();
+	// A generous budget: on a cold dev server the first request to the
+	// versions route also pays for compiling it (as the first open of the
+	// editor does in the other artifact specs).
+	await expect(popover.getByRole("listitem").first()).toBeVisible({
+		timeout: 30_000,
+	});
 	const topRow = popover.getByRole("listitem").first();
 	const versions = versionOf(await topRow.textContent());
 	await page.keyboard.press("Escape");
@@ -321,7 +333,9 @@ async function openVersionsPopover(page: Page): Promise<Locator> {
 	await headerPill(page).click();
 	const popover = page.getByTestId("document-versions-popover");
 	await expect(popover).toBeVisible();
-	await expect(popover.getByTestId("version-row").first()).toBeVisible();
+	await expect(popover.getByTestId("version-row").first()).toBeVisible({
+		timeout: 30_000,
+	});
 	return popover;
 }
 
