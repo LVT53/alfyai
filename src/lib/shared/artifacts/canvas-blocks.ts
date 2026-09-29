@@ -34,9 +34,8 @@ const labelSchema = z.string().max(LABEL_MAX_CHARS);
 
 // ── Shared pieces ────────────────────────────────────────────────────────
 
-export const STICKY_TONES = ["yellow", "mint", "blue", "plain"] as const;
+const STICKY_TONES = ["yellow", "mint", "blue", "plain"] as const;
 const stickyToneSchema = z.enum(STICKY_TONES);
-export type StickyTone = z.infer<typeof stickyToneSchema>;
 
 /** A poster is a generated PNG file, produced by the existing chat-files storage. */
 const posterRefSchema = z.object({
@@ -45,7 +44,6 @@ const posterRefSchema = z.object({
 	height: z.number().positive(),
 	capturedAt: z.number(),
 });
-export type PosterRef = z.infer<typeof posterRefSchema>;
 
 // ── The five note-shaped kinds ───────────────────────────────────────────
 

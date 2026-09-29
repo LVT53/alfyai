@@ -78,6 +78,14 @@ export {
 	type FileArtifactDescriptor,
 	getArtifactSerializer,
 } from "./serialize";
+// The one gate a board passes on its way into storage, for a writer that makes
+// a board rather than saves one (the model's create handler): canonical, hashed
+// as written, refused past its caps.
+export {
+	type CanvasBoardRefusal,
+	canvasBodyHash,
+	prepareCanvasBoard,
+} from "./serialize/canvas";
 export type {
 	Anchor,
 	ArtifactAuthor,

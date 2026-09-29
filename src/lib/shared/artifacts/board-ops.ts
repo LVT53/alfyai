@@ -40,7 +40,7 @@ export const MAX_NEW_NODES_PER_DIFF = 24;
 const idSchema = z.string().min(1).max(128);
 const labelSchema = z.string().max(500);
 
-export const boardOpSchema = z.discriminatedUnion("op", [
+const boardOpSchema = z.discriminatedUnion("op", [
 	z.object({
 		op: z.literal("add_frame"),
 		id: idSchema.describe("A new id you choose for the frame."),
