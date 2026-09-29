@@ -449,4 +449,160 @@ test.describe("frames, adoption and connectors on the Canvas", () => {
 			page.getByRole("textbox", { name: "Sticky note" }),
 		).toBeFocused();
 	});
+
+	test.describe("a frame inside a frame (the protocol allows it; a reader never makes one)", () => {
+		const OUTER = "frame-outer";
+		const INNER = "frame-inner";
+
+		function nested(): CanvasBody {
+			const outer: CanvasNode = {
+				id: OUTER,
+				type: "frame",
+				position: { x: 10, y: 10 },
+				width: 560,
+				height: 380,
+				data: { kind: "frame", label: "Weekend", width: 560, height: 380 },
+			};
+			const inner: CanvasNode = {
+				id: INNER,
+				type: "frame",
+				parentId: OUTER,
+				position: { x: 30, y: 60 },
+				width: 250,
+				height: 200,
+				data: { kind: "frame", label: "Saturday", width: 250, height: 200 },
+			};
+			return board([
+				outer,
+				inner,
+				note("note-in", 20, 50, "Museum", INNER),
+				note("note-out", 300, 80, "Lunch", OUTER),
+			]);
+		}
+
+		test("is drawn inside its parent, and its notes inside it", async ({
+			page,
+		}) => {
+			await open(page, nested());
+			const outer = await nodeBox(page, OUTER);
+			const inner = await nodeBox(page, INNER);
+			const held = await nodeBox(page, "note-in");
+			expect(inner.x).toBeGreaterThanOrEqual(outer.x);
+			expect(inner.y).toBeGreaterThanOrEqual(outer.y);
+			expect(inner.x + inner.width).toBeLessThanOrEqual(
+				outer.x + outer.width + 1,
+			);
+			expect(inner.y + inner.height).toBeLessThanOrEqual(
+				outer.y + outer.height + 1,
+			);
+			expect(held.x).toBeGreaterThanOrEqual(inner.x);
+			expect(held.x + held.width).toBeLessThanOrEqual(
+				inner.x + inner.width + 1,
+			);
+			// Both name chips are there and readable: neither frame hides the other.
+			await expect(page.getByTestId("canvas-frame-label")).toHaveText([
+				"Weekend",
+				"Saturday",
+			]);
+		});
+
+		test("takes a note dropped in it before its parent: the innermost frame wins", async ({
+			page,
+		}) => {
+			const artifactId = await open(page, nested());
+			const start = centreOf(await nodeBox(page, "note-out"));
+			const target = centreOf(await nodeBox(page, INNER));
+			await dragBetween(page, start, { x: target.x, y: target.y + 40 });
+			await savedStatus(page);
+			const moved = (await storedBoard(artifactId)).nodes.find(
+				(node) => node.id === "note-out",
+			);
+			expect(moved?.parentId).toBe(INNER);
+		});
+
+		test("moves with its notes when dragged by its chip, and stays in its parent while it stays over it", async ({
+			page,
+		}) => {
+			const artifactId = await open(page, nested());
+			const before = await nodeBox(page, "note-in");
+			const chip = centreOf(
+				(await page.getByTestId("canvas-frame-label").nth(1).boundingBox()) ?? {
+					x: 0,
+					y: 0,
+					width: 0,
+					height: 0,
+				},
+			);
+			await dragBetween(page, chip, { x: chip.x + 40, y: chip.y + 30 });
+			await savedStatus(page);
+			const after = await nodeBox(page, "note-in");
+			expect(after.x - before.x).toBeGreaterThan(30);
+			const saved = await storedBoard(artifactId);
+			const inner = saved.nodes.find((node) => node.id === INNER);
+			expect(inner?.parentId).toBe(OUTER);
+			expect(inner?.position.x).toBeGreaterThan(30);
+			expect(saved.nodes.find((node) => node.id === "note-in")?.parentId).toBe(
+				INNER,
+			);
+		});
+
+		test("is released to the board when dragged out of its parent, its notes still in it", async ({
+			page,
+		}) => {
+			const artifactId = await open(page, nested());
+			const outer = await nodeBox(page, OUTER);
+			const chip = centreOf(
+				(await page.getByTestId("canvas-frame-label").nth(1).boundingBox()) ?? {
+					x: 0,
+					y: 0,
+					width: 0,
+					height: 0,
+				},
+			);
+			await dragBetween(page, chip, {
+				x: chip.x,
+				y: outer.y + outer.height + 150,
+			});
+			await savedStatus(page);
+			const saved = await storedBoard(artifactId);
+			expect(
+				saved.nodes.find((node) => node.id === INNER)?.parentId,
+			).toBeUndefined();
+			expect(saved.nodes.find((node) => node.id === "note-in")?.parentId).toBe(
+				INNER,
+			);
+			// Parents first, still.
+			const order = saved.nodes.map((node) => node.id);
+			expect(order.indexOf(INNER)).toBeLessThan(order.indexOf("note-in"));
+		});
+
+		test("stays whole when its parent is deleted: it moves up to the board with what is in it", async ({
+			page,
+		}) => {
+			const artifactId = await open(page, nested());
+			const before = await nodeBox(page, INNER);
+			await page.getByTestId("canvas-frame-label").first().click();
+			await page.keyboard.press("Delete");
+			await expect(
+				page.locator(`.svelte-flow__node[data-id="${OUTER}"]`),
+			).toHaveCount(0);
+			await savedStatus(page);
+			const after = await nodeBox(page, INNER);
+			expect(Math.abs(after.x - before.x)).toBeLessThan(1.5);
+			expect(Math.abs(after.y - before.y)).toBeLessThan(1.5);
+			const saved = await storedBoard(artifactId);
+			expect(saved.nodes.map((node) => node.id).sort()).toEqual(
+				[INNER, "note-in", "note-out"].sort(),
+			);
+			expect(
+				saved.nodes.find((node) => node.id === INNER)?.parentId,
+			).toBeUndefined();
+			expect(saved.nodes.find((node) => node.id === "note-in")?.parentId).toBe(
+				INNER,
+			);
+			expect(
+				saved.nodes.find((node) => node.id === "note-out")?.parentId,
+			).toBeUndefined();
+		});
+	});
 });
