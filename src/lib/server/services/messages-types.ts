@@ -371,6 +371,13 @@ export interface ChatMessage {
 	forkEvidenceSnapshot?: ForkEvidenceSnapshot;
 	sourceForks?: MessageSourceForks;
 	importSource?: string;
+	/**
+	 * The id of the Document this message was kept as ("Open as document",
+	 * projected from `messages.metadataJson.documentArtifactId`; the message
+	 * links it once and never to two). `undefined` when it never was. Whether
+	 * that Document still exists is the artifact service's to say.
+	 */
+	documentArtifactId?: string;
 }
 
 export interface ChatAttachment {

@@ -294,6 +294,19 @@ function canDeleteItem(item: DocumentWorkspaceItem): boolean {
 	);
 }
 
+/**
+ * Whether the chat can make this item again, read off the live list (the
+ * server's word, kept fresh) rather than the open tab's snapshot: what the
+ * Delete confirm may promise. An item the list does not know says nothing.
+ */
+function canRegenerateItem(item: DocumentWorkspaceItem): boolean {
+	return (
+		list?.items.some(
+			(row) => row.artifactId === item.artifactId && row.canRegenerate === true,
+		) ?? false
+	);
+}
+
 /** After a delete the control that had focus is gone: land on the list's heading, which names where the user is. */
 async function focusPanelListTitle(): Promise<void> {
 	await tick();
@@ -1392,6 +1405,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				kind={menuItem.kind ?? 'file'}
 				title={getDocumentTitle(menuItem)}
 				anchorTestId={`artifact-row-menu-${menuItem.id}`}
+				regenerable={canRegenerateItem(menuItem)}
 				initialStage="menu"
 				onConfirm={() => deleteFromList(menuItem)}
 				onClose={() => (rowMenuOpenId = null)}
@@ -2191,6 +2205,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		kind={activeArtifactKind}
 		title={getDocumentTitle(deletingItem)}
 		anchorTestId="artifact-delete-button"
+		regenerable={canRegenerateItem(deletingItem)}
 		onConfirm={() => deleteOpenItem(deletingItem)}
 		onClose={() => (deleteConfirmOpen = false)}
 	/>

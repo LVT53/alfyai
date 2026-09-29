@@ -1916,6 +1916,38 @@ describe("chat page runtime integration", () => {
 			}
 		});
 
+		// The security review's L2: the panel's Delete confirm promises "you can
+		// regenerate it from the chat" only for an item the server says the chat
+		// can make again (`ArtifactCardSummary.regenerable`).
+		it.each([
+			[true, "You can regenerate it from the chat.", "can't be undone"],
+			[undefined, "This can't be undone.", "regenerate it"],
+		] as const)("tells a list row's delete confirm what the server said about making it again (regenerable: %s)", async (regenerable, promised, notPromised) => {
+			renderPage(
+				pageData({
+					messages: [createDocumentMessage()],
+					artifacts: [{ ...documentSummary(), regenerable }],
+				}),
+			);
+
+			await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+			const list = await screen.findByTestId("artifact-panel-list");
+			await fireEvent.click(
+				within(list).getByRole("button", {
+					name: "More actions for Vienna trip plan",
+				}),
+			);
+			await fireEvent.click(
+				await screen.findByRole("menuitem", { name: "Delete document" }),
+			);
+
+			const dialog = await screen.findByRole("dialog", {
+				name: "Delete this document?",
+			});
+			expect(dialog.textContent).toContain(promised);
+			expect(dialog.textContent).not.toContain(notPromised);
+		});
+
 		// The security review's L1: a fork's card can name (and open) the parent's
 		// Document, but Delete acts only on what this chat made — the panel does
 		// not offer it, and the item says where it was made.

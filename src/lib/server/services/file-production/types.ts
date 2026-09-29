@@ -159,4 +159,12 @@ export interface FileProductionJob {
 	 * files is not marked — its remaining files show as ever.
 	 */
 	filesDeleted?: { canRegenerate: boolean };
+	/**
+	 * Set on a succeeded job that kept the request it was made from: the same
+	 * job can make its files again, which is what lets the delete confirm say
+	 * "you can regenerate it from the chat" and not "it can't be undone".
+	 * Absent for a legacy job with no request and for any job that has not
+	 * succeeded.
+	 */
+	canRegenerate?: true;
 }

@@ -28,8 +28,12 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 
-const { artifactCallIdsFromMessages, getStoredCreateArtifactCall } =
-	await import("./messages");
+const {
+	artifactCallIdsFromMessages,
+	getStoredCreateArtifactCall,
+	listMessageWindow,
+	regenerableArtifactIdsFromMessages,
+} = await import("./messages");
 
 const OWNER = "user-owner";
 const CONVERSATION = "conv-1";
@@ -58,6 +62,7 @@ function seedMessage(params: {
 	role?: "user" | "assistant";
 	segments?: Segment[] | string | null;
 	id?: string;
+	metadata?: Record<string, unknown>;
 }): string {
 	sequence += 1;
 	const id = params.id ?? `message-${sequence}`;
@@ -69,6 +74,7 @@ function seedMessage(params: {
 			messageSequence: sequence,
 			role: params.role ?? "assistant",
 			content: "reply",
+			metadataJson: params.metadata ? JSON.stringify(params.metadata) : null,
 			toolCalls:
 				params.segments === undefined || params.segments === null
 					? null
@@ -124,6 +130,61 @@ describe("artifactCallIdsFromMessages", () => {
 				messageWith(undefined),
 			]),
 		).toEqual([]);
+	});
+});
+
+// The security review's L2: the delete confirm may promise "You can regenerate
+// it from the chat" only for an item the chat can really make again. Two things
+// in the loaded messages say so: a successful create call (Regenerate makes it
+// again from the model's own arguments) and the link a message keeps to the
+// Document it was opened as (the same "Open as document" makes it again).
+describe("regenerableArtifactIdsFromMessages", () => {
+	const messageWith = (
+		segments: Segment[] | undefined,
+		documentArtifactId?: string,
+	) => ({ thinkingSegments: segments, documentArtifactId }) as never;
+
+	it("lists what the loaded messages can make again: created items and the Document a message was kept as, once each", () => {
+		expect(
+			regenerableArtifactIdsFromMessages([
+				messageWith([
+					toolCall("create_artifact", { ok: true, artifactId: "doc-1" }),
+					// An edit holds a summary, not the item.
+					toolCall("edit_artifact", { ok: true, artifactId: "doc-2" }),
+				]),
+				messageWith(
+					[toolCall("create_artifact", { ok: false, error: "too large" })],
+					"kept-1",
+				),
+				messageWith(undefined, "kept-1"),
+				messageWith([
+					toolCall("create_artifact", { ok: true, artifactId: "doc-1" }),
+					toolCall("create_artifact", { ok: true, artifactId: "app-1" }),
+				]),
+			]),
+		).toEqual(["doc-1", "kept-1", "app-1"]);
+	});
+
+	it("says nothing for messages that made nothing", () => {
+		expect(
+			regenerableArtifactIdsFromMessages([messageWith(undefined)]),
+		).toEqual([]);
+	});
+});
+
+describe("the Document a message was kept as, on a loaded message", () => {
+	it("is projected from the message's metadata, and absent when it was never kept", async () => {
+		seedMessage({ id: "kept", metadata: { documentArtifactId: "doc-kept" } });
+		seedMessage({ id: "plain" });
+
+		const { messages } = await listMessageWindow(CONVERSATION, { limit: 10 });
+
+		expect(
+			messages.map((message) => [message.id, message.documentArtifactId]),
+		).toEqual([
+			["kept", "doc-kept"],
+			["plain", undefined],
+		]);
 	});
 });
 

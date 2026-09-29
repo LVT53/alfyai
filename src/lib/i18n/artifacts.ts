@@ -117,6 +117,18 @@ const artifactsDict = {
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.file":
 			"“{title}” will be deleted. This can't be undone.",
+		// The same confirm for an item the chat can make again (the security
+		// review's L2): "can't be undone" is not true of it, so it says the way back.
+		"artifacts.delete.bodyRegenerable.document":
+			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.app":
+			"“{title}” and its saved data will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.canvas":
+			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.slides":
+			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
+		"artifacts.delete.bodyRegenerable.file":
+			"“{title}” will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.busy": "Deleting…",
 		"artifacts.delete.failed": "Couldn't delete this. Try again.",
 		"artifacts.delete.done.document": "Document deleted",
@@ -587,6 +599,16 @@ const artifactsDict = {
 		"artifacts.delete.body.slides":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.file": "„{title}” törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.bodyRegenerable.document":
+			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.app":
+			"„{title}” és a mentett adatai törlődnek. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.canvas":
+			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.slides":
+			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
+		"artifacts.delete.bodyRegenerable.file":
+			"„{title}” törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.busy": "Törlés…",
 		"artifacts.delete.failed": "Nem sikerült törölni. Próbáld újra.",
 		"artifacts.delete.done.document": "Dokumentum törölve",

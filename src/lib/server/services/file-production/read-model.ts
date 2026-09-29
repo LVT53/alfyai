@@ -559,8 +559,15 @@ export async function listConversationFileProductionJobs(
 		// deleted. It used to vanish from the list without a trace; the chat now
 		// says what happened (and, when the job kept its request, offers to make
 		// the file again).
-		return mapped.status === "succeeded" && mapped.files.length === 0
-			? { ...mapped, filesDeleted: { canRegenerate: Boolean(job.requestJson) } }
+		if (mapped.status === "succeeded" && mapped.files.length === 0) {
+			return {
+				...mapped,
+				filesDeleted: { canRegenerate: Boolean(job.requestJson) },
+			};
+		}
+		// A finished job that kept its request can make its files again.
+		return mapped.status === "succeeded" && job.requestJson
+			? { ...mapped, canRegenerate: true as const }
 			: mapped;
 	});
 }

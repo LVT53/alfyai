@@ -1104,7 +1104,12 @@ function artifactToWorkspaceItem(
 		// `{#if activeDocument.kind}`) silently never renders for the single
 		// most common open: a File that already has a real item.
 		if (matching) {
-			return { ...matching, kind: summary.kind, updatedAt: summary.updatedAt };
+			return {
+				...matching,
+				kind: summary.kind,
+				updatedAt: summary.updatedAt,
+				canRegenerate: summary.regenerable,
+			};
 		}
 	}
 	return {
@@ -1115,6 +1120,7 @@ function artifactToWorkspaceItem(
 		mimeType: null,
 		artifactId: summary.id,
 		conversationId: summary.conversationId,
+		canRegenerate: summary.regenerable,
 		versionNumber: summary.versionNumber,
 		kind: summary.kind,
 		updatedAt: summary.updatedAt,

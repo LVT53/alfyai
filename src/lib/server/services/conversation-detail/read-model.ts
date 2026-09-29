@@ -3,6 +3,7 @@ import {
 	listArtifactsForConversation,
 	listMissingArtifactIds,
 } from "$lib/server/services/artifacts";
+import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import { getAtlasAvailability } from "$lib/server/services/atlas/availability";
 import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
 import {
@@ -21,6 +22,7 @@ import {
 	listConversationFileProductionJobs,
 	listConversationGeneratedFiles,
 } from "$lib/server/services/file-production/read-model";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import {
 	getConversationContextStatus,
 	getConversationWorkingSet,
@@ -30,6 +32,7 @@ import {
 	artifactCallIdsFromMessages,
 	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT,
 	listMessageWindow,
+	regenerableArtifactIdsFromMessages,
 } from "$lib/server/services/messages";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import {
@@ -99,6 +102,39 @@ async function classifyMissingArtifacts(
 		conversationId,
 		artifactIds: artifactCallIdsFromMessages(loadedMessages),
 	});
+}
+
+/**
+ * The artifact list with the items the chat can make again marked
+ * (`ArtifactCardSummary.regenerable`), so the delete confirm can tell
+ * "you can regenerate it from the chat" from "this can't be undone" for THIS
+ * item. Documents and Apps come off the loaded messages (a successful create
+ * call, or the message a Document was kept from); a produced file counts when
+ * its finished job kept its request AND it is the only artifact that job made
+ * — deleting one of two leaves the job a file, and a job with a file left
+ * cannot be made again. Anything not known to be regenerable is left exactly
+ * as the artifact service gave it, and the list itself when nothing is.
+ */
+function markRegenerableArtifacts(
+	rows: ArtifactCardSummary[],
+	messagesInWindow: ChatMessage[],
+	jobs: FileProductionJob[],
+): ArtifactCardSummary[] {
+	const regenerable = new Set(
+		regenerableArtifactIdsFromMessages(messagesInWindow),
+	);
+	for (const job of jobs) {
+		if (!job.canRegenerate) continue;
+		const madeArtifactIds = new Set(
+			job.files.flatMap((file) => (file.artifactId ? [file.artifactId] : [])),
+		);
+		const [only] = madeArtifactIds;
+		if (madeArtifactIds.size === 1 && only) regenerable.add(only);
+	}
+	if (!rows.some((row) => regenerable.has(row.id))) return rows;
+	return rows.map((row) =>
+		regenerable.has(row.id) ? { ...row, regenerable: true as const } : row,
+	);
 }
 
 export async function getConversationDetail({
@@ -207,7 +243,11 @@ export async function getConversationDetail({
 		contextCompressionSnapshots: contextCompressionSnapshots.map(
 			serializeContextCompressionSnapshot,
 		),
-		artifacts,
+		artifacts: markRegenerableArtifacts(
+			artifacts,
+			messageWindow.messages,
+			fileProductionJobs,
+		),
 		deletedArtifactIds: missingArtifacts.deleted,
 		unreachableArtifactIds: missingArtifacts.unreachable,
 		bootstrap: false,

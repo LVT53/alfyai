@@ -282,6 +282,12 @@ export interface DocumentWorkspaceItem {
 	 * parent's Document); left unset, nothing contradicts the panel's.
 	 */
 	conversationId?: string | null;
+	/**
+	 * `ArtifactCardSummary.regenerable`, carried through so the panel's Delete
+	 * confirm says "you can regenerate it from the chat" only for an item the
+	 * chat can really make again. Optional: unset means no source is known.
+	 */
+	canRegenerate?: boolean;
 	downloadUrl?: string | null;
 	/**
 	 * The artifact family kind (ADR-0066). Optional and defaults to `"file"`:
