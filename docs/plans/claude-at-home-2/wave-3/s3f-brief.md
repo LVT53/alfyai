@@ -10,9 +10,14 @@ measured — each one is a test here, never a hope.
   `feat/artifacts-s3-frames` (from `feat/artifacts` after S3-B's merge), e2e port **5440**, label `s3f`.
 - Report: `/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/cabde459-204b-43f4-96fb-60f3639a68a8/scratchpad/w3/s3f-report.md`;
   screenshots `…/scratchpad/w3/shots/s3f/`.
-- **Agent S3-T runs at the same time** (Canvas's model tools and eval): `normal-chat-tools/**`, `kind-prose.ts`, the
-  catalogue snapshots, `scripts/eval-artifact-contracts/**`. Stay out of those. You own
+- **Agent S4-V may run at the same time** on `feat/artifacts-slides` (Slides' fact check: `services/artifacts/slides/`,
+  the Slides tool entries, `scripts/eval-artifact-contracts/**`). Stay out of those. You own
   `src/lib/components/artifacts/canvas/**` and `tests/e2e/artifact-canvas*.spec.ts` this round.
+- **One shared footprint (from S3-T's report):** the model reads and is scored against a 190×84 default node size
+  (`BOARD_NODE_WIDTH` / `BOARD_DEFAULT_NODE_HEIGHT` in `normal-chat-tools/artifact-tools/canvas-model.ts`, a server
+  module). When you add `_lib/board.ts`'s geometry, define the default node size **once** in
+  `src/lib/shared/artifacts/canvas-blocks.ts` and make both `_lib/board.ts` and `canvas-model.ts` import it (that import
+  is the one edit you make under `normal-chat-tools/`), so the model's numbers and the board's never drift.
 - **Dependencies first (Fallow must come back to the 124 baseline):** S3-B installed four packages; three are not imported
   yet. Replace your `node_modules` symlink with your own `npm ci`, then remove `@xyflow/system` from `package.json`
   (redundant: `@xyflow/svelte` 1.7.0 itself depends on exactly `0.0.83`, so the pin holds) and `html-to-image` (S3-X adds
