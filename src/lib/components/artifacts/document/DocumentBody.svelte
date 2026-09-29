@@ -2878,7 +2878,7 @@ function saveNoticeText(notice: SaveNotice): string {
 	   finger's area to 44px (redesign §5.4; review 233-238). The tick's area is
 	   an invisible `::after` on the `<label>` that wraps it, exactly as the
 	   change pill does for its buttons — a tap on it reaches the box through
-	   the label. It extends 17px to the left (the list's own left padding is
+	   the label. It extends 17px to the left (the editor's own side padding is
 	   free room), 10px to the right (the text starts 10px from the box) and
 	   6.75px above / 20.25px below the 17px box: rows are 30.5px apart, so each
 	   row's area ends where the next row's begins, halfway between the two
