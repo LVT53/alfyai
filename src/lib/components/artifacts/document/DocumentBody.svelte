@@ -1167,13 +1167,7 @@ function handleRedoChange(changeId: string): void {
  * toggled from the keyboard without losing the place.
  */
 async function focusPillUndo(changeId: string): Promise<void> {
-	// A macrotask, not `tick()`: `tick()` runs Svelte's `flushSync`, which makes
-	// the workspace's `{#await}` around this body show its pending state
-	// before the (already resolved) module promise answers — tearing this whole
-	// body down and building it again (editor, caret, undo history and the
-	// pill's own state gone, reloaded from the server). By now Svelte has
-	// flushed the pill's new state on its own, and ProseMirror has drawn it.
-	await new Promise((resolve) => setTimeout(resolve, 0));
+	await tick();
 	for (const pill of documentBodyEl?.querySelectorAll<HTMLElement>(
 		"[data-change-id]",
 	) ?? []) {

@@ -399,6 +399,43 @@ test.describe("Keyboard: Alfy's change stays apart from the text history", () =>
 		expect(await text(pm)).toContain("Alpha. (Alfy edit 0)");
 	});
 
+	// After every Keep the whole Document body was rebuilt — editor, caret, undo
+	// history, pending pills — because the workspace rendered it inside an
+	// `{#await}` that shows its pending state when a `flushSync` (`tick()`, which
+	// Keep's focus move awaits) lands in the turn its expression is re-read. The
+	// reader's own undo history did not survive a Keep.
+	test("Keep does not rebuild the editor: the same element, and what the reader typed is still undoable", async ({
+		page,
+	}) => {
+		const { shell, pm } = await seedTwoChanges(page);
+		await pm.getByText("Gamma.").click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" mine");
+		expect(await text(pm)).toContain("Gamma. mine");
+		await pm.evaluate((el) => {
+			(el as HTMLElement & { __kept?: boolean }).__kept = true;
+		});
+
+		await shell
+			.getByRole("button", { name: "Keep Alfy's change" })
+			.first()
+			.click();
+		// Keep's own settle window (1.4s) and the focus move have both run.
+		await expect(shell.getByTestId("alfy-change-bar")).toHaveCount(1, {
+			timeout: 10_000,
+		});
+		await page.waitForTimeout(600);
+		expect(
+			await pm.evaluate(
+				(el) => (el as HTMLElement & { __kept?: boolean }).__kept === true,
+			),
+		).toBe(true);
+
+		// The focus is on the review bar or in the text; either way the key acts.
+		await page.keyboard.press("Control+z");
+		expect(await text(pm)).not.toContain("mine");
+	});
+
 	test("the chords are written in Hungarian on a Hungarian UI", async ({
 		page,
 	}) => {

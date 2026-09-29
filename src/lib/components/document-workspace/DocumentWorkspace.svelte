@@ -1,5 +1,5 @@
 <script lang="ts">
-import { tick } from "svelte";
+import { type Component, tick } from "svelte";
 import { browser } from "$app/environment";
 import { determinePreviewFileType } from "$lib/utils/file-preview";
 import {
@@ -27,6 +27,7 @@ import {
 	ARTIFACT_BODIES,
 	type ArtifactBodyLoader,
 	type ArtifactPanelBodyActions,
+	type ArtifactBodyProps,
 } from "$lib/components/artifacts/artifact-bodies";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import { documentArtifactCardViewFromPreview } from "$lib/components/artifacts/document/card-view";
@@ -344,6 +345,37 @@ function ensureArtifactBodyModule(
 	}
 	return cached;
 }
+
+/**
+ * The body component each kind resolved to, once its module has loaded. The
+ * body used to render inside `{#await ensureArtifactBodyModule(...)}`, and
+ * Svelte's `{#await}` shows its pending state whenever its expression is
+ * re-read and a `flushSync` (`tick()`) lands before the (already resolved)
+ * promise answers — which tore the whole body down and built it again (editor,
+ * caret, undo history, pending pills) after every Keep and any other flow that
+ * awaited `tick()`. A resolved module in state renders through a plain `{#if}`:
+ * nothing re-reads a promise, so the body outlives every re-render of the item.
+ */
+let loadedArtifactBodies = $state.raw<
+	Partial<Record<ArtifactKind, Component<ArtifactBodyProps>>>
+>({});
+$effect(() => {
+	const kind = activeArtifactKind;
+	const loader = activeArtifactBodyLoader;
+	if (!loader || loadedArtifactBodies[kind]) return;
+	let cancelled = false;
+	void ensureArtifactBodyModule(kind, loader).then((module) => {
+		if (!cancelled) {
+			loadedArtifactBodies = {
+				...loadedArtifactBodies,
+				[kind]: module.default,
+			};
+		}
+	});
+	return () => {
+		cancelled = true;
+	};
+});
 let compareMode = $state(false);
 let mobileDocumentsSheetOpen = $state(false);
 let compareDocumentId: string | null = $state(null);
@@ -1762,7 +1794,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 
 			<div class="workspace-body" data-testid="page-scroll-container-mobile">
 				{#if activeArtifactBodyLoader && shouldRenderMobilePreview}
-					{#await ensureArtifactBodyModule(activeArtifactKind, activeArtifactBodyLoader) then { default: ArtifactBody }}
+					{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
+					{#if ArtifactBody}
 						<ArtifactBody
 							artifactId={activeDocument.artifactId ?? activeDocument.id}
 							kind={activeArtifactKind}
@@ -1782,7 +1815,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 							{currentUser}
 						/>
-					{/await}
+					{/if}
 				{:else if compareMode && comparedDocument}
 					<div class="workspace-compare">
 					<div class="workspace-compare-header">
@@ -2077,7 +2110,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 
 	<div class="workspace-body" data-testid="page-scroll-container">
 		{#if activeArtifactBodyLoader && shouldRenderDesktopPreview}
-			{#await ensureArtifactBodyModule(activeArtifactKind, activeArtifactBodyLoader) then { default: ArtifactBody }}
+			{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
+			{#if ArtifactBody}
 				<ArtifactBody
 					artifactId={activeDocument.artifactId ?? activeDocument.id}
 					kind={activeArtifactKind}
@@ -2097,7 +2131,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 					{currentUser}
 				/>
-			{/await}
+			{/if}
 		{:else if compareMode && comparedDocument}
 			<div class="workspace-compare">
 				<div class="workspace-compare-header">
