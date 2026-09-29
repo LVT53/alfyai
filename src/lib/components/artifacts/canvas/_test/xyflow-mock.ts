@@ -1,7 +1,7 @@
 /**
- * What a node-component test puts in place of `@xyflow/svelte`: stub
- * components for the three pieces that need a live flow, the position names,
- * and a `useSvelteFlow` whose two mutators are spies. Used as
+ * What a node-component test puts in place of `@xyflow/svelte`: stub components
+ * for the three pieces that need a live flow, the position names, and a
+ * `useSvelteFlow` whose two mutators are spies. Used as
  * `vi.mock("@xyflow/svelte", async () => (await import("../_test/xyflow-mock")).xyflowMock())`.
  */
 import { vi } from "vitest";

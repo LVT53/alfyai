@@ -8,7 +8,7 @@ import { TEXT_MAX_CHARS } from "$lib/shared/artifacts/canvas-blocks";
 import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasBoardContext } from "../_lib/board-context";
 import WithBoard from "../_test/WithBoard.svelte";
-import { flowSpies } from "../_test/xyflow-mock";
+import { flowSpies, xyflowMock } from "../_test/xyflow-mock";
 import ChartNode from "./ChartNode.svelte";
 import ChecklistNode from "./ChecklistNode.svelte";
 import FrameNode from "./FrameNode.svelte";
@@ -53,6 +53,41 @@ const stickyProps = (extra: Record<string, unknown> = {}) => ({
 beforeEach(() => {
 	vi.clearAllMocks();
 	uiLanguage.set("en");
+});
+
+// The nodes are drawn here against a stand-in for the flow library, so the
+// stand-in has to offer everything the shell and the nodes ask the library for:
+// a new import in one of them that the stand-in lacks would show as "x is not a
+// function" deep inside a render, instead of here.
+describe("the flow stand-in", () => {
+	it("offers every name the shell and the nodes import from the flow library", () => {
+		const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+		const files = [
+			path.join(root, "NodeShell.svelte"),
+			...readdirSync(path.join(root, "nodes"))
+				.filter((name) => name.endsWith(".svelte"))
+				.map((name) => path.join(root, "nodes", name)),
+		];
+		const wanted = new Set<string>();
+		for (const file of files) {
+			const source = readFileSync(file, "utf8");
+			for (const match of source.matchAll(
+				/import\s*\{([^}]*)\}\s*from\s*"@xyflow\/svelte"/g,
+			)) {
+				for (const part of match[1].split(",")) {
+					const name = part
+						.trim()
+						.replace(/^type\s+/, "")
+						.split(/\s+as\s+/)[0];
+					if (name && !part.trim().startsWith("type ")) wanted.add(name);
+				}
+			}
+		}
+		expect(wanted.size).toBeGreaterThan(3);
+		expect(Object.keys(xyflowMock())).toEqual(
+			expect.arrayContaining([...wanted]),
+		);
+	});
 });
 
 describe("the node shell around a block", () => {

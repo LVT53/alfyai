@@ -37,7 +37,6 @@ const labelSchema = z.string().max(LABEL_MAX_CHARS);
 // ── Shared pieces ────────────────────────────────────────────────────────
 
 export const STICKY_TONES = ["yellow", "mint", "blue", "plain"] as const;
-export type StickyTone = (typeof STICKY_TONES)[number];
 const stickyToneSchema = z.enum(STICKY_TONES);
 
 /** A poster is a generated PNG file, produced by the existing chat-files storage. */

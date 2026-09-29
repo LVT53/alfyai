@@ -18,7 +18,7 @@ import type {
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { metaFor } from "./block-meta";
 
-export type Camera = CanvasBody["viewport"];
+type Camera = CanvasBody["viewport"];
 
 /** Where a board that was never panned or zoomed looks from; a board with nodes and no other camera is fitted on open. */
 export const DEFAULT_CAMERA: Camera = { x: 0, y: 0, zoom: 1 };
@@ -26,7 +26,7 @@ export const DEFAULT_CAMERA: Camera = { x: 0, y: 0, zoom: 1 };
 /** A node as Svelte Flow is handed it: the live node plus the fields the library reads. */
 export type FlowNode = CanvasNode & { dragHandle?: string; style?: string };
 
-export type BoardState = {
+type BoardState = {
 	nodes: readonly CanvasNode[];
 	edges: readonly CanvasEdge[];
 	viewport: Camera;

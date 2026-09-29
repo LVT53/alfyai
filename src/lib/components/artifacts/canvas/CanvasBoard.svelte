@@ -45,7 +45,7 @@ import { t } from "$lib/i18n";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import type { Annotation, CanvasBody } from "$lib/shared/artifacts/canvas";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
-import { createBoardHistory } from "./_lib/board-history";
+import { type BoardHistory, createBoardHistory } from "./_lib/board-history";
 import { provideBoardContext } from "./_lib/board-context";
 import {
 	bodyOfState,
@@ -101,7 +101,7 @@ let tool = $state<BoardTool>("select");
 let coarsePointer = $state(false);
 let announcement = $state("");
 
-const history = createBoardHistory();
+const history: BoardHistory = createBoardHistory();
 let canUndo = $state(false);
 let canRedo = $state(false);
 let committedJson = structuralJson(snapshot());

@@ -416,6 +416,14 @@ test.describe("the Canvas kind, in the panel", () => {
 				{ id: "i2", done: true },
 			],
 		});
+		// The block this build cannot draw (a map) came through the save untouched.
+		expect(
+			stored.nodes.find((node) => node.id === BOARD.map)?.data,
+		).toMatchObject({
+			kind: "map",
+			route: "Vienna to Salzburg",
+		});
+		expect(stored.nodes).toHaveLength(6);
 
 		await page.reload({ waitUntil: "networkidle" });
 		await openCanvasPanel(page);
