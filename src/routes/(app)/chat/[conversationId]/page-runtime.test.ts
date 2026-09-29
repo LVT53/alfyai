@@ -1277,6 +1277,236 @@ describe("chat page runtime integration", () => {
 		}
 	});
 
+	// Polish G2-A: "edited 2 min ago" (the header's meta line) and the list
+	// row's time were still the snapshot taken when the item was loaded or
+	// opened. They follow the same announcements the version does.
+	it("keeps the header's edit time and the list row's time on the last change the browser heard about", async () => {
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		const { ARTIFACT_BODIES } = await import(
+			"$lib/components/artifacts/artifact-bodies"
+		);
+		const { saveArtifactBody } = await import("$lib/client/api/artifacts");
+		ARTIFACT_BODIES.document = () =>
+			import(
+				"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+			);
+		try {
+			renderPage(
+				pageData({
+					artifacts: [
+						{
+							id: "doc-1",
+							kind: "document",
+							title: "Vienna trip plan",
+							conversationId: "conv-1",
+							versionNumber: 1,
+							commentCount: 0,
+							// Three hours ago.
+							updatedAt: Date.now() - 3 * 60 * 60 * 1000,
+						},
+					],
+				}),
+			);
+
+			await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+			const list = await screen.findByTestId("artifact-panel-list");
+			expect(within(list).getByTestId("artifact-row")).toHaveTextContent(
+				"3 h ago",
+			);
+			await fireEvent.click(within(list).getByTestId("artifact-row"));
+			const shell = await screen.findByRole("complementary", {
+				name: "Document workspace",
+			});
+			await waitFor(() => {
+				expect(shell).toHaveTextContent("edited 3 h ago");
+			});
+
+			// A save, somewhere in the panel, is acknowledged.
+			await saveArtifactBody(
+				"doc-1",
+				"New text.",
+				1,
+				"conv-1",
+				vi.fn(
+					async () =>
+						new Response(JSON.stringify({ ok: true, version: 2 }), {
+							headers: { "Content-Type": "application/json" },
+						}),
+				),
+			);
+			await waitFor(() => {
+				expect(shell).toHaveTextContent("edited just now");
+			});
+
+			await fireEvent.click(
+				within(shell).getByRole("button", { name: /This chat/ }),
+			);
+			const listAgain = await screen.findByTestId("artifact-panel-list");
+			expect(within(listAgain).getByTestId("artifact-row")).toHaveTextContent(
+				"just now",
+			);
+		} finally {
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
+	// Polish G2-A: Delete for what is open in the panel. The page deletes; the
+	// panel goes back to the list without the item, the count follows, and a
+	// short toast says so. (What the chat cards do with the deletion is the
+	// next test.)
+	it("deletes the open item from the panel header, returns to the list without it and says so", async () => {
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		const { ARTIFACT_BODIES } = await import(
+			"$lib/components/artifacts/artifact-bodies"
+		);
+		const { toasts, clearToasts } = await import("$lib/stores/toast");
+		clearToasts();
+		ARTIFACT_BODIES.document = () =>
+			import(
+				"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+			);
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				new Response(JSON.stringify({ ok: true }), {
+					headers: { "Content-Type": "application/json" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			renderPage(
+				pageData({
+					artifacts: [
+						{
+							id: "doc-1",
+							kind: "document",
+							title: "Vienna trip plan",
+							conversationId: "conv-1",
+							versionNumber: 1,
+							commentCount: 0,
+							updatedAt: Date.now(),
+						},
+						{
+							id: "doc-2",
+							kind: "document",
+							title: "Packing list",
+							conversationId: "conv-1",
+							versionNumber: 1,
+							commentCount: 0,
+							updatedAt: Date.now() - 1000,
+						},
+					],
+				}),
+			);
+
+			const countButton = await screen.findByTestId("artifact-count-button");
+			await fireEvent.click(countButton);
+			const list = await screen.findByTestId("artifact-panel-list");
+			// The newest row first: Vienna trip plan.
+			await fireEvent.click(within(list).getAllByTestId("artifact-row")[0]);
+			const shell = await screen.findByRole("complementary", {
+				name: "Document workspace",
+			});
+			await fireEvent.click(
+				await within(shell).findByRole("button", { name: "Delete document" }),
+			);
+			const dialog = await screen.findByRole("dialog", {
+				name: "Delete this document?",
+			});
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Delete" }),
+			);
+
+			await waitFor(() => {
+				expect(fetchMock).toHaveBeenCalledWith(
+					"/api/artifacts/doc-1?conversationId=conv-1",
+					{ method: "DELETE" },
+				);
+			});
+			const listAfter = await screen.findByTestId("artifact-panel-list");
+			expect(
+				within(listAfter).queryByText("Vienna trip plan"),
+			).not.toBeInTheDocument();
+			expect(within(listAfter).getByText("Packing list")).toBeInTheDocument();
+			expect(countButton).toHaveAccessibleName(/\(1\)/);
+			expect(get(toasts).map((toast) => toast.message)).toContain(
+				"Document deleted",
+			);
+		} finally {
+			vi.unstubAllGlobals();
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
+	it("closes the panel when the item just deleted was the only one", async () => {
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		const { ARTIFACT_BODIES } = await import(
+			"$lib/components/artifacts/artifact-bodies"
+		);
+		ARTIFACT_BODIES.document = () =>
+			import(
+				"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+			);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ ok: true }), {
+						headers: { "Content-Type": "application/json" },
+					}),
+			),
+		);
+		try {
+			renderPage(
+				pageData({
+					artifacts: [
+						{
+							id: "doc-1",
+							kind: "document",
+							title: "Vienna trip plan",
+							conversationId: "conv-1",
+							versionNumber: 1,
+							commentCount: 0,
+							updatedAt: Date.now(),
+						},
+					],
+				}),
+			);
+
+			await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+			const list = await screen.findByTestId("artifact-panel-list");
+			await fireEvent.click(within(list).getByTestId("artifact-row"));
+			const shell = await screen.findByRole("complementary", {
+				name: "Document workspace",
+			});
+			await fireEvent.click(
+				await within(shell).findByRole("button", { name: "Delete document" }),
+			);
+			const dialog = await screen.findByRole("dialog", {
+				name: "Delete this document?",
+			});
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Delete" }),
+			);
+
+			await waitFor(() => {
+				expect(screen.queryByTestId("workspace-main")).not.toBeInTheDocument();
+			});
+			expect(screen.queryByTestId("artifact-count-button")).toBeNull();
+		} finally {
+			vi.unstubAllGlobals();
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
 	it("drains a queued follow-up after polling reconciles a waiting stream completion", async () => {
 		let resolveDetail: (
 			value:

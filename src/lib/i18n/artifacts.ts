@@ -93,6 +93,38 @@ const artifactsDict = {
 		"artifacts.card.creatingSubtitle": "Alfy is writing…",
 		"artifacts.card.failedTitle": "Alfy couldn't make this.",
 		// The five kinds.
+		// Delete (polish G2-A): the panel header's and the list row's Delete, and
+		// its confirm. Every string names the KIND (ADR-0066) — never the
+		// engineering word — and each kind is its own key because Hungarian
+		// takes a different article and ending per noun.
+		"artifacts.delete.button.document": "Delete document",
+		"artifacts.delete.button.app": "Delete app",
+		"artifacts.delete.button.canvas": "Delete canvas",
+		"artifacts.delete.button.slides": "Delete slides",
+		"artifacts.delete.button.file": "Delete file",
+		"artifacts.delete.title.document": "Delete this document?",
+		"artifacts.delete.title.app": "Delete this app?",
+		"artifacts.delete.title.canvas": "Delete this canvas?",
+		"artifacts.delete.title.slides": "Delete these slides?",
+		"artifacts.delete.title.file": "Delete this file?",
+		"artifacts.delete.body.document":
+			"“{title}” and its versions and comments will be deleted. This can't be undone.",
+		"artifacts.delete.body.app":
+			"“{title}” and its saved data will be deleted. This can't be undone.",
+		"artifacts.delete.body.canvas":
+			"“{title}” and its versions and comments will be deleted. This can't be undone.",
+		"artifacts.delete.body.slides":
+			"“{title}” and its versions and comments will be deleted. This can't be undone.",
+		"artifacts.delete.body.file":
+			"“{title}” will be deleted. This can't be undone.",
+		"artifacts.delete.busy": "Deleting…",
+		"artifacts.delete.failed": "Couldn't delete this. Try again.",
+		"artifacts.delete.done.document": "Document deleted",
+		"artifacts.delete.done.app": "App deleted",
+		"artifacts.delete.done.canvas": "Canvas deleted",
+		"artifacts.delete.done.slides": "Slides deleted",
+		"artifacts.delete.done.file": "File deleted",
+		"artifacts.delete.rowMenu": "More actions for {title}",
 		"artifacts.type.file": "File",
 		"artifacts.type.document": "Document",
 		"artifacts.type.app": "App",
@@ -517,6 +549,33 @@ const artifactsDict = {
 		"artifacts.card.moreItems": "+{count} további",
 		"artifacts.card.creatingSubtitle": "Alfy éppen ír…",
 		"artifacts.card.failedTitle": "Alfynak ezt nem sikerült elkészítenie.",
+		"artifacts.delete.button.document": "Dokumentum törlése",
+		"artifacts.delete.button.app": "Alkalmazás törlése",
+		"artifacts.delete.button.canvas": "Tábla törlése",
+		"artifacts.delete.button.slides": "Diasor törlése",
+		"artifacts.delete.button.file": "Fájl törlése",
+		"artifacts.delete.title.document": "Törlöd ezt a dokumentumot?",
+		"artifacts.delete.title.app": "Törlöd ezt az alkalmazást?",
+		"artifacts.delete.title.canvas": "Törlöd ezt a táblát?",
+		"artifacts.delete.title.slides": "Törlöd ezt a diasort?",
+		"artifacts.delete.title.file": "Törlöd ezt a fájlt?",
+		"artifacts.delete.body.document":
+			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.app":
+			"„{title}” és a mentett adatai törlődnek. Ez nem vonható vissza.",
+		"artifacts.delete.body.canvas":
+			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.slides":
+			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.file": "„{title}” törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.busy": "Törlés…",
+		"artifacts.delete.failed": "Nem sikerült törölni. Próbáld újra.",
+		"artifacts.delete.done.document": "Dokumentum törölve",
+		"artifacts.delete.done.app": "Alkalmazás törölve",
+		"artifacts.delete.done.canvas": "Tábla törölve",
+		"artifacts.delete.done.slides": "Diasor törölve",
+		"artifacts.delete.done.file": "Fájl törölve",
+		"artifacts.delete.rowMenu": "További műveletek: {title}",
 		"artifacts.type.file": "Fájl",
 		"artifacts.type.document": "Dokumentum",
 		"artifacts.type.app": "Alkalmazás",

@@ -2272,3 +2272,220 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		});
 	});
 });
+
+// Polish G2-A: Delete for whatever is open in the panel — from the header, and
+// from each list row's overflow. The workspace only asks and reports (the
+// page deletes); a finished delete goes back to the list, or closes the panel
+// when nothing is left to list.
+describe("DocumentWorkspace Delete (polish G2-A)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		global.fetch = vi.fn();
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeArtifactBody.svelte");
+	});
+
+	afterEach(() => {
+		delete ARTIFACT_BODIES.document;
+	});
+
+	const document1 = () =>
+		makeWorkspaceDocument({
+			id: "artifact:doc-1",
+			artifactId: "doc-1",
+			kind: "document",
+			title: "Vienna trip plan",
+			versionNumber: 2,
+			mimeType: null,
+		});
+
+	async function desktopShell() {
+		return (
+			await screen.findAllByRole("complementary", {
+				name: "Document workspace",
+			})
+		)[0];
+	}
+
+	it("offers Delete in the header of an open item, only when the page can delete", async () => {
+		renderWorkspace({
+			documents: [document1()],
+			activeDocumentId: "artifact:doc-1",
+		});
+		await screen.findByTestId("fake-artifact-body");
+		const shell = await desktopShell();
+		expect(
+			within(shell).queryByRole("button", { name: "Delete document" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("asks first, then deletes the open item and goes back to the list", async () => {
+		const onDeleteArtifact = vi.fn(async () => {});
+		const onListOpenChange = vi.fn();
+		const item = document1();
+		renderWorkspace({
+			documents: [item],
+			activeDocumentId: item.id,
+			list: {
+				open: false,
+				items: [
+					item,
+					makeWorkspaceDocument({
+						id: "artifact:doc-2",
+						artifactId: "doc-2",
+						kind: "document",
+						title: "Other",
+					}),
+				],
+			},
+			onDeleteArtifact,
+			onListOpenChange,
+		});
+		await screen.findByTestId("fake-artifact-body");
+		const shell = await desktopShell();
+
+		await fireEvent.click(
+			within(shell).getByRole("button", { name: "Delete document" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this document?",
+		});
+		expect(onDeleteArtifact).not.toHaveBeenCalled();
+
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => expect(onDeleteArtifact).toHaveBeenCalledWith(item));
+		await waitFor(() => expect(onListOpenChange).toHaveBeenCalledWith(true));
+	});
+
+	it("closes the panel instead when the deleted item was the last one", async () => {
+		const onDeleteArtifact = vi.fn(async () => {});
+		const onListOpenChange = vi.fn();
+		const onCloseWorkspace = vi.fn();
+		const item = document1();
+		renderWorkspace({
+			documents: [item],
+			activeDocumentId: item.id,
+			// The page has already dropped the deleted row by the time the
+			// delete resolves: nothing is left to list.
+			list: { open: false, items: [] },
+			onDeleteArtifact,
+			onListOpenChange,
+			onCloseWorkspace,
+		});
+		await screen.findByTestId("fake-artifact-body");
+		const shell = await desktopShell();
+
+		await fireEvent.click(
+			within(shell).getByRole("button", { name: "Delete document" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this document?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => expect(onCloseWorkspace).toHaveBeenCalled());
+		expect(onListOpenChange).not.toHaveBeenCalledWith(true);
+	});
+
+	it("keeps the item when the delete fails, and says so", async () => {
+		const onDeleteArtifact = vi.fn(async () => {
+			throw new Error("boom");
+		});
+		const onCloseWorkspace = vi.fn();
+		renderWorkspace({
+			documents: [document1()],
+			activeDocumentId: "artifact:doc-1",
+			list: { open: false, items: [document1()] },
+			onDeleteArtifact,
+			onCloseWorkspace,
+		});
+		await screen.findByTestId("fake-artifact-body");
+		const shell = await desktopShell();
+
+		await fireEvent.click(
+			within(shell).getByRole("button", { name: "Delete document" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this document?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		expect((await within(dialog).findByRole("alert")).textContent).toBe(
+			"Couldn't delete this. Try again.",
+		);
+		expect(onCloseWorkspace).not.toHaveBeenCalled();
+	});
+
+	it("gives each list row an overflow that leads to the same confirm, for that row's item", async () => {
+		const onDeleteArtifact = vi.fn(async () => {});
+		const rows = [
+			makeWorkspaceDocument({
+				id: "artifact:doc-1",
+				artifactId: "doc-1",
+				kind: "document",
+				title: "Vienna itinerary",
+			}),
+			makeWorkspaceDocument({
+				id: "artifact:app-1",
+				artifactId: "app-1",
+				kind: "app",
+				title: "Trip budget",
+			}),
+		];
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+			activeDocumentId: "doc-x",
+			list: { open: true, items: rows },
+			onDeleteArtifact,
+		});
+		const list = await screen.findByTestId("artifact-panel-list");
+
+		await fireEvent.click(
+			within(list).getByRole("button", {
+				name: "More actions for Trip budget",
+			}),
+		);
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Delete app" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this app?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => expect(onDeleteArtifact).toHaveBeenCalledWith(rows[1]));
+		expect(onDeleteArtifact).toHaveBeenCalledTimes(1);
+	});
+
+	it("draws no overflow when the page cannot delete", async () => {
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+			activeDocumentId: "doc-x",
+			list: {
+				open: true,
+				items: [
+					makeWorkspaceDocument({
+						id: "artifact:doc-1",
+						artifactId: "doc-1",
+						kind: "document",
+						title: "Vienna itinerary",
+					}),
+				],
+			},
+		});
+		const list = await screen.findByTestId("artifact-panel-list");
+		expect(
+			within(list).queryByRole("button", { name: /More actions/ }),
+		).not.toBeInTheDocument();
+	});
+});

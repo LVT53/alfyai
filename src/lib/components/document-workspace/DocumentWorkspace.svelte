@@ -20,6 +20,7 @@ import { hasOpenDialog } from "$lib/components/ui/DialogShell.svelte";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
+import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
@@ -43,6 +44,8 @@ import {
 	Link,
 	LayoutGrid,
 	History,
+	MoreHorizontal,
+	Trash2,
 } from "@lucide/svelte";
 
 type DocumentPreviewRendererModule =
@@ -80,6 +83,7 @@ let {
 	onPresentationChange = undefined,
 	onListOpenChange = undefined,
 	onPendingReviewCountChange = undefined,
+	onDeleteArtifact = undefined,
 	currentUser = null,
 }: {
 	open?: boolean;
@@ -118,6 +122,16 @@ let {
 	 */
 	onPendingReviewCountChange?:
 		| ((artifactId: string, count: number) => void)
+		| undefined;
+	/**
+	 * Polish G2-A: deletes an item for good — the page's own call (it owns the
+	 * conversation and what a deletion changes), which rejects when the item is
+	 * still there. Its presence is what turns Delete on: the header's trash
+	 * button for whatever is open, and an overflow on each list row. A host that
+	 * passes nothing (the Knowledge page, which has its own Delete) shows none.
+	 */
+	onDeleteArtifact?:
+		| ((item: DocumentWorkspaceItem) => Promise<void>)
 		| undefined;
 	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
 	currentUser?: {
@@ -254,7 +268,40 @@ $effect(() => {
 	bodyPanelActions = null;
 	documentOpenCommentCount = 0;
 	documentCommentsShown = false;
+	deleteConfirmOpen = false;
 });
+
+// Polish G2-A (Delete): whether the header's confirm is open, and which list
+// row's overflow is (one at a time — a row id, null when none).
+let deleteConfirmOpen = $state(false);
+let rowMenuOpenId = $state<string | null>(null);
+
+/** Whether an item can be deleted from here: the page can delete, and it is one of the family's own kinds (a produced file's delete is the file's own). */
+function canDeleteItem(item: DocumentWorkspaceItem): boolean {
+	return Boolean(
+		onDeleteArtifact && item.artifactId && item.kind && item.kind !== "file",
+	);
+}
+
+/** Header Delete, confirmed: the page deletes; then back to the list — or out of the panel when nothing is left to list. */
+async function deleteOpenItem(item: DocumentWorkspaceItem): Promise<void> {
+	await onDeleteArtifact?.(item);
+	if ((list?.items.length ?? 0) > 0) {
+		handleBackToList();
+		return;
+	}
+	onCloseWorkspace();
+}
+
+/** A list row's Delete, confirmed. The row is gone afterwards, and so is the button that had focus: put focus back on the list. */
+async function deleteFromList(item: DocumentWorkspaceItem): Promise<void> {
+	await onDeleteArtifact?.(item);
+	await tick();
+	const shell = desktopShellElement ?? mobileShellElement;
+	shell
+		?.querySelector<HTMLElement>('[data-testid="artifact-panel-list-title"]')
+		?.focus();
+}
 
 // One cached module promise per kind, mirroring
 // ensureDocumentPreviewRendererModule below: a loader runs at most once no
@@ -1202,11 +1249,34 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				<ul class="artifact-panel-list-rows">
 					{#each list.items as item (item.id)}
 						<li>
-							<ArtifactCard
-								view={artifactCardViewFor(item)}
-								chrome="row"
-								onOpen={() => selectFromList(item)}
-							/>
+							{#if canDeleteItem(item)}
+								<ArtifactCard
+									view={artifactCardViewFor(item)}
+									chrome="row"
+									onOpen={() => selectFromList(item)}
+								>
+									{#snippet rowMenu()}
+										{@const menuLabel = $t('artifacts.delete.rowMenu', { title: getDocumentTitle(item) })}
+										<button
+											type="button"
+											class="btn-icon-bare artifact-row-menu-button"
+											data-testid={`artifact-row-menu-${item.id}`}
+											aria-haspopup="menu"
+											aria-label={menuLabel}
+											title={menuLabel}
+											onclick={() => (rowMenuOpenId = item.id)}
+										>
+											<MoreHorizontal size={18} strokeWidth={2} aria-hidden="true" />
+										</button>
+									{/snippet}
+								</ArtifactCard>
+							{:else}
+								<ArtifactCard
+									view={artifactCardViewFor(item)}
+									chrome="row"
+									onOpen={() => selectFromList(item)}
+								/>
+							{/if}
 						</li>
 					{/each}
 				</ul>
@@ -1230,7 +1300,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				<div class="workspace-heading">
 					<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
 					<div class="workspace-title-row">
-						<div class="workspace-title">
+						<div class="workspace-title" data-testid="artifact-panel-list-title" tabindex="-1">
 							<span>{list.title ?? $t('artifacts.panel.title')}</span>
 						</div>
 						<div class="workspace-header-actions">
@@ -1267,7 +1337,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				<div class="workspace-heading">
 					<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
 					<div class="workspace-title-row">
-						<div class="workspace-title">
+						<div class="workspace-title" data-testid="artifact-panel-list-title" tabindex="-1">
 							<span>{list.title ?? $t('artifacts.panel.title')}</span>
 						</div>
 						<div class="workspace-header-actions">
@@ -1294,6 +1364,19 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			</div>
 		</div>
 	</aside>
+	{#if rowMenuOpenId}
+		{@const menuItem = list.items.find((candidate) => candidate.id === rowMenuOpenId)}
+		{#if menuItem && canDeleteItem(menuItem)}
+			<ArtifactDeletePopover
+				kind={menuItem.kind ?? 'file'}
+				title={getDocumentTitle(menuItem)}
+				anchorTestId={`artifact-row-menu-${menuItem.id}`}
+				initialStage="menu"
+				onConfirm={() => deleteFromList(menuItem)}
+				onClose={() => (rowMenuOpenId = null)}
+			/>
+		{/if}
+	{/if}
 {:else if shouldRender && activeDocument}
 	{#snippet atlasDownloadControl(document: DocumentWorkspaceItem)}
 		{#if isAtlasOutputDocument(document)}
@@ -1447,6 +1530,20 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			</button>
 		{:else}
 			{@render atlasDownloadControl(activeDocument)}
+		{/if}
+		{#if canDeleteItem(activeDocument)}
+			{@const deleteLabel = $t(`artifacts.delete.button.${activeArtifactKind}` as I18nKey)}
+			<button
+				type="button"
+				class="btn-icon-bare workspace-delete-button"
+				data-testid="artifact-delete-button"
+				onclick={() => (deleteConfirmOpen = true)}
+				aria-haspopup="dialog"
+				aria-label={deleteLabel}
+				title={deleteLabel}
+			>
+				<Trash2 size={18} strokeWidth={2} aria-hidden="true" />
+			</button>
 		{/if}
 		{#if showPresentationToggle && presentation !== "expanded"}
 			<span class="artifact-panel-header-actions-div" aria-hidden="true"></span>
@@ -2067,6 +2164,16 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	</div>
 	</div>
 </aside>
+{#if deleteConfirmOpen && canDeleteItem(activeDocument)}
+	{@const deletingItem = activeDocument}
+	<ArtifactDeletePopover
+		kind={activeArtifactKind}
+		title={getDocumentTitle(deletingItem)}
+		anchorTestId="artifact-delete-button"
+		onConfirm={() => deleteOpenItem(deletingItem)}
+		onClose={() => (deleteConfirmOpen = false)}
+	/>
+{/if}
 {/if}
 
 <style>
@@ -2965,6 +3072,33 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		height: 1.125rem;
 		margin: 0 0.25rem;
 		background: var(--border-default);
+	}
+
+	/* Polish G2-A: the row's overflow and the header's trash button. */
+	.artifact-row-menu-button {
+		display: grid;
+		place-items: center;
+		width: 2rem;
+		height: 2rem;
+		border-radius: var(--radius-md);
+		color: var(--icon-muted);
+	}
+
+	.artifact-row-menu-button:hover,
+	.artifact-row-menu-button:global([aria-expanded='true']) {
+		background: var(--surface-elevated);
+		color: var(--text-primary);
+	}
+
+	.workspace-delete-button:hover {
+		color: var(--danger);
+	}
+
+	@media (hover: none) and (pointer: coarse) {
+		.artifact-row-menu-button {
+			width: 44px;
+			height: 44px;
+		}
 	}
 
 	.artifact-panel-list-body {

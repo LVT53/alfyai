@@ -2,6 +2,7 @@
 import { get, writable } from "svelte/store";
 import { onMount, onDestroy, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
+import { showToast } from "$lib/stores/toast";
 import { page } from "$app/state";
 import { goto, invalidate, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
@@ -42,14 +43,23 @@ import {
 } from "$lib/client/api/skills";
 import { updateInstructionSuggestionStatus } from "$lib/client/api/conversations";
 import {
-	subscribeArtifactVersions,
+	deleteArtifact as deleteArtifactRequest,
+	subscribeArtifactChanges,
 	toggleDocumentTask,
 } from "$lib/client/api/artifacts";
 import {
+	dropDeletedArtifacts,
+	forgetObservedArtifact,
+	markArtifactDeleted,
+	NO_OBSERVED_ARTIFACT_TIMES,
 	NO_OBSERVED_ARTIFACT_VERSIONS,
+	type ObservedArtifactTimes,
 	type ObservedArtifactVersions,
+	observeArtifactUpdatedAt,
 	observeArtifactVersion,
+	withCurrentItemUpdatedAt,
 	withCurrentItemVersion,
+	withCurrentSummaryUpdatedAt,
 	withCurrentSummaryVersion,
 } from "$lib/client/artifact-versions";
 import { ApiError } from "$lib/client/api/http";
@@ -245,6 +255,7 @@ const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
 const initialArtifacts = getData().artifacts ?? [];
+const initialDeletedArtifactIds = getData().deletedArtifactIds ?? [];
 const initialAtlasJobs = getData().atlasJobs ?? [];
 const initialPendingWrites = getData().pendingWrites ?? [];
 const initialContextCompressionSnapshots =
@@ -543,9 +554,22 @@ let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
 let observedArtifactVersions = $state.raw<ObservedArtifactVersions>(
 	NO_OBSERVED_ARTIFACT_VERSIONS,
 );
+// Polish G2-A: the same for WHEN an artifact last changed (the header's
+// "edited 2 min ago" and the list row's time), and for what was deleted — the
+// ids the server says this chat's cards point at that no longer exist, plus
+// the ones this browser deletes (or finds gone) while the page is open.
+let observedArtifactTimes = $state.raw<ObservedArtifactTimes>(
+	NO_OBSERVED_ARTIFACT_TIMES,
+);
+let deletedArtifactIds = $state.raw<readonly string[]>(
+	initialDeletedArtifactIds,
+);
 let liveArtifacts = $derived(
-	artifacts.map((row) =>
-		withCurrentSummaryVersion(row, observedArtifactVersions),
+	dropDeletedArtifacts(artifacts, deletedArtifactIds).map((row) =>
+		withCurrentSummaryUpdatedAt(
+			withCurrentSummaryVersion(row, observedArtifactVersions),
+			observedArtifactTimes,
+		),
 	),
 );
 let artifactListOpen = $state(false);
@@ -1151,9 +1175,15 @@ let artifactWorkspaceItems = $derived(
 let currentArtifactVersionById = $derived(
 	new Map(liveArtifacts.map((row) => [row.id, row.versionNumber])),
 );
+let currentArtifactUpdatedAtById = $derived(
+	new Map(liveArtifacts.map((row) => [row.id, row.updatedAt])),
+);
 let liveWorkspaceDocuments = $derived(
 	workspaceDocuments.map((document) =>
-		withCurrentItemVersion(document, currentArtifactVersionById),
+		withCurrentItemUpdatedAt(
+			withCurrentItemVersion(document, currentArtifactVersionById),
+			currentArtifactUpdatedAtById,
+		),
 	),
 );
 
@@ -1332,6 +1362,48 @@ function closeWorkspaceDocument(documentId: string) {
 	workspaceDocuments = result.documents;
 	activeWorkspaceDocumentId = result.activeDocumentId;
 	workspaceOpen = result.isOpen;
+}
+
+/**
+ * An artifact is gone — this browser deleted it, or found the server has no
+ * such item any more (`subscribeArtifactChanges`): forget what was heard about
+ * it, drop its row (the count and the list follow), remember it as deleted so
+ * the chat cards that point at it say so, and close it if it is open. A copy
+ * made later under the same id (Regenerate) starts from its own numbers.
+ */
+function handleArtifactDeleted(artifactId: string) {
+	observedArtifactVersions = forgetObservedArtifact(
+		observedArtifactVersions,
+		artifactId,
+	);
+	observedArtifactTimes = forgetObservedArtifact(
+		observedArtifactTimes,
+		artifactId,
+	);
+	deletedArtifactIds = markArtifactDeleted(deletedArtifactIds, artifactId);
+	artifacts = artifacts.filter((row) => row.id !== artifactId);
+	for (const document of workspaceDocuments.filter(
+		(entry) => entry.artifactId === artifactId,
+	)) {
+		closeWorkspaceDocument(document.id);
+	}
+}
+
+/**
+ * The panel's Delete (header and list rows): the server removes the item —
+ * the announcement it makes reaches `handleArtifactDeleted` above — and a
+ * short toast says so. A failure throws, so the confirm stays open and says
+ * it could not.
+ */
+async function handleDeleteArtifact(
+	item: DocumentWorkspaceItem,
+): Promise<void> {
+	if (!item.artifactId) return;
+	await deleteArtifactRequest(item.artifactId, data.conversation.id);
+	showToast({
+		type: "success",
+		message: get(t)(`artifacts.delete.done.${item.kind ?? "file"}` as I18nKey),
+	});
 }
 
 function closeWorkspace() {
@@ -1568,6 +1640,7 @@ function resetState() {
 	generatedFiles = data.generatedFiles ?? [];
 	fileProductionJobs = data.fileProductionJobs ?? [];
 	artifacts = data.artifacts ?? [];
+	deletedArtifactIds = data.deletedArtifactIds ?? [];
 	atlasJobs = data.atlasJobs ?? [];
 	pendingWrites = data.pendingWrites ?? [];
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
@@ -1686,6 +1759,9 @@ function applyConversationDetailMetadata(
 	}
 	if (detail.artifacts) {
 		artifacts = [...detail.artifacts];
+	}
+	if (detail.deletedArtifactIds) {
+		deletedArtifactIds = [...detail.deletedArtifactIds];
 	}
 	if (detail.atlasJobs) {
 		atlasJobs = [...detail.atlasJobs];
@@ -1877,11 +1953,20 @@ onMount(() => {
 // One version number everywhere (see `observedArtifactVersions`): a save, an
 // Alfy edit, an Undo or a restore anywhere in the panel reaches every surface.
 onMount(() =>
-	subscribeArtifactVersions((artifactId, version) => {
+	subscribeArtifactChanges((change) => {
+		if (change.type === "deleted") {
+			handleArtifactDeleted(change.artifactId);
+			return;
+		}
 		observedArtifactVersions = observeArtifactVersion(
 			observedArtifactVersions,
-			artifactId,
-			version,
+			change.artifactId,
+			change.version,
+		);
+		observedArtifactTimes = observeArtifactUpdatedAt(
+			observedArtifactTimes,
+			change.artifactId,
+			change.updatedAt,
 		);
 	}),
 );
@@ -1959,6 +2044,7 @@ async function hydrateConversationDetail(conversationId: string) {
 			// buildEnrichedToolActivityItem derives the card's `preview` from
 			// exactly this array.
 			artifacts = payload.artifacts ?? artifacts;
+			deletedArtifactIds = payload.deletedArtifactIds ?? deletedArtifactIds;
 			atlasJobs = payload.atlasJobs ?? atlasJobs;
 			contextCompressionMarkers =
 				payload.contextCompressionSnapshots ?? contextCompressionMarkers;
@@ -3465,6 +3551,10 @@ function handleDrop(event: DragEvent) {
 			onToggleDocumentTask={handleToggleDocumentTask}
 			onListOpenChange={(open) => {
 				artifactListOpen = open;
+				// Showing the list shows the panel: after a delete the item
+				// that held it open is gone, and "back to the list" must not
+				// leave a closed panel behind.
+				if (open) workspaceOpen = true;
 			}}
 			onSelectDocument={selectWorkspaceDocument}
 			onOpenDocument={(document) =>
@@ -3476,6 +3566,7 @@ function handleDrop(event: DragEvent) {
 				workspacePresentation = nextPresentation;
 			}}
 			onPendingReviewCountChange={handlePendingReviewCountChange}
+			onDeleteArtifact={handleDeleteArtifact}
 			currentUser={data.user}
 		/>
 	</div>

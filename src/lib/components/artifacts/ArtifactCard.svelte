@@ -27,6 +27,7 @@
 // `artifact-chat-card.spec.ts` assert the row+card pair together instead of
 // a single-title invariant for this chrome.
 import { Check, ChevronRight, CircleSlash, Sparkles } from "@lucide/svelte";
+import type { Snippet } from "svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -140,6 +141,7 @@ let {
 	onRetry = undefined,
 	onCancel = undefined,
 	onDismiss = undefined,
+	rowMenu = undefined,
 }: {
 	view: ArtifactCardView;
 	/** Live job state for the File kind in the chat. */
@@ -163,6 +165,13 @@ let {
 	onRetry?: ((jobId: string) => void) | undefined;
 	onCancel?: ((jobId: string) => void) | undefined;
 	onDismiss?: ((jobId: string) => void) | undefined;
+	/**
+	 * `chrome="row"` only: the row's overflow control (polish G2-A), drawn as
+	 * a sibling of the row's button at its far end — never inside it, since a
+	 * button cannot hold a button. Revealed on hover and focus, always shown on
+	 * touch; the host owns what it opens.
+	 */
+	rowMenu?: Snippet | undefined;
 } = $props();
 
 const TICKABLE_VISIBLE_LIMIT = 5;
@@ -212,6 +221,7 @@ function handleOpen(): void {
 		<FileProductionBody {job} {onOpenDocument} {onRetry} {onCancel} {onDismiss} />
 	{/if}
 {:else if chrome === 'row'}
+	<div class="artifact-row-wrap" class:artifact-row-has-menu={Boolean(rowMenu)}>
 	<button
 		type="button"
 		class="artifact-row"
@@ -259,6 +269,10 @@ function handleOpen(): void {
 			{/if}
 		</span>
 	</button>
+	{#if rowMenu}
+		<div class="artifact-row-menu">{@render rowMenu()}</div>
+	{/if}
+	</div>
 {:else}
 	{#snippet tickableBlock()}
 		{#if view.tickable}
@@ -728,6 +742,36 @@ function handleOpen(): void {
 	}
 
 	/* chrome="row" — the panel list's one-line-per-item row (redesign §5.2): the whole row is the button. */
+	.artifact-row-wrap {
+		position: relative;
+	}
+
+	/* Polish G2-A: a row that carries an overflow leaves its far end to it. */
+	.artifact-row-has-menu .artifact-row {
+		padding-right: 2.75rem;
+	}
+
+	.artifact-row-menu {
+		position: absolute;
+		top: 50%;
+		right: 0.375rem;
+		transform: translateY(-50%);
+		opacity: 0;
+		transition: opacity var(--duration-standard) var(--ease-out);
+	}
+
+	.artifact-row-wrap:hover .artifact-row-menu,
+	.artifact-row-wrap:focus-within .artifact-row-menu,
+	.artifact-row-menu:has(:global([aria-expanded='true'])) {
+		opacity: 1;
+	}
+
+	@media (hover: none) {
+		.artifact-row-menu {
+			opacity: 1;
+		}
+	}
+
 	.artifact-row {
 		display: grid;
 		grid-template-columns: 34px minmax(0, 1fr) auto;
