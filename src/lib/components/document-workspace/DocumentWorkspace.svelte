@@ -153,17 +153,52 @@ let activeDocument: WorkspaceDocument | null = $derived.by(() => {
  * review's own fix note suggests ("let the server restore... own it").
  * `alfyActivity` itself (unsuppressed) still feeds the row-level ephemeral
  * pending pill below and the chat card, neither of which replay anything.
+ *
+ * rd/review-2-5.md fix agent C, round F2: an `open`-only check is not
+ * enough, because `open` and `activeDocumentId` can both become true in the
+ * SAME render that first hands this effect an already-settled activity
+ * (opening straight from the card sets both at once) — `open` alone cannot
+ * tell "the panel was open while this activity was still happening" from
+ * "the panel just opened, and happens to match a past activity that
+ * finished while it was closed." Gating on `alfyActivity.status === "running"`
+ * is not enough EITHER: a fake-provider (or simply fast) turn can settle
+ * between one render and the next, so this effect's FIRST look at a brand
+ * new key can just as easily already be "applied" for a document that WAS
+ * genuinely open and watching the whole time — the two cases are
+ * indistinguishable from the CURRENT render alone.
+ *
+ * The real distinguishing fact is history: was this specific key already
+ * stale (or nonexistent) at the moment this document MOST RECENTLY started
+ * being watched (the panel opening, or the active document switching to it
+ * while already open)? `staleKeyWhenWatchStarted` captures exactly that,
+ * once, right when watching starts — never re-armed while still watching,
+ * so a key that only shows up LATER, while still watching, is always new
+ * (and therefore safe) relative to it.
  */
 let alfyActivitySeenOpenKeys = $state<Set<string>>(new Set());
+let previousWatch: { open: boolean; artifactId: string | null } = {
+	open: false,
+	artifactId: null,
+};
+const staleKeyWhenWatchStarted = new Map<string, string | null>();
 $effect(() => {
-	if (!alfyActivity) return;
-	if (
-		(activeDocument?.artifactId ?? activeDocument?.id) !==
-		alfyActivity.artifactId
-	) {
-		return;
+	const artifactId = activeDocument?.artifactId ?? activeDocument?.id ?? null;
+	const watchStarted =
+		open &&
+		artifactId !== null &&
+		(!previousWatch.open || previousWatch.artifactId !== artifactId);
+	if (watchStarted && artifactId !== null) {
+		staleKeyWhenWatchStarted.set(
+			artifactId,
+			alfyActivity?.artifactId === artifactId ? alfyActivity.key : null,
+		);
 	}
+	previousWatch = { open, artifactId };
+
+	if (!open || !alfyActivity) return;
+	if (artifactId !== alfyActivity.artifactId) return;
 	if (alfyActivitySeenOpenKeys.has(alfyActivity.key)) return;
+	if (staleKeyWhenWatchStarted.get(artifactId) === alfyActivity.key) return;
 	alfyActivitySeenOpenKeys = new Set(alfyActivitySeenOpenKeys).add(
 		alfyActivity.key,
 	);
