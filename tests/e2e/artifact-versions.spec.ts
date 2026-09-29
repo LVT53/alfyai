@@ -545,3 +545,100 @@ test.describe("the Versions sheet on a phone", () => {
 		expect(width).toBeLessThanOrEqual(390);
 	});
 });
+
+// ---- the toast's exit (polish G1-B, redesign §7.2 #33) ---------------------
+
+async function restoreOldestVersion(page: Page) {
+	const popover = await openVersionsPopover(page);
+	const oldest = popover.getByTestId("version-row").last();
+	await oldest.hover();
+	await oldest.getByRole("button", { name: "Restore" }).click();
+	await oldest.getByRole("button", { name: "Restore" }).click();
+	await expect(page.getByTestId("toast-entry")).toBeVisible();
+}
+
+/** Dismisses the toast and watches it leave, frame by frame, the way a person sees it. */
+async function dismissToastAndWatch(page: Page) {
+	return page.evaluate(
+		() =>
+			new Promise<{
+				gone: boolean;
+				minOpacity: number;
+				maxSink: number;
+				ms: number;
+			}>((resolve) => {
+				const el = document.querySelector(
+					'[data-testid="toast-entry"]',
+				) as HTMLElement;
+				const close = el.querySelector(
+					'button[aria-label="Close"]',
+				) as HTMLButtonElement;
+				const start = performance.now();
+				let minOpacity = 1;
+				let maxSink = 0;
+				close.click();
+				const frame = () => {
+					const ms = performance.now() - start;
+					if (!el.isConnected) {
+						return resolve({ gone: true, minOpacity, maxSink, ms });
+					}
+					const style = getComputedStyle(el);
+					minOpacity = Math.min(minOpacity, Number.parseFloat(style.opacity));
+					const matrix = new DOMMatrixReadOnly(
+						style.transform === "none" ? undefined : style.transform,
+					);
+					maxSink = Math.max(maxSink, matrix.m42);
+					if (ms > 2000)
+						return resolve({ gone: false, minOpacity, maxSink, ms });
+					requestAnimationFrame(frame);
+				};
+				requestAnimationFrame(frame);
+			}),
+	);
+}
+
+test.describe("the toast's exit", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+	});
+
+	test("slides out — fading and sinking — and leaves the DOM", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Toast exit");
+		await seedDocumentWithVersions(conversationId, 2);
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+		await restoreOldestVersion(page);
+
+		// Let its entrance finish first, so what is measured is the exit alone.
+		await page.waitForTimeout(500);
+		const seen = await dismissToastAndWatch(page);
+
+		expect(seen.gone, "the toast leaves the DOM").toBe(true);
+		expect(seen.minOpacity, "it faded on its way out").toBeLessThan(0.9);
+		expect(seen.maxSink, "it sank on its way out").toBeGreaterThan(2);
+		// The standard duration (150ms), not an instant cut and not a slow fade.
+		expect(seen.ms).toBeGreaterThan(60);
+		expect(seen.ms).toBeLessThan(700);
+	});
+
+	test("leaves at once when the person asked for reduced motion", async ({
+		page,
+	}) => {
+		await page.emulateMedia({ reducedMotion: "reduce" });
+		const conversationId = await createConversation(page, "Toast exit reduced");
+		await seedDocumentWithVersions(conversationId, 2);
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+		await restoreOldestVersion(page);
+
+		const seen = await dismissToastAndWatch(page);
+
+		expect(seen.gone).toBe(true);
+		expect(seen.minOpacity, "no fade was ever visible").toBe(1);
+		expect(seen.maxSink, "no movement was ever visible").toBe(0);
+		expect(seen.ms).toBeLessThan(100);
+	});
+});
