@@ -12,6 +12,7 @@ import type { AppShellData } from "$lib/server/services/app-shell";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
 import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
 import type { Conversation } from "$lib/server/services/conversations";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type {
 	ContextDebugEvidenceItem,
 	ContextDebugState,
@@ -2047,6 +2048,50 @@ describe("chat page runtime integration", () => {
 			expect(
 				within(row).queryByRole("button", { name: /Regenerate/ }),
 			).toBeNull();
+		});
+
+		it("asks once when Regenerate is pressed twice before the first answer comes back", async () => {
+			const { regenerateFileProductionJob } = await import(
+				"$lib/client/api/file-production"
+			);
+			vi.mocked(regenerateFileProductionJob).mockReset();
+			let answer: (job: FileProductionJob) => void = () => {};
+			vi.mocked(regenerateFileProductionJob).mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						answer = resolve;
+					}),
+			);
+			renderPage(
+				pageData({
+					messages: [message],
+					generatedFiles: [],
+					artifacts: [],
+					fileProductionJobs: [
+						{
+							...jobBase,
+							files: [],
+							filesDeleted: { canRegenerate: true },
+						},
+					],
+				}),
+			);
+
+			const row = await screen.findByTestId("file-row-deleted");
+			const regenerate = within(row).getByRole("button", {
+				name: "Regenerate Trip summary",
+			});
+			await fireEvent.click(regenerate);
+			await fireEvent.click(regenerate);
+
+			// The second press must not become a second request: by then the job is
+			// queued on the server, and it would be answered "nothing to regenerate".
+			expect(regenerateFileProductionJob).toHaveBeenCalledTimes(1);
+
+			answer({ ...jobBase, status: "queued", files: [] });
+			await waitFor(() => {
+				expect(screen.queryByTestId("file-row-deleted")).toBeNull();
+			});
 		});
 	});
 

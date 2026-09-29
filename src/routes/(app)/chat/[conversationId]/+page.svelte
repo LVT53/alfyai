@@ -553,7 +553,7 @@ let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
 // Wave 2.5 polish G1-B (one version number everywhere): the highest version
 // the server has told this browser about, per artifact — fed by every save,
-// fetch, restore and version-list read (`subscribeArtifactVersions`), so the
+// fetch, restore and version-list read (`subscribeArtifactChanges`), so the
 // list row, the chat card and the panel header's button all read the number
 // the Versions list shows instead of a copy taken when the list was loaded
 // or the item was opened.
@@ -2216,11 +2216,18 @@ function attachFileProductionJobsToAssistantMessage(
 	});
 }
 
+// Jobs whose Retry / Regenerate request is on its way. A second press before
+// the answer would reach the server after the job is already queued again and
+// come back "nothing to regenerate" as an error banner, so it is not sent.
+const fileJobRequestsInFlight = new Set<string>();
+
 async function handleRetryFileProductionJob(jobId: string) {
 	// Item 6 (UX-speed plan) — a placeholder card has no server-side job
 	// behind it; FileProductionCard.svelte already hides this action for a
 	// placeholder, this is the defense-in-depth twin.
 	if (isPendingFileProductionJobId(jobId)) return;
+	if (fileJobRequestsInFlight.has(jobId)) return;
+	fileJobRequestsInFlight.add(jobId);
 	try {
 		// A job whose files were deleted has nothing failed to retry: its card
 		// offers Regenerate, which queues the SAME job again from the request it
@@ -2235,6 +2242,8 @@ async function handleRetryFileProductionJob(jobId: string) {
 	} catch (err) {
 		sendError =
 			err instanceof Error ? err.message : "Failed to retry file production";
+	} finally {
+		fileJobRequestsInFlight.delete(jobId);
 	}
 }
 
