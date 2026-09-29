@@ -752,7 +752,7 @@ and Slides protocol reviews and anything touching ownership or deletion.
 
 | Agent | Scope | Branch / worktree (port) | Needs | State |
 |---|---|---|---|---|
-| S3-P | Canvas body + canonical hash, shared ops mechanism, board-ops vocabulary, envelope, ops route, client call (T1, T6 server) | `feat/artifacts-s3-protocol` / `art-s3p` (5400) | — | dispatched |
+| S3-P | Canvas body + canonical hash, shared ops mechanism, board-ops vocabulary, envelope, ops route, client call (T1, T6 server) | `feat/artifacts-s3-protocol` / `art-s3p` (5400) | — | **merged** (`44736490`, 5 commits `89ecc07d..19f0592b`; `claude-sonnet-5-5`, 570k tokens, 166 calls, 60 min). Agent gates: check 0/17, 14,386 tests, build 32/2, Fallow 124/4 (0 new), Playwright 177/177. Deviations accepted (report §Deviations): unknown kinds dropped + reported; an orphaned child kept at its place; removing a frame re-homes its children; > 40 ops is a 400 `invalid_diff` (the schema is what is parsed); a photo URL must be same-origin and a live-web URL http(s). The envelope already writes ruling 63's review marker; the read side is S3-A's. Open for RV-3: `update_node` may rewrite a file/App node's reference id to another id the same user owns |
 | S4-D | Slides deck model, `create_artifact` handler, suite 4 create cases live (T1, T7 create) | `feat/artifacts-s4-deck` / `art-s4d` (5410), off `feat/artifacts-slides` | — | dispatched |
 | S3-T | Canvas `create/read/edit_artifact` handlers (advertised = validator), Regenerate, the canvas eval suite live (T10) | — | S3-P | queued |
 | S3-B | the new dependencies, board, block registry, nodes, editor in the panel, card branch, tokens (T2) | — | S3-P | queued |

@@ -28,6 +28,13 @@ states, focus order), 1183–1202 (prototype pointers), 1203–1332 (i18n keys),
 The prototype is `src/routes/prototype/canvas/` on branch `proto/artifact-canvas` (`git show proto/artifact-canvas:…`):
 read it, do not copy it.
 
+**From S3-P's report (binding):** the block schemas cap text (label 500, sticky/text 20,000, checklist 200 items × 1,000,
+chart code 100,000 characters) and `normalizeCanvasBody` *drops* a node past them on save — so every input enforces the
+same numbers (`maxlength`, paste clipping), exporting the constants from `canvas-blocks.ts` as you use them. Unknown
+stored kinds are dropped and reported by the normaliser, so `blockMissingKind` shows only for a known kind that has no
+component yet (the five S3-R kinds). A frame's size lives on the node and in `data` — keep them equal. Text fields are
+plain text, never HTML. The review read side (touched nodes, Keep/Undo) is S3-A's, not yours.
+
 ## Step 1 · Dependencies, registry, node shell, note-shaped nodes
 
 - Replace your `node_modules` symlink with your own `npm ci`, then `npm install --save-exact @xyflow/svelte@1.7.0
