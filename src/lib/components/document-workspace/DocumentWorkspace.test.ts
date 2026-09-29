@@ -2424,6 +2424,51 @@ describe("DocumentWorkspace Delete (polish G2-A)", () => {
 		expect(onCloseWorkspace).not.toHaveBeenCalled();
 	});
 
+	it("lands focus on the list's heading once a deleted item's controls are gone", async () => {
+		const rows = [
+			makeWorkspaceDocument({
+				id: "artifact:doc-1",
+				artifactId: "doc-1",
+				kind: "document",
+				title: "Vienna itinerary",
+			}),
+			makeWorkspaceDocument({
+				id: "artifact:doc-2",
+				artifactId: "doc-2",
+				kind: "document",
+				title: "Packing list",
+			}),
+		];
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
+			activeDocumentId: "doc-x",
+			list: { open: true, items: rows },
+			onDeleteArtifact: vi.fn(async () => {}),
+		});
+		const list = await screen.findByTestId("artifact-panel-list");
+		await fireEvent.click(
+			within(list).getByRole("button", {
+				name: "More actions for Vienna itinerary",
+			}),
+		);
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Delete document" }),
+		);
+		const dialog = await screen.findByRole("dialog", {
+			name: "Delete this document?",
+		});
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Delete" }),
+		);
+
+		await waitFor(() => {
+			expect(document.activeElement).toHaveAttribute(
+				"data-testid",
+				"artifact-panel-list-title",
+			);
+		});
+	});
+
 	it("gives each list row an overflow that leads to the same confirm, for that row's item", async () => {
 		const onDeleteArtifact = vi.fn(async () => {});
 		const rows = [

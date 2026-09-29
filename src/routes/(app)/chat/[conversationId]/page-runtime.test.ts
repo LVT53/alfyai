@@ -1579,6 +1579,8 @@ describe("chat page runtime integration", () => {
 		});
 
 		it("flips a card to deleted when its Open finds the item gone, without opening the panel", async () => {
+			const { toasts, clearToasts } = await import("$lib/stores/toast");
+			clearToasts();
 			const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
 				String(input).startsWith("/api/artifacts/")
 					? jsonResponse({ ok: false, reason: "not_found" }, 404)
@@ -1607,6 +1609,10 @@ describe("chat page runtime integration", () => {
 				expect(screen.queryByTestId("workspace-main")).toBeNull();
 				// The header's count follows: nothing is left to list.
 				expect(screen.queryByTestId("artifact-count-button")).toBeNull();
+				// A card that flips on its own is announced, not just repainted.
+				expect(get(toasts).map((toast) => toast.message)).toContain(
+					"This document was deleted",
+				);
 			} finally {
 				vi.unstubAllGlobals();
 			}
@@ -1944,6 +1950,8 @@ describe("chat page runtime integration", () => {
 		});
 
 		it("flips a file's row to deleted when its Open finds the file gone, without opening the panel", async () => {
+			const { toasts, clearToasts } = await import("$lib/stores/toast");
+			clearToasts();
 			vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
 				conversationDetailFixture({
 					messages: [message],
@@ -2006,6 +2014,9 @@ describe("chat page runtime integration", () => {
 					{ headers: { Range: "bytes=0-0" } },
 				);
 				expect(screen.queryByTestId("workspace-main")).toBeNull();
+				expect(get(toasts).map((toast) => toast.message)).toContain(
+					"The file has been deleted",
+				);
 			} finally {
 				vi.unstubAllGlobals();
 			}

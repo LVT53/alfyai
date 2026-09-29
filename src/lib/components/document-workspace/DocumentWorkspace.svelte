@@ -281,28 +281,34 @@ function canDeleteItem(item: DocumentWorkspaceItem): boolean {
 	return Boolean(onDeleteArtifact && item.artifactId && item.kind);
 }
 
+/** After a delete the control that had focus is gone: land on the list's heading, which names where the user is. */
+async function focusPanelListTitle(): Promise<void> {
+	await tick();
+	const shell = desktopShellElement ?? mobileShellElement;
+	shell
+		?.querySelector<HTMLElement>('[data-testid="artifact-panel-list-title"]')
+		?.focus();
+}
+
 /** Header Delete, confirmed: the page deletes; then back to the list — or out of the panel when nothing is left to list. */
 async function deleteOpenItem(item: DocumentWorkspaceItem): Promise<void> {
 	await onDeleteArtifact?.(item);
 	if ((list?.items.length ?? 0) > 0) {
 		handleBackToList();
+		void focusPanelListTitle();
 		return;
 	}
 	onCloseWorkspace();
 }
 
-/** A list row's Delete, confirmed. The row is gone afterwards, and so is the button that had focus: put focus back on the list — or leave the panel when that was the last row, since an empty list is nothing to show. */
+/** A list row's Delete, confirmed: back to the list's heading — or out of the panel when that was the last row, since an empty list is nothing to show. */
 async function deleteFromList(item: DocumentWorkspaceItem): Promise<void> {
 	await onDeleteArtifact?.(item);
 	if ((list?.items.length ?? 0) === 0) {
 		onCloseWorkspace();
 		return;
 	}
-	await tick();
-	const shell = desktopShellElement ?? mobileShellElement;
-	shell
-		?.querySelector<HTMLElement>('[data-testid="artifact-panel-list-title"]')
-		?.focus();
+	await focusPanelListTitle();
 }
 
 // One cached module promise per kind, mirroring

@@ -1430,6 +1430,14 @@ async function handleDeleteArtifact(
 	});
 }
 
+/** The card or row just flipped to deleted on its own (nothing the user asked for changed it): say so, since a screen reader user would not otherwise hear it. */
+function announceItemGone(kind: NonNullable<DocumentWorkspaceItem["kind"]>) {
+	showToast({
+		type: "error",
+		message: get(t)(`artifacts.deleted.${kind}` as I18nKey),
+	});
+}
+
 /**
  * A chat card's or file row's Open: find out first that the item is still
  * there. If the server has no such item any more (deleted in another tab) the
@@ -1454,6 +1462,7 @@ async function openArtifactFromChat(
 			() => null,
 		);
 		if (detail) applyConversationDetailMetadata(detail);
+		announceItemGone("file");
 		return;
 	}
 	if (document.artifactId && document.kind && document.kind !== "file") {
@@ -1462,6 +1471,7 @@ async function openArtifactFromChat(
 		} catch (error) {
 			if (error instanceof ApiError && error.status === 404) {
 				handleArtifactDeleted(document.artifactId);
+				announceItemGone(document.kind);
 				return;
 			}
 		}

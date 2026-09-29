@@ -582,6 +582,23 @@ function handleOpen(): void {
 		opacity: 0.7;
 	}
 
+	/* The work under way: the spinner turns; reduced motion leaves it still. */
+	.artifact-card-regenerate[aria-busy='true'] :global(svg) {
+		animation: artifact-card-spin 1s linear infinite;
+	}
+
+	@keyframes artifact-card-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.artifact-card-regenerate[aria-busy='true'] :global(svg) {
+			animation: none;
+		}
+	}
+
 	@media (hover: none) and (pointer: coarse) {
 		.artifact-card-regenerate {
 			min-height: 44px;
