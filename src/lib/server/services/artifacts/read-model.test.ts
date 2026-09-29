@@ -634,6 +634,114 @@ describe("listArtifactsForConversation — appVerification (Wave 2.5 Step 13)", 
 	});
 });
 
+// Slice 3: a board's card says how many blocks it holds. Counted by the
+// board's own reader, so it is what the panel will draw — a block of a kind
+// nobody knows is not one of them — and it is the only thing about the body
+// that leaves the service.
+describe("listArtifactsForConversation — canvasPreview (Slice 3)", () => {
+	async function canvasWith(body: string): Promise<string> {
+		const result = await createArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			kind: "canvas",
+			title: "Trip board",
+			body,
+		});
+		if (!result.ok) throw new Error(result.reason);
+		return result.artifact.id;
+	}
+
+	function block(id: string, type = "sticky") {
+		return {
+			id,
+			type,
+			position: { x: 0, y: 0 },
+			data:
+				type === "sticky"
+					? { kind: "sticky", text: id, tone: "yellow" }
+					: { kind: type },
+		};
+	}
+
+	it("counts the blocks the board holds", async () => {
+		await canvasWith(
+			JSON.stringify({
+				version: 1,
+				nodes: [block("a"), block("b"), block("c")],
+				edges: [],
+				viewport: { x: 0, y: 0, zoom: 1 },
+				annotations: [],
+			}),
+		);
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		expect(row.kind).toBe("canvas");
+		expect(row.canvasPreview).toEqual({ blockCount: 3 });
+	});
+
+	it("does not count a block the board could not read, so the card and the panel agree", async () => {
+		await canvasWith(
+			JSON.stringify({
+				version: 1,
+				nodes: [block("a"), block("ghost", "hologram")],
+				edges: [],
+				viewport: { x: 0, y: 0, zoom: 1 },
+				annotations: [],
+			}),
+		);
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		expect(row.canvasPreview).toEqual({ blockCount: 1 });
+	});
+
+	it("says 0 for an empty board and for a body that is not a board", async () => {
+		await canvasWith("");
+		await canvasWith("this is not json {");
+		const rows = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		expect(rows.map((row) => row.canvasPreview)).toEqual([
+			{ blockCount: 0 },
+			{ blockCount: 0 },
+		]);
+	});
+
+	it("never carries the board itself: only the count", async () => {
+		await canvasWith(
+			JSON.stringify({
+				version: 1,
+				nodes: [block("secret-note")],
+				edges: [],
+				viewport: { x: 0, y: 0, zoom: 1 },
+				annotations: [],
+			}),
+		);
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		expect(JSON.stringify(row)).not.toContain("secret-note");
+	});
+
+	it("omits canvasPreview for every other kind", async () => {
+		await create(CONVERSATION, "Weekend plan", "document");
+		await create(CONVERSATION, "Splitter", "app");
+		const rows = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		expect(rows.map((row) => row.canvasPreview)).toEqual([
+			undefined,
+			undefined,
+		]);
+	});
+});
+
 // Polish G2-A + the security review's M1: of the artifacts a chat's tool calls
 // named, which are GONE and which merely sit out of this chat's reach. A
 // deleted row leaves nothing behind, so "gone" is "no row of the caller's own

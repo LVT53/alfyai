@@ -130,7 +130,8 @@ type ArtifactFailedBody = Extract<
  * `preview`, attached from `ConversationDetail.artifacts` — never fetched
  * here); every other kind — and a Document with no preview yet, live mid-turn
  * — gets the bare header-only view, exactly what "the generic card until
- * their slices add previews" means for Canvas/Slides today.
+ * their slices add previews" means for Slides today (a Canvas gets its block
+ * count, `canvasPreview`).
  */
 function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 	// The security review's M1: the item exists but this chat cannot reach it
@@ -224,6 +225,12 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 			current,
 		};
 	}
+	// A board's block count, off the server's own preview: the card says
+	// "Canvas · 11 blocks" without the chat ever loading the board.
+	const blockCount =
+		body.artifactKind === "canvas"
+			? (body.preview?.canvasPreview?.blockCount ?? null)
+			: null;
 	return {
 		id: body.artifactId,
 		kind: body.artifactKind,
@@ -233,6 +240,7 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 		refusedCount,
 		current,
 		factCheckLine,
+		blockCount,
 	};
 }
 

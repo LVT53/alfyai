@@ -61,6 +61,15 @@ export interface ArtifactCardView {
 	/** Rendered as "made by Alfy {when}"; the caller supplies the already-localised time. */
 	madeBy?: string | null;
 	/**
+	 * `kind: "canvas"` only (Slice 3): how many blocks the board holds, so the
+	 * card's second line reads "Canvas · 11 blocks" — a count the server took
+	 * from the body, never the board itself (nothing of it is drawn or loaded
+	 * here). `null`/omitted (a board made mid-turn, before its list has loaded,
+	 * and every other kind) leaves the line as the caller's `subtitle`, or the
+	 * bare kind label.
+	 */
+	blockCount?: number | null;
+	/**
 	 * The bare relative time ("2 min ago"), already localised — `chrome="row"`'s
 	 * own right-aligned time (redesign §5.2), never the "made by Alfy …"
 	 * sentence `madeBy` renders: the row's time column is too narrow for the
@@ -208,6 +217,13 @@ let {
 const TICKABLE_VISIBLE_LIMIT = 5;
 
 let KindIcon = $derived(ARTIFACT_KIND_ICONS[view.kind]);
+/** The second line of the head and of a row: the caller's own, or — for a board — its kind and block count. */
+let subtitleLine = $derived(
+	view.subtitle ??
+		(view.kind === "canvas" && view.blockCount != null
+			? `${$t("artifacts.type.canvas")} · ${$t("artifacts.canvas.blockCount", { count: view.blockCount })}`
+			: null),
+);
 let visibleTickableItems = $derived(
 	view.tickable?.items.slice(0, TICKABLE_VISIBLE_LIMIT) ?? [],
 );
@@ -230,7 +246,7 @@ let hiddenTickableCount = $derived(
  */
 let rowAccessibleName = $derived.by(() => {
 	const kindLabel = $t(`artifacts.type.${view.kind}` as I18nKey);
-	const detail = view.subtitle?.trim() ? view.subtitle : kindLabel;
+	const detail = subtitleLine?.trim() ? subtitleLine : kindLabel;
 	const detailParts = detail
 		.split(/\s·\s/)
 		.map((part) => part.trim())
@@ -306,7 +322,7 @@ function handleOpen(): void {
 		<span class="artifact-row-main">
 			<span class="artifact-row-title">{view.title}</span>
 			<span class="artifact-row-sub">
-				<span>{view.subtitle ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+				<span>{subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
 				{#if view.versionNumber}
 					<span class="artifact-row-sep" aria-hidden="true">·</span>
 					<span>{$t('artifacts.card.version', { n: view.versionNumber })}</span>
@@ -465,7 +481,7 @@ function handleOpen(): void {
 						{#if view.creating}
 							<span class="artifact-card-sub-writing">{$t('artifacts.card.creatingSubtitle')}</span>
 						{:else}
-							<span>{view.subtitle ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+							<span>{subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
 						{/if}
 						{#if view.versionNumber}
 							<span class="artifact-card-sep" aria-hidden="true">·</span>
@@ -536,8 +552,8 @@ function handleOpen(): void {
 				{/if}
 			{/if}
 		{:else}
-			{#if view.subtitle}
-				<div class="artifact-card-subtitle">{view.subtitle}</div>
+			{#if subtitleLine}
+				<div class="artifact-card-subtitle">{subtitleLine}</div>
 			{/if}
 
 			{#if view.madeBy}
