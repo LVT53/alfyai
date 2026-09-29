@@ -484,6 +484,7 @@ describe("Conversation Detail Read Model", () => {
 				conversationId: "conv-1",
 				role: "assistant" as const,
 				content: "Made it.",
+				timestamp: 1_777_140_010,
 				createdAt: 1_777_140_010,
 			},
 		];
@@ -634,6 +635,7 @@ describe("Conversation Detail Read Model", () => {
 				conversationId: "conv-1",
 				role: "assistant" as const,
 				content: "Made it a while ago.",
+				timestamp: 1_777_100_000,
 				createdAt: 1_777_100_000,
 			},
 		];

@@ -398,6 +398,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		generatedFiles: [],
 		fileProductionJobs: [],
 		artifacts: [],
+		deletedArtifactIds: [] as string[],
 		pendingWrites: [],
 		contextCompressionSnapshots: [],
 		atlasJobs: [],

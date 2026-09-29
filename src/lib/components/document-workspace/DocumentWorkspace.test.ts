@@ -2513,7 +2513,7 @@ describe("DocumentWorkspace Delete (polish G2-A)", () => {
 	});
 
 	it("closes the panel when the row just deleted was the last one, instead of leaving an empty list", async () => {
-		const onDeleteArtifact = vi.fn(async () => {});
+		const onDeleteArtifact = vi.fn(async (_item: DocumentWorkspaceItem) => {});
 		const onCloseWorkspace = vi.fn();
 		const only = makeWorkspaceDocument({
 			id: "artifact:doc-1",
@@ -2527,7 +2527,7 @@ describe("DocumentWorkspace Delete (polish G2-A)", () => {
 			documents: [makeWorkspaceDocument({ id: "doc-x", title: "Doc" })],
 			activeDocumentId: "doc-x",
 			list: { open: true, items: [only] },
-			onDeleteArtifact: vi.fn(async (item) => {
+			onDeleteArtifact: vi.fn(async (item: DocumentWorkspaceItem) => {
 				await onDeleteArtifact(item);
 				await rerender({
 					list: { open: true, items: [] },
