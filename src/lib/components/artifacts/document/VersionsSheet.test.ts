@@ -7,6 +7,7 @@ import {
 } from "@testing-library/svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { uiLanguage } from "$lib/stores/settings";
 import { toasts } from "$lib/stores/toast";
 import VersionsSheet from "./VersionsSheet.svelte";
 
@@ -59,6 +60,7 @@ describe("VersionsSheet", () => {
 
 	afterEach(() => {
 		cleanup();
+		uiLanguage.set("en");
 	});
 
 	it("lists versions newest first, each with author, version number and summary, the newest marked Current", async () => {
@@ -110,6 +112,94 @@ describe("VersionsSheet", () => {
 		expect(document.querySelector(".avatar-circle")?.textContent?.trim()).toBe(
 			"A",
 		);
+	});
+
+	// rd/review-2-5.md:256-260 — the save route's own literal "Edited" and the
+	// restore handler's own "restored …" wrapper were shown verbatim, English
+	// even under a Hungarian UI. An Alfy-authored free-form summary (e.g.
+	// "Shortened Saturday", already covered by the very first test above) is
+	// real content and stays exactly as stored, in every locale.
+	describe("localized version summaries", () => {
+		it('localizes the save route\'s own literal "Edited" summary', async () => {
+			mockFetchVersions.mockResolvedValue([
+				{
+					id: "v1",
+					versionNumber: 1,
+					author: "user",
+					summary: "Edited",
+					createdAt: Date.now(),
+				},
+			]);
+			uiLanguage.set("hu");
+
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+			await waitFor(() => {
+				expect(screen.getByText("Szerkesztve")).toBeInTheDocument();
+			});
+			expect(screen.queryByText("Edited")).not.toBeInTheDocument();
+		});
+
+		it('localizes the "restored …" wrapper, keeping an Alfy-authored inner summary as-is', async () => {
+			mockFetchVersions.mockResolvedValue([
+				{
+					id: "v2",
+					versionNumber: 2,
+					author: "user",
+					summary: "restored Shortened Saturday",
+					createdAt: Date.now(),
+				},
+			]);
+			uiLanguage.set("hu");
+
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+			await waitFor(() => {
+				expect(
+					screen.getByText("visszaállítva: Shortened Saturday"),
+				).toBeInTheDocument();
+			});
+		});
+
+		it('localizes BOTH layers when "restored …" wraps the save route\'s own "Edited"', async () => {
+			mockFetchVersions.mockResolvedValue([
+				{
+					id: "v3",
+					versionNumber: 3,
+					author: "user",
+					summary: "restored Edited",
+					createdAt: Date.now(),
+				},
+			]);
+			uiLanguage.set("hu");
+
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+			await waitFor(() => {
+				expect(
+					screen.getByText("visszaállítva: Szerkesztve"),
+				).toBeInTheDocument();
+			});
+		});
+
+		it("shows an Alfy-authored free-form summary exactly as stored, even in Hungarian", async () => {
+			mockFetchVersions.mockResolvedValue([
+				{
+					id: "v4",
+					versionNumber: 4,
+					author: "alfy",
+					summary: "Booked the hotel",
+					createdAt: Date.now(),
+				},
+			]);
+			uiLanguage.set("hu");
+
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+
+			await waitFor(() => {
+				expect(screen.getByText("Booked the hotel")).toBeInTheDocument();
+			});
+		});
 	});
 
 	it("renders as an anchored popover naming Versions", async () => {

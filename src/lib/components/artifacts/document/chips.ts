@@ -79,3 +79,16 @@ export function chipLabel(
 		? localizedDateLabel(value, locale)
 		: localizedStatusLabel(value, locale);
 }
+
+/**
+ * The chip dropdown's own accessible name (rd/review-2-5.md:256-260): the
+ * FIELD's name ("Status"/"Állapot"), never the bare internal `ChipKind`
+ * value the dropdown's `aria-label` used to be set to verbatim — English
+ * even in the Hungarian UI. Distinct from `chipLabel` above, which labels
+ * one VALUE, not the field.
+ */
+export function chipFieldLabel(kind: ChipKind, locale: ChipLocale): string {
+	const dict = locale === "hu" ? artifactsDict.hu : artifactsDict.en;
+	const key = `artifacts.document.chip.${kind}FieldLabel` as keyof typeof dict;
+	return (dict[key] as string | undefined) ?? kind;
+}

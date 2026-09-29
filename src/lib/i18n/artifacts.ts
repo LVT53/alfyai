@@ -209,6 +209,12 @@ const artifactsDict = {
 		"artifacts.document.versions.restoreError":
 			"Could not restore this version.",
 		"artifacts.document.versions.empty": "No earlier versions yet.",
+		// A version's own summary line (rd/review-2-5.md:256-260): the save
+		// route's literal "Edited" and the restore handler's "restored …"
+		// wrapper are the only two server-written tokens localized here — an
+		// Alfy-authored summary is free-form content and is shown as-is.
+		"artifacts.document.versions.summaryEdited": "Edited",
+		"artifacts.document.versions.summaryRestored": "restored {summary}",
 		// The lazy editor's shell and toolbar (Slice 1, T7).
 		"artifacts.document.editor.placeholder": "Write anything, or ask Alfy to.",
 		"artifacts.document.editor.failedToLoad": "The editor could not be loaded.",
@@ -309,6 +315,17 @@ const artifactsDict = {
 		"artifacts.document.chip.status.ToBook": "To book",
 		"artifacts.document.chip.status.Paid": "Paid",
 		"artifacts.document.chip.status.Cancelled": "Cancelled",
+		// The chip dropdown's own accessible name (rd/review-2-5.md:256-260):
+		// the FIELD's name ("Status"), distinct from the value labels above.
+		"artifacts.document.chip.statusFieldLabel": "Status",
+		"artifacts.document.chip.dateFieldLabel": "Date",
+		// The task checklist checkbox's own accessible name
+		// (rd/review-2-5.md:256-260) — Tiptap's own default is English-only
+		// ("Task item checkbox for …"); localized here via TaskItem's `a11y`
+		// option.
+		"artifacts.document.taskItem.checkboxLabel":
+			"Task item checkbox for {text}",
+		"artifacts.document.taskItem.emptyTaskItem": "empty task item",
 		// The mobile toolbar's overflow sheet (Slice 1, T11). `toolbar.more`
 		// already exists (T7) as the trigger button's own label.
 		"artifacts.document.toolbar.moreSheetTitle": "More formatting",
@@ -554,6 +571,8 @@ const artifactsDict = {
 		"artifacts.document.versions.restoreError":
 			"Nem sikerült visszaállítani ezt a változatot.",
 		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
+		"artifacts.document.versions.summaryEdited": "Szerkesztve",
+		"artifacts.document.versions.summaryRestored": "visszaállítva: {summary}",
 		"artifacts.document.editor.placeholder": "Írj bármit, vagy kérd meg Alfyt.",
 		"artifacts.document.editor.failedToLoad":
 			"A szerkesztőt nem sikerült betölteni.",
@@ -634,6 +653,11 @@ const artifactsDict = {
 		"artifacts.document.chip.status.ToBook": "Lefoglalandó",
 		"artifacts.document.chip.status.Paid": "Kifizetve",
 		"artifacts.document.chip.status.Cancelled": "Lemondva",
+		"artifacts.document.chip.statusFieldLabel": "Állapot",
+		"artifacts.document.chip.dateFieldLabel": "Dátum",
+		"artifacts.document.taskItem.checkboxLabel":
+			"Feladat jelölőnégyzete: {text}",
+		"artifacts.document.taskItem.emptyTaskItem": "üres feladat",
 		"artifacts.document.toolbar.moreSheetTitle": "További formázás",
 		"artifacts.document.anchor.moved": "Elmozdult",
 		"artifacts.document.comment.ask": "Alfy megkérdezése",
