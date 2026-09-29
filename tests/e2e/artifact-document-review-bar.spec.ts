@@ -616,3 +616,72 @@ test.describe("Review bar on a phone, flush with the bottom (Hungarian)", () => 
 		});
 	}
 });
+
+// The count button's dot is the persisted review state, not a live guess: a
+// change Alfy made in an earlier session (here, seeded straight into the
+// stored Document, with no chat turn in this page at all) lights it on a fresh
+// load, opening the panel hides it, and reviewing everything darkens it for
+// good — through a reload too. (`artifact-document.spec.ts` walks the same
+// state from a live edit; this is the reload-from-storage half.)
+test.describe("The count button's dot after a reload (persisted review state)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("a change nobody reviewed lights the dot on a fresh load, and stays lit through another reload", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(page, "Dot persisted");
+		await seedPendingChanges(
+			conversationId,
+			["Book the flight to Vienna.", "Reserve the hotel near the river."],
+			2,
+		);
+		await openChatAndReload(page, conversationId);
+		const dot = page
+			.getByTestId("artifact-count-button")
+			.getByTestId("artifact-count-dot");
+		await expect(dot).toBeVisible({ timeout: 30_000 });
+
+		await page.reload({ waitUntil: "networkidle" });
+		await expect(dot).toBeVisible({ timeout: 30_000 });
+	});
+
+	test("Keep all darkens it for good: closed panel, then a reload", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(page, "Dot after keep");
+		await seedPendingChanges(
+			conversationId,
+			["Book the flight to Vienna.", "Reserve the hotel near the river."],
+			2,
+		);
+		await openChatAndReload(page, conversationId);
+		const button = page.getByTestId("artifact-count-button");
+		const dot = button.getByTestId("artifact-count-dot");
+		await expect(dot).toBeVisible({ timeout: 30_000 });
+
+		// Open: the review happens here, so the dot is hidden while the panel is.
+		await openDocumentFromPanel(page);
+		await expect(dot).toHaveCount(0);
+		const reviewBar = page.getByRole("region", { name: "Changes from Alfy" });
+		await expect(reviewBar).toBeVisible({ timeout: 30_000 });
+		await reviewBar.getByRole("button", { name: "Keep all" }).click();
+		await expect(reviewBar).toHaveCount(0, { timeout: 5_000 });
+
+		// Closed again: nothing is waiting, so it stays dark...
+		await page
+			.getByRole("button", { name: "Close document workspace" })
+			.first()
+			.click();
+		await expect(page.getByTestId("artifact-count-button")).toBeVisible();
+		await expect(dot).toHaveCount(0);
+
+		// ...and a fresh load agrees.
+		await page.reload({ waitUntil: "networkidle" });
+		await expect(page.getByTestId("artifact-count-button")).toBeVisible();
+		await expect(dot).toHaveCount(0);
+	});
+});
