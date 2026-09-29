@@ -1842,6 +1842,44 @@ describe("MessageBubble", () => {
 			});
 		});
 
+		// The security review's L5: a double click must not ask twice. (Two tabs
+		// are the server's to answer: it hands the second press the same Document.)
+		it("asks once for a double press: the second press is not sent while the first runs", async () => {
+			let resolveKeep: (() => void) | undefined;
+			const onKeepAsDocument = vi.fn(
+				() =>
+					new Promise<void>((resolve) => {
+						resolveKeep = resolve;
+					}),
+			);
+			const message: ChatMessage = {
+				id: "assistant-keep-double",
+				role: "assistant",
+				content: "Here is the plan.",
+				timestamp: Date.now(),
+			};
+
+			render(MessageBubble, { message, onKeepAsDocument });
+			const button = screen.getByRole("button", { name: openAsDocumentLabel });
+			await fireEvent.click(button);
+			await fireEvent.click(button);
+			await fireEvent.click(button);
+
+			expect(onKeepAsDocument).toHaveBeenCalledTimes(1);
+			resolveKeep?.();
+			await waitFor(() => {
+				expect(
+					screen.getByRole("button", { name: openAsDocumentLabel }),
+				).not.toBeDisabled();
+			});
+			// Once it finished, a later press is a new question.
+			await fireEvent.click(
+				screen.getByRole("button", { name: openAsDocumentLabel }),
+			);
+			expect(onKeepAsDocument).toHaveBeenCalledTimes(2);
+			resolveKeep?.();
+		});
+
 		it("shows an error toast and recovers when the create-or-open call fails", async () => {
 			const onKeepAsDocument = vi.fn().mockRejectedValue(new Error("boom"));
 			const message: ChatMessage = {

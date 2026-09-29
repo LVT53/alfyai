@@ -45,6 +45,7 @@ export {
 	sanitizeDocumentFilename,
 } from "./export";
 export { hashArtifactBody } from "./hash";
+export { keepMessageAsDocument } from "./keep-message";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
 export {
 	listArtifactsForConversation,
