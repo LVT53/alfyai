@@ -621,6 +621,17 @@ Rulings (orchestrator, 2026-09-27):
   pending changes flashes "Átnézve"/no dot for ~100–300 ms (the body reports 0 before its review state loads; a failed
   load leaves the 0 until reload). Ruling: fix it before the deploy — the owner walks exactly this flow — cost if wrong:
   ~1 h of wall-clock. Small fix agent on `fix/artifacts-rd-review-flash` (red→green e2e that polls the card every 40 ms).
+- **Wave 2.5 DONE and DEPLOYED (2026-09-29 ~02:45 UTC): `dev` = ai.dev = `1e755e0b`** (the whole redesign + review fixes +
+  the flash fix `0f607d39`, red→green e2e polling the card every 40 ms). Gates in `dev-int`: check 0/17, 13,772 tests, build
+  32/2, Fallow 124/4 (0 new), **Playwright 101/101**. Deploy health OK (`current -> releases/1e755e0b`). Live check
+  (`/root/verify-artifacts-w2.mjs`, real model): run 1 11/14, run 2 **13/14** — the edit path works (read → 1 edit, 0 refused,
+  v1 → v2, no duplicate); the red "edit landed" check is the script's own precondition (`absentBefore: false`: the model had
+  already written some target items into the new Document), as in Wave 2. The owner walks it next.
+- Left for later (all recorded above and in the reports): per-row accessible names in the panel list; the toast's
+  slide-out; the tab strip's `⋯`/`+` inside `role="tablist"`; the other [doc] minors (touch targets, sheet offsets, rail
+  copy/counts, prose details, Versions rows, refusal placement, Undo's summary); the review's "can wait" rows (deleted card
+  state, Redo after a multi-block insert, `undoAlfyChange` on an existing empty block, motion polish). The live-check script
+  should pick items the created Document cannot already contain.
 - Briefs for every agent: `docs/plans/claude-at-home-2/wave-2-5/` (`common.md` + `rd*-brief.md`); reports and
   screenshots in this session's scratchpad `rd/`.
 - Ruling: no new dispatch unless the next agent's estimated cost keeps the weekly use at or under ~97 %; the rest is the
@@ -656,16 +667,7 @@ step 0 (task items) is already done by 5a: skip it.
 
 ## Next action
 
-Resume Wave 2.5 after the weekly reset, in this session or a fresh one:
-1. `get_usage`; then create agent 5b's worktree from `feat/artifacts`: `git worktree add -b feat/artifacts-rd5b-app
-   ../art-rd5b feat/artifacts`, symlink `art-base/node_modules`, `DATABASE_PATH="$PWD/data/playwright-e2e-chat.db" npm run
-   db:prepare` (Node 22 on `PATH`).
-2. Write 5b's brief from the table row above, then dispatch it (Sonnet) with `wave-2-5/common.md` + that brief + the
-   hand-off sections of `rd1-report.md`, `rd2-report.md` and `rd5a-report.md` (all in `docs/plans/claude-at-home-2/wave-2-5/`; if the old session scratchpad is gone, point the
-   brief's report/screenshot paths at your own scratchpad).
-3. After it: `wave-2-5/gates.sh <worktree> <port> <label> [specs]` (summary in `/tmp/gates-<label>/summary.txt`, Fallow
-   baseline `~/.cache/alfyai-artifacts/fallow-baseline-00ef6d2a.json`), merge into `feat/artifacts`, update the table.
-4. Then 3a → 3b → 4a → 4b the same way, then one Opus visual/a11y review of `d933e2f8..feat/artifacts` (every surface,
-   both themes, HU, phone and desktop, reduced motion; include the deferred items above), one fix agent, merge
-   `feat/artifacts` → `dev` on the main checkout, gates in `dev-int`, push `dev`, deploy ai.dev, tell the owner what to look at.
-Budget guide from this session: a small agent ≈ 1 %, a three-step UI agent ≈ 4 % of the weekly limit.
+The redesign (Wave 2.5) is live on ai.dev (`1e755e0b`) for the owner's walk; fold their feedback in first. Then Wave 3 from
+`wave-3-handoff.md` (S3 Canvas, S4 Slides, the S6 remainder, focus-trap pass two), with the shared redesign pieces
+(`ArtifactPanelHeader`, `CommentCard`/`CommentThread`, `ReviewBar`, `RefusalNotice`, the sheet/popover patterns) reused as
+`redesign.md` §8 says. The merged `art-rd*`, `art-fx*`, `art-rdfix`, `rv-rd` worktrees can be removed.
