@@ -38,20 +38,9 @@ import { classifyLanguageSignal } from "$lib/server/services/language";
 import {
 	BOARD_DEFAULT_NODE_HEIGHT,
 	BOARD_NODE_WIDTH,
-	canvasReadBlocks,
-	parseCanvasCreateBody,
 } from "$lib/server/services/normal-chat-tools/artifact-tools/canvas-model";
-import {
-	type BoardOp,
-	boardOpsArraySchema,
-	boardOpsVocabulary,
-} from "$lib/shared/artifacts/board-ops";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
-import {
-	boardJson,
-	normalizeCanvasBody,
-} from "$lib/shared/artifacts/canvas-body";
-import { runOps } from "$lib/shared/artifacts/ops";
+import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
 import {
 	decodeToolPathResponse,
 	type ToolPathEnvelope,
@@ -60,6 +49,7 @@ import {
 	type ToolSuite,
 } from "../tool-path";
 import type { EvalCase, EvalScoreResult, SuiteScorer } from "../types";
+import { createCanvasTools } from "./canvas-tools";
 
 // ── fixtures ─────────────────────────────────────────────────────────────
 
@@ -244,59 +234,44 @@ const LOOKUP_STUBS: Record<string, string> = {
 	files: "No matching file was found.",
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+/** What a case's tools start from: the stored board of an edit case, nothing for a create. */
+function toolsFor(fixture: CanvasFixture) {
+	return createCanvasTools({
+		board:
+			fixture.kind === "edit" ? loadFixtureBoard(fixture.board ?? "") : null,
+		artifactId: fixture.artifactId ?? "eval-board-0",
+		title: fixture.title ?? "",
+		allowCreate: fixture.kind === "create",
+	});
 }
 
 /**
  * What `read_artifact` answers for the board of an edit case: the real payload,
- * shaped exactly as `runReadArtifactTool` shapes it for a canvas
- * (`canvasReadBlocks`, and for `full` the canonical JSON), or the tool's own
- * not-found answer with the conversation's candidates for an id it does not have.
- * A test compares it with the real tool's answer for the same board.
+ * shaped exactly as `runReadArtifactTool` shapes it for a canvas, or the tool's
+ * own not-found answer. A test compares it with the real tool's answer for the
+ * same board.
  */
 export function readArtifactAnswer(
 	fixture: CanvasFixture,
 	args: unknown,
 ): string {
-	const id =
-		isRecord(args) && typeof args.artifactId === "string"
-			? args.artifactId
-			: "";
-	if (fixture.kind !== "edit" || id !== fixture.artifactId) {
-		return JSON.stringify({
-			success: false,
-			error:
-				"No item with that id exists in this conversation. Use one of the candidates below, the artifact catalogue, or read_generated_file for a produced file.",
-			candidates:
-				fixture.kind === "edit"
-					? [{ artifactId: fixture.artifactId, title: fixture.title }]
-					: [],
-		});
-	}
-	const board = loadFixtureBoard(fixture.board ?? "");
-	const detail = isRecord(args) && args.detail === "blocks" ? "blocks" : "full";
-	return JSON.stringify({
-		success: true,
-		artifactId: fixture.artifactId,
-		artifactType: "canvas",
-		title: fixture.title,
-		blocks: canvasReadBlocks(board),
-		...(detail === "full" ? { body: boardJson(board) } : {}),
-	});
+	return toolsFor(fixture).answer("read_artifact", args) ?? "";
 }
 
 /**
  * How the live runner asks the model for a case: through the tools, `auto`
  * choice (production's), and thinking off — the harness's default and the App
- * suite's policy. A lookup is answered with a stub and, for an edit, the
- * model's read of the board with the real payload; anything else is the step
- * that is scored.
+ * suite's policy. The conversation goes on the way the app's does: a lookup is
+ * answered with a stub, and a call to one of the three artifact tools with the
+ * app's own answer (`canvas-tools.ts`), for at most four steps — so a model
+ * that reads the board, is refused, and tries again is seen doing so. A call the
+ * suite has no answer for is the step that is scored.
  */
 export const CANVAS_TOOL_SUITE: ToolSuite = {
 	requestFor(evalCase: EvalCase): ToolPathRequestSpec {
 		const language = evalCase.language ?? "en";
 		const fixture = fixtureByCaseId.get(evalCase.id);
+		const tools = fixture ? toolsFor(fixture) : null;
 		return {
 			system: canvasSystemPrompt(language),
 			user: evalCase.prompt,
@@ -308,12 +283,8 @@ export const CANVAS_TOOL_SUITE: ToolSuite = {
 			withoutTools: ["memory_context", "use_skill", "suggest_instruction"],
 			followUp: {
 				maxSteps: 4,
-				answer: (name, args) => {
-					if (name === "read_artifact" && fixture?.kind === "edit") {
-						return readArtifactAnswer(fixture, args);
-					}
-					return LOOKUP_STUBS[name] ?? null;
-				},
+				answer: (name, args) =>
+					tools?.answer(name, args) ?? LOOKUP_STUBS[name] ?? null,
 			},
 			thinking: evalCase.thinking ?? "off",
 		};
@@ -738,228 +709,147 @@ function bad(...reasons: string[]): EvalScoreResult {
 	return { verdict: "bad", reasons };
 }
 
-function clip(text: string, length = 240): string {
-	return text.length > length ? `${text.slice(0, length - 1)}…` : text;
-}
-
-/** The lookups the model made before the step that is scored, named for a reason that has to say what happened. */
+/** The lookups the model made before the last step, named for a reason that has to say what happened. */
 function lookupsOf(envelope: ToolPathEnvelope): string[] {
 	return (envelope.priorSteps ?? []).flatMap((step) =>
 		step.toolCalls.map((call) => call.name),
 	);
 }
 
-function issueLines(text: string): string[] {
-	return text
-		.split("\n")
-		.map((line) => line.replace(/^- /, "").trim())
-		.filter(
-			(line) =>
-				line !== "" &&
-				!line.startsWith("Nothing was created") &&
-				!line.startsWith("Fix ") &&
-				!line.startsWith("A board is ") &&
-				!line.startsWith("Blocks you can add"),
-		);
-}
+const BOARD_TOOLS = ["read_artifact", "create_artifact", "edit_artifact"];
 
-function scoreEdit(
-	fixture: CanvasFixture,
-	envelope: ToolPathEnvelope,
-): EvalScoreResult {
-	const check = REQUESTED[fixture.id];
-	const before = loadFixtureBoard(fixture.board ?? "");
-	const lookups = lookupsOf(envelope);
-	const afterLookups =
-		lookups.length > 0 ? `after ${lookups.join(" and ")}, ` : "";
-	const edits = envelope.toolCalls.filter(
-		(call) => call.name === "edit_artifact",
-	);
-	const first = edits[0];
-	if (!first) {
-		const called = envelope.toolCalls.map((call) => call.name);
-		return bad(
-			called.length > 0
-				? `routing: ${afterLookups}the last step was ${called.join(" and ")}, not edit_artifact, so the board was not changed`
-				: `routing: ${afterLookups}no tool was called${envelope.content.trim() ? " (it answered in text)" : ""}, so the board was not changed`,
-		);
-	}
-	if (!isRecord(first.arguments)) {
-		return bad("tool-args: the edit_artifact arguments were not valid JSON");
-	}
-	const args = first.arguments;
-	const hard: string[] = [];
-	const notes: string[] = [];
-	if (args.artifactId !== fixture.artifactId) {
-		hard.push(
-			`tool-args: edit_artifact named "${String(args.artifactId)}", not the board in this chat`,
-		);
-	}
-	if (args.patches !== undefined) {
-		hard.push("schema: patches were sent for a board; a board takes ops");
-	}
-	if (!Array.isArray(args.ops)) {
-		hard.push(
-			`tool-args: ops must be an array of ops; the model sent ${
-				typeof args.ops === "string" ? "a string" : typeof args.ops
-			}`,
-		);
-		return bad(...hard);
-	}
-
-	const summary =
-		typeof args.summary === "string" && args.summary.trim() !== ""
-			? args.summary
-			: "Alfy's edit";
-	const parsed = boardOpsArraySchema.safeParse(args.ops);
-	if (!parsed.success) {
-		for (const issue of parsed.error.issues.slice(0, MAX_LISTED)) {
-			hard.push(
-				`schema: ops${issue.path.map((part) => (typeof part === "number" ? `[${part}]` : `.${String(part)}`)).join("")}: ${issue.message}`,
-			);
-		}
-		return bad(...hard);
-	}
-
-	const run = runOps(boardOpsVocabulary, before, {
-		id: "eval",
-		summary,
-		ops: parsed.data as BoardOp[],
-	});
-	if (!run.ok) {
-		return bad(...hard, `schema: ${clip(run.detail)}`);
-	}
-	if (run.refused.length > 0) {
-		const listedRefusals = run.refused.map(
-			(refusal) =>
-				`ops[${refusal.index}] ${refusal.op} "${refusal.id ?? ""}" (${refusal.reason}): ${clip(refusal.detail, 140)}`,
-		);
-		hard.push(
-			`refusal: ${run.refused.length} of ${parsed.data.length} ops were refused — ${listed(listedRefusals)}`,
-		);
-	}
-	const after = run.doc;
-
-	// The rubric, on the board the accepted ops leave.
-	hard.push(...check.requested(before, after));
-	const frames = frameProblems(after);
-	if (frames.length > 0) hard.push(`frames: ${listed(frames)}`);
-	const overlaps = overlapProblems(
-		after,
-		check.overlapScope === "all" ? undefined : touchedIds(before, after),
-	);
-	if (overlaps.length > 0) hard.push(`overlap: ${listed(overlaps)}`);
-	const labels = labelProblems(after);
-	if (labels.length > 0) hard.push(`labels: ${listed(labels)}`);
-	const removed = removedProblems(before, after, check.mayRemove);
-	if (removed.length > 0) hard.push(`removed: ${listed(removed)}`);
-	const language = languageProblem(newWords(before, after), fixture.language);
-	if (language) hard.push(`language: ${language}`);
-
-	notes.push(...(check.notes?.(before, after) ?? []));
-	if (edits.length > 1) {
-		notes.push(
-			`note: ${edits.length} edit_artifact calls in one answer; only the first was scored`,
-		);
-	}
-	if (!lookups.includes("read_artifact")) {
-		notes.push("note: the board was edited without reading it first");
-	}
-	if (hard.length > 0) return { verdict: "bad", reasons: [...hard, ...notes] };
-	if (notes.length > 0) return { verdict: "acceptable", reasons: notes };
-	return {
-		verdict: "good",
-		reasons: [
-			`ok: ${parsed.data.length} ops, all applied, ${after.nodes.length} nodes and ${after.edges.length} edges left${lookups.length > 0 ? `, ${afterLookups.replace(/, $/, "")}` : ""}`,
-		],
-	};
-}
-
-function scoreCreate(
-	fixture: CanvasFixture,
-	envelope: ToolPathEnvelope,
-): EvalScoreResult {
-	const lookups = lookupsOf(envelope);
-	const afterLookups =
-		lookups.length > 0 ? `after ${lookups.join(" and ")}, ` : "";
-	const creates = envelope.toolCalls.filter(
-		(call) => call.name === "create_artifact",
-	);
-	const first = creates[0];
-	if (!first) {
-		const called = envelope.toolCalls.map((call) => call.name);
-		return bad(
-			called.length > 0
-				? `routing: ${afterLookups}the last step was ${called.join(" and ")}, not create_artifact, so no board was made`
-				: `routing: ${afterLookups}no tool was called${envelope.content.trim() ? " (it answered in text)" : ""}, so no board was made`,
-		);
-	}
-	if (!isRecord(first.arguments)) {
-		return bad("tool-args: the create_artifact arguments were not valid JSON");
-	}
-	const args = first.arguments;
-	if (args.artifactType !== "canvas") {
-		return bad(
-			`routing: create_artifact was called for "${String(args.artifactType)}", not canvas`,
-		);
-	}
-	if (typeof args.title !== "string" || args.title.trim() === "") {
-		return bad("tool-args: title is missing (the card needs one)");
-	}
-	if (typeof args.body !== "string") {
-		return bad(
-			`tool-args: body must be the board as a JSON string; the model sent ${
-				isRecord(args.body) ? "an object" : typeof args.body
-			}`,
-		);
-	}
-
-	const made = parseCanvasCreateBody(args.body);
-	if (!made.ok) {
-		const reasons = issueLines(made.error).map(
-			(line) => `schema: ${clip(line)}`,
-		);
-		return bad(
-			...(reasons.length > 0 ? reasons : [`schema: ${clip(made.error)}`]),
-		);
-	}
-	const board = made.body;
-	const hard: string[] = [];
-	const notes: string[] = [];
-
+/** What a create must leave: a plan with frames and enough on it — the request was open-ended, so this is the least a board for a weekend has. */
+function createRubric(board: CanvasBody): string[] {
+	const problems: string[] = [];
 	const frames = board.nodes.filter((node) => node.data.kind === "frame");
 	const withWords = board.nodes.filter(
 		(node) => node.data.kind !== "frame" && labelOf(node).trim() !== "",
 	);
-	if (frames.length === 0) hard.push("request: the board has no frame");
+	if (frames.length === 0) problems.push("request: the board has no frame");
 	if (withWords.length < 5) {
-		hard.push(
+		problems.push(
 			`request: ${withWords.length} block(s) with words, a plan needs at least 5`,
 		);
 	}
-	const framing = frameProblems(board);
-	if (framing.length > 0) hard.push(`frames: ${listed(framing)}`);
-	const overlaps = overlapProblems(board);
-	if (overlaps.length > 0) hard.push(`overlap: ${listed(overlaps)}`);
-	const labels = labelProblems(board);
-	if (labels.length > 0) hard.push(`labels: ${listed(labels)}`);
-	const language = languageProblem(
-		`${args.title}\n${newWords(null, board)}`,
-		fixture.language,
-	);
-	if (language) hard.push(`language: ${language}`);
+	return problems;
+}
 
-	if (creates.length > 1) {
-		notes.push(
-			`note: ${creates.length} create_artifact calls in one answer; only the first was scored`,
-		);
+/**
+ * A recorded conversation, scored. The model's calls are replayed through the
+ * app's own tools (`canvas-tools.ts`) in the order it made them — the ones the
+ * live run answered and the last step, which it did not — so what is judged is
+ * the board the conversation LEFT, and each call that was refused, in part or
+ * whole, is named. A call refused on its first try is a miss even when the model
+ * mended it in the next step (the contract's bar is a clean first try); a
+ * `recovery:` line says when it did, because "a refusal names what would have
+ * worked" is only true if the model then does it.
+ */
+function scoreTranscript(
+	fixture: CanvasFixture,
+	envelope: ToolPathEnvelope,
+): EvalScoreResult {
+	const tools = toolsFor(fixture);
+	const before = fixture.kind === "edit" ? tools.board() : null;
+	const steps = [
+		...(envelope.priorSteps ?? []).map((step) => step.toolCalls),
+		envelope.toolCalls,
+	];
+	let readBeforeWrite = false;
+	let written = false;
+	for (const calls of steps) {
+		for (const call of calls) {
+			if (!BOARD_TOOLS.includes(call.name)) continue;
+			if (call.name === "read_artifact" && !written) readBeforeWrite = true;
+			const wrote = tools.writes();
+			tools.answer(call.name, call.arguments);
+			if (tools.writes() > wrote) written = true;
+		}
 	}
-	if (hard.length > 0) return { verdict: "bad", reasons: [...hard, ...notes] };
+	const lookups = lookupsOf(envelope);
+	const afterLookups =
+		lookups.length > 0 ? `after ${lookups.join(" and ")}, ` : "";
+	const wanted = fixture.kind === "edit" ? "edit_artifact" : "create_artifact";
+	const calledLast = envelope.toolCalls.map((call) => call.name);
+
+	const called: string[] = [];
+	for (const event of tools.events) called.push(...event.lines);
+	const board = tools.board();
+	if (!written || !board) {
+		if (!calledLast.includes(wanted)) {
+			called.push(
+				calledLast.length > 0
+					? `routing: ${afterLookups}the last step was ${calledLast.join(" and ")}, not ${wanted}, so the board was not ${fixture.kind === "edit" ? "changed" : "made"}`
+					: `routing: ${afterLookups}no tool was called${envelope.content.trim() ? " (it answered in text)" : ""}, so the board was not ${fixture.kind === "edit" ? "changed" : "made"}`,
+			);
+		}
+		return bad(...called);
+	}
+
+	// The board the conversation left, against the rubric.
+	const rubric: string[] = [];
+	const notes: string[] = [];
+	if (fixture.kind === "edit") {
+		const check = REQUESTED[fixture.id];
+		const start = before as CanvasBody;
+		rubric.push(...check.requested(start, board));
+		const frames = frameProblems(board);
+		if (frames.length > 0) rubric.push(`frames: ${listed(frames)}`);
+		const overlaps = overlapProblems(
+			board,
+			check.overlapScope === "all" ? undefined : touchedIds(start, board),
+		);
+		if (overlaps.length > 0) rubric.push(`overlap: ${listed(overlaps)}`);
+		const labels = labelProblems(board);
+		if (labels.length > 0) rubric.push(`labels: ${listed(labels)}`);
+		const removed = removedProblems(start, board, check.mayRemove);
+		if (removed.length > 0) rubric.push(`removed: ${listed(removed)}`);
+		const language = languageProblem(newWords(start, board), fixture.language);
+		if (language) rubric.push(`language: ${language}`);
+		notes.push(...(check.notes?.(start, board) ?? []));
+		if (!readBeforeWrite) {
+			notes.push("note: the board was edited without reading it first");
+		}
+	} else {
+		rubric.push(...createRubric(board));
+		const frames = frameProblems(board);
+		if (frames.length > 0) rubric.push(`frames: ${listed(frames)}`);
+		const overlaps = overlapProblems(board);
+		if (overlaps.length > 0) rubric.push(`overlap: ${listed(overlaps)}`);
+		const labels = labelProblems(board);
+		if (labels.length > 0) rubric.push(`labels: ${listed(labels)}`);
+		const language = languageProblem(
+			`${tools.title()}\n${newWords(null, board)}`,
+			fixture.language,
+		);
+		if (language) rubric.push(`language: ${language}`);
+		const creates = steps
+			.flat()
+			.filter((call) => call.name === "create_artifact").length;
+		if (creates > 1) {
+			notes.push(`note: ${creates} create_artifact calls in one conversation`);
+		}
+	}
+
+	const hard = [...called, ...rubric];
+	if (hard.length > 0) {
+		// A call that was refused and then mended: the board passes, the first try did not.
+		if (rubric.length === 0 && called.length > 0) {
+			notes.push(
+				"recovery: the board the conversation left passes the rubric; the model mended what was refused",
+			);
+		}
+		return { verdict: "bad", reasons: [...hard, ...notes] };
+	}
 	if (notes.length > 0) return { verdict: "acceptable", reasons: notes };
+	const edits = tools.events.filter(
+		(event) => event.name === "edit_artifact",
+	).length;
 	return {
 		verdict: "good",
 		reasons: [
-			`ok: a board of ${board.nodes.length} nodes (${frames.length} frame(s)) and ${board.edges.length} edges, in ${fixture.language}${lookups.length > 0 ? `, ${afterLookups.replace(/, $/, "")}` : ""}`,
+			fixture.kind === "edit"
+				? `ok: ${tools.appliedOps()} ops applied in ${edits} edit call${edits === 1 ? "" : "s"}, ${board.nodes.length} nodes and ${board.edges.length} edges left${lookups.length > 0 ? `, ${afterLookups.replace(/, $/, "")}` : ""}`
+				: `ok: a board of ${board.nodes.length} nodes (${board.nodes.filter((n) => n.data.kind === "frame").length} frame(s)) and ${board.edges.length} edges, in ${fixture.language}${lookups.length > 0 ? `, ${afterLookups.replace(/, $/, "")}` : ""}`,
 		],
 	};
 }
@@ -975,7 +865,5 @@ export const scoreCanvasEval: SuiteScorer = (evalCase, attempt) => {
 			"tool-call: the recorded answer is not a tool-call envelope (toolCalls, content, finishReason)",
 		);
 	}
-	return fixture.kind === "edit"
-		? scoreEdit(fixture, envelope)
-		: scoreCreate(fixture, envelope);
+	return scoreTranscript(fixture, envelope);
 };

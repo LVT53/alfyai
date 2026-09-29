@@ -18,7 +18,10 @@
 import type { OpsEnvelopeResult } from "$lib/server/services/artifacts";
 import {
 	applyOp,
+	BOARD_OP_NAMES,
+	BOARD_REFUSAL_REASONS,
 	type BoardOp,
+	type BoardRefusalReason,
 	MAX_NEW_NODES_PER_DIFF,
 	MAX_OPS_PER_DIFF,
 	validateBoardDiff,
@@ -30,6 +33,7 @@ import type {
 } from "$lib/shared/artifacts/canvas";
 import { MODEL_CREATABLE_DATA_SCHEMAS } from "$lib/shared/artifacts/canvas-blocks";
 import { emptyCanvasBody } from "$lib/shared/artifacts/canvas-body";
+import type { OpRefusal } from "$lib/shared/artifacts/ops";
 
 // ── What read_artifact shows ─────────────────────────────────────────────
 
@@ -429,4 +433,60 @@ export function canvasEditFailureMessage(
 		case "unsupported_kind":
 			return failure.detail ?? "This item cannot be changed with ops.";
 	}
+}
+
+/** One refused op, as the model reads it: which op, what it addressed, why, and what would have worked. */
+export interface BoardRefusalForModel {
+	target?: string;
+	reason: BoardRefusalReason;
+	opIndex: number;
+	detail: string;
+}
+
+export type CanvasEditOutcome =
+	| { ok: true; applied: number; refused: BoardRefusalForModel[] }
+	| { ok: false; error: string; refused: BoardRefusalForModel[] };
+
+function isBoardRefusalReason(value: string): value is BoardRefusalReason {
+	return (BOARD_REFUSAL_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * What the model is told of a diff the board judged: the ops that landed, and per
+ * refused op its own reason and detail. A batch in which nothing landed is a
+ * FAILURE, not a success with zero applied — a model told `success: true` would
+ * say the board changed — and it says so in a sentence that points at the
+ * details. (A highlight lands without changing the board, and counts.)
+ */
+export function canvasEditOutcome(run: {
+	applied: number;
+	refused: readonly OpRefusal[];
+}): CanvasEditOutcome {
+	const refused: BoardRefusalForModel[] = run.refused.map((item) => ({
+		...(item.id === undefined ? {} : { target: item.id }),
+		reason: isBoardRefusalReason(item.reason) ? item.reason : "invalid_data",
+		opIndex: item.index,
+		detail: item.detail,
+	}));
+	if (run.applied === 0) {
+		return {
+			ok: false,
+			error:
+				"Nothing was changed: every op was refused. Each refusal below says what would have worked; fix those ops and send them again.",
+			refused,
+		};
+	}
+	return { ok: true, applied: run.applied, refused };
+}
+
+/**
+ * What a Canvas edit that carried no ops is answered with: patches are a
+ * Document's and Slides' word, a board takes ops — and the message names the ones
+ * it takes.
+ */
+export function canvasOpsRequiredMessage(givenPatches: boolean): string {
+	const names = BOARD_OP_NAMES.join(", ");
+	return givenPatches
+		? `Canvas boards take ops, not patches. Send ops: each op's "op" must be one of: ${names}.`
+		: `Send ops: each op's "op" must be one of: ${names}.`;
 }

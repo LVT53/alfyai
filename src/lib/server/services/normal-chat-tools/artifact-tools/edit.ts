@@ -23,13 +23,15 @@ import {
 	patchOpInputSchema,
 } from "$lib/shared/artifact-document/patch";
 import {
-	BOARD_OP_NAMES,
-	BOARD_REFUSAL_REASONS,
 	type BoardRefusalReason,
 	boardOpsArraySchema,
 } from "$lib/shared/artifacts/board-ops";
 import { truncateText } from "../shared";
-import { canvasEditFailureMessage } from "./canvas-model";
+import {
+	canvasEditFailureMessage,
+	canvasEditOutcome,
+	canvasOpsRequiredMessage,
+} from "./canvas-model";
 import {
 	editArtifactOpsFieldDescription,
 	editArtifactPatchesFieldDescription,
@@ -357,18 +359,11 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 		if (params.abortSignal.aborted) {
 			return { ok: false, error: "The request was cancelled." };
 		}
-		const opNames = BOARD_OP_NAMES.join(", ");
 		if (params.patches) {
-			return {
-				ok: false,
-				error: `Canvas boards take ops, not patches. Send ops: each op's "op" must be one of: ${opNames}.`,
-			};
+			return { ok: false, error: canvasOpsRequiredMessage(true) };
 		}
 		if (!params.ops) {
-			return {
-				ok: false,
-				error: `Send ops: each op's "op" must be one of: ${opNames}.`,
-			};
+			return { ok: false, error: canvasOpsRequiredMessage(false) };
 		}
 		const summary = (params.summary ?? "").trim() || "Alfy's edit";
 		const diff = { id: randomUUID(), summary, ops: params.ops };
@@ -391,33 +386,20 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 			return { ok: false, error: canvasEditFailureMessage(outcome) };
 		}
 
-		const refused: ArtifactRefusal[] = outcome.refused.map((item) => ({
-			...(item.id === undefined ? {} : { target: item.id }),
-			reason: isBoardRefusalReason(item.reason) ? item.reason : "invalid_data",
-			opIndex: item.index,
-			detail: item.detail,
-		}));
-		if (outcome.applied === 0) {
-			return {
-				ok: false,
-				error: `Nothing was changed: every op was refused. Each refusal below says what would have worked; fix those ops and send them again.`,
-				refused,
-			};
+		const judged = canvasEditOutcome(outcome);
+		if (!judged.ok) {
+			return { ok: false, error: judged.error, refused: judged.refused };
 		}
 		return {
 			ok: true,
 			value: {
 				versionId: outcome.versionId,
-				applied: outcome.applied,
-				refused,
+				applied: judged.applied,
+				refused: judged.refused,
 			},
 		};
 	},
 };
-
-function isBoardRefusalReason(value: string): value is BoardRefusalReason {
-	return (BOARD_REFUSAL_REASONS as readonly string[]).includes(value);
-}
 
 /** One try at applying a diff to a board, as a new Alfy version, against the board's newest version. */
 async function applyBoardOps(

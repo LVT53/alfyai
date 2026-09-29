@@ -280,15 +280,21 @@ describe("the request a live case sends (ruling 62)", () => {
 		]);
 	});
 
-	it("answers a lookup with a neutral stub and never answers the call that is scored", () => {
+	it("answers a lookup with a neutral stub, the artifact tools with the app's own answers, and no other tool at all", () => {
 		const answer = CANVAS_TOOL_SUITE.requestFor(caseOf("canvas-add-sunday"))
 			.followUp?.answer;
 		if (!answer) throw new Error("no follow-up");
 		expect(answer("image_search", {})).toMatch(/No images/);
 		expect(answer("research_web", {})).toMatch(/failed/);
-		expect(answer("edit_artifact", {})).toBeNull();
+		// An edit case lets the model edit — and be told what happened — but not make another board.
+		expect(JSON.parse(String(answer("edit_artifact", {})))).toMatchObject({
+			success: false,
+		});
 		expect(answer("create_artifact", {})).toBeNull();
+		// A tool with no business in a board request is the step that is scored.
 		expect(answer("produce_file", {})).toBeNull();
+		expect(answer("map_route", {})).toBeNull();
+		expect(answer("run_python", {})).toBeNull();
 	});
 
 	it("answers the model's read of the board with the real payload, and an id it does not have with the not-found answer", () => {
@@ -316,11 +322,13 @@ describe("the request a live case sends (ruling 62)", () => {
 			success: false,
 			candidates: [{ artifactId: ART, title: "Vienna weekend" }],
 		});
-		// A create case has no board to read: the model's read is not answered, so it is the step that is scored.
+		// A create case has no board to read yet.
 		const createAnswer_ = CANVAS_TOOL_SUITE.requestFor(
 			caseOf("canvas-create-vienna-en"),
 		).followUp?.answer;
-		expect(createAnswer_?.("read_artifact", { artifactId: ART })).toBeNull();
+		expect(createAnswer_?.("read_artifact", { artifactId: ART })).toMatch(
+			/No item with that id/,
+		);
 	});
 
 	it("carries the real base system prompt and states the turn's required language", () => {
@@ -459,7 +467,7 @@ describe("scoring — an edit a careful model would make", () => {
 			"canvas-remove-and-connect",
 			editAnswer(HONEST_EDITS["canvas-remove-and-connect"]),
 		);
-		expect(result.reasons[0]).toMatch(/2 ops, all applied, .*nodes/);
+		expect(result.reasons[0]).toMatch(/2 ops applied in 1 edit call, .*nodes/);
 	});
 });
 
@@ -498,7 +506,9 @@ describe("scoring — the tool call itself", () => {
 		expect(
 			score(
 				"canvas-remove-and-connect",
-				editAnswer([], { artifactId: "other" }),
+				editAnswer(HONEST_EDITS["canvas-remove-and-connect"], {
+					artifactId: "other",
+				}),
 			).reasons.join(" "),
 		).toMatch(/tool-args: edit_artifact named "other"/);
 		expect(
@@ -508,15 +518,21 @@ describe("scoring — the tool call itself", () => {
 					patches: [{}],
 				}),
 			).reasons.join(" "),
-		).toMatch(/schema: patches were sent for a board/);
+		).toMatch(/schema: patches and ops were sent together/);
 		expect(
 			score("canvas-remove-and-connect", editAnswer("[]")).reasons[0],
 		).toMatch(/^tool-args: ops must be an array.*a string/);
 	});
 
 	it("fails a create case answered with an edit, and a create for another kind or without a title or a string body", () => {
-		expect(score("canvas-create-vienna-en", editAnswer([])).reasons[0]).toMatch(
-			/^routing:.*not create_artifact/,
+		const edit = score(
+			"canvas-create-vienna-en",
+			editAnswer(HONEST_EDITS["canvas-remove-and-connect"]),
+		);
+		expect(edit.verdict).toBe("bad");
+		expect(edit.reasons.join(" ")).toMatch(/tool-args: edit_artifact named/);
+		expect(edit.reasons.join(" ")).toMatch(
+			/routing: .*the last step was edit_artifact, not create_artifact/,
 		);
 		expect(
 			score(
@@ -687,17 +703,7 @@ describe("scoring — the rubric on the board an edit leaves", () => {
 		);
 	});
 
-	it("notes, without failing, a second edit call, an edit made without reading, and an arrow the wrong way round", () => {
-		const twice = editAnswer(HONEST_EDITS["canvas-remove-and-connect"], {
-			extraCalls: [
-				{ name: "edit_artifact", arguments: { artifactId: ART, ops: [] } },
-			],
-		});
-		const result = score("canvas-remove-and-connect", twice);
-		expect(result.verdict).toBe("acceptable");
-		expect(result.reasons).toEqual([
-			expect.stringMatching(/note: 2 edit_artifact calls/),
-		]);
+	it("notes, without failing, an edit made without reading, and an arrow the wrong way round", () => {
 		expect(
 			score(
 				"canvas-remove-and-connect",
@@ -713,6 +719,22 @@ describe("scoring — the rubric on the board an edit leaves", () => {
 		);
 		expect(reversed.verdict).toBe("acceptable");
 		expect(reversed.reasons[0]).toMatch(/points from the walk to lunch/);
+	});
+
+	it("counts a second call that is refused as a miss, even when the first landed — every call is judged by the tools", () => {
+		const twice = editAnswer(HONEST_EDITS["canvas-remove-and-connect"], {
+			extraCalls: [
+				{
+					name: "edit_artifact",
+					arguments: { artifactId: ART, ops: [move("museum", 1, 1)] },
+				},
+			],
+		});
+		const result = score("canvas-remove-and-connect", twice);
+		expect(result.verdict).toBe("bad");
+		expect(result.reasons.join(" ")).toMatch(
+			/refusal: 1 of 1 ops were refused.*unknown_id/,
+		);
 	});
 
 	it("notes, without failing, an arrangement that is not in the order of the day", () => {
@@ -798,11 +820,21 @@ describe("scoring — a board made through create_artifact", () => {
 		);
 	});
 
-	it("notes a second create_artifact call in the same answer", () => {
+	it("notes a second create_artifact call in the same conversation", () => {
+		const board = HONEST_CREATES["canvas-create-vienna-en"];
 		const result = score(
 			"canvas-create-vienna-en",
-			createAnswer(HONEST_CREATES["canvas-create-vienna-en"], {
-				extraCalls: [{ name: "create_artifact", arguments: {} }],
+			createAnswer(board, {
+				extraCalls: [
+					{
+						name: "create_artifact",
+						arguments: {
+							artifactType: "canvas",
+							title: "Weekend in Vienna",
+							body: JSON.stringify(board),
+						},
+					},
+				],
 			}),
 		);
 		expect(result.verdict).toBe("acceptable");
