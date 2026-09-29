@@ -222,6 +222,7 @@ const artifactsDict = {
 		// Alfy-authored summary is free-form content and is shown as-is.
 		"artifacts.document.versions.summaryEdited": "Edited",
 		"artifacts.document.versions.summaryRestored": "restored {summary}",
+		"artifacts.document.versions.summaryRestoredFrom": "Restored v{n}",
 		"artifacts.document.versions.summaryUndidAlfyChange": "Undid Alfy's change",
 		"artifacts.document.versions.summaryFirstDraft":
 			"Alfy wrote the first draft",
@@ -626,6 +627,7 @@ const artifactsDict = {
 		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
 		"artifacts.document.versions.summaryEdited": "Szerkesztve",
 		"artifacts.document.versions.summaryRestored": "visszaállítva: {summary}",
+		"artifacts.document.versions.summaryRestoredFrom": "Visszaállítva: v{n}",
 		"artifacts.document.versions.summaryUndidAlfyChange":
 			"Alfy módosításának visszavonása",
 		"artifacts.document.versions.summaryFirstDraft":

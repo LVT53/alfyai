@@ -205,7 +205,7 @@ describe("restoreVersion", () => {
 		expect(versions[0]).toMatchObject({
 			id: result.ok ? result.versionId : null,
 			author: "user",
-			summary: "restored Alfy wrote the first draft",
+			summary: "Restored v1",
 		});
 		const stored = memory.db
 			.select()
