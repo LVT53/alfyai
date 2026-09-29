@@ -2064,11 +2064,9 @@ describe("chat page runtime integration", () => {
 					}),
 				);
 				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
-				return (
-					await screen.findAllByRole("complementary", {
-						name: "Document workspace",
-					})
-				)[0];
+				return screen.findByRole("complementary", {
+					name: WORKSPACE_LANDMARK,
+				});
 			}
 
 			it("offers none for the parent's Document, which another chat made", async () => {
