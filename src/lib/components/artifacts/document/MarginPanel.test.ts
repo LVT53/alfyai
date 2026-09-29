@@ -1113,4 +1113,80 @@ describe("MarginPanel (the redesign's rail, Wave 2.5 Step 7)", () => {
 			expect(onClose).toHaveBeenCalledTimes(1);
 		});
 	});
+
+	// §7.3: no information depends on movement — under reduced motion the
+	// list jumps to a card instead of gliding, and an active card does not
+	// shift (that half is CSS: `.margin-panel-item.is-active` under
+	// `prefers-reduced-motion`).
+	describe("reduced motion", () => {
+		const blocks = [makeBlock("p1", "paragraph", "Book the flight to Vienna.")];
+		function props(extra: Record<string, unknown> = {}) {
+			return {
+				comments: [makeRoot({ id: "root-1" })],
+				blocks,
+				tabs: NO_TABS,
+				activeTabId: "",
+				onResolve: vi.fn(),
+				onSubmitReply: vi.fn(),
+				...extra,
+			};
+		}
+		const originalMatchMedia = window.matchMedia;
+		afterEach(() => {
+			window.matchMedia = originalMatchMedia;
+		});
+
+		it("scrolls to a followed card smoothly by default", async () => {
+			const scrollIntoView = vi.fn();
+			Element.prototype.scrollIntoView = scrollIntoView;
+			const { rerender } = render(MarginPanel, props());
+			await rerender(
+				props({ revealRequest: { commentId: "root-1", token: 1 } }),
+			);
+			expect(scrollIntoView).toHaveBeenCalledWith({
+				block: "nearest",
+				behavior: "smooth",
+			});
+		});
+
+		it("jumps instead when the reader prefers reduced motion — for a followed card and a clicked highlight alike", async () => {
+			window.matchMedia = ((query: string) => ({
+				matches: query.includes("prefers-reduced-motion"),
+				media: query,
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn(),
+			})) as unknown as typeof window.matchMedia;
+			const scrollIntoView = vi.fn();
+			Element.prototype.scrollIntoView = scrollIntoView;
+			const { rerender } = render(MarginPanel, props());
+			await rerender(
+				props({ revealRequest: { commentId: "root-1", token: 1 } }),
+			);
+			await rerender(
+				props({
+					revealRequest: { commentId: "root-1", token: 1 },
+					focusRequest: { commentId: "root-1", token: 2 },
+				}),
+			);
+			expect(scrollIntoView).toHaveBeenCalledTimes(2);
+			for (const call of scrollIntoView.mock.calls) {
+				expect(call[0]).toEqual({ block: "nearest", behavior: "auto" });
+			}
+		});
+
+		it("a card that was just created is brought in at once, never mid-glide, so the comment's own flight lands on it", async () => {
+			const scrollIntoView = vi.fn();
+			Element.prototype.scrollIntoView = scrollIntoView;
+			const { rerender } = render(MarginPanel, props());
+			await rerender(
+				props({
+					revealRequest: { commentId: "root-1", token: 1, force: true },
+				}),
+			);
+			expect(scrollIntoView).toHaveBeenCalledWith({
+				block: "nearest",
+				behavior: "auto",
+			});
+		});
+	});
 });

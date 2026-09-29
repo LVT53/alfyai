@@ -2,7 +2,10 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { artifacts, users } from "../../src/lib/server/db/schema";
-import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
+import {
+	createComment,
+	createDocumentArtifact,
+} from "../../src/lib/server/services/artifacts";
 import { runReadArtifactTool } from "../../src/lib/server/services/normal-chat-tools/artifact-tools/read";
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import {
@@ -1186,6 +1189,123 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			await expect(
 				page.getByRole("region", { name: "Changes from Alfy" }),
 			).toHaveCount(0);
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
+
+	// The refusal note is one of the comment family: a warning card in the
+	// comment column at its LINE's position — between the threads whose words
+	// sit above and below it — never a banner above the text.
+	test("puts the refusal card in the comment column at its line's position, between the threads either side of it", async ({
+		page,
+	}) => {
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a trip");
+			const artifactId = await seedDocument({
+				conversationId,
+				title: "Trip plan",
+				markdown:
+					"Book the hotel.\n\nReserve dinner near the hotel.\n\nBook the flight.\n\nPack the bags the night before.",
+			});
+			const userId = await testUserId();
+			const readResult = await runReadArtifactTool({
+				userId,
+				conversationId,
+				artifactId,
+				detail: "blocks",
+				abortSignal: new AbortController().signal,
+			});
+			const blocks =
+				readResult.modelPayload.success && "blocks" in readResult.modelPayload
+					? (readResult.modelPayload.blocks as Array<{
+							blockId: string;
+							hash: string;
+							text: string;
+						}>)
+					: [];
+			const block = (text: string) => {
+				const found = blocks.find((b) => b.text === text);
+				expect(found, `the seeded block "${text}"`).toBeTruthy();
+				return found as { blockId: string; hash: string; text: string };
+			};
+			const dinner = block("Reserve dinner near the hotel.");
+			const bags = block("Pack the bags the night before.");
+			await createComment({
+				userId,
+				artifactId,
+				anchor: {
+					kind: "text",
+					blockId: dinner.blockId,
+					quote: "dinner",
+					prefix: "Reserve ",
+					suffix: " near the hotel.",
+				},
+				author: "user",
+				body: "Which restaurant?",
+			});
+			await createComment({
+				userId,
+				artifactId,
+				anchor: {
+					kind: "text",
+					blockId: bags.blockId,
+					quote: "bags",
+					prefix: "Pack the ",
+					suffix: " the night before.",
+				},
+				author: "user",
+				body: "Soft bag or suitcase?",
+			});
+
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+			await openChatAndReload(page, conversationId);
+			await openDocumentFromPanel(page);
+
+			const hotel = block("Book the hotel.");
+			const flight = block("Book the flight.");
+			await sendMessage(
+				page,
+				`${AI_SMOKE_EDIT_ARTIFACT_MARKER} ${encodeEditArtifactScenarioPayload({
+					artifactId,
+					applyBlockId: hotel.blockId,
+					applyBaseHash: hotel.hash,
+					refuseBlockId: flight.blockId,
+				})}`,
+			);
+			await expect(
+				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			const rail = page.locator(".document-content-rail");
+			await expect(rail.getByTestId("refusal-notice")).toBeVisible({
+				timeout: 10_000,
+			});
+			const order = await rail
+				.getByTestId(/margin-comment|refusal-notice/)
+				.evaluateAll((nodes) =>
+					nodes.map(
+						(node) => node.textContent?.replace(/\s+/g, " ").trim() ?? "",
+					),
+				);
+			expect(order).toHaveLength(3);
+			expect(order[0]).toContain("Which restaurant?");
+			expect(order[1]).toContain("Book the flight.");
+			expect(order[2]).toContain("Soft bag or suitcase?");
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (temporaryProvider) {

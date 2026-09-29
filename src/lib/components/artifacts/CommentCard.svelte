@@ -334,7 +334,7 @@ let changeChipLabel = $derived(
 		.comment-card-change-see::after {
 			content: '';
 			position: absolute;
-			inset: -0.75rem -0.5rem;
+			inset: -0.875rem -0.5rem;
 		}
 	}
 </style>

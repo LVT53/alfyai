@@ -384,9 +384,12 @@ function revealOnRequest(
 		}
 		appliedToken = p.request.token;
 		if (!p.request.force && (pointerInside || focusInside)) return;
+		// A card that was just created is brought in at once, never mid-glide:
+		// the new comment's own flight (`DocumentBody.svelte`) measures where
+		// it lands.
 		node.scrollIntoView({
 			block: "nearest",
-			behavior: prefersReducedMotion() ? "auto" : "smooth",
+			behavior: p.request.force || prefersReducedMotion() ? "auto" : "smooth",
 		});
 	}
 	apply(params);
@@ -835,11 +838,14 @@ const noteIn = reducedMotionAware(fly);
 		min-height: 0;
 	}
 
+	/* The fold clips (`overflow: hidden` on the collapsible), so the list
+	   keeps a few pixels of its own on both sides: an active card's shift
+	   towards the text and its shadow must not be cut off by it. */
 	.margin-panel-orphaned-list {
 		display: flex;
 		flex-direction: column;
 		gap: 0.625rem;
-		padding: 0.5rem 0.375rem 0.375rem 0;
+		padding: 0.5rem 0.375rem 0.5rem;
 	}
 
 	.margin-panel-other-tabs {
@@ -895,7 +901,7 @@ const noteIn = reducedMotionAware(fly);
 		.margin-panel-orphaned-toggle::after {
 			content: '';
 			position: absolute;
-			inset: -0.75rem -0.5rem;
+			inset: -0.875rem -0.5rem;
 		}
 
 		.margin-panel-orphaned-toggle,

@@ -558,7 +558,7 @@ let foldedA11yLabel = $derived(
 		.comment-thread-quote::after {
 			content: '';
 			position: absolute;
-			inset: -0.75rem 0;
+			inset: -0.875rem 0;
 		}
 
 		.comment-thread-actions :global(.btn-ghost),

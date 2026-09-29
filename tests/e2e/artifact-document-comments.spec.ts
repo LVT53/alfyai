@@ -1,10 +1,11 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
 import {
 	createComment,
 	createDocumentArtifact,
+	resolveComment,
 } from "../../src/lib/server/services/artifacts";
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
@@ -518,6 +519,125 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 		await page.keyboard.press("Escape");
 		await expect(drawer).toBeHidden();
 		await expect(commentsButton).toBeFocused();
+	});
+	// §3.4: "44 px in the phone sheet" — everything tapped in the Comments
+	// sheet is 44px tall, either its own box or an invisible ::after hit area
+	// where the visual size should stay small (review 233-238).
+	test("phone sheet: every control that is tapped is at least 44px tall", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"Phone touch targets",
+		);
+		const userId = await testUserId();
+		const artifact = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Trip notes",
+			markdown: "Book the flight to Vienna.\n\nReserve the hotel by the river.",
+			author: "user",
+			summary: "Created",
+		});
+		const [first, second] = parseDocument(artifact.body ?? "", {
+			mint: false,
+		}).blocks;
+		if (!first || !second) throw new Error("two blocks expected");
+		await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor: anchorFor(first.id, first.markdown, "flight"),
+			author: "user",
+			body: "Open thread on the flight",
+		});
+		const resolved = await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor: anchorFor(second.id, second.markdown, "hotel"),
+			author: "user",
+			body: "Resolved thread on the hotel",
+		});
+		if (!resolved) throw new Error("the resolved seed comment must exist");
+		await resolveComment({
+			userId,
+			artifactId: artifact.id,
+			commentId: resolved.id,
+			resolved: true,
+		});
+		await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor: {
+				kind: "text",
+				blockId: first.id,
+				quote: "words nobody can find any more",
+				prefix: "",
+				suffix: "",
+			},
+			author: "user",
+			body: "Comment on text that was removed",
+		});
+
+		await page.setViewportSize({ width: 390, height: 844 });
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button-compact").click();
+		await page
+			.getByTestId("artifact-panel-list-mobile")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+		const commentsButton = mobileShell(page).getByTestId(
+			"artifact-comments-button",
+		);
+		await expect(commentsButton).toBeVisible({ timeout: 30_000 });
+		await commentsButton.click();
+		const sheet = page.getByRole("dialog", { name: "Comments" });
+		await expect(sheet).toBeVisible();
+		await waitForStableBoundingBox(sheet);
+
+		/** The control's own height, grown by its invisible `::after` hit area when it has one. */
+		async function tapHeight(control: Locator): Promise<number> {
+			return control.evaluate((el) => {
+				const rect = el.getBoundingClientRect();
+				let top = rect.top;
+				let bottom = rect.bottom;
+				const after = getComputedStyle(el, "::after");
+				if (after.content !== "none" && after.position === "absolute") {
+					const offset = Number.parseFloat(after.top);
+					const height = Number.parseFloat(after.height);
+					if (!Number.isNaN(offset) && !Number.isNaN(height)) {
+						top = Math.min(top, rect.top + offset);
+						bottom = Math.max(bottom, rect.top + offset + height);
+					}
+				}
+				return bottom - top;
+			});
+		}
+
+		const controls: Record<string, Locator> = {
+			"the quote button": sheet
+				.getByRole("button", { name: /Show “flight” in the text/ })
+				.first(),
+			Reply: sheet.getByRole("button", { name: "Reply" }).first(),
+			Resolve: sheet.getByRole("button", { name: "Resolve" }).first(),
+			"the quiet resolved toggle": sheet.getByRole("button", {
+				name: "1 resolved",
+			}),
+			"the removed-text toggle": sheet.getByRole("button", {
+				name: /on text that was removed/,
+			}),
+		};
+		for (const [name, control] of Object.entries(controls)) {
+			await expect(control, name).toBeVisible();
+			expect(
+				await tapHeight(control),
+				`${name} must be at least 44px tall to tap`,
+			).toBeGreaterThanOrEqual(43.5);
+		}
+		// Peeking a resolved thread: its one-line fold is a tap target too.
+		await controls["the quiet resolved toggle"].click();
+		const fold = sheet.getByRole("button", { name: /Show the full thread/ });
+		await expect(fold).toBeVisible();
+		expect(await tapHeight(fold)).toBeGreaterThanOrEqual(43.5);
 	});
 });
 
