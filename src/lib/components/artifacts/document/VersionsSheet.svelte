@@ -430,12 +430,15 @@ async function cancelRestore(versionId: string): Promise<void> {
 			var(--surface-elevated) 24px
 		);
 		opacity: 0;
+		/* Nothing to click while it is not shown. */
+		pointer-events: none;
 		transition: opacity var(--duration-standard) var(--ease-out);
 	}
 
 	.versions-row:hover .versions-action,
 	.versions-row:focus-within .versions-action {
 		opacity: 1;
+		pointer-events: auto;
 	}
 
 	.versions-restore {
@@ -508,6 +511,7 @@ async function cancelRestore(versionId: string): Promise<void> {
 			border-radius: 0;
 			background: none;
 			opacity: 1;
+			pointer-events: auto;
 		}
 
 		.versions-restore {
