@@ -887,6 +887,22 @@ async function handleCommentResolve(
  * `handledActivityKey` is set only once the call is actually about to be
  * processed, never as a side effect of merely having been seen.
  */
+/**
+ * Final polish D2: an activity that had already settled when THIS body mounted
+ * happened before it. The persisted review state (`restorePendingReview`, ruling
+ * 61) is the only source of what it changed — landing it live on top of that
+ * counts the change twice (one entry keyed by the op, one by the block), and the
+ * copy survives Undo and comes back after Keep. The panel builds a body again on
+ * every later open of the Document, and hands each one the panel's latest
+ * activity, so the once-only rule belongs here: a call is applied live by the
+ * body that was mounted while it was still running (or before it began), and by
+ * no body built after it settled. Captured once, at mount; `runLoad` resets
+ * `handledActivityKey` on every (re)load, which is why that cannot stand in for
+ * it.
+ */
+const settledActivityKeyAtMount = untrack(() =>
+	alfyActivity && alfyActivity.status !== "running" ? alfyActivity.key : null,
+);
 $effect(() => {
 	const activity = alfyActivity;
 	if (!activity || activity.artifactId !== boundArtifactId) {
@@ -904,6 +920,8 @@ $effect(() => {
 	// Settled (applied/refused/failed): the shimmer never outlives its call
 	// (T8.6), whatever else this activity turns out to mean.
 	alfyWritingLabel = null;
+	// Settled before this body existed: the server's review state owns it.
+	if (activity.key === settledActivityKeyAtMount) return;
 
 	const key = `${activity.key}:${activity.status}`;
 	if (key === handledActivityKey) return;

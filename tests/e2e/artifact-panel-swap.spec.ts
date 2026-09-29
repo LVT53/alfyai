@@ -6,19 +6,46 @@ import {
 	artifactVersions,
 	messages,
 } from "../../src/lib/server/db/schema";
+import { runReadArtifactTool } from "../../src/lib/server/services/normal-chat-tools/artifact-tools/read";
+import {
+	AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT,
+	AI_SMOKE_EDIT_ARTIFACT_MARKER,
+	encodeEditArtifactScenarioPayload,
+} from "../fixtures/ai/openai-compatible-scenarios";
+import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
 	seedDocument,
 	setUiLanguage,
 	testUserId,
 } from "./artifact-document-polish-helpers";
-import { createConversation, login, workspacePanel } from "./helpers";
+import {
+	createTemporaryFakeProviderModel,
+	deleteTemporaryProvider,
+	snapshotUserModelPreference,
+	updateUserModelPreference,
+} from "./artifact-live-edit.helpers";
+import {
+	createConversation,
+	login,
+	sendMessage,
+	workspacePanel,
+} from "./helpers";
 
-// Final polish re-check, D1 (rd/recheck2.md): swap the item the panel shows —
-// a chat card to another card, a list row to another row, a Document to an App
-// and back — and the header lost its Comments toggle, its Download popover and
-// its Versions button until a reload. The header's controls belong to the body
-// that is mounted for the open item, and every item the panel shows, in
-// whatever order, has to get them.
+// The panel builds a body for the open item, and builds it again whenever the
+// item is opened again or another one is opened in its place (final polish
+// re-check, rd/recheck2.md).
+//
+// D1: swap the item the panel shows — a chat card to another card, a list row
+// to another row, a Document to an App and back — and the header lost its
+// Comments toggle, its Download popover and its Versions button until a reload.
+// The header's controls belong to the body that is mounted for the open item,
+// and every item the panel shows, in whatever order, has to get them.
+//
+// D2: an Alfy edit that lands while a Document is open is applied once, by the
+// body that is mounted for it. A body built afterwards restores what the server
+// holds (the review state, ruling 61) and nothing else: the change used to be
+// replayed on top of that on every later re-open, so it counted twice, survived
+// Undo, and came back as pending after Keep.
 
 async function seedApp(conversationId: string, title: string): Promise<string> {
 	const userId = await testUserId();
@@ -265,5 +292,203 @@ test.describe("The panel header follows the item the panel shows (D1)", () => {
 		await cards.nth(0).getByTestId("artifact-card-head").click();
 		await expectDocumentHeader(page, "Alpha", "back to the first card");
 		await useHeaderControls(page, "back to the first card");
+	});
+});
+
+// ---- D2: a live Alfy edit is applied once -----------------------------------
+
+async function readBlocks(
+	conversationId: string,
+	artifactId: string,
+): Promise<Array<{ blockId: string; hash: string; text: string }>> {
+	const read = await runReadArtifactTool({
+		userId: await testUserId(),
+		conversationId,
+		artifactId,
+		detail: "blocks",
+		abortSignal: new AbortController().signal,
+	});
+	return read.modelPayload.success && "blocks" in read.modelPayload
+		? (read.modelPayload.blocks as Array<{
+				blockId: string;
+				hash: string;
+				text: string;
+			}>)
+		: [];
+}
+
+test.describe("A live Alfy edit is applied once, however often the Document is opened again (D2)", () => {
+	const fakeProvider = createOpenAICompatibleProviderHarness();
+
+	test.beforeAll(async () => {
+		await fakeProvider.start();
+	});
+	test.afterAll(async () => {
+		await fakeProvider.stop();
+	});
+	test.beforeEach(async () => {
+		await fakeProvider.reset();
+	});
+
+	/** Opens the chat with the Document already showing in the panel, so the body is mounted while Alfy's edit lands, then lets Alfy edit it (one applied block, one refused). */
+	async function editWhileOpen(
+		page: Page,
+		conversationTitle: string,
+	): Promise<{
+		conversationId: string;
+		artifactId: string;
+		providerId: string;
+		previousModelPreference: string | null;
+	}> {
+		await login(page);
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		const conversationId = await createConversation(page, conversationTitle);
+		const artifactId = await seedDocument(conversationId, {
+			markdown: "Book the hotel.\n\nBook the flight.",
+			title: "Trip plan",
+		});
+		const blocks = await readBlocks(conversationId, artifactId);
+		const applyBlock = blocks.find((b) => b.text === "Book the hotel.");
+		const refuseBlock = blocks.find((b) => b.text === "Book the flight.");
+		expect(applyBlock, "the seeded hotel block").toBeTruthy();
+		expect(refuseBlock, "the seeded flight block").toBeTruthy();
+
+		const temporary = await createTemporaryFakeProviderModel(
+			page,
+			fakeProvider.baseURL,
+		);
+		await updateUserModelPreference(page, temporary.selectedModel);
+		await openChat(page, conversationId);
+
+		await openList(page);
+		await listRow(page, /^Trip plan, Document/).click();
+		await expectDocumentHeader(page, "Trip plan", "before the edit");
+
+		await sendMessage(
+			page,
+			`${AI_SMOKE_EDIT_ARTIFACT_MARKER} ${encodeEditArtifactScenarioPayload({
+				artifactId,
+				applyBlockId: applyBlock?.blockId ?? "",
+				applyBaseHash: applyBlock?.hash ?? "",
+				refuseBlockId: refuseBlock?.blockId ?? "",
+			})}`,
+		);
+		await expect(page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT)).toBeVisible(
+			{ timeout: 30_000 },
+		);
+		await expect(
+			page.getByRole("region", { name: "Changes from Alfy" }),
+			"the live edit lands as one pending change",
+		).toContainText("Alfy changed 1 part.", { timeout: 15_000 });
+		return {
+			conversationId,
+			artifactId,
+			providerId: temporary.providerId,
+			previousModelPreference,
+		};
+	}
+
+	test("opened again from the list and from the card the change still counts once, and Undo leaves nothing pending", async ({
+		page,
+	}) => {
+		test.setTimeout(240_000);
+		let providerId: string | null = null;
+		let previousModelPreference: string | null = null;
+		try {
+			const walk = await editWhileOpen(page, "Replay walk");
+			providerId = walk.providerId;
+			previousModelPreference = walk.previousModelPreference;
+			const review = page.getByRole("region", { name: "Changes from Alfy" });
+			const card = page.getByTestId("artifact-card-head");
+			await expect(card).toContainText("1 change to review");
+
+			// The list, then the Document again: the body is built anew and restores
+			// the review state from the server — one change there, so one here.
+			await openList(page);
+			await expect(
+				listRow(page, /^Trip plan, Document.*1 change to review$/),
+				"the list row counts the change once",
+			).toBeVisible();
+			await listRow(page, /^Trip plan, Document/).click();
+			await expectDocumentHeader(page, "Trip plan", "opened from the list");
+			await expect(review, "opened again from the list").toContainText(
+				"Alfy changed 1 part.",
+			);
+			await expect(card).toContainText("1 change to review");
+
+			// Close the panel and open the Document from its card.
+			await page
+				.getByRole("button", { name: "Close document workspace" })
+				.click();
+			await expect(workspacePanel(page)).toHaveCount(0);
+			await card.click();
+			await expectDocumentHeader(page, "Trip plan", "opened from the card");
+			await expect(review, "opened again from the card").toContainText(
+				"Alfy changed 1 part.",
+			);
+			await expect(card).toContainText("1 change to review");
+
+			// Undo the one change from its pill in the text: nothing is left pending,
+			// here or on the card.
+			await workspacePanel(page)
+				.getByRole("button", { name: "Undo Alfy's change" })
+				.click({ timeout: 15_000 });
+			await expect(review).toHaveCount(0, { timeout: 10_000 });
+			await expect(card).not.toContainText("change to review");
+
+			await openList(page);
+			await expect(
+				listRow(page, /^Trip plan, Document/),
+				"the list row after Undo",
+			).not.toContainText("change to review");
+			await listRow(page, /^Trip plan, Document/).click();
+			await expectDocumentHeader(page, "Trip plan", "opened again after Undo");
+			await expect(
+				review,
+				"the undone change does not come back as a phantom",
+			).toHaveCount(0);
+			await expect(card).not.toContainText("change to review");
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (providerId) await deleteTemporaryProvider(page, providerId);
+		}
+	});
+
+	test("a change that was Kept does not come back as pending when the Document is opened again", async ({
+		page,
+	}) => {
+		test.setTimeout(240_000);
+		let providerId: string | null = null;
+		let previousModelPreference: string | null = null;
+		try {
+			const walk = await editWhileOpen(page, "Replay keep walk");
+			providerId = walk.providerId;
+			previousModelPreference = walk.previousModelPreference;
+			const review = page.getByRole("region", { name: "Changes from Alfy" });
+			const card = page.getByTestId("artifact-card-head");
+
+			await page
+				.getByRole("button", { name: "Keep all" })
+				.click({ timeout: 15_000 });
+			await expect(review).toHaveCount(0, { timeout: 10_000 });
+			await expect(card).not.toContainText("change to review");
+
+			await openList(page);
+			await listRow(page, /^Trip plan, Document/).click();
+			await expectDocumentHeader(page, "Trip plan", "opened again after Keep");
+			await expect(review, "the kept change is not pending again").toHaveCount(
+				0,
+			);
+			await expect(card).not.toContainText("change to review");
+			await openList(page);
+			await expect(
+				listRow(page, /^Trip plan, Document/),
+				"the list row after Keep",
+			).not.toContainText("change to review");
+		} finally {
+			await updateUserModelPreference(page, previousModelPreference);
+			if (providerId) await deleteTemporaryProvider(page, providerId);
+		}
 	});
 });

@@ -170,6 +170,13 @@ let activeDocument: WorkspaceDocument | null = $derived.by(() => {
  * `alfyActivity` itself (unsuppressed) still feeds the row-level ephemeral
  * pending pill below and the chat card, neither of which replay anything.
  *
+ * Final polish D2: this set is a panel-level notion and outlives every body —
+ * a body built later (the list and back, the panel closed and opened from the
+ * card, another item and back) is handed the same settled activity. The
+ * once-only rule therefore also lives in `DocumentBody.svelte`
+ * (`settledActivityKeyAtMount`): a body applies live only what was still
+ * running, or had not begun, when it mounted.
+ *
  * rd/review-2-5.md fix agent C, round F2: an `open`-only check is not
  * enough, because `open` and `activeDocumentId` can both become true in the
  * SAME render that first hands this effect an already-settled activity

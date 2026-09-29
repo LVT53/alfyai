@@ -6,6 +6,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { get } from "svelte/store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -2541,31 +2542,41 @@ describe("DocumentBody", () => {
 			);
 			mockFetchArtifact.mockResolvedValue(editedDetail);
 
-			// The activity is ALREADY settled at the very first render — never
-			// "running" first — matching a call that finished before this body
-			// even mounted its editor.
-			render(DocumentBody, {
+			// The body is built with nothing happening, and the call settles — never
+			// "running" first as far as this body sees — while its editor is still
+			// loading. (An activity that had ALREADY settled when the body was
+			// built is a different case: it happened before the body, and the
+			// server's review state owns it — see the D2 test below.)
+			const settled = {
+				key: "call-3",
+				artifactId: "artifact-1",
+				toolName: "edit_artifact" as const,
+				status: "applied" as const,
+				label: "Add packing list",
+				patches: [
+					{
+						op: "replaceBlock" as const,
+						blockId: "p1",
+						baseHash: "h1",
+						text: "First, edited.",
+					},
+				],
+				refusedBlocks: [],
+				appliedCount: 1,
+			};
+			const { rerender } = render(DocumentBody, {
 				artifactId: "artifact-1",
 				kind: "document",
 				title: "Trip plan",
 				body: null,
-				alfyActivity: {
-					key: "call-3",
-					artifactId: "artifact-1",
-					toolName: "edit_artifact",
-					status: "applied",
-					label: "Add packing list",
-					patches: [
-						{
-							op: "replaceBlock",
-							blockId: "p1",
-							baseHash: "h1",
-							text: "First, edited.",
-						},
-					],
-					refusedBlocks: [],
-					appliedCount: 1,
-				},
+				alfyActivity: null,
+			});
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: settled,
 			});
 
 			// The editor has not loaded yet: the call must not be dropped.
@@ -3474,6 +3485,76 @@ describe("DocumentBody", () => {
 					]),
 				),
 			);
+		});
+
+		// Final polish D2 (rd/recheck2.md): the panel builds a body again on every
+		// later open of the Document and hands each one the panel's latest activity.
+		// A call that had ALREADY settled when the body was built is in the server's
+		// review state (restored above, keyed by block); landing it live too counted
+		// the same change twice, kept the copy after Undo and brought it back after
+		// Keep.
+		it("does not land an activity that had already settled when it was built: the restored review state alone says what is pending (final polish D2)", async () => {
+			mockFetchDocumentReviewState.mockResolvedValueOnce([
+				{
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+					isNewBlock: false,
+					alfyVersionNumber: 2,
+				},
+			]);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "call-3-0",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			const onPendingReviewCountChange = vi.fn();
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				onPendingReviewCountChange,
+				alfyActivity: {
+					key: "call-3",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: "Add packing list",
+					patches: [
+						{
+							op: "replaceBlock",
+							blockId: "p1",
+							baseHash: "h1",
+							text: "First, edited.",
+						},
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(mockRemarkChange).toHaveBeenCalledWith(
+					expect.anything(),
+					"p1",
+					"p1",
+				),
+			);
+			await waitFor(() =>
+				expect(onPendingReviewCountChange).toHaveBeenLastCalledWith(1),
+			);
+			// Give a replay every chance to show up, then check it never did.
+			await tick();
+			await tick();
+			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
+			expect(onPendingReviewCountChange).not.toHaveBeenCalledWith(2);
+			expect(onPendingReviewCountChange).toHaveBeenLastCalledWith(1);
 		});
 
 		it("a failed review-state fetch reads as nothing pending, without crashing the load", async () => {
