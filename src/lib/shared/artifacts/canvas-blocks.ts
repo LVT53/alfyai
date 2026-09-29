@@ -301,23 +301,41 @@ export function isBlockKind(value: unknown): value is BlockKind {
  * What the model may add to a board (ruling 64): the five kinds that carry
  * only what it can write. The other five carry app-owned references (a file, an
  * App, a route, a photo, a fetched page) it cannot mint, so the user places
- * those, and an `add_node` of one is refused `unknown_kind`.
+ * those, and an `add_node` of one is refused `unknown_kind`. Strict variants of
+ * the stored schemas: what the model writes must not carry a field the block
+ * does not read, or a misspelt one would be stripped into an op that "worked"
+ * and changed nothing.
  */
-export const MODEL_CREATABLE_KINDS = [
-	"frame",
-	"sticky",
-	"text",
-	"checklist",
-	"chart",
-] as const satisfies readonly BlockKind[];
+export const MODEL_CREATABLE_DATA_SCHEMAS = {
+	frame: frameDataSchema.strict(),
+	sticky: stickyDataSchema.strict(),
+	text: textDataSchema.strict(),
+	checklist: checklistDataSchema.strict(),
+	chart: chartDataSchema.strict(),
+} as const;
 
-/** The advertised and the executed `data` of an `add_node`: one union, strict variants. */
+export type ModelCreatableKind = keyof typeof MODEL_CREATABLE_DATA_SCHEMAS;
+
+export const MODEL_CREATABLE_KINDS = Object.keys(
+	MODEL_CREATABLE_DATA_SCHEMAS,
+) as ModelCreatableKind[];
+
+export function isModelCreatableKind(
+	value: unknown,
+): value is ModelCreatableKind {
+	return (
+		typeof value === "string" &&
+		Object.hasOwn(MODEL_CREATABLE_DATA_SCHEMAS, value)
+	);
+}
+
+/** The advertised and the executed `data` of an `add_node`: one union of the five. */
 export const modelCreatableBlockDataSchema = z.discriminatedUnion("kind", [
-	frameDataSchema.strict(),
-	stickyDataSchema.strict(),
-	textDataSchema.strict(),
-	checklistDataSchema.strict(),
-	chartDataSchema.strict(),
+	MODEL_CREATABLE_DATA_SCHEMAS.frame,
+	MODEL_CREATABLE_DATA_SCHEMAS.sticky,
+	MODEL_CREATABLE_DATA_SCHEMAS.text,
+	MODEL_CREATABLE_DATA_SCHEMAS.checklist,
+	MODEL_CREATABLE_DATA_SCHEMAS.chart,
 ]);
 
 // ── Compile-time pins: a mirror that drifted from its source fails `npm run check` ──
