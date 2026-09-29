@@ -1697,6 +1697,49 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		).not.toBeInTheDocument();
 	});
 
+	// Wave 2.5 polish G1-B (one version number everywhere): the open item now
+	// arrives as a NEW object whenever its version number moves. The body
+	// registers its panel actions once, when it mounts, so the workspace must
+	// reset them only when a DIFFERENT item is open — never because the same
+	// item's number changed, which would turn the version button back into
+	// plain text for good.
+	it("keeps the version button a button when the open item's own version number changes", async () => {
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeVersionedArtifactBody.svelte");
+		const doc = (versionNumber: number) =>
+			makeWorkspaceDocument({
+				id: "doc-1",
+				kind: "document",
+				title: "Vienna trip plan",
+				versionNumber,
+				mimeType: null,
+			});
+		const { rerender } = renderWorkspace({
+			documents: [doc(1)],
+			activeDocumentId: "doc-1",
+		});
+		await screen.findByTestId("fake-versioned-artifact-body");
+		const shell = screen.getAllByRole("complementary", {
+			name: "Document workspace",
+		})[0];
+		await waitFor(() => {
+			expect(
+				within(shell).getByRole("button", { name: "Version 1" }),
+			).toBeInTheDocument();
+		});
+
+		await rerender({ documents: [doc(4)], activeDocumentId: "doc-1" });
+
+		await waitFor(() => {
+			expect(
+				within(shell).getByTestId("artifact-version-pill"),
+			).toHaveTextContent("v4");
+		});
+		expect(
+			within(shell).getByRole("button", { name: "Version 4" }),
+		).toBeInTheDocument();
+	});
+
 	it("moves focus to the panel title when a document opens (redesign §5.4, Wave 2.5 review F2)", async () => {
 		// The review's own finding: opening the panel did not move focus to
 		// the title/first row, so a screen-reader user got no announcement of

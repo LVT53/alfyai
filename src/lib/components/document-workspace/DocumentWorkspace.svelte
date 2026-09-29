@@ -242,8 +242,13 @@ let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 let bodyPanelActions = $state<ArtifactPanelBodyActions | null>(null);
 /** Wave 2.5 Step 8: the Comments button's own badge (Document only — every other kind never calls `onCommentCountChange`, so this just stays 0 and the button never renders for them). Reset alongside `bodyPanelActions` for the same reason: a stale count from the item just left must never linger on the newly-open one. */
 let documentOpenCommentCount = $state(0);
+// Only the open item's id: `activeDocument` itself is a new object whenever
+// its version number (or any other field) moves — the reset below must fire
+// for a DIFFERENT item, never for the same item's number changing, since the
+// body registers its actions once, when it mounts, and would never re-register.
+let activeDocumentIdentity = $derived(activeDocument?.id);
 $effect(() => {
-	activeDocument?.id;
+	activeDocumentIdentity;
 	bodyPanelActions = null;
 	documentOpenCommentCount = 0;
 });

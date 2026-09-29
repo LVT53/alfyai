@@ -51,6 +51,33 @@ export interface ArtifactDetailResponse {
 	comments: ArtifactComment[];
 }
 
+type ArtifactVersionListener = (artifactId: string, version: number) => void;
+const artifactVersionListeners = new Set<ArtifactVersionListener>();
+
+/**
+ * Wave 2.5 polish G1-B (one version number everywhere): every response in
+ * this module that carries an artifact's current version — a fetch, a save, a
+ * tab save, a restore, the newest row of the version list, an App
+ * regeneration — is announced here, so the surfaces that print a version (the
+ * list row, the in-chat card, the header's button) can follow the server
+ * instead of each keeping a copy taken at its own moment. Returns the
+ * unsubscribe function. See `$lib/client/artifact-versions.ts`.
+ */
+export function subscribeArtifactVersions(
+	listener: ArtifactVersionListener,
+): () => void {
+	artifactVersionListeners.add(listener);
+	return () => {
+		artifactVersionListeners.delete(listener);
+	};
+}
+
+function announceArtifactVersion(artifactId: string, version: unknown): void {
+	if (typeof version !== "number") return;
+	for (const listener of artifactVersionListeners)
+		listener(artifactId, version);
+}
+
 /**
  * `conversationId` widens the read past the default ownership scope
  * (`getArtifact`'s `ArtifactScopeOptions`), which otherwise hides an
@@ -79,6 +106,7 @@ export async function fetchArtifact(
 		"Failed to open this item",
 		fetchImpl,
 	);
+	announceArtifactVersion(artifactId, response.artifact.versionNumber);
 	return {
 		artifact: response.artifact,
 		versions: response.versions,
@@ -202,7 +230,12 @@ export async function regenerateApp(
 		},
 		fetchImpl,
 	);
-	return (await response.json()) as RegenerateAppResult;
+	const result = (await response.json()) as RegenerateAppResult;
+	// A success reports the new version; a conflict reveals the current one.
+	if (result.ok || result.reason === "version_conflict") {
+		announceArtifactVersion(artifactId, result.version);
+	}
+	return result;
 }
 
 export type DownloadAppResult =
@@ -300,6 +333,7 @@ export async function saveArtifactBody(
 	if (!payload) {
 		return { ok: false, reason: "not_found" };
 	}
+	if (payload.ok) announceArtifactVersion(artifactId, payload.version);
 	return payload;
 }
 
@@ -413,6 +447,7 @@ export async function saveDocumentTabs(
 	if (!payload) {
 		return { ok: false, reason: "not_found" };
 	}
+	if (payload.ok) announceArtifactVersion(artifactId, payload.version);
 	return payload;
 }
 
@@ -439,6 +474,7 @@ export async function createDocumentCopy(
 		"Could not save this as a new document",
 		fetchImpl,
 	);
+	announceArtifactVersion(payload.artifact.id, payload.artifact.versionNumber);
 	return payload.artifact;
 }
 
@@ -463,6 +499,8 @@ export async function fetchArtifactVersions(
 		"Failed to load the version history",
 		fetchImpl,
 	);
+	// Newest first: the top row IS the current version.
+	announceArtifactVersion(artifactId, payload.versions[0]?.versionNumber);
 	return payload.versions;
 }
 
@@ -495,6 +533,7 @@ export async function restoreArtifactVersion(
 		"Failed to restore this version",
 		fetchImpl,
 	);
+	announceArtifactVersion(artifactId, payload.version);
 	return payload.version;
 }
 
