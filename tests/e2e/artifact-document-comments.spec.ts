@@ -1276,6 +1276,68 @@ test.describe("The header's Comments button toggles the column (owner walk-throu
 		await expect(shell.locator(".document-content-rail")).toBeVisible();
 		await expect(shell.getByText("Toggle me")).toBeVisible();
 	});
+	// G2-B: the list is unmounted with the column, so the Open/All choice it
+	// kept for itself was lost every time; the document body holds it now.
+	test("the Open/All choice survives hiding and showing the column", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Filter survives");
+		const { userId, artifact, block } = await seedDocumentWithBlock(
+			conversationId,
+			"Book the flight to Vienna. Reserve the hotel by the river.",
+		);
+		await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor: anchorFor(block.id, block.markdown, "flight"),
+			author: "user",
+			body: "Still an open thread",
+		});
+		const settled = await createComment({
+			userId,
+			artifactId: artifact.id,
+			anchor: anchorFor(block.id, block.markdown, "hotel"),
+			author: "user",
+			body: "Settled thread",
+		});
+		if (!settled) throw new Error("the resolved seed comment must exist");
+		await resolveComment({
+			userId,
+			artifactId: artifact.id,
+			commentId: settled.id,
+			resolved: true,
+		});
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const shell = desktopShell(page);
+		const button = shell.getByTestId("artifact-comments-button");
+		const rail = shell.locator(".document-content-rail");
+		await expect(rail).toBeVisible({ timeout: 30_000 });
+		await expect(rail.getByText("Still an open thread")).toBeVisible();
+		await expect(rail.getByText("Settled thread")).toHaveCount(0);
+
+		await rail.getByRole("button", { name: "1 resolved" }).click();
+		await expect(
+			rail.getByRole("button", { name: "Show open only" }),
+		).toBeVisible();
+		await expect(rail.getByText("Settled thread")).toBeVisible();
+
+		// Off and on again: still All, the settled thread still listed.
+		await button.click();
+		await expect(rail).toHaveCount(0);
+		await button.click();
+		await expect(rail).toBeVisible();
+		await expect(
+			rail.getByRole("button", { name: "Show open only" }),
+		).toBeVisible();
+		await expect(rail.getByText("Settled thread")).toBeVisible();
+	});
 });
 
 // Laptop fit (the owner: "it doesn't really fit properly on my laptop's

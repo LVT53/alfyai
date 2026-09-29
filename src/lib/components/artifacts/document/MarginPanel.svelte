@@ -101,6 +101,10 @@ let {
 	onActiveCommentChange,
 	onActivateTab,
 	onClose,
+	filter: filterProp = undefined,
+	onFilterChange,
+	orphanedGroupOpen: orphanedGroupOpenProp = undefined,
+	onOrphanedGroupOpenChange,
 	currentUserId = null,
 	currentUserName = null,
 	currentUserProfilePicture = null,
@@ -133,16 +137,26 @@ let {
 	onActivateTab?: (tabId: string) => void;
 	/** Draws a close button in the header row: the narrow drawer's own way out. */
 	onClose?: () => void;
+	/** The Open/All choice, when the caller holds it: this list is unmounted with its column or sheet, so a choice kept only in here was lost every time (G2-B). Omitted, the list keeps its own (standalone use, tests). */
+	filter?: "open" | "all";
+	onFilterChange?: (filter: "open" | "all") => void;
+	/** The removed-text group's fold, held by the caller for the same reason. */
+	orphanedGroupOpen?: boolean;
+	onOrphanedGroupOpenChange?: (open: boolean) => void;
 	/** rd/review-2-5.md:272-275: the signed-in user's own id/name/profile picture, passed straight through to `CommentThread`/`CommentCard` for a real "you" avatar. `null` falls back to the placeholder. */
 	currentUserId?: string | null;
 	currentUserName?: string | null;
 	currentUserProfilePicture?: string | null;
 } = $props();
 
-/** Ruling 61: Open by default. A quiet toggle (never the mockup's own two-button filter) switches to All. */
-let filter = $state<"open" | "all">("open");
+/** Ruling 61: Open by default. A quiet toggle (never the mockup's own two-button filter) switches to All. The caller's own choice wins when it holds one (`filterProp`). */
+let localFilter = $state<"open" | "all">("open");
+const filter = $derived(filterProp ?? localFilter);
 /** The removed-text group's own fold (motion #21) — collapsed by default. */
-let orphanedGroupOpen = $state(false);
+let localOrphanedGroupOpen = $state(false);
+const orphanedGroupOpen = $derived(
+	orphanedGroupOpenProp ?? localOrphanedGroupOpen,
+);
 let listEl: HTMLDivElement | undefined = $state();
 /** The reader is using the list: pointer over it, or focus somewhere inside it. Scroll-follow keeps its hands off then. */
 let pointerInside = false;
@@ -299,7 +313,15 @@ function threadAriaLabel(comment: ArtifactComment): string {
 }
 
 function toggleFilter(): void {
-	filter = filter === "open" ? "all" : "open";
+	const next = filter === "open" ? "all" : "open";
+	localFilter = next;
+	onFilterChange?.(next);
+}
+
+function toggleOrphanedGroup(): void {
+	const next = !orphanedGroupOpen;
+	localOrphanedGroupOpen = next;
+	onOrphanedGroupOpenChange?.(next);
 }
 
 function gotoFor(comment: ArtifactComment): (() => void) | undefined {
@@ -559,7 +581,7 @@ const noteIn = reducedMotionAware(fly);
 					class="margin-panel-orphaned-toggle"
 					class:is-open={orphanedGroupOpen}
 					aria-expanded={orphanedGroupOpen}
-					onclick={() => (orphanedGroupOpen = !orphanedGroupOpen)}
+					onclick={toggleOrphanedGroup}
 				>
 					<ChevronRight
 						size={14}

@@ -263,6 +263,64 @@ describe("MarginPanel (the redesign's rail, Wave 2.5 Step 7)", () => {
 			).toBeInTheDocument();
 		});
 
+		// G2-B: the caller (DocumentBody) holds the choice, so it outlives this
+		// list being unmounted with the column.
+		it("shows the filter the caller holds, and reports a toggle instead of keeping it to itself", async () => {
+			const onFilterChange = vi.fn();
+			render(MarginPanel, {
+				comments: [
+					makeRoot({ id: "open-1", body: "Still open", status: "open" }),
+					makeRoot({
+						id: "resolved-1",
+						body: "All set",
+						status: "resolved",
+						anchor: {
+							kind: "text",
+							blockId: "p2",
+							quote: "the hotel",
+							prefix: "Book ",
+							suffix: " too.",
+						},
+					}),
+				],
+				blocks: [
+					makeBlock("p1", "paragraph", "Book the flight to Vienna."),
+					makeBlock("p2", "paragraph", "Book the hotel too."),
+				],
+				tabs: NO_TABS,
+				activeTabId: "",
+				onResolve: vi.fn(),
+				onSubmitReply: vi.fn(),
+				filter: "all",
+				onFilterChange,
+			});
+			// Mounted straight into All: the resolved thread's fold is there.
+			expect(
+				screen.getByRole("button", { name: /Show the full thread/i }),
+			).toBeInTheDocument();
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Show open only" }),
+			);
+			expect(onFilterChange).toHaveBeenCalledWith("open");
+		});
+
+		it("shows the removed-text fold the caller holds, and reports a toggle", async () => {
+			const onOrphanedGroupOpenChange = vi.fn();
+			render(MarginPanel, {
+				comments: [makeRoot({ body: "Where did this go?", anchor: null })],
+				blocks: [makeBlock("p1", "paragraph", "Book the flight to Vienna.")],
+				tabs: NO_TABS,
+				activeTabId: "",
+				onResolve: vi.fn(),
+				onSubmitReply: vi.fn(),
+				orphanedGroupOpen: true,
+				onOrphanedGroupOpenChange,
+			});
+			expect(screen.getByText("Where did this go?")).toBeInTheDocument();
+			await fireEvent.click(screen.getByRole("button", { name: /removed/i }));
+			expect(onOrphanedGroupOpenChange).toHaveBeenCalledWith(false);
+		});
+
 		it("never shows the toggle at all with nothing resolved", () => {
 			render(MarginPanel, {
 				comments: [makeRoot({ status: "open" })],

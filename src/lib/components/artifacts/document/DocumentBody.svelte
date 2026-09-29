@@ -328,6 +328,9 @@ let isPhone = $state(isPhoneViewport());
 let inlineRailWidth = $derived(commentRailWidth(panelContainerWidth));
 let isNarrowPanel = $derived(inlineRailWidth === null);
 let commentsOverlayOpen = $state(false);
+/** The comment list's own view choices (Open/All, the removed-text fold), held here because the list is unmounted with its column, drawer or sheet and a choice kept inside it was lost every time (G2-B). Open by default (ruling 61); per document body, never persisted. */
+let commentFilter = $state<"open" | "all">("open");
+let commentOrphanedGroupOpen = $state(false);
 /** The inline column beside the text: room for it, not on a phone, and not switched off on this device. */
 let commentsRailShown = $derived(
 	!isPhone && !isNarrowPanel && !$documentCommentsRailHidden,
@@ -2371,6 +2374,10 @@ function saveNoticeText(notice: SaveNotice): string {
 					<MarginPanel
 						{comments}
 						{blocks}
+						filter={commentFilter}
+						onFilterChange={(next) => (commentFilter = next)}
+						orphanedGroupOpen={commentOrphanedGroupOpen}
+						onOrphanedGroupOpenChange={(open) => (commentOrphanedGroupOpen = open)}
 						resolutions={commentResolutions}
 						{tabs}
 						{activeTabId}
@@ -2400,6 +2407,10 @@ function saveNoticeText(notice: SaveNotice): string {
 					presentation={isPhone ? 'sheet' : 'drawer'}
 					{comments}
 					{blocks}
+					filter={commentFilter}
+					onFilterChange={(next) => (commentFilter = next)}
+					orphanedGroupOpen={commentOrphanedGroupOpen}
+					onOrphanedGroupOpenChange={(open) => (commentOrphanedGroupOpen = open)}
 					resolutions={commentResolutions}
 					{tabs}
 					{activeTabId}
