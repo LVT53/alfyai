@@ -9,7 +9,9 @@ that needed three extra probes). The seed: a long Document ("Bécsi utazás", 4 
 tab 1, 3 pending Alfy changes, 8 versions with restore / Undo summaries), a small Document for the version walk, a real
 `create_artifact` Document, an "Open as document" Document, a produced file, an App, a fork of an incognito chat.
 
-## Verdict: NOT READY. Two blockers, both found by walking a second Document / a re-open, neither in the owner's list of eight
+## Verdict (first pass, head `aaf863ad`): NOT READY. Two blockers, both found by walking a second Document / a re-open, neither in the owner's list of eight
+
+(Superseded: both are fixed at `f39d854e`; see "Re-check of D1–D4" at the end, verdict READY FOR THE OWNER.)
 
 - **B1 (Critical)** — the panel header loses its Comments toggle, its Download popover and its Versions button as soon as the panel
   swaps to a different Document. See D1. This makes checks 1 and 2 unusable in any chat that has two items.
@@ -130,3 +132,71 @@ tab 1, 3 pending Alfy changes, 8 versions with restore / Undo summaries), a smal
 
 App Regenerate (needs a model call), a produced file regenerated to completion (seeded stub request), dark theme, the drawer inside an expanded
 panel (no desktop layout reaches it), a real Mac keyboard (both key maps were forced in Chromium), the Alfy-writing / refusal paths.
+
+## Re-check of D1–D4 (head `f39d854e`, fix agent P, report `rd/fxs-report.md`)
+
+Method: the same reproductions as the first pass, re-written as throwaway Playwright specs (deleted; `git status` clean), Hungarian UI, fresh
+context per test, real services + the fake provider for the live `edit_artifact` / `create_artifact` calls; facts in `rd/recheck3-facts.jsonl`,
+screens in `rd/shots/recheck3/` (I looked at each: 8). One environment note: my first server on the shared `node_modules/.vite` cache broke
+while other agents' gate servers rewrote it (blank composer, a Vite runtime error); the numbers below are from a server with a private
+`cacheDir`. I did not re-run the gates.
+
+- **D1 — ADDRESSED.** Card → card (two Documents, panel staying open, five swaps A B A B A): at every step the Comments toggle is present
+  and works (rail 1 → 0 → 1, aria-pressed true → false → true), the Download popover opens, the version pill is a button and its Versions popover
+  opens. List → row, seven steps A, B, App, A, File, B, B: every Document has all three controls and they work; the App has its Download button
+  (no Versions or Comments, as before) and the File the plain fallback; the Document after the App and after the File is complete again. Phone
+  shell, list → A → B → A: comments, download, delete and a button pill every time. The swapped-to body speaks for itself: the Versions
+  popover has 8 rows for the rich Document and 1 for the plain one, the Download popover reads "{its title} letöltése", the Comments button
+  says "(20)" for the one and no count for the other, with no review bar / pills / tabs / rail cards carried over; a Keep all done in one
+  Document stays kept after swapping away and back (`d1.leak`, `o.*`). Close and reopen of the same item, three rounds: the controls are there
+  in 1–2 ms and work. The rail's hidden/shown choice follows the device across a swap (hidden in one Document, the next opens hidden with a
+  false toggle). Screens: `d1-card-to-card-second-doc-header.png` (second Document: comments toggle, download, "v1 ⌄" button, rail),
+  `d1-phone-second-doc-header.png`.
+- **D2 — ADDRESSED.** Live edit while the Document is open, then: list → open again — card "1 módosítás vár rád", bar "Alfy 1 részt módosított. 1 / 1"
+  (was 2 and 1 / 2); Undo → bar gone, card and row "Átnézve", server 0, a further list → open shows nothing pending (was "1 / 1" and "1
+  módosítás vár rád"); close → open from the card → one change (`d2.C.3`); Keep all → list → open again, and close → open from the card:
+  still kept, no bar, "Átnézve" (was resurrected); swap to another Document and back: one change; the two unchanged baselines (panel closed at
+  edit time → open from the card; list showing while Alfy edits) still give one. The whole check-3 walk again (create → user edit → Alfy
+  edit → Undo → restore v1 → restore v4 → reload), read in the owner's order: version = header = card = row = popover at every step and the
+  pending label is right at every step (v3 "1 módosítás vár rád" once, v4 "Undid…" row "Átnézve", v5, v6 "Átnézve"; before the fix v4 and v6
+  said "1 módosítás vár rád"). Screen `d2-flow-c-reopened.png` (same framing as the failing one: card 1, bar 1 / 1, one pill). Consequence P
+  documented, visible there: after a re-mount the refusal notice (rail card and "1 részt nem érintett" link in the bar) is not shown again,
+  while the chat card still says "1 részt nem érintett"; the same as after a reload.
+- **D3 — ADDRESSED.** "+" is 44×44 with 2, 3 and 4 tabs at 390, 360 and 430 px (the 4 tabs at 390 and the 3 tabs at 360 cases were
+  14×44; 3 tabs at 390 was 40.8), the strip scrolls (scrollWidth 393 / 466 against 390 / 360) and the ⋯ stays 44×44. Screens
+  `d3-390-4tabs-start.png`, `d3-390-4tabs-end.png` (scrolled to the end: "… Teendők +").
+- **D4 — ADDRESSED.** A Document made by a real `create_artifact` call in the turn just ended, no reload anywhere: the header confirm and the
+  list-row confirm both say "…törlődik. A beszélgetésből újra létrehozhatod." (was "Ez nem vonható vissza."); a Document with no source in the
+  same chat keeps "Ez nem vonható vissza."; Delete → the deleted card with "Újragenerálás" → Regenerate brings the card back. Screen
+  `d4-live-header-confirm.png`.
+
+**The two rewritten tests, from the diff.**
+1. *RV-1B* (`DocumentBody.test.ts`, "a call that settles before the lazy editor finishes loading still lands once the editor is ready"): **not
+   weakened.** The assertions are unchanged (before the editor loads: no editor and no `applyAlfyChanges`; after the held fetch resolves: the editor
+   is created once, `applyAlfyChanges` is called once, the pending pill is set). Only the premise moved: the body used to be built already holding the
+   settled activity, now it is built with `alfyActivity: null` and re-rendered with the settled call while its editor is still loading. That is the real
+   race the test's own comment describes (the effect's first look at a settled call comes before the editor is ready), it still fails against the old
+   "mark handled before checking readiness" bug, and the old construction is exactly what D2 now forbids (a body built with an already-settled call must not
+   land it), which the new D2 test pins with the opposite expectation (`applyAlfyChanges` never called, pending count 1, never 2).
+2. *L2* (`page-runtime.test.ts`, the list row's delete confirm; now three rows): **not weakened as a guard, but the contract it pinned changed on purpose.**
+   Kept: server says regenerable → "You can regenerate it from the chat."; nobody says → "This can't be undone." Changed: the old second row had the
+   create call in the page's messages and still expected "can't be undone" (i.e. "the server's word only"); that fixture now has no call (so the plain-warning
+   case still stands on its own) and the same call in the messages, with the server silent, is the new third row expecting the promise. That is D4's
+   design (server or the messages the page holds, both read by one function, `regenerableArtifactIdsFromMessages`), so the assertion per case is
+   as strong as before; what is looser is the product rule, and P names it (the promise can be a moment early, before the turn's message is stored, and
+   Regenerate then flips to "unavailable"). Every other changed test file is additions only (`git diff --numstat`: 0 deletions).
+
+**New breakage in the diff (`1cb4c3e1..f39d854e`): none Critical or Important found.** What I ran against the new mechanisms, all fine: the
+first-opened rich Document (header 20, Versions 8 rows with Restore on hover, Download popover); Keep of one of three changes leaves the editor's DOM node
+in place (a marker set on the ProseMirror element survives, so G3's "Keep does not rebuild" holds under `{#key activeBodyKey}`); a same-item reopen shows
+the header controls at once although the per-item record outlives the body (no stale closure was reachable in 1–2 ms); state does not leak between items;
+a phone-shell swap; the D2 guard does not stop the first landing of a call (running or not yet begun at mount). Read but not run: the guard keys on the tool
+call id (`alfy-activity.ts:200`, `callId ?? toolName-artifactId`), so a provider that repeats ids would also repeat the old `handledActivityKey` problem, nothing new.
+Two observations, neither from this diff: (a) with the panel showing the LIST, a chat card's Megnyitás does nothing visible: `openWorkspaceDocument`
+(`+page.svelte:1325-1339`) never clears `artifactListOpen` and the list branch wins (`DocumentWorkspace.svelte:1372`); reproduced with a seeded card (list stays,
+no editor after 4 s); Minor, pre-existing (the diff does not touch it). (b) The expanded-panel gap and the header pill's 42 px phone hit area from the first
+pass are unchanged.
+
+**Verdict: READY FOR THE OWNER.** B1 (D1) and B2 (D2) are gone on the walk the owner will do, D3 and D4 are fixed, the eight checks hold as reported above
+(check 7 is now OK), and nothing new breaks. Open items are small and none is from this round: the card-Open-while-the-list-shows dead click (a), the
+refusal notice not coming back after a re-mount, the expanded-panel gap.
