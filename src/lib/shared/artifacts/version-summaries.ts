@@ -25,7 +25,7 @@ export const VERSION_SUMMARY = {
  * route accepts one of these names, never text, so the stored summary is
  * always one this vocabulary (and its translations) knows.
  */
-export const SAVE_SUMMARY_KINDS = {
+const SAVE_SUMMARY_KINDS = {
 	undid_alfy_change: VERSION_SUMMARY.undidAlfyChange,
 } as const;
 
