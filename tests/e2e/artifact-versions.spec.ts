@@ -244,12 +244,16 @@ test.describe("one version number on every surface", () => {
 			).toBeVisible({ timeout: 30_000 });
 			await expectAllSurfaces(page, artifactId, 3, "Alfy edit", true);
 
-			// v4 — the user undoes Alfy's change.
+			// v4 — the user undoes Alfy's change: its own version, "Undid Alfy's
+			// change", not another anonymous "Edited".
 			await page
 				.getByTestId("alfy-change-bar")
 				.getByRole("button", { name: "Undo Alfy's change" })
 				.click();
 			await expectAllSurfaces(page, artifactId, 4, "Undo", true);
+			expect((await serverVersions(artifactId))[0]?.summary).toBe(
+				"Undid Alfy's change",
+			);
 
 			// v5 — restore v1 from the Versions popover (inline confirm).
 			await headerPill(page).click();

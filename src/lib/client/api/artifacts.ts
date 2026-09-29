@@ -26,6 +26,7 @@ import {
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
 import { _unwrapList } from "./_utils";
 import { type FetchLike, requestJson, requestResponse } from "./http";
 
@@ -312,7 +313,12 @@ export async function saveArtifactBody(
 	 * its own, so an open editor holding the old version number is refused
 	 * rather than saving over it. See the body route.
 	 */
-	guard?: { baseHash?: string; coalesce?: boolean },
+	guard?: {
+		baseHash?: string;
+		coalesce?: boolean;
+		/** What the save says about itself besides "the user typed" — see `parseSaveSummaryKind`. */
+		summaryKind?: SaveSummaryKind;
+	},
 ): Promise<SaveArtifactBodyResult> {
 	const response = await fetchImpl(
 		`/api/artifacts/${encodeURIComponent(artifactId)}/body${withConversationQuery(conversationId)}`,
@@ -324,6 +330,9 @@ export async function saveArtifactBody(
 				...(expectVersion !== undefined ? { expectVersion } : {}),
 				...(guard?.baseHash !== undefined ? { baseHash: guard.baseHash } : {}),
 				...(guard?.coalesce !== undefined ? { coalesce: guard.coalesce } : {}),
+				...(guard?.summaryKind !== undefined
+					? { summaryKind: guard.summaryKind }
+					: {}),
 			}),
 		},
 	);

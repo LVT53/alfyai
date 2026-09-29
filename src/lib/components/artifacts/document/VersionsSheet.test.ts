@@ -182,6 +182,40 @@ describe("VersionsSheet", () => {
 			});
 		});
 
+		// Wave 2.5 polish G1-B (spec §4.2 item 6): undoing Alfy's change is a
+		// version of its own, and the list names it in the reader's language.
+		it("shows Undo of Alfy's change in Hungarian, and in English as stored", async () => {
+			mockFetchVersions.mockResolvedValue([
+				{
+					id: "v4",
+					versionNumber: 4,
+					author: "user",
+					summary: "Undid Alfy's change",
+					createdAt: Date.now(),
+				},
+			]);
+			uiLanguage.set("hu");
+
+			const { unmount } = render(VersionsSheet, {
+				artifactId: "artifact-1",
+				onClose: vi.fn(),
+			});
+
+			await waitFor(() => {
+				expect(
+					screen.getByText("Alfy módosításának visszavonása"),
+				).toBeInTheDocument();
+			});
+			expect(screen.queryByText("Undid Alfy's change")).not.toBeInTheDocument();
+			unmount();
+
+			uiLanguage.set("en");
+			render(VersionsSheet, { artifactId: "artifact-1", onClose: vi.fn() });
+			await waitFor(() => {
+				expect(screen.getByText("Undid Alfy's change")).toBeInTheDocument();
+			});
+		});
+
 		it("shows an Alfy-authored free-form summary exactly as stored, even in Hungarian", async () => {
 			mockFetchVersions.mockResolvedValue([
 				{

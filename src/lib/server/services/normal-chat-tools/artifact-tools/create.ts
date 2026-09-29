@@ -16,6 +16,7 @@
 import { z } from "zod";
 import { createDocumentArtifact } from "$lib/server/services/artifacts";
 import { createAppFromBrief } from "$lib/server/services/artifacts/app/create";
+import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { truncateText } from "../shared";
 import { artifactKindEnumPhrase, createArtifactBodyFormat } from "./kind-prose";
 import {
@@ -134,7 +135,7 @@ CREATE_ARTIFACT_HANDLERS.document = async (params) => {
 			title: params.title,
 			markdown: params.body,
 			author: "alfy",
-			summary: "Alfy wrote the first draft",
+			summary: VERSION_SUMMARY.alfyFirstDraft,
 		});
 		return {
 			ok: true,

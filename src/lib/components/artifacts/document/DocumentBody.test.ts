@@ -2279,6 +2279,16 @@ describe("DocumentBody", () => {
 				await vi.waitFor(() =>
 					expect(mockSaveArtifactBody).toHaveBeenCalledTimes(1),
 				);
+				// Wave 2.5 polish G1-B (spec §4.2 item 6): the save records its own
+				// version summary, not another anonymous "Edited".
+				expect(mockSaveArtifactBody).toHaveBeenCalledWith(
+					"artifact-1",
+					expect.any(String),
+					1,
+					null,
+					undefined,
+					{ baseHash: "h1", summaryKind: "undid_alfy_change" },
+				);
 
 				// Settles after its own 5s window.
 				vi.advanceTimersByTime(5000);

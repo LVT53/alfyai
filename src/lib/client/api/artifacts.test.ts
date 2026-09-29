@@ -961,4 +961,20 @@ describe("version announcements", () => {
 		expect(first.heard).toEqual([]);
 		expect(second.heard).toEqual([["artifact-1", 2]]);
 	});
+
+	it("sends the save's summary kind when one is given", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse({ ok: true, version: 4 }),
+		);
+		await saveArtifactBody("artifact-1", "Text.", 3, null, fetchMock, {
+			summaryKind: "undid_alfy_change",
+		});
+		const call = fetchMock.mock.calls[0]?.[1];
+		expect(JSON.parse(String(call?.body))).toEqual({
+			body: "Text.",
+			expectVersion: 3,
+			summaryKind: "undid_alfy_change",
+		});
+	});
 });

@@ -1042,7 +1042,9 @@ function handleUndoChange(changeId: string): void {
 	announce($t("artifacts.document.change.undoneNotice"));
 	const canonical = currentCanonicalMarkdown();
 	if (canonical !== null) {
-		autosave?.schedule(canonical);
+		// Spec §4.2 item 6: "a version is recorded (\"Undid Alfy's change\")" —
+		// its own summary, not another anonymous "Edited".
+		autosave?.schedule(canonical, { summaryKind: "undid_alfy_change" });
 		updateBlocksFromMarkdown(canonical);
 	}
 	void acknowledgeReview([pending.entry.blockId]);
@@ -1676,14 +1678,20 @@ function bindAutosave(id: string, conversationId: string | null): void {
 		// (`handleSaveResult` below). Without a `baseHash` at all, the route
 		// has nothing to refuse a second tab's save against, and ruling 47's
 		// coalescing means both tabs' `expectVersion` can legally agree too.
-		save: (markdown) =>
+		save: (markdown, saveOptions) =>
 			saveArtifactBody(
 				id,
 				markdown,
 				versionNumber ?? undefined,
 				conversationId,
 				undefined,
-				{ baseHash: knownBodyHash ?? undefined },
+				{
+					baseHash: knownBodyHash ?? undefined,
+					// An Undo of Alfy's change records its own version summary.
+					...(saveOptions?.summaryKind
+						? { summaryKind: saveOptions.summaryKind }
+						: {}),
+				},
 			),
 		onResult: handleSaveResult,
 	});

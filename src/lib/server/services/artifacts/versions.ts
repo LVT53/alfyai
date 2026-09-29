@@ -10,6 +10,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactVersions } from "$lib/server/db/schema";
+import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { ARTIFACT_VERSIONS_DEFAULT_LIMIT } from "./limits";
 import { readScopedArtifactRow, updateArtifactBody } from "./record";
 import type {
@@ -103,7 +104,7 @@ export async function restoreVersion(
 		includeIncognito: params.includeIncognito,
 		body: version.body,
 		author: "user",
-		summary: `restored ${version.summary}`,
+		summary: `${VERSION_SUMMARY.restoredPrefix}${version.summary}`,
 	});
 	// The old body was under every cap when it was written, and there is no
 	// base hash to go stale, so the one refusal left is the row disappearing.
