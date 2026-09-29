@@ -4,6 +4,7 @@
 // payload the chat page already refreshes after a file-producing turn.
 import { and, count, desc, eq, inArray, max } from "drizzle-orm";
 import { db } from "$lib/server/db";
+import { selectInBatches } from "$lib/server/db/id-batches";
 import {
 	artifactComments,
 	artifacts,
@@ -223,4 +224,48 @@ export async function listArtifactsForConversation(params: {
 					: {}),
 		};
 	});
+}
+
+/**
+ * Of the artifact ids a conversation's tool calls named, the ones that no
+ * longer exist for the caller in this conversation's scope — so a card that
+ * points at a deleted item can say so. "Missing" is read through the very
+ * same ownership condition every artifact read uses: an id the caller cannot
+ * reach (another user's, an incognito chat's own from any other chat)
+ * answers exactly like one that never existed, and nothing about the row —
+ * not even that it is there — is revealed. A conversation that is not the
+ * caller's answers nothing at all.
+ */
+export async function listMissingArtifactIds(params: {
+	userId: string;
+	conversationId: string;
+	artifactIds: readonly string[];
+}): Promise<string[]> {
+	const wanted = [...new Set(params.artifactIds)];
+	if (wanted.length === 0) return [];
+	const ownershipScope = await getArtifactOwnershipScope(params.userId, {
+		conversationId: params.conversationId,
+	});
+	if (!ownershipScope.conversationIds.has(params.conversationId)) return [];
+
+	const found = new Set(
+		(
+			await selectInBatches(wanted, (batch) =>
+				db
+					.select({ id: artifacts.id })
+					.from(artifacts)
+					.where(
+						and(
+							inArray(artifacts.id, batch),
+							inArray(artifacts.type, FAMILY_ROW_TYPES),
+							buildArtifactCanonicalOwnershipCondition({
+								userId: params.userId,
+								ownershipScope,
+							}),
+						),
+					),
+			)
+		).map((row) => row.id),
+	);
+	return wanted.filter((id) => !found.has(id));
 }

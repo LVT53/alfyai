@@ -2,6 +2,7 @@
 import { get, writable } from "svelte/store";
 import { onMount, onDestroy, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
+import { showToast } from "$lib/stores/toast";
 import { page } from "$app/state";
 import { goto, invalidate, replaceState } from "$app/navigation";
 import { browser } from "$app/environment";
@@ -33,7 +34,9 @@ import {
 } from "$lib/client/api/atlas";
 import {
 	cancelFileProductionJob as cancelFileProductionJobRequest,
+	chatFileStillExists,
 	dismissFileProductionJob as dismissFileProductionJobRequest,
+	regenerateFileProductionJob as regenerateFileProductionJobRequest,
 	retryFileProductionJob as retryFileProductionJobRequest,
 } from "$lib/client/api/file-production";
 import {
@@ -42,14 +45,25 @@ import {
 } from "$lib/client/api/skills";
 import { updateInstructionSuggestionStatus } from "$lib/client/api/conversations";
 import {
-	subscribeArtifactVersions,
+	deleteArtifact as deleteArtifactRequest,
+	fetchArtifact,
+	regenerateDeletedArtifact,
+	subscribeArtifactChanges,
 	toggleDocumentTask,
 } from "$lib/client/api/artifacts";
 import {
+	dropDeletedArtifacts,
+	forgetObservedArtifact,
+	markArtifactDeleted,
+	NO_OBSERVED_ARTIFACT_TIMES,
 	NO_OBSERVED_ARTIFACT_VERSIONS,
+	type ObservedArtifactTimes,
 	type ObservedArtifactVersions,
+	observeArtifactUpdatedAt,
 	observeArtifactVersion,
+	withCurrentItemUpdatedAt,
 	withCurrentItemVersion,
+	withCurrentSummaryUpdatedAt,
 	withCurrentSummaryVersion,
 } from "$lib/client/artifact-versions";
 import { ApiError } from "$lib/client/api/http";
@@ -80,7 +94,9 @@ import {
 	selectedReasoningDepth,
 	setSelectedModel,
 	setSelectedReasoningDepth,
+	uiLanguage,
 } from "$lib/stores/settings";
+import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import CloudConnectorWarningModal from "$lib/components/chat/CloudConnectorWarningModal.svelte";
 import { isProviderModelId } from "$lib/model-types";
@@ -245,6 +261,7 @@ const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
 const initialArtifacts = getData().artifacts ?? [];
+const initialDeletedArtifactIds = getData().deletedArtifactIds ?? [];
 const initialAtlasJobs = getData().atlasJobs ?? [];
 const initialPendingWrites = getData().pendingWrites ?? [];
 const initialContextCompressionSnapshots =
@@ -536,16 +553,39 @@ let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
 // Wave 2.5 polish G1-B (one version number everywhere): the highest version
 // the server has told this browser about, per artifact — fed by every save,
-// fetch, restore and version-list read (`subscribeArtifactVersions`), so the
+// fetch, restore and version-list read (`subscribeArtifactChanges`), so the
 // list row, the chat card and the panel header's button all read the number
 // the Versions list shows instead of a copy taken when the list was loaded
 // or the item was opened.
 let observedArtifactVersions = $state.raw<ObservedArtifactVersions>(
 	NO_OBSERVED_ARTIFACT_VERSIONS,
 );
+// Polish G2-A: the same for WHEN an artifact last changed (the header's
+// "edited 2 min ago" and the list row's time), and for what was deleted — the
+// ids the server says this chat's cards point at that no longer exist, plus
+// the ones this browser deletes (or finds gone) while the page is open.
+let observedArtifactTimes = $state.raw<ObservedArtifactTimes>(
+	NO_OBSERVED_ARTIFACT_TIMES,
+);
+let deletedArtifactIds = $state.raw<readonly string[]>(
+	initialDeletedArtifactIds,
+);
+// Regenerate on a deleted card: which items are being made again right now,
+// and which the server said cannot be (nothing stored to make them from).
+let regeneratingArtifactIds = $state.raw<readonly string[]>([]);
+let unavailableArtifactIds = $state.raw<readonly string[]>([]);
+let deletedArtifactsForCards = $derived<DeletedArtifacts>({
+	deletedIds: deletedArtifactIds,
+	regeneratingIds: regeneratingArtifactIds,
+	unavailableIds: unavailableArtifactIds,
+	onRegenerate: handleRegenerateArtifact,
+});
 let liveArtifacts = $derived(
-	artifacts.map((row) =>
-		withCurrentSummaryVersion(row, observedArtifactVersions),
+	dropDeletedArtifacts(artifacts, deletedArtifactIds).map((row) =>
+		withCurrentSummaryUpdatedAt(
+			withCurrentSummaryVersion(row, observedArtifactVersions),
+			observedArtifactTimes,
+		),
 	),
 );
 let artifactListOpen = $state(false);
@@ -1151,9 +1191,15 @@ let artifactWorkspaceItems = $derived(
 let currentArtifactVersionById = $derived(
 	new Map(liveArtifacts.map((row) => [row.id, row.versionNumber])),
 );
+let currentArtifactUpdatedAtById = $derived(
+	new Map(liveArtifacts.map((row) => [row.id, row.updatedAt])),
+);
 let liveWorkspaceDocuments = $derived(
 	workspaceDocuments.map((document) =>
-		withCurrentItemVersion(document, currentArtifactVersionById),
+		withCurrentItemUpdatedAt(
+			withCurrentItemVersion(document, currentArtifactVersionById),
+			currentArtifactUpdatedAtById,
+		),
 	),
 );
 
@@ -1332,6 +1378,149 @@ function closeWorkspaceDocument(documentId: string) {
 	workspaceDocuments = result.documents;
 	activeWorkspaceDocumentId = result.activeDocumentId;
 	workspaceOpen = result.isOpen;
+}
+
+/**
+ * An artifact is gone — this browser deleted it, or found the server has no
+ * such item any more (`subscribeArtifactChanges`): forget what was heard about
+ * it, drop its row (the count and the list follow), remember it as deleted so
+ * the chat cards that point at it say so, and close it if it is open. A copy
+ * made later under the same id (Regenerate) starts from its own numbers.
+ */
+function handleArtifactDeleted(artifactId: string) {
+	observedArtifactVersions = forgetObservedArtifact(
+		observedArtifactVersions,
+		artifactId,
+	);
+	observedArtifactTimes = forgetObservedArtifact(
+		observedArtifactTimes,
+		artifactId,
+	);
+	deletedArtifactIds = markArtifactDeleted(deletedArtifactIds, artifactId);
+	artifacts = artifacts.filter((row) => row.id !== artifactId);
+	for (const document of workspaceDocuments.filter(
+		(entry) => entry.artifactId === artifactId,
+	)) {
+		closeWorkspaceDocument(document.id);
+	}
+}
+
+/**
+ * The panel's Delete (header and list rows): the server removes the item —
+ * the announcement it makes reaches `handleArtifactDeleted` above — and a
+ * short toast says so. A failure throws, so the confirm stays open and says
+ * it could not.
+ */
+async function handleDeleteArtifact(
+	item: DocumentWorkspaceItem,
+): Promise<void> {
+	if (!item.artifactId) return;
+	await deleteArtifactRequest(item.artifactId, data.conversation.id);
+	if (item.kind === "file") {
+		// A produced file's chat rows and its job come from the conversation
+		// detail: read it back, so they say the file was deleted.
+		const detail = await fetchConversationDetail(data.conversation.id).catch(
+			() => null,
+		);
+		if (detail) applyConversationDetailMetadata(detail);
+	}
+	showToast({
+		type: "success",
+		message: get(t)(`artifacts.delete.done.${item.kind ?? "file"}` as I18nKey),
+	});
+}
+
+/** The card or row just flipped to deleted on its own (nothing the user asked for changed it): say so, since a screen reader user would not otherwise hear it. */
+function announceItemGone(kind: NonNullable<DocumentWorkspaceItem["kind"]>) {
+	showToast({
+		type: "error",
+		message: get(t)(`artifacts.deleted.${kind}` as I18nKey),
+	});
+}
+
+/**
+ * A chat card's or file row's Open: find out first that the item is still
+ * there. If the server has no such item any more (deleted in another tab) the
+ * card flips to its deleted state — an artifact by its own 404, a produced
+ * file by reading the conversation detail back, which then says its job's
+ * files are gone — and the panel does not open. Any other failure (offline, a
+ * 5xx) lets the panel try, which shows its own state.
+ */
+async function openArtifactFromChat(
+	document: DocumentWorkspaceItem,
+	options: {
+		preservePresentation?: boolean;
+		presentation?: "docked" | "expanded";
+	} = {},
+) {
+	if (
+		document.source === "chat_generated_file" &&
+		document.previewUrl &&
+		!(await chatFileStillExists(document.previewUrl))
+	) {
+		const detail = await fetchConversationDetail(data.conversation.id).catch(
+			() => null,
+		);
+		if (detail) applyConversationDetailMetadata(detail);
+		announceItemGone("file");
+		return;
+	}
+	if (document.artifactId && document.kind && document.kind !== "file") {
+		try {
+			await fetchArtifact(document.artifactId, data.conversation.id);
+		} catch (error) {
+			if (error instanceof ApiError && error.status === 404) {
+				handleArtifactDeleted(document.artifactId);
+				announceItemGone(document.kind);
+				return;
+			}
+		}
+	}
+	openWorkspaceDocument(document, options);
+}
+
+/**
+ * Regenerate on a deleted Document or App card: the server makes it again from
+ * the arguments the model gave `create_artifact` (kept on the message), under
+ * the id the card already carries — so once conversation detail is read back
+ * the card is a card again, with no rewriting. A refusal because nothing was
+ * kept says so on the card; any other failure says so in a toast and leaves
+ * Regenerate there to try again.
+ */
+async function handleRegenerateArtifact(artifactId: string) {
+	if (regeneratingArtifactIds.includes(artifactId)) return;
+	regeneratingArtifactIds = [...regeneratingArtifactIds, artifactId];
+	try {
+		const result = await regenerateDeletedArtifact(
+			data.conversation.id,
+			artifactId,
+			get(uiLanguage) === "hu" ? "hu" : "en",
+		);
+		if (result.ok) {
+			deletedArtifactIds = deletedArtifactIds.filter((id) => id !== artifactId);
+			const detail = await fetchConversationDetail(data.conversation.id).catch(
+				() => null,
+			);
+			if (detail) applyConversationDetailMetadata(detail);
+			showToast({
+				type: "success",
+				message: get(t)("artifacts.deleted.regenerated", {
+					title: result.title,
+				}),
+			});
+		} else if (result.reason === "no_stored_input") {
+			unavailableArtifactIds = [...unavailableArtifactIds, artifactId];
+		} else {
+			showToast({
+				type: "error",
+				message: get(t)("artifacts.deleted.regenerateFailed"),
+			});
+		}
+	} finally {
+		regeneratingArtifactIds = regeneratingArtifactIds.filter(
+			(id) => id !== artifactId,
+		);
+	}
 }
 
 function closeWorkspace() {
@@ -1568,6 +1757,7 @@ function resetState() {
 	generatedFiles = data.generatedFiles ?? [];
 	fileProductionJobs = data.fileProductionJobs ?? [];
 	artifacts = data.artifacts ?? [];
+	deletedArtifactIds = data.deletedArtifactIds ?? [];
 	atlasJobs = data.atlasJobs ?? [];
 	pendingWrites = data.pendingWrites ?? [];
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
@@ -1686,6 +1876,9 @@ function applyConversationDetailMetadata(
 	}
 	if (detail.artifacts) {
 		artifacts = [...detail.artifacts];
+	}
+	if (detail.deletedArtifactIds) {
+		deletedArtifactIds = [...detail.deletedArtifactIds];
 	}
 	if (detail.atlasJobs) {
 		atlasJobs = [...detail.atlasJobs];
@@ -1877,11 +2070,20 @@ onMount(() => {
 // One version number everywhere (see `observedArtifactVersions`): a save, an
 // Alfy edit, an Undo or a restore anywhere in the panel reaches every surface.
 onMount(() =>
-	subscribeArtifactVersions((artifactId, version) => {
+	subscribeArtifactChanges((change) => {
+		if (change.type === "deleted") {
+			handleArtifactDeleted(change.artifactId);
+			return;
+		}
 		observedArtifactVersions = observeArtifactVersion(
 			observedArtifactVersions,
-			artifactId,
-			version,
+			change.artifactId,
+			change.version,
+		);
+		observedArtifactTimes = observeArtifactUpdatedAt(
+			observedArtifactTimes,
+			change.artifactId,
+			change.updatedAt,
 		);
 	}),
 );
@@ -1944,21 +2146,29 @@ async function hydrateConversationDetail(conversationId: string) {
 			attachedArtifacts = payload.attachedArtifacts ?? attachedArtifacts;
 		}
 		const metadataIsFresh = requestMetadataEpoch === detailMetadataEpoch;
+		// Wave 2.5 review (F2): a create_artifact/edit_artifact turn's fresh
+		// versionNumber/pendingReviewCount must reach the chat card and the panel
+		// list row without a reload — ThinkingBlock.svelte's
+		// buildEnrichedToolActivityItem derives the card's `preview` from exactly
+		// this array. It is applied whichever side of the freshness boundary the
+		// answer lands on (polish G2-A): a tool call finishing mid-turn asks for
+		// this refresh, and the turn's final stream metadata moves the boundary
+		// while it is in flight — but that metadata carries no artifact list, so
+		// the answer is still the newest word on it. Nothing goes backwards:
+		// versions and edit times only rise (`observedArtifact*`), and an id this
+		// browser deleted while the answer was in flight stays deleted (the ids
+		// are added to, never replaced).
+		artifacts = payload.artifacts ?? artifacts;
+		deletedArtifactIds = (payload.deletedArtifactIds ?? []).reduce(
+			markArtifactDeleted,
+			deletedArtifactIds,
+		);
 		if (metadataIsFresh) {
 			contextStatus = payload.contextStatus ?? contextStatus;
 			taskState = payload.taskState ?? taskState;
 			contextDebug = payload.contextDebug ?? contextDebug;
 			generatedFiles = payload.generatedFiles ?? generatedFiles;
 			fileProductionJobs = payload.fileProductionJobs ?? fileProductionJobs;
-			// Wave 2.5 review (F2): missing here (unlike its sibling
-			// applyConversationDetailMetadata, the polling-fallback path's
-			// version of this same field list, which already includes it) —
-			// a create_artifact/edit_artifact turn's fresh versionNumber/
-			// pendingReviewCount never reached the chat card or panel list row
-			// without a full reload, since ThinkingBlock.svelte's
-			// buildEnrichedToolActivityItem derives the card's `preview` from
-			// exactly this array.
-			artifacts = payload.artifacts ?? artifacts;
 			atlasJobs = payload.atlasJobs ?? atlasJobs;
 			contextCompressionMarkers =
 				payload.contextCompressionSnapshots ?? contextCompressionMarkers;
@@ -2013,17 +2223,34 @@ function attachFileProductionJobsToAssistantMessage(
 	});
 }
 
+// Jobs whose Retry / Regenerate request is on its way. A second press before
+// the answer would reach the server after the job is already queued again and
+// come back "nothing to regenerate" as an error banner, so it is not sent.
+const fileJobRequestsInFlight = new Set<string>();
+
 async function handleRetryFileProductionJob(jobId: string) {
 	// Item 6 (UX-speed plan) — a placeholder card has no server-side job
 	// behind it; FileProductionCard.svelte already hides this action for a
 	// placeholder, this is the defense-in-depth twin.
 	if (isPendingFileProductionJobId(jobId)) return;
+	if (fileJobRequestsInFlight.has(jobId)) return;
+	fileJobRequestsInFlight.add(jobId);
 	try {
-		const job = await retryFileProductionJobRequest(jobId);
+		// A job whose files were deleted has nothing failed to retry: its card
+		// offers Regenerate, which queues the SAME job again from the request it
+		// kept. Both come back as the job, queued, and replace it in place.
+		const wasDeleted = fileProductionJobs.some(
+			(job) => job.id === jobId && job.filesDeleted,
+		);
+		const job = wasDeleted
+			? await regenerateFileProductionJobRequest(jobId)
+			: await retryFileProductionJobRequest(jobId);
 		fileProductionJobs = mergeFileProductionJob(fileProductionJobs, job);
 	} catch (err) {
 		sendError =
 			err instanceof Error ? err.message : "Failed to retry file production";
+	} finally {
+		fileJobRequestsInFlight.delete(jobId);
 	}
 }
 
@@ -3365,11 +3592,12 @@ function handleDrop(event: DragEvent) {
 						{forkingMessageId}
 						showingLinkedMessage={linkedMessageConversationId === data.conversation.id}
 						readOnly={isConversationReadOnlyForChat}
-						onOpenDocument={openWorkspaceDocument}
+						onOpenDocument={openArtifactFromChat}
 						artifacts={liveArtifacts}
 						onToggleDocumentTask={handleToggleDocumentTask}
 						alfyActivity={liveDocumentAlfyActivity}
 						{activeArtifactId}
+						deletedArtifacts={deletedArtifactsForCards}
 						onRegenerate={handleRegenerate}
 						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}
@@ -3465,6 +3693,10 @@ function handleDrop(event: DragEvent) {
 			onToggleDocumentTask={handleToggleDocumentTask}
 			onListOpenChange={(open) => {
 				artifactListOpen = open;
+				// Showing the list shows the panel: after a delete the item
+				// that held it open is gone, and "back to the list" must not
+				// leave a closed panel behind.
+				if (open) workspaceOpen = true;
 			}}
 			onSelectDocument={selectWorkspaceDocument}
 			onOpenDocument={(document) =>
@@ -3476,6 +3708,7 @@ function handleDrop(event: DragEvent) {
 				workspacePresentation = nextPresentation;
 			}}
 			onPendingReviewCountChange={handlePendingReviewCountChange}
+			onDeleteArtifact={handleDeleteArtifact}
 			currentUser={data.user}
 		/>
 	</div>

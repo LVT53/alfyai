@@ -474,3 +474,111 @@ describe("ArtifactCard", () => {
 		expect(source).toContain('import("../chat/FileProductionCard.svelte")');
 	});
 });
+
+// Polish G2-A: a card whose item was deleted says so, muted, with no Open — and
+// offers Regenerate where the item can be made again, or says why not.
+describe("ArtifactCard — deleted (chrome=full)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+	});
+
+	it("says the item was deleted, in the kind's own words, and offers no Open", () => {
+		render(ArtifactCard, {
+			view: view({ deleted: true, openTargetId: "artifact-1" }),
+			onOpen: vi.fn(),
+		});
+
+		const card = screen.getByTestId("artifact-card");
+		expect(card).toHaveAttribute("data-state", "deleted");
+		expect(card).toHaveTextContent("Weekend checklist");
+		expect(screen.getByText("This document was deleted")).toBeInTheDocument();
+		// Nothing to open: no head button, no Open affordance.
+		expect(screen.queryByTestId("artifact-card-head")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /Open/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it.each([
+		["app", "This app was deleted", "Ez az alkalmazás törölve lett"],
+		["canvas", "This canvas was deleted", "Ez a tábla törölve lett"],
+		["slides", "These slides were deleted", "Ez a diasor törölve lett"],
+		["document", "This document was deleted", "Ez a dokumentum törölve lett"],
+	] as const)("names a deleted %s in both languages", (kind, english, hungarian) => {
+		const { unmount } = render(ArtifactCard, {
+			view: view({ kind, deleted: true }),
+		});
+		expect(screen.getByText(english)).toBeInTheDocument();
+		unmount();
+		uiLanguage.set("hu");
+		render(ArtifactCard, { view: view({ kind, deleted: true }) });
+		expect(screen.getByText(hungarian)).toBeInTheDocument();
+	});
+
+	it("offers Regenerate when the item can be made again, and asks for it by id", async () => {
+		const onRegenerate = vi.fn();
+		render(ArtifactCard, {
+			view: view({ id: "artifact-9", deleted: true }),
+			onRegenerate,
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Regenerate Weekend checklist" }),
+		);
+
+		expect(onRegenerate).toHaveBeenCalledWith("artifact-9");
+	});
+
+	it("shows the work under way and ignores another press", async () => {
+		const onRegenerate = vi.fn();
+		render(ArtifactCard, {
+			view: view({ deleted: true, regenerating: true }),
+			onRegenerate,
+		});
+
+		const busy = screen.getByRole("button", { name: /Regenerating…/ });
+		expect(busy).toBeDisabled();
+		expect(busy).toHaveAttribute("aria-busy", "true");
+		await fireEvent.click(busy);
+		expect(onRegenerate).not.toHaveBeenCalled();
+	});
+
+	it("says why it cannot be made again, instead of offering a button that would fail", () => {
+		render(ArtifactCard, {
+			view: view({ deleted: true, regenerateUnavailable: true }),
+			onRegenerate: vi.fn(),
+		});
+
+		expect(
+			screen.getByText(
+				"It can't be regenerated: the original request wasn't kept.",
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /Regenerate/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("draws no Regenerate when the host offers none", () => {
+		render(ArtifactCard, { view: view({ deleted: true }) });
+
+		expect(
+			screen.queryByRole("button", { name: /Regenerate/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("leaves a card that was not deleted exactly as it was", () => {
+		render(ArtifactCard, {
+			view: view({ openTargetId: "artifact-1" }),
+			onOpen: vi.fn(),
+			onRegenerate: vi.fn(),
+		});
+
+		expect(screen.getByTestId("artifact-card")).not.toHaveAttribute(
+			"data-state",
+		);
+		expect(screen.getByTestId("artifact-card-head")).toBeInTheDocument();
+		expect(screen.queryByText(/was deleted/)).not.toBeInTheDocument();
+	});
+});

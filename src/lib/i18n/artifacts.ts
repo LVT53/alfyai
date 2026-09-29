@@ -93,6 +93,53 @@ const artifactsDict = {
 		"artifacts.card.creatingSubtitle": "Alfy is writing…",
 		"artifacts.card.failedTitle": "Alfy couldn't make this.",
 		// The five kinds.
+		// Delete (polish G2-A): the panel header's and the list row's Delete, and
+		// its confirm. Every string names the KIND (ADR-0066) — never the
+		// engineering word — and each kind is its own key because Hungarian
+		// takes a different article and ending per noun.
+		"artifacts.delete.button.document": "Delete document",
+		"artifacts.delete.button.app": "Delete app",
+		"artifacts.delete.button.canvas": "Delete canvas",
+		"artifacts.delete.button.slides": "Delete slides",
+		"artifacts.delete.button.file": "Delete file",
+		"artifacts.delete.title.document": "Delete this document?",
+		"artifacts.delete.title.app": "Delete this app?",
+		"artifacts.delete.title.canvas": "Delete this canvas?",
+		"artifacts.delete.title.slides": "Delete these slides?",
+		"artifacts.delete.title.file": "Delete this file?",
+		"artifacts.delete.body.document":
+			"“{title}” and its versions and comments will be deleted. This can't be undone.",
+		"artifacts.delete.body.app":
+			"“{title}” and its saved data will be deleted. This can't be undone.",
+		"artifacts.delete.body.canvas":
+			"“{title}” and its versions and comments will be deleted. This can't be undone.",
+		"artifacts.delete.body.slides":
+			"“{title}” and its versions and comments will be deleted. This can't be undone.",
+		"artifacts.delete.body.file":
+			"“{title}” will be deleted. This can't be undone.",
+		"artifacts.delete.busy": "Deleting…",
+		"artifacts.delete.failed": "Couldn't delete this. Try again.",
+		"artifacts.delete.done.document": "Document deleted",
+		"artifacts.delete.done.app": "App deleted",
+		"artifacts.delete.done.canvas": "Canvas deleted",
+		"artifacts.delete.done.slides": "Slides deleted",
+		"artifacts.delete.done.file": "File deleted",
+		"artifacts.delete.rowMenu": "More actions for {title}",
+		// What a chat card or file row says once its item is gone (polish G2-A),
+		// per kind, and its Regenerate.
+		"artifacts.deleted.document": "This document was deleted",
+		"artifacts.deleted.app": "This app was deleted",
+		"artifacts.deleted.canvas": "This canvas was deleted",
+		"artifacts.deleted.slides": "These slides were deleted",
+		"artifacts.deleted.file": "The file has been deleted",
+		"artifacts.deleted.regenerate": "Regenerate",
+		"artifacts.deleted.regenerateA11y": "Regenerate {title}",
+		"artifacts.deleted.regenerating": "Regenerating…",
+		"artifacts.deleted.unavailable":
+			"It can't be regenerated: the original request wasn't kept.",
+		"artifacts.deleted.regenerateFailed":
+			"Couldn't regenerate this. Try again.",
+		"artifacts.deleted.regenerated": "Regenerated “{title}”",
 		"artifacts.type.file": "File",
 		"artifacts.type.document": "Document",
 		"artifacts.type.app": "App",
@@ -222,6 +269,7 @@ const artifactsDict = {
 		// Alfy-authored summary is free-form content and is shown as-is.
 		"artifacts.document.versions.summaryEdited": "Edited",
 		"artifacts.document.versions.summaryRestored": "restored {summary}",
+		"artifacts.document.versions.summaryRestoredFrom": "Restored v{n}",
 		"artifacts.document.versions.summaryUndidAlfyChange": "Undid Alfy's change",
 		"artifacts.document.versions.summaryFirstDraft":
 			"Alfy wrote the first draft",
@@ -516,6 +564,46 @@ const artifactsDict = {
 		"artifacts.card.moreItems": "+{count} további",
 		"artifacts.card.creatingSubtitle": "Alfy éppen ír…",
 		"artifacts.card.failedTitle": "Alfynak ezt nem sikerült elkészítenie.",
+		"artifacts.delete.button.document": "Dokumentum törlése",
+		"artifacts.delete.button.app": "Alkalmazás törlése",
+		"artifacts.delete.button.canvas": "Tábla törlése",
+		"artifacts.delete.button.slides": "Diasor törlése",
+		"artifacts.delete.button.file": "Fájl törlése",
+		"artifacts.delete.title.document": "Törlöd ezt a dokumentumot?",
+		"artifacts.delete.title.app": "Törlöd ezt az alkalmazást?",
+		"artifacts.delete.title.canvas": "Törlöd ezt a táblát?",
+		"artifacts.delete.title.slides": "Törlöd ezt a diasort?",
+		"artifacts.delete.title.file": "Törlöd ezt a fájlt?",
+		"artifacts.delete.body.document":
+			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.app":
+			"„{title}” és a mentett adatai törlődnek. Ez nem vonható vissza.",
+		"artifacts.delete.body.canvas":
+			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.slides":
+			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.body.file": "„{title}” törlődik. Ez nem vonható vissza.",
+		"artifacts.delete.busy": "Törlés…",
+		"artifacts.delete.failed": "Nem sikerült törölni. Próbáld újra.",
+		"artifacts.delete.done.document": "Dokumentum törölve",
+		"artifacts.delete.done.app": "Alkalmazás törölve",
+		"artifacts.delete.done.canvas": "Tábla törölve",
+		"artifacts.delete.done.slides": "Diasor törölve",
+		"artifacts.delete.done.file": "Fájl törölve",
+		"artifacts.delete.rowMenu": "További műveletek: {title}",
+		"artifacts.deleted.document": "Ez a dokumentum törölve lett",
+		"artifacts.deleted.app": "Ez az alkalmazás törölve lett",
+		"artifacts.deleted.canvas": "Ez a tábla törölve lett",
+		"artifacts.deleted.slides": "Ez a diasor törölve lett",
+		"artifacts.deleted.file": "A fájl törölve lett",
+		"artifacts.deleted.regenerate": "Újragenerálás",
+		"artifacts.deleted.regenerateA11y": "{title} újragenerálása",
+		"artifacts.deleted.regenerating": "Újragenerálás…",
+		"artifacts.deleted.unavailable":
+			"Nem generálható újra: az eredeti kérés nem maradt meg.",
+		"artifacts.deleted.regenerateFailed":
+			"Nem sikerült újragenerálni. Próbáld újra.",
+		"artifacts.deleted.regenerated": "„{title}” újragenerálva",
 		"artifacts.type.file": "Fájl",
 		"artifacts.type.document": "Dokumentum",
 		"artifacts.type.app": "Alkalmazás",
@@ -626,6 +714,7 @@ const artifactsDict = {
 		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
 		"artifacts.document.versions.summaryEdited": "Szerkesztve",
 		"artifacts.document.versions.summaryRestored": "visszaállítva: {summary}",
+		"artifacts.document.versions.summaryRestoredFrom": "Visszaállítva: v{n}",
 		"artifacts.document.versions.summaryUndidAlfyChange":
 			"Alfy módosításának visszavonása",
 		"artifacts.document.versions.summaryFirstDraft":

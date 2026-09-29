@@ -26,9 +26,16 @@ import {
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
 import { _unwrapList } from "./_utils";
-import { type FetchLike, requestJson, requestResponse } from "./http";
+import {
+	ApiError,
+	type FetchLike,
+	requestJson,
+	requestResponse,
+	requestVoid,
+} from "./http";
 
 /** The kv route's one reason vocabulary (Contracts, storage.ts's `APP_KV_LIMITS`). */
 export type AppKvRefusalReason =
@@ -52,31 +59,66 @@ export interface ArtifactDetailResponse {
 	comments: ArtifactComment[];
 }
 
-type ArtifactVersionListener = (artifactId: string, version: number) => void;
-const artifactVersionListeners = new Set<ArtifactVersionListener>();
+/**
+ * What the browser has learned about one artifact from a response, in a form
+ * every surface that shows it can follow (the list row, the in-chat card, the
+ * panel header):
+ *
+ * - `version`: the newest version the server reported, and — when the response
+ *   knows it — when the artifact was last changed (`updatedAt`, epoch ms).
+ * - `deleted`: the item is gone (this browser deleted it, or the server said
+ *   it no longer exists).
+ */
+export type ArtifactChange =
+	| {
+			type: "version";
+			artifactId: string;
+			version: number;
+			updatedAt: number | null;
+	  }
+	| { type: "deleted"; artifactId: string };
+
+type ArtifactChangeListener = (change: ArtifactChange) => void;
+const artifactChangeListeners = new Set<ArtifactChangeListener>();
 
 /**
- * Wave 2.5 polish G1-B (one version number everywhere): every response in
- * this module that carries an artifact's current version — a fetch, a save, a
- * tab save, a restore, the newest row of the version list, an App
- * regeneration — is announced here, so the surfaces that print a version (the
- * list row, the in-chat card, the header's button) can follow the server
- * instead of each keeping a copy taken at its own moment. Returns the
- * unsubscribe function. See `$lib/client/artifact-versions.ts`.
+ * Wave 2.5 polish G1-B (one version number everywhere) and G2-A (the same
+ * announcement carries the time of the change, and deletions): every response
+ * in this module that carries an artifact's current version — a fetch, a save,
+ * a tab save, a restore, the newest row of the version list, an App
+ * regeneration — is announced here, so the surfaces that print a version or an
+ * "edited N min ago" (the list row, the in-chat card, the header) can follow
+ * the server instead of each keeping a copy taken at its own moment. A delete
+ * is announced through the same channel, so an open list or card flips to its
+ * deleted state at once. Returns the unsubscribe function. See
+ * `$lib/client/artifact-versions.ts`.
  */
-export function subscribeArtifactVersions(
-	listener: ArtifactVersionListener,
+export function subscribeArtifactChanges(
+	listener: ArtifactChangeListener,
 ): () => void {
-	artifactVersionListeners.add(listener);
+	artifactChangeListeners.add(listener);
 	return () => {
-		artifactVersionListeners.delete(listener);
+		artifactChangeListeners.delete(listener);
 	};
 }
 
-function announceArtifactVersion(artifactId: string, version: unknown): void {
+function announceArtifactChange(change: ArtifactChange): void {
+	for (const listener of artifactChangeListeners) listener(change);
+}
+
+/**
+ * `updatedAt`: what the response itself says about when the artifact changed,
+ * or the moment a write was acknowledged (a write just happened, so "now" is
+ * when it changed); `null` when the response does not say (a version list's
+ * newest row is a version's own time, not the artifact's).
+ */
+function announceArtifactVersion(
+	artifactId: string,
+	version: unknown,
+	updatedAt: number | null,
+): void {
 	if (typeof version !== "number") return;
-	for (const listener of artifactVersionListeners)
-		listener(artifactId, version);
+	announceArtifactChange({ type: "version", artifactId, version, updatedAt });
 }
 
 /**
@@ -107,12 +149,105 @@ export async function fetchArtifact(
 		"Failed to open this item",
 		fetchImpl,
 	);
-	announceArtifactVersion(artifactId, response.artifact.versionNumber);
+	announceArtifactVersion(
+		artifactId,
+		response.artifact.versionNumber,
+		typeof response.artifact.updatedAt === "number"
+			? response.artifact.updatedAt
+			: null,
+	);
 	return {
 		artifact: response.artifact,
 		versions: response.versions,
 		comments: response.comments,
 	};
+}
+
+export type DeleteArtifactResult = {
+	ok: true;
+	/** The server had no such item any more (deleted elsewhere): still "gone", which is what the caller wanted. */
+	alreadyGone: boolean;
+};
+
+/**
+ * Deletes one item for good (`DELETE /api/artifacts/[id]`). Once it is gone —
+ * removed now, or the server says it was already gone — the deletion is
+ * announced through `subscribeArtifactChanges`, so an open list row or chat
+ * card flips to its deleted state without waiting for a refresh. Any other
+ * failure throws (the item is still there, and the caller says so).
+ * `conversationId` is the served conversation (ruling 51), the only way an
+ * incognito chat's own item can be reached.
+ */
+export async function deleteArtifact(
+	artifactId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<DeleteArtifactResult> {
+	let alreadyGone = false;
+	try {
+		await requestVoid(
+			`/api/artifacts/${encodeURIComponent(artifactId)}${withConversationQuery(conversationId)}`,
+			{ method: "DELETE" },
+			"Failed to delete this item",
+			fetchImpl,
+		);
+	} catch (error) {
+		if (!(error instanceof ApiError) || error.status !== 404) throw error;
+		alreadyGone = true;
+	}
+	announceArtifactChange({ type: "deleted", artifactId });
+	return { ok: true, alreadyGone };
+}
+
+export type RegenerateDeletedArtifactResult =
+	| {
+			ok: true;
+			/** `false`: the item exists again already (made by an earlier click or another tab); nothing was written. */
+			created: boolean;
+			artifactId: string;
+			kind: ArtifactKind;
+			title: string;
+	  }
+	| {
+			ok: false;
+			reason: "not_found" | "no_stored_input" | "in_progress" | "failed";
+			detail?: string;
+	  };
+
+/**
+ * "Regenerate" on a chat card whose Document or App was deleted
+ * (`POST /api/conversations/[id]/artifacts/[artifactId]/regenerate`): the
+ * server makes it again from the arguments the model gave `create_artifact`,
+ * under the id the card already carries. Every documented refusal is a normal
+ * return value with its reason (the card says which); an unreadable answer or
+ * a dead connection is a plain `failed`. `language` is the reader's interface
+ * language, which an App is made in.
+ */
+export async function regenerateDeletedArtifact(
+	conversationId: string,
+	artifactId: string,
+	language: "en" | "hu",
+	fetchImpl: FetchLike = fetch,
+): Promise<RegenerateDeletedArtifactResult> {
+	try {
+		const response = await requestResponse(
+			`/api/conversations/${encodeURIComponent(conversationId)}/artifacts/${encodeURIComponent(artifactId)}/regenerate`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ language }),
+			},
+			fetchImpl,
+		);
+		const payload = (await response
+			.json()
+			.catch(() => null)) as RegenerateDeletedArtifactResult | null;
+		return payload && typeof payload.ok === "boolean"
+			? payload
+			: { ok: false, reason: "failed" };
+	} catch {
+		return { ok: false, reason: "failed" };
+	}
 }
 
 export async function fetchConversationArtifacts(
@@ -233,8 +368,10 @@ export async function regenerateApp(
 	);
 	const result = (await response.json()) as RegenerateAppResult;
 	// A success reports the new version; a conflict reveals the current one.
-	if (result.ok || result.reason === "version_conflict") {
-		announceArtifactVersion(artifactId, result.version);
+	if (result.ok) {
+		announceArtifactVersion(artifactId, result.version, Date.now());
+	} else if (result.reason === "version_conflict") {
+		announceArtifactVersion(artifactId, result.version, null);
 	}
 	return result;
 }
@@ -342,7 +479,8 @@ export async function saveArtifactBody(
 	if (!payload) {
 		return { ok: false, reason: "not_found" };
 	}
-	if (payload.ok) announceArtifactVersion(artifactId, payload.version);
+	if (payload.ok)
+		announceArtifactVersion(artifactId, payload.version, Date.now());
 	return payload;
 }
 
@@ -456,7 +594,8 @@ export async function saveDocumentTabs(
 	if (!payload) {
 		return { ok: false, reason: "not_found" };
 	}
-	if (payload.ok) announceArtifactVersion(artifactId, payload.version);
+	if (payload.ok)
+		announceArtifactVersion(artifactId, payload.version, Date.now());
 	return payload;
 }
 
@@ -483,7 +622,13 @@ export async function createDocumentCopy(
 		"Could not save this as a new document",
 		fetchImpl,
 	);
-	announceArtifactVersion(payload.artifact.id, payload.artifact.versionNumber);
+	announceArtifactVersion(
+		payload.artifact.id,
+		payload.artifact.versionNumber,
+		typeof payload.artifact.updatedAt === "number"
+			? payload.artifact.updatedAt
+			: null,
+	);
 	return payload.artifact;
 }
 
@@ -509,7 +654,7 @@ export async function fetchArtifactVersions(
 		fetchImpl,
 	);
 	// Newest first: the top row IS the current version.
-	announceArtifactVersion(artifactId, payload.versions[0]?.versionNumber);
+	announceArtifactVersion(artifactId, payload.versions[0]?.versionNumber, null);
 	return payload.versions;
 }
 
@@ -542,7 +687,7 @@ export async function restoreArtifactVersion(
 		"Failed to restore this version",
 		fetchImpl,
 	);
-	announceArtifactVersion(artifactId, payload.version);
+	announceArtifactVersion(artifactId, payload.version, Date.now());
 	return payload.version;
 }
 

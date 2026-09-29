@@ -1112,7 +1112,9 @@ export function buildFileProductionActivityItem(
 		// A produced file is a deliverable: it never folds into the summary
 		// strip, it stays a pinned row with its body open.
 		pinned: true,
-		alwaysOpen: isActive,
+		// A deleted file's body (what happened, and Regenerate) is the whole point
+		// of its row: open on its own, never behind a chevron.
+		alwaysOpen: isActive || Boolean(job.filesDeleted),
 		title: object,
 		body: { kind: "file-job" },
 	};

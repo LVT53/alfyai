@@ -1,5 +1,8 @@
 import { getConversationCostSummary } from "$lib/server/services/analytics";
-import { listArtifactsForConversation } from "$lib/server/services/artifacts";
+import {
+	listArtifactsForConversation,
+	listMissingArtifactIds,
+} from "$lib/server/services/artifacts";
 import { getAtlasAvailability } from "$lib/server/services/atlas/availability";
 import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
 import {
@@ -24,6 +27,7 @@ import {
 	listConversationArtifacts,
 } from "$lib/server/services/knowledge";
 import {
+	artifactCallIdsFromMessages,
 	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT,
 	listMessageWindow,
 } from "$lib/server/services/messages";
@@ -77,6 +81,25 @@ async function attachSourceForksToAssistantMessages(
 	});
 }
 
+/**
+ * The artifacts the given messages' own tool calls made or edited that no
+ * longer exist — what an in-chat card needs to say "this document was
+ * deleted". The ids come off the messages the caller already loaded (this
+ * read is pinned to one `messages` query); whether they still exist is the
+ * artifact service's to say, under the ownership scope.
+ */
+async function listDeletedArtifactIds(
+	userId: string,
+	conversationId: string,
+	loadedMessages: ChatMessage[],
+): Promise<string[]> {
+	return listMissingArtifactIds({
+		userId,
+		conversationId,
+		artifactIds: artifactCallIdsFromMessages(loadedMessages),
+	});
+}
+
 export async function getConversationDetail({
 	userId,
 	conversationId,
@@ -115,6 +138,9 @@ export async function getConversationDetail({
 		};
 	}
 
+	const messageWindowRequest = listMessageWindow(conversationId, {
+		limit: messageWindowLimit,
+	});
 	const [
 		messageWindow,
 		forkOrigin,
@@ -130,8 +156,9 @@ export async function getConversationDetail({
 		contextCompressionSnapshots,
 		costSummary,
 		artifacts,
+		deletedArtifactIds,
 	] = await Promise.all([
-		listMessageWindow(conversationId, { limit: messageWindowLimit }),
+		messageWindowRequest,
 		getConversationForkOrigin(conversationId),
 		listConversationArtifacts(userId, conversationId),
 		getConversationWorkingSet(userId, conversationId),
@@ -150,6 +177,9 @@ export async function getConversationDetail({
 		// S7): the same listArtifactsForConversation call the panel needs, not
 		// a second query per row.
 		listArtifactsForConversation({ userId, conversationId }),
+		messageWindowRequest.then((window) =>
+			listDeletedArtifactIds(userId, conversationId, window.messages),
+		),
 	]);
 	const taskStateWithContinuity = await attachContinuityToTaskState(
 		userId,
@@ -177,6 +207,7 @@ export async function getConversationDetail({
 			serializeContextCompressionSnapshot,
 		),
 		artifacts,
+		deletedArtifactIds,
 		bootstrap: false,
 		sidecarPending: false,
 		hasMoreMessages: messageWindow.hasMoreBefore,
@@ -204,6 +235,8 @@ export interface GetOlderConversationMessagesInput {
 export interface OlderConversationMessagesPage {
 	messages: ChatMessage[];
 	hasMoreBefore: boolean;
+	/** Of the artifacts these older messages' tool calls named, the ones that no longer exist — the same signal the detail carries for the loaded window. */
+	deletedArtifactIds: string[];
 }
 
 export async function getOlderConversationMessages({
@@ -223,5 +256,10 @@ export async function getOlderConversationMessages({
 	return {
 		messages: messagesWithSourceForks,
 		hasMoreBefore: page.hasMoreBefore,
+		deletedArtifactIds: await listDeletedArtifactIds(
+			userId,
+			conversationId,
+			page.messages,
+		),
 	};
 }

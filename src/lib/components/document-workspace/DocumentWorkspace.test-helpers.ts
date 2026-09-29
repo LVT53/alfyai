@@ -38,6 +38,7 @@ type WorkspaceRenderOptions = {
 		blockId: string,
 		checked: boolean,
 	) => void;
+	onDeleteArtifact?: (document: DocumentWorkspaceItem) => Promise<void>;
 };
 
 export function makeWorkspaceDocument(

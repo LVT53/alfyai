@@ -93,6 +93,29 @@ describe("create_artifact.document", () => {
 		}
 	});
 
+	// Polish G2-A (Regenerate): the same handler, told which id to make it under.
+	it("creates the document under the id it is given", async () => {
+		const handler = CREATE_ARTIFACT_HANDLERS.document;
+		const artifactId = `artifact-${randomUUID()}`;
+
+		const result = await handler?.({
+			userId,
+			conversationId,
+			turnId: "regenerate:artifact",
+			title: "Saturday plan",
+			body: "# Saturday\n\nMuseum in the morning.",
+			language: "en",
+			abortSignal: abortSignal(),
+			artifactId,
+		});
+
+		expect(result).toMatchObject({ ok: true, value: { artifactId } });
+		expect(await getArtifact({ userId, artifactId })).toMatchObject({
+			id: artifactId,
+			title: "Saturday plan",
+		});
+	});
+
 	it("writes nothing and refuses when the signal is already aborted", async () => {
 		const handler = CREATE_ARTIFACT_HANDLERS.document;
 		const result = await handler?.({

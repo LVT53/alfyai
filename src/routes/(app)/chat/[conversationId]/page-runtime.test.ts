@@ -12,6 +12,7 @@ import type { AppShellData } from "$lib/server/services/app-shell";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
 import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
 import type { Conversation } from "$lib/server/services/conversations";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type {
 	ContextDebugEvidenceItem,
 	ContextDebugState,
@@ -278,8 +279,14 @@ vi.mock("$lib/client/api/conversations", () => ({
 	runConversationContextCompression: vi.fn(),
 }));
 
-vi.mock("$lib/client/api/file-production", () => ({
+vi.mock("$lib/client/api/file-production", async (importOriginal) => ({
+	// The real existence check (a ranged read through the test's own fetch),
+	// the rest stubbed.
+	chatFileStillExists: (
+		await importOriginal<typeof import("$lib/client/api/file-production")>()
+	).chatFileStillExists,
 	cancelFileProductionJob: vi.fn(),
+	regenerateFileProductionJob: vi.fn(),
 	retryFileProductionJob: vi.fn(),
 }));
 
@@ -392,6 +399,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		generatedFiles: [],
 		fileProductionJobs: [],
 		artifacts: [],
+		deletedArtifactIds: [] as string[],
 		pendingWrites: [],
 		contextCompressionSnapshots: [],
 		atlasJobs: [],
@@ -1079,9 +1087,7 @@ describe("chat page runtime integration", () => {
 		// rows for the same item. Each row is an ArtifactCard (chrome="row",
 		// redesign §5.2): the whole row is the button, named after its title.
 		const list = await screen.findByTestId("artifact-panel-list");
-		await fireEvent.click(
-			within(list).getByRole("button", { name: /Vienna trip summary\.pdf/ }),
-		);
+		await fireEvent.click(within(list).getByTestId("artifact-row"));
 
 		const shell = await screen.findByRole("complementary", {
 			name: "Document workspace",
@@ -1167,9 +1173,7 @@ describe("chat page runtime integration", () => {
 		// the panel is still showing.
 		await fireEvent.click(countButton);
 		const list = await screen.findByTestId("artifact-panel-list");
-		await fireEvent.click(
-			within(list).getByRole("button", { name: /Vienna trip summary\.pdf/ }),
-		);
+		await fireEvent.click(within(list).getByTestId("artifact-row"));
 		await screen.findByRole("complementary", { name: "Document workspace" });
 		expect(countButton).toHaveAttribute("aria-pressed", "true");
 
@@ -1275,6 +1279,962 @@ describe("chat page runtime integration", () => {
 		} finally {
 			delete ARTIFACT_BODIES.document;
 		}
+	});
+
+	// Polish G2-A (the artifact-chat-card e2e raced on it): an edit_artifact
+	// call finishing mid-turn asks for a fresh conversation detail, and the
+	// turn's final stream metadata then moves the freshness boundary. When the
+	// answer lands after that it used to be dropped whole, so the list (and the
+	// chat card built on it) kept the version from before the edit until a
+	// reload. The stream metadata carries no artifact list, so the answer's
+	// list is applied whichever side of the boundary it lands on.
+	it("shows the version an edit made during the turn even when the turn's final metadata lands before the refresh answers", async () => {
+		let answerDetail: (
+			detail: Awaited<ReturnType<typeof fetchConversationDetail>>,
+		) => void = () => {};
+		vi.mocked(fetchConversationDetail).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					answerDetail = resolve;
+				}),
+		);
+		const summary = {
+			id: "doc-1",
+			kind: "document" as const,
+			title: "Trip plan",
+			conversationId: "conv-1",
+			versionNumber: 1,
+			commentCount: 0,
+			updatedAt: Date.now(),
+		};
+		renderPage(pageData({ artifacts: [summary] }));
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Tighten the plan" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const { callbacks } = runtimeHarness.streamInvocations[0];
+
+		// The edit finishes: the page asks for a fresh detail. It is not
+		// answered yet.
+		callbacks.onToolCall?.(
+			"edit_artifact",
+			{ artifactId: "doc-1", patches: [] },
+			"done",
+			{ callId: "call-1" },
+		);
+		await waitFor(() => {
+			expect(fetchConversationDetail).toHaveBeenCalled();
+		});
+
+		// The turn ends first; its metadata moves the freshness boundary.
+		callbacks.onToken("Applied.");
+		callbacks.onEnd("Applied.", {
+			userMessageId: "server-user-1",
+			assistantMessageId: "assistant-1",
+			totalTokens: 12,
+		});
+
+		// Now the refresh answers: the edit made version 2.
+		answerDetail(
+			conversationDetailFixture({
+				artifacts: [{ ...summary, versionNumber: 2, updatedAt: Date.now() }],
+			}),
+		);
+
+		await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+		const list = await screen.findByTestId("artifact-panel-list");
+		await waitFor(() => {
+			expect(within(list).getByTestId("artifact-row")).toHaveTextContent("v2");
+		});
+	});
+
+	// The other side of applying that list whatever the boundary says: an answer
+	// that was asked for before an item was deleted here still lists it, and
+	// must not bring it back.
+	it("keeps an item deleted here deleted when a refresh asked for before the delete answers after it", async () => {
+		const { deleteArtifact } = await import("$lib/client/api/artifacts");
+		let answerDetail: (
+			detail: Awaited<ReturnType<typeof fetchConversationDetail>>,
+		) => void = () => {};
+		vi.mocked(fetchConversationDetail).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					answerDetail = resolve;
+				}),
+		);
+		const summary = (id: string, title: string) => ({
+			id,
+			kind: "document" as const,
+			title,
+			conversationId: "conv-1",
+			versionNumber: 1,
+			commentCount: 0,
+			updatedAt: Date.now(),
+		});
+		renderPage(pageData({ artifacts: [summary("doc-1", "Trip plan")] }));
+
+		await fireEvent.input(screen.getByTestId("message-input"), {
+			target: { value: "Tighten the plan" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		runtimeHarness.streamInvocations[0].callbacks.onToolCall?.(
+			"create_artifact",
+			{ artifactType: "document", title: "Packing list", body: "- socks" },
+			"done",
+			{ callId: "call-1" },
+		);
+		await waitFor(() => {
+			expect(fetchConversationDetail).toHaveBeenCalled();
+		});
+
+		// Meanwhile the first item is deleted here.
+		await deleteArtifact(
+			"doc-1",
+			"conv-1",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ ok: true }), {
+						headers: { "Content-Type": "application/json" },
+					}),
+			),
+		);
+		await waitFor(() => {
+			expect(screen.queryByTestId("artifact-count-button")).toBeNull();
+		});
+
+		// The answer was asked for before that: it still lists the deleted item,
+		// and lists the new one the turn made.
+		answerDetail(
+			conversationDetailFixture({
+				artifacts: [
+					summary("doc-1", "Trip plan"),
+					summary("doc-2", "Packing list"),
+				],
+				// The server's own answer at that time: nothing deleted yet.
+				deletedArtifactIds: [],
+			}),
+		);
+
+		await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+		const list = await screen.findByTestId("artifact-panel-list");
+		const rows = within(list).getAllByTestId("artifact-row");
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toHaveTextContent("Packing list");
+	});
+
+	// Polish G2-A: "edited 2 min ago" (the header's meta line) and the list
+	// row's time were still the snapshot taken when the item was loaded or
+	// opened. They follow the same announcements the version does.
+	it("keeps the header's edit time and the list row's time on the last change the browser heard about", async () => {
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		const { ARTIFACT_BODIES } = await import(
+			"$lib/components/artifacts/artifact-bodies"
+		);
+		const { saveArtifactBody } = await import("$lib/client/api/artifacts");
+		ARTIFACT_BODIES.document = () =>
+			import(
+				"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+			);
+		try {
+			renderPage(
+				pageData({
+					artifacts: [
+						{
+							id: "doc-1",
+							kind: "document",
+							title: "Vienna trip plan",
+							conversationId: "conv-1",
+							versionNumber: 1,
+							commentCount: 0,
+							// Three hours ago.
+							updatedAt: Date.now() - 3 * 60 * 60 * 1000,
+						},
+					],
+				}),
+			);
+
+			await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+			const list = await screen.findByTestId("artifact-panel-list");
+			expect(within(list).getByTestId("artifact-row")).toHaveTextContent(
+				"3 h ago",
+			);
+			await fireEvent.click(within(list).getByTestId("artifact-row"));
+			const shell = await screen.findByRole("complementary", {
+				name: "Document workspace",
+			});
+			await waitFor(() => {
+				expect(shell).toHaveTextContent("edited 3 h ago");
+			});
+
+			// A save, somewhere in the panel, is acknowledged.
+			await saveArtifactBody(
+				"doc-1",
+				"New text.",
+				1,
+				"conv-1",
+				vi.fn(
+					async () =>
+						new Response(JSON.stringify({ ok: true, version: 2 }), {
+							headers: { "Content-Type": "application/json" },
+						}),
+				),
+			);
+			await waitFor(() => {
+				expect(shell).toHaveTextContent("edited just now");
+			});
+
+			await fireEvent.click(
+				within(shell).getByRole("button", { name: /This chat/ }),
+			);
+			const listAgain = await screen.findByTestId("artifact-panel-list");
+			expect(within(listAgain).getByTestId("artifact-row")).toHaveTextContent(
+				"just now",
+			);
+		} finally {
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
+	// Polish G2-A: Delete for what is open in the panel. The page deletes; the
+	// panel goes back to the list without the item, the count follows, and a
+	// short toast says so. (What the chat cards do with the deletion is the
+	// next test.)
+	it("deletes the open item from the panel header, returns to the list without it and says so", async () => {
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		const { ARTIFACT_BODIES } = await import(
+			"$lib/components/artifacts/artifact-bodies"
+		);
+		const { toasts, clearToasts } = await import("$lib/stores/toast");
+		clearToasts();
+		ARTIFACT_BODIES.document = () =>
+			import(
+				"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+			);
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				new Response(JSON.stringify({ ok: true }), {
+					headers: { "Content-Type": "application/json" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			renderPage(
+				pageData({
+					artifacts: [
+						{
+							id: "doc-1",
+							kind: "document",
+							title: "Vienna trip plan",
+							conversationId: "conv-1",
+							versionNumber: 1,
+							commentCount: 0,
+							updatedAt: Date.now(),
+						},
+						{
+							id: "doc-2",
+							kind: "document",
+							title: "Packing list",
+							conversationId: "conv-1",
+							versionNumber: 1,
+							commentCount: 0,
+							updatedAt: Date.now() - 1000,
+						},
+					],
+				}),
+			);
+
+			const countButton = await screen.findByTestId("artifact-count-button");
+			await fireEvent.click(countButton);
+			const list = await screen.findByTestId("artifact-panel-list");
+			// The newest row first: Vienna trip plan.
+			await fireEvent.click(within(list).getAllByTestId("artifact-row")[0]);
+			const shell = await screen.findByRole("complementary", {
+				name: "Document workspace",
+			});
+			await fireEvent.click(
+				await within(shell).findByRole("button", { name: "Delete document" }),
+			);
+			const dialog = await screen.findByRole("dialog", {
+				name: "Delete this document?",
+			});
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Delete" }),
+			);
+
+			await waitFor(() => {
+				expect(fetchMock).toHaveBeenCalledWith(
+					"/api/artifacts/doc-1?conversationId=conv-1",
+					{ method: "DELETE" },
+				);
+			});
+			const listAfter = await screen.findByTestId("artifact-panel-list");
+			expect(
+				within(listAfter).queryByText("Vienna trip plan"),
+			).not.toBeInTheDocument();
+			expect(within(listAfter).getByText("Packing list")).toBeInTheDocument();
+			expect(countButton).toHaveAccessibleName(/\(1\)/);
+			expect(get(toasts).map((toast) => toast.message)).toContain(
+				"Document deleted",
+			);
+		} finally {
+			vi.unstubAllGlobals();
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
+	it("closes the panel when the item just deleted was the only one", async () => {
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		const { ARTIFACT_BODIES } = await import(
+			"$lib/components/artifacts/artifact-bodies"
+		);
+		ARTIFACT_BODIES.document = () =>
+			import(
+				"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+			);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ ok: true }), {
+						headers: { "Content-Type": "application/json" },
+					}),
+			),
+		);
+		try {
+			renderPage(
+				pageData({
+					artifacts: [
+						{
+							id: "doc-1",
+							kind: "document",
+							title: "Vienna trip plan",
+							conversationId: "conv-1",
+							versionNumber: 1,
+							commentCount: 0,
+							updatedAt: Date.now(),
+						},
+					],
+				}),
+			);
+
+			await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+			const list = await screen.findByTestId("artifact-panel-list");
+			await fireEvent.click(within(list).getByTestId("artifact-row"));
+			const shell = await screen.findByRole("complementary", {
+				name: "Document workspace",
+			});
+			await fireEvent.click(
+				await within(shell).findByRole("button", { name: "Delete document" }),
+			);
+			const dialog = await screen.findByRole("dialog", {
+				name: "Delete this document?",
+			});
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Delete" }),
+			);
+
+			await waitFor(() => {
+				expect(screen.queryByTestId("workspace-main")).not.toBeInTheDocument();
+			});
+			expect(screen.queryByTestId("artifact-count-button")).toBeNull();
+		} finally {
+			vi.unstubAllGlobals();
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
+	// Polish G2-A: what a chat card does once its item is gone — from the server
+	// (a reload), live (an Open that finds it gone), and Regenerate.
+	describe("cards of deleted items", () => {
+		function createDocumentMessage() {
+			return {
+				id: "assistant-art-1",
+				role: "assistant" as const,
+				content: "I made you a plan.",
+				timestamp: 1,
+				thinkingSegments: [
+					{
+						type: "tool_call" as const,
+						callId: "call-1",
+						name: "create_artifact",
+						input: {
+							artifactType: "document",
+							title: "Vienna trip plan",
+							body: "# Plan",
+						},
+						status: "done" as const,
+						outputSummary: 'Created Document "Vienna trip plan"',
+						metadata: {
+							ok: true,
+							artifactId: "doc-1",
+							artifactKind: "document",
+							artifactTitle: "Vienna trip plan",
+						},
+					},
+				],
+			};
+		}
+
+		const documentSummary = () => ({
+			id: "doc-1",
+			kind: "document" as const,
+			title: "Vienna trip plan",
+			conversationId: "conv-1",
+			versionNumber: 1,
+			commentCount: 0,
+			updatedAt: Date.now(),
+		});
+
+		function jsonResponse(body: unknown, status = 200) {
+			return new Response(JSON.stringify(body), {
+				status,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		it("shows a card the server says is deleted as deleted — muted, no Open, with Regenerate", async () => {
+			renderPage(
+				pageData({
+					messages: [createDocumentMessage()],
+					artifacts: [],
+					deletedArtifactIds: ["doc-1"],
+				}),
+			);
+
+			const card = await screen.findByTestId("artifact-card");
+			expect(card).toHaveAttribute("data-state", "deleted");
+			expect(card).toHaveTextContent("This document was deleted");
+			expect(screen.queryByTestId("artifact-card-head")).toBeNull();
+			expect(
+				within(card).getByRole("button", {
+					name: "Regenerate Vienna trip plan",
+				}),
+			).toBeInTheDocument();
+		});
+
+		it("flips a card to deleted when its Open finds the item gone, without opening the panel", async () => {
+			const { toasts, clearToasts } = await import("$lib/stores/toast");
+			clearToasts();
+			const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+				String(input).startsWith("/api/artifacts/")
+					? jsonResponse({ ok: false, reason: "not_found" }, 404)
+					: jsonResponse({}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [documentSummary()],
+					}),
+				);
+
+				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
+
+				await waitFor(() => {
+					expect(screen.getByTestId("artifact-card")).toHaveAttribute(
+						"data-state",
+						"deleted",
+					);
+				});
+				expect(fetchMock).toHaveBeenCalledWith(
+					"/api/artifacts/doc-1?conversationId=conv-1",
+				);
+				expect(screen.queryByTestId("workspace-main")).toBeNull();
+				// The header's count follows: nothing is left to list.
+				expect(screen.queryByTestId("artifact-count-button")).toBeNull();
+				// A card that flips on its own is announced, not just repainted.
+				expect(get(toasts).map((toast) => toast.message)).toContain(
+					"This document was deleted",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("still opens an item that exists", async () => {
+			const { recordDocumentWorkspaceOpen } = await import(
+				"$lib/client/api/knowledge"
+			);
+			vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+			const { ARTIFACT_BODIES } = await import(
+				"$lib/components/artifacts/artifact-bodies"
+			);
+			ARTIFACT_BODIES.document = () =>
+				import(
+					"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+				);
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					jsonResponse({
+						ok: true,
+						artifact: { ...documentSummary(), body: "# Plan", bodyHash: "h" },
+						versions: [],
+						comments: [],
+					}),
+				),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [documentSummary()],
+					}),
+				);
+
+				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
+
+				await screen.findByRole("complementary", {
+					name: "Document workspace",
+				});
+				expect(screen.getByTestId("artifact-card")).not.toHaveAttribute(
+					"data-state",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+				delete ARTIFACT_BODIES.document;
+			}
+		});
+
+		it("makes it again on Regenerate, and the card is a card again", async () => {
+			const { toasts, clearToasts } = await import("$lib/stores/toast");
+			clearToasts();
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					created: true,
+					artifactId: "doc-1",
+					kind: "document",
+					title: "Vienna trip plan",
+				}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+				conversationDetailFixture({
+					messages: [createDocumentMessage()],
+					artifacts: [documentSummary()],
+					deletedArtifactIds: [],
+				}),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [],
+						deletedArtifactIds: ["doc-1"],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByRole("button", {
+						name: "Regenerate Vienna trip plan",
+					}),
+				);
+
+				await waitFor(() => {
+					expect(fetchMock).toHaveBeenCalledWith(
+						"/api/conversations/conv-1/artifacts/doc-1/regenerate",
+						expect.objectContaining({ method: "POST" }),
+					);
+				});
+				await waitFor(() => {
+					expect(screen.getByTestId("artifact-card")).not.toHaveAttribute(
+						"data-state",
+					);
+				});
+				expect(screen.getByTestId("artifact-card-head")).toBeInTheDocument();
+				expect(screen.getByTestId("artifact-count-button")).toBeInTheDocument();
+				expect(get(toasts).map((toast) => toast.message)).toContain(
+					"Regenerated “Vienna trip plan”",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("says why when there is nothing to make it again from", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					jsonResponse({ ok: false, reason: "no_stored_input" }, 409),
+				),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [],
+						deletedArtifactIds: ["doc-1"],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByRole("button", {
+						name: "Regenerate Vienna trip plan",
+					}),
+				);
+
+				expect(
+					await screen.findByText(
+						"It can't be regenerated: the original request wasn't kept.",
+					),
+				).toBeInTheDocument();
+				expect(
+					screen.queryByRole("button", { name: /Regenerate Vienna trip plan/ }),
+				).not.toBeInTheDocument();
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("keeps the card deleted, and offers Regenerate again, when making it fails", async () => {
+			const { toasts, clearToasts } = await import("$lib/stores/toast");
+			clearToasts();
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					jsonResponse({ ok: false, reason: "failed", detail: "Nope." }, 422),
+				),
+			);
+			try {
+				renderPage(
+					pageData({
+						messages: [createDocumentMessage()],
+						artifacts: [],
+						deletedArtifactIds: ["doc-1"],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByRole("button", {
+						name: "Regenerate Vienna trip plan",
+					}),
+				);
+
+				await waitFor(() => {
+					expect(get(toasts).map((toast) => toast.message)).toContain(
+						"Couldn't regenerate this. Try again.",
+					);
+				});
+				expect(screen.getByTestId("artifact-card")).toHaveAttribute(
+					"data-state",
+					"deleted",
+				);
+				expect(
+					screen.getByRole("button", { name: "Regenerate Vienna trip plan" }),
+				).toBeEnabled();
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+	});
+
+	// Polish G2-A: a produced file deleted from the panel leaves its row in the
+	// chat as a deleted file, and Regenerate queues the same job again.
+	describe("produced files that were deleted", () => {
+		const producedFile = {
+			id: "chat-file-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-file-1",
+			artifactId: "file-artifact-1",
+			documentFamilyId: null,
+			documentFamilyStatus: null,
+			documentLabel: null,
+			documentRole: null,
+			versionNumber: 1,
+			originConversationId: null,
+			originAssistantMessageId: null,
+			sourceChatFileId: null,
+			filename: "Trip summary.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 2048,
+			createdAt: 1,
+		};
+		const fileSummary = {
+			id: "file-artifact-1",
+			kind: "file" as const,
+			title: "Trip summary.pdf",
+			conversationId: "conv-1",
+			versionNumber: 0,
+			commentCount: 0,
+			updatedAt: Date.now(),
+		};
+		const jobBase = {
+			id: "job-file-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-file-1",
+			title: "Trip summary",
+			status: "succeeded" as const,
+			stage: null,
+			createdAt: 1,
+			updatedAt: 2,
+			warnings: [],
+			dismissed: false,
+			error: null,
+			sourceMode: null,
+		};
+		const message = {
+			id: "assistant-file-1",
+			role: "assistant" as const,
+			content: "Here is the trip summary.",
+			timestamp: 1,
+		};
+
+		it("shows the file's row as deleted once the panel has deleted it, and Regenerate queues the same job", async () => {
+			const { regenerateFileProductionJob } = await import(
+				"$lib/client/api/file-production"
+			);
+			vi.mocked(regenerateFileProductionJob).mockResolvedValue({
+				...jobBase,
+				status: "queued",
+				files: [],
+			});
+			vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+				conversationDetailFixture({
+					messages: [message],
+					generatedFiles: [],
+					artifacts: [],
+					fileProductionJobs: [
+						{
+							...jobBase,
+							files: [],
+							filesDeleted: { canRegenerate: true },
+						},
+					],
+				}),
+			);
+			const fetchMock = vi.fn(
+				async (_input: RequestInfo | URL, _init?: RequestInit) =>
+					new Response(JSON.stringify({ ok: true }), {
+						headers: { "Content-Type": "application/json" },
+					}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				renderPage(
+					pageData({
+						messages: [message],
+						generatedFiles: [producedFile],
+						artifacts: [fileSummary],
+						fileProductionJobs: [
+							{
+								...jobBase,
+								files: [
+									{
+										id: "chat-file-1",
+										filename: "Trip summary.pdf",
+										mimeType: "application/pdf",
+										sizeBytes: 2048,
+										downloadUrl: "/api/chat/files/chat-file-1/download",
+										previewUrl: "/api/chat/files/chat-file-1/preview",
+										artifactId: "file-artifact-1",
+									},
+								],
+							},
+						],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByTestId("artifact-count-button"),
+				);
+				const list = await screen.findByTestId("artifact-panel-list");
+				await fireEvent.click(
+					within(list).getByRole("button", {
+						name: "More actions for Trip summary.pdf",
+					}),
+				);
+				await fireEvent.click(
+					await screen.findByRole("menuitem", { name: "Delete file" }),
+				);
+				const dialog = await screen.findByRole("dialog", {
+					name: "Delete this file?",
+				});
+				await fireEvent.click(
+					within(dialog).getByRole("button", { name: "Delete" }),
+				);
+
+				await waitFor(() => {
+					expect(fetchMock).toHaveBeenCalledWith(
+						"/api/artifacts/file-artifact-1?conversationId=conv-1",
+						{ method: "DELETE" },
+					);
+				});
+				const row = await screen.findByTestId("file-row-deleted");
+				expect(row).toHaveTextContent("Trip summary");
+				expect(row).toHaveTextContent("The file has been deleted");
+
+				await fireEvent.click(
+					within(row).getByRole("button", { name: "Regenerate Trip summary" }),
+				);
+
+				await waitFor(() => {
+					expect(regenerateFileProductionJob).toHaveBeenCalledWith(
+						"job-file-1",
+					);
+				});
+				// The same job, queued again: the deleted row gives way to the work.
+				await waitFor(() => {
+					expect(screen.queryByTestId("file-row-deleted")).toBeNull();
+				});
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("flips a file's row to deleted when its Open finds the file gone, without opening the panel", async () => {
+			const { toasts, clearToasts } = await import("$lib/stores/toast");
+			clearToasts();
+			vi.mocked(fetchConversationDetail).mockResolvedValueOnce(
+				conversationDetailFixture({
+					messages: [message],
+					generatedFiles: [],
+					artifacts: [],
+					fileProductionJobs: [
+						{
+							...jobBase,
+							files: [],
+							filesDeleted: { canRegenerate: true },
+						},
+					],
+				}),
+			);
+			const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+				String(input).startsWith("/api/chat/files/")
+					? new Response("{}", { status: 404 })
+					: new Response("{}", {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				renderPage(
+					pageData({
+						messages: [message],
+						generatedFiles: [producedFile],
+						artifacts: [fileSummary],
+						fileProductionJobs: [
+							{
+								...jobBase,
+								files: [
+									{
+										id: "chat-file-1",
+										filename: "Trip summary.pdf",
+										mimeType: "application/pdf",
+										sizeBytes: 2048,
+										downloadUrl: "/api/chat/files/chat-file-1/download",
+										previewUrl: "/api/chat/files/chat-file-1/preview",
+										artifactId: "file-artifact-1",
+									},
+								],
+							},
+						],
+					}),
+				);
+
+				await fireEvent.click(
+					await screen.findByRole("button", {
+						name: "Preview Trip summary.pdf",
+					}),
+				);
+
+				expect(await screen.findByTestId("file-row-deleted")).toHaveTextContent(
+					"The file has been deleted",
+				);
+				expect(fetchMock).toHaveBeenCalledWith(
+					"/api/chat/files/chat-file-1/preview",
+					{ headers: { Range: "bytes=0-0" } },
+				);
+				expect(screen.queryByTestId("workspace-main")).toBeNull();
+				expect(get(toasts).map((toast) => toast.message)).toContain(
+					"The file has been deleted",
+				);
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("shows a file that was deleted elsewhere as deleted straight from the server's answer", async () => {
+			renderPage(
+				pageData({
+					messages: [message],
+					generatedFiles: [],
+					artifacts: [],
+					fileProductionJobs: [
+						{
+							...jobBase,
+							files: [],
+							filesDeleted: { canRegenerate: false },
+						},
+					],
+				}),
+			);
+
+			const row = await screen.findByTestId("file-row-deleted");
+			expect(row).toHaveTextContent("The file has been deleted");
+			expect(row).toHaveTextContent(
+				"It can't be regenerated: the original request wasn't kept.",
+			);
+			expect(
+				within(row).queryByRole("button", { name: /Regenerate/ }),
+			).toBeNull();
+		});
+
+		it("asks once when Regenerate is pressed twice before the first answer comes back", async () => {
+			const { regenerateFileProductionJob } = await import(
+				"$lib/client/api/file-production"
+			);
+			vi.mocked(regenerateFileProductionJob).mockReset();
+			let answer: (job: FileProductionJob) => void = () => {};
+			vi.mocked(regenerateFileProductionJob).mockImplementation(
+				() =>
+					new Promise((resolve) => {
+						answer = resolve;
+					}),
+			);
+			renderPage(
+				pageData({
+					messages: [message],
+					generatedFiles: [],
+					artifacts: [],
+					fileProductionJobs: [
+						{
+							...jobBase,
+							files: [],
+							filesDeleted: { canRegenerate: true },
+						},
+					],
+				}),
+			);
+
+			const row = await screen.findByTestId("file-row-deleted");
+			const regenerate = within(row).getByRole("button", {
+				name: "Regenerate Trip summary",
+			});
+			await fireEvent.click(regenerate);
+			await fireEvent.click(regenerate);
+
+			// The second press must not become a second request: by then the job is
+			// queued on the server, and it would be answered "nothing to regenerate".
+			expect(regenerateFileProductionJob).toHaveBeenCalledTimes(1);
+
+			answer({ ...jobBase, status: "queued", files: [] });
+			await waitFor(() => {
+				expect(screen.queryByTestId("file-row-deleted")).toBeNull();
+			});
+		});
 	});
 
 	it("drains a queued follow-up after polling reconciles a waiting stream completion", async () => {

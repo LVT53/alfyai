@@ -40,7 +40,15 @@ describe("localizeVersionSummary", () => {
 		);
 	});
 
-	it("localizes the restore wrapper and whatever it wraps, however deep", () => {
+	it("names the version a restore came from, in the reader's language", () => {
+		expect(localizeVersionSummary("Restored v3", get(t))).toBe("Restored v3");
+		uiLanguage.set("hu");
+		expect(localizeVersionSummary("Restored v3", get(t))).toBe(
+			"Visszaállítva: v3",
+		);
+	});
+
+	it("still localizes the older restore wrapper (rows written before a restore named its version) and whatever it wraps, however deep", () => {
 		uiLanguage.set("hu");
 		expect(localizeVersionSummary("restored Edited", get(t))).toBe(
 			"visszaállítva: Szerkesztve",

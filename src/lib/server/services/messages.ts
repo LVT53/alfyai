@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, like, sql } from "drizzle-orm";
 import {
 	type MessageUserIntent,
 	parseMessageUserIntent,
@@ -1042,6 +1042,93 @@ export async function updateMessageDocumentLink(
 		.update(messages)
 		.set({ metadataJson: JSON.stringify(next) })
 		.where(eq(messages.id, messageId));
+}
+
+/**
+ * The successful `create_artifact` / `edit_artifact` calls in a list of
+ * thinking segments: the one record of which artifact a chat card is about
+ * and (for a create) of the model's own arguments. A refused call, a call
+ * that named no artifact and every other tool are left out.
+ */
+function artifactCallsFromSegments(
+	segments: readonly ThinkingSegment[] | undefined,
+): Array<{
+	name: "create_artifact" | "edit_artifact";
+	artifactId: string;
+	input: Record<string, unknown>;
+}> {
+	const calls: ReturnType<typeof artifactCallsFromSegments> = [];
+	for (const segment of segments ?? []) {
+		if (segment.type !== "tool_call") continue;
+		if (segment.name !== "create_artifact" && segment.name !== "edit_artifact")
+			continue;
+		if (segment.status === "failed" || segment.metadata?.ok === false) continue;
+		const artifactId = segment.metadata?.artifactId;
+		if (typeof artifactId !== "string" || artifactId.length === 0) continue;
+		calls.push({
+			name: segment.name,
+			artifactId,
+			input: segment.input ?? {},
+		});
+	}
+	return calls;
+}
+
+/**
+ * The ids of the artifacts these messages' own tool calls made or edited,
+ * each once, in the order first seen — read off the messages the caller
+ * already holds, so it costs no query. Whether they still exist is the
+ * artifact service's to say (`listMissingArtifactIds`): that is how a chat
+ * card learns its item was deleted.
+ */
+export function artifactCallIdsFromMessages(
+	messageList: ReadonlyArray<Pick<ChatMessage, "thinkingSegments">>,
+): string[] {
+	const ids = new Set<string>();
+	for (const message of messageList) {
+		for (const call of artifactCallsFromSegments(message.thinkingSegments)) {
+			ids.add(call.artifactId);
+		}
+	}
+	return [...ids];
+}
+
+/**
+ * The persisted `create_artifact` call that made `artifactId` in this
+ * conversation — the message it is on and the model's own arguments, which
+ * are what "Regenerate" makes the item from again. `null` when no successful
+ * create call of this conversation names that artifact (an edit never
+ * counts: it holds a summary, not the item). The SQL narrows to the messages
+ * whose stored calls mention the id at all; the parse decides.
+ */
+export async function getStoredCreateArtifactCall(params: {
+	conversationId: string;
+	artifactId: string;
+}): Promise<{ messageId: string; input: Record<string, unknown> } | null> {
+	const rows = await db
+		.select({ id: messages.id, toolCalls: messages.toolCalls })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, params.conversationId),
+				eq(messages.role, "assistant"),
+				like(messages.toolCalls, "%create_artifact%"),
+				like(messages.toolCalls, `%${params.artifactId}%`),
+			),
+		)
+		.orderBy(...messageOrderAsc());
+
+	for (const row of rows) {
+		const created = artifactCallsFromSegments(
+			readThinkingSegmentsFromRow(row),
+		).find(
+			(call) =>
+				call.name === "create_artifact" &&
+				call.artifactId === params.artifactId,
+		);
+		if (created) return { messageId: row.id, input: created.input };
+	}
+	return null;
 }
 
 export async function isAssistantMessageForkCopy(params: {

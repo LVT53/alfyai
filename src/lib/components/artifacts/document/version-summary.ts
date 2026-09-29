@@ -3,11 +3,15 @@
  * rd/review-2-5.md:256-260). The server writes a few FIXED English summaries
  * of its own — the vocabulary in `$lib/shared/artifacts/version-summaries` —
  * which are translated here; an Alfy patch's own label is free-form content
- * and is shown exactly as stored. `restored <summary>` wraps whatever the
- * restored version said, so it is translated layer by layer.
+ * and is shown exactly as stored. A restore names the version it came from
+ * (`Restored v3`); a restore written before that wrapped whatever the restored
+ * version said (`restored <summary>`), so it is translated layer by layer.
  */
 import type { I18nKey } from "$lib/i18n";
-import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
+import {
+	parseRestoredVersion,
+	VERSION_SUMMARY,
+} from "$lib/shared/artifacts/version-summaries";
 
 type Translate = (
 	key: I18nKey,
@@ -30,6 +34,12 @@ export function localizeVersionSummary(
 ): string {
 	if (Object.hasOwn(FIXED_SUMMARY_KEYS, summary)) {
 		return translate(FIXED_SUMMARY_KEYS[summary]);
+	}
+	const restoredFrom = parseRestoredVersion(summary);
+	if (restoredFrom !== null) {
+		return translate("artifacts.document.versions.summaryRestoredFrom", {
+			n: restoredFrom,
+		});
 	}
 	if (summary.startsWith(VERSION_SUMMARY.restoredPrefix)) {
 		return translate("artifacts.document.versions.summaryRestored", {

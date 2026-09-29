@@ -12,13 +12,31 @@ export const VERSION_SUMMARY = {
 	edited: "Edited",
 	/** The user undid Alfy's change (spec §4.2 item 6). */
 	undidAlfyChange: "Undid Alfy's change",
-	/** A restore wraps the summary of the version it brought back: `restored <that summary>`. */
+	/**
+	 * How restores were written BEFORE they named their version: they wrapped the
+	 * summary of the version they brought back, `restored <that summary>`. Rows
+	 * like that still exist, so the browser still reads them; a new restore
+	 * writes `restoredSummary(n)` instead.
+	 */
 	restoredPrefix: "restored ",
 	/** `create_artifact`'s first version. */
 	alfyFirstDraft: "Alfy wrote the first draft",
 	/** "Save as a new document" after the open one was deleted. */
 	savedAsCopy: "Saved as a new document",
 } as const;
+
+/** What a restore says about itself: the version it brought back, `Restored v3`. */
+export function restoredSummary(versionNumber: number): string {
+	return `Restored v${versionNumber}`;
+}
+
+const RESTORED_FROM_PATTERN = /^Restored v(\d{1,9})$/;
+
+/** The version number a restore summary names, or `null` for any other summary. */
+export function parseRestoredVersion(summary: string): number | null {
+	const match = RESTORED_FROM_PATTERN.exec(summary);
+	return match ? Number(match[1]) : null;
+}
 
 /**
  * What a body save may say about itself beyond "the user typed": the body

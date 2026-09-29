@@ -1,6 +1,7 @@
 <script lang="ts">
 import MessageArea from "$lib/components/chat/MessageArea.svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
+import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type {
 	AtlasAction,
@@ -55,6 +56,7 @@ let {
 	onToggleDocumentTask = undefined,
 	alfyActivity = null,
 	activeArtifactId = null,
+	deletedArtifacts = undefined,
 }: {
 	messages: ChatMessage[];
 	conversationId: string;
@@ -126,6 +128,8 @@ let {
 	alfyActivity?: DocumentAlfyActivity | null;
 	/** Forwarded to every message's in-chat card (Wave 2.5 Step 13). */
 	activeArtifactId?: string | null;
+	/** Polish G2-A: which items were deleted, and the Regenerate that makes one again. See ToolActivityRow's own prop doc. */
+	deletedArtifacts?: DeletedArtifacts | undefined;
 } = $props();
 </script>
 
@@ -173,6 +177,7 @@ let {
 		{onToggleDocumentTask}
 		{alfyActivity}
 		{activeArtifactId}
+		{deletedArtifacts}
 	/>
 </div>
 
