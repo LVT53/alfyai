@@ -40,6 +40,7 @@ import { Ellipsis } from "@lucide/svelte";
 import {
 	DOCUMENT_TOOLBAR_ACTIONS,
 	type DocumentToolbarActionId,
+	toolbarActionText,
 } from "./toolbar-actions";
 
 /**
@@ -104,15 +105,16 @@ function handleSheetAction(id: DocumentToolbarActionId): void {
 	{#each primaryActions as action (action.id)}
 		{@const Icon = action.icon}
 		{@const isActive = !action.momentary && activeActionIds.has(action.id)}
-		{@const label = $t(action.labelKey, action.labelParams)}
+		{@const text = toolbarActionText(action, $t)}
 		<button
 			type="button"
 			class="btn-icon-bare mobile-toolbar-button"
 			class:mobile-toolbar-button-active={isActive}
 			{disabled}
 			aria-pressed={action.momentary ? undefined : isActive}
-			aria-label={label}
-			title={label}
+			aria-label={text.label}
+			aria-keyshortcuts={text.ariaKeyShortcuts}
+			title={text.label}
 			onclick={() => onAction(action.id)}
 		>
 			<Icon size={18} strokeWidth={2} aria-hidden="true" />
@@ -145,12 +147,14 @@ function handleSheetAction(id: DocumentToolbarActionId): void {
 				{@const Icon = action.icon}
 				{@const isActive = !action.momentary && activeActionIds.has(action.id)}
 				{@const label = $t(action.labelKey, action.labelParams)}
+				<!-- The visible label stays plain; the keys go to assistive technology only. -->
 				<button
 					type="button"
 					class="mobile-toolbar-sheet-item"
 					class:mobile-toolbar-sheet-item-active={isActive}
 					{disabled}
 					aria-pressed={action.momentary ? undefined : isActive}
+					aria-keyshortcuts={toolbarActionText(action, $t).ariaKeyShortcuts}
 					onclick={() => handleSheetAction(action.id)}
 				>
 					<Icon size={16} strokeWidth={2} aria-hidden="true" />

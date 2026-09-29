@@ -90,8 +90,9 @@ const {
 	mockApplyAlfyChanges,
 	mockKeepChange,
 	mockUndoChange,
+	mockRedoChange,
 	mockRemarkChange,
-	mockChangeDocRange,
+	mockBlockContentEnd,
 	mockScrollToChange,
 	mockSetChangePills,
 	mockSummarizeRefusals,
@@ -114,11 +115,12 @@ const {
 	mockApplyAlfyChanges: vi.fn(),
 	mockKeepChange: vi.fn(),
 	mockUndoChange: vi.fn(),
+	mockRedoChange: vi.fn().mockReturnValue(true),
 	// Wave 2.5 Step 10: the inline pill's own Redo / ruling 61's reload-restore
 	// re-marking, and the pill's positioning fallback — no-ops against this
 	// suite's fake editor, same reasoning as the comment-anchor mocks below.
 	mockRemarkChange: vi.fn().mockReturnValue(true),
-	mockChangeDocRange: vi.fn().mockReturnValue(null),
+	mockBlockContentEnd: vi.fn().mockReturnValue(null),
 	mockScrollToChange: vi.fn(),
 	mockSetChangePills: vi.fn(),
 	mockSummarizeRefusals: vi.fn(),
@@ -159,8 +161,9 @@ vi.mock("./document-editor", () => ({
 	applyAlfyChanges: mockApplyAlfyChanges,
 	keepChange: mockKeepChange,
 	undoChange: mockUndoChange,
+	redoChange: mockRedoChange,
 	remarkChange: mockRemarkChange,
-	changeDocRange: mockChangeDocRange,
+	blockContentEnd: mockBlockContentEnd,
 	scrollToChange: mockScrollToChange,
 	setChangePills: mockSetChangePills,
 	summarizeRefusals: mockSummarizeRefusals,
@@ -247,6 +250,15 @@ function latestEditor() {
 	return entry;
 }
 
+/** The fake editor object `createDocumentEditor` last returned (its chain spies, its state). */
+function latestFakeEditor() {
+	const result = mockCreateDocumentEditor.mock.results.at(-1);
+	if (!result) throw new Error("no editor instance created yet");
+	return result.value as ReturnType<typeof makeFakeEditor> & {
+		state: { selection: Record<string, unknown> };
+	};
+}
+
 /** Simulates "the user typed", through the SAME two callbacks the real editor fires. */
 function simulateTyping(markdown: string) {
 	mockReadMarkdown.mockReturnValue(markdown);
@@ -297,7 +309,7 @@ describe("DocumentBody", () => {
 		mockApplyAlfyChanges.mockReturnValue([]);
 		mockSummarizeRefusals.mockReturnValue(null);
 		mockRemarkChange.mockReturnValue(true);
-		mockChangeDocRange.mockReturnValue(null);
+		mockBlockContentEnd.mockReturnValue(null);
 		mockKeepChange.mockReturnValue(true);
 		mockUndoChange.mockReturnValue(true);
 		mockScrollToChange.mockReturnValue(true);
@@ -2715,7 +2727,7 @@ describe("DocumentBody", () => {
 				);
 
 				mockReadMarkdown.mockReturnValue(TWO_BLOCK_BODY);
-				mockChangeDocRange.mockReturnValueOnce({ from: 0, to: 5 });
+				mockBlockContentEnd.mockReturnValueOnce(5);
 				const { onUndo } = latestEditor().options.changePillCallbacks as {
 					onUndo: (changeId: string) => void;
 				};
@@ -2828,13 +2840,14 @@ describe("DocumentBody", () => {
 				mockUndoChange.mockClear();
 
 				callbacks.onRedo("change-3");
-				// Redo reuses undoChange in reverse (marks.ts's own "generic set
-				// this block's content" reasoning) — restoring the CAPTURED
-				// applied text, then re-marking under the SAME changeId.
-				expect(mockUndoChange).toHaveBeenCalledWith(
+				// Redo has its own function now (marks.ts's `redoAlfyChange`): it
+				// restores the CAPTURED applied text, then the block is re-marked
+				// under the SAME changeId. It never goes through Undo's function.
+				expect(mockRedoChange).toHaveBeenCalledWith(
 					expect.anything(),
 					expect.objectContaining({ blockId: "p1" }),
 				);
+				expect(mockUndoChange).not.toHaveBeenCalled();
 				expect(mockRemarkChange).toHaveBeenCalledWith(
 					expect.anything(),
 					"change-3",
@@ -2867,6 +2880,340 @@ describe("DocumentBody", () => {
 			} finally {
 				vi.useRealTimers();
 			}
+		});
+
+		it("Redo puts back the extra blocks a multi-block change added, from what the document read before Undo removed them", async () => {
+			// The document as it stands once Alfy's edit has landed: the first
+			// block revised, and a second block the same op produced.
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst, revised.\n\n<!--b:p2-->\nAlfy's second paragraph.",
+				}),
+			);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "change-4",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+					insertedBlockIds: ["p2"],
+				},
+			]);
+			const { rerender } = render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			await rerender({
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					...runningActivity(),
+					status: "applied",
+					patches: [
+						{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+					],
+					appliedCount: 1,
+				},
+			});
+			await vi.waitFor(() =>
+				expect(mockSetChangePills).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.arrayContaining([
+						expect.objectContaining({
+							changeId: "change-4",
+							status: "pending",
+						}),
+					]),
+				),
+			);
+
+			mockReadMarkdown.mockReturnValue(
+				"<!--b:p1-->\nFirst.\n\n<!--b:p3-->\nThird.",
+			);
+			const callbacks = latestEditor().options.changePillCallbacks as {
+				onUndo: (changeId: string) => void;
+				onRedo: (changeId: string) => void;
+			};
+			callbacks.onUndo("change-4");
+			callbacks.onRedo("change-4");
+
+			expect(mockRedoChange).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					blockId: "p1",
+					appliedMarkdown: "First, revised.",
+					insertedBlocks: [
+						{ blockId: "p2", markdown: "Alfy's second paragraph." },
+					],
+				}),
+			);
+		});
+
+		// G3: keyboard undo/redo and Alfy's change chords. The editor's own
+		// keys are proven against a real editor in `document-editor.test.ts`;
+		// this is DocumentBody's half: the keys also work when the focus is on the
+		// toolbar or a pill (not in the text), never take a text field's own undo,
+		// and the pill's own chords act on the right change.
+		describe("keyboard: history from outside the text, and Alfy's change chords (G3)", () => {
+			const ctrlZ = { key: "z", code: "KeyZ", ctrlKey: true };
+
+			async function mountReady() {
+				const view = render(DocumentBody, {
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: null,
+				});
+				await vi.waitFor(() =>
+					expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+				);
+				// The toolbars are enabled once the editor is ready.
+				await vi.waitFor(() =>
+					expect(
+						screen.getAllByRole("button", { name: /^Undo/ })[0],
+					).toBeEnabled(),
+				);
+				return view;
+			}
+
+			it("Ctrl+Z on a toolbar button undoes in the editor, and the key is claimed", async () => {
+				await mountReady();
+				const undoButton = screen.getAllByRole("button", { name: /^Undo/ })[0];
+				const notPrevented = await fireEvent.keyDown(undoButton, ctrlZ);
+				expect(notPrevented).toBe(false);
+				expect(latestFakeEditor()._chain.undo).toHaveBeenCalledTimes(1);
+				expect(latestFakeEditor()._chain.focus).toHaveBeenCalled();
+			});
+
+			it("Ctrl+Shift+Z and Ctrl+Y on a tab strip or toolbar button redo", async () => {
+				await mountReady();
+				const bold = screen.getAllByRole("button", { name: /^Bold/ })[0];
+				await fireEvent.keyDown(bold, {
+					key: "Z",
+					code: "KeyZ",
+					ctrlKey: true,
+					shiftKey: true,
+				});
+				await fireEvent.keyDown(bold, {
+					key: "y",
+					code: "KeyY",
+					ctrlKey: true,
+				});
+				expect(latestFakeEditor()._chain.redo).toHaveBeenCalledTimes(2);
+			});
+
+			it("leaves a text field's own undo alone: the comment box keeps Ctrl+Z", async () => {
+				const { container } = await mountReady();
+				const field = document.createElement("textarea");
+				container.querySelector(".document-body")?.appendChild(field);
+				const notPrevented = await fireEvent.keyDown(field, ctrlZ);
+				expect(notPrevented).toBe(true);
+				expect(latestFakeEditor()._chain.undo).not.toHaveBeenCalled();
+				const input = document.createElement("input");
+				input.type = "text";
+				container.querySelector(".document-body")?.appendChild(input);
+				await fireEvent.keyDown(input, ctrlZ);
+				expect(latestFakeEditor()._chain.undo).not.toHaveBeenCalled();
+			});
+
+			it("does not run a second undo for a key that came from the text itself (the editor handles those)", async () => {
+				const { container } = await mountReady();
+				const inEditor = document.createElement("div");
+				inEditor.className = "ProseMirror";
+				container.querySelector(".document-editor-host")?.appendChild(inEditor);
+				await fireEvent.keyDown(inEditor, ctrlZ);
+				expect(latestFakeEditor()._chain.undo).not.toHaveBeenCalled();
+			});
+
+			it("does run the undo for a key from a control that lives inside the editor's DOM (a pill's button), which is not the text", async () => {
+				const { container } = await mountReady();
+				const inEditor = document.createElement("div");
+				inEditor.className = "ProseMirror";
+				const pill = document.createElement("span");
+				pill.className = "ProseMirror-widget";
+				const button = document.createElement("button");
+				pill.appendChild(button);
+				inEditor.appendChild(pill);
+				container.querySelector(".document-editor-host")?.appendChild(inEditor);
+				expect(await fireEvent.keyDown(button, ctrlZ)).toBe(false);
+				expect(latestFakeEditor()._chain.undo).toHaveBeenCalledTimes(1);
+			});
+
+			it("ignores other keys", async () => {
+				await mountReady();
+				const undoButton = screen.getAllByRole("button", { name: /^Undo/ })[0];
+				expect(
+					await fireEvent.keyDown(undoButton, {
+						key: "x",
+						code: "KeyX",
+						ctrlKey: true,
+					}),
+				).toBe(true);
+				expect(
+					await fireEvent.keyDown(undoButton, { key: "z", code: "KeyZ" }),
+				).toBe(true);
+				expect(latestFakeEditor()._chain.undo).not.toHaveBeenCalled();
+			});
+
+			async function withPendingChanges(ids: string[]) {
+				mockFetchArtifact.mockResolvedValue(
+					ARTIFACT_DETAIL({ body: TWO_BLOCK_BODY }),
+				);
+				mockApplyAlfyChanges.mockReturnValue(
+					ids.map((blockId, i) => ({
+						changeId: `change-${blockId}`,
+						blockId,
+						blockLabel: blockId === "p1" ? "First." : "Second.",
+						previousMarkdown: blockId === "p1" ? "First." : "Second.",
+						insertedBlockIds: i === 0 ? [] : undefined,
+					})),
+				);
+				const view = render(DocumentBody, {
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: null,
+				});
+				await vi.waitFor(() =>
+					expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+				);
+				await view.rerender({
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: {
+						...runningActivity(),
+						status: "applied",
+						patches: ids.map((blockId) => ({
+							op: "replaceBlock" as const,
+							blockId,
+							baseHash: "h1",
+							text: "x",
+						})),
+						appliedCount: ids.length,
+					},
+				});
+				await vi.waitFor(() =>
+					expect(mockSetChangePills).toHaveBeenCalledWith(
+						expect.anything(),
+						expect.arrayContaining(
+							ids.map((blockId) =>
+								expect.objectContaining({
+									changeId: `change-${blockId}`,
+									status: "pending",
+								}),
+							),
+						),
+					),
+				);
+				mockReadMarkdown.mockReturnValue(TWO_BLOCK_BODY);
+				return view;
+			}
+
+			const altZ = { key: "z", code: "KeyZ", ctrlKey: true, altKey: true };
+			const altShiftZ = { ...altZ, key: "Z", shiftKey: true };
+
+			it("Ctrl+Alt+Z undoes Alfy's change, and Ctrl+Alt+Shift+Z brings it back", async () => {
+				const { container } = await withPendingChanges(["p1"]);
+				const host = container.querySelector(
+					".document-editor-host",
+				) as HTMLElement;
+				expect(await fireEvent.keyDown(host, altZ)).toBe(false);
+				expect(mockUndoChange).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({ blockId: "p1" }),
+				);
+				await vi.waitFor(() =>
+					expect(mockSetChangePills).toHaveBeenLastCalledWith(
+						expect.anything(),
+						[expect.objectContaining({ status: "undone" })],
+					),
+				);
+
+				expect(await fireEvent.keyDown(host, altShiftZ)).toBe(false);
+				expect(mockRedoChange).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({ blockId: "p1" }),
+				);
+				// Neither chord touched the reader's own text history.
+				expect(latestFakeEditor()._chain.undo).not.toHaveBeenCalled();
+				expect(latestFakeEditor()._chain.redo).not.toHaveBeenCalled();
+			});
+
+			it("does nothing, and lets the key through, when there is no such change to act on", async () => {
+				const { container } = await mountReady();
+				const host = container.querySelector(
+					".document-editor-host",
+				) as HTMLElement;
+				expect(await fireEvent.keyDown(host, altZ)).toBe(true);
+				expect(await fireEvent.keyDown(host, altShiftZ)).toBe(true);
+				expect(mockUndoChange).not.toHaveBeenCalled();
+				expect(mockRedoChange).not.toHaveBeenCalled();
+			});
+
+			it("acts on the change in the block the caret is in, not just the first", async () => {
+				const { container } = await withPendingChanges(["p1", "p2"]);
+				latestFakeEditor().state.selection = {
+					from: 9,
+					to: 9,
+					$from: { depth: 1, node: () => ({ attrs: { blockId: "p2" } }) },
+				};
+				const host = container.querySelector(
+					".document-editor-host",
+				) as HTMLElement;
+				await fireEvent.keyDown(host, altZ);
+				expect(mockUndoChange).toHaveBeenCalledTimes(1);
+				expect(mockUndoChange).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({ blockId: "p2" }),
+				);
+			});
+
+			it("acts on the change whose pill has the focus, wherever the caret is", async () => {
+				const { container } = await withPendingChanges(["p1", "p2"]);
+				const pill = document.createElement("span");
+				pill.dataset.changeId = "change-p2";
+				const button = document.createElement("button");
+				pill.appendChild(button);
+				container.querySelector(".document-editor-host")?.appendChild(pill);
+				await fireEvent.keyDown(button, altZ);
+				expect(mockUndoChange).toHaveBeenCalledTimes(1);
+				expect(mockUndoChange).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({ blockId: "p2" }),
+				);
+			});
+
+			it("with no caret and no focus on a pill, acts on the change the review bar is showing (the first)", async () => {
+				const { container } = await withPendingChanges(["p1", "p2"]);
+				const host = container.querySelector(
+					".document-editor-host",
+				) as HTMLElement;
+				await fireEvent.keyDown(host, altZ);
+				expect(mockUndoChange).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({ blockId: "p1" }),
+				);
+			});
+
+			it("leaves a text field alone even for the Alfy chord (a keyboard that types characters with Ctrl+Alt)", async () => {
+				const { container } = await withPendingChanges(["p1"]);
+				const field = document.createElement("textarea");
+				container.querySelector(".document-body")?.appendChild(field);
+				expect(await fireEvent.keyDown(field, altZ)).toBe(true);
+				expect(mockUndoChange).not.toHaveBeenCalled();
+			});
 		});
 
 		it("shows the refusal notice naming the block's label and reason, with a working 'See what Alfy did'", async () => {

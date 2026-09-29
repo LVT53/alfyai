@@ -8,7 +8,7 @@ import {
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
-import { createConversation, login } from "./helpers";
+import { createConversation, login, workspacePanel } from "./helpers";
 
 // Surfaces 1-3 of the artifact-surfaces mockup: the chat header's quiet
 // count button, the panel opening on its "what this chat made" list, and a
@@ -258,9 +258,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 			.getByTestId("artifact-row")
 			.click();
 
-		const shell = page.getByRole("complementary", {
-			name: "Document workspace",
-		});
+		const shell = workspacePanel(page);
 		await expect(shell).toBeVisible();
 		await expect(shell.getByTestId("page-scroll-container")).toBeVisible();
 
@@ -293,9 +291,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 		// carry this testid at every viewport (CSS, not a conditional, decides
 		// which is visible), so an unscoped page-wide query is ambiguous —
 		// see the earlier test's own `shell`-scoped check above.
-		const shell = page.getByRole("complementary", {
-			name: "Document workspace",
-		});
+		const shell = workspacePanel(page);
 		await expect(shell.getByTestId("page-scroll-container")).toBeVisible();
 
 		await page

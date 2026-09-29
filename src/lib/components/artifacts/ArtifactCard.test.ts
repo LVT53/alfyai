@@ -399,6 +399,108 @@ describe("ArtifactCard", () => {
 			).not.toBeInTheDocument();
 		});
 
+		// rd/review-2-5.md:276-279 — the row's name was the visible pieces run
+		// together ("Vienna trip plan Document · 3 tabs v6 2 min ago"): no pause
+		// between them and, when a caller's subtitle carries no kind, no kind at
+		// all. It reads as what the row is: title, kind, facts, version, time.
+		describe("the row's accessible name", () => {
+			it("says title, kind and facts, version, then time, comma-separated", () => {
+				render(ArtifactCard, {
+					view: view({
+						title: "Vienna trip plan",
+						subtitle: "Document · 3 tabs",
+						versionNumber: 6,
+						updatedAtLabel: "2 min ago",
+						openTargetId: "artifact-1",
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "Vienna trip plan, Document, 3 tabs, v6, 2 min ago",
+					}),
+				).toHaveAttribute("data-testid", "artifact-row");
+			});
+
+			it("still says the kind when the caller's own subtitle does not", () => {
+				render(ArtifactCard, {
+					view: view({
+						kind: "app",
+						title: "Budget tracker",
+						subtitle: "Split by traveller",
+						versionNumber: 2,
+						updatedAtLabel: "just now",
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "Budget tracker, App, Split by traveller, v2, just now",
+					}),
+				).toBeInTheDocument();
+			});
+
+			it("uses the bare kind label when there is no subtitle, and leaves out what is not there", () => {
+				render(ArtifactCard, {
+					view: view({ kind: "file", title: "Quarterly report.pdf" }),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", { name: "Quarterly report.pdf, File" }),
+				).toBeInTheDocument();
+			});
+
+			it("ends with the review state: a count of changes to review, or Reviewed", () => {
+				const { unmount } = render(ArtifactCard, {
+					view: view({
+						title: "Vienna trip plan",
+						versionNumber: 3,
+						updatedAtLabel: "5 min ago",
+						pendingReviewCount: 2,
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "Vienna trip plan, Document, v3, 5 min ago, 2 changes to review",
+					}),
+				).toBeInTheDocument();
+				unmount();
+				render(ArtifactCard, {
+					view: view({
+						title: "Vienna trip plan",
+						versionNumber: 3,
+						updatedAtLabel: "5 min ago",
+						pendingReviewCount: 0,
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "Vienna trip plan, Document, v3, 5 min ago, Reviewed",
+					}),
+				).toBeInTheDocument();
+			});
+
+			it("is spoken in the UI language", () => {
+				uiLanguage.set("hu");
+				render(ArtifactCard, {
+					view: view({
+						title: "Bécsi utazás",
+						subtitle: "Dokumentum · 3 fül",
+						versionNumber: 6,
+						updatedAtLabel: "2 perce",
+					}),
+					chrome: "row",
+				});
+				expect(
+					screen.getByRole("button", {
+						name: "Bécsi utazás, Dokumentum, 3 fül, v6, 2 perce",
+					}),
+				).toBeInTheDocument();
+			});
+		});
+
 		it("falls back to the bare kind label when the caller gives no subtitle (App, File, …)", () => {
 			render(ArtifactCard, {
 				view: view({ kind: "app", subtitle: null, versionNumber: 2 }),

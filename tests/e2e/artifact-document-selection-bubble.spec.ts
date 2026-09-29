@@ -8,7 +8,13 @@ import {
 } from "../../src/lib/server/services/artifacts";
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createConversation,
+	expectTopmost,
+	login,
+	waitForStableBoundingBox,
+	workspacePanel,
+} from "./helpers";
 
 // The Document editor's selection bubble ("Ask Alfy" / "Comment", T10.1) must
 // land right next to the live text selection, inside the visible page —
@@ -97,7 +103,7 @@ async function openDocumentFromPanel(page: Page): Promise<Locator> {
 	await list.getByTestId("artifact-row").first().click({ timeout: 30_000 });
 	const shell = isMobile
 		? page.getByTestId("document-workspace-mobile-shell")
-		: page.getByRole("complementary", { name: "Document workspace" });
+		: workspacePanel(page);
 	await expect(shell).toBeVisible({ timeout: 30_000 });
 	return shell;
 }
@@ -388,18 +394,10 @@ test.describe("Phone selection composer sheet is topmost (Wave 2.5 review fix)",
 		// own slide-up entrance transition has actually settled.
 		await waitForStableBoundingBox(sheet);
 
-		const isOnTop = await sheet.evaluate((node) => {
-			const rect = node.getBoundingClientRect();
-			const top = document.elementFromPoint(
-				rect.x + rect.width / 2,
-				rect.y + 10,
-			);
-			return !!top && node.contains(top);
+		await expectTopmost(sheet, {
+			message:
+				"the composer sheet must be the topmost element, not painted under the mobile panel's own backdrop",
 		});
-		expect(
-			isOnTop,
-			"the composer sheet must be the topmost element, not painted under the mobile panel's own backdrop",
-		).toBe(true);
 
 		await page.keyboard.press("Escape");
 		await expect(sheet).toBeHidden();
@@ -431,18 +429,10 @@ test.describe("Phone selection composer sheet is topmost (Wave 2.5 review fix)",
 		// exists for (see its own doc comment).
 		await waitForStableBoundingBox(sheet);
 
-		const isOnTop = await sheet.evaluate((node) => {
-			const rect = node.getBoundingClientRect();
-			const top = document.elementFromPoint(
-				rect.x + rect.width / 2,
-				rect.y + 10,
-			);
-			return !!top && node.contains(top);
+		await expectTopmost(sheet, {
+			message:
+				"the composer sheet must be the topmost element, not painted under the mobile panel's own backdrop",
 		});
-		expect(
-			isOnTop,
-			"the composer sheet must be the topmost element, not painted under the mobile panel's own backdrop",
-		).toBe(true);
 	});
 });
 

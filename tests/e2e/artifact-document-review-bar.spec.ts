@@ -14,7 +14,12 @@ import {
 	seedDocument,
 	setUiLanguage,
 } from "./artifact-document-polish-helpers";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createConversation,
+	login,
+	waitForStableBoundingBox,
+	workspacePanel,
+} from "./helpers";
 
 // Review 2.5 findings on the review bar (rd/review-2-5.md:45-56, 98-108): a
 // phone-width bar that balloons to ~390px and covers half the document, and
@@ -110,7 +115,7 @@ async function openDocumentFromPanel(page: Page): Promise<Locator> {
 	await list.getByTestId("artifact-row").first().click({ timeout: 30_000 });
 	const shell = isMobile
 		? page.getByTestId("document-workspace-mobile-shell")
-		: page.getByRole("complementary", { name: "Document workspace" });
+		: workspacePanel(page);
 	await expect(shell).toBeVisible({ timeout: 30_000 });
 	return shell;
 }
@@ -475,4 +480,208 @@ test.describe("Review bar at laptop widths, in Hungarian (G1-A screenshots)", ()
 			}
 		});
 	}
+});
+
+// G2-B's open item: the phone still floated the bar 64px above the panel's
+// bottom edge as a rounded card, with text showing under it in a long document.
+// It is flush now, like the laptop bar: full width of the text, nothing showing
+// under or beside it, and the last lines still scroll clear of it.
+test.describe("Review bar on a phone, flush with the bottom (Hungarian)", () => {
+	test.beforeEach(async ({ page }) => {
+		await setUiLanguage("hu");
+		await login(page);
+	});
+	test.afterEach(async () => {
+		await setUiLanguage("en");
+	});
+
+	const filler = Array.from(
+		{ length: 30 },
+		(_, i) =>
+			`Töltelék bekezdés ${i}: elég hosszú szöveg ahhoz, hogy a görgethető oszlop a review sáv alá is érjen, és lássuk, mi látszik alatta.`,
+	);
+	const lastLine =
+		"Az utolsó sor a dokumentumban, amelynek a sáv fölött is teljesen olvashatónak kell maradnia.";
+
+	for (const [width, height, pendingOps] of [
+		[390, 844, 1],
+		[390, 844, 2],
+		[360, 740, 2],
+	] as const) {
+		test(`flush with the bottom of the text, full width, nothing under it, the last line reachable (${width}x${height}, ${pendingOps} pending)`, async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width, height });
+			const conversationId = await createConversation(page, "Review bar phone");
+			await seedDocument(conversationId, {
+				markdown: [
+					"Első bekezdés a szállodáról.",
+					"Második bekezdés a repülőről.",
+					...filler,
+					lastLine,
+				].join("\n\n"),
+				title: "Bécsi utazás",
+				pendingOps,
+			});
+			const shell = await openDocument(page, conversationId);
+			const bar = shell.getByRole("region", { name: "Alfy módosításai" });
+			await expect(bar).toBeVisible({ timeout: 30_000 });
+			await waitForStableBoundingBox(bar);
+			const scroller = shell.locator(".document-content-text");
+			const barBox = await box(bar);
+			const scrollerBox = await box(scroller);
+
+			// Flush with the bottom of the text column, and as wide as it is (no
+			// side margins showing text beside the card).
+			const scrollerBottom = scrollerBox.y + scrollerBox.height;
+			expect(
+				Math.abs(barBox.y + barBox.height - scrollerBottom),
+				"the bar's bottom edge vs the text column's",
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(barBox.x - scrollerBox.x),
+				"the bar's left edge vs the text column's",
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(barBox.x + barBox.width - (scrollerBox.x + scrollerBox.width)),
+				"the bar's right edge vs the text column's",
+			).toBeLessThanOrEqual(1);
+
+			// Nothing of the text shows beneath or beside it: every point of the
+			// bar's bottom row and its two side columns belongs to the bar.
+			for (const [fx, fy] of [
+				[0.01, 0.99],
+				[0.5, 0.99],
+				[0.99, 0.99],
+				[0.005, 0.5],
+				[0.995, 0.5],
+				[0.005, 0.01],
+			] as const) {
+				const hit = await bar.evaluate(
+					(el, args) => {
+						const rect = el.getBoundingClientRect();
+						const top = document.elementFromPoint(
+							rect.left + rect.width * args.fx,
+							rect.top + rect.height * args.fy,
+						);
+						return !!top && el.contains(top);
+					},
+					{ fx, fy },
+				);
+				expect(hit, `the bar paints (${fx}, ${fy})`).toBe(true);
+			}
+
+			// A bar, not a card: no rounded corners, no shadow.
+			const look = await bar.evaluate((el) => {
+				const style = getComputedStyle(el);
+				return {
+					radius: style.borderTopLeftRadius,
+					shadow: style.boxShadow,
+				};
+			});
+			expect(look.radius).toBe("0px");
+			expect(look.shadow).toBe("none");
+
+			// The last line scrolls fully clear of it.
+			const last = shell
+				.locator(".document-editor-host")
+				.getByText(lastLine, { exact: false });
+			await expect(last).toBeAttached({ timeout: 30_000 });
+			await scroller.evaluate((el) => {
+				el.scrollTop = el.scrollHeight;
+			});
+			await waitForStableBoundingBox(bar);
+			await waitForStableBoundingBox(last);
+			const lastBox = await box(last);
+			const barAfter = await box(bar);
+			expect(
+				lastBox.y + lastBox.height,
+				"the last line ends above the bar",
+			).toBeLessThanOrEqual(barAfter.y + 1);
+			const onTop = await last.evaluate((node) => {
+				const rect = node.getBoundingClientRect();
+				const top = document.elementFromPoint(
+					rect.x + rect.width / 2,
+					rect.y + rect.height / 2,
+				);
+				return !!top && node.contains(top);
+			});
+			expect(onTop, "the last line paints above nothing").toBe(true);
+
+			// The buttons keep their 44px targets.
+			for (const name of [/Mindet megtartom/, /Mindet visszavonom/]) {
+				const b = await box(bar.getByRole("button", { name }));
+				expect(b.height, `${name}`).toBeGreaterThanOrEqual(43.5);
+			}
+		});
+	}
+});
+
+// The count button's dot is the persisted review state, not a live guess: a
+// change Alfy made in an earlier session (here, seeded straight into the
+// stored Document, with no chat turn in this page at all) lights it on a fresh
+// load, opening the panel hides it, and reviewing everything darkens it for
+// good — through a reload too. (`artifact-document.spec.ts` walks the same
+// state from a live edit; this is the reload-from-storage half.)
+test.describe("The count button's dot after a reload (persisted review state)", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("a change nobody reviewed lights the dot on a fresh load, and stays lit through another reload", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(page, "Dot persisted");
+		await seedPendingChanges(
+			conversationId,
+			["Book the flight to Vienna.", "Reserve the hotel near the river."],
+			2,
+		);
+		await openChatAndReload(page, conversationId);
+		const dot = page
+			.getByTestId("artifact-count-button")
+			.getByTestId("artifact-count-dot");
+		await expect(dot).toBeVisible({ timeout: 30_000 });
+
+		await page.reload({ waitUntil: "networkidle" });
+		await expect(dot).toBeVisible({ timeout: 30_000 });
+	});
+
+	test("Keep all darkens it for good: closed panel, then a reload", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const conversationId = await createConversation(page, "Dot after keep");
+		await seedPendingChanges(
+			conversationId,
+			["Book the flight to Vienna.", "Reserve the hotel near the river."],
+			2,
+		);
+		await openChatAndReload(page, conversationId);
+		const button = page.getByTestId("artifact-count-button");
+		const dot = button.getByTestId("artifact-count-dot");
+		await expect(dot).toBeVisible({ timeout: 30_000 });
+
+		// Open: the review happens here, so the dot is hidden while the panel is.
+		await openDocumentFromPanel(page);
+		await expect(dot).toHaveCount(0);
+		const reviewBar = page.getByRole("region", { name: "Changes from Alfy" });
+		await expect(reviewBar).toBeVisible({ timeout: 30_000 });
+		await reviewBar.getByRole("button", { name: "Keep all" }).click();
+		await expect(reviewBar).toHaveCount(0, { timeout: 5_000 });
+
+		// Closed again: nothing is waiting, so it stays dark...
+		await page
+			.getByRole("button", { name: "Close document workspace" })
+			.first()
+			.click();
+		await expect(page.getByTestId("artifact-count-button")).toBeVisible();
+		await expect(dot).toHaveCount(0);
+
+		// ...and a fresh load agrees.
+		await page.reload({ waitUntil: "networkidle" });
+		await expect(page.getByTestId("artifact-count-button")).toBeVisible();
+		await expect(dot).toHaveCount(0);
+	});
 });

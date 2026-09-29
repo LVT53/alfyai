@@ -380,6 +380,9 @@ import {
 } from "$lib/stores/conversations";
 import Page from "./+page.svelte";
 
+/** The open panel's landmark is named for the item it shows ("Vienna trip plan, Document"; review 276-279), so it is found by that shape. */
+const WORKSPACE_LANDMARK = /, (Document|App|Canvas|Slides|File)$/;
+
 function pageData(overrides: Record<string, unknown> = {}) {
 	return {
 		...appShellDataFixture(),
@@ -1007,7 +1010,7 @@ describe("chat page runtime integration", () => {
 		);
 
 		const shell = await screen.findByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		});
 		expect(screen.getByTestId("workspace-main")).toHaveAttribute(
 			"data-presentation",
@@ -1091,7 +1094,7 @@ describe("chat page runtime integration", () => {
 		await fireEvent.click(within(list).getByTestId("artifact-row"));
 
 		const shell = await screen.findByRole("complementary", {
-			name: "Document workspace",
+			name: WORKSPACE_LANDMARK,
 		});
 		await waitFor(() => {
 			expect(
@@ -1175,7 +1178,7 @@ describe("chat page runtime integration", () => {
 		await fireEvent.click(countButton);
 		const list = await screen.findByTestId("artifact-panel-list");
 		await fireEvent.click(within(list).getByTestId("artifact-row"));
-		await screen.findByRole("complementary", { name: "Document workspace" });
+		await screen.findByRole("complementary", { name: WORKSPACE_LANDMARK });
 		expect(countButton).toHaveAttribute("aria-pressed", "true");
 
 		await fireEvent.click(countButton);
@@ -1183,6 +1186,80 @@ describe("chat page runtime integration", () => {
 			expect(screen.queryByTestId("workspace-main")).not.toBeInTheDocument();
 		});
 		expect(countButton).toHaveAttribute("aria-pressed", "false");
+	});
+
+	// The count button's dot follows the PERSISTED review state (the third
+	// follow-up chip): the server's per-Document `pendingReviewCount`, read on
+	// every load, is what lights it — never a live-only guess that a reload
+	// throws away. These pin the page's own derivation; the walk through a real
+	// Keep all and a real reload is `artifact-document.spec.ts`.
+	describe("the count button's dot follows the persisted review state", () => {
+		const documentSummary = (pendingReviewCount: number | undefined) => ({
+			id: "doc-1",
+			kind: "document" as const,
+			title: "Trip plan",
+			conversationId: "conv-1",
+			versionNumber: 2,
+			commentCount: 0,
+			updatedAt: Date.now(),
+			...(pendingReviewCount === undefined ? {} : { pendingReviewCount }),
+		});
+
+		it("lights the dot, and says so in the button's name, when a load reports changes waiting", async () => {
+			renderPage(pageData({ artifacts: [documentSummary(2)] }));
+			const countButton = await screen.findByTestId("artifact-count-button");
+			expect(
+				within(countButton).getByTestId("artifact-count-dot"),
+			).toBeInTheDocument();
+			expect(
+				screen.getByTestId("artifact-count-dot-compact"),
+			).toBeInTheDocument();
+			expect(countButton).toHaveAccessibleName(
+				"Open what this chat made (1) — a change is waiting",
+			);
+		});
+
+		it("leaves the dot dark once a load reports everything reviewed (0), and for a Document never edited by Alfy", async () => {
+			const { unmount } = renderPage(
+				pageData({ artifacts: [documentSummary(0)] }),
+			);
+			await screen.findByTestId("artifact-count-button");
+			expect(screen.queryByTestId("artifact-count-dot")).toBeNull();
+			unmount();
+
+			renderPage(pageData({ artifacts: [documentSummary(undefined)] }));
+			await screen.findByTestId("artifact-count-button");
+			expect(screen.queryByTestId("artifact-count-dot")).toBeNull();
+		});
+
+		it("lights it for ANY Document with changes waiting, not just the first row", async () => {
+			renderPage(
+				pageData({
+					artifacts: [
+						documentSummary(0),
+						{ ...documentSummary(1), id: "doc-2", title: "Packing list" },
+					],
+				}),
+			);
+			await screen.findByTestId("artifact-count-button");
+			expect(screen.getByTestId("artifact-count-dot")).toBeInTheDocument();
+		});
+
+		it("hides it while the panel is open (the panel is where the review happens) and lights it again when the panel closes", async () => {
+			renderPage(pageData({ artifacts: [documentSummary(1)] }));
+			const countButton = await screen.findByTestId("artifact-count-button");
+			expect(screen.getByTestId("artifact-count-dot")).toBeInTheDocument();
+
+			await fireEvent.click(countButton);
+			await screen.findByTestId("artifact-panel-list");
+			expect(screen.queryByTestId("artifact-count-dot")).toBeNull();
+
+			await fireEvent.click(countButton);
+			await waitFor(() => {
+				expect(screen.queryByTestId("artifact-panel-list")).toBeNull();
+			});
+			expect(screen.getByTestId("artifact-count-dot")).toBeInTheDocument();
+		});
 	});
 
 	// Wave 2.5 polish G1-B (owner: "the version numbers are all over the place"):
@@ -1225,7 +1302,7 @@ describe("chat page runtime integration", () => {
 			await fireEvent.click(within(list).getByTestId("artifact-row"));
 
 			const shell = await screen.findByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			});
 			await waitFor(() => {
 				expect(
@@ -1465,7 +1542,7 @@ describe("chat page runtime integration", () => {
 			);
 			await fireEvent.click(within(list).getByTestId("artifact-row"));
 			const shell = await screen.findByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			});
 			await waitFor(() => {
 				expect(shell).toHaveTextContent("edited 3 h ago");
@@ -1557,7 +1634,7 @@ describe("chat page runtime integration", () => {
 			// The newest row first: Vienna trip plan.
 			await fireEvent.click(within(list).getAllByTestId("artifact-row")[0]);
 			const shell = await screen.findByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			});
 			await fireEvent.click(
 				await within(shell).findByRole("button", { name: "Delete document" }),
@@ -1632,7 +1709,7 @@ describe("chat page runtime integration", () => {
 			const list = await screen.findByTestId("artifact-panel-list");
 			await fireEvent.click(within(list).getByTestId("artifact-row"));
 			const shell = await screen.findByRole("complementary", {
-				name: "Document workspace",
+				name: WORKSPACE_LANDMARK,
 			});
 			await fireEvent.click(
 				await within(shell).findByRole("button", { name: "Delete document" }),
@@ -1905,7 +1982,7 @@ describe("chat page runtime integration", () => {
 				await fireEvent.click(await screen.findByTestId("artifact-card-head"));
 
 				await screen.findByRole("complementary", {
-					name: "Document workspace",
+					name: WORKSPACE_LANDMARK,
 				});
 				expect(screen.getByTestId("artifact-card")).not.toHaveAttribute(
 					"data-state",

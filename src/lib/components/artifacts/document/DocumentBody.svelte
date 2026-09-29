@@ -94,6 +94,7 @@ import {
 	type DocumentAlfyActivity,
 } from "./alfy-activity";
 import AlfyWriting from "./AlfyWriting.svelte";
+import { BLOCK_ID_ATTR } from "./block-attrs";
 import { COMPOSER_BUBBLE_SIZE, computeBubblePlacement } from "./bubble-placement";
 import { documentTabsFromCardMetadata } from "./card-view";
 import {
@@ -121,6 +122,7 @@ import type {
 } from "./document-editor";
 import DocumentToolbar from "./DocumentToolbar.svelte";
 import DownloadSheet from "./DownloadSheet.svelte";
+import { alfyChangeShortcutFor, historyShortcutFor } from "./keyboard-shortcuts";
 import MarginPanel from "./MarginPanel.svelte";
 import MobileToolbar from "./MobileToolbar.svelte";
 import SelectionBubble from "./SelectionBubble.svelte";
@@ -219,8 +221,9 @@ let applyAlfyChangesFn: typeof DocumentEditorModule.applyAlfyChanges | null =
 	null;
 let keepChangeFn: typeof DocumentEditorModule.keepChange | null = null;
 let undoChangeFn: typeof DocumentEditorModule.undoChange | null = null;
+let redoChangeFn: typeof DocumentEditorModule.redoChange | null = null;
 let remarkChangeFn: typeof DocumentEditorModule.remarkChange | null = null;
-let changeDocRangeFn: typeof DocumentEditorModule.changeDocRange | null = null;
+let blockContentEndFn: typeof DocumentEditorModule.blockContentEnd | null = null;
 let scrollToChangeFn: typeof DocumentEditorModule.scrollToChange | null = null;
 /** Wave 2.5 Step 10: pushes `pendingChanges` into the editor's own widget-decoration plugin — see `change-pill-decoration.ts`. */
 let setChangePillsFn: typeof DocumentEditorModule.setChangePills | null = null;
@@ -389,6 +392,12 @@ interface PendingAlfyChange {
 	isNewBlock?: boolean;
 	/** Captured from `blocks` state right before Undo replaces the text — Redo's own restore target. */
 	appliedMarkdown?: string;
+	/**
+	 * The extra blocks a multi-block change had added (`entry.insertedBlockIds`),
+	 * read from `blocks` state at the same moment — Undo deletes them, so this is
+	 * the only place their text survives for Redo to put back.
+	 */
+	appliedInsertedBlocks?: { blockId: string; markdown: string }[];
 	/** Captured right before Undo removes the mark structurally — the pill's own fallback anchor while `status` is `"undone"` (`change-pill-decoration.ts`'s own `fallbackPos`). */
 	fallbackPos?: number;
 }
@@ -427,6 +436,8 @@ let pendingReviewRestoreSettled = $state(false);
 let reviewIndex = $state(0);
 /** Keyed by changeId — cleared by Redo (cancels the pending removal) or by `removePendingChange` itself; a plain Map, never `$state`, since it drives no render on its own. */
 const undoSettleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** The change Undo ran on last — which "Undone · Redo" pill Redo's chord brings back when several are showing at once. */
+let lastUndoneChangeId: string | null = null;
 let refusalNotice = $state<{
 	message: string;
 	items: { label: string; reason: string }[];
@@ -1061,30 +1072,40 @@ function handleKeepChange(changeId: string): void {
  * Undo: restores exactly this change's pre-edit text and treats that as a
  * USER edit — scheduled through the normal autosave path (T8's own rule),
  * not a second, silent write. Unlike Keep, the mark is gone the instant this
- * runs (`undoAlfyChange` replaces the whole node) — `changeDocRangeFn`
- * captures its LAST live position first, as the pill's own fallback anchor
- * for the "Undone · Redo" window (redesign §7.2 #14). `appliedMarkdown` is
- * ALSO captured first (from `blocks` state, still showing the pre-undo,
- * Alfy-applied text) — Redo's own restore target, since nothing else keeps
- * what Undo is about to overwrite.
+ * runs (`undoAlfyChange` replaces the whole node), so the pill's own fallback
+ * anchor for the "Undone · Redo" window (redesign §7.2 #14) is the end of the
+ * restored block — read AFTER Undo, since the restored text can be shorter
+ * than what the mark covered and an earlier position would then point into
+ * the next block. `appliedMarkdown` is captured first (from `blocks` state,
+ * still showing the pre-undo, Alfy-applied text) — Redo's own restore
+ * target, since nothing else keeps what Undo is about to overwrite.
  */
 function handleUndoChange(changeId: string): void {
 	if (!editor || !undoChangeFn) return;
 	const pending = pendingChanges.get(changeId);
 	if (!pending) return;
-	const fallbackPos = changeDocRangeFn?.(editor, changeId)?.to;
 	const appliedMarkdown = blocks.find(
 		(b) => b.id === pending.entry.blockId,
 	)?.markdown;
+	const appliedInsertedBlocks = (pending.entry.insertedBlockIds ?? []).flatMap(
+		(blockId) => {
+			const block = blocks.find((b) => b.id === blockId);
+			return block ? [{ blockId, markdown: block.markdown }] : [];
+		},
+	);
 	undoChangeFn(editor, {
 		...pending.entry,
 		isNewBlock: pending.isNewBlock,
 	});
+	const fallbackPos =
+		blockContentEndFn?.(editor, pending.entry.blockId) ?? undefined;
+	lastUndoneChangeId = changeId;
 	pendingChanges = new Map(pendingChanges).set(changeId, {
 		...pending,
 		status: "undone",
 		fallbackPos,
 		appliedMarkdown,
+		appliedInsertedBlocks,
 	});
 	announce($t("artifacts.document.change.undoneNotice"));
 	const canonical = currentCanonicalMarkdown();
@@ -1100,28 +1121,29 @@ function handleUndoChange(changeId: string): void {
 }
 
 /**
- * Redo: reverses Undo within its own settle window — restores the captured
- * `appliedMarkdown` (the SAME mechanism as Undo, in reverse: `undoChangeFn`
- * is generically "set this block's content to X", never direction-specific)
- * and re-marks the block under the SAME `changeId` so the pill goes back to
- * `"pending"`. A change with `insertedBlockIds` in its live-session entry
- * loses those extra blocks on Redo (Undo already removed them, and only
- * `appliedMarkdown`'s own block is captured) — a deliberate, narrow
- * simplification; see the report's own deviations.
+ * Redo: reverses Undo within its own settle window — `redoChangeFn` sets the
+ * block back to the captured `appliedMarkdown` and puts back the extra blocks
+ * a multi-block change had added (`appliedInsertedBlocks`, captured by
+ * `handleUndoChange` before Undo deleted them), then the block is re-marked
+ * under the SAME `changeId` so the pill goes back to `"pending"`.
  */
 function handleRedoChange(changeId: string): void {
-	if (!editor || !undoChangeFn || !remarkChangeFn) return;
+	if (!editor || !redoChangeFn || !remarkChangeFn) return;
 	const pending = pendingChanges.get(changeId);
 	if (!pending || pending.status !== "undone") return;
+	// A Redo pressed on the pill itself: its button is about to be replaced by
+	// the pending pill's, and the focus it had would fall to <body>.
+	const focusWasOnPill = !!document.activeElement?.closest("[data-change-id]");
 	const timer = undoSettleTimers.get(changeId);
 	if (timer !== undefined) {
 		clearTimeout(timer);
 		undoSettleTimers.delete(changeId);
 	}
 	if (pending.appliedMarkdown !== undefined) {
-		undoChangeFn(editor, {
+		redoChangeFn(editor, {
 			blockId: pending.entry.blockId,
-			previousMarkdown: pending.appliedMarkdown,
+			appliedMarkdown: pending.appliedMarkdown,
+			insertedBlocks: pending.appliedInsertedBlocks,
 		});
 	}
 	remarkChangeFn(editor, changeId, pending.entry.blockId);
@@ -1134,6 +1156,24 @@ function handleRedoChange(changeId: string): void {
 	if (canonical !== null) {
 		autosave?.schedule(canonical);
 		updateBlocksFromMarkdown(canonical);
+	}
+	if (focusWasOnPill) void focusPillUndo(changeId);
+}
+
+/**
+ * After a Redo pressed on the pill itself (Enter or Space on its button): the
+ * pill is a fresh "pending" one and the focus fell to <body>. Puts it on the
+ * new Undo — the button the reader had just pressed — so Undo and Redo can be
+ * toggled from the keyboard without losing the place.
+ */
+async function focusPillUndo(changeId: string): Promise<void> {
+	await tick();
+	for (const pill of documentBodyEl?.querySelectorAll<HTMLElement>(
+		"[data-change-id]",
+	) ?? []) {
+		if (pill.dataset.changeId !== changeId) continue;
+		pill.querySelector<HTMLButtonElement>(".alfy-change-bar-undo")?.focus();
+		return;
 	}
 }
 
@@ -1160,6 +1200,124 @@ function handleUndoAllChanges(): void {
 		if (pending.status === "pending") handleUndoChange(changeId);
 	}
 }
+
+// ---- G3: keyboard ----------------------------------------------------------
+// Two families of keys, kept apart (`keyboard-shortcuts.ts` explains why):
+// the reader's own text history — ⌘/Ctrl+Z, ⌘/Ctrl+Shift+Z, ⌘/Ctrl+Y — which
+// the editor itself claims while the text has the focus (`document-editor.ts`)
+// and which this body claims for a focus that is anywhere else in the panel
+// (a toolbar button, a tab, a pill, the review bar); and Alfy's change — the
+// pill's own Undo and Redo, ⌘/Ctrl+Alt+Z and the same with Shift — which is
+// not in the text history and so has chords of its own.
+
+/** A field that has an undo of its own (a comment or reply box): the keys stay the browser's there. */
+const TEXT_FIELD_SELECTOR =
+	"textarea, input:not([type='checkbox']):not([type='radio']):not([type='button']):not([type='submit']):not([type='reset']):not([type='range']):not([type='file'])";
+
+/**
+ * The top-level block the caret is in, by its block id; `null` with no caret.
+ * Read from the browser's own selection first: ProseMirror learns of a click
+ * on the next `selectionchange`, so a chord pressed right after one would still
+ * find the previous position in the editor's state. The state is the fallback.
+ */
+function caretBlockId(): string | null {
+	const view = editor?.view;
+	const selection = window.getSelection?.();
+	let caret = editor?.state.selection.$from;
+	if (
+		view?.dom &&
+		typeof view.posAtDOM === "function" &&
+		selection?.anchorNode &&
+		view.dom.contains(selection.anchorNode)
+	) {
+		try {
+			caret = view.state.doc.resolve(
+				view.posAtDOM(selection.anchorNode, selection.anchorOffset),
+			);
+		} catch {
+			// A position the document no longer has: the editor's own state stands.
+		}
+	}
+	if (!caret || caret.depth < 1) return null;
+	const id = caret.node(1)?.attrs?.[BLOCK_ID_ATTR];
+	return typeof id === "string" ? id : null;
+}
+
+/**
+ * Which change an Alfy-change chord acts on: the one whose pill has the focus,
+ * else the one in the block the caret is in, else the one the review bar is
+ * showing (Undo) or the one Undo ran on last (Redo), else the first. Only
+ * changes in the state the chord needs — a pending change to undo, an undone
+ * one (inside its "Undone · Redo" window) to redo — count.
+ */
+function changeForChord(
+	status: "pending" | "undone",
+	target: HTMLElement | null,
+): string | null {
+	const matching = [...pendingChanges].filter(([, p]) => p.status === status);
+	if (matching.length === 0) return null;
+	const ids = new Set(matching.map(([id]) => id));
+	const pillId = target?.closest<HTMLElement>("[data-change-id]")?.dataset
+		.changeId;
+	if (pillId && ids.has(pillId)) return pillId;
+	const caretBlock = caretBlockId();
+	const atCaret = caretBlock
+		? matching.find(([, p]) => p.entry.blockId === caretBlock)
+		: undefined;
+	if (atCaret) return atCaret[0];
+	if (status === "pending") return pendingList[reviewIndex]?.[0] ?? matching[0][0];
+	if (lastUndoneChangeId && ids.has(lastUndoneChangeId)) {
+		return lastUndoneChangeId;
+	}
+	return matching[matching.length - 1][0];
+}
+
+/** `true` when there was a change for the chord to act on. */
+function runAlfyChangeShortcut(
+	action: "undo" | "redo",
+	target: HTMLElement | null,
+): boolean {
+	const changeId = changeForChord(
+		action === "undo" ? "pending" : "undone",
+		target,
+	);
+	if (!changeId) return false;
+	if (action === "undo") handleUndoChange(changeId);
+	else handleRedoChange(changeId);
+	return true;
+}
+
+/**
+ * Keys pressed anywhere inside the panel bubble up here. The editor has
+ * already handled its own (it marks them `defaultPrevented`); this is for the
+ * rest. A key from a text field keeps that field's own behaviour.
+ */
+function handleBodyKeydown(event: KeyboardEvent): void {
+	if (event.defaultPrevented || !editor) return;
+	const target = event.target instanceof HTMLElement ? event.target : null;
+	if (target?.closest(TEXT_FIELD_SELECTOR)) return;
+
+	const alfyChange = alfyChangeShortcutFor(event);
+	if (alfyChange) {
+		if (runAlfyChangeShortcut(alfyChange, target)) event.preventDefault();
+		return;
+	}
+
+	const history = historyShortcutFor(event);
+	// In the text the editor claimed the key itself. A control that lives
+	// inside the editor's DOM (a pill's button, a chip select, a task
+	// checkbox) is not the text: those come here.
+	const inText =
+		!!target?.closest(".ProseMirror") &&
+		!target.closest("button, select, input, .ProseMirror-widget");
+	if (history && !inText) {
+		// Focus is on a button, a tab or a pill: the same undo the toolbar's own
+		// button runs (which also brings the focus back into the text).
+		event.preventDefault();
+		handleToolbarAction(history);
+	}
+}
+// ---- end G3: keyboard -------------------------------------------------------
 
 /**
  * "See what Alfy did" / a comment's own change chip / the review bar's
@@ -1864,8 +2022,9 @@ async function runLoad(id: string): Promise<void> {
 		applyAlfyChangesFn = mod.applyAlfyChanges;
 		keepChangeFn = mod.keepChange;
 		undoChangeFn = mod.undoChange;
+		redoChangeFn = mod.redoChange;
 		remarkChangeFn = mod.remarkChange;
-		changeDocRangeFn = mod.changeDocRange;
+		blockContentEndFn = mod.blockContentEnd;
 		scrollToChangeFn = mod.scrollToChange;
 		setChangePillsFn = mod.setChangePills;
 		summarizeRefusalsFn = mod.summarizeRefusals;
@@ -2185,7 +2344,8 @@ function saveNoticeText(notice: SaveNotice): string {
 }
 </script>
 
-<div class="document-body" bind:this={documentBodyEl}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="document-body" bind:this={documentBodyEl} onkeydown={handleBodyKeydown}>
 	<!-- rd/review-2-5.md:217-222: the one shared announcer — see its own
 	     `announce()` doc comment above. Always mounted, regardless of load
 	     state, so a text change here is reliably picked up by screen readers
@@ -2549,19 +2709,14 @@ function saveNoticeText(notice: SaveNotice): string {
 
 	   G2-B: `bottom: 0` (it floated 14px above the edge, with text showing
 	   under it), full width of the text column, and `ReviewBar`'s `docked`
-	   look: flat, a rule on top. A phone (below) keeps the floating card. */
+	   look: flat, a rule on top. G3: a phone gets exactly the same — it used
+	   to keep a rounded card floating 64px up (`bottom: 4rem`, side insets),
+	   with the text showing beneath it in a long document, though nothing
+	   sits in that strip on the phone shell (the toolbar is at the top). */
 	.document-review-bar-slot {
 		position: sticky;
 		bottom: 0;
 		z-index: 5;
-	}
-
-	@media (max-width: 480px) {
-		.document-review-bar-slot {
-			left: 0.5rem;
-			right: 0.5rem;
-			bottom: 4rem;
-		}
 	}
 
 	/* `flex: 1` (not just `min-height`) so the editable canvas fills whatever
@@ -2754,6 +2909,25 @@ function saveNoticeText(notice: SaveNotice): string {
 
 	.document-editor-host :global(.document-content li[data-checked] > div p) {
 		margin: 0;
+	}
+
+	/* The mockup's `.task[aria-checked="true"] .task-label` (redesign §7.2 #27):
+	   a ticked item's words are muted and struck through, so a finished list
+	   reads as finished, not just a filled box. Only the item's OWN paragraphs
+	   (`> div > p`): a task list nested under a ticked item has states of its own,
+	   and a line-through set on the whole `div` could not be undone by them.
+	   The line takes the muted colour of the text. The mockup draws it in left to
+	   right with a background-size trick that only strikes one line of a wrapped
+	   item, so this uses the real text decoration and lets the colour ease in;
+	   reduced motion collapses that (app.css). */
+	.document-editor-host :global(.document-content li[data-checked] > div > p) {
+		transition: color var(--duration-standard) var(--ease-out);
+	}
+
+	.document-editor-host :global(.document-content li[data-checked='true'] > div > p) {
+		color: var(--text-muted);
+		text-decoration: line-through;
+		text-decoration-thickness: 1px;
 	}
 
 	/* The tracker table (`@tiptap/extension-table`'s TableKit). This styles

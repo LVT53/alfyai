@@ -104,6 +104,9 @@ export function buildChangePillDecorations(
 				() => {
 					const el = document.createElement("span");
 					el.className = "change-pill-mount";
+					// The chord that undoes or redoes THIS change (DocumentBody's keyboard
+					// handler) finds the pill a focused button belongs to through this.
+					el.dataset.changeId = entry.changeId;
 					instance = mount(ChangeBar, {
 						target: el,
 						props: {
@@ -119,6 +122,14 @@ export function buildChangePillDecorations(
 				},
 				{
 					side: 1,
+					// The pill is real controls (buttons) living inside the editor's own
+					// DOM, so every key and click made ON it bubbles into ProseMirror —
+					// which then treated Enter as "split the paragraph" (an empty block
+					// inserted at the text's caret, the change silently acknowledged, the
+					// button's own activation cancelled) and Space as a typed character.
+					// A widget can tell the view to leave its events alone: the pill's
+					// buttons work as buttons, and nothing they do is an edit of the text.
+					stopEvent: () => true,
 					key: `${entry.changeId}:${entry.status}`,
 					destroy: () => {
 						if (instance) {

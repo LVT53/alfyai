@@ -400,6 +400,158 @@ describe("document-editor", () => {
 		editor.destroy();
 	});
 
+	// G3 (keyboard undo/redo): loading the server's content into the open
+	// editor (Alfy's edit landing, a comment refresh that found a newer
+	// version) is not something the reader typed. It used to be ONE undoable
+	// step that replaced the whole document, so Ctrl/Cmd+Z after Alfy's edit
+	// took Alfy's change back through the reader's own history — around
+	// Keep/Undo and the version bookkeeping — and, whatever the reader had
+	// typed elsewhere, a later Undo had nothing valid left to undo. The load
+	// is applied as the smallest replacement of whole blocks, outside the
+	// history, so what the reader typed in blocks the load left alone stays
+	// undoable and the loaded blocks are not part of it.
+	describe("loadMarkdown and the reader's own undo history (G3)", () => {
+		function textOf(editor: Editor): string {
+			return editor.getText({ blockSeparator: " | " });
+		}
+		function typeAt(editor: Editor, blockIndex: number, text: string): void {
+			let pos = 0;
+			editor.state.doc.forEach((node, offset, index) => {
+				if (index === blockIndex) pos = offset + node.nodeSize - 1;
+			});
+			editor.commands.insertContentAt(pos, text);
+		}
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("is not an undo step: undo() after a load leaves the loaded text alone", () => {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+			const editor = mountEditor("<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.");
+			typeAt(editor, 0, " typed");
+			expect(textOf(editor)).toBe("Alpha. typed | Beta.");
+
+			vi.setSystemTime(new Date("2026-01-01T00:00:10Z"));
+			loadMarkdown(
+				editor,
+				"<!--b:p1-->\nAlpha. typed\n\n<!--b:p2-->\nBeta, rewritten by Alfy.",
+			);
+			expect(textOf(editor)).toBe("Alpha. typed | Beta, rewritten by Alfy.");
+
+			// One undo takes back what the reader typed — not what Alfy wrote.
+			editor.commands.undo();
+			expect(textOf(editor)).toBe("Alpha. | Beta, rewritten by Alfy.");
+			editor.destroy();
+		});
+
+		it("keeps what the reader typed in a block the load left alone undoable, and redoable, after the load", () => {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+			const editor = mountEditor("<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.");
+			typeAt(editor, 0, " one");
+			vi.setSystemTime(new Date("2026-01-01T00:00:05Z"));
+			typeAt(editor, 0, " two");
+			editor.commands.undo();
+			expect(textOf(editor)).toBe("Alpha. one | Beta.");
+
+			vi.setSystemTime(new Date("2026-01-01T00:00:10Z"));
+			loadMarkdown(
+				editor,
+				"<!--b:p1-->\nAlpha. one\n\n<!--b:p2-->\nBeta, rewritten.",
+			);
+
+			// The undone " two" is still there to redo...
+			expect(editor.can().redo()).toBe(true);
+			editor.commands.redo();
+			expect(textOf(editor)).toBe("Alpha. one two | Beta, rewritten.");
+			// ...and " one" is still there to undo.
+			editor.commands.undo();
+			editor.commands.undo();
+			expect(textOf(editor)).toBe("Alpha. | Beta, rewritten.");
+			editor.destroy();
+		});
+
+		it("drops the reader's earlier edits INSIDE a block the load replaced (they no longer apply), never undoing Alfy's text", () => {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+			const editor = mountEditor("<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.");
+			typeAt(editor, 1, " mine");
+			vi.setSystemTime(new Date("2026-01-01T00:00:10Z"));
+			loadMarkdown(
+				editor,
+				"<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta, rewritten by Alfy.",
+			);
+			editor.commands.undo();
+			expect(textOf(editor)).toBe("Alpha. | Beta, rewritten by Alfy.");
+			editor.destroy();
+		});
+
+		it("touches only the blocks that differ: an untouched block keeps its node, and the caret in it stays put", () => {
+			const editor = mountEditor(
+				"<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.\n\n<!--b:p3-->\nGamma.",
+			);
+			const untouchedBefore = editor.state.doc.child(0);
+			editor.commands.setTextSelection(4);
+			loadMarkdown(
+				editor,
+				"<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta, longer now.\n\n<!--b:p3-->\nGamma.",
+			);
+			expect(editor.state.doc.child(0)).toBe(untouchedBefore);
+			expect(editor.state.selection.from).toBe(4);
+			expect(textOf(editor)).toBe("Alpha. | Beta, longer now. | Gamma.");
+			editor.destroy();
+		});
+
+		it("handles blocks added in front, in the middle and at the end, and blocks removed", () => {
+			const editor = mountEditor(
+				"<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.\n\n<!--b:p3-->\nGamma.",
+			);
+			loadMarkdown(
+				editor,
+				"<!--b:p0-->\nNew first.\n\n<!--b:p1-->\nAlpha.\n\n<!--b:p3-->\nGamma.\n\n<!--b:p4-->\nNew last.",
+			);
+			expect(textOf(editor)).toBe("New first. | Alpha. | Gamma. | New last.");
+			expect(readMarkdown(editor)).toBe(
+				"<!--b:p0-->\n\nNew first.\n\n<!--b:p1-->\n\nAlpha.\n\n<!--b:p3-->\n\nGamma.\n\n<!--b:p4-->\n\nNew last.",
+			);
+			editor.destroy();
+		});
+
+		it("is a no-op for content the editor already has: no transaction, no history entry", () => {
+			const editor = mountEditor("<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.");
+			const before = editor.state;
+			loadMarkdown(editor, readMarkdown(editor));
+			expect(editor.state.doc.eq(before.doc)).toBe(true);
+			expect(editor.can().undo()).toBe(false);
+			editor.destroy();
+		});
+
+		it("still loads a whole different document (nothing in common)", () => {
+			const editor = mountEditor("<!--b:p1-->\nAlpha.\n\n<!--b:p2-->\nBeta.");
+			loadMarkdown(editor, "<!--b:q1-->\nCompletely new.");
+			expect(textOf(editor)).toBe("Completely new.");
+			expect(readMarkdown(editor)).toContain("<!--b:q1-->");
+			editor.destroy();
+		});
+
+		it("does not fire onUpdate — a content sync is not a user edit", () => {
+			const onUpdate = vi.fn();
+			element = document.createElement("div");
+			document.body.appendChild(element);
+			const editor = createDocumentEditor({
+				element,
+				markdown: "<!--b:p1-->\nAlpha.",
+				placeholder: "x",
+				onUpdate,
+			});
+			loadMarkdown(editor, "<!--b:p1-->\nAlpha, changed.");
+			expect(onUpdate).not.toHaveBeenCalled();
+			editor.destroy();
+		});
+	});
+
 	// Review 2.5 (rd/review-2-5.md:191-197): a brand-new tab used to start
 	// with no block of its own, so the whole document showed inside what
 	// should have been an empty new section — `Tabs.svelte`'s own
@@ -573,6 +725,125 @@ describe("document-editor", () => {
 			);
 			selectSubstring(editor, "Second");
 			expect(readSelectionAnchorContext(editor)?.blockId).toBe("p2");
+			editor.destroy();
+		});
+	});
+
+	// G3: keyboard undo and redo. Dispatches REAL key events at the editor's
+	// own DOM, so this is the actual `editorProps.handleKeyDown` wiring. jsdom
+	// reports no platform, so ⌘ is Ctrl here unless a test says it is a Mac.
+	describe("keyboard undo and redo (G3)", () => {
+		function press(editor: Editor, init: KeyboardEventInit): KeyboardEvent {
+			const event = new KeyboardEvent("keydown", {
+				bubbles: true,
+				cancelable: true,
+				...init,
+			});
+			editor.view.dom.dispatchEvent(event);
+			return event;
+		}
+		const ctrl = (key: string, extra: KeyboardEventInit = {}) => ({
+			key,
+			code: `Key${key.toUpperCase()}`,
+			ctrlKey: true,
+			...extra,
+		});
+		const meta = (key: string, extra: KeyboardEventInit = {}) => ({
+			key,
+			code: `Key${key.toUpperCase()}`,
+			metaKey: true,
+			...extra,
+		});
+		function textOf(editor: Editor): string {
+			return editor.getText({ blockSeparator: " | " });
+		}
+		function typeAtEnd(editor: Editor, text: string): void {
+			editor.commands.insertContentAt(
+				editor.state.doc.child(0).nodeSize - 1,
+				text,
+			);
+		}
+		function setPlatform(value: string | undefined): void {
+			Object.defineProperty(window.navigator, "platform", {
+				value,
+				configurable: true,
+			});
+		}
+
+		afterEach(() => {
+			vi.useRealTimers();
+			Reflect.deleteProperty(window.navigator, "platform");
+		});
+
+		function typedTwice(): Editor {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+			const editor = mountEditor("<!--b:p1-->\nAlpha.");
+			typeAtEnd(editor, " one");
+			vi.setSystemTime(new Date("2026-01-01T00:00:05Z"));
+			typeAtEnd(editor, " two");
+			expect(textOf(editor)).toBe("Alpha. one two");
+			return editor;
+		}
+
+		it("Ctrl+Z undoes, Ctrl+Shift+Z and Ctrl+Y redo (Windows and Linux keys)", () => {
+			const editor = typedTwice();
+			const undo = press(editor, ctrl("z"));
+			expect(undo.defaultPrevented).toBe(true);
+			expect(textOf(editor)).toBe("Alpha. one");
+			press(editor, ctrl("z"));
+			expect(textOf(editor)).toBe("Alpha.");
+
+			press(editor, ctrl("Z", { shiftKey: true }));
+			expect(textOf(editor)).toBe("Alpha. one");
+			const redo = press(editor, ctrl("y"));
+			expect(redo.defaultPrevented).toBe(true);
+			expect(textOf(editor)).toBe("Alpha. one two");
+			editor.destroy();
+		});
+
+		it("Cmd+Z undoes, Cmd+Shift+Z and Cmd+Y redo on a Mac", () => {
+			// (`prosemirror-keymap` reads the platform once, at import, so the
+			// editor's own binding still thinks it is ⌘-less here; the Mac chords
+			// are this module's own, which read it live.)
+			setPlatform("MacIntel");
+			const editor = typedTwice();
+			press(editor, meta("z"));
+			expect(textOf(editor)).toBe("Alpha. one");
+			press(editor, meta("Z", { shiftKey: true }));
+			expect(textOf(editor)).toBe("Alpha. one two");
+			press(editor, meta("z"));
+			press(editor, meta("y"));
+			expect(textOf(editor)).toBe("Alpha. one two");
+			editor.destroy();
+		});
+
+		it("claims the key even with nothing to undo or redo, so the browser's own undo never runs on a document ProseMirror owns", () => {
+			const editor = mountEditor("<!--b:p1-->\nAlpha.");
+			expect(editor.can().undo()).toBe(false);
+			expect(press(editor, ctrl("z")).defaultPrevented).toBe(true);
+			expect(
+				press(editor, ctrl("Z", { shiftKey: true })).defaultPrevented,
+			).toBe(true);
+			expect(press(editor, ctrl("y")).defaultPrevented).toBe(true);
+			expect(textOf(editor)).toBe("Alpha.");
+			editor.destroy();
+		});
+
+		it("undoes once per press, not twice (the editor's own binding and this one do not both run)", () => {
+			const editor = typedTwice();
+			press(editor, ctrl("z"));
+			expect(textOf(editor)).toBe("Alpha. one");
+			editor.destroy();
+		});
+
+		it("leaves Alfy's own chord (Alt held) and other letters to whoever owns them", () => {
+			const editor = typedTwice();
+			expect(press(editor, ctrl("z", { altKey: true })).defaultPrevented).toBe(
+				false,
+			);
+			expect(press(editor, ctrl("x")).defaultPrevented).toBe(false);
+			expect(textOf(editor)).toBe("Alpha. one two");
 			editor.destroy();
 		});
 	});

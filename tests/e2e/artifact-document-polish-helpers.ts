@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
-import { users } from "../../src/lib/server/db/schema";
+import { artifacts, users } from "../../src/lib/server/db/schema";
 import {
 	applyDocumentPatch,
 	createDocumentArtifact,
@@ -65,6 +65,8 @@ export async function seedDocument(
 		title?: string;
 		/** How many of the first blocks Alfy rewrites (pending review state). */
 		pendingOps?: number;
+		/** Named sections: a Document with two or more shows the tab strip. */
+		tabs?: { id: string; title: string; startBlockId: string }[];
 	},
 ): Promise<string> {
 	const userId = await testUserId();
@@ -76,6 +78,18 @@ export async function seedDocument(
 		author: "user",
 		summary: "Seeded for E2E",
 	});
+	if (options.tabs) {
+		await db
+			.update(artifacts)
+			.set({
+				metadataJson: JSON.stringify({
+					artifactType: "document",
+					title: options.title ?? "Trip notes",
+					tabs: options.tabs,
+				}),
+			})
+			.where(eq(artifacts.id, artifact.id));
+	}
 	const pendingOps = options.pendingOps ?? 0;
 	if (pendingOps > 0) {
 		const read = await readDocumentForAlfy({

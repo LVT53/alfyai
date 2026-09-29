@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { uiLanguage } from "$lib/stores/settings";
 import DocumentToolbar from "./DocumentToolbar.svelte";
 import {
 	DOCUMENT_TOOLBAR_ACTIONS,
@@ -51,9 +52,81 @@ describe("DocumentToolbar", () => {
 
 	it("a momentary action (Undo) never carries a pressed state", () => {
 		render(DocumentToolbar, { onAction: vi.fn() });
-		expect(screen.getByRole("button", { name: "Undo" })).not.toHaveAttribute(
+		expect(screen.getByRole("button", { name: /^Undo/ })).not.toHaveAttribute(
 			"aria-pressed",
 		);
+	});
+
+	// G3: the toolbar says which keys do what its Undo and Redo buttons do — in
+	// the tooltip and the accessible name, in the reader's language and with the
+	// keys of the reader's platform.
+	describe("the keyboard shortcut on Undo and Redo", () => {
+		const setPlatform = (value: string) =>
+			Object.defineProperty(window.navigator, "platform", {
+				value,
+				configurable: true,
+			});
+
+		afterEach(() => {
+			Reflect.deleteProperty(window.navigator, "platform");
+			uiLanguage.set("en");
+		});
+
+		it("names the Windows and Linux keys in the tooltip and the accessible name", () => {
+			setPlatform("Win32");
+			render(DocumentToolbar, { onAction: vi.fn() });
+			const undo = screen.getByRole("button", { name: "Undo (Ctrl+Z)" });
+			const redo = screen.getByRole("button", { name: "Redo (Ctrl+Y)" });
+			expect(undo).toHaveAttribute("title", "Undo (Ctrl+Z)");
+			expect(redo).toHaveAttribute("title", "Redo (Ctrl+Y)");
+			expect(undo).toHaveAttribute("aria-keyshortcuts", "Control+Z");
+			expect(redo).toHaveAttribute(
+				"aria-keyshortcuts",
+				"Control+Y Control+Shift+Z",
+			);
+		});
+
+		it("names the Mac keys on a Mac", () => {
+			setPlatform("MacIntel");
+			render(DocumentToolbar, { onAction: vi.fn() });
+			expect(screen.getByRole("button", { name: "Undo (⌘Z)" })).toHaveAttribute(
+				"aria-keyshortcuts",
+				"Meta+Z",
+			);
+			expect(
+				screen.getByRole("button", { name: "Redo (⇧⌘Z)" }),
+			).toHaveAttribute("aria-keyshortcuts", "Meta+Shift+Z Meta+Y");
+		});
+
+		it("is worded in Hungarian in the Hungarian UI", () => {
+			setPlatform("Win32");
+			uiLanguage.set("hu");
+			render(DocumentToolbar, { onAction: vi.fn() });
+			expect(
+				screen.getByRole("button", { name: "Visszavonás (Ctrl+Z)" }),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", { name: "Újra (Ctrl+Y)" }),
+			).toBeInTheDocument();
+		});
+
+		it("leaves every other button as it was: no shortcut text, no aria-keyshortcuts", () => {
+			setPlatform("Win32");
+			render(DocumentToolbar, { onAction: vi.fn() });
+			const bold = screen.getByRole("button", { name: "Bold" });
+			expect(bold).toHaveAttribute("title", "Bold");
+			expect(bold).not.toHaveAttribute("aria-keyshortcuts");
+		});
+
+		it("still reports Undo and Redo by their ids", async () => {
+			setPlatform("Win32");
+			const onAction = vi.fn();
+			render(DocumentToolbar, { onAction });
+			await fireEvent.click(screen.getByRole("button", { name: /^Undo/ }));
+			await fireEvent.click(screen.getByRole("button", { name: /^Redo/ }));
+			expect(onAction).toHaveBeenNthCalledWith(1, "undo");
+			expect(onAction).toHaveBeenNthCalledWith(2, "redo");
+		});
 	});
 
 	it("disables every button while the editor is not ready", () => {

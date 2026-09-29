@@ -18,6 +18,7 @@ import {
 	login,
 	openConversationComposer,
 	sendMessage,
+	workspacePanel,
 } from "./helpers";
 
 const provider = createOpenAICompatibleProviderHarness();
@@ -177,9 +178,7 @@ test.describe("Core user flows smoke", () => {
 		});
 		// The filename lives in the workspace panel header; the content renders in
 		// the workspace-main body.
-		const workspace = page
-			.getByRole("complementary", { name: "Document workspace" })
-			.first();
+		const workspace = workspacePanel(page).first();
 		await expect(workspace).toContainText(documentName, { timeout: 10000 });
 	});
 

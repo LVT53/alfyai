@@ -9,7 +9,13 @@ import {
 } from "../../src/lib/server/services/artifacts";
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createConversation,
+	expectTopmost,
+	login,
+	waitForStableBoundingBox,
+	workspacePanel,
+} from "./helpers";
 
 // Comments, anchoring and the @Alfy hook (Feature 2 · Artifacts, Slice 1,
 // Task T10) — the real routes, the real service, the real DB. Deliberately
@@ -221,9 +227,7 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 			.getByTestId("artifact-row")
 			.click();
 
-		const shell = page.getByRole("complementary", {
-			name: "Document workspace",
-		});
+		const shell = workspacePanel(page);
 		await expect(shell).toBeVisible();
 		await expect(shell.getByText("Seeded margin comment")).toBeVisible();
 	});
@@ -293,9 +297,7 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 			.getByTestId("artifact-row")
 			.click();
 
-		const shell = page.getByRole("complementary", {
-			name: "Document workspace",
-		});
+		const shell = workspacePanel(page);
 		await expect(shell).toBeVisible();
 
 		const items = shell.getByTestId("margin-comment");
@@ -348,7 +350,7 @@ function mobileShell(page: Page) {
 	return page.getByTestId("document-workspace-mobile-shell");
 }
 function desktopShell(page: Page) {
-	return page.getByRole("complementary", { name: "Document workspace" });
+	return workspacePanel(page);
 }
 
 // Wave 2.5 Step 8: comments away from the inline rail — the header's
@@ -403,18 +405,10 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 		// still painting BEHIND it (z-50) before its own zIndexClass fix.
 		// `elementFromPoint` catches exactly that class of regression: it
 		// returns whatever is actually topmost at that pixel.
-		const isOnTop = await sheet.evaluate((node) => {
-			const rect = node.getBoundingClientRect();
-			const top = document.elementFromPoint(
-				rect.x + rect.width / 2,
-				rect.y + 10,
-			);
-			return !!top && node.contains(top);
+		await expectTopmost(sheet, {
+			message:
+				"the sheet must be the topmost element, not painted under the mobile shell's own backdrop",
 		});
-		expect(
-			isOnTop,
-			"the sheet must be the topmost element, not painted under the mobile shell's own backdrop",
-		).toBe(true);
 
 		await page.keyboard.press("Escape");
 		await expect(sheet).toBeHidden();
@@ -495,18 +489,10 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 		expect(drawerBox?.y ?? 0).toBeGreaterThanOrEqual(
 			(buttonBox?.y ?? 0) + (buttonBox?.height ?? 0),
 		);
-		const buttonIsTopmost = await commentsButton.evaluate((node) => {
-			const rect = node.getBoundingClientRect();
-			const top = document.elementFromPoint(
-				rect.x + rect.width / 2,
-				rect.y + rect.height / 2,
-			);
-			return !!top && node.contains(top);
+		await expectTopmost(commentsButton, {
+			message: "the header's Comments button stays uncovered",
+			probe: "center",
 		});
-		expect(
-			buttonIsTopmost,
-			"the header's Comments button stays uncovered",
-		).toBe(true);
 
 		// The same button closes it again — never a second way in.
 		await commentsButton.click();
@@ -869,18 +855,10 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 
 		// Topmost — not painted under the expanded panel's own tab strip or
 		// any other chrome (the bug: `elementFromPoint` hit the tab strip).
-		const isOnTop = await popover.evaluate((node) => {
-			const rect = node.getBoundingClientRect();
-			const top = document.elementFromPoint(
-				rect.x + rect.width / 2,
-				rect.y + 10,
-			);
-			return !!top && node.contains(top);
+		await expectTopmost(popover, {
+			message:
+				"the popover must be the topmost element, not painted under the expanded panel",
 		});
-		expect(
-			isOnTop,
-			"the popover must be the topmost element, not painted under the expanded panel",
-		).toBe(true);
 	});
 });
 
