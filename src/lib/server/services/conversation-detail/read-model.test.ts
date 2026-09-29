@@ -15,6 +15,7 @@ vi.mock("$lib/server/services/conversation-forks", () => ({
 
 vi.mock("$lib/server/services/messages", () => ({
 	listMessageWindow: vi.fn(),
+	artifactCallIdsFromMessages: vi.fn(),
 	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT: 100,
 }));
 
@@ -75,10 +76,14 @@ vi.mock("$lib/server/services/analytics", () => ({
 
 vi.mock("$lib/server/services/artifacts", () => ({
 	listArtifactsForConversation: vi.fn(),
+	listMissingArtifactIds: vi.fn(),
 }));
 
 import { getConversationCostSummary } from "$lib/server/services/analytics";
-import { listArtifactsForConversation } from "$lib/server/services/artifacts";
+import {
+	listArtifactsForConversation,
+	listMissingArtifactIds,
+} from "$lib/server/services/artifacts";
 import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
 import { listContextCompressionSnapshots } from "$lib/server/services/context-compression";
 import { getConversationDraft } from "$lib/server/services/conversation-drafts";
@@ -97,14 +102,20 @@ import {
 	listConversationArtifacts,
 } from "$lib/server/services/knowledge";
 import { listConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
-import { listMessageWindow } from "$lib/server/services/messages";
+import {
+	artifactCallIdsFromMessages,
+	listMessageWindow,
+} from "$lib/server/services/messages";
 import {
 	attachContinuityToTaskState,
 	getContextDebugState,
 	getConversationTaskState,
 	getProjectReferenceContext,
 } from "$lib/server/services/task-state";
-import { getConversationDetail } from "./read-model";
+import {
+	getConversationDetail,
+	getOlderConversationMessages,
+} from "./read-model";
 
 const mockGetConversation = vi.mocked(getConversation);
 const mockGetConversationDraft = vi.mocked(getConversationDraft);
@@ -139,6 +150,8 @@ const mockListConversationAtlasJobs = vi.mocked(listConversationAtlasJobs);
 const mockListArtifactsForConversation = vi.mocked(
 	listArtifactsForConversation,
 );
+const mockArtifactCallIdsFromMessages = vi.mocked(artifactCallIdsFromMessages);
+const mockListMissingArtifactIds = vi.mocked(listMissingArtifactIds);
 
 describe("Conversation Detail Read Model", () => {
 	beforeEach(() => {
@@ -196,6 +209,8 @@ describe("Conversation Detail Read Model", () => {
 			totalTokens: 0,
 		});
 		mockListArtifactsForConversation.mockResolvedValue([]);
+		mockArtifactCallIdsFromMessages.mockReturnValue([]);
+		mockListMissingArtifactIds.mockResolvedValue([]);
 	});
 
 	it("returns the cheap bootstrap detail payload with stable defaults", async () => {
@@ -458,6 +473,51 @@ describe("Conversation Detail Read Model", () => {
 	// which only satisfies the field's real type), and explicitly here: the
 	// call itself carries the conversation scope the panel list and the
 	// header count both need, not a second query shape.
+	// Polish G2-A: a card that points at a deleted item must be able to say so.
+	// The tool calls name the artifacts (messages.ts); the artifact service
+	// says which of them are gone, under the ownership scope (never a second
+	// scope of the read model's own).
+	it("returns the ids of the artifacts this chat's tool calls named that no longer exist", async () => {
+		const loaded = [
+			{
+				id: "assistant-1",
+				conversationId: "conv-1",
+				role: "assistant" as const,
+				content: "Made it.",
+				createdAt: 1_777_140_010,
+			},
+		];
+		mockListMessageWindow.mockResolvedValue({
+			messages: loaded,
+			hasMoreBefore: false,
+		});
+		mockArtifactCallIdsFromMessages.mockReturnValue(["doc-1", "doc-2"]);
+		mockListMissingArtifactIds.mockResolvedValue(["doc-2"]);
+
+		const detail = await getConversationDetail({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+
+		// Read off the messages already loaded — no second look at the table.
+		expect(mockArtifactCallIdsFromMessages).toHaveBeenCalledWith(loaded);
+		expect(mockListMissingArtifactIds).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactIds: ["doc-1", "doc-2"],
+		});
+		expect(detail?.deletedArtifactIds).toEqual(["doc-2"]);
+	});
+
+	it("reports none deleted when no tool call named an artifact", async () => {
+		const detail = await getConversationDetail({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+
+		expect(detail?.deletedArtifactIds).toEqual([]);
+	});
+
 	it("scopes the artifacts call to the same user and conversation as everything else", async () => {
 		await getConversationDetail({
 			userId: "user-2",
@@ -565,5 +625,35 @@ describe("Conversation Detail Read Model", () => {
 		// extra queries that existed only to feed the projection.
 		expect(mockListConversationLinkedContextSources).not.toHaveBeenCalled();
 		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
+	});
+
+	it("carries the deleted-artifact ids of an older page too, read off that page's own messages", async () => {
+		const older = [
+			{
+				id: "assistant-old",
+				conversationId: "conv-1",
+				role: "assistant" as const,
+				content: "Made it a while ago.",
+				createdAt: 1_777_100_000,
+			},
+		];
+		mockListMessageWindow.mockResolvedValue({
+			messages: older,
+			hasMoreBefore: true,
+		});
+		mockArtifactCallIdsFromMessages.mockReturnValue(["doc-old"]);
+		mockListMissingArtifactIds.mockResolvedValue(["doc-old"]);
+
+		const page = await getOlderConversationMessages({
+			userId: "user-1",
+			conversationId: "conv-1",
+			offset: 100,
+		});
+
+		expect(mockArtifactCallIdsFromMessages).toHaveBeenCalledWith(older);
+		expect(page).toMatchObject({
+			hasMoreBefore: true,
+			deletedArtifactIds: ["doc-old"],
+		});
 	});
 });

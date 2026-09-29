@@ -46,7 +46,10 @@ export {
 } from "./export";
 export { hashArtifactBody } from "./hash";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
-export { listArtifactsForConversation } from "./read-model";
+export {
+	listArtifactsForConversation,
+	listMissingArtifactIds,
+} from "./read-model";
 export {
 	createArtifact,
 	deleteArtifact,

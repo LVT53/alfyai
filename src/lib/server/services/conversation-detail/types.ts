@@ -49,6 +49,13 @@ export interface ConversationDetail {
 	fileProductionJobs?: FileProductionJob[];
 	/** The artifact family rows for this conversation: the panel list and the header count's source. */
 	artifacts?: ArtifactCardSummary[];
+	/**
+	 * The artifacts this conversation's tool calls made or edited that no
+	 * longer exist (deleted in the panel, the Knowledge library or another
+	 * tab), so an in-chat card can say so instead of offering an Open that
+	 * would fail. Only ids the caller's own conversation names.
+	 */
+	deletedArtifactIds?: string[];
 	atlasJobs?: AtlasJobCard[];
 	atlasAvailability?: AtlasAvailability | null;
 	contextCompressionSnapshots?: ContextCompressionMarker[];

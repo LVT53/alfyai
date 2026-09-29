@@ -26,7 +26,9 @@ const {
 	applyDocumentPatch,
 	createArtifact,
 	createDocumentArtifact,
+	deleteArtifact,
 	listArtifactsForConversation,
+	listMissingArtifactIds,
 	readDocumentForAlfy,
 	updateArtifactBody,
 } = await import("./index");
@@ -629,5 +631,93 @@ describe("listArtifactsForConversation — appVerification (Wave 2.5 Step 13)", 
 
 		expect(row.kind).toBe("document");
 		expect(row.appVerification).toBeUndefined();
+	});
+});
+
+// Polish G2-A: which of the artifacts a chat's tool calls named are gone. A
+// deleted row leaves nothing behind, so "missing" is read against the same
+// ownership scope as every other artifact read — which also means an id the
+// caller cannot reach (another user's, or an incognito chat's own when it is
+// not the served one) reads as missing, and reveals nothing about the row.
+describe("listMissingArtifactIds", () => {
+	it("names the artifacts that no longer exist, and only those", async () => {
+		const kept = await create(CONVERSATION, "Kept");
+		const gone = await create(CONVERSATION, "Gone");
+		await deleteArtifact({ userId: OWNER, artifactId: gone.id });
+
+		await expect(
+			listMissingArtifactIds({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactIds: [kept.id, gone.id, "never-was"],
+			}),
+		).resolves.toEqual([gone.id, "never-was"]);
+	});
+
+	it("answers nothing for an empty list", async () => {
+		await expect(
+			listMissingArtifactIds({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactIds: [],
+			}),
+		).resolves.toEqual([]);
+	});
+
+	it("reads another user's artifact exactly like a missing one: reachable by nobody but its owner", async () => {
+		seedConversation(memory, { id: "conv-stranger-own", userId: STRANGER });
+		const stranger = await create(
+			"conv-stranger-own",
+			"Theirs",
+			"document",
+			STRANGER,
+		);
+
+		await expect(
+			listMissingArtifactIds({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactIds: [stranger.id],
+			}),
+		).resolves.toEqual([stranger.id]);
+		// …while for its owner it exists.
+		await expect(
+			listMissingArtifactIds({
+				userId: STRANGER,
+				conversationId: "conv-stranger-own",
+				artifactIds: [stranger.id],
+			}),
+		).resolves.toEqual([]);
+	});
+
+	it("finds an incognito chat's own artifact when that chat is the served one, and not from any other chat", async () => {
+		const secret = await create(INCOGNITO, "Secret plan");
+
+		await expect(
+			listMissingArtifactIds({
+				userId: OWNER,
+				conversationId: INCOGNITO,
+				artifactIds: [secret.id],
+			}),
+		).resolves.toEqual([]);
+		await expect(
+			listMissingArtifactIds({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				artifactIds: [secret.id],
+			}),
+		).resolves.toEqual([secret.id]);
+	});
+
+	it("says nothing at all about a conversation that is not the caller's", async () => {
+		const mine = await create(CONVERSATION, "Mine");
+
+		await expect(
+			listMissingArtifactIds({
+				userId: STRANGER,
+				conversationId: CONVERSATION,
+				artifactIds: [mine.id, "never-was"],
+			}),
+		).resolves.toEqual([]);
 	});
 });
