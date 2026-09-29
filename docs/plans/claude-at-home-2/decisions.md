@@ -597,6 +597,68 @@ server under the existing ownership scope. Amends ruling 46 and the slice-7 amen
   one line either way.
 - **Tabs show only their own section.** Search, export, the card preview and Alfy's reads still cover the whole document.
 
+## 62. What a tool advertises is what its validator parses
+
+*Orchestrator, 2026-09-29 (Wave 3), from the Document edit's live failure in Wave 2: the model guessed op names seven
+times, then duplicated the document.* This supersedes `slice-5.md §The three tools`' "patches and ops are `z.unknown()`
+deliberately" for Canvas and Slides, exactly as the Document already did (`documentPatchesArraySchema`, `edit.ts`):
+- Canvas `ops` and Slides `patches` (and Slides' `create_artifact` body) are advertised with **the same zod schema the
+  handler validates with** — one exported schema, used by both `buildEditArtifactModelInputSchema` and the handler, never
+  a hand-written twin.
+- Each kind's description carries **one compact worked example**, and a unit test parses that literal through the
+  executed schema and the kind's validator against a real fixture body (`EDIT_ARTIFACT_DOCUMENT_EXAMPLE` is the pattern).
+- Every refusal the model sees **names the valid ops or fields** it could have used, so a wrong guess is corrected in one
+  step.
+- Every eval suite's live run goes through the real tool description and schema (`buildFullToolCatalogue`'s path), never
+  a hand-written prompt. Registering a kind's create handler spends catalogue headroom: raise
+  `CATALOGUE_TOKEN_CEILING` by the measured cost plus the existing margin, numbers in the commit message, and update the
+  frozen catalogue snapshots in the same commit (ruling 23's discipline; the test's own note anticipates this).
+
+## 63. A Canvas change is reviewed as one change, with the Document's review parts
+
+*Orchestrator, 2026-09-29 (Wave 3); the owner may overrule.* The approved redesign (§8) gives Canvas the Document's
+change pill and review bar; ruling 16 made "undo an Alfy change" a version restore. They meet like this:
+- An Alfy diff that lands on a board is **one pending change**: its touched nodes are highlighted, one change pill
+  (`ChangeBar`'s pill: "Alfy · Keep · Undo") sits at the corner of the touched nodes' bounding box, and the shared
+  `ReviewBar` at the bottom of the board steps through the touched nodes (prev/next centres the camera on each) with
+  Keep / Undo for the whole diff. There is no per-node Undo in v1.
+- **Undo** writes the parent version's body back as a **user** version ("Undid Alfy's change", the shared
+  version-summary vocabulary); if the user changed the board after the diff landed, Undo is refused with the shared
+  refusal card and History (restore) is the way back. Keep acknowledges.
+- A pending change **survives a reload** through the same review marker ruling 61 put in `metadata_json` (the last
+  reviewed Alfy version): a Canvas branch computes the touched node ids of each unreviewed Alfy version against its
+  parent. The in-session Ctrl/Cmd+Z (your own strokes and moves) stays as ruling 16 says, labelled differently.
+- Cost if wrong: per-node Undo later needs a node-level restore; the pill and bar are unchanged by that.
+
+## 64. Canvas block data schemas are server-safe, and the model makes only note-shaped blocks
+
+*Orchestrator, 2026-09-29 (Wave 3).* `slice-3.md §The block registry` puts each kind's zod schema in the component
+registry, but the server validates BoardDiffs with them and must never import Svelte components or icons.
+- The per-kind data schemas and the kind list live in **`src/lib/shared/artifacts/canvas-blocks.ts`** (zod only, no
+  Svelte), next to `canvas.ts`'s types; `_lib/block-registry.ts` imports them and adds component, icon, label, size and
+  poster policy. One schema per kind, declared once.
+- The model's `add_node` (and `add_frame`) may create **`frame`, `sticky`, `text`, `checklist` and `chart`** only — the
+  advertised `data` is the discriminated union of those five schemas, the same one the validator parses. The other kinds
+  (`map`, `file`, `app`, `photo`, `liveweb`) carry app-owned references the model cannot mint; they are placed by the
+  user's own inserts through the body route. An `add_node` of one of them from the ops path is refused `unknown_kind`,
+  and the refusal names the five kinds it may add. `update_node`, `move`, `remove_node` and `highlight` work on every
+  kind already on the board (an `update_node` is validated against that kind's own full schema).
+- The client keeps using the one shared body route and `saveArtifactBody` (`src/lib/client/api/artifacts.ts`); there is no
+  `saveCanvasBody`.
+
+## 65. Wave 3 order, and Slides waits on its own branch until Canvas ships
+
+*Orchestrator, 2026-09-29, from the owner's Wave 3 instruction (S3, S4, then the S6 remainder and focus-trap pass two;
+stop at each milestone for the owner's check).*
+- Canvas is the first milestone. Slides work runs beside it on **`feat/artifacts-slides`** (branched from
+  `feat/artifacts`, its agents branch from it, and `feat/artifacts` is merged into it after each Canvas merge). It joins
+  `feat/artifacts` only when Slides is whole, so ai.dev never offers a kind whose panel is half built.
+- Slides de-risks first: the deck model, the `create_artifact` handler and eval suite 4's create cases run before its
+  panel is built (`slice-4.md` treats suite 4 as a hard precondition; a weak result is an owner decision per ADR-0066).
+  The suite scores the fixture's **declared** language (ruling 55), not `detectLanguage`.
+- The S6 remainder follows Slides without waiting for S5b: ruling 31's order only governs appends to the shared
+  containment suite, which stays append-only either way.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.

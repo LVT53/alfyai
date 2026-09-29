@@ -736,3 +736,32 @@ Rulings (orchestrator):
 `CommentCard`/`CommentThread`, `ReviewBar`, `RefusalNotice`, `AnchoredPopover`, the sheet patterns, `keyboard-shortcuts.ts`).
 Sub-agents: `sonnet` now resolves to `claude-sonnet-5-5`. The merged `art-rd*`, `art-fx*`, `art-g*`, `art-secfix`, `art-rdfix`
 and `rv-rd` worktrees can be removed.
+
+## Wave 3 — Canvas, Slides, then the tours (orchestrator session of 2026-09-29 evening)
+
+Start: `feat/artifacts` = `6eff6e31` (= `dev` `f6701fce` + docs), ai.dev = `f6701fce`. Weekly budget (all models) **44 %**,
+resets 2026-10-05 08:59 UTC; 5-hour window 2 %. New rulings 62–65 (`decisions.md`): what a tool advertises is what its
+validator parses; a Canvas change is reviewed as one change with the Document's parts; Canvas block schemas are
+server-safe and the model makes only note-shaped blocks; Slides waits on `feat/artifacts-slides` until it is whole, and
+de-risks with its model contract first. Briefs, reports: `docs/plans/claude-at-home-2/wave-3/` (`common.md` + `*-brief.md`);
+reports land in this session's scratchpad `w3/` and are copied here at merge.
+
+Milestones (stop for the owner at each): **M1 Canvas on ai.dev**, **M2 Slides on ai.dev**, **M3 the S6 remainder and
+focus-trap pass two**. At most two agents at a time, Sonnet (`claude-sonnet-5-5`) for building, Opus only for the Canvas
+and Slides protocol reviews and anything touching ownership or deletion.
+
+| Agent | Scope | Branch / worktree (port) | Needs | State |
+|---|---|---|---|---|
+| S3-P | Canvas body + canonical hash, shared ops mechanism, board-ops vocabulary, envelope, ops route, client call (T1, T6 server) | `feat/artifacts-s3-protocol` / `art-s3p` (5400) | — | dispatched |
+| S4-D | Slides deck model, `create_artifact` handler, suite 4 create cases live (T1, T7 create) | `feat/artifacts-s4-deck` / `art-s4d` (5410), off `feat/artifacts-slides` | — | dispatched |
+| S3-T | Canvas `create/read/edit_artifact` handlers (advertised = validator), Regenerate, the canvas eval suite live (T10) | — | S3-P | queued |
+| S3-B | the new dependencies, board, block registry, nodes, editor in the panel, card branch, tokens (T2) | — | S3-P | queued |
+| S3-F | frames, reparenting, connectors, the drawing layer (T3, T4) | — | S3-B | queued |
+| S3-C | comment pins on the shared comment parts; containment, archive, i18n audit (T5, T9) | — | S3-F | queued |
+| S3-A | Alfy's diff landing (arranging frame, tween, highlight) and the one-change review (T6 client, ruling 63) | — | S3-C, S3-T | queued |
+| S3-X | posters, PNG export, the refresh route; perf budget and chunk guard (T7, T8) | — | S3-A | queued |
+| RV-3 | **Opus** review: the Canvas protocol, the tools, the refresh route (outbound fetch), ownership | — | S3-T | queued |
+| S4-P | Slides panel: layouts, rail, stage, editor, card branch (T2) | off `feat/artifacts-slides` | S4-D (suite 4 result) | queued |
+| S4-O | Slides patches (`deck-ops.ts` on the shared mechanism), read/edit handlers, "Ask Alfy about this slide", suite 4's edit case (T3, T4) | off `feat/artifacts-slides` | S3-P merged into it, S4-P | queued |
+| S4-X | speaker notes, present mode, PPTX export (T5, T6) | off `feat/artifacts-slides` | S4-P | queued |
+| RV-4 | **Opus** review: Slides patches and the PPTX program | — | S4-O | queued |
