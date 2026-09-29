@@ -5,6 +5,7 @@ import { users } from "../../src/lib/server/db/schema";
 import {
 	createDocumentArtifact,
 	listVersions,
+	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
 import { runReadArtifactTool } from "../../src/lib/server/services/normal-chat-tools/artifact-tools/read";
 import {
@@ -284,5 +285,263 @@ test.describe("one version number on every surface", () => {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (providerId) await deleteTemporaryProvider(page, providerId);
 		}
+	});
+});
+
+// ---- the Versions popover itself (polish G1-B, owner: "clunky, not very nice") --
+
+/** A Document with `extra` more versions on top of v1, alternating authors, so the list has something to show. */
+async function seedDocumentWithVersions(
+	conversationId: string,
+	extra: number,
+): Promise<string> {
+	const userId = await testUserId();
+	const artifact = await createDocumentArtifact({
+		userId,
+		conversationId,
+		title: "Popover walk",
+		markdown: "Book the hotel.\n\nBook the flight.",
+		author: "alfy",
+		summary: "Alfy wrote the first draft",
+	});
+	for (let i = 1; i <= extra; i++) {
+		await updateArtifactBody({
+			userId,
+			artifactId: artifact.id,
+			conversationId,
+			body: `Book the hotel.\n\nBook the flight. Revision ${i}.`,
+			author: i % 2 === 0 ? "alfy" : "user",
+			summary: `A summary that is long enough to need an ellipsis in a narrow row, number ${i}`,
+		});
+	}
+	return artifact.id;
+}
+
+async function openVersionsPopover(page: Page): Promise<Locator> {
+	await headerPill(page).click();
+	const popover = page.getByTestId("document-versions-popover");
+	await expect(popover).toBeVisible();
+	await expect(popover.getByTestId("version-row").first()).toBeVisible();
+	return popover;
+}
+
+async function boxOf(locator: Locator) {
+	const box = await locator.boundingBox();
+	expect(box, "the element must have a box").not.toBeNull();
+	return box as { x: number; y: number; width: number; height: number };
+}
+
+for (const viewport of [
+	{ width: 1440, height: 900 },
+	{ width: 1280, height: 800 },
+]) {
+	test.describe(`the Versions popover at ${viewport.width}x${viewport.height}`, () => {
+		test.beforeEach(async ({ page }) => {
+			await page.setViewportSize(viewport);
+			await login(page);
+		});
+
+		test("opens under its own button, inside the panel, never over the chat column", async ({
+			page,
+		}) => {
+			const conversationId = await createConversation(page, "Popover place");
+			await seedDocumentWithVersions(conversationId, 5);
+			await openChatAndReload(page, conversationId);
+			await openDocumentFromPanel(page);
+
+			const popover = await openVersionsPopover(page);
+			const pill = await boxOf(headerPill(page));
+			const panel = await boxOf(
+				page.locator(".workspace-shell-desktop").first(),
+			);
+			const box = await boxOf(popover);
+
+			// Under the button, left edges aligned (unless the panel edge forces a shift).
+			expect(box.y).toBeGreaterThanOrEqual(pill.y + pill.height);
+			expect(box.y - (pill.y + pill.height)).toBeLessThanOrEqual(16);
+			expect(Math.abs(box.x - pill.x)).toBeLessThanOrEqual(2);
+			// Inside the panel on both sides: the chat column is left of panel.x.
+			expect(box.x).toBeGreaterThanOrEqual(panel.x);
+			expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width);
+			// The mockup's width band.
+			expect(box.width).toBeGreaterThanOrEqual(320);
+			expect(box.width).toBeLessThanOrEqual(360);
+			// And inside the window vertically.
+			expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+			await expect(headerPill(page)).toHaveAttribute("aria-expanded", "true");
+		});
+
+		test("stays under its button in the expanded panel too", async ({
+			page,
+		}) => {
+			const conversationId = await createConversation(page, "Popover wide");
+			await seedDocumentWithVersions(conversationId, 5);
+			await openChatAndReload(page, conversationId);
+			await openDocumentFromPanel(page);
+			await page.locator(".workspace-expand-button:visible").first().click();
+
+			const popover = await openVersionsPopover(page);
+			const pill = await boxOf(headerPill(page));
+			const box = await boxOf(popover);
+			expect(box.x).toBeGreaterThanOrEqual(0);
+			expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+			expect(box.y).toBeGreaterThanOrEqual(pill.y + pill.height);
+			expect(Math.abs(box.x - pill.x)).toBeLessThanOrEqual(2);
+		});
+	});
+}
+
+test.describe("the Versions popover's rows", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+	});
+
+	test("are evenly spaced, and showing Restore neither moves nor resizes a row", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Popover rows");
+		await seedDocumentWithVersions(conversationId, 5);
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+		const popover = await openVersionsPopover(page);
+
+		const rows = popover.getByTestId("version-row");
+		const count = await rows.count();
+		expect(count).toBe(6);
+		const before = [];
+		for (let i = 0; i < count; i++) before.push(await boxOf(rows.nth(i)));
+
+		// Every row after the newest is the same height, and the pitch between
+		// rows never varies: no row reserves room for a button it is not showing.
+		const restHeights = before.slice(1).map((b) => Math.round(b.height));
+		expect(new Set(restHeights).size).toBe(1);
+		const pitches = before
+			.slice(1)
+			.map((b, i) => Math.round(b.y - (before[i].y + before[i].height)));
+		expect(new Set(pitches).size).toBe(1);
+
+		// Hover a row: its Restore appears, and nothing moves.
+		const hovered = rows.nth(2);
+		const action = hovered.locator(".versions-action");
+		await expect(action).toHaveCSS("opacity", "0");
+		await hovered.hover();
+		await expect(action).toHaveCSS("opacity", "1");
+		const after = [];
+		for (let i = 0; i < count; i++) after.push(await boxOf(rows.nth(i)));
+		expect(after).toEqual(before);
+		// The summary keeps its full width at rest and while Restore shows.
+		const summaryWidth = (await boxOf(hovered.locator(".versions-summary")))
+			.width;
+		await page.mouse.move(0, 0);
+		await expect(action).toHaveCSS("opacity", "0");
+		expect((await boxOf(hovered.locator(".versions-summary"))).width).toBe(
+			summaryWidth,
+		);
+	});
+
+	test("scrolls inside itself when the history is long, staying inside the window", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Popover long");
+		await seedDocumentWithVersions(conversationId, 18);
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+		const popover = await openVersionsPopover(page);
+
+		const box = await boxOf(popover);
+		expect(box.y + box.height).toBeLessThanOrEqual(900);
+		expect(box.height).toBeLessThanOrEqual(480);
+		const body = popover.locator(".anchored-popover-body");
+		const scrolls = await body.evaluate(
+			(el) => el.scrollHeight > el.clientHeight,
+		);
+		expect(scrolls, "a long history scrolls inside the popover").toBe(true);
+		// The heading stays put while the list scrolls.
+		const heading = popover.getByRole("heading", { name: "Versions" });
+		const headingBefore = await boxOf(heading);
+		await body.evaluate((el) => {
+			el.scrollTop = el.scrollHeight;
+		});
+		expect(await boxOf(heading)).toEqual(headingBefore);
+	});
+
+	test("work with the keyboard alone: Tab reaches Restore and shows it, Enter asks, Escape closes and returns focus to the version button", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Popover keys");
+		await seedDocumentWithVersions(conversationId, 3);
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+		const popover = await openVersionsPopover(page);
+
+		const rows = popover.getByTestId("version-row");
+		// Focus starts on the close button; the next Tab stop is the first
+		// Restore (the newest row has none).
+		await page.keyboard.press("Tab");
+		const firstRestore = rows.nth(1).getByRole("button", { name: "Restore" });
+		await expect(firstRestore).toBeFocused();
+		await expect(rows.nth(1).locator(".versions-action")).toHaveCSS(
+			"opacity",
+			"1",
+		);
+		// Its focus ring is visible.
+		const ring = await firstRestore.evaluate(
+			(el) => getComputedStyle(el).boxShadow,
+		);
+		expect(ring).not.toBe("none");
+
+		await page.keyboard.press("Enter");
+		await expect(rows.nth(1)).toContainText(/Restore v3\?/);
+		// The question's confirming button took focus.
+		await expect(
+			rows.nth(1).getByRole("button", { name: "Restore" }),
+		).toBeFocused();
+		// Cancel puts focus back on the row's own Restore.
+		await rows.nth(1).getByRole("button", { name: "Cancel" }).click();
+		await expect(
+			rows.nth(1).getByRole("button", { name: "Restore" }),
+		).toBeFocused();
+
+		await page.keyboard.press("Escape");
+		await expect(popover).toHaveCount(0);
+		await expect(headerPill(page)).toBeFocused();
+		await expect(headerPill(page)).not.toHaveAttribute("aria-expanded", "true");
+	});
+});
+
+test.describe("the Versions sheet on a phone", () => {
+	test("shows the same rows in a sheet, over the mobile shell", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await login(page);
+		const conversationId = await createConversation(page, "Popover phone");
+		await seedDocumentWithVersions(conversationId, 4);
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button-compact").click();
+		await page
+			.getByTestId("artifact-panel-list-mobile")
+			.getByTestId("artifact-row")
+			.first()
+			.click({ timeout: 30_000 });
+		await headerPill(page).click();
+
+		const dialog = page.getByRole("dialog", { name: "Versions" });
+		await expect(dialog).toBeVisible();
+		const rows = dialog.getByTestId("version-row");
+		await expect(rows).toHaveCount(5);
+		// Really on top: the sheet's own row is what a tap at its centre reaches.
+		const box = await boxOf(rows.first());
+		const topmost = await page.evaluate(
+			({ x, y }) =>
+				document
+					.elementFromPoint(x, y)
+					?.closest('[data-testid="version-row"]') !== null,
+			{ x: box.x + box.width / 2, y: box.y + box.height / 2 },
+		);
+		expect(topmost).toBe(true);
+		const width = (await boxOf(dialog)).width;
+		expect(width).toBeLessThanOrEqual(390);
 	});
 });
