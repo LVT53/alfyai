@@ -443,8 +443,12 @@ describe("a chart block", () => {
 
 describe("a block whose kind this build cannot draw", () => {
 	it("draws the missing-kind card, in the reader's language, and stays a real node", () => {
-		mount(MissingKindNode, { id: "map-1", type: "map", selected: false });
-		expect(screen.getByTestId("canvas-missing-kind")).toBeInTheDocument();
+		const { container } = mount(MissingKindNode, {
+			id: "map-1",
+			type: "map",
+			selected: false,
+		});
+		expect(container.querySelector('[data-missing="true"]')).not.toBeNull();
 		expect(
 			screen.getByText("This block's type is not supported any more."),
 		).toBeInTheDocument();

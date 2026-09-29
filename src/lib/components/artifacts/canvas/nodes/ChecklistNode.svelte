@@ -246,7 +246,7 @@ function add(): void {
 		font-size: var(--text-2xs);
 	}
 
-	@media (pointer: coarse) {
+	@media (max-width: 767px), (pointer: coarse) {
 		.row {
 			min-height: 44px;
 		}

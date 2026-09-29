@@ -98,7 +98,7 @@ let {
 		outline-offset: 1px;
 	}
 
-	@media (pointer: coarse) {
+	@media (max-width: 767px), (pointer: coarse) {
 		.zoom__button {
 			width: 44px;
 			height: 44px;

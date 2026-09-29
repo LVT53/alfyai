@@ -65,7 +65,8 @@ let {
 	header?: Snippet;
 	/** Extra controls for the selection toolbar, before Delete. */
 	toolbar?: Snippet;
-	children: Snippet;
+	/** The block itself; a card with nothing to show but its header (the missing-kind card) has none. */
+	children?: Snippet;
 } = $props();
 
 const board = useBoardContext();
@@ -102,11 +103,25 @@ const ANCHORS = [
 const wrapperBehaviour: Attachment<HTMLElement> = (element) => {
 	const wrapper = element.closest<HTMLElement>(".svelte-flow__node");
 	if (!wrapper) return;
-	wrapper.setAttribute("aria-roledescription", kindLabel);
-	wrapper.setAttribute(
-		"aria-label",
-		summary ? `${kindLabel}: ${summary}` : kindLabel,
-	);
+	const roleDescription = kindLabel;
+	const name = summary ? `${kindLabel}: ${summary}` : kindLabel;
+	const describe = () => {
+		if (wrapper.getAttribute("aria-roledescription") !== roleDescription) {
+			wrapper.setAttribute("aria-roledescription", roleDescription);
+		}
+		if (wrapper.getAttribute("aria-label") !== name) {
+			wrapper.setAttribute("aria-label", name);
+		}
+	};
+	describe();
+	// The library owns these two attributes on its wrapper and writes them itself
+	// (its own "node" and no label) at moments this component cannot see, so what
+	// is written here is put back whenever it is overwritten.
+	const keeper = new MutationObserver(describe);
+	keeper.observe(wrapper, {
+		attributes: true,
+		attributeFilter: ["aria-label", "aria-roledescription"],
+	});
 	const onKeydown = (event: KeyboardEvent) => {
 		if (event.target !== wrapper || !activate || !editable) return;
 		if (event.key !== "Enter" && event.key !== "F2") return;
@@ -114,7 +129,10 @@ const wrapperBehaviour: Attachment<HTMLElement> = (element) => {
 		activate();
 	};
 	wrapper.addEventListener("keydown", onKeydown);
-	return () => wrapper.removeEventListener("keydown", onKeydown);
+	return () => {
+		keeper.disconnect();
+		wrapper.removeEventListener("keydown", onKeydown);
+	};
 };
 
 function deleteBlock(): void {
@@ -129,6 +147,7 @@ function deleteBlock(): void {
 	data-node-id={id}
 	data-kind={kind}
 	data-selected={selected ? "true" : "false"}
+	data-missing={blockMeta.kind === "missing" ? "true" : undefined}
 	{@attach wrapperBehaviour}
 >
 	<div class="canvas-node__box" data-tone={tone}>
@@ -144,7 +163,7 @@ function deleteBlock(): void {
 			</div>
 		{/if}
 		<div class="canvas-node__content">
-			{@render children()}
+			{@render children?.()}
 		</div>
 	</div>
 
@@ -243,6 +262,11 @@ function deleteBlock(): void {
 		color: var(--text-muted);
 		font-size: var(--text-xs);
 		line-height: 1.3;
+	}
+
+	/* A card whose body is empty is just its header: no rule under it. */
+	.canvas-node__head:has(+ .canvas-node__content:empty) {
+		border-bottom: 0;
 	}
 
 	.canvas-node__title {
@@ -387,7 +411,7 @@ function deleteBlock(): void {
 		outline-offset: 1px;
 	}
 
-	@media (pointer: coarse) {
+	@media (max-width: 767px), (pointer: coarse) {
 		:global(.canvas-node-toolbar__button) {
 			min-width: 44px;
 			height: 44px;
@@ -414,12 +438,15 @@ function deleteBlock(): void {
 		cursor: crosshair;
 	}
 
-	/* The four resize corners: the mockup's 7px squares. */
+	/* The four resize corners: the mockup's 7px squares. Grabbable even on a
+	   frame, whose own node ignores the pointer (that is inherited, so it is
+	   undone here). */
 	:global(.svelte-flow__resize-control.handle.canvas-resize) {
 		width: 8px;
 		height: 8px;
 		border: 1.5px solid var(--accent);
 		border-radius: 2px;
 		background: var(--surface-page);
+		pointer-events: auto;
 	}
 </style>

@@ -143,7 +143,7 @@ function startEditing(): void {
 		outline-offset: 1px;
 	}
 
-	@media (pointer: coarse) {
+	@media (max-width: 767px), (pointer: coarse) {
 		.tone {
 			width: 44px;
 			height: 44px;

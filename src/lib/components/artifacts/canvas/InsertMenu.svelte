@@ -121,7 +121,7 @@ function handleKeydown(event: KeyboardEvent): void {
 		outline-offset: -2px;
 	}
 
-	@media (pointer: coarse) {
+	@media (max-width: 767px), (pointer: coarse) {
 		.insert-menu__row {
 			min-height: 44px;
 		}

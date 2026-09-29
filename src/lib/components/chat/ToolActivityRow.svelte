@@ -241,6 +241,12 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 		current,
 		factCheckLine,
 		blockCount,
+		// A board's card names its version like a Document's does: the number
+		// the chat page already follows (`body.preview` is read through it).
+		versionNumber:
+			body.artifactKind === "canvas"
+				? (body.preview?.versionNumber ?? null)
+				: null,
 	};
 }
 

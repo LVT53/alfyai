@@ -232,7 +232,7 @@ let redoLabel = $derived(
 		background: var(--border-default);
 	}
 
-	@media (pointer: coarse) {
+	@media (max-width: 767px), (pointer: coarse) {
 		.tool {
 			min-width: 44px;
 			height: 44px;

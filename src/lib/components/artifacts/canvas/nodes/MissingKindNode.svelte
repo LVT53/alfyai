@@ -23,13 +23,4 @@ let minSize = $derived(metaFor(type).minSize);
 	{selected}
 	minWidth={minSize.width}
 	minHeight={minSize.height}
->
-	<span class="missing" data-testid="canvas-missing-kind"></span>
-</NodeShell>
-
-<style>
-	.missing {
-		display: block;
-		min-height: 20px;
-	}
-</style>
+/>

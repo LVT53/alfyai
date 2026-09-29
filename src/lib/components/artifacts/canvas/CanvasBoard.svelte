@@ -42,6 +42,7 @@ import {
 import { onDestroy, untrack } from "svelte";
 import { historyShortcutFor } from "$lib/components/artifacts/document/keyboard-shortcuts";
 import { t } from "$lib/i18n";
+import { prefersReducedMotion } from "$lib/utils/motion";
 import type { Annotation, CanvasBody } from "$lib/shared/artifacts/canvas";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
 import { createBoardHistory } from "./_lib/board-history";
@@ -332,6 +333,21 @@ function minimapColor(node: {
 	data-testid="canvas-board"
 	data-tool={tool}
 >
+	<!-- First in the DOM, so the keyboard reaches the tools before the blocks
+	     (header, toolbar, then the board); it is painted above by its z-index. -->
+	<CanvasToolbar
+		{tool}
+		{compact}
+		{canUndo}
+		{canRedo}
+		disabled={readonly}
+		emphasizeInsert={empty}
+		ontoolchange={(next) => (tool = next)}
+		onundo={undo}
+		onredo={redo}
+		oninsert={insertBlock}
+	/>
+
 	<SvelteFlow
 		bind:nodes
 		bind:edges
@@ -369,12 +385,12 @@ function minimapColor(node: {
 				style="margin-bottom: 52px;"
 			/>
 		{/if}
-		<Panel position="bottom-right" class="canvas-corner">
+		<Panel position="bottom-right" class={["canvas-corner", compact && "canvas-corner--compact"]}>
 			<ZoomChip
 				zoom={viewport.zoom}
 				onzoomin={() => flow.zoomIn()}
 				onzoomout={() => flow.zoomOut()}
-				onfit={() => flow.fitView({ ...fitViewOptions, duration: 200 })}
+				onfit={() => flow.fitView({ ...fitViewOptions, duration: prefersReducedMotion() ? 0 : 200 })}
 			/>
 		</Panel>
 	</SvelteFlow>
@@ -385,18 +401,7 @@ function minimapColor(node: {
 		</p>
 	{/if}
 
-	<CanvasToolbar
-		{tool}
-		{compact}
-		{canUndo}
-		{canRedo}
-		disabled={readonly}
-		emphasizeInsert={empty}
-		ontoolchange={(next) => (tool = next)}
-		onundo={undo}
-		onredo={redo}
-		oninsert={insertBlock}
-	/>
+
 
 	<span class="sr-only" role="status" aria-live="polite">{announcement}</span>
 </div>
@@ -460,6 +465,12 @@ function minimapColor(node: {
 
 	.canvas-board :global(.canvas-corner) {
 		margin: 12px;
+	}
+
+	/* On a narrow board the toolbar spans most of the bottom edge, so the zoom
+	   sits just above it instead of under it. */
+	.canvas-board :global(.canvas-corner--compact) {
+		margin-bottom: 68px;
 	}
 
 	.canvas-empty {

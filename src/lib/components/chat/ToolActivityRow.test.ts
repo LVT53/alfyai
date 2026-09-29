@@ -736,7 +736,7 @@ describe("ToolActivityRow", () => {
 			const { getByTestId } = render(ToolActivityRow, { item: withPreview });
 
 			expect(getByTestId("artifact-card-head")).toHaveTextContent(
-				"Canvas · 11 blocks",
+				"Canvas · 11 blocks · v7",
 			);
 		});
 

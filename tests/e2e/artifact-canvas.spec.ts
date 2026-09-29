@@ -248,7 +248,7 @@ test.describe("the Canvas kind, in the panel", () => {
 		).toBeChecked();
 		// A kind this build has no component for is drawn as a card that says so,
 		// and stays on the board.
-		await expect(page.getByTestId("canvas-missing-kind")).toHaveCount(1);
+		await expect(page.locator('[data-missing="true"]')).toHaveCount(1);
 		await expect(
 			page.getByText("This block's type is not supported any more."),
 		).toBeVisible();
@@ -481,6 +481,189 @@ test.describe("the Canvas kind, in the panel", () => {
 		).toMatchObject({ text: "Lunch at the market, then the museum" });
 	});
 
+	test("moves a block by dragging it, and saves where it was dropped", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Move me");
+		const artifactId = await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const text = page.locator(`.svelte-flow__node[data-id="${BOARD.text}"]`);
+		const box = await text.boundingBox();
+		if (!box) throw new Error("the text block has no box");
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(
+			box.x + box.width / 2 + 90,
+			box.y + box.height / 2 + 50,
+			{
+				steps: 10,
+			},
+		);
+		await page.mouse.up();
+		await savedStatus(page);
+		const moved = (await storedBoard(artifactId)).nodes.find(
+			(node) => node.id === BOARD.text,
+		);
+		expect(moved?.position.x).toBeGreaterThan(480);
+		expect(moved?.position.y).toBeGreaterThan(60);
+	});
+
+	test("deletes a selected block from its toolbar, and Undo brings it back", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Delete me");
+		const artifactId = await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		await page.getByTestId("canvas-text").click();
+		await expect(page.getByTestId("canvas-node-toolbar")).toBeVisible();
+		await page.getByTestId("canvas-node-delete").click();
+		await expect(page.getByTestId("canvas-node")).toHaveCount(5);
+		await savedStatus(page);
+		expect(
+			(await storedBoard(artifactId)).nodes.some(
+				(node) => node.id === BOARD.text,
+			),
+		).toBe(false);
+
+		await page.getByTestId("canvas-undo").click();
+		await expect(page.getByTestId("canvas-node")).toHaveCount(6);
+		await expect(page.getByText("Weekend plan")).toBeVisible();
+		await savedStatus(page);
+		expect(
+			(await storedBoard(artifactId)).nodes.some(
+				(node) => node.id === BOARD.text,
+			),
+		).toBe(true);
+	});
+
+	test("deletes a selected block with the Delete key, but not while a field has the keyboard", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Keys delete");
+		await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		// Typing Backspace in a note's field edits the note; it never deletes it.
+		await page.getByTestId("canvas-sticky").dblclick();
+		const field = page.getByRole("textbox", { name: "Sticky note" });
+		await expect(field).toBeFocused();
+		await page.keyboard.press("Backspace");
+		await expect(page.getByTestId("canvas-node")).toHaveCount(6);
+		await page.keyboard.press("Escape");
+
+		await page.getByTestId("canvas-text").click();
+		await page.keyboard.press("Delete");
+		await expect(page.getByTestId("canvas-node")).toHaveCount(5);
+	});
+
+	test("connects two blocks with one drag from an anchor: exactly one edge, with an id of the board's own", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Connect them");
+		const artifactId = await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		await page.getByTestId("canvas-sticky").click();
+		const anchor = page.locator(
+			`.svelte-flow__handle[data-nodeid="${BOARD.note}"][data-handleid="right"]`,
+		);
+		await expect(anchor).toBeVisible();
+		const from = await anchor.boundingBox();
+		const target = await page
+			.locator(`.svelte-flow__node[data-id="${BOARD.text}"]`)
+			.boundingBox();
+		if (!from || !target) throw new Error("no boxes");
+		await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(
+			target.x + target.width / 2,
+			target.y + target.height / 2,
+			{
+				steps: 12,
+			},
+		);
+		await page.mouse.up();
+		await expect(page.locator(".svelte-flow__edge")).toHaveCount(1);
+		await savedStatus(page);
+		const { edges } = await storedBoard(artifactId);
+		expect(edges).toHaveLength(1);
+		expect(edges[0]).toMatchObject({ source: BOARD.note, target: BOARD.text });
+		expect(edges[0].id.length).toBeGreaterThan(0);
+		expect(edges[0].id.length).toBeLessThanOrEqual(128);
+		expect(edges[0].id.startsWith("xy-edge__")).toBe(false);
+	});
+
+	test("moves a frame by its name chip, and what is inside it goes along", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Move the frame");
+		const artifactId = await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const chip = page.getByTestId("canvas-frame-label");
+		const before = await page.getByTestId("canvas-sticky").boundingBox();
+		const at = await chip.boundingBox();
+		if (!at || !before) throw new Error("no boxes");
+		await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(at.x + at.width / 2 + 70, at.y + at.height / 2 + 45, {
+			steps: 10,
+		});
+		await page.mouse.up();
+		await savedStatus(page);
+
+		const after = await page.getByTestId("canvas-sticky").boundingBox();
+		expect(after && after.x - before.x).toBeGreaterThan(50);
+		const stored = await storedBoard(artifactId);
+		const frame = stored.nodes.find((node) => node.id === BOARD.frame);
+		const note = stored.nodes.find((node) => node.id === BOARD.note);
+		expect(frame?.position.x).toBeGreaterThan(40);
+		// The note keeps its place INSIDE the frame: it moved with it.
+		expect(note?.parentId).toBe(BOARD.frame);
+		expect(note?.position).toEqual({ x: 20, y: 60 });
+	});
+
+	test("resizes a frame from a corner, and its size is the same on the node and in its data", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Resize me");
+		const artifactId = await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		await page.getByTestId("canvas-frame-label").click();
+		const corner = page.locator(
+			`.svelte-flow__node[data-id="${BOARD.frame}"] .svelte-flow__resize-control.handle.bottom.right`,
+		);
+		await expect(corner).toBeVisible();
+		const at = await corner.boundingBox();
+		if (!at) throw new Error("no corner box");
+		await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(at.x + at.width / 2 + 60, at.y + at.height / 2 + 40, {
+			steps: 8,
+		});
+		await page.mouse.up();
+		await savedStatus(page);
+		const frame = (await storedBoard(artifactId)).nodes.find(
+			(node) => node.id === BOARD.frame,
+		);
+		expect(frame?.width).toBeGreaterThan(360);
+		expect(frame?.height).toBeGreaterThan(300);
+		expect(frame?.data).toMatchObject({
+			kind: "frame",
+			width: frame?.width,
+			height: frame?.height,
+		});
+	});
+
 	test("keeps the board's own content clear of the toolbar and the minimap", async ({
 		page,
 	}) => {
@@ -667,6 +850,95 @@ test.describe("the Canvas kind, in the panel", () => {
 		});
 	});
 
+	test("names every control and every block, and the keyboard reaches the toolbar before the blocks", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Names and order");
+		await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const toolbar = page.getByRole("toolbar", { name: "Canvas tools" });
+		await expect(toolbar).toBeVisible();
+		for (const name of ["Select", "Pan", "Undo", "Redo", "Insert"]) {
+			await expect(toolbar.getByRole("button", { name })).toBeVisible();
+		}
+		// A mode says whether it is on; the menu button says what it opens.
+		await expect(
+			toolbar.getByRole("button", { name: "Select" }),
+		).toHaveAttribute("aria-pressed", "true");
+		await expect(toolbar.getByRole("button", { name: "Pan" })).toHaveAttribute(
+			"aria-pressed",
+			"false",
+		);
+		await expect(
+			toolbar.getByRole("button", { name: "Insert" }),
+		).toHaveAttribute("aria-haspopup", "menu");
+		// Each block is announced by what it is and what it says.
+		await expect(
+			page.getByRole("group", { name: "Sticky note: Lunch at the market" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("group", { name: "Text: Weekend plan" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("group", { name: "Frame: Saturday" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("group", { name: "Checklist: Pack" }),
+		).toBeVisible();
+
+		// Tab order: Select, Pan (Undo and Redo are off with nothing to undo), Insert,
+		// then on into the blocks.
+		await toolbar.getByRole("button", { name: "Select" }).focus();
+		await page.keyboard.press("Tab");
+		await expect(toolbar.getByRole("button", { name: "Pan" })).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(toolbar.getByRole("button", { name: "Insert" })).toBeFocused();
+		await page.keyboard.press("Tab");
+		const landedOnABlock = await page.evaluate(() =>
+			document.activeElement?.classList.contains("svelte-flow__node"),
+		);
+		expect(landedOnABlock).toBe(true);
+		// And it shows where it is: a real outline, from the app's focus ring.
+		const outline = await page.evaluate(() => {
+			const style = getComputedStyle(document.activeElement as Element);
+			return {
+				style: style.outlineStyle,
+				width: Number.parseFloat(style.outlineWidth),
+			};
+		});
+		expect(outline.style).not.toBe("none");
+		expect(outline.width).toBeGreaterThanOrEqual(2);
+	});
+
+	test("opens a block for editing from the keyboard: Enter on the focused note", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Keyboard edit");
+		const artifactId = await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const note = page.getByRole("group", {
+			name: "Sticky note: Lunch at the market",
+		});
+		await note.focus();
+		await page.keyboard.press("Enter");
+		const field = page.getByRole("textbox", { name: "Sticky note" });
+		await expect(field).toBeFocused();
+		await page.keyboard.type(", then coffee");
+		await page.keyboard.press("Escape");
+		// Focus is back on the note, not lost.
+		await expect(note).toBeFocused();
+		await savedStatus(page);
+		expect(
+			(await storedBoard(artifactId)).nodes.find(
+				(node) => node.id === BOARD.note,
+			)?.data,
+		).toMatchObject({ text: "Lunch at the market, then coffee" });
+	});
+
 	test("collapses its toolbar on a phone: no Pan, and every button is a full-size touch target", async ({
 		page,
 	}) => {
@@ -685,6 +957,14 @@ test.describe("the Canvas kind, in the panel", () => {
 		expect(box && box.x >= 0 && box.x + box.width <= 390).toBe(true);
 		// No overview on a phone: the room is the board's.
 		await expect(page.locator(".svelte-flow__minimap")).toHaveCount(0);
+		// Every tool is a full-size touch target.
+		for (const button of await toolbar.getByRole("button").all()) {
+			const size = await button.boundingBox();
+			expect(size && size.width >= 44 && size.height >= 44).toBe(true);
+		}
+		// The zoom sits above the toolbar, not under it.
+		const zoom = await page.getByTestId("canvas-zoom").boundingBox();
+		expect(zoom && box && zoom.y + zoom.height <= box.y).toBe(true);
 		await expect(
 			page.getByRole("toolbar", { name: "Canvas tools" }),
 		).toBeVisible();
