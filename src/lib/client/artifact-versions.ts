@@ -17,6 +17,12 @@
  * restore, an Undo and an Alfy edit each append one), so "the highest number
  * heard so far" is exact, and a response that arrives late with an older
  * number can never pull a surface backwards.
+ *
+ * The time of the last change (polish G2-A: the header's "edited 2 min ago",
+ * the list row's time) follows the very same rule, and so does a deletion: an
+ * id that has been deleted is deleted for good, and what was heard about it
+ * is forgotten so a copy made later under the same id starts from its own
+ * numbers.
  */
 
 /** Artifact id → the highest version number the server has reported for it. */
@@ -89,4 +95,91 @@ export function withCurrentItemVersion<
 	if (current === undefined) return item;
 	const snapshot = item.versionNumber ?? 0;
 	return current > snapshot ? { ...item, versionNumber: current } : item;
+}
+
+/** Artifact id → the latest time (epoch ms) the browser has heard the artifact was changed. */
+export type ObservedArtifactTimes = Readonly<Record<string, number>>;
+
+export const NO_OBSERVED_ARTIFACT_TIMES: ObservedArtifactTimes = Object.freeze(
+	{},
+);
+
+/**
+ * Records when the server (or an acknowledged write) says an artifact changed.
+ * Same contract as `observeArtifactVersion`: monotonic, and the very same
+ * object comes back when nothing is newer. A response that does not say when
+ * (`null`) is simply not an observation.
+ */
+export function observeArtifactUpdatedAt(
+	observed: ObservedArtifactTimes,
+	artifactId: string,
+	updatedAt: number | null | undefined,
+): ObservedArtifactTimes {
+	if (
+		updatedAt === null ||
+		updatedAt === undefined ||
+		!Number.isFinite(updatedAt) ||
+		updatedAt <= 0
+	) {
+		return observed;
+	}
+	const known = observed[artifactId];
+	if (known !== undefined && known >= updatedAt) return observed;
+	return { ...observed, [artifactId]: updatedAt };
+}
+
+/** A conversation-detail row carrying the current change time. The same row when it already does. */
+export function withCurrentSummaryUpdatedAt<
+	T extends { id: string; updatedAt: number },
+>(row: T, observed: ObservedArtifactTimes): T {
+	const seen = observed[row.id];
+	return seen !== undefined && seen > row.updatedAt
+		? { ...row, updatedAt: seen }
+		: row;
+}
+
+/**
+ * An open panel item carrying the current change time (the header's meta
+ * line reads it). `currentById` is the page's live per-artifact times.
+ */
+export function withCurrentItemUpdatedAt<
+	T extends {
+		artifactId?: string | null;
+		kind?: string | null;
+		updatedAt?: number | null;
+	},
+>(item: T, currentById: ReadonlyMap<string, number>): T {
+	if (!item.artifactId || !item.kind) return item;
+	const current = currentById.get(item.artifactId);
+	if (current === undefined) return item;
+	return current > (item.updatedAt ?? 0)
+		? { ...item, updatedAt: current }
+		: item;
+}
+
+/** The deleted ids with one more. The same list when it was already there. */
+export function markArtifactDeleted(
+	deleted: readonly string[],
+	artifactId: string,
+): readonly string[] {
+	return deleted.includes(artifactId) ? deleted : [...deleted, artifactId];
+}
+
+/** What was heard about an artifact (versions or times), dropped — the same object when nothing was heard. */
+export function forgetObservedArtifact<
+	T extends Readonly<Record<string, number>>,
+>(observed: T, artifactId: string): T {
+	if (!(artifactId in observed)) return observed;
+	const { [artifactId]: _gone, ...rest } = observed;
+	return rest as unknown as T;
+}
+
+/** A list without its deleted rows. The same array when none of them is in it. */
+export function dropDeletedArtifacts<T extends { id: string }>(
+	rows: readonly T[],
+	deleted: readonly string[],
+): readonly T[] {
+	if (deleted.length === 0) return rows;
+	const kept = rows.filter((row) => !deleted.includes(row.id));
+	return kept.length === rows.length ? rows : kept;
 }
