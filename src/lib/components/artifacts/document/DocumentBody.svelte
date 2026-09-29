@@ -2846,6 +2846,43 @@ function saveNoticeText(notice: SaveNotice): string {
 		field-sizing: content;
 	}
 
+	/* Phones: the tick and the chip keep the mockup's look and grow the
+	   finger's area to 44px (redesign §5.4; review 233-238). The tick's area is
+	   an invisible `::after` on the `<label>` that wraps it, exactly as the
+	   change pill does for its buttons — a tap on it reaches the box through
+	   the label. It extends 17px to the left (the list's own left padding is
+	   free room), 10px to the right (the text starts 10px from the box) and
+	   6.75px above / 20.25px below the 17px box: rows are 30.5px apart, so each
+	   row's area ends where the next row's begins, halfway between the two
+	   boxes, and a tap always reaches the nearest tick (a symmetric area would
+	   hand everything below a box to the row under it). The box itself sits
+	   above its own area so it keeps its own mousedown handling. The chip's
+	   select is its own 44px target: taller than the 26px pill, pulled back
+	   into it by equal negative margins so the line does not grow. */
+	@media (max-width: 767px) {
+		.document-editor-host :global(.document-content li[data-checked] > label) {
+			position: relative;
+		}
+
+		.document-editor-host :global(.document-content li[data-checked] > label::after) {
+			content: '';
+			position: absolute;
+			inset: -6.75px -10px -20.25px -17px;
+		}
+
+		.document-editor-host :global(.document-content li[data-checked] input[type='checkbox']) {
+			position: relative;
+			z-index: 1;
+		}
+
+		.document-editor-host :global(.document-content .tracker-chip-select) {
+			min-width: 44px;
+			min-height: 44px;
+			margin: -9px -8px;
+			padding: 0 8px;
+		}
+	}
+
 	/* Step 2.2: Alfy's change mark (`marks.ts`'s `AlfyChange` Tiptap mark,
 	   T8) — the visible trace of an applied patch (§1/§4), invisible before
 	   this (marks.ts emitted the class with no matching CSS anywhere). The
