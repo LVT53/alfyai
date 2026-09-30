@@ -97,12 +97,6 @@ export class CanvasCommentsController {
 		this.open = true;
 	}
 
-	/** The header's Comments button. Closing throws away a comment that was started: no pin may outlive its composer. */
-	toggle(): void {
-		if (this.open) this.hide();
-		else this.show();
-	}
-
 	hide(): void {
 		this.open = false;
 		this.draft = null;
@@ -232,31 +226,43 @@ export class CanvasCommentsController {
 			this.asking = null;
 		}
 	}
+}
 
-	/** What `CommentPins` draws and reports, from this state and the board's own (`BoardLayerApi`). */
-	pinsProps(api: BoardLayerApi) {
-		return {
-			threads: this.threads,
-			nodes: api.nodes,
-			viewport: api.viewport,
-			activeId: this.activeId,
-			draft: this.draft,
-			showResolved: this.filter === "all",
-			goto: this.goto,
-			oncenter: api.centerOn,
-			onselect: (commentId: string) => this.select(commentId),
-		};
-	}
+/** The header's Comments button. Closing throws away a comment that was started: no pin may outlive its composer. */
+export function toggleComments(controller: CanvasCommentsController): void {
+	if (controller.open) controller.hide();
+	else controller.show();
+}
 
-	/** What `CommentCatcher` needs to place a comment where the reader clicks. */
-	catcherProps(api: BoardLayerApi) {
-		return {
-			nodes: api.nodes,
-			tool: api.tool,
-			toBoard: api.toBoard,
-			ondraft: (anchor: Anchor) => this.place(anchor),
-			ontoolchange: api.setTool,
-			onannounce: api.announce,
-		};
-	}
+/** What `CommentPins` draws and reports, from the controller's state and the board's own (`BoardLayerApi`). */
+export function pinsProps(
+	controller: CanvasCommentsController,
+	api: BoardLayerApi,
+) {
+	return {
+		threads: controller.threads,
+		nodes: api.nodes,
+		viewport: api.viewport,
+		activeId: controller.activeId,
+		draft: controller.draft,
+		showResolved: controller.filter === "all",
+		goto: controller.goto,
+		oncenter: api.centerOn,
+		onselect: (commentId: string) => controller.select(commentId),
+	};
+}
+
+/** What `CommentCatcher` needs to place a comment where the reader clicks. */
+export function catcherProps(
+	controller: CanvasCommentsController,
+	api: BoardLayerApi,
+) {
+	return {
+		nodes: api.nodes,
+		tool: api.tool,
+		toBoard: api.toBoard,
+		ondraft: (anchor: Anchor) => controller.place(anchor),
+		ontoolchange: api.setTool,
+		onannounce: api.announce,
+	};
 }

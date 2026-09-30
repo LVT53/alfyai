@@ -5,7 +5,12 @@
  * Comment or picks the tool), so a board nobody comments on never pays for any
  * of it: the editor's own chunk stays what the drawing and the blocks need.
  */
-export { CanvasCommentsController } from "./_lib/comments-controller.svelte";
+export {
+	CanvasCommentsController,
+	catcherProps,
+	pinsProps,
+	toggleComments,
+} from "./_lib/comments-controller.svelte";
 export { default as CanvasComments } from "./CanvasComments.svelte";
 export { default as CommentCatcher } from "./CommentCatcher.svelte";
 export { default as CommentPins } from "./CommentPins.svelte";

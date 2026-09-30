@@ -38,7 +38,26 @@ import {
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
 import type { BoardLayerApi } from "./_lib/board-layers";
+import type {
+	CanvasCommentsController,
+	catcherProps,
+	pinsProps,
+	toggleComments,
+} from "./_lib/comments-controller.svelte";
 import CanvasBoard from "./CanvasBoard.svelte";
+import type CanvasComments from "./CanvasComments.svelte";
+import type CommentCatcher from "./CommentCatcher.svelte";
+import type CommentPins from "./CommentPins.svelte";
+
+/** The comment components and what wires them to the controller, once they have loaded. */
+type CommentViews = {
+	CanvasComments: typeof CanvasComments;
+	CommentCatcher: typeof CommentCatcher;
+	CommentPins: typeof CommentPins;
+	catcherProps: typeof catcherProps;
+	pinsProps: typeof pinsProps;
+	toggleComments: typeof toggleComments;
+};
 
 interface Props {
 	artifactId: string;
@@ -114,12 +133,9 @@ let editorWidth = $state(0);
 // Comments load on demand (`comment-parts.ts`): when the board has threads to
 // pin, or the reader presses Comment or picks the tool. Until then the header's
 // count is read off what was loaded.
-type CommentParts = typeof import("./comment-parts");
 let loadedThreads = $state.raw<ArtifactComment[]>([]);
-let commentParts = $state.raw<CommentParts | null>(null);
-let comments = $state.raw<InstanceType<
-	CommentParts["CanvasCommentsController"]
-> | null>(null);
+let commentViews = $state.raw<CommentViews | null>(null);
+let comments = $state.raw<CanvasCommentsController | null>(null);
 let commentsLoading: Promise<void> | null = null;
 
 const autosave = createDocumentAutosave({
@@ -291,18 +307,35 @@ function adoptServerBoard(detail: ArtifactDetailResponse): void {
 
 function ensureComments(): Promise<void> {
 	commentsLoading ??= import("./comment-parts")
-		.then((parts) => {
-			const controller = new parts.CanvasCommentsController({
-				artifactId,
-				conversationId,
-				threads: loadedThreads,
-				beforeAsk: saveBoardNow,
-				onserver: adoptServerBoard,
-			});
-			controller.setNodes(boardNodes);
-			commentParts = parts;
-			comments = controller;
-		})
+		.then(
+			({
+				CanvasCommentsController: Controller,
+				CanvasComments,
+				CommentCatcher,
+				CommentPins,
+				catcherProps,
+				pinsProps,
+				toggleComments,
+			}) => {
+				const controller = new Controller({
+					artifactId,
+					conversationId,
+					threads: loadedThreads,
+					beforeAsk: saveBoardNow,
+					onserver: adoptServerBoard,
+				});
+				controller.setNodes(boardNodes);
+				commentViews = {
+					CanvasComments,
+					CommentCatcher,
+					CommentPins,
+					catcherProps,
+					pinsProps,
+					toggleComments,
+				};
+				comments = controller;
+			},
+		)
 		// Offline, or a deploy in between: the next press tries again instead of waiting on a rejected import.
 		.catch(() => {
 			commentsLoading = null;
@@ -320,7 +353,10 @@ $effect(() => {
 $effect(() => {
 	registerPanelActions?.({
 		openVersions: () => (versionsOpen = true),
-		toggleComments: () => void ensureComments().then(() => comments?.toggle()),
+		toggleComments: () =>
+			void ensureComments().then(() => {
+				if (commentViews && comments) commentViews.toggleComments(comments);
+			}),
 	});
 });
 
@@ -369,12 +405,12 @@ let banner = $derived(
 </script>
 
 {#snippet commentLayers(api: BoardLayerApi)}
-	{#if commentParts && comments}
+	{#if commentViews && comments}
 		<!-- The pins ride the flow's front layer (in board space); the catcher for the Comment tool is over the pane. -->
 		<ViewportPortal target="front">
-			<commentParts.CommentPins {...comments.pinsProps(api)} />
+			<commentViews.CommentPins {...commentViews.pinsProps(comments, api)} />
 		</ViewportPortal>
-		<commentParts.CommentCatcher {...comments.catcherProps(api)} />
+		<commentViews.CommentCatcher {...commentViews.catcherProps(comments, api)} />
 	{/if}
 {/snippet}
 
@@ -458,8 +494,8 @@ let banner = $derived(
 					{/if}
 				</p>
 			</div>
-			{#if commentParts && comments}
-				<commentParts.CanvasComments controller={comments} panelWidth={editorWidth} {currentUser} />
+			{#if commentViews && comments}
+				<commentViews.CanvasComments controller={comments} panelWidth={editorWidth} {currentUser} />
 			{/if}
 		</div>
 	{/if}

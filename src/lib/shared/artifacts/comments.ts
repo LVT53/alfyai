@@ -30,7 +30,7 @@ export interface AnchorResolver<Context> {
 }
 
 /** A board's resolution says why an orphan is one: the block it was on is gone. */
-export type CanvasAnchorResolution = AnchorResolution & {
+type CanvasAnchorResolution = AnchorResolution & {
 	reason?: "node_missing";
 };
 

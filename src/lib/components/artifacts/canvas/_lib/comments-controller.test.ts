@@ -13,7 +13,12 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("$lib/client/api/artifacts", () => api);
 
-import { CanvasCommentsController } from "./comments-controller.svelte";
+import {
+	CanvasCommentsController,
+	catcherProps,
+	pinsProps,
+	toggleComments,
+} from "./comments-controller.svelte";
 
 // The comment list's state and what it does over the network, without a board
 // or a browser: a controller is handed the thread list, and answers with what
@@ -124,7 +129,7 @@ describe("opening and placing", () => {
 		controller.cancelDraft();
 		expect(controller.draft).toBeNull();
 		controller.place({ kind: "point", x: 1, y: 1 });
-		controller.toggle();
+		toggleComments(controller);
 		expect(controller.open).toBe(false);
 		expect(controller.draft).toBeNull();
 	});
@@ -313,5 +318,49 @@ describe("reading the board again", () => {
 		const { controller } = make([thread("a")]);
 		await controller.refresh();
 		expect(controller.threads.map((item) => item.id)).toEqual(["a"]);
+	});
+});
+
+describe("what the pins and the catcher are given", () => {
+	const api = {
+		nodes: [],
+		viewport: { x: 4, y: 5, zoom: 0.5 },
+		tool: "comment" as const,
+		setTool: vi.fn(),
+		toBoard: (point: { x: number; y: number }) => point,
+		centerOn: vi.fn(),
+		announce: vi.fn(),
+	};
+
+	it("hands the pins the threads, the selection, the placed comment and the board's own camera", () => {
+		const { controller } = make([thread("a"), thread("b")]);
+		controller.select("b");
+		controller.filter = "all";
+		controller.place({ kind: "point", x: 1, y: 2 });
+		controller.goToThread("a");
+		const props = pinsProps(controller, api);
+		expect(props.threads.map((item) => item.id)).toEqual(["a", "b"]);
+		expect(props.viewport).toEqual(api.viewport);
+		expect(props.draft).toEqual({ kind: "point", x: 1, y: 2 });
+		expect(props.showResolved).toBe(true);
+		expect(props.goto).toMatchObject({ commentId: "a" });
+		expect(props.oncenter).toBe(api.centerOn);
+	});
+
+	it("turns a pressed pin into the list's selection", () => {
+		const { controller } = make([thread("a")]);
+		pinsProps(controller, api).onselect("a");
+		expect(controller.selectedId).toBe("a");
+		expect(controller.open).toBe(true);
+	});
+
+	it("turns a click the catcher placed into a comment waiting for its words", () => {
+		const { controller } = make();
+		const props = catcherProps(controller, api);
+		props.ondraft({ kind: "node", nodeId: "note-1" });
+		expect(controller.draft).toEqual({ kind: "node", nodeId: "note-1" });
+		expect(props.tool).toBe("comment");
+		expect(props.ontoolchange).toBe(api.setTool);
+		expect(props.onannounce).toBe(api.announce);
 	});
 });
