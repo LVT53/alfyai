@@ -7,13 +7,22 @@ import {
 	artifactVersions,
 	messages,
 } from "../../src/lib/server/db/schema";
+import {
+	applyOp,
+	type BoardOp,
+} from "../../src/lib/shared/artifacts/board-ops";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
+import {
+	estimatedNodeHeight,
+	NODE_WIDTH,
+} from "../../src/lib/shared/artifacts/canvas-blocks";
 import {
 	boardJson,
 	emptyCanvasBody,
 } from "../../src/lib/shared/artifacts/canvas-body";
 import {
 	cameraOf,
+	nodeBox,
 	nodeCount,
 	openCanvasPanel,
 	openChatAndReload,
@@ -144,6 +153,128 @@ test.describe("the Canvas kind, in the panel", () => {
 		await expect(
 			page.getByTestId("canvas-chart").locator("canvas"),
 		).toBeVisible();
+	});
+
+	// RV-3 C1: Alfy could write a checklist whose items share an id, and the board
+	// draws its rows by id, so the panel never left its loading skeleton and the
+	// board could only be deleted. It opens now, with every item on it.
+	test("opens a board whose checklist repeats an item id, with every item on it", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"A board Alfy numbered twice",
+		);
+		const board = seededBoard();
+		board.nodes.push({
+			id: "list-doubled",
+			type: "checklist",
+			position: { x: 480, y: 40 },
+			data: {
+				kind: "checklist",
+				label: "Doubled",
+				items: [
+					{ id: "1", text: "First thing", done: false },
+					{ id: "1", text: "Second thing", done: true },
+				],
+			},
+		});
+		await seedCanvas(conversationId, board);
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const doubled = page
+			.locator('[data-testid="canvas-node"][data-kind="checklist"]')
+			.filter({ hasText: "Doubled" });
+		await expect(doubled.getByRole("checkbox")).toHaveCount(2);
+		await expect(
+			doubled.getByRole("checkbox", { name: "First thing: toggle done" }),
+		).not.toBeChecked();
+		await expect(
+			doubled.getByRole("checkbox", { name: "Second thing: toggle done" }),
+		).toBeChecked();
+	});
+
+	// RV-3 C2: a block Alfy adds has no width of its own, and the board drew it as
+	// wide as its words ran (a 120-character note came out 861 wide, through the
+	// frame it was in), while Alfy was told a note is 190 wide. What Alfy adds is
+	// stored 190 wide and drawn that wide, and is as tall as the estimate Alfy plans
+	// with (never taller), so a board laid out from those numbers has no overlap.
+	test("draws what Alfy adds inside its frame, as wide and as tall as Alfy is told", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "What Alfy made");
+		const TEXTS = [
+			"Museum, 10:00",
+			"Ebéd a Nagycsarnokban, utána séta a Duna-parton",
+			"Ebéd a Nagycsarnokban, utána séta a Duna-parton a Szabadság hídtól a Margit-szigetig és vissza a belvárosba",
+			"Ebéd a Nagycsarnokban, utána séta a Duna-parton a Szabadság hídtól a Margit-szigetig, majd vacsora egy kis étteremben a Belvárosban, végül esti koncert a Művészetek Palotájában",
+		];
+		// The board Alfy's own ops make, laid out the way its tool text says to.
+		let board = emptyCanvasBody();
+		const ops: BoardOp[] = [
+			{
+				op: "add_frame",
+				id: "frame-sat",
+				label: "Szombat",
+				position: { x: 40, y: 40 },
+				size: { width: 420, height: 700 },
+			},
+		];
+		const heights: number[] = [];
+		let y = 50;
+		TEXTS.forEach((text, index) => {
+			const node = {
+				id: `note-${index}`,
+				type: "sticky",
+				parentId: "frame-sat",
+				position: { x: 20, y },
+				data: { kind: "sticky", text, tone: "yellow" },
+			};
+			ops.push({ op: "add_node", node } as BoardOp);
+			const height = estimatedNodeHeight({
+				type: "sticky",
+				width: NODE_WIDTH,
+				data: { kind: "sticky", text, tone: "yellow" },
+			});
+			heights.push(height);
+			y += height + 10;
+		});
+		for (const op of ops) board = applyOp(board, op);
+		await seedCanvas(conversationId, board);
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const frame = await nodeBox(page, "frame-sat");
+		let previous: { bottom: number } | null = null;
+		for (const [index, expected] of heights.entries()) {
+			const id = `note-${index}`;
+			// In board units, whatever the camera is doing.
+			const drawn = await page
+				.locator(`.svelte-flow__node[data-id="${id}"]`)
+				.evaluate((el) => ({
+					width: (el as HTMLElement).offsetWidth,
+					height: (el as HTMLElement).offsetHeight,
+				}));
+			expect(drawn.width, `${id} width`).toBe(NODE_WIDTH);
+			// Never taller than Alfy plans with, and not more than two lines shorter.
+			expect(drawn.height, `${id} height`).toBeLessThanOrEqual(expected + 2);
+			expect(drawn.height, `${id} height`).toBeGreaterThanOrEqual(
+				expected - 40,
+			);
+			// Inside its frame, and clear of the note before it.
+			const box = await nodeBox(page, id);
+			expect(box.x, `${id} left`).toBeGreaterThanOrEqual(frame.x - 1);
+			expect(box.x + box.width, `${id} right`).toBeLessThanOrEqual(
+				frame.x + frame.width + 1,
+			);
+			expect(box.y + box.height, `${id} bottom`).toBeLessThanOrEqual(
+				frame.y + frame.height + 1,
+			);
+			if (previous)
+				expect(box.y, `${id} top`).toBeGreaterThanOrEqual(previous.bottom);
+			previous = { bottom: box.y + box.height };
+		}
 	});
 
 	test("draws the edges a board was saved with, label and all", async ({

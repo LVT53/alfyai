@@ -12,8 +12,9 @@ describe("where the touched blocks are", () => {
 	it("gives each block's own rectangle, skipping the ones that are not on the board", () => {
 		const rects = rectsOf(["note-museum", "gone", "text-1"], nodes);
 		expect(rects.map((rect) => rect.id)).toEqual(["note-museum", "text-1"]);
-		// A block with no size of its own is taken to be 190 x 84.
-		expect(rects[0].box).toEqual({ x: 500, y: 60, width: 190, height: 84 });
+		// A block with no size of its own is taken to be as wide as a block is (190)
+		// and as tall as its words make it (a short note: 64), as the model reads it.
+		expect(rects[0].box).toEqual({ x: 500, y: 60, width: 190, height: 64 });
 	});
 
 	it("puts a block inside a frame where the frame puts it, not at its own offset", () => {
@@ -39,8 +40,8 @@ describe("where the touched blocks are", () => {
 			x: 500,
 			y: 60,
 			width: 190,
-			// text-1 is at y 200 and 84 tall: down to 284.
-			height: 284 - 60,
+			// text-1 is at y 200 and one line tall (32): down to 232.
+			height: 232 - 60,
 		});
 	});
 

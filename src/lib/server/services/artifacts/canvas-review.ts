@@ -24,6 +24,7 @@ import {
 import {
 	type DocumentReviewMetadata,
 	readDocumentReviewMetadata,
+	readReviewMarkerInTx,
 } from "./document-ops";
 import {
 	kindForArtifactRow,
@@ -140,15 +141,9 @@ export async function acknowledgeCanvasReview(
 	if (!scoped.ok) return scoped;
 
 	return db.transaction((tx) => {
-		const current = tx
-			.select({ metadataJson: artifacts.metadataJson })
-			.from(artifacts)
-			.where(eq(artifacts.id, scoped.id))
-			.get();
+		const current = readReviewMarkerInTx(tx, scoped.id);
 		if (!current) return { ok: false as const, reason: "not_found" as const };
-		const marker = readDocumentReviewMetadata(
-			parseArtifactMetadata(current.metadataJson),
-		);
+		const marker = current.marker;
 		if (!marker) return { ok: true as const, review: EMPTY_CANVAS_REVIEW };
 
 		let versions = readVersionsFrom(tx, scoped.id, marker.throughVersion);

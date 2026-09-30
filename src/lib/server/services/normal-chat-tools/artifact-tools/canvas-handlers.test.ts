@@ -16,6 +16,7 @@ import {
 	getArtifact,
 	getVersionBody,
 	listVersions,
+	saveCanvasBoard,
 } from "$lib/server/services/artifacts";
 import {
 	BOARD_OP_NAMES,
@@ -771,5 +772,260 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 		);
 		expect(refused).toEqual([]);
 		expect(accepted).toHaveLength(EDIT_ARTIFACT_CANVAS_EXAMPLE.ops.length);
+	});
+});
+
+// RV-3 I6 / ruling 67: Alfy reads a board, the reader rewrites a note, and Alfy's
+// update_node used to land on top of the reader's words (as a new version, with
+// only Undo to get them back). The turn's own read of the board is the base: what
+// the reader changed after it is refused `stale`, the rest applies. The turn's
+// earlier tool calls reach the handler the way they reach a create handler (the
+// recorder's entries), and Alfy's own edits move the base forward, so a model that
+// reads once and edits twice is not refused for its own changes.
+describe("edit_artifact.canvas — the reader's newer words (ruling 67)", () => {
+	async function readerSaves(
+		artifactId: string,
+		change: (board: CanvasBody) => void,
+	) {
+		const board = await storedBoard(artifactId);
+		change(board);
+		const saved = await saveCanvasBoard({
+			userId,
+			artifactId,
+			conversationId,
+			body: JSON.stringify(board),
+			author: "user",
+			summary: VERSION_SUMMARY.edited,
+			coalesceUserEdits: false,
+		});
+		if (!saved.ok) throw new Error(`setup: ${saved.reason}`);
+	}
+
+	function museum(board: CanvasBody) {
+		const found = board.nodes.find((n) => n.id === "note-museum");
+		if (!found) throw new Error("fixture");
+		return found;
+	}
+
+	async function museumText(artifactId: string): Promise<string> {
+		const data = museum(await storedBoard(artifactId)).data;
+		return data.kind === "sticky" ? data.text : "";
+	}
+
+	function entryOf(
+		name: "read_artifact" | "edit_artifact",
+		artifactId: string,
+		metadata: Record<string, string | number | boolean | null>,
+	) {
+		return {
+			callId: `call-${name}`,
+			name,
+			input: { artifactId },
+			status: "done" as const,
+			metadata,
+		};
+	}
+
+	function editWith(
+		artifactId: string,
+		sources: ReturnType<typeof entryOf>[],
+		ops: unknown[],
+	) {
+		return runEditArtifactTool({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			artifactId,
+			abortSignal: abortSignal(),
+			ops,
+			turnContext: { sources },
+		});
+	}
+
+	const rewriteMuseum = {
+		op: "update_node",
+		id: "note-museum",
+		data: { text: "Museum, 14:00 — Alfy's words" },
+	};
+
+	it("puts the version it read on the tool call's record, and the model's answer stays free of it", async () => {
+		const id = await seedBoard();
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId: id,
+			detail: "blocks",
+			abortSignal: abortSignal(),
+		});
+		const [newest] = await listVersions({
+			userId,
+			artifactId: id,
+			conversationId,
+			limit: 1,
+		});
+		expect(read.metadata.versionId).toBe(newest.id);
+		expect(JSON.stringify(read.modelPayload)).not.toContain(newest.id);
+	});
+
+	it("refuses an update to a note the reader rewrote after the read, and keeps their words (the review's failing test)", async () => {
+		const id = await seedBoard();
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId: id,
+			abortSignal: abortSignal(),
+		});
+		await readerSaves(id, (board) => {
+			museum(board).data = {
+				kind: "sticky",
+				text: "Museum, 16:30 (the reader's)",
+				tone: "mint",
+			};
+		});
+		const before = await versionCount(id);
+
+		const result = await editWith(
+			id,
+			[entryOf("read_artifact", id, read.metadata)],
+			[rewriteMuseum],
+		);
+
+		expect(result.modelPayload.success).toBe(false);
+		if (result.modelPayload.success) return;
+		expect(result.modelPayload.refused?.[0]).toMatchObject({
+			target: "note-museum",
+			reason: "stale",
+			opIndex: 0,
+		});
+		expect(result.modelPayload.refused?.[0].detail).toMatch(/read_artifact/);
+		expect(await museumText(id)).toBe("Museum, 16:30 (the reader's)");
+		expect(await versionCount(id)).toBe(before);
+	});
+
+	it("applies the ops the reader did not touch, and tells the model which one it skipped and why", async () => {
+		const id = await seedBoard();
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId: id,
+			abortSignal: abortSignal(),
+		});
+		await readerSaves(id, (board) => {
+			museum(board).data = {
+				kind: "sticky",
+				text: "Museum, 16:30 (the reader's)",
+				tone: "mint",
+			};
+		});
+
+		const result = await editWith(
+			id,
+			[entryOf("read_artifact", id, read.metadata)],
+			[rewriteMuseum, { op: "move", id: "note-1", to: { x: 30, y: 70 } }],
+		);
+
+		expect(result.modelPayload).toMatchObject({
+			success: true,
+			applied: 1,
+			refused: [{ target: "note-museum", reason: "stale", opIndex: 0 }],
+		});
+		expect(await museumText(id)).toBe("Museum, 16:30 (the reader's)");
+		expect(
+			(await storedBoard(id)).nodes.find((n) => n.id === "note-1")?.position,
+		).toEqual({ x: 30, y: 70 });
+	});
+
+	it("applies to the current board when the turn has not read this board", async () => {
+		const id = await seedBoard();
+		await readerSaves(id, (board) => {
+			museum(board).data = {
+				kind: "sticky",
+				text: "Museum, 16:30 (the reader's)",
+				tone: "mint",
+			};
+		});
+		const other = await seedBoard();
+		const readOfAnother = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId: other,
+			abortSignal: abortSignal(),
+		});
+		const failedRead = entryOf("read_artifact", id, {
+			ok: false,
+			found: false,
+		});
+
+		for (const sources of [
+			[],
+			[entryOf("read_artifact", other, readOfAnother.metadata)],
+			[failedRead],
+		]) {
+			const result = await editWith(id, sources, [rewriteMuseum]);
+			expect(result.modelPayload.success).toBe(true);
+			expect(await museumText(id)).toBe("Museum, 14:00 — Alfy's words");
+			await readerSaves(id, (board) => {
+				museum(board).data = {
+					kind: "sticky",
+					text: "Museum, 16:30 (the reader's)",
+					tone: "mint",
+				};
+			});
+		}
+	});
+
+	it("does not refuse a model for its own earlier edit: reading once and editing twice works", async () => {
+		const id = await seedBoard();
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId: id,
+			abortSignal: abortSignal(),
+		});
+		const sources = [entryOf("read_artifact", id, read.metadata)];
+		const first = await editWith(id, sources, [
+			{ op: "move", id: "note-museum", to: { x: 700, y: 90 } },
+		]);
+		expect(first.modelPayload.success).toBe(true);
+		sources.push(entryOf("edit_artifact", id, first.metadata));
+
+		const second = await editWith(id, sources, [
+			rewriteMuseum,
+			{ op: "move", id: "note-museum", to: { x: 720, y: 100 } },
+		]);
+
+		expect(second.modelPayload).toMatchObject({ success: true, applied: 2 });
+		expect(await museumText(id)).toBe("Museum, 14:00 — Alfy's words");
+	});
+
+	it("still protects the reader's change when it landed between the read and Alfy's own first edit", async () => {
+		const id = await seedBoard();
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId: id,
+			abortSignal: abortSignal(),
+		});
+		const sources = [entryOf("read_artifact", id, read.metadata)];
+		await readerSaves(id, (board) => {
+			museum(board).data = {
+				kind: "sticky",
+				text: "Museum, 16:30 (the reader's)",
+				tone: "mint",
+			};
+		});
+		// Alfy's first edit touches something else and lands on top of the reader's version...
+		const first = await editWith(id, sources, [
+			{ op: "move", id: "note-1", to: { x: 30, y: 70 } },
+		]);
+		expect(first.modelPayload.success).toBe(true);
+		sources.push(entryOf("edit_artifact", id, first.metadata));
+
+		// ...which is not something Alfy has read, so its next edit is still judged
+		// against the board it read.
+		const second = await editWith(id, sources, [rewriteMuseum]);
+
+		expect(second.modelPayload.success).toBe(false);
+		expect(await museumText(id)).toBe("Museum, 16:30 (the reader's)");
 	});
 });

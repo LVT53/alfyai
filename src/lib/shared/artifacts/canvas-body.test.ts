@@ -6,6 +6,7 @@ import {
 	MAX_ANNOTATIONS_PER_BOARD,
 	MAX_POINTS_PER_STROKE,
 	normalizeCanvasBody,
+	parentsFirst,
 } from "./canvas-body";
 import { cloneBoard, sampleBoard } from "./canvas-fixtures.test-helpers";
 
@@ -699,5 +700,140 @@ describe("the structural budget for a heavy board (ruling 9)", () => {
 		expect(body.nodes).toHaveLength(150);
 		expect(body.annotations).toHaveLength(200);
 		expect(boardJson(body).length).toBeLessThanOrEqual(512 * 1024);
+	});
+});
+
+// RV-3 C1: the board draws a checklist's rows, a photo's pictures and a web
+// block's links by their ids, and two with one id throw when it is opened. A board
+// that already holds such a block (Alfy could write one) must open, with every
+// word still on it.
+describe("normalizeCanvasBody — entries that share an id (RV-3 C1)", () => {
+	function boardWith(data: unknown, id = "todo-dup"): unknown {
+		const board = JSON.parse(boardJson(sampleBoard()));
+		board.nodes.push({
+			id,
+			type: (data as { kind: string }).kind,
+			position: { x: 0, y: 900 },
+			data,
+		});
+		return board;
+	}
+
+	it("keeps a checklist whose items share an id, makes the ids unique and loses no word", () => {
+		const raw = boardWith({
+			kind: "checklist",
+			items: [
+				{ id: "1", text: "a", done: false },
+				{ id: "1", text: "b", done: true },
+			],
+		});
+		const { body, dropped, repaired } = normalizeCanvasBody(raw);
+		const kept = body.nodes.find((node) => node.id === "todo-dup");
+		expect(kept?.data).toMatchObject({
+			kind: "checklist",
+			items: [
+				{ id: "1", text: "a", done: false },
+				{ id: "1-2", text: "b", done: true },
+			],
+		});
+		expect(dropped.nodes).toEqual([]);
+		expect(repaired).toEqual(["todo-dup"]);
+	});
+
+	it("repairs the entries of a photo block and of a web block in the same way", () => {
+		const board = JSON.parse(boardJson(sampleBoard()));
+		const photo = board.nodes.find(
+			(node: { id: string }) => node.id === "photo-1",
+		);
+		const web = board.nodes.find((node: { id: string }) => node.id === "web-1");
+		photo.data.items.push({ ...photo.data.items[0] });
+		web.data.sources.push({ ...web.data.sources[0] });
+		const { body, repaired } = normalizeCanvasBody(board);
+		const entryIds = (id: string): string[] => {
+			const data = body.nodes.find((node) => node.id === id)?.data;
+			if (data?.kind === "photo") return data.items.map((item) => item.id);
+			if (data?.kind === "liveweb") {
+				return data.sources.map((source) => source.id);
+			}
+			return [];
+		};
+		expect(new Set(entryIds("photo-1")).size).toBe(2);
+		expect(new Set(entryIds("web-1")).size).toBe(2);
+		expect(repaired.sort()).toEqual(["photo-1", "web-1"]);
+	});
+
+	it("reports nothing for a board that has no repeated id, and a repaired board is a fixed point", () => {
+		expect(normalizeCanvasBody(sampleBoard()).repaired).toEqual([]);
+		const once = normalizeCanvasBody(
+			boardWith({
+				kind: "checklist",
+				items: [
+					{ id: "a", text: "x", done: false },
+					{ id: "a", text: "y", done: false },
+					{ id: "a", text: "z", done: false },
+				],
+			}),
+		);
+		expect(once.repaired).toEqual(["todo-dup"]);
+		const twice = normalizeCanvasBody(JSON.parse(boardJson(once.body)));
+		expect(twice.repaired).toEqual([]);
+		expect(boardJson(twice.body)).toBe(boardJson(once.body));
+	});
+});
+
+// RV-3 Minor 7: "parents first" was written three times (this module's frame
+// settling, the create parse, the board). It is one function now, and the frame
+// settling reads its order from it.
+describe("parentsFirst — every parent ahead of its children", () => {
+	type N = { id: string; parentId?: string };
+	const n = (id: string, parentId?: string): N =>
+		parentId === undefined ? { id } : { id, parentId };
+	const ids = (nodes: readonly N[]) => nodes.map((node) => node.id);
+
+	it("hands back the very same array when it is already in order, and a parent that is not on the board is not out of order", () => {
+		const ordered = [n("f"), n("a", "f"), n("b", "elsewhere"), n("c")];
+		expect(parentsFirst(ordered)).toBe(ordered);
+	});
+
+	it("puts a parent just before the first child that needed it, and changes nothing else", () => {
+		expect(ids(parentsFirst([n("c", "p"), n("a"), n("p")]))).toEqual([
+			"p",
+			"c",
+			"a",
+		]);
+		expect(
+			ids(
+				parentsFirst([
+					n("a"),
+					n("grand-child", "child"),
+					n("child", "top"),
+					n("top"),
+				]),
+			),
+		).toEqual(["a", "top", "child", "grand-child"]);
+	});
+
+	it("never loses or repeats a node: a loop ends the walk, duplicates and deep chains are fine", () => {
+		const looped = parentsFirst([n("a", "b"), n("b", "a"), n("c")]);
+		expect(ids(looped).sort()).toEqual(["a", "b", "c"]);
+		const twins = [n("x", "p"), n("x", "p"), n("p")];
+		expect(parentsFirst(twins)).toHaveLength(3);
+		// 20,000 frames deep, listed children first: no recursion to overflow.
+		const deep = Array.from({ length: 20_000 }, (_, i) =>
+			n(`d${i}`, `d${i + 1}`),
+		);
+		const out = parentsFirst(deep);
+		expect(out).toHaveLength(20_000);
+		expect(out[0].id).toBe("d19999");
+	});
+
+	it("is the order normalizeCanvasBody settles a board's frames in", () => {
+		const raw = JSON.parse(boardJson(sampleBoard()));
+		const [frame, ...rest] = raw.nodes;
+		raw.nodes = [...rest, frame];
+		const settled = normalizeCanvasBody(raw).body.nodes;
+		expect(settled.map((node) => node.id)).toEqual(
+			ids(parentsFirst(raw.nodes as N[])),
+		);
 	});
 });

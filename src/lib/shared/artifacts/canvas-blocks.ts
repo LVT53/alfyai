@@ -49,6 +49,88 @@ const ID_MAX_CHARS = 128;
 export const NODE_WIDTH = 190;
 export const DEFAULT_NODE_HEIGHT = 84;
 
+// ── The height a block is drawn at (RV-3 C2) ─────────────────────────────
+
+/**
+ * Only a frame stores a height: every other block is as tall as its content,
+ * so a note that grows with its words never clips them. The model plans a board
+ * with sizes, though (what to leave between notes, how big a frame must be), so
+ * what it is told of a block's height has to be what the panel draws. These are
+ * the panel's own numbers for a block `NODE_WIDTH` wide, measured in the
+ * browser: a note (`StickyNode.svelte`: 12.5px type at 1.45, 9px above and
+ * below) is 64 tall for one or two lines and 18 more for each further one, a
+ * checklist row is 26 with 74 above and below its rows. About 18 characters
+ * fit a line of a note that wide: the width holds 24, and word wrap costs the
+ * rest, more in Hungarian, whose long words waste the end of a line (natural
+ * English and Hungarian notes measured at 16.5 to 23 a line). 18 is the most
+ * that no natural note came out taller than, so the estimate is up to two lines
+ * too tall and, in what was measured, never too short: an arrangement made from
+ * it leaves slack, never an overlap.
+ */
+export const NOTE_MIN_HEIGHT = 64;
+export const NOTE_LINE_HEIGHT = 18;
+const NOTE_PADDING_HEIGHT = 18;
+const TEXT_MIN_HEIGHT = 32;
+const TEXT_PADDING_HEIGHT = 14;
+const NOTE_SIDE_PADDING = 20;
+/** Board units a character takes, word wrap's waste included (170 wide holds 18, not 24). */
+const NOTE_CHAR_WIDTH = 9.4;
+export const CHECKLIST_BASE_HEIGHT = 74;
+export const CHECKLIST_ROW_HEIGHT = 26;
+
+/** How many characters of a note's words fit a line of a block `width` wide (about 18 at `NODE_WIDTH`). */
+export function charsPerLine(width: number = NODE_WIDTH): number {
+	return Math.max(1, Math.floor((width - NOTE_SIDE_PADDING) / NOTE_CHAR_WIDTH));
+}
+
+/** How many lines `text` takes in a block `width` wide: each line a reader typed, wrapped at `charsPerLine`. */
+function wrappedLines(text: string, width: number): number {
+	const perLine = charsPerLine(width);
+	return text
+		.split("\n")
+		.reduce(
+			(lines, line) =>
+				lines + Math.max(1, Math.ceil(Array.from(line).length / perLine)),
+			0,
+		);
+}
+
+/**
+ * The height a block is drawn at: the one it stores, a frame's own, or an
+ * estimate from its words (a note, a text) or its items (a checklist). The kinds
+ * whose height the app decides (a chart, a map, a file, an App, photos, a web
+ * search) are left at `DEFAULT_NODE_HEIGHT`. The model's read, the eval's
+ * geometry and the tool text all take their sizes from here.
+ */
+export function estimatedNodeHeight(node: {
+	type: BlockKind;
+	width?: number;
+	height?: number;
+	data: CanvasBlockData;
+}): number {
+	if (node.height !== undefined) return node.height;
+	const data = node.data;
+	const width = node.width ?? NODE_WIDTH;
+	switch (data.kind) {
+		case "frame":
+			return data.height;
+		case "sticky":
+			return Math.max(
+				NOTE_MIN_HEIGHT,
+				NOTE_PADDING_HEIGHT + NOTE_LINE_HEIGHT * wrappedLines(data.text, width),
+			);
+		case "text":
+			return Math.max(
+				TEXT_MIN_HEIGHT,
+				TEXT_PADDING_HEIGHT + NOTE_LINE_HEIGHT * wrappedLines(data.text, width),
+			);
+		case "checklist":
+			return CHECKLIST_BASE_HEIGHT + CHECKLIST_ROW_HEIGHT * data.items.length;
+		default:
+			return DEFAULT_NODE_HEIGHT;
+	}
+}
+
 const idSchema = z.string().min(1).max(ID_MAX_CHARS);
 const labelSchema = z.string().max(LABEL_MAX_CHARS);
 
@@ -355,6 +437,34 @@ export function isModelCreatableKind(
 	);
 }
 
+/**
+ * What the model may change on a block that is already on the board (ruling 67).
+ * The five note-shaped kinds are the model's own words, so every field of them
+ * (but `kind`). The other five carry what the app vouches for — the search a web
+ * block claims to be, the photos, the file, the App a block shows, a map's route,
+ * and any block's poster — and those are set only by the app (the Insert menu,
+ * Refresh, the poster capture): a turn that could rewrite them could plant its
+ * own links, dressed as the app's search result with a fresh "Updated" line, and
+ * every source's favicon would then contact whatever host it names on each open.
+ * On them the model may change the descriptive part only.
+ */
+const APP_OWNED_UPDATABLE_FIELDS = {
+	map: ["label", "route", "meta"],
+	file: [],
+	app: ["title"],
+	photo: [],
+	liveweb: [],
+} as const;
+
+export function modelUpdatableFields(kind: BlockKind): readonly string[] {
+	if (isModelCreatableKind(kind)) {
+		return Object.keys(BLOCK_DATA_SCHEMAS[kind].shape).filter(
+			(field) => field !== "kind",
+		);
+	}
+	return APP_OWNED_UPDATABLE_FIELDS[kind];
+}
+
 /** The advertised and the executed `data` of an `add_node`: one union of the five. */
 export const modelCreatableBlockDataSchema = z.discriminatedUnion("kind", [
 	MODEL_CREATABLE_DATA_SCHEMAS.frame,
@@ -363,6 +473,104 @@ export const modelCreatableBlockDataSchema = z.discriminatedUnion("kind", [
 	MODEL_CREATABLE_DATA_SCHEMAS.checklist,
 	MODEL_CREATABLE_DATA_SCHEMAS.chart,
 ]);
+
+// ── The ids of a block's own entries (RV-3 C1) ───────────────────────────
+
+/**
+ * A checklist's rows, a photo block's pictures and a web block's links are each
+ * drawn row by row and keyed by their entry's id, so two entries with one id
+ * make Svelte throw and the panel never leaves its loading skeleton. Nothing in
+ * a stored board's shape forbids it, so it is enforced at both doors: what the
+ * model writes is refused when an id repeats (`repeatedEntryIds`, judged by
+ * `board-ops.ts`), and a board that already holds a repeat is repaired on read
+ * (`withUniqueEntryIds`, applied by `normalizeCanvasBody`), never dropped.
+ */
+function entriesOf(data: CanvasBlockData): { id: string }[] | null {
+	switch (data.kind) {
+		case "checklist":
+		case "photo":
+			return data.items;
+		case "liveweb":
+			return data.sources;
+		default:
+			return null;
+	}
+}
+
+/** The ids that more than one entry of the block carries, each once, in the order they first repeat. */
+export function repeatedEntryIds(data: CanvasBlockData): string[] {
+	const entries = entriesOf(data);
+	if (!entries) return [];
+	const seen = new Set<string>();
+	const repeated: string[] = [];
+	for (const entry of entries) {
+		if (seen.has(entry.id) && !repeated.includes(entry.id)) {
+			repeated.push(entry.id);
+		}
+		seen.add(entry.id);
+	}
+	return repeated;
+}
+
+/** `base-2`, `base-3`, … the first that no entry has, cut short enough to stay inside the id cap. */
+function freshEntryId(base: string, taken: ReadonlySet<string>): string {
+	for (let n = 2; ; n += 1) {
+		const suffix = `-${n}`;
+		const candidate = base.slice(0, ID_MAX_CHARS - suffix.length) + suffix;
+		if (!taken.has(candidate)) return candidate;
+	}
+}
+
+function withEntryIds(data: CanvasBlockData, ids: string[]): CanvasBlockData {
+	switch (data.kind) {
+		case "checklist":
+		case "photo":
+			return {
+				...data,
+				items: data.items.map((item, index) => ({ ...item, id: ids[index] })),
+			} as CanvasBlockData;
+		case "liveweb":
+			return {
+				...data,
+				sources: data.sources.map((source, index) => ({
+					...source,
+					id: ids[index],
+				})),
+			};
+		default:
+			return data;
+	}
+}
+
+/**
+ * The block with every entry id unique: the first entry of an id keeps it, each
+ * later one gets `<id>-2`, `<id>-3`, … (never an id another entry already has),
+ * and every word stays. `renamed` names the ids that had to be. A block with
+ * nothing repeated is handed back as it is, so a caller can tell by identity.
+ */
+export function withUniqueEntryIds(data: CanvasBlockData): {
+	data: CanvasBlockData;
+	renamed: string[];
+} {
+	const entries = entriesOf(data);
+	if (!entries || repeatedEntryIds(data).length === 0) {
+		return { data, renamed: [] };
+	}
+	const taken = new Set(entries.map((entry) => entry.id));
+	const seen = new Set<string>();
+	const renamed: string[] = [];
+	const ids = entries.map((entry) => {
+		if (!seen.has(entry.id)) {
+			seen.add(entry.id);
+			return entry.id;
+		}
+		if (!renamed.includes(entry.id)) renamed.push(entry.id);
+		const fresh = freshEntryId(entry.id, taken);
+		taken.add(fresh);
+		return fresh;
+	});
+	return { data: withEntryIds(data, ids), renamed };
+}
 
 // ── Compile-time pins: a mirror that drifted from its source fails `npm run check` ──
 

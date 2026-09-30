@@ -16,6 +16,7 @@
 //     exist) is corrected in one step; one that only says no is guessed at.
 
 import type { OpsEnvelopeResult } from "$lib/server/services/artifacts";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	applyOp,
 	BOARD_OP_NAMES,
@@ -32,26 +33,18 @@ import type {
 	CanvasNode,
 } from "$lib/shared/artifacts/canvas";
 import {
-	DEFAULT_NODE_HEIGHT,
+	estimatedNodeHeight,
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	NODE_WIDTH,
 } from "$lib/shared/artifacts/canvas-blocks";
-import { emptyCanvasBody } from "$lib/shared/artifacts/canvas-body";
+import {
+	emptyCanvasBody,
+	parentsFirst,
+} from "$lib/shared/artifacts/canvas-body";
 import type { OpRefusal } from "$lib/shared/artifacts/ops";
 import { describeJsonSlip } from "./tool-args";
 
 // ── What read_artifact shows ─────────────────────────────────────────────
-
-/**
- * The footprint a node without a stored size is given: declared once, in
- * `canvas-blocks.ts`, and read by the board's geometry (`_lib/board.ts`) too,
- * so the sizes a model arranges by and the ones the board hit-tests with cannot
- * drift. Kept under these names because the eval scores against them.
- */
-export {
-	DEFAULT_NODE_HEIGHT as BOARD_DEFAULT_NODE_HEIGHT,
-	NODE_WIDTH as BOARD_NODE_WIDTH,
-};
 
 /** Enough of a note to know which one it is; `detail: "full"` has the rest. */
 const LABEL_MAX_CHARS = 300;
@@ -99,8 +92,11 @@ function readNodeBlock(node: CanvasNode): Record<string, unknown> {
 		label: labelOf(node),
 		x: node.position.x,
 		y: node.position.y,
+		// The size the panel draws it at: the stored one, or the shared width and
+		// the height its words take (a note is as tall as its words, RV-3 C2), so
+		// what a model arranges by is what the reader sees.
 		width: node.width ?? frame?.width ?? NODE_WIDTH,
-		height: node.height ?? frame?.height ?? DEFAULT_NODE_HEIGHT,
+		height: estimatedNodeHeight(node),
 		...(node.parentId === undefined ? {} : { parentId: node.parentId }),
 		...(data.kind === "sticky" ? { tone: data.tone } : {}),
 		...(data.kind === "checklist"
@@ -137,6 +133,42 @@ export function canvasReadBlocks(body: CanvasBody): Record<string, unknown>[] {
 	return [...body.nodes.map(readNodeBlock), ...body.edges.map(readEdgeBlock)];
 }
 
+/**
+ * The version of a board the model last SAW in this turn, from the turn's own
+ * tool calls (the recorder's entries; ruling 67): what its last successful
+ * `read_artifact` of the board reported, moved forward by each of its own edits
+ * that landed directly on top of the version it knew, because then it knows the
+ * result (its ops applied to what it read). An edit that landed on top of a
+ * version it never read (the reader saved in between) does not move it: what the
+ * reader changed is still unseen. `undefined` when the turn has not read the
+ * board, and then an edit is judged against the board as it is.
+ */
+export function lastKnownBoardVersion(
+	entries: readonly ToolCallEntry[],
+	artifactId: string,
+): string | undefined {
+	let known: string | undefined;
+	for (const entry of entries) {
+		if (entry.status !== "done" || entry.input?.artifactId !== artifactId) {
+			continue;
+		}
+		const metadata = entry.metadata;
+		if (!metadata || metadata.ok !== true) continue;
+		const versionId = metadata.versionId;
+		if (typeof versionId !== "string") continue;
+		if (entry.name === "read_artifact") {
+			known = versionId;
+		} else if (
+			entry.name === "edit_artifact" &&
+			known !== undefined &&
+			metadata.parentVersionId === known
+		) {
+			known = versionId;
+		}
+	}
+	return known;
+}
+
 // ── What a board must look like when it is made ──────────────────────────
 
 const BLOCK_KINDS_PHRASE = (
@@ -157,7 +189,7 @@ const BLOCK_KINDS_PHRASE = (
  * read is answered with, because a zod issue alone says what is wrong and not
  * what would have been right.
  */
-export const BLOCK_SHAPES_HINT = `Blocks you can add, and the fields of their data — ${BLOCK_KINDS_PHRASE}. A sticky's tone is one of ${MODEL_CREATABLE_DATA_SCHEMAS.sticky.shape.tone.options.slice(0, -1).join(", ")} or ${MODEL_CREATABLE_DATA_SCHEMAS.sticky.shape.tone.options.at(-1)}; a checklist item is {id, text, done}; type must equal data.kind.`;
+export const BLOCK_SHAPES_HINT = `Blocks you can add, and the fields of their data — ${BLOCK_KINDS_PHRASE}. A sticky's tone is one of ${MODEL_CREATABLE_DATA_SCHEMAS.sticky.shape.tone.options.slice(0, -1).join(", ")} or ${MODEL_CREATABLE_DATA_SCHEMAS.sticky.shape.tone.options.at(-1)}; a checklist item is {id, text, done}, and each item's id is used once in its checklist; type must equal data.kind.`;
 
 const CREATE_SHAPE_HINT = `A board is {"nodes":[{"id","type","position":{"x","y"},"data":{"kind",...}}],"edges":[{"id","source","target"}]}, or {} for an empty board. ${BLOCK_SHAPES_HINT}`;
 
@@ -273,33 +305,19 @@ function edgeShapeProblem(value: unknown): string | null {
 	return missing.length > 0 ? `needs ${missing.join(", ")}.` : null;
 }
 
-/** Frames before what is inside them; anything that cannot be placed (a loop, a missing parent) keeps its place so the validator names it. */
-function parentsFirst(
+/** Frames before what is inside them: the board's own ordering (`parentsFirst`), on entries that are still raw JSON. A parent that is missing, or a loop, is left for the validator to name. */
+function inParentsFirstOrder(
 	entries: Array<{ index: number; node: Record<string, unknown> }>,
 ): Array<{ index: number; node: Record<string, unknown> }> {
-	const ids = new Set(entries.map((entry) => String(entry.node.id)));
-	const placed = new Set<string>();
-	const ordered: typeof entries = [];
-	let pending = entries;
-	while (pending.length > 0) {
-		const ready = pending.filter((entry) => {
-			const parent = entry.node.parentId;
-			return (
-				typeof parent !== "string" || !ids.has(parent) || placed.has(parent)
-			);
-		});
-		if (ready.length === 0) {
-			ordered.push(...pending);
-			break;
-		}
-		for (const entry of ready) {
-			ordered.push(entry);
-			placed.add(String(entry.node.id));
-		}
-		const readySet = new Set(ready);
-		pending = pending.filter((entry) => !readySet.has(entry));
-	}
-	return ordered;
+	return parentsFirst(
+		entries.map((entry) => ({
+			id: String(entry.node.id),
+			...(typeof entry.node.parentId === "string"
+				? { parentId: entry.node.parentId }
+				: {}),
+			entry,
+		})),
+	).map((keyed) => keyed.entry);
 }
 
 function problemsMessage(problems: readonly Problem[]): string {
@@ -396,7 +414,7 @@ export function parseCanvasCreateBody(raw: string): CanvasCreateResult {
 	// edge, each remembering which entry of the body it came from.
 	const ops: BoardOp[] = [];
 	const origins: Origin[] = [];
-	for (const entry of parentsFirst(entries)) {
+	for (const entry of inParentsFirstOrder(entries)) {
 		const { id, type, parentId, position, data } = entry.node;
 		ops.push({
 			op: "add_node",

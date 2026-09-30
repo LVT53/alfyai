@@ -20,17 +20,36 @@ import {
 	parseOpsEnvelope,
 	runOps,
 } from "$lib/shared/artifacts/ops";
-import type { DocumentReviewMetadata } from "./document-ops";
+import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
+import { reviewMarkerPatchFor } from "./document-ops";
 import { getArtifact, updateArtifactBody } from "./record";
 import { canvasSerializer, prepareCanvasBoard } from "./serialize/canvas";
 import type { ArtifactKind, ArtifactScopeOptions } from "./types";
-import { listVersions } from "./versions";
+import { getVersionBody, listVersions } from "./versions";
 
 export type OpsEnvelopeInput = {
 	userId: string;
 	artifactId: string;
 	/** The request body as the route parsed it: `{ baseVersionId, diff }`. */
 	payload: unknown;
+	/**
+	 * The version the author of the diff last READ, when it is known (a model's
+	 * turn read the board, then edits it). An op that would overwrite something
+	 * that changed between that version and now is the reader's newer work and is
+	 * refused `stale` (ruling 67); the rest of the batch applies. Absent, or a
+	 * version that is not this artifact's, every op is judged against the board
+	 * as it is now. In-process only: the route never sets it.
+	 */
+	readVersionId?: string;
+	/**
+	 * Who the change is written as. `alfy` (the default) is the model's edit tool
+	 * and the `@Alfy` comment reply, calling this in-process: the diff's own
+	 * summary, and the change waits for the reader's Keep or Undo (ruling 63).
+	 * `user` is a change a browser sent through the route: the caller's own
+	 * version with the ordinary summary, never a free-text one under Alfy's name
+	 * and never a pending change (RV-3 Minor 6).
+	 */
+	author?: "alfy" | "user";
 } & ArtifactScopeOptions;
 
 export type OpsEnvelopeFailureReason =
@@ -86,10 +105,15 @@ export type OpsBranchOutcome =
 			detail?: string;
 	  };
 
-/** A branch is pure: the stored body and the raw diff in, the outcome out. No database, no route. */
+/**
+ * A branch is pure: the stored body and the raw diff in, the outcome out. No
+ * database, no route. `readStored` is the body of the version the author last
+ * read, when the envelope was told which and it is not the current one.
+ */
 export type OpsBranch = (input: {
 	stored: string | null;
 	diff: unknown;
+	readStored?: string | null;
 }) => OpsBranchOutcome;
 
 /**
@@ -97,9 +121,13 @@ export type OpsBranch = (input: {
  * is treated as an empty one, so a diff is never lost to it — the unreadable
  * body stays in the version it was written in, and Undo goes back to it.
  */
-const canvasBranch: OpsBranch = ({ stored, diff }) => {
+const canvasBranch: OpsBranch = ({ stored, diff, readStored }) => {
 	const before = canvasSerializer.parse(stored ?? "") ?? emptyCanvasBody();
-	const run = runOps(boardOpsVocabulary, before, diff);
+	// The board the author last read: what it changed since is not theirs to overwrite.
+	const readBoard = readStored
+		? (canvasSerializer.parse(readStored) ?? undefined)
+		: undefined;
+	const run = runOps(boardOpsVocabulary, before, diff, { readDoc: readBoard });
 	if (!run.ok) {
 		return {
 			ok: false,
@@ -189,7 +217,17 @@ export async function applyArtifactOps(
 			detail: `A ${artifact.kind} cannot be changed with ops.`,
 		};
 	}
-	const outcome = branch({ stored: artifact.body, diff: envelope.diff });
+	// The version the author last read, unless it is the current one (then nothing
+	// can have changed since) or is not this artifact's (then there is no read).
+	const readStored =
+		input.readVersionId && input.readVersionId !== newest.id
+			? await getVersionBody({ ...scope, versionId: input.readVersionId })
+			: null;
+	const outcome = branch({
+		stored: artifact.body,
+		diff: envelope.diff,
+		readStored,
+	});
 	if (!outcome.ok) {
 		return {
 			ok: false,
@@ -216,29 +254,17 @@ export async function applyArtifactOps(
 	// as `applyDocumentPatch` does it: absent, it names the version this write
 	// lands on top of (so this version is the first one waiting for review); once
 	// it exists, only the reader's Keep or Undo moves it.
-	const review = artifact.metadata.review as
-		| Partial<DocumentReviewMetadata>
-		| null
-		| undefined;
-	const hasMarker =
-		typeof review === "object" &&
-		review !== null &&
-		typeof review.throughVersion === "number" &&
-		review.throughVersion > 0;
+	const author = input.author ?? "alfy";
 	const written = await updateArtifactBody({
 		...scope,
 		body: outcome.body,
-		author: "alfy",
-		summary: outcome.summary,
+		author,
+		summary: author === "alfy" ? outcome.summary : VERSION_SUMMARY.edited,
 		baseHash: artifact.bodyHash ?? undefined,
-		metadataPatch: hasMarker
-			? undefined
-			: {
-					review: {
-						throughVersion: newest.versionNumber,
-						keptBlockIds: [],
-					} satisfies DocumentReviewMetadata,
-				},
+		metadataPatch:
+			author === "user"
+				? undefined
+				: reviewMarkerPatchFor(artifact.metadata, newest.versionNumber),
 	});
 	if (!written.ok) {
 		if (written.reason === "too_large") {

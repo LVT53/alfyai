@@ -17,6 +17,7 @@
  * and every refusal names what would have been valid.
  */
 import { z } from "zod";
+import { diffBoards } from "./board-diff";
 import { type CanvasBody, type CanvasNode, type Pt, ptSchema } from "./canvas";
 import {
 	BLOCK_DATA_SCHEMAS,
@@ -26,9 +27,12 @@ import {
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	MODEL_CREATABLE_KINDS,
 	modelCreatableBlockDataSchema,
+	modelUpdatableFields,
+	NODE_WIDTH,
+	repeatedEntryIds,
 } from "./canvas-blocks";
 import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
-import type { OpRefusal, OpsVocabulary } from "./ops";
+import type { OpRefusal, OpsJudgeContext, OpsVocabulary } from "./ops";
 
 /** A batch is one transaction; 40 ops is already a whole board. */
 export const MAX_OPS_PER_DIFF = 40;
@@ -192,6 +196,7 @@ export const BOARD_REFUSAL_REASONS = [
 	"cycle",
 	"invalid_data",
 	"limit_exceeded",
+	"stale",
 ] as const;
 
 export type BoardRefusalReason = (typeof BOARD_REFUSAL_REASONS)[number];
@@ -218,6 +223,8 @@ export function refusalLabelKey(reason: BoardRefusalReason): string {
 			return "artifacts.canvas.refusal.invalid_data";
 		case "limit_exceeded":
 			return "artifacts.canvas.refusal.limit_exceeded";
+		case "stale":
+			return "artifacts.canvas.refusal.stale";
 		default: {
 			const unreachable: never = reason;
 			return unreachable;
@@ -268,10 +275,15 @@ export function applyOp(body: CanvasBody, op: BoardOp): CanvasBody {
 				data: data as CanvasBlockData,
 			};
 			if (parentId !== undefined) added.parentId = parentId;
-			// A frame's size is on the node and in its data; the two move together.
 			if (data.kind === "frame") {
+				// A frame's size is on the node and in its data; the two move together.
 				added.width = data.width;
 				added.height = data.height;
+			} else {
+				// The model has no width to give a block and is told how wide one is, so
+				// it is stored: the board would otherwise draw it as wide as its words
+				// run (RV-3 C2). No height: a block is as tall as its content.
+				added.width = NODE_WIDTH;
 			}
 			return { ...body, nodes: [...body.nodes, added] };
 		}
@@ -378,6 +390,22 @@ function duplicateNode(id: string): Step {
 	);
 }
 
+/**
+ * Blocks and arrows are listed together when the model reads a board, each under
+ * its id, so a later op could not say which of two it means: an id is taken when
+ * either has it (RV-3 Minor 5). A block is refused an arrow's id and an arrow a
+ * block's, each saying which it clashes with.
+ */
+function takenByArrow(body: CanvasBody, id: string): Step | null {
+	return body.edges.some((edge) => edge.id === id)
+		? refuse(
+				"duplicate_id",
+				`"${id}" is already the id of an arrow, and blocks and arrows are read back under one list of ids; choose a new id for the block.`,
+				id,
+			)
+		: null;
+}
+
 /** A zod issue list, short and pointed: where, and what was wrong. */
 function issuesOf(error: z.ZodError): string {
 	return error.issues
@@ -388,6 +416,20 @@ function issuesOf(error: z.ZodError): string {
 
 function fieldsOf(kind: BlockKind): string {
 	return Object.keys(BLOCK_DATA_SCHEMAS[kind].shape).join(", ");
+}
+
+/**
+ * A checklist whose items share an id cannot be drawn (its rows are keyed by
+ * item id, and two with one id took the whole board down: RV-3 C1), so the
+ * model is refused it, told which id and what to do. The stored schema cannot
+ * say "unique" in the JSON Schema the model is shown, so this is the
+ * validator's rule and the refusal is where the model learns it.
+ */
+function repeatedIdsProblem(data: CanvasBlockData): string | null {
+	const repeated = repeatedEntryIds(data);
+	if (repeated.length === 0) return null;
+	const quoted = repeated.map((id) => `"${id}"`).join(", ");
+	return `checklist item ids must be unique: ${quoted} ${repeated.length === 1 ? "is" : "are"} used more than once. Give every item its own id, for example "i1", "i2", "i3".`;
 }
 
 function exceedsByteCap(body: CanvasBody): boolean {
@@ -445,6 +487,8 @@ function stepAddFrame(
 	created: number,
 ): Step {
 	if (findNode(body, op.id)) return duplicateNode(op.id);
+	const arrowHasIt = takenByArrow(body, op.id);
+	if (arrowHasIt) return arrowHasIt;
 	const data = MODEL_CREATABLE_DATA_SCHEMAS.frame.safeParse({
 		kind: "frame",
 		label: op.label,
@@ -468,6 +512,8 @@ function stepAddNode(
 ): Step {
 	const spec = op.node;
 	if (findNode(body, spec.id)) return duplicateNode(spec.id);
+	const arrowHasIt = takenByArrow(body, spec.id);
+	if (arrowHasIt) return arrowHasIt;
 	if (!isModelCreatableKind(spec.type)) {
 		return refuse(
 			"unknown_kind",
@@ -491,6 +537,8 @@ function stepAddNode(
 			spec.id,
 		);
 	}
+	const repeated = repeatedIdsProblem(data.data);
+	if (repeated !== null) return refuse("invalid_data", repeated, spec.id);
 	if (spec.parentId !== undefined) {
 		if (spec.parentId === spec.id) {
 			return refuse(
@@ -553,6 +601,18 @@ function stepUpdateNode(
 			op.id,
 		);
 	}
+	// What the app vouches for is set by the app, never by an op (ruling 67).
+	const settable = modelUpdatableFields(target.type);
+	const owned = Object.keys(op.data).filter(
+		(key) => key !== "kind" && !settable.includes(key),
+	);
+	if (owned.length > 0) {
+		return refuse(
+			"invalid_data",
+			`${owned.map((key) => `"${key}"`).join(", ")} on a ${target.type} ${owned.length === 1 ? "is" : "are"} set by the app (the Insert menu, Refresh, the screenshot it takes), never by an op. ${settable.length > 0 ? `You may change only: ${settable.join(", ")}.` : `You may change nothing on a ${target.type} block; you can still move it or remove it.`}`,
+			op.id,
+		);
+	}
 	// The merged data has to be a whole, valid block of the node's own kind.
 	const merged = schema.safeParse({ ...target.data, ...op.data });
 	if (!merged.success) {
@@ -562,7 +622,43 @@ function stepUpdateNode(
 			op.id,
 		);
 	}
+	const repeated = repeatedIdsProblem(merged.data);
+	if (repeated !== null) return refuse("invalid_data", repeated, op.id);
 	return grow(applyOp(body, op), op.id);
+}
+
+/**
+ * The ids of the blocks the reader changed, moved or took into another frame
+ * between the board the model last read and the board now. A block the reader
+ * added after the read is not here (there was nothing to overwrite), and one
+ * they removed is not either: an op naming it is refused as an unknown id.
+ */
+function changedSince(read: CanvasBody, now: CanvasBody): Set<string> {
+	const delta = diffBoards(read, now);
+	return new Set([
+		...delta.changedNodes,
+		...delta.movedNodes.map((moved) => moved.id),
+		...delta.reparentedNodes,
+	]);
+}
+
+/**
+ * Ruling 67: Alfy never overwrites the reader's newer words. An op that would
+ * change or destroy a block the reader changed after the model read the board
+ * (an update, a move, a removal) is refused `stale`, and the rest of the batch
+ * still applies. A highlight, and an arrow to or from the block, take nothing
+ * from the reader, so they are not judged.
+ */
+function staleStep(op: BoardOp, staleIds: ReadonlySet<string>): Step | null {
+	if (op.op !== "update_node" && op.op !== "move" && op.op !== "remove_node") {
+		return null;
+	}
+	if (!staleIds.has(op.id)) return null;
+	return refuse(
+		"stale",
+		`The reader changed "${op.id}" after you read the board, so this ${op.op} was not applied and their change stands. Call read_artifact to see the board as it is now, then send the change again if it still makes sense.`,
+		op.id,
+	);
 }
 
 function step(op: BoardOp, body: CanvasBody, created: number): Step {
@@ -583,8 +679,22 @@ function step(op: BoardOp, body: CanvasBody, created: number): Step {
 					op.edge.id,
 				);
 			}
+			if (findNode(body, op.edge.id)) {
+				return refuse(
+					"duplicate_id",
+					`"${op.edge.id}" is already the id of a block, and blocks and arrows are read back under one list of ids; choose a new id for the arrow.`,
+					op.edge.id,
+				);
+			}
 			for (const end of [op.edge.source, op.edge.target]) {
 				if (!findNode(body, end)) return unknownNode(body, end);
+			}
+			if (op.edge.source === op.edge.target) {
+				return refuse(
+					"invalid_data",
+					`An arrow joins two different blocks, and "${op.edge.source}" is both ends. Set source and target to two ids of blocks on the board.`,
+					op.edge.id,
+				);
 			}
 			return grow(applyOp(body, op), op.edge.id);
 		}
@@ -635,6 +745,7 @@ function targetOf(op: BoardOp): string | undefined {
 function validateOps(
 	ops: readonly BoardOp[],
 	body: CanvasBody,
+	context?: OpsJudgeContext<CanvasBody>,
 ): { accepted: BoardOp[]; refused: BoardRefusal[] } {
 	const refusalFor = (
 		op: BoardOp,
@@ -666,12 +777,15 @@ function validateOps(
 
 	const accepted: BoardOp[] = [];
 	const refused: BoardRefusal[] = [];
+	const staleIds = context?.readDoc
+		? changedSince(context.readDoc, body)
+		: new Set<string>();
 	let working = body;
 	let created = 0;
 	ops.forEach((op, index) => {
 		let outcome: Step;
 		try {
-			outcome = step(op, working, created);
+			outcome = staleStep(op, staleIds) ?? step(op, working, created);
 		} catch {
 			// A direct caller can hand this an op the schema never saw.
 			outcome = refuse("invalid_data", "The op could not be read.");
@@ -699,8 +813,9 @@ function validateOps(
 export function validateBoardDiff(
 	diff: BoardDiff,
 	body: CanvasBody,
+	context?: { readBoard?: CanvasBody },
 ): { accepted: BoardOp[]; refused: BoardRefusal[] } {
-	return validateOps(diff.ops, body);
+	return validateOps(diff.ops, body, { readDoc: context?.readBoard });
 }
 
 export const boardOpsVocabulary: OpsVocabulary<

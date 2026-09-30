@@ -2,8 +2,11 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText, type ToolSet } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig } from "$lib/server/config-store";
+import { db } from "$lib/server/db";
+import { conversations, users } from "$lib/server/db/schema";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
+import { createArtifact } from "$lib/server/services/artifacts";
 import {
 	hasLocalDistillEnabled,
 	isCloudModel,
@@ -53,6 +56,7 @@ import {
 	CREATE_ARTIFACT_HANDLERS,
 	MAX_CREATE_ARTIFACT_CALLS_PER_TURN,
 } from "./artifact-tools/create";
+import { EDIT_ARTIFACT_HANDLERS } from "./artifact-tools/edit";
 import {
 	CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE,
 	EDIT_ARTIFACT_CANVAS_EXAMPLE,
@@ -68,7 +72,7 @@ import {
 	type ReadGeneratedFileResult,
 	readGeneratedFileForTool,
 } from "./read-generated-file";
-import { TOOL_TIMEOUTS_MS } from "./shared";
+import { createToolCallRecorder, TOOL_TIMEOUTS_MS } from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
 // The ledger lookup is mocked (it is the DB), but the polling loop around it
@@ -4884,6 +4888,92 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 		});
 	});
 
+	// Ruling 67: a board edit is judged against the version the model last read in
+	// THIS turn, so the edit closure hands the handler the calls the turn's
+	// recorder already holds — the same seam a create handler is given.
+	describe("what an edit handler is told about its turn (ruling 67)", () => {
+		const realCanvasEdit = EDIT_ARTIFACT_HANDLERS.canvas;
+		afterEach(() => {
+			EDIT_ARTIFACT_HANDLERS.canvas = realCanvasEdit;
+		});
+
+		it("is the calls the turn's recorder already holds", async () => {
+			const now = new Date("2026-09-30T09:00:00.000Z");
+			const userId = "user-edit-wiring";
+			const conversationId = "conversation-edit-wiring";
+			db.insert(users)
+				.values({
+					id: userId,
+					email: "edit-wiring@example.com",
+					passwordHash: "hash",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			db.insert(conversations)
+				.values({
+					id: conversationId,
+					userId,
+					title: "Trip",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			const made = await createArtifact({
+				userId,
+				conversationId,
+				kind: "canvas",
+				title: "Board",
+				body: "{}",
+				author: "user",
+				versionSummary: "Created",
+			});
+			if (!made.ok) throw new Error(made.reason);
+			const artifactId = made.artifact.id;
+
+			const seen: unknown[] = [];
+			EDIT_ARTIFACT_HANDLERS.canvas = async (params) => {
+				seen.push(params.turnContext);
+				return {
+					ok: true,
+					value: { versionId: "version-2", applied: 1, refused: [] },
+				};
+			};
+			const recorder = createToolCallRecorder();
+			recorder.record({
+				name: "read_artifact",
+				input: { artifactId },
+				status: "done",
+				metadata: { ok: true, versionId: "version-1" },
+			});
+			const { tools } = createNormalChatTools({
+				userId,
+				conversationId,
+				turnId: "turn-1",
+				recorder,
+			});
+
+			await tools.edit_artifact.execute?.(
+				{
+					artifactId,
+					ops: [{ op: "highlight", ids: ["note-1"] }],
+				},
+				{ toolCallId: "call-1", messages: [] },
+			);
+
+			expect(seen).toHaveLength(1);
+			expect(seen[0]).toMatchObject({
+				sources: [
+					{
+						name: "read_artifact",
+						input: { artifactId },
+						metadata: { versionId: "version-1" },
+					},
+				],
+			});
+		});
+	});
+
 	afterEach(() => {
 		CREATE_ARTIFACT_HANDLERS.document = realDocumentHandler;
 	});
@@ -5501,12 +5591,23 @@ describe("tool description hygiene", () => {
 	// margin (26 en / 27 hu). edit_artifact's own description is now 441 en /
 	// 700 hu tokens, under PER_TOOL_TOKEN_CEILING.
 	//
+	// RV-3 C2: what Alfy adds to a board is stored 190 wide, and a note is as tall
+	// as its words, but the description said "a note is 190 wide and 84 tall", so a
+	// board made from it spilled out of its frames on the reader's screen. The
+	// Canvas rule and create_artifact's `body` field now say what is drawn (one
+	// sentence, built from the constants the read and the eval share: a block is
+	// 190 wide, a note 64 tall for two lines and 18 more per further line, a
+	// checklist 74 plus 26 an item; kind-prose.ts's SIZE_FACTS). Re-measured:
+	// 5,060 en / 8,187 hu (43 en / 48 hu spent; edit_artifact hu is 750 tokens or
+	// fewer, the per-tool ceiling). The ceiling below is that measurement plus the
+	// SAME margin (26 en / 27 hu).
+	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
 	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 5043, hu: 8166 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 5086, hu: 8214 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);

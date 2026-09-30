@@ -20,7 +20,7 @@
  */
 import type { CanvasEdge, CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
 import {
-	DEFAULT_NODE_HEIGHT,
+	estimatedNodeHeight,
 	NODE_WIDTH,
 } from "$lib/shared/artifacts/canvas-blocks";
 import { metaFor } from "./block-meta";
@@ -70,7 +70,7 @@ function sizeOf(node: CanvasNode, measured?: Size): Size {
 	const own = node.data.kind === "frame" ? node.data : null;
 	return {
 		width: node.width ?? own?.width ?? NODE_WIDTH,
-		height: node.height ?? own?.height ?? DEFAULT_NODE_HEIGHT,
+		height: estimatedNodeHeight(node),
 	};
 }
 
@@ -84,8 +84,9 @@ function rectIn(
 
 /**
  * A block's rectangle in board space. Its size is what the panel measured, else
- * what it stores, else the footprint a block with no size is taken to have
- * (`NODE_WIDTH` x `DEFAULT_NODE_HEIGHT`, the numbers the model is told too).
+ * what it stores, else the footprint a block with no size is taken to have:
+ * `NODE_WIDTH` wide and as tall as its words or items make it
+ * (`estimatedNodeHeight`, the very numbers the model reads, RV-3 C2).
  */
 export function nodeRect(
 	node: CanvasNode,
@@ -254,41 +255,10 @@ export function rehomeOnRemoval(
  * Every parent ahead of its children, changing as little as possible: the very
  * same array when it is already in that order. A block adopted by a frame that
  * sits later in the list needs the frame moved up (the library's delete cascade
- * and the saved body both read parents first).
+ * and the saved body both read parents first). The body's frame settling and the
+ * create parse order nodes the same way, so it is one function, shared.
  */
-export function parentsFirst<T extends { id: string; parentId?: string }>(
-	nodes: readonly T[],
-): T[] {
-	const seenIds = new Set<string>();
-	let inOrder = true;
-	for (const node of nodes) {
-		if (node.parentId !== undefined && !seenIds.has(node.parentId)) {
-			// A parent that is not on the board at all is not out of order.
-			if (nodes.some((other) => other.id === node.parentId)) {
-				inOrder = false;
-				break;
-			}
-		}
-		seenIds.add(node.id);
-	}
-	if (inOrder) return nodes as T[];
-	const byId = new Map(nodes.map((node) => [node.id, node]));
-	const out: T[] = [];
-	const placed = new Set<string>();
-	const visiting = new Set<string>();
-	const place = (node: T): void => {
-		if (placed.has(node.id) || visiting.has(node.id)) return;
-		visiting.add(node.id);
-		const parent =
-			node.parentId === undefined ? undefined : byId.get(node.parentId);
-		if (parent) place(parent);
-		visiting.delete(node.id);
-		placed.add(node.id);
-		out.push(node);
-	};
-	for (const node of nodes) place(node);
-	return out;
-}
+export { parentsFirst } from "$lib/shared/artifacts/canvas-body";
 
 /**
  * The sides an edge should use, from where its two ends are: it leaves the side

@@ -15,7 +15,11 @@ import {
 	type Pt,
 	type StoredCanvasNode,
 } from "./canvas";
-import { BLOCK_DATA_SCHEMAS, isBlockKind } from "./canvas-blocks";
+import {
+	BLOCK_DATA_SCHEMAS,
+	isBlockKind,
+	withUniqueEntryIds,
+} from "./canvas-blocks";
 
 /** A board past this is a rendering problem, not a deployment preference (perf budget). */
 export const MAX_NODES_PER_BOARD = 400;
@@ -144,21 +148,45 @@ function settleFrames(nodes: StoredCanvasNode[]): StoredCanvasNode[] {
 		for (const node of path) settled.add(node.id);
 	}
 
-	const emitted = new Set<string>();
-	const ordered: StoredCanvasNode[] = [];
+	return parentsFirst(nodes);
+}
+
+/**
+ * Every parent ahead of its children, changing as little as possible: the very
+ * same array when it is already in that order, otherwise each node's not yet
+ * placed ancestors go in just before it. Svelte Flow needs parents first, and so
+ * do the library's delete cascade and the saved body. One function for the body's
+ * frame settling, the create parse and the board (RV-3 Minor 7 found it written
+ * three times). A parent that is not in the list is not out of order, a loop
+ * ends the walk instead of running it (nobody is placed twice or lost), and it
+ * is linear time with no recursion, whatever the input: a board is user-editable
+ * JSON.
+ */
+export function parentsFirst<T extends { id: string; parentId?: string }>(
+	nodes: readonly T[],
+): T[] {
+	const byId = new Map<string, T>();
+	for (const node of nodes) if (!byId.has(node.id)) byId.set(node.id, node);
+	const emitted = new Set<T>();
+	const ordered: T[] = [];
 	for (const node of nodes) {
-		const pending: StoredCanvasNode[] = [];
-		let cursor: StoredCanvasNode | undefined = node;
-		while (cursor && !emitted.has(cursor.id)) {
+		const pending: T[] = [];
+		const onPath = new Set<T>();
+		let cursor: T | undefined = node;
+		while (cursor && !emitted.has(cursor) && !onPath.has(cursor)) {
+			onPath.add(cursor);
 			pending.push(cursor);
-			cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+			cursor =
+				cursor.parentId === undefined ? undefined : byId.get(cursor.parentId);
 		}
 		for (const ancestorFirst of pending.reverse()) {
-			emitted.add(ancestorFirst.id);
+			emitted.add(ancestorFirst);
 			ordered.push(ancestorFirst);
 		}
 	}
-	return ordered;
+	return ordered.every((placed, index) => placed === nodes[index])
+		? (nodes as T[])
+		: ordered;
 }
 
 function readEdge(value: unknown): CanvasEdge | null {
@@ -277,16 +305,24 @@ function readViewport(value: unknown): CanvasBody["viewport"] {
  * cannot read (an unknown block kind, data that is not its kind's, an edge to a
  * node that is not there, a duplicate id, an annotation past the cap) is
  * dropped and NAMED in `dropped`, and the rest of the board opens.
+ *
+ * One thing is repaired instead of dropped (RV-3 C1): a block whose own list
+ * holds two entries with one id (a checklist's items, a photo block's pictures,
+ * a web block's links) keeps every word and gets fresh ids for the later ones,
+ * because the board draws those rows by id and two with one id would keep the
+ * panel from ever opening. `repaired` names the blocks it did that to.
  */
 export function normalizeCanvasBody(raw: unknown): {
 	body: CanvasBody;
 	dropped: CanvasDropReport;
+	repaired: string[];
 } {
 	const dropped: CanvasDropReport = { nodes: [], edges: [], annotations: [] };
 	const source = isRecord(raw) ? raw : {};
 
 	const nodeIds = new Set<string>();
 	const read: StoredCanvasNode[] = [];
+	const repaired: string[] = [];
 	(Array.isArray(source.nodes) ? source.nodes : []).forEach((value, index) => {
 		const node = readNode(value);
 		if (node === null) {
@@ -295,6 +331,11 @@ export function normalizeCanvasBody(raw: unknown): {
 			dropped.nodes.push(node.id);
 		} else {
 			nodeIds.add(node.id);
+			const unique = withUniqueEntryIds(node.data);
+			if (unique.renamed.length > 0) {
+				node.data = unique.data;
+				repaired.push(node.id);
+			}
 			read.push(node);
 		}
 	});
@@ -344,6 +385,7 @@ export function normalizeCanvasBody(raw: unknown): {
 			annotations,
 		},
 		dropped,
+		repaired,
 	};
 }
 

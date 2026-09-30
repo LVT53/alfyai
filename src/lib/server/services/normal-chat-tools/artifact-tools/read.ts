@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
 	getArtifact,
 	listArtifactCatalogueEntries,
+	listVersions,
 	readDocumentForAlfy,
 } from "$lib/server/services/artifacts";
 import type { CanvasBody } from "$lib/shared/artifacts/canvas";
@@ -76,6 +77,11 @@ export interface ReadArtifactHandlerParams {
 export interface ReadArtifactHandlerResult {
 	blocks?: Array<Record<string, unknown>>;
 	body?: string;
+	/**
+	 * The version this read showed the model. It goes on the tool call's record
+	 * and never to the model: a later edit is judged against it (ruling 67).
+	 */
+	versionId?: string;
 }
 
 /**
@@ -151,15 +157,30 @@ function readStoredBoard(stored: string | null): CanvasBody | null {
  */
 READ_ARTIFACT_HANDLERS.canvas = async (params) => {
 	if (params.abortSignal.aborted) return {};
-	const record = await getArtifact({
+	const scope = {
 		userId: params.userId,
 		artifactId: params.artifactId,
 		conversationId: params.conversationId,
-	});
+	};
+	const record = await getArtifact(scope);
 	const board = readStoredBoard(record?.body ?? null);
 	const blocks = board ? canvasReadBlocks(board) : [];
-	if (params.detail === "blocks") return { blocks };
-	return { blocks, body: board ? boardJson(board) : (record?.body ?? "") };
+	// Which version this is, by its number (the one the body was read at): a later
+	// edit refuses whatever the reader changed after it (ruling 67). A few versions
+	// are looked at in case a save lands between the two reads; none found, none said.
+	const versions = record
+		? await listVersions({ ...scope, limit: 4 }).catch(() => [])
+		: [];
+	const versionId = versions.find(
+		(version) => version.versionNumber === record?.versionNumber,
+	)?.id;
+	const known = versionId === undefined ? {} : { versionId };
+	if (params.detail === "blocks") return { blocks, ...known };
+	return {
+		blocks,
+		body: board ? boardJson(board) : (record?.body ?? ""),
+		...known,
+	};
 };
 
 /**
@@ -351,6 +372,9 @@ export async function runReadArtifactTool(params: {
 			found: true,
 			artifactId: record.id,
 			artifactKind: record.kind,
+			...(result.versionId === undefined
+				? {}
+				: { versionId: result.versionId }),
 		},
 	};
 }

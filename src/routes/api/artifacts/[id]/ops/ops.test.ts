@@ -161,6 +161,39 @@ describe("POST /api/artifacts/[id]/ops", () => {
 		expect(versionCount(id)).toBe(2);
 	});
 
+	// RV-3 Minor 6: the route is callable from a browser, so what it writes is the
+	// caller's own change — never an "Alfy" version carrying the caller's free text
+	// (the Versions popover shows Alfy's summaries as Alfy's words), and never the
+	// review marker that makes an Alfy change wait for Keep or Undo.
+	it("writes what a browser sends as the user's own version, with the ordinary summary, and starts no review", async () => {
+		const id = await createBoard();
+		const base = await currentVersionId(id);
+
+		const response = await POST(
+			event({
+				artifactId: id,
+				body: body(base, BOARD_OPS_EXAMPLE, "Alfy tidied everything up"),
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		const [newest] = memory.db
+			.select()
+			.from(schema.artifactVersions)
+			.where(eq(schema.artifactVersions.artifactId, id))
+			.all()
+			.sort((a, b) => b.versionNumber - a.versionNumber);
+		expect(newest.versionNumber).toBe(2);
+		expect(newest.author).toBe("user");
+		expect(newest.summary).toBe("Edited");
+		const [row] = memory.db
+			.select({ metadataJson: schema.artifacts.metadataJson })
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, id))
+			.all();
+		expect(JSON.parse(row.metadataJson ?? "{}")).not.toHaveProperty("review");
+	});
+
 	it("reports what it skipped, with each op's index, name, target and reason", async () => {
 		const id = await createBoard();
 

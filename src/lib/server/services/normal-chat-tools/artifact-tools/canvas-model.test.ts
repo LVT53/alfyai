@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { MAX_NEW_NODES_PER_DIFF } from "$lib/shared/artifacts/board-ops";
+import {
+	DEFAULT_NODE_HEIGHT,
+	NODE_WIDTH,
+} from "$lib/shared/artifacts/canvas-blocks";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
 import {
 	BLOCK_SHAPES_HINT,
-	BOARD_DEFAULT_NODE_HEIGHT,
-	BOARD_NODE_WIDTH,
 	canvasEditFailureMessage,
 	canvasReadBlocks,
+	lastKnownBoardVersion,
 	parseCanvasCreateBody,
 } from "./canvas-model";
 
@@ -69,15 +72,42 @@ describe("canvasReadBlocks — what read_artifact shows the model of a board", (
 		expect(byId("note-museum")).not.toHaveProperty("parentId");
 	});
 
-	it("gives a node its size: the stored one, or the footprint the board's own geometry assumes", () => {
+	it("gives a node its size: the stored one, or the size the panel draws it at (RV-3 C2)", () => {
+		// Stored, so as stored.
 		expect(byId("note-1")).toMatchObject({ width: 190, height: 84 });
-		expect(byId("text-1")).toMatchObject({
-			width: BOARD_NODE_WIDTH,
-			height: BOARD_DEFAULT_NODE_HEIGHT,
-		});
 		expect(byId("frame-a")).toMatchObject({ width: 360, height: 300 });
-		expect(BOARD_NODE_WIDTH).toBe(190);
-		expect(BOARD_DEFAULT_NODE_HEIGHT).toBe(84);
+		// Not stored: the shared width, and the height its words or items take.
+		expect(byId("text-1")).toMatchObject({ width: NODE_WIDTH, height: 32 });
+		expect(byId("todo-1")).toMatchObject({ width: NODE_WIDTH, height: 126 });
+		expect(byId("map-1")).toMatchObject({
+			width: NODE_WIDTH,
+			height: DEFAULT_NODE_HEIGHT,
+		});
+		expect(NODE_WIDTH).toBe(190);
+	});
+
+	it("tells a long note from a short one, because a note is as tall as its words", () => {
+		const board = sampleBoard();
+		board.nodes = [
+			{
+				id: "short",
+				type: "sticky",
+				position: { x: 0, y: 0 },
+				width: 190,
+				data: { kind: "sticky", text: "Museum, 10:00", tone: "yellow" },
+			},
+			{
+				id: "long",
+				type: "sticky",
+				position: { x: 0, y: 200 },
+				width: 190,
+				data: { kind: "sticky", text: "word ".repeat(24).trim(), tone: "mint" },
+			},
+		];
+		board.edges = [];
+		const [short, long] = canvasReadBlocks(board);
+		expect(short).toMatchObject({ width: 190, height: 64 });
+		expect(long.height).toBeGreaterThan(100);
 	});
 
 	it("carries what an edit needs to name: a sticky's tone, a checklist's items with their ids", () => {
@@ -212,6 +242,27 @@ describe("parseCanvasCreateBody — the board a create_artifact call carries", (
 			text: "note n1",
 			tone: "yellow",
 		});
+	});
+
+	it("stores the width every block it makes is told to have, a frame's size as given, and no height on a note (RV-3 C2)", () => {
+		const result = parseCanvasCreateBody(
+			body([
+				frame("f"),
+				sticky("n1", { parentId: "f" }),
+				{
+					id: "t1",
+					type: "text",
+					position: { x: 0, y: 0 },
+					data: { kind: "text", text: "Title" },
+				},
+			]),
+		);
+		if (!result.ok) throw new Error(result.error);
+		const byId = new Map(result.body.nodes.map((n) => [n.id, n]));
+		expect(byId.get("f")).toMatchObject({ width: 300, height: 200 });
+		expect(byId.get("n1")?.width).toBe(NODE_WIDTH);
+		expect(byId.get("n1")?.height).toBeUndefined();
+		expect(byId.get("t1")?.width).toBe(NODE_WIDTH);
 	});
 
 	describe("refuses, and names the fix, for", () => {
@@ -363,6 +414,29 @@ describe("parseCanvasCreateBody — the board a create_artifact call carries", (
 			expect(refusal(body([frame("f", { parentId: "f" })]))).toMatch(
 				/parentId/,
 			);
+		});
+
+		it("a checklist whose items share an id, naming the id and saying nothing was made (RV-3 C1)", () => {
+			const error = refusal(
+				body([
+					{
+						id: "todo",
+						type: "checklist",
+						position: { x: 0, y: 0 },
+						data: {
+							kind: "checklist",
+							items: [
+								{ id: "1", text: "a", done: false },
+								{ id: "1", text: "b", done: false },
+							],
+						},
+					},
+				]),
+			);
+			expect(error).toContain("Nothing was created");
+			expect(error).toContain('nodes[0] "todo"');
+			expect(error).toContain('"1"');
+			expect(error).toMatch(/unique/);
 		});
 
 		it("an edge to a node that is not on the board, naming the ones that are", () => {
@@ -631,5 +705,103 @@ describe("the block shapes a refusal teaches", () => {
 		}
 		expect(BLOCK_SHAPES_HINT).toMatch(/yellow, mint, blue or plain/);
 		expect(BLOCK_SHAPES_HINT).toMatch(/\{id, text, done\}/);
+	});
+});
+
+// Ruling 67: the version of a board the model last saw in this turn, from the
+// turn's own tool calls.
+describe("lastKnownBoardVersion — what the model has seen of a board this turn", () => {
+	const entry = (
+		name: string,
+		artifactId: string,
+		metadata: Record<string, string | number | boolean | null> | undefined,
+		status: "done" | "failed" | "running" = "done",
+	) => ({ name, input: { artifactId }, status, metadata });
+	const read = (artifactId: string, versionId: string) =>
+		entry("read_artifact", artifactId, { ok: true, versionId });
+	const edit = (
+		artifactId: string,
+		versionId: string,
+		parentVersionId: string,
+	) =>
+		entry("edit_artifact", artifactId, {
+			ok: true,
+			versionId,
+			parentVersionId,
+		});
+
+	it("is nothing before the model has read the board", () => {
+		expect(lastKnownBoardVersion([], "a")).toBeUndefined();
+		expect(lastKnownBoardVersion([read("b", "v1")], "a")).toBeUndefined();
+		expect(
+			lastKnownBoardVersion(
+				[entry("create_artifact", "a", { ok: true, versionId: "v1" })],
+				"a",
+			),
+		).toBeUndefined();
+	});
+
+	it("is the version its last successful read of that board reported", () => {
+		expect(lastKnownBoardVersion([read("a", "v1")], "a")).toBe("v1");
+		expect(
+			lastKnownBoardVersion(
+				[read("a", "v1"), read("b", "v7"), read("a", "v3")],
+				"a",
+			),
+		).toBe("v3");
+	});
+
+	it("ignores a read that failed, one that never ran to the end, and one that carries no version", () => {
+		expect(
+			lastKnownBoardVersion(
+				[
+					read("a", "v1"),
+					entry("read_artifact", "a", { ok: false, found: false }),
+					entry("read_artifact", "a", { ok: true, versionId: "v9" }, "running"),
+					entry("read_artifact", "a", { ok: true, found: true }),
+					entry("read_artifact", "a", undefined),
+				],
+				"a",
+			),
+		).toBe("v1");
+	});
+
+	it("moves forward with the model's own edit when it landed directly on the version it knew", () => {
+		expect(
+			lastKnownBoardVersion([read("a", "v1"), edit("a", "v2", "v1")], "a"),
+		).toBe("v2");
+		expect(
+			lastKnownBoardVersion(
+				[read("a", "v1"), edit("a", "v2", "v1"), edit("a", "v3", "v2")],
+				"a",
+			),
+		).toBe("v3");
+	});
+
+	it("does not move forward over a version the reader wrote in between, or for an edit it never read the base of", () => {
+		expect(
+			lastKnownBoardVersion([read("a", "v1"), edit("a", "v3", "v2")], "a"),
+		).toBe("v1");
+		expect(lastKnownBoardVersion([edit("a", "v2", "v1")], "a")).toBeUndefined();
+		// A later read starts over from what it saw.
+		expect(
+			lastKnownBoardVersion(
+				[read("a", "v1"), edit("a", "v3", "v2"), read("a", "v3")],
+				"a",
+			),
+		).toBe("v3");
+	});
+
+	it("is not moved by an edit that failed, or by another board's", () => {
+		expect(
+			lastKnownBoardVersion(
+				[
+					read("a", "v1"),
+					entry("edit_artifact", "a", { ok: false }),
+					edit("b", "v2", "v1"),
+				],
+				"a",
+			),
+		).toBe("v1");
 	});
 });

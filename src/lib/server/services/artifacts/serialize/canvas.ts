@@ -39,9 +39,11 @@ export type CanvasBoardRefusal =
 /** A hostile or accidental multi-megabyte payload is refused before it is parsed. */
 const MAX_RAW_BYTES = MAX_BODY_BYTES * 4;
 
-function parseBoardJson(
-	stored: string,
-): { body: CanvasBody; dropped: CanvasDropReport } | null {
+function parseBoardJson(stored: string): {
+	body: CanvasBody;
+	dropped: CanvasDropReport;
+	repaired: string[];
+} | null {
 	let raw: unknown;
 	try {
 		raw = JSON.parse(stored);
@@ -68,6 +70,8 @@ export function prepareCanvasBoard(raw: string):
 			json: string;
 			hash: string;
 			dropped: CanvasDropReport;
+			/** The blocks whose repeated entry ids were renumbered (nothing was lost). */
+			repaired: string[];
 	  }
 	| { ok: false; reason: CanvasBoardRefusal } {
 	if (Buffer.byteLength(raw, "utf8") > MAX_RAW_BYTES) {
@@ -88,6 +92,7 @@ export function prepareCanvasBoard(raw: string):
 		json,
 		hash: canvasBodyHash(json),
 		dropped: parsed.dropped,
+		repaired: parsed.repaired,
 	};
 }
 

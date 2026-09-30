@@ -236,6 +236,45 @@ describe("applyArtifactOps — a diff that lands", () => {
 	});
 });
 
+describe("applyArtifactOps — who a change is written as (RV-3 Minor 6)", () => {
+	it("writes an in-process change as Alfy's, with the diff's own summary, and a change asked for as the user's as the user's, with the ordinary summary and no review marker", async () => {
+		const asAlfy = await createBoard();
+		const alfy = await apply(
+			asAlfy,
+			payload(await currentVersionId(asAlfy), [moveNote], "Moved the museum"),
+		);
+		if (!alfy.ok) throw new Error(alfy.reason);
+		expect(versionRows(asAlfy)[1]).toMatchObject({
+			author: "alfy",
+			summary: "Moved the museum",
+		});
+
+		const asUser = await createBoard();
+		const user = await applyArtifactOps({
+			userId: OWNER,
+			artifactId: asUser,
+			conversationId: CONVERSATION,
+			payload: payload(
+				await currentVersionId(asUser),
+				[moveNote],
+				"Alfy tidied everything up",
+			),
+			author: "user",
+		});
+		if (!user.ok) throw new Error(user.reason);
+		expect(versionRows(asUser)[1]).toMatchObject({
+			author: "user",
+			summary: "Edited",
+		});
+		const artifact = await getArtifact({
+			userId: OWNER,
+			artifactId: asUser,
+			conversationId: CONVERSATION,
+		});
+		expect(artifact?.metadata.review ?? null).toBeNull();
+	});
+});
+
 describe("applyArtifactOps — the change is one pending change (ruling 63)", () => {
 	async function reviewMarker(id: string) {
 		const artifact = await getArtifact({ userId: OWNER, artifactId: id });
@@ -558,5 +597,134 @@ describe("applyArtifactOps — a board it cannot read is not a reason to lose th
 		expect(
 			(await getArtifact({ userId: OWNER, artifactId: id }))?.bodyHash,
 		).toBe(rows[1].bodyHash);
+	});
+});
+
+// RV-3 I6 / ruling 67: the version a model last read reaches the envelope, and an
+// op that would overwrite a block the reader changed since is refused `stale`
+// while the rest of the batch applies. It is an in-process input: the route never
+// sets it, and a caller without one gets the plain "judged against the board as it
+// is now".
+describe("applyArtifactOps — the reader's newer words are not overwritten (ruling 67)", () => {
+	/** The reader rewrites a note and saves: a user version on top of the one Alfy read. */
+	async function readerRewrites(artifactId: string, text: string) {
+		const board = sampleBoard();
+		const note = board.nodes.find((n) => n.id === "note-museum");
+		if (!note) throw new Error("fixture");
+		note.data = { kind: "sticky", text, tone: "mint" };
+		const saved = await saveCanvasBoard({
+			userId: OWNER,
+			artifactId,
+			conversationId: CONVERSATION,
+			body: JSON.stringify(board),
+			author: "user",
+			summary: "Edited",
+			coalesceUserEdits: false,
+		});
+		if (!saved.ok) throw new Error(saved.reason);
+	}
+
+	const rewriteMuseum: BoardOp = {
+		op: "update_node",
+		id: "note-museum",
+		data: { text: "Museum, 14:00 — Alfy's words" },
+	};
+
+	function applyRead(
+		artifactId: string,
+		baseVersionId: string,
+		readVersionId: string | undefined,
+		ops: BoardOp[],
+	) {
+		return applyArtifactOps({
+			userId: OWNER,
+			artifactId,
+			conversationId: CONVERSATION,
+			payload: payload(baseVersionId, ops),
+			readVersionId,
+		});
+	}
+
+	function museumText(artifactId: string): string {
+		const stored = JSON.parse(storedBody(artifactId) ?? "{}");
+		return stored.nodes.find((n: { id: string }) => n.id === "note-museum").data
+			.text;
+	}
+
+	it("refuses an update to a note the reader rewrote after the read, applies the rest, and keeps the reader's words", async () => {
+		const id = await createBoard();
+		const read = await currentVersionId(id);
+		await readerRewrites(id, "Museum, 16:30 (the reader's)");
+		const base = await currentVersionId(id);
+
+		const result = await applyRead(id, base, read, [
+			rewriteMuseum,
+			{ op: "move", id: "note-1", to: { x: 30, y: 70 } },
+		]);
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.applied).toBe(1);
+		expect(result.refused).toHaveLength(1);
+		expect(result.refused[0]).toMatchObject({
+			index: 0,
+			id: "note-museum",
+			reason: "stale",
+		});
+		expect(result.changed).toBe(true);
+		expect(result.version).toBe(3);
+		expect(museumText(id)).toBe("Museum, 16:30 (the reader's)");
+		const stored = JSON.parse(storedBody(id) ?? "{}");
+		expect(
+			stored.nodes.find((n: { id: string }) => n.id === "note-1").position,
+		).toEqual({ x: 30, y: 70 });
+	});
+
+	it("writes nothing when every op is stale, and says which version the board is still at", async () => {
+		const id = await createBoard();
+		const read = await currentVersionId(id);
+		await readerRewrites(id, "Museum, 16:30 (the reader's)");
+		const base = await currentVersionId(id);
+
+		const result = await applyRead(id, base, read, [rewriteMuseum]);
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.applied).toBe(0);
+		expect(result.changed).toBe(false);
+		expect(result.refused[0].reason).toBe("stale");
+		expect(result.version).toBe(2);
+		expect(versionRows(id)).toHaveLength(2);
+		expect(museumText(id)).toBe("Museum, 16:30 (the reader's)");
+	});
+
+	it("applies everything when the model read the newest version: nothing changed since", async () => {
+		const id = await createBoard();
+		await readerRewrites(id, "Museum, 16:30 (the reader's)");
+		const newest = await currentVersionId(id);
+
+		const result = await applyRead(id, newest, newest, [rewriteMuseum]);
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.refused).toEqual([]);
+		expect(result.applied).toBe(1);
+		expect(museumText(id)).toBe("Museum, 14:00 — Alfy's words");
+	});
+
+	it("judges against the current board when there was no read, or the read version is not this board's", async () => {
+		const id = await createBoard();
+		const other = await createBoard(OTHER_CONVERSATION);
+		const otherVersion = await currentVersionId(other, OTHER_CONVERSATION);
+
+		for (const readVersionId of [undefined, "no-such-version", otherVersion]) {
+			// Each round starts from a board the reader wrote last.
+			await readerRewrites(id, "Museum, 16:30 (the reader's)");
+			const newest = await currentVersionId(id);
+			const result = await applyRead(id, newest, readVersionId, [
+				{ ...rewriteMuseum, data: { text: `Alfy's ${String(readVersionId)}` } },
+			]);
+			if (!result.ok) throw new Error(result.reason);
+			expect(result.refused).toEqual([]);
+			expect(result.applied).toBe(1);
+			expect(museumText(id)).toBe(`Alfy's ${String(readVersionId)}`);
+		}
 	});
 });

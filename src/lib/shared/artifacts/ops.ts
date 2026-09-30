@@ -38,6 +38,17 @@ export interface OpsDiff<TOp> {
 	ops: TOp[];
 }
 
+/**
+ * What the judge may know about the author of a diff besides the diff itself.
+ * `readDoc` is the document as the author last read it, when that is known (a
+ * model's turn read the board and then edits it): an op that would overwrite
+ * something that changed since is the reader's newer work, and is refused
+ * instead of applied. Absent, every op is judged against the current document.
+ */
+export interface OpsJudgeContext<TDoc> {
+	readDoc?: TDoc;
+}
+
 export interface OpsVocabulary<
 	TDoc,
 	TOp extends { op: string },
@@ -55,6 +66,7 @@ export interface OpsVocabulary<
 	validate(
 		ops: readonly TOp[],
 		doc: TDoc,
+		context?: OpsJudgeContext<TDoc>,
 	): { accepted: TOp[]; refused: OpRefusal<TReason>[] };
 	/** One accepted op. Pure: the caller assigns the result. */
 	apply(doc: TDoc, op: TOp): TDoc;
@@ -182,6 +194,7 @@ export function runOps<
 	vocabulary: OpsVocabulary<TDoc, TOp, TReason>,
 	doc: TDoc,
 	rawDiff: unknown,
+	context?: OpsJudgeContext<TDoc>,
 ): OpsRun<TDoc, TOp, TReason> {
 	const parsed = vocabulary.diffSchema.safeParse(rawDiff);
 	if (!parsed.success) {
@@ -192,7 +205,7 @@ export function runOps<
 		};
 	}
 	const { id, summary, ops } = parsed.data;
-	const { accepted, refused } = vocabulary.validate(ops, doc);
+	const { accepted, refused } = vocabulary.validate(ops, doc, context);
 	checkAccountedFor(ops.length, accepted.length, refused);
 	let next = doc;
 	for (const op of accepted) next = vocabulary.apply(next, op);
