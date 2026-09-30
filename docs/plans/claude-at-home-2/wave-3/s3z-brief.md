@@ -48,6 +48,15 @@ ambiguous is still refused with the fix named). Then re-run the canvas eval's tw
 tunnel (3 repeats each, the committed harness path) and report before/after; commit the recorded answers only if you
 change the committed set on purpose.
 
+## Step 4 · A fresh dev server's first test must not flake
+
+Since the Canvas packages arrived, the **first** e2e test of a fresh dev server fails with `ERR_ABORTED` after a Vite
+hydrate error (seen at `artifact-app.spec.ts:235` in the orchestrator's integration run and by S4-V; it passes on a
+retry or alone on a warm cache). Find the cause (most likely Vite optimising the new dependencies on the first page load
+and reloading mid-test) and make the first load deterministic (for example `optimizeDeps.include` for the Canvas
+packages, or a warm-up in the Playwright global setup) — prove it by running that spec first against a fresh server with
+an empty `.vite` cache, three times.
+
 ## Proof
 
 Screenshots: chat B's panel after the reload (desktop), nothing from the incognito chat after leaving it. Full gates once
