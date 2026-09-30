@@ -6,6 +6,7 @@
  * flow's own coordinate space and needs nothing else from the board.
  */
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
+import type { ScreenRect } from "./floating";
 import type { Tool } from "./tools";
 
 export type BoardLayerApi = {
@@ -24,4 +25,8 @@ export type BoardLayerApi = {
 	size: { width: number; height: number };
 	/** The board cannot change now (a conflict is waiting on the reader, the item is gone): a layer has nothing to offer. */
 	readonly: boolean;
+	/** Where the change pill is on the screen (the pane's pixels), once its layer has put it there: the selection's pill keeps off it (RC-3 N3). */
+	changePillBox: ScreenRect | null;
+	/** The change layer says where its pill is, or that it has none. */
+	setChangePillBox: (box: ScreenRect | null) => void;
 };

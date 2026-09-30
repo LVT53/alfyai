@@ -14,7 +14,6 @@
  */
 import { z } from "zod";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
-import { parseJsonLenient } from "$lib/utils/lenient-json";
 import { isHttpSourceUrl, isPhotoProxyPath } from "./block-urls";
 import {
 	CHECKLIST_ITEM_MAX_CHARS,
@@ -118,9 +117,12 @@ const RADIAL_CHART_TYPES = new Set(["pie", "doughnut", "polararea", "radar"]);
  * as its source, and is taken as a bar.
  */
 export function chartAspectRatio(code: string): number {
-	// The chat's own lenient read (one closing brace short still draws), so the
-	// estimate is of the chart the node really draws.
-	const config = parseJsonLenient(code);
+	let config: unknown;
+	try {
+		config = JSON.parse(code);
+	} catch {
+		return 2;
+	}
 	if (typeof config !== "object" || config === null || Array.isArray(config)) {
 		return 2;
 	}

@@ -445,6 +445,8 @@ describe("what the pins and the catcher are given", () => {
 		announce: vi.fn(),
 		size: { width: 800, height: 600 },
 		readonly: false,
+		changePillBox: null,
+		setChangePillBox: vi.fn(),
 	};
 
 	it("hands the pins the threads, the selection, the placed comment and the board's own camera", () => {
@@ -494,6 +496,17 @@ describe("what the pins and the catcher are given", () => {
 	it("tells the pill that Alfy is arranging, so Ask waits", () => {
 		const { controller } = make();
 		expect(selectionPillProps(controller, api, true).askBusy).toBe(true);
+	});
+
+	// RC-3 N3: the selection's pill keeps off the change pill, so it is told where that is.
+	it("tells the pill where the change pill is, so it keeps off it", () => {
+		const { controller } = make();
+		expect(selectionPillProps(controller, api, false).avoid).toBeNull();
+		const box = { left: 10, top: 20, right: 260, bottom: 48 };
+		expect(
+			selectionPillProps(controller, { ...api, changePillBox: box }, false)
+				.avoid,
+		).toEqual(box);
 	});
 
 	it("turns a click the catcher placed into a comment waiting for its words", () => {

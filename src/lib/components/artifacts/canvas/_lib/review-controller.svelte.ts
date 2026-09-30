@@ -818,6 +818,7 @@ export function changeLayerProps(
 		paneSize: api.size,
 		landed: controller.landed,
 		oncenter: api.centerOn,
+		onpillbox: api.setChangePillBox,
 		onkeep: () => void controller.keep(),
 		onundo: () => void controller.undo(),
 		onredo: () => void controller.redo(),

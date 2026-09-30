@@ -5,6 +5,8 @@ import {
 	type Box,
 	boxOf,
 	changePillAnchor,
+	changePillScreenRect,
+	keepPillInPane,
 	padded,
 	rectsOf,
 } from "./review-geometry";
@@ -131,5 +133,102 @@ describe("where the change pill hangs", () => {
 		expect(
 			changePillAnchor({ touched: [], obstacles: [], zoom: 1 }),
 		).toBeNull();
+	});
+});
+
+// RC-3 N3: the pill hangs from a block's corner, 280 wide at most and to the LEFT of
+// it, so a block near the left edge of the pane put its pill half outside it. The
+// pill is moved along the screen, never off it.
+describe("where the change pill is kept in the pane", () => {
+	const CAMERA = { x: 0, y: 0, zoom: 1 };
+	const PANE = { width: 800, height: 600 };
+	const SIZE = { width: 250, height: 28 };
+
+	it("leaves a pill that already fits exactly where it hangs", () => {
+		const anchor = { x: 500, y: 200 };
+		expect(
+			keepPillInPane({ anchor, camera: CAMERA, pane: PANE, size: SIZE }),
+		).toEqual(anchor);
+	});
+
+	it("slides a pill that would be cut off at the left edge to the edge, a gap inside it", () => {
+		// Hung from x = 120 it would run from -130: it is moved so its left edge is 8 in.
+		const kept = keepPillInPane({
+			anchor: { x: 120, y: 200 },
+			camera: CAMERA,
+			pane: PANE,
+			size: SIZE,
+		});
+		expect(kept).toEqual({ x: 258, y: 200 });
+		const rect = changePillScreenRect(kept, CAMERA, SIZE);
+		expect(rect.left).toBe(8);
+		expect(rect.right).toBe(258);
+	});
+
+	it("slides a pill that would be cut off at the right edge, and one above the top edge", () => {
+		const right = keepPillInPane({
+			anchor: { x: 900, y: 200 },
+			camera: CAMERA,
+			pane: PANE,
+			size: SIZE,
+		});
+		expect(right.x).toBe(792);
+		const top = keepPillInPane({
+			anchor: { x: 500, y: 10 },
+			camera: CAMERA,
+			pane: PANE,
+			size: SIZE,
+		});
+		// 16 above its corner, 28 tall, 8 inside the top edge.
+		expect(top.y).toBe(52);
+		expect(changePillScreenRect(top, CAMERA, SIZE).top).toBe(8);
+	});
+
+	it("keeps the pill above the board's own toolbar along the bottom of the pane", () => {
+		const low = keepPillInPane({
+			anchor: { x: 500, y: 590 },
+			camera: CAMERA,
+			pane: PANE,
+			size: SIZE,
+		});
+		expect(changePillScreenRect(low, CAMERA, SIZE).bottom).toBeLessThanOrEqual(
+			600 - 72,
+		);
+	});
+
+	it("does the arithmetic on the screen, through the camera, and answers in board units", () => {
+		// Zoomed to 0.5 and panned: a block's corner at board (200, 300) is at screen (100 + 20, 150 + 10).
+		const camera = { x: 20, y: 10, zoom: 0.5 };
+		const kept = keepPillInPane({
+			anchor: { x: 200, y: 300 },
+			camera,
+			pane: PANE,
+			size: SIZE,
+		});
+		const rect = changePillScreenRect(kept, camera, SIZE);
+		expect(rect.left).toBe(8);
+		expect(rect.right).toBe(258);
+		// Back in board units: the screen's 258 is (258 - 20) / 0.5.
+		expect(kept.x).toBe(476);
+		expect(kept.y).toBe(300);
+	});
+
+	it("puts the left edge inside when the pane is narrower than the pill, and does nothing before the pane is measured", () => {
+		const narrow = keepPillInPane({
+			anchor: { x: 100, y: 200 },
+			camera: CAMERA,
+			pane: { width: 200, height: 600 },
+			size: SIZE,
+		});
+		expect(changePillScreenRect(narrow, CAMERA, SIZE).left).toBe(8);
+		const anchor = { x: 10, y: 10 };
+		expect(
+			keepPillInPane({
+				anchor,
+				camera: CAMERA,
+				pane: { width: 0, height: 0 },
+				size: SIZE,
+			}),
+		).toEqual(anchor);
 	});
 });
