@@ -20,6 +20,7 @@ import {
 	parseOpsEnvelope,
 	runOps,
 } from "$lib/shared/artifacts/ops";
+import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import type { DocumentReviewMetadata } from "./document-ops";
 import { getArtifact, updateArtifactBody } from "./record";
 import { canvasSerializer, prepareCanvasBoard } from "./serialize/canvas";
@@ -40,6 +41,15 @@ export type OpsEnvelopeInput = {
 	 * as it is now. In-process only: the route never sets it.
 	 */
 	readVersionId?: string;
+	/**
+	 * Who the change is written as. `alfy` (the default) is the model's edit tool
+	 * and the `@Alfy` comment reply, calling this in-process: the diff's own
+	 * summary, and the change waits for the reader's Keep or Undo (ruling 63).
+	 * `user` is a change a browser sent through the route: the caller's own
+	 * version with the ordinary summary, never a free-text one under Alfy's name
+	 * and never a pending change (RV-3 Minor 6).
+	 */
+	author?: "alfy" | "user";
 } & ArtifactScopeOptions;
 
 export type OpsEnvelopeFailureReason =
@@ -253,20 +263,22 @@ export async function applyArtifactOps(
 		review !== null &&
 		typeof review.throughVersion === "number" &&
 		review.throughVersion > 0;
+	const author = input.author ?? "alfy";
 	const written = await updateArtifactBody({
 		...scope,
 		body: outcome.body,
-		author: "alfy",
-		summary: outcome.summary,
+		author,
+		summary: author === "alfy" ? outcome.summary : VERSION_SUMMARY.edited,
 		baseHash: artifact.bodyHash ?? undefined,
-		metadataPatch: hasMarker
-			? undefined
-			: {
-					review: {
-						throughVersion: newest.versionNumber,
-						keptBlockIds: [],
-					} satisfies DocumentReviewMetadata,
-				},
+		metadataPatch:
+			author === "user" || hasMarker
+				? undefined
+				: {
+						review: {
+							throughVersion: newest.versionNumber,
+							keptBlockIds: [],
+						} satisfies DocumentReviewMetadata,
+					},
 	});
 	if (!written.ok) {
 		if (written.reason === "too_large") {

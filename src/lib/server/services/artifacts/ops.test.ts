@@ -236,6 +236,45 @@ describe("applyArtifactOps — a diff that lands", () => {
 	});
 });
 
+describe("applyArtifactOps — who a change is written as (RV-3 Minor 6)", () => {
+	it("writes an in-process change as Alfy's, with the diff's own summary, and a change asked for as the user's as the user's, with the ordinary summary and no review marker", async () => {
+		const asAlfy = await createBoard();
+		const alfy = await apply(
+			asAlfy,
+			payload(await currentVersionId(asAlfy), [moveNote], "Moved the museum"),
+		);
+		if (!alfy.ok) throw new Error(alfy.reason);
+		expect(versionRows(asAlfy)[1]).toMatchObject({
+			author: "alfy",
+			summary: "Moved the museum",
+		});
+
+		const asUser = await createBoard();
+		const user = await applyArtifactOps({
+			userId: OWNER,
+			artifactId: asUser,
+			conversationId: CONVERSATION,
+			payload: payload(
+				await currentVersionId(asUser),
+				[moveNote],
+				"Alfy tidied everything up",
+			),
+			author: "user",
+		});
+		if (!user.ok) throw new Error(user.reason);
+		expect(versionRows(asUser)[1]).toMatchObject({
+			author: "user",
+			summary: "Edited",
+		});
+		const artifact = await getArtifact({
+			userId: OWNER,
+			artifactId: asUser,
+			conversationId: CONVERSATION,
+		});
+		expect(artifact?.metadata.review ?? null).toBeNull();
+	});
+});
+
 describe("applyArtifactOps — the change is one pending change (ruling 63)", () => {
 	async function reviewMarker(id: string) {
 		const artifact = await getArtifact({ userId: OWNER, artifactId: id });

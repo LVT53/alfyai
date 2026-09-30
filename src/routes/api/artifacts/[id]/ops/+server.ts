@@ -10,7 +10,11 @@ import type { RequestHandler } from "./$types";
 const MAX_REQUEST_BYTES = 512 * 1024;
 
 // POST /api/artifacts/[id]/ops — an id-addressed change to an artifact, as ONE
-// new Alfy version (ruling 14). The route is an adapter and only that: auth
+// new version (ruling 14), written as the signed-in USER's own: the model's edit
+// tool and the `@Alfy` reply call the envelope in-process and write Alfy's, so a
+// browser that can reach this route is never the author of an "Alfy" version
+// with text of its own, and never starts a pending change (RV-3 Minor 6). The
+// route is an adapter and only that: auth
 // (401 at the HTTP layer, ruling 39), the size cap, and the family's answer
 // shape (`{ ok: true, … }` / `{ ok: false, reason, … }`, ruling 49). Ownership,
 // the base-version check, dispatch on the artifact's kind and the write all
@@ -35,6 +39,7 @@ export const POST: RequestHandler = async (event) => {
 		artifactId: event.params.id,
 		conversationId,
 		payload,
+		author: "user",
 	});
 
 	if (!result.ok) {
