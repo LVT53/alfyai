@@ -140,6 +140,20 @@ was wrong with any call and the board the conversation left passes the rubric.
 |---|---|---|---|---|---|---|
 | v1 (as first registered) | 30 | 18 | 3/5 | 3/5 / 3/5 | 5/5 | 2/5 / 2/5 |
 | final (note size, arrows are not blocks) | 30 | **24** | 3/5 | 5/5 / 5/5 | 5/5 | 3/5 / 3/5 |
+| after RV-3 (the geometry the reader sees) | 18 | **15** | 2/3 | 2/3 / 3/3 | 3/3 | 3/3 / 2/3 |
+
+The last row is a different measurement, not a better model: the review of the Canvas (RV-3,
+C2) found that the rubric measured every note as 84 tall while the panel draws a note as tall as
+its words (64 for one or two lines, 18 more per further line), and that what Alfy adds had no
+stored width, so it was drawn as wide as its words ran (861 wide through a 420-wide frame).
+The app now stores the shared 190 width, the read, the tool text and this rubric all use
+`estimatedNodeHeight`, and the create example obeys its own layout rule. 3 repeats of the six
+cases, thinking off, sequential: 18 answers, 3 bad: a note at y 320 in a 360-high frame (its
+smallest size, 64, already reaches 384), a mistyped id in an `add_edge` (mended in the next step),
+and two frames on top of each other in a Hungarian board. The recorded run is one more such run
+(5 good; the miss is the arrange case running out of its four steps on a place lookup and a
+spacing script, so the board was not changed). Earlier rows were scored against the 84-tall
+geometry and are not comparable with this one.
 
 What failed, over the 30 final answers (6 bad): a note that sticks out of its frame (3: the
 model sized or enlarged the frame a note short — arithmetic on 84-tall notes), two frames
