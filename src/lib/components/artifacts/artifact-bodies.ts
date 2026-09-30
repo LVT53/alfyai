@@ -14,6 +14,7 @@
  */
 import type { Component } from "svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 
 export interface ArtifactBodyProps {
@@ -33,6 +34,14 @@ export interface ArtifactBodyProps {
 	 * every other kind ignores it. `null`/absent when nothing is happening.
 	 */
 	alfyActivity?: DocumentAlfyActivity | null;
+	/**
+	 * Opens an item in the panel's own viewer — the file a Canvas's File block
+	 * names, opened the way the chat's own file cards open theirs. Absent when the
+	 * host cannot open one (the Knowledge page, the project Files dialog); a body
+	 * that offers such a link then shows it as plain text. Only the Canvas body
+	 * reads it today.
+	 */
+	onOpenItem?: (item: DocumentWorkspaceItem) => void;
 	/** Fires when the body's own dirty state changes, so the panel can guard closing. */
 	onDirtyChange?: (dirty: boolean) => void;
 	/** The body hands its serialised form back for versions/refusal. Slice 1 first. */

@@ -20,6 +20,9 @@ export {
 	listArtifactCatalogueEntries,
 	resolveArtifactCatalogueBlock,
 } from "./catalogue";
+// Slice 3 (Canvas): what a board's own chat has that the board can hold — the
+// listing behind the Insert menu's "From this chat".
+export { listCanvasChatBlocks } from "./chat-blocks";
 export {
 	type AlfyCommentOutcome,
 	type AlfyCommentReplyResult,

@@ -15,6 +15,7 @@ import {
 	fetchArtifact,
 	fetchArtifactVersionBody,
 	fetchArtifactVersions,
+	fetchCanvasChatBlocks,
 	fetchCanvasReviewState,
 	fetchConversationArtifacts,
 	readAppValue,
@@ -131,6 +132,52 @@ describe("artifacts client API", () => {
 		await expect(
 			fetchConversationArtifacts("conv-1", fetchMock),
 		).resolves.toEqual([]);
+	});
+
+	describe("fetchCanvasChatBlocks", () => {
+		const listing = { files: [], apps: [], maps: [], charts: [] };
+
+		it("asks for what the board's chat has, and leaves the wire-level ok behind", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, ...listing }),
+			);
+
+			const result = await fetchCanvasChatBlocks("board-1", null, fetchMock);
+
+			expect(result).toEqual(listing);
+			expect(result).not.toHaveProperty("ok");
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/artifacts/board-1/chat-blocks",
+			);
+		});
+
+		it("names the conversation the panel is showing, so an incognito chat's own board resolves (ruling 51)", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, ...listing }),
+			);
+
+			await fetchCanvasChatBlocks("board 1", "conv 1/2", fetchMock);
+
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/artifacts/board%201/chat-blocks?conversationId=conv%201%2F2",
+			);
+		});
+
+		it("throws when the board is out of reach, so the menu can say it could not look", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: false, reason: "not_found" }, 404),
+			);
+			await expect(
+				fetchCanvasChatBlocks("board-1", null, fetchMock),
+			).rejects.toThrow();
+		});
+
+		it("fills a group the answer leaves out with nothing, never with undefined", async () => {
+			const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
+			await expect(
+				fetchCanvasChatBlocks("board-1", null, fetchMock),
+			).resolves.toEqual(listing);
+		});
 	});
 
 	describe("readAppValue / writeAppValue", () => {

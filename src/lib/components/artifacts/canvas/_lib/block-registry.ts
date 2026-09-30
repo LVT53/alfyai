@@ -5,9 +5,11 @@
  * never branches on a kind.
  *
  * The schema is the shared one (`canvas-blocks.ts`, ruling 64: the server
- * validates a stored board and a model's change with the same objects). The kinds
- * made from the chat (map, file, App, photos, live web) have no row yet; a stored
- * block of one draws as the missing-kind card until their slice adds it.
+ * validates a stored board and a model's change with the same objects). The
+ * blocks made from the chat (map, file, App) are drawn by `LazyNode`, which
+ * loads the real node when one is on the board, so the editor's first paint pays
+ * for none of them. Photos and live web have no row yet; a stored block of
+ * either draws as the missing-kind card until their slice adds it.
  */
 import type { NodeTypes } from "@xyflow/svelte";
 import type { z } from "zod";
@@ -21,6 +23,7 @@ import {
 import ChartNode from "../nodes/ChartNode.svelte";
 import ChecklistNode from "../nodes/ChecklistNode.svelte";
 import FrameNode from "../nodes/FrameNode.svelte";
+import LazyNode from "../nodes/LazyNode.svelte";
 import MissingKindNode from "../nodes/MissingKindNode.svelte";
 import StickyNode from "../nodes/StickyNode.svelte";
 import TextNode from "../nodes/TextNode.svelte";
@@ -53,6 +56,9 @@ export const BLOCK_REGISTRY: Partial<Record<BlockKind, BlockRegistryEntry>> = {
 	text: entry("text", TextNode),
 	chart: entry("chart", ChartNode),
 	checklist: entry("checklist", ChecklistNode),
+	map: entry("map", LazyNode),
+	file: entry("file", LazyNode),
+	app: entry("app", LazyNode),
 };
 
 /** The row of a block kind, or `null` for a kind this build cannot draw (which the board draws as the missing-kind card). */
@@ -79,11 +85,15 @@ const INSERT_ORDER: readonly BlockKind[] = [
 	"liveweb",
 ];
 
-/** The rows the Insert menu lists: what this build can draw, in menu order. */
+/**
+ * The rows the Insert menu lists: what this build can draw and a reader can
+ * insert bare, in menu order. A block made from the chat (section "chat") is not
+ * one of them: it is offered by "From this chat", with the data the chat made.
+ */
 export function insertableEntries(): BlockRegistryEntry[] {
 	return INSERT_ORDER.flatMap((kind) => {
 		const row = BLOCK_REGISTRY[kind];
-		return row ? [row] : [];
+		return row && row.section !== "chat" ? [row] : [];
 	});
 }
 
@@ -110,8 +120,12 @@ const SAMPLE_CHART = JSON.stringify({
 	options: { plugins: { legend: { display: false } } },
 });
 
-/** The data a freshly inserted block of this kind gets. */
-export function defaultDataFor(kind: RegisteredKind): CanvasBlockData {
+/**
+ * The data a freshly inserted block of this kind gets. `null` for a block made
+ * from the chat: its data is what the chat made, picked by the reader, so there is
+ * nothing to default.
+ */
+export function defaultDataFor(kind: RegisteredKind): CanvasBlockData | null {
 	switch (kind) {
 		case "frame":
 			return {
@@ -128,22 +142,38 @@ export function defaultDataFor(kind: RegisteredKind): CanvasBlockData {
 			return { kind: "chart", code: SAMPLE_CHART };
 		case "checklist":
 			return { kind: "checklist", items: [] };
+		case "map":
+		case "file":
+		case "app":
+			return null;
 	}
 }
 
-/** A new node of a registered kind at a board position, at its default size (a block that grows with its content gets a width and no height). */
+/**
+ * A new node of a registered kind at a board position, at its default size (a
+ * block that grows with its content gets a width and no height). `data` is what
+ * the reader picked; a block with a default takes it from there, and one made from
+ * the chat has to be given it.
+ */
 export function newBlockNode(
 	kind: RegisteredKind,
 	position: Pt,
 	id: string = newId(kind),
+	data?: CanvasBlockData,
 ): CanvasNode {
 	const meta = BLOCK_META[kind];
+	const blockData = data ?? defaultDataFor(kind);
+	if (!blockData) {
+		throw new Error(
+			`A ${kind} block is made from what the chat made: no data was given.`,
+		);
+	}
 	return {
 		id,
 		type: kind,
 		position,
 		width: meta.size.width,
 		...(meta.fixedHeight ? { height: meta.size.height } : {}),
-		data: defaultDataFor(kind),
+		data: blockData,
 	};
 }

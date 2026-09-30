@@ -480,8 +480,8 @@ describe("a chart block", () => {
 describe("a block whose kind this build cannot draw", () => {
 	it("draws the missing-kind card, in the reader's language, and stays a real node", () => {
 		const { container } = mount(MissingKindNode, {
-			id: "map-1",
-			type: "map",
+			id: "photo-1",
+			type: "photo",
 			selected: false,
 		});
 		expect(container.querySelector('[data-missing="true"]')).not.toBeNull();
@@ -493,7 +493,7 @@ describe("a block whose kind this build cannot draw", () => {
 
 	it("says it in Hungarian too", () => {
 		uiLanguage.set("hu");
-		mount(MissingKindNode, { id: "map-1", type: "map", selected: false });
+		mount(MissingKindNode, { id: "photo-1", type: "photo", selected: false });
 		expect(
 			screen.getByText("Ez a blokktípus már nem támogatott."),
 		).toBeInTheDocument();
