@@ -1,7 +1,13 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/svelte";
 import type { Component } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TEXT_MAX_CHARS } from "$lib/shared/artifacts/canvas-blocks";
@@ -123,6 +129,8 @@ describe("the node shell around a block", () => {
 			"top-right",
 		]);
 		expect(screen.getByTestId("canvas-node-toolbar")).toBeInTheDocument();
+		// A note is resized by its corners only.
+		for (const corner of corners) expect(corner.dataset.variant).toBe("handle");
 	});
 
 	it("gives the connections one way in and one way out per axis, so a stored edge with no handle ids has somewhere to attach", () => {
@@ -367,6 +375,84 @@ describe("a frame", () => {
 		expect(screen.getByTestId("canvas-frame-label")).toHaveTextContent(
 			"Frame name",
 		);
+	});
+
+	it("is resized from its four corners and its four sides while it is selected, and from neither before", () => {
+		mount(FrameNode, props());
+		expect(screen.queryAllByTestId("canvas-resize-handle")).toHaveLength(0);
+		cleanup();
+		mount(FrameNode, props({ selected: true }));
+		const controls = screen.getAllByTestId("canvas-resize-handle");
+		expect(controls).toHaveLength(8);
+		const sides = controls.filter(
+			(control) => control.dataset.variant === "line",
+		);
+		expect(sides.map((side) => side.dataset.position).sort()).toEqual([
+			"bottom",
+			"left",
+			"right",
+			"top",
+		]);
+		const corners = controls.filter(
+			(control) => control.dataset.variant === "handle",
+		);
+		expect(corners.map((corner) => corner.dataset.position).sort()).toEqual([
+			"bottom-left",
+			"bottom-right",
+			"top-left",
+			"top-right",
+		]);
+	});
+
+	it("draws no resize control on a board that cannot change", () => {
+		mount(FrameNode, props({ selected: true }), board({ readonly: true }));
+		expect(screen.queryAllByTestId("canvas-resize-handle")).toHaveLength(0);
+	});
+
+	it("asks the board how small each control may bring it, and never less than its own smallest", () => {
+		const resizeFloor = vi.fn((_id: string, position: string) => ({
+			width: position.includes("right")
+				? 300
+				: position.includes("left")
+					? 90
+					: 0,
+			height: position.includes("bottom") ? 200 : 0,
+		}));
+		mount(FrameNode, props({ selected: true }), board({ resizeFloor }));
+		const byPosition = Object.fromEntries(
+			screen
+				.getAllByTestId("canvas-resize-handle")
+				.map((control) => [
+					`${control.dataset.variant}:${control.dataset.position}`,
+					[control.dataset.minWidth, control.dataset.minHeight],
+				]),
+		);
+		// A frame is never smaller than 160 x 120, whatever the board says.
+		expect(byPosition["line:right"]).toEqual(["300", "120"]);
+		expect(byPosition["line:left"]).toEqual(["160", "120"]);
+		expect(byPosition["line:bottom"]).toEqual(["160", "200"]);
+		expect(byPosition["handle:bottom-right"]).toEqual(["300", "200"]);
+		expect(byPosition["handle:top-left"]).toEqual(["160", "120"]);
+		expect(resizeFloor).toHaveBeenCalledWith("frame-1", "right");
+	});
+
+	it("hands the undo chord to the board while nothing has been typed in its name", async () => {
+		const history = vi.fn();
+		mount(FrameNode, props(), board({ history }));
+		await fireEvent.dblClick(screen.getByTestId("canvas-frame-label"));
+		const field = screen.getByRole("textbox", { name: "Frame name" });
+		await fireEvent.keyDown(field, { key: "z", code: "KeyZ", ctrlKey: true });
+		expect(history).toHaveBeenCalledWith("undo");
+	});
+
+	it("keeps the undo chord for the name once something has been typed in it", async () => {
+		const history = vi.fn();
+		mount(FrameNode, props(), board({ history }));
+		await fireEvent.dblClick(screen.getByTestId("canvas-frame-label"));
+		const field = screen.getByRole("textbox", { name: "Frame name" });
+		await fireEvent.input(field, { target: { value: "Sunday" } });
+		await fireEvent.keyDown(field, { key: "z", code: "KeyZ", ctrlKey: true });
+		expect(history).not.toHaveBeenCalled();
 	});
 });
 

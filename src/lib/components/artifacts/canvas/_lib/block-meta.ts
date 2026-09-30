@@ -73,6 +73,10 @@ export type BlockMeta = {
 	flow?: { zIndex?: number; dragHandle?: string; style?: string };
 };
 
+/** What a frame may be grabbed by: its name chip, the ring along its border, and its body (which only takes the pointer while it is selected). */
+export const FRAME_DRAG_HANDLE =
+	".canvas-node__chip, .canvas-node__ring, .canvas-node__box";
+
 /** The kinds this build has a component for: all ten. */
 export const BLOCK_META = {
 	frame: {
@@ -86,12 +90,15 @@ export const BLOCK_META = {
 		section: "text",
 		needsPoster: false,
 		structural: true,
-		// Behind everything it groups, movable only by its name chip, and blind
-		// to the pointer elsewhere so what is inside (and behind) stays reachable.
+		// Behind everything it groups. Grabbed by its name chip, its ring, or (once it
+		// is selected) its body, so a selected frame moves with what is in it from
+		// anywhere on it. Blind to the pointer until it is selected, so what is inside
+		// (and behind) stays reachable and a drag on its ground is still the board's:
+		// that is `NodeShell`'s CSS, not an inline style, because a selected frame
+		// must take the pointer back.
 		flow: {
 			zIndex: -1,
-			dragHandle: ".canvas-node__chip",
-			style: "pointer-events: none;",
+			dragHandle: FRAME_DRAG_HANDLE,
 		},
 	},
 	sticky: {

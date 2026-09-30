@@ -162,6 +162,81 @@ export function frameAt(
 	return best;
 }
 
+function intersection(a: Rect, b: Rect): Rect | null {
+	const left = Math.max(a.x, b.x);
+	const top = Math.max(a.y, b.y);
+	const right = Math.min(a.x + a.width, b.x + b.width);
+	const bottom = Math.min(a.y + a.height, b.y + b.height);
+	return right > left && bottom > top
+		? { x: left, y: top, width: right - left, height: bottom - top }
+		: null;
+}
+
+/**
+ * What a frame holds, in board space: the one rectangle around everything that
+ * is inside it. A block that hangs out of the frame (Alfy placed it so, or an
+ * older resize left it) counts only for the part that is inside, so a reader is
+ * never held to a size they did not choose. Null for a frame with nothing in it.
+ */
+export function heldRect(
+	frame: CanvasNode,
+	all: readonly CanvasNode[],
+): Rect | null {
+	const byId = indexById(all);
+	const own = rectIn(byId, frame);
+	let held: Rect | null = null;
+	for (const node of all) {
+		if (node.parentId !== frame.id) continue;
+		const inside = intersection(rectIn(byId, node), own);
+		if (!inside) continue;
+		held = held
+			? {
+					x: Math.min(held.x, inside.x),
+					y: Math.min(held.y, inside.y),
+					width:
+						Math.max(held.x + held.width, inside.x + inside.width) -
+						Math.min(held.x, inside.x),
+					height:
+						Math.max(held.y + held.height, inside.y + inside.height) -
+						Math.min(held.y, inside.y),
+				}
+			: inside;
+	}
+	return held;
+}
+
+/**
+ * The smallest a frame may be made by the resize control at `position` (`top`,
+ * `bottom-left`, …) without cutting off what it holds: the side the control
+ * moves may come in as far as the nearest thing inside, and no further. The other
+ * sides stay where they are, so a control asks about its own axis only (a side
+ * that moves nothing on an axis asks nothing of it). Sizes, not places, so the
+ * answer does not change while the frame is moved, and the library (which clamps
+ * a drag to `minWidth` / `minHeight`) stops the side exactly at what is inside.
+ * A frame that holds nothing asks for nothing.
+ */
+export function resizeFloor(
+	frame: Rect,
+	held: Rect | null,
+	position: string,
+): Size {
+	if (!held) return { width: 0, height: 0 };
+	const width = position.includes("right")
+		? held.x + held.width - frame.x
+		: position.includes("left")
+			? frame.x + frame.width - held.x
+			: 0;
+	const height = position.includes("bottom")
+		? held.y + held.height - frame.y
+		: position.includes("top")
+			? frame.y + frame.height - held.y
+			: 0;
+	return {
+		width: Math.ceil(Math.max(0, width)),
+		height: Math.ceil(Math.max(0, height)),
+	};
+}
+
 /**
  * What a drop changes about `node`, or null when it changes nothing (which is
  * what keeps a nudge inside a frame from being rewritten). `all` holds the node

@@ -62,12 +62,15 @@ import {
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
 import {
+	frameAt,
+	heldRect,
 	nodeRect,
 	parentsFirst,
 	type Rect,
 	rehomeOnRemoval,
 	type ReparentPatch,
 	reparentOnDrop,
+	resizeFloor as floorOf,
 	withoutDanglingEdges,
 } from "./_lib/board";
 import { DEFAULT_INK, isDrawingTool, type Tool } from "./_lib/tools";
@@ -94,6 +97,7 @@ import {
 import { boardHistoryChord } from "./_lib/history-keys";
 import { newId } from "./_lib/ids";
 import { visibleBoardRect } from "./_lib/pane-rect";
+import { withSelection } from "./_lib/selection";
 import type AnnotationLayer from "./AnnotationLayer.svelte";
 import CanvasToolbar from "./CanvasToolbar.svelte";
 import type DrawTray from "./DrawTray.svelte";
@@ -245,6 +249,7 @@ provideBoardContext({
 	posterFailed: (id) => posterFailedIds.has(id),
 	updateData: (id, patch) => flow.updateNodeData(id, patch),
 	history: (action) => (action === "undo" ? undo() : redo()),
+	resizeFloor,
 });
 
 function snapshot(): CanvasBody {
@@ -724,6 +729,64 @@ function handleNodeDragStop({ nodes: dragged }: { nodes: FlowNode[] }): void {
 	);
 }
 
+// ---- Frames as groups: picking one by its ground, and resizing one ----------
+
+/**
+ * Selects exactly these blocks, and puts the keyboard's focus on the first of
+ * them so the arrow keys move what was picked. The one way the board picks a
+ * block by itself (a click on a frame's ground); a pick of several blocks at once
+ * goes through the same `withSelection`, `additive` or not.
+ */
+function selectBlocks(
+	ids: readonly string[],
+	options: { additive?: boolean } = {},
+): void {
+	nodes = withSelection(nodes, ids, options);
+	const [first] = ids;
+	if (first === undefined) return;
+	const wrapper = [
+		...(boardEl?.querySelectorAll<HTMLElement>(".svelte-flow__node") ?? []),
+	].find((element) => element.dataset.id === first);
+	wrapper?.focus({ preventScroll: true });
+}
+
+/**
+ * A click that reached the board itself. A frame lets the pointer through, so a
+ * click in its empty ground comes here, and it is the frame's: the innermost
+ * frame under the click is selected (a click on a block in it never gets here, the
+ * block takes it). The library unselects everything once this has returned, so
+ * the frame is picked after that.
+ */
+function handlePaneClick({ event }: { event: MouseEvent }): void {
+	if (readonly || held || (tool !== "select" && tool !== "pan")) return;
+	const point = flow.screenToFlowPosition({
+		x: event.clientX,
+		y: event.clientY,
+	});
+	const frame = frameAt(point, nodes.map(measured));
+	if (!frame) return;
+	queueMicrotask(() => selectBlocks([frame.id]));
+}
+
+/**
+ * How far in a resize control may bring a frame's side: to the nearest thing
+ * inside it, and no further (`resizeFloor`). The library clamps the drag to it, so
+ * the side stops exactly at what the frame holds instead of cutting it off. Read
+ * from the blocks as they are drawn, so it is current when the next drag starts.
+ */
+function resizeFloor(
+	id: string,
+	position: string,
+): { width: number; height: number } | null {
+	const frame = nodes.find((node) => node.id === id);
+	if (frame?.data.kind !== "frame") return null;
+	return floorOf(
+		nodeRect(frame, nodes, frame.measured),
+		heldRect(frame, nodes),
+		position,
+	);
+}
+
 // The library cascades a delete to a frame's children. A frame removed to tidy
 // up must not cost a reader their notes, so the ones nobody selected are taken
 // out of the deletion and moved up to where the frame was (the ops protocol's
@@ -971,6 +1034,7 @@ function minimapColor(node: {
 		isValidConnection={(connection) => connection.source !== connection.target}
 		onbeforeconnect={handleBeforeConnect}
 		onnodeclick={() => (insertSelectedId = null)}
+		onpaneclick={handlePaneClick}
 		onnodedrag={handleNodeDrag}
 		onnodedragstop={handleNodeDragStop}
 		onbeforedelete={handleBeforeDelete}

@@ -21,6 +21,7 @@ import {
 	NodeResizeControl,
 	NodeToolbar,
 	Position,
+	ResizeControlVariant,
 	useSvelteFlow,
 } from "@xyflow/svelte";
 import type { Component, Snippet } from "svelte";
@@ -92,6 +93,10 @@ const CORNERS = [
 	"bottom-right",
 ] as const;
 
+// A frame is resized from any of its four sides too (a block is resized by its
+// corners): a strip along each side, which lights up under the pointer.
+const SIDES = ["top", "right", "bottom", "left"] as const;
+
 // Bottom-then-right first: an edge stored with no handle id takes the first
 // handle of its kind, so it leaves a block from the bottom and arrives at
 // another's top.
@@ -141,6 +146,19 @@ const wrapperBehaviour: Attachment<HTMLElement> = (element) => {
 		wrapper.removeEventListener("keydown", onKeydown);
 	};
 };
+
+/**
+ * What a resize control may bring the block down to: its kind's smallest, and for
+ * a frame no smaller than what is inside it on the side the control moves. Read in
+ * the markup, so a control is handed the current floor when the next drag starts.
+ */
+function floorOf(position: string): { width: number; height: number } {
+	const held = board.resizeFloor?.(id, position);
+	return {
+		width: Math.max(minWidth, held?.width ?? 0),
+		height: Math.max(minHeight, held?.height ?? 0),
+	};
+}
 
 function deleteBlock(): void {
 	void flow.deleteElements({ nodes: [{ id }] });
@@ -223,8 +241,25 @@ function reportBroken(error: unknown): void {
 	{/each}
 
 	{#if selected && editable}
+		{#if chrome === "frame"}
+			<!-- The sides first, so a corner (drawn after them) is on top where they meet. -->
+			{#each SIDES as side (side)}
+				<NodeResizeControl
+					position={side}
+					variant={ResizeControlVariant.Line}
+					minWidth={floorOf(side).width}
+					minHeight={floorOf(side).height}
+					class="canvas-resize-side"
+				/>
+			{/each}
+		{/if}
 		{#each CORNERS as position (position)}
-			<NodeResizeControl {position} {minWidth} {minHeight} class="canvas-resize" />
+			<NodeResizeControl
+				{position}
+				minWidth={floorOf(position).width}
+				minHeight={floorOf(position).height}
+				class="canvas-resize"
+			/>
 		{/each}
 		<NodeToolbar position={Position.Top} offset={12}>
 			<div class="canvas-node-toolbar" role="toolbar" aria-label={kindLabel} data-testid="canvas-node-toolbar">
@@ -400,6 +435,11 @@ function reportBroken(error: unknown): void {
 	.canvas-node--frame.canvas-node--selected .canvas-node__box {
 		border-color: var(--accent);
 		outline: none;
+		/* Selected, a frame is a group that can be grabbed anywhere: a drag on its
+		   ground moves it, and what is in it, together (the blocks inside are nodes
+		   of their own, above it, and take their own presses). */
+		pointer-events: auto;
+		cursor: grab;
 	}
 
 	/* Where a block being dragged would land: the frame lights up, so a drop is
@@ -433,6 +473,9 @@ function reportBroken(error: unknown): void {
 		font-weight: 700;
 		line-height: 24px;
 		pointer-events: auto;
+		/* Above the resize strips that run along the frame's sides, which would
+		   otherwise cover the chip across the middle of its height. */
+		z-index: 2;
 	}
 
 	.canvas-node__ring {
@@ -537,6 +580,8 @@ function reportBroken(error: unknown): void {
 		opacity: 1;
 		pointer-events: all;
 		cursor: crosshair;
+		/* Above the strips along a frame's sides, which run through the same middle. */
+		z-index: 1;
 	}
 
 	/* A finger is not a pointer: the anchors (9 px) and the resize corners (8 px)
@@ -551,6 +596,18 @@ function reportBroken(error: unknown): void {
 		}
 	}
 
+	/* A frame lets the pointer through to what is behind it (the board's own drag,
+	   the blocks under it) until it is selected; selected, it takes it back, so its
+	   body can be grabbed. The wrapper's own rule, not an inline style: an inline
+	   style could not be undone by the class the library adds on selection. */
+	:global(.svelte-flow__node.svelte-flow__node-frame) {
+		pointer-events: none;
+	}
+
+	:global(.svelte-flow__node.svelte-flow__node-frame.selected) {
+		pointer-events: all;
+	}
+
 	/* The four resize corners: the mockup's 7px squares. Grabbable even on a
 	   frame, whose own node ignores the pointer (that is inherited, so it is
 	   undone here). */
@@ -561,5 +618,65 @@ function reportBroken(error: unknown): void {
 		border-radius: 2px;
 		background: var(--surface-page);
 		pointer-events: auto;
+	}
+
+	/* A side of a selected frame: a strip along the border, about a fingertip wide on
+	   the screen whatever the zoom (--canvas-inv-zoom is 1 / zoom, set by the board once
+	   its camera is at rest), centred on the border by the library's own transform. It
+	   draws nothing until the pointer is on it: then a line along the border, in the
+	   accent, says which side will move (and the cursor says how). The connection
+	   anchors at the middle of each side stay above it. */
+	:global(.svelte-flow__resize-control.line.canvas-resize-side) {
+		--side-hit: calc(12px * var(--canvas-inv-zoom, 1));
+		border-width: 0;
+		background: transparent;
+		pointer-events: auto;
+	}
+
+	:global(.svelte-flow__resize-control.line.canvas-resize-side.left),
+	:global(.svelte-flow__resize-control.line.canvas-resize-side.right) {
+		width: var(--side-hit);
+	}
+
+	:global(.svelte-flow__resize-control.line.canvas-resize-side.top),
+	:global(.svelte-flow__resize-control.line.canvas-resize-side.bottom) {
+		height: var(--side-hit);
+	}
+
+	@media (pointer: coarse) {
+		:global(.svelte-flow__resize-control.line.canvas-resize-side) {
+			--side-hit: calc(44px * var(--canvas-inv-zoom, 1));
+		}
+	}
+
+	:global(.svelte-flow__resize-control.line.canvas-resize-side::after) {
+		content: "";
+		position: absolute;
+		border-radius: 1px;
+		background: var(--accent);
+		opacity: 0;
+	}
+
+	:global(.svelte-flow__resize-control.line.canvas-resize-side.left::after),
+	:global(.svelte-flow__resize-control.line.canvas-resize-side.right::after) {
+		top: 0;
+		bottom: 0;
+		left: 50%;
+		width: calc(2px * var(--canvas-inv-zoom, 1));
+		transform: translateX(-50%);
+	}
+
+	:global(.svelte-flow__resize-control.line.canvas-resize-side.top::after),
+	:global(.svelte-flow__resize-control.line.canvas-resize-side.bottom::after) {
+		left: 0;
+		right: 0;
+		top: 50%;
+		height: calc(2px * var(--canvas-inv-zoom, 1));
+		transform: translateY(-50%);
+	}
+
+	:global(.svelte-flow__resize-control.line.canvas-resize-side:hover::after),
+	:global(.svelte-flow__resize-control.line.canvas-resize-side:active::after) {
+		opacity: 1;
 	}
 </style>

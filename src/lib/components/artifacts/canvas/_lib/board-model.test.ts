@@ -12,6 +12,7 @@ import {
 	cloneBoard,
 	sampleBoard,
 } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
+import { FRAME_DRAG_HANDLE } from "./block-meta";
 import {
 	bodyOfState,
 	DEFAULT_CAMERA,
@@ -32,15 +33,18 @@ function stateOf(body: CanvasBody) {
 }
 
 describe("stored nodes to library nodes", () => {
-	it("gives a frame the fields that put it behind what it groups and make it draggable by its chip only", () => {
+	it("gives a frame the fields that put it behind what it groups and make it draggable by its chip, its ring and its body", () => {
 		const frame = toFlowNodes(sampleBoard().nodes).find(
 			(n) => n.type === "frame",
 		);
 		expect(frame).toMatchObject({
 			zIndex: -1,
-			dragHandle: ".canvas-node__chip",
-			style: "pointer-events: none;",
+			dragHandle: FRAME_DRAG_HANDLE,
 		});
+		// Blind to the pointer until it is selected is the shell's CSS, never an inline style (which a selected frame could not undo).
+		expect(frame?.style).toBeUndefined();
+		expect(FRAME_DRAG_HANDLE).toContain(".canvas-node__chip");
+		expect(FRAME_DRAG_HANDLE).toContain(".canvas-node__box");
 	});
 
 	it("gives a note none of those", () => {
@@ -138,7 +142,7 @@ describe("stored nodes to library nodes", () => {
 				position: { x: 0, y: 0 },
 				data: { kind: "frame", label: "", width: 300, height: 200 },
 			};
-			expect(toFlowNodes([frame])[0].style).toBe("pointer-events: none;");
+			expect(toFlowNodes([frame])[0].style).toBeUndefined();
 		});
 	});
 });
