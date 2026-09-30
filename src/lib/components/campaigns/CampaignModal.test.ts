@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Campaign } from "$lib/client/api/campaigns";
 import {
 	deregisterDialog,
@@ -212,19 +212,23 @@ describe("CampaignModal", () => {
 
 	it("keeps keyboard focus inside the dialog and restores focus when Escape skips it", async () => {
 		const user = userEvent.setup();
-		const onSkip = vi.fn();
+		// The app shell removes the modal the moment it is skipped
+		// (`finishActiveCampaign` clears the active campaign), so the test's
+		// parent does the same; focus goes back to the opener as it leaves.
+		let removeModal = () => {};
+		const onSkip = vi.fn(() => removeModal());
 		const opener = document.createElement("button");
 		opener.textContent = "Open campaign";
 		document.body.append(opener);
 		opener.focus();
 
-		render(CampaignModal, {
+		({ unmount: removeModal } = render(CampaignModal, {
 			props: {
 				campaign,
 				locale: "en",
 				onSkip,
 			},
-		});
+		}));
 
 		const dialog = screen.getByRole("dialog", {
 			name: "Campaign announcement",
@@ -350,5 +354,156 @@ describe("CampaignModal", () => {
 			"href",
 			"/knowledge?tab=documents",
 		);
+	});
+});
+
+// Presses a key the way the browser delivers it to whatever holds focus, and
+// hands back the event so a test can ask whether its default was cancelled —
+// the trap's contract for Tab is "focus moved AND the default was prevented".
+function pressKey(key: string, options: { shiftKey?: boolean } = {}) {
+	const event = new KeyboardEvent("keydown", {
+		key,
+		shiftKey: options.shiftKey ?? false,
+		bubbles: true,
+		cancelable: true,
+	});
+	(document.activeElement ?? document.body).dispatchEvent(event);
+	return event;
+}
+
+describe("CampaignModal focus containment", () => {
+	let opener: HTMLButtonElement;
+
+	beforeEach(() => {
+		opener = document.createElement("button");
+		opener.textContent = "Open campaign";
+		document.body.append(opener);
+		opener.focus();
+	});
+
+	afterEach(() => {
+		opener.remove();
+	});
+
+	// Renders the announcement and waits for its deferred first focus, so a
+	// test that moves focus itself never races the mount.
+	async function renderOpen(props: Record<string, unknown> = {}) {
+		const view = render(CampaignModal, {
+			props: { campaign, locale: "en", ...props },
+		});
+		const closeButton = screen.getByRole("button", { name: "Close" });
+		await waitFor(() => expect(closeButton).toHaveFocus());
+		return { ...view, closeButton };
+	}
+
+	it("wraps Tab from the last control to the first, and Shift+Tab from the first to the last", async () => {
+		const { closeButton } = await renderOpen();
+		const next = screen.getByRole("button", { name: "Next" });
+
+		next.focus();
+		const forward = pressKey("Tab");
+		expect(closeButton).toHaveFocus();
+		expect(forward.defaultPrevented).toBe(true);
+
+		const backward = pressKey("Tab", { shiftKey: true });
+		expect(next).toHaveFocus();
+		expect(backward.defaultPrevented).toBe(true);
+	});
+
+	it("leaves Tab between the two ends to the browser", async () => {
+		await renderOpen();
+		const skip = screen.getByRole("button", { name: "Skip" });
+
+		skip.focus();
+		const event = pressKey("Tab");
+
+		expect(skip).toHaveFocus();
+		expect(event.defaultPrevented).toBe(false);
+	});
+
+	it("pulls focus that sits outside the dialog back to the first control", async () => {
+		const { closeButton } = await renderOpen();
+
+		opener.focus();
+		const forward = pressKey("Tab");
+		expect(closeButton).toHaveFocus();
+		expect(forward.defaultPrevented).toBe(true);
+
+		opener.focus();
+		const backward = pressKey("Tab", { shiftKey: true });
+		expect(closeButton).toHaveFocus();
+		expect(backward.defaultPrevented).toBe(true);
+	});
+
+	it("treats Escape as a skip: onSkip, then onClose, and the key is cancelled", async () => {
+		const calls: string[] = [];
+		await renderOpen({
+			onSkip: () => calls.push("skip"),
+			onClose: () => calls.push("close"),
+		});
+
+		const event = pressKey("Escape");
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(calls).toEqual(["skip", "close"]);
+	});
+
+	it("returns focus to the opener when the dialog is removed", async () => {
+		const { unmount } = await renderOpen();
+		expect(opener).not.toHaveFocus();
+
+		unmount();
+
+		await waitFor(() => expect(opener).toHaveFocus());
+	});
+
+	it("leaves Tab to a dialog opened on top of it, and traps again once that dialog closes", async () => {
+		const { closeButton } = await renderOpen();
+		const next = screen.getByRole("button", { name: "Next" });
+		const topmost = Symbol("dialog-on-top");
+
+		registerDialog(topmost);
+		try {
+			next.focus();
+			const atTheEnd = pressKey("Tab");
+			expect(atTheEnd.defaultPrevented).toBe(false);
+			expect(next).toHaveFocus();
+
+			// Focus that belongs to the dialog on top is not pulled back in.
+			opener.focus();
+			const stray = pressKey("Tab");
+			expect(stray.defaultPrevented).toBe(false);
+			expect(opener).toHaveFocus();
+		} finally {
+			deregisterDialog(topmost);
+		}
+
+		next.focus();
+		const afterwards = pressKey("Tab");
+		expect(afterwards.defaultPrevented).toBe(true);
+		expect(closeButton).toHaveFocus();
+	});
+
+	it("does nothing to focus or keys when rendered inline as a preview", async () => {
+		const onSkip = vi.fn();
+		const { unmount } = render(CampaignModal, {
+			props: { campaign, locale: "en", inline: true, preview: true, onSkip },
+		});
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(opener).toHaveFocus();
+
+		const next = screen.getByRole("button", { name: "Next" });
+		next.focus();
+		const tab = pressKey("Tab");
+		expect(tab.defaultPrevented).toBe(false);
+		expect(next).toHaveFocus();
+		const escapeKey = pressKey("Escape");
+		expect(escapeKey.defaultPrevented).toBe(false);
+		expect(onSkip).not.toHaveBeenCalled();
+
+		unmount();
+		expect(opener).not.toHaveFocus();
 	});
 });

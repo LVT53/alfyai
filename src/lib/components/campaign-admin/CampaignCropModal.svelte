@@ -1,11 +1,16 @@
 <script lang="ts">
-import { onDestroy, onMount } from "svelte";
 import { fade, scale } from "svelte/transition";
 import type {
 	CampaignAssetCropGeometry,
 	CampaignAssetVariant,
 } from "$lib/client/api/campaign-assets";
+import {
+	deregisterDialog,
+	isTopmostDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import { focusTrap } from "$lib/utils/focus-trap";
 
 type SavePayload = {
 	file: File;
@@ -45,7 +50,7 @@ const MAX_ZOOM = 3;
 let dialogRef = $state<HTMLDivElement | null>(null);
 let imageEl = $state<HTMLImageElement | null>(null);
 let previewCanvas = $state<HTMLCanvasElement | null>(null);
-let previousFocus: HTMLElement | null = null;
+const dialogId = Symbol("campaign-crop-modal");
 
 let naturalWidth = $state(0);
 let naturalHeight = $state(0);
@@ -242,40 +247,32 @@ function handleBackdropClick() {
 	if (!isSaving) onCancel?.();
 }
 
-function handleKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape" && !isSaving) {
+// Joins the DialogShell open-dialog stack, so Escape and the Tab trap belong to
+// whichever layer is on top. The trap pulls stray focus back into its dialog,
+// so one that stayed live under a dialog opened above it would fight that
+// dialog for every Tab.
+$effect(() => {
+	registerDialog(dialogId);
+	return () => deregisterDialog(dialogId);
+});
+
+// Tab/Shift+Tab wrapping, the pull-back of stray focus and the topmost-only
+// gate are the shared utility's (src/lib/utils/focus-trap.ts). What stays here
+// is what belongs to this dialog: Escape cancels unless a crop is being saved,
+// the panel itself (not a control) takes the first focus, and neither that
+// focus nor its return to the opener may scroll the settings page behind it.
+const cropFocusTrap = focusTrap({
+	isTopmost: () => isTopmostDialog(dialogId),
+	onEscape: (event) => {
+		if (isSaving) return;
 		event.preventDefault();
 		onCancel?.();
-		return;
-	}
-	if (event.key !== "Tab") return;
-
-	const focusable = dialogRef?.querySelectorAll<HTMLElement>(
-		'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-	);
-	if (!focusable || focusable.length === 0) return;
-	const first = focusable[0];
-	const last = focusable[focusable.length - 1];
-	if (event.shiftKey && document.activeElement === first) {
-		last.focus();
-		event.preventDefault();
-	} else if (!event.shiftKey && document.activeElement === last) {
-		first.focus();
-		event.preventDefault();
-	}
-}
-
-onMount(() => {
-	previousFocus = document.activeElement as HTMLElement;
-	setTimeout(() => dialogRef?.focus({ preventScroll: true }), 0);
-});
-
-onDestroy(() => {
-	previousFocus?.focus({ preventScroll: true });
+	},
+	focus: { target: () => dialogRef },
+	restoreFocusOnCleanup: true,
+	preventScroll: true,
 });
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 <div class="fixed inset-0 z-50 flex h-[100dvh] items-start justify-center overflow-y-auto overscroll-contain p-sm sm:items-center sm:p-md" transition:fade={{ duration: 120 }}>
 	<button
@@ -287,6 +284,7 @@ onDestroy(() => {
 
 	<div
 		bind:this={dialogRef}
+		{@attach cropFocusTrap}
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="campaign-crop-title"

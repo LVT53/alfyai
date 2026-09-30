@@ -76,7 +76,15 @@ export function trapTabKey(
 		return;
 	}
 
-	if (event.shiftKey && activeElement === first) {
+	// The container itself can hold focus: a dialog that focuses its own panel
+	// on open, or a click on the panel's plain text (it is a tabindex="-1"
+	// stop). That is "before the first element" for Shift+Tab; left alone the
+	// press walks straight out of the dialog. A forward Tab from the container
+	// already lands on its first tab stop by default, so it is not touched.
+	if (
+		event.shiftKey &&
+		(activeElement === first || activeElement === container)
+	) {
 		event.preventDefault();
 		last.focus();
 		return;
@@ -167,6 +175,16 @@ export interface FocusTrapOptions {
 	 */
 	restoreFocusOnCleanup?: boolean;
 	/**
+	 * Call `focus({ preventScroll: true })` for the two focus moves the trap
+	 * makes on its own, the initial focus and the restore on cleanup, so opening
+	 * or closing a dialog never scrolls the page behind it (bringing an opener
+	 * that sits off-screen into view would). Tab-wrap moves stay scrolling on
+	 * purpose: they land inside the container, where showing the target is the
+	 * point. Unset, `focus()` is called with no arguments, as every caller that
+	 * predates this option expects.
+	 */
+	preventScroll?: boolean;
+	/**
 	 * Overrides the default Tab/Shift+Tab handling (`trapTabKey`) for a trap
 	 * whose wrap rule genuinely differs from DialogShell's. The one case
 	 * today: ConversationJumpRail's mobile sheet focuses its own container
@@ -189,6 +207,11 @@ export interface FocusTrapOptions {
 export function focusTrap(
 	options: FocusTrapOptions = {},
 ): Attachment<HTMLElement> {
+	const focusOwnMove = (element: HTMLElement | null | undefined) => {
+		if (options.preventScroll) element?.focus({ preventScroll: true });
+		else element?.focus();
+	};
+
 	return (node) => {
 		const previousFocus = options.restoreFocusOnCleanup
 			? (document.activeElement as HTMLElement | null)
@@ -206,9 +229,9 @@ export function focusTrap(
 					return;
 				}
 				const resolved = target?.();
-				const fallback =
-					resolved ?? getFocusableElements(node, options.selector)[0] ?? node;
-				fallback?.focus();
+				focusOwnMove(
+					resolved ?? getFocusableElements(node, options.selector)[0] ?? node,
+				);
 			};
 			if (defer) {
 				focusTimer = setTimeout(applyFocus, 0);
@@ -236,7 +259,7 @@ export function focusTrap(
 		return () => {
 			window.removeEventListener("keydown", onKeydown);
 			if (focusTimer !== null) clearTimeout(focusTimer);
-			if (options.restoreFocusOnCleanup) previousFocus?.focus();
+			if (options.restoreFocusOnCleanup) focusOwnMove(previousFocus);
 		};
 	};
 }
