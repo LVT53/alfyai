@@ -632,6 +632,37 @@ describe("charts", () => {
 		expect(listing?.charts[0].data.label).toBeUndefined();
 	});
 
+	it("names a chart the chat repairs as it names any other: a config one closing brace short keeps its title and its type", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		const whole = JSON.stringify({
+			type: "pie",
+			data: { labels: ["A"], datasets: [{ data: [1] }] },
+			options: { plugins: { title: { text: "Share" } } },
+		});
+		// The chat's chart reads this with `parseJsonLenient` and draws it.
+		seedMessage({ content: `\`\`\`chart\n${whole.slice(0, -1)}\n\`\`\`\n` });
+
+		const listing = await listFor(board);
+
+		expect(listing?.charts).toHaveLength(1);
+		expect(listing?.charts[0]).toMatchObject({
+			title: "Share",
+			chartType: "pie",
+		});
+		expect(listing?.charts[0].data.label).toBe("Share");
+	});
+
+	it("still offers a chart whose config is not a chart at all, unnamed, because the chat shows it with a note and its source", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({ at: 1, content: "```chart\nnot a chart\n```\n" });
+		seedMessage({ at: 2, content: "```chart\n[1, 2]\n```\n" });
+		const listing = await listFor(board);
+		expect(listing?.charts).toHaveLength(2);
+		for (const chart of listing?.charts ?? []) {
+			expect(chart).toMatchObject({ title: null, chartType: null });
+		}
+	});
+
 	it("finds the chart a bar-column table stands for, because the chat draws it", async () => {
 		const board = await makeArtifact("canvas", "Board");
 		seedMessage({

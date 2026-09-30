@@ -54,6 +54,7 @@ import {
 } from "$lib/shared/artifacts/chat-blocks";
 import type { ArtifactSource } from "$lib/shared/artifacts/sources";
 import { fileExtension } from "$lib/shared/file-types";
+import { parseJsonLenient } from "$lib/utils/lenient-json";
 import { immichThumbnailUrl } from "$lib/utils/tool-evidence-presentation";
 import { listArtifactsForConversation } from "./read-model";
 import { kindForArtifactRow, readScopedArtifactRow } from "./record";
@@ -198,28 +199,32 @@ function mapsIn(message: ChatMessage): ChatMapBlock[] {
 	return maps;
 }
 
-/** What a chart's own config says about itself: its title, when it has one, and its type. */
+/**
+ * What a chart's own config says about itself: its title, when it has one, and its
+ * type. Read the way the chat's chart reads it (`parseJsonLenient`): a config that
+ * is only one closing brace short is a chart the chat draws, so it is one the
+ * listing names.
+ */
 function chartFacts(code: string): {
 	title: string | null;
 	chartType: string | null;
 } {
-	try {
-		const config = JSON.parse(code) as {
-			type?: unknown;
-			options?: { plugins?: { title?: { text?: unknown } } };
-		};
-		const text = config?.options?.plugins?.title?.text;
-		const title = (Array.isArray(text) ? text.join(" ") : text) as unknown;
-		return {
-			title:
-				typeof title === "string" && title.trim().length > 0
-					? title.trim().slice(0, 200)
-					: null,
-			chartType: typeof config?.type === "string" ? config.type : null,
-		};
-	} catch {
-		return { title: null, chartType: null };
-	}
+	const config = parseJsonLenient(code) as
+		| {
+				type?: unknown;
+				options?: { plugins?: { title?: { text?: unknown } } };
+		  }
+		| null
+		| undefined;
+	const text = config?.options?.plugins?.title?.text;
+	const title = (Array.isArray(text) ? text.join(" ") : text) as unknown;
+	return {
+		title:
+			typeof title === "string" && title.trim().length > 0
+				? title.trim().slice(0, 200)
+				: null,
+		chartType: typeof config?.type === "string" ? config.type : null,
+	};
 }
 
 type Lexer = (source: string) => Parameters<typeof classifyMarkdownBlocks>[0];
