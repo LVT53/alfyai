@@ -302,6 +302,34 @@ export function toFriendlySendError(
 	return friendlyError("backend_failure", translate);
 }
 
+/**
+ * What a fresh turn waits for before it starts: the open artifact's save of the
+ * reader's last step (`ArtifactPanelBodyActions.flush`), because the turn can make
+ * Alfy change what is open and a step still inside the body's save delay would then
+ * be written over, or refused as stale (RV-3 I2). Bounded, and it never rejects: a
+ * stalled connection, or a body that could not save, does not hold a message back.
+ * The save itself is left to finish.
+ */
+export async function awaitOpenStepSave(
+	save: (() => Promise<void>) | null,
+	maxMs: number,
+): Promise<void> {
+	if (!save) return;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([
+			Promise.resolve()
+				.then(save)
+				.catch(() => undefined),
+			new Promise<void>((resolve) => {
+				timer = setTimeout(resolve, maxMs);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 export function hasActiveFileProductionJobs(
 	jobs: FileProductionJob[],
 ): boolean {

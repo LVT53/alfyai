@@ -118,6 +118,16 @@ export interface ArtifactPanelBodyActions {
 	 * the resulting state.
 	 */
 	toggleComments?: () => void;
+	/**
+	 * Saves what the body has not saved yet, and answers once the save has been
+	 * answered (it never rejects, and it does not wait for a connection to come
+	 * back). The chat page awaits it before a turn starts: a turn can make Alfy
+	 * change what is open, and a step of the reader's that is still inside the
+	 * body's own save delay would then be written over, or refused as stale (RV-3
+	 * I2). A body with nothing of the reader's to hold back registers none; the
+	 * Canvas is the one that does today.
+	 */
+	flush?: () => Promise<void>;
 }
 
 export type ArtifactBodyLoader = () => Promise<{

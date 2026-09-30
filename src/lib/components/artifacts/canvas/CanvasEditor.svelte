@@ -754,7 +754,9 @@ $effect(() => {
 });
 
 // The header's Versions and Comments buttons: the Versions sheet lives in this
-// body, and Comments is one toggle for whichever surface applies.
+// body, and Comments is one toggle for whichever surface applies. `flush` is for
+// the chat page, which saves the reader's last step before a turn starts (a turn
+// can make Alfy change this board).
 $effect(() => {
 	registerPanelActions?.({
 		openVersions: () => (versionsOpen = true),
@@ -763,6 +765,7 @@ $effect(() => {
 			void ensureComments().then(() => {
 				if (commentViews && comments) commentViews.toggleComments(comments);
 			}),
+		flush: saveBoardNow,
 	});
 });
 

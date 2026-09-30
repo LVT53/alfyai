@@ -185,6 +185,7 @@ import {
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
 	attachUnassignedPendingWritesToAssistant,
+	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
 	dropPendingFileProductionJobs,
 	failPendingFileProductionJobPlaceholder,
@@ -526,6 +527,27 @@ function handleCloudWarningCancel() {
 	const resolve = cloudWarningResolve;
 	cloudWarningResolve = null;
 	resolve?.(false);
+}
+
+// A turn can make Alfy change the artifact that is open beside the chat, and a step
+// of the reader's that has not been saved yet (typed a moment ago, still inside the
+// body's own save delay) would be written over, or refused as stale, when Alfy's
+// change lands (RV-3 I2). So the open body's pending step is saved before any fresh
+// turn starts. The body hands its way of doing that up through the workspace, once
+// it is open (`ArtifactPanelBodyActions.flush`); a plain variable, like the
+// composer's `ensureComposerCapabilitiesLoaded` above, because nothing renders from it.
+let saveOpenArtifactStep: (() => Promise<void>) | null = null;
+function handleFlushReady(flush: (() => Promise<void>) | null) {
+	saveOpenArtifactStep = flush;
+}
+
+/** A save that has not answered by now is left to finish on its own: a stalled connection never holds a message back. */
+const ARTIFACT_STEP_SAVE_MAX_MS = 2000;
+
+/** What every fresh turn passes first: the open artifact's pending step is saved, then the cloud-connector warning is settled. True once the turn may go. */
+async function prepareTurn(): Promise<boolean> {
+	await awaitOpenStepSave(saveOpenArtifactStep, ARTIFACT_STEP_SAVE_MAX_MS);
+	return ensureCloudWarningAcked();
 }
 let hasPersistedMessages = initialHasPersistedMessages;
 let contextStatus = $state<ConversationContextStatus | null>(
@@ -1825,7 +1847,7 @@ function maybeSendPendingInitialMessage() {
 	// awaiting the capability fetch itself before deciding (see its own
 	// comment above), so this call site no longer needs special handling.
 	void (async () => {
-		const proceed = await ensureCloudWarningAcked();
+		const proceed = await prepareTurn();
 		if (!proceed) return;
 		handleSend({ ...pendingDraft, pendingAttachments: [] });
 	})();
@@ -2433,7 +2455,7 @@ async function handleAtlasLifecycleAction(payload: {
 	// Issue 7.4 fix pass — this was a direct normalChatRuntime.send() caller
 	// that bypassed MessageInput's send() entirely (found while centralizing
 	// the cloud-warning gate; not one of the three previously-known leaks).
-	const proceed = await ensureCloudWarningAcked();
+	const proceed = await prepareTurn();
 	if (!proceed) return;
 	void normalChatRuntime.send({
 		message: payload.message,
@@ -3063,7 +3085,7 @@ async function handleRetry() {
 	// via its own startStream call), so it never went through MessageInput's
 	// send() and, before this pass, never went through any cloud-warning
 	// check at all.
-	const proceed = await ensureCloudWarningAcked();
+	const proceed = await prepareTurn();
 	if (!proceed) return;
 	normalChatRuntime.retry();
 }
@@ -3118,7 +3140,7 @@ async function handleRegenerate(
 	// re-running it would risk a second round-trip re-showing the modal
 	// (e.g. after "Turn on local mode", which doesn't ack — see
 	// shouldWarnCloudConnector) for a single regenerate action.
-	const proceed = await ensureCloudWarningAcked();
+	const proceed = await prepareTurn();
 	if (!proceed) return;
 	const { messageId, reasoningDepthOverride } = payload;
 	const msgs = $messages;
@@ -3230,7 +3252,7 @@ async function handleEdit(
 	// below, so a cancelled edit leaves the conversation untouched. handleSend()
 	// at the end of this function is intentionally NOT gated again — see the
 	// matching note in handleRegenerate.
-	const proceed = await ensureCloudWarningAcked();
+	const proceed = await prepareTurn();
 	if (!proceed) return;
 	const { messageId, newText } = payload;
 	const msgs = $messages;
@@ -3790,7 +3812,7 @@ function handleDrop(event: DragEvent) {
 				onUploadReady={handleUploadReady}
 				onUploadFiles={handleUploadFiles}
 				bind:activeCapabilities={composerActiveCapabilities}
-				beforeSend={ensureCloudWarningAcked}
+				beforeSend={prepareTurn}
 				checkingCloudWarning={cloudWarningChecking}
 				onCapabilitiesReady={handleCapabilitiesReady}
 				placeholder={composerPlaceholder}
@@ -3830,6 +3852,7 @@ function handleDrop(event: DragEvent) {
 			}}
 			onPendingReviewCountChange={handlePendingReviewCountChange}
 			onDeleteArtifact={handleDeleteArtifact}
+			onFlushReady={handleFlushReady}
 			currentUser={data.user}
 		/>
 	</div>
