@@ -552,12 +552,23 @@ async function insertBlock(
 	// Text a reader writes opens for typing at once.
 	if (row.section === "text") editRequests.add(added.id);
 	insertSelectedId = added.id;
-	nodes = [
-		...nodes.map((node) =>
-			node.selected ? { ...node, selected: false } : node,
-		),
-		{ ...added, selected: true },
-	];
+	const cleared = nodes.map((node) =>
+		node.selected ? { ...node, selected: false } : node,
+	);
+	const inserted = { ...added, selected: true };
+	// A frame is listed in front of the blocks that are not frames. The library lists a
+	// frame before what it holds, so a block dropped into a frame that came AFTER it
+	// would have to be re-listed, and that moves the block's wrapper in the page, which
+	// makes a browser reload an App's frame that is inside it (RV-3 I1).
+	const firstBlock = cleared.findIndex((node) => node.data.kind !== "frame");
+	nodes =
+		added.data.kind === "frame" && firstBlock !== -1
+			? [
+					...cleared.slice(0, firstBlock),
+					inserted,
+					...cleared.slice(firstBlock),
+				]
+			: [...cleared, inserted];
 	commit();
 }
 

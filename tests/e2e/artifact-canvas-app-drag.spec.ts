@@ -335,6 +335,40 @@ test.describe("an App block and the frames of a board", () => {
 		expect(await storedCount(counter)).toBe(1);
 	});
 
+	test("an App dragged into a frame the reader INSERTED after it is not reloaded either: a new frame is listed in front of the blocks, so nothing has to be moved", async ({
+		page,
+	}) => {
+		const { artifactId } = await openBoard(page, ({ counter }) => [
+			appBlock("app-1", counter, "Counter"),
+		]);
+		const app = page.frameLocator("iframe.app-frame");
+		await app.getByRole("button", { name: "Count" }).click();
+		await expect(app.getByTestId("counter-n")).toHaveText("1");
+		const boot = await app.getByTestId("counter-boot").textContent();
+
+		await page.getByTestId("canvas-insert-button").click();
+		await page.getByTestId("canvas-insert-frame").click();
+		const frame = page
+			.locator(".svelte-flow__node")
+			.filter({ has: page.locator(".canvas-node--frame") });
+		await expect(frame).toHaveCount(1);
+		const frameId = (await frame.getAttribute("data-id")) as string;
+
+		await dragBlockOnto(page, "app-1", frameId);
+		await savedStatus(page);
+		const saved = await storedBoard(artifactId);
+		expect(
+			saved.nodes.map((node) => [node.type, node.parentId ? "inside" : "top"]),
+		).toEqual([
+			["frame", "top"],
+			["app", "inside"],
+		]);
+		await expect(notice(page)).toHaveCount(0);
+		// The very same document, mid-count.
+		await expect(app.getByTestId("counter-boot")).toHaveText(boot ?? "");
+		await expect(app.getByTestId("counter-n")).toHaveText("1");
+	});
+
 	test("an App on a board that navigates itself still trips the tripwire: the frame is torn down and the notice says so, and the reload brings a fresh frame", async ({
 		page,
 	}) => {
