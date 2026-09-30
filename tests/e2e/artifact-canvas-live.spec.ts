@@ -305,6 +305,15 @@ const insertButton = (page: Page) => page.getByTestId("canvas-insert-button");
 const menu = (page: Page) => page.getByTestId("canvas-insert-menu-list");
 const nodeOf = (page: Page, kind: string) =>
 	page.locator(`[data-testid="canvas-node"][data-kind="${kind}"]`);
+/**
+ * The blocks as the board draws them. A live-web, photo, App or map block's still
+ * image is taken from a COPY of its content that is mounted off screen (`aria-hidden`,
+ * `inert`, on `body`) for a moment, about 800 ms after the block first shows: the
+ * very moment an autosave of the step that added it lands. The copy carries the same
+ * test ids, so a locator on `page` can count it as a second block for that moment. A
+ * test that means the block the reader sees goes through here.
+ */
+const onBoard = (page: Page) => page.getByTestId("canvas-node");
 
 const SECTION = {
 	en: { title: "From this chat", reading: "Looking through this chat…" },
@@ -905,13 +914,15 @@ test.describe("photos and live web on the board", () => {
 
 		await page.getByRole("button", { name: "Refresh" }).click();
 
-		await expect(page.getByTestId("canvas-liveweb-status")).toHaveText(
+		// The block the reader sees (`onBoard`): the click lands within a few milliseconds
+		// of the still image's off-screen copy, which has these test ids too.
+		await expect(onBoard(page).getByTestId("canvas-liveweb-status")).toHaveText(
 			"Could not refresh this block.",
 		);
 		await expect(
-			page.getByTestId("canvas-liveweb-source").first(),
+			onBoard(page).getByTestId("canvas-liveweb-source").first(),
 		).toContainText("Forecast source 1");
-		await expect(page.getByTestId("canvas-liveweb-stale")).toHaveText(
+		await expect(onBoard(page).getByTestId("canvas-liveweb-stale")).toHaveText(
 			"Not live",
 		);
 		await page.waitForTimeout(1_500);
@@ -922,9 +933,11 @@ test.describe("photos and live web on the board", () => {
 		// The button is back and works.
 		await page.getByRole("button", { name: "Refresh" }).click();
 		await expect(
-			page.getByTestId("canvas-liveweb-source").first(),
+			onBoard(page).getByTestId("canvas-liveweb-source").first(),
 		).toContainText("Brand new result 1");
-		await expect(page.getByTestId("canvas-liveweb-status")).toHaveText("");
+		await expect(onBoard(page).getByTestId("canvas-liveweb-status")).toHaveText(
+			"",
+		);
 	});
 
 	test("says when the reader has searched too often, or the search found nothing, without touching the block", async ({
