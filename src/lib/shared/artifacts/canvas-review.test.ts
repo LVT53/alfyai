@@ -24,6 +24,7 @@ function history(
 	let board: CanvasBody = sampleBoard();
 	const versions: CanvasReviewVersion[] = [
 		{
+			id: "v1",
 			versionNumber: 1,
 			author: "alfy",
 			summary: "Alfy made the board",
@@ -33,6 +34,7 @@ function history(
 	for (const step of steps) {
 		board = step.ops.reduce((current, op) => applyOp(current, op), board);
 		versions.push({
+			id: `v${versions.length + 1}`,
 			versionNumber: versions.length + 1,
 			author: step.author,
 			summary:
@@ -160,7 +162,11 @@ describe("what waits for the reader", () => {
 		expect(state.changes.map((change) => change.versionNumber)).toEqual([2, 3]);
 		expect(state.touchedIds).toEqual(["note-museum", "text-1"]);
 		expect(state.latestAlfyVersion).toBe(3);
-		expect(state.undo).toEqual({ available: true, toVersion: 1 });
+		expect(state.undo).toEqual({
+			available: true,
+			toVersion: 1,
+			toVersionId: "v1",
+		});
 	});
 
 	it("gives a block to the last change that touched it", () => {
@@ -184,7 +190,11 @@ describe("what waits for the reader", () => {
 			},
 		]);
 		// Undo takes back what Alfy did since the reader last touched the board: both.
-		expect(state.undo).toEqual({ available: true, toVersion: 1 });
+		expect(state.undo).toEqual({
+			available: true,
+			toVersion: 1,
+			toVersionId: "v1",
+		});
 	});
 
 	it("takes Undo back only to the reader's last version, when Alfy came again after it", () => {
@@ -200,7 +210,11 @@ describe("what waits for the reader", () => {
 			]),
 		});
 		expect(state.touchedIds).toEqual(["note-museum", "text-1"]);
-		expect(state.undo).toEqual({ available: true, toVersion: 3 });
+		expect(state.undo).toEqual({
+			available: true,
+			toVersion: 3,
+			toVersionId: "v3",
+		});
 	});
 
 	it("still asks for a review of a change that only took blocks away, and counts it once", () => {
@@ -214,7 +228,11 @@ describe("what waits for the reader", () => {
 		expect(state.removedCount).toBe(1);
 		expect(state.count).toBe(1);
 		expect(state.changes).toHaveLength(1);
-		expect(state.undo).toEqual({ available: true, toVersion: 1 });
+		expect(state.undo).toEqual({
+			available: true,
+			toVersion: 1,
+			toVersionId: "v1",
+		});
 	});
 
 	it("does not call a block removed when the reader put it back", () => {

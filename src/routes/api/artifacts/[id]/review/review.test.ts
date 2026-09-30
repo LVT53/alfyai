@@ -119,7 +119,11 @@ describe("GET /api/artifacts/[id]/review on a board", () => {
 				count: 1,
 				touchedIds: ["note-museum"],
 				latestAlfyVersion: 2,
-				undo: { available: true, toVersion: 1 },
+				undo: {
+					available: true,
+					toVersion: 1,
+					toVersionId: expect.any(String),
+				},
 			},
 		});
 		expect(payload.review.changes[0].summary).toBe("Planned Sunday");

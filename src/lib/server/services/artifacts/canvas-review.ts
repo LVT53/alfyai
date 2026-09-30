@@ -37,12 +37,14 @@ export type CanvasReviewFailure = "not_found" | "not_a_canvas";
 type ArtifactTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function toReviewVersion(row: {
+	id: string;
 	versionNumber: number;
 	author: string;
 	summary: string;
 	body: string;
 }): CanvasReviewVersion {
 	return {
+		id: row.id,
 		versionNumber: row.versionNumber,
 		author:
 			row.author === "alfy" || row.author === "system" ? row.author : "user",
@@ -59,6 +61,7 @@ function readVersionsFrom(
 ): CanvasReviewVersion[] {
 	return source
 		.select({
+			id: artifactVersions.id,
 			versionNumber: artifactVersions.versionNumber,
 			author: artifactVersions.author,
 			summary: artifactVersions.summary,
@@ -206,6 +209,7 @@ export async function computeCanvasPendingReviewCounts(
 
 	const versionRows = db
 		.select({
+			id: artifactVersions.id,
 			artifactId: artifactVersions.artifactId,
 			versionNumber: artifactVersions.versionNumber,
 			author: artifactVersions.author,

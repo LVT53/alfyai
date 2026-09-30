@@ -29,8 +29,10 @@
  * catcher for the Comment tool) is a snippet the board renders INSIDE its flow,
  * handed `BoardLayerApi` (the blocks as drawn, the camera, the tool and a few
  * things it may ask the board to do); a board the server changed under the
- * reader (Alfy answered a comment) is drawn with `land`, which is not a step of
- * the reader's. The chat's own Alfy edits will land through the same method.
+ * reader (Alfy answered a comment, or a chat turn edited it) is drawn with
+ * `land` and the few methods below it (`current`, `place`, `hold`), which are
+ * not steps of the reader's: the landing itself (the structure, the glide, the
+ * rings) is written apart, in `_lib/alfy-landing.ts`, and only draws on these.
  */
 import "@xyflow/svelte/dist/base.css";
 import {
@@ -139,6 +141,9 @@ let limitTimer: ReturnType<typeof setTimeout> | null = null;
 /** The frame a block being dragged would join if it were dropped now. */
 let dropTargetId = $state<string | null>(null);
 
+/** A landing is drawing (Alfy's change): the reader's gestures and steps wait until it lets go. */
+let held = $state(false);
+
 let history: BoardHistory = createBoardHistory();
 let canUndo = $state(false);
 let canRedo = $state(false);
@@ -186,6 +191,11 @@ function commit(): void {
 		clearTimeout(settleTimer);
 		settleTimer = null;
 	}
+	// A landing is moving blocks about: what is on screen is not the reader's.
+	if (held) {
+		scheduleCommit();
+		return;
+	}
 	// Still being dragged: the drop is what ends the step.
 	if (nodes.some((node) => node.dragging)) {
 		scheduleCommit();
@@ -210,7 +220,8 @@ $effect(() => {
 onDestroy(() => {
 	if (announceTimer) clearTimeout(announceTimer);
 	if (limitTimer) clearTimeout(limitTimer);
-	commit();
+	// Half way through a landing the blocks are between places: not a step to save.
+	if (!held) commit();
 });
 
 /** Ends any pending step at once and hands back the board exactly as it is. */
@@ -233,6 +244,25 @@ export function land(next: CanvasBody): void {
 	history = createBoardHistory();
 	committedJson = structuralJson(snapshot());
 	syncHistoryFlags();
+}
+
+/** The board as it is drawn now, without ending the step in progress: what a landing compares the server's board against. */
+export function current(): CanvasBody {
+	return snapshot();
+}
+
+/** Puts blocks at these positions, each in its own space: one frame of a glide. Nothing else about the board changes, and it is not a step. */
+export function place(positions: ReadonlyMap<string, Pt>): void {
+	nodes = nodes.map((node) => {
+		const at = positions.get(node.id);
+		return at ? { ...node, position: { x: at.x, y: at.y } } : node;
+	});
+}
+
+/** A landing starts drawing (`true`) or is done (`false`): while it draws, the reader can neither move nor edit and nothing it does is saved as theirs. */
+export function hold(on: boolean): void {
+	held = on;
+	if (!on) scheduleCommit();
 }
 
 // ---- The reader's own history (ruling 16) --------------------------------
@@ -524,7 +554,7 @@ let panOnDrag = $derived(
 	tool === "pan" ? true : coarsePointer ? !drawing : [1, 2],
 );
 let selectionOnDrag = $derived(tool === "select" && !coarsePointer);
-let nodesDraggable = $derived(!readonly && tool === "select");
+let nodesDraggable = $derived(!readonly && !held && tool === "select");
 // A board with blocks and no camera of its own is fitted on open, clear of the
 // toolbar along the bottom and the overview in the corner.
 const fitOnOpen = initial.nodes.length > 0 && !hasStoredCamera(initial);
@@ -610,9 +640,9 @@ function minimapColor(node: {
 		{panOnDrag}
 		{selectionOnDrag}
 		{nodesDraggable}
-		nodesConnectable={!readonly}
+		nodesConnectable={!readonly && !held}
 		connectionMode={ConnectionMode.Loose}
-		deleteKey={readonly ? null : ["Backspace", "Delete"]}
+		deleteKey={readonly || held ? null : ["Backspace", "Delete"]}
 		elevateNodesOnSelect={false}
 		attributionPosition="bottom-left"
 		{ariaLabelConfig}

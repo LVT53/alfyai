@@ -24,6 +24,8 @@ import type { CanvasBody } from "./canvas";
 import { emptyCanvasBody, normalizeCanvasBody } from "./canvas-body";
 
 export interface CanvasReviewVersion {
+	/** The version row's own id: what a client asks the versions route for. */
+	id: string;
 	versionNumber: number;
 	author: "user" | "alfy" | "system";
 	summary: string;
@@ -44,6 +46,8 @@ export type CanvasUndo =
 			available: true;
 			/** The version whose board Undo saves back: the last one before Alfy's run. */
 			toVersion: number;
+			/** Its row's id, so the client can read its body. */
+			toVersionId: string;
 	  }
 	| {
 			available: false;
@@ -197,10 +201,15 @@ export function computeCanvasReview(input: {
 		undo = { available: false, reason: "nothing_to_undo" };
 	} else if (runStart > latest.versionNumber) {
 		undo = { available: false, reason: "user_edited" };
-	} else if (!byNumber.has(runStart - 1)) {
-		undo = { available: false, reason: "parent_missing" };
 	} else {
-		undo = { available: true, toVersion: runStart - 1 };
+		const before = byNumber.get(runStart - 1);
+		undo = before
+			? {
+					available: true,
+					toVersion: before.versionNumber,
+					toVersionId: before.id,
+				}
+			: { available: false, reason: "parent_missing" };
 	}
 
 	return {

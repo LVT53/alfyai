@@ -157,7 +157,14 @@ describe("what Alfy's change left for the reader, read again after a reload", ()
 			versionNumber: 2,
 			summary: "Planned Sunday",
 		});
-		expect(result.review.undo).toEqual({ available: true, toVersion: 1 });
+		expect(result.review.undo).toMatchObject({
+			available: true,
+			toVersion: 1,
+		});
+		// The version row's own id, which is what a client reads the body with.
+		expect(
+			result.review.undo.available && result.review.undo.toVersionId,
+		).toMatch(/\S+/);
 		expect(result.review.latestAlfyVersion).toBe(2);
 	});
 
