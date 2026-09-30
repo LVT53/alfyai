@@ -173,7 +173,7 @@ $effect(() => () => {
 		border: 2px solid var(--surface-page);
 		border-radius: 50%;
 		background: var(--accent-fill);
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+		box-shadow: var(--shadow-md);
 		color: var(--on-accent);
 		font: 700 11px/1 var(--font-sans);
 		font-variant-numeric: tabular-nums;
@@ -203,7 +203,7 @@ $effect(() => () => {
 	.pin--on {
 		box-shadow:
 			0 0 0 3px var(--accent-tint-strong),
-			0 1px 4px rgba(0, 0, 0, 0.3);
+			var(--shadow-md);
 	}
 
 	/* A resolved thread recedes: its number stays, its dot goes quiet and dashed. */

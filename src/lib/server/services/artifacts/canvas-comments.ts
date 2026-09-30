@@ -325,11 +325,7 @@ export async function runCanvasAlfyReply(
 	}
 
 	/** The ops as ONE Alfy version against the board's newest version; a save that lands in between is refused by the write and tried once more. */
-	async function apply(
-		ops: unknown[],
-	): Promise<
-		Extract<OpsEnvelopeResult, { ok: true }> | OpsEnvelopeResult | null
-	> {
+	async function apply(ops: unknown[]): Promise<OpsEnvelopeResult | null> {
 		let outcome: OpsEnvelopeResult | null = null;
 		for (let attempt = 0; attempt < 2; attempt += 1) {
 			// The signal is checked right before the write: once it fires the caller was told it failed.
@@ -409,7 +405,8 @@ export async function runCanvasAlfyReply(
 				note || ALFY_EMPTY_REPLY_MARKER,
 			);
 		}
-		const names = new Map(
+		// A skipped op is named by its block's own words when the block is on the board, else by the id it addressed.
+		const words = new Map(
 			blocks
 				.filter(
 					(block) => typeof block.id === "string" && block.kind !== "edge",
@@ -420,9 +417,9 @@ export async function runCanvasAlfyReply(
 			.slice(0, MAX_SKIPPED_NAMED)
 			.map((item) => ({
 				target: clip(
-					(item.target !== undefined
-						? names.get(item.target) || item.target
-						: "") ?? "",
+					item.target === undefined
+						? ""
+						: words.get(item.target) || item.target,
 					TARGET_NAME_MAX_CHARS,
 				),
 				reason: item.reason,

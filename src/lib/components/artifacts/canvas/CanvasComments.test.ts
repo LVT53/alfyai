@@ -182,9 +182,7 @@ describe("what the list shows", () => {
 		await fireEvent.click(toggle);
 		const card = within(group).getByTestId("canvas-comment");
 		expect(card.classList.contains("is-orphaned")).toBe(true);
-		expect(
-			within(card).getByText("The block is gone."),
-		).toBeTruthy();
+		expect(within(card).getByText("The block is gone.")).toBeTruthy();
 		expect(within(card).getByText("Comment gone")).toBeTruthy();
 	});
 

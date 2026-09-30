@@ -486,13 +486,13 @@ test.describe("comments on the Canvas", () => {
 			const toolbar = document.querySelector("[data-testid='canvas-toolbar']");
 			const blocks = [...document.querySelectorAll(".svelte-flow__node")];
 			const pin = document.querySelector("[data-testid='canvas-comment-pin']");
-			const after = (a: Element | null, b: Element | null) =>
+			const follows = (a: Element | null, b: Element | null) =>
 				!!a &&
 				!!b &&
 				!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 			return {
-				toolbarBeforeBlocks: blocks.every((block) => after(toolbar, block)),
-				blocksBeforePin: blocks.every((block) => after(block, pin)),
+				toolbarBeforeBlocks: blocks.every((block) => follows(toolbar, block)),
+				blocksBeforePin: blocks.every((block) => follows(block, pin)),
 			};
 		});
 		expect(order).toEqual({ toolbarBeforeBlocks: true, blocksBeforePin: true });

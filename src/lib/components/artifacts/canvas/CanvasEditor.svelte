@@ -44,6 +44,7 @@ import type {
 	pinsProps,
 	toggleComments,
 } from "./_lib/comments-controller.svelte";
+import { judgeServerBoard } from "./_lib/server-board";
 import CanvasBoard from "./CanvasBoard.svelte";
 import type CanvasComments from "./CanvasComments.svelte";
 import type CommentCatcher from "./CommentCatcher.svelte";
@@ -277,25 +278,34 @@ async function saveBoardNow(): Promise<void> {
 
 /**
  * Every read of the artifact the comments make. When the version moved it is
- * because Alfy changed the board: it is drawn, unless the reader has steps the
- * server has not seen, which cannot be merged into Alfy's change (their save
- * would be refused as stale, and this says so instead of losing them silently).
+ * usually because Alfy changed the board, and it is drawn; `judgeServerBoard`
+ * says when it is not (the reader's own save, seen early) and when it cannot be
+ * (the reader has steps the server has not seen: their save would be refused as
+ * stale, so this says so instead of losing them silently).
  */
 function adoptServerBoard(detail: ArtifactDetailResponse): void {
-	const version = detail.artifact.versionNumber;
-	if (version === versionNumber) return;
-	if (latestJson !== savedJson) {
-		saveState = "conflict";
-		autosave.stop();
-		return;
-	}
 	try {
 		const stored = detail.artifact.body;
 		const read = normalizeCanvasBody(stored?.trim() ? JSON.parse(stored) : {});
-		versionNumber = version;
+		const serverJson = boardJson(read.body);
+		const verdict = judgeServerBoard({
+			serverVersion: detail.artifact.versionNumber,
+			knownVersion: versionNumber,
+			serverJson,
+			latestJson,
+			savedJson,
+		});
+		if (verdict === "unchanged") return;
+		if (verdict === "conflict") {
+			saveState = "conflict";
+			autosave.stop();
+			return;
+		}
+		versionNumber = detail.artifact.versionNumber;
 		knownBodyHash = detail.artifact.bodyHash;
-		latestJson = boardJson(read.body);
-		savedJson = latestJson;
+		savedJson = serverJson;
+		if (verdict === "ours") return;
+		latestJson = serverJson;
 		boardNodes = read.body.nodes;
 		comments?.setNodes(boardNodes);
 		boardApi?.land(read.body);
