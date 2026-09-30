@@ -800,9 +800,11 @@ export function changeLayerProps(
 		nodes: api.nodes,
 		viewport: api.viewport,
 		arrangingIds: controller.arranging?.ids ?? null,
-		// Only what still waits for the reader is ringed: a change that was kept or
-		// undone keeps its pill for a moment ("Kept", "Undone · Redo") and no ring.
-		touched: controller.status === "pending" ? (change?.touched ?? []) : [],
+		touched: change?.touched ?? [],
+		// Only a change that still waits for the reader is ringed: one that was kept or
+		// undone keeps its pill for a moment ("Kept", "Undone · Redo"), which follows the
+		// blocks it is about, and no ring.
+		waiting: controller.status === "pending",
 		pulseIds: controller.pulseIds,
 		activeId: controller.activeId,
 		pill:

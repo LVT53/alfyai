@@ -155,6 +155,16 @@ describe("the rings", () => {
 		expect(of("a")?.style.top).toBe("100px");
 	});
 
+	it("rings nothing once the change is decided, though the pill goes on following its blocks", () => {
+		mount({
+			touched: ["a", "b"],
+			waiting: false,
+			pill: { status: "undone", label: "Planned Sunday" },
+		});
+		expect(screen.queryAllByTestId("canvas-alfy-ring")).toHaveLength(0);
+		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("700px");
+	});
+
 	it("keeps a ring 2 px on screen at any zoom", () => {
 		const { container } = mount({
 			touched: ["a"],

@@ -28,7 +28,6 @@ import { tick, untrack } from "svelte";
 import ChangeBar from "../document/ChangeBar.svelte";
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
 import { nodeRect } from "./_lib/board";
-import { visibleBoardRect } from "./_lib/pane-rect";
 import {
 	type Box,
 	boxOf,
@@ -51,6 +50,7 @@ let {
 	viewport,
 	arrangingIds = null,
 	touched,
+	waiting = true,
 	pulseIds,
 	activeId = null,
 	pill = null,
@@ -67,8 +67,10 @@ let {
 	viewport: { x: number; y: number; zoom: number };
 	/** The blocks Alfy is arranging: framed while the call runs. */
 	arrangingIds?: readonly string[] | null;
-	/** The blocks the change touched that still wait for the reader: a resting ring, and what the pill sits at. */
+	/** The blocks the change touched: what the pill sits at, and (while it waits for the reader) a resting ring. */
 	touched: readonly string[];
+	/** The change still waits for the reader's decision: its blocks are ringed. Once it is kept or undone they are not, and the pill goes on following them. */
+	waiting?: boolean;
 	/** Blocks that are ringed strongly for a moment: what just landed, or what a `highlight` pointed at. */
 	pulseIds: readonly string[];
 	/** The block the review bar's stepper is on. */
@@ -96,7 +98,7 @@ let frame = $derived.by<Box | null>(() => {
 });
 
 let rings = $derived.by(() => {
-	const wanted = new Set([...pulseIds, ...touched]);
+	const wanted = new Set([...pulseIds, ...(waiting ? touched : [])]);
 	const frames = new Set(
 		nodes.filter((node) => node.type === "frame").map((node) => node.id),
 	);
@@ -147,14 +149,15 @@ $effect(() => {
 	seenLanding = token;
 	untrack(() => {
 		const rects = rectsOf(touched, nodes);
-		const shown = visibleBoardRect(paneSize, viewport);
-		if (rects.length === 0 || shown.width === 0) return;
+		// What the pane shows, in board units: the camera translates then scales.
+		const { x, y, zoom } = viewport;
+		if (rects.length === 0 || paneSize.width === 0 || !(zoom > 0)) return;
 		const inView = rects.some(
 			({ box }) =>
-				box.x < shown.left + shown.width &&
-				box.x + box.width > shown.left &&
-				box.y < shown.top + shown.height &&
-				box.y + box.height > shown.top,
+				box.x < (paneSize.width - x) / zoom &&
+				box.x + box.width > -x / zoom &&
+				box.y < (paneSize.height - y) / zoom &&
+				box.y + box.height > -y / zoom,
 		);
 		if (inView) return;
 		const [first] = rects;
