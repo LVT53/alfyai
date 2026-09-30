@@ -15,7 +15,7 @@
  * Every version the server reports is announced by the client API module, and the
  * header reads it from there. Nothing here prints a version or an "edited" time.
  */
-import { SvelteFlowProvider } from "@xyflow/svelte";
+import { SvelteFlowProvider, ViewportPortal } from "@xyflow/svelte";
 import { onDestroy, untrack } from "svelte";
 import {
 	type ArtifactDetailResponse,
@@ -290,18 +290,23 @@ function adoptServerBoard(detail: ArtifactDetailResponse): void {
 }
 
 function ensureComments(): Promise<void> {
-	commentsLoading ??= import("./comment-parts").then((parts) => {
-		const controller = new parts.CanvasCommentsController({
-			artifactId,
-			conversationId,
-			threads: loadedThreads,
-			beforeAsk: saveBoardNow,
-			onserver: adoptServerBoard,
+	commentsLoading ??= import("./comment-parts")
+		.then((parts) => {
+			const controller = new parts.CanvasCommentsController({
+				artifactId,
+				conversationId,
+				threads: loadedThreads,
+				beforeAsk: saveBoardNow,
+				onserver: adoptServerBoard,
+			});
+			controller.setNodes(boardNodes);
+			commentParts = parts;
+			comments = controller;
+		})
+		// Offline, or a deploy in between: the next press tries again instead of waiting on a rejected import.
+		.catch(() => {
+			commentsLoading = null;
 		});
-		controller.setNodes(boardNodes);
-		commentParts = parts;
-		comments = controller;
-	});
 	return commentsLoading;
 }
 
@@ -365,7 +370,11 @@ let banner = $derived(
 
 {#snippet commentLayers(api: BoardLayerApi)}
 	{#if commentParts && comments}
-		<commentParts.CommentLayer {...comments.layerProps(api)} />
+		<!-- The pins ride the flow's front layer (in board space); the catcher for the Comment tool is over the pane. -->
+		<ViewportPortal target="front">
+			<commentParts.CommentPins {...comments.pinsProps(api)} />
+		</ViewportPortal>
+		<commentParts.CommentCatcher {...comments.catcherProps(api)} />
 	{/if}
 {/snippet}
 

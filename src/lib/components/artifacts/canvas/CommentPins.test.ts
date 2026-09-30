@@ -5,17 +5,12 @@ import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
 import type { CanvasNode } from "$lib/shared/artifacts/canvas";
 import { uiLanguage } from "$lib/stores/settings";
-import type { Tool } from "./_lib/annotations";
-import CommentLayer from "./CommentLayer.svelte";
+import CommentPins from "./CommentPins.svelte";
 
-vi.mock("@xyflow/svelte", async () =>
-	(await import("./_test/xyflow-mock")).xyflowMock(),
-);
-
-// The layer drawn on its own, on a board whose screen and board coordinates are
-// the same (identity conversion): what it draws for a thread, what a click does
-// to it, and what it hands back. That it really sits above a frame's children
-// and covers the whole pane is the e2e's (artifact-canvas-comments.spec.ts).
+// The pins drawn on their own, on a board whose screen and board coordinates are
+// the same: what is drawn for a thread, what a press does, what a jump does. That
+// a pin really paints above a frame's children is the e2e's
+// (artifact-canvas-comments.spec.ts).
 
 beforeEach(() => {
 	uiLanguage.set("en");
@@ -74,7 +69,6 @@ function mount(
 	props: Partial<{
 		threads: ArtifactComment[];
 		nodes: CanvasNode[];
-		tool: Tool;
 		zoom: number;
 		activeId: string | null;
 		draft: Anchor | null;
@@ -82,31 +76,16 @@ function mount(
 		goto: { commentId: string; token: number } | null;
 	}> = {},
 ) {
-	const callbacks = {
-		oncenter: vi.fn(),
-		onselect: vi.fn(),
-		ondraft: vi.fn(),
-		ontoolchange: vi.fn(),
-		onannounce: vi.fn(),
-	};
-	// The keyboard escape only acts when the focus is inside the board.
-	const board = document.createElement("div");
-	board.dataset.testid = "canvas-board";
-	document.body.appendChild(board);
+	const callbacks = { oncenter: vi.fn(), onselect: vi.fn() };
 	const { zoom = 1, ...rest } = props;
-	const view = render(CommentLayer, {
-		target: board,
-		props: {
-			threads: [],
-			nodes: NODES,
-			viewport: { x: 0, y: 0, zoom },
-			tool: "select",
-			toBoard: (point: { x: number; y: number }) => point,
-			...callbacks,
-			...rest,
-		},
+	const view = render(CommentPins, {
+		threads: [],
+		nodes: NODES,
+		viewport: { x: 0, y: 0, zoom },
+		...callbacks,
+		...rest,
 	});
-	return { ...view, ...callbacks, board };
+	return { ...view, ...callbacks };
 }
 
 const pins = () => screen.queryAllByTestId("canvas-comment-pin");
@@ -219,132 +198,6 @@ describe("the pins", () => {
 		expect(draft.getAttribute("aria-label")).toBe(
 			"New comment, not posted yet",
 		);
-	});
-});
-
-describe("the Comment tool's catcher", () => {
-	it("is not there until the tool is armed", () => {
-		mount({ tool: "select" });
-		expect(screen.queryByTestId("canvas-comment-catcher")).toBeNull();
-	});
-
-	it("is a button over the pane that says what a click will do", () => {
-		mount({ tool: "comment" });
-		expect(
-			screen.getByRole("button", {
-				name: "Click the board to place a comment, or a block to comment on it.",
-			}),
-		).toBeTruthy();
-	});
-
-	it("places a spot where the pane was clicked, in board coordinates, and hands the tool back", async () => {
-		const { ondraft, ontoolchange, onannounce } = mount({
-			tool: "comment",
-			// A board panned by (-100, -50): the screen point (350, 250) is board (450, 300)... offset by the pan.
-			nodes: [],
-		});
-		const catcher = screen.getByTestId("canvas-comment-catcher");
-		await fireEvent.click(catcher, { clientX: 350, clientY: 250, detail: 1 });
-		expect(ondraft).toHaveBeenCalledWith({ kind: "point", x: 350, y: 250 });
-		expect(ontoolchange).toHaveBeenCalledWith("select");
-		expect(onannounce).toHaveBeenCalledWith(
-			"Comment started. Write it in the comments list.",
-		);
-	});
-
-	it("converts the click with the board's own conversion, not by assuming the camera", async () => {
-		const ondraft = vi.fn();
-		const board = document.createElement("div");
-		board.dataset.testid = "canvas-board";
-		document.body.appendChild(board);
-		render(CommentLayer, {
-			target: board,
-			props: {
-				threads: [],
-				nodes: [],
-				viewport: { x: 0, y: 0, zoom: 2 },
-				tool: "comment",
-				toBoard: (point: { x: number; y: number }) => ({
-					x: point.x / 2,
-					y: point.y / 2,
-				}),
-				oncenter: vi.fn(),
-				onselect: vi.fn(),
-				ondraft,
-				ontoolchange: vi.fn(),
-				onannounce: vi.fn(),
-			},
-		});
-		await fireEvent.click(screen.getByTestId("canvas-comment-catcher"), {
-			clientX: 300,
-			clientY: 120,
-			detail: 1,
-		});
-		expect(ondraft).toHaveBeenCalledWith({ kind: "point", x: 150, y: 60 });
-	});
-
-	it("comments on the block a click lands on", async () => {
-		const { ondraft } = mount({ tool: "comment" });
-		// note-1 is at (100, 100), 200 x 100.
-		await fireEvent.click(screen.getByTestId("canvas-comment-catcher"), {
-			clientX: 150,
-			clientY: 140,
-			detail: 1,
-		});
-		expect(ondraft).toHaveBeenCalledWith({ kind: "node", nodeId: "note-1" });
-	});
-
-	it("takes a click inside a frame's empty inside for a spot: a frame is commented on by selecting it", async () => {
-		const { ondraft } = mount({ tool: "comment" });
-		await fireEvent.click(screen.getByTestId("canvas-comment-catcher"), {
-			clientX: 500,
-			clientY: 400,
-			detail: 1,
-		});
-		expect(ondraft).toHaveBeenCalledWith({ kind: "point", x: 500, y: 400 });
-	});
-
-	it("places a spot in the middle of the pane for a keyboard press, which has no pointer position", async () => {
-		const { ondraft } = mount({ tool: "comment", nodes: [] });
-		const catcher = screen.getByTestId("canvas-comment-catcher");
-		catcher.getBoundingClientRect = () =>
-			({
-				left: 0,
-				top: 0,
-				width: 800,
-				height: 600,
-				right: 800,
-				bottom: 600,
-			}) as DOMRect;
-		// A key press activates a button with `detail` 0.
-		await fireEvent.click(catcher, { detail: 0 });
-		expect(ondraft).toHaveBeenCalledWith({ kind: "point", x: 400, y: 300 });
-	});
-
-	it("puts the comment on the selected block at once when the tool is armed with one selected", async () => {
-		const selected = [{ ...sticky("note-1", 100, 100), selected: true }, FRAME];
-		const { ondraft, ontoolchange, rerender } = mount({
-			tool: "select",
-			nodes: selected,
-		});
-		expect(ondraft).not.toHaveBeenCalled();
-		await rerender({ tool: "comment", nodes: selected });
-		await tick();
-		expect(ondraft).toHaveBeenCalledWith({ kind: "node", nodeId: "note-1" });
-		expect(ontoolchange).toHaveBeenCalledWith("select");
-	});
-
-	it("lets go of the tool on Escape while the focus is on the board", async () => {
-		const { ontoolchange } = mount({ tool: "comment" });
-		screen.getByTestId("canvas-comment-catcher").focus();
-		await fireEvent.keyDown(window, { key: "Escape" });
-		expect(ontoolchange).toHaveBeenCalledWith("select");
-	});
-
-	it("leaves Escape alone when it is not armed", async () => {
-		const { ontoolchange } = mount({ tool: "select" });
-		await fireEvent.keyDown(window, { key: "Escape" });
-		expect(ontoolchange).not.toHaveBeenCalled();
 	});
 });
 

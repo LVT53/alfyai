@@ -435,6 +435,41 @@ test.describe("comments on the Canvas", () => {
 		).toBeLessThan(1);
 	});
 
+	test("deleting the block a comment is on takes its pin away and puts the thread in the folded group, at once", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const artifactId = await open(page);
+		await seedThread(
+			artifactId,
+			{ kind: "node", nodeId: MUSEUM },
+			"About the museum",
+		);
+		await page.reload({ waitUntil: "networkidle" });
+		await openCanvasPanel(page);
+		await commentsButton(page).click();
+		await expect(pinsOf(page)).toHaveCount(1);
+		await expect(page.getByTestId("margin-orphaned-group")).toHaveCount(0);
+
+		const museum = await nodeBox(page, MUSEUM);
+		await page.mouse.click(museum.x + 90, museum.y + 20);
+		await page.keyboard.press("Delete");
+
+		await expect(
+			page.locator(`.svelte-flow__node[data-id="${MUSEUM}"]`),
+		).toHaveCount(0);
+		await expect(pinsOf(page)).toHaveCount(0);
+		await expect(page.getByTestId("margin-orphaned-group")).toContainText(
+			"1 comment on a block that was removed",
+		);
+		// The comment itself is not lost with its block.
+		const [stored] = await listComments({
+			userId: await testUserId(),
+			artifactId,
+		});
+		expect(stored.body).toBe("About the museum");
+	});
+
 	test("resolving a thread hides its pin and keeps its number; the quiet toggle brings it back, dimmed", async ({
 		page,
 	}) => {
@@ -649,6 +684,84 @@ test.describe("comments on the Canvas", () => {
 				(node) => node.id === "note-added-by-alfy",
 			)?.position.y,
 		).toBeGreaterThan(300);
+	});
+
+	test("a step the reader takes while Alfy is answering is not lost silently: the board says it changed, and offers Reload", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const artifactId = await open(page);
+		const userId = await testUserId();
+		await page.route("**/api/artifacts/*/comments/*/alfy*", async (route) => {
+			const stored = await storedBoard(artifactId);
+			const json = boardJson({
+				...stored,
+				nodes: [...stored.nodes, note("note-late", 420, 300, "Booked")],
+			});
+			const rows = await versionRows(artifactId);
+			const next = (rows.at(-1)?.versionNumber ?? 1) + 1;
+			await db
+				.update(artifacts)
+				.set({ contentText: json, updatedAt: new Date() })
+				.where(eq(artifacts.id, artifactId));
+			await db.insert(artifactVersions).values({
+				id: randomUUID(),
+				artifactId,
+				userId,
+				versionNumber: next,
+				author: "alfy",
+				summary: "Alfy's comment reply",
+				body: json,
+				bodyHash: "alfy-hash-2",
+				createdAt: new Date(),
+			});
+			const [root] = await listComments({ userId, artifactId });
+			const reply = await createComment({
+				userId,
+				artifactId,
+				anchor: null,
+				author: "alfy",
+				body: "Booked.",
+				parentId: root.id,
+			});
+			// Alfy's change is written; the answer is on its way. The reader, who has not
+			// heard yet, takes another step in the meantime: their save is against the
+			// version they last saw, and the server is past it.
+			await new Promise((resolve) => setTimeout(resolve, 3000));
+			await route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					ok: true,
+					outcome: "applied",
+					applied: 1,
+					refused: 0,
+					version: next,
+					reply,
+				}),
+			});
+		});
+		const museum = await nodeBox(page, MUSEUM);
+		await commentAt(page, centreOf(museum), "@Alfy book it");
+		// While Alfy thinks, the reader edits a note.
+		const lunch = await nodeBox(page, LUNCH);
+		await page.mouse.dblclick(lunch.x + 60, lunch.y + 30);
+		await page.keyboard.press("End");
+		await page.keyboard.type(" (and coffee)");
+		await page
+			.getByTestId("canvas-board")
+			.click({ position: { x: 60, y: 420 } });
+
+		await expect(page.getByTestId("canvas-conflict")).toBeVisible({
+			timeout: 15_000,
+		});
+		await expect(page.getByTestId("canvas-conflict")).toContainText(
+			"Someone changed the board while you were drawing",
+		);
+		// What the reader wrote is still on their screen until they choose to reload.
+		await expect(
+			page.getByText("Lunch at the market (and coffee)"),
+		).toBeVisible();
 	});
 
 	test("when Alfy cannot answer, the comment is still posted and the list says so", async ({

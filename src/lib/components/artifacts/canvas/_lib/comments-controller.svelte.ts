@@ -233,20 +233,27 @@ export class CanvasCommentsController {
 		}
 	}
 
-	/** What `CommentLayer` draws and reports, from this state and the board's own (`BoardLayerApi`). */
-	layerProps(api: BoardLayerApi) {
+	/** What `CommentPins` draws and reports, from this state and the board's own (`BoardLayerApi`). */
+	pinsProps(api: BoardLayerApi) {
 		return {
 			threads: this.threads,
 			nodes: api.nodes,
 			viewport: api.viewport,
-			tool: api.tool,
 			activeId: this.activeId,
 			draft: this.draft,
 			showResolved: this.filter === "all",
 			goto: this.goto,
-			toBoard: api.toBoard,
 			oncenter: api.centerOn,
 			onselect: (commentId: string) => this.select(commentId),
+		};
+	}
+
+	/** What `CommentCatcher` needs to place a comment where the reader clicks. */
+	catcherProps(api: BoardLayerApi) {
+		return {
+			nodes: api.nodes,
+			tool: api.tool,
+			toBoard: api.toBoard,
 			ondraft: (anchor: Anchor) => this.place(anchor),
 			ontoolchange: api.setTool,
 			onannounce: api.announce,

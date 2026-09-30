@@ -7,4 +7,5 @@
  */
 export { CanvasCommentsController } from "./_lib/comments-controller.svelte";
 export { default as CanvasComments } from "./CanvasComments.svelte";
-export { default as CommentLayer } from "./CommentLayer.svelte";
+export { default as CommentCatcher } from "./CommentCatcher.svelte";
+export { default as CommentPins } from "./CommentPins.svelte";
