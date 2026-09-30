@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
-import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
+import {
+	type CanvasBlockData,
+	NODE_WIDTH,
+} from "$lib/shared/artifacts/canvas-blocks";
 import {
 	boardJson,
 	normalizeCanvasBody,
@@ -64,6 +67,67 @@ describe("stored nodes to library nodes", () => {
 		const before = JSON.stringify(board.nodes);
 		toFlowNodes(board.nodes);
 		expect(JSON.stringify(board.nodes)).toBe(before);
+	});
+
+	// RV-3 C2: a block stored with no width (a board made before Alfy's blocks
+	// carried one) was drawn as wide as its words ran, through the frame's edge
+	// and across the board, while Alfy reads it as `NODE_WIDTH` wide.
+	describe("a block stored with no width", () => {
+		const unsized = (
+			type: CanvasNode["type"],
+			data: CanvasBlockData,
+		): CanvasNode => ({
+			id: `${type}-1`,
+			type,
+			position: { x: 0, y: 0 },
+			data,
+		});
+		const words =
+			"Ebéd a Nagycsarnokban, utána séta a Duna-parton és vacsora a belvárosban";
+
+		it("is drawn at the width Alfy reads it at, whatever its words are", () => {
+			for (const node of [
+				unsized("sticky", { kind: "sticky", text: words, tone: "yellow" }),
+				unsized("text", { kind: "text", text: words }),
+				unsized("checklist", {
+					kind: "checklist",
+					items: [{ id: "i1", text: words, done: false }],
+				}),
+			]) {
+				const [live] = toFlowNodes([node]);
+				expect(live.style, node.type).toMatch(
+					new RegExp(`width:\\s*${NODE_WIDTH}px`),
+				);
+			}
+		});
+
+		it("does not write that width into the board's data: what is drawn is not a change to what is stored", () => {
+			const board = sampleBoard();
+			const bare = unsized("sticky", {
+				kind: "sticky",
+				text: "x",
+				tone: "yellow",
+			});
+			const body = { ...board, nodes: [...board.nodes, bare] };
+			const [live] = toFlowNodes([bare]);
+			expect(live.width).toBeUndefined();
+			expect(boardJson(bodyOfState(stateOf(body)))).toBe(boardJson(body));
+		});
+
+		it("leaves a block that has a width alone, and a frame to its own size", () => {
+			const sized: CanvasNode = {
+				...unsized("sticky", { kind: "sticky", text: words, tone: "yellow" }),
+				width: 260,
+			};
+			expect(toFlowNodes([sized])[0].style).toBeUndefined();
+			const frame: CanvasNode = {
+				id: "f",
+				type: "frame",
+				position: { x: 0, y: 0 },
+				data: { kind: "frame", label: "", width: 300, height: 200 },
+			};
+			expect(toFlowNodes([frame])[0].style).toBe("pointer-events: none;");
+		});
 	});
 });
 

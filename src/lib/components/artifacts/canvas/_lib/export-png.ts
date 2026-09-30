@@ -26,6 +26,7 @@
  * chrome, a block's anchors and resize corners (`poster.ts`'s list).
  */
 import { toPng } from "html-to-image";
+import { announceChatFilesChanged } from "$lib/client/api/artifacts";
 import { uploadCanvasImage } from "$lib/client/api/canvas-export";
 import type { I18nKey } from "$lib/i18n";
 import type { CanvasBody } from "$lib/shared/artifacts/canvas";
@@ -222,6 +223,9 @@ export async function exportBoardPng(
 		height: size.height,
 	});
 	if (!stored.ok) throw new ExportError("upload", stored.reason);
+	// The picture is a File of this chat now: its list, its count and the card under
+	// the reply it hangs from show it at once, not at the next read of the chat.
+	if (input.conversationId) announceChatFilesChanged(input.conversationId);
 	return {
 		fileId: stored.fileId,
 		filename: stored.filename,

@@ -1,11 +1,12 @@
 /**
  * Where Alfy's change is on the board, in board space, and nothing that draws:
- * the rectangle of each block it touched, the one that holds them all (the change
- * pill sits at its top-right corner, the dashed arranging frame goes around it),
- * and how far a frame stands off what it surrounds. Pure, so it is unit-tested
- * without a browser; the layer only draws what it says.
+ * the rectangle of each block it touched, the one that holds them all (the dashed
+ * arranging frame goes around it, and the change pill hangs from its top-right
+ * corner unless that corner would put the pill on a block Alfy left alone), and
+ * how far a frame stands off what it surrounds. Pure, so it is unit-tested without
+ * a browser; the layer only draws what it says.
  */
-import type { CanvasNode } from "$lib/shared/artifacts/canvas";
+import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
 import { nodeRect } from "./board";
 
 export type Box = { x: number; y: number; width: number; height: number };
@@ -50,4 +51,65 @@ export function padded(box: Box, by: number): Box {
 		width: box.width + by * 2,
 		height: box.height + by * 2,
 	};
+}
+
+/** The change pill's size on the screen (its widest, with Keep and Undo), and how far above its corner it hangs. The layer scales it by 1 / zoom, so it is this size at any zoom. */
+const PILL_WIDTH = 280;
+const PILL_HEIGHT = 28;
+const PILL_LIFT = 16;
+
+function overlapArea(a: Box, b: Box): number {
+	const width = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+	const height = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+	return width > 0 && height > 0 ? width * height : 0;
+}
+
+/**
+ * The point the change pill hangs from: its right edge, and the edge of the block
+ * above which it sits. It is the top-right corner of the box that holds every
+ * touched block (the place a reader looks for it) unless that would put the pill
+ * over blocks Alfy left alone (`obstacles`: every block but a frame, which is a
+ * backdrop); then the top-right corner of a touched block with the least under it,
+ * the highest first (RV-3 Minor 2). Null when nothing is touched.
+ */
+export function changePillAnchor(input: {
+	touched: readonly Box[];
+	obstacles: readonly Box[];
+	zoom: number;
+}): Pt | null {
+	if (input.touched.length === 0) return null;
+	const inv = input.zoom > 0 ? 1 / input.zoom : 1;
+	const width = PILL_WIDTH * inv;
+	const height = PILL_HEIGHT * inv;
+	const lift = PILL_LIFT * inv;
+	const corners = input.touched
+		.map((box) => ({ x: box.x + box.width, y: box.y }))
+		.sort((a, b) => a.y - b.y || b.x - a.x);
+	const union = {
+		x: Math.max(...corners.map((corner) => corner.x)),
+		y: Math.min(...corners.map((corner) => corner.y)),
+	};
+	const under = (corner: Pt): number => {
+		const pill = {
+			x: corner.x - width,
+			y: corner.y - lift - height,
+			width,
+			height,
+		};
+		return input.obstacles.reduce(
+			(total, box) => total + overlapArea(pill, box),
+			0,
+		);
+	};
+	let best = union;
+	let bestUnder = under(union);
+	for (const corner of corners) {
+		if (bestUnder === 0) break;
+		const area = under(corner);
+		if (area < bestUnder) {
+			best = corner;
+			bestUnder = area;
+		}
+	}
+	return best;
 }

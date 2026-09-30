@@ -632,7 +632,7 @@ const artifactsDict = {
 		"artifacts.canvas.saving": "Saving…",
 		"artifacts.canvas.saveFailed": "Could not save the board.",
 		"artifacts.canvas.saveConflict":
-			"Someone changed the board while you were drawing. Reload to see the newest version.",
+			"Alfy or another window changed the board, so your last step was not saved. Reload to see the newest version.",
 		"artifacts.canvas.offline":
 			"You are offline. Your drawing is kept and will be saved when the connection is back.",
 		"artifacts.canvas.tooLarge": "This board is too big to save.",
@@ -845,6 +845,8 @@ const artifactsDict = {
 			"The live web results are not part of this image.",
 		"artifacts.canvas.export.stillOther":
 			"This block is not part of this image.",
+		// After the Canvas review (RV-3, cluster B).
+		"artifacts.canvas.block.drawFailed": "This block could not be drawn.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1258,7 +1260,7 @@ const artifactsDict = {
 		"artifacts.canvas.tool.select": "Kijelölés",
 		"artifacts.canvas.tool.pan": "Mozgatás",
 		"artifacts.canvas.undo": "Saját lépés visszavonása",
-		"artifacts.canvas.redo": "Saját lépés újra",
+		"artifacts.canvas.redo": "Saját lépés ismét",
 		"artifacts.canvas.insert": "Beszúrás",
 		"artifacts.canvas.insert.block": "Blokk beszúrása",
 		"artifacts.canvas.insert.text": "Szöveg",
@@ -1286,12 +1288,12 @@ const artifactsDict = {
 		"artifacts.canvas.textPlaceholder": "Írj valamit…",
 		"artifacts.canvas.frameName": "Keret neve",
 		"artifacts.canvas.checklistReadOnlyNote":
-			"Az itt bejelölt pipák a táblával együtt mentődnek.",
+			"Az itt kipipált elemeket a táblával együtt mentjük.",
 		"artifacts.canvas.checklistPlaceholder": "Új elem",
 		"artifacts.canvas.checklistAdd": "Elem hozzáadása",
 		"artifacts.canvas.checklistRemove": "Elem törlése",
 		"artifacts.canvas.checklistToggle": "{name}: kész állapot váltása",
-		"artifacts.canvas.zoom": "Nagyítás",
+		"artifacts.canvas.zoom": "Nagyítás mértéke",
 		"artifacts.canvas.zoomIn": "Nagyítás",
 		"artifacts.canvas.zoomOut": "Kicsinyítés",
 		"artifacts.canvas.fitView": "Illesztés a nézetbe",
@@ -1306,9 +1308,9 @@ const artifactsDict = {
 		"artifacts.canvas.saving": "Mentés…",
 		"artifacts.canvas.saveFailed": "Nem sikerült menteni a táblát.",
 		"artifacts.canvas.saveConflict":
-			"Valaki módosította a táblát, amíg rajzoltál. Töltsd újra, hogy a legfrissebbet lásd.",
+			"A táblát Alfy vagy egy másik ablak módosította, ezért az utolsó lépésedet nem sikerült elmenteni. Töltsd újra a legfrissebb változathoz.",
 		"artifacts.canvas.offline":
-			"Nincs kapcsolat. A rajzod megmarad, és visszatér a mentés, amint újra van hálózat.",
+			"Nincs kapcsolat. A rajzod megmarad, a módosításaidat a kapcsolat helyreálltával mentjük.",
 		"artifacts.canvas.tooLarge": "Ez a tábla túl nagy a mentéshez.",
 		"artifacts.canvas.deletedWhileOpen": "Ezt a táblát törölték.",
 		"artifacts.canvas.noAccess": "Nincs hozzáférésed ehhez a táblához.",
@@ -1333,7 +1335,7 @@ const artifactsDict = {
 		"artifacts.canvas.comment.pinResolved": "{n}. megjegyzés a táblán, lezárva",
 		"artifacts.canvas.comment.pinDraft": "Új megjegyzés, még nincs elküldve",
 		"artifacts.canvas.comment.spot": "egy pont a táblán",
-		"artifacts.canvas.comment.blockGone": "A blokk már nincs meg.",
+		"artifacts.canvas.comment.blockGone": "A blokk már nem létezik.",
 		// Nincs ICU többesszám: a magyar főnév számnév után egyes számban marad.
 		"artifacts.canvas.comment.orphanedGroup":
 			"{count} megjegyzés egy törölt blokkon",
@@ -1353,14 +1355,14 @@ const artifactsDict = {
 		"artifacts.canvas.comment.skippedItem": "{target}: {reason}",
 		"artifacts.canvas.comment.landed": "Alfy módosította a táblát.",
 		"artifacts.canvas.comment.placed":
-			"A megjegyzés elkezdve. Írd meg a megjegyzések listájában.",
+			"Megjegyzés indítva — írd meg a listában.",
 		"artifacts.canvas.comment.alfyFailed":
 			"Alfy most nem tudott válaszolni. A megjegyzésed elküldve.",
 		"artifacts.canvas.comment.updateFailed":
 			"Nem sikerült frissíteni a megjegyzést.",
 		// Alfy módosítása a táblán (S3-A): a rendezés, a beérkezés és az egyetlen áttekintés.
-		"artifacts.canvas.arranging": "Alfy épp rendezi…",
-		"artifacts.canvas.arrangingSummary": "Alfy épp rendezi: {summary}",
+		"artifacts.canvas.arranging": "Alfy dolgozik a táblán…",
+		"artifacts.canvas.arrangingSummary": "Alfy dolgozik a táblán: {summary}",
 		"artifacts.canvas.review.regionLabel": "Alfy módosításai a táblán",
 		// Nincs ICU többesszám: a magyar főnév számnév után egyes számban marad.
 		"artifacts.canvas.review.summary": "Alfy {count} blokkot módosított.",
@@ -1370,7 +1372,7 @@ const artifactsDict = {
 			"Alfy {changed} blokkot módosított és {removed} blokkot eltávolított.",
 		"artifacts.canvas.review.landed": "{summary} Nézd át a tábla alatt.",
 		"artifacts.canvas.review.landedLeft":
-			"{summary} {left} módosítást nem érintett. Nézd át a tábla alatt.",
+			"{summary} {left} módosítást kihagyott. Nézd át a tábla alatt.",
 		"artifacts.canvas.review.refused": "Alfy {count} módosítást kihagyott.",
 		"artifacts.canvas.review.undoRefused":
 			"Alfy módosítása itt nem vonható vissza, mert azóta megváltozott a tábla. A Változatok megnyitásával visszatérhetsz egy korábbihoz.",
@@ -1450,7 +1452,7 @@ const artifactsDict = {
 		"artifacts.canvas.liveweb.updated": "Frissítve: {when}",
 		"artifacts.canvas.liveweb.more": "+{count} további",
 		"artifacts.canvas.liveweb.none": "Nincs forrás ebben a blokkban.",
-		"artifacts.canvas.staleBadge": "Nem élő",
+		"artifacts.canvas.staleBadge": "Elavult",
 		"artifacts.canvas.refresh": "Frissítés",
 		"artifacts.canvas.refreshing": "Frissítés…",
 		"artifacts.canvas.refreshFailed": "Nem sikerült frissíteni ezt a blokkot.",
@@ -1505,6 +1507,9 @@ const artifactsDict = {
 		"artifacts.canvas.export.stillWeb":
 			"Az élő webes találatok nem részei a képnek.",
 		"artifacts.canvas.export.stillOther": "Ez a blokk nem része a képnek.",
+		// A Canvas-áttekintés után (RV-3, B csoport).
+		"artifacts.canvas.block.drawFailed":
+			"Ezt a blokkot nem sikerült megrajzolni.",
 	},
 } as const;
 

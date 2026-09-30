@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TEXT_MAX_CHARS } from "$lib/shared/artifacts/canvas-blocks";
 import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasBoardContext } from "../_lib/board-context";
+import { broken } from "../_test/broken-content";
+import ShellWithBrokenContent from "../_test/ShellWithBrokenContent.svelte";
 import WithBoard from "../_test/WithBoard.svelte";
 import { flowSpies, xyflowMock } from "../_test/xyflow-mock";
 import ChartNode, { chartShell } from "./ChartNode.svelte";
@@ -56,6 +58,7 @@ const stickyProps = (extra: Record<string, unknown> = {}) => ({
 beforeEach(() => {
 	vi.clearAllMocks();
 	uiLanguage.set("en");
+	broken.on = true;
 });
 
 // The nodes are drawn here against a stand-in for the flow library, so the
@@ -174,6 +177,48 @@ describe("the node shell around a block", () => {
 			"aria-label",
 			"Jegyzet: Lunch at the market",
 		);
+	});
+});
+
+// RV-3 C1: nothing about one block's content may take the board down. A block
+// whose content throws while it is drawn was, before this, an error the whole
+// panel died of (it stayed on its loading skeleton, and could only be deleted).
+describe("a block whose content cannot be drawn", () => {
+	it("says so in its own place and keeps its shell, instead of throwing to the board", () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		mount(ShellWithBrokenContent, {});
+		const notice = screen.getByTestId("canvas-node-broken");
+		expect(notice).toHaveAttribute("role", "alert");
+		expect(notice).toHaveTextContent("This block could not be drawn.");
+		// Its name and its anchors are still there: an edge can attach, it can be selected and deleted.
+		expect(screen.getByText("Budget")).toBeInTheDocument();
+		expect(screen.getAllByTestId("canvas-anchor")).toHaveLength(4);
+		expect(screen.queryByTestId("content-recovered")).toBeNull();
+	});
+
+	it("says it in Hungarian in Hungarian", () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		uiLanguage.set("hu");
+		mount(ShellWithBrokenContent, {});
+		expect(screen.getByTestId("canvas-node-broken")).toHaveTextContent(
+			"Ezt a blokkot nem sikerült megrajzolni.",
+		);
+	});
+
+	it("draws the block again when the reader tries again and it can be drawn", async () => {
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		mount(ShellWithBrokenContent, {});
+		broken.on = false;
+		await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(await screen.findByTestId("content-recovered")).toBeInTheDocument();
+		expect(screen.queryByTestId("canvas-node-broken")).toBeNull();
+	});
+
+	it("reports what went wrong once, to the console, with the block it was", () => {
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		mount(ShellWithBrokenContent, { id: "chart-7" });
+		expect(error).toHaveBeenCalledTimes(1);
+		expect(error.mock.calls[0]).toContain("chart-7");
 	});
 });
 
@@ -357,6 +402,30 @@ describe("the board's own checklist", () => {
 		expect(
 			screen.getByRole("checkbox", { name: "Passport: toggle done" }),
 		).toBeChecked();
+	});
+
+	// RV-3 C1: the rows were keyed by item id, and Svelte throws for a repeated key
+	// (in production too). The server repairs a repeated id on read now; the rows
+	// must not depend on that to draw.
+	it("draws every item when two of them share an id, and a tick changes only the one that was ticked", async () => {
+		const doubled = [
+			{ id: "1", text: "First thing", done: false },
+			{ id: "1", text: "Second thing", done: false },
+		];
+		mount(
+			ChecklistNode,
+			props({ data: { kind: "checklist", label: "Doubled", items: doubled } }),
+		);
+		expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+		await fireEvent.click(
+			screen.getByRole("checkbox", { name: "Second thing: toggle done" }),
+		);
+		expect(flowSpies.updateNodeData).toHaveBeenCalledWith("todo-1", {
+			items: [
+				{ id: "1", text: "First thing", done: false },
+				{ id: "1", text: "Second thing", done: true },
+			],
+		});
 	});
 
 	it("dresses the shell with its label and how many of its items are done", () => {

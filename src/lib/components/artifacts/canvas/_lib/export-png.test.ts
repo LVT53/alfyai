@@ -2,6 +2,10 @@
 // nothing. The camera goes back where the reader had it and every poster comes
 // off, whichever step throws, and a block drawn as a card is named.
 import { describe, expect, it, vi } from "vitest";
+import {
+	type ArtifactChange,
+	subscribeArtifactChanges,
+} from "$lib/client/api/artifacts";
 import type { I18nKey } from "$lib/i18n";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import { emptyCanvasBody } from "$lib/shared/artifacts/canvas-body";
@@ -190,6 +194,52 @@ describe("exporting a board", () => {
 			height: 600,
 		});
 		expect(camera()).toEqual({ x: 12, y: 34, zoom: 0.7 });
+	});
+
+	// S3-X's open question: the File a picture makes is not in the chat's list until the
+	// chat is read again. A kept picture says so, on the channel every surface follows.
+	it("announces that this chat's files changed once the picture is kept, and not before or when it is not", async () => {
+		const seen: ArtifactChange[] = [];
+		const stop = subscribeArtifactChanges((change) => seen.push(change));
+		try {
+			const kept = harness();
+			kept.input.upload = vi.fn(async () => {
+				expect(seen).toEqual([]);
+				return {
+					ok: true as const,
+					fileId: "export-1",
+					filename: "Board.png",
+					width: 800,
+					height: 600,
+				};
+			});
+			await exportBoardPng(kept.input);
+			expect(seen).toEqual([{ type: "files", conversationId: "conv-1" }]);
+
+			seen.length = 0;
+			const failed = harness({
+				upload: vi.fn(async () => ({
+					ok: false as const,
+					reason: "too_large" as const,
+				})),
+			});
+			await expect(exportBoardPng(failed.input)).rejects.toBeTruthy();
+			expect(seen).toEqual([]);
+		} finally {
+			stop();
+		}
+	});
+
+	it("says nothing for a board that belongs to no chat: there is no list to refresh", async () => {
+		const seen: ArtifactChange[] = [];
+		const stop = subscribeArtifactChanges((change) => seen.push(change));
+		try {
+			const { input } = harness({ conversationId: null });
+			await exportBoardPng(input);
+			expect(seen).toEqual([]);
+		} finally {
+			stop();
+		}
 	});
 
 	it("draws the viewport's own element at the picture's size, from the camera that fits the content, on the page's colour", async () => {

@@ -15,9 +15,10 @@ import type {
 	CanvasEdge,
 	CanvasNode,
 } from "$lib/shared/artifacts/canvas";
-import type {
-	CanvasBlockData,
-	PosterRef,
+import {
+	type CanvasBlockData,
+	NODE_WIDTH,
+	type PosterRef,
 } from "$lib/shared/artifacts/canvas-blocks";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { metaFor } from "./block-meta";
@@ -47,7 +48,12 @@ type BoardState = {
 /**
  * Stored nodes to library nodes: each kind's own hints (a frame sits behind what
  * it groups, is dragged by its chip, and lets pointers through) copied on, and a
- * frame that has no size of its own on the node takes the one in its data.
+ * frame that has no size of its own on the node takes the one in its data. Any
+ * other block stored with no width (a board made before Alfy's blocks carried
+ * one) is DRAWN at `NODE_WIDTH`, the width Alfy reads it at, instead of as wide
+ * as its words run (RV-3 C2). It is a drawing hint (the wrapper's `style`), not a
+ * width on the node: the board's data, and the diff between two boards, stay what
+ * was stored, and a resize still sets a width of its own, which wins.
  */
 export function toFlowNodes(nodes: readonly CanvasNode[]): FlowNode[] {
 	return nodes.map((node) => {
@@ -56,6 +62,8 @@ export function toFlowNodes(nodes: readonly CanvasNode[]): FlowNode[] {
 		if (node.data.kind === "frame") {
 			live.width = node.width ?? node.data.width;
 			live.height = node.height ?? node.data.height;
+		} else if (node.width === undefined) {
+			live.style = `${flow?.style ?? ""}width: ${NODE_WIDTH}px;`;
 		}
 		return live;
 	});

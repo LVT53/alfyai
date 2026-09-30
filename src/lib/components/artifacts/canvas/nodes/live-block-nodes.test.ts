@@ -113,6 +113,22 @@ describe("a photo block", () => {
 		).toBeInTheDocument();
 	});
 
+	// RV-3 C1: the grid was keyed by photo id, and a repeated key makes Svelte throw.
+	it("draws every photo even when two of them share an id", async () => {
+		const { container } = mount("photo", {
+			kind: "photo",
+			items: [
+				{ id: "asset-1", imageUrl: proxy("asset-1") },
+				{ id: "asset-1", imageUrl: proxy("asset-1") },
+				{ id: "asset-2", imageUrl: proxy("asset-2") },
+			],
+		});
+		await screen.findByTestId("canvas-photo");
+
+		expect(screen.queryByTestId("canvas-node-broken")).toBeNull();
+		expect(container.querySelectorAll("img")).toHaveLength(3);
+	});
+
 	it("never hands the browser an address that is not the app's own thumbnail, whatever the stored data says", async () => {
 		const hostile = [
 			"https://evil.example/pixel.png?d=secret",
@@ -324,6 +340,15 @@ describe("a live-web block", () => {
 		expect(sources[0]).toHaveTextContent("weather1.example.com");
 	});
 
+	// RV-3 C1: the list was keyed by source id and address, and a repeated key makes Svelte throw.
+	it("lists every source even when two of them are the same one", async () => {
+		mount("liveweb", webData([source(1), source(1), source(2)]));
+		await screen.findByTestId("canvas-liveweb");
+
+		expect(screen.queryByTestId("canvas-node-broken")).toBeNull();
+		expect(screen.getAllByTestId("canvas-liveweb-source")).toHaveLength(3);
+	});
+
 	it("makes each source a link that opens the page in a new tab and tells the site nothing about the board", async () => {
 		mount("liveweb", webData());
 		await screen.findByTestId("canvas-liveweb");
@@ -464,7 +489,7 @@ describe("a live-web block", () => {
 			"Frissítve: 3 órája",
 		);
 		expect(screen.getByTestId("canvas-liveweb-stale")).toHaveTextContent(
-			"Nem élő",
+			"Elavult",
 		);
 		expect(
 			screen.getByRole("button", { name: "Frissítés" }),

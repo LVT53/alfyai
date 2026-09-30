@@ -40,6 +40,7 @@ import {
 	BackgroundVariant,
 	type Connection,
 	ConnectionMode,
+	MarkerType,
 	type Edge,
 	MiniMap,
 	Panel,
@@ -131,6 +132,8 @@ let {
 const initial = untrack(() => body);
 const flow = useSvelteFlow();
 const nodeTypes = boardNodeTypes();
+/** An arrow points at the block it was drawn to (its head takes the edge's own colour), so the stored direction is seen (RV-3 Minor 4). */
+const edgeDefaults = { markerEnd: { type: MarkerType.ArrowClosed } };
 
 let nodes = $state.raw<FlowNode[]>(toFlowNodes(initial.nodes));
 let edges = $state.raw<Edge[]>(toFlowEdges(initial.edges, initial.nodes));
@@ -149,6 +152,10 @@ const STACK_ZOOM_BELOW = 680;
 let boardEl = $state<HTMLElement | null>(null);
 let boardWidth = $state(0);
 let boardHeight = $state(0);
+// What the zoom was when the camera last came to rest. A finger's hit area on a
+// block's handles is about 24 px on the screen, so it grows as the board zooms
+// out; it is sized to the resting zoom, not re-measured on every frame of a pinch.
+let restingZoom = $state(untrack(() => initial.viewport.zoom) || 1);
 let tool = $state<Tool>("select");
 /** The ink a new mark is drawn in (a colour token). */
 let ink = $state(DEFAULT_INK);
@@ -217,6 +224,8 @@ let committedJson = structuralJson(snapshot());
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 let announceTimer: ReturnType<typeof setTimeout> | null = null;
 const editRequests = new Set<string>();
+/** The block an Insert selected, until the reader touches it or reaches for the Comment tool. */
+let insertSelectedId: string | null = null;
 
 provideBoardContext({
 	get readonly() {
@@ -516,12 +525,12 @@ async function insertBlock(
 		x: rect.left + rect.width / 2,
 		y: rect.top + rect.height / 2,
 	});
-	// A note is staggered off the one under it. A block made from the chat (it
-	// arrives with the data the chat made) is big — an App is 400 x 340 — so it is
-	// put on free ground instead: laid over another App it would take that App's
-	// clicks. A frame is a backdrop, not in the way.
+	// A block goes on free ground: laid over another it would hide it and take the
+	// clicks meant for it (a made-from-the-chat block is big, an App is 400 x 340,
+	// and a note's own toolbar sits over what is beneath it). A frame is a backdrop,
+	// not in the way of a block, and a new frame is only staggered off the others.
 	const position =
-		data !== undefined
+		data !== undefined || row.kind !== "frame"
 			? placeBesideBlocks({
 					center,
 					size: row.size,
@@ -542,6 +551,7 @@ async function insertBlock(
 	]);
 	// Text a reader writes opens for typing at once.
 	if (row.section === "text") editRequests.add(added.id);
+	insertSelectedId = added.id;
 	nodes = [
 		...nodes.map((node) =>
 			node.selected ? { ...node, selected: false } : node,
@@ -596,6 +606,19 @@ function applyTool(next: Tool): void {
 	) {
 		nodes = nodes.map((node) =>
 			node.selected ? { ...node, selected: false } : node,
+		);
+	}
+	// An Insert selects the block it adds, so it can be typed into. A reader who
+	// then reaches for Comment means another block, so the tool waits for the
+	// click instead of taking that one; a block the reader picked themselves is
+	// still taken at once (RV-3 I4).
+	if (next === "comment" && insertSelectedId) {
+		const inserted = insertSelectedId;
+		insertSelectedId = null;
+		nodes = nodes.map((node) =>
+			node.id === inserted && node.selected
+				? { ...node, selected: false }
+				: node,
 		);
 	}
 }
@@ -837,6 +860,7 @@ function minimapColor(node: {
 	bind:clientWidth={boardWidth}
 	bind:clientHeight={boardHeight}
 	style:--canvas-board-width="{boardWidth}px"
+	style:--canvas-inv-zoom={1 / restingZoom}
 	data-testid="canvas-board"
 	data-tool={tool}
 >
@@ -867,6 +891,7 @@ function minimapColor(node: {
 		bind:edges
 		bind:viewport
 		{nodeTypes}
+		defaultEdgeOptions={edgeDefaults}
 		class="canvas-flow"
 		aria-label={$t("artifacts.type.canvas")}
 		fitView={fitOnOpen}
@@ -884,11 +909,15 @@ function minimapColor(node: {
 		{ariaLabelConfig}
 		isValidConnection={(connection) => connection.source !== connection.target}
 		onbeforeconnect={handleBeforeConnect}
+		onnodeclick={() => (insertSelectedId = null)}
 		onnodedrag={handleNodeDrag}
 		onnodedragstop={handleNodeDragStop}
 		onbeforedelete={handleBeforeDelete}
 		ondelete={handleDelete}
-		onmoveend={(_, camera) => oncamera?.(camera)}
+		onmoveend={(_, camera) => {
+			restingZoom = camera.zoom;
+			oncamera?.(camera);
+		}}
 	>
 		<Background variant={BackgroundVariant.Dots} gap={18} size={1} />
 		<!-- The drawing layer, in the viewport's front layer so every point is a board point. -->

@@ -26,8 +26,10 @@ vi.mock("$lib/utils/motion", () => ({
 
 import * as landing from "./alfy-landing";
 import { ARRANGING_MIN_MS, HIGHLIGHT_MS } from "./alfy-landing";
+import type { BoardLayerApi } from "./board-layers";
 import {
 	CanvasReviewController,
+	changeLayerProps,
 	type LandingBoard,
 	type ReviewHost,
 } from "./review-controller.svelte";
@@ -427,7 +429,7 @@ describe("Undo", () => {
 		expect(api.saveArtifactBody).toHaveBeenCalledTimes(1);
 	});
 
-	it("can be redone within its window, which puts Alfy's board back as the reader's own edit", async () => {
+	it("can be redone within its window, which puts Alfy's board back as the reader's own edit, kept", async () => {
 		const { controller, host } = armed();
 		const alfyBody = boardJson(host.board()?.current() as CanvasBody);
 		await controller.undo();
@@ -442,8 +444,14 @@ describe("Undo", () => {
 			undefined,
 			{ baseHash: "h3", coalesce: false, summaryKind: undefined },
 		);
-		expect(controller.status).toBe("pending");
-		expect(controller.count).toBe(2);
+		// The server has nothing waiting (the reader's version takes the blocks
+		// over): the pill says Kept and the count is 0, and no Undo is offered that
+		// the server would refuse (RV-3 I3).
+		expect(controller.status).toBe("kept");
+		expect(host.reportCount).toHaveBeenLastCalledWith(0);
+		await controller.undo();
+		expect(api.saveArtifactBody).toHaveBeenCalledTimes(2);
+		expect(controller.undoRefused).toBeNull();
 	});
 
 	it("can be redone while the board is still gliding back: Redo waits its turn instead of being ignored", async () => {
@@ -463,7 +471,7 @@ describe("Undo", () => {
 		);
 		finish();
 		await Promise.all([undoing, redoing]);
-		expect(controller.status).toBe("pending");
+		expect(controller.status).toBe("kept");
 		draw.mockRestore();
 	});
 
@@ -484,6 +492,50 @@ describe("Undo", () => {
 		expect(controller.change).toBeNull();
 		await controller.redo();
 		expect(controller.status).toBe("pending");
+	});
+});
+
+// RV-3 Minor 11: the rings mark what waits for the reader. Undo's drawing is meant
+// to have none, but the change stayed on the layer until the pill let go, so the
+// blocks Alfy had touched stayed ringed for seconds after they were taken back.
+describe("what the layer rings, once the change is decided", () => {
+	const layerApi = {
+		nodes: [],
+		viewport: { x: 0, y: 0, zoom: 1 },
+		centerOn: () => {},
+	} as unknown as BoardLayerApi;
+
+	it("rings the blocks while the change waits, and none once it is undone, redone or kept; the pill still follows them", async () => {
+		api.fetchArtifactVersionBody.mockResolvedValue(boardJson(sampleBoard()));
+		const { controller } = make({
+			board: landed(sampleBoard(), MOVE, RETITLE),
+		});
+		controller.restore(reviewState());
+		const waiting = changeLayerProps(controller, layerApi);
+		expect(waiting.touched.length).toBeGreaterThan(0);
+		expect(waiting.waiting).toBe(true);
+		expect(waiting.pill?.status).toBe("pending");
+
+		await controller.undo();
+		// The pill still says "Undone" and offers Redo, and hangs from the same blocks; nothing is ringed.
+		const undone = changeLayerProps(controller, layerApi);
+		expect(undone.pill?.status).toBe("undone");
+		expect(undone.waiting).toBe(false);
+		expect(undone.touched).toEqual(waiting.touched);
+
+		await controller.redo();
+		const redone = changeLayerProps(controller, layerApi);
+		expect(redone.pill?.status).toBe("kept");
+		expect(redone.waiting).toBe(false);
+	});
+
+	it("stops ringing at Keep, while the pill still says Kept", async () => {
+		const { controller } = make();
+		controller.restore(reviewState());
+		void controller.keep();
+		const kept = changeLayerProps(controller, layerApi);
+		expect(kept.pill?.status).toBe("kept");
+		expect(kept.waiting).toBe(false);
 	});
 });
 
@@ -690,7 +742,7 @@ describe("the chord for Alfy's change", () => {
 		const redo = press(true);
 		controller.handleKey(redo);
 		expect(redo.defaultPrevented).toBe(true);
-		await vi.waitFor(() => expect(controller.status).toBe("pending"));
+		await vi.waitFor(() => expect(controller.status).toBe("kept"));
 		// The reader's own undo (no Alt) is not this one's.
 		const own = new KeyboardEvent("keydown", {
 			key: "z",

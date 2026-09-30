@@ -125,6 +125,46 @@ describe("the rings", () => {
 		expect(of("a")?.classList.contains("ring--frame")).toBe(false);
 	});
 
+	// RV-3 Minor 10: a frame's name chip sits across its top edge, and a ring drawn
+	// on that edge struck the name through.
+	it("stands a frame's ring outside the name chip that sits across its top edge, so the name is not struck through", () => {
+		mount({
+			nodes: [
+				...NODES,
+				{
+					id: "frame",
+					type: "frame",
+					position: { x: 0, y: 500 },
+					width: 400,
+					height: 300,
+					data: { kind: "frame", label: "Sunday", width: 400, height: 300 },
+				},
+			],
+			touched: ["frame", "a"],
+		});
+		const rings = screen.getAllByTestId("canvas-alfy-ring");
+		const of = (id: string) =>
+			rings.find((ring) => ring.getAttribute("data-node-id") === id);
+		// The chip is 12 units above the edge; the ring is beyond it, all round.
+		const frame = of("frame");
+		expect(Number.parseFloat(frame?.style.top ?? "")).toBeLessThan(500 - 12);
+		expect(Number.parseFloat(frame?.style.left ?? "")).toBeLessThan(0);
+		expect(Number.parseFloat(frame?.style.width ?? "")).toBeGreaterThan(400);
+		expect(Number.parseFloat(frame?.style.height ?? "")).toBeGreaterThan(300);
+		// A note's ring stays on the note.
+		expect(of("a")?.style.top).toBe("100px");
+	});
+
+	it("rings nothing once the change is decided, though the pill goes on following its blocks", () => {
+		mount({
+			touched: ["a", "b"],
+			waiting: false,
+			pill: { status: "undone", label: "Planned Sunday" },
+		});
+		expect(screen.queryAllByTestId("canvas-alfy-ring")).toHaveLength(0);
+		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("700px");
+	});
+
 	it("keeps a ring 2 px on screen at any zoom", () => {
 		const { container } = mount({
 			touched: ["a"],
@@ -154,6 +194,42 @@ describe("the pill", () => {
 			screen.getByRole("button", { name: "Undo Alfy's change" }),
 		);
 		expect(onundo).toHaveBeenCalledTimes(1);
+	});
+
+	// RV-3 Minor 2: the pill hung from the corner of the box that holds every touched
+	// block, over blocks Alfy left alone when the change is spread over the board.
+	it("does not sit over a block Alfy left alone: it hangs from a touched block's corner instead", () => {
+		// The box holding a and b has its corner at (700, 100), where the pill (280 x 28,
+		// 16 above it) would cover 420..700 x 56..84: a block that was not touched is there.
+		mount({
+			nodes: [...NODES, sticky("d", 600, 40)].map((node) =>
+				node.id === "d" ? { ...node, height: 50 } : node,
+			),
+			touched: ["a", "b"],
+			pill: { status: "pending", label: "Planned Sunday" },
+		});
+		const pill = screen.getByTestId("canvas-change-pill");
+		expect(pill.style.left).toBe("300px");
+		expect(pill.style.top).toBe("100px");
+	});
+
+	it("does not mind a frame under it: a frame is a backdrop", () => {
+		mount({
+			nodes: [
+				...NODES,
+				{
+					id: "frame",
+					type: "frame",
+					position: { x: 400, y: 20 },
+					width: 400,
+					height: 100,
+					data: { kind: "frame", label: "Sunday", width: 400, height: 100 },
+				},
+			],
+			touched: ["a", "b"],
+			pill: { status: "pending", label: "Planned Sunday" },
+		});
+		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("700px");
 	});
 
 	it("offers Redo once it is undone", async () => {
@@ -234,6 +310,56 @@ describe("where focus goes when the change is decided", () => {
 		await tick();
 		await tick();
 		expect(document.activeElement).toBe(select);
+	});
+});
+
+// RV-3 Minor 2: a landing did not move the camera, so a change Alfy made off the
+// side of the pane (or under the toolbar) was not seen. When none of it is in view
+// after a landing, the camera goes to it.
+describe("a landing that is out of view", () => {
+	const pane = { width: 800, height: 600 };
+
+	it("sends the camera to the change when none of it is on screen", async () => {
+		const view = mount({
+			touched: ["c"],
+			paneSize: pane,
+			landed: 0,
+		});
+		await view.rerender({ landed: 1 });
+		// c is at 900..1100 x 100..200; the pane shows 0..800.
+		expect(view.oncenter).toHaveBeenCalledWith({ x: 1000, y: 150 });
+	});
+
+	it("leaves the camera where it is when any of the change is in view", async () => {
+		const view = mount({
+			touched: ["a", "c"],
+			paneSize: pane,
+			landed: 0,
+		});
+		await view.rerender({ landed: 1 });
+		expect(view.oncenter).not.toHaveBeenCalled();
+	});
+
+	it("does not move the camera for a change that was already there when the layer came up", async () => {
+		const view = mount({
+			touched: ["c"],
+			paneSize: pane,
+			landed: 3,
+		});
+		await tick();
+		expect(view.oncenter).not.toHaveBeenCalled();
+	});
+
+	it("measures what is on screen against the camera, not the board", async () => {
+		// Panned 700 to the right: the pane shows 700..1500, where c is.
+		const view = mount({
+			touched: ["c"],
+			paneSize: pane,
+			viewport: { x: -700, y: 0, zoom: 1 },
+			landed: 0,
+		});
+		await view.rerender({ landed: 1 });
+		expect(view.oncenter).not.toHaveBeenCalled();
 	});
 });
 

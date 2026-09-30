@@ -87,7 +87,7 @@ async function close(): Promise<void> {
 		<p class="photo__empty">{$t("artifacts.canvas.photo.empty")}</p>
 	{:else}
 		<ul class="photo__grid">
-			{#each shown as item, index (item.id)}
+			{#each shown as item, index (`${index}:${item.id}`)}
 				<li class="photo__cell">
 					{#if unavailable.has(item.id)}
 						<span
