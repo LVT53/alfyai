@@ -15,6 +15,7 @@ import {
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
+	cameraOf,
 	dragBetween,
 	nodeBox,
 	openCanvasPanel,
@@ -340,6 +341,96 @@ test.describe("Alfy's change lands where the reader can see it", () => {
 		}
 	});
 
+	// RV-3 Minor 2: a landing did not move the camera, so a change Alfy made off the
+	// side of the pane was not seen at all.
+	test("brings a change that landed wholly out of view into view", async ({
+		page,
+	}) => {
+		const scene = await open(page);
+		try {
+			const before = await cameraOf(page);
+			await askAlfy(
+				page,
+				scene.artifactId,
+				[
+					{
+						op: "add_node",
+						node: {
+							id: "note-far",
+							type: "sticky",
+							position: { x: 3200, y: 2200 },
+							data: { kind: "sticky", text: "Far away", tone: "yellow" },
+						},
+					},
+				],
+				"Added a note far away",
+			);
+			await landed(page);
+			const pane = await page.getByTestId("canvas-board").boundingBox();
+			if (!pane) throw new Error("no board");
+			// The camera went to it: the new note is on the pane now.
+			await expect
+				.poll(
+					async () => {
+						const box = await nodeBox(page, "note-far");
+						return (
+							box.x >= pane.x &&
+							box.x + box.width <= pane.x + pane.width &&
+							box.y >= pane.y &&
+							box.y + box.height <= pane.y + pane.height
+						);
+					},
+					{ timeout: 5000 },
+				)
+				.toBe(true);
+			expect((await cameraOf(page)).x).not.toBe(before.x);
+		} finally {
+			await scene.cleanup();
+		}
+	});
+
+	// RV-3 Minor 2: on a phone the pill's Keep and Undo are 20 px tall to the eye; what a
+	// finger needs is the hit area, and that must reach 44 px.
+	test("on a phone the pill's Keep and Undo can be hit from 20 px above and below their centres", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		// The chat is under the panel on a phone: Alfy is asked with the panel closed,
+		// and the panel opens on the change that is waiting.
+		const scene = await open(page, { panel: false });
+		try {
+			await askAlfy(page, scene.artifactId, PLANNED_SUNDAY);
+			await expect(page.getByText(AI_SMOKE_CANVAS_EDIT_FINAL_TEXT)).toBeVisible(
+				{ timeout: 30_000 },
+			);
+			await openCanvasPanel(page);
+			await expect(pill(page)).toBeVisible({ timeout: 15_000 });
+			// The board opens on the camera it was saved with, which on a phone shows a
+			// corner of it: fit the whole board so the pill is on the screen.
+			await page.getByTestId("canvas-fit").click();
+			await expect(page.getByTestId("canvas-zoom-level")).not.toHaveText(
+				"100%",
+			);
+			await page.waitForTimeout(500);
+			for (const name of ["Keep Alfy's change", "Undo Alfy's change"]) {
+				const button = pill(page).getByRole("button", { name });
+				const box = await button.boundingBox();
+				if (!box) throw new Error(`no ${name} button`);
+				const reached = await page.evaluate(
+					({ x, y, dy }) =>
+						[-dy, dy].map((offset) => {
+							const hit = document.elementFromPoint(x, y + offset);
+							return hit?.closest("button")?.getAttribute("aria-label") ?? null;
+						}),
+					{ x: box.x + box.width / 2, y: box.y + box.height / 2, dy: 20 },
+				);
+				expect(reached, name).toEqual([name, name]);
+			}
+		} finally {
+			await scene.cleanup();
+		}
+	});
+
 	test("steps through the touched blocks and centres the camera on each", async ({
 		page,
 	}) => {
@@ -604,6 +695,8 @@ test.describe("Keep and Undo, for the whole change", () => {
 
 			await undoAll(page).click();
 			await expect(pill(page)).toContainText("Undone", { timeout: 10_000 });
+			// What was taken back is not ringed any more (RV-3 Minor 11), though the pill stays for Redo.
+			await expect(rings(page)).toHaveCount(0, { timeout: 1500 });
 			await expect(
 				page.locator('.svelte-flow__node[data-id="note-brunch"]'),
 			).toHaveCount(0);
@@ -649,6 +742,63 @@ test.describe("Keep and Undo, for the whole change", () => {
 					y: 100,
 				},
 			);
+		} finally {
+			await scene.cleanup();
+		}
+	});
+
+	// RV-3 I3: Redo wrote Alfy's board back as the reader's own version and then
+	// said the change waited again, so the pill offered an Undo the server refused
+	// (its last versions are the reader's), and the card counted a change the server
+	// does not have. Redo is the reader taking Alfy's change back: it is Kept, the
+	// count is the server's, and nothing is offered that would dead-end.
+	test("Redo keeps Alfy's change: the count, the pill and the server say the same, and nothing is offered that would be refused", async ({
+		page,
+	}) => {
+		const scene = await open(page);
+		const serverCount = async () => {
+			const response = await page.request.get(
+				`/api/artifacts/${scene.artifactId}/review?conversationId=${scene.conversationId}`,
+			);
+			return ((await response.json()) as { review: { count: number } }).review
+				.count;
+		};
+		const dot = page
+			.getByTestId("artifact-count-button")
+			.getByTestId("artifact-count-dot");
+		try {
+			await askAlfy(page, scene.artifactId, PLANNED_SUNDAY);
+			await landed(page);
+			expect(await serverCount()).toBeGreaterThan(0);
+
+			await undoAll(page).click();
+			await expect(pill(page)).toContainText("Undone", { timeout: 10_000 });
+			expect(await serverCount()).toBe(0);
+
+			await pill(page)
+				.getByRole("button", { name: "Redo Alfy's change" })
+				.click();
+			await expect(
+				page.locator('.svelte-flow__node[data-id="note-brunch"]'),
+			).toBeVisible({ timeout: 10_000 });
+			await expect
+				.poll(async () => (await versions(scene.artifactId)).length)
+				.toBe(4);
+			// Kept, with nothing left to decide: no Keep or Undo on the pill or the bar.
+			await expect(pill(page)).toContainText("Kept");
+			await expect(pill(page).getByRole("button")).toHaveCount(0);
+			await expect(bar(page)).toBeHidden();
+			await expect(pill(page)).toBeHidden({ timeout: 5000 });
+			await expect(page.getByTestId("refusal-notice")).toHaveCount(0);
+			expect(await serverCount()).toBe(0);
+
+			// What the panel tells the chat is the server's number: the dot is dark.
+			await page.getByTestId("artifact-count-button").click();
+			await expect(page.getByTestId("canvas-editor")).toBeHidden();
+			await expect(dot).toBeHidden();
+			await page.reload({ waitUntil: "networkidle" });
+			await expect(dot).toBeHidden();
+			expect(await serverCount()).toBe(0);
 		} finally {
 			await scene.cleanup();
 		}

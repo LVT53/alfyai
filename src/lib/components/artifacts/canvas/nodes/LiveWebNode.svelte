@@ -124,7 +124,7 @@ async function refresh(): Promise<void> {
 		<p class="web__empty">{$t("artifacts.canvas.liveweb.none")}</p>
 	{:else}
 		<ul class="web__sources">
-			{#each shown as source (source.id + source.url)}
+			{#each shown as source, index (`${index}:${source.id}:${source.url}`)}
 				{@const favicon = getFaviconUrl(source.url)}
 				{@const host = extractHostname(source.url)}
 				<li>

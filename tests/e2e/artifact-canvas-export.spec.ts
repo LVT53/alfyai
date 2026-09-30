@@ -607,9 +607,18 @@ test.describe("a picture of the board", () => {
 		// The board itself was not changed by being pictured.
 		expect((await storedBoard(artifactId)).nodes).toHaveLength(1);
 
-		// On the next read of the chat it is one of the things this chat made: a File
-		// card under the reply it hangs from (the panel's list is the same read, and
-		// `canvas-export.test.ts` asserts it lists the picture as a File).
+		// The picture is one of the things this chat made at once, with no reload (RV-3,
+		// S3-X's open question): the export announces it, and the chat reads its files
+		// again. The count button, and the File card under the reply it hangs from
+		// (the panel's list is the same read, and `canvas-export.test.ts` asserts it
+		// lists the picture as a File).
+		await expect(page.getByTestId("artifact-count-button")).toContainText("2", {
+			timeout: 15_000,
+		});
+		await expect(
+			page.getByRole("button", { name: /Weekend board\.png/ }).first(),
+		).toBeVisible({ timeout: 15_000 });
+		// And it is still there after a reload.
 		await openChatAndReload(page, conversationId);
 		await expect(
 			page.getByRole("button", { name: /Weekend board\.png/ }).first(),

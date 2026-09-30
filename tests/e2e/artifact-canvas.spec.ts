@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
@@ -115,6 +115,26 @@ function seededBoard(): CanvasBody {
 		viewport: { x: 0, y: 0, zoom: 1 },
 		annotations: [],
 	};
+}
+
+/**
+ * Opens the Insert menu and waits until it has stopped growing. "From this chat"
+ * is a chunk of its own (a dev server transforms it on first use, which takes
+ * seconds on a busy machine) and then a read of the chat; counting or driving the
+ * rows before both have landed measures a menu that is still changing under the
+ * test. What arrives late is waited for, with a timeout that fits a loaded
+ * machine; what the test asserts about the menu is unchanged.
+ */
+async function openInsertMenu(page: Page) {
+	await page.getByTestId("canvas-insert-button").click();
+	const popover = page.getByTestId("canvas-insert-menu");
+	await expect(popover).toBeVisible();
+	const section = popover.getByTestId("canvas-chat-blocks");
+	await expect(section).toBeVisible({ timeout: 20_000 });
+	await expect(section).toHaveAttribute("aria-busy", "false", {
+		timeout: 20_000,
+	});
+	return popover;
 }
 
 test.describe("the Canvas kind, in the panel", () => {
@@ -277,6 +297,82 @@ test.describe("the Canvas kind, in the panel", () => {
 		}
 	});
 
+	// RV-3 C2, the board's half: a board stored before Alfy's blocks carried a width
+	// has blocks with none, and they were drawn as wide as their words ran. They are
+	// drawn at the width Alfy reads them at, and the board's data is not changed by it.
+	test("draws a board stored with no widths at the width Alfy reads it at", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"A board from before",
+		);
+		const words =
+			"Ebéd a Nagycsarnokban, utána séta a Duna-parton a Szabadság hídtól a Margit-szigetig és vissza a belvárosba";
+		const board: CanvasBody = {
+			version: 1,
+			nodes: [
+				{
+					id: "frame-old",
+					type: "frame",
+					position: { x: 40, y: 40 },
+					width: 420,
+					height: 600,
+					data: { kind: "frame", label: "Szombat", width: 420, height: 600 },
+				},
+				{
+					id: "note-old",
+					type: "sticky",
+					parentId: "frame-old",
+					position: { x: 20, y: 60 },
+					data: { kind: "sticky", text: words, tone: "yellow" },
+				},
+				{
+					id: "text-old",
+					type: "text",
+					parentId: "frame-old",
+					position: { x: 20, y: 240 },
+					data: { kind: "text", text: words },
+				},
+				{
+					id: "list-old",
+					type: "checklist",
+					parentId: "frame-old",
+					position: { x: 20, y: 380 },
+					data: {
+						kind: "checklist",
+						items: [{ id: "i1", text: words, done: false }],
+					},
+				},
+			],
+			edges: [],
+			viewport: { x: 0, y: 0, zoom: 1 },
+			annotations: [],
+		};
+		const artifactId = await seedCanvas(conversationId, board);
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const frame = await nodeBox(page, "frame-old");
+		for (const id of ["note-old", "text-old", "list-old"]) {
+			const drawn = await page
+				.locator(`.svelte-flow__node[data-id="${id}"]`)
+				.evaluate((el) => (el as HTMLElement).offsetWidth);
+			expect(drawn, `${id} width`).toBe(NODE_WIDTH);
+			const box = await nodeBox(page, id);
+			expect(box.x + box.width, `${id} right`).toBeLessThanOrEqual(
+				frame.x + frame.width + 1,
+			);
+		}
+		// Opening it is not an edit: nothing was written, so there is one version.
+		expect((await storedBoard(artifactId)).nodes.map((n) => n.width)).toEqual([
+			420,
+			undefined,
+			undefined,
+			undefined,
+		]);
+	});
+
 	test("draws the edges a board was saved with, label and all", async ({
 		page,
 	}) => {
@@ -301,6 +397,9 @@ test.describe("the Canvas kind, in the panel", () => {
 		const path = page.locator(".svelte-flow__edge-path").first();
 		const d = await path.getAttribute("d");
 		expect(d && d.length > 10).toBe(true);
+		// RV-3 Minor 4: an arrow says which way it points (the note, then the text):
+		// the stored direction was invisible, because no arrowhead was ever drawn.
+		await expect(path).toHaveAttribute("marker-end", /url\(['"]?#/);
 	});
 
 	test("says what an empty board is for, and points at Insert", async ({
@@ -331,8 +430,7 @@ test.describe("the Canvas kind, in the panel", () => {
 
 		const kinds = ["sticky", "text", "frame", "chart", "checklist"] as const;
 		for (const [index, kind] of kinds.entries()) {
-			await page.getByTestId("canvas-insert-button").click();
-			await expect(page.getByTestId("canvas-insert-menu")).toBeVisible();
+			await openInsertMenu(page);
 			await page.getByTestId(`canvas-insert-${kind}`).click();
 			await expect(page.getByTestId("canvas-node")).toHaveCount(index + 1);
 			await expect(
@@ -375,6 +473,60 @@ test.describe("the Canvas kind, in the panel", () => {
 		await expect(page.getByText("sticky words")).toBeVisible();
 	});
 
+	// RV-3 Minor 1: a note was staggered off blocks that sat at exactly its corner
+	// and no others, so it landed on top of whatever was in the middle of the view
+	// (and its tone toolbar took the click meant for the block beneath it).
+	test("puts an inserted note on free ground, clear of what is in the middle of the view", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Crowded middle");
+		await seedCanvas(
+			conversationId,
+			{
+				...emptyCanvasBody(),
+				nodes: [
+					{
+						id: "note-middle",
+						type: "sticky",
+						position: { x: 0, y: 0 },
+						width: 190,
+						data: {
+							kind: "sticky",
+							text: "Museum, 14:00 - book ahead",
+							tone: "yellow",
+						},
+					},
+				],
+			},
+			"Crowded middle",
+		);
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		await openInsertMenu(page);
+		await page.getByTestId("canvas-insert-sticky").click();
+		await expect(page.getByTestId("canvas-node")).toHaveCount(2);
+		await page.keyboard.press("Escape");
+
+		const before = await nodeBox(page, "note-middle");
+		const inserted = await page
+			.locator('[data-testid="canvas-node"][data-selected="true"]')
+			.evaluate((el) =>
+				el.closest(".svelte-flow__node")?.getAttribute("data-id"),
+			);
+		if (!inserted) throw new Error("the inserted note is not selected");
+		const added = await nodeBox(page, inserted);
+		const apart =
+			added.x + added.width <= before.x ||
+			before.x + before.width <= added.x ||
+			added.y + added.height <= before.y ||
+			before.y + before.height <= added.y;
+		expect(
+			apart,
+			"the inserted note lies clear of the one that was there",
+		).toBe(true);
+	});
+
 	test("closes the Insert menu on Escape, which hands focus back to Insert, and on a click outside, which leaves focus where the reader clicked", async ({
 		page,
 	}) => {
@@ -386,8 +538,7 @@ test.describe("the Canvas kind, in the panel", () => {
 		const insert = page.getByTestId("canvas-insert-button");
 		const menu = page.getByTestId("canvas-insert-menu");
 
-		await insert.click();
-		await expect(menu).toBeVisible();
+		await openInsertMenu(page);
 		await expect(insert).toHaveAttribute("aria-expanded", "true");
 		await expectTopmost(menu, {
 			message: "the Insert menu paints above the board",
@@ -418,18 +569,14 @@ test.describe("the Canvas kind, in the panel", () => {
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
 
-		await page.getByTestId("canvas-insert-button").click();
+		const popover = await openInsertMenu(page);
 		const rows = page.getByRole("menuitem");
 		// The five a reader writes and "Search the web…" (the web search is offered wherever there is a chat).
 		await expect(rows).toHaveCount(6);
 		// The popover puts focus on its first control in a timer of its own, straight
 		// after it mounts; a row focused before that lands loses its focus to it (a
 		// race a busy machine makes easy to lose). The keys are driven after it.
-		await expect(
-			page
-				.getByTestId("canvas-insert-menu")
-				.getByRole("button", { name: "Close" }),
-		).toBeFocused();
+		await expect(popover.getByRole("button", { name: "Close" })).toBeFocused();
 		await rows.first().focus();
 		await page.keyboard.press("ArrowDown");
 		await expect(rows.nth(1)).toBeFocused();
@@ -860,7 +1007,7 @@ test.describe("the Canvas kind, in the panel", () => {
 		const banner = page.getByTestId("canvas-conflict");
 		await expect(banner).toBeVisible({ timeout: 10_000 });
 		await expect(banner).toContainText(
-			"Someone changed the board while you were drawing. Reload to see the newest version.",
+			"Alfy or another window changed the board, so your last step was not saved. Reload to see the newest version.",
 		);
 		// The reader's own step is still on screen, and the board no longer takes new ones.
 		await expect(
@@ -1219,5 +1366,135 @@ test.describe("the Canvas kind, in the panel", () => {
 		await expect(
 			page.getByRole("toolbar", { name: "Canvas tools" }),
 		).toBeVisible();
+	});
+});
+
+// RV-3 Minor 3: a finger is not a pointer. The connection anchors of a selected block
+// are 9 px (5 px at a phone's fit zoom) and its resize corners 8 px, and neither had a
+// larger hit area, so connecting or resizing with a finger was impractical. Each gets an
+// invisible hit area of about 24 px on the screen, whatever the zoom, on a touch screen only.
+/** The handles a selected block shows, and the ones a point 10 px from their centre does not reach. */
+async function handlesMissedFromTenPixels(page: Page, id: string) {
+	return page.evaluate((nodeId) => {
+		const handles = [
+			...document.querySelectorAll(
+				`.svelte-flow__node[data-id="${nodeId}"] .svelte-flow__handle.canvas-anchor--shown, .svelte-flow__node[data-id="${nodeId}"] .svelte-flow__resize-control.handle`,
+			),
+		];
+		const missed = handles
+			.filter((handle) => {
+				const rect = handle.getBoundingClientRect();
+				const hit = document.elementFromPoint(
+					rect.left + rect.width / 2 + 10,
+					rect.top + rect.height / 2,
+				);
+				return !(hit === handle || handle.contains(hit));
+			})
+			.map((handle) => handle.className);
+		return { total: handles.length, missed };
+	}, id);
+}
+
+/** A board of one note, so the camera fits it large and its handles are far from each other. */
+function oneNoteBoard(): CanvasBody {
+	return {
+		...emptyCanvasBody(),
+		nodes: [
+			{
+				id: "note-alone",
+				type: "sticky",
+				position: { x: 0, y: 0 },
+				width: 190,
+				data: {
+					kind: "sticky",
+					text: "A note with a few more words, so it is not a sliver",
+					tone: "yellow",
+				},
+			},
+		],
+	};
+}
+
+test.describe("a selected block's handles, by pointer", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("keep their own small hit area with a mouse", async ({ page }) => {
+		const conversationId = await createConversation(page, "Mouse handles");
+		await seedCanvas(conversationId, oneNoteBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+		const note = await nodeBox(page, "note-alone");
+		await page.mouse.click(note.x + note.width / 2, note.y + note.height / 2);
+		await expect(
+			page.locator('.svelte-flow__node[data-id="note-alone"]'),
+		).toHaveClass(/selected/);
+		const { total, missed } = await handlesMissedFromTenPixels(
+			page,
+			"note-alone",
+		);
+		expect(total).toBe(8);
+		expect(missed).toHaveLength(total);
+	});
+});
+
+test.describe("on a touch screen", () => {
+	test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("a selected block's anchors and resize corners can be hit from 10 px away", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Finger handles");
+		await seedCanvas(conversationId, oneNoteBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+		expect(
+			await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
+		).toBe(true);
+		const note = await nodeBox(page, "note-alone");
+		await page.touchscreen.tap(
+			note.x + note.width / 2,
+			note.y + note.height / 2,
+		);
+		await expect(
+			page.locator('.svelte-flow__node[data-id="note-alone"]'),
+		).toHaveClass(/selected/);
+		await page.waitForTimeout(400);
+		const { total, missed } = await handlesMissedFromTenPixels(
+			page,
+			"note-alone",
+		);
+		expect(total).toBe(8);
+		expect(missed).toEqual([]);
+	});
+
+	test("and so can a big block's when the board is zoomed far out: the hit area is 24 px on the screen, not on the board", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Far out handles");
+		await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+		// The whole board fits the phone: far out.
+		expect((await cameraOf(page)).zoom).toBeLessThan(0.6);
+		const chip = page.getByTestId("canvas-frame-label").first();
+		const at = await chip.boundingBox();
+		if (!at) throw new Error("no frame chip");
+		await page.touchscreen.tap(at.x + at.width / 2, at.y + at.height / 2);
+		await expect(
+			page.locator(`.svelte-flow__node[data-id="${BOARD.frame}"]`),
+		).toHaveClass(/selected/);
+		await page.waitForTimeout(400);
+		const { total, missed } = await handlesMissedFromTenPixels(
+			page,
+			BOARD.frame,
+		);
+		expect(total).toBe(8);
+		expect(missed).toEqual([]);
 	});
 });

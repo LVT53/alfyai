@@ -157,6 +157,8 @@ export class CanvasReviewController {
 	replyChips = $state.raw<Record<string, ChangeStatus>>({});
 	/** A landing is running or queued. */
 	landing = $state(0);
+	/** How many landings have settled: the layer looks for the change on screen once for each (RV-3 Minor 2). */
+	landed = $state(0);
 
 	#host: ReviewHost;
 	#chain: Promise<void> = Promise.resolve();
@@ -298,6 +300,7 @@ export class CanvasReviewController {
 		if (this.#host.board() !== board) return;
 		this.#ring(plan.touched);
 		await this.refresh({ announce: true });
+		this.landed += 1;
 	}
 
 	/**
@@ -504,7 +507,15 @@ export class CanvasReviewController {
 		}
 	}
 
-	/** Redo, inside its window: Alfy's board is written back as the reader's own edit, and the change waits again for this session. */
+	/**
+	 * Redo, inside its window: Alfy's board is written back as the reader's own
+	 * version, and the change is KEPT. The server derives "waiting" from Alfy's own
+	 * versions, and a version of the reader's takes the blocks over, so a redone
+	 * change is not waiting as far as the server (and so the chat's card and the
+	 * count button) is concerned. The pill says the same, instead of offering an Undo
+	 * the server would refuse because the last versions are the reader's (RV-3 I3);
+	 * Versions is the way back from here.
+	 */
 	async redo(): Promise<void> {
 		if (this.status !== "undone" || !this.#undone || this.busy) return;
 		this.busy = true;
@@ -520,9 +531,12 @@ export class CanvasReviewController {
 				return;
 			}
 			this.#undone = null;
-			this.status = "pending";
-			this.#chips("pending");
-			this.#host.reportCount(this.count);
+			this.#afterUndo = null;
+			this.status = "kept";
+			this.#chips("kept");
+			this.announcement = say("artifacts.document.change.keptNotice");
+			this.#host.reportCount(0);
+			this.#startTimer("kept", KEPT_MS);
 			this.busy = false;
 			await this.#drawWritten(written.board);
 		} finally {
@@ -787,6 +801,10 @@ export function changeLayerProps(
 		viewport: api.viewport,
 		arrangingIds: controller.arranging?.ids ?? null,
 		touched: change?.touched ?? [],
+		// Only a change that still waits for the reader is ringed: one that was kept or
+		// undone keeps its pill for a moment ("Kept", "Undone · Redo"), which follows the
+		// blocks it is about, and no ring.
+		waiting: controller.status === "pending",
 		pulseIds: controller.pulseIds,
 		activeId: controller.activeId,
 		pill:
@@ -797,6 +815,8 @@ export function changeLayerProps(
 					}
 				: null,
 		goto: controller.goto,
+		paneSize: api.size,
+		landed: controller.landed,
 		oncenter: api.centerOn,
 		onkeep: () => void controller.keep(),
 		onundo: () => void controller.undo(),

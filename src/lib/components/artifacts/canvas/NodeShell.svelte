@@ -28,6 +28,7 @@ import type { Attachment } from "svelte/attachments";
 import { t, type I18nKey } from "$lib/i18n";
 import { type BlockChrome, metaFor } from "./_lib/block-meta";
 import { useBoardContext } from "./_lib/board-context";
+import NodeNotice from "./nodes/NodeNotice.svelte";
 
 let {
 	id,
@@ -144,6 +145,10 @@ const wrapperBehaviour: Attachment<HTMLElement> = (element) => {
 function deleteBlock(): void {
 	void flow.deleteElements({ nodes: [{ id }] });
 }
+
+function reportBroken(error: unknown): void {
+	console.error("[CANVAS] block could not be drawn", id, kind, error);
+}
 </script>
 
 <div
@@ -171,7 +176,18 @@ function deleteBlock(): void {
 			</div>
 		{/if}
 		<div class="canvas-node__content" class:canvas-node__content--posted={picture}>
-			{@render children?.()}
+			<!-- One block that cannot be drawn is a notice in its own place, never the
+			     board's error: the rest of the board, and this block's shell, stay. -->
+			<svelte:boundary onerror={reportBroken}>
+				{@render children?.()}
+				{#snippet failed(_error, reset)}
+					<NodeNotice
+						message={$t("artifacts.canvas.block.drawFailed")}
+						testid="canvas-node-broken"
+						retry={reset}
+					/>
+				{/snippet}
+			</svelte:boundary>
 			{#if picture?.kind === "poster"}
 				<img class="canvas-node__poster" src={picture.url} alt="" draggable="false" data-testid="canvas-node-poster" />
 			{:else if picture?.kind === "placeholder"}
@@ -521,6 +537,18 @@ function deleteBlock(): void {
 		opacity: 1;
 		pointer-events: all;
 		cursor: crosshair;
+	}
+
+	/* A finger is not a pointer: the anchors (9 px) and the resize corners (8 px)
+	   get an invisible hit area of about 24 px on the screen, whatever the zoom
+	   (--canvas-inv-zoom is 1 / zoom, set by the board once its camera is at rest). */
+	@media (pointer: coarse) {
+		:global(.canvas-anchor--shown::after),
+		:global(.canvas-resize::after) {
+			content: "";
+			position: absolute;
+			inset: calc(4px - 12px * var(--canvas-inv-zoom, 1));
+		}
 	}
 
 	/* The four resize corners: the mockup's 7px squares. Grabbable even on a

@@ -12,8 +12,11 @@
  * comment: on the block it landed on (a frame's inside is board, so a click
  * there is a spot), else a spot. A block that is selected when the tool is armed
  * takes the thread at once, which is also the keyboard's way to it (and a key
- * press on the catcher places a spot in the middle of the pane). The words are
- * written in the list, so what this reports is only where (`ondraft`).
+ * press on the catcher places a spot in the middle of the pane). The block an
+ * Insert selected and the reader has not touched is not one of those: the board
+ * lets go of it as the tool is armed (RV-3 I4), so the click is what says where.
+ * The words are written in the list, so what this reports is only where
+ * (`ondraft`).
  */
 import { untrack } from "svelte";
 import { t } from "$lib/i18n";

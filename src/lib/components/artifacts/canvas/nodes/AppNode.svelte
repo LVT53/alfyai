@@ -92,7 +92,8 @@ $effect(() => {
 $effect(() => {
 	const artifactId = appId;
 	return subscribeArtifactChanges((change) => {
-		if (change.artifactId !== artifactId) return;
+		// News of a chat's files (a picture was kept) is not about this App.
+		if (change.type === "files" || change.artifactId !== artifactId) return;
 		if (change.type === "deleted") {
 			token += 1;
 			phase = "gone";

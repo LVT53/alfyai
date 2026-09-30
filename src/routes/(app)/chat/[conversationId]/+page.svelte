@@ -2008,6 +2008,18 @@ function applyConversationDetailMetadata(
 	void refreshPendingWrites();
 }
 
+/**
+ * A file was made outside a turn (a board's picture, kept as a File): read what
+ * this chat made again, so the panel's list, the count and the card under the
+ * reply it hangs from show it at once instead of at the next read of the chat.
+ */
+async function refreshConversationFiles() {
+	const detail = await fetchConversationDetail(data.conversation.id).catch(
+		() => null,
+	);
+	if (detail) applyConversationDetailMetadata(detail);
+}
+
 async function refreshPendingWrites() {
 	try {
 		pendingWrites = await fetchConversationPendingWrites(data.conversation.id);
@@ -2184,6 +2196,12 @@ onMount(() =>
 	subscribeArtifactChanges((change) => {
 		if (change.type === "deleted") {
 			handleArtifactDeleted(change.artifactId);
+			return;
+		}
+		if (change.type === "files") {
+			if (change.conversationId === data.conversation.id) {
+				void refreshConversationFiles();
+			}
 			return;
 		}
 		observedArtifactVersions = observeArtifactVersion(
