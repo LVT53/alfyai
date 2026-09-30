@@ -216,6 +216,16 @@ function isArrowListedAsBlock(
 	);
 }
 
+/** The same arrow written twice: one id, one pair of ends, one label. Anything else is two arrows, or a clash the vocabulary names. */
+function sameArrow(a: Record<string, unknown>, b: Record<string, unknown>) {
+	return (
+		a.id === b.id &&
+		a.source === b.source &&
+		a.target === b.target &&
+		a.label === b.label
+	);
+}
+
 /** What is wrong with a node's shape, or `null`; its meaning is the vocabulary's to judge. */
 function nodeShapeProblem(value: unknown): string | null {
 	if (!isRecord(value)) {
@@ -401,16 +411,21 @@ export function parseCanvasCreateBody(raw: string): CanvasCreateResult {
 		origins.push({ list: "nodes", index: entry.index, id: String(id) });
 	}
 	// The arrows it was given first, then the ones that were listed with the
-	// blocks in the order they stood; each is judged as an arrow, and a refusal
-	// names where the entry is in the body the model wrote.
+	// blocks in the order they stood, except an arrow that was written twice
+	// (once with the blocks, once with the arrows) exactly as it is; each is
+	// judged as an arrow, and a refusal names where the entry is in the body the
+	// model wrote.
+	const given = edges.filter(isRecord);
 	const arrows: Array<{ list: Origin["list"]; index: number; edge: unknown }> =
 		[
 			...edges.map((edge, index) => ({ list: "edges" as const, index, edge })),
-			...listedWithBlocks.map(({ index, edge }) => ({
-				list: "nodes" as const,
-				index,
-				edge,
-			})),
+			...listedWithBlocks
+				.filter(({ edge }) => !given.some((other) => sameArrow(edge, other)))
+				.map(({ index, edge }) => ({
+					list: "nodes" as const,
+					index,
+					edge,
+				})),
 		];
 	for (const { list, index, edge } of arrows) {
 		const shape = edgeShapeProblem(edge);

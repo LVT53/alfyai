@@ -483,6 +483,44 @@ describe("parseCanvasCreateBody — an arrow listed with the blocks is still an 
 		]);
 	});
 
+	it("drops an arrow listed with the blocks that the arrows already hold, exactly as written — the same arrow listed twice", () => {
+		// Seen live: all ten arrows written under "nodes" and again under "edges".
+		// Nothing is lost by dropping the second listing, so the board is made.
+		const arrows = [
+			{ id: "e1", source: "a", target: "b", label: "then" },
+			{ id: "e2", source: "b", target: "a" },
+		];
+		const board = edgesOf(body([sticky("a"), sticky("b"), ...arrows], arrows));
+
+		expect(board.edges).toEqual(arrows);
+		expect(board).toEqual(edgesOf(body([sticky("a"), sticky("b")], arrows)));
+	});
+
+	it("still refuses an arrow listed with the blocks that reuses an arrow's id for other ends", () => {
+		const error = refusal(
+			body(
+				[
+					sticky("a"),
+					sticky("b"),
+					// Same id, other ends: which one is meant cannot be guessed.
+					{ id: "e1", source: "b", target: "a" },
+				],
+				[{ id: "e1", source: "a", target: "b" }],
+			),
+		);
+		expect(error).toContain('nodes[2] "e1"');
+		expect(error).toMatch(/already exists/);
+		// A different label is a different arrow as well.
+		expect(
+			refusal(
+				body(
+					[sticky("a"), sticky("b"), { id: "e1", source: "a", target: "b" }],
+					[{ id: "e1", source: "a", target: "b", label: "then" }],
+				),
+			),
+		).toMatch(/already exists/);
+	});
+
 	it("judges a moved arrow as it judges an arrow, and names where it stood in the body", () => {
 		const toNothing = refusal(
 			body([sticky("a"), { id: "e1", source: "a", target: "ghost" }]),
