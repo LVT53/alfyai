@@ -675,25 +675,48 @@ function buildEditArtifactFinalStreamResponse(): Response {
 }
 
 /**
- * Slice 3 T6: a real `edit_artifact` call on a board. The scenario belongs to the
- * conversation's LAST user message, so an earlier turn's marker (the request body
- * carries the whole history) answers nothing, and "the answer to the tool result"
- * is a request whose last message IS a tool result, not any request that has one
- * somewhere behind it.
+ * Slice 3 T6: a real `edit_artifact` call on a board. The scenario belongs to THIS
+ * turn's own message, never to anything the request merely carries. The app does
+ * not send the conversation as messages: it sends ONE user message, a context
+ * bundle whose sections hold the task's objective, retrieved evidence (the
+ * finished tasks of the user's OTHER conversations, their request text included:
+ * a board test's marker and payload turn up in the next spec's bundle) and, last
+ * of them, "## Current User Message". Reading the marker anywhere in that message
+ * hijacked every scripted turn that ran after a board test, so it is read from
+ * the current message's section alone (a request without a bundle has only the
+ * message). And "the answer to the tool result" is a request whose last message IS
+ * a tool result, not any request that has one somewhere behind it.
  */
-function lastUserMessageJson(body: unknown): string | null {
+const CURRENT_USER_MESSAGE_HEADING = "## Current User Message\n";
+
+function lastUserMessageText(body: unknown): string | null {
 	if (!isJsonObject(body) || !Array.isArray(body.messages)) return null;
-	const users = body.messages.filter(
-		(message) => isJsonObject(message) && message.role === "user",
-	);
-	const last = users.at(-1);
-	return last === undefined ? null : JSON.stringify(last);
+	const last = body.messages
+		.filter((message) => isJsonObject(message) && message.role === "user")
+		.at(-1);
+	if (!isJsonObject(last)) return null;
+	const { content } = last;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return null;
+	return content
+		.map((part) =>
+			isJsonObject(part) && typeof part.text === "string" ? part.text : "",
+		)
+		.join("\n");
+}
+
+function currentTurnText(body: unknown): string | null {
+	const text = lastUserMessageText(body);
+	if (text === null) return null;
+	const start = text.lastIndexOf(CURRENT_USER_MESSAGE_HEADING);
+	if (start === -1) return text;
+	const section = text.slice(start + CURRENT_USER_MESSAGE_HEADING.length);
+	const end = section.indexOf("\n\n## ");
+	return end === -1 ? section : section.slice(0, end);
 }
 
 function bodyAsksForCanvasEdit(body: unknown): boolean {
-	return (
-		lastUserMessageJson(body)?.includes(AI_SMOKE_CANVAS_EDIT_MARKER) === true
-	);
+	return currentTurnText(body)?.includes(AI_SMOKE_CANVAS_EDIT_MARKER) === true;
 }
 
 function lastMessageIsToolResult(body: unknown): boolean {
@@ -1116,7 +1139,7 @@ export function createOpenAICompatibleProviderHarness(
 						return buildCanvasEditFinalStreamResponse();
 					}
 					const payload = decodeCanvasEditScenarioPayload(
-						lastUserMessageJson(body) ?? "",
+						currentTurnText(body) ?? "",
 					);
 					if (payload) return buildCanvasEditToolCallStreamResponse(payload);
 					return buildTextStreamResponse();
