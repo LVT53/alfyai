@@ -228,6 +228,7 @@ const mapDataSchema = z.object({
 
 const fileDataSchema = z.object({
 	kind: z.literal("file"),
+	/** A produced file's chat-file id, or `artifact:<id>` for a file the reader attached (`chat-blocks.ts`: `fileBlockSource`). */
 	fileId: idSchema,
 	name: z.string().min(1).max(300),
 	mime: z.string().max(200),
