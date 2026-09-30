@@ -654,6 +654,63 @@ test.describe("Keep and Undo, for the whole change", () => {
 		}
 	});
 
+	// RV-3 I3: Redo wrote Alfy's board back as the reader's own version and then
+	// said the change waited again, so the pill offered an Undo the server refused
+	// (its last versions are the reader's), and the card counted a change the server
+	// does not have. Redo is the reader taking Alfy's change back: it is Kept, the
+	// count is the server's, and nothing is offered that would dead-end.
+	test("Redo keeps Alfy's change: the count, the pill and the server say the same, and nothing is offered that would be refused", async ({
+		page,
+	}) => {
+		const scene = await open(page);
+		const serverCount = async () => {
+			const response = await page.request.get(
+				`/api/artifacts/${scene.artifactId}/review?conversationId=${scene.conversationId}`,
+			);
+			return ((await response.json()) as { review: { count: number } }).review
+				.count;
+		};
+		const dot = page
+			.getByTestId("artifact-count-button")
+			.getByTestId("artifact-count-dot");
+		try {
+			await askAlfy(page, scene.artifactId, PLANNED_SUNDAY);
+			await landed(page);
+			expect(await serverCount()).toBeGreaterThan(0);
+
+			await undoAll(page).click();
+			await expect(pill(page)).toContainText("Undone", { timeout: 10_000 });
+			expect(await serverCount()).toBe(0);
+
+			await pill(page)
+				.getByRole("button", { name: "Redo Alfy's change" })
+				.click();
+			await expect(
+				page.locator('.svelte-flow__node[data-id="note-brunch"]'),
+			).toBeVisible({ timeout: 10_000 });
+			await expect
+				.poll(async () => (await versions(scene.artifactId)).length)
+				.toBe(4);
+			// Kept, with nothing left to decide: no Keep or Undo on the pill or the bar.
+			await expect(pill(page)).toContainText("Kept");
+			await expect(pill(page).getByRole("button")).toHaveCount(0);
+			await expect(bar(page)).toBeHidden();
+			await expect(pill(page)).toBeHidden({ timeout: 5000 });
+			await expect(page.getByTestId("refusal-notice")).toHaveCount(0);
+			expect(await serverCount()).toBe(0);
+
+			// What the panel tells the chat is the server's number: the dot is dark.
+			await page.getByTestId("artifact-count-button").click();
+			await expect(page.getByTestId("canvas-editor")).toBeHidden();
+			await expect(dot).toBeHidden();
+			await page.reload({ waitUntil: "networkidle" });
+			await expect(dot).toBeHidden();
+			expect(await serverCount()).toBe(0);
+		} finally {
+			await scene.cleanup();
+		}
+	});
+
 	test("Undo is refused once the reader has changed the board: it writes nothing and points to the versions", async ({
 		page,
 	}) => {

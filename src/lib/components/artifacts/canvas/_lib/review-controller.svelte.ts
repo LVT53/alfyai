@@ -504,7 +504,15 @@ export class CanvasReviewController {
 		}
 	}
 
-	/** Redo, inside its window: Alfy's board is written back as the reader's own edit, and the change waits again for this session. */
+	/**
+	 * Redo, inside its window: Alfy's board is written back as the reader's own
+	 * version, and the change is KEPT. The server derives "waiting" from Alfy's own
+	 * versions, and a version of the reader's takes the blocks over, so a redone
+	 * change is not waiting as far as the server (and so the chat's card and the
+	 * count button) is concerned. The pill says the same, instead of offering an Undo
+	 * the server would refuse because the last versions are the reader's (RV-3 I3);
+	 * Versions is the way back from here.
+	 */
 	async redo(): Promise<void> {
 		if (this.status !== "undone" || !this.#undone || this.busy) return;
 		this.busy = true;
@@ -520,9 +528,12 @@ export class CanvasReviewController {
 				return;
 			}
 			this.#undone = null;
-			this.status = "pending";
-			this.#chips("pending");
-			this.#host.reportCount(this.count);
+			this.#afterUndo = null;
+			this.status = "kept";
+			this.#chips("kept");
+			this.announcement = say("artifacts.document.change.keptNotice");
+			this.#host.reportCount(0);
+			this.#startTimer("kept", KEPT_MS);
 			this.busy = false;
 			await this.#drawWritten(written.board);
 		} finally {

@@ -427,7 +427,7 @@ describe("Undo", () => {
 		expect(api.saveArtifactBody).toHaveBeenCalledTimes(1);
 	});
 
-	it("can be redone within its window, which puts Alfy's board back as the reader's own edit", async () => {
+	it("can be redone within its window, which puts Alfy's board back as the reader's own edit, kept", async () => {
 		const { controller, host } = armed();
 		const alfyBody = boardJson(host.board()?.current() as CanvasBody);
 		await controller.undo();
@@ -442,8 +442,14 @@ describe("Undo", () => {
 			undefined,
 			{ baseHash: "h3", coalesce: false, summaryKind: undefined },
 		);
-		expect(controller.status).toBe("pending");
-		expect(controller.count).toBe(2);
+		// The server has nothing waiting (the reader's version takes the blocks
+		// over): the pill says Kept and the count is 0, and no Undo is offered that
+		// the server would refuse (RV-3 I3).
+		expect(controller.status).toBe("kept");
+		expect(host.reportCount).toHaveBeenLastCalledWith(0);
+		await controller.undo();
+		expect(api.saveArtifactBody).toHaveBeenCalledTimes(2);
+		expect(controller.undoRefused).toBeNull();
 	});
 
 	it("can be redone while the board is still gliding back: Redo waits its turn instead of being ignored", async () => {
@@ -463,7 +469,7 @@ describe("Undo", () => {
 		);
 		finish();
 		await Promise.all([undoing, redoing]);
-		expect(controller.status).toBe("pending");
+		expect(controller.status).toBe("kept");
 		draw.mockRestore();
 	});
 
@@ -690,7 +696,7 @@ describe("the chord for Alfy's change", () => {
 		const redo = press(true);
 		controller.handleKey(redo);
 		expect(redo.defaultPrevented).toBe(true);
-		await vi.waitFor(() => expect(controller.status).toBe("pending"));
+		await vi.waitFor(() => expect(controller.status).toBe("kept"));
 		// The reader's own undo (no Alt) is not this one's.
 		const own = new KeyboardEvent("keydown", {
 			key: "z",
