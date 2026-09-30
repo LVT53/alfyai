@@ -5,7 +5,7 @@ import type { LazyShell } from "../_lib/lazy-nodes";
 type MapData = Extract<CanvasBlockData, { kind: "map" }>;
 
 /** How a map block dresses the shell `LazyNode` draws: titled with the route and its summary, as the chat's own row reads them. */
-export function shell(data: MapData): LazyShell {
+export function mapShell(data: MapData): LazyShell {
 	const title = data.label || data.route;
 	return { title, meta: data.meta ?? "", summary: title };
 }

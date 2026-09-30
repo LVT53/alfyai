@@ -39,10 +39,10 @@ const BOARD = {
 	text: "text-plan",
 	list: "list-pack",
 	chart: "chart-budget",
-	map: "map-route",
+	photo: "photo-trip",
 } as const;
 
-/** A board with every block kind this slice draws, and one it cannot (a map), at the default camera so it is fitted on open. */
+/** A board with every block kind this slice draws, and one it cannot (photos: their own slice), at the default camera so it is fitted on open. */
 function seededBoard(): CanvasBody {
 	return {
 		version: 1,
@@ -96,17 +96,10 @@ function seededBoard(): CanvasBody {
 				},
 			},
 			{
-				id: BOARD.map,
-				type: "map",
+				id: BOARD.photo,
+				type: "photo",
 				position: { x: 480, y: 400 },
-				data: {
-					kind: "map",
-					route: "Vienna to Salzburg",
-					map: {
-						bounds: { minLat: 47.8, minLng: 13, maxLat: 48.2, maxLng: 16.4 },
-						attribution: "OpenStreetMap",
-					},
-				},
+				data: { kind: "photo", items: [] },
 			},
 		],
 		edges: [],
@@ -135,7 +128,7 @@ test.describe("the Canvas kind, in the panel", () => {
 				nodes.map((node) => node.getAttribute("data-kind")),
 			);
 		expect(kinds.sort()).toEqual(
-			["checklist", "chart", "frame", "map", "sticky", "text"].sort(),
+			["checklist", "chart", "frame", "photo", "sticky", "text"].sort(),
 		);
 		await expect(page.getByText("Lunch at the market")).toBeVisible();
 		await expect(page.getByText("Weekend plan")).toBeVisible();
@@ -338,13 +331,10 @@ test.describe("the Canvas kind, in the panel", () => {
 				{ id: "i2", done: true },
 			],
 		});
-		// The block this build cannot draw (a map) came through the save untouched.
+		// The block this build cannot draw (photos) came through the save untouched.
 		expect(
-			stored.nodes.find((node) => node.id === BOARD.map)?.data,
-		).toMatchObject({
-			kind: "map",
-			route: "Vienna to Salzburg",
-		});
+			stored.nodes.find((node) => node.id === BOARD.photo)?.data,
+		).toMatchObject({ kind: "photo", items: [] });
 		expect(stored.nodes).toHaveLength(6);
 
 		await page.reload({ waitUntil: "networkidle" });

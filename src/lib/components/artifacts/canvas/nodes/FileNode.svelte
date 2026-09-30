@@ -7,7 +7,7 @@ import type { LazyShell } from "../_lib/lazy-nodes";
 type FileData = Extract<CanvasBlockData, { kind: "file" }>;
 
 /** How a file block dresses the shell `LazyNode` draws: named after the file, and Enter opens it where the panel can. */
-export function shell(data: FileData, chat: CanvasChatContext): LazyShell {
+export function fileShell(data: FileData, chat: CanvasChatContext): LazyShell {
 	const item = fileBlockWorkspaceItem(data);
 	const open = chat.openItem;
 	return {

@@ -5,7 +5,7 @@ import type { LazyShell } from "../_lib/lazy-nodes";
 type AppData = Extract<CanvasBlockData, { kind: "app" }>;
 
 /** How an App block dresses the shell `LazyNode` draws: titled and named after the App. */
-export function shell(data: AppData): LazyShell {
+export function appShell(data: AppData): LazyShell {
 	return { title: data.title, summary: data.title };
 }
 </script>

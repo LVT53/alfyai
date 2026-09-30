@@ -6,14 +6,15 @@ import { lazyNodeLoader } from "./lazy-nodes";
 
 describe("the loaders of the blocks made from the chat", () => {
 	it("has one for each of the three, and each resolves to that block's own content and its shell dress", async () => {
-		for (const [kind, module] of [
-			["file", FileModule],
-			["app", AppModule],
-			["map", MapModule],
-		] as const) {
+		const expected = [
+			["file", FileModule.default, FileModule.fileShell],
+			["app", AppModule.default, AppModule.appShell],
+			["map", MapModule.default, MapModule.mapShell],
+		] as const;
+		for (const [kind, content, shell] of expected) {
 			const loaded = await lazyNodeLoader(kind)?.();
-			expect(loaded?.default, kind).toBe(module.default);
-			expect(loaded?.shell, kind).toBe(module.shell);
+			expect(loaded?.default, kind).toBe(content);
+			expect(loaded?.shell, kind).toBe(shell);
 			expect(typeof loaded?.shell, kind).toBe("function");
 		}
 	});

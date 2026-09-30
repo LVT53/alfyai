@@ -286,6 +286,33 @@ async function fitBoard(page: Page) {
 	await page.waitForTimeout(500);
 }
 
+/**
+ * The block's map has come up one way or the other: the interactive map drew its
+ * route (`data-map-route-drawn`, true only when MapLibre's worker really parsed
+ * the geometry, the failure the map card's own spec guards), or the card is on its
+ * inline-SVG fallback (no WebGL, or the library could not load). Stuck between
+ * the two is the only failure.
+ */
+async function expectMapSettled(page: Page) {
+	const surface = page
+		.getByTestId("canvas-map")
+		.getByTestId("map-route-canvas");
+	await expect
+		.poll(
+			async () => {
+				if ((await surface.count()) === 0) return "fallback";
+				return (await surface.getAttribute("data-map-route-drawn")) === "true"
+					? "drawn"
+					: "pending";
+			},
+			{ timeout: 20_000 },
+		)
+		.not.toBe("pending");
+	await expect(
+		page.getByTestId("canvas-map").getByTestId("map-route-fallback"),
+	).toBeAttached();
+}
+
 const nodeOf = (page: Page, kind: string) =>
 	page.locator(`[data-testid="canvas-node"][data-kind="${kind}"]`);
 
@@ -352,6 +379,7 @@ test.describe("blocks from this chat", () => {
 		await expect(
 			page.getByTestId("canvas-map").getByTestId("map-route-card"),
 		).toBeVisible();
+		await expectMapSettled(page);
 
 		await pickFromChat(page, /Sales by fruit/);
 		await expect(nodeOf(page, "chart")).toHaveCount(1);

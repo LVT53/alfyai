@@ -29,7 +29,7 @@ export interface LazyShell {
 	activate?: () => void;
 }
 
-/** What a block module exports: its content, and how it dresses the shell. */
+/** What a block module gives `LazyNode`: its content, and how it dresses the shell. */
 export interface LazyNodeModule {
 	// biome-ignore lint/suspicious/noExplicitAny: each block's content has its own data prop
 	default: Component<any>;
@@ -38,10 +38,25 @@ export interface LazyNodeModule {
 
 export type LazyNodeLoader = () => Promise<LazyNodeModule>;
 
+// Each block module names its shell function after itself (`fileShell`, …): three
+// modules exporting one name would be a duplicate export as far as the tooling that
+// audits exports is concerned. The loader gives them the one shape `LazyNode` reads.
 const LOADERS = {
-	file: () => import("../nodes/FileNode.svelte"),
-	app: () => import("../nodes/AppNode.svelte"),
-	map: () => import("../nodes/MapNode.svelte"),
+	file: () =>
+		import("../nodes/FileNode.svelte").then((module) => ({
+			default: module.default,
+			shell: module.fileShell,
+		})),
+	app: () =>
+		import("../nodes/AppNode.svelte").then((module) => ({
+			default: module.default,
+			shell: module.appShell,
+		})),
+	map: () =>
+		import("../nodes/MapNode.svelte").then((module) => ({
+			default: module.default,
+			shell: module.mapShell,
+		})),
 } as const satisfies Record<string, LazyNodeLoader>;
 
 /** The loader for a block kind, or null for a kind that is not loaded on demand. */
