@@ -777,3 +777,39 @@ and Slides protocol reviews and anything touching ownership or deletion.
 | RC-3 | final Sonnet re-check of the Canvas (every RV-3 finding, S3-X's routes, the owner's walk in HU at both sizes) + the live-check script | `rc-3` (5590) | all fixes merged | **done: READY for the owner** (`claude-sonnet-5-5`; `wave-3/rc3-report.md`). RV-3 tally 17 addressed / 2 partly (C2 for charts and checklist width → N1; I1's one-time App reload, Minor) / 2 deferred by the review. New: 0 Critical, **1 Important (N1: Alfy's charts and checklists get a note's width — a sliver chart, cut-off items)**, 8 Minor. The export/poster routes hold (401/404/415/413, incognito); the by-name serving exception is forgeable only within the caller's own files. Gates green (Playwright 346, 0 flaky). Integration gates on `94600403` (dev-int): check 0/17, 15,832 tests, build 32/2, Fallow 124/4, Playwright 346 + 18 skipped. Live check written (`…/scratchpad/w3/verify-canvas-w3.mjs` + an offline self-test); the classifier refused its later reads of the box's Wave 2 script, so diff the helpers first. Ruling 68's text now says what it counts (N4) |
 | F-D | before the deploy: RC-3's N1 (per-kind default sizes), N3 (floating layers inside the pane), N2 (Delete removes the board's poster files), N5, N7, N9 | `fix/artifacts-w3-walk` / `art-fxd3` (5600) | RC-3 | dispatched |
 | RV-4 | **Opus** review: Slides patches and the PPTX program | — | S4-O | queued (Slides shelved, ruling 69) |
+
+### PAUSED — 2026-09-30 ~18:00 UTC (owner closed Claude to free memory)
+
+**State at the pause.** `feat/artifacts` = `ae9fe53e`: the whole Canvas (S3-P, S3-T, S3-B, S3-F, S3-C, S3-Z, S3-A, S3-Y,
+S3-R1 via M1, S3-R2, S3-X), the RV-3 fixes (F-A, F-B, F-C via M2), FT-2 (focus-trap pass two) and D1 (AGENTS.md's
+Canvas section) are merged; integration gates on `94600403` (dev-int) all green — check 0/17, 15,832 tests, build
+32/2, Fallow 124/4 (0 new), Playwright 346 + 18 skipped. RC-3 (final re-check): **ready for the owner** after one
+Important (N1). Weekly budget ~85 % (resets 2026-10-05 09:00 UTC). Nothing of Wave 3 is on `dev` or ai.dev yet
+(`dev` = `origin/dev` = ai.dev = `f6701fce`; merging `feat/artifacts` into `dev` is clean — their merge base is
+`cde55c2d`, and `f6701fce` only merged that in).
+
+**Stopped mid-work:** F-D (`fix/artifacts-w3-walk`, worktree `art-fxd3`, port 5600, brief `wave-3/fd-brief.md`) was
+stopped while wiring N1; its uncommitted work is saved as **WIP commit `19aa2100` (not green)**. No agent, dev server or
+tunnel is running.
+
+**Resume, in order:**
+1. A fresh Sonnet agent finishes F-D from `19aa2100` (check it red/green first or drop it): N1 (per-kind default sizes
+   for Alfy's charts and checklists — one table for create/ops, the model's read, the board's draw and the eval's
+   `sizeOf`; catalogue snapshots + ceiling), N3 (floating layers inside the pane), N2 (Delete removes the board's
+   poster files, in the facade's cascade), N5, N7, N9. Merge it; the orchestrator looks at its key screenshots itself.
+2. Merge `feat/artifacts` into `dev` in the main checkout (`--no-ff`), full gates in `dev-int` with every artifact
+   suite, push `dev`, deploy the dev environment (command in `wave-3-handoff.md` §Tools), health check.
+3. Live check with the real model on ai.dev, without writing a file on the box:
+   `ssh -T alfyroot 'set -a; . /root/verify-harness.env; set +a; BASE=http://127.0.0.1:3002 node --input-type=module -' < …/scratchpad/w3/verify-canvas-w3.mjs`
+   (the script was written by RC-3 and checked against the Wave 2 script's routes; it is in this session's scratchpad
+   `w3/` — copy it into `docs/plans/claude-at-home-2/wave-3/` before the scratchpad goes).
+4. Tell the owner what to look at on ai.dev (M1) and stop for their check.
+5. Then (ruling 69): **the tours** (Slice 6 remainder: merge `feat/artifacts-s6` — migration `1777140000112` — and build
+   T3/T4/T6/T7 for three kinds: Document, App, Canvas), and hide the Knowledge tab's "Slides" chip. Slides stays shelved
+   on `feat/artifacts-slides` (`72d974e3`).
+
+**Open follow-ups (recorded above, not blocking):** RC-3's N4 (wording done), N6, N8, the one-time App reload (I1
+partly); S3-X's poster lifecycle (a removed block's poster, the OCR readback); S3-Z's A→B→A (done by S3-Y); FT-2's dialog
+list (`ImageLightbox`, `ModelSelectionGuideModal`, `ModelForm` Escape, `settings-admin.spec.ts:411`); the App verifier
+token fix is merged (S3-Y). Slides' merge must unify S4-V's `turnContext` seam with F-A's turn memory in
+`normal-chat-tools/index.ts`.
