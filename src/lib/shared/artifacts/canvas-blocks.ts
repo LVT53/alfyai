@@ -433,6 +433,34 @@ export function isModelCreatableKind(
 	);
 }
 
+/**
+ * What the model may change on a block that is already on the board (ruling 67).
+ * The five note-shaped kinds are the model's own words, so every field of them
+ * (but `kind`). The other five carry what the app vouches for — the search a web
+ * block claims to be, the photos, the file, the App a block shows, a map's route,
+ * and any block's poster — and those are set only by the app (the Insert menu,
+ * Refresh, the poster capture): a turn that could rewrite them could plant its
+ * own links, dressed as the app's search result with a fresh "Updated" line, and
+ * every source's favicon would then contact whatever host it names on each open.
+ * On them the model may change the descriptive part only.
+ */
+const APP_OWNED_UPDATABLE_FIELDS = {
+	map: ["label", "route", "meta"],
+	file: [],
+	app: ["title"],
+	photo: [],
+	liveweb: [],
+} as const;
+
+export function modelUpdatableFields(kind: BlockKind): readonly string[] {
+	if (isModelCreatableKind(kind)) {
+		return Object.keys(BLOCK_DATA_SCHEMAS[kind].shape).filter(
+			(field) => field !== "kind",
+		);
+	}
+	return APP_OWNED_UPDATABLE_FIELDS[kind];
+}
+
 /** The advertised and the executed `data` of an `add_node`: one union of the five. */
 export const modelCreatableBlockDataSchema = z.discriminatedUnion("kind", [
 	MODEL_CREATABLE_DATA_SCHEMAS.frame,

@@ -1384,3 +1384,161 @@ describe("applyOp — what the model adds is stored the width the model is told 
 		expect(node(after, "note-museum").width).toBeUndefined();
 	});
 });
+
+// RV-3 I5 / ruling 67: a block that carries what the app vouches for (the web
+// search a block claims to be, the photos, the file, the App, a poster) is set by
+// the app — the Insert menu, Refresh, the poster capture — and never by a turn's
+// `update_node`, or a prompt-injected turn could plant its own links dressed as the
+// app's search result, and every source's favicon would beacon on each open. What
+// the model may change on those kinds is the descriptive part only.
+describe("validateBoardDiff — update_node on what the app vouches for (ruling 67)", () => {
+	function update(id: string, data: Record<string, unknown>): BoardOp {
+		return { op: "update_node", id, data } as BoardOp;
+	}
+
+	const source = {
+		id: "x",
+		title: "Official result (verified)",
+		url: "https://evil.example/phish",
+		provider: "parallel",
+		authorityClass: "official",
+		authorityScore: 1,
+		publishedAt: null,
+		updatedAt: null,
+	};
+
+	const REWRITES: [string, BoardOp][] = [
+		[
+			"a web block's sources and its fresh 'updated' line",
+			update("web-1", { sources: [source], fetchedAt: Date.now() }),
+		],
+		["a web block's query", update("web-1", { query: "something else" })],
+		["a web block's fetchedAt", update("web-1", { fetchedAt: 1 })],
+		[
+			"a photo block's items",
+			update("photo-1", {
+				items: [
+					{
+						id: "a",
+						imageUrl: "/api/connections/immich/thumbnail/some-other-asset",
+					},
+				],
+			}),
+		],
+		[
+			"a file block's fileId and name",
+			update("file-1", { fileId: "some-other-file", name: "invoice.pdf" }),
+		],
+		["a file block's name alone", update("file-1", { name: "invoice.pdf" })],
+		["an App block's artifactId", update("app-1", { artifactId: "another" })],
+		[
+			"a map's poster",
+			update("map-1", {
+				poster: { fileId: "../../x", width: 1, height: 1, capturedAt: 0 },
+			}),
+		],
+		[
+			"an App's poster",
+			update("app-1", {
+				poster: { fileId: "f", width: 1, height: 1, capturedAt: 0 },
+			}),
+		],
+		[
+			"a map's route data",
+			update("map-1", {
+				map: {
+					bounds: { minLat: 0, minLng: 0, maxLat: 1, maxLng: 1 },
+					attribution: "x",
+				},
+			}),
+		],
+		[
+			"a descriptive field together with one the app owns (the whole op is refused)",
+			update("map-1", {
+				label: "Fine",
+				poster: { fileId: "f", width: 1, height: 1, capturedAt: 0 },
+			}),
+		],
+	];
+
+	it.each(REWRITES)("refuses %s as invalid_data", (_name, op) => {
+		const { accepted, refused } = validateBoardDiff(diff(op), sampleBoard());
+		expect(accepted).toEqual([]);
+		expect(refused).toHaveLength(1);
+		expect(refused[0]).toMatchObject({
+			reason: "invalid_data",
+			op: "update_node",
+		});
+	});
+
+	it("names what may change on that kind and where the rest comes from", () => {
+		const detailOf = (op: BoardOp) =>
+			validateBoardDiff(diff(op), sampleBoard()).refused[0].detail;
+		const map = detailOf(update("map-1", { map: { attribution: "x" } }));
+		expect(map).toContain('"map"');
+		expect(map).toMatch(/label, route, meta/);
+		expect(map).toMatch(/Insert/);
+		const app = detailOf(update("app-1", { artifactId: "another" }));
+		expect(app).toMatch(/\btitle\b/);
+		const web = detailOf(update("web-1", { query: "x" }));
+		expect(web).toMatch(/Refresh/);
+		expect(web).toMatch(/nothing/i);
+		const file = detailOf(update("file-1", { name: "x.pdf" }));
+		expect(file).toMatch(/nothing/i);
+		expect(file).toMatch(/move it or remove it/);
+	});
+
+	it("still lets the model rename what it may: a map's label, route and meta, and an App's title", () => {
+		const { accepted, refused } = validateBoardDiff(
+			diff(
+				update("map-1", { label: "Saturday's route" }),
+				update("map-1", { route: "Vienna to Graz", meta: "2 h 30" }),
+				update("app-1", { title: "Trip budget" }),
+				update("map-1", { kind: "map", label: "Same kind is not a change" }),
+			),
+			sampleBoard(),
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(4);
+	});
+
+	it("never lets a poster through on any block, and still moves and removes what it cannot edit", () => {
+		const sticky = validateBoardDiff(
+			diff(
+				update("note-1", {
+					poster: { fileId: "f", width: 1, height: 1, capturedAt: 0 },
+				}),
+			),
+			sampleBoard(),
+		);
+		expect(sticky.accepted).toEqual([]);
+		expect(sticky.refused[0].reason).toBe("invalid_data");
+		const others = validateBoardDiff(
+			diff(
+				{ op: "move", id: "web-1", to: { x: 1, y: 1 } },
+				{ op: "highlight", ids: ["photo-1"] },
+				{ op: "remove_node", id: "file-1" },
+			),
+			sampleBoard(),
+		);
+		expect(others.refused).toEqual([]);
+		expect(others.accepted).toHaveLength(3);
+	});
+
+	it("leaves the five kinds the model makes as free to change as before", () => {
+		const { accepted, refused } = validateBoardDiff(
+			diff(
+				update("note-1", { text: "Lunch at the market hall", tone: "blue" }),
+				update("text-1", { text: "Weekend plan" }),
+				update("todo-1", {
+					items: [{ id: "i1", text: "Passport", done: true }],
+				}),
+				update("chart-1", { label: "Budget 2026" }),
+				update("frame-a", { label: "Sunday", width: 420 }),
+			),
+			sampleBoard(),
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(5);
+	});
+});

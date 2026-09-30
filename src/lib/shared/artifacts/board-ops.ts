@@ -26,6 +26,7 @@ import {
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	MODEL_CREATABLE_KINDS,
 	modelCreatableBlockDataSchema,
+	modelUpdatableFields,
 	NODE_WIDTH,
 	repeatedEntryIds,
 } from "./canvas-blocks";
@@ -573,6 +574,18 @@ function stepUpdateNode(
 		return refuse(
 			"invalid_data",
 			`A ${target.type} has no field ${stray.map((key) => `"${key}"`).join(", ")}. Fields of ${target.type}: ${fields.join(", ")}.`,
+			op.id,
+		);
+	}
+	// What the app vouches for is set by the app, never by an op (ruling 67).
+	const settable = modelUpdatableFields(target.type);
+	const owned = Object.keys(op.data).filter(
+		(key) => key !== "kind" && !settable.includes(key),
+	);
+	if (owned.length > 0) {
+		return refuse(
+			"invalid_data",
+			`${owned.map((key) => `"${key}"`).join(", ")} on a ${target.type} ${owned.length === 1 ? "is" : "are"} set by the app (the Insert menu, Refresh, the screenshot it takes), never by an op. ${settable.length > 0 ? `You may change only: ${settable.join(", ")}.` : `You may change nothing on a ${target.type} block; you can still move it or remove it.`}`,
 			op.id,
 		);
 	}
