@@ -705,6 +705,10 @@ counted as its own) from 74.1 to **66.3 KiB gzip**; the last 1.3 KiB would cost 
 note-shaped blocks), a visual change or the minimap. The budget for that honest measure is **67 KiB (68,608 B) gzip**,
 enforced by `check:artifact-chunks`; the chat route without an artifact open stays within +2 kB; Chart.js and MapLibre
 stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first open.
+- **Amended the same day, after F-C:** the review's I2 fix (flush the reader's pending step before a turn; merge it
+  with a landing Alfy change) put ~0.1 KiB of necessary safety into the first-paint closure (the merge itself loads
+  on demand). The ceiling is **68 KiB (69,632 B) gzip**; the guard enforces that number, and the next raise needs the
+  same kind of recorded reason.
 
 ## Consequences for the slice specs (cumulative)
 
