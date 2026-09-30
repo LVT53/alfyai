@@ -60,10 +60,21 @@ export interface DocumentAlfyRawPatchOp {
 export interface DocumentRefusedBlock {
 	blockId: string;
 	reason: string;
-	/** The refused op's index in the call's `patches` (absent in metadata written before RV-1A). */
+	/** The refused op's index in the call's `patches` — or, for a board, its `ops` (absent in metadata written before RV-1A). */
 	opIndex?: number;
 }
 
+/** One op of a board edit exactly as the MODEL sent it: only "it has a name" is known here; the panel's landing reads the fields it needs and ignores the rest. */
+export type AlfyRawBoardOp = { op: string } & Record<string, unknown>;
+
+/**
+ * What the chat page knows about ONE artifact tool call, handed to whichever
+ * body is open. Named for the Document, which it was built for; a Canvas edit
+ * (`canvas/canvas-alfy-activity.ts`) is the same object with its `ops` filled
+ * in and `patches` empty, so the chat card, the panel's row and the count
+ * button's dot — which read only the fields both share (`artifactId`,
+ * `status`, `appliedCount`, `refusedBlocks`) — need no second type.
+ */
 export interface DocumentAlfyActivity {
 	/** Stable per-call identity (the tool call's own `callId` when present), so the body can tell "this call, still running" from "a new call". */
 	key: string;
@@ -74,6 +85,12 @@ export interface DocumentAlfyActivity {
 	label: string | null;
 	/** Only for `edit_artifact`, and only once the call has left "running" — there is nothing to mark until the call has settled. */
 	patches: DocumentAlfyRawPatchOp[];
+	/**
+	 * A board's `edit_artifact` only: the model's raw ops, present while the call
+	 * runs too (the tool's input is complete before it executes), so the panel can
+	 * show which blocks Alfy is arranging. Absent on a Document's activity.
+	 */
+	ops?: readonly AlfyRawBoardOp[];
 	refusedBlocks: DocumentRefusedBlock[];
 	appliedCount: number;
 }
@@ -95,7 +112,7 @@ const EDIT_OP_KINDS: readonly PatchOpKind[] = [
 	"addTableRow",
 ];
 
-function stringField(
+export function stringField(
 	input: Record<string, unknown> | undefined,
 	key: string,
 ): string | null {
@@ -138,7 +155,7 @@ function parseRawPatches(value: unknown): DocumentAlfyRawPatchOp[] {
 }
 
 /** `metadata.refusedBlocksJson`, parsed defensively — absent, malformed, or non-array JSON all read as "nothing refused" rather than throwing. */
-function parseRefusedBlocks(value: unknown): DocumentRefusedBlock[] {
+export function parseRefusedBlocks(value: unknown): DocumentRefusedBlock[] {
 	if (typeof value !== "string" || value.length === 0) return [];
 	let parsed: unknown;
 	try {

@@ -1,3 +1,4 @@
+import { buildCanvasAlfyActivity } from "$lib/components/artifacts/canvas/canvas-alfy-activity";
 import {
 	buildDocumentAlfyActivity,
 	type DocumentAlfyActivity,
@@ -1045,6 +1046,12 @@ export function markPendingSkillUnavailable(payload: SendPayload): SendPayload {
  * itself filters by artifactId, so a call for a document the panel does not
  * currently show is simply ignored downstream; this scan does not need to
  * know which document (if any) is open.
+ *
+ * An `edit_artifact` of a BOARD is the same activity (Slice 3 T6): a board's
+ * call is recognised first (`buildCanvasAlfyActivity`: the ops on its input, or
+ * the kind its metadata names), everything else is the Document's reading. The
+ * name is the Document's for history's sake; the value is "the latest artifact
+ * edit the open body may want to show".
  */
 export function findLiveDocumentAlfyActivity(
 	messages: ChatMessage[],
@@ -1059,7 +1066,8 @@ export function findLiveDocumentAlfyActivity(
 			) {
 				continue;
 			}
-			const activity = buildDocumentAlfyActivity(segment);
+			const activity =
+				buildCanvasAlfyActivity(segment) ?? buildDocumentAlfyActivity(segment);
 			if (activity) return activity;
 		}
 	}
