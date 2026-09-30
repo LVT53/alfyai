@@ -6,6 +6,7 @@ import {
 	BLOCK_KINDS,
 	type BlockKind,
 	type CanvasBlockData,
+	estimatedNodeSize,
 } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	boardJson,
@@ -21,6 +22,7 @@ import {
 	boardNodeTypes,
 	defaultDataFor,
 	insertableEntries,
+	insertSize,
 	newBlockNode,
 } from "./block-registry";
 
@@ -223,6 +225,45 @@ describe("the block registry", () => {
 				.filter((row) => row.section === "blocks")
 				.map((row) => row.kind),
 		).toEqual(["chart", "checklist"]);
+	});
+});
+
+describe("insertSize", () => {
+	const chart = (type: string): CanvasBlockData => ({
+		kind: "chart",
+		code: JSON.stringify({ type, data: {} }),
+	});
+
+	it("leaves a chart the room its plot takes: a pie is square, a bar chart half as tall as it is wide", () => {
+		const row = blockEntry("chart");
+		if (!row) throw new Error("no chart row");
+		const pie = insertSize(row, chart("pie"));
+		const bar = insertSize(row, chart("bar"));
+		expect(pie.width).toBe(row.size.width);
+		expect(bar.width).toBe(row.size.width);
+		// The same estimate the model reads and the eval measures by.
+		expect(pie).toEqual(
+			estimatedNodeSize({
+				type: "chart",
+				width: row.size.width,
+				data: chart("pie"),
+			}),
+		);
+		expect(pie.height).toBeGreaterThan(bar.height + 100);
+		for (const round of ["doughnut", "polarArea", "radar"]) {
+			expect(insertSize(row, chart(round)).height).toBe(pie.height);
+		}
+	});
+
+	it("leaves every other kind, and a chart inserted with no data of its own, the size its row has", () => {
+		for (const kind of BUILT) {
+			const row = blockEntry(kind);
+			if (!row || kind === "chart") continue;
+			expect(insertSize(row, blockOf(kind))).toBe(row.size);
+		}
+		const chartRow = blockEntry("chart");
+		if (!chartRow) throw new Error("no chart row");
+		expect(insertSize(chartRow)).toBe(chartRow.size);
 	});
 });
 

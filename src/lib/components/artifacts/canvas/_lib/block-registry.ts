@@ -18,6 +18,7 @@ import {
 	BLOCK_KINDS,
 	type BlockKind,
 	type CanvasBlockData,
+	estimatedNodeSize,
 } from "$lib/shared/artifacts/canvas-blocks";
 import FrameNode from "../nodes/FrameNode.svelte";
 import LazyNode from "../nodes/LazyNode.svelte";
@@ -109,6 +110,22 @@ export function boardNodeTypes(): NodeTypes {
 		types[kind] = BLOCK_REGISTRY[kind]?.component ?? MissingKindNode;
 	}
 	return types;
+}
+
+/**
+ * The box placement leaves room for when a block is inserted with the data the
+ * reader picked. A kind has one size in its meta, but a chart's height is its
+ * plot's (a pie is square, a bar chart half as tall as it is wide), so a pie placed
+ * in a bar chart's room would reach over whatever is below it: the estimate the
+ * model reads and the eval measures by (`estimatedNodeSize`) is the room for a
+ * chart. Every other kind keeps its meta's size.
+ */
+export function insertSize(
+	row: BlockRegistryEntry,
+	data?: CanvasBlockData,
+): { width: number; height: number } {
+	if (data?.kind !== "chart") return row.size;
+	return estimatedNodeSize({ type: "chart", width: row.size.width, data });
 }
 
 /** A small sample, so a chart inserted by hand has something to show until it is asked to say something else. */
