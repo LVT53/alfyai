@@ -6,6 +6,7 @@ import {
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
+import { posterFileName } from "$lib/shared/artifacts/poster-file";
 import { saveSummaryFor } from "$lib/shared/artifacts/version-summaries";
 import {
 	NOW,
@@ -1202,6 +1203,135 @@ describe("deleteArtifact", () => {
 		// The neighbour is whole: row, version history and all.
 		expect(artifactRow(neighbour.id)).toBeDefined();
 		expect(versionRows(neighbour.id)).toHaveLength(1);
+	});
+
+	// RC-3 N2: a block a picture cannot reproduce (an App, the map, photos, live web)
+	// carries a poster, a chat file that hangs from no reply so nothing lists it. It
+	// went on living after its board was deleted (one of them a montage of the
+	// owner's own photos) until the chat was. They go with the board, in the same
+	// cascade, and only the board's own, in its own chat, for its own user.
+	describe("a board's poster files", () => {
+		const posterRow = (
+			id: string,
+			filename: string,
+			overrides: Partial<typeof schema.chatGeneratedFiles.$inferInsert> = {},
+		) => ({
+			id,
+			conversationId: CONVERSATION,
+			assistantMessageId: null,
+			userId: OWNER,
+			filename,
+			mimeType: "image/png",
+			sizeBytes: 100,
+			storagePath: `${CONVERSATION}/${filename}`,
+			createdAt: NOW,
+			...overrides,
+		});
+		const fileIds = () =>
+			memory.db
+				.select()
+				.from(schema.chatGeneratedFiles)
+				.all()
+				.map((row) => row.id)
+				.sort();
+
+		it("takes the posters of the board and leaves everything else in the chat", async () => {
+			const board = await createDocument({ kind: "canvas", body: null });
+			const other = await createDocument({ kind: "canvas", body: null });
+			memory.db
+				.insert(schema.messages)
+				.values({
+					id: "reply-1",
+					conversationId: CONVERSATION,
+					role: "assistant",
+					content: "Here it is.",
+					createdAt: NOW,
+				})
+				.run();
+			memory.db
+				.insert(schema.chatGeneratedFiles)
+				.values([
+					posterRow("poster-app", posterFileName(board.id, "app-1")),
+					posterRow("poster-photos", posterFileName(board.id, "photos-1")),
+					// Another board's poster, in the same chat.
+					posterRow("poster-other", posterFileName(other.id, "app-1")),
+					// The board's own exported picture hangs from a reply: a file of the chat.
+					posterRow("export-png", "Weekend board.png", {
+						assistantMessageId: "reply-1",
+					}),
+					// Somebody's file that only looks like a poster of this board: another user's
+					// chat, and a file that hangs from a reply.
+					posterRow("stranger", posterFileName(board.id, "app-2"), {
+						userId: STRANGER,
+						conversationId: STRANGER_CONVERSATION,
+						storagePath: `${STRANGER_CONVERSATION}/x.png`,
+					}),
+					posterRow("hung", posterFileName(board.id, "app-3"), {
+						assistantMessageId: "reply-1",
+					}),
+				])
+				.run();
+
+			await expect(
+				deleteArtifact({ userId: OWNER, artifactId: board.id }),
+			).resolves.toEqual({ ok: true });
+
+			expect(artifactRow(board.id)).toBeUndefined();
+			expect(fileIds()).toEqual([
+				"export-png",
+				"hung",
+				"poster-other",
+				"stranger",
+			]);
+			expect(artifactRow(other.id)).toBeDefined();
+		});
+
+		it("takes nothing when the delete is refused: a stranger's, or another chat's", async () => {
+			const board = await createDocument({ kind: "canvas", body: null });
+			memory.db
+				.insert(schema.chatGeneratedFiles)
+				.values([posterRow("poster-app", posterFileName(board.id, "app-1"))])
+				.run();
+
+			await expect(
+				deleteArtifact({ userId: STRANGER, artifactId: board.id }),
+			).resolves.toEqual({ ok: false, reason: "not_found" });
+			await expect(
+				deleteArtifact({
+					userId: OWNER,
+					artifactId: board.id,
+					conversationId: OTHER_CONVERSATION,
+				}),
+			).resolves.toEqual({ ok: false, reason: "not_made_here" });
+			expect(fileIds()).toEqual(["poster-app"]);
+			expect(artifactRow(board.id)).toBeDefined();
+		});
+
+		it("does not fail the delete of the board when a poster cannot be removed", async () => {
+			const board = await createDocument({ kind: "canvas", body: null });
+			memory.db
+				.insert(schema.chatGeneratedFiles)
+				.values([posterRow("poster-app", posterFileName(board.id, "app-1"))])
+				.run();
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			// The row's own delete runs first, through a transaction (not `db.delete`),
+			// so the first `db.delete` is the poster's.
+			const failing = vi
+				.spyOn(memory.db, "delete")
+				.mockImplementationOnce(() => {
+					throw new Error("disk full");
+				});
+			await expect(
+				deleteArtifact({ userId: OWNER, artifactId: board.id }),
+			).resolves.toEqual({ ok: true });
+			expect(artifactRow(board.id)).toBeUndefined();
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining("poster files"),
+				expect.anything(),
+			);
+			failing.mockRestore();
+			warn.mockRestore();
+		});
 	});
 
 	// Polish G2-A: a produced file (the File kind, `generated_output`) is deleted
