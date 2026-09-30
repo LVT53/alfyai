@@ -79,7 +79,7 @@ describe("the Comment tool's catcher", () => {
 		mount({ tool: "comment" });
 		expect(
 			screen.getByRole("button", {
-				name: "Click the board to place a comment, or a block to comment on it.",
+				name: "Click the board or a block to place a comment.",
 			}),
 		).toBeTruthy();
 	});

@@ -174,7 +174,7 @@ $effect(() => () => {
 		border-radius: 50%;
 		background: var(--accent-fill);
 		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-		color: var(--accent-contrast);
+		color: var(--on-accent);
 		font: 700 11px/1 var(--font-sans);
 		font-variant-numeric: tabular-nums;
 		transform: scale(var(--pin-scale, 1));
@@ -192,7 +192,7 @@ $effect(() => () => {
 	}
 
 	.pin:hover {
-		background: var(--accent-hover);
+		box-shadow: 0 0 0 3px var(--accent-tint);
 	}
 
 	.pin:focus-visible {

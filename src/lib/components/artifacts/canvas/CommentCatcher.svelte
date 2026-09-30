@@ -129,15 +129,16 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 		position: absolute;
 		top: 12px;
 		left: 50%;
-		max-width: calc(100% - 24px);
+		max-width: min(300px, calc(100% - 24px));
 		padding: 6px 12px;
 		transform: translateX(-50%);
 		border: 1px solid var(--border-default);
-		border-radius: 999px;
+		border-radius: 10px;
 		background: var(--surface-page);
 		box-shadow: var(--shadow-sm);
 		color: var(--text-primary);
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
+		line-height: 1.35;
 		text-align: center;
 		pointer-events: none;
 	}

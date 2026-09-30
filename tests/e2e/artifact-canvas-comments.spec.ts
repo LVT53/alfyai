@@ -425,9 +425,7 @@ test.describe("comments on the Canvas", () => {
 		await expect(group).toContainText("1 comment on a block that was removed");
 		await group.getByRole("button").click();
 		const orphan = group.getByTestId("canvas-comment");
-		await expect(orphan).toContainText(
-			"The block this comment was on is gone.",
-		);
+		await expect(orphan).toContainText("The block is gone.");
 		await expect(orphan).toContainText("About the old note");
 		await expect(orphan).toHaveClass(/is-orphaned/);
 		expect(
@@ -468,6 +466,68 @@ test.describe("comments on the Canvas", () => {
 			artifactId,
 		});
 		expect(stored.body).toBe("About the museum");
+	});
+
+	test("the keyboard reaches the toolbar, then the blocks, then the pins, and a pin opens the list at its thread", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const artifactId = await open(page);
+		await seedThread(
+			artifactId,
+			{ kind: "node", nodeId: MUSEUM },
+			"Keyboard question",
+		);
+		await page.reload({ waitUntil: "networkidle" });
+		await openCanvasPanel(page);
+
+		// Document order is tab order: toolbar, then blocks, then pins.
+		const order = await page.evaluate(() => {
+			const toolbar = document.querySelector("[data-testid='canvas-toolbar']");
+			const blocks = [...document.querySelectorAll(".svelte-flow__node")];
+			const pin = document.querySelector("[data-testid='canvas-comment-pin']");
+			const after = (a: Element | null, b: Element | null) =>
+				!!a &&
+				!!b &&
+				!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+			return {
+				toolbarBeforeBlocks: blocks.every((block) => after(toolbar, block)),
+				blocksBeforePin: blocks.every((block) => after(block, pin)),
+			};
+		});
+		expect(order).toEqual({ toolbarBeforeBlocks: true, blocksBeforePin: true });
+
+		await pinsOf(page).first().focus();
+		await expect(pinsOf(page).first()).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect(page.getByTestId("canvas-comments-rail")).toBeVisible();
+		await expect(cards(page).first()).toBeFocused();
+		await expect(cards(page).first()).toContainText("Keyboard question");
+	});
+
+	test("with reduced motion, jumping to a pin rings it without animating", async ({
+		page,
+	}) => {
+		await page.emulateMedia({ reducedMotion: "reduce" });
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const artifactId = await open(page);
+		await seedThread(
+			artifactId,
+			{ kind: "node", nodeId: MUSEUM },
+			"Quiet please",
+		);
+		await page.reload({ waitUntil: "networkidle" });
+		await openCanvasPanel(page);
+		await commentsButton(page).click();
+		await cards(page)
+			.first()
+			.getByRole("button", { name: "Show Museum, 14:00 on the board" })
+			.click();
+		const pin = pinsOf(page).first();
+		await expect(pin).toHaveClass(/pin--flash/);
+		expect(
+			await pin.evaluate((node) => getComputedStyle(node).animationName),
+		).toBe("none");
 	});
 
 	test("resolving a thread hides its pin and keeps its number; the quiet toggle brings it back, dimmed", async ({
@@ -828,7 +888,7 @@ test.describe("comments on the Canvas", () => {
 		await expect(
 			page.getByTestId("canvas-comment-catcher"),
 		).toHaveAccessibleName(
-			"Kattints a táblára a megjegyzés elhelyezéséhez, vagy egy blokkra, ha ahhoz fűznéd.",
+			"Kattints a táblára vagy egy blokkra a megjegyzés elhelyezéséhez.",
 		);
 	});
 });

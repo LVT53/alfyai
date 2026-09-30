@@ -122,6 +122,8 @@ const SETTLE_MS = 350;
 /** A panel narrower than this gets the compact toolbar and no minimap. */
 const COMPACT_BELOW = 480;
 const MINIMAP_ABOVE = 720;
+/** The toolbar and the zoom no longer fit side by side below this (a column of comments beside the board narrows it): the zoom goes above the toolbar. */
+const STACK_ZOOM_BELOW = 680;
 
 let boardEl = $state<HTMLElement | null>(null);
 let boardWidth = $state(0);
@@ -509,6 +511,7 @@ let layerApi = $derived<BoardLayerApi>({
 });
 
 let compact = $derived(boardWidth > 0 && boardWidth < COMPACT_BELOW);
+let stackedZoom = $derived(boardWidth > 0 && boardWidth < STACK_ZOOM_BELOW);
 let showMinimap = $derived(boardWidth >= MINIMAP_ABOVE && nodes.length > 0);
 let empty = $derived(nodes.length === 0 && annotations.length === 0);
 // A tool that draws (or the eraser) owns the pointer: the drawing pad takes the
@@ -654,8 +657,8 @@ function minimapColor(node: {
 			position="bottom-right"
 			class={[
 				"canvas-corner",
-				compact && "canvas-corner--compact",
-				compact && drawing && "canvas-corner--under-tray",
+				stackedZoom && "canvas-corner--compact",
+				stackedZoom && drawing && "canvas-corner--under-tray",
 			]}
 		>
 			<ZoomChip

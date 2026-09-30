@@ -651,14 +651,13 @@ const artifactsDict = {
 		// feature, one vocabulary.
 		"artifacts.canvas.tool.comment": "Comment",
 		"artifacts.canvas.comment.placeHint":
-			"Click the board to place a comment, or a block to comment on it.",
+			"Click the board or a block to place a comment.",
 		"artifacts.canvas.comment.pin": "Comment {n} on the board",
 		"artifacts.canvas.comment.pinResolved":
 			"Comment {n} on the board, resolved",
 		"artifacts.canvas.comment.pinDraft": "New comment, not posted yet",
 		"artifacts.canvas.comment.spot": "a spot on the board",
-		"artifacts.canvas.comment.blockGone":
-			"The block this comment was on is gone.",
+		"artifacts.canvas.comment.blockGone": "The block is gone.",
 		"artifacts.canvas.comment.orphanedGroup":
 			"{count} {count, plural, one {comment} other {comments}} on a block that was removed",
 		"artifacts.canvas.comment.empty":
@@ -1187,13 +1186,12 @@ const artifactsDict = {
 		// `.comment.*` kulcsai: egy megjegyzés-funkció, egy szókincs.
 		"artifacts.canvas.tool.comment": "Megjegyzés",
 		"artifacts.canvas.comment.placeHint":
-			"Kattints a táblára a megjegyzés elhelyezéséhez, vagy egy blokkra, ha ahhoz fűznéd.",
+			"Kattints a táblára vagy egy blokkra a megjegyzés elhelyezéséhez.",
 		"artifacts.canvas.comment.pin": "{n}. megjegyzés a táblán",
 		"artifacts.canvas.comment.pinResolved": "{n}. megjegyzés a táblán, lezárva",
 		"artifacts.canvas.comment.pinDraft": "Új megjegyzés, még nincs elküldve",
 		"artifacts.canvas.comment.spot": "egy pont a táblán",
-		"artifacts.canvas.comment.blockGone":
-			"A blokk, amihez ez a megjegyzés tartozott, már nincs meg.",
+		"artifacts.canvas.comment.blockGone": "A blokk már nincs meg.",
 		// Nincs ICU többesszám: a magyar főnév számnév után egyes számban marad.
 		"artifacts.canvas.comment.orphanedGroup":
 			"{count} megjegyzés egy törölt blokkon",

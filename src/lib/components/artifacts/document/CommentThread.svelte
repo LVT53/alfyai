@@ -402,7 +402,7 @@ let foldedA11yLabel = $derived(
 		padding: 0 0.25rem;
 		border-radius: var(--radius-full);
 		background: var(--accent-fill);
-		color: var(--accent-contrast);
+		color: var(--on-accent);
 		font: 700 0.65625rem/1 var(--font-sans);
 		font-variant-numeric: tabular-nums;
 	}
