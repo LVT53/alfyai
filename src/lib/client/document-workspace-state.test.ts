@@ -213,9 +213,10 @@ describe("document workspace state", () => {
 	});
 });
 
-// A chat's panel after a reload. The stored state is ONE tab-wide record, so
-// what a chat restores has to be decided by who is asking: the panel is "what
-// this chat made", and an incognito chat's panel is never anyone else's.
+// A chat's panel after a reload. The tab's storage is shared by every chat it
+// visits, so what a chat restores has to be decided by who is asking: the panel
+// is "what this chat made", and an incognito chat's panel is never anyone
+// else's.
 describe("restoring a chat's panel", () => {
 	const CHAT_B: WorkspaceConversation = {
 		conversationId: "chat-b",
