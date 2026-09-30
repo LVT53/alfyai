@@ -450,7 +450,8 @@ describe("Search the web…", () => {
 
 		expect(signal?.aborted).toBe(true);
 		answer({ ok: true, data: WEB });
-		await Promise.resolve();
+		// Long enough for the answer to be handled, if anything were going to handle it.
+		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(onpick).not.toHaveBeenCalled();
 	});
 

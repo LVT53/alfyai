@@ -12,6 +12,7 @@ import {
 	createGroundedWebMetadata,
 	extractCitedCanonicalWebUrls,
 	extractGroundedWebCitationSources,
+	groundedWebSourcesFromCandidates,
 	summarizeGroundedWebResult,
 } from "./web-grounding";
 
@@ -333,5 +334,81 @@ describe("extractCitedCanonicalWebUrls", () => {
 
 	it("returns an empty set when the answer cites no URLs", () => {
 		expect(extractCitedCanonicalWebUrls("no links here at all").size).toBe(0);
+	});
+});
+
+describe("groundedWebSourcesFromCandidates", () => {
+	it("is the inverse of createGroundedWebCandidates: the sources the model was given, rebuilt from the candidates the tool call persisted", () => {
+		const result = fixture();
+		const payload = buildGroundedWebModelPayload(result);
+
+		const rebuilt = groundedWebSourcesFromCandidates(
+			createGroundedWebCandidates(result),
+		);
+
+		expect(rebuilt).toEqual(payload.sources);
+	});
+
+	it("carries the dates a source has, and only those", () => {
+		const result = fixture();
+		result.sources[0].publishedAt = "2026-09-01";
+		result.sources[1].updatedAt = "2026-09-02";
+		const rebuilt = groundedWebSourcesFromCandidates(
+			createGroundedWebCandidates(result),
+		);
+		expect(rebuilt[0]).toMatchObject({
+			publishedAt: "2026-09-01",
+			updatedAt: null,
+		});
+		expect(rebuilt[1]).toMatchObject({
+			publishedAt: null,
+			updatedAt: "2026-09-02",
+		});
+	});
+
+	it("takes the highlight a candidate stands on when its source had no snippet, and no snippet when it had neither", () => {
+		const result = fixture();
+		result.sources[0].snippet = null;
+		result.sources[1].snippet = null;
+		result.sources[1].highlights = [];
+		const rebuilt = groundedWebSourcesFromCandidates(
+			createGroundedWebCandidates(result),
+		);
+		expect(rebuilt[0].snippet).toBe("highlight a");
+		expect(rebuilt[1]).not.toHaveProperty("snippet");
+	});
+
+	it("fills what a record from before the tool kept its metadata does not have with neutral values, never with undefined", () => {
+		const old: ToolEvidenceCandidate = {
+			id: "old-1",
+			title: "Older record",
+			url: "https://example.org/older",
+			snippet: null,
+			sourceType: "web",
+		};
+
+		expect(groundedWebSourcesFromCandidates([old])).toEqual([
+			{
+				id: "old-1",
+				title: "Older record",
+				url: "https://example.org/older",
+				provider: "",
+				authorityClass: "unknown",
+				authorityScore: 0,
+				publishedAt: null,
+				updatedAt: null,
+			},
+		]);
+	});
+
+	it("leaves out what is not a web source with an address: another tool's candidate, one with no link", () => {
+		const web = createGroundedWebCandidates(fixture())[0];
+		const rebuilt = groundedWebSourcesFromCandidates([
+			{ ...web, id: "photo", sourceType: "tool" },
+			{ ...web, id: "no-link", url: "" },
+			{ ...web, id: "null-link", url: null as unknown as string },
+			web,
+		]);
+		expect(rebuilt.map((source) => source.id)).toEqual([web.id]);
 	});
 });

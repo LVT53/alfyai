@@ -26,6 +26,7 @@ import type {
 	ChatMessage,
 	ThinkingSegment,
 } from "$lib/server/services/messages-types";
+import { groundedWebSourcesFromCandidates } from "$lib/server/services/web-grounding";
 import { classifyMarkdownBlocks } from "$lib/services/markdown-blocks";
 import {
 	isHttpSourceUrl,
@@ -349,44 +350,24 @@ function photosIn(message: ChatMessage): ChatPhotoBlock[] {
 	return photos;
 }
 
-function textOr(value: unknown, fallback: string): string {
-	return typeof value === "string" && value.length > 0 ? value : fallback;
-}
-
 /**
- * The sources a web search returned, as a block keeps them (`ArtifactSource`,
- * the web-grounding payload's own shape). A candidate is what the tool
- * persisted of a source, so what an older record lacks is filled with the same
- * neutral values the payload would have carried. A link that is not a web
- * address is left out (the block's schema would drop the whole block for it),
- * and a page read that returned a source again does not list it twice.
+ * The sources a web search returned, as a block keeps them (`ArtifactSource`, the
+ * web-grounding payload's own shape): read back from the candidates the tool call
+ * persisted through web-grounding's own inverse, so this module shapes nothing
+ * itself. What it adds is the board's rule for a link: a source is kept only if its
+ * link is a web address (the block's schema would drop the whole block for one that
+ * is not), a page read that returned a source again does not list it twice, and a
+ * block holds at most `SOURCES_MAX`.
  */
 function searchSources(call: ToolCall): ArtifactSource[] {
 	const seen = new Set<string>();
 	const sources: ArtifactSource[] = [];
-	for (const candidate of call.candidates ?? []) {
-		if (candidate.sourceType !== "web") continue;
-		const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
-		if (!isHttpSourceUrl(url) || seen.has(url)) continue;
-		seen.add(url);
-		const meta = candidate.metadata ?? {};
-		const snippet =
-			typeof candidate.snippet === "string" && candidate.snippet.length > 0
-				? candidate.snippet
-				: null;
-		sources.push({
-			id: candidate.id,
-			title: textOr(candidate.title, url),
-			url,
-			provider: textOr(meta.provider, ""),
-			authorityClass: textOr(meta.authorityClass, "unknown"),
-			authorityScore:
-				typeof meta.authorityScore === "number" ? meta.authorityScore : 0,
-			publishedAt:
-				typeof meta.publishedAt === "string" ? meta.publishedAt : null,
-			updatedAt: typeof meta.updatedAt === "string" ? meta.updatedAt : null,
-			...(snippet ? { snippet } : {}),
-		});
+	for (const source of groundedWebSourcesFromCandidates(
+		call.candidates ?? [],
+	)) {
+		if (!isHttpSourceUrl(source.url) || seen.has(source.url)) continue;
+		seen.add(source.url);
+		sources.push(source);
 		if (sources.length >= SOURCES_MAX) break;
 	}
 	return sources;
