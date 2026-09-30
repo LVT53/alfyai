@@ -128,6 +128,8 @@ async function seedChat(
 		incognito?: boolean;
 		/** Appended to every query, so two chats' work can be told apart. */
 		tag?: string;
+		/** More photo searches (each its own row), to make a menu longer than the popover. */
+		morePhotoSearches?: number;
 	} = {},
 ): Promise<Seeded> {
 	const tag = options.tag ?? "";
@@ -166,6 +168,13 @@ async function seedChat(
 		[photoCall(BEACH, `beach${tag}`)],
 		minutes(2),
 	);
+	for (let index = 0; index < (options.morePhotoSearches ?? 0); index += 1) {
+		await seedToolMessage(
+			conversationId,
+			[photoCall(SUNSET, `more photos ${index + 1}${tag}`)],
+			minutes(1),
+		);
+	}
 	const boardId = await seedCanvas(
 		conversationId,
 		options.body ?? emptyCanvasBody(),
@@ -938,7 +947,7 @@ test.describe("photos and live web on the board", () => {
 		);
 		await page.getByRole("button", { name: "Refresh" }).click();
 		await expect(page.getByTestId("canvas-liveweb-status")).toHaveText(
-			"The search found nothing new to show.",
+			"The search returned no results.",
 		);
 		await expect(
 			page.getByTestId("canvas-liveweb-source").first(),
@@ -1151,6 +1160,49 @@ test.describe("photos and live web on the board", () => {
 		}
 		await anonymous.dispose();
 		void request;
+	});
+
+	test("scrolls when the chat has more than the menu can show, and the keyboard reaches the last row", async ({
+		page,
+	}) => {
+		await stubThumbnails(page);
+		const seeded = await seedChat(page, { morePhotoSearches: 8 });
+		await openChatAndReload(page, seeded.conversationId);
+		await openBoard(page);
+		await openInsertMenu(page);
+
+		const popover = page.getByTestId("canvas-insert-menu");
+		const scrollable = await popover
+			.locator("*")
+			.evaluateAll((elements) =>
+				elements.some(
+					(element) =>
+						element.scrollHeight > element.clientHeight + 1 &&
+						/auto|scroll/.test(getComputedStyle(element).overflowY),
+				),
+			);
+		expect(scrollable).toBe(true);
+
+		// End goes to the last row of the whole menu and brings it into view.
+		await menu(page).getByRole("menuitem").first().focus();
+		await page.keyboard.press("End");
+		const last = menu(page).getByRole("menuitem").last();
+		await expect(last).toBeFocused();
+		await expect
+			.poll(async () => {
+				const box = await last.boundingBox();
+				const frame = await popover.boundingBox();
+				return (
+					box !== null &&
+					frame !== null &&
+					box.y >= frame.y - 1 &&
+					box.y + box.height <= frame.y + frame.height + 1
+				);
+			})
+			.toBe(true);
+		await last.click();
+		await expect(menu(page)).toHaveCount(0);
+		await expect(nodeOf(page, "liveweb")).toHaveCount(1);
 	});
 
 	test("on a phone the menu's search is a 44 px row, a 44 px field and a 44 px button, and the board does not scroll sideways", async ({

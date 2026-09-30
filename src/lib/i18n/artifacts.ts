@@ -781,7 +781,7 @@ const artifactsDict = {
 		"artifacts.canvas.refresh": "Refresh",
 		"artifacts.canvas.refreshing": "Refreshing…",
 		"artifacts.canvas.refreshFailed": "Could not refresh this block.",
-		"artifacts.canvas.refreshNothing": "The search found nothing new to show.",
+		"artifacts.canvas.refreshNothing": "The search returned no results.",
 		"artifacts.canvas.refreshTooOften":
 			"Too many searches at once. Try again in a moment.",
 		// The drawing layer (S3-F): tools, inks, and what the layer says about itself.
@@ -1412,8 +1412,7 @@ const artifactsDict = {
 		"artifacts.canvas.refresh": "Frissítés",
 		"artifacts.canvas.refreshing": "Frissítés…",
 		"artifacts.canvas.refreshFailed": "Nem sikerült frissíteni ezt a blokkot.",
-		"artifacts.canvas.refreshNothing":
-			"A keresés nem talált új megjeleníthetőt.",
+		"artifacts.canvas.refreshNothing": "A keresés nem hozott találatot.",
 		"artifacts.canvas.refreshTooOften":
 			"Túl sok keresés egyszerre. Próbáld újra egy pillanat múlva.",
 		"artifacts.canvas.tool.draw": "Rajzolás",

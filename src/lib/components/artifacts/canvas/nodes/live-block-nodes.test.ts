@@ -568,9 +568,7 @@ describe("a live-web block's Refresh", () => {
 
 		await fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 		await waitFor(() =>
-			expect(status()).toHaveTextContent(
-				"The search found nothing new to show.",
-			),
+			expect(status()).toHaveTextContent("The search returned no results."),
 		);
 		await fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 		await waitFor(() =>
