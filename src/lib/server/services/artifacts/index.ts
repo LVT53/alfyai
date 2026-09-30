@@ -12,6 +12,16 @@
 // Slice 3 (Canvas): the board's own save seam and the ops envelope every
 // kind's id-addressed changes go through. Each type slice appends one block.
 export { saveCanvasBoard } from "./canvas-ops";
+// Slice 3 (Canvas): a live-web block's two reads on the reader's behalf — its
+// Refresh and a new search — and the status each failure answers with.
+export {
+	type CanvasWebReadFailure,
+	canvasWebFailureStatus,
+	type RefreshCanvasLiveWebResult,
+	refreshCanvasLiveWeb,
+	type SearchCanvasLiveWebResult,
+	searchCanvasLiveWeb,
+} from "./canvas-web";
 export {
 	ARTIFACT_CATALOGUE_MAX,
 	ARTIFACT_CATALOGUE_TITLE_MAX_CHARS,
