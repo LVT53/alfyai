@@ -20,6 +20,7 @@ import {
 	validateBoardDiff,
 } from "./board-ops";
 import type { CanvasBody, CanvasNode } from "./canvas";
+import { NODE_WIDTH } from "./canvas-blocks";
 import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
 import { sampleBoard } from "./canvas-fixtures.test-helpers";
 import { runOps } from "./ops";
@@ -1309,5 +1310,77 @@ describe("validateBoardDiff — a checklist's item ids are unique (RV-3 C1)", ()
 		);
 		expect(accepted).toEqual([]);
 		expect(refused[0].detail).toContain('"x"');
+	});
+});
+
+// RV-3 C2: a block the model adds has no width of its own, and the board drew it as
+// wide as its words ran (a 120-character note came out 861 wide, through its
+// frame), while the model was told it is 190. What Alfy makes is stored the size
+// Alfy is told.
+describe("applyOp — what the model adds is stored the width the model is told (RV-3 C2)", () => {
+	const addOf = (type: string, data: unknown): BoardOp =>
+		({
+			op: "add_node",
+			node: { id: `new-${type}`, type, position: { x: 0, y: 0 }, data },
+		}) as BoardOp;
+
+	it("gives every note-shaped block it adds the shared block width, and no height (a note grows with its words)", () => {
+		const cases: [string, unknown][] = [
+			["sticky", { kind: "sticky", text: "x", tone: "yellow" }],
+			["text", { kind: "text", text: "x" }],
+			[
+				"checklist",
+				{ kind: "checklist", items: [{ id: "a", text: "x", done: false }] },
+			],
+			[
+				"chart",
+				{ kind: "chart", code: '{"type":"bar","data":{"datasets":[]}}' },
+			],
+		];
+		for (const [type, data] of cases) {
+			const added = node(
+				applyOp(sampleBoard(), addOf(type, data)),
+				`new-${type}`,
+			);
+			expect(added.width, type).toBe(NODE_WIDTH);
+			expect(added.height, type).toBeUndefined();
+		}
+	});
+
+	it("leaves a frame the size it was given, whichever op made it", () => {
+		const viaFrame = node(applyOp(sampleBoard(), addFrame("f1")), "f1");
+		expect(viaFrame).toMatchObject({ width: 200, height: 150 });
+		const viaNode = node(
+			applyOp(
+				sampleBoard(),
+				addOf("frame", { kind: "frame", label: "F", width: 320, height: 240 }),
+			),
+			"new-frame",
+		);
+		expect(viaNode).toMatchObject({ width: 320, height: 240 });
+	});
+
+	it("stores it in what a validated diff lands, so the read, the eval and the board measure one box", () => {
+		const run = land(
+			sampleBoard(),
+			addOf("sticky", { kind: "sticky", text: "hello", tone: "mint" }),
+		);
+		expect(node(run.doc, "new-sticky").width).toBe(NODE_WIDTH);
+		// And it is canonical: the stored JSON carries it.
+		expect(
+			JSON.parse(boardJson(run.doc)).nodes.find(
+				(n: { id: string }) => n.id === "new-sticky",
+			).width,
+		).toBe(NODE_WIDTH);
+	});
+
+	it("does not touch the size of a block that is already on the board when it is updated", () => {
+		const after = applyOp(sampleBoard(), {
+			op: "update_node",
+			id: "note-1",
+			data: { text: "Lunch at the market hall, then a slow walk" },
+		});
+		expect(node(after, "note-1").width).toBe(190);
+		expect(node(after, "note-museum").width).toBeUndefined();
 	});
 });

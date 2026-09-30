@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { MAX_NEW_NODES_PER_DIFF } from "$lib/shared/artifacts/board-ops";
+import {
+	DEFAULT_NODE_HEIGHT,
+	NODE_WIDTH,
+} from "$lib/shared/artifacts/canvas-blocks";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
 import {
 	BLOCK_SHAPES_HINT,
-	BOARD_DEFAULT_NODE_HEIGHT,
-	BOARD_NODE_WIDTH,
 	canvasEditFailureMessage,
 	canvasReadBlocks,
 	parseCanvasCreateBody,
@@ -69,15 +71,42 @@ describe("canvasReadBlocks — what read_artifact shows the model of a board", (
 		expect(byId("note-museum")).not.toHaveProperty("parentId");
 	});
 
-	it("gives a node its size: the stored one, or the footprint the board's own geometry assumes", () => {
+	it("gives a node its size: the stored one, or the size the panel draws it at (RV-3 C2)", () => {
+		// Stored, so as stored.
 		expect(byId("note-1")).toMatchObject({ width: 190, height: 84 });
-		expect(byId("text-1")).toMatchObject({
-			width: BOARD_NODE_WIDTH,
-			height: BOARD_DEFAULT_NODE_HEIGHT,
-		});
 		expect(byId("frame-a")).toMatchObject({ width: 360, height: 300 });
-		expect(BOARD_NODE_WIDTH).toBe(190);
-		expect(BOARD_DEFAULT_NODE_HEIGHT).toBe(84);
+		// Not stored: the shared width, and the height its words or items take.
+		expect(byId("text-1")).toMatchObject({ width: NODE_WIDTH, height: 32 });
+		expect(byId("todo-1")).toMatchObject({ width: NODE_WIDTH, height: 126 });
+		expect(byId("map-1")).toMatchObject({
+			width: NODE_WIDTH,
+			height: DEFAULT_NODE_HEIGHT,
+		});
+		expect(NODE_WIDTH).toBe(190);
+	});
+
+	it("tells a long note from a short one, because a note is as tall as its words", () => {
+		const board = sampleBoard();
+		board.nodes = [
+			{
+				id: "short",
+				type: "sticky",
+				position: { x: 0, y: 0 },
+				width: 190,
+				data: { kind: "sticky", text: "Museum, 10:00", tone: "yellow" },
+			},
+			{
+				id: "long",
+				type: "sticky",
+				position: { x: 0, y: 200 },
+				width: 190,
+				data: { kind: "sticky", text: "word ".repeat(24).trim(), tone: "mint" },
+			},
+		];
+		board.edges = [];
+		const [short, long] = canvasReadBlocks(board);
+		expect(short).toMatchObject({ width: 190, height: 64 });
+		expect(long.height).toBeGreaterThan(100);
 	});
 
 	it("carries what an edit needs to name: a sticky's tone, a checklist's items with their ids", () => {
@@ -212,6 +241,27 @@ describe("parseCanvasCreateBody — the board a create_artifact call carries", (
 			text: "note n1",
 			tone: "yellow",
 		});
+	});
+
+	it("stores the width every block it makes is told to have, a frame's size as given, and no height on a note (RV-3 C2)", () => {
+		const result = parseCanvasCreateBody(
+			body([
+				frame("f"),
+				sticky("n1", { parentId: "f" }),
+				{
+					id: "t1",
+					type: "text",
+					position: { x: 0, y: 0 },
+					data: { kind: "text", text: "Title" },
+				},
+			]),
+		);
+		if (!result.ok) throw new Error(result.error);
+		const byId = new Map(result.body.nodes.map((n) => [n.id, n]));
+		expect(byId.get("f")).toMatchObject({ width: 300, height: 200 });
+		expect(byId.get("n1")?.width).toBe(NODE_WIDTH);
+		expect(byId.get("n1")?.height).toBeUndefined();
+		expect(byId.get("t1")?.width).toBe(NODE_WIDTH);
 	});
 
 	describe("refuses, and names the fix, for", () => {

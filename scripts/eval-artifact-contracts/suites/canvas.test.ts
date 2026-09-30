@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { ALFYAI_NEMOTRON_PROMPT } from "$lib/server/prompts";
 import { buildArtifactCatalogueBlock } from "$lib/server/services/artifacts/catalogue";
+import { parseCanvasCreateBody } from "$lib/server/services/normal-chat-tools/artifact-tools/canvas-model";
+import { CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE } from "$lib/server/services/normal-chat-tools/artifact-tools/kind-prose";
 import { runReadArtifactTool } from "$lib/server/services/normal-chat-tools/artifact-tools/read";
 import type { CanvasBody } from "$lib/shared/artifacts/canvas";
 import { EVAL_CASES } from "../cases";
@@ -916,6 +918,70 @@ describe("the rubric's own geometry", () => {
 				]),
 			),
 		).toHaveLength(1);
+	});
+
+	// RV-3 C2: the rubric measured every note as 84 tall, and a note is as tall as
+	// its words, so a board that scored clean could spill out of its frames on the
+	// reader's screen. It measures a note the way the model is told (and the read
+	// reports) it: by its words.
+	it("measures a note by its words, as tall as the panel draws it (RV-3 C2)", () => {
+		const long = "word ".repeat(19).trim();
+		// 94 characters: five lines, 108 tall. In a frame 200 high at y 100 it sticks
+		// out (it used to count as 84, and pass).
+		expect(
+			frameProblems(
+				board([
+					frame("f", "F", 0, 0, 300, 200),
+					sticky("a", long, 20, 100, "f"),
+				]),
+			),
+		).toHaveLength(1);
+		// The same note with room for it.
+		expect(
+			frameProblems(
+				board([
+					frame("f", "F", 0, 0, 300, 260),
+					sticky("a", long, 20, 100, "f"),
+				]),
+			),
+		).toEqual([]);
+		// And it covers the note that sits 100 below it.
+		expect(
+			overlapProblems(
+				board([sticky("a", long, 0, 0), sticky("b", "short", 0, 100)]),
+			),
+		).toHaveLength(1);
+		expect(
+			overlapProblems(
+				board([sticky("a", "short", 0, 0), sticky("b", "short", 0, 100)]),
+			),
+		).toEqual([]);
+	});
+
+	it("measures a block as wide as it is stored, and the shared width when it is not", () => {
+		const wide = { ...sticky("a", "short", 0, 0), width: 380 };
+		expect(
+			overlapProblems(board([wide, sticky("b", "short", 300, 0)])),
+		).toHaveLength(1);
+		expect(
+			overlapProblems(
+				board([sticky("a", "short", 0, 0), sticky("b", "short", 190, 0)]),
+			),
+		).toEqual([]);
+	});
+
+	it("holds the create example to the layout rule the description states after it (RV-3 C2)", () => {
+		const made = parseCanvasCreateBody(
+			JSON.stringify(CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE),
+		);
+		if (!made.ok) throw new Error(made.error);
+		expect(frameProblems(made.body)).toEqual([]);
+		expect(overlapProblems(made.body)).toEqual([]);
+		// And it leaves the 10 or more between notes that the description asks for.
+		const [museum, lunch] = made.body.nodes.filter((n) => n.type === "sticky");
+		expect(lunch.position.y - (museum.position.y + 64)).toBeGreaterThanOrEqual(
+			10,
+		);
 	});
 
 	it("finds an empty label, and what went from a board that nobody named", () => {

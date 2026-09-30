@@ -3,6 +3,7 @@ import {
 	BLOCK_DATA_SCHEMAS,
 	BLOCK_KINDS,
 	type CanvasBlockData,
+	estimatedNodeHeight,
 	isBlockKind,
 	MODEL_CREATABLE_KINDS,
 	modelCreatableBlockDataSchema,
@@ -208,5 +209,101 @@ describe("the ids of a block's own entries (RV-3 C1)", () => {
 		const result = withUniqueEntryIds(data);
 		expect(result.data).toBe(data);
 		expect(result.renamed).toEqual([]);
+	});
+});
+
+// RV-3 C2: the model plans a board with the size of each block, so the size it is
+// told must be the size the panel draws. These are the heights the panel drew,
+// measured in the browser for a note 190 wide (a note is as tall as its words),
+// and the estimate is allowed to be one line too tall and never too short.
+describe("the height a block is drawn at, as the model is told it (RV-3 C2)", () => {
+	const sticky = (text: string, width?: number) => ({
+		type: "sticky" as const,
+		...(width === undefined ? {} : { width }),
+		data: { kind: "sticky" as const, text, tone: "yellow" as const },
+	});
+
+	it("is the stored height when the block stores one, and a frame's own", () => {
+		expect(estimatedNodeHeight({ ...sticky("x"), height: 140 })).toBe(140);
+		expect(
+			estimatedNodeHeight({
+				type: "frame",
+				data: { kind: "frame", label: "F", width: 300, height: 240 },
+			}),
+		).toBe(240);
+		expect(
+			estimatedNodeHeight({
+				type: "frame",
+				height: 200,
+				data: { kind: "frame", label: "F", width: 300, height: 240 },
+			}),
+		).toBe(200);
+	});
+
+	// [characters, height the panel drew a note of that length at, in board units]
+	const DRAWN: [number, number][] = [
+		[6, 64],
+		[28, 64],
+		[40, 64],
+		[58, 72],
+		[79, 91],
+		[98, 109],
+		[116, 109],
+		[119, 127],
+		[156, 145],
+		[178, 163],
+	];
+
+	it("is as tall as the panel draws a note, or one line taller, and never shorter", () => {
+		for (const [chars, drawn] of DRAWN) {
+			const estimate = estimatedNodeHeight(
+				sticky("word ".repeat(200).slice(0, chars)),
+			);
+			expect(estimate, `${chars} characters`).toBeGreaterThanOrEqual(drawn - 2);
+			expect(estimate, `${chars} characters`).toBeLessThanOrEqual(drawn + 20);
+		}
+	});
+
+	it("gives a short note the smallest a note is, and each further line 18 more", () => {
+		expect(estimatedNodeHeight(sticky("Museum, 10:00"))).toBe(64);
+		expect(estimatedNodeHeight(sticky("x".repeat(42)))).toBe(64);
+		expect(
+			estimatedNodeHeight(sticky(`${"x".repeat(41)} ${"y".repeat(21)}`)),
+		).toBe(72);
+		const one = estimatedNodeHeight(sticky("word ".repeat(40)));
+		const more = estimatedNodeHeight(sticky("word ".repeat(80)));
+		expect(more).toBeGreaterThan(one);
+		expect((more - one) % 18).toBe(0);
+	});
+
+	it("counts the lines a reader typed, and a wider note wraps later", () => {
+		expect(estimatedNodeHeight(sticky("a\nb\nc\nd\ne"))).toBe(108);
+		const text = "word ".repeat(30);
+		expect(estimatedNodeHeight(sticky(text, 380))).toBeLessThan(
+			estimatedNodeHeight(sticky(text, 190)),
+		);
+	});
+
+	it("reads a checklist by its items and leaves the kinds it cannot judge at the default", () => {
+		const list = (n: number) => ({
+			type: "checklist" as const,
+			data: {
+				kind: "checklist" as const,
+				items: Array.from({ length: n }, (_, i) => ({
+					id: `i${i}`,
+					text: "x",
+					done: false,
+				})),
+			},
+		});
+		expect(estimatedNodeHeight(list(1))).toBe(100);
+		expect(estimatedNodeHeight(list(5))).toBe(204);
+		expect(
+			estimatedNodeHeight({
+				type: "map",
+				data: sampleBoard().nodes.find((n) => n.type === "map")
+					?.data as CanvasBlockData,
+			}),
+		).toBe(84);
 	});
 });

@@ -32,7 +32,7 @@ import type {
 	CanvasNode,
 } from "$lib/shared/artifacts/canvas";
 import {
-	DEFAULT_NODE_HEIGHT,
+	estimatedNodeHeight,
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	NODE_WIDTH,
 } from "$lib/shared/artifacts/canvas-blocks";
@@ -41,17 +41,6 @@ import type { OpRefusal } from "$lib/shared/artifacts/ops";
 import { describeJsonSlip } from "./tool-args";
 
 // ── What read_artifact shows ─────────────────────────────────────────────
-
-/**
- * The footprint a node without a stored size is given: declared once, in
- * `canvas-blocks.ts`, and read by the board's geometry (`_lib/board.ts`) too,
- * so the sizes a model arranges by and the ones the board hit-tests with cannot
- * drift. Kept under these names because the eval scores against them.
- */
-export {
-	DEFAULT_NODE_HEIGHT as BOARD_DEFAULT_NODE_HEIGHT,
-	NODE_WIDTH as BOARD_NODE_WIDTH,
-};
 
 /** Enough of a note to know which one it is; `detail: "full"` has the rest. */
 const LABEL_MAX_CHARS = 300;
@@ -99,8 +88,11 @@ function readNodeBlock(node: CanvasNode): Record<string, unknown> {
 		label: labelOf(node),
 		x: node.position.x,
 		y: node.position.y,
+		// The size the panel draws it at: the stored one, or the shared width and
+		// the height its words take (a note is as tall as its words, RV-3 C2), so
+		// what a model arranges by is what the reader sees.
 		width: node.width ?? frame?.width ?? NODE_WIDTH,
-		height: node.height ?? frame?.height ?? DEFAULT_NODE_HEIGHT,
+		height: estimatedNodeHeight(node),
 		...(node.parentId === undefined ? {} : { parentId: node.parentId }),
 		...(data.kind === "sticky" ? { tone: data.tone } : {}),
 		...(data.kind === "checklist"

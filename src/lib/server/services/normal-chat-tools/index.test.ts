@@ -5501,12 +5501,23 @@ describe("tool description hygiene", () => {
 	// margin (26 en / 27 hu). edit_artifact's own description is now 441 en /
 	// 700 hu tokens, under PER_TOOL_TOKEN_CEILING.
 	//
+	// RV-3 C2: what Alfy adds to a board is stored 190 wide, and a note is as tall
+	// as its words, but the description said "a note is 190 wide and 84 tall", so a
+	// board made from it spilled out of its frames on the reader's screen. The
+	// Canvas rule and create_artifact's `body` field now say what is drawn (one
+	// sentence, built from the constants the read and the eval share: a block is
+	// 190 wide, a note 64 tall for two lines and 18 more per further line, a
+	// checklist 74 plus 26 an item; kind-prose.ts's SIZE_FACTS). Re-measured:
+	// 5,060 en / 8,187 hu (43 en / 48 hu spent; edit_artifact hu is 750 tokens or
+	// fewer, the per-tool ceiling). The ceiling below is that measurement plus the
+	// SAME margin (26 en / 27 hu).
+	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
 	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 5043, hu: 8166 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 5086, hu: 8214 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);

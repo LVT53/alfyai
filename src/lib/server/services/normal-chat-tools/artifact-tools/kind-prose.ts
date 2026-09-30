@@ -22,7 +22,25 @@ import {
 	MAX_NEW_NODES_PER_DIFF,
 	MAX_OPS_PER_DIFF,
 } from "$lib/shared/artifacts/board-ops";
+import {
+	CHECKLIST_BASE_HEIGHT,
+	CHECKLIST_ROW_HEIGHT,
+	charsPerLine,
+	NODE_WIDTH,
+	NOTE_LINE_HEIGHT,
+	NOTE_MIN_HEIGHT,
+} from "$lib/shared/artifacts/canvas-blocks";
 import type { CreatableArtifactKind } from "./kind-registry";
+
+/**
+ * The sizes of what a model adds to a board, said the way the panel draws them
+ * (RV-3 C2): a block is `NODE_WIDTH` wide (the app stores that width when it
+ * adds one), and only a frame has a height of its own — a note is as tall as its
+ * words, a checklist as its items. Built from the constants the read, the eval
+ * and the estimate share, so the sentence cannot drift from what is drawn.
+ */
+const SIZE_FACTS_EN = `a block you add is ${NODE_WIDTH} wide (a frame is the size you give it); a note is ${NOTE_MIN_HEIGHT} tall for up to two lines (about ${charsPerLine()} characters a line), plus ${NOTE_LINE_HEIGHT} for each further line; a checklist is ${CHECKLIST_BASE_HEIGHT} plus ${CHECKLIST_ROW_HEIGHT} an item`;
+const SIZE_FACTS_HU = `Egy blokk ${NODE_WIDTH} széles (a keret: amit megadsz), egy jegyzet két sorig ${NOTE_MIN_HEIGHT} magas (soronként kb. ${charsPerLine()} karakter), minden további sor +${NOTE_LINE_HEIGHT}, egy feladatlista ${CHECKLIST_BASE_HEIGHT} + ${CHECKLIST_ROW_HEIGHT} elemenként`;
 
 /** No-Oxford-comma list join matching this tool family's existing prose
  *  style: "a" / "a or b" / "a, b or c". */
@@ -55,7 +73,7 @@ export const CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE = {
 			id: "sat",
 			type: "frame",
 			position: { x: 40, y: 40 },
-			data: { kind: "frame", label: "Saturday", width: 300, height: 220 },
+			data: { kind: "frame", label: "Saturday", width: 300, height: 240 },
 		},
 		{
 			id: "museum",
@@ -143,9 +161,9 @@ const KIND_COPY: Record<CreatableArtifactKind, KindCopy> = {
 			"canvas térben elrendezett jegyzetek és keretek táblájához, nyilakkal összekötve",
 		useCaseEn: "board",
 		useCaseHu: "táblához",
-		bodyFormatEn: `Canvas: the board as JSON, e.g. ${JSON.stringify(CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE)} — or {} for an empty board. Edges go in "edges", never in "nodes". A note is 190 wide and 84 tall: leave 10 or more between notes, and make each frame big enough for its notes.`,
-		editRuleEn: `Canvas: send ops, one per change to the board, addressing nodes and edges by the ids read_artifact gave (there is no baseHash) — at most ${MAX_OPS_PER_DIFF} ops and ${MAX_NEW_NODES_PER_DIFF} new nodes. A frame goes earlier in the list than what goes inside it. A note is 190 wide and 84 tall: keep notes apart and inside their frame (update_node can enlarge a frame). A block's kind cannot change: remove it and add a new one.`,
-		editRuleHu: `Tábláknál: küldj ops-ot, a tábla minden módosításához egy műveletet, a blokkokat és nyilakat a read_artifact által adott azonosítókkal címezve (baseHash nincs) — legfeljebb ${MAX_OPS_PER_DIFF} műveletet és ${MAX_NEW_NODES_PER_DIFF} új blokkot. A keret előbb szerepeljen a listában, mint ami benne van. Egy jegyzet 190 széles és 84 magas: tartsd őket távol egymástól és a keretükön belül (az update_node megnagyíthatja a keretet). Egy blokk típusa nem változtatható: töröld, és adj hozzá újat.`,
+		bodyFormatEn: `Canvas: the board as JSON, e.g. ${JSON.stringify(CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE)} — or {} for an empty board. Edges go in "edges", never in "nodes". Sizes: ${SIZE_FACTS_EN}. Leave 10 or more between blocks, and make each frame big enough for its blocks.`,
+		editRuleEn: `Canvas: send ops, one per change to the board, addressing nodes and edges by the ids read_artifact gave (there is no baseHash) — at most ${MAX_OPS_PER_DIFF} ops and ${MAX_NEW_NODES_PER_DIFF} new nodes. A frame goes earlier in the list than what goes inside it. Sizes: ${SIZE_FACTS_EN}. Keep blocks apart and inside their frame (update_node can enlarge a frame). A block's kind cannot change: remove it and add a new one.`,
+		editRuleHu: `Tábláknál: küldj ops-ot, a tábla minden módosításához egy műveletet, a blokkokat és nyilakat a read_artifact által adott azonosítókkal címezve (baseHash nincs) — legfeljebb ${MAX_OPS_PER_DIFF} műveletet és ${MAX_NEW_NODES_PER_DIFF} új blokkot. A keret előbb szerepeljen a listában, mint ami benne van. ${SIZE_FACTS_HU}. Tartsd távol egymástól a blokkokat és a keretükön belül (az update_node megnagyíthatja a keretet). Egy blokk típusa nem változtatható: töröld, és adj hozzá újat.`,
 	},
 	// Not yet advertised (no create handler registered — see
 	// advertisedArtifactKinds() in create.ts). Kept ready for Wave 4.

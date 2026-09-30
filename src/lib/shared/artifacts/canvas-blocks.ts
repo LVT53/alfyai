@@ -49,6 +49,84 @@ const ID_MAX_CHARS = 128;
 export const NODE_WIDTH = 190;
 export const DEFAULT_NODE_HEIGHT = 84;
 
+// ── The height a block is drawn at (RV-3 C2) ─────────────────────────────
+
+/**
+ * Only a frame stores a height: every other block is as tall as its content,
+ * so a note that grows with its words never clips them. The model plans a board
+ * with sizes, though (what to leave between notes, how big a frame must be), so
+ * what it is told of a block's height has to be what the panel draws. These are
+ * the panel's own numbers for a block `NODE_WIDTH` wide, measured in the
+ * browser: a note (`StickyNode.svelte`: 12.5px type at 1.45, 9px above and
+ * below) is 64 tall for one or two lines and 18 more for each further one, a
+ * checklist row is 26 with 74 above and below its rows. About 21 characters
+ * fit a line of a note that wide (word wrap costs some of the 24 the width
+ * would hold), so the estimate is one line too tall now and then and never too
+ * short: an arrangement made from it leaves slack, never an overlap.
+ */
+export const NOTE_MIN_HEIGHT = 64;
+export const NOTE_LINE_HEIGHT = 18;
+const NOTE_PADDING_HEIGHT = 18;
+const TEXT_MIN_HEIGHT = 32;
+const TEXT_PADDING_HEIGHT = 14;
+const NOTE_SIDE_PADDING = 20;
+const NOTE_CHAR_WIDTH = 8;
+export const CHECKLIST_BASE_HEIGHT = 74;
+export const CHECKLIST_ROW_HEIGHT = 26;
+
+/** How many characters of a note's words fit a line of a block `width` wide (about 21 at `NODE_WIDTH`). */
+export function charsPerLine(width: number = NODE_WIDTH): number {
+	return Math.max(1, Math.floor((width - NOTE_SIDE_PADDING) / NOTE_CHAR_WIDTH));
+}
+
+/** How many lines `text` takes in a block `width` wide: each line a reader typed, wrapped at `charsPerLine`. */
+function wrappedLines(text: string, width: number): number {
+	const perLine = charsPerLine(width);
+	return text
+		.split("\n")
+		.reduce(
+			(lines, line) =>
+				lines + Math.max(1, Math.ceil(Array.from(line).length / perLine)),
+			0,
+		);
+}
+
+/**
+ * The height a block is drawn at: the one it stores, a frame's own, or an
+ * estimate from its words (a note, a text) or its items (a checklist). The kinds
+ * whose height the app decides (a chart, a map, a file, an App, photos, a web
+ * search) are left at `DEFAULT_NODE_HEIGHT`. The model's read, the eval's
+ * geometry and the tool text all take their sizes from here.
+ */
+export function estimatedNodeHeight(node: {
+	type: BlockKind;
+	width?: number;
+	height?: number;
+	data: CanvasBlockData;
+}): number {
+	if (node.height !== undefined) return node.height;
+	const data = node.data;
+	const width = node.width ?? NODE_WIDTH;
+	switch (data.kind) {
+		case "frame":
+			return data.height;
+		case "sticky":
+			return Math.max(
+				NOTE_MIN_HEIGHT,
+				NOTE_PADDING_HEIGHT + NOTE_LINE_HEIGHT * wrappedLines(data.text, width),
+			);
+		case "text":
+			return Math.max(
+				TEXT_MIN_HEIGHT,
+				TEXT_PADDING_HEIGHT + NOTE_LINE_HEIGHT * wrappedLines(data.text, width),
+			);
+		case "checklist":
+			return CHECKLIST_BASE_HEIGHT + CHECKLIST_ROW_HEIGHT * data.items.length;
+		default:
+			return DEFAULT_NODE_HEIGHT;
+	}
+}
+
 const idSchema = z.string().min(1).max(ID_MAX_CHARS);
 const labelSchema = z.string().max(LABEL_MAX_CHARS);
 

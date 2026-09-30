@@ -26,6 +26,7 @@ import {
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	MODEL_CREATABLE_KINDS,
 	modelCreatableBlockDataSchema,
+	NODE_WIDTH,
 	repeatedEntryIds,
 } from "./canvas-blocks";
 import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
@@ -269,10 +270,15 @@ export function applyOp(body: CanvasBody, op: BoardOp): CanvasBody {
 				data: data as CanvasBlockData,
 			};
 			if (parentId !== undefined) added.parentId = parentId;
-			// A frame's size is on the node and in its data; the two move together.
 			if (data.kind === "frame") {
+				// A frame's size is on the node and in its data; the two move together.
 				added.width = data.width;
 				added.height = data.height;
+			} else {
+				// The model has no width to give a block and is told how wide one is, so
+				// it is stored: the board would otherwise draw it as wide as its words
+				// run (RV-3 C2). No height: a block is as tall as its content.
+				added.width = NODE_WIDTH;
 			}
 			return { ...body, nodes: [...body.nodes, added] };
 		}
