@@ -539,6 +539,9 @@ describe("charts", () => {
 			chartType: "bar",
 		});
 		expect(listing?.charts[0].data.kind).toBe("chart");
+		// A chart's own title heads its block, as it heads the chart; an untitled one has none.
+		expect(listing?.charts[1].data.label).toBe("Sales");
+		expect(listing?.charts[0].data.label).toBeUndefined();
 	});
 
 	it("finds the chart a bar-column table stands for, because the chat draws it", async () => {

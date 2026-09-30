@@ -34,7 +34,10 @@ import { createConversation, login, waitForStableBoundingBox } from "./helpers";
 const TRIP_NOTES = "Vienna trip notes.md";
 const CHART = {
 	type: "bar",
-	data: { labels: ["Apples", "Pears"], datasets: [{ data: [30, 20] }] },
+	data: {
+		labels: ["Apples", "Pears"],
+		datasets: [{ label: "Sales", data: [30, 20] }],
+	},
 	options: { plugins: { title: { text: "Sales by fruit" } } },
 };
 const MAP = {
@@ -245,23 +248,32 @@ async function openBoard(page: Page) {
 }
 
 const insertButton = (page: Page) => page.getByTestId("canvas-insert-button");
-const menu = (page: Page) => page.getByTestId("canvas-insert-menu");
+// The menu's own list: in the popover on a laptop and in the sheet on a phone.
+const menu = (page: Page) => page.getByTestId("canvas-insert-menu-list");
+
+/** What the section and its reading line are called, in the language the UI is in. */
+const SECTION = {
+	en: { title: "From this chat", reading: "Looking through this chat…" },
+	hu: { title: "Ebből a beszélgetésből", reading: "A beszélgetés átnézése…" },
+} as const;
 
 /** Opens the Insert menu and waits until "From this chat" has read the chat. */
-async function openInsertMenu(page: Page) {
+async function openInsertMenu(page: Page, language: "en" | "hu" = "en") {
 	await insertButton(page).click();
 	await expect(menu(page)).toBeVisible();
 	await expect(
-		menu(page).getByRole("group", { name: "From this chat" }),
+		menu(page).getByRole("group", { name: SECTION[language].title }),
 	).toBeVisible();
-	await expect(menu(page).getByText("Looking through this chat…")).toHaveCount(
-		0,
-	);
+	await expect(menu(page).getByText(SECTION[language].reading)).toHaveCount(0);
 }
 
 /** Picks a row of "From this chat" by its visible name; the menu closes and the block lands. */
-async function pickFromChat(page: Page, name: string | RegExp) {
-	await openInsertMenu(page);
+async function pickFromChat(
+	page: Page,
+	name: string | RegExp,
+	language: "en" | "hu" = "en",
+) {
+	await openInsertMenu(page, language);
 	await menu(page).getByRole("menuitem", { name }).click();
 	await expect(menu(page)).toHaveCount(0);
 }
@@ -269,7 +281,9 @@ async function pickFromChat(page: Page, name: string | RegExp) {
 /** Fits everything on the board into the view, so every block is on screen to be used. */
 async function fitBoard(page: Page) {
 	await page.getByTestId("canvas-fit").click();
-	await page.waitForTimeout(700);
+	// The camera tweens; it has arrived when the zoom stops reading 100%.
+	await expect(page.getByTestId("canvas-zoom-level")).not.toHaveText("100%");
+	await page.waitForTimeout(500);
 }
 
 const nodeOf = (page: Page, kind: string) =>
@@ -374,6 +388,8 @@ test.describe("blocks from this chat", () => {
 			map: { originLabel: "Cork", destinationLabel: "Kinsale" },
 		});
 		expect(JSON.parse((data("chart") as { code: string }).code)).toEqual(CHART);
+		// The chart's own title heads its block.
+		expect(data("chart")).toMatchObject({ label: "Sales by fruit" });
 		// An App has a size of its own to be drawn at, stored with it.
 		const app = stored.nodes.find((node) => node.type === "app");
 		expect(app?.width).toBeGreaterThan(0);
@@ -684,6 +700,11 @@ test.describe("screenshots of blocks from this chat", () => {
 		"set S3R1_SHOTS to a folder to write the report's screenshots",
 	);
 
+	// The other specs assume an English UI.
+	test.afterAll(async () => {
+		await setUiLanguage("en");
+	});
+
 	for (const scheme of ["light", "dark"] as const) {
 		test(`the board with all four blocks, Hungarian, ${scheme}, 1440x900`, async ({
 			page,
@@ -695,11 +716,12 @@ test.describe("screenshots of blocks from this chat", () => {
 			const seeded = await seedChat(page);
 			await openChatAndReload(page, seeded.conversationId);
 			await openBoard(page);
-			await pickFromChat(page, new RegExp(TRIP_NOTES));
-			await pickFromChat(page, /Tip calculator/);
-			await pickFromChat(page, /Cork → Kinsale/);
-			await pickFromChat(page, /Sales by fruit/);
+			await pickFromChat(page, new RegExp(TRIP_NOTES), "hu");
+			await pickFromChat(page, /Tip calculator/, "hu");
+			await pickFromChat(page, /Cork → Kinsale/, "hu");
+			await pickFromChat(page, /Sales by fruit/, "hu");
 			await savedStatus(page).catch(() => undefined);
+			await fitBoard(page);
 			await page.waitForTimeout(1_200);
 			await page.screenshot({
 				path: join(SHOTS as string, `1440-${scheme}-board.png`),
@@ -724,10 +746,11 @@ test.describe("screenshots of blocks from this chat", () => {
 		const seeded = await seedChat(page);
 		await openChatAndReload(page, seeded.conversationId);
 		await openBoard(page);
-		await pickFromChat(page, new RegExp(TRIP_NOTES));
-		await pickFromChat(page, /Tip calculator/);
-		await pickFromChat(page, /Cork → Kinsale/);
-		await pickFromChat(page, /Sales by fruit/);
+		await pickFromChat(page, new RegExp(TRIP_NOTES), "hu");
+		await pickFromChat(page, /Tip calculator/, "hu");
+		await pickFromChat(page, /Cork → Kinsale/, "hu");
+		await pickFromChat(page, /Sales by fruit/, "hu");
+		await fitBoard(page);
 		await page.waitForTimeout(1_200);
 		await page.screenshot({
 			path: join(SHOTS as string, "390-light-board.png"),

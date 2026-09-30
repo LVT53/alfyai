@@ -230,13 +230,19 @@ function chartsIn(
 	const charts: ChatChartBlock[] = [];
 	for (const [index, code] of codes.entries()) {
 		if (seenCode.has(code)) continue;
-		const parsed = BLOCK_DATA_SCHEMAS.chart.safeParse({ kind: "chart", code });
+		const facts = chartFacts(code);
+		// A chart's own title heads its block, as it heads the chart.
+		const parsed = BLOCK_DATA_SCHEMAS.chart.safeParse({
+			kind: "chart",
+			...(facts.title ? { label: facts.title } : {}),
+			code,
+		});
 		if (!parsed.success) continue;
 		seenCode.add(code);
 		charts.push({
 			key: `chart:${message.id}:${index}`,
 			at: message.timestamp,
-			...chartFacts(code),
+			...facts,
 			data: parsed.data,
 		});
 	}

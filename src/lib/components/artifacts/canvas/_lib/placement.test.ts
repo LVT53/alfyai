@@ -100,6 +100,20 @@ describe("placing a block made from the chat", () => {
 		expect(Number.isInteger(at.x) && Number.isInteger(at.y)).toBe(true);
 	});
 
+	it("leaves a gap between blocks, not an edge laid against an edge", () => {
+		const taken = rectAt({ x: 600, y: 330 });
+		const placed = rectAt(spot([taken]));
+		const gapX = Math.max(
+			taken.x - (placed.x + placed.width),
+			placed.x - (taken.x + taken.width),
+		);
+		const gapY = Math.max(
+			taken.y - (placed.y + placed.height),
+			placed.y - (taken.y + taken.height),
+		);
+		expect(Math.max(gapX, gapY)).toBeGreaterThanOrEqual(24);
+	});
+
 	it("keeps clear of several blocks, one after another, however many it puts down", () => {
 		const occupied: Rect[] = [];
 		for (let index = 0; index < 6; index += 1) {
@@ -127,6 +141,17 @@ describe("placing a block made from the chat", () => {
 		const seen =
 			at.x < visible.x + visible.width && at.x + app.width > visible.x;
 		expect(seen).toBe(true);
+	});
+
+	it("prefers ground that is wholly in view over ground the reader would only half see", () => {
+		const taken = rectAt({ x: 600, y: 330 });
+		// The pane starts a little above the row above the taken block and ends far
+		// below it: the ground above is only partly in view, the ground below is all
+		// of it, though it is not the nearer.
+		const visible: Rect = { x: 0, y: 100, width: 1_600, height: 1_200 };
+		const at = spot([taken], visible);
+		expect(at.y).toBeGreaterThanOrEqual(visible.y);
+		expect(at.y + app.height).toBeLessThanOrEqual(visible.y + visible.height);
 	});
 
 	it("falls back to the centre, staggered like a note, when there is no free ground to be found", () => {

@@ -298,7 +298,8 @@ let redoLabel = $derived(
 		anchorTestId="canvas-insert-button"
 		popoverTestId="canvas-insert-menu"
 		closeLabel={$t("common.close")}
-		width={300}
+		width={320}
+		maxHeight={560}
 		onClose={closeInsert}
 	>
 		<InsertMenu onpick={pick} />

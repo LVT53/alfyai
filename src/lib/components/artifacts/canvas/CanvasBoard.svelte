@@ -324,11 +324,12 @@ function insertBlock(row: BlockRegistryEntry, data?: CanvasBlockData): void {
 		x: rect.left + rect.width / 2,
 		y: rect.top + rect.height / 2,
 	});
-	// A note is staggered off the one under it. A block made from the chat is big
-	// (an App is 400 x 340), so it is put on free ground instead: laid over another
-	// App it would take that App's clicks. A frame is a backdrop, not in the way.
+	// A note is staggered off the one under it. A block made from the chat (it
+	// arrives with the data the chat made) is big — an App is 400 x 340 — so it is
+	// put on free ground instead: laid over another App it would take that App's
+	// clicks. A frame is a backdrop, not in the way.
 	const position =
-		row.section === "chat"
+		data !== undefined
 			? placeBesideBlocks({
 					center,
 					size: row.size,
