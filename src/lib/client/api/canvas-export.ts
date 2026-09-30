@@ -11,6 +11,9 @@
  */
 import { type FetchLike, requestResponse } from "$lib/client/api/http";
 
+/** How long a picture is given to reach the server. */
+const UPLOAD_TIMEOUT_MS = 45_000;
+
 export type CanvasImageSource = "canvas-export" | "canvas-poster";
 
 export type UploadCanvasImageResult =
@@ -55,6 +58,8 @@ export async function uploadCanvasImage(
 			`/api/artifacts/${encodeURIComponent(input.artifactId)}/exports/png${query}`,
 			{
 				method: "POST",
+				// A request that never answers must not hold a picture (or the board drawn over for it).
+				signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					source: input.source,

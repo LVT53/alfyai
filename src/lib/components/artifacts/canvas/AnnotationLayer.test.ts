@@ -3,7 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Annotation } from "$lib/shared/artifacts/canvas";
 import { MAX_ANNOTATIONS_PER_BOARD } from "$lib/shared/artifacts/canvas-body";
 import { uiLanguage } from "$lib/stores/settings";
-import type { Tool } from "./_lib/annotations";
+import type { Tool } from "./_lib/tools";
 import AnnotationLayer from "./AnnotationLayer.svelte";
 
 // The layer is drawn on its own here, on a board whose screen and board

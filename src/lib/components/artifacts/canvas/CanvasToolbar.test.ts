@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
-import type { Tool } from "./_lib/annotations";
+import type { Tool } from "./_lib/tools";
 import CanvasToolbar from "./CanvasToolbar.svelte";
+import DrawTray from "./DrawTray.svelte";
 
 beforeEach(() => {
 	uiLanguage.set("en");
@@ -17,6 +18,7 @@ function mount(
 		canRedo: boolean;
 		disabled: boolean;
 		askBusy: boolean;
+		Tray: typeof DrawTray | null;
 	}> = {},
 ) {
 	const callbacks = {
@@ -32,6 +34,8 @@ function mount(
 		ink: "var(--ink-blue)",
 		canUndo: true,
 		canRedo: true,
+		// The board hands the tray over once it has loaded, before a tool that draws is set.
+		Tray: DrawTray,
 		...callbacks,
 		...props,
 	});
@@ -41,6 +45,22 @@ function mount(
 const toolbar = () => screen.getByRole("toolbar", { name: "Canvas tools" });
 
 describe("the toolbar", () => {
+	it("asks for what loads on demand when a reader reaches for Draw, before they press it", async () => {
+		const onwarm = vi.fn();
+		mount({ onwarm } as never);
+		const draw = screen.getByRole("button", { name: "Draw" });
+		await fireEvent.pointerEnter(draw);
+		await fireEvent.focus(draw);
+		expect(onwarm).toHaveBeenCalledTimes(2);
+		expect(onwarm).toHaveBeenCalledWith("draw");
+	});
+
+	it("draws no tray until the tray has loaded, even with a tool that draws on (the board loads it first)", () => {
+		mount({ tool: "pen", Tray: null });
+		expect(screen.queryByTestId("canvas-draw-tray")).toBeNull();
+		expect(screen.getByRole("button", { name: "Draw" })).toBeTruthy();
+	});
+
 	it("shows the drawing tools only while a tool that draws is on", () => {
 		const off = mount({ tool: "select" });
 		expect(screen.queryByTestId("canvas-draw-tray")).toBeNull();

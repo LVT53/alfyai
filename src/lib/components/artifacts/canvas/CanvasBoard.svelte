@@ -70,7 +70,7 @@ import {
 	reparentOnDrop,
 	withoutDanglingEdges,
 } from "./_lib/board";
-import { DEFAULT_INK, isDrawingTool, type Tool } from "./_lib/annotations";
+import { DEFAULT_INK, isDrawingTool, type Tool } from "./_lib/tools";
 import type { BoardLayerApi } from "./_lib/board-layers";
 import { type BoardHistory, createBoardHistory } from "./_lib/board-history";
 import { type BlockPicture, provideBoardContext } from "./_lib/board-context";
@@ -92,9 +92,9 @@ import {
 } from "./_lib/block-registry";
 import { newId } from "./_lib/ids";
 import { visibleBoardRect } from "./_lib/pane-rect";
-import { placeBesideBlocks, placeInsertedBlock } from "./_lib/placement";
-import AnnotationLayer from "./AnnotationLayer.svelte";
+import type AnnotationLayer from "./AnnotationLayer.svelte";
 import CanvasToolbar from "./CanvasToolbar.svelte";
+import type DrawTray from "./DrawTray.svelte";
 import ZoomChip from "./ZoomChip.svelte";
 
 let {
@@ -159,6 +159,29 @@ let limitNotice = $state(false);
 let limitTimer: ReturnType<typeof setTimeout> | null = null;
 /** The frame a block being dragged would join if it were dropped now. */
 let dropTargetId = $state<string | null>(null);
+// The drawing layer and its tray load on demand (`drawing-parts.ts`): when a tool
+// that draws is chosen, or the board has marks to show. Until then none of it is in
+// the editor's first paint.
+let drawingViews = $state.raw<{
+	AnnotationLayer: typeof AnnotationLayer;
+	DrawTray: typeof DrawTray;
+} | null>(null);
+let drawingLoading: Promise<boolean> | null = null;
+
+function ensureDrawing(): Promise<boolean> {
+	drawingLoading ??= import("./drawing-parts")
+		.then(({ AnnotationLayer, DrawTray }) => {
+			drawingViews = { AnnotationLayer, DrawTray };
+			return true;
+		})
+		// Offline, or a deploy in between: the next choice of a tool tries again.
+		.catch(() => {
+			drawingLoading = null;
+			return false;
+		});
+	return drawingLoading;
+}
+
 // While a picture of the board is taken (the export): what stands in for the live
 // content of each block a picture cannot carry. Null on the live board.
 let pictures = $state.raw<ReadonlyMap<string, BlockPicture> | null>(null);
@@ -454,9 +477,20 @@ function visiblePaneRect() {
 		: undefined;
 }
 
-function insertBlock(row: BlockRegistryEntry, data?: CanvasBlockData): void {
+async function insertBlock(
+	row: BlockRegistryEntry,
+	data?: CanvasBlockData,
+): Promise<void> {
 	if (readonly || !boardEl) return;
 	// What was pending is a step of its own, so Undo takes the insert back alone.
+	commit();
+	// Where a block goes is worked out when one is inserted, not when the editor
+	// opens: the placement code loads with the first insert.
+	const { placeBesideBlocks, placeInsertedBlock } = await import(
+		"./_lib/placement"
+	);
+	if (readonly || !boardEl) return;
+	// Whatever the reader did while it loaded is a step before the insert.
 	commit();
 	const rect = boardEl.getBoundingClientRect();
 	const center = flow.screenToFlowPosition({
@@ -524,6 +558,16 @@ function handleBeforeConnect(connection: Connection): Edge {
 // ---- Tools and marks ------------------------------------------------------
 
 function setTool(next: Tool): void {
+	// A tool that draws is set only once the layer that draws is there, so the
+	// pointer is never handed to a layer that has not arrived.
+	if ((isDrawingTool(next) || next === "eraser") && !drawingViews) {
+		void ensureDrawing().then((loaded) => loaded && applyTool(next));
+		return;
+	}
+	applyTool(next);
+}
+
+function applyTool(next: Tool): void {
 	tool = next;
 	// A block and a mark are never selected together: a tool that draws starts
 	// from a board with nothing picked, its toolbar and handles out of the way.
@@ -536,6 +580,11 @@ function setTool(next: Tool): void {
 		);
 	}
 }
+
+// A board with marks needs the layer that draws them, whatever tool is on.
+$effect(() => {
+	if (annotations.length > 0) void ensureDrawing();
+});
 
 /** A gesture of the drawing layer is complete: it is one step of its own. */
 function handleAnnotations(next: Annotation[]): void {
@@ -783,6 +832,8 @@ function minimapColor(node: {
 		emphasizeInsert={empty}
 		{askBusy}
 		{ink}
+		Tray={drawingViews?.DrawTray ?? null}
+		onwarm={() => void ensureDrawing()}
 		oninkchange={(next) => (ink = next)}
 		ontoolchange={setTool}
 		onundo={undo}
@@ -821,21 +872,23 @@ function minimapColor(node: {
 	>
 		<Background variant={BackgroundVariant.Dots} gap={18} size={1} />
 		<!-- The drawing layer, in the viewport's front layer so every point is a board point. -->
-		<ViewportPortal target="front">
-			<AnnotationLayer
-				{annotations}
-				{viewport}
-				paneSize={{ width: boardWidth, height: boardHeight }}
-				{tool}
-				{ink}
-				{readonly}
-				toBoard={(point) => flow.screenToFlowPosition(point)}
-				onchange={handleAnnotations}
-				ontoolchange={setTool}
-				onannounce={announce}
-				onlimit={handleLimit}
-			/>
-		</ViewportPortal>
+		{#if drawingViews}
+			<ViewportPortal target="front">
+				<drawingViews.AnnotationLayer
+					{annotations}
+					{viewport}
+					paneSize={{ width: boardWidth, height: boardHeight }}
+					{tool}
+					{ink}
+					{readonly}
+					toBoard={(point) => flow.screenToFlowPosition(point)}
+					onchange={handleAnnotations}
+					ontoolchange={setTool}
+					onannounce={announce}
+					onlimit={handleLimit}
+				/>
+			</ViewportPortal>
+		{/if}
 		{@render layers?.(layerApi)}
 		{#if showMinimap}
 			<MiniMap

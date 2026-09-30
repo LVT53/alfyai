@@ -28,13 +28,38 @@
 //      every other lazy entry). A chunk that fails the first half is somewhere
 //      the editor's chunk does not reach ("outside"); one that fails the second
 //      is loaded with something else ("leak"), and the report names what.
-//   5. Optionally `--max-gzip BYTES` caps the gzip size of what the target
-//      loads that nothing else does (its exclusive closure).
+//   5. `--allow-entry NAME` names a lazy PART of the editor (the comments, the
+//      export, the drawing layer): it may share chunks with the editor, it does
+//      not count as somebody else loading a library, and a confined package may
+//      live in its own closure — it is the editor's, loaded when it is needed.
+//   6. `--max-gzip BYTES` caps the gzip size of what the target loads that
+//      nothing else does (its exclusive closure). This is the honest reading of
+//      "the editor's chunk": what opening the editor downloads, its own chunk AND
+//      the chunks it statically pulls in, with a chunk it shares with one of its own
+//      lazy parts counted as its own. The bare size of the one target chunk falls
+//      whenever a module moves into a chunk a lazy part also imports, though the
+//      same bytes load, so it is printed but never the number that is held.
+//   7. `--forbid PACKAGE` names a package that must NOT be in any chunk the editor
+//      loads when it opens (Chart.js and MapLibre load on demand, in the chat's own
+//      chunks, and must stay out of the editor's first paint).
+//   8. `--chat-route ID --chat-baseline BYTES` holds the chat page's own first
+//      load: the gzip size of the route's root layout, layouts and page with
+//      everything they statically import (never a lazy chunk, so never an open
+//      editor) may not grow more than `--chat-tolerance` (default 2 KiB) past the
+//      baseline. Re-baseline on purpose when the chat itself gets heavier.
 // A package found in no chunk is reported as absent, never as guarded: it is
 // either not imported yet or tree-shaken, and a green line for it would be a lie.
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
+
+/** SvelteKit's generated route table: which nodes (layouts, page) a route is made of. */
+const DEFAULT_ROUTES = join(
+	".svelte-kit",
+	"generated",
+	"client-optimized",
+	"app.js",
+);
 
 const DEFAULT_MANIFEST = join(
 	".svelte-kit",
@@ -51,8 +76,18 @@ const DEFAULT_MANIFEST = join(
 export const PACKAGE_FINGERPRINTS = {
 	"@xyflow": ["svelte-flow__pane"],
 	"perfect-freehand": ["simulatePressure", "runningLength"],
-	"html-to-image": ["Failed to clone iframe"],
+	// What html-to-image 1.11.11 keeps through minification: its own error messages.
+	"html-to-image": [
+		"Error inlining remote css file",
+		"externalResourcesRequired",
+	],
+	// The two libraries the chat loads on demand and the editor must not load when it opens.
+	"chart.js": ["chartjs-", "_adapters"],
+	"maplibre-gl": ["maplibregl-canvas", "maplibregl-map"],
 };
+
+/** What is confined to the editor when the CLI is not told which packages. */
+const DEFAULT_CONFINE = ["@xyflow", "perfect-freehand", "html-to-image"];
 
 /** The manifest keys a `--name` selects: its `name`, its key, or its source path contains it. */
 export function findTargetKeys(manifest, name) {
@@ -95,7 +130,8 @@ function gzipSize(text) {
  * @param {string[]} params.confine package names (keys of `fingerprints`) that must stay in the target
  * @param {Record<string, string[]>} [params.fingerprints]
  * @param {number} [params.maxGzip] cap on the target's exclusive closure, gzip bytes
- * @param {string[]} [params.allowEntries] other lazy entries (by name) that may share the target's chunks
+ * @param {string[]} [params.allowEntries] lazy parts of the editor (by name): they may share its chunks, and a confined package may live in their closure
+ * @param {string[]} [params.forbid] packages that must not be in any chunk the target loads when it opens
  */
 export function checkArtifactChunks({
 	manifest,
@@ -105,6 +141,7 @@ export function checkArtifactChunks({
 	fingerprints = PACKAGE_FINGERPRINTS,
 	maxGzip,
 	allowEntries = [],
+	forbid = [],
 }) {
 	const violations = [];
 	const targetKeys = findTargetKeys(manifest, name);
@@ -127,6 +164,11 @@ export function checkArtifactChunks({
 		allowEntries.flatMap((allowed) => findTargetKeys(manifest, allowed)),
 	);
 	const targetClosure = staticClosure(manifest, targetKeys);
+	// The editor and its lazy parts: where a confined package may live.
+	const familyClosure = new Set([
+		...targetClosure,
+		...staticClosure(manifest, [...allowedKeys]),
+	]);
 	// What can be loaded on its own: the app's entries, the route nodes and every
 	// other lazy entry. A shared chunk is only ever loaded BY one of these, so it
 	// is not a root (it would otherwise "load itself").
@@ -160,7 +202,7 @@ export function checkArtifactChunks({
 		packages.push(report);
 		for (const key of containing) {
 			const file = manifest[key].file;
-			if (!targetClosure.has(key)) {
+			if (!familyClosure.has(key)) {
 				violations.push({
 					kind: "outside",
 					pkg,
@@ -186,9 +228,37 @@ export function checkArtifactChunks({
 		}
 	}
 
+	// What the editor must not load when it opens, whatever else does.
+	for (const pkg of forbid) {
+		const marks = fingerprints[pkg];
+		if (!marks) throw new Error(`no fingerprint is known for "${pkg}"`);
+		for (const key of targetClosure) {
+			if (!hasAll(textOf(key), marks)) continue;
+			violations.push({
+				kind: "forbidden",
+				pkg,
+				file: manifest[key].file,
+				message: `${pkg} is in ${manifest[key].file}, which the ${name} chunk loads when it opens (it must load on demand)`,
+			});
+		}
+	}
+
 	// What loads only because the editor opened: its own chunks, shared with nothing else.
 	const exclusive = [...targetClosure].filter(
 		(key) => loadedBy(key).length === 0,
+	);
+	// Also downloaded when the editor opens, though not counted above because
+	// another entry loads it: a chunk only OTHER lazy entries share (a helper both
+	// editors use, a library another feature loads on demand) is not the shell's, so
+	// opening the editor from a page that has not loaded it fetches it. Reported,
+	// never held: it is not the editor's own weight, and saying so is the point.
+	const routeRoots = otherRoots.filter(
+		(key) => manifest[key].isEntry && !manifest[key].isDynamicEntry,
+	);
+	const lazyShared = [...targetClosure].filter(
+		(key) =>
+			!exclusive.includes(key) &&
+			!routeRoots.some((root) => closureOf.get(root)?.has(key)),
 	);
 	const numbers = {
 		targetFiles: targetKeys.map((key) => manifest[key].file),
@@ -210,6 +280,11 @@ export function checkArtifactChunks({
 			0,
 		),
 		sharedChunks: targetClosure.size - exclusive.length,
+		lazySharedChunks: lazyShared.length,
+		lazySharedGzipBytes: lazyShared.reduce(
+			(sum, key) => sum + gzipSize(textOf(key)),
+			0,
+		),
 	};
 	if (maxGzip !== undefined && numbers.exclusiveGzipBytes > maxGzip) {
 		violations.push({
@@ -227,6 +302,60 @@ export function checkArtifactChunks({
 	};
 }
 
+/** The generated route table's nodes for one route: the root layout, the route's layouts and its page, as node indexes. Null for a route the table does not have. */
+export function parseRouteNodes(appJsText, routeId) {
+	const escaped = routeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const entry = new RegExp(`"${escaped}"\\s*:\\s*\\[([^\\]]*(?:\\[[^\\]]*\\])?[^\\]]*)\\]`).exec(
+		appJsText,
+	);
+	if (!entry) return null;
+	const numbers = [...entry[1].matchAll(/\d+/g)].map((match) => Number(match[0]));
+	// The first number is the page, the rest are its layouts; the root layout (node 0) is always loaded.
+	const [page, ...layouts] = numbers;
+	return [...new Set([0, ...layouts, page])];
+}
+
+/**
+ * The chat page's own first load: the gzip size of the route's nodes with every
+ * chunk they import statically, each counted once. A chunk loaded on demand is
+ * not part of it, so an artifact panel that was never opened never is.
+ */
+export function checkChatRoute({
+	manifest,
+	readChunk,
+	nodes,
+	baseline,
+	tolerance = 2048,
+}) {
+	const keys = nodes.map(
+		(index) => `.svelte-kit/generated/client-optimized/nodes/${index}.js`,
+	);
+	const missing = nodes.filter((_, position) => !manifest[keys[position]]);
+	if (missing.length > 0) {
+		return {
+			ok: false,
+			chunks: 0,
+			gzipBytes: 0,
+			baseline,
+			message: `the chat route's node ${missing.join(", ")} is not in the build, so its weight cannot be held`,
+		};
+	}
+	const closure = staticClosure(manifest, keys);
+	let gzipBytes = 0;
+	for (const key of closure) gzipBytes += gzipSize(readChunk(manifest[key]));
+	const growth = gzipBytes - baseline;
+	const ok = growth <= tolerance;
+	return {
+		ok,
+		chunks: closure.size,
+		gzipBytes,
+		baseline,
+		message: ok
+			? `${closure.size} chunk(s), ${gzipBytes} bytes gzip (${growth >= 0 ? "+" : ""}${growth} against the baseline of ${baseline}, ${tolerance} allowed)`
+			: `the chat route's first load grew to ${gzipBytes} bytes gzip, ${growth} over its baseline of ${baseline} (${tolerance} allowed): it must not get heavier because of an artifact editor`,
+	};
+}
+
 /** The report the CLI prints. */
 export function formatReport(name, result) {
 	const lines = [];
@@ -236,6 +365,12 @@ export function formatReport(name, result) {
 		lines.push(
 			`[artifact-chunks] ${name}: ${n.targetFiles.join(", ")} — ${kb(n.targetRawBytes)} raw, ${kb(n.targetGzipBytes)} gzip; ` +
 				`loads ${n.exclusiveChunks} chunk(s) of its own (${kb(n.exclusiveRawBytes)} raw, ${kb(n.exclusiveGzipBytes)} gzip) and ${n.sharedChunks} shared`,
+		);
+	}
+	if (result.numbers?.lazySharedChunks > 0) {
+		const n = result.numbers;
+		lines.push(
+			`[artifact-chunks]   also loads ${n.lazySharedChunks} chunk(s) (${(n.lazySharedGzipBytes / 1024).toFixed(1)} kB gzip) shared only with other lazy entries: not counted above`,
 		);
 	}
 	for (const { pkg, chunks } of result.packages) {
@@ -275,7 +410,12 @@ function parseArgs(argv) {
 		confine: [],
 		allowEntries: [],
 		manifest: DEFAULT_MANIFEST,
+		routes: DEFAULT_ROUTES,
 		maxGzip: undefined,
+		forbid: [],
+		chatRoute: undefined,
+		chatBaseline: undefined,
+		chatTolerance: undefined,
 	};
 	for (let i = 0; i < argv.length; i += 1) {
 		const flag = argv[i];
@@ -285,11 +425,15 @@ function parseArgs(argv) {
 		else if (flag === "--allow-entry") args.allowEntries.push(value);
 		else if (flag === "--manifest") args.manifest = value;
 		else if (flag === "--max-gzip") args.maxGzip = Number(value);
+		else if (flag === "--forbid") args.forbid.push(value);
+		else if (flag === "--routes") args.routes = value;
+		else if (flag === "--chat-route") args.chatRoute = value;
+		else if (flag === "--chat-baseline") args.chatBaseline = Number(value);
+		else if (flag === "--chat-tolerance") args.chatTolerance = Number(value);
 		else continue;
 		i += 1;
 	}
-	if (args.confine.length === 0)
-		args.confine = Object.keys(PACKAGE_FINGERPRINTS);
+	if (args.confine.length === 0) args.confine = DEFAULT_CONFINE;
 	return args;
 }
 
@@ -313,11 +457,35 @@ function main() {
 		confine: args.confine,
 		maxGzip: args.maxGzip,
 		allowEntries: args.allowEntries,
+		forbid: args.forbid,
 	});
-	const report = formatReport(args.name, result);
-	if (result.ok) console.log(report);
+	let report = formatReport(args.name, result);
+	let ok = result.ok;
+	if (args.chatRoute !== undefined) {
+		let nodes = null;
+		try {
+			nodes = parseRouteNodes(readFileSync(resolve(args.routes), "utf8"), args.chatRoute);
+		} catch {
+			// Reported below: no route table, no weight held.
+		}
+		if (!nodes || args.chatBaseline === undefined) {
+			ok = false;
+			report += `\n[artifact-chunks] FAIL (chat-route) the route "${args.chatRoute}" or its baseline is not known (${args.routes})`;
+		} else {
+			const chat = checkChatRoute({
+				manifest,
+				readChunk: chunkReader(dirname(dirname(manifestPath))),
+				nodes,
+				baseline: args.chatBaseline,
+				...(args.chatTolerance === undefined ? {} : { tolerance: args.chatTolerance }),
+			});
+			ok = ok && chat.ok;
+			report += `\n[artifact-chunks] ${chat.ok ? "chat route" : "FAIL (chat-route)"} ${args.chatRoute}: ${chat.message}`;
+		}
+	}
+	if (ok) console.log(report);
 	else console.error(report);
-	process.exit(result.ok ? 0 : 1);
+	process.exit(ok ? 0 : 1);
 }
 
 // Only run when executed directly, so the unit test can import the helpers.

@@ -6,7 +6,7 @@
  * flow's own coordinate space and needs nothing else from the board.
  */
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
-import type { Tool } from "./annotations";
+import type { Tool } from "./tools";
 
 export type BoardLayerApi = {
 	/** The blocks as drawn now: a block that is being dragged is where it is dragged to. */

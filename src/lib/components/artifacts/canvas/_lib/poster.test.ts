@@ -18,6 +18,7 @@ import {
 	posterPlaceholder,
 	renderPoster,
 	stillify,
+	withTimeout,
 } from "./poster";
 
 const words: Partial<Record<I18nKey, string>> = {
@@ -111,8 +112,7 @@ describe("what a picture leaves out", () => {
 			"<span data-export-skip></span>",
 			'<div class="comment-pins"></div>',
 			'<div data-testid="canvas-comment-catcher"></div>',
-			'<div data-testid="canvas-alfy-ring"></div>',
-			'<div data-testid="canvas-arranging-frame"></div>',
+			'<div data-testid="alfy-change-layer"></div>',
 			'<div data-testid="canvas-drawing-layer"></div>',
 			"<g data-annotation-chrome></g>",
 			'<g class="mark mark--sweep"></g>',
@@ -382,6 +382,52 @@ describe("waiting for a copy's images", () => {
 			const settled = imagesSettled(root, 500);
 			await vi.advanceTimersByTimeAsync(600);
 			await expect(settled).resolves.toBeUndefined();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+describe("a picture that hangs", () => {
+	it("is given up on after the time it was given, with what the caller says", async () => {
+		vi.useFakeTimers();
+		try {
+			const never = new Promise<string>(() => undefined);
+			const result = withTimeout(never, 1000, () => new Error("too slow"));
+			const settled = expect(result).rejects.toThrow("too slow");
+			await vi.advanceTimersByTimeAsync(1001);
+			await settled;
+			const quick = withTimeout(
+				Promise.resolve("ok"),
+				1000,
+				() => new Error("too slow"),
+			);
+			await expect(quick).resolves.toBe("ok");
+			const failing = withTimeout(
+				Promise.reject(new Error("boom")),
+				1000,
+				() => new Error("too slow"),
+			);
+			await expect(failing).rejects.toThrow("boom");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("is a poster that could not be drawn, not a hang", async () => {
+		vi.useFakeTimers();
+		try {
+			const draw = vi.fn(() => new Promise<string>(() => undefined));
+			const result = renderPoster(element(), {
+				toPng: draw as never,
+				fonts: async () => "",
+				drawTimeoutMs: 500,
+			});
+			const settled = expect(result).rejects.toMatchObject({
+				reason: "render",
+			});
+			await vi.advanceTimersByTimeAsync(600);
+			await settled;
 		} finally {
 			vi.useRealTimers();
 		}

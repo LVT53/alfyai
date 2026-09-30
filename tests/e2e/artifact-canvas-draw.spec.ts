@@ -653,61 +653,6 @@ test.describe("the drawing layer on the Canvas", () => {
 		expect(marks.map((mark) => mark.kind)).toEqual(["pen"]);
 		expect(marks[0].points).toHaveLength(1);
 	});
-
-	test("records the frame time of a pan across 150 blocks and 200 strokes", async ({
-		page,
-	}) => {
-		const notes = Array.from({ length: 150 }, (_, index) =>
-			sticky(
-				`note-${index}`,
-				(index % 15) * 230,
-				Math.floor(index / 15) * 120,
-				`Note ${index}`,
-			),
-		);
-		const strokes = Array.from({ length: 200 }, (_, index) =>
-			pen(
-				`pen-${index}`,
-				Array.from({ length: 30 }, (_, step) => ({
-					x: (index % 20) * 170 + step * 4,
-					y: Math.floor(index / 20) * 330 + Math.sin(step / 3) * 20,
-				})),
-			),
-		);
-		await open(page, board(notes, strokes, { x: 40, y: 40, zoom: 0.6 }));
-		await page.getByTestId("canvas-tool-pan").click();
-		const pane = await page.locator(".svelte-flow__pane").boundingBox();
-		if (!pane) throw new Error("no pane");
-		await page.evaluate(() => {
-			const w = window as unknown as { __frames: number[]; __raf: number };
-			w.__frames = [];
-			let last = performance.now();
-			const tick = (t: number) => {
-				w.__frames.push(t - last);
-				last = t;
-				w.__raf = requestAnimationFrame(tick);
-			};
-			w.__raf = requestAnimationFrame(tick);
-		});
-		await page.mouse.move(pane.x + 500, pane.y + 400);
-		await page.mouse.down();
-		await page.mouse.move(pane.x + 100, pane.y + 150, { steps: 120 });
-		await page.mouse.move(pane.x + 500, pane.y + 400, { steps: 120 });
-		await page.mouse.up();
-		const frames = await page.evaluate(() => {
-			const w = window as unknown as { __frames: number[]; __raf: number };
-			cancelAnimationFrame(w.__raf);
-			return w.__frames.slice(1);
-		});
-		const sorted = [...frames].sort((a, b) => a - b);
-		const average = frames.reduce((sum, ms) => sum + ms, 0) / frames.length;
-		const p95 = sorted[Math.floor(sorted.length * 0.95)];
-		const note = `frames ${frames.length}, average ${average.toFixed(1)} ms, p95 ${p95.toFixed(1)} ms, max ${sorted[sorted.length - 1].toFixed(1)} ms`;
-		console.log(`[canvas frame time] ${note}`);
-		test.info().annotations.push({ type: "frame time", description: note });
-		// Recorded, not gated (S3-X's probe owns the gate); a ceiling that only a catastrophe reaches.
-		expect(average).toBeLessThan(80);
-	});
 });
 
 test.describe("the drawing tools on a phone", () => {

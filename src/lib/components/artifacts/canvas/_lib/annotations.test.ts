@@ -5,18 +5,15 @@ import {
 	annotationBounds,
 	arrowHead,
 	baseSize,
-	DEFAULT_INK,
-	DRAWING_TOOLS,
 	dabPath,
 	hitTest,
-	INKS,
-	isDrawingTool,
 	normRect,
 	pickAnnotation,
 	strokePath,
 	textWidth,
 	translate,
 } from "./annotations";
+import { DEFAULT_INK, DRAWING_TOOLS, INKS, isDrawingTool } from "./tools";
 
 const pen = (points: { x: number; y: number }[], id = "pen-1"): Annotation => ({
 	id,

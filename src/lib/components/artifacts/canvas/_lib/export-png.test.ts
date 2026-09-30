@@ -316,6 +316,34 @@ describe("a picture that fails leaves the board as it was", () => {
 		expect(camera()).toEqual(remembered);
 	});
 
+	it("gives up on a picture that hangs, and puts the board back all the same", async () => {
+		const { input, camera } = harness({
+			toPng: (() => new Promise<string>(() => undefined)) as never,
+			drawTimeoutMs: 20,
+		});
+		await expect(exportBoardPng(input)).rejects.toMatchObject({
+			reason: "draw",
+		});
+		expect(camera()).toEqual(remembered);
+		expect(input.unmountPosters).toHaveBeenCalledOnce();
+		expect(input.upload).not.toHaveBeenCalled();
+	});
+
+	it("puts the camera back even when the library throws at once instead of answering", async () => {
+		const { input } = harness();
+		let moves = 0;
+		input.setViewport = vi.fn((next: Camera) => {
+			moves += 1;
+			// The second move is the way back: it throws before it can answer.
+			if (moves === 2) throw new Error("the board is gone");
+			return Promise.resolve(next);
+		});
+		await expect(exportBoardPng(input)).resolves.toMatchObject({
+			fileId: "export-1",
+		});
+		expect(input.unmountPosters).toHaveBeenCalledOnce();
+	});
+
 	it("does not leave the board rearranged when the picture could not be kept", async () => {
 		const { input, camera } = harness({
 			upload: vi.fn(async () => ({

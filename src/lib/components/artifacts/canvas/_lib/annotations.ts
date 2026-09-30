@@ -13,38 +13,8 @@
  * not this. Comments are never in it: they are not part of a body (ruling 1).
  */
 import { getStroke } from "perfect-freehand";
-import {
-	ANNOTATION_KINDS,
-	type Annotation,
-	type AnnotationKind,
-	type Pt,
-} from "$lib/shared/artifacts/canvas";
-
-/** The seven kinds of mark a reader can draw. */
-export type DrawingTool = AnnotationKind;
-/** What the toolbar's pointer does: move around, draw one of the seven, or erase. */
-export type Tool = "select" | "pan" | "eraser" | "comment" | DrawingTool;
-
-export const DRAWING_TOOLS: readonly DrawingTool[] = ANNOTATION_KINDS;
-
-export function isDrawingTool(tool: Tool): tool is DrawingTool {
-	return (DRAWING_TOOLS as readonly string[]).includes(tool);
-}
-
-/**
- * The four inks. A mark stores the CSS variable, not a hex, so it is drawn in the
- * ink of whichever theme is showing (a blue that reads on paper is not a blue
- * that reads on the dark surface). A hex from an older or foreign board draws as
- * itself.
- */
-export const INKS = [
-	{ id: "blue", color: "var(--ink-blue)" },
-	{ id: "red", color: "var(--ink-red)" },
-	{ id: "green", color: "var(--ink-green)" },
-	{ id: "graphite", color: "var(--ink-graphite)" },
-] as const;
-
-export const DEFAULT_INK: string = INKS[0].color;
+import type { Annotation, Pt } from "$lib/shared/artifacts/canvas";
+import type { DrawingTool } from "./tools";
 
 /** The stroke width of a mark (a text's is its font size), in board units. */
 const BASE_SIZE: Record<DrawingTool, number> = {

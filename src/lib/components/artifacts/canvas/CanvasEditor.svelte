@@ -33,7 +33,6 @@ import {
 	createDocumentAutosave,
 	type DocumentAutosaveResult,
 } from "$lib/components/artifacts/document/document-autosave";
-import VersionsSheet from "$lib/components/artifacts/document/VersionsSheet.svelte";
 import { t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
@@ -195,6 +194,23 @@ let boardKey = $state(0);
 let droppedCount = $state(0);
 let noticeDismissed = $state(false);
 let versionsOpen = $state(false);
+// The Versions sheet is the Document's own, and loads the first time it is opened.
+let VersionsSheet = $state.raw<
+	| typeof import("$lib/components/artifacts/document/VersionsSheet.svelte").default
+	| null
+>(null);
+$effect(() => {
+	if (!versionsOpen || VersionsSheet) return;
+	let current = true;
+	void import("$lib/components/artifacts/document/VersionsSheet.svelte").then(
+		(module) => {
+			if (current) VersionsSheet = module.default;
+		},
+	);
+	return () => {
+		current = false;
+	};
+});
 
 let versionNumber: number | null = null;
 let knownBodyHash: string | null = null;
@@ -943,7 +959,7 @@ let banner = $derived(
 		/>
 	{/if}
 
-	{#if versionsOpen}
+	{#if versionsOpen && VersionsSheet}
 		<VersionsSheet
 			{artifactId}
 			{conversationId}

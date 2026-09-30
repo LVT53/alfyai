@@ -38,6 +38,7 @@ import {
 	keepInPicture,
 	posterOf,
 	tokenColor,
+	withTimeout,
 } from "./poster";
 
 /** The picture's size is the board's, held between these. */
@@ -48,6 +49,8 @@ const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2;
 /** Room around the board's content, as a share of it. */
 const PADDING = 0.1;
+/** A picture of the board that has not come out after this long is given up on: the board is drawn over until it does, so it must not hang. */
+const DRAW_TIMEOUT_MS = 60_000;
 
 export type Camera = { x: number; y: number; zoom: number };
 
@@ -148,6 +151,7 @@ export type ExportInput = {
 	toPng?: typeof toPng;
 	nextFrame?: () => Promise<void>;
 	upload?: typeof uploadCanvasImage;
+	drawTimeoutMs?: number;
 };
 
 function animationFrame(): Promise<void> {
@@ -175,21 +179,25 @@ export async function exportBoardPng(
 		await nextFrame();
 		await input.mountPosters(missing.map((node) => node.id));
 		await nextFrame();
-		dataUrl = await (input.toPng ?? toPng)(input.viewportEl, {
-			width: size.width,
-			height: size.height,
-			pixelRatio: 1,
-			backgroundColor: tokenColor("--surface-page", "#ffffff"),
-			fontEmbedCSS: await boardFonts(input.viewportEl),
-			filter: keepInPicture,
-			includeQueryParams: true,
-			skipAutoScale: true,
-			style: {
-				width: `${size.width}px`,
-				height: `${size.height}px`,
-				transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
-			},
-		});
+		dataUrl = await withTimeout(
+			(input.toPng ?? toPng)(input.viewportEl, {
+				width: size.width,
+				height: size.height,
+				pixelRatio: 1,
+				backgroundColor: tokenColor("--surface-page", "#ffffff"),
+				fontEmbedCSS: await boardFonts(input.viewportEl),
+				filter: keepInPicture,
+				includeQueryParams: true,
+				skipAutoScale: true,
+				style: {
+					width: `${size.width}px`,
+					height: `${size.height}px`,
+					transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`,
+				},
+			}),
+			input.drawTimeoutMs ?? DRAW_TIMEOUT_MS,
+			() => new Error("the board was not drawn in time"),
+		);
 	} catch (error) {
 		throw new ExportError("draw", undefined, error);
 	} finally {
@@ -197,9 +205,11 @@ export async function exportBoardPng(
 		try {
 			input.unmountPosters();
 		} finally {
-			await Promise.resolve(
-				input.setViewport(remembered, { duration: 0 }),
-			).catch(() => undefined);
+			try {
+				await input.setViewport(remembered, { duration: 0 });
+			} catch {
+				// The board went (the panel closed): there is no camera to put back.
+			}
 		}
 	}
 

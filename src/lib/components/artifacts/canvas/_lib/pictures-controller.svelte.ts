@@ -287,8 +287,10 @@ export class CanvasPicturesController {
 			clearTimeout(this.#timer);
 			this.#timer = null;
 		}
-		while (this.#running)
+		// A capture in flight is waited for, but not for ever.
+		for (let waited = 0; this.#running && waited < 30_000; waited += 50) {
 			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
 		for (const node of board.pictureSource().body.nodes) {
 			if (!needsPoster(node.type) || posterOf(node.data)) continue;
 			this.#nodes.set(node.id, node);

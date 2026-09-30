@@ -33,6 +33,9 @@ export function posterOf(data: CanvasBlockData): PosterRef | undefined {
 /** The box a poster is drawn to fit: file size against legibility, and the export upscales from it. */
 export const POSTER_WIDTH = 640;
 export const POSTER_HEIGHT = 400;
+/** A picture that has not come out after this long is given up on: one that hangs must not hold the board. */
+const POSTER_DRAW_TIMEOUT_MS = 20_000;
+
 /** A small block is drawn no larger than twice its size, a large one no smaller than half. */
 const MIN_RATIO = 0.5;
 const MAX_RATIO = 2;
@@ -50,9 +53,8 @@ const LEFT_OUT = [
 	// The comment layer: its pins and the catcher of the Comment tool.
 	".comment-pins",
 	'[data-testid="canvas-comment-catcher"]',
-	// Alfy's change: the rings and the frame that shows it arranging.
-	'[data-testid="canvas-alfy-ring"]',
-	'[data-testid="canvas-arranging-frame"]',
+	// Alfy's change: its layer (the rings, the frame that shows it arranging, the pill).
+	'[data-testid="alfy-change-layer"]',
 	// The drawing layer's own tools: the pad, the selection box, a mark under
 	// the eraser, the field a text mark is typed in.
 	'[data-testid="canvas-drawing-layer"]',
@@ -233,6 +235,7 @@ type PosterDeps = {
 	fonts?: (element: HTMLElement) => Promise<string>;
 	upload?: typeof uploadCanvasImage;
 	now?: () => number;
+	drawTimeoutMs?: number;
 };
 
 export class PosterError extends Error {
@@ -249,6 +252,27 @@ export class PosterError extends Error {
 function dataUrlBytes(dataUrl: string): number {
 	const comma = dataUrl.indexOf(",");
 	return Math.floor(((dataUrl.length - comma - 1) * 3) / 4);
+}
+
+/** Rejects with `error()` when `promise` has not settled in `ms`. */
+export function withTimeout<T>(
+	promise: Promise<T>,
+	ms: number,
+	error: () => Error,
+): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(() => reject(error()), ms);
+		promise.then(
+			(value) => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			(reason) => {
+				clearTimeout(timer);
+				reject(reason);
+			},
+		);
+	});
 }
 
 /**
@@ -268,16 +292,20 @@ export async function renderPoster(
 	for (let attempt = 0; attempt < 2; attempt += 1) {
 		let dataUrl: string;
 		try {
-			dataUrl = await draw(element, {
-				width,
-				height,
-				pixelRatio: ratio,
-				backgroundColor: tokenColor("--surface-elevated", "#ffffff"),
-				filter: keepInPicture,
-				fontEmbedCSS,
-				includeQueryParams: true,
-				skipAutoScale: true,
-			});
+			dataUrl = await withTimeout(
+				draw(element, {
+					width,
+					height,
+					pixelRatio: ratio,
+					backgroundColor: tokenColor("--surface-elevated", "#ffffff"),
+					filter: keepInPicture,
+					fontEmbedCSS,
+					includeQueryParams: true,
+					skipAutoScale: true,
+				}),
+				deps.drawTimeoutMs ?? POSTER_DRAW_TIMEOUT_MS,
+				() => new Error("the poster was not drawn in time"),
+			);
 		} catch (error) {
 			throw new PosterError("render", error);
 		}

@@ -183,6 +183,7 @@ async function refresh(): Promise<void> {
 			<button
 				type="button"
 				class="web__refresh nodrag"
+				data-export-skip
 				data-testid="canvas-liveweb-refresh"
 				aria-busy={refreshing}
 				aria-disabled={refreshing || board.readonly}
@@ -198,7 +199,7 @@ async function refresh(): Promise<void> {
 			</button>
 		{/if}
 	</div>
-	<p class="web__problem" role="status" data-testid="canvas-liveweb-status">
+	<p class="web__problem" role="status" data-export-skip data-testid="canvas-liveweb-status">
 		{#if problem}{$t(PROBLEM_KEY[problem])}{/if}
 	</p>
 </div>
