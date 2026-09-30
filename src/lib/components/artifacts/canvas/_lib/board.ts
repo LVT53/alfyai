@@ -19,10 +19,7 @@
  * - nodes come parents-first (the library's own cascade depends on it too).
  */
 import type { CanvasEdge, CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
-import {
-	estimatedNodeHeight,
-	NODE_WIDTH,
-} from "$lib/shared/artifacts/canvas-blocks";
+import { estimatedNodeSize } from "$lib/shared/artifacts/canvas-blocks";
 import { metaFor } from "./block-meta";
 
 type Size = { width: number; height: number };
@@ -67,11 +64,7 @@ export function absoluteOf(node: CanvasNode, all: readonly CanvasNode[]): Pt {
 function sizeOf(node: CanvasNode, measured?: Size): Size {
 	if (measured) return measured;
 	if (node.measured) return node.measured;
-	const own = node.data.kind === "frame" ? node.data : null;
-	return {
-		width: node.width ?? own?.width ?? NODE_WIDTH,
-		height: estimatedNodeHeight(node),
-	};
+	return estimatedNodeSize(node);
 }
 
 function rectIn(
@@ -85,8 +78,8 @@ function rectIn(
 /**
  * A block's rectangle in board space. Its size is what the panel measured, else
  * what it stores, else the footprint a block with no size is taken to have:
- * `NODE_WIDTH` wide and as tall as its words or items make it
- * (`estimatedNodeHeight`, the very numbers the model reads, RV-3 C2).
+ * its kind's default width and as tall as its words, items or plot make it
+ * (`estimatedNodeSize`, the very numbers the model reads, RV-3 C2, RC-3 N1).
  */
 export function nodeRect(
 	node: CanvasNode,

@@ -33,9 +33,8 @@ import type {
 	CanvasNode,
 } from "$lib/shared/artifacts/canvas";
 import {
-	estimatedNodeHeight,
+	estimatedNodeSize,
 	MODEL_CREATABLE_DATA_SCHEMAS,
-	NODE_WIDTH,
 } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	emptyCanvasBody,
@@ -85,18 +84,17 @@ function labelOf(node: CanvasNode): string {
 
 function readNodeBlock(node: CanvasNode): Record<string, unknown> {
 	const data = node.data;
-	const frame = data.kind === "frame" ? data : null;
 	return {
 		id: node.id,
 		kind: node.type,
 		label: labelOf(node),
 		x: node.position.x,
 		y: node.position.y,
-		// The size the panel draws it at: the stored one, or the shared width and
-		// the height its words take (a note is as tall as its words, RV-3 C2), so
-		// what a model arranges by is what the reader sees.
-		width: node.width ?? frame?.width ?? NODE_WIDTH,
-		height: estimatedNodeHeight(node),
+		// The size the panel draws it at: the stored one, or its kind's default
+		// width and the height its words, items or plot take (a note is as tall as
+		// its words, RV-3 C2; a chart and a checklist have widths of their own, RC-3
+		// N1), so what a model arranges by is what the reader sees.
+		...estimatedNodeSize(node),
 		...(node.parentId === undefined ? {} : { parentId: node.parentId }),
 		...(data.kind === "sticky" ? { tone: data.tone } : {}),
 		...(data.kind === "checklist"

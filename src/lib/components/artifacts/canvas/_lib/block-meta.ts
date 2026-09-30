@@ -23,7 +23,10 @@ import {
 	Type,
 } from "@lucide/svelte";
 import type { Component } from "svelte";
-import type { BlockKind } from "$lib/shared/artifacts/canvas-blocks";
+import {
+	type BlockKind,
+	defaultNodeWidth,
+} from "$lib/shared/artifacts/canvas-blocks";
 
 /**
  * How the node shell dresses a kind:
@@ -118,7 +121,9 @@ export const BLOCK_META = {
 		icon: ChartColumn,
 		labelKey: "artifacts.canvas.insert.chart",
 		chrome: "card",
-		size: { width: 360, height: 250 },
+		// The width is the one table's, so a chart Alfy adds and one the reader inserts
+		// are the same size (RC-3 N1).
+		size: { width: defaultNodeWidth("chart"), height: 250 },
 		minSize: { width: 240, height: 160 },
 		fixedHeight: false,
 		section: "blocks",
@@ -129,7 +134,7 @@ export const BLOCK_META = {
 		icon: ListChecks,
 		labelKey: "artifacts.canvas.insert.checklist",
 		chrome: "card",
-		size: { width: 260, height: 140 },
+		size: { width: defaultNodeWidth("checklist"), height: 140 },
 		minSize: { width: 180, height: 80 },
 		fixedHeight: false,
 		section: "blocks",

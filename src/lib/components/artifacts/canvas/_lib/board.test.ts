@@ -98,6 +98,41 @@ describe("nodeRect", () => {
 		});
 	});
 
+	// RC-3 N1: an unmeasured chart or checklist is the size the panel draws it at,
+	// the very numbers the model reads (a chart is not a note's 190 by 84).
+	it("takes an unsized chart and checklist at their own default size", () => {
+		const chart: CanvasNode = {
+			id: "c",
+			type: "chart",
+			position: { x: 0, y: 0 },
+			data: {
+				kind: "chart",
+				code: '{"type":"bar","data":{"datasets":[{"data":[1]}]}}',
+			},
+		};
+		const list: CanvasNode = {
+			id: "l",
+			type: "checklist",
+			position: { x: 0, y: 0 },
+			data: {
+				kind: "checklist",
+				items: [{ id: "i", text: "x", done: false }],
+			},
+		};
+		expect(nodeRect(chart, [chart])).toEqual({
+			x: 0,
+			y: 0,
+			width: 360,
+			height: 228,
+		});
+		expect(nodeRect(list, [list])).toEqual({
+			x: 0,
+			y: 0,
+			width: 340,
+			height: 100,
+		});
+	});
+
 	it("is in board space: a child's rect sits inside its frame's", () => {
 		const f = frame("f", 40, 50);
 		const n = note("n", 10, 20, "f", { width: 100, height: 40 });

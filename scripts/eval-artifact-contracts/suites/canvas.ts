@@ -36,10 +36,7 @@ import { fileURLToPath } from "node:url";
 import { ALFYAI_NEMOTRON_PROMPT } from "$lib/server/prompts";
 import { classifyLanguageSignal } from "$lib/server/services/language";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
-import {
-	estimatedNodeHeight,
-	NODE_WIDTH,
-} from "$lib/shared/artifacts/canvas-blocks";
+import { estimatedNodeSize } from "$lib/shared/artifacts/canvas-blocks";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
 import {
 	decodeToolPathResponse,
@@ -307,18 +304,14 @@ interface Rect {
 
 /**
  * A node's footprint as the panel draws it, and as the model is told it
- * (`estimatedNodeHeight`, the one estimate the read, the tool text and this
- * rubric share): its stored size, a frame's own, or the shared width and the
- * height its words take. A note is as tall as its words, so a fixed 84 would
- * let a board that spills out of its frames on the reader's screen score clean
- * (RV-3 C2).
+ * (`estimatedNodeSize`, the one estimate the read, the tool text and this
+ * rubric share): its stored size, a frame's own, or its kind's default width and
+ * the height its words, items or plot take. A note is as tall as its words and a
+ * chart has a plot, so a fixed 84 would let a board that spills out of its frames
+ * on the reader's screen score clean (RV-3 C2, RC-3 N1).
  */
 function sizeOf(node: CanvasNode): { width: number; height: number } {
-	const data = node.data;
-	return {
-		width: node.width ?? (data.kind === "frame" ? data.width : NODE_WIDTH),
-		height: estimatedNodeHeight(node),
-	};
+	return estimatedNodeSize(node);
 }
 
 function byIdOf(body: CanvasBody): Map<string, CanvasNode> {

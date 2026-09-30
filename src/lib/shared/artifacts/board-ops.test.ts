@@ -20,7 +20,7 @@ import {
 	validateBoardDiff,
 } from "./board-ops";
 import type { CanvasBody, CanvasNode } from "./canvas";
-import { NODE_WIDTH } from "./canvas-blocks";
+import { defaultNodeWidth, NODE_WIDTH } from "./canvas-blocks";
 import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
 import { sampleBoard } from "./canvas-fixtures.test-helpers";
 import { runOps } from "./ops";
@@ -1325,7 +1325,7 @@ describe("applyOp — what the model adds is stored the width the model is told 
 			node: { id: `new-${type}`, type, position: { x: 0, y: 0 }, data },
 		}) as BoardOp;
 
-	it("gives every note-shaped block it adds the shared block width, and no height (a note grows with its words)", () => {
+	it("gives every note-shaped block it adds its kind's default width, and no height (a block grows with its content)", () => {
 		const cases: [string, unknown][] = [
 			["sticky", { kind: "sticky", text: "x", tone: "yellow" }],
 			["text", { kind: "text", text: "x" }],
@@ -1343,9 +1343,38 @@ describe("applyOp — what the model adds is stored the width the model is told 
 				applyOp(sampleBoard(), addOf(type, data)),
 				`new-${type}`,
 			);
-			expect(added.width, type).toBe(NODE_WIDTH);
+			expect(added.width, type).toBe(defaultNodeWidth(type as "sticky"));
 			expect(added.height, type).toBeUndefined();
 		}
+	});
+
+	// RC-3 N1: a chart 190 wide was a sliver of a plot, and a checklist cut its
+	// items off at about 16 characters. They get the size a reader's Insert gives.
+	it("stores a checklist 340 wide and a chart 360 wide, and a note and a text 190", () => {
+		const widths = Object.fromEntries(
+			[
+				["sticky", { kind: "sticky", text: "x", tone: "yellow" }],
+				["text", { kind: "text", text: "x" }],
+				[
+					"checklist",
+					{ kind: "checklist", items: [{ id: "a", text: "x", done: false }] },
+				],
+				[
+					"chart",
+					{ kind: "chart", code: '{"type":"bar","data":{"datasets":[]}}' },
+				],
+			].map(([type, data]) => [
+				type as string,
+				node(applyOp(sampleBoard(), addOf(type as string, data)), `new-${type}`)
+					.width,
+			]),
+		);
+		expect(widths).toEqual({
+			sticky: 190,
+			text: 190,
+			checklist: 340,
+			chart: 360,
+		});
 	});
 
 	it("leaves a frame the size it was given, whichever op made it", () => {
