@@ -13,5 +13,8 @@
  * board for what it needs through `PicturesBoard`. `npm run check:artifact-chunks`
  * passes `--allow-entry export-parts`.
  */
-export { CanvasPicturesController } from "./_lib/pictures-controller.svelte";
+export {
+	CanvasPicturesController,
+	picturesEnd,
+} from "./_lib/pictures-controller.svelte";
 export { default as CanvasDownload } from "./CanvasDownload.svelte";

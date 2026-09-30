@@ -166,7 +166,7 @@ function deleteBlock(): void {
 				{:else}
 					<Icon size={13} strokeWidth={2} aria-hidden="true" />
 					<b class="canvas-node__title">{title || kindLabel}</b>
-					{#if meta}<span class="canvas-node__meta">{meta}</span>{/if}
+					{#if meta}<span class="canvas-node__meta" title={meta}>{meta}</span>{/if}
 				{/if}
 			</div>
 		{/if}

@@ -52,6 +52,7 @@ import {
 import type {
 	CanvasPicturesController,
 	PicturesBoard,
+	picturesEnd,
 } from "./_lib/pictures-controller.svelte";
 import type {
 	CanvasCommentsController,
@@ -74,9 +75,11 @@ import type {
 import { judgeServerBoard } from "./_lib/server-board";
 import type AlfyChangeLayer from "./AlfyChangeLayer.svelte";
 import CanvasBoard from "./CanvasBoard.svelte";
+import type CanvasBanners from "./CanvasBanners.svelte";
 import type CanvasComments from "./CanvasComments.svelte";
 import type CanvasDownload from "./CanvasDownload.svelte";
 import type CanvasSelectionPill from "./CanvasSelectionPill.svelte";
+import type CanvasStates from "./CanvasStates.svelte";
 import type CanvasReviewBar from "./CanvasReviewBar.svelte";
 import type CanvasReviewNotices from "./CanvasReviewNotices.svelte";
 import type CommentCatcher from "./CommentCatcher.svelte";
@@ -482,25 +485,32 @@ function setBoardNodes(
 // state (drawing, kept, which blocks were drawn as a card); this is only the glue.
 
 let pictures = $state.raw<CanvasPicturesController | null>(null);
-let pictureViews = $state.raw<{ CanvasDownload: typeof CanvasDownload } | null>(
-	null,
-);
+let pictureViews = $state.raw<{
+	CanvasDownload: typeof CanvasDownload;
+	picturesEnd: typeof picturesEnd;
+} | null>(null);
 let picturesLoading: Promise<CanvasPicturesController | null> | null = null;
 let downloadOpen = $state(false);
 
 function ensurePictures(): Promise<CanvasPicturesController | null> {
 	picturesLoading ??= import("./export-parts")
-		.then(({ CanvasPicturesController: Controller, CanvasDownload }) => {
-			const controller = new Controller({
-				artifactId,
-				conversationId,
-				board: () => boardApi,
-			});
-			controller.setNodes(boardNodes);
-			pictureViews = { CanvasDownload };
-			pictures = controller;
-			return controller;
-		})
+		.then(
+			({
+				CanvasPicturesController: Controller,
+				CanvasDownload,
+				picturesEnd,
+			}) => {
+				const controller = new Controller({
+					artifactId,
+					conversationId,
+					board: () => boardApi,
+				});
+				controller.setNodes(boardNodes);
+				pictureViews = { CanvasDownload, picturesEnd };
+				pictures = controller;
+				return controller;
+			},
+		)
 		// Offline, or a deploy in between: the next press tries again instead of waiting on a rejected import.
 		.catch(() => {
 			picturesLoading = null;
@@ -777,7 +787,7 @@ $effect(() => {
 onDestroy(() => {
 	loadToken += 1;
 	reviewViews?.reviewEnd(review);
-	pictures?.destroy();
+	if (pictures) pictureViews?.picturesEnd(pictures);
 	clearSavedTimer();
 	// The board's last step may still be inside its settle delay.
 	boardApi?.flush();
@@ -810,7 +820,10 @@ let missingBlocks = $derived(
 
 // The words for what goes wrong with a board load on demand (`state-parts.ts`): the first
 // time a board cannot be shown or a saving notice is due.
-let stateViews = $state.raw<typeof import("./state-parts") | null>(null);
+let stateViews = $state.raw<{
+	CanvasBanners: typeof CanvasBanners;
+	CanvasStates: typeof CanvasStates;
+} | null>(null);
 $effect(() => {
 	if (stateViews) return;
 	if (
@@ -821,8 +834,8 @@ $effect(() => {
 		showDroppedNotice ||
 		missingBlocks.length > 0
 	) {
-		void import("./state-parts").then((module) => {
-			stateViews = module;
+		void import("./state-parts").then(({ CanvasBanners, CanvasStates }) => {
+			stateViews = { CanvasBanners, CanvasStates };
 		});
 	}
 });

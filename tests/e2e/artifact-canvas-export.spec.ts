@@ -15,7 +15,10 @@ import type {
 	CanvasBody,
 	CanvasNode,
 } from "../../src/lib/shared/artifacts/canvas";
-import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
+import {
+	boardJson,
+	emptyCanvasBody,
+} from "../../src/lib/shared/artifacts/canvas-body";
 import {
 	cameraOf,
 	openChatAndReload,
@@ -264,6 +267,7 @@ async function exportPng(page: Page) {
 type Stats = {
 	width: number;
 	height: number;
+	/** Pixels of the colour asked for (the chart's violet unless another is given). */
 	violet: number;
 	/** Distinct colours, coarsely: a uniform box has one or two. */
 	colours: number;
@@ -274,6 +278,7 @@ async function pngStats(
 	page: Page,
 	fileId: string,
 	region?: { x: number; y: number; width: number; height: number },
+	colour: { r: number; g: number; b: number } = VIOLET,
 ): Promise<Stats> {
 	return page.evaluate(
 		async ({ id, region, violet }) => {
@@ -314,7 +319,7 @@ async function pngStats(
 				colours: seen.size,
 			};
 		},
-		{ id: fileId, region, violet: VIOLET },
+		{ id: fileId, region, violet: colour },
 	);
 }
 
@@ -497,6 +502,69 @@ test.describe("a picture of the board", () => {
 		});
 		expect(inBlock.colours).toBeGreaterThan(4);
 		await expect(page.getByTestId("canvas-node-placeholder")).toHaveCount(0);
+	});
+
+	test("draws the reader's marks in their ink and a connector between two blocks", async ({
+		page,
+	}) => {
+		const INK_BLUE = { r: 47, g: 111, b: 208 };
+		const { conversationId } = await seedChat(page, async () => [
+			sticky("note-a", 0, 0, "Museum"),
+			sticky("note-b", 0, 300, "Lunch"),
+		]);
+		// One connector between them, and one blue pen stroke beside them, seeded as a saved board.
+		const stored = await db
+			.select({ id: artifacts.id })
+			.from(artifacts)
+			.where(
+				and(
+					eq(artifacts.conversationId, conversationId),
+					eq(artifacts.type, "artifact"),
+				),
+			);
+		const boardId = stored[0].id;
+		const body: CanvasBody = {
+			...emptyCanvasBody(),
+			nodes: [
+				sticky("note-a", 0, 0, "Museum"),
+				sticky("note-b", 0, 300, "Lunch"),
+			],
+			edges: [{ id: "edge-1", source: "note-a", target: "note-b" }],
+			annotations: [
+				{
+					id: "pen-1",
+					kind: "pen",
+					color: "var(--ink-blue)",
+					size: 4,
+					points: Array.from({ length: 20 }, (_, step) => ({
+						x: 240 + step * 3,
+						y: 40 + Math.sin(step / 3) * 30 + step * 8,
+					})),
+				},
+			],
+		};
+		await db
+			.update(artifacts)
+			.set({ contentText: boardJson(body) })
+			.where(eq(artifacts.id, boardId));
+		await openBoard(page, conversationId);
+		await expect(page.getByTestId("canvas-mark")).toHaveCount(1);
+
+		await openDownload(page);
+		const { fileId } = await exportPng(page);
+		// The mark is drawn in the ink of the theme showing, not left as an unresolved variable.
+		const marks = await pngStats(page, fileId, undefined, INK_BLUE);
+		expect(marks.violet).toBeGreaterThan(60);
+		// The connector runs from one note down to the other, where nothing else is: the
+		// board fits the two notes and the stroke into 800 x 600, so it is a line at about
+		// 40% across.
+		const between = await pngStats(
+			page,
+			fileId,
+			{ x: 0.39, y: 0.34, width: 0.04, height: 0.3 },
+			INK_BLUE,
+		);
+		expect(between.colours).toBeGreaterThanOrEqual(2);
 	});
 
 	test("keeps the picture as a File of this chat, linked to the board", async ({

@@ -94,11 +94,7 @@ export type PicturesDeps = {
 	readyTimeoutMs?: number;
 };
 
-export type DownloadFailure =
-	| "empty"
-	| "failed"
-	| "tooLarge"
-	| "noConversation";
+type DownloadFailure = "empty" | "failed" | "tooLarge" | "noConversation";
 
 /** A block's data without its poster, and its size: what a still image is a picture of. */
 function dataKey(node: CanvasNode): string {
@@ -413,4 +409,9 @@ export class CanvasPicturesController {
 		if (this.#timer) clearTimeout(this.#timer);
 		this.#timer = null;
 	}
+}
+
+/** The editor is done with the controller (the panel closed): its timers stop and nothing more is drawn. A function, so the editor reaches it through a typed parameter. */
+export function picturesEnd(controller: CanvasPicturesController): void {
+	controller.destroy();
 }
