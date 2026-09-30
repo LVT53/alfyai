@@ -843,6 +843,8 @@ const artifactsDict = {
 			"The live web results are not part of this image.",
 		"artifacts.canvas.export.stillOther":
 			"This block is not part of this image.",
+		// After the Canvas review (RV-3, cluster B).
+		"artifacts.canvas.block.drawFailed": "This block could not be drawn.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1501,6 +1503,9 @@ const artifactsDict = {
 		"artifacts.canvas.export.stillWeb":
 			"Az élő webes találatok nem részei a képnek.",
 		"artifacts.canvas.export.stillOther": "Ez a blokk nem része a képnek.",
+		// A Canvas-áttekintés után (RV-3, B csoport).
+		"artifacts.canvas.block.drawFailed":
+			"Ezt a blokkot nem sikerült megrajzolni.",
 	},
 } as const;
 

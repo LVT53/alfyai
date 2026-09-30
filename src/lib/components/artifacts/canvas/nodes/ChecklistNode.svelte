@@ -51,22 +51,23 @@ function commit(items: Item[]): void {
 	board.updateData?.(id, { items });
 }
 
-function toggle(itemId: string): void {
+// A row acts on its own place in the list, not on its id: the id is what the
+// stored board says, and a board that repeats one (RV-3 C1) must still tick,
+// rename and remove one item at a time.
+function toggle(index: number): void {
 	commit(
-		data.items.map((item) =>
-			item.id === itemId ? { ...item, done: !item.done } : item,
+		data.items.map((item, at) =>
+			at === index ? { ...item, done: !item.done } : item,
 		),
 	);
 }
 
-function rename(itemId: string, text: string): void {
-	commit(
-		data.items.map((item) => (item.id === itemId ? { ...item, text } : item)),
-	);
+function rename(index: number, text: string): void {
+	commit(data.items.map((item, at) => (at === index ? { ...item, text } : item)));
 }
 
-function remove(itemId: string): void {
-	commit(data.items.filter((item) => item.id !== itemId));
+function remove(index: number): void {
+	commit(data.items.filter((_, at) => at !== index));
 }
 
 function add(): void {
@@ -78,7 +79,8 @@ function add(): void {
 </script>
 
 	<ul class="checklist" data-testid="canvas-checklist">
-		{#each data.items as item (item.id)}
+		<!-- Keyed by place and id: a repeated id would make Svelte throw, and the board with it. -->
+		{#each data.items as item, index (`${index}:${item.id}`)}
 			<li class="row" class:row--done={item.done}>
 				<input
 					type="checkbox"
@@ -86,7 +88,7 @@ function add(): void {
 					checked={item.done}
 					disabled={!editable}
 					aria-label={$t("artifacts.canvas.checklistToggle", { name: item.text })}
-					onchange={() => toggle(item.id)}
+					onchange={() => toggle(index)}
 				/>
 				<input
 					type="text"
@@ -95,10 +97,10 @@ function add(): void {
 					maxlength={CHECKLIST_ITEM_MAX_CHARS}
 					readonly={!editable}
 					aria-label={$t("artifacts.canvas.insert.checklist")}
-					oninput={(event) => rename(item.id, event.currentTarget.value)}
+					oninput={(event) => rename(index, event.currentTarget.value)}
 					onchange={(event) => {
 						// A cleared item is a removed item, once the reader is done with it.
-						if (!event.currentTarget.value.trim()) remove(item.id);
+						if (!event.currentTarget.value.trim()) remove(index);
 					}}
 				/>
 				{#if editable}
@@ -107,7 +109,7 @@ function add(): void {
 						class="row__remove nodrag"
 						aria-label={$t("artifacts.canvas.checklistRemove")}
 						title={$t("artifacts.canvas.checklistRemove")}
-						onclick={() => remove(item.id)}
+						onclick={() => remove(index)}
 					>
 						<X size={13} strokeWidth={2} aria-hidden="true" />
 					</button>

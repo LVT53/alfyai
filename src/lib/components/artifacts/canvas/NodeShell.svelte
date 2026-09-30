@@ -144,6 +144,10 @@ const wrapperBehaviour: Attachment<HTMLElement> = (element) => {
 function deleteBlock(): void {
 	void flow.deleteElements({ nodes: [{ id }] });
 }
+
+function reportBroken(error: unknown): void {
+	console.error(`[CANVAS] Block ${id} (${kind}) could not be drawn`, error);
+}
 </script>
 
 <div
@@ -171,7 +175,19 @@ function deleteBlock(): void {
 			</div>
 		{/if}
 		<div class="canvas-node__content" class:canvas-node__content--posted={picture}>
-			{@render children?.()}
+			<!-- One block that cannot be drawn is a notice in its own place, never the
+			     board's error: the rest of the board, and this block's shell, stay. -->
+			<svelte:boundary onerror={reportBroken}>
+				{@render children?.()}
+				{#snippet failed(_error, reset)}
+					<div class="canvas-node__broken" role="alert" data-testid="canvas-node-broken">
+						<p>{$t("artifacts.canvas.block.drawFailed")}</p>
+						<button type="button" class="btn-secondary btn-sm nodrag" onclick={reset}>
+							{$t("artifacts.canvas.chat.retry")}
+						</button>
+					</div>
+				{/snippet}
+			</svelte:boundary>
 			{#if picture?.kind === "poster"}
 				<img class="canvas-node__poster" src={picture.url} alt="" draggable="false" data-testid="canvas-node-poster" />
 			{:else if picture?.kind === "placeholder"}
@@ -261,6 +277,17 @@ function deleteBlock(): void {
 	   still image, or the card that says there is none, is drawn over it. */
 	.canvas-node__content--posted > :global(*:not(.canvas-node__poster):not(.canvas-node__placeholder)) {
 		visibility: hidden;
+	}
+
+	.canvas-node__broken {
+		box-sizing: border-box;
+		padding: 10px 12px;
+		color: var(--text-muted);
+		font-size: var(--text-xs);
+	}
+
+	.canvas-node__broken p {
+		margin: 0 0 6px;
 	}
 
 	.canvas-node__poster {
