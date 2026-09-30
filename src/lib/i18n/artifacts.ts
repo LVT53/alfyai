@@ -807,6 +807,40 @@ const artifactsDict = {
 		"artifacts.canvas.markErased": "Marks erased.",
 		"artifacts.canvas.drawingLimit":
 			"The board holds at most {count} marks. Erase one to draw more.",
+		// A picture of the board (S3-X): the header's Download offers the board as a
+		// PNG, and the blocks a picture cannot carry live (an App, a map, photos, a web
+		// search) are drawn from a still image or, with none, as a card that says so.
+		"artifacts.canvas.export.title": "Download “{title}”",
+		"artifacts.canvas.export.close": "Close",
+		"artifacts.canvas.export.png": "PNG image",
+		"artifacts.canvas.export.pngHint": "The whole board as one picture.",
+		"artifacts.canvas.export.preparing": "Drawing the board…",
+		"artifacts.canvas.export.saved":
+			"The picture is saved with this chat's files.",
+		"artifacts.canvas.export.again": "Download again",
+		"artifacts.canvas.export.failed": "Could not export the board.",
+		"artifacts.canvas.export.tryAgain": "Try again",
+		"artifacts.canvas.export.empty":
+			"There is nothing on the board to export yet.",
+		"artifacts.canvas.export.noConversation":
+			"This board belongs to no chat, so it cannot be exported.",
+		"artifacts.canvas.export.tooLarge":
+			"The picture is too large to keep. Try a smaller board.",
+		"artifacts.canvas.exportMissingPosters":
+			"{count} {count, plural, one {block was} other {blocks were}} drawn as a card, without the live view: {names}",
+		"artifacts.canvas.posterFailed":
+			"Could not make a still image of this block.",
+		"artifacts.canvas.mapNotLive": "Basemap not live",
+		"artifacts.canvas.export.stillApp":
+			"The live App is not part of this image.",
+		"artifacts.canvas.export.stillMap":
+			"The live map is not part of this image.",
+		"artifacts.canvas.export.stillPhoto":
+			"The photos are not part of this image.",
+		"artifacts.canvas.export.stillWeb":
+			"The live web results are not part of this image.",
+		"artifacts.canvas.export.stillOther":
+			"This block is not part of this image.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1437,6 +1471,32 @@ const artifactsDict = {
 		"artifacts.canvas.markErased": "Jelek radírozva.",
 		"artifacts.canvas.drawingLimit":
 			"A táblán legfeljebb {count} jel lehet. Radírozz le egyet, hogy továbbrajzolhass.",
+		"artifacts.canvas.export.title": "„{title}” letöltése",
+		"artifacts.canvas.export.close": "Bezárás",
+		"artifacts.canvas.export.png": "PNG-kép",
+		"artifacts.canvas.export.pngHint": "A teljes tábla egyetlen képként.",
+		"artifacts.canvas.export.preparing": "A tábla lerajzolása…",
+		"artifacts.canvas.export.saved": "A kép a beszélgetés fájljai között van.",
+		"artifacts.canvas.export.again": "Letöltés újra",
+		"artifacts.canvas.export.failed": "Nem sikerült exportálni a táblát.",
+		"artifacts.canvas.export.tryAgain": "Próbáld újra",
+		"artifacts.canvas.export.empty": "A táblán még nincs mit exportálni.",
+		"artifacts.canvas.export.noConversation":
+			"Ez a tábla nem tartozik beszélgetéshez, ezért nem exportálható.",
+		"artifacts.canvas.export.tooLarge":
+			"A kép túl nagy a mentéshez. Próbálj kisebb táblát.",
+		// Nincs többes szám: a számnév után a főnév egyes számban marad.
+		"artifacts.canvas.exportMissingPosters":
+			"{count} blokk kártyaként került a képbe, élő nézet nélkül: {names}",
+		"artifacts.canvas.posterFailed":
+			"Nem sikerült állóképet készíteni erről a blokkról.",
+		"artifacts.canvas.mapNotLive": "Nem élő alaptérkép",
+		"artifacts.canvas.export.stillApp": "Az élő alkalmazás nem része a képnek.",
+		"artifacts.canvas.export.stillMap": "Az élő térkép nem része a képnek.",
+		"artifacts.canvas.export.stillPhoto": "A fényképek nem részei a képnek.",
+		"artifacts.canvas.export.stillWeb":
+			"Az élő webes találatok nem részei a képnek.",
+		"artifacts.canvas.export.stillOther": "Ez a blokk nem része a képnek.",
 	},
 } as const;
 
