@@ -874,7 +874,7 @@ test.describe("comments on the Canvas", () => {
 			timeout: 15_000,
 		});
 		await expect(page.getByTestId("canvas-conflict")).toContainText(
-			"Someone changed the board while you were drawing",
+			"Alfy or another window changed the board",
 		);
 		// What the reader wrote is still on their screen until they choose to reload.
 		await expect(

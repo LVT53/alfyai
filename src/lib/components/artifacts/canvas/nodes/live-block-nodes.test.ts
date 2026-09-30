@@ -489,7 +489,7 @@ describe("a live-web block", () => {
 			"Frissítve: 3 órája",
 		);
 		expect(screen.getByTestId("canvas-liveweb-stale")).toHaveTextContent(
-			"Nem élő",
+			"Elavult",
 		);
 		expect(
 			screen.getByRole("button", { name: "Frissítés" }),

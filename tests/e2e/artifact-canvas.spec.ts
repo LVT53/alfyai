@@ -1004,7 +1004,7 @@ test.describe("the Canvas kind, in the panel", () => {
 		const banner = page.getByTestId("canvas-conflict");
 		await expect(banner).toBeVisible({ timeout: 10_000 });
 		await expect(banner).toContainText(
-			"Someone changed the board while you were drawing. Reload to see the newest version.",
+			"Alfy or another window changed the board, so your last step was not saved. Reload to see the newest version.",
 		);
 		// The reader's own step is still on screen, and the board no longer takes new ones.
 		await expect(

@@ -271,7 +271,9 @@ test.describe("frames, adoption and connectors on the Canvas", () => {
 		await dragBetween(page, start, target);
 		const banner = page.getByTestId("canvas-conflict");
 		await expect(banner).toBeVisible({ timeout: 10_000 });
-		await expect(banner).toContainText("Someone changed the board");
+		await expect(banner).toContainText(
+			"Alfy or another window changed the board",
+		);
 		// Nothing was written on top of the newer version, and the board takes no more steps.
 		expect(
 			(await storedBoard(artifactId)).nodes.find((node) => node.id === "note-a")
