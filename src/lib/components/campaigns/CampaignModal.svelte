@@ -1,5 +1,4 @@
 <script lang="ts">
-import { onDestroy, onMount } from "svelte";
 import { t } from "$lib/i18n";
 import { ChevronDown } from "@lucide/svelte";
 import {
@@ -11,6 +10,7 @@ import {
 	isTopmostDialog,
 	registerDialog,
 } from "$lib/components/ui/DialogShell.svelte";
+import { focusTrap } from "$lib/utils/focus-trap";
 import {
 	getPersonalityProfileDisplayDescription,
 	getPersonalityProfileDisplayName,
@@ -83,9 +83,7 @@ let {
 } = $props();
 
 let localSlideIndex = $state(0);
-let dialogRef = $state<HTMLElement | null>(null);
 let initialFocusRef = $state<HTMLButtonElement | null>(null);
-let previousFocus: HTMLElement | null = null;
 const dialogId = Symbol("campaign-modal");
 
 $effect(() => {
@@ -295,7 +293,6 @@ function goTo(index: number) {
 function closeAsSkip() {
 	onSkip?.();
 	onClose?.();
-	restoreFocus();
 }
 
 function hasSetupControl(control: CampaignSetupControl) {
@@ -314,78 +311,41 @@ function handleModelSelect(event: Event) {
 	);
 }
 
-function focusableElements() {
-	return Array.from(
-		dialogRef?.querySelectorAll<HTMLElement>(
-			'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
-		) ?? [],
-	).filter((element) => !element.hasAttribute("aria-hidden"));
-}
-
-function restoreFocus() {
+// A slide's internal action opens a dialog of its own on top of this one (the
+// ChatGPT import modal). This modal is not a DialogShell, but it joins the same
+// open-dialog stack, so Escape and the Tab trap belong to whichever layer is on
+// top. Without the gate an Escape meant for the dialog above would also skip
+// the campaign underneath it. The inline preview is not a dialog and stays off
+// the stack.
+$effect(() => {
 	if (inline) return;
-	previousFocus?.focus?.();
-	previousFocus = null;
-}
-
-function handleKeydown(event: KeyboardEvent) {
-	if (inline) return;
-	// A slide's internal action opens a dialog of its own on top of this one
-	// (the ChatGPT import modal). This modal is not a DialogShell, but it joins
-	// the same open-dialog stack, so Escape and the Tab trap belong to whichever
-	// layer is on top. Without this gate an Escape meant for the dialog above
-	// would also skip the campaign underneath it.
-	if (!isTopmostDialog(dialogId)) return;
-	if (event.key === "Escape") {
-		event.preventDefault();
-		closeAsSkip();
-		return;
-	}
-	if (event.key !== "Tab") return;
-
-	const focusable = focusableElements();
-	if (focusable.length === 0) {
-		event.preventDefault();
-		return;
-	}
-	const first = focusable[0];
-	const last = focusable[focusable.length - 1];
-	if (event.shiftKey && document.activeElement === first) {
-		last.focus();
-		event.preventDefault();
-	} else if (!event.shiftKey && document.activeElement === last) {
-		first.focus();
-		event.preventDefault();
-	} else if (!dialogRef?.contains(document.activeElement)) {
-		first.focus();
-		event.preventDefault();
-	}
-}
-
-onMount(() => {
-	if (inline) return;
-	previousFocus = document.activeElement as HTMLElement | null;
 	registerDialog(dialogId);
-	setTimeout(() => {
-		(initialFocusRef ?? focusableElements()[0])?.focus();
-	}, 0);
+	return () => deregisterDialog(dialogId);
 });
 
-onDestroy(() => {
-	deregisterDialog(dialogId);
-	restoreFocus();
+// Tab/Shift+Tab wrapping, the pull-back of focus that has left the dialog and
+// the topmost-only gate are the shared utility's (src/lib/utils/focus-trap.ts).
+// Only what belongs to this modal stays here: Escape skips the campaign, the
+// close button takes the first focus, and focus goes back to whatever opened
+// the announcement once it is removed (skipped or finished alike).
+const campaignFocusTrap = focusTrap({
+	isTopmost: () => isTopmostDialog(dialogId),
+	onEscape: (event) => {
+		event.preventDefault();
+		closeAsSkip();
+	},
+	focus: { target: () => initialFocusRef },
+	restoreFocusOnCleanup: true,
 });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 <section
-	bind:this={dialogRef}
 	class:campaign-shell={!inline}
 	class:campaign-inline={inline}
 	role={!inline ? 'dialog' : undefined}
 	aria-modal={!inline ? 'true' : undefined}
 	aria-label={preview ? $t('campaignModal.previewLabel') : $t('campaignModal.label')}
+	{@attach inline ? undefined : campaignFocusTrap}
 >
 	<div class="campaign-modal-surface">
 		<header class="campaign-modal-header">
