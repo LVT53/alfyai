@@ -600,6 +600,8 @@ const artifactsDict = {
 		"artifacts.canvas.blockDropped":
 			"{count} block(s) could not be read and were left out.",
 		"artifacts.canvas.dismiss": "Dismiss",
+		"artifacts.canvas.rebasedKept":
+			"Alfy changed {count} {count, plural, one {block} other {blocks}} you had also changed. Your version was kept.",
 		"artifacts.canvas.deleteBlock": "Delete block",
 		"artifacts.canvas.nodeDeleted": "Deleted from the board.",
 		"artifacts.canvas.tone": "Note colour",
@@ -1271,6 +1273,8 @@ const artifactsDict = {
 		"artifacts.canvas.blockDropped":
 			"{count} blokkot nem sikerült beolvasni, kimaradtak.",
 		"artifacts.canvas.dismiss": "Elrejtés",
+		"artifacts.canvas.rebasedKept":
+			"Alfy {count} olyan blokkot is módosított, amelyen te is változtattál. A te változatod maradt meg.",
 		"artifacts.canvas.deleteBlock": "Blokk törlése",
 		"artifacts.canvas.nodeDeleted": "Törölve a tábláról.",
 		"artifacts.canvas.tone": "Jegyzet színe",

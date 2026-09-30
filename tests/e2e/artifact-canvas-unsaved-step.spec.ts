@@ -1,6 +1,9 @@
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { createArtifact } from "../../src/lib/server/services/artifacts";
+import {
+	createArtifact,
+	updateArtifactBody,
+} from "../../src/lib/server/services/artifacts";
 import type {
 	CanvasBody,
 	CanvasNode,
@@ -132,6 +135,45 @@ async function open(page: Page): Promise<Scene> {
 	};
 }
 
+/** A board made through the service, and the chat open on it: no model, for the tests that write Alfy's version themselves. */
+async function openBoardOnly(page: Page): Promise<Scene> {
+	await login(page);
+	const conversationId = await createConversation(page, "A board");
+	const userId = await testUserId();
+	const created = await createArtifact({
+		userId,
+		conversationId,
+		kind: "canvas",
+		title: "Weekend board",
+		body: boardJson(board()),
+		author: "user",
+		versionSummary: "Created",
+	});
+	if (!created.ok) throw new Error(created.reason);
+	await openChatAndReload(page, conversationId);
+	await openCanvasPanel(page);
+	return {
+		conversationId,
+		artifactId: created.artifact.id,
+		cleanup: async () => {},
+	};
+}
+
+/** Alfy's version of the board, written the way its tool writes one: a version of its own on top of the newest, from the board as it is stored. */
+async function writeAlfyVersion(
+	artifactId: string,
+	change: (stored: CanvasBody) => CanvasBody,
+) {
+	const written = await updateArtifactBody({
+		userId: await testUserId(),
+		artifactId,
+		body: boardJson(change(await storedBoard(artifactId))),
+		author: "alfy",
+		summary: "Alfy changed the board",
+	});
+	if (!written.ok) throw new Error(written.reason);
+}
+
 /** What the reader asks the chat: the fake model answers it with an `edit_artifact` call of exactly these ops. */
 async function askAlfy(
 	page: Page,
@@ -159,6 +201,13 @@ async function textOf(artifactId: string, id: string): Promise<string | null> {
 		(candidate) => candidate.id === id,
 	);
 	return node && "text" in node.data ? (node.data.text as string) : null;
+}
+
+/** Puts the focus back on the board itself, so a note that was being typed in shows its words again. */
+async function leaveNote(page: Page) {
+	await page
+		.getByTestId("canvas-board")
+		.click({ position: { x: 700, y: 560 } });
 }
 
 /** Edits a note's words the way a reader does, and leaves them typed (the focus is still in the note). */
@@ -206,6 +255,130 @@ test.describe("a step the reader has not saved yet, and Alfy's change", () => {
 	});
 });
 
+test.describe("a step that meets a newer version of the board", () => {
+	test("is put on top of it instead of being refused: both are on the board and in the saved one, and nothing tells the reader to reload", async ({
+		page,
+	}) => {
+		const scene = await openBoardOnly(page);
+		await typeIntoNote(page, LUNCH, " (two seats)");
+		await leaveNote(page);
+		// Alfy's version is written while the step is still in the browser: the save
+		// that follows is against a version the server is past.
+		await writeAlfyVersion(scene.artifactId, (stored) => ({
+			...stored,
+			nodes: [
+				...stored.nodes,
+				note("note-booked", 420, 260, "Booked for 15:30"),
+			],
+		}));
+
+		await expect(page.getByText("Booked for 15:30")).toBeVisible({
+			timeout: 15_000,
+		});
+		await expect(
+			page.getByText("Lunch at the market (two seats)"),
+		).toBeVisible();
+		await expect
+			.poll(async () => (await versionRows(scene.artifactId)).at(-1)?.author, {
+				timeout: 15_000,
+			})
+			.toBe("user");
+		await expect(page.getByTestId("canvas-conflict")).toHaveCount(0);
+		// Nothing the reader wrote was set aside, so there is nothing to say.
+		await expect(page.getByTestId("canvas-rebased-notice")).toHaveCount(0);
+		expect(await textOf(scene.artifactId, LUNCH)).toBe(
+			"Lunch at the market (two seats)",
+		);
+		expect(
+			(await storedBoard(scene.artifactId)).nodes.map((n) => n.id),
+		).toContain("note-booked");
+		// The reader's step is a version of their own, on top of Alfy's.
+		expect(
+			(await versionRows(scene.artifactId)).map((row) => row.author),
+		).toEqual(["user", "alfy", "user"]);
+		// And the board goes on saving what comes next.
+		await typeIntoNote(page, MUSEUM, " (tickets)");
+		await leaveNote(page);
+		await expect
+			.poll(async () => textOf(scene.artifactId, MUSEUM), { timeout: 15_000 })
+			.toBe("Museum, 14:00 (tickets)");
+		await expect(page.getByTestId("canvas-conflict")).toHaveCount(0);
+	});
+
+	test("keeps the reader's words where Alfy changed the same words, and says which block, once", async ({
+		page,
+	}) => {
+		const scene = await openBoardOnly(page);
+		await typeIntoNote(page, LUNCH, " (two seats)");
+		await leaveNote(page);
+		await writeAlfyVersion(scene.artifactId, (stored) => ({
+			...stored,
+			nodes: [
+				...stored.nodes.map((node) =>
+					node.id === LUNCH
+						? { ...node, data: { ...node.data, text: "Lunch at noon" } }
+						: node,
+				),
+				note("note-booked", 420, 260, "Booked for 15:30"),
+			],
+		}));
+
+		await expect(page.getByText("Booked for 15:30")).toBeVisible({
+			timeout: 15_000,
+		});
+		// The reader's version stands on the board and in the saved one; Alfy's is in History.
+		await expect(
+			page.getByText("Lunch at the market (two seats)"),
+		).toBeVisible();
+		await expect(page.getByText("Lunch at noon")).toHaveCount(0);
+		const notice = page.getByTestId("canvas-rebased-notice");
+		await expect(notice).toContainText(
+			"Alfy changed 1 block you had also changed. Your version was kept.",
+		);
+		await expect(page.getByTestId("canvas-conflict")).toHaveCount(0);
+		await expect
+			.poll(async () => (await versionRows(scene.artifactId)).at(-1)?.author, {
+				timeout: 15_000,
+			})
+			.toBe("user");
+		expect(await textOf(scene.artifactId, LUNCH)).toBe(
+			"Lunch at the market (two seats)",
+		);
+		await notice.getByRole("button", { name: "Dismiss" }).click();
+		await expect(notice).toHaveCount(0);
+	});
+});
+
+test.describe("a save that is refused with nothing newer on the server", () => {
+	test("is a race with the reader's own save: the step goes once more against the version the board has now, and lands, with nothing to reload", async ({
+		page,
+	}) => {
+		const scene = await openBoardOnly(page);
+		let refused = 0;
+		await page.route("**/api/artifacts/*/body**", async (route) => {
+			if (refused === 0 && route.request().method() !== "GET") {
+				refused += 1;
+				await route.fulfill({
+					status: 409,
+					contentType: "application/json",
+					body: JSON.stringify({ ok: false, reason: "version_conflict" }),
+				});
+				return;
+			}
+			await route.continue();
+		});
+		await typeIntoNote(page, LUNCH, " (two seats)");
+		await leaveNote(page);
+
+		await expect
+			.poll(async () => textOf(scene.artifactId, LUNCH), { timeout: 15_000 })
+			.toBe("Lunch at the market (two seats)");
+		expect(refused).toBe(1);
+		await expect(page.getByTestId("canvas-conflict")).toHaveCount(0);
+		await expect(page.getByTestId("canvas-save-status")).toHaveText(/Saved/);
+	});
+});
+
 // Screenshots for the report, not part of the gates: run with FC_SHOTS=<dir>.
 const SHOTS = process.env.FC_SHOTS;
 test.describe("screenshots of a board after a send that raced an edit", () => {
@@ -235,5 +408,33 @@ test.describe("screenshots of a board after a send that raced an edit", () => {
 		} finally {
 			await scene.cleanup();
 		}
+	});
+
+	test("the board that kept the reader's words over Alfy's, with its notice, Hungarian, light, 1440x900", async ({
+		page,
+	}) => {
+		await setUiLanguage("hu");
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const scene = await openBoardOnly(page);
+		await typeIntoNote(page, LUNCH, " (két főre)");
+		await leaveNote(page);
+		await writeAlfyVersion(scene.artifactId, (stored) => ({
+			...stored,
+			nodes: [
+				...stored.nodes.map((node) =>
+					node.id === LUNCH
+						? { ...node, data: { ...node.data, text: "Ebéd délben" } }
+						: node,
+				),
+				note("note-booked", 420, 260, "Lefoglalva 15:30-ra"),
+			],
+		}));
+		await expect(page.getByTestId("canvas-rebased-notice")).toBeVisible({
+			timeout: 15_000,
+		});
+		await page.waitForTimeout(1_500);
+		await page.screenshot({
+			path: join(SHOTS as string, "1440-light-board-kept-notice.png"),
+		});
 	});
 });
