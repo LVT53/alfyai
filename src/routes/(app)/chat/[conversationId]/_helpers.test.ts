@@ -1529,20 +1529,100 @@ describe("findLiveDocumentAlfyActivity", () => {
 		);
 	});
 
-	it("ignores a tool call for a non-document kind", () => {
+	it("ignores a tool call for a kind the panel has no live edit for", () => {
 		let list = [createAssistantPlaceholder("assistant-1")];
 		list = applyToolCallUpdateToMessageList(list, {
 			placeholderId: "assistant-1",
 			name: "edit_artifact",
-			input: { artifactId: "canvas-1", patches: [] },
+			input: { artifactId: "app-1", patches: [] },
+			status: "running",
+			details: { callId: "call-1" },
+		});
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "app-1", patches: [] },
 			status: "done",
 			details: {
 				callId: "call-1",
-				metadata: { ok: true, artifactId: "canvas-1", artifactKind: "canvas" },
+				metadata: { ok: true, artifactId: "app-1", artifactKind: "app" },
 			},
 		});
 
 		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+	});
+
+	it("finds an in-flight edit of a board by its ops, before the server has said what it is", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: {
+				artifactId: "board-1",
+				summary: "Planned Sunday",
+				ops: [{ op: "move", id: "note-1", to: { x: 1, y: 2 } }],
+			},
+			status: "running",
+			details: { callId: "call-board" },
+		});
+
+		const activity = findLiveDocumentAlfyActivity(list);
+		expect(activity).toEqual(
+			expect.objectContaining({
+				artifactId: "board-1",
+				status: "running",
+				label: "Planned Sunday",
+				ops: [{ op: "move", id: "note-1", to: { x: 1, y: 2 } }],
+			}),
+		);
+	});
+
+	it("finds a settled edit of a board with the ops it made and the ones it left alone", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		const input = {
+			artifactId: "board-1",
+			ops: [
+				{ op: "move", id: "note-1", to: { x: 1, y: 2 } },
+				{ op: "move", id: "gone", to: { x: 3, y: 4 } },
+			],
+		};
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input,
+			status: "running",
+			details: { callId: "call-board" },
+		});
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input,
+			status: "done",
+			details: {
+				callId: "call-board",
+				metadata: {
+					ok: true,
+					artifactId: "board-1",
+					artifactKind: "canvas",
+					appliedCount: 1,
+					refusedBlocksJson: JSON.stringify([
+						{ blockId: "gone", reason: "unknown_id", opIndex: 1 },
+					]),
+				},
+			},
+		});
+
+		const activity = findLiveDocumentAlfyActivity(list);
+		expect(activity).toMatchObject({
+			artifactId: "board-1",
+			key: "call-board",
+			status: "refused",
+			appliedCount: 1,
+		});
+		expect(activity?.ops).toHaveLength(2);
+		expect(activity?.refusedBlocks).toEqual([
+			{ blockId: "gone", reason: "unknown_id", opIndex: 1 },
+		]);
 	});
 
 	it("ignores unrelated tool calls (e.g. research_web) even when present", () => {

@@ -49,6 +49,8 @@ let {
 	onUndoAll,
 	onSeeRefused,
 	docked = false,
+	summary = undefined,
+	regionLabel = undefined,
 }: {
 	/** Always > 0 while this component is mounted — the caller renders nothing otherwise (redesign §4.3: "no bar" once nothing is pending). */
 	pendingCount: number;
@@ -63,6 +65,10 @@ let {
 	onSeeRefused?: () => void;
 	/** Flat and flush: the caller pins the bar to the bottom edge of a text column, so it has no floating card's radius, sides or shadow (redesign §4.2: "at the bottom of the text column"). On a phone as well. */
 	docked?: boolean;
+	/** What the bar says about what changed, already localised. The Document's ("Alfy changed 3 parts.") when absent; a board says "blocks", and what it removed. */
+	summary?: string | undefined;
+	/** The landmark's name, already localised. The Document's when absent. */
+	regionLabel?: string | undefined;
 } = $props();
 </script>
 
@@ -72,14 +78,14 @@ let {
 		class:is-docked={docked}
 		class:is-single={pendingCount < 2}
 		role="region"
-		aria-label={$t('artifacts.document.review.regionLabel')}
+		aria-label={regionLabel ?? $t('artifacts.document.review.regionLabel')}
 	>
 		<div class="review-bar-msg">
 			<span class="review-bar-spark" aria-hidden="true">
 				<Sparkles size={14} strokeWidth={2} />
 			</span>
 			<span>
-				{$t('artifacts.document.review.summary', { count: pendingCount })}
+				{summary ?? $t('artifacts.document.review.summary', { count: pendingCount })}
 				{#if refusedCount > 0}
 					<button
 						type="button"

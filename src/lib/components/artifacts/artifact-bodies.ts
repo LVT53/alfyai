@@ -26,10 +26,11 @@ export interface ArtifactBodyProps {
 	/**
 	 * The latest Alfy tool-call activity (`create_artifact`/`edit_artifact`)
 	 * the chat page knows about, derived from the stream's own tool-call
-	 * parts — regardless of which artifact it targets. Only the Document body
-	 * interprets it today (T8 live: the "Alfy is writing" shimmer, change
-	 * marks and refusal notice); every other kind ignores it. `null`/absent
-	 * when nothing is happening.
+	 * parts — regardless of which artifact it targets. The Document body
+	 * interprets it (T8 live: the "Alfy is writing" shimmer, change marks and
+	 * refusal notice) and so does the Canvas body (Slice 3 T6: the arranging
+	 * frame, the landing, the refusal notice; a board's edit carries its `ops`);
+	 * every other kind ignores it. `null`/absent when nothing is happening.
 	 */
 	alfyActivity?: DocumentAlfyActivity | null;
 	/** Fires when the body's own dirty state changes, so the panel can guard closing. */

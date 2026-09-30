@@ -16,6 +16,7 @@ function mount(
 		canUndo: boolean;
 		canRedo: boolean;
 		disabled: boolean;
+		askBusy: boolean;
 	}> = {},
 ) {
 	const callbacks = {
@@ -24,6 +25,7 @@ function mount(
 		onundo: vi.fn(),
 		onredo: vi.fn(),
 		oninsert: vi.fn(),
+		onask: vi.fn(),
 	};
 	const view = render(CanvasToolbar, {
 		tool: "select",
@@ -134,6 +136,8 @@ describe("the toolbar", () => {
 		expect(names[16]).toMatch(/^Undo/);
 		expect(names[17]).toMatch(/^Redo/);
 		expect(names[18]).toBe("Insert");
+		// Ask Alfy is the last stop: the tools come first, then the asking.
+		expect(names[19]).toBe("Ask Alfy");
 		for (const button of within(toolbar()).getAllByRole("button")) {
 			expect(button.getAttribute("tabindex")).not.toBe("0");
 		}
@@ -203,5 +207,45 @@ describe("the toolbar", () => {
 			(screen.getByRole("button", { name: /^Undo/ }) as HTMLButtonElement)
 				.disabled,
 		).toBe(true);
+	});
+
+	it("has Ask Alfy at the end, named for what it does, and it asks", async () => {
+		const { onask } = mount();
+		const ask = screen.getByRole("button", { name: "Ask Alfy" });
+		expect(ask).toBe(within(toolbar()).getAllByRole("button").at(-1));
+		await fireEvent.click(ask);
+		expect(onask).toHaveBeenCalledTimes(1);
+	});
+
+	it("waits while Alfy is arranging, and says why", async () => {
+		const { onask } = mount({ askBusy: true });
+		const ask = screen.getByRole("button", { name: "Ask Alfy" });
+		expect(ask.hasAttribute("disabled")).toBe(true);
+		expect(ask.getAttribute("title")).toBe(
+			"Alfy is still arranging. Try again in a moment.",
+		);
+		await fireEvent.click(ask);
+		expect(onask).not.toHaveBeenCalled();
+	});
+
+	it("waits when the board cannot change", () => {
+		mount({ disabled: true });
+		expect(
+			screen.getByRole("button", { name: "Ask Alfy" }).hasAttribute("disabled"),
+		).toBe(true);
+	});
+
+	it("keeps the name and drops the words on a narrow board, like Insert's neighbours", () => {
+		mount({ compact: true });
+		const ask = screen.getByRole("button", { name: "Ask Alfy" });
+		expect(ask.textContent?.trim()).toBe("");
+	});
+
+	it("says it in Hungarian", () => {
+		uiLanguage.set("hu");
+		mount();
+		expect(
+			screen.getByRole("button", { name: "Alfy megkérdezése" }),
+		).toBeTruthy();
 	});
 });

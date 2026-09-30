@@ -152,4 +152,23 @@ describe("CommentComposer", () => {
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Mégse" })).toBeTruthy();
 	});
+
+	// A request started as "Ask Alfy" (a selection's pill, the toolbar) begins with
+	// Alfy's name, so the reader only writes what to do.
+	it("can begin with words already in the box, and then says Ask Alfy at once", () => {
+		const onsubmit = vi.fn().mockResolvedValue(undefined);
+		render(CommentComposer, {
+			header: "New comment on: Trains card",
+			placeholder: "Write a comment. Use @Alfy to ask for a change.",
+			alfyHint: "Alfy answers here and can change the board.",
+			initialText: "@Alfy ",
+			onsubmit,
+			oncancel: vi.fn(),
+		});
+		expect(field().value).toBe("@Alfy ");
+		expect(document.activeElement).toBe(field());
+		// The caret is after the words, so what is typed follows them.
+		expect(field().selectionStart).toBe("@Alfy ".length);
+		expect(screen.getByRole("button", { name: /Ask Alfy/ })).toBeTruthy();
+	});
 });

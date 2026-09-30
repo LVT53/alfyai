@@ -7,6 +7,8 @@ import {
 import type { AddressInfo } from "node:net";
 import {
 	AI_SMOKE_ABORT_DELAY_MS,
+	AI_SMOKE_CANVAS_EDIT_FINAL_TEXT,
+	AI_SMOKE_CANVAS_EDIT_MARKER,
 	AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT,
 	AI_SMOKE_CREATE_ARTIFACT_MARKDOWN,
 	AI_SMOKE_CREATE_ARTIFACT_MARKER,
@@ -30,6 +32,7 @@ import {
 	AI_SMOKE_SUGGEST_INSTRUCTION_TOOL_NAME,
 	AI_SMOKE_TOOL_FINAL_TEXT,
 	AI_SMOKE_TOOL_NAME,
+	decodeCanvasEditScenarioPayload,
 	decodeEditArtifactScenarioPayload,
 } from "../../fixtures/ai/openai-compatible-scenarios";
 
@@ -42,6 +45,7 @@ const SUGGEST_INSTRUCTION_CALL_INPUT = {
 	scope: "personal",
 };
 const EDIT_ARTIFACT_CALL_ID = "call_fake_edit_artifact_1";
+const CANVAS_EDIT_CALL_ID = "call_fake_canvas_edit_1";
 const CREATE_ARTIFACT_CALL_ID = "call_fake_create_artifact_1";
 
 export interface CapturedOpenAICompatibleRequest {
@@ -671,6 +675,128 @@ function buildEditArtifactFinalStreamResponse(): Response {
 }
 
 /**
+ * Slice 3 T6: a real `edit_artifact` call on a board. The scenario belongs to THIS
+ * turn's own message, never to anything the request merely carries. The app does
+ * not send the conversation as messages: it sends ONE user message, a context
+ * bundle whose sections hold the task's objective, retrieved evidence (the
+ * finished tasks of the user's OTHER conversations, their request text included:
+ * a board test's marker and payload turn up in the next spec's bundle) and, last
+ * of them, "## Current User Message". Reading the marker anywhere in that message
+ * hijacked every scripted turn that ran after a board test, so it is read from
+ * the current message's section alone (a request without a bundle has only the
+ * message). And "the answer to the tool result" is a request whose last message IS
+ * a tool result, not any request that has one somewhere behind it.
+ */
+const CURRENT_USER_MESSAGE_HEADING = "## Current User Message\n";
+
+function lastUserMessageText(body: unknown): string | null {
+	if (!isJsonObject(body) || !Array.isArray(body.messages)) return null;
+	const last = body.messages
+		.filter((message) => isJsonObject(message) && message.role === "user")
+		.at(-1);
+	if (!isJsonObject(last)) return null;
+	const { content } = last;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return null;
+	return content
+		.map((part) =>
+			isJsonObject(part) && typeof part.text === "string" ? part.text : "",
+		)
+		.join("\n");
+}
+
+function currentTurnText(body: unknown): string | null {
+	const text = lastUserMessageText(body);
+	if (text === null) return null;
+	const start = text.lastIndexOf(CURRENT_USER_MESSAGE_HEADING);
+	if (start === -1) return text;
+	const section = text.slice(start + CURRENT_USER_MESSAGE_HEADING.length);
+	const end = section.indexOf("\n\n## ");
+	return end === -1 ? section : section.slice(0, end);
+}
+
+function bodyAsksForCanvasEdit(body: unknown): boolean {
+	return currentTurnText(body)?.includes(AI_SMOKE_CANVAS_EDIT_MARKER) === true;
+}
+
+function lastMessageIsToolResult(body: unknown): boolean {
+	if (!isJsonObject(body) || !Array.isArray(body.messages)) return false;
+	const last = body.messages.at(-1);
+	return isJsonObject(last) && last.role === "tool";
+}
+
+function buildCanvasEditToolCallStreamResponse(
+	payload: NonNullable<ReturnType<typeof decodeCanvasEditScenarioPayload>>,
+): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_canvas_edit_call_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_011,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	const args = {
+		artifactId: payload.artifactId,
+		summary: payload.summary,
+		ops: payload.ops,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						tool_calls: [
+							{
+								index: 0,
+								id: CANVAS_EDIT_CALL_ID,
+								type: "function",
+								function: {
+									name: "edit_artifact",
+									arguments: JSON.stringify(args),
+								},
+							},
+						],
+					},
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+			usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+		},
+	]);
+}
+
+function buildCanvasEditFinalStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_canvas_edit_final_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_012,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: { content: AI_SMOKE_CANVAS_EDIT_FINAL_TEXT },
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+			usage: { prompt_tokens: 21, completion_tokens: 9, total_tokens: 30 },
+		},
+	]);
+}
+
+/**
  * The in-chat card (Feature 2, the cross-kind task): a real `create_artifact`
  * call, scripted with a fixed title/body — unlike T8 live's `edit_artifact`,
  * nothing here depends on ids or hashes the test's own setup resolved first.
@@ -1007,6 +1133,16 @@ export function createOpenAICompatibleProviderHarness(
 						return buildSuggestInstructionFinalStreamResponse();
 					}
 					return buildSuggestInstructionToolCallStreamResponse();
+				}
+				if (bodyAsksForCanvasEdit(body)) {
+					if (lastMessageIsToolResult(body)) {
+						return buildCanvasEditFinalStreamResponse();
+					}
+					const payload = decodeCanvasEditScenarioPayload(
+						currentTurnText(body) ?? "",
+					);
+					if (payload) return buildCanvasEditToolCallStreamResponse(payload);
+					return buildTextStreamResponse();
 				}
 				if (bodyAsksForEditArtifact(body)) {
 					if (hasToolResultMessage(body)) {

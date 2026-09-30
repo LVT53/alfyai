@@ -118,15 +118,18 @@ export interface ArtifactCardSummary {
 	/** `kind: "canvas"` only. */
 	canvasPreview?: CanvasCardPreview;
 	/**
-	 * `kind: "document"` only (Wave 2.5 review, F1): the PERSISTED review
-	 * state — `document-ops.ts`'s `computePendingReviewBlocks`, through the
-	 * artifact's own stored `metadata.review` marker (ruling 61) — never the
+	 * `kind: "document"` or `"canvas"` (Wave 2.5 review, F1; ruling 63): the
+	 * PERSISTED review state — a Document's `computePendingReviewBlocks`, a
+	 * board's `computeCanvasReview`, through the artifact's own stored
+	 * `metadata.review` marker (ruling 61) — never the
 	 * ephemeral, session-only `liveDocumentAlfyActivity` signal the chat card,
 	 * list row and count-button dot used to read independently (and could
 	 * each go stale in a different way). `undefined` for a document that has
 	 * never had an Alfy edit land (no marker yet — nothing to review, ever):
 	 * distinct from `0`, which means "reviewed" (a marker exists and nothing
-	 * is pending right now). Every other kind always omits this field.
+	 * is pending right now). Every other kind always omits this field. For a
+	 * board it is the number of blocks waiting, and 1 for a change that only
+	 * took blocks away.
 	 */
 	pendingReviewCount?: number;
 	/**

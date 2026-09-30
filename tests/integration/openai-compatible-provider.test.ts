@@ -5,6 +5,9 @@ import { runStreamingNormalChatModelRun } from "$lib/server/services/normal-chat
 import {
 	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_API_KEY,
+	AI_SMOKE_CANVAS_EDIT_FINAL_TEXT,
+	AI_SMOKE_CANVAS_EDIT_MARKER,
+	AI_SMOKE_CREATE_ARTIFACT_MARKER,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_PLAIN_TEXT,
 	AI_SMOKE_REASONING_TEXT,
@@ -14,6 +17,7 @@ import {
 	AI_SMOKE_STREAM_TEXT,
 	AI_SMOKE_TOOL_FINAL_TEXT,
 	AI_SMOKE_TOOL_NAME,
+	encodeCanvasEditScenarioPayload,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 
@@ -630,6 +634,130 @@ describe("fake OpenAI-compatible provider harness", () => {
 				aborted: true,
 			},
 		]);
+	});
+});
+
+describe("fake OpenAI-compatible provider: a board's scripted edit", () => {
+	afterAll(async () => {
+		await provider.stop();
+	});
+
+	beforeEach(async () => {
+		await provider.start();
+		await provider.reset();
+	});
+
+	const rename = { op: "update_node", id: "note-1", data: { text: "Renamed" } };
+	const move = { op: "move", id: "note-2", to: { x: 10, y: 20 } };
+	const scripted = (
+		ops: unknown[],
+		artifactId = "board-1",
+		summary = "Planned",
+	) =>
+		`${AI_SMOKE_CANVAS_EDIT_MARKER} ${encodeCanvasEditScenarioPayload({ artifactId, summary, ops })}`;
+
+	/**
+	 * What the app really sends: ONE user message, a context bundle. The finished
+	 * tasks of the user's other conversations (their request text included) sit in
+	 * its evidence, and the message this turn is the bundle's last section but one.
+	 */
+	const bundle = (options: { evidence: string; current: string }) =>
+		[
+			"You are receiving a compacted conversation context bundle. Use it as the working context for this turn.",
+			`## Task State\nObjective: ${options.current}`,
+			`## Retrieved Evidence\nTask: ${options.evidence}\n\nResult: Changed the board.`,
+			`## Current User Message\n${options.current}`,
+			"## Turn Guidance\n[SYSTEM TIME CONTEXT: Today is a day.]",
+		].join("\n\n");
+
+	async function ask(messages: unknown[]) {
+		const completion = await fetch(`${provider.baseURL}/chat/completions`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${AI_SMOKE_API_KEY}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				model: AI_SMOKE_MODEL_ID,
+				stream: true,
+				messages,
+			}),
+		});
+		expect(completion.status).toBe(200);
+		const chunks = parseServerSentEventData(await completion.text())
+			.filter((frame) => frame !== "[DONE]")
+			.map(
+				(frame) =>
+					JSON.parse(frame) as {
+						choices: Array<{
+							delta: {
+								content?: string;
+								tool_calls?: Array<{
+									function: { name: string; arguments: string };
+								}>;
+							};
+						}>;
+					},
+			);
+		const call = chunks
+			.flatMap((chunk) => chunk.choices)
+			.flatMap((choice) => choice.delta.tool_calls ?? [])[0];
+		return {
+			toolName: call?.function.name,
+			args: call
+				? (JSON.parse(call.function.arguments) as Record<string, unknown>)
+				: undefined,
+			text: chunks
+				.flatMap((chunk) => chunk.choices)
+				.map((choice) => choice.delta.content ?? "")
+				.join(""),
+		};
+	}
+
+	it("calls edit_artifact with the ops the message carries, and answers the tool result", async () => {
+		const first = await ask([
+			{ role: "user", content: scripted([rename, move]) },
+		]);
+		expect(first.toolName).toBe("edit_artifact");
+		expect(first.args).toEqual({
+			artifactId: "board-1",
+			summary: "Planned",
+			ops: [rename, move],
+		});
+
+		const answer = await ask([
+			{ role: "user", content: scripted([rename]) },
+			{ role: "assistant", content: "", tool_calls: [] },
+			{ role: "tool", tool_call_id: "call_fake_canvas_edit_1", content: "{}" },
+		]);
+		expect(answer.text).toBe(AI_SMOKE_CANVAS_EDIT_FINAL_TEXT);
+	});
+
+	it("takes the message of THIS turn from the app's context bundle, not an earlier board turn carried in its evidence", async () => {
+		const carried = scripted([rename], "board-carried", "Carried over");
+		const current = scripted([move], "board-now", "This turn");
+		const asked = await ask([
+			{ role: "user", content: bundle({ evidence: carried, current }) },
+		]);
+		expect(asked.toolName).toBe("edit_artifact");
+		expect(asked.args).toEqual({
+			artifactId: "board-now",
+			summary: "This turn",
+			ops: [move],
+		});
+	});
+
+	it("leaves a turn that is not a board's to its own scenario when a board's message is only carried in the evidence", async () => {
+		const asked = await ask([
+			{
+				role: "user",
+				content: bundle({
+					evidence: scripted([rename]),
+					current: AI_SMOKE_CREATE_ARTIFACT_MARKER,
+				}),
+			},
+		]);
+		expect(asked.toolName).toBe("create_artifact");
 	});
 });
 

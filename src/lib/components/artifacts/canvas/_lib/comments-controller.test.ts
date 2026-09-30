@@ -3,6 +3,7 @@ import type {
 	ArtifactComment,
 	ArtifactDetail,
 } from "$lib/server/services/artifacts/types";
+import type { CanvasNode } from "$lib/shared/artifacts/canvas";
 import { uiLanguage } from "$lib/stores/settings";
 
 const api = vi.hoisted(() => ({
@@ -17,6 +18,7 @@ import {
 	CanvasCommentsController,
 	catcherProps,
 	pinsProps,
+	selectionPillProps,
 	toggleComments,
 } from "./comments-controller.svelte";
 
@@ -141,6 +143,117 @@ describe("opening and placing", () => {
 		expect(first).toMatchObject({ commentId: "a" });
 		controller.goToThread("a");
 		expect(controller.goto?.token).toBeGreaterThan(first?.token ?? 0);
+	});
+});
+
+describe("asking Alfy about blocks, or the board", () => {
+	const MUSEUM: CanvasNode = {
+		id: "note-museum",
+		type: "sticky",
+		position: { x: 0, y: 0 },
+		data: { kind: "sticky", text: "Museum, 14:00", tone: "yellow" },
+	};
+	const LUNCH: CanvasNode = {
+		id: "note-lunch",
+		type: "sticky",
+		position: { x: 0, y: 100 },
+		data: { kind: "sticky", text: "Lunch at the market", tone: "yellow" },
+	};
+
+	function withBlocks() {
+		const made = make();
+		made.controller.setNodes([MUSEUM, LUNCH]);
+		return made;
+	}
+
+	it("starts a comment on the first selected block, with the list open and the words to begin with Alfy's name", () => {
+		const { controller } = withBlocks();
+		controller.placeOnBlocks(["note-museum"], { ask: true });
+		expect(controller.draft).toEqual({ kind: "node", nodeId: "note-museum" });
+		expect(controller.draftAsk).toBe(true);
+		expect(controller.draftScope).toEqual([]);
+		expect(controller.open).toBe(true);
+	});
+
+	it("keeps the other selected blocks with the request, and starts a fresh composer each time", () => {
+		const { controller } = withBlocks();
+		controller.placeOnBlocks(["note-museum", "note-lunch"], { ask: false });
+		expect(controller.draft).toEqual({ kind: "node", nodeId: "note-museum" });
+		expect(controller.draftScope).toEqual(["note-lunch"]);
+		expect(controller.draftAsk).toBe(false);
+		const first = controller.draftToken;
+		controller.placeOnBlocks(["note-museum"], { ask: true });
+		expect(controller.draftToken).toBeGreaterThan(first);
+	});
+
+	it("names every selected block in what is posted, so the request says which blocks it is about", async () => {
+		api.createArtifactComment.mockResolvedValue(thread("new"));
+		api.fetchArtifact.mockResolvedValue(detail([thread("new")]));
+		api.askAlfyInComment.mockResolvedValue({
+			outcome: "answered",
+			applied: 0,
+			refused: 0,
+			version: 3,
+			reply: thread("reply"),
+		});
+		const { controller } = withBlocks();
+		controller.placeOnBlocks(["note-museum", "note-lunch"], { ask: true });
+		await controller.post(
+			{ kind: "node", nodeId: "note-museum" },
+			"@Alfy put these in order",
+		);
+		const body = api.createArtifactComment.mock.calls[0][2] as string;
+		expect(body.startsWith("@Alfy put these in order")).toBe(true);
+		expect(body).toContain("“Museum, 14:00”");
+		expect(body).toContain("“Lunch at the market”");
+		// It was posted: nothing of the request is left to leak into the next one.
+		expect(controller.draftScope).toEqual([]);
+		expect(controller.draftAsk).toBe(false);
+	});
+
+	it("adds nothing to a comment on one block", async () => {
+		api.createArtifactComment.mockResolvedValue(thread("new"));
+		api.fetchArtifact.mockResolvedValue(detail([thread("new")]));
+		const { controller } = withBlocks();
+		controller.placeOnBlocks(["note-museum"], { ask: false });
+		await controller.post(
+			{ kind: "node", nodeId: "note-museum" },
+			"Is this right?",
+		);
+		expect(api.createArtifactComment.mock.calls[0][2]).toBe("Is this right?");
+	});
+
+	it("starts a request about the whole board where the reader is looking, which is what the thread's pin will sit on", () => {
+		const { controller } = withBlocks();
+		controller.placeOnBoard({ x: 320, y: 200 });
+		expect(controller.draft).toEqual({ kind: "point", x: 320, y: 200 });
+		expect(controller.draftWhole).toBe(true);
+		expect(controller.draftAsk).toBe(true);
+		expect(controller.open).toBe(true);
+	});
+
+	it("goes back to a plain comment when the tool places the next one", () => {
+		const { controller } = withBlocks();
+		controller.placeOnBoard({ x: 1, y: 1 });
+		controller.place({ kind: "point", x: 5, y: 5 });
+		expect(controller.draftAsk).toBe(false);
+		expect(controller.draftWhole).toBe(false);
+		expect(controller.draftScope).toEqual([]);
+	});
+
+	it("forgets the request when it is cancelled", () => {
+		const { controller } = withBlocks();
+		controller.placeOnBlocks(["note-museum", "note-lunch"], { ask: true });
+		controller.cancelDraft();
+		expect(controller.draft).toBeNull();
+		expect(controller.draftScope).toEqual([]);
+		expect(controller.draftAsk).toBe(false);
+	});
+
+	it("does not start a request about blocks that are not there", () => {
+		const { controller } = withBlocks();
+		controller.placeOnBlocks(["gone"], { ask: true });
+		expect(controller.draft).toBeNull();
 	});
 });
 
@@ -330,6 +443,8 @@ describe("what the pins and the catcher are given", () => {
 		toBoard: (point: { x: number; y: number }) => point,
 		centerOn: vi.fn(),
 		announce: vi.fn(),
+		size: { width: 800, height: 600 },
+		readonly: false,
 	};
 
 	it("hands the pins the threads, the selection, the placed comment and the board's own camera", () => {
@@ -352,6 +467,33 @@ describe("what the pins and the catcher are given", () => {
 		pinsProps(controller, api).onselect("a");
 		expect(controller.selectedId).toBe("a");
 		expect(controller.open).toBe(true);
+	});
+
+	it("turns the selection pill's two buttons into a request to Alfy and a plain comment, and steps the pill aside while the composer is open", () => {
+		const { controller } = make();
+		controller.setNodes([
+			{
+				id: "note-1",
+				type: "sticky",
+				position: { x: 0, y: 0 },
+				data: { kind: "sticky", text: "One", tone: "yellow" },
+			},
+		]);
+		const props = selectionPillProps(controller, api, false);
+		expect(props.size).toEqual(api.size);
+		expect(props.hidden).toBe(false);
+		props.onask(["note-1"]);
+		expect(controller.draftAsk).toBe(true);
+		expect(selectionPillProps(controller, api, false).hidden).toBe(true);
+		controller.cancelDraft();
+		props.oncomment(["note-1"]);
+		expect(controller.draftAsk).toBe(false);
+		expect(controller.draft).toEqual({ kind: "node", nodeId: "note-1" });
+	});
+
+	it("tells the pill that Alfy is arranging, so Ask waits", () => {
+		const { controller } = make();
+		expect(selectionPillProps(controller, api, true).askBusy).toBe(true);
 	});
 
 	it("turns a click the catcher placed into a comment waiting for its words", () => {

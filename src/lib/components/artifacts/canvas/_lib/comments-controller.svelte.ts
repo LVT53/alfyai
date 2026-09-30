@@ -16,6 +16,7 @@
 import { get } from "svelte/store";
 import {
 	type ArtifactDetailResponse,
+	type AskAlfyResult,
 	askAlfyInComment,
 	createArtifactComment,
 	fetchArtifact,
@@ -24,9 +25,10 @@ import {
 import { type I18nKey, t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
-import type { CanvasNode } from "$lib/shared/artifacts/canvas";
+import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
 import { mentionsAlfy } from "$lib/shared/artifacts/comments";
 import type { BoardLayerApi } from "./board-layers";
+import { nodeWords } from "./comments";
 
 export type CommentsDeps = {
 	artifactId: string;
@@ -37,6 +39,8 @@ export type CommentsDeps = {
 	beforeAsk: () => Promise<void>;
 	/** Every read of the artifact, threads and board together. */
 	onserver: (detail: ArtifactDetailResponse) => void;
+	/** Alfy answered a comment (what it did and the reply it wrote): a change it made is linked to that reply. */
+	onreply?: (result: AskAlfyResult) => void;
 };
 
 /** A one-shot request to a view: the same thread asked for twice is two requests. */
@@ -50,6 +54,14 @@ export class CanvasCommentsController {
 	open = $state(false);
 	/** A comment that has been placed on the board and not written yet. */
 	draft = $state.raw<Anchor | null>(null);
+	/** The composer starts with Alfy's name: the request is "Ask Alfy" (the selection pill's, the toolbar's), not a plain comment. */
+	draftAsk = $state(false);
+	/** The other blocks of a selection, beyond the one the comment is anchored on: named in the words that are posted, so the request says which blocks it is about. */
+	draftScope = $state.raw<string[]>([]);
+	/** The request is about the whole board: its anchor is only where the reader was looking. */
+	draftWhole = $state(false);
+	/** A fresh composer for each request: its words start from `draftAsk`, once. */
+	draftToken = $state(0);
 	selectedId = $state<string | null>(null);
 	hoverId = $state<string | null>(null);
 	/** The list scrolls to this thread's card and focuses it. */
@@ -100,6 +112,7 @@ export class CanvasCommentsController {
 	hide(): void {
 		this.open = false;
 		this.draft = null;
+		this.#forgetRequest();
 		this.selectedId = null;
 	}
 
@@ -122,15 +135,61 @@ export class CanvasCommentsController {
 		this.goto = this.#next(commentId);
 	}
 
-	/** The Comment tool placed one: the list opens with a composer for it. */
-	place(anchor: Anchor): void {
+	/**
+	 * The Comment tool placed one, or a request was started: the list opens with a
+	 * composer for it. `ask` starts the words with Alfy's name; `scope` is the other
+	 * blocks of a selection; `whole` says the request is about the board.
+	 */
+	place(
+		anchor: Anchor,
+		options: { ask?: boolean; scope?: string[]; whole?: boolean } = {},
+	): void {
 		this.draft = anchor;
+		this.draftAsk = options.ask === true;
+		this.draftScope = options.scope ?? [];
+		this.draftWhole = options.whole === true;
+		this.draftToken += 1;
 		this.selectedId = null;
 		this.open = true;
 	}
 
+	/** A request about the selected blocks: anchored on the first, the rest kept with it. Nothing for a block that is not there. */
+	placeOnBlocks(ids: readonly string[], options: { ask: boolean }): void {
+		const [first, ...rest] = ids.filter((id) =>
+			this.nodes.some((node) => node.id === id),
+		);
+		if (!first) return;
+		this.place(
+			{ kind: "node", nodeId: first },
+			{ ask: options.ask, scope: rest },
+		);
+	}
+
+	/** A request about the whole board (the toolbar's Ask with nothing selected): where the reader is looking is what the thread's pin will sit on. */
+	placeOnBoard(at: Pt): void {
+		this.place({ kind: "point", x: at.x, y: at.y }, { ask: true, whole: true });
+	}
+
 	cancelDraft(): void {
 		this.draft = null;
+		this.#forgetRequest();
+	}
+
+	#forgetRequest(): void {
+		this.draftAsk = false;
+		this.draftScope = [];
+		this.draftWhole = false;
+	}
+
+	/** The words, and under them (for a selection of several blocks) which blocks they are about. */
+	#scoped(body: string): string {
+		if (this.draftScope.length === 0 || this.draft?.kind !== "node")
+			return body;
+		const names = [this.draft.nodeId, ...this.draftScope].map((id) => {
+			const node = this.nodes.find((candidate) => candidate.id === id);
+			return `“${(node && nodeWords(node)) || id}”`;
+		});
+		return `${body}\n\n${get(t)("artifacts.canvas.comment.scopeLine", { names: names.join(", ") })}`;
 	}
 
 	/** Reads the artifact again: the threads, and (through `onserver`) the board. A failed read keeps what is shown. */
@@ -152,11 +211,12 @@ export class CanvasCommentsController {
 		const created = await createArtifactComment(
 			this.#deps.artifactId,
 			anchor,
-			body,
+			this.#scoped(body),
 			undefined,
 			this.#deps.conversationId,
 		);
 		this.draft = null;
+		this.#forgetRequest();
 		this.notice = null;
 		this.#say("artifacts.document.announce.commentAdded");
 		await this.refresh();
@@ -214,6 +274,7 @@ export class CanvasCommentsController {
 				commentId,
 				this.#deps.conversationId,
 			);
+			this.#deps.onreply?.(result);
 			this.#say(
 				result.outcome === "applied"
 					? "artifacts.canvas.comment.landed"
@@ -249,6 +310,26 @@ export function pinsProps(
 		goto: controller.goto,
 		oncenter: api.centerOn,
 		onselect: (commentId: string) => controller.select(commentId),
+	};
+}
+
+/** What `CanvasSelectionPill` draws and reports: it raises a request or a comment on the selected blocks, and waits its turn while Alfy arranges. */
+export function selectionPillProps(
+	controller: CanvasCommentsController,
+	api: BoardLayerApi,
+	askBusy: boolean,
+) {
+	return {
+		nodes: api.nodes,
+		viewport: api.viewport,
+		size: api.size,
+		tool: api.tool,
+		readonly: api.readonly,
+		// The composer the pill opened is open: the pill has done its part.
+		hidden: controller.draft !== null,
+		askBusy,
+		onask: (ids: string[]) => controller.placeOnBlocks(ids, { ask: true }),
+		oncomment: (ids: string[]) => controller.placeOnBlocks(ids, { ask: false }),
 	};
 }
 
