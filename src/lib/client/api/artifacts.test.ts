@@ -5,6 +5,7 @@ import {
 } from "$lib/shared/artifact-document/blocks";
 import {
 	type ArtifactChange,
+	acknowledgeCanvasReview,
 	applyArtifactOps,
 	askAlfyInComment,
 	createArtifactComment,
@@ -15,6 +16,7 @@ import {
 	fetchArtifactVersionBody,
 	fetchArtifactVersions,
 	fetchCanvasChatBlocks,
+	fetchCanvasReviewState,
 	fetchConversationArtifacts,
 	readAppValue,
 	regenerateApp,
@@ -1441,5 +1443,71 @@ describe("applyArtifactOps", () => {
 		if (!result.ok) throw new Error("expected a value");
 		expect(result.refused).toHaveLength(1);
 		expect(heard).toEqual([["artifact-1", 2, null]]);
+	});
+});
+
+describe("a board's review, over the network (ruling 63)", () => {
+	const review = {
+		changes: [],
+		touchedIds: ["note-1"],
+		removedCount: 0,
+		count: 1,
+		latestAlfyVersion: 4,
+		undo: { available: true, toVersion: 3, toVersionId: "v3" },
+	};
+
+	it("reads what is waiting, from the review route, leaving the wire-level parts behind", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: true, kind: "canvas", review }),
+		);
+		const result = await fetchCanvasReviewState("board-1", "conv-1", fetchMock);
+		expect(result).toEqual(review);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/artifacts/board-1/review?conversationId=conv-1",
+		);
+	});
+
+	it("keeps the change through the version it was shown, and answers the state that is left", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				kind: "canvas",
+				review: { ...review, count: 0, touchedIds: [] },
+			}),
+		);
+		const result = await acknowledgeCanvasReview(
+			"board-1",
+			4,
+			undefined,
+			fetchMock,
+		);
+		expect(result.count).toBe(0);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe("/api/artifacts/board-1/review");
+		expect(init.method).toBe("POST");
+		expect(JSON.parse(String(init.body))).toEqual({ throughVersion: 4 });
+	});
+
+	it("throws when the server does not answer with a board's review (a Document's answer, a 404)", async () => {
+		await expect(
+			fetchCanvasReviewState(
+				"doc-1",
+				null,
+				vi.fn(async () => jsonResponse({ ok: true, pending: [] })),
+			),
+		).rejects.toThrow();
+		await expect(
+			fetchCanvasReviewState(
+				"nope",
+				null,
+				vi.fn(async () =>
+					jsonResponse({ ok: false, reason: "not_found" }, 404),
+				),
+			),
+		).rejects.toThrow();
 	});
 });

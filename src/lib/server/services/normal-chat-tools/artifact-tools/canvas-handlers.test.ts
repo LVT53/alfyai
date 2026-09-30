@@ -528,6 +528,16 @@ describe("edit_artifact.canvas", () => {
 		expect(details).toContain("frame, sticky, text, checklist, chart");
 		expect(details).toContain("Node ids:");
 		expect(await versionCount(artifactId)).toBe(before);
+		// The panel is told too, op by op, so it can name what Alfy left alone: the call
+		// changed nothing, but "changed nothing" is not the whole story to the reader.
+		expect(result.metadata).toMatchObject({
+			ok: false,
+			artifactKind: "canvas",
+		});
+		expect(JSON.parse(String(result.metadata.refusedBlocksJson))).toEqual([
+			{ blockId: "nope", reason: "unknown_id", opIndex: 0 },
+			{ blockId: "x", reason: "unknown_kind", opIndex: 1 },
+		]);
 	});
 
 	it("names the valid ops and the blocks it may add when the ops cannot be read (the Document's dev incident, for the board)", async () => {
@@ -733,6 +743,20 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 		for (const op of EDIT_ARTIFACT_CANVAS_EXAMPLE.ops) {
 			expect(BOARD_OP_NAMES as readonly string[]).toContain(op.op);
 		}
+	});
+
+	// The first try at "make this note a checklist" is an update_node that
+	// changes data.kind, which is refused; a rule that says so up front saves the
+	// model that call, on the tool path and on the @Alfy comment path, which is
+	// handed this very sentence.
+	it("says, in both languages, that a block's kind cannot change and what to do instead", () => {
+		const en = editArtifactRuleClause(kinds, "en");
+		expect(en).toMatch(/kind cannot change/);
+		expect(en).toMatch(/remove it and add a new one/);
+		const hu = editArtifactRuleClause(kinds, "hu");
+		expect(hu).toMatch(/típusa nem változtatható/);
+		expect(hu).toMatch(/töröld/);
+		expect(hu).toMatch(/adj hozzá/);
 	});
 
 	it("parses the edit example, whole, through the advertised schema — and its ops through the validator against a real board with zero refusals", () => {

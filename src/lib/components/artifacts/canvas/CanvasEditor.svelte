@@ -21,10 +21,12 @@ import {
 	type ArtifactDetailResponse,
 	fetchArtifact,
 	fetchCanvasChatBlocks,
+	fetchCanvasReviewState,
 	saveArtifactBody,
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactPanelBodyActions } from "$lib/components/artifacts/artifact-bodies";
+import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import {
 	createDocumentAutosave,
 	type DocumentAutosaveResult,
@@ -45,22 +47,54 @@ import type {
 	CanvasCommentsController,
 	catcherProps,
 	pinsProps,
+	selectionPillProps,
 	toggleComments,
 } from "./_lib/comments-controller.svelte";
+import type {
+	CanvasReviewController,
+	changeLayerProps,
+	ReviewHost,
+	reviewActivity,
+	reviewEnd,
+	reviewKey,
+	reviewReply,
+	reviewRestore,
+	reviewSummary,
+} from "./_lib/review-controller.svelte";
 import { judgeServerBoard } from "./_lib/server-board";
+import type AlfyChangeLayer from "./AlfyChangeLayer.svelte";
 import CanvasBoard from "./CanvasBoard.svelte";
 import type CanvasComments from "./CanvasComments.svelte";
+import type CanvasSelectionPill from "./CanvasSelectionPill.svelte";
+import type CanvasReviewBar from "./CanvasReviewBar.svelte";
+import type CanvasReviewNotices from "./CanvasReviewNotices.svelte";
 import type CommentCatcher from "./CommentCatcher.svelte";
 import type CommentPins from "./CommentPins.svelte";
 
 /** The comment components and what wires them to the controller, once they have loaded. */
 type CommentViews = {
 	CanvasComments: typeof CanvasComments;
+	CanvasSelectionPill: typeof CanvasSelectionPill;
 	CommentCatcher: typeof CommentCatcher;
 	CommentPins: typeof CommentPins;
 	catcherProps: typeof catcherProps;
 	pinsProps: typeof pinsProps;
+	selectionPillProps: typeof selectionPillProps;
 	toggleComments: typeof toggleComments;
+};
+
+/** Alfy's change and what wires it to the controller, once the parts have loaded. */
+type ReviewViews = {
+	AlfyChangeLayer: typeof AlfyChangeLayer;
+	CanvasReviewBar: typeof CanvasReviewBar;
+	CanvasReviewNotices: typeof CanvasReviewNotices;
+	changeLayerProps: typeof changeLayerProps;
+	reviewActivity: typeof reviewActivity;
+	reviewEnd: typeof reviewEnd;
+	reviewKey: typeof reviewKey;
+	reviewReply: typeof reviewReply;
+	reviewRestore: typeof reviewRestore;
+	reviewSummary: typeof reviewSummary;
 };
 
 interface Props {
@@ -80,6 +114,15 @@ interface Props {
 	onCommentsShownChange?: (shown: boolean) => void;
 	/** Opens an item in the panel's own viewer (the file a File block names). Absent where the host cannot: the block is then a plain row. */
 	onOpenItem?: (item: DocumentWorkspaceItem) => void;
+	/**
+	 * The latest artifact tool call the chat page knows about. A call of Alfy's on THIS
+	 * board runs its arranging frame and lands its change (T6); the panel hands it over
+	 * only if it was open while the call ran (`bodyAlfyActivity`), and a body built
+	 * after the call settled restores the server's review state instead (below).
+	 */
+	alfyActivity?: DocumentAlfyActivity | null;
+	/** The number behind the chat card, the list row and the count button: what waits for the reader. */
+	onPendingReviewCountChange?: (count: number) => void;
 	currentUser?: {
 		id: string;
 		displayName: string;
@@ -96,6 +139,8 @@ let {
 	onCommentCountChange,
 	onCommentsShownChange,
 	onOpenItem,
+	alfyActivity = null,
+	onPendingReviewCountChange,
 	currentUser = null,
 }: Props = $props();
 
@@ -146,9 +191,13 @@ let savedTimer: ReturnType<typeof setTimeout> | null = null;
 let boardApi = $state<{
 	flush: () => CanvasBody;
 	land: (body: CanvasBody) => void;
+	current: () => CanvasBody;
+	place: (positions: ReadonlyMap<string, { x: number; y: number }>) => void;
+	hold: (on: boolean) => void;
 } | null>(null);
 let lastDropped = 0;
 let editorWidth = $state(0);
+let editorEl = $state<HTMLElement | null>(null);
 
 // Comments load on demand (`comment-parts.ts`): when the board has threads to
 // pin, or the reader presses Comment or picks the tool. Until then the header's
@@ -280,6 +329,7 @@ async function load(id: string): Promise<void> {
 		onDirtyChange?.(false);
 		boardKey += 1;
 		phase = "ready";
+		void restoreReview(id, token);
 	} catch (error) {
 		if (token !== loadToken) return;
 		phase =
@@ -296,13 +346,16 @@ async function saveBoardNow(): Promise<void> {
 }
 
 /**
- * Every read of the artifact the comments make. When the version moved it is
- * usually because Alfy changed the board, and it is drawn; `judgeServerBoard`
- * says when it is not (the reader's own save, seen early) and when it cannot be
- * (the reader has steps the server has not seen: their save would be refused as
- * stale, so this says so instead of losing them silently).
+ * Every read of the artifact, from the comments or from a chat turn's edit. When
+ * the version moved it is usually because Alfy changed the board:
+ * `judgeServerBoard` says whether to draw it, whether it is only the reader's own
+ * save seen early, and whether it cannot be drawn at all (the reader has steps the
+ * server has not seen: their save would be refused as stale, so this says so
+ * instead of losing them silently). Answers the board to draw, or null when there
+ * is nothing to draw. The version, hash and bookkeeping are taken here, at once;
+ * the drawing (a landing) follows, and a second one waits for the first.
  */
-function adoptServerBoard(detail: ArtifactDetailResponse): void {
+function adoptBoard(detail: ArtifactDetailResponse): CanvasBody | null {
 	try {
 		const stored = detail.artifact.body;
 		const read = normalizeCanvasBody(stored?.trim() ? JSON.parse(stored) : {});
@@ -314,24 +367,34 @@ function adoptServerBoard(detail: ArtifactDetailResponse): void {
 			latestJson,
 			savedJson,
 		});
-		if (verdict === "unchanged") return;
+		if (verdict === "unchanged") return null;
 		if (verdict === "conflict") {
 			saveState = "conflict";
 			autosave.stop();
-			return;
+			return null;
 		}
 		versionNumber = detail.artifact.versionNumber;
 		knownBodyHash = detail.artifact.bodyHash;
 		savedJson = serverJson;
-		if (verdict === "ours") return;
+		if (verdict === "ours") return null;
 		latestJson = serverJson;
 		boardNodes = read.body.nodes;
 		comments?.setNodes(boardNodes);
-		boardApi?.land(read.body);
 		onBodyChange?.(latestJson);
+		return read.body;
 	} catch {
 		// A body that will not read is left to the next load.
+		return null;
 	}
+}
+
+/** What the comments controller calls after each read of the artifact: a board Alfy changed is drawn as a landing (at once when the parts cannot load). */
+function adoptServerBoard(detail: ArtifactDetailResponse): void {
+	const next = adoptBoard(detail);
+	if (!next) return;
+	void ensureReview().then((controller) =>
+		controller ? controller.landChange(next) : boardApi?.land(next),
+	);
 }
 
 function ensureComments(): Promise<void> {
@@ -340,10 +403,12 @@ function ensureComments(): Promise<void> {
 			({
 				CanvasCommentsController: Controller,
 				CanvasComments,
+				CanvasSelectionPill,
 				CommentCatcher,
 				CommentPins,
 				catcherProps,
 				pinsProps,
+				selectionPillProps,
 				toggleComments,
 			}) => {
 				const controller = new Controller({
@@ -352,14 +417,25 @@ function ensureComments(): Promise<void> {
 					threads: loadedThreads,
 					beforeAsk: saveBoardNow,
 					onserver: adoptServerBoard,
+					// The reply that made a change wears the change's state as a chip.
+					onreply: (result) => {
+						if (result.outcome !== "applied") return;
+						void ensureReview().then(
+							(controller) =>
+								controller &&
+								reviewViews?.reviewReply(controller, result.reply.id),
+						);
+					},
 				});
 				controller.setNodes(boardNodes);
 				commentViews = {
 					CanvasComments,
+					CanvasSelectionPill,
 					CommentCatcher,
 					CommentPins,
 					catcherProps,
 					pinsProps,
+					selectionPillProps,
 					toggleComments,
 				};
 				comments = controller;
@@ -370,6 +446,173 @@ function ensureComments(): Promise<void> {
 			commentsLoading = null;
 		});
 	return commentsLoading;
+}
+
+// ---- Alfy's change (T6, ruling 63) ---------------------------------------------
+// Loaded on demand (`review-parts.ts`): when a call of Alfy's on this board runs or
+// settles, a comment's answer changed the board, or the board is found with a change
+// waiting. Until then nothing of it is in the first paint, and this is only the glue:
+// what a call does to the board, Undo and Redo, and the chord are the controller's.
+// What is true about a change (which blocks wait, whether Undo is still possible)
+// is the server's.
+
+let reviewViews = $state.raw<ReviewViews | null>(null);
+let review = $state.raw<CanvasReviewController | null>(null);
+let reviewLoading: Promise<CanvasReviewController | null> | null = null;
+
+const reviewHost: ReviewHost = {
+	get artifactId() {
+		return artifactId;
+	},
+	get conversationId() {
+		return conversationId;
+	},
+	board: () => boardApi,
+	saveNow: saveBoardNow,
+	guard: () => ({ version: versionNumber, bodyHash: knownBodyHash }),
+	// A board of the reader's own (Undo, Redo) was saved: its version and hash are the
+	// ones the next autosave is checked against.
+	saved: ({ board, json, version, bodyHash }) => {
+		versionNumber = version;
+		knownBodyHash = bodyHash;
+		savedJson = json;
+		latestJson = json;
+		boardNodes = board.nodes;
+		comments?.setNodes(boardNodes);
+		onBodyChange?.(json);
+		onDirtyChange?.(false);
+	},
+	adopt: adoptBoard,
+	openVersions: () => (versionsOpen = true),
+	reportCount: (count) => onPendingReviewCountChange?.(count),
+};
+
+function ensureReview(): Promise<CanvasReviewController | null> {
+	reviewLoading ??= import("./review-parts")
+		.then(
+			({
+				CanvasReviewController: Controller,
+				AlfyChangeLayer,
+				CanvasReviewBar,
+				CanvasReviewNotices,
+				changeLayerProps,
+				reviewActivity,
+				reviewEnd,
+				reviewKey,
+				reviewReply,
+				reviewRestore,
+				reviewSummary,
+			}) => {
+				const controller = new Controller(reviewHost);
+				reviewViews = {
+					AlfyChangeLayer,
+					CanvasReviewBar,
+					CanvasReviewNotices,
+					changeLayerProps,
+					reviewActivity,
+					reviewEnd,
+					reviewKey,
+					reviewReply,
+					reviewRestore,
+					reviewSummary,
+				};
+				review = controller;
+				return controller;
+			},
+		)
+		// Offline, or a deploy in between: the next change tries again instead of waiting on a rejected import.
+		.catch(() => {
+			reviewLoading = null;
+			return null;
+		});
+	return reviewLoading;
+}
+
+/** A board found with a change waiting (a reload, the panel opened later) shows it as it is: no landing, no strong ring. */
+async function restoreReview(id: string, token: number): Promise<void> {
+	let state: Awaited<ReturnType<typeof fetchCanvasReviewState>>;
+	try {
+		state = await fetchCanvasReviewState(id, conversationId);
+	} catch {
+		return;
+	}
+	if (token !== loadToken) return;
+	// Nothing waits and nothing was ever loaded: stay as light as an unedited board.
+	if (state.count === 0 && !review) return;
+	const controller = await ensureReview();
+	if (controller && token === loadToken) {
+		reviewViews?.reviewRestore(controller, state);
+	}
+}
+
+/**
+ * The once-only rule (the Document's, `settledActivityKeyAtMount`): a call is
+ * drawn live by the body that was mounted while it was still running (or before it
+ * began), and by no body built after it settled. That one restores the server's
+ * review state (`restoreReview`), which already holds the change: drawing it live on
+ * top would ring it a second time. Captured once, at mount.
+ */
+const settledActivityKeyAtMount = untrack(() =>
+	alfyActivity && alfyActivity.status !== "running" ? alfyActivity.key : null,
+);
+
+$effect(() => {
+	const activity = alfyActivity;
+	if (!activity || activity.artifactId !== artifactId) return;
+	if (
+		activity.status !== "running" &&
+		activity.key === settledActivityKeyAtMount
+	) {
+		return;
+	}
+	// The board must be up before a change can be drawn on it: this runs again when it is.
+	const ready = phase === "ready" && boardApi !== null;
+	untrack(
+		() =>
+			void ensureReview().then(
+				(controller) =>
+					controller &&
+					reviewViews?.reviewActivity(controller, activity, {
+						settledAtMount: settledActivityKeyAtMount,
+						ready,
+					}),
+			),
+	);
+});
+
+/** The toolbar's Ask waits while Alfy is at work on this board, from the moment its call starts. */
+let alfyBusy = $derived(
+	(reviewViews?.reviewSummary(review).working ?? false) ||
+		(alfyActivity?.status === "running" &&
+			alfyActivity.artifactId === artifactId),
+);
+
+/** Ask Alfy from the toolbar: the selected blocks, or the board as the reader is looking at it, become a request in the comments list. */
+function askAlfy(request: {
+	ids: string[];
+	centre: { x: number; y: number };
+}): void {
+	void ensureComments().then(() => {
+		if (request.ids.length > 0) {
+			comments?.placeOnBlocks(request.ids, { ask: true });
+		} else {
+			comments?.placeOnBoard(request.centre);
+		}
+	});
+}
+
+function handleWindowKeydown(event: KeyboardEvent): void {
+	if (
+		event.defaultPrevented ||
+		!review ||
+		!editorEl?.contains(document.activeElement)
+	) {
+		return;
+	}
+	const target = event.target as HTMLElement | null;
+	if (target?.closest("input, textarea, select, [contenteditable='true']"))
+		return;
+	reviewViews?.reviewKey(review, event);
 }
 
 $effect(() => {
@@ -409,6 +652,7 @@ $effect(() => {
 
 onDestroy(() => {
 	loadToken += 1;
+	reviewViews?.reviewEnd(review);
 	clearSavedTimer();
 	// The board's last step may still be inside its settle delay.
 	boardApi?.flush();
@@ -433,17 +677,36 @@ let banner = $derived(
 );
 </script>
 
-{#snippet commentLayers(api: BoardLayerApi)}
+{#snippet boardLayers(api: BoardLayerApi)}
+	{#if reviewViews && review}
+		<!-- Alfy's change: the arranging frame, the rings and the pill, in board space. -->
+		<ViewportPortal target="front">
+			<reviewViews.AlfyChangeLayer {...reviewViews.changeLayerProps(review, api)} />
+		</ViewportPortal>
+	{/if}
 	{#if commentViews && comments}
 		<!-- The pins ride the flow's front layer (in board space); the catcher for the Comment tool is over the pane. -->
 		<ViewportPortal target="front">
 			<commentViews.CommentPins {...commentViews.pinsProps(comments, api)} />
 		</ViewportPortal>
 		<commentViews.CommentCatcher {...commentViews.catcherProps(comments, api)} />
+		<!-- The pill a selection raises: Ask Alfy, Comment. -->
+		<ViewportPortal target="front">
+			<commentViews.CanvasSelectionPill
+				{...commentViews.selectionPillProps(comments, api, alfyBusy)}
+			/>
+		</ViewportPortal>
 	{/if}
 {/snippet}
 
-<div class="canvas-editor" data-testid="canvas-editor" bind:clientWidth={editorWidth}>
+<svelte:window onkeydown={handleWindowKeydown} />
+
+<div
+	class="canvas-editor"
+	data-testid="canvas-editor"
+	bind:clientWidth={editorWidth}
+	bind:this={editorEl}
+>
 	{#if phase === "loading"}
 		<div class="canvas-editor__skeleton" role="status" aria-busy="true" data-testid="canvas-loading">
 			<span class="sr-only">{$t("artifacts.canvas.loading")}</span>
@@ -476,12 +739,18 @@ let banner = $derived(
 							body={boardBody}
 							readonly={boardReadonly}
 							onchange={handleBoardChange}
-							layers={commentLayers}
+							layers={boardLayers}
 							ontool={(tool) => tool === "comment" && void ensureComments()}
+							onselect={(selected) => selected && void ensureComments()}
+							onask={askAlfy}
+							askBusy={alfyBusy}
 						/>
 					</SvelteFlowProvider>
 				{/key}
 				<div class="canvas-editor__notices">
+					{#if reviewViews && review}
+						<reviewViews.CanvasReviewNotices controller={review} />
+					{/if}
 					{#if showDroppedNotice}
 						<div class="notice notice--warning" role="status" data-testid="canvas-dropped-notice">
 							<span>{$t("artifacts.canvas.blockDropped", { count: droppedCount })}</span>
@@ -522,9 +791,18 @@ let banner = $derived(
 						{$t("artifacts.canvas.saved")}
 					{/if}
 				</p>
+				{#if reviewViews && review}
+					<reviewViews.CanvasReviewBar controller={review} />
+				{/if}
 			</div>
 			{#if commentViews && comments}
-				<commentViews.CanvasComments controller={comments} panelWidth={editorWidth} {currentUser} />
+				<commentViews.CanvasComments
+					controller={comments}
+					panelWidth={editorWidth}
+					{currentUser}
+					changeStateByCommentId={reviewViews?.reviewSummary(review).changeStates}
+					onSeeChange={() => review?.seeChange()}
+				/>
 			{/if}
 		</div>
 	{/if}

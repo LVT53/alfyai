@@ -12,6 +12,7 @@
  * words still in the box.
  */
 import { CornerDownLeft, Sparkles } from "@lucide/svelte";
+import { untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { mentionsAlfy } from "$lib/shared/artifacts/comments";
 import "./comment-list.css";
@@ -20,6 +21,7 @@ let {
 	header,
 	placeholder,
 	alfyHint,
+	initialText = "",
 	onsubmit,
 	oncancel,
 }: {
@@ -28,6 +30,8 @@ let {
 	placeholder: string;
 	/** What answering Alfy will do, for this kind: shown under the box while the words mention it. */
 	alfyHint: string;
+	/** Words the box starts with ("@Alfy " for a request to Alfy): the caret goes after them. Read once, when the box opens. */
+	initialText?: string;
 	onsubmit: (body: string) => void | Promise<void>;
 	oncancel: () => void;
 } = $props();
@@ -35,7 +39,7 @@ let {
 /** Long enough for a dialog's own focus handling (a zero-delay timer) to have run. */
 const FOCUS_RETRY_MS = 60;
 
-let text = $state("");
+let text = $state(untrack(() => initialText));
 let posting = $state(false);
 let failed = $state(false);
 let field = $state<HTMLTextAreaElement | null>(null);
@@ -48,6 +52,7 @@ $effect(() => {
 	const box = field;
 	if (!box) return;
 	box.focus();
+	box.setSelectionRange(box.value.length, box.value.length);
 	const timer = setTimeout(() => {
 		if (document.activeElement !== box) box.focus();
 	}, FOCUS_RETRY_MS);

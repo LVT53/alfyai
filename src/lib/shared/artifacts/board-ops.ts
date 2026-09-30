@@ -539,7 +539,7 @@ function stepUpdateNode(
 	if ("kind" in op.data && op.data.kind !== target.type) {
 		return refuse(
 			"kind_mismatch",
-			`"${op.id}" is a ${target.type}; a block cannot change kind in place. Remove it and add the new one.`,
+			`"${op.id}" is a ${target.type}; a block cannot change kind in place. Remove it and add the new one: remove_node, then add_node.`,
 			op.id,
 		);
 	}

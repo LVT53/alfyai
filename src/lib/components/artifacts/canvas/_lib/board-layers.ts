@@ -20,4 +20,8 @@ export type BoardLayerApi = {
 	centerOn: (point: Pt) => void;
 	/** Says something to a screen reader, politely. */
 	announce: (message: string) => void;
+	/** The pane's size, for a layer that places itself where there is room. */
+	size: { width: number; height: number };
+	/** The board cannot change now (a conflict is waiting on the reader, the item is gone): a layer has nothing to offer. */
+	readonly: boolean;
 };

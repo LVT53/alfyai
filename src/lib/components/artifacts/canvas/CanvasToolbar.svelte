@@ -27,6 +27,7 @@ import {
 	Redo2,
 	Slash,
 	Square,
+	Sparkles,
 	SquarePlus,
 	Type,
 	Undo2,
@@ -51,11 +52,13 @@ let {
 	canRedo,
 	disabled = false,
 	emphasizeInsert = false,
+	askBusy = false,
 	ontoolchange,
 	oninkchange,
 	onundo,
 	onredo,
 	oninsert,
+	onask,
 }: {
 	tool: Tool;
 	/** The ink a new mark is drawn in (a colour token). */
@@ -67,12 +70,16 @@ let {
 	disabled?: boolean;
 	/** An empty board points at Insert: its button wears the focus ring's colour. */
 	emphasizeInsert?: boolean;
+	/** Alfy is arranging: Ask waits, and its title says why. */
+	askBusy?: boolean;
 	ontoolchange: (tool: Tool) => void;
 	oninkchange: (ink: string) => void;
 	onundo: () => void;
 	onredo: () => void;
 	/** A block was picked from the Insert menu; a block made from the chat comes with the data the chat made. */
 	oninsert: (row: BlockRegistryEntry, data?: CanvasBlockData) => void;
+	/** Ask Alfy about the selected blocks, or the whole board when none is selected. */
+	onask: () => void;
 } = $props();
 
 let insertOpen = $state(false);
@@ -290,6 +297,22 @@ let redoLabel = $derived(
 		<SquarePlus size={17} strokeWidth={1.9} aria-hidden="true" />
 		<span>{$t("artifacts.canvas.insert")}</span>
 	</button>
+
+	<button
+		type="button"
+		class="tool"
+		class:tool--labelled={!compact}
+		disabled={disabled || askBusy}
+		aria-label={$t("artifacts.canvas.ask")}
+		title={askBusy ? $t("artifacts.canvas.ask.busy") : $t("artifacts.canvas.ask")}
+		data-testid="canvas-tool-ask"
+		onclick={() => {
+			if (!disabled && !askBusy) onask();
+		}}
+	>
+		<Sparkles size={17} strokeWidth={1.9} aria-hidden="true" />
+		{#if !compact}<span>{$t("artifacts.canvas.ask")}</span>{/if}
+	</button>
 </div>
 
 {#if insertOpen}
@@ -315,6 +338,9 @@ let redoLabel = $derived(
 		display: flex;
 		align-items: center;
 		gap: 2px;
+		/* Its own width, not what is left of the pane after \`left: 50%\`: a toolbar with
+		   two words on it would otherwise wrap them in a narrow panel. */
+		width: max-content;
 		max-width: calc(100% - 24px);
 		padding: 4px;
 		transform: translateX(-50%);
@@ -338,6 +364,7 @@ let redoLabel = $derived(
 		color: var(--text-muted);
 		font: inherit;
 		font-size: 0.8rem;
+		white-space: nowrap;
 		cursor: pointer;
 	}
 

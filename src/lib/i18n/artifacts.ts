@@ -680,6 +680,37 @@ const artifactsDict = {
 		"artifacts.canvas.comment.alfyFailed":
 			"Alfy could not answer just now. Your comment is posted.",
 		"artifacts.canvas.comment.updateFailed": "Could not update this comment.",
+		// Alfy's change on the board (S3-A, ruling 63): the arranging state, the
+		// landing, and the one review of it (Keep or Undo for the whole change).
+		"artifacts.canvas.arranging": "Alfy is arranging…",
+		"artifacts.canvas.arrangingSummary": "Alfy is arranging: {summary}",
+		"artifacts.canvas.review.regionLabel": "Alfy's changes to the board",
+		"artifacts.canvas.review.summary":
+			"Alfy changed {count} {count, plural, one {block} other {blocks}}.",
+		"artifacts.canvas.review.summaryRemoved":
+			"Alfy removed {count} {count, plural, one {block} other {blocks}}.",
+		"artifacts.canvas.review.summaryBoth":
+			"Alfy changed {changed} {changed, plural, one {block} other {blocks}} and removed {removed}.",
+		"artifacts.canvas.review.landed": "{summary} Review it below the board.",
+		"artifacts.canvas.review.landedLeft":
+			"{summary} Left {left} alone. Review it below the board.",
+		"artifacts.canvas.review.refused":
+			"Alfy skipped {count} {count, plural, one {change} other {changes}}.",
+		"artifacts.canvas.review.undoRefused":
+			"Alfy's change can't be undone here because the board has changed since. Open Versions to go back to an earlier one.",
+		"artifacts.canvas.review.undoFailed":
+			"Could not undo Alfy's change. Try again, or open Versions.",
+		"artifacts.canvas.review.openVersions": "Open Versions",
+		// Asking Alfy about blocks, or the board (S3-A): the toolbar's button, the pill a
+		// selection raises, and what a request about several blocks says it is about.
+		"artifacts.canvas.ask": "Ask Alfy",
+		"artifacts.canvas.ask.busy":
+			"Alfy is still arranging. Try again in a moment.",
+		"artifacts.canvas.selection.label": "Selection",
+		"artifacts.canvas.comment.newOnMany":
+			"New comment on: {target} and {count} more",
+		"artifacts.canvas.comment.newOnBoard": "New comment on: the whole board",
+		"artifacts.canvas.comment.scopeLine": "About these blocks: {names}.",
 		// Frames and reparenting (S3-F): what a screen reader hears when a block
 		// joins or leaves a frame by a drag.
 		"artifacts.canvas.movedIntoFrame": "Moved into the frame {frame}.",
@@ -1246,6 +1277,35 @@ const artifactsDict = {
 			"Alfy most nem tudott válaszolni. A megjegyzésed elküldve.",
 		"artifacts.canvas.comment.updateFailed":
 			"Nem sikerült frissíteni a megjegyzést.",
+		// Alfy módosítása a táblán (S3-A): a rendezés, a beérkezés és az egyetlen áttekintés.
+		"artifacts.canvas.arranging": "Alfy épp rendezi…",
+		"artifacts.canvas.arrangingSummary": "Alfy épp rendezi: {summary}",
+		"artifacts.canvas.review.regionLabel": "Alfy módosításai a táblán",
+		// Nincs ICU többesszám: a magyar főnév számnév után egyes számban marad.
+		"artifacts.canvas.review.summary": "Alfy {count} blokkot módosított.",
+		"artifacts.canvas.review.summaryRemoved":
+			"Alfy {count} blokkot eltávolított.",
+		"artifacts.canvas.review.summaryBoth":
+			"Alfy {changed} blokkot módosított és {removed} blokkot eltávolított.",
+		"artifacts.canvas.review.landed": "{summary} Nézd át a tábla alatt.",
+		"artifacts.canvas.review.landedLeft":
+			"{summary} {left} módosítást nem érintett. Nézd át a tábla alatt.",
+		"artifacts.canvas.review.refused": "Alfy {count} módosítást kihagyott.",
+		"artifacts.canvas.review.undoRefused":
+			"Alfy módosítása itt nem vonható vissza, mert azóta megváltozott a tábla. A Változatok megnyitásával visszatérhetsz egy korábbihoz.",
+		"artifacts.canvas.review.undoFailed":
+			"Nem sikerült visszavonni Alfy módosítását. Próbáld újra, vagy nyisd meg a Változatokat.",
+		"artifacts.canvas.review.openVersions": "Változatok megnyitása",
+		// Alfy megkérdezése blokkokról vagy a tábláról (S3-A).
+		"artifacts.canvas.ask": "Alfy megkérdezése",
+		"artifacts.canvas.ask.busy":
+			"Alfy még rendezi a táblát. Próbáld újra egy pillanat múlva.",
+		"artifacts.canvas.selection.label": "Kijelölés",
+		// Kettőspont köti a célhoz: a cél egy blokk saját szövege, toldalék nélkül.
+		"artifacts.canvas.comment.newOnMany":
+			"Új megjegyzés ehhez: {target} és még {count}",
+		"artifacts.canvas.comment.newOnBoard": "Új megjegyzés az egész táblához",
+		"artifacts.canvas.comment.scopeLine": "Ezekről a blokkokról: {names}.",
 		// A kettőspont a magyar rag nélkül old meg egy tetszőleges keretnevet.
 		"artifacts.canvas.movedIntoFrame": "Átkerült a keretbe: {frame}.",
 		"artifacts.canvas.movedOutOfFrame": "Kikerült a keretből: {frame}.",

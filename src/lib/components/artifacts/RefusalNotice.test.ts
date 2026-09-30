@@ -245,4 +245,27 @@ describe("RefusalNotice: Dismiss leaves with motion (§7.2 #22)", () => {
 		await Promise.resolve();
 		expect(onDismiss).not.toHaveBeenCalled();
 	});
+
+	// One more action, for a caller whose way out is neither "see what Alfy did"
+	// nor "ask again" (a board's Undo that cannot be done points to its versions).
+	it("offers one action of its caller's own, and calls it", async () => {
+		const onAction = vi.fn();
+		render(RefusalNotice, {
+			message: "Alfy's change can't be undone here.",
+			actionLabel: "Open Versions",
+			onAction,
+		});
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open Versions" }),
+		);
+		expect(onAction).toHaveBeenCalledTimes(1);
+	});
+
+	it("draws no action without both a label and a handler", () => {
+		render(RefusalNotice, {
+			message: "Alfy skipped 1 change.",
+			actionLabel: "Open",
+		});
+		expect(screen.queryByRole("button")).toBeNull();
+	});
 });

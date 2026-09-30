@@ -966,6 +966,7 @@ test.describe("the Canvas kind, in the panel", () => {
 			"Undo",
 			"Redo",
 			"Insert",
+			"Ask Alfy",
 		]) {
 			await expect(toolbar.getByRole("button", { name })).toBeVisible();
 		}
@@ -999,7 +1000,7 @@ test.describe("the Canvas kind, in the panel", () => {
 		).toHaveAttribute("aria-pressed", "false");
 
 		// Tab order: Select, Pan, Draw, Comment (Undo and Redo are off with nothing
-		// to undo), Insert, then on into the blocks.
+		// to undo), Insert, Ask Alfy, then on into the blocks.
 		await toolbar.getByRole("button", { name: "Select" }).focus();
 		await page.keyboard.press("Tab");
 		await expect(toolbar.getByRole("button", { name: "Pan" })).toBeFocused();
@@ -1011,6 +1012,10 @@ test.describe("the Canvas kind, in the panel", () => {
 		).toBeFocused();
 		await page.keyboard.press("Tab");
 		await expect(toolbar.getByRole("button", { name: "Insert" })).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(
+			toolbar.getByRole("button", { name: "Ask Alfy" }),
+		).toBeFocused();
 		await page.keyboard.press("Tab");
 		const landedOnABlock = await page.evaluate(() =>
 			document.activeElement?.classList.contains("svelte-flow__node"),

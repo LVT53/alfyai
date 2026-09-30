@@ -12,9 +12,11 @@ import {
 } from "./artifact-canvas-helpers";
 import { ensureSidebarExpanded, login, workspacePanel } from "./helpers";
 
-// A chat's panel is "what this chat made". The browser keeps ONE panel state
-// for the whole tab (sessionStorage), so what a chat restores after a reload,
-// or when the tab moves to another chat, has to be decided by who is asking:
+// A chat's panel is "what this chat made". The browser keeps a panel per chat
+// in the tab's sessionStorage (the last 20 chats), so what a chat restores
+// after a reload, or when the tab moves to another chat, has to be decided by
+// who is asking:
+//   - a chat gets its own panel back, whatever chats the tab visited since;
 //   - another chat's open items never open in this chat's panel;
 //   - an incognito chat's items go nowhere else, and are not left in the tab's
 //     stored state when the chat is left (docs/plans/incognito-one-way-spec.md:
@@ -79,7 +81,7 @@ function boardWithNote(text: string): CanvasBody {
 	};
 }
 
-/** The item ids the tab's stored panel state holds right now. */
+/** The item ids of the panel the tab saved last: the chat on screen's own. */
 async function storedPanelItemIds(page: Page): Promise<string[]> {
 	return page.evaluate((key) => {
 		const raw = window.sessionStorage.getItem(key);
@@ -87,6 +89,14 @@ async function storedPanelItemIds(page: Page): Promise<string[]> {
 		const record = JSON.parse(raw) as { documents: { id: string }[] };
 		return record.documents.map((document) => document.id);
 	}, STORED_PANEL_KEY);
+}
+
+/** Everything the tab has stored for its panels, whoever's they are. */
+async function storedPanelText(page: Page): Promise<string> {
+	return page.evaluate(
+		(key) => window.sessionStorage.getItem(key) ?? "",
+		STORED_PANEL_KEY,
+	);
 }
 
 async function goToChatInTheApp(page: Page, conversationId: string) {
@@ -223,5 +233,122 @@ test.describe("a chat's panel after a reload", () => {
 		await expect(workspacePanel(page)).toHaveCount(0);
 		await expect(page.getByText("Private board")).toHaveCount(0);
 		expect(await storedPanelItemIds(page)).toEqual([]);
+	});
+});
+
+test.describe("each chat remembers its own panel", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("going to chat B and back to chat A gives A its own board again, and B keeps its own", async ({
+		page,
+	}) => {
+		const chatA = randomUUID();
+		const chatB = randomUUID();
+		await seedConversation(chatA, { title: "Scope chat A" });
+		await seedConversation(chatB, { title: "Scope chat B" });
+		await seedCanvas(chatA, boardWithNote("Only in A"), "Board of A");
+		await seedCanvas(chatB, boardWithNote("Only in B"), "Board of B");
+
+		await openChatAndReload(page, chatA);
+		await openCanvasPanel(page);
+		await expect(workspacePanel(page)).toHaveAccessibleName(
+			"Board of A, Canvas",
+		);
+
+		// B starts with nothing of A's, and opens its own board.
+		await goToChatInTheApp(page, chatB);
+		await expect(workspacePanel(page)).toHaveCount(0);
+		await openCanvasPanel(page);
+		await expect(workspacePanel(page)).toHaveAccessibleName(
+			"Board of B, Canvas",
+		);
+
+		// Back in A the board is where it was left, and none of B's is in sight.
+		await goToChatInTheApp(page, chatA);
+		await expect(workspacePanel(page)).toHaveAccessibleName(
+			"Board of A, Canvas",
+		);
+		await expect(page.getByText("Board of B")).toHaveCount(0);
+
+		// And B gets its own again.
+		await goToChatInTheApp(page, chatB);
+		await expect(workspacePanel(page)).toHaveAccessibleName(
+			"Board of B, Canvas",
+		);
+		await expect(page.getByText("Board of A")).toHaveCount(0);
+	});
+
+	test("a reload in chat B in between does not make chat A forget its board", async ({
+		page,
+	}) => {
+		const chatA = randomUUID();
+		const chatB = randomUUID();
+		await seedConversation(chatA, { title: "Scope chat A" });
+		await seedConversation(chatB, { title: "Scope chat B" });
+		await seedCanvas(chatA, boardWithNote("Only in A"), "Board of A");
+		await seedCanvas(chatB, boardWithNote("Only in B"), "Board of B");
+
+		await openChatAndReload(page, chatA);
+		await openCanvasPanel(page);
+
+		await goToChatInTheApp(page, chatB);
+		await page.reload({ waitUntil: "networkidle" });
+		await expect(page.getByTestId("message-input")).toBeVisible();
+		await expect(workspacePanel(page)).toHaveCount(0);
+
+		await goToChatInTheApp(page, chatA);
+		await expect(workspacePanel(page)).toHaveAccessibleName(
+			"Board of A, Canvas",
+		);
+		// A reload of A itself gives the same board.
+		await page.reload({ waitUntil: "networkidle" });
+		await openCanvasPanel(page);
+		await expect(workspacePanel(page)).toHaveAccessibleName(
+			"Board of A, Canvas",
+		);
+	});
+
+	test("a visit to an incognito chat in between keeps the normal chat's board and leaves nothing of the private one in the tab", async ({
+		page,
+	}) => {
+		const normalChat = randomUUID();
+		const incognitoChat = randomUUID();
+		await seedConversation(normalChat, { title: "Scope normal chat" });
+		await seedConversation(incognitoChat, {
+			title: "Scope incognito chat",
+			memoryIncognito: true,
+		});
+		await seedCanvas(normalChat, boardWithNote("Public"), "Public board");
+		const privateBoard = await seedCanvas(
+			incognitoChat,
+			boardWithNote("Private"),
+			"Private board",
+		);
+
+		await openChatAndReload(page, normalChat);
+		await openCanvasPanel(page);
+		await expect(workspacePanel(page)).toHaveAccessibleName(
+			"Public board, Canvas",
+		);
+
+		await goToChatInTheApp(page, incognitoChat);
+		await openCanvasPanel(page);
+		await expect(workspacePanel(page)).toHaveAccessibleName(
+			"Private board, Canvas",
+		);
+		expect(await storedPanelItemIds(page)).toEqual([privateBoard]);
+
+		// Back in the normal chat its own board is there, and the private one is
+		// nowhere in what the tab keeps.
+		await goToChatInTheApp(page, normalChat);
+		await expect(workspacePanel(page)).toHaveAccessibleName(
+			"Public board, Canvas",
+		);
+		await expect(page.getByText("Private board")).toHaveCount(0);
+		const stored = await storedPanelText(page);
+		expect(stored).not.toContain(privateBoard);
+		expect(stored).not.toContain("Private board");
 	});
 });

@@ -45,6 +45,8 @@ let {
 	onAskAgain = undefined,
 	dismissLabel = undefined,
 	onDismiss = undefined,
+	actionLabel = undefined,
+	onAction = undefined,
 }: {
 	/** The ICU-pluralised, already-localised summary sentence (e.g. `artifacts.document.refused.notice`). */
 	message: string;
@@ -62,6 +64,9 @@ let {
 	dismissLabel?: string | undefined;
 	/** Clears this notice — called once the card has left (slid 8px right and faded, redesign §7.2 #22; at once under reduced motion). Omitted when the caller has no dismiss state to clear. */
 	onDismiss?: (() => void) | undefined;
+	/** One action of the caller's own, already localised, for a way out that is neither "see what Alfy did" nor "ask again" — a board's Undo that cannot be done points to its versions. Required together with `onAction`. */
+	actionLabel?: string | undefined;
+	onAction?: (() => void) | undefined;
 } = $props();
 
 let cardEl = $state<HTMLDivElement | undefined>();
@@ -125,8 +130,13 @@ async function handleDismiss(): Promise<void> {
 			{seeChangeLabel}
 		</button>
 	{/if}
-	{#if (onAskAgain && askAgainLabel) || (onDismiss && dismissLabel)}
+	{#if (onAskAgain && askAgainLabel) || (onAction && actionLabel) || (onDismiss && dismissLabel)}
 		<div class="refusal-notice-actions">
+			{#if onAction && actionLabel}
+				<button type="button" class="btn-secondary btn-sm" onclick={onAction}>
+					{actionLabel}
+				</button>
+			{/if}
 			{#if onAskAgain && askAgainLabel}
 				<button type="button" class="btn-secondary btn-sm" onclick={onAskAgain}>
 					<Sparkles size={13} strokeWidth={2} aria-hidden="true" />

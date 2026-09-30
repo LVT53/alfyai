@@ -26,6 +26,7 @@ import {
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import type { CanvasReviewState } from "$lib/shared/artifacts/canvas-review";
 import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { OpRefusal, OpsDiff } from "$lib/shared/artifacts/ops";
@@ -973,4 +974,64 @@ export async function acknowledgeDocumentReviewBlocks(
 		fetchImpl,
 	);
 	return payload.pending;
+}
+
+/**
+ * A board's review (ruling 63): what Alfy's change left waiting, recomputed by
+ * the server on every call — never cached across a reload — with whether Undo
+ * is still possible and what it goes back to. Throws for anything that is not a
+ * board's answer (a 404, a Document's `{ pending }`): the caller reads that as
+ * "no review to show".
+ */
+export async function fetchCanvasReviewState(
+	artifactId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<CanvasReviewState> {
+	const payload = await requestJson<{
+		ok: true;
+		kind?: string;
+		review?: CanvasReviewState;
+	}>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/review${withConversationQuery(conversationId)}`,
+		undefined,
+		"Failed to load what Alfy changed",
+		fetchImpl,
+	);
+	if (payload.kind !== "canvas" || !payload.review) {
+		throw new Error("That item has no board review");
+	}
+	return payload.review;
+}
+
+/**
+ * Keep: moves the board's review marker past the newest change of Alfy's the
+ * reader was shown (`throughVersion`), so one that landed while they decided is
+ * not swallowed. Undo calls it too, once the parent's board is saved back.
+ * Answers what is left waiting.
+ */
+export async function acknowledgeCanvasReview(
+	artifactId: string,
+	throughVersion: number,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<CanvasReviewState> {
+	const payload = await requestJson<{
+		ok: true;
+		kind?: string;
+		review?: CanvasReviewState;
+	}>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/review${withConversationQuery(conversationId)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ throughVersion }),
+		},
+		"Failed to save what you reviewed",
+		fetchImpl,
+	);
+	if (payload.kind !== "canvas" || !payload.review) {
+		throw new Error("That item has no board review");
+	}
+	return payload.review;
 }
