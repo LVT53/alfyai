@@ -82,7 +82,7 @@ let groups = $derived(
 	{:else if phase.name === "failed"}
 		<div class="chat-blocks__note">
 			<p>{$t("artifacts.canvas.chat.failed")}</p>
-			<button type="button" class="chat-blocks__retry" onclick={() => void read()}>
+			<button type="button" class="btn-secondary btn-sm" onclick={() => void read()}>
 				{$t("artifacts.canvas.chat.retry")}
 			</button>
 		</div>
@@ -144,22 +144,6 @@ let groups = $derived(
 
 	.chat-blocks__note p {
 		margin: 0 0 6px;
-	}
-
-	.chat-blocks__retry {
-		min-height: 30px;
-		padding: 0 12px;
-		border: 1px solid var(--border-default);
-		border-radius: 6px;
-		background: var(--surface-elevated);
-		color: var(--text-primary);
-		font: inherit;
-		cursor: pointer;
-	}
-
-	.chat-blocks__retry:focus-visible {
-		outline: 2px solid var(--focus-ring);
-		outline-offset: 2px;
 	}
 
 	.chat-blocks__group {
@@ -227,10 +211,6 @@ let groups = $derived(
 
 	@media (max-width: 767px), (pointer: coarse) {
 		.chat-blocks__row {
-			min-height: 44px;
-		}
-
-		.chat-blocks__retry {
 			min-height: 44px;
 		}
 	}

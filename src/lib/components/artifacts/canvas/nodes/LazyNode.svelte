@@ -80,9 +80,9 @@ $effect(() => {
 			{@const Content = loaded.default}
 			<Content id={props.id} data={props.data} selected={props.selected} />
 		{:else if failed}
-			<div class="lazy lazy--failed" role="alert" data-testid="canvas-node-load-failed">
-				<p class="lazy__text">{$t("artifacts.canvas.block.loadFailed")}</p>
-				<button type="button" class="lazy__retry nodrag" onclick={() => (attempt += 1)}>
+			<div class="lazy" role="alert" data-testid="canvas-node-load-failed">
+				<p>{$t("artifacts.canvas.block.loadFailed")}</p>
+				<button type="button" class="btn-secondary btn-sm nodrag" onclick={() => (attempt += 1)}>
 					{$t("artifacts.canvas.chat.retry")}
 				</button>
 			</div>
@@ -102,17 +102,15 @@ $effect(() => {
 <style>
 	.lazy {
 		box-sizing: border-box;
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		gap: 6px;
 		width: 100%;
 		height: 100%;
 		padding: 10px 12px;
-		border-radius: 10px;
 		color: var(--text-muted);
-		font-family: var(--font-sans);
 		font-size: var(--text-xs);
+	}
+
+	.lazy p {
+		margin: 0 0 6px;
 	}
 
 	.lazy__bar {
@@ -122,33 +120,6 @@ $effect(() => {
 		border-radius: 4px;
 		background: var(--surface-elevated);
 		animation: lazy-pulse 1.4s ease-in-out infinite;
-	}
-
-	.lazy__text {
-		margin: 0;
-	}
-
-	.lazy__retry {
-		align-self: flex-start;
-		min-height: 28px;
-		padding: 0 10px;
-		border: 1px solid var(--border-default);
-		border-radius: 6px;
-		background: var(--surface-elevated);
-		color: var(--text-primary);
-		font: inherit;
-		cursor: pointer;
-	}
-
-	.lazy__retry:focus-visible {
-		outline: 2px solid var(--focus-ring);
-		outline-offset: 2px;
-	}
-
-	@media (max-width: 767px), (pointer: coarse) {
-		.lazy__retry {
-			min-height: 44px;
-		}
 	}
 
 	@keyframes lazy-pulse {

@@ -112,7 +112,7 @@ $effect(() => {
 		{:else}
 			<div class="app__state" data-testid="canvas-app-failed">
 				<p>{$t("artifacts.canvas.app.failed")}</p>
-				<button type="button" class="app__retry" onclick={() => (attempt += 1)}>
+				<button type="button" class="btn-secondary btn-sm" onclick={() => (attempt += 1)}>
 					{$t("artifacts.canvas.chat.retry")}
 				</button>
 			</div>
@@ -152,27 +152,5 @@ $effect(() => {
 
 	.app__state p {
 		margin: 0;
-	}
-
-	.app__retry {
-		min-height: 30px;
-		padding: 0 12px;
-		border: 1px solid var(--border-default);
-		border-radius: 6px;
-		background: var(--surface-elevated);
-		color: var(--text-primary);
-		font: inherit;
-		cursor: pointer;
-	}
-
-	.app__retry:focus-visible {
-		outline: 2px solid var(--focus-ring);
-		outline-offset: 2px;
-	}
-
-	@media (max-width: 767px), (pointer: coarse) {
-		.app__retry {
-			min-height: 44px;
-		}
 	}
 </style>
