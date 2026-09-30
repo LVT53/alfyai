@@ -720,6 +720,17 @@ test.describe("blocks from this chat", () => {
 	});
 });
 
+// A 1x1 paper-coloured PNG for every map tile, so a screenshot's map draws
+// without reaching out to a public tile host (as map-route-card.spec.ts does).
+const TILE_PNG = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGN49ugGAAVSAqHeT0GYAAAAAElFTkSuQmCC",
+	"base64",
+);
+const stubTiles = (page: Page) =>
+	page.route("**/api/map-tiles/**", (route) =>
+		route.fulfill({ status: 200, contentType: "image/png", body: TILE_PNG }),
+	);
+
 // Screenshots for the report, not part of the gates: run with S3R1_SHOTS=<dir>.
 const SHOTS = process.env.S3R1_SHOTS;
 test.describe("screenshots of blocks from this chat", () => {
@@ -740,6 +751,7 @@ test.describe("screenshots of blocks from this chat", () => {
 			await setUiLanguage("hu");
 			await page.emulateMedia({ colorScheme: scheme });
 			await page.setViewportSize({ width: 1440, height: 900 });
+			await stubTiles(page);
 			await login(page);
 			const seeded = await seedChat(page);
 			await openChatAndReload(page, seeded.conversationId);
@@ -770,6 +782,7 @@ test.describe("screenshots of blocks from this chat", () => {
 	test("the same board on a phone, Hungarian, 390x844", async ({ page }) => {
 		await setUiLanguage("hu");
 		await page.setViewportSize({ width: 390, height: 844 });
+		await stubTiles(page);
 		await login(page);
 		const seeded = await seedChat(page);
 		await openChatAndReload(page, seeded.conversationId);
