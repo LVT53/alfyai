@@ -196,17 +196,39 @@ function describeValue(value: unknown): string {
 	return `a ${typeof value}`;
 }
 
+/**
+ * An entry listed with the blocks that is unmistakably an arrow: it has a source
+ * and a target and nothing a block has (no `data`, no `position`). About a third
+ * of English creates list their arrows this way, from habit, whatever the
+ * description says; the entry means the same thing wherever it stands, so it is
+ * filed with the arrows rather than costing the whole board a resend. Anything
+ * with a block's field as well is ambiguous and is not filed.
+ */
+function isArrowListedAsBlock(
+	value: unknown,
+): value is Record<string, unknown> {
+	return (
+		isRecord(value) &&
+		value.source !== undefined &&
+		value.target !== undefined &&
+		value.data === undefined &&
+		value.position === undefined
+	);
+}
+
 /** What is wrong with a node's shape, or `null`; its meaning is the vocabulary's to judge. */
 function nodeShapeProblem(value: unknown): string | null {
 	if (!isRecord(value)) {
 		return `must be an object {id, type, position, data}, not ${describeValue(value)}.`;
 	}
-	// The mistake models make most: an arrow listed with the blocks.
-	if (
-		value.type === "edge" ||
-		(value.source !== undefined && value.target !== undefined)
-	) {
-		return `is an edge (it has ${value.type === "edge" ? 'type "edge"' : "source and target"}), and edges go in the "edges" array as {id, source, target} — not in "nodes".`;
+	// An arrow listed with the blocks is filed with the arrows before this is
+	// asked (`isArrowListedAsBlock`), so an entry that still has both ends has
+	// something of a block's too: it could be either, and is not guessed at.
+	if (value.source !== undefined && value.target !== undefined) {
+		return `has both an arrow's fields (source and target) and a block's (${value.data !== undefined ? "data" : "position"}), so it cannot be told which it is. A block is {id, type, position, data}, with no source or target, and goes in "nodes"; an arrow is {id, source, target}, with no data or position, and goes in "edges".`;
+	}
+	if (value.type === "edge") {
+		return `is an edge (it has type "edge"), and edges go in the "edges" array as {id, source, target} — not in "nodes".`;
 	}
 	const missing: string[] = [];
 	if (!isText(value.id, 128))
@@ -339,7 +361,16 @@ export function parseCanvasCreateBody(raw: string): CanvasCreateResult {
 
 	const problems: Problem[] = [];
 	const entries: Array<{ index: number; node: Record<string, unknown> }> = [];
+	// Arrows listed with the blocks, where they stood, to be judged as arrows.
+	const listedWithBlocks: Array<{
+		index: number;
+		edge: Record<string, unknown>;
+	}> = [];
 	nodes.forEach((node, index) => {
+		if (isArrowListedAsBlock(node)) {
+			listedWithBlocks.push({ index, edge: node });
+			return;
+		}
 		const shape = nodeShapeProblem(node);
 		if (shape) {
 			problems.push({
@@ -369,22 +400,34 @@ export function parseCanvasCreateBody(raw: string): CanvasCreateResult {
 		} as BoardOp);
 		origins.push({ list: "nodes", index: entry.index, id: String(id) });
 	}
-	edges.forEach((edge, index) => {
+	// The arrows it was given first, then the ones that were listed with the
+	// blocks in the order they stood; each is judged as an arrow, and a refusal
+	// names where the entry is in the body the model wrote.
+	const arrows: Array<{ list: Origin["list"]; index: number; edge: unknown }> =
+		[
+			...edges.map((edge, index) => ({ list: "edges" as const, index, edge })),
+			...listedWithBlocks.map(({ index, edge }) => ({
+				list: "nodes" as const,
+				index,
+				edge,
+			})),
+		];
+	for (const { list, index, edge } of arrows) {
 		const shape = edgeShapeProblem(edge);
 		if (shape) {
 			problems.push({
-				origin: { list: "edges", index, id: nameOf(edge) },
+				origin: { list, index, id: nameOf(edge) },
 				text: shape,
 			});
-			return;
+			continue;
 		}
 		const { id, source, target, label } = edge as Record<string, unknown>;
 		ops.push({
 			op: "add_edge",
 			edge: { id, source, target, ...(label === undefined ? {} : { label }) },
 		} as BoardOp);
-		origins.push({ list: "edges", index, id: String(id) });
-	});
+		origins.push({ list, index, id: String(id) });
+	}
 	if (problems.length > 0) {
 		return {
 			ok: false,
