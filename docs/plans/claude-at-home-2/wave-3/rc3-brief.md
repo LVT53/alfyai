@@ -33,6 +33,19 @@ focus trap. You decide whether the Canvas is ready for the owner's own walk on a
    passed.
 4. **The whole gates once** (`common.md`), every artifact suite, and name any flaky test with its rerun result.
 
+## 5 · A live check for the deploy (write it, do not run it against the box)
+
+Write `…/scratchpad/w3/verify-canvas-w3.mjs`, modelled on the box's Wave 2 live check (read it with
+`ssh -T -o ConnectTimeout=8 -o BatchMode=yes alfyroot 'cat /root/verify-artifacts-w2.mjs'`; same login, conversation,
+stream and polling helpers; the same env: `EMAIL`, `PASSWORD`, `BASE`, `ONLY`, `TURN_TIMEOUT_MS`). The orchestrator
+runs it after the deploy **without writing a file on the box**, as
+`ssh -T alfyroot 'set -a; . /root/verify-harness.env; set +a; BASE=http://127.0.0.1:3002 node --input-type=module -' < verify-canvas-w3.mjs`,
+so it must be one self-contained ES module. Scenarios, each printing PASS/FAIL with the evidence: an English request
+makes a Canvas with at least three blocks and a frame, every block drawn inside its frame by the model's own sizes; an
+edit request ("add a frame for Sunday with two notes") lands as one Alfy version with no refusal; a Hungarian request
+gives Hungarian labels; an incognito conversation's board is not listed outside it; an `@Alfy` comment on a sticky
+gets a reply and a change. Choose edit items the first board cannot already hold (the Wave 2 script's lesson).
+
 ## Report
 
 Per item above: the verdict and the evidence; any NEW defect as Critical / Important / Minor with a failing-test sketch;
