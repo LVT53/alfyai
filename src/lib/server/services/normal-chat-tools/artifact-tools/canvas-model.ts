@@ -37,7 +37,10 @@ import {
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	NODE_WIDTH,
 } from "$lib/shared/artifacts/canvas-blocks";
-import { emptyCanvasBody } from "$lib/shared/artifacts/canvas-body";
+import {
+	emptyCanvasBody,
+	parentsFirst,
+} from "$lib/shared/artifacts/canvas-body";
 import type { OpRefusal } from "$lib/shared/artifacts/ops";
 import { describeJsonSlip } from "./tool-args";
 
@@ -302,33 +305,19 @@ function edgeShapeProblem(value: unknown): string | null {
 	return missing.length > 0 ? `needs ${missing.join(", ")}.` : null;
 }
 
-/** Frames before what is inside them; anything that cannot be placed (a loop, a missing parent) keeps its place so the validator names it. */
-function parentsFirst(
+/** Frames before what is inside them: the board's own ordering (`parentsFirst`), on entries that are still raw JSON. A parent that is missing, or a loop, is left for the validator to name. */
+function inParentsFirstOrder(
 	entries: Array<{ index: number; node: Record<string, unknown> }>,
 ): Array<{ index: number; node: Record<string, unknown> }> {
-	const ids = new Set(entries.map((entry) => String(entry.node.id)));
-	const placed = new Set<string>();
-	const ordered: typeof entries = [];
-	let pending = entries;
-	while (pending.length > 0) {
-		const ready = pending.filter((entry) => {
-			const parent = entry.node.parentId;
-			return (
-				typeof parent !== "string" || !ids.has(parent) || placed.has(parent)
-			);
-		});
-		if (ready.length === 0) {
-			ordered.push(...pending);
-			break;
-		}
-		for (const entry of ready) {
-			ordered.push(entry);
-			placed.add(String(entry.node.id));
-		}
-		const readySet = new Set(ready);
-		pending = pending.filter((entry) => !readySet.has(entry));
-	}
-	return ordered;
+	return parentsFirst(
+		entries.map((entry) => ({
+			id: String(entry.node.id),
+			...(typeof entry.node.parentId === "string"
+				? { parentId: entry.node.parentId }
+				: {}),
+			entry,
+		})),
+	).map((keyed) => keyed.entry);
 }
 
 function problemsMessage(problems: readonly Problem[]): string {
@@ -425,7 +414,7 @@ export function parseCanvasCreateBody(raw: string): CanvasCreateResult {
 	// edge, each remembering which entry of the body it came from.
 	const ops: BoardOp[] = [];
 	const origins: Origin[] = [];
-	for (const entry of parentsFirst(entries)) {
+	for (const entry of inParentsFirstOrder(entries)) {
 		const { id, type, parentId, position, data } = entry.node;
 		ops.push({
 			op: "add_node",

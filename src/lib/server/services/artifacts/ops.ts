@@ -21,7 +21,7 @@ import {
 	runOps,
 } from "$lib/shared/artifacts/ops";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
-import type { DocumentReviewMetadata } from "./document-ops";
+import { reviewMarkerPatchFor } from "./document-ops";
 import { getArtifact, updateArtifactBody } from "./record";
 import { canvasSerializer, prepareCanvasBoard } from "./serialize/canvas";
 import type { ArtifactKind, ArtifactScopeOptions } from "./types";
@@ -254,15 +254,6 @@ export async function applyArtifactOps(
 	// as `applyDocumentPatch` does it: absent, it names the version this write
 	// lands on top of (so this version is the first one waiting for review); once
 	// it exists, only the reader's Keep or Undo moves it.
-	const review = artifact.metadata.review as
-		| Partial<DocumentReviewMetadata>
-		| null
-		| undefined;
-	const hasMarker =
-		typeof review === "object" &&
-		review !== null &&
-		typeof review.throughVersion === "number" &&
-		review.throughVersion > 0;
 	const author = input.author ?? "alfy";
 	const written = await updateArtifactBody({
 		...scope,
@@ -271,14 +262,9 @@ export async function applyArtifactOps(
 		summary: author === "alfy" ? outcome.summary : VERSION_SUMMARY.edited,
 		baseHash: artifact.bodyHash ?? undefined,
 		metadataPatch:
-			author === "user" || hasMarker
+			author === "user"
 				? undefined
-				: {
-						review: {
-							throughVersion: newest.versionNumber,
-							keptBlockIds: [],
-						} satisfies DocumentReviewMetadata,
-					},
+				: reviewMarkerPatchFor(artifact.metadata, newest.versionNumber),
 	});
 	if (!written.ok) {
 		if (written.reason === "too_large") {

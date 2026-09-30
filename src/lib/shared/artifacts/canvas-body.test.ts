@@ -6,6 +6,7 @@ import {
 	MAX_ANNOTATIONS_PER_BOARD,
 	MAX_POINTS_PER_STROKE,
 	normalizeCanvasBody,
+	parentsFirst,
 } from "./canvas-body";
 import { cloneBoard, sampleBoard } from "./canvas-fixtures.test-helpers";
 
@@ -777,5 +778,62 @@ describe("normalizeCanvasBody — entries that share an id (RV-3 C1)", () => {
 		const twice = normalizeCanvasBody(JSON.parse(boardJson(once.body)));
 		expect(twice.repaired).toEqual([]);
 		expect(boardJson(twice.body)).toBe(boardJson(once.body));
+	});
+});
+
+// RV-3 Minor 7: "parents first" was written three times (this module's frame
+// settling, the create parse, the board). It is one function now, and the frame
+// settling reads its order from it.
+describe("parentsFirst — every parent ahead of its children", () => {
+	type N = { id: string; parentId?: string };
+	const n = (id: string, parentId?: string): N =>
+		parentId === undefined ? { id } : { id, parentId };
+	const ids = (nodes: readonly N[]) => nodes.map((node) => node.id);
+
+	it("hands back the very same array when it is already in order, and a parent that is not on the board is not out of order", () => {
+		const ordered = [n("f"), n("a", "f"), n("b", "elsewhere"), n("c")];
+		expect(parentsFirst(ordered)).toBe(ordered);
+	});
+
+	it("puts a parent just before the first child that needed it, and changes nothing else", () => {
+		expect(ids(parentsFirst([n("c", "p"), n("a"), n("p")]))).toEqual([
+			"p",
+			"c",
+			"a",
+		]);
+		expect(
+			ids(
+				parentsFirst([
+					n("a"),
+					n("grand-child", "child"),
+					n("child", "top"),
+					n("top"),
+				]),
+			),
+		).toEqual(["a", "top", "child", "grand-child"]);
+	});
+
+	it("never loses or repeats a node: a loop ends the walk, duplicates and deep chains are fine", () => {
+		const looped = parentsFirst([n("a", "b"), n("b", "a"), n("c")]);
+		expect(ids(looped).sort()).toEqual(["a", "b", "c"]);
+		const twins = [n("x", "p"), n("x", "p"), n("p")];
+		expect(parentsFirst(twins)).toHaveLength(3);
+		// 20,000 frames deep, listed children first: no recursion to overflow.
+		const deep = Array.from({ length: 20_000 }, (_, i) =>
+			n(`d${i}`, `d${i + 1}`),
+		);
+		const out = parentsFirst(deep);
+		expect(out).toHaveLength(20_000);
+		expect(out[0].id).toBe("d19999");
+	});
+
+	it("is the order normalizeCanvasBody settles a board's frames in", () => {
+		const raw = JSON.parse(boardJson(sampleBoard()));
+		const [frame, ...rest] = raw.nodes;
+		raw.nodes = [...rest, frame];
+		const settled = normalizeCanvasBody(raw).body.nodes;
+		expect(settled.map((node) => node.id)).toEqual(
+			ids(parentsFirst(raw.nodes as N[])),
+		);
 	});
 });

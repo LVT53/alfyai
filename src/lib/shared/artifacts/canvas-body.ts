@@ -148,21 +148,45 @@ function settleFrames(nodes: StoredCanvasNode[]): StoredCanvasNode[] {
 		for (const node of path) settled.add(node.id);
 	}
 
-	const emitted = new Set<string>();
-	const ordered: StoredCanvasNode[] = [];
+	return parentsFirst(nodes);
+}
+
+/**
+ * Every parent ahead of its children, changing as little as possible: the very
+ * same array when it is already in that order, otherwise each node's not yet
+ * placed ancestors go in just before it. Svelte Flow needs parents first, and so
+ * do the library's delete cascade and the saved body. One function for the body's
+ * frame settling, the create parse and the board (RV-3 Minor 7 found it written
+ * three times). A parent that is not in the list is not out of order, a loop
+ * ends the walk instead of running it (nobody is placed twice or lost), and it
+ * is linear time with no recursion, whatever the input: a board is user-editable
+ * JSON.
+ */
+export function parentsFirst<T extends { id: string; parentId?: string }>(
+	nodes: readonly T[],
+): T[] {
+	const byId = new Map<string, T>();
+	for (const node of nodes) if (!byId.has(node.id)) byId.set(node.id, node);
+	const emitted = new Set<T>();
+	const ordered: T[] = [];
 	for (const node of nodes) {
-		const pending: StoredCanvasNode[] = [];
-		let cursor: StoredCanvasNode | undefined = node;
-		while (cursor && !emitted.has(cursor.id)) {
+		const pending: T[] = [];
+		const onPath = new Set<T>();
+		let cursor: T | undefined = node;
+		while (cursor && !emitted.has(cursor) && !onPath.has(cursor)) {
+			onPath.add(cursor);
 			pending.push(cursor);
-			cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+			cursor =
+				cursor.parentId === undefined ? undefined : byId.get(cursor.parentId);
 		}
 		for (const ancestorFirst of pending.reverse()) {
-			emitted.add(ancestorFirst.id);
+			emitted.add(ancestorFirst);
 			ordered.push(ancestorFirst);
 		}
 	}
-	return ordered;
+	return ordered.every((placed, index) => placed === nodes[index])
+		? (nodes as T[])
+		: ordered;
 }
 
 function readEdge(value: unknown): CanvasEdge | null {
