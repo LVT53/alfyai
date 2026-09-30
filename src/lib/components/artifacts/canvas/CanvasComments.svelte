@@ -166,7 +166,9 @@ $effect(() => {
 		class:is-goto={!orphaned}
 		class:is-orphaned={orphaned}
 		tabindex="-1"
-		aria-label={quoteOf(thread, orphaned)}
+		aria-label={orphaned
+			? quoteOf(thread, orphaned)
+			: `${$t('artifacts.canvas.comment.pin', { n: pinLabel(controller.threads, thread.id) })}: ${quoteOf(thread, orphaned)}`}
 		data-testid="canvas-comment"
 		data-comment-id={thread.id}
 		onclick={(event) => handleCardClick(event, thread.id, orphaned)}

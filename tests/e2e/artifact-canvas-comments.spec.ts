@@ -583,6 +583,23 @@ test.describe("comments on the Canvas", () => {
 		await expect(commentsButton(page)).toHaveAttribute("aria-pressed", "false");
 	});
 
+	test("a comment placed while the panel is narrow opens the drawer with its box focused, ready to type", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1100, height: 800 });
+		await open(page);
+		const lunch = await nodeBox(page, LUNCH);
+		await page.getByTestId("canvas-tool-comment").click();
+		await page.mouse.click(lunch.x + 60, lunch.y + 30);
+		const drawer = page.getByTestId("comments-drawer");
+		await expect(drawer).toBeVisible();
+		const box = drawer.getByTestId("comment-composer").getByRole("textbox");
+		await expect(box).toBeFocused();
+		// The drawer's own trap does not take the focus back to its close button once the reader is typing.
+		await page.keyboard.type("Typed straight away");
+		await expect(box).toHaveValue("Typed straight away");
+	});
+
 	test("on a phone the comment is written in a sheet, its pin stays on the board, and pressing the pin opens the sheet at its thread", async ({
 		page,
 	}) => {
@@ -598,6 +615,8 @@ test.describe("comments on the Canvas", () => {
 		);
 		const sheet = page.getByRole("dialog", { name: "Comments" });
 		await expect(sheet).toBeVisible();
+		// The reader who placed a comment is in its box: the sheet's own focus handling leaves them there.
+		await expect(sheet.getByRole("textbox")).toBeFocused();
 		await sheet.getByRole("textbox").fill("On my phone");
 		await sheet.locator("button[type='submit']").click();
 		await expect(cards(page)).toHaveCount(1);

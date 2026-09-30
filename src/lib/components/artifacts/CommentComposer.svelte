@@ -32,6 +32,9 @@ let {
 	oncancel: () => void;
 } = $props();
 
+/** Long enough for a dialog's own focus handling (a zero-delay timer) to have run. */
+const FOCUS_RETRY_MS = 60;
+
 let text = $state("");
 let posting = $state(false);
 let failed = $state(false);
@@ -39,8 +42,16 @@ let field = $state<HTMLTextAreaElement | null>(null);
 let asks = $derived(mentionsAlfy(text));
 
 // The reader placed this comment to write it: the words go straight into the box.
+// A sheet or a drawer moves the focus into itself a moment after it opens (to its
+// first control), so the box asks once more after that moment has passed.
 $effect(() => {
-	field?.focus();
+	const box = field;
+	if (!box) return;
+	box.focus();
+	const timer = setTimeout(() => {
+		if (document.activeElement !== box) box.focus();
+	}, FOCUS_RETRY_MS);
+	return () => clearTimeout(timer);
 });
 
 async function submit(): Promise<void> {

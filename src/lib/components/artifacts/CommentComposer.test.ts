@@ -40,6 +40,23 @@ describe("CommentComposer", () => {
 		expect(document.activeElement).toBe(field());
 	});
 
+	it("takes the focus back when a sheet or a drawer moves it away just after opening", () => {
+		vi.useFakeTimers();
+		try {
+			mount();
+			// A dialog's own focus handling runs a moment after mount and puts the focus on its first control.
+			const other = document.createElement("button");
+			document.body.appendChild(other);
+			other.focus();
+			expect(document.activeElement).toBe(other);
+			vi.advanceTimersByTime(100);
+			expect(document.activeElement).toBe(field());
+			other.remove();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("cannot post an empty comment", async () => {
 		mount();
 		const post = screen.getByRole("button", {

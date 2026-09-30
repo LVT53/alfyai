@@ -59,7 +59,8 @@ const drawerFocusTrap = focusTrap({
 		event.stopImmediatePropagation();
 		onClose();
 	},
-	focus: { defer: true },
+	// A list that put the reader in a box of its own (a comment just placed) keeps that focus.
+	focus: { defer: true, skipIfAlreadyInside: true },
 	restoreFocusOnCleanup: true,
 });
 </script>
