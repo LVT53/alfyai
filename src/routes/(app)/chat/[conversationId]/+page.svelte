@@ -1292,6 +1292,11 @@ function getWorkspaceConversation(): WorkspaceConversation {
 	};
 }
 
+// The chat whose panel `workspaceDocuments` and the state beside it hold right
+// now: set where a panel is restored into them, so a save names the chat the
+// items belong to even in the moment `data` is already the next chat's.
+let workspaceConversation: WorkspaceConversation = getWorkspaceConversation();
+
 function getPersistedWorkspaceState() {
 	if (!browser) return null;
 	return loadPersistedWorkspaceDocumentState(
@@ -1311,6 +1316,7 @@ function triggerForkOpeningTransition() {
 }
 
 function restorePersistedWorkspaceState() {
+	workspaceConversation = getWorkspaceConversation();
 	const persistedWorkspaceState = getPersistedWorkspaceState();
 	if (!persistedWorkspaceState) {
 		workspaceDocuments = [];
@@ -1333,10 +1339,10 @@ $effect(() => {
 		activeDocumentId: activeWorkspaceDocumentId,
 		isOpen: workspaceOpen && workspaceDocuments.length > 0,
 		presentation: workspacePresentation,
-		// Not tracked: on a switch to another chat this effect must not run ahead
-		// of `resetState()` and file the old chat's items under the new one. It
-		// runs again, for the new chat, once the restore has replaced them.
-		conversation: untrack(getWorkspaceConversation),
+		// The panel's owner, not `data`'s chat: on a switch to another chat this
+		// effect can run before `resetState()` has replaced the old chat's items,
+		// and must not file them under the new one.
+		conversation: workspaceConversation,
 	});
 });
 
@@ -2196,7 +2202,7 @@ onMount(() =>
 onDestroy(() => {
 	if (browser) {
 		// Leaving an incognito chat leaves nothing of its panel in the tab.
-		const { conversationId, incognito } = getWorkspaceConversation();
+		const { conversationId, incognito } = workspaceConversation;
 		if (incognito) {
 			discardPersistedWorkspaceDocumentStateOfIncognitoConversation(
 				window.sessionStorage,
