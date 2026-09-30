@@ -745,6 +745,20 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 		}
 	});
 
+	// The first try at "make this note a checklist" is an update_node that
+	// changes data.kind, which is refused; a rule that says so up front saves the
+	// model that call, on the tool path and on the @Alfy comment path, which is
+	// handed this very sentence.
+	it("says, in both languages, that a block's kind cannot change and what to do instead", () => {
+		const en = editArtifactRuleClause(kinds, "en");
+		expect(en).toMatch(/kind cannot change/);
+		expect(en).toMatch(/remove it and add a new one/);
+		const hu = editArtifactRuleClause(kinds, "hu");
+		expect(hu).toMatch(/típusa nem változtatható/);
+		expect(hu).toMatch(/töröld/);
+		expect(hu).toMatch(/adj hozzá/);
+	});
+
 	it("parses the edit example, whole, through the advertised schema — and its ops through the validator against a real board with zero refusals", () => {
 		const schema = buildEditArtifactModelInputSchema(kinds);
 		expect(schema.safeParse(EDIT_ARTIFACT_CANVAS_EXAMPLE).success).toBe(true);

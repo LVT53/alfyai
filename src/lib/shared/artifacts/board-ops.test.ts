@@ -1113,7 +1113,7 @@ describe("every refusal names what would have worked (ruling 62)", () => {
 					id: "note-1",
 					data: { kind: "text" },
 				}),
-			[/Remove it and add the new one/],
+			[/cannot change kind in place/, /remove_node/, /add_node/],
 		],
 		[
 			"missing_parent",
@@ -1200,5 +1200,11 @@ describe("every refusal names what would have worked (ruling 62)", () => {
 	it.each(CASES)("%s", (_name, detailOf, patterns) => {
 		const detail = detailOf();
 		for (const pattern of patterns) expect(detail).toMatch(pattern);
+	});
+
+	it("names, for a block that cannot change kind, ops the vocabulary really has", () => {
+		for (const name of ["remove_node", "add_node"]) {
+			expect(BOARD_OP_NAMES as readonly string[]).toContain(name);
+		}
 	});
 });
