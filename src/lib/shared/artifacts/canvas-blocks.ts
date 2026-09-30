@@ -106,8 +106,8 @@ export const CHECKLIST_ROW_HEIGHT = 26;
  * asks for a ratio. The chart node lays the plot out at exactly that ratio, so
  * the estimate is the height drawn at any zoom (RC-3 N1).
  */
-export const CHART_CHROME_HEIGHT = 59;
-export const CHART_SIDE_INSET = 22;
+const CHART_CHROME_HEIGHT = 59;
+const CHART_SIDE_INSET = 22;
 const RADIAL_CHART_TYPES = new Set(["pie", "doughnut", "polararea", "radar"]);
 
 /**
