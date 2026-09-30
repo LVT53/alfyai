@@ -446,6 +446,18 @@ async function loadAlfyThread(
 			}
 			return created;
 		},
+		async reanchor(anchor) {
+			db.update(artifactComments)
+				.set({ anchorJson: JSON.stringify(anchor) })
+				.where(
+					and(
+						eq(artifactComments.id, rootId),
+						eq(artifactComments.artifactId, params.artifactId),
+						eq(artifactComments.userId, params.userId),
+					),
+				)
+				.run();
+		},
 	};
 }
 

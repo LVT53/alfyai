@@ -355,6 +355,91 @@ describe("@Alfy on a board: a change", () => {
 	});
 });
 
+describe("@Alfy on a board: a block that was replaced", () => {
+	// A note cannot change kind in place, so making one a list is a remove and an add: the
+	// thread that asked must not be left on a block that is gone.
+	const REPLACE_WITH_CHECKLIST = [
+		{ op: "remove_node", id: "note-museum" },
+		{
+			op: "add_node",
+			node: {
+				id: "checklist-museum",
+				type: "checklist",
+				position: { x: 500, y: 60 },
+				data: {
+					kind: "checklist",
+					label: "Museum, 14:00",
+					items: [
+						{ id: "m1", text: "Buy tickets", done: false },
+						{ id: "m2", text: "Check opening hours", done: false },
+						{ id: "m3", text: "Plan route", done: false },
+					],
+				},
+			},
+		},
+	];
+
+	it("moves the thread to the one block that took its place, so the comment stays where it was left", async () => {
+		const { boardId, thread } = await askAbout(NODE_ANCHOR);
+		modelSays({ note: "Made it a checklist.", ops: REPLACE_WITH_CHECKLIST });
+
+		const result = await run(boardId, thread.id);
+
+		expect(result.ok && result.value.outcome).toBe("applied");
+		expect(await storedNode(boardId, "note-museum")).toBeUndefined();
+		const [root] = await listComments({ userId: OWNER, artifactId: boardId });
+		expect(root.anchor).toEqual({ kind: "node", nodeId: "checklist-museum" });
+		expect(root.replies[0].body).toBe("Made it a checklist.");
+	});
+
+	it("leaves the thread where it is when the block it was on is not the one removed", async () => {
+		const { boardId, thread } = await askAbout(NODE_ANCHOR);
+		modelSays({
+			note: "Added one beside it.",
+			ops: [REPLACE_WITH_CHECKLIST[1]],
+		});
+		await run(boardId, thread.id);
+		const [root] = await listComments({ userId: OWNER, artifactId: boardId });
+		expect(root.anchor).toEqual(NODE_ANCHOR);
+	});
+
+	it("does not guess when more than one block was added: which one took its place is not known", async () => {
+		const { boardId, thread } = await askAbout(NODE_ANCHOR);
+		const second = {
+			op: "add_node",
+			node: {
+				id: "note-extra",
+				type: "sticky",
+				position: { x: 700, y: 60 },
+				data: { kind: "sticky", text: "Extra", tone: "plain" },
+			},
+		};
+		modelSays({
+			note: "Replaced it with two.",
+			ops: [...REPLACE_WITH_CHECKLIST, second],
+		});
+		await run(boardId, thread.id);
+		const [root] = await listComments({ userId: OWNER, artifactId: boardId });
+		expect(root.anchor).toEqual(NODE_ANCHOR);
+	});
+
+	it("does not follow a block that was only asked about, not changed", async () => {
+		const { boardId, thread } = await askAbout(NODE_ANCHOR);
+		modelSays({ note: "It is at 14:00." });
+		await run(boardId, thread.id);
+		const [root] = await listComments({ userId: OWNER, artifactId: boardId });
+		expect(root.anchor).toEqual(NODE_ANCHOR);
+	});
+
+	it("leaves a spot where it was left: a spot has no block to follow", async () => {
+		const { boardId, thread } = await askAbout(POINT_ANCHOR, "@Alfy tidy up");
+		modelSays({ note: "Done.", ops: REPLACE_WITH_CHECKLIST });
+		await run(boardId, thread.id);
+		const [root] = await listComments({ userId: OWNER, artifactId: boardId });
+		expect(root.anchor).toEqual(POINT_ANCHOR);
+	});
+});
+
 describe("@Alfy on a board: no change", () => {
 	it("answers a question with the note and writes no version", async () => {
 		const { boardId, thread } = await askAbout(

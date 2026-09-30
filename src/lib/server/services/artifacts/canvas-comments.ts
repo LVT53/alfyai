@@ -405,6 +405,20 @@ export async function runCanvasAlfyReply(
 				note || ALFY_EMPTY_REPLY_MARKER,
 			);
 		}
+		// A note cannot change kind in place, so making one a list is a remove and an add.
+		// When the block this thread is on was replaced by exactly one new block, the thread
+		// follows it: the comment stays where it was left instead of being orphaned by the
+		// very change it asked for. With more than one new block which took its place is a guess.
+		const refusedAt = new Set(judged.refused.map((item) => item.opIndex));
+		const accepted = ops.filter((_, index) => !refusedAt.has(index));
+		const added = accepted.filter((op) => op.op === "add_node");
+		if (
+			anchor.kind === "node" &&
+			added.length === 1 &&
+			accepted.some((op) => op.op === "remove_node" && op.id === anchor.nodeId)
+		) {
+			await context.reanchor({ kind: "node", nodeId: added[0].node.id });
+		}
 		// A skipped op is named by its block's own words when the block is on the board, else by the id it addressed.
 		const words = new Map(
 			blocks

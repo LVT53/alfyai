@@ -202,6 +202,8 @@ export interface AlfyThreadContext {
 	thread: ArtifactComment;
 	/** Writes Alfy's reply under the root. */
 	reply: (body: string) => Promise<ArtifactComment>;
+	/** Moves the thread to another anchor: the block it was on was replaced by the change this reply made. */
+	reanchor: (anchor: Anchor) => Promise<void>;
 }
 
 export interface ArtifactKvRow {
