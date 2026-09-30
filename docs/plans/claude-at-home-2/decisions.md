@@ -679,6 +679,23 @@ recommendation" — option (c) of `wave-3/s4d-report.md` §7.* ADR-0066's rule a
   verifier counts as sourced (its source recorded next to the response), over three repeats, reported as a rate.
 - Cost if wrong: one extra model pass (plus bounded web checks) per deck, about 20–60 s.
 
+## 67. What Alfy may change on a board, and Alfy never overwrites the reader's newer words
+
+*Orchestrator, 2026-09-30, from RV-3 (I5, I6); the owner may overrule at the Canvas check.*
+- **Amends ruling 64.** On the five app-owned kinds the model's `update_node` may change **only descriptive fields**: a
+  map's `label`, `route` and `meta`; an App's `title`. A live-web block's `query`/`sources`/`fetchedAt`, a photo block's
+  `items`, a file block's `fileId`/`name`, an App block's `artifactId`, and **any block's `poster`** are set only by the
+  app (the user's Insert, Refresh, the poster capture). Anything else is refused `invalid_data`, naming what may change
+  and saying the rest comes from Insert or Refresh. Why: a prompt-injected turn could otherwise plant attacker links
+  dressed as the app's own search result (with a fresh "Updated" line) that beacon through the favicon proxy on every
+  open.
+- **Alfy's edit is refused where the reader changed the block after Alfy read it** — the Document's `block_changed`
+  rule, for boards. The edit handler takes the version the model last read of this board **in the same turn** (the
+  turn's earlier `read_artifact` result) as its base; an op addressing a node whose content differs between that version
+  and now is refused `stale` ("the reader changed it; read the board again"), and the rest of the batch applies. With no
+  read in the turn, the edit applies to the current board and the one-change review (ruling 63) is the safeguard.
+- Cost if wrong: an extra read when the reader and Alfy touch the same block in one turn.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
