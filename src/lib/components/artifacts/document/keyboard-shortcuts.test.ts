@@ -7,6 +7,9 @@ import {
 	historyShortcutFor,
 	historyShortcutLabel,
 	isApplePlatform,
+	selectionChordAriaKeyShortcuts,
+	selectionChordFor,
+	selectionChordLabel,
 } from "./keyboard-shortcuts";
 
 function key(
@@ -271,5 +274,93 @@ describe("isApplePlatform", () => {
 		});
 		expect(isApplePlatform()).toBe(true);
 		Reflect.deleteProperty(window.navigator, "userAgentData");
+	});
+});
+
+// A board's selection: Comment is the Document's own chord (⌘/Ctrl+Alt+M), and
+// Ask Alfy sits beside it (⌘/Ctrl+Alt+A). Neither is ever the reader's own undo.
+describe("selectionChordFor", () => {
+	it("is Ctrl+Alt+M to comment and Ctrl+Alt+A to ask Alfy, off a Mac", () => {
+		expect(
+			selectionChordFor(
+				key({ key: "m", code: "KeyM", ctrlKey: true, altKey: true }),
+				false,
+			),
+		).toBe("comment");
+		expect(
+			selectionChordFor(
+				key({ key: "a", code: "KeyA", ctrlKey: true, altKey: true }),
+				false,
+			),
+		).toBe("ask");
+	});
+
+	it("is Cmd+Option+M and Cmd+Option+A on a Mac, where Option changes the character", () => {
+		expect(
+			selectionChordFor(
+				key({ key: "µ", code: "KeyM", metaKey: true, altKey: true }),
+				true,
+			),
+		).toBe("comment");
+		expect(
+			selectionChordFor(
+				key({ key: "å", code: "KeyA", metaKey: true, altKey: true }),
+				true,
+			),
+		).toBe("ask");
+	});
+
+	it("needs the platform's command key, the Alt key, and no Shift", () => {
+		expect(
+			selectionChordFor(key({ key: "m", code: "KeyM", altKey: true }), false),
+		).toBeNull();
+		expect(
+			selectionChordFor(key({ key: "m", code: "KeyM", ctrlKey: true }), false),
+		).toBeNull();
+		expect(
+			selectionChordFor(
+				key({
+					key: "M",
+					code: "KeyM",
+					ctrlKey: true,
+					altKey: true,
+					shiftKey: true,
+				}),
+				false,
+			),
+		).toBeNull();
+		// Ctrl is not the command key on a Mac.
+		expect(
+			selectionChordFor(
+				key({ key: "m", code: "KeyM", ctrlKey: true, altKey: true }),
+				true,
+			),
+		).toBeNull();
+	});
+
+	it("is not a chord while an input method is composing", () => {
+		expect(
+			selectionChordFor(
+				key({
+					key: "m",
+					code: "KeyM",
+					ctrlKey: true,
+					altKey: true,
+					isComposing: true,
+				}),
+				false,
+			),
+		).toBeNull();
+	});
+
+	it("is written on a button, and named for assistive technology, the way the platform reads it", () => {
+		expect(selectionChordLabel("comment", false)).toBe("Ctrl+Alt+M");
+		expect(selectionChordLabel("ask", false)).toBe("Ctrl+Alt+A");
+		expect(selectionChordLabel("comment", true)).toBe("⌥⌘M");
+		expect(selectionChordLabel("ask", true)).toBe("⌥⌘A");
+		expect(selectionChordAriaKeyShortcuts("comment", false)).toBe(
+			"Control+Alt+M",
+		);
+		expect(selectionChordAriaKeyShortcuts("ask", true)).toBe("Meta+Alt+A");
 	});
 });

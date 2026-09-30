@@ -94,6 +94,9 @@ let {
 	oncamera,
 	layers,
 	ontool,
+	onselect,
+	onask,
+	askBusy = false,
 }: {
 	/** The board to draw. Read once, when the board mounts: to show a different one (a reload, a restore) the editor mounts a new board. */
 	body: CanvasBody;
@@ -107,6 +110,12 @@ let {
 	layers?: Snippet<[BoardLayerApi]>;
 	/** The tool changed: a layer that is loaded on demand hears of the tool that needs it here. */
 	ontool?: (tool: Tool) => void;
+	/** A block became selected (or the last one stopped being): the pill that a selection raises is loaded on demand, and hears of it here. */
+	onselect?: (selected: boolean) => void;
+	/** Ask Alfy from the toolbar: about the selected blocks, or (none selected) the whole board, named by where the reader is looking. */
+	onask?: (request: { ids: string[]; centre: Pt }) => void;
+	/** Alfy is arranging: Ask waits. */
+	askBusy?: boolean;
 } = $props();
 
 const initial = untrack(() => body);
@@ -530,6 +539,24 @@ $effect(() => {
 	ontool?.(tool);
 });
 
+let anySelected = $derived(nodes.some((node) => node.selected));
+$effect(() => {
+	onselect?.(anySelected);
+});
+
+/** The toolbar's Ask Alfy: the selected blocks, or the board as the reader is looking at it. */
+function handleAsk(): void {
+	if (readonly || !boardEl) return;
+	const rect = boardEl.getBoundingClientRect();
+	onask?.({
+		ids: nodes.filter((node) => node.selected).map((node) => node.id),
+		centre: flow.screenToFlowPosition({
+			x: rect.left + rect.width / 2,
+			y: rect.top + rect.height / 2,
+		}),
+	});
+}
+
 let layerApi = $derived<BoardLayerApi>({
 	nodes,
 	viewport,
@@ -538,6 +565,8 @@ let layerApi = $derived<BoardLayerApi>({
 	toBoard: (point) => flow.screenToFlowPosition(point),
 	centerOn,
 	announce,
+	size: { width: boardWidth, height: boardHeight },
+	readonly,
 });
 
 let compact = $derived(boardWidth > 0 && boardWidth < COMPACT_BELOW);
@@ -618,12 +647,14 @@ function minimapColor(node: {
 		{canRedo}
 		disabled={readonly}
 		emphasizeInsert={empty}
+		{askBusy}
 		{ink}
 		oninkchange={(next) => (ink = next)}
 		ontoolchange={setTool}
 		onundo={undo}
 		onredo={redo}
 		oninsert={insertBlock}
+		onask={handleAsk}
 	/>
 
 	<SvelteFlow

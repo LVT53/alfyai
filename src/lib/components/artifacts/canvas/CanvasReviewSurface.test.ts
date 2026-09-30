@@ -55,7 +55,9 @@ function make() {
 		conversationId: null,
 		board: () => board,
 		saveNow: vi.fn().mockResolvedValue(undefined),
-		write: vi.fn(),
+		guard: vi.fn(() => ({ version: 2, bodyHash: "h2" })),
+		saved: vi.fn(),
+		adopt: vi.fn(() => null),
 		openVersions: vi.fn(),
 		reportCount: vi.fn(),
 	};

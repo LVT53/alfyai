@@ -436,6 +436,29 @@ test.describe("Alfy's change lands where the reader can see it", () => {
 	});
 });
 
+test("the toolbar's Ask Alfy waits while Alfy is arranging, and says why, then is back", async ({
+	page,
+}) => {
+	const scene = await open(page);
+	try {
+		await askAlfy(page, scene.artifactId, PLANNED_SUNDAY);
+		const ask = page.getByTestId("canvas-tool-ask");
+		await expect(page.getByTestId("canvas-arranging")).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(ask).toBeDisabled();
+		await expect(ask).toHaveAttribute(
+			"title",
+			"Alfy is still arranging. Try again in a moment.",
+		);
+		await landed(page);
+		await expect(page.getByTestId("canvas-arranging")).toBeHidden();
+		await expect(ask).toBeEnabled();
+	} finally {
+		await scene.cleanup();
+	}
+});
+
 test.describe("a change waits for the reader, once, however often the panel is built", () => {
 	test("is not drawn a second time by a body built later, and survives a reload as the same one change", async ({
 		page,

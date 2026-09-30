@@ -44,6 +44,7 @@ import type {
 	CanvasCommentsController,
 	catcherProps,
 	pinsProps,
+	selectionPillProps,
 	toggleComments,
 } from "./_lib/comments-controller.svelte";
 import type {
@@ -55,6 +56,7 @@ import { judgeServerBoard } from "./_lib/server-board";
 import type AlfyChangeLayer from "./AlfyChangeLayer.svelte";
 import CanvasBoard from "./CanvasBoard.svelte";
 import type CanvasComments from "./CanvasComments.svelte";
+import type CanvasSelectionPill from "./CanvasSelectionPill.svelte";
 import type CanvasReviewBar from "./CanvasReviewBar.svelte";
 import type CanvasReviewNotices from "./CanvasReviewNotices.svelte";
 import type CommentCatcher from "./CommentCatcher.svelte";
@@ -63,10 +65,12 @@ import type CommentPins from "./CommentPins.svelte";
 /** The comment components and what wires them to the controller, once they have loaded. */
 type CommentViews = {
 	CanvasComments: typeof CanvasComments;
+	CanvasSelectionPill: typeof CanvasSelectionPill;
 	CommentCatcher: typeof CommentCatcher;
 	CommentPins: typeof CommentPins;
 	catcherProps: typeof catcherProps;
 	pinsProps: typeof pinsProps;
+	selectionPillProps: typeof selectionPillProps;
 	toggleComments: typeof toggleComments;
 };
 
@@ -368,10 +372,12 @@ function ensureComments(): Promise<void> {
 			({
 				CanvasCommentsController: Controller,
 				CanvasComments,
+				CanvasSelectionPill,
 				CommentCatcher,
 				CommentPins,
 				catcherProps,
 				pinsProps,
+				selectionPillProps,
 				toggleComments,
 			}) => {
 				const controller = new Controller({
@@ -391,10 +397,12 @@ function ensureComments(): Promise<void> {
 				controller.setNodes(boardNodes);
 				commentViews = {
 					CanvasComments,
+					CanvasSelectionPill,
 					CommentCatcher,
 					CommentPins,
 					catcherProps,
 					pinsProps,
+					selectionPillProps,
 					toggleComments,
 				};
 				comments = controller;
@@ -530,6 +538,20 @@ let alfyBusy = $derived(
 			alfyActivity.artifactId === artifactId),
 );
 
+/** Ask Alfy from the toolbar: the selected blocks, or the board as the reader is looking at it, become a request in the comments list. */
+function askAlfy(request: {
+	ids: string[];
+	centre: { x: number; y: number };
+}): void {
+	void ensureComments().then(() => {
+		if (request.ids.length > 0) {
+			comments?.placeOnBlocks(request.ids, { ask: true });
+		} else {
+			comments?.placeOnBoard(request.centre);
+		}
+	});
+}
+
 function handleWindowKeydown(event: KeyboardEvent): void {
 	if (
 		event.defaultPrevented ||
@@ -619,6 +641,12 @@ let banner = $derived(
 			<commentViews.CommentPins {...commentViews.pinsProps(comments, api)} />
 		</ViewportPortal>
 		<commentViews.CommentCatcher {...commentViews.catcherProps(comments, api)} />
+		<!-- The pill a selection raises: Ask Alfy, Comment. -->
+		<ViewportPortal target="front">
+			<commentViews.CanvasSelectionPill
+				{...commentViews.selectionPillProps(comments, api, alfyBusy)}
+			/>
+		</ViewportPortal>
 	{/if}
 {/snippet}
 
@@ -664,6 +692,9 @@ let banner = $derived(
 							onchange={handleBoardChange}
 							layers={boardLayers}
 							ontool={(tool) => tool === "comment" && void ensureComments()}
+							onselect={(selected) => selected && void ensureComments()}
+							onask={askAlfy}
+							askBusy={alfyBusy}
 						/>
 					</SvelteFlowProvider>
 				{/key}

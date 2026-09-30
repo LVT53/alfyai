@@ -224,13 +224,24 @@ $effect(() => {
 		<div class="canvas-comments-list" data-testid="canvas-comments-list" bind:this={listEl}>
 			{#if controller.draft}
 				{@const anchor = controller.draft}
-				<CommentComposer
-					header={$t('artifacts.canvas.comment.newOn', { target: targetName(anchor) })}
-					placeholder={$t('artifacts.canvas.comment.placeholder')}
-					alfyHint={$t('artifacts.canvas.comment.alfyHint')}
-					onsubmit={(body) => controller.post(anchor, body)}
-					oncancel={() => controller.cancelDraft()}
-				/>
+				<!-- A fresh box for each request: what it starts with is read once. -->
+				{#key controller.draftToken}
+					<CommentComposer
+						header={controller.draftWhole
+							? $t('artifacts.canvas.comment.newOnBoard')
+							: controller.draftScope.length > 0
+								? $t('artifacts.canvas.comment.newOnMany', {
+										target: targetName(anchor),
+										count: controller.draftScope.length,
+									})
+								: $t('artifacts.canvas.comment.newOn', { target: targetName(anchor) })}
+						placeholder={$t('artifacts.canvas.comment.placeholder')}
+						alfyHint={$t('artifacts.canvas.comment.alfyHint')}
+						initialText={controller.draftAsk ? '@Alfy ' : ''}
+						onsubmit={(body) => controller.post(anchor, body)}
+						oncancel={() => controller.cancelDraft()}
+					/>
+				{/key}
 			{/if}
 			{#if controller.notice}
 				<p class="canvas-comments-notice" role="alert">{controller.notice}</p>

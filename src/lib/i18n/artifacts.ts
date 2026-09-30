@@ -701,6 +701,16 @@ const artifactsDict = {
 		"artifacts.canvas.review.undoFailed":
 			"Could not undo Alfy's change. Try again, or open Versions.",
 		"artifacts.canvas.review.openVersions": "Open Versions",
+		// Asking Alfy about blocks, or the board (S3-A): the toolbar's button, the pill a
+		// selection raises, and what a request about several blocks says it is about.
+		"artifacts.canvas.ask": "Ask Alfy",
+		"artifacts.canvas.ask.busy":
+			"Alfy is still arranging. Try again in a moment.",
+		"artifacts.canvas.selection.label": "Selection",
+		"artifacts.canvas.comment.newOnMany":
+			"New comment on: {target} and {count} more",
+		"artifacts.canvas.comment.newOnBoard": "New comment on: the whole board",
+		"artifacts.canvas.comment.scopeLine": "About these blocks: {names}.",
 		// Frames and reparenting (S3-F): what a screen reader hears when a block
 		// joins or leaves a frame by a drag.
 		"artifacts.canvas.movedIntoFrame": "Moved into the frame {frame}.",
@@ -1256,6 +1266,16 @@ const artifactsDict = {
 		"artifacts.canvas.review.undoFailed":
 			"Nem sikerült visszavonni Alfy módosítását. Próbáld újra, vagy nyisd meg a Változatokat.",
 		"artifacts.canvas.review.openVersions": "Változatok megnyitása",
+		// Alfy megkérdezése blokkokról vagy a tábláról (S3-A).
+		"artifacts.canvas.ask": "Alfy megkérdezése",
+		"artifacts.canvas.ask.busy":
+			"Alfy még rendezi a táblát. Próbáld újra egy pillanat múlva.",
+		"artifacts.canvas.selection.label": "Kijelölés",
+		// Kettőspont köti a célhoz: a cél egy blokk saját szövege, toldalék nélkül.
+		"artifacts.canvas.comment.newOnMany":
+			"Új megjegyzés ehhez: {target} és még {count}",
+		"artifacts.canvas.comment.newOnBoard": "Új megjegyzés az egész táblához",
+		"artifacts.canvas.comment.scopeLine": "Ezekről a blokkokról: {names}.",
 		// A kettőspont a magyar rag nélkül old meg egy tetszőleges keretnevet.
 		"artifacts.canvas.movedIntoFrame": "Átkerült a keretbe: {frame}.",
 		"artifacts.canvas.movedOutOfFrame": "Kikerült a keretből: {frame}.",

@@ -122,3 +122,41 @@ export function alfyChangeAriaKeyShortcuts(
 	const mod = apple ? "Meta" : "Control";
 	return action === "undo" ? `${mod}+Alt+Z` : `${mod}+Alt+Shift+Z`;
 }
+
+/**
+ * The chords for a board's selection (the Document's own is a text selection):
+ * ⌘/Ctrl+Alt+M comments on it, the same chord that opens the Document's comment
+ * composer, and ⌘/Ctrl+Alt+A asks Alfy about it. Alt is held, so neither is ever
+ * the reader's own history, and Shift is not (that is Alfy's change, redone). The
+ * physical key stands in on a Mac, where Option changes the character.
+ */
+export type SelectionChord = "comment" | "ask";
+
+export function selectionChordFor(
+	event: KeyEventLike,
+	apple: boolean = isApplePlatform(),
+): SelectionChord | null {
+	if (event.isComposing || !event.altKey || event.shiftKey) return null;
+	if (!hasCommandModifier(event, apple)) return null;
+	const letter = letterOf(event, apple);
+	if (letter === "m") return "comment";
+	if (letter === "a") return "ask";
+	return null;
+}
+
+/** A selection chord as written on a button: ⌥⌘M on a Mac, Ctrl+Alt+M elsewhere. */
+export function selectionChordLabel(
+	chord: SelectionChord,
+	apple: boolean = isApplePlatform(),
+): string {
+	const letter = chord === "comment" ? "M" : "A";
+	return apple ? `⌥⌘${letter}` : `Ctrl+Alt+${letter}`;
+}
+
+/** `aria-keyshortcuts` for a selection chord. */
+export function selectionChordAriaKeyShortcuts(
+	chord: SelectionChord,
+	apple: boolean = isApplePlatform(),
+): string {
+	return `${apple ? "Meta" : "Control"}+Alt+${chord === "comment" ? "M" : "A"}`;
+}

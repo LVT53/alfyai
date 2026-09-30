@@ -263,6 +263,55 @@ describe("writing a new comment", () => {
 		expect(await screen.findByText("Comment new")).toBeTruthy();
 	});
 
+	it("opens a request to Alfy with its name already in the box", async () => {
+		const { controller } = mount([]);
+		controller.placeOnBlocks(["note-museum"], { ask: true });
+		await tick();
+		const box = screen.getByTestId("comment-composer");
+		expect(
+			(within(box).getByRole("textbox") as HTMLTextAreaElement).value,
+		).toBe("@Alfy ");
+		expect(within(box).getByText("New comment on: Museum, 14:00")).toBeTruthy();
+		expect(within(box).getByRole("button", { name: /Ask Alfy/ })).toBeTruthy();
+	});
+
+	it("says how many more blocks a request is about", async () => {
+		const { controller } = mount([]);
+		controller.placeOnBlocks(["note-museum", "frame-a"], { ask: true });
+		await tick();
+		expect(
+			screen.getByText("New comment on: Museum, 14:00 and 1 more"),
+		).toBeTruthy();
+	});
+
+	it("says a request is about the whole board", async () => {
+		const { controller } = mount([]);
+		controller.placeOnBoard({ x: 10, y: 10 });
+		await tick();
+		expect(screen.getByText("New comment on: the whole board")).toBeTruthy();
+	});
+
+	it("starts an empty box for a plain comment on a selection", async () => {
+		const { controller } = mount([]);
+		controller.placeOnBlocks(["note-museum"], { ask: false });
+		await tick();
+		expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+	});
+
+	it("starts a new box, not the old words, for each request", async () => {
+		const { controller } = mount([]);
+		controller.placeOnBlocks(["note-museum"], { ask: true });
+		await tick();
+		await fireEvent.input(screen.getByRole("textbox"), {
+			target: { value: "@Alfy something half written" },
+		});
+		controller.placeOnBlocks(["note-museum"], { ask: true });
+		await tick();
+		expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
+			"@Alfy ",
+		);
+	});
+
 	it("throws the placed comment away on Cancel", async () => {
 		const { controller } = mount([]);
 		controller.place({ kind: "point", x: 1, y: 1 });
