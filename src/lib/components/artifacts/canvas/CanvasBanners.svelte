@@ -128,4 +128,12 @@ let {
 		outline: 2px solid var(--focus-ring);
 		outline-offset: 1px;
 	}
+
+	/* A finger needs the whole 44 px: the notices' buttons (Dismiss, Retry, Reload) are small for a pointer. */
+	@media (max-width: 767px), (pointer: coarse) {
+		.notice__button {
+			min-height: 44px;
+			min-width: 44px;
+		}
+	}
 </style>

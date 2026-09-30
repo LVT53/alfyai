@@ -207,7 +207,7 @@ async function textOf(artifactId: string, id: string): Promise<string | null> {
 async function leaveNote(page: Page) {
 	await page
 		.getByTestId("canvas-board")
-		.click({ position: { x: 700, y: 560 } });
+		.click({ position: { x: 150, y: 560 } });
 }
 
 /** Edits a note's words the way a reader does, and leaves them typed (the focus is still in the note). */
@@ -349,6 +349,47 @@ test.describe("a step that meets a newer version of the board", () => {
 	});
 });
 
+test.describe("the code that puts the two together", () => {
+	test("is fetched with the first step, and when it is slow the newer version waits for it instead of being refused: both still end up on the board", async ({
+		page,
+	}) => {
+		const scene = await openBoardOnly(page);
+		let requested = 0;
+		await page.route("**/canvas/rebase-board*", async (route) => {
+			requested += 1;
+			await new Promise((resolve) => setTimeout(resolve, 3_000));
+			await route.continue();
+		});
+		await typeIntoNote(page, LUNCH, " (two seats)");
+		await leaveNote(page);
+		await writeAlfyVersion(scene.artifactId, (stored) => ({
+			...stored,
+			nodes: [
+				...stored.nodes,
+				note("note-booked", 420, 260, "Booked for 15:30"),
+			],
+		}));
+
+		await expect(page.getByText("Booked for 15:30")).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(
+			page.getByText("Lunch at the market (two seats)"),
+		).toBeVisible();
+		await expect(page.getByTestId("canvas-conflict")).toHaveCount(0);
+		await expect
+			.poll(async () => (await versionRows(scene.artifactId)).at(-1)?.author, {
+				timeout: 15_000,
+			})
+			.toBe("user");
+		expect(await textOf(scene.artifactId, LUNCH)).toBe(
+			"Lunch at the market (two seats)",
+		);
+		// One fetch, made with the first step, not one per change.
+		expect(requested).toBe(1);
+	});
+});
+
 test.describe("a save that is refused with nothing newer on the server", () => {
 	test("is a race with the reader's own save: the step goes once more against the version the board has now, and lands, with nothing to reload", async ({
 		page,
@@ -435,6 +476,32 @@ test.describe("screenshots of a board after a send that raced an edit", () => {
 		await page.waitForTimeout(1_500);
 		await page.screenshot({
 			path: join(SHOTS as string, "1440-light-board-kept-notice.png"),
+		});
+	});
+
+	test("the same notice on a phone, Hungarian, 390x844", async ({ page }) => {
+		await setUiLanguage("hu");
+		await page.setViewportSize({ width: 390, height: 844 });
+		const scene = await openBoardOnly(page);
+		await typeIntoNote(page, LUNCH, " (két főre)");
+		await leaveNote(page);
+		await writeAlfyVersion(scene.artifactId, (stored) => ({
+			...stored,
+			nodes: [
+				...stored.nodes.map((node) =>
+					node.id === LUNCH
+						? { ...node, data: { ...node.data, text: "Ebéd délben" } }
+						: node,
+				),
+				note("note-booked", 420, 260, "Lefoglalva 15:30-ra"),
+			],
+		}));
+		await expect(page.getByTestId("canvas-rebased-notice")).toBeVisible({
+			timeout: 15_000,
+		});
+		await page.waitForTimeout(1_500);
+		await page.screenshot({
+			path: join(SHOTS as string, "390-light-board-kept-notice.png"),
 		});
 	});
 });
