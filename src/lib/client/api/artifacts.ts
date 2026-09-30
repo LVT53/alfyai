@@ -76,6 +76,8 @@ export interface ArtifactDetailResponse {
  *   knows it — when the artifact was last changed (`updatedAt`, epoch ms).
  * - `deleted`: the item is gone (this browser deleted it, or the server said
  *   it no longer exists).
+ * - `files`: something was made in this chat outside a turn (a board's picture
+ *   was kept as a File): the chat reads its files again, so its list shows it.
  */
 export type ArtifactChange =
 	| {
@@ -84,7 +86,8 @@ export type ArtifactChange =
 			version: number;
 			updatedAt: number | null;
 	  }
-	| { type: "deleted"; artifactId: string };
+	| { type: "deleted"; artifactId: string }
+	| { type: "files"; conversationId: string };
 
 type ArtifactChangeListener = (change: ArtifactChange) => void;
 const artifactChangeListeners = new Set<ArtifactChangeListener>();
@@ -112,6 +115,11 @@ export function subscribeArtifactChanges(
 
 function announceArtifactChange(change: ArtifactChange): void {
 	for (const listener of artifactChangeListeners) listener(change);
+}
+
+/** This chat made a file outside a turn (a board's picture, kept as a File): whoever lists the chat's files reads them again. */
+export function announceChatFilesChanged(conversationId: string): void {
+	announceArtifactChange({ type: "files", conversationId });
 }
 
 /**
