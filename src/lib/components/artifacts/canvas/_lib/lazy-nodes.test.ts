@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import * as AppModule from "../nodes/AppNode.svelte";
 import * as FileModule from "../nodes/FileNode.svelte";
+import * as LiveWebModule from "../nodes/LiveWebNode.svelte";
 import * as MapModule from "../nodes/MapNode.svelte";
+import * as PhotoModule from "../nodes/PhotoNode.svelte";
 import { lazyNodeLoader } from "./lazy-nodes";
 
 describe("the loaders of the blocks made from the chat", () => {
-	it("has one for each of the three, and each resolves to that block's own content and its shell dress", async () => {
+	it("has one for each of the five, and each resolves to that block's own content and its shell dress", async () => {
 		const expected = [
 			["file", FileModule.default, FileModule.fileShell],
 			["app", AppModule.default, AppModule.appShell],
 			["map", MapModule.default, MapModule.mapShell],
+			["liveweb", LiveWebModule.default, LiveWebModule.livewebShell],
 		] as const;
 		for (const [kind, content, shell] of expected) {
 			const loaded = await lazyNodeLoader(kind)?.();
@@ -19,6 +22,13 @@ describe("the loaders of the blocks made from the chat", () => {
 		}
 	});
 
+	// Photos say nothing of themselves to the shell but the kind's own name.
+	it("loads photos' own content, and dresses the shell with nothing", async () => {
+		const loaded = await lazyNodeLoader("photo")?.();
+		expect(loaded?.default).toBe(PhotoModule.default);
+		expect(loaded?.shell).toBeUndefined();
+	});
+
 	it("has none for a note-shaped block (those are in the editor already) or for a kind that has no node", () => {
 		for (const kind of [
 			"frame",
@@ -26,8 +36,6 @@ describe("the loaders of the blocks made from the chat", () => {
 			"text",
 			"chart",
 			"checklist",
-			"photo",
-			"liveweb",
 			"nope",
 			"toString",
 			"__proto__",

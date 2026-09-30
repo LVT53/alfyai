@@ -14,6 +14,8 @@ import {
 	ChartColumn,
 	FileText,
 	Frame,
+	Globe,
+	Images,
 	ListChecks,
 	Map as MapIcon,
 	StickyNote,
@@ -68,7 +70,7 @@ export type BlockMeta = {
 	flow?: { zIndex?: number; dragHandle?: string; style?: string };
 };
 
-/** The kinds this build has a component for. Photos and live web get their row with their own slice. */
+/** The kinds this build has a component for: all ten. */
 export const BLOCK_META = {
 	frame: {
 		kind: "frame",
@@ -168,6 +170,33 @@ export const BLOCK_META = {
 		size: { width: 400, height: 340 },
 		minSize: { width: 240, height: 200 },
 		fixedHeight: true,
+		section: "chat",
+		needsPoster: true,
+	},
+	// Photos and live web: picked from "From this chat" too (the photo and web
+	// searches the chat ran), and live web also from a new search typed in the
+	// menu. Both are as tall as their content until resized.
+	photo: {
+		kind: "photo",
+		icon: Images,
+		labelKey: "artifacts.canvas.insert.photo",
+		chrome: "card",
+		// Three thumbnails across and two down under a header.
+		size: { width: 340, height: 230 },
+		minSize: { width: 220, height: 160 },
+		fixedHeight: false,
+		section: "chat",
+		needsPoster: true,
+	},
+	liveweb: {
+		kind: "liveweb",
+		icon: Globe,
+		labelKey: "artifacts.canvas.insert.liveweb",
+		chrome: "card",
+		// A header, up to eight source rows and the snapshot's age with its Refresh.
+		size: { width: 380, height: 300 },
+		minSize: { width: 260, height: 170 },
+		fixedHeight: false,
 		section: "chat",
 		needsPoster: true,
 	},
