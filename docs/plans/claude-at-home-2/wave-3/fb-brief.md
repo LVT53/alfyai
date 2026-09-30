@@ -20,6 +20,10 @@ export and the chunk budget changed in the same components).
 
 ## The fixes (test first, each red before green)
 
+Two flaky e2e checks in `tests/e2e/artifact-canvas.spec.ts` that fail only in combined runs: `:413` (the Insert menu's
+arrow keys count 6 menu items instead of 5 — the lazy "From this chat" section racing the count) and `:291` (Insert-menu
+focus); make them wait for what they measure (`common.md` gate 5), never loosen what they assert.
+
 C1's board half (stable keys for checklist items and any keyed list the review names; a `<svelte:boundary>` so one bad
 block never keeps the whole board on its skeleton); C2's board half (an unsized legacy node is drawn at the default
 footprint, never at its text's width); I3 (Undo → Redo → Undo ends clean, and the card's count follows the server); I4
