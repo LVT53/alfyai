@@ -217,6 +217,8 @@ let committedJson = structuralJson(snapshot());
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 let announceTimer: ReturnType<typeof setTimeout> | null = null;
 const editRequests = new Set<string>();
+/** The block an Insert selected, until the reader touches it or reaches for the Comment tool. */
+let insertSelectedId: string | null = null;
 
 provideBoardContext({
 	get readonly() {
@@ -542,6 +544,7 @@ async function insertBlock(
 	]);
 	// Text a reader writes opens for typing at once.
 	if (row.section === "text") editRequests.add(added.id);
+	insertSelectedId = added.id;
 	nodes = [
 		...nodes.map((node) =>
 			node.selected ? { ...node, selected: false } : node,
@@ -596,6 +599,19 @@ function applyTool(next: Tool): void {
 	) {
 		nodes = nodes.map((node) =>
 			node.selected ? { ...node, selected: false } : node,
+		);
+	}
+	// An Insert selects the block it adds, so it can be typed into. A reader who
+	// then reaches for Comment means another block, so the tool waits for the
+	// click instead of taking that one; a block the reader picked themselves is
+	// still taken at once (RV-3 I4).
+	if (next === "comment" && insertSelectedId) {
+		const inserted = insertSelectedId;
+		insertSelectedId = null;
+		nodes = nodes.map((node) =>
+			node.id === inserted && node.selected
+				? { ...node, selected: false }
+				: node,
 		);
 	}
 }
@@ -884,6 +900,7 @@ function minimapColor(node: {
 		{ariaLabelConfig}
 		isValidConnection={(connection) => connection.source !== connection.target}
 		onbeforeconnect={handleBeforeConnect}
+		onnodeclick={() => (insertSelectedId = null)}
 		onnodedrag={handleNodeDrag}
 		onnodedragstop={handleNodeDragStop}
 		onbeforedelete={handleBeforeDelete}

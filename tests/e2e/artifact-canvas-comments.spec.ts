@@ -255,6 +255,45 @@ test.describe("comments on the Canvas", () => {
 		expect(stored.anchor).toEqual({ kind: "node", nodeId: MUSEUM });
 	});
 
+	// RV-3 I4: an Insert selects the block it adds, and a block that is selected when
+	// the tool is armed takes the comment at once, so a reader who inserted a note
+	// and then reached for Comment had the click on the block they meant ignored:
+	// the comment was written on the note they had just inserted.
+	test("the Comment tool comments on the block that is clicked, even right after an Insert selected another", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const artifactId = await open(page);
+
+		await page.getByTestId("canvas-insert-button").click();
+		await page.getByTestId("canvas-insert-sticky").click();
+		await expect(page.getByTestId("canvas-node")).toHaveCount(5);
+		// The new note opens for typing at once; Escape finishes that, and it stays selected.
+		await page.keyboard.press("Escape");
+		await expect(
+			page.locator('[data-testid="canvas-node"][data-selected="true"]'),
+		).toHaveCount(1);
+
+		await page.getByTestId("canvas-tool-comment").click();
+		// The tool waits to be told where: the new note did not take the comment.
+		await expect(page.getByTestId("canvas-comment-catcher")).toBeVisible();
+		await expect(page.getByTestId("comment-composer")).toHaveCount(0);
+
+		const museum = await nodeBox(page, MUSEUM);
+		await page.mouse.click(museum.x + museum.width / 2, museum.y + 20);
+		const composer = page.getByTestId("comment-composer");
+		await expect(composer).toBeVisible();
+		await expect(composer).toContainText("Museum, 14:00");
+		await composer.getByRole("textbox").fill("Book it?");
+		await composer.locator("button[type='submit']").click();
+		await expect(cards(page)).toHaveCount(1);
+		const [stored] = await listComments({
+			userId: await testUserId(),
+			artifactId,
+		});
+		expect(stored.anchor).toEqual({ kind: "node", nodeId: MUSEUM });
+	});
+
 	test("Escape lets go of the Comment tool without placing anything, and the catcher covers the pane but not the zoom", async ({
 		page,
 	}) => {
