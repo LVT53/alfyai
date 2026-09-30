@@ -20,7 +20,9 @@ focus trap. You decide whether the Canvas is ready for the owner's own walk on a
 2. **S3-X's new surfaces**, which the Opus review never saw: the export and any poster-upload route (`requireApiUser`,
    ownership scope, `?conversationId=` for incognito, a foreign and a missing id give byte-identical 404s, PNG only →
    415, the size cap → 413, the stored file is `generated_output` linked to the board), a model-writable `poster` never
-   becoming an `<img>` path (ruling 67), the camera and posters restored after a throwing capture, the chunk guard's
+   becoming an `<img>` path (ruling 67), the camera and posters restored after a throwing capture, **the by-name exception S3-X added to
+   `generated-file-serving.ts` so posters are served** (can it serve anything that is not this user's poster of this
+   board? is the name pattern forgeable?), the chunk guard's
    figure honest and ≤ 65 kB gzip for the editor's first paint, the perf spec's numbers.
 3. **The owner's walk, the way the owner does it** — in Hungarian, at 1440×900 and 390×844, light and dark, through the
    app with the e2e fake provider: a board made in the chat and opened from its card; notes, a frame, an arrow; blocks

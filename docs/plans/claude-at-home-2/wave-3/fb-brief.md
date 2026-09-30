@@ -28,7 +28,9 @@ C1's board half (stable keys for checklist items and any keyed list the review n
 block never keeps the whole board on its skeleton); C2's board half (an unsized legacy node is drawn at the default
 footprint, never at its text's width); I3 (Undo → Redo → Undo ends clean, and the card's count follows the server); I4
 (the Comment tool comments on the block that is clicked); I2's banner wording (it names what happened, never
-"someone who was drawing"); the Minors listed. Keep the editor's initial chunk at or under S3-X's figure.
+"someone who was drawing"); the Minors listed. Keep the editor's first paint within ruling 68 (67 KiB gzip, honest measure) and set the chunk guard's `--max-gzip` to
+68608 to enforce it. Also from S3-X: after a PNG export the new File appears in the panel list only after the
+conversation is read again — announce it so the list shows it at once.
 
 ## Proof
 

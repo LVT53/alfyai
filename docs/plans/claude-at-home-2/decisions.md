@@ -696,6 +696,16 @@ recommendation" — option (c) of `wave-3/s4d-report.md` §7.* ADR-0066's rule a
   read in the turn, the edit applies to the current board and the one-change review (ruling 63) is the safeguard.
 - Cost if wrong: an extra read when the reader and Alfy touch the same block in one turn.
 
+## 68. The Canvas editor's first paint is budgeted at 67 KiB gzip, measured honestly
+
+*Orchestrator, 2026-09-30, from S3-X.* `slice-3.md`'s 65 kB came from the prototype's 51 kB route chunk; the product
+editor now also carries the hooks for comments, Alfy's landing and review, the selection pill and the Insert menu. S3-X
+brought what opening a board downloads (the editor chunk, its static imports and CSS, the lazy parts' shared chunks
+counted as its own) from 74.1 to **66.3 KiB gzip**; the last 1.3 KiB would cost an extra request at first paint (the
+note-shaped blocks), a visual change or the minimap. The budget for that honest measure is **67 KiB (68,608 B) gzip**,
+enforced by `check:artifact-chunks`; the chat route without an artifact open stays within +2 kB; Chart.js and MapLibre
+stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first open.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
