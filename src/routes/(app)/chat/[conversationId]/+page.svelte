@@ -545,9 +545,14 @@ function handleFlushReady(flush: (() => Promise<void>) | null) {
 const ARTIFACT_STEP_SAVE_MAX_MS = 2000;
 
 /** What every fresh turn passes first: the open artifact's pending step is saved, then the cloud-connector warning is settled. True once the turn may go. */
-async function prepareTurn(): Promise<boolean> {
-	await awaitOpenStepSave(saveOpenArtifactStep, ARTIFACT_STEP_SAVE_MAX_MS);
-	return ensureCloudWarningAcked();
+function prepareTurn(): Promise<boolean> {
+	// With nothing open that keeps a step back (the usual chat) this is the cloud check
+	// alone, as it always was, without a tick more.
+	const save = saveOpenArtifactStep;
+	if (!save) return ensureCloudWarningAcked();
+	return awaitOpenStepSave(save, ARTIFACT_STEP_SAVE_MAX_MS).then(
+		ensureCloudWarningAcked,
+	);
 }
 let hasPersistedMessages = initialHasPersistedMessages;
 let contextStatus = $state<ConversationContextStatus | null>(
