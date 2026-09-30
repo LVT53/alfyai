@@ -157,6 +157,8 @@ export class CanvasReviewController {
 	replyChips = $state.raw<Record<string, ChangeStatus>>({});
 	/** A landing is running or queued. */
 	landing = $state(0);
+	/** How many landings have settled: the layer looks for the change on screen once for each (RV-3 Minor 2). */
+	landed = $state(0);
 
 	#host: ReviewHost;
 	#chain: Promise<void> = Promise.resolve();
@@ -298,6 +300,7 @@ export class CanvasReviewController {
 		if (this.#host.board() !== board) return;
 		this.#ring(plan.touched);
 		await this.refresh({ announce: true });
+		this.landed += 1;
 	}
 
 	/**
@@ -810,6 +813,8 @@ export function changeLayerProps(
 					}
 				: null,
 		goto: controller.goto,
+		paneSize: api.size,
+		landed: controller.landed,
 		oncenter: api.centerOn,
 		onkeep: () => void controller.keep(),
 		onundo: () => void controller.undo(),

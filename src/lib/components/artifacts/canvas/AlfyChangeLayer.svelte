@@ -27,7 +27,15 @@
 import { tick, untrack } from "svelte";
 import ChangeBar from "../document/ChangeBar.svelte";
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
-import { type Box, boxOf, padded, rectsOf } from "./_lib/review-geometry";
+import { nodeRect } from "./_lib/board";
+import { visibleBoardRect } from "./_lib/pane-rect";
+import {
+	type Box,
+	boxOf,
+	changePillAnchor,
+	padded,
+	rectsOf,
+} from "./_lib/review-geometry";
 
 /** How far the dashed frame stands off what it surrounds, in board units. */
 const FRAME_PADDING = 14;
@@ -47,6 +55,8 @@ let {
 	activeId = null,
 	pill = null,
 	goto = null,
+	paneSize = { width: 0, height: 0 },
+	landed = 0,
 	oncenter,
 	onkeep,
 	onundo,
@@ -67,6 +77,10 @@ let {
 	pill?: { status: "pending" | "kept" | "undone"; label: string } | null;
 	/** One-shot "show this block": the camera centres on it. */
 	goto?: { id: string; token: number } | null;
+	/** The pane's size, to tell whether a landing is in view. */
+	paneSize?: { width: number; height: number };
+	/** Counts the landings that have settled: a change that came in is looked for on screen, once. */
+	landed?: number;
 	oncenter: (point: Pt) => void;
 	onkeep: () => void;
 	onundo: () => void;
@@ -100,15 +114,56 @@ let rings = $derived.by(() => {
 });
 let pulseSet = $derived(new Set(pulseIds));
 
-// The pill follows the blocks it points at. When an Undo takes them away (a block
-// Alfy added is gone) it keeps the corner it had, so "Undone · Redo" stays put.
-let liveBox = $derived(boxOf(touched, nodes));
-let lastBox = $state<Box | null>(null);
+// The pill follows the blocks it points at, and keeps off the blocks Alfy left
+// alone (a frame is a backdrop, not one of them). When the change is decided (the
+// rings go, an Undo takes blocks away) it keeps the corner it had, so "Undone ·
+// Redo" stays put.
+let liveAt = $derived(
+	touched.length === 0
+		? null
+		: changePillAnchor({
+				touched: rectsOf(touched, nodes).map(({ box }) => box),
+				obstacles: nodes
+					.filter((node) => node.type !== "frame")
+					.map((node) => nodeRect(node, nodes, node.measured)),
+				zoom: viewport.zoom,
+			}),
+);
+let lastAt = $state<Pt | null>(null);
 $effect(() => {
-	const live = liveBox;
-	if (live) untrack(() => (lastBox = live));
+	const live = liveAt;
+	if (live) untrack(() => (lastAt = live));
 });
-let anchor = $derived(liveBox ?? lastBox);
+let anchor = $derived(liveAt ?? lastAt);
+
+// A landing puts blocks where the camera is not looking, and did not move it: a
+// change that is wholly off the pane (or behind its toolbar) went unseen. When none
+// of it is in view once a landing has settled, the camera goes to the first block.
+// What was already there when this came up (a reload) is shown as it is.
+let seenLanding = untrack(() => landed);
+$effect(() => {
+	const token = landed;
+	if (token === seenLanding) return;
+	seenLanding = token;
+	untrack(() => {
+		const rects = rectsOf(touched, nodes);
+		const shown = visibleBoardRect(paneSize, viewport);
+		if (rects.length === 0 || shown.width === 0) return;
+		const inView = rects.some(
+			({ box }) =>
+				box.x < shown.left + shown.width &&
+				box.x + box.width > shown.left &&
+				box.y < shown.top + shown.height &&
+				box.y + box.height > shown.top,
+		);
+		if (inView) return;
+		const [first] = rects;
+		oncenter({
+			x: first.box.x + first.box.width / 2,
+			y: first.box.y + first.box.height / 2,
+		});
+	});
+});
 
 // Focus follows the decision. The button that was pressed (in the bar, which
 // leaves, or on the pill, which changes its buttons) is gone by the time the
@@ -200,7 +255,7 @@ $effect(() => {
 			class="pill nopan"
 			bind:this={pillEl}
 			data-testid="canvas-change-pill"
-			style:left="{anchor.x + anchor.width}px"
+			style:left="{anchor.x}px"
 			style:top="{anchor.y}px"
 		>
 			<ChangeBar

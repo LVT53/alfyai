@@ -15,6 +15,7 @@ import {
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
+	cameraOf,
 	dragBetween,
 	nodeBox,
 	openCanvasPanel,
@@ -335,6 +336,54 @@ test.describe("Alfy's change lands where the reader can see it", () => {
 			});
 			const stored = await storedBoard(scene.artifactId);
 			expect(stored.nodes.some((node) => node.id === "note-brunch")).toBe(true);
+		} finally {
+			await scene.cleanup();
+		}
+	});
+
+	// RV-3 Minor 2: a landing did not move the camera, so a change Alfy made off the
+	// side of the pane was not seen at all.
+	test("brings a change that landed wholly out of view into view", async ({
+		page,
+	}) => {
+		const scene = await open(page);
+		try {
+			const before = await cameraOf(page);
+			await askAlfy(
+				page,
+				scene.artifactId,
+				[
+					{
+						op: "add_node",
+						node: {
+							id: "note-far",
+							type: "sticky",
+							position: { x: 3200, y: 2200 },
+							data: { kind: "sticky", text: "Far away", tone: "yellow" },
+						},
+					},
+				],
+				"Added a note far away",
+			);
+			await landed(page);
+			const pane = await page.getByTestId("canvas-board").boundingBox();
+			if (!pane) throw new Error("no board");
+			// The camera went to it: the new note is on the pane now.
+			await expect
+				.poll(
+					async () => {
+						const box = await nodeBox(page, "note-far");
+						return (
+							box.x >= pane.x &&
+							box.x + box.width <= pane.x + pane.width &&
+							box.y >= pane.y &&
+							box.y + box.height <= pane.y + pane.height
+						);
+					},
+					{ timeout: 5000 },
+				)
+				.toBe(true);
+			expect((await cameraOf(page)).x).not.toBe(before.x);
 		} finally {
 			await scene.cleanup();
 		}
