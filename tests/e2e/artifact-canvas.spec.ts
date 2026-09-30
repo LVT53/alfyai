@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
@@ -115,6 +115,26 @@ function seededBoard(): CanvasBody {
 		viewport: { x: 0, y: 0, zoom: 1 },
 		annotations: [],
 	};
+}
+
+/**
+ * Opens the Insert menu and waits until it has stopped growing. "From this chat"
+ * is a chunk of its own (a dev server transforms it on first use, which takes
+ * seconds on a busy machine) and then a read of the chat; counting or driving the
+ * rows before both have landed measures a menu that is still changing under the
+ * test. What arrives late is waited for, with a timeout that fits a loaded
+ * machine; what the test asserts about the menu is unchanged.
+ */
+async function openInsertMenu(page: Page) {
+	await page.getByTestId("canvas-insert-button").click();
+	const popover = page.getByTestId("canvas-insert-menu");
+	await expect(popover).toBeVisible();
+	const section = popover.getByTestId("canvas-chat-blocks");
+	await expect(section).toBeVisible({ timeout: 20_000 });
+	await expect(section).toHaveAttribute("aria-busy", "false", {
+		timeout: 20_000,
+	});
+	return popover;
 }
 
 test.describe("the Canvas kind, in the panel", () => {
@@ -331,8 +351,7 @@ test.describe("the Canvas kind, in the panel", () => {
 
 		const kinds = ["sticky", "text", "frame", "chart", "checklist"] as const;
 		for (const [index, kind] of kinds.entries()) {
-			await page.getByTestId("canvas-insert-button").click();
-			await expect(page.getByTestId("canvas-insert-menu")).toBeVisible();
+			await openInsertMenu(page);
 			await page.getByTestId(`canvas-insert-${kind}`).click();
 			await expect(page.getByTestId("canvas-node")).toHaveCount(index + 1);
 			await expect(
@@ -386,8 +405,7 @@ test.describe("the Canvas kind, in the panel", () => {
 		const insert = page.getByTestId("canvas-insert-button");
 		const menu = page.getByTestId("canvas-insert-menu");
 
-		await insert.click();
-		await expect(menu).toBeVisible();
+		await openInsertMenu(page);
 		await expect(insert).toHaveAttribute("aria-expanded", "true");
 		await expectTopmost(menu, {
 			message: "the Insert menu paints above the board",
@@ -418,18 +436,14 @@ test.describe("the Canvas kind, in the panel", () => {
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
 
-		await page.getByTestId("canvas-insert-button").click();
+		const popover = await openInsertMenu(page);
 		const rows = page.getByRole("menuitem");
 		// The five a reader writes and "Search the web…" (the web search is offered wherever there is a chat).
 		await expect(rows).toHaveCount(6);
 		// The popover puts focus on its first control in a timer of its own, straight
 		// after it mounts; a row focused before that lands loses its focus to it (a
 		// race a busy machine makes easy to lose). The keys are driven after it.
-		await expect(
-			page
-				.getByTestId("canvas-insert-menu")
-				.getByRole("button", { name: "Close" }),
-		).toBeFocused();
+		await expect(popover.getByRole("button", { name: "Close" })).toBeFocused();
 		await rows.first().focus();
 		await page.keyboard.press("ArrowDown");
 		await expect(rows.nth(1)).toBeFocused();
