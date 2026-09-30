@@ -23,12 +23,12 @@ import {
 	BLOCK_DATA_SCHEMAS,
 	type BlockKind,
 	type CanvasBlockData,
+	defaultNodeWidth,
 	isModelCreatableKind,
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	MODEL_CREATABLE_KINDS,
 	modelCreatableBlockDataSchema,
 	modelUpdatableFields,
-	NODE_WIDTH,
 	repeatedEntryIds,
 } from "./canvas-blocks";
 import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
@@ -282,8 +282,10 @@ export function applyOp(body: CanvasBody, op: BoardOp): CanvasBody {
 			} else {
 				// The model has no width to give a block and is told how wide one is, so
 				// it is stored: the board would otherwise draw it as wide as its words
-				// run (RV-3 C2). No height: a block is as tall as its content.
-				added.width = NODE_WIDTH;
+				// run (RV-3 C2). The width is its kind's own: a chart's plot and a
+				// checklist's rows need more than a note's (RC-3 N1). No height: a block
+				// is as tall as its content.
+				added.width = defaultNodeWidth(added.type);
 			}
 			return { ...body, nodes: [...body.nodes, added] };
 		}

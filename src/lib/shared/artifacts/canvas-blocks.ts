@@ -49,6 +49,27 @@ const ID_MAX_CHARS = 128;
 export const NODE_WIDTH = 190;
 export const DEFAULT_NODE_HEIGHT = 84;
 
+/**
+ * The widths that differ from `NODE_WIDTH`, one per kind (RC-3 N1): a chart's
+ * plot and a checklist's rows are made of more than a note's words. A chart 190
+ * wide was a sliver of a plot under its legend; a checklist 190 wide cut its
+ * items off at about 16 characters. These are the widths a reader's Insert gives
+ * the two kinds, and the ONE place they are said: what the model's add stores,
+ * what the board draws a block with no width at, what the model's read reports
+ * and what the eval's geometry measures all come from `defaultNodeWidth`. The
+ * checklist's holds an item of about 37 natural characters, measured in the
+ * browser.
+ */
+const KIND_WIDTHS: Readonly<Partial<Record<BlockKind, number>>> = {
+	checklist: 340,
+	chart: 360,
+};
+
+/** The width a block of this kind is given when it is added, and drawn at when it stores none. */
+export function defaultNodeWidth(kind: BlockKind): number {
+	return KIND_WIDTHS[kind] ?? NODE_WIDTH;
+}
+
 // ── The height a block is drawn at (RV-3 C2) ─────────────────────────────
 
 /**
@@ -77,6 +98,54 @@ const NOTE_SIDE_PADDING = 20;
 const NOTE_CHAR_WIDTH = 9.4;
 export const CHECKLIST_BASE_HEIGHT = 74;
 export const CHECKLIST_ROW_HEIGHT = 26;
+/**
+ * A chart block is its card's header and padding (this much, measured) above a
+ * plot as wide as the block less its side insets, and as tall as that width over
+ * the plot's aspect ratio: Chart.js draws radial charts (pie, doughnut, polar
+ * area, radar) square and the others twice as wide as tall, unless the config
+ * asks for a ratio. The chart node lays the plot out at exactly that ratio, so
+ * the estimate is the height drawn at any zoom (RC-3 N1).
+ */
+export const CHART_CHROME_HEIGHT = 59;
+export const CHART_SIDE_INSET = 22;
+const RADIAL_CHART_TYPES = new Set(["pie", "doughnut", "polararea", "radar"]);
+
+/**
+ * The width-over-height a chart's plot is drawn at, read off its Chart.js
+ * config the way Chart.js reads it: the config's own `aspectRatio` when it keeps
+ * one, else the type's (radial 1, the rest 2). A config that is not JSON is drawn
+ * as its source, and is taken as a bar.
+ */
+export function chartAspectRatio(code: string): number {
+	let config: unknown;
+	try {
+		config = JSON.parse(code);
+	} catch {
+		return 2;
+	}
+	if (typeof config !== "object" || config === null || Array.isArray(config)) {
+		return 2;
+	}
+	const { type, options } = config as { type?: unknown; options?: unknown };
+	if (typeof options === "object" && options !== null) {
+		const { aspectRatio, maintainAspectRatio } = options as {
+			aspectRatio?: unknown;
+			maintainAspectRatio?: unknown;
+		};
+		if (
+			maintainAspectRatio !== false &&
+			typeof aspectRatio === "number" &&
+			Number.isFinite(aspectRatio) &&
+			aspectRatio > 0
+		) {
+			return aspectRatio;
+		}
+	}
+	return typeof type === "string" &&
+		RADIAL_CHART_TYPES.has(type.trim().toLowerCase())
+		? 1
+		: 2;
+}
 
 /** How many characters of a note's words fit a line of a block `width` wide (about 18 at `NODE_WIDTH`). */
 export function charsPerLine(width: number = NODE_WIDTH): number {
@@ -95,22 +164,31 @@ function wrappedLines(text: string, width: number): number {
 		);
 }
 
-/**
- * The height a block is drawn at: the one it stores, a frame's own, or an
- * estimate from its words (a note, a text) or its items (a checklist). The kinds
- * whose height the app decides (a chart, a map, a file, an App, photos, a web
- * search) are left at `DEFAULT_NODE_HEIGHT`. The model's read, the eval's
- * geometry and the tool text all take their sizes from here.
- */
-export function estimatedNodeHeight(node: {
+type SizedNode = {
 	type: BlockKind;
 	width?: number;
 	height?: number;
 	data: CanvasBlockData;
-}): number {
+};
+
+/** The width a block is drawn at: the one it stores, a frame's own, or its kind's default. */
+function estimatedNodeWidth(node: SizedNode): number {
+	if (node.width !== undefined) return node.width;
+	return node.data.kind === "frame"
+		? node.data.width
+		: defaultNodeWidth(node.type);
+}
+
+/**
+ * The height a block is drawn at: the one it stores, a frame's own, or an
+ * estimate from its words (a note, a text), its items (a checklist) or its plot
+ * (a chart). The kinds whose height the app decides (a map, a file, an App,
+ * photos, a web search) are left at `DEFAULT_NODE_HEIGHT`.
+ */
+export function estimatedNodeHeight(node: SizedNode): number {
 	if (node.height !== undefined) return node.height;
 	const data = node.data;
-	const width = node.width ?? NODE_WIDTH;
+	const width = estimatedNodeWidth(node);
 	switch (data.kind) {
 		case "frame":
 			return data.height;
@@ -126,9 +204,29 @@ export function estimatedNodeHeight(node: {
 			);
 		case "checklist":
 			return CHECKLIST_BASE_HEIGHT + CHECKLIST_ROW_HEIGHT * data.items.length;
+		case "chart":
+			return Math.ceil(
+				CHART_CHROME_HEIGHT +
+					Math.max(0, width - CHART_SIDE_INSET) / chartAspectRatio(data.code),
+			);
 		default:
 			return DEFAULT_NODE_HEIGHT;
 	}
+}
+
+/**
+ * The box a block is taken to occupy until the panel has measured it: what the
+ * model's read reports, what the board's geometry places by and what the eval's
+ * rubric judges overlap with. One function, so the three cannot drift.
+ */
+export function estimatedNodeSize(node: SizedNode): {
+	width: number;
+	height: number;
+} {
+	return {
+		width: estimatedNodeWidth(node),
+		height: estimatedNodeHeight(node),
+	};
 }
 
 const idSchema = z.string().min(1).max(ID_MAX_CHARS);
