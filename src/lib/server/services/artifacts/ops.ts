@@ -24,13 +24,22 @@ import type { DocumentReviewMetadata } from "./document-ops";
 import { getArtifact, updateArtifactBody } from "./record";
 import { canvasSerializer, prepareCanvasBoard } from "./serialize/canvas";
 import type { ArtifactKind, ArtifactScopeOptions } from "./types";
-import { listVersions } from "./versions";
+import { getVersionBody, listVersions } from "./versions";
 
 export type OpsEnvelopeInput = {
 	userId: string;
 	artifactId: string;
 	/** The request body as the route parsed it: `{ baseVersionId, diff }`. */
 	payload: unknown;
+	/**
+	 * The version the author of the diff last READ, when it is known (a model's
+	 * turn read the board, then edits it). An op that would overwrite something
+	 * that changed between that version and now is the reader's newer work and is
+	 * refused `stale` (ruling 67); the rest of the batch applies. Absent, or a
+	 * version that is not this artifact's, every op is judged against the board
+	 * as it is now. In-process only: the route never sets it.
+	 */
+	readVersionId?: string;
 } & ArtifactScopeOptions;
 
 export type OpsEnvelopeFailureReason =
@@ -86,10 +95,15 @@ export type OpsBranchOutcome =
 			detail?: string;
 	  };
 
-/** A branch is pure: the stored body and the raw diff in, the outcome out. No database, no route. */
+/**
+ * A branch is pure: the stored body and the raw diff in, the outcome out. No
+ * database, no route. `readStored` is the body of the version the author last
+ * read, when the envelope was told which and it is not the current one.
+ */
 export type OpsBranch = (input: {
 	stored: string | null;
 	diff: unknown;
+	readStored?: string | null;
 }) => OpsBranchOutcome;
 
 /**
@@ -97,9 +111,13 @@ export type OpsBranch = (input: {
  * is treated as an empty one, so a diff is never lost to it — the unreadable
  * body stays in the version it was written in, and Undo goes back to it.
  */
-const canvasBranch: OpsBranch = ({ stored, diff }) => {
+const canvasBranch: OpsBranch = ({ stored, diff, readStored }) => {
 	const before = canvasSerializer.parse(stored ?? "") ?? emptyCanvasBody();
-	const run = runOps(boardOpsVocabulary, before, diff);
+	// The board the author last read: what it changed since is not theirs to overwrite.
+	const readBoard = readStored
+		? (canvasSerializer.parse(readStored) ?? undefined)
+		: undefined;
+	const run = runOps(boardOpsVocabulary, before, diff, { readDoc: readBoard });
 	if (!run.ok) {
 		return {
 			ok: false,
@@ -189,7 +207,17 @@ export async function applyArtifactOps(
 			detail: `A ${artifact.kind} cannot be changed with ops.`,
 		};
 	}
-	const outcome = branch({ stored: artifact.body, diff: envelope.diff });
+	// The version the author last read, unless it is the current one (then nothing
+	// can have changed since) or is not this artifact's (then there is no read).
+	const readStored =
+		input.readVersionId && input.readVersionId !== newest.id
+			? await getVersionBody({ ...scope, versionId: input.readVersionId })
+			: null;
+	const outcome = branch({
+		stored: artifact.body,
+		diff: envelope.diff,
+		readStored,
+	});
 	if (!outcome.ok) {
 		return {
 			ok: false,

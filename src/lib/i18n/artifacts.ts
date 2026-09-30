@@ -575,6 +575,8 @@ const artifactsDict = {
 		"artifacts.canvas.refusal.invalid_data":
 			"the block's content was not valid",
 		"artifacts.canvas.refusal.limit_exceeded": "the board is at its limit",
+		"artifacts.canvas.refusal.stale":
+			"you changed it after Alfy looked at the board, so Alfy left it alone",
 		// Slice 3 (Canvas), the board's own strings: toolbar, insert menu,
 		// blocks, the states of the panel's content area, the save line.
 		"artifacts.canvas.toolbar": "Canvas tools",
@@ -1212,6 +1214,8 @@ const artifactsDict = {
 		"artifacts.canvas.refusal.invalid_data":
 			"a blokk tartalma nem volt érvényes",
 		"artifacts.canvas.refusal.limit_exceeded": "a tábla elérte a korlátját",
+		"artifacts.canvas.refusal.stale":
+			"a tábla megtekintése után módosítottad, ezért Alfy nem nyúlt hozzá",
 		// Slice 3 (Canvas), a tábla saját szövegei: eszköztár, beszúrás menü,
 		// blokkok, a panel tartalmi területének állapotai, a mentés sora.
 		"artifacts.canvas.toolbar": "Tábla eszközök",

@@ -1885,6 +1885,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								patches: safeInput.patches,
 								ops: safeInput.ops,
 								summary: safeInput.summary,
+								// What this turn has already done: a board edit is judged
+								// against the version the model last read (ruling 67).
+								turnContext: { sources: recorder.getEntries() },
 								abortSignal,
 							});
 							return {

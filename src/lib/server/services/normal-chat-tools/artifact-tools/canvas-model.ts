@@ -16,6 +16,7 @@
 //     exist) is corrected in one step; one that only says no is guessed at.
 
 import type { OpsEnvelopeResult } from "$lib/server/services/artifacts";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	applyOp,
 	BOARD_OP_NAMES,
@@ -127,6 +128,42 @@ function readEdgeBlock(edge: CanvasEdge): Record<string, unknown> {
  */
 export function canvasReadBlocks(body: CanvasBody): Record<string, unknown>[] {
 	return [...body.nodes.map(readNodeBlock), ...body.edges.map(readEdgeBlock)];
+}
+
+/**
+ * The version of a board the model last SAW in this turn, from the turn's own
+ * tool calls (the recorder's entries; ruling 67): what its last successful
+ * `read_artifact` of the board reported, moved forward by each of its own edits
+ * that landed directly on top of the version it knew, because then it knows the
+ * result (its ops applied to what it read). An edit that landed on top of a
+ * version it never read (the reader saved in between) does not move it: what the
+ * reader changed is still unseen. `undefined` when the turn has not read the
+ * board, and then an edit is judged against the board as it is.
+ */
+export function lastKnownBoardVersion(
+	entries: readonly ToolCallEntry[],
+	artifactId: string,
+): string | undefined {
+	let known: string | undefined;
+	for (const entry of entries) {
+		if (entry.status !== "done" || entry.input?.artifactId !== artifactId) {
+			continue;
+		}
+		const metadata = entry.metadata;
+		if (!metadata || metadata.ok !== true) continue;
+		const versionId = metadata.versionId;
+		if (typeof versionId !== "string") continue;
+		if (entry.name === "read_artifact") {
+			known = versionId;
+		} else if (
+			entry.name === "edit_artifact" &&
+			known !== undefined &&
+			metadata.parentVersionId === known
+		) {
+			known = versionId;
+		}
+	}
+	return known;
 }
 
 // ── What a board must look like when it is made ──────────────────────────

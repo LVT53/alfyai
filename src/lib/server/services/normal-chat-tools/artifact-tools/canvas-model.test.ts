@@ -9,6 +9,7 @@ import {
 	BLOCK_SHAPES_HINT,
 	canvasEditFailureMessage,
 	canvasReadBlocks,
+	lastKnownBoardVersion,
 	parseCanvasCreateBody,
 } from "./canvas-model";
 
@@ -704,5 +705,103 @@ describe("the block shapes a refusal teaches", () => {
 		}
 		expect(BLOCK_SHAPES_HINT).toMatch(/yellow, mint, blue or plain/);
 		expect(BLOCK_SHAPES_HINT).toMatch(/\{id, text, done\}/);
+	});
+});
+
+// Ruling 67: the version of a board the model last saw in this turn, from the
+// turn's own tool calls.
+describe("lastKnownBoardVersion — what the model has seen of a board this turn", () => {
+	const entry = (
+		name: string,
+		artifactId: string,
+		metadata: Record<string, string | number | boolean | null> | undefined,
+		status: "done" | "failed" | "running" = "done",
+	) => ({ name, input: { artifactId }, status, metadata });
+	const read = (artifactId: string, versionId: string) =>
+		entry("read_artifact", artifactId, { ok: true, versionId });
+	const edit = (
+		artifactId: string,
+		versionId: string,
+		parentVersionId: string,
+	) =>
+		entry("edit_artifact", artifactId, {
+			ok: true,
+			versionId,
+			parentVersionId,
+		});
+
+	it("is nothing before the model has read the board", () => {
+		expect(lastKnownBoardVersion([], "a")).toBeUndefined();
+		expect(lastKnownBoardVersion([read("b", "v1")], "a")).toBeUndefined();
+		expect(
+			lastKnownBoardVersion(
+				[entry("create_artifact", "a", { ok: true, versionId: "v1" })],
+				"a",
+			),
+		).toBeUndefined();
+	});
+
+	it("is the version its last successful read of that board reported", () => {
+		expect(lastKnownBoardVersion([read("a", "v1")], "a")).toBe("v1");
+		expect(
+			lastKnownBoardVersion(
+				[read("a", "v1"), read("b", "v7"), read("a", "v3")],
+				"a",
+			),
+		).toBe("v3");
+	});
+
+	it("ignores a read that failed, one that never ran to the end, and one that carries no version", () => {
+		expect(
+			lastKnownBoardVersion(
+				[
+					read("a", "v1"),
+					entry("read_artifact", "a", { ok: false, found: false }),
+					entry("read_artifact", "a", { ok: true, versionId: "v9" }, "running"),
+					entry("read_artifact", "a", { ok: true, found: true }),
+					entry("read_artifact", "a", undefined),
+				],
+				"a",
+			),
+		).toBe("v1");
+	});
+
+	it("moves forward with the model's own edit when it landed directly on the version it knew", () => {
+		expect(
+			lastKnownBoardVersion([read("a", "v1"), edit("a", "v2", "v1")], "a"),
+		).toBe("v2");
+		expect(
+			lastKnownBoardVersion(
+				[read("a", "v1"), edit("a", "v2", "v1"), edit("a", "v3", "v2")],
+				"a",
+			),
+		).toBe("v3");
+	});
+
+	it("does not move forward over a version the reader wrote in between, or for an edit it never read the base of", () => {
+		expect(
+			lastKnownBoardVersion([read("a", "v1"), edit("a", "v3", "v2")], "a"),
+		).toBe("v1");
+		expect(lastKnownBoardVersion([edit("a", "v2", "v1")], "a")).toBeUndefined();
+		// A later read starts over from what it saw.
+		expect(
+			lastKnownBoardVersion(
+				[read("a", "v1"), edit("a", "v3", "v2"), read("a", "v3")],
+				"a",
+			),
+		).toBe("v3");
+	});
+
+	it("is not moved by an edit that failed, or by another board's", () => {
+		expect(
+			lastKnownBoardVersion(
+				[
+					read("a", "v1"),
+					entry("edit_artifact", "a", { ok: false }),
+					edit("b", "v2", "v1"),
+				],
+				"a",
+			),
+		).toBe("v1");
 	});
 });

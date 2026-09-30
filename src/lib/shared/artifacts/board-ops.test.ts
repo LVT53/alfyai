@@ -1033,6 +1033,7 @@ describe("refusal messages", () => {
 				"limit_exceeded",
 				"missing_parent",
 				"self_parent",
+				"stale",
 				"unknown_id",
 				"unknown_kind",
 			].sort(),
@@ -1540,5 +1541,181 @@ describe("validateBoardDiff — update_node on what the app vouches for (ruling 
 		);
 		expect(refused).toEqual([]);
 		expect(accepted).toHaveLength(5);
+	});
+});
+
+// RV-3 I6 / ruling 67: Alfy reads a board, the reader rewrites a note, and Alfy's
+// update_node lands on top of the reader's words. The Document refuses the same
+// situation (its patches carry the hash the model read); a board's ops carry ids,
+// so the refusal is made from the board the model last read: an op that would
+// overwrite a block the reader changed since is refused `stale`, and the rest of
+// the batch applies.
+describe("validateBoardDiff — the reader's newer words are never overwritten (ruling 67)", () => {
+	/** The board as Alfy read it, and the same board after the reader's edits. */
+	function readerChanged(change: (board: CanvasBody) => void): {
+		read: CanvasBody;
+		now: CanvasBody;
+	} {
+		const read = sampleBoard();
+		const now = sampleBoard();
+		change(now);
+		return { read, now };
+	}
+
+	function judge(
+		read: CanvasBody,
+		now: CanvasBody,
+		...ops: BoardOp[]
+	): ReturnType<typeof validateBoardDiff> {
+		return validateBoardDiff(diff(...ops), now, { readBoard: read });
+	}
+
+	const rewrite = (id: string, text: string): BoardOp =>
+		({ op: "update_node", id, data: { text } }) as BoardOp;
+
+	it("refuses an update_node on a note the reader rewrote after the read, naming the note and what to do", () => {
+		const { read, now } = readerChanged((board) => {
+			node(board, "note-museum").data = {
+				kind: "sticky",
+				text: "Museum, 16:30 (moved)",
+				tone: "mint",
+			};
+		});
+		const { accepted, refused } = judge(
+			read,
+			now,
+			rewrite("note-museum", "Museum, 14:00 — tickets booked"),
+		);
+		expect(accepted).toEqual([]);
+		expect(refused).toHaveLength(1);
+		expect(refused[0]).toMatchObject({
+			index: 0,
+			op: "update_node",
+			id: "note-museum",
+			reason: "stale",
+		});
+		expect(refused[0].detail).toContain('"note-museum"');
+		expect(refused[0].detail).toMatch(/reader/i);
+		expect(refused[0].detail).toMatch(/read_artifact/);
+	});
+
+	it("refuses a move and a remove_node of a block the reader changed or moved, and applies the ops on blocks they left alone", () => {
+		const { read, now } = readerChanged((board) => {
+			node(board, "note-museum").position = { x: 640, y: 90 };
+			node(board, "text-1").data = { kind: "text", text: "Weekend plan v2" };
+		});
+		const { accepted, refused } = judge(
+			read,
+			now,
+			{ op: "move", id: "note-museum", to: { x: 500, y: 60 } },
+			{ op: "remove_node", id: "text-1" },
+			{ op: "move", id: "note-1", to: { x: 30, y: 70 } },
+			rewrite("todo-1", "not a text"),
+		);
+		expect(refused.map((r) => [r.index, r.reason])).toEqual([
+			[0, "stale"],
+			[1, "stale"],
+			[3, "invalid_data"],
+		]);
+		expect(accepted).toHaveLength(1);
+		expect(accepted[0]).toMatchObject({ op: "move", id: "note-1" });
+	});
+
+	it("refuses a block the reader took into another frame, or resized", () => {
+		const { read, now } = readerChanged((board) => {
+			delete node(board, "note-1").parentId;
+			node(board, "frame-a").width = 500;
+			node(board, "frame-a").data = {
+				kind: "frame",
+				label: "Saturday",
+				width: 500,
+				height: 300,
+			};
+		});
+		const { refused } = judge(
+			read,
+			now,
+			{ op: "move", id: "note-1", to: { x: 1, y: 1 } },
+			{ op: "update_node", id: "frame-a", data: { label: "Sunday" } },
+		);
+		expect(refused.map((r) => r.reason)).toEqual(["stale", "stale"]);
+	});
+
+	it("never judges what changes nothing of the reader's: a highlight, an arrow to a changed block, an arrow removed", () => {
+		const { read, now } = readerChanged((board) => {
+			node(board, "text-1").data = { kind: "text", text: "Weekend plan v2" };
+		});
+		const { accepted, refused } = judge(
+			read,
+			now,
+			{ op: "highlight", ids: ["text-1"] },
+			{
+				op: "add_edge",
+				edge: { id: "e-new", source: "text-1", target: "note-museum" },
+			},
+			{ op: "remove_edge", id: "edge-1" },
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(3);
+	});
+
+	it("leaves a block the reader added after the read, and one this same change made, alone", () => {
+		const { read, now } = readerChanged((board) => {
+			board.nodes.push({
+				id: "reader-note",
+				type: "sticky",
+				position: { x: 0, y: 900 },
+				data: { kind: "sticky", text: "mine", tone: "plain" },
+			});
+		});
+		const { accepted, refused } = judge(
+			read,
+			now,
+			rewrite("reader-note", "Alfy tidied it"),
+			addSticky("alfy-note"),
+			rewrite("alfy-note", "edited in the same change"),
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(3);
+	});
+
+	it("is the plain refusal a block the reader removed already gets: it is not there", () => {
+		const { read, now } = readerChanged((board) => {
+			board.nodes = board.nodes.filter((n) => n.id !== "text-1");
+		});
+		const { refused } = judge(read, now, rewrite("text-1", "x"));
+		expect(refused[0].reason).toBe("unknown_id");
+	});
+
+	it("applies everything to the current board when there was no read to judge against", () => {
+		const { now } = readerChanged((board) => {
+			node(board, "text-1").data = { kind: "text", text: "Weekend plan v2" };
+		});
+		const { accepted, refused } = validateBoardDiff(
+			diff(rewrite("text-1", "Alfy's words")),
+			now,
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(1);
+	});
+
+	it("goes through the shared mechanism: the board the model read reaches the judge, and the rest of the batch lands", () => {
+		const { read, now } = readerChanged((board) => {
+			node(board, "text-1").data = { kind: "text", text: "Weekend plan v2" };
+		});
+		const run = runOps(
+			boardOpsVocabulary,
+			now,
+			diff(rewrite("text-1", "Alfy's words"), addSticky("s-new")),
+			{ readDoc: read },
+		);
+		if (!run.ok) throw new Error(run.detail);
+		expect(run.applied).toBe(1);
+		expect(run.refused.map((r) => r.reason)).toEqual(["stale"]);
+		expect(node(run.doc, "text-1").data).toEqual({
+			kind: "text",
+			text: "Weekend plan v2",
+		});
+		expect(node(run.doc, "s-new").id).toBe("s-new");
 	});
 });

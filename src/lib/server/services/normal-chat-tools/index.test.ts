@@ -2,8 +2,11 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText, type ToolSet } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig } from "$lib/server/config-store";
+import { db } from "$lib/server/db";
+import { conversations, users } from "$lib/server/db/schema";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
+import { createArtifact } from "$lib/server/services/artifacts";
 import {
 	hasLocalDistillEnabled,
 	isCloudModel,
@@ -53,6 +56,7 @@ import {
 	CREATE_ARTIFACT_HANDLERS,
 	MAX_CREATE_ARTIFACT_CALLS_PER_TURN,
 } from "./artifact-tools/create";
+import { EDIT_ARTIFACT_HANDLERS } from "./artifact-tools/edit";
 import {
 	CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE,
 	EDIT_ARTIFACT_CANVAS_EXAMPLE,
@@ -68,7 +72,7 @@ import {
 	type ReadGeneratedFileResult,
 	readGeneratedFileForTool,
 } from "./read-generated-file";
-import { TOOL_TIMEOUTS_MS } from "./shared";
+import { createToolCallRecorder, TOOL_TIMEOUTS_MS } from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
 // The ledger lookup is mocked (it is the DB), but the polling loop around it
@@ -4881,6 +4885,92 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 			);
 
 			expect(receivedLanguage).toBe("en");
+		});
+	});
+
+	// Ruling 67: a board edit is judged against the version the model last read in
+	// THIS turn, so the edit closure hands the handler the calls the turn's
+	// recorder already holds — the same seam a create handler is given.
+	describe("what an edit handler is told about its turn (ruling 67)", () => {
+		const realCanvasEdit = EDIT_ARTIFACT_HANDLERS.canvas;
+		afterEach(() => {
+			EDIT_ARTIFACT_HANDLERS.canvas = realCanvasEdit;
+		});
+
+		it("is the calls the turn's recorder already holds", async () => {
+			const now = new Date("2026-09-30T09:00:00.000Z");
+			const userId = "user-edit-wiring";
+			const conversationId = "conversation-edit-wiring";
+			db.insert(users)
+				.values({
+					id: userId,
+					email: "edit-wiring@example.com",
+					passwordHash: "hash",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			db.insert(conversations)
+				.values({
+					id: conversationId,
+					userId,
+					title: "Trip",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			const made = await createArtifact({
+				userId,
+				conversationId,
+				kind: "canvas",
+				title: "Board",
+				body: "{}",
+				author: "user",
+				versionSummary: "Created",
+			});
+			if (!made.ok) throw new Error(made.reason);
+			const artifactId = made.artifact.id;
+
+			const seen: unknown[] = [];
+			EDIT_ARTIFACT_HANDLERS.canvas = async (params) => {
+				seen.push(params.turnContext);
+				return {
+					ok: true,
+					value: { versionId: "version-2", applied: 1, refused: [] },
+				};
+			};
+			const recorder = createToolCallRecorder();
+			recorder.record({
+				name: "read_artifact",
+				input: { artifactId },
+				status: "done",
+				metadata: { ok: true, versionId: "version-1" },
+			});
+			const { tools } = createNormalChatTools({
+				userId,
+				conversationId,
+				turnId: "turn-1",
+				recorder,
+			});
+
+			await tools.edit_artifact.execute?.(
+				{
+					artifactId,
+					ops: [{ op: "highlight", ids: ["note-1"] }],
+				},
+				{ toolCallId: "call-1", messages: [] },
+			);
+
+			expect(seen).toHaveLength(1);
+			expect(seen[0]).toMatchObject({
+				sources: [
+					{
+						name: "read_artifact",
+						input: { artifactId },
+						metadata: { versionId: "version-1" },
+					},
+				],
+			});
 		});
 	});
 

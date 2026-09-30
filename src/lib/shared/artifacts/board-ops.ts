@@ -17,6 +17,7 @@
  * and every refusal names what would have been valid.
  */
 import { z } from "zod";
+import { diffBoards } from "./board-diff";
 import { type CanvasBody, type CanvasNode, type Pt, ptSchema } from "./canvas";
 import {
 	BLOCK_DATA_SCHEMAS,
@@ -31,7 +32,7 @@ import {
 	repeatedEntryIds,
 } from "./canvas-blocks";
 import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
-import type { OpRefusal, OpsVocabulary } from "./ops";
+import type { OpRefusal, OpsJudgeContext, OpsVocabulary } from "./ops";
 
 /** A batch is one transaction; 40 ops is already a whole board. */
 export const MAX_OPS_PER_DIFF = 40;
@@ -195,6 +196,7 @@ export const BOARD_REFUSAL_REASONS = [
 	"cycle",
 	"invalid_data",
 	"limit_exceeded",
+	"stale",
 ] as const;
 
 export type BoardRefusalReason = (typeof BOARD_REFUSAL_REASONS)[number];
@@ -221,6 +223,8 @@ export function refusalLabelKey(reason: BoardRefusalReason): string {
 			return "artifacts.canvas.refusal.invalid_data";
 		case "limit_exceeded":
 			return "artifacts.canvas.refusal.limit_exceeded";
+		case "stale":
+			return "artifacts.canvas.refusal.stale";
 		default: {
 			const unreachable: never = reason;
 			return unreachable;
@@ -603,6 +607,40 @@ function stepUpdateNode(
 	return grow(applyOp(body, op), op.id);
 }
 
+/**
+ * The ids of the blocks the reader changed, moved or took into another frame
+ * between the board the model last read and the board now. A block the reader
+ * added after the read is not here (there was nothing to overwrite), and one
+ * they removed is not either: an op naming it is refused as an unknown id.
+ */
+function changedSince(read: CanvasBody, now: CanvasBody): Set<string> {
+	const delta = diffBoards(read, now);
+	return new Set([
+		...delta.changedNodes,
+		...delta.movedNodes.map((moved) => moved.id),
+		...delta.reparentedNodes,
+	]);
+}
+
+/**
+ * Ruling 67: Alfy never overwrites the reader's newer words. An op that would
+ * change or destroy a block the reader changed after the model read the board
+ * (an update, a move, a removal) is refused `stale`, and the rest of the batch
+ * still applies. A highlight, and an arrow to or from the block, take nothing
+ * from the reader, so they are not judged.
+ */
+function staleStep(op: BoardOp, staleIds: ReadonlySet<string>): Step | null {
+	if (op.op !== "update_node" && op.op !== "move" && op.op !== "remove_node") {
+		return null;
+	}
+	if (!staleIds.has(op.id)) return null;
+	return refuse(
+		"stale",
+		`The reader changed "${op.id}" after you read the board, so this ${op.op} was not applied and their change stands. Call read_artifact to see the board as it is now, then send the change again if it still makes sense.`,
+		op.id,
+	);
+}
+
 function step(op: BoardOp, body: CanvasBody, created: number): Step {
 	switch (op.op) {
 		case "add_frame":
@@ -673,6 +711,7 @@ function targetOf(op: BoardOp): string | undefined {
 function validateOps(
 	ops: readonly BoardOp[],
 	body: CanvasBody,
+	context?: OpsJudgeContext<CanvasBody>,
 ): { accepted: BoardOp[]; refused: BoardRefusal[] } {
 	const refusalFor = (
 		op: BoardOp,
@@ -704,12 +743,15 @@ function validateOps(
 
 	const accepted: BoardOp[] = [];
 	const refused: BoardRefusal[] = [];
+	const staleIds = context?.readDoc
+		? changedSince(context.readDoc, body)
+		: new Set<string>();
 	let working = body;
 	let created = 0;
 	ops.forEach((op, index) => {
 		let outcome: Step;
 		try {
-			outcome = step(op, working, created);
+			outcome = staleStep(op, staleIds) ?? step(op, working, created);
 		} catch {
 			// A direct caller can hand this an op the schema never saw.
 			outcome = refuse("invalid_data", "The op could not be read.");
@@ -737,8 +779,9 @@ function validateOps(
 export function validateBoardDiff(
 	diff: BoardDiff,
 	body: CanvasBody,
+	context?: { readBoard?: CanvasBody },
 ): { accepted: BoardOp[]; refused: BoardRefusal[] } {
-	return validateOps(diff.ops, body);
+	return validateOps(diff.ops, body, { readDoc: context?.readBoard });
 }
 
 export const boardOpsVocabulary: OpsVocabulary<
