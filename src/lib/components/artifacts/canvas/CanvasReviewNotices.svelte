@@ -104,9 +104,12 @@ let { controller }: { controller: CanvasReviewController } = $props();
 		}
 	}
 
+	/* The notice's own colour is a tint, made for a column of cards on the page: over a
+	   board it needs a page under it, or the block and the pill behind it show through. */
 	.card {
 		width: min(22rem, 100%);
 		pointer-events: auto;
+		background-color: var(--surface-page);
 		box-shadow: var(--shadow-md);
 		border-radius: var(--radius-lg);
 	}

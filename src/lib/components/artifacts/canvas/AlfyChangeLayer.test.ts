@@ -103,6 +103,28 @@ describe("the rings", () => {
 		expect(b.classList.contains("ring--active")).toBe(true);
 	});
 
+	it("rings a frame more quietly: a big block tinted as loudly as a note is a slab", () => {
+		mount({
+			nodes: [
+				...NODES,
+				{
+					id: "frame",
+					type: "frame",
+					position: { x: 0, y: 500 },
+					width: 400,
+					height: 300,
+					data: { kind: "frame", label: "Sunday", width: 400, height: 300 },
+				},
+			],
+			pulseIds: ["a", "frame"],
+		});
+		const rings = screen.getAllByTestId("canvas-alfy-ring");
+		const of = (id: string) =>
+			rings.find((ring) => ring.getAttribute("data-node-id") === id);
+		expect(of("frame")?.classList.contains("ring--frame")).toBe(true);
+		expect(of("a")?.classList.contains("ring--frame")).toBe(false);
+	});
+
 	it("keeps a ring 2 px on screen at any zoom", () => {
 		const { container } = mount({
 			touched: ["a"],

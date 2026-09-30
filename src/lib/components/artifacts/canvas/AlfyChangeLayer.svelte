@@ -77,10 +77,13 @@ let frame = $derived.by<Box | null>(() => {
 
 let rings = $derived.by(() => {
 	const wanted = new Set([...pulseIds, ...touched]);
+	const frames = new Set(
+		nodes.filter((node) => node.type === "frame").map((node) => node.id),
+	);
 	return rectsOf(
 		nodes.filter((node) => wanted.has(node.id)).map((node) => node.id),
 		nodes,
-	);
+	).map((ring) => ({ ...ring, frame: frames.has(ring.id) }));
 });
 let pulseSet = $derived(new Set(pulseIds));
 
@@ -168,6 +171,7 @@ $effect(() => {
 		<div
 			class="ring"
 			class:ring--pulse={pulseSet.has(ring.id)}
+			class:ring--frame={ring.frame}
 			class:ring--active={ring.id === activeId}
 			data-testid="canvas-alfy-ring"
 			data-node-id={ring.id}
@@ -247,6 +251,23 @@ $effect(() => {
 	@keyframes alfy-ring-arrive {
 		from {
 			background-color: var(--alfy-mark-arrive);
+			box-shadow: 0 0 0 calc(3px * var(--inv)) var(--accent-fill);
+		}
+		to {
+			background-color: transparent;
+			box-shadow: 0 0 0 calc(2px * var(--inv))
+				color-mix(in srgb, var(--accent-fill) 55%, transparent);
+		}
+	}
+
+	/* A frame is big: its arrival is the outline and a light tint, not a slab of colour over what is inside it. */
+	.ring--frame.ring--pulse {
+		animation-name: alfy-ring-arrive-frame;
+	}
+
+	@keyframes alfy-ring-arrive-frame {
+		from {
+			background-color: var(--alfy-mark);
 			box-shadow: 0 0 0 calc(3px * var(--inv)) var(--accent-fill);
 		}
 		to {
