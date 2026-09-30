@@ -9,6 +9,7 @@
  * board and a Document read one shape of "the thing it was on is gone".
  */
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
+import type { Anchor } from "$lib/shared/artifacts/anchor";
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
 import { canvasAnchorResolver } from "$lib/shared/artifacts/comments";
 import { nodeRect } from "./board";
@@ -29,23 +30,35 @@ export function isOrphaned(
 }
 
 /**
- * The board-space point a thread's pin sits at: the node's top-right corner,
- * or the raw point. Null when the thread is orphaned (no pin is drawn). A
- * block's corner is where the panel measured it, else where it is stored, and
- * a note inside a frame is placed through the frame.
+ * The board-space point an anchor sits at: the node's top-right corner, or the
+ * raw point. Null when it is orphaned (no pin is drawn). A block's corner is
+ * where the panel measured it, else where it is stored, and a note inside a
+ * frame is placed through the frame.
  */
-export function pinAt(
-	thread: ArtifactComment,
+export function anchorPoint(
+	anchor: Anchor | null,
 	nodes: readonly CanvasNode[],
 ): Pt | null {
-	const anchor = thread.anchor;
-	if (!anchor || isOrphaned(thread, nodes)) return null;
+	if (
+		!anchor ||
+		canvasAnchorResolver.resolve(anchor, nodes).state === "orphaned"
+	) {
+		return null;
+	}
 	if (anchor.kind === "point") return { x: anchor.x, y: anchor.y };
 	if (anchor.kind !== "node") return null;
 	const node = nodes.find((candidate) => candidate.id === anchor.nodeId);
 	if (!node) return null;
 	const rect = nodeRect(node, nodes, node.measured);
 	return { x: rect.x + rect.width, y: rect.y };
+}
+
+/** The board-space point a thread's pin sits at, or null when it draws none. */
+export function pinAt(
+	thread: ArtifactComment,
+	nodes: readonly CanvasNode[],
+): Pt | null {
+	return anchorPoint(thread.anchor, nodes);
 }
 
 /** The number a thread's pin wears: its 1-based place in the list, kept when it is resolved; `?` for an id the list does not know, never pin 0. */

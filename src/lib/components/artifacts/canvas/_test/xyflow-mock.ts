@@ -8,6 +8,7 @@ import { vi } from "vitest";
 import StubHandle from "./StubHandle.svelte";
 import StubNodeToolbar from "./StubNodeToolbar.svelte";
 import StubResizeControl from "./StubResizeControl.svelte";
+import StubViewportPortal from "./StubViewportPortal.svelte";
 
 export const flowSpies = {
 	updateNodeData: vi.fn(),
@@ -23,5 +24,6 @@ export function xyflowMock() {
 		NodeToolbar: StubNodeToolbar,
 		Position: { Top: "top", Right: "right", Bottom: "bottom", Left: "left" },
 		useSvelteFlow: () => flowSpies,
+		ViewportPortal: StubViewportPortal,
 	};
 }
