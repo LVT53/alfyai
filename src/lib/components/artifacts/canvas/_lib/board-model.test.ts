@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	boardJson,
 	normalizeCanvasBody,
@@ -219,12 +220,12 @@ describe("what counts as a change", () => {
 });
 
 describe("a block's new data", () => {
-	const FRESH = {
+	const FRESH: CanvasBlockData = {
 		kind: "liveweb",
 		query: "weather in Salzburg",
 		sources: [],
 		fetchedAt: 2_000_000_000_000,
-	} as const;
+	};
 
 	it("replaces the data of the block it names and leaves every other block, and the board's order, alone", () => {
 		const nodes = toFlowNodes(cloneBoard(sampleBoard()).nodes);

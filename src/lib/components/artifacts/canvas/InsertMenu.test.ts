@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	type CanvasChatBlocks,
 	emptyChatBlocks,
@@ -183,7 +184,7 @@ describe("From this chat, in the menu", () => {
 });
 
 describe("Search the web…, in the menu", () => {
-	const WEB = {
+	const WEB: Extract<CanvasBlockData, { kind: "liveweb" }> = {
 		kind: "liveweb",
 		query: "cork weather",
 		sources: [
@@ -199,7 +200,7 @@ describe("Search the web…, in the menu", () => {
 			},
 		],
 		fetchedAt: 1_000,
-	} as const;
+	};
 
 	const searchWeb = () => vi.fn(async () => ({ ok: true as const, data: WEB }));
 

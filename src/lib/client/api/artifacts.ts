@@ -26,7 +26,7 @@ import {
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
-import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas";
 import type { CanvasReviewState } from "$lib/shared/artifacts/canvas-review";
 import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";

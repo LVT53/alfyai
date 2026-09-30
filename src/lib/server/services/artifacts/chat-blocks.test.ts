@@ -133,7 +133,7 @@ function photosCall(
 		name: "photos",
 		input,
 		status: "done",
-		candidates: assetIds.map((id) => photoCandidate(id)),
+		candidates: assetIds.map((id) => photoCandidate(id)) as unknown[],
 		metadata: { ok: true, action: input.action, resultCount: assetIds.length },
 		...extra,
 	};
@@ -174,7 +174,7 @@ function researchCall(
 		sourceType: "web",
 		candidates: Array.from({ length: count }, (_, index) =>
 			webCandidate(index + 1),
-		),
+		) as unknown[],
 		metadata: { ok: true, evidenceReady: true, sourceCount: count },
 		...extra,
 	};

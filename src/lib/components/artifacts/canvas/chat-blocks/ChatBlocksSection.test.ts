@@ -7,6 +7,7 @@ import {
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchCanvasWebResult } from "$lib/client/api/artifacts";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	type CanvasChatBlocks,
 	emptyChatBlocks,
@@ -244,7 +245,7 @@ describe("From this chat", () => {
 // ── Search the web… ──────────────────────────────────────────────────────────
 
 describe("Search the web…", () => {
-	const WEB = {
+	const WEB: Extract<CanvasBlockData, { kind: "liveweb" }> = {
 		kind: "liveweb",
 		query: "cork weather",
 		sources: [
@@ -260,7 +261,7 @@ describe("Search the web…", () => {
 			},
 		],
 		fetchedAt: 1_000,
-	} as const;
+	};
 
 	const okSearch = () =>
 		vi.fn(async (_query: string, _signal?: AbortSignal) => ({

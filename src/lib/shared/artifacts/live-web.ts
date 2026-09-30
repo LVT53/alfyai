@@ -29,7 +29,7 @@ export function isLiveWebStale(
  * that can be refreshed; the search failed or found nothing; the query cannot be
  * searched; or the reader has asked too often.
  */
-export const CANVAS_WEB_FAILURES = [
+const CANVAS_WEB_FAILURES = [
 	"not_found",
 	"not_refreshable",
 	"refresh_failed",
