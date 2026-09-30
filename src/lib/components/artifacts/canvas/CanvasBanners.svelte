@@ -11,21 +11,40 @@ import { t } from "$lib/i18n";
 let {
 	banner,
 	droppedCount,
+	missingBlocks = [],
 	onretry,
 	onreload,
 	ondismiss,
+	ondismissmissing,
 }: {
 	/** The saving problem the board is in, if any. */
 	banner: "offline" | "failed" | "conflict" | "tooLarge" | null;
 	/** How many blocks were left out on load (0: none, no notice). */
 	droppedCount: number;
+	/** The blocks a picture of the board drew as a card, by name (none: no notice). */
+	missingBlocks?: string[];
 	onretry: () => void;
 	onreload: () => void;
 	/** The reader dismissed the notice about blocks left out. */
 	ondismiss: () => void;
+	/** The reader dismissed the notice about blocks a picture drew as a card. */
+	ondismissmissing?: () => void;
 } = $props();
 </script>
 
+{#if missingBlocks.length > 0}
+	<div class="notice notice--warning" role="status" data-testid="canvas-export-missing">
+		<span>
+			{$t("artifacts.canvas.exportMissingPosters", {
+				count: missingBlocks.length,
+				names: missingBlocks.join(", "),
+			})}
+		</span>
+		<button type="button" class="notice__button" onclick={ondismissmissing}>
+			{$t("artifacts.canvas.dismiss")}
+		</button>
+	</div>
+{/if}
 {#if droppedCount > 0}
 	<div class="notice notice--warning" role="status" data-testid="canvas-dropped-notice">
 		<span>{$t("artifacts.canvas.blockDropped", { count: droppedCount })}</span>
@@ -57,3 +76,42 @@ let {
 		<span>{$t("artifacts.canvas.tooLarge")}</span>
 	</div>
 {/if}
+
+<style>
+	.notice {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		padding: 6px 10px;
+		border: 1px solid var(--border-default);
+		border-radius: 8px;
+		background: var(--surface-page);
+		box-shadow: var(--shadow-md);
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		pointer-events: auto;
+	}
+
+	.notice--warning {
+		border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+		background: color-mix(in srgb, var(--warning-tint) 100%, var(--surface-page));
+		color: var(--warning-text);
+	}
+
+	.notice__button {
+		flex: none;
+		padding: 2px 8px;
+		border: 1px solid currentColor;
+		border-radius: 6px;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.notice__button:focus-visible {
+		outline: 2px solid var(--focus-ring);
+		outline-offset: 1px;
+	}
+</style>

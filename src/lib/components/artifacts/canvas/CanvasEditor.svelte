@@ -801,6 +801,13 @@ let banner = $derived<"offline" | "failed" | "conflict" | "tooLarge" | null>(
 					: null,
 );
 
+/** The blocks the last picture drew as a card, named in a notice once the Download's own popover is out of the way. */
+let missingBlocks = $derived(
+	pictures?.noticeOpen && !downloadOpen
+		? pictures.missing.map((block) => block.title)
+		: [],
+);
+
 // The words for what goes wrong with a board load on demand (`state-parts.ts`): the first
 // time a board cannot be shown or a saving notice is due.
 let stateViews = $state.raw<typeof import("./state-parts") | null>(null);
@@ -811,7 +818,8 @@ $effect(() => {
 		phase === "no_access" ||
 		saveState === "deleted" ||
 		banner !== null ||
-		showDroppedNotice
+		showDroppedNotice ||
+		missingBlocks.length > 0
 	) {
 		void import("./state-parts").then((module) => {
 			stateViews = module;
@@ -892,26 +900,15 @@ $effect(() => {
 					{#if reviewViews && review}
 						<reviewViews.CanvasReviewNotices controller={review} />
 					{/if}
-					{#if pictures?.noticeOpen && pictures.missing.length > 0 && !downloadOpen}
-						<div class="notice notice--warning" role="status" data-testid="canvas-export-missing">
-							<span>
-								{$t("artifacts.canvas.exportMissingPosters", {
-									count: pictures.missing.length,
-									names: pictures.missing.map((block) => block.title).join(", "),
-								})}
-							</span>
-							<button type="button" class="notice__button" onclick={() => pictures?.dismissNotice()}>
-								{$t("artifacts.canvas.dismiss")}
-							</button>
-						</div>
-					{/if}
-					{#if stateViews && (showDroppedNotice || banner)}
+					{#if stateViews && (showDroppedNotice || banner || missingBlocks.length > 0)}
 						<stateViews.CanvasBanners
 							{banner}
 							droppedCount={showDroppedNotice ? droppedCount : 0}
+							{missingBlocks}
 							onretry={retrySave}
 							onreload={() => load(artifactId)}
 							ondismiss={() => (noticeDismissed = true)}
+							ondismissmissing={() => pictures?.dismissNotice()}
 						/>
 					{/if}
 				</div>
@@ -1082,43 +1079,6 @@ $effect(() => {
 		max-width: calc(100% - 24px);
 		transform: translateX(-50%);
 		pointer-events: none;
-	}
-
-	.notice {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-		padding: 6px 10px;
-		border: 1px solid var(--border-default);
-		border-radius: 8px;
-		background: var(--surface-page);
-		box-shadow: var(--shadow-md);
-		color: var(--text-primary);
-		font-size: var(--text-sm);
-		pointer-events: auto;
-	}
-
-	.notice--warning {
-		border-color: color-mix(in srgb, var(--warning) 45%, transparent);
-		background: color-mix(in srgb, var(--warning-tint) 100%, var(--surface-page));
-		color: var(--warning-text);
-	}
-
-	.notice__button {
-		flex: none;
-		padding: 2px 8px;
-		border: 1px solid currentColor;
-		border-radius: 6px;
-		background: transparent;
-		color: inherit;
-		font: inherit;
-		font-weight: 600;
-		cursor: pointer;
-	}
-
-	.notice__button:focus-visible {
-		outline: 2px solid var(--focus-ring);
-		outline-offset: 1px;
 	}
 
 	/* Top-left: the toolbar, the overview, the zoom and the library's own
