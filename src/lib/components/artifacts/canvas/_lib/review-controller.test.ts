@@ -26,8 +26,10 @@ vi.mock("$lib/utils/motion", () => ({
 
 import * as landing from "./alfy-landing";
 import { ARRANGING_MIN_MS, HIGHLIGHT_MS } from "./alfy-landing";
+import type { BoardLayerApi } from "./board-layers";
 import {
 	CanvasReviewController,
+	changeLayerProps,
 	type LandingBoard,
 	type ReviewHost,
 } from "./review-controller.svelte";
@@ -490,6 +492,46 @@ describe("Undo", () => {
 		expect(controller.change).toBeNull();
 		await controller.redo();
 		expect(controller.status).toBe("pending");
+	});
+});
+
+// RV-3 Minor 11: the rings mark what waits for the reader. Undo's drawing is meant
+// to have none, but the change stayed on the layer until the pill let go, so the
+// blocks Alfy had touched stayed ringed for seconds after they were taken back.
+describe("what the layer rings, once the change is decided", () => {
+	const layerApi = {
+		nodes: [],
+		viewport: { x: 0, y: 0, zoom: 1 },
+		centerOn: () => {},
+	} as unknown as BoardLayerApi;
+
+	it("rings the blocks that wait, and none once the change is undone, kept or redone", async () => {
+		api.fetchArtifactVersionBody.mockResolvedValue(boardJson(sampleBoard()));
+		const { controller } = make({
+			board: landed(sampleBoard(), MOVE, RETITLE),
+		});
+		controller.restore(reviewState());
+		expect(
+			changeLayerProps(controller, layerApi).touched.length,
+		).toBeGreaterThan(0);
+		expect(changeLayerProps(controller, layerApi).pill?.status).toBe("pending");
+
+		await controller.undo();
+		// The pill still says "Undone" and offers Redo; nothing is ringed.
+		expect(changeLayerProps(controller, layerApi).pill?.status).toBe("undone");
+		expect(changeLayerProps(controller, layerApi).touched).toEqual([]);
+
+		await controller.redo();
+		expect(changeLayerProps(controller, layerApi).pill?.status).toBe("kept");
+		expect(changeLayerProps(controller, layerApi).touched).toEqual([]);
+	});
+
+	it("stops ringing at Keep, while the pill still says Kept", async () => {
+		const { controller } = make();
+		controller.restore(reviewState());
+		void controller.keep();
+		expect(changeLayerProps(controller, layerApi).pill?.status).toBe("kept");
+		expect(changeLayerProps(controller, layerApi).touched).toEqual([]);
 	});
 });
 

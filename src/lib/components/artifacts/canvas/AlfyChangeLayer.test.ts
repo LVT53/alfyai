@@ -125,6 +125,36 @@ describe("the rings", () => {
 		expect(of("a")?.classList.contains("ring--frame")).toBe(false);
 	});
 
+	// RV-3 Minor 10: a frame's name chip sits across its top edge, and a ring drawn
+	// on that edge struck the name through.
+	it("stands a frame's ring outside the name chip that sits across its top edge, so the name is not struck through", () => {
+		mount({
+			nodes: [
+				...NODES,
+				{
+					id: "frame",
+					type: "frame",
+					position: { x: 0, y: 500 },
+					width: 400,
+					height: 300,
+					data: { kind: "frame", label: "Sunday", width: 400, height: 300 },
+				},
+			],
+			touched: ["frame", "a"],
+		});
+		const rings = screen.getAllByTestId("canvas-alfy-ring");
+		const of = (id: string) =>
+			rings.find((ring) => ring.getAttribute("data-node-id") === id);
+		// The chip is 12 units above the edge; the ring is beyond it, all round.
+		const frame = of("frame");
+		expect(Number.parseFloat(frame?.style.top ?? "")).toBeLessThan(500 - 12);
+		expect(Number.parseFloat(frame?.style.left ?? "")).toBeLessThan(0);
+		expect(Number.parseFloat(frame?.style.width ?? "")).toBeGreaterThan(400);
+		expect(Number.parseFloat(frame?.style.height ?? "")).toBeGreaterThan(300);
+		// A note's ring stays on the note.
+		expect(of("a")?.style.top).toBe("100px");
+	});
+
 	it("keeps a ring 2 px on screen at any zoom", () => {
 		const { container } = mount({
 			touched: ["a"],

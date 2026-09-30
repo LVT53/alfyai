@@ -31,6 +31,12 @@ import { type Box, boxOf, padded, rectsOf } from "./_lib/review-geometry";
 
 /** How far the dashed frame stands off what it surrounds, in board units. */
 const FRAME_PADDING = 14;
+/**
+ * A frame's name chip sits across the frame's top edge, 12 units above it, and a
+ * ring drawn on that edge struck the name through (RV-3 Minor 10): a frame's ring
+ * stands this far outside the frame, all round, clear of the chip.
+ */
+const FRAME_RING_PADDING = 14;
 
 let {
 	nodes,
@@ -83,7 +89,14 @@ let rings = $derived.by(() => {
 	return rectsOf(
 		nodes.filter((node) => wanted.has(node.id)).map((node) => node.id),
 		nodes,
-	).map((ring) => ({ ...ring, frame: frames.has(ring.id) }));
+	).map((ring) => {
+		const frame = frames.has(ring.id);
+		return {
+			...ring,
+			box: frame ? padded(ring.box, FRAME_RING_PADDING) : ring.box,
+			frame,
+		};
+	});
 });
 let pulseSet = $derived(new Set(pulseIds));
 

@@ -604,6 +604,8 @@ test.describe("Keep and Undo, for the whole change", () => {
 
 			await undoAll(page).click();
 			await expect(pill(page)).toContainText("Undone", { timeout: 10_000 });
+			// What was taken back is not ringed any more (RV-3 Minor 11), though the pill stays for Redo.
+			await expect(rings(page)).toHaveCount(0, { timeout: 1500 });
 			await expect(
 				page.locator('.svelte-flow__node[data-id="note-brunch"]'),
 			).toHaveCount(0);
