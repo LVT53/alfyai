@@ -162,6 +162,59 @@ describe("the pill", () => {
 	});
 });
 
+describe("where focus goes when the change is decided", () => {
+	it("lands on Redo when Alfy's change is undone and the button that was pressed is gone", async () => {
+		const { rerender } = mount({
+			touched: ["a"],
+			pill: { status: "pending", label: "x" },
+		});
+		expect(document.activeElement).toBe(document.body);
+		await rerender({ pill: { status: "undone", label: "x" } });
+		await tick();
+		await tick();
+		expect(document.activeElement?.textContent?.trim()).toBe("Redo");
+	});
+
+	it("goes back to Undo when it is redone", async () => {
+		const { rerender } = mount({
+			touched: ["a"],
+			pill: { status: "undone", label: "x" },
+		});
+		await rerender({ pill: { status: "pending", label: "x" } });
+		await tick();
+		await tick();
+		expect(document.activeElement?.textContent?.trim()).toBe("Undo");
+	});
+
+	it("never takes the focus from something else the reader is doing", async () => {
+		const field = document.createElement("textarea");
+		document.body.append(field);
+		const { rerender } = mount({
+			touched: ["a"],
+			pill: { status: "pending", label: "x" },
+		});
+		field.focus();
+		await rerender({ pill: { status: "undone", label: "x" } });
+		await tick();
+		await tick();
+		expect(document.activeElement).toBe(field);
+	});
+
+	it("puts a Kept change's focus on the board's first tool", async () => {
+		const select = document.createElement("button");
+		select.setAttribute("data-testid", "canvas-tool-select");
+		document.body.append(select);
+		const { rerender } = mount({
+			touched: ["a"],
+			pill: { status: "pending", label: "x" },
+		});
+		await rerender({ pill: { status: "kept", label: "x" } });
+		await tick();
+		await tick();
+		expect(document.activeElement).toBe(select);
+	});
+});
+
 describe("where the stepper sends the camera", () => {
 	it("centres on the block it was asked for, once per request", async () => {
 		const { oncenter, rerender } = mount({ touched: ["a", "b"] });

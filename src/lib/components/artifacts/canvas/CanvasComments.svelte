@@ -42,6 +42,8 @@ let {
 	controller,
 	panelWidth,
 	currentUser = null,
+	changeStateByCommentId = {},
+	onSeeChange = undefined,
 }: {
 	controller: CanvasCommentsController;
 	/** How wide the editor is: whether a column fits beside the board (`commentRailWidth`, the Document's own rule) or the list is a drawer. */
@@ -51,6 +53,10 @@ let {
 		displayName: string;
 		profilePicture: string | null;
 	} | null;
+	/** The change each reply of Alfy's made, by the state it is in: what its card wears as a chip ("waiting for you", "kept", "undone"). */
+	changeStateByCommentId?: Record<string, "pending" | "kept" | "undone">;
+	/** "See change" on such a chip: the board shows the blocks Alfy touched. */
+	onSeeChange?: (commentId: string) => void;
 } = $props();
 
 let isPhone = $state(isPhoneViewport());
@@ -191,6 +197,14 @@ $effect(() => {
 			onResolve={(resolved) => controller.resolve(thread.id, resolved)}
 			onSubmitReply={(parentId, body) => controller.reply(parentId, body)}
 			onGoto={orphaned ? undefined : () => goTo(thread.id)}
+			{changeStateByCommentId}
+			onSeeChange={onSeeChange
+				? (commentId) => {
+						onSeeChange(commentId);
+						// Where the list covers the board, it closes first: the change is on the board.
+						if (presentation !== 'rail') controller.hide();
+					}
+				: undefined}
 			currentUserId={currentUser?.id ?? null}
 			currentUserName={currentUser?.displayName ?? null}
 			currentUserProfilePicture={currentUser?.profilePicture ?? null}

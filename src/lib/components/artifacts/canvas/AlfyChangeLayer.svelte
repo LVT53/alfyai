@@ -24,7 +24,7 @@
  * It draws and reports; it owns no state and knows nothing of the network. A
  * request to show a block (`goto`, the stepper's) centres the camera on it.
  */
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import ChangeBar from "../document/ChangeBar.svelte";
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
 import { type Box, boxOf, padded, rectsOf } from "./_lib/review-geometry";
@@ -94,6 +94,42 @@ $effect(() => {
 });
 let anchor = $derived(liveBox ?? lastBox);
 
+// Focus follows the decision. The button that was pressed (in the bar, which
+// leaves, or on the pill, which changes its buttons) is gone by the time the
+// change is decided, and a keyboard reader must not be dropped on the page:
+// Undo lands on "Redo", Redo on "Undo", Keep on the board's first tool. Only when
+// focus was lost or was on the change's own controls: it never takes it from
+// anything else the reader is doing.
+let pillEl = $state<HTMLDivElement | undefined>();
+let lastStatus: "pending" | "kept" | "undone" | null = null;
+
+function focusIsAdrift(): boolean {
+	const active = document.activeElement;
+	if (!active || active === document.body) return true;
+	return (
+		active.closest(
+			'[data-testid="canvas-review-bar"], [data-testid="canvas-change-pill"]',
+		) !== null
+	);
+}
+
+$effect(() => {
+	const status = pill?.status ?? null;
+	const before = lastStatus;
+	lastStatus = status;
+	if (before === null || status === null || before === status) return;
+	void tick().then(() => {
+		if (!focusIsAdrift()) return;
+		if (status === "kept") {
+			document
+				.querySelector<HTMLElement>('[data-testid="canvas-tool-select"]')
+				?.focus();
+		} else {
+			pillEl?.querySelector<HTMLElement>(".alfy-change-bar-undo")?.focus();
+		}
+	});
+});
+
 let appliedGoto = -1;
 $effect(() => {
 	const request = goto;
@@ -145,6 +181,7 @@ $effect(() => {
 	{#if pill && anchor}
 		<div
 			class="pill nopan"
+			bind:this={pillEl}
 			data-testid="canvas-change-pill"
 			style:left="{anchor.x + anchor.width}px"
 			style:top="{anchor.y}px"
@@ -225,12 +262,13 @@ $effect(() => {
 	}
 
 	/* At the corner, the size of a button whatever the zoom: scaled by 1 / zoom from
-	   the point it hangs from, then lifted clear of the box. */
+	   the point it hangs from, then lifted clear of the box and of a comment's pin,
+	   which sits on that same corner. */
 	.pill {
 		position: absolute;
 		pointer-events: auto;
 		transform-origin: 0 0;
-		transform: scale(var(--inv)) translate(-100%, calc(-100% - 8px));
+		transform: scale(var(--inv)) translate(-100%, calc(-100% - 16px));
 		white-space: nowrap;
 	}
 

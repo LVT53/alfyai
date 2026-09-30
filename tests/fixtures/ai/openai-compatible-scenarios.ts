@@ -92,6 +92,56 @@ export function decodeEditArtifactScenarioPayload(
 }
 
 /**
+ * Slice 3 T6: a real `edit_artifact` call on a BOARD, scripted with the exact ops a
+ * test wants applied. The ops are JSON with quotes and braces, so they travel in
+ * the user's message as base64url (`A-Za-z0-9_-`, which a JSON request body carries
+ * untouched); the fake model reads them back out of the LAST user message (a
+ * conversation has earlier turns, and their markers must not answer this one) and
+ * forwards them verbatim as the tool call's arguments. The real handler does the
+ * rest: the ops are judged, one Alfy version is written, the panel is told.
+ */
+export const AI_SMOKE_CANVAS_EDIT_MARKER =
+	"Fake model step: apply the scripted board change below.";
+export const AI_SMOKE_CANVAS_EDIT_FINAL_TEXT = "Changed the board.";
+
+export interface CanvasEditScenarioPayload {
+	artifactId: string;
+	summary: string;
+	/** The model's own JSON: whatever the test wants the handler to judge, refused ops included. */
+	ops: unknown[];
+}
+
+export function encodeCanvasEditScenarioPayload(
+	payload: CanvasEditScenarioPayload,
+): string {
+	const json = Buffer.from(
+		JSON.stringify({ summary: payload.summary, ops: payload.ops }),
+	).toString("base64url");
+	return `aid:${payload.artifactId}|board:${json}`;
+}
+
+export function decodeCanvasEditScenarioPayload(
+	text: string,
+): CanvasEditScenarioPayload | null {
+	const matches = [...text.matchAll(/aid:([\w-]+)\|board:([A-Za-z0-9_-]+)/g)];
+	const match = matches.at(-1);
+	if (!match) return null;
+	try {
+		const decoded = JSON.parse(
+			Buffer.from(match[2], "base64url").toString("utf8"),
+		) as { summary?: unknown; ops?: unknown };
+		if (!Array.isArray(decoded.ops)) return null;
+		return {
+			artifactId: match[1],
+			summary: typeof decoded.summary === "string" ? decoded.summary : "",
+			ops: decoded.ops,
+		};
+	} catch {
+		return null;
+	}
+}
+
+/**
  * The in-chat card (Feature 2, the cross-kind task): a real `create_artifact`
  * call, unlike T8 live's `edit_artifact`, needs no real block ids/hashes
  * scripted in advance — the model supplies `artifactType`/`title`/`body`

@@ -19,6 +19,7 @@ vi.mock("$lib/utils/motion", () => ({
 	prefersReducedMotion: () => true,
 }));
 
+import * as landing from "./alfy-landing";
 import { ARRANGING_MIN_MS, HIGHLIGHT_MS } from "./alfy-landing";
 import {
 	CanvasReviewController,
@@ -423,6 +424,25 @@ describe("Undo", () => {
 		expect(host.write).toHaveBeenLastCalledWith(alfyBody);
 		expect(controller.status).toBe("pending");
 		expect(controller.count).toBe(2);
+	});
+
+	it("can be redone while the board is still gliding back: Redo waits its turn instead of being ignored", async () => {
+		const { controller, host } = armed();
+		let finish: () => void = () => {};
+		const slow = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		const draw = vi.spyOn(landing, "runLanding");
+		draw.mockImplementationOnce(() => slow);
+		const undoing = controller.undo();
+		await vi.waitFor(() => expect(controller.status).toBe("undone"));
+		// The glide back is still drawing; the reader presses Redo now.
+		const redoing = controller.redo();
+		await vi.waitFor(() => expect(host.write).toHaveBeenCalledTimes(2));
+		finish();
+		await Promise.all([undoing, redoing]);
+		expect(controller.status).toBe("pending");
+		draw.mockRestore();
 	});
 
 	it("lets the Undo go after five seconds", async () => {

@@ -16,6 +16,7 @@
 import { get } from "svelte/store";
 import {
 	type ArtifactDetailResponse,
+	type AskAlfyResult,
 	askAlfyInComment,
 	createArtifactComment,
 	fetchArtifact,
@@ -37,6 +38,8 @@ export type CommentsDeps = {
 	beforeAsk: () => Promise<void>;
 	/** Every read of the artifact, threads and board together. */
 	onserver: (detail: ArtifactDetailResponse) => void;
+	/** Alfy answered a comment (what it did and the reply it wrote): a change it made is linked to that reply. */
+	onreply?: (result: AskAlfyResult) => void;
 };
 
 /** A one-shot request to a view: the same thread asked for twice is two requests. */
@@ -214,6 +217,7 @@ export class CanvasCommentsController {
 				commentId,
 				this.#deps.conversationId,
 			);
+			this.#deps.onreply?.(result);
 			this.#say(
 				result.outcome === "applied"
 					? "artifacts.canvas.comment.landed"

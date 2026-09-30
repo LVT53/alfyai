@@ -478,6 +478,10 @@ export class CanvasReviewController {
 			this.announcement = say("artifacts.document.change.undoneNotice");
 			this.#host.reportCount(0);
 			this.#startTimer("undone", UNDONE_MS);
+			// The decision is made and saved: the board gliding back is only drawing, and
+			// the pill already offers Redo, which must not be ignored until it is done (it
+			// waits its turn behind the drawing instead).
+			this.busy = false;
 			await this.#drawWritten(written.board);
 		} finally {
 			this.busy = false;
@@ -498,8 +502,9 @@ export class CanvasReviewController {
 			this.#undone = null;
 			this.status = "pending";
 			this.#chips("pending");
-			await this.#drawWritten(written.board);
 			this.#host.reportCount(this.count);
+			this.busy = false;
+			await this.#drawWritten(written.board);
 		} finally {
 			this.busy = false;
 		}
