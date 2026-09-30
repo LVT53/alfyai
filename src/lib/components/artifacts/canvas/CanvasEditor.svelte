@@ -789,7 +789,7 @@ let boardReadonly = $derived(
 	saveState === "conflict" || saveState === "deleted",
 );
 let showDroppedNotice = $derived(droppedCount > 0 && !noticeDismissed);
-let banner = $derived(
+let banner = $derived<"offline" | "failed" | "conflict" | "tooLarge" | null>(
 	saveState === "offline"
 		? "offline"
 		: saveState === "failed"
@@ -800,6 +800,24 @@ let banner = $derived(
 					? "tooLarge"
 					: null,
 );
+
+// The words for what goes wrong with a board load on demand (`state-parts.ts`): the first
+// time a board cannot be shown or a saving notice is due.
+let stateViews = $state.raw<typeof import("./state-parts") | null>(null);
+$effect(() => {
+	if (stateViews) return;
+	if (
+		phase === "load_error" ||
+		phase === "no_access" ||
+		saveState === "deleted" ||
+		banner !== null ||
+		showDroppedNotice
+	) {
+		void import("./state-parts").then((module) => {
+			stateViews = module;
+		});
+	}
+});
 </script>
 
 {#snippet boardLayers(api: BoardLayerApi)}
@@ -839,21 +857,13 @@ let banner = $derived(
 			<span class="skeleton-card skeleton-card--b" aria-hidden="true"></span>
 			<span class="skeleton-card skeleton-card--c" aria-hidden="true"></span>
 		</div>
-	{:else if phase === "load_error"}
-		<div class="canvas-editor__state" role="alert" data-testid="canvas-load-error">
-			<p>{$t("artifacts.canvas.loadFailed")}</p>
-			<button type="button" class="btn-secondary" onclick={() => load(artifactId)}>
-				{$t("artifacts.canvas.retry")}
-			</button>
-		</div>
-	{:else if phase === "no_access"}
-		<div class="canvas-editor__state" role="status" data-testid="canvas-no-access">
-			<p>{$t("artifacts.canvas.noAccess")}</p>
-		</div>
-	{:else if saveState === "deleted"}
-		<div class="canvas-editor__state" role="alert" data-testid="canvas-deleted">
-			<p>{$t("artifacts.canvas.deletedWhileOpen")}</p>
-		</div>
+	{:else if phase === "load_error" || phase === "no_access" || saveState === "deleted"}
+		{#if stateViews}
+			<stateViews.CanvasStates
+				state={phase === "load_error" ? "load_error" : phase === "no_access" ? "no_access" : "deleted"}
+				onretry={() => load(artifactId)}
+			/>
+		{/if}
 	{:else}
 		<div class="canvas-editor__row">
 			<div class="canvas-editor__board">
@@ -895,36 +905,14 @@ let banner = $derived(
 							</button>
 						</div>
 					{/if}
-					{#if showDroppedNotice}
-						<div class="notice notice--warning" role="status" data-testid="canvas-dropped-notice">
-							<span>{$t("artifacts.canvas.blockDropped", { count: droppedCount })}</span>
-							<button type="button" class="notice__button" onclick={() => (noticeDismissed = true)}>
-								{$t("artifacts.canvas.dismiss")}
-							</button>
-						</div>
-					{/if}
-					{#if banner === "offline"}
-						<div class="notice notice--warning" role="alert" data-testid="canvas-offline">
-							<span>{$t("artifacts.canvas.offline")}</span>
-						</div>
-					{:else if banner === "failed"}
-						<div class="notice notice--warning" role="alert" data-testid="canvas-save-failed">
-							<span>{$t("artifacts.canvas.saveFailed")}</span>
-							<button type="button" class="notice__button" onclick={retrySave}>
-								{$t("artifacts.canvas.retry")}
-							</button>
-						</div>
-					{:else if banner === "conflict"}
-						<div class="notice notice--warning" role="alert" data-testid="canvas-conflict">
-							<span>{$t("artifacts.canvas.saveConflict")}</span>
-							<button type="button" class="notice__button" onclick={() => load(artifactId)}>
-								{$t("artifacts.canvas.reload")}
-							</button>
-						</div>
-					{:else if banner === "tooLarge"}
-						<div class="notice notice--warning" role="alert" data-testid="canvas-too-large">
-							<span>{$t("artifacts.canvas.tooLarge")}</span>
-						</div>
+					{#if stateViews && (showDroppedNotice || banner)}
+						<stateViews.CanvasBanners
+							{banner}
+							droppedCount={showDroppedNotice ? droppedCount : 0}
+							onretry={retrySave}
+							onreload={() => load(artifactId)}
+							ondismiss={() => (noticeDismissed = true)}
+						/>
 					{/if}
 				</div>
 
@@ -1019,23 +1007,6 @@ let banner = $derived(
 		background: var(--surface-page);
 		color: var(--text-muted);
 		font-size: var(--text-sm);
-	}
-
-	.canvas-editor__state {
-		display: flex;
-		flex: 1 1 auto;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: var(--space-md);
-		padding: var(--space-lg);
-		text-align: center;
-		color: var(--text-secondary);
-	}
-
-	.canvas-editor__state p {
-		margin: 0;
-		max-width: 28rem;
 	}
 
 	/* Three cards on the board's dot grid, no spinner. */

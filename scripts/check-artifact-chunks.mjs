@@ -39,6 +39,10 @@
 //      lazy parts counted as its own. The bare size of the one target chunk falls
 //      whenever a module moves into a chunk a lazy part also imports, though the
 //      same bytes load, so it is printed but never the number that is held.
+//   6b. `--max-target-gzip BYTES` caps the gzip size of the target chunk ALONE (the
+//      chunk the manifest names for it). The spec's own reading of the budget; kept
+//      beside the honest one so a move of modules into a chunk a lazy part shares,
+//      which makes this number fall while the bytes loaded do not, is visible.
 //   7. `--forbid PACKAGE` names a package that must NOT be in any chunk the editor
 //      loads when it opens (Chart.js and MapLibre load on demand, in the chat's own
 //      chunks, and must stay out of the editor's first paint).
@@ -130,6 +134,7 @@ function gzipSize(text) {
  * @param {string[]} params.confine package names (keys of `fingerprints`) that must stay in the target
  * @param {Record<string, string[]>} [params.fingerprints]
  * @param {number} [params.maxGzip] cap on the target's exclusive closure, gzip bytes
+ * @param {number} [params.maxTargetGzip] cap on the target chunk alone, gzip bytes
  * @param {string[]} [params.allowEntries] lazy parts of the editor (by name): they may share its chunks, and a confined package may live in their closure
  * @param {string[]} [params.forbid] packages that must not be in any chunk the target loads when it opens
  */
@@ -140,6 +145,7 @@ export function checkArtifactChunks({
 	confine,
 	fingerprints = PACKAGE_FINGERPRINTS,
 	maxGzip,
+	maxTargetGzip,
 	allowEntries = [],
 	forbid = [],
 }) {
@@ -293,6 +299,13 @@ export function checkArtifactChunks({
 		});
 	}
 
+	if (maxTargetGzip !== undefined && numbers.targetGzipBytes > maxTargetGzip) {
+		violations.push({
+			kind: "budget",
+			message: `the ${name} chunk alone is ${numbers.targetGzipBytes} bytes gzip, over the ${maxTargetGzip} allowed`,
+		});
+	}
+
 	return {
 		ok: violations.length === 0,
 		violations,
@@ -305,11 +318,13 @@ export function checkArtifactChunks({
 /** The generated route table's nodes for one route: the root layout, the route's layouts and its page, as node indexes. Null for a route the table does not have. */
 export function parseRouteNodes(appJsText, routeId) {
 	const escaped = routeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const entry = new RegExp(`"${escaped}"\\s*:\\s*\\[([^\\]]*(?:\\[[^\\]]*\\])?[^\\]]*)\\]`).exec(
-		appJsText,
-	);
+	const entry = new RegExp(
+		`"${escaped}"\\s*:\\s*\\[([^\\]]*(?:\\[[^\\]]*\\])?[^\\]]*)\\]`,
+	).exec(appJsText);
 	if (!entry) return null;
-	const numbers = [...entry[1].matchAll(/\d+/g)].map((match) => Number(match[0]));
+	const numbers = [...entry[1].matchAll(/\d+/g)].map((match) =>
+		Number(match[0]),
+	);
 	// The first number is the page, the rest are its layouts; the root layout (node 0) is always loaded.
 	const [page, ...layouts] = numbers;
 	return [...new Set([0, ...layouts, page])];
@@ -412,6 +427,7 @@ function parseArgs(argv) {
 		manifest: DEFAULT_MANIFEST,
 		routes: DEFAULT_ROUTES,
 		maxGzip: undefined,
+		maxTargetGzip: undefined,
 		forbid: [],
 		chatRoute: undefined,
 		chatBaseline: undefined,
@@ -425,6 +441,7 @@ function parseArgs(argv) {
 		else if (flag === "--allow-entry") args.allowEntries.push(value);
 		else if (flag === "--manifest") args.manifest = value;
 		else if (flag === "--max-gzip") args.maxGzip = Number(value);
+		else if (flag === "--max-target-gzip") args.maxTargetGzip = Number(value);
 		else if (flag === "--forbid") args.forbid.push(value);
 		else if (flag === "--routes") args.routes = value;
 		else if (flag === "--chat-route") args.chatRoute = value;
@@ -456,6 +473,7 @@ function main() {
 		name: args.name,
 		confine: args.confine,
 		maxGzip: args.maxGzip,
+		maxTargetGzip: args.maxTargetGzip,
 		allowEntries: args.allowEntries,
 		forbid: args.forbid,
 	});
@@ -464,7 +482,10 @@ function main() {
 	if (args.chatRoute !== undefined) {
 		let nodes = null;
 		try {
-			nodes = parseRouteNodes(readFileSync(resolve(args.routes), "utf8"), args.chatRoute);
+			nodes = parseRouteNodes(
+				readFileSync(resolve(args.routes), "utf8"),
+				args.chatRoute,
+			);
 		} catch {
 			// Reported below: no route table, no weight held.
 		}
@@ -477,7 +498,9 @@ function main() {
 				readChunk: chunkReader(dirname(dirname(manifestPath))),
 				nodes,
 				baseline: args.chatBaseline,
-				...(args.chatTolerance === undefined ? {} : { tolerance: args.chatTolerance }),
+				...(args.chatTolerance === undefined
+					? {}
+					: { tolerance: args.chatTolerance }),
 			});
 			ok = ok && chat.ok;
 			report += `\n[artifact-chunks] ${chat.ok ? "chat route" : "FAIL (chat-route)"} ${args.chatRoute}: ${chat.message}`;

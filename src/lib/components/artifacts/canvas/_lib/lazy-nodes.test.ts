@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as AppModule from "../nodes/AppNode.svelte";
+import * as ChartModule from "../nodes/ChartNode.svelte";
+import * as ChecklistModule from "../nodes/ChecklistNode.svelte";
 import * as FileModule from "../nodes/FileNode.svelte";
 import * as LiveWebModule from "../nodes/LiveWebNode.svelte";
 import * as MapModule from "../nodes/MapNode.svelte";
@@ -7,8 +9,10 @@ import * as PhotoModule from "../nodes/PhotoNode.svelte";
 import { lazyNodeLoader } from "./lazy-nodes";
 
 describe("the loaders of the blocks made from the chat", () => {
-	it("has one for each of the five, and each resolves to that block's own content and its shell dress", async () => {
+	it("has one for each of the five, and the checklist, and each resolves to that block's own content and its shell dress", async () => {
 		const expected = [
+			["chart", ChartModule.default, ChartModule.chartShell],
+			["checklist", ChecklistModule.default, ChecklistModule.checklistShell],
 			["file", FileModule.default, FileModule.fileShell],
 			["app", AppModule.default, AppModule.appShell],
 			["map", MapModule.default, MapModule.mapShell],
@@ -34,8 +38,6 @@ describe("the loaders of the blocks made from the chat", () => {
 			"frame",
 			"sticky",
 			"text",
-			"chart",
-			"checklist",
 			"nope",
 			"toString",
 			"__proto__",

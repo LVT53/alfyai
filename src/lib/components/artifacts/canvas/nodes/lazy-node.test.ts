@@ -195,6 +195,8 @@ describe("the editor's first paint", () => {
 		const wrapper = read("LazyNode.svelte");
 		const loaderSource = read("..", "_lib", "lazy-nodes.ts");
 		for (const name of [
+			"ChartNode",
+			"ChecklistNode",
 			"FileNode",
 			"AppNode",
 			"MapNode",
@@ -226,6 +228,8 @@ describe("the editor's first paint", () => {
 	// the block share: the editor would pay more than the block saves.
 	it("keeps the shell and the flow library out of every block module, which are loaded on demand", () => {
 		for (const name of [
+			"ChartNode",
+			"ChecklistNode",
 			"FileNode",
 			"AppNode",
 			"MapNode",

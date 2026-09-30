@@ -214,6 +214,7 @@ provideBoardContext({
 	},
 	picture: (id) => pictures?.get(id) ?? null,
 	posterFailed: (id) => posterFailedIds.has(id),
+	updateData: (id, patch) => flow.updateNodeData(id, patch),
 });
 
 function snapshot(): CanvasBody {

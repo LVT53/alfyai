@@ -30,6 +30,8 @@ export interface CanvasBoardContext {
 	picture?(id: string): BlockPicture | null;
 	/** True while this block's last still image could not be made: its meta line says so. */
 	posterFailed?(id: string): boolean;
+	/** Puts a change to a block's own data on the board (a tick in a checklist): the board notices and saves it. A block loaded on demand cannot import the flow library, so it reaches it here. */
+	updateData?(id: string, patch: Record<string, unknown>): void;
 }
 
 const BOARD_CONTEXT = Symbol("artifact-canvas-board");

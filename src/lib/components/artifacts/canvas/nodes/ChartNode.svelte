@@ -1,39 +1,34 @@
-<script lang="ts">
-/**
- * A chart block: the chat's own `Chart.svelte`, given exactly the `code` the
- * chat gives it and no canvas-only prop. Chart.js is that component's own lazy
- * import, so a board with no chart never loads it.
- */
-import Chart from "$lib/components/chat/Chart.svelte";
+<script module lang="ts">
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
-import { BLOCK_META } from "../_lib/block-meta";
-import NodeShell from "../NodeShell.svelte";
+import type { LazyShell } from "../_lib/lazy-nodes";
 
-type ChartData = Extract<CanvasBlockData, { kind: "chart" }>;
+type ChartShellData = Extract<CanvasBlockData, { kind: "chart" }>;
 
-let {
-	id,
-	data,
-	selected = false,
-}: { id: string; data: ChartData; selected?: boolean } = $props();
-
-const minSize = BLOCK_META.chart.minSize;
+/** How a chart dresses the shell `LazyNode` draws: its label as the title, its subtitle at the header's end. */
+export function chartShell(data: ChartShellData): LazyShell {
+	return {
+		title: data.label ?? "",
+		meta: data.subtitle ?? "",
+		summary: data.label ?? "",
+	};
+}
 </script>
 
-<NodeShell
-	{id}
-	kind="chart"
-	{selected}
-	minWidth={minSize.width}
-	minHeight={minSize.height}
-	title={data.label ?? ""}
-	meta={data.subtitle ?? ""}
-	summary={data.label ?? ""}
->
-	<div class="chart" data-testid="canvas-chart">
-		<Chart code={data.code} />
-	</div>
-</NodeShell>
+<script lang="ts">
+/**
+ * A chart block's content: the chat's own `Chart.svelte`, given exactly the `code`
+ * the chat gives it and no canvas-only prop. Chart.js is that component's own lazy
+ * import, so a board with no chart never loads it — and now not this either: the
+ * block is loaded by `LazyNode` when one is on the board.
+ */
+import Chart from "$lib/components/chat/Chart.svelte";
+
+let { data }: { data: ChartShellData } = $props();
+</script>
+
+<div class="chart" data-testid="canvas-chart">
+	<Chart code={data.code} />
+</div>
 
 <style>
 	.chart {

@@ -35,6 +35,8 @@ const NOTE_SHAPED: BlockKind[] = [
 // The blocks made from the chat (or, for live web, from a search): picked in
 // "From this chat", never inserted bare, and loaded only when one mounts.
 const FROM_CHAT: BlockKind[] = ["map", "file", "app", "photo", "liveweb"];
+/** Drawn by the loading wrapper too, though the board's own: a board with none never needs them. */
+const LOADED_ON_DEMAND: BlockKind[] = ["chart", "checklist"];
 const BUILT: BlockKind[] = [...NOTE_SHAPED, ...FROM_CHAT];
 
 vi.mock("@xyflow/svelte", async () =>
@@ -222,10 +224,15 @@ describe("boardNodeTypes", () => {
 
 	// The editor's first paint pays for none of the blocks made from the chat:
 	// each is a loader the board calls when one is on the board.
-	it("draws the blocks made from the chat through the loading wrapper, and the note-shaped ones directly", () => {
+	it("draws the blocks made from the chat, and the checklist, through the loading wrapper, and the other note-shaped ones directly", () => {
 		const types = boardNodeTypes();
-		for (const kind of FROM_CHAT) expect(types[kind]).toBe(LazyNode);
-		for (const kind of NOTE_SHAPED) expect(types[kind]).not.toBe(LazyNode);
+		for (const kind of [...FROM_CHAT, ...LOADED_ON_DEMAND]) {
+			expect(types[kind]).toBe(LazyNode);
+		}
+		for (const kind of NOTE_SHAPED) {
+			if (LOADED_ON_DEMAND.includes(kind)) continue;
+			expect(types[kind]).not.toBe(LazyNode);
+		}
 	});
 });
 

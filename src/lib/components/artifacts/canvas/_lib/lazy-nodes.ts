@@ -5,7 +5,7 @@
  * chat's lightbox), so none is
  * imported statically: `LazyNode` asks for one here when a block of its kind is on
  * the board, and the bundler splits each into a chunk of its own that loads then.
- * A kind the editor already draws (a note, a chart, a checklist) has no loader.
+ * A kind the editor already draws (a note) has no loader.
  *
  * What is loaded is the block's CONTENT, never its shell: `LazyNode` draws the
  * shell (the chrome, the anchors, the resize corners, the toolbar, the node's
@@ -43,6 +43,17 @@ export type LazyNodeLoader = () => Promise<LazyNodeModule>;
 // modules exporting one name would be a duplicate export as far as the tooling that
 // audits exports is concerned. The loader gives them the one shape `LazyNode` reads.
 const LOADERS = {
+	// A chart and a checklist are the board's own, but a board that has none never needs them.
+	chart: () =>
+		import("../nodes/ChartNode.svelte").then((module) => ({
+			default: module.default,
+			shell: module.chartShell,
+		})),
+	checklist: () =>
+		import("../nodes/ChecklistNode.svelte").then((module) => ({
+			default: module.default,
+			shell: module.checklistShell,
+		})),
 	file: () =>
 		import("../nodes/FileNode.svelte").then((module) => ({
 			default: module.default,

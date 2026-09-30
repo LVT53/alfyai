@@ -496,9 +496,10 @@ describe("lazy parts of the editor", () => {
 			allowEntries: ["export-parts"],
 		});
 		expect(named.ok).toBe(true);
-		expect(named.packages.find((p: { pkg: string }) => p.pkg === "html-to-image").chunks).toEqual([
-			"chunks/export.js",
-		]);
+		expect(
+			named.packages.find((p: { pkg: string }) => p.pkg === "html-to-image")
+				.chunks,
+		).toEqual(["chunks/export.js"]);
 		// The same library leaking into a chunk the chat shell loads is still a leak.
 		const leaky = withPart();
 		leaky.manifest["nodes/chat"].imports = ["_shared", "_export"];
@@ -519,7 +520,10 @@ describe("lazy parts of the editor", () => {
 		const texts = {
 			"chunks/export.js": `${SNAP} ${big}`,
 		};
-		const read = (chunk: Chunk) => (chunk.file === "chunks/export.js" ? texts["chunks/export.js"] : readChunk(chunk));
+		const read = (chunk: Chunk) =>
+			chunk.file === "chunks/export.js"
+				? texts["chunks/export.js"]
+				: readChunk(chunk);
 		const result = checkArtifactChunks({
 			manifest,
 			readChunk: read,
@@ -530,6 +534,53 @@ describe("lazy parts of the editor", () => {
 		});
 		expect(result.ok).toBe(true);
 		expect(result.numbers.exclusiveRawBytes).toBeLessThan(1000);
+	});
+});
+
+describe("the target chunk's own budget", () => {
+	it("is held apart from the closure's: a chunk can be small because its modules moved to a chunk a lazy part shares", () => {
+		const big = "q".repeat(60_000);
+		const { manifest, readChunk } = app({ texts: { "chunks/board.js": big } });
+		const closure = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+		});
+		const own = closure.numbers.targetGzipBytes;
+		expect(own).toBeLessThan(closure.numbers.exclusiveGzipBytes);
+
+		const roomy = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+			maxTargetGzip: own + 1,
+			maxGzip: closure.numbers.exclusiveGzipBytes + 1,
+		});
+		expect(roomy.ok).toBe(true);
+		// The chunk alone is under its cap, the closure is not: only the honest number fails.
+		const tight = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+			maxTargetGzip: own + 1,
+			maxGzip: own + 1,
+		});
+		expect(tight.ok).toBe(false);
+		expect(
+			tight.violations.map((v: { message: string }) => v.message).join("|"),
+		).toContain("loads on its own");
+		const own2 = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+			maxTargetGzip: own - 1,
+		});
+		expect(own2.ok).toBe(false);
+		expect(own2.violations[0].message).toContain("chunk alone");
 	});
 });
 
@@ -553,7 +604,10 @@ describe("what the editor loads that is shared only with other lazy entries", ()
 					imports: ["_shared", "_board", "_versions"],
 				},
 			},
-			texts: { "chunks/versions.js": big, "chunks/canvas-editor.js": `editor ${FLOW}` },
+			texts: {
+				"chunks/versions.js": big,
+				"chunks/canvas-editor.js": `editor ${FLOW}`,
+			},
 		});
 		const result = checkArtifactChunks({
 			manifest,
@@ -573,7 +627,12 @@ describe("what the editor loads that is shared only with other lazy entries", ()
 
 	it("does not count a chunk the chat shell loads too", () => {
 		const { manifest, readChunk } = app();
-		const result = checkArtifactChunks({ manifest, readChunk, name: "CanvasEditor", confine: ["@xyflow"] });
+		const result = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+		});
 		expect(result.numbers.lazySharedChunks).toBe(0);
 	});
 });
@@ -593,7 +652,10 @@ describe("packages the editor must not load", () => {
 			forbid: ["chart.js"],
 		});
 		expect(result.ok).toBe(false);
-		expect(result.violations[0]).toMatchObject({ kind: "forbidden", pkg: "chart.js" });
+		expect(result.violations[0]).toMatchObject({
+			kind: "forbidden",
+			pkg: "chart.js",
+		});
 	});
 
 	it("passes when it is only in a chunk loaded on demand, which is how the chat already loads it", () => {
@@ -627,7 +689,13 @@ describe("packages the editor must not load", () => {
 	it("throws for a package it has no fingerprint for, rather than vouching for it", () => {
 		const { manifest, readChunk } = app();
 		expect(() =>
-			checkArtifactChunks({ manifest, readChunk, name: "CanvasEditor", confine: ["@xyflow"], forbid: ["left-pad"] }),
+			checkArtifactChunks({
+				manifest,
+				readChunk,
+				name: "CanvasEditor",
+				confine: ["@xyflow"],
+				forbid: ["left-pad"],
+			}),
 		).toThrow(/left-pad/);
 	});
 });
@@ -641,7 +709,9 @@ describe("the chat route's own weight", () => {
 	};`;
 
 	it("finds a route's page, its layouts and the root layout in the generated route table", () => {
-		expect(parseRouteNodes(APP, "/(app)/chat/[conversationId]")).toEqual([0, 2, 5]);
+		expect(parseRouteNodes(APP, "/(app)/chat/[conversationId]")).toEqual([
+			0, 2, 5,
+		]);
 		expect(parseRouteNodes(APP, "/(app)/chat")).toEqual([0, 2, 4]);
 		expect(parseRouteNodes(APP, "/login")).toEqual([0, 9]);
 		expect(parseRouteNodes(APP, "/nowhere")).toBeNull();
@@ -650,15 +720,27 @@ describe("the chat route's own weight", () => {
 	/** A build with three route nodes and a lazy editor the chat page reaches only by import(). */
 	function build(chatText = "chat page") {
 		const manifest: Record<string, Chunk> = {
-			".svelte-kit/generated/client-optimized/nodes/0.js": { file: "nodes/0.js", isEntry: true, imports: ["_shared"] },
-			".svelte-kit/generated/client-optimized/nodes/2.js": { file: "nodes/2.js", isEntry: true, imports: ["_shared"] },
+			".svelte-kit/generated/client-optimized/nodes/0.js": {
+				file: "nodes/0.js",
+				isEntry: true,
+				imports: ["_shared"],
+			},
+			".svelte-kit/generated/client-optimized/nodes/2.js": {
+				file: "nodes/2.js",
+				isEntry: true,
+				imports: ["_shared"],
+			},
 			".svelte-kit/generated/client-optimized/nodes/5.js": {
 				file: "nodes/5.js",
 				isEntry: true,
 				imports: ["_shared", "_chat"],
 				dynamicImports: ["editor"],
 			},
-			editor: { file: "chunks/editor.js", isDynamicEntry: true, imports: ["_shared"] },
+			editor: {
+				file: "chunks/editor.js",
+				isDynamicEntry: true,
+				imports: ["_shared"],
+			},
 			_shared: { file: "chunks/shared.js" },
 			_chat: { file: "chunks/chat.js" },
 		};
@@ -676,7 +758,12 @@ describe("the chat route's own weight", () => {
 
 	it("sums every chunk the route's first load needs, once, and never a lazy one", () => {
 		const { manifest, readChunk } = build();
-		const result = checkChatRoute({ manifest, readChunk, nodes, baseline: 1_000_000 });
+		const result = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			baseline: 1_000_000,
+		});
 		expect(result.ok).toBe(true);
 		expect(result.chunks).toBe(5);
 		expect(result.gzipBytes).toBeGreaterThan(0);
@@ -686,22 +773,46 @@ describe("the chat route's own weight", () => {
 
 	it("passes within the tolerance of the baseline and FAILS past it", () => {
 		const { manifest, readChunk } = build();
-		const measured = checkChatRoute({ manifest, readChunk, nodes, baseline: 1_000_000 }).gzipBytes;
-		const within = checkChatRoute({ manifest, readChunk, nodes, baseline: measured - 2_000, tolerance: 2_048 });
+		const measured = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			baseline: 1_000_000,
+		}).gzipBytes;
+		const within = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			baseline: measured - 2_000,
+			tolerance: 2_048,
+		});
 		expect(within.ok).toBe(true);
-		const past = checkChatRoute({ manifest, readChunk, nodes, baseline: measured - 2_049, tolerance: 2_048 });
+		const past = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			baseline: measured - 2_049,
+			tolerance: 2_048,
+		});
 		expect(past.ok).toBe(false);
 		expect(past.message).toContain("grew");
 	});
 
 	it("does not fail when the route got lighter", () => {
 		const { manifest, readChunk } = build();
-		expect(checkChatRoute({ manifest, readChunk, nodes, baseline: 90_000 }).ok).toBe(true);
+		expect(
+			checkChatRoute({ manifest, readChunk, nodes, baseline: 90_000 }).ok,
+		).toBe(true);
 	});
 
 	it("says so, and fails, when a route node is not in the build", () => {
 		const { manifest, readChunk } = build();
-		const result = checkChatRoute({ manifest, readChunk, nodes: [0, 2, 99], baseline: 1 });
+		const result = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes: [0, 2, 99],
+			baseline: 1,
+		});
 		expect(result.ok).toBe(false);
 		expect(result.message).toContain("99");
 	});

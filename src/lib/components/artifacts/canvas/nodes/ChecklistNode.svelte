@@ -1,3 +1,20 @@
+<script module lang="ts">
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
+import type { LazyShell } from "../_lib/lazy-nodes";
+
+type ChecklistShellData = Extract<CanvasBlockData, { kind: "checklist" }>;
+
+/** How a checklist dresses the shell `LazyNode` draws: its label, and how many of its items are done. */
+export function checklistShell(data: ChecklistShellData): LazyShell {
+	const done = data.items.filter((item) => item.done).length;
+	return {
+		title: data.label ?? "",
+		meta: data.items.length > 0 ? `${done}/${data.items.length}` : "",
+		summary: data.label ?? "",
+	};
+}
+</script>
+
 <script lang="ts">
 /**
  * The board's own checklist — the chat's (`chat/Checklist.svelte`) is a reply's
@@ -7,16 +24,12 @@
  * withheld for. The items are plain text (a board note is not markdown).
  */
 import { Plus, X } from "@lucide/svelte";
-import { useSvelteFlow } from "@xyflow/svelte";
 import { t } from "$lib/i18n";
 import {
 	CHECKLIST_ITEM_MAX_CHARS,
 	CHECKLIST_MAX_ITEMS,
-	type CanvasBlockData,
 } from "$lib/shared/artifacts/canvas-blocks";
-import { BLOCK_META } from "../_lib/block-meta";
 import { useBoardContext } from "../_lib/board-context";
-import NodeShell from "../NodeShell.svelte";
 
 type ChecklistData = Extract<CanvasBlockData, { kind: "checklist" }>;
 type Item = ChecklistData["items"][number];
@@ -28,8 +41,6 @@ let {
 }: { id: string; data: ChecklistData; selected?: boolean } = $props();
 
 const board = useBoardContext();
-const flow = useSvelteFlow();
-const minSize = BLOCK_META.checklist.minSize;
 
 let doneCount = $derived(data.items.filter((item) => item.done).length);
 let editable = $derived(!board.readonly);
@@ -37,7 +48,7 @@ let full = $derived(data.items.length >= CHECKLIST_MAX_ITEMS);
 let draft = $state("");
 
 function commit(items: Item[]): void {
-	flow.updateNodeData(id, { items });
+	board.updateData?.(id, { items });
 }
 
 function toggle(itemId: string): void {
@@ -66,16 +77,6 @@ function add(): void {
 }
 </script>
 
-<NodeShell
-	{id}
-	kind="checklist"
-	{selected}
-	minWidth={minSize.width}
-	minHeight={minSize.height}
-	title={data.label ?? ""}
-	meta={data.items.length > 0 ? `${doneCount}/${data.items.length}` : ""}
-	summary={data.label ?? ""}
->
 	<ul class="checklist" data-testid="canvas-checklist">
 		{#each data.items as item (item.id)}
 			<li class="row" class:row--done={item.done}>
@@ -145,7 +146,6 @@ function add(): void {
 	{#if selected}
 		<p class="note">{$t("artifacts.canvas.checklistReadOnlyNote")}</p>
 	{/if}
-</NodeShell>
 
 <style>
 	.checklist {

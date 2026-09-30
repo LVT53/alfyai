@@ -6,9 +6,9 @@
  *
  * The schema is the shared one (`canvas-blocks.ts`, ruling 64: the server
  * validates a stored board and a model's change with the same objects). The
- * blocks made from the chat (map, file, App, photos, live web) are drawn by
- * `LazyNode`, which loads the real node when one is on the board, so the
- * editor's first paint pays for none of them.
+ * blocks made from the chat (map, file, App, photos, live web), and the chart and the checklist,
+ * are drawn by `LazyNode`, which loads the real node when one is on the board, so
+ * the editor's first paint pays for none of them.
  */
 import type { NodeTypes } from "@xyflow/svelte";
 import type { z } from "zod";
@@ -19,8 +19,6 @@ import {
 	type BlockKind,
 	type CanvasBlockData,
 } from "$lib/shared/artifacts/canvas-blocks";
-import ChartNode from "../nodes/ChartNode.svelte";
-import ChecklistNode from "../nodes/ChecklistNode.svelte";
 import FrameNode from "../nodes/FrameNode.svelte";
 import LazyNode from "../nodes/LazyNode.svelte";
 import MissingKindNode from "../nodes/MissingKindNode.svelte";
@@ -53,8 +51,8 @@ export const BLOCK_REGISTRY: Partial<Record<BlockKind, BlockRegistryEntry>> = {
 	frame: entry("frame", FrameNode),
 	sticky: entry("sticky", StickyNode),
 	text: entry("text", TextNode),
-	chart: entry("chart", ChartNode),
-	checklist: entry("checklist", ChecklistNode),
+	chart: entry("chart", LazyNode),
+	checklist: entry("checklist", LazyNode),
 	map: entry("map", LazyNode),
 	file: entry("file", LazyNode),
 	app: entry("app", LazyNode),
