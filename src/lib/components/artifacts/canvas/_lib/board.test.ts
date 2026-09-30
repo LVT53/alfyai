@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canvasReadBlocks } from "$lib/server/services/normal-chat-tools/artifact-tools/canvas-model";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
-import {
-	DEFAULT_NODE_HEIGHT,
-	NODE_WIDTH,
-} from "$lib/shared/artifacts/canvas-blocks";
+import { NODE_WIDTH } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	absoluteOf,
 	facingHandles,
@@ -90,12 +87,14 @@ describe("nodeRect", () => {
 			height: 60,
 		});
 		expect(nodeRect(n, [n])).toEqual({ x: 10, y: 20, width: 200, height: 120 });
+		// Not measured, not stored: the shared width, and as tall as its words make
+		// a note (a short one is 64: RV-3 C2 — the model reads the same number).
 		const bare = note("bare", 0, 0);
 		expect(nodeRect(bare, [bare])).toEqual({
 			x: 0,
 			y: 0,
 			width: NODE_WIDTH,
-			height: DEFAULT_NODE_HEIGHT,
+			height: 64,
 		});
 	});
 
