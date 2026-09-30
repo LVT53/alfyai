@@ -257,10 +257,10 @@ test.describe("the Canvas kind, in the panel", () => {
 					height: (el as HTMLElement).offsetHeight,
 				}));
 			expect(drawn.width, `${id} width`).toBe(NODE_WIDTH);
-			// Never taller than Alfy plans with (a line of slack is fine).
+			// Never taller than Alfy plans with, and not more than two lines shorter.
 			expect(drawn.height, `${id} height`).toBeLessThanOrEqual(expected + 2);
 			expect(drawn.height, `${id} height`).toBeGreaterThanOrEqual(
-				expected - 20,
+				expected - 40,
 			);
 			// Inside its frame, and clear of the note before it.
 			const box = await nodeBox(page, id);

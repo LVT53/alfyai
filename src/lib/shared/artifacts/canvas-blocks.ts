@@ -59,10 +59,13 @@ export const DEFAULT_NODE_HEIGHT = 84;
  * the panel's own numbers for a block `NODE_WIDTH` wide, measured in the
  * browser: a note (`StickyNode.svelte`: 12.5px type at 1.45, 9px above and
  * below) is 64 tall for one or two lines and 18 more for each further one, a
- * checklist row is 26 with 74 above and below its rows. About 21 characters
- * fit a line of a note that wide (word wrap costs some of the 24 the width
- * would hold), so the estimate is one line too tall now and then and never too
- * short: an arrangement made from it leaves slack, never an overlap.
+ * checklist row is 26 with 74 above and below its rows. About 18 characters
+ * fit a line of a note that wide: the width holds 24, and word wrap costs the
+ * rest, more in Hungarian, whose long words waste the end of a line (natural
+ * English and Hungarian notes measured at 16.5 to 23 a line). 18 is the most
+ * that no natural note came out taller than, so the estimate is up to two lines
+ * too tall and, in what was measured, never too short: an arrangement made from
+ * it leaves slack, never an overlap.
  */
 export const NOTE_MIN_HEIGHT = 64;
 export const NOTE_LINE_HEIGHT = 18;
@@ -70,11 +73,12 @@ const NOTE_PADDING_HEIGHT = 18;
 const TEXT_MIN_HEIGHT = 32;
 const TEXT_PADDING_HEIGHT = 14;
 const NOTE_SIDE_PADDING = 20;
-const NOTE_CHAR_WIDTH = 8;
+/** Board units a character takes, word wrap's waste included (170 wide holds 18, not 24). */
+const NOTE_CHAR_WIDTH = 9.4;
 export const CHECKLIST_BASE_HEIGHT = 74;
 export const CHECKLIST_ROW_HEIGHT = 26;
 
-/** How many characters of a note's words fit a line of a block `width` wide (about 21 at `NODE_WIDTH`). */
+/** How many characters of a note's words fit a line of a block `width` wide (about 18 at `NODE_WIDTH`). */
 export function charsPerLine(width: number = NODE_WIDTH): number {
 	return Math.max(1, Math.floor((width - NOTE_SIDE_PADDING) / NOTE_CHAR_WIDTH));
 }

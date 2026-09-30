@@ -254,22 +254,79 @@ describe("the height a block is drawn at, as the model is told it (RV-3 C2)", ()
 		[178, 163],
 	];
 
-	it("is as tall as the panel draws a note, or one line taller, and never shorter", () => {
+	it("is as tall as the panel draws a note, or up to two lines taller, and never shorter", () => {
 		for (const [chars, drawn] of DRAWN) {
 			const estimate = estimatedNodeHeight(
 				sticky("word ".repeat(200).slice(0, chars)),
 			);
 			expect(estimate, `${chars} characters`).toBeGreaterThanOrEqual(drawn - 2);
-			expect(estimate, `${chars} characters`).toBeLessThanOrEqual(drawn + 20);
+			expect(estimate, `${chars} characters`).toBeLessThanOrEqual(drawn + 36);
+		}
+	});
+
+	// Natural notes, drawn in the browser at 190 wide: Hungarian wraps worse than
+	// English (long words waste the end of a line: the 99-character one took six
+	// lines, 16.5 to a line), so the estimate is what no note was ever taller than.
+	const NATURAL: [string, number][] = [
+		[
+			"Ebéd a Nagycsarnokban, utána séta a Duna-parton a Szabadság hídtól a Margit-szigetig",
+			91,
+		],
+		[
+			"Vacsora egy kis étteremben a Belvárosban, majd esti koncert a Művészetek Palotájában, ha marad jegy",
+			127,
+		],
+		[
+			"Kiadós brunch a Naschmarkton, közben megnézzük a bolhapiacot is, ha nem esik az eső",
+			109,
+		],
+		[
+			"Indulás a pályaudvarra legkésőbb tizenegy órakor, hogy biztosan elérjük a vonatot Budapest felé",
+			109,
+		],
+		[
+			"Metrójegy vagy heti bérlet? Kiszámolni, hogy melyik éri meg három napra két személynek",
+			91,
+		],
+		[
+			"Csomagolás: útlevél, töltő, esőkabát, kényelmes cipő a sok gyaloglás miatt",
+			91,
+		],
+		[
+			"Lunch at the market hall, then a long walk along the river from the old bridge to the island",
+			91,
+		],
+		[
+			"Dinner at a small restaurant in the old town, then an evening concert at the palace if tickets remain",
+			109,
+		],
+		[
+			"The Belvedere: Klimt's The Kiss, a coffee in the garden, then back to the hotel for the luggage",
+			91,
+		],
+		[
+			"Museum tickets bought online in advance because the queue at the door is very long in the morning",
+			109,
+		],
+		[
+			"Book a table for the evening at a traditional Viennese restaurant known for its Wiener Schnitzel",
+			109,
+		],
+		["Breakfast at Café Central, then a slow walk along the Kohlmarkt", 72],
+	];
+
+	it("is never shorter than a natural Hungarian or English note was drawn, and never more than two lines taller", () => {
+		for (const [text, drawn] of NATURAL) {
+			const estimate = estimatedNodeHeight(sticky(text));
+			expect(estimate, text).toBeGreaterThanOrEqual(drawn - 2);
+			expect(estimate, text).toBeLessThanOrEqual(drawn + 36);
 		}
 	});
 
 	it("gives a short note the smallest a note is, and each further line 18 more", () => {
 		expect(estimatedNodeHeight(sticky("Museum, 10:00"))).toBe(64);
-		expect(estimatedNodeHeight(sticky("x".repeat(42)))).toBe(64);
-		expect(
-			estimatedNodeHeight(sticky(`${"x".repeat(41)} ${"y".repeat(21)}`)),
-		).toBe(72);
+		expect(estimatedNodeHeight(sticky("x".repeat(36)))).toBe(64);
+		expect(estimatedNodeHeight(sticky("x".repeat(37)))).toBe(72);
 		const one = estimatedNodeHeight(sticky("word ".repeat(40)));
 		const more = estimatedNodeHeight(sticky("word ".repeat(80)));
 		expect(more).toBeGreaterThan(one);
