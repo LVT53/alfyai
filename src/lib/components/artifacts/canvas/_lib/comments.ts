@@ -2,7 +2,7 @@
  * What a comment thread means on a board, and nothing that draws: where its pin
  * sits, whether the block it was left on is still there, the number it wears,
  * and which block a click landed on. Pure, so it is unit-tested without a
- * browser and the components (`CommentLayer`, the list) only draw what it says.
+ * browser and the components (`CommentPins`, `CommentCatcher`, the list) only draw what it says.
  *
  * Whether a thread is orphaned is never decided here by asking "is there such a
  * node": it is the resolver's answer (`canvasAnchorResolver`, ruling 11), so a

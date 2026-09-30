@@ -2,7 +2,7 @@
  * The board's comment state and what it does over the network: which threads
  * there are, whether the list is showing, what the pins and the list have
  * selected, the comment that has been placed but not written yet, and Alfy
- * working on one. The pins (`CommentLayer`) and the list (`CanvasComments`) are
+ * working on one. The pins (`CommentPins`) and the list (`CanvasComments`) are
  * two places in the DOM that show one state, so it lives here, in one object
  * the editor makes when comments are first needed — a board with none and a
  * reader who never opens them never loads any of this.
