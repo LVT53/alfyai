@@ -470,6 +470,60 @@ test.describe("the Canvas kind, in the panel", () => {
 		await expect(page.getByText("sticky words")).toBeVisible();
 	});
 
+	// RV-3 Minor 1: a note was staggered off blocks that sat at exactly its corner
+	// and no others, so it landed on top of whatever was in the middle of the view
+	// (and its tone toolbar took the click meant for the block beneath it).
+	test("puts an inserted note on free ground, clear of what is in the middle of the view", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Crowded middle");
+		await seedCanvas(
+			conversationId,
+			{
+				...emptyCanvasBody(),
+				nodes: [
+					{
+						id: "note-middle",
+						type: "sticky",
+						position: { x: 0, y: 0 },
+						width: 190,
+						data: {
+							kind: "sticky",
+							text: "Museum, 14:00 - book ahead",
+							tone: "yellow",
+						},
+					},
+				],
+			},
+			"Crowded middle",
+		);
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		await openInsertMenu(page);
+		await page.getByTestId("canvas-insert-sticky").click();
+		await expect(page.getByTestId("canvas-node")).toHaveCount(2);
+		await page.keyboard.press("Escape");
+
+		const before = await nodeBox(page, "note-middle");
+		const inserted = await page
+			.locator('[data-testid="canvas-node"][data-selected="true"]')
+			.evaluate((el) =>
+				el.closest(".svelte-flow__node")?.getAttribute("data-id"),
+			);
+		if (!inserted) throw new Error("the inserted note is not selected");
+		const added = await nodeBox(page, inserted);
+		const apart =
+			added.x + added.width <= before.x ||
+			before.x + before.width <= added.x ||
+			added.y + added.height <= before.y ||
+			before.y + before.height <= added.y;
+		expect(
+			apart,
+			"the inserted note lies clear of the one that was there",
+		).toBe(true);
+	});
+
 	test("closes the Insert menu on Escape, which hands focus back to Insert, and on a click outside, which leaves focus where the reader clicked", async ({
 		page,
 	}) => {

@@ -516,12 +516,12 @@ async function insertBlock(
 		x: rect.left + rect.width / 2,
 		y: rect.top + rect.height / 2,
 	});
-	// A note is staggered off the one under it. A block made from the chat (it
-	// arrives with the data the chat made) is big — an App is 400 x 340 — so it is
-	// put on free ground instead: laid over another App it would take that App's
-	// clicks. A frame is a backdrop, not in the way.
+	// A block goes on free ground: laid over another it would hide it and take the
+	// clicks meant for it (a made-from-the-chat block is big, an App is 400 x 340,
+	// and a note's own toolbar sits over what is beneath it). A frame is a backdrop,
+	// not in the way of a block, and a new frame is only staggered off the others.
 	const position =
-		data !== undefined
+		data !== undefined || row.kind !== "frame"
 			? placeBesideBlocks({
 					center,
 					size: row.size,
