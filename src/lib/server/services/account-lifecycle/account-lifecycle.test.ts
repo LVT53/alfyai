@@ -1455,4 +1455,135 @@ describe("the artifact family across erasure and the resets", () => {
 			expect(ids.filter((id) => id.startsWith("keep-me-"))).toHaveLength(2);
 		}
 	});
+
+	// The Canvas (slice 3): a board is a `type: "artifact"` row like a Document,
+	// with a JSON body, versions of it and comment threads anchored to its
+	// blocks. None of the three resets asks what KIND an artifact is — they walk
+	// the family's tables — so a board must go the way a Document goes; written
+	// down here so a kind-specific rule cannot slip in unnoticed.
+	function seedCanvasBoard(userId: string) {
+		const { sqlite, db } = openMigratedDb();
+		const now = new Date("2026-09-25T10:00:00.000Z");
+		const p = (suffix: string) => `${userId}-${suffix}`;
+		const board = JSON.stringify({
+			version: 1,
+			nodes: [
+				{
+					id: "note-1",
+					type: "sticky",
+					position: { x: 0, y: 0 },
+					data: { kind: "sticky", text: "Tickets", tone: "yellow" },
+				},
+			],
+			edges: [],
+			viewport: { x: 0, y: 0, zoom: 1 },
+			annotations: [],
+		});
+		db.insert(schema.users)
+			.values({
+				id: userId,
+				email: `${userId}@example.com`,
+				passwordHash: "hash",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		db.insert(schema.conversations)
+			.values({
+				id: p("conv"),
+				userId,
+				title: "Chat",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		db.insert(schema.artifacts)
+			.values({
+				id: p("board"),
+				userId,
+				conversationId: p("conv"),
+				type: "artifact",
+				name: "Saturday board",
+				contentText: board,
+				metadataJson: JSON.stringify({
+					artifactType: "canvas",
+					title: "Saturday board",
+				}),
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		for (const number of [1, 2]) {
+			db.insert(schema.artifactVersions)
+				.values({
+					id: p(`board-version-${number}`),
+					artifactId: p("board"),
+					userId,
+					versionNumber: number,
+					author: number === 1 ? "alfy" : "user",
+					summary: "Saved",
+					body: board,
+					bodyHash: `hash-${number}`,
+					createdAt: now,
+				})
+				.run();
+		}
+		db.insert(schema.artifactComments)
+			.values({
+				id: p("board-comment"),
+				artifactId: p("board"),
+				userId,
+				anchorJson: JSON.stringify({ kind: "node", nodeId: "note-1" }),
+				author: "user",
+				body: "Comment",
+				createdAt: now,
+			})
+			.run();
+		sqlite.close();
+	}
+
+	it("removes a Canvas board with its versions and comments on erasure, and spares another user's", async () => {
+		seedCanvasBoard("erase-me");
+		seedCanvasBoard("keep-me");
+
+		const { eraseUserAccountData } = await import("./index");
+		await eraseUserAccountData("erase-me");
+
+		expect(await familyRowIds()).toEqual({
+			artifacts: ["keep-me-board"],
+			versions: ["keep-me-board-version-1", "keep-me-board-version-2"],
+			comments: ["keep-me-board-comment"],
+			kv: [],
+		});
+	});
+
+	it("Clear Memory deletes a Canvas board with its history, as it does a Document", async () => {
+		seedCanvasBoard("clear-me");
+		seedCanvasBoard("keep-me");
+
+		const { clearMemoryAndKnowledgeForUser } = await import("./index");
+		await clearMemoryAndKnowledgeForUser("clear-me");
+
+		expect(await familyRowIds()).toEqual({
+			artifacts: ["keep-me-board"],
+			versions: ["keep-me-board-version-1", "keep-me-board-version-2"],
+			comments: ["keep-me-board-comment"],
+			kv: [],
+		});
+	});
+
+	it("Clear Workspace removes a Canvas board with its history, and spares another user's", async () => {
+		seedCanvasBoard("purge-me");
+		seedCanvasBoard("keep-me");
+
+		const { purgeUserData } = await import("./index");
+		await purgeUserData("purge-me");
+
+		expect(await familyRowIds()).toEqual({
+			artifacts: ["keep-me-board"],
+			versions: ["keep-me-board-version-1", "keep-me-board-version-2"],
+			comments: ["keep-me-board-comment"],
+			kv: [],
+		});
+	});
 });

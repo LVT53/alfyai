@@ -1288,6 +1288,666 @@ describe("an incognito artifact preserved by an outside reference, after its con
 	});
 });
 
+// ── PART A, continued: the Canvas (Feature 2, slice 3) ───────────────────
+//
+// A board is a second place a user's content can live, and it has more ways in
+// than a Document: the ops route (an id-addressed change), the body route (the
+// reader's own save), the comment route, the version list, the model's read and
+// edit tools. Each is driven here through what a caller would use — the route
+// handlers themselves, on a real in-memory database — from outside the board's
+// conversation and as another user, beside the positive half from inside, so a
+// pass measures the scope and not a broken route.
+//
+// The account archive and the erasure paths are kind-agnostic tables walks with
+// their own suites (`account-data-archive`, `account-lifecycle`); the Canvas
+// cases for those live there.
+
+const { boardJson } = await import("$lib/shared/artifacts/canvas-body");
+const { applyArtifactOps } = await import("$lib/server/services/artifacts");
+const { runReadArtifactTool } = await import(
+	"$lib/server/services/normal-chat-tools/artifact-tools/read"
+);
+const { runEditArtifactTool } = await import(
+	"$lib/server/services/normal-chat-tools/artifact-tools/edit"
+);
+const artifactRoutes = {
+	detail: await import("../../src/routes/api/artifacts/[id]/+server"),
+	ops: await import("../../src/routes/api/artifacts/[id]/ops/+server"),
+	body: await import("../../src/routes/api/artifacts/[id]/body/+server"),
+	comments: await import(
+		"../../src/routes/api/artifacts/[id]/comments/+server"
+	),
+	versions: await import(
+		"../../src/routes/api/artifacts/[id]/versions/+server"
+	),
+	export: await import("../../src/routes/api/artifacts/[id]/export/+server"),
+};
+
+const STRANGER = "user-stranger";
+const STRANGER_CONVERSATION = "conv-stranger";
+const SECRET_BOARD_TITLE = "Severance floor plan";
+const SECRET_BOARD_NOTE = `Move the ${SECRET_WORD} desk`;
+const SECRET_NODE_ID = "note-secret";
+
+function secretBoard(text = SECRET_BOARD_NOTE) {
+	return {
+		version: 1 as const,
+		nodes: [
+			{
+				id: SECRET_NODE_ID,
+				type: "sticky" as const,
+				position: { x: 40, y: 40 },
+				width: 190,
+				data: { kind: "sticky" as const, text, tone: "yellow" as const },
+			},
+		],
+		edges: [],
+		viewport: { x: 0, y: 0, zoom: 1 },
+		annotations: [],
+	};
+}
+
+async function seedBoard(
+	conversationId: string,
+	title = SECRET_BOARD_TITLE,
+): Promise<{ boardId: string; commentId: string }> {
+	const created = await createArtifact({
+		userId: USER,
+		conversationId,
+		kind: "canvas",
+		title,
+		body: boardJson(secretBoard()),
+		author: "user",
+		versionSummary: "Created",
+	});
+	if (!created.ok) throw new Error(`seeding refused: ${created.reason}`);
+	const comment = await createComment({
+		userId: USER,
+		artifactId: created.artifact.id,
+		conversationId,
+		anchor: { kind: "node", nodeId: SECRET_NODE_ID },
+		author: "user",
+		body: `Ask about the ${SECRET_WORD} desk`,
+	});
+	if (!comment) throw new Error("seeding refused: comment");
+	return { boardId: created.artifact.id, commentId: comment.id };
+}
+
+/** What a board holds right now: its versions, its comments, its stored body. */
+function boardRows(artifactId: string) {
+	return {
+		versions: memory.db
+			.select({ id: schema.artifactVersions.id })
+			.from(schema.artifactVersions)
+			.where(eq(schema.artifactVersions.artifactId, artifactId))
+			.all().length,
+		comments: memory.db
+			.select({ id: schema.artifactComments.id })
+			.from(schema.artifactComments)
+			.where(eq(schema.artifactComments.artifactId, artifactId))
+			.all().length,
+		body: memory.db
+			.select({ contentText: schema.artifacts.contentText })
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, artifactId))
+			.get()?.contentText,
+	};
+}
+
+type Caller = { userId: string; conversationId?: string | null };
+
+/** One artifact route, driven the way SvelteKit drives it. */
+type RouteCall = {
+	name: string;
+	run: (
+		caller: Caller,
+		artifactId: string,
+		baseVersionId: string,
+	) => Promise<Response>;
+};
+
+function routeEvent(
+	caller: Caller,
+	artifactId: string,
+	path: string,
+	body?: unknown,
+) {
+	const query = caller.conversationId
+		? `?conversationId=${encodeURIComponent(caller.conversationId)}`
+		: "";
+	return {
+		params: { id: artifactId },
+		url: new URL(`http://localhost/api/artifacts/${artifactId}${path}${query}`),
+		locals: { user: { id: caller.userId, role: "user" } },
+		request: {
+			json: async () => {
+				if (body === undefined) throw new SyntaxError("no body");
+				return body;
+			},
+			headers: new Headers(),
+		},
+	} as never;
+}
+
+const CANVAS_ROUTE_CALLS: RouteCall[] = [
+	{
+		name: "GET the board",
+		run: (caller, id) => artifactRoutes.detail.GET(routeEvent(caller, id, "")),
+	},
+	{
+		name: "GET its versions",
+		run: (caller, id) =>
+			artifactRoutes.versions.GET(routeEvent(caller, id, "/versions")),
+	},
+	{
+		name: "POST ops (an id-addressed change)",
+		run: (caller, id, baseVersionId) =>
+			artifactRoutes.ops.POST(
+				routeEvent(caller, id, "/ops", {
+					baseVersionId,
+					diff: {
+						id: "diff-1",
+						summary: "Moved",
+						ops: [{ op: "move", id: SECRET_NODE_ID, to: { x: 400, y: 200 } }],
+					},
+				}),
+			),
+	},
+	{
+		name: "PATCH the body (the reader's own save)",
+		run: (caller, id) =>
+			artifactRoutes.body.PATCH(
+				routeEvent(caller, id, "/body", {
+					body: boardJson(secretBoard("Overwritten.")),
+					expectVersion: 1,
+				}),
+			),
+	},
+	{
+		name: "POST a comment",
+		run: (caller, id) =>
+			artifactRoutes.comments.POST(
+				routeEvent(caller, id, "/comments", {
+					anchor: { kind: "node", nodeId: SECRET_NODE_ID },
+					body: "Injected.",
+				}),
+			),
+	},
+	{
+		name: "POST an export",
+		run: (caller, id) =>
+			artifactRoutes.export.POST(
+				routeEvent(caller, id, "/export", { format: "markdown" }),
+			),
+	},
+	{
+		name: "DELETE the board",
+		run: (caller, id) =>
+			artifactRoutes.detail.DELETE(routeEvent(caller, id, "")),
+	},
+];
+
+/** Everything a route says about a board that is not there — the same bytes whether it is missing, someone else's, or out of reach. */
+async function answerOf(response: Response) {
+	return { status: response.status, text: await response.text() };
+}
+
+describe("an incognito conversation's Canvas, from outside it", () => {
+	beforeEach(() => {
+		seedUser(STRANGER);
+		memory.db
+			.insert(schema.conversations)
+			.values({
+				id: STRANGER_CONVERSATION,
+				userId: STRANGER,
+				title: STRANGER_CONVERSATION,
+				memoryIncognito: false,
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+	});
+
+	it("is in no other conversation's panel list, catalogue, library, search or evidence", async () => {
+		await seedBoard(INCOGNITO);
+		// A normal upload with the same word, so each search is seen to find
+		// something rather than to find nothing at all.
+		seedUpload(
+			NORMAL,
+			"public-notes.md",
+			`A ${SECRET_WORD} note from an ordinary chat.`,
+		);
+
+		await expect(
+			listArtifactsForConversation({ userId: USER, conversationId: NORMAL }),
+		).resolves.toEqual([]);
+		await expect(
+			listArtifactCatalogueEntries({ userId: USER, conversationId: NORMAL }),
+		).resolves.toEqual([]);
+		await expect(
+			resolveArtifactCatalogueBlock({ userId: USER, conversationId: NORMAL }),
+		).resolves.toBeNull();
+
+		const library = await listKnowledgeArtifacts(USER);
+		expect(JSON.stringify(library)).not.toContain(SECRET_BOARD_TITLE);
+		expect(JSON.stringify(library)).not.toContain(SECRET_BOARD_NOTE);
+
+		const merged = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(JSON.stringify(merged)).not.toContain(SECRET_BOARD_TITLE);
+		expect(merged.documents.map((document) => document.name)).toContain(
+			"public-notes.md",
+		);
+
+		const byWord = await searchWorkspace(USER, { query: SECRET_WORD });
+		expect(byWord.documents.map((document) => document.name)).toContain(
+			"public-notes.md",
+		);
+		expect(JSON.stringify(byWord)).not.toContain(SECRET_BOARD_TITLE);
+		const byTitle = await searchWorkspace(USER, { query: SECRET_BOARD_TITLE });
+		expect(byTitle.documents).toEqual([]);
+
+		const picked = await findRelevantKnowledgeArtifacts({
+			userId: USER,
+			query: `${SECRET_WORD} desk ${SECRET_BOARD_TITLE}`,
+			excludeConversationId: NORMAL,
+			currentConversationId: NORMAL,
+			limit: 10,
+		});
+		expect(JSON.stringify(picked)).not.toContain(SECRET_BOARD_TITLE);
+		expect(JSON.stringify(picked)).not.toContain(SECRET_BOARD_NOTE);
+	});
+
+	it("answers every route, named by no conversation or by another, as one plain not-found, and writes nothing", async () => {
+		const { boardId } = await seedBoard(INCOGNITO);
+		const before = boardRows(boardId);
+		const [version] = await listVersions({
+			userId: USER,
+			artifactId: boardId,
+			conversationId: INCOGNITO,
+		});
+
+		for (const outside of [
+			{ userId: USER },
+			{ userId: USER, conversationId: NORMAL },
+		]) {
+			for (const call of CANVAS_ROUTE_CALLS) {
+				const answer = await answerOf(
+					await call.run(outside, boardId, version.id),
+				);
+				const missing = await answerOf(
+					await call.run(outside, "no-such-board", version.id),
+				);
+				expect(answer, `${call.name} as ${JSON.stringify(outside)}`).toEqual(
+					missing,
+				);
+				expect(answer.status, call.name).toBe(404);
+				expect(answer.text, call.name).not.toContain(SECRET_WORD);
+				expect(answer.text, call.name).not.toContain(SECRET_BOARD_TITLE);
+			}
+		}
+
+		expect(boardRows(boardId)).toEqual(before);
+	});
+
+	it("answers another user's board through every route as the same not-found a missing id gets — even when that user names the board's own conversation", async () => {
+		const { boardId } = await seedBoard(INCOGNITO);
+		const { boardId: normalBoardId } = await seedBoard(NORMAL, "Weekend board");
+		const beforeIncognito = boardRows(boardId);
+		const beforeNormal = boardRows(normalBoardId);
+		const [version] = await listVersions({
+			userId: USER,
+			artifactId: normalBoardId,
+			conversationId: NORMAL,
+		});
+
+		for (const stranger of [
+			{ userId: STRANGER },
+			{ userId: STRANGER, conversationId: STRANGER_CONVERSATION },
+			// Naming the victim's conversation reaches nothing: ownership starts from
+			// the caller's own conversations.
+			{ userId: STRANGER, conversationId: INCOGNITO },
+			{ userId: STRANGER, conversationId: NORMAL },
+		]) {
+			for (const id of [boardId, normalBoardId]) {
+				for (const call of CANVAS_ROUTE_CALLS) {
+					const answer = await answerOf(
+						await call.run(stranger, id, version.id),
+					);
+					const missing = await answerOf(
+						await call.run(stranger, "no-such-board", version.id),
+					);
+					expect(
+						answer,
+						`${call.name} as ${JSON.stringify(stranger)} on ${id}`,
+					).toEqual(missing);
+					expect(answer.status).toBe(404);
+				}
+			}
+		}
+
+		expect(boardRows(boardId)).toEqual(beforeIncognito);
+		expect(boardRows(normalBoardId)).toEqual(beforeNormal);
+	});
+
+	it("is not found by the model's read and edit tools from another conversation, and nothing is applied", async () => {
+		const { boardId } = await seedBoard(INCOGNITO);
+		const before = boardRows(boardId);
+
+		const read = await runReadArtifactTool({
+			userId: USER,
+			conversationId: NORMAL,
+			artifactId: boardId,
+			abortSignal: new AbortController().signal,
+		});
+		expect(read.modelPayload.success).toBe(false);
+		expect(JSON.stringify(read.modelPayload)).not.toContain(SECRET_WORD);
+		expect(JSON.stringify(read.modelPayload)).not.toContain(SECRET_BOARD_TITLE);
+		expect(JSON.stringify(read.modelPayload)).not.toContain(boardId);
+
+		const edit = await runEditArtifactTool({
+			userId: USER,
+			conversationId: NORMAL,
+			turnId: "turn-1",
+			artifactId: boardId,
+			ops: [{ op: "move", id: SECRET_NODE_ID, to: { x: 1, y: 1 } }],
+			abortSignal: new AbortController().signal,
+		});
+		expect(edit.modelPayload.success).toBe(false);
+		expect(JSON.stringify(edit.modelPayload)).not.toContain(SECRET_WORD);
+		// It looks exactly like an id that does not exist: no kind, no refusal.
+		expect(edit.metadata).not.toHaveProperty("artifactKind");
+		expect(edit.outputSummary).toBe("Not found");
+
+		expect(boardRows(boardId)).toEqual(before);
+	});
+});
+
+describe("inside the incognito conversation, its Canvas still works", () => {
+	it("opens, changes, saves, is commented on and read by Alfy when the request names the conversation", async () => {
+		const { boardId } = await seedBoard(INCOGNITO);
+		const inside = { userId: USER, conversationId: INCOGNITO };
+		const [first] = await listVersions({
+			userId: USER,
+			artifactId: boardId,
+			conversationId: INCOGNITO,
+		});
+
+		const detail = await artifactRoutes.detail.GET(
+			routeEvent(inside, boardId, ""),
+		);
+		expect(detail.status).toBe(200);
+		const opened = (await detail.json()) as {
+			artifact: { body: string };
+			comments: unknown[];
+		};
+		expect(opened.artifact.body).toContain(SECRET_WORD);
+		expect(opened.comments).toHaveLength(1);
+
+		const ops = await artifactRoutes.ops.POST(
+			routeEvent(inside, boardId, "/ops", {
+				baseVersionId: first.id,
+				diff: {
+					id: "diff-1",
+					summary: "Moved",
+					ops: [{ op: "move", id: SECRET_NODE_ID, to: { x: 400, y: 200 } }],
+				},
+			}),
+		);
+		expect(ops.status).toBe(200);
+		expect(await ops.json()).toMatchObject({
+			ok: true,
+			version: 2,
+			applied: 1,
+		});
+
+		const save = await artifactRoutes.body.PATCH(
+			routeEvent(inside, boardId, "/body", {
+				body: boardJson(secretBoard(`Kept the ${SECRET_WORD} desk`)),
+				expectVersion: 2,
+			}),
+		);
+		expect(save.status).toBe(200);
+
+		const comment = await artifactRoutes.comments.POST(
+			routeEvent(inside, boardId, "/comments", {
+				anchor: { kind: "node", nodeId: SECRET_NODE_ID },
+				body: "One more thing.",
+			}),
+		);
+		expect(comment.status).toBe(200);
+
+		const versions = await artifactRoutes.versions.GET(
+			routeEvent(inside, boardId, "/versions"),
+		);
+		expect(versions.status).toBe(200);
+
+		const read = await runReadArtifactTool({
+			userId: USER,
+			conversationId: INCOGNITO,
+			artifactId: boardId,
+			abortSignal: new AbortController().signal,
+		});
+		expect(read.modelPayload.success).toBe(true);
+		const edited = await runEditArtifactTool({
+			userId: USER,
+			conversationId: INCOGNITO,
+			turnId: "turn-2",
+			artifactId: boardId,
+			ops: [{ op: "move", id: SECRET_NODE_ID, to: { x: 10, y: 10 } }],
+			abortSignal: new AbortController().signal,
+		});
+		expect(edited.modelPayload.success).toBe(true);
+
+		const rows = boardRows(boardId);
+		expect(rows.comments).toBe(2);
+		expect(rows.versions).toBeGreaterThanOrEqual(3);
+	});
+
+	it("records no behavior event when it is opened in the panel", async () => {
+		const { boardId } = await seedBoard(INCOGNITO);
+		const { POST: recordBehavior } = await import(
+			"../../src/routes/api/knowledge/documents/behavior/+server"
+		);
+		const behaviorEvent = (artifactId: string) =>
+			({
+				locals: { user: { id: USER, role: "user" } },
+				request: {
+					json: async () => ({ action: "workspace_opened", artifactId }),
+				},
+			}) as never;
+
+		// The panel of a normal chat opens a board it made and this is recorded...
+		const { boardId: normalBoardId } = await seedBoard(NORMAL, "Weekend board");
+		const recorded = await recordBehavior(behaviorEvent(normalBoardId));
+		expect(recorded.status).toBe(200);
+		expect(memory.db.select().from(schema.memoryEvents).all()).toHaveLength(1);
+
+		// ...and the incognito chat's is not: the call answers as it always does,
+		// and the log drops the event, so nothing is learned from the visit.
+		const answer = await recordBehavior(behaviorEvent(boardId));
+		expect(answer.status).toBe(200);
+		expect(memory.db.select().from(schema.memoryEvents).all()).toHaveLength(1);
+	});
+
+	it("goes, with its versions and comments, when its conversation is deleted", async () => {
+		const { boardId } = await seedBoard(INCOGNITO);
+
+		await deleteConversationWithCleanup(USER, INCOGNITO);
+
+		expect(boardRows(boardId)).toEqual({
+			versions: 0,
+			comments: 0,
+			body: undefined,
+		});
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+		expect(page.documents.map((item) => item.id)).not.toContain(boardId);
+	});
+});
+
+// The promise covers what the server says about a board, not only who can read
+// it: a board's text must not turn up in a log line or in any table that is not
+// the family's own or the conversation's (telemetry, usage, events, embeddings
+// of the wrong subject). Driven through a whole life of a board, with the
+// console spied and every other table read back.
+describe("a Canvas's content, in logs and in telemetry", () => {
+	const OWN_TABLES = new Set([
+		"artifacts",
+		"artifact_versions",
+		"artifact_comments",
+		"artifact_kv",
+	]);
+
+	it("never reaches a console line or a table outside the family's own, across create, save, ops, comment, read, edit and delete", async () => {
+		const spies = (["log", "info", "warn", "error", "debug"] as const).map(
+			(method) => vi.spyOn(console, method).mockImplementation(() => {}),
+		);
+		try {
+			const { boardId } = await seedBoard(NORMAL);
+			const [first] = await listVersions({
+				userId: USER,
+				artifactId: boardId,
+				conversationId: NORMAL,
+			});
+			await applyArtifactOps({
+				userId: USER,
+				artifactId: boardId,
+				conversationId: NORMAL,
+				payload: {
+					baseVersionId: first.id,
+					diff: {
+						id: "diff-1",
+						summary: `Added the ${SECRET_WORD} note`,
+						ops: [
+							{
+								op: "add_node",
+								id: "note-two",
+								type: "sticky",
+								position: { x: 300, y: 40 },
+								data: {
+									kind: "sticky",
+									text: `Also ${SECRET_WORD}`,
+									tone: "mint",
+								},
+							},
+						],
+					},
+				},
+			});
+			await runReadArtifactTool({
+				userId: USER,
+				conversationId: NORMAL,
+				artifactId: boardId,
+				abortSignal: new AbortController().signal,
+			});
+			await runEditArtifactTool({
+				userId: USER,
+				conversationId: NORMAL,
+				turnId: "turn-1",
+				artifactId: boardId,
+				ops: [{ op: "move", id: SECRET_NODE_ID, to: { x: 5, y: 5 } }],
+				abortSignal: new AbortController().signal,
+			});
+			await deleteConversationWithCleanup(USER, NORMAL);
+
+			const logged = JSON.stringify(spies.flatMap((spy) => spy.mock.calls));
+			expect(logged).not.toContain(SECRET_WORD);
+			expect(logged).not.toContain(SECRET_BOARD_TITLE);
+		} finally {
+			for (const spy of spies) spy.mockRestore();
+		}
+	});
+
+	it("has no console line in any module that is the Canvas's own", () => {
+		// A log line is the cheapest way for a board's text to leave the database,
+		// and a runtime spy only sees the paths a test happens to drive. The
+		// Canvas's own server and shared modules (every non-test file named for the
+		// board) write no log at all; a new one that needs to says so here, with
+		// what it logs.
+		const canvasModules: string[] = [];
+		const walk = (dir: string) => {
+			for (const entry of readdirSync(dir, { withFileTypes: true })) {
+				const full = join(dir, entry.name);
+				if (entry.isDirectory()) walk(full);
+				else if (
+					entry.name.endsWith(".ts") &&
+					!entry.name.includes(".test") &&
+					/canvas|board/i.test(entry.name)
+				) {
+					canvasModules.push(full);
+				}
+			}
+		};
+		walk(join(process.cwd(), "src", "lib", "server"));
+		walk(join(process.cwd(), "src", "lib", "shared"));
+		// The check sees the modules it is meant to (a rename cannot empty it).
+		expect(
+			canvasModules.map((file) => relativePath(process.cwd(), file)),
+		).toEqual(
+			expect.arrayContaining([
+				"src/lib/server/services/artifacts/canvas-ops.ts",
+				"src/lib/server/services/artifacts/serialize/canvas.ts",
+				"src/lib/shared/artifacts/canvas-body.ts",
+				"src/lib/shared/artifacts/board-ops.ts",
+			]),
+		);
+
+		const logging = canvasModules.filter((file) =>
+			/\bconsole\s*\.\s*(log|info|warn|error|debug|trace)\b/.test(
+				readFileSync(file, "utf8"),
+			),
+		);
+		expect(logging.map((file) => relativePath(process.cwd(), file))).toEqual(
+			[],
+		);
+	});
+
+	it("leaves the board's text in no other table while it lives", async () => {
+		const { boardId } = await seedBoard(NORMAL);
+		const [first] = await listVersions({
+			userId: USER,
+			artifactId: boardId,
+			conversationId: NORMAL,
+		});
+		await applyArtifactOps({
+			userId: USER,
+			artifactId: boardId,
+			conversationId: NORMAL,
+			payload: {
+				baseVersionId: first.id,
+				diff: {
+					id: "diff-1",
+					summary: "Moved",
+					ops: [{ op: "move", id: SECRET_NODE_ID, to: { x: 5, y: 5 } }],
+				},
+			},
+		});
+
+		const tables = memory.sqlite
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle%'",
+			)
+			.all() as { name: string }[];
+		const holdingIt: string[] = [];
+		for (const { name } of tables) {
+			const rows = memory.sqlite.prepare(`SELECT * FROM "${name}"`).all();
+			if (JSON.stringify(rows).includes(SECRET_WORD)) holdingIt.push(name);
+		}
+		// Exactly the family's own tables: the board, its versions, its comment.
+		// (Were the read blind, this would be empty; were a table beside them
+		// holding the text, it would name it.)
+		expect(holdingIt.sort()).toEqual(
+			["artifact_comments", "artifact_versions", "artifacts"].sort(),
+		);
+		expect(holdingIt.every((name) => OWN_TABLES.has(name))).toBe(true);
+	});
+});
+
 // ── PART B: the guard ──────────────────────────────────────────
 //
 // `getArtifactOwnershipScope` is the boundary. A query that reads `artifacts`
