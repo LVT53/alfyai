@@ -292,6 +292,14 @@ test.describe("the Canvas kind, in the panel", () => {
 		await page.getByTestId("canvas-insert-button").click();
 		const rows = page.getByRole("menuitem");
 		await expect(rows).toHaveCount(5);
+		// The popover puts focus on its first control in a timer of its own, straight
+		// after it mounts; a row focused before that lands loses its focus to it (a
+		// race a busy machine makes easy to lose). The keys are driven after it.
+		await expect(
+			page
+				.getByTestId("canvas-insert-menu")
+				.getByRole("button", { name: "Close" }),
+		).toBeFocused();
 		await rows.first().focus();
 		await page.keyboard.press("ArrowDown");
 		await expect(rows.nth(1)).toBeFocused();
