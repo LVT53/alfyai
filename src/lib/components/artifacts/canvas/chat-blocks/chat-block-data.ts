@@ -22,6 +22,7 @@ export type ChatBlockKind =
 	| "app"
 	| "map"
 	| "chart"
+	| "mermaid"
 	| "photo"
 	| "liveweb";
 
@@ -103,6 +104,33 @@ function chartName(
 	return translate(key);
 }
 
+/** The diagram types the section names, by the first word of the source (lower-cased); any other reads as a plain diagram. */
+const DIAGRAM_TYPE_KEYS: Readonly<Record<string, I18nKey>> = {
+	flowchart: "artifacts.canvas.chat.diagramType.flowchart",
+	graph: "artifacts.canvas.chat.diagramType.flowchart",
+	sequencediagram: "artifacts.canvas.chat.diagramType.sequence",
+	classdiagram: "artifacts.canvas.chat.diagramType.class",
+	statediagram: "artifacts.canvas.chat.diagramType.state",
+	"statediagram-v2": "artifacts.canvas.chat.diagramType.state",
+	erdiagram: "artifacts.canvas.chat.diagramType.er",
+	gantt: "artifacts.canvas.chat.diagramType.gantt",
+	pie: "artifacts.canvas.chat.diagramType.pie",
+};
+
+function diagramName(
+	title: string | null,
+	diagramType: string | null,
+	translate: Translate,
+): string {
+	if (title) return title;
+	const type = diagramType?.toLowerCase() ?? "";
+	return translate(
+		Object.hasOwn(DIAGRAM_TYPE_KEYS, type)
+			? DIAGRAM_TYPE_KEYS[type]
+			: "artifacts.canvas.chat.diagramType.other",
+	);
+}
+
 /** The listing as the section draws it: one group per kind that has something, in a fixed order, each row newest first as the server gave it. */
 export function chatBlockGroups(
 	listing: CanvasChatBlocks,
@@ -182,6 +210,20 @@ export function chatBlockGroups(
 				name: chartName(chart.title, chart.chartType, translate),
 				meta: formatRelativeTime(chart.at, { t: translate }),
 				data: chart.data,
+			})),
+		});
+	}
+
+	if (listing.diagrams.length > 0) {
+		groups.push({
+			kind: "mermaid",
+			label: translate("artifacts.canvas.chat.diagrams"),
+			rows: listing.diagrams.map((diagram) => ({
+				key: diagram.key,
+				kind: "mermaid",
+				name: diagramName(diagram.title, diagram.diagramType, translate),
+				meta: formatRelativeTime(diagram.at, { t: translate }),
+				data: diagram.data,
 			})),
 		});
 	}

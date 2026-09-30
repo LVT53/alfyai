@@ -46,6 +46,7 @@ const LISTING: CanvasChatBlocks = {
 	],
 	maps: [],
 	charts: [],
+	diagrams: [],
 	photos: [],
 	searches: [],
 };

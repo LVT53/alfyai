@@ -6,7 +6,7 @@
  *
  * The schema is the shared one (`canvas-blocks.ts`, ruling 64: the server
  * validates a stored board and a model's change with the same objects). The
- * blocks made from the chat (map, file, App, photos, live web), and the chart and the checklist,
+ * blocks made from the chat (map, file, App, photos, live web, diagram), and the chart and the checklist,
  * are drawn by `LazyNode`, which loads the real node when one is on the board, so
  * the editor's first paint pays for none of them.
  */
@@ -52,6 +52,7 @@ export const BLOCK_REGISTRY: Partial<Record<BlockKind, BlockRegistryEntry>> = {
 	sticky: entry("sticky", StickyNode),
 	text: entry("text", TextNode),
 	chart: entry("chart", LazyNode),
+	mermaid: entry("mermaid", LazyNode),
 	checklist: entry("checklist", LazyNode),
 	map: entry("map", LazyNode),
 	file: entry("file", LazyNode),
@@ -76,6 +77,7 @@ const INSERT_ORDER: readonly BlockKind[] = [
 	"text",
 	"frame",
 	"chart",
+	"mermaid",
 	"checklist",
 	"map",
 	"photo",
@@ -141,6 +143,7 @@ export function defaultDataFor(kind: RegisteredKind): CanvasBlockData | null {
 			return { kind: "chart", code: SAMPLE_CHART };
 		case "checklist":
 			return { kind: "checklist", items: [] };
+		case "mermaid":
 		case "map":
 		case "file":
 		case "app":

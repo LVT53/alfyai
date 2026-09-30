@@ -299,7 +299,15 @@ describe("validateBoardDiff — what a block may be (ruling 64)", () => {
 	const mapData = sampleBoard().nodes.find((n) => n.id === "map-1")?.data;
 
 	it("refuses an add_node of a kind the model cannot mint, as unknown_kind naming the five it may add", () => {
-		for (const type of ["map", "file", "app", "photo", "liveweb", "banana"]) {
+		for (const type of [
+			"map",
+			"file",
+			"app",
+			"photo",
+			"liveweb",
+			"mermaid",
+			"banana",
+		]) {
 			const { accepted, refused } = validateBoardDiff(
 				unchecked({
 					op: "add_node",
@@ -507,6 +515,45 @@ describe("validateBoardDiff — what a block may be (ruling 64)", () => {
 			[2, "invalid_data"],
 			[3, "invalid_data"],
 		]);
+	});
+});
+
+describe("validateBoardDiff — a diagram the reader inserted from the chat (ruling 64, ruling 67)", () => {
+	it("lets the model name it, and never rewrite what the chat drew", () => {
+		const { accepted, refused } = validateBoardDiff(
+			unchecked(
+				{
+					op: "update_node",
+					id: "diagram-1",
+					data: { label: "Checkout flow" },
+				},
+				{ op: "update_node", id: "diagram-1", data: { subtitle: "v2" } },
+				{
+					op: "update_node",
+					id: "diagram-1",
+					data: { code: "flowchart TD\n  X --> Y" },
+				},
+				{ op: "update_node", id: "diagram-1", data: { code: "" } },
+			),
+			sampleBoard(),
+		);
+		expect(accepted).toHaveLength(2);
+		expect(refused.map((r) => [r.index, r.reason])).toEqual([
+			[2, "invalid_data"],
+			[3, "invalid_data"],
+		]);
+	});
+
+	it("still lets it move, and remove, a diagram like any block on the board", () => {
+		const { accepted, refused } = validateBoardDiff(
+			unchecked(
+				{ op: "move", id: "diagram-1", to: { x: 10, y: 20 } },
+				{ op: "remove_node", id: "diagram-1" },
+			),
+			sampleBoard(),
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(2);
 	});
 });
 
@@ -964,7 +1011,7 @@ describe("what the model is shown is what the validator parses (ruling 62)", () 
 		for (const kind of ["frame", "sticky", "text", "checklist", "chart"]) {
 			expect(advertised).toContain(`"const":"${kind}"`);
 		}
-		for (const kind of ["map", "file", "app", "photo", "liveweb"]) {
+		for (const kind of ["map", "file", "app", "photo", "liveweb", "mermaid"]) {
 			expect(advertised).not.toContain(`"const":"${kind}"`);
 		}
 		for (const name of BOARD_OP_NAMES)

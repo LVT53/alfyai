@@ -200,6 +200,7 @@ describe("the editor's first paint", () => {
 			"FileNode",
 			"AppNode",
 			"MapNode",
+			"MermaidNode",
 			"PhotoNode",
 			"LiveWebNode",
 		]) {
@@ -214,6 +215,7 @@ describe("the editor's first paint", () => {
 		for (const heavy of [
 			"AppFrame",
 			"MapRouteCard",
+			"Mermaid",
 			"FileTypeIcon",
 			"ImageLightbox",
 			"chat-blocks",
@@ -233,6 +235,7 @@ describe("the editor's first paint", () => {
 			"FileNode",
 			"AppNode",
 			"MapNode",
+			"MermaidNode",
 			"PhotoNode",
 			"LiveWebNode",
 		]) {

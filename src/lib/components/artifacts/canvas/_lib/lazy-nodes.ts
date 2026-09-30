@@ -49,6 +49,13 @@ const LOADERS = {
 			default: module.default,
 			shell: module.chartShell,
 		})),
+	// A diagram is the chat's own Mermaid component, and Mermaid is the heaviest
+	// thing the chat draws: a board with none never loads any of it.
+	mermaid: () =>
+		import("../nodes/MermaidNode.svelte").then((module) => ({
+			default: module.default,
+			shell: module.mermaidShell,
+		})),
 	checklist: () =>
 		import("../nodes/ChecklistNode.svelte").then((module) => ({
 			default: module.default,

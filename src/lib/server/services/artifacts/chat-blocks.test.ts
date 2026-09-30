@@ -1,5 +1,5 @@
 // "From this chat" (Feature 2 · Canvas): what a board's own conversation has
-// that can be put on the board — its files, Apps, route maps and charts —
+// that can be put on the board — its files, Apps, route maps, charts and diagrams —
 // against a real in-memory database. The scope is the point: the listing is a
 // second way to read a conversation's work, so it must reach exactly what the
 // artifact routes reach and nothing beside it.
@@ -95,6 +95,9 @@ function seedMessage(params: {
 
 const fence = (config: unknown) =>
 	`Here is the chart.\n\n\`\`\`chart\n${JSON.stringify(config)}\n\`\`\`\n`;
+
+const mermaid = (source: string) =>
+	`Here is the diagram.\n\n\`\`\`mermaid\n${source}\n\`\`\`\n`;
 
 function mapCall(map: unknown = MAP, extra: Record<string, unknown> = {}) {
 	sequence += 1;
@@ -301,6 +304,7 @@ const EMPTY = {
 	apps: [],
 	maps: [],
 	charts: [],
+	diagrams: [],
 	photos: [],
 	searches: [],
 };
@@ -692,6 +696,147 @@ describe("charts", () => {
 			seedMessage({ at: index + 2, content: "Plain words." });
 		}
 		expect((await listFor(board))?.charts).toEqual([]);
+	});
+});
+
+describe("diagrams", () => {
+	const FLOW = "flowchart TD\n  A[Start] --> B{Valid?}\n  B -- No --> A";
+	const SEQUENCE = "sequenceDiagram\n  User->>Shop: Checkout";
+
+	it("lists the Mermaid diagrams the replies drew, as the chat draws them, newest first, each with what kind it is", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({ at: 1, content: mermaid(FLOW) });
+		seedMessage({ at: 2, content: mermaid(SEQUENCE) });
+
+		const listing = await listFor(board);
+
+		expect(listing?.diagrams).toHaveLength(2);
+		expect(listing?.diagrams[0]).toMatchObject({
+			title: null,
+			diagramType: "sequenceDiagram",
+			data: { kind: "mermaid", code: SEQUENCE },
+		});
+		expect(listing?.diagrams[1]).toMatchObject({
+			diagramType: "flowchart",
+			data: { kind: "mermaid", code: FLOW },
+		});
+		// A diagram with no title of its own has no label; the block is then named by its kind.
+		expect(listing?.diagrams[0].data.label).toBeUndefined();
+	});
+
+	it("reads a diagram's own title the way Mermaid takes one, and heads its block with it", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({
+			at: 1,
+			content: mermaid('pie title Pets adopted\n  "Dogs" : 386'),
+		});
+		seedMessage({
+			at: 2,
+			content: mermaid(
+				"gantt\n  title Release plan\n  dateFormat YYYY-MM-DD\n  A :a1, 2026-01-01, 3d",
+			),
+		});
+		seedMessage({
+			at: 3,
+			content: mermaid(
+				"---\ntitle: Checkout flow\n---\nflowchart LR\n  A --> B",
+			),
+		});
+		seedMessage({
+			at: 4,
+			content: mermaid(
+				"%% a note\n%%{init: {}}%%\nstateDiagram-v2\n  [*] --> A",
+			),
+		});
+
+		const listing = await listFor(board);
+
+		expect(
+			listing?.diagrams.map((item) => [item.diagramType, item.title]),
+		).toEqual([
+			["stateDiagram-v2", null],
+			["flowchart", "Checkout flow"],
+			["gantt", "Release plan"],
+			["pie", "Pets adopted"],
+		]);
+		expect(listing?.diagrams[1].data.label).toBe("Checkout flow");
+		// The source is kept whole, frontmatter and all: what the chat drew.
+		expect(listing?.diagrams[1].data.code).toContain("title: Checkout flow");
+	});
+
+	it("keeps charts and diagrams apart when one reply drew both", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({
+			content: `${fence(CHART)}\n${mermaid(FLOW)}`,
+		});
+		const listing = await listFor(board);
+		expect(listing?.charts).toHaveLength(1);
+		expect(listing?.diagrams).toHaveLength(1);
+		expect(listing?.charts[0].data.kind).toBe("chart");
+		expect(listing?.diagrams[0].data.kind).toBe("mermaid");
+	});
+
+	it("reads assistant replies only: a diagram the reader typed is not a diagram the chat drew", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({ role: "user", content: mermaid(FLOW) });
+		expect((await listFor(board))?.diagrams).toEqual([]);
+	});
+
+	it("shows one diagram once, however many replies repeated it", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({ at: 1, content: mermaid(FLOW) });
+		seedMessage({ at: 2, content: mermaid(FLOW) });
+		const listing = await listFor(board);
+		expect(listing?.diagrams).toHaveLength(1);
+		expect(listing?.diagrams[0].at).toBe(minute(2).getTime());
+	});
+
+	it("leaves out an unfinished fence and a source too big for a block", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({ content: "```mermaid\nflowchart TD\n  A --> B" });
+		seedMessage({ content: mermaid(`flowchart TD\n%% ${"x".repeat(51_000)}`) });
+		expect((await listFor(board))?.diagrams).toEqual([]);
+	});
+
+	it("stops at the bound, keeping the newest", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		for (let index = 0; index < CHAT_BLOCKS_PER_KIND + 5; index += 1) {
+			seedMessage({
+				at: index + 1,
+				content: mermaid(`pie title Diagram ${index}\n  "A" : 1`),
+			});
+		}
+		const listing = await listFor(board);
+		expect(listing?.diagrams).toHaveLength(CHAT_BLOCKS_PER_KIND);
+		expect(listing?.diagrams[0].title).toBe(
+			`Diagram ${CHAT_BLOCKS_PER_KIND + 4}`,
+		);
+	});
+
+	it("looks back over the newest replies only", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({ at: 1, content: mermaid(FLOW) });
+		for (let index = 0; index < CHAT_BLOCKS_SCAN_MESSAGES; index += 1) {
+			seedMessage({ at: index + 2, content: "Plain words." });
+		}
+		expect((await listFor(board))?.diagrams).toEqual([]);
+	});
+
+	it("keeps looking for diagrams after the charts have filled their share", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({ at: 1, content: mermaid(FLOW) });
+		for (let index = 0; index < CHAT_BLOCKS_PER_KIND + 2; index += 1) {
+			seedMessage({
+				at: index + 2,
+				content: fence({
+					...CHART,
+					options: { plugins: { title: { text: `Chart ${index}` } } },
+				}),
+			});
+		}
+		const listing = await listFor(board);
+		expect(listing?.charts).toHaveLength(CHAT_BLOCKS_PER_KIND);
+		expect(listing?.diagrams).toHaveLength(1);
 	});
 });
 
