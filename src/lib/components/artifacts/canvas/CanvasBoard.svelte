@@ -156,12 +156,6 @@ let boardHeight = $state(0);
 // block's handles is about 24 px on the screen, so it grows as the board zooms
 // out; it is sized to the resting zoom, not re-measured on every frame of a pinch.
 let restingZoom = $state(untrack(() => initial.viewport.zoom) || 1);
-let cameraZoom = $derived(viewport.zoom);
-$effect(() => {
-	const zoom = cameraZoom;
-	const timer = setTimeout(() => (restingZoom = zoom), 150);
-	return () => clearTimeout(timer);
-});
 let tool = $state<Tool>("select");
 /** The ink a new mark is drawn in (a colour token). */
 let ink = $state(DEFAULT_INK);
@@ -866,7 +860,7 @@ function minimapColor(node: {
 	bind:clientWidth={boardWidth}
 	bind:clientHeight={boardHeight}
 	style:--canvas-board-width="{boardWidth}px"
-	style:--canvas-inv-zoom={restingZoom > 0 ? 1 / restingZoom : 1}
+	style:--canvas-inv-zoom={1 / restingZoom}
 	data-testid="canvas-board"
 	data-tool={tool}
 >
@@ -920,7 +914,10 @@ function minimapColor(node: {
 		onnodedragstop={handleNodeDragStop}
 		onbeforedelete={handleBeforeDelete}
 		ondelete={handleDelete}
-		onmoveend={(_, camera) => oncamera?.(camera)}
+		onmoveend={(_, camera) => {
+			restingZoom = camera.zoom;
+			oncamera?.(camera);
+		}}
 	>
 		<Background variant={BackgroundVariant.Dots} gap={18} size={1} />
 		<!-- The drawing layer, in the viewport's front layer so every point is a board point. -->

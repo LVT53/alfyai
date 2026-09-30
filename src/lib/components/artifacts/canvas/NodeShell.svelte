@@ -28,6 +28,7 @@ import type { Attachment } from "svelte/attachments";
 import { t, type I18nKey } from "$lib/i18n";
 import { type BlockChrome, metaFor } from "./_lib/block-meta";
 import { useBoardContext } from "./_lib/board-context";
+import NodeNotice from "./nodes/NodeNotice.svelte";
 
 let {
 	id,
@@ -146,7 +147,7 @@ function deleteBlock(): void {
 }
 
 function reportBroken(error: unknown): void {
-	console.error(`[CANVAS] Block ${id} (${kind}) could not be drawn`, error);
+	console.error("[CANVAS] block could not be drawn", id, kind, error);
 }
 </script>
 
@@ -180,12 +181,11 @@ function reportBroken(error: unknown): void {
 			<svelte:boundary onerror={reportBroken}>
 				{@render children?.()}
 				{#snippet failed(_error, reset)}
-					<div class="canvas-node__broken" role="alert" data-testid="canvas-node-broken">
-						<p>{$t("artifacts.canvas.block.drawFailed")}</p>
-						<button type="button" class="btn-secondary btn-sm nodrag" onclick={reset}>
-							{$t("artifacts.canvas.chat.retry")}
-						</button>
-					</div>
+					<NodeNotice
+						message={$t("artifacts.canvas.block.drawFailed")}
+						testid="canvas-node-broken"
+						retry={reset}
+					/>
 				{/snippet}
 			</svelte:boundary>
 			{#if picture?.kind === "poster"}
@@ -277,17 +277,6 @@ function reportBroken(error: unknown): void {
 	   still image, or the card that says there is none, is drawn over it. */
 	.canvas-node__content--posted > :global(*:not(.canvas-node__poster):not(.canvas-node__placeholder)) {
 		visibility: hidden;
-	}
-
-	.canvas-node__broken {
-		box-sizing: border-box;
-		padding: 10px 12px;
-		color: var(--text-muted);
-		font-size: var(--text-xs);
-	}
-
-	.canvas-node__broken p {
-		margin: 0 0 6px;
 	}
 
 	.canvas-node__poster {
@@ -554,8 +543,8 @@ function reportBroken(error: unknown): void {
 	   get an invisible hit area of about 24 px on the screen, whatever the zoom
 	   (--canvas-inv-zoom is 1 / zoom, set by the board once its camera is at rest). */
 	@media (pointer: coarse) {
-		:global(.svelte-flow__handle.canvas-anchor.canvas-anchor--shown::after),
-		:global(.svelte-flow__resize-control.handle.canvas-resize::after) {
+		:global(.canvas-anchor--shown::after),
+		:global(.canvas-resize::after) {
 			content: "";
 			position: absolute;
 			inset: calc(4px - 12px * var(--canvas-inv-zoom, 1));

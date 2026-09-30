@@ -25,6 +25,7 @@ import {
 } from "../_lib/lazy-nodes";
 import NodeShell from "../NodeShell.svelte";
 import MissingKindNode from "./MissingKindNode.svelte";
+import NodeNotice from "./NodeNotice.svelte";
 
 let props: NodeProps = $props();
 
@@ -86,12 +87,11 @@ $effect(() => {
 			{@const Content = loaded.default}
 			<Content id={props.id} data={props.data} selected={props.selected} />
 		{:else if failed}
-			<div class="lazy" role="alert" data-testid="canvas-node-load-failed">
-				<p>{$t("artifacts.canvas.block.loadFailed")}</p>
-				<button type="button" class="btn-secondary btn-sm nodrag" onclick={() => (attempt += 1)}>
-					{$t("artifacts.canvas.chat.retry")}
-				</button>
-			</div>
+			<NodeNotice
+				message={$t("artifacts.canvas.block.loadFailed")}
+				testid="canvas-node-load-failed"
+				retry={() => (attempt += 1)}
+			/>
 		{:else}
 			<div
 				class="lazy"
@@ -113,10 +113,6 @@ $effect(() => {
 		padding: 10px 12px;
 		color: var(--text-muted);
 		font-size: var(--text-xs);
-	}
-
-	.lazy p {
-		margin: 0 0 6px;
 	}
 
 	.lazy__bar {

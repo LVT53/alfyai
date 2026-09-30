@@ -218,7 +218,7 @@ describe("a block whose content cannot be drawn", () => {
 		const error = vi.spyOn(console, "error").mockImplementation(() => {});
 		mount(ShellWithBrokenContent, { id: "chart-7" });
 		expect(error).toHaveBeenCalledTimes(1);
-		expect(String(error.mock.calls[0][0])).toContain("chart-7");
+		expect(error.mock.calls[0]).toContain("chart-7");
 	});
 });
 
