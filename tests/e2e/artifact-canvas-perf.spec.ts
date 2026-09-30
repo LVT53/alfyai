@@ -29,7 +29,8 @@ import { createConversation, login } from "./helpers";
 //
 // The bundle's budgets (the editor's initial chunk, the chat route, Chart.js and
 // MapLibre kept out of the editor) are asserted by `npm run check:artifact-chunks`,
-// which `npm run build` ends with, and by `scripts/check-artifact-chunks.test.ts`.
+// which the gates run as its own step on a finished build (it is not part of
+// `npm run build`), and by `scripts/check-artifact-chunks.test.ts`.
 
 const NOTES = 150;
 const STROKES = 200;
