@@ -21,15 +21,19 @@ import { resolveTextAnchor } from "$lib/shared/artifact-document/anchor";
 import type { DocumentBlock } from "$lib/shared/artifact-document/blocks";
 import type { PatchOp, PatchSet } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import { canvasAnchorResolver } from "$lib/shared/artifacts/comments";
 import { sendJsonControlMessage } from "../normal-chat-control-model";
+import { runCanvasAlfyReply } from "./canvas-comments";
 import {
 	applyDocumentPatch,
 	DocumentOperationError,
 	readDocumentForAlfy,
 } from "./document-ops";
 import { ARTIFACT_COMMENT_BODY_MAX_CHARS } from "./limits";
-import { readScopedArtifactRow } from "./record";
+import { kindForArtifactRow, readScopedArtifactRow } from "./record";
 import type {
+	AlfyCommentReplyResult,
+	AlfyThreadContext,
 	ArtifactAuthor,
 	ArtifactComment,
 	ArtifactCommentStatus,
@@ -163,6 +167,15 @@ export async function createComment(
 	} else {
 		const anchor = toAnchor(params.anchor);
 		if (!anchor) return null;
+		// A board places node and point anchors only: a Document's text anchor
+		// would be an orphan the moment it was stored, so it is refused here
+		// rather than shown as one (ruling 11: the resolver's `kinds`).
+		if (
+			kindForArtifactRow(artifact) === "canvas" &&
+			!canvasAnchorResolver.kinds.includes(anchor.kind)
+		) {
+			return null;
+		}
 		anchorJson = JSON.stringify(anchor);
 	}
 
@@ -383,16 +396,10 @@ function buildAlfyCommentSystemPrompt(params: {
 	].join("\n");
 }
 
-export type AlfyCommentOutcome = "applied" | "refused" | "answered";
-
-export interface AlfyCommentReplyResult {
-	outcome: AlfyCommentOutcome;
-	applied: number;
-	refused: number;
-	/** The version this reply's own change landed in, or the CURRENT version when nothing changed. */
-	version: number;
-	reply: ArtifactComment;
-}
+export type {
+	AlfyCommentOutcome,
+	AlfyCommentReplyResult,
+} from "./types";
 
 function parseAlfyReplyJson(text: string): unknown {
 	try {
@@ -400,6 +407,58 @@ function parseAlfyReplyJson(text: string): unknown {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * The thread an `@Alfy` request sits in, for a kind's branch of the hook: the
+ * comment that asked, its root with the replies under it, the root's anchor, and
+ * the one place Alfy's answer is written. Null when the comment is not one this
+ * artifact's owner can reach.
+ */
+async function loadAlfyThread(
+	params: CommentTarget & { commentId: string },
+): Promise<AlfyThreadContext | null> {
+	const target = await getComment(params);
+	if (!target) return null;
+	const rootId = target.parentId ?? target.id;
+	const root = (await listComments(params)).find(
+		(candidate) => candidate.id === rootId,
+	);
+	if (!root) return null;
+	return {
+		target,
+		rootId,
+		anchor: root.anchor,
+		thread: root,
+		async reply(body) {
+			const created = await createComment({
+				userId: params.userId,
+				artifactId: params.artifactId,
+				conversationId: params.conversationId,
+				includeIncognito: params.includeIncognito,
+				anchor: null,
+				author: "alfy",
+				body,
+				parentId: rootId,
+			});
+			if (!created) {
+				throw new Error("alfy's own reply to a valid thread was refused");
+			}
+			return created;
+		},
+		async reanchor(anchor) {
+			db.update(artifactComments)
+				.set({ anchorJson: JSON.stringify(anchor) })
+				.where(
+					and(
+						eq(artifactComments.id, rootId),
+						eq(artifactComments.artifactId, params.artifactId),
+						eq(artifactComments.userId, params.userId),
+					),
+				)
+				.run();
+		},
+	};
 }
 
 /**
@@ -417,6 +476,15 @@ export async function runAlfyCommentReply(
 	| { ok: false; reason: "not_found" | "not_a_document" | "aborted" }
 > {
 	if (params.abortSignal.aborted) return { ok: false, reason: "aborted" };
+
+	// A board answers by its own branch (`canvas-comments.ts`); every other kind
+	// still falls through to the Document's, which refuses what is not a Document.
+	const row = await readScopedArtifactRow(params);
+	if (row && kindForArtifactRow(row) === "canvas") {
+		const context = await loadAlfyThread(params);
+		if (!context) return { ok: false, reason: "not_found" };
+		return runCanvasAlfyReply({ ...params, context });
+	}
 
 	// readDocumentForAlfy is Alfy's own read (Contracts: "read_artifact writes
 	// [the snapshot] in the same transaction as the read") — calling it here,

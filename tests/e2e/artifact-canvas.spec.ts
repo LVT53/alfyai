@@ -960,7 +960,15 @@ test.describe("the Canvas kind, in the panel", () => {
 
 		const toolbar = page.getByRole("toolbar", { name: "Canvas tools" });
 		await expect(toolbar).toBeVisible();
-		for (const name of ["Select", "Pan", "Draw", "Undo", "Redo", "Insert"]) {
+		for (const name of [
+			"Select",
+			"Pan",
+			"Draw",
+			"Comment",
+			"Undo",
+			"Redo",
+			"Insert",
+		]) {
 			await expect(toolbar.getByRole("button", { name })).toBeVisible();
 		}
 		// A mode says whether it is on; the menu button says what it opens.
@@ -988,13 +996,21 @@ test.describe("the Canvas kind, in the panel", () => {
 			page.getByRole("group", { name: "Checklist: Pack" }),
 		).toBeVisible();
 
-		// Tab order: Select, Pan, Draw (Undo and Redo are off with nothing to undo),
-		// Insert, then on into the blocks.
+		await expect(
+			toolbar.getByRole("button", { name: "Comment" }),
+		).toHaveAttribute("aria-pressed", "false");
+
+		// Tab order: Select, Pan, Draw, Comment (Undo and Redo are off with nothing
+		// to undo), Insert, then on into the blocks.
 		await toolbar.getByRole("button", { name: "Select" }).focus();
 		await page.keyboard.press("Tab");
 		await expect(toolbar.getByRole("button", { name: "Pan" })).toBeFocused();
 		await page.keyboard.press("Tab");
 		await expect(toolbar.getByRole("button", { name: "Draw" })).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(
+			toolbar.getByRole("button", { name: "Comment" }),
+		).toBeFocused();
 		await page.keyboard.press("Tab");
 		await expect(toolbar.getByRole("button", { name: "Insert" })).toBeFocused();
 		await page.keyboard.press("Tab");

@@ -17,12 +17,14 @@
  */
 import { CircleSlash, Sparkles } from "@lucide/svelte";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
-import { t } from "$lib/i18n";
+import { type I18nKey, t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import {
 	ALFY_EMPTY_REPLY_MARKER,
 	ALFY_PARTIAL_REFUSAL_SUFFIX,
 	ALFY_REFUSED_MARKER,
+	type AlfySkippedOp,
+	splitSkippedOps,
 } from "$lib/shared/artifact-document/alfy-reply";
 import { formatRelativeTime } from "$lib/utils/time";
 
@@ -35,6 +37,7 @@ let {
 	currentUserId = null,
 	currentUserName = null,
 	currentUserProfilePicture = null,
+	kind = "document",
 }: {
 	comment: ArtifactComment;
 	/**
@@ -67,6 +70,8 @@ let {
 	currentUserId?: string | null;
 	currentUserName?: string | null;
 	currentUserProfilePicture?: string | null;
+	/** What the thread is on, for what Alfy's fixed replies say they left alone: "the text" of a Document, "the board" of a Canvas. */
+	kind?: "document" | "canvas";
 } = $props();
 
 let authorLabel = $derived(
@@ -83,14 +88,26 @@ let authorLabel = $derived(
  * otherwise-empty note still matches `ALFY_EMPTY_REPLY_MARKER` and renders
  * its own localized text rather than leaking the raw marker.
  */
+/**
+ * A Canvas reply that applied some ops and skipped others carries the skipped
+ * ones in one more marker (`withSkippedOps`), read back and taken off BEFORE the
+ * two whole-body markers below are matched, so a partial refusal on an
+ * otherwise-empty note still shows "Done." and what was skipped, never the raw
+ * marker. Only Alfy's messages are read for it: a person can write anything.
+ */
+let skipped = $derived(
+	comment.author === "alfy"
+		? splitSkippedOps(comment.body)
+		: { text: comment.body, skipped: [] as AlfySkippedOp[] },
+);
 let hasPartialRefusal = $derived(
 	comment.author === "alfy" &&
-		comment.body.endsWith(ALFY_PARTIAL_REFUSAL_SUFFIX),
+		skipped.text.endsWith(ALFY_PARTIAL_REFUSAL_SUFFIX),
 );
 let bodyWithoutPartialRefusalSuffix = $derived(
 	hasPartialRefusal
-		? comment.body.slice(0, -ALFY_PARTIAL_REFUSAL_SUFFIX.length)
-		: comment.body,
+		? skipped.text.slice(0, -ALFY_PARTIAL_REFUSAL_SUFFIX.length)
+		: skipped.text,
 );
 
 /**
@@ -101,7 +118,11 @@ let bodyWithoutPartialRefusalSuffix = $derived(
 let displayBody = $derived.by(() => {
 	if (comment.author === "alfy") {
 		if (bodyWithoutPartialRefusalSuffix === ALFY_REFUSED_MARKER) {
-			return $t("artifacts.document.comment.alfyRefused");
+			return $t(
+				kind === "canvas"
+					? "artifacts.canvas.comment.alfyRefused"
+					: "artifacts.document.comment.alfyRefused",
+			);
 		}
 		if (bodyWithoutPartialRefusalSuffix === ALFY_EMPTY_REPLY_MARKER) {
 			return $t("artifacts.document.comment.alfyDone");
@@ -113,6 +134,19 @@ let displayBody = $derived.by(() => {
 let isRefusal = $derived(
 	comment.author === "alfy" && comment.body === ALFY_REFUSED_MARKER,
 );
+
+/** "Museum, 14:00: nothing is at that position any more": the block's own words, then why, in the reader's language; a reason with no words yet is shown as its code. */
+function skippedLine(item: AlfySkippedOp): string {
+	const key = `artifacts.canvas.refusal.${item.reason}` as I18nKey;
+	const words = $t(key);
+	const reason = words === key ? item.reason : words;
+	return item.target
+		? $t("artifacts.canvas.comment.skippedItem", {
+				target: item.target,
+				reason,
+			})
+		: reason.charAt(0).toUpperCase() + reason.slice(1);
+}
 
 /** Splits the (already-resolved) body on literal `@Alfy` mentions so the template can give each one accent styling — never on the raw marker text, which never reaches here as `@Alfy`-shaped content. */
 function splitMentions(text: string): { text: string; isMention: boolean }[] {
@@ -159,10 +193,17 @@ let changeChipLabel = $derived(
 			{#if segment.isMention}<span class="comment-card-mention">{segment.text}</span>{:else}{segment.text}{/if}
 		{/each}
 	</p>
-	{#if hasPartialRefusal}
+	{#if hasPartialRefusal || skipped.skipped.length > 0}
 		<p class="comment-card-partial-refusal">
 			{$t('artifacts.document.comment.alfyPartialRefusal')}
 		</p>
+	{/if}
+	{#if skipped.skipped.length > 0}
+		<ul class="comment-card-skipped">
+			{#each skipped.skipped as item, index (index)}
+				<li>{skippedLine(item)}</li>
+			{/each}
+		</ul>
 	{/if}
 	{#if isRefusal}
 		<div class="comment-card-refusal-row">
@@ -188,6 +229,15 @@ let changeChipLabel = $derived(
 </div>
 
 <style>
+	/* What a board reply skipped: one line each, under the intro line, in the note's own quiet. */
+	.comment-card-skipped {
+		margin: 0;
+		padding-left: 1.125rem;
+		color: var(--text-muted);
+		font-size: 0.75rem;
+		line-height: 1.4;
+	}
+
 	/* The mockup's message row: the avatar in its own narrow column, the
 	   name line and the text stacked to its right, so a thread's messages
 	   share one left edge for their words (redesign §3.2's anatomy). */

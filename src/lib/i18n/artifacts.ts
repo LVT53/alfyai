@@ -644,6 +644,42 @@ const artifactsDict = {
 		"artifacts.canvas.a11y.edge":
 			"Press Enter or Space to select a connection. You can then press Delete to remove it or Escape to let go.",
 		"artifacts.canvas.a11y.handle": "Connection point",
+		// Comments on the board (S3-C): the tool that places one, the pin it leaves,
+		// the line that says what it is on, and what a board's @Alfy reply reads.
+		// The list's own words (Comments, resolved toggle, empty states) are the
+		// Document's `artifacts.document.margin.*` and `.comment.*`: one comment
+		// feature, one vocabulary.
+		"artifacts.canvas.tool.comment": "Comment",
+		"artifacts.canvas.comment.placeHint":
+			"Click the board or a block to place a comment.",
+		"artifacts.canvas.comment.pin": "Comment {n} on the board",
+		"artifacts.canvas.comment.pinResolved":
+			"Comment {n} on the board, resolved",
+		"artifacts.canvas.comment.pinDraft": "New comment, not posted yet",
+		"artifacts.canvas.comment.spot": "a spot on the board",
+		"artifacts.canvas.comment.blockGone": "The block is gone.",
+		"artifacts.canvas.comment.orphanedGroup":
+			"{count} {count, plural, one {comment} other {comments}} on a block that was removed",
+		"artifacts.canvas.comment.empty":
+			"No comments yet. Choose Comment, then click a block or a spot on the board.",
+		// A colon, not a suffix, joins the target: the target is a block's own words.
+		"artifacts.canvas.comment.newOn": "New comment on: {target}",
+		"artifacts.canvas.comment.placeholder":
+			"Write a comment. Use @Alfy to ask for a change.",
+		"artifacts.canvas.comment.alfyHint":
+			"Alfy answers here and can change the board.",
+		"artifacts.canvas.comment.replyPlaceholder":
+			"Reply, or ask @Alfy to change the board…",
+		"artifacts.canvas.comment.quoteA11y": "Show {target} on the board",
+		"artifacts.canvas.comment.alfyRefused":
+			"I left the board as it is — this comment didn't lead to a change I could make safely.",
+		"artifacts.canvas.comment.skippedItem": "{target}: {reason}",
+		"artifacts.canvas.comment.landed": "Alfy changed the board.",
+		"artifacts.canvas.comment.placed":
+			"Comment started. Write it in the comments list.",
+		"artifacts.canvas.comment.alfyFailed":
+			"Alfy could not answer just now. Your comment is posted.",
+		"artifacts.canvas.comment.updateFailed": "Could not update this comment.",
 		// Frames and reparenting (S3-F): what a screen reader hears when a block
 		// joins or leaves a frame by a drag.
 		"artifacts.canvas.movedIntoFrame": "Moved into the frame {frame}.",
@@ -1144,6 +1180,42 @@ const artifactsDict = {
 		"artifacts.canvas.a11y.edge":
 			"Az Enter vagy a szóköz kijelöli a kapcsolatot. Utána a Delete törli, az Escape elengedi.",
 		"artifacts.canvas.a11y.handle": "Kapcsolódási pont",
+		// Megjegyzések a táblán (S3-C): az eszköz, ami elhelyezi őket, a jelölő,
+		// a sor, ami megmondja, mihez tartoznak, és amit egy @Alfy-válasz mond.
+		// A lista saját szövegei a Dokumentum `artifacts.document.margin.*` és
+		// `.comment.*` kulcsai: egy megjegyzés-funkció, egy szókincs.
+		"artifacts.canvas.tool.comment": "Megjegyzés",
+		"artifacts.canvas.comment.placeHint":
+			"Kattints a táblára vagy egy blokkra a megjegyzés elhelyezéséhez.",
+		"artifacts.canvas.comment.pin": "{n}. megjegyzés a táblán",
+		"artifacts.canvas.comment.pinResolved": "{n}. megjegyzés a táblán, lezárva",
+		"artifacts.canvas.comment.pinDraft": "Új megjegyzés, még nincs elküldve",
+		"artifacts.canvas.comment.spot": "egy pont a táblán",
+		"artifacts.canvas.comment.blockGone": "A blokk már nincs meg.",
+		// Nincs ICU többesszám: a magyar főnév számnév után egyes számban marad.
+		"artifacts.canvas.comment.orphanedGroup":
+			"{count} megjegyzés egy törölt blokkon",
+		"artifacts.canvas.comment.empty":
+			"Még nincs megjegyzés. Válaszd a Megjegyzés eszközt, majd kattints egy blokkra vagy a tábla egy pontjára.",
+		// Kettőspont köti a célhoz: a cél egy blokk saját szövege, toldalék nélkül.
+		"artifacts.canvas.comment.newOn": "Új megjegyzés ehhez: {target}",
+		"artifacts.canvas.comment.placeholder":
+			"Írj megjegyzést. Az @Alfy megszólításával változtatást kérhetsz.",
+		"artifacts.canvas.comment.alfyHint":
+			"Alfy itt válaszol, és módosíthatja a táblát.",
+		"artifacts.canvas.comment.replyPlaceholder":
+			"Válasz, vagy kérd @Alfyt, hogy módosítsa a táblát…",
+		"artifacts.canvas.comment.quoteA11y": "{target} megmutatása a táblán",
+		"artifacts.canvas.comment.alfyRefused":
+			"A táblát változatlanul hagytam — ez a megjegyzés nem vezetett biztonságosan végrehajtható módosításhoz.",
+		"artifacts.canvas.comment.skippedItem": "{target}: {reason}",
+		"artifacts.canvas.comment.landed": "Alfy módosította a táblát.",
+		"artifacts.canvas.comment.placed":
+			"A megjegyzés elkezdve. Írd meg a megjegyzések listájában.",
+		"artifacts.canvas.comment.alfyFailed":
+			"Alfy most nem tudott válaszolni. A megjegyzésed elküldve.",
+		"artifacts.canvas.comment.updateFailed":
+			"Nem sikerült frissíteni a megjegyzést.",
 		// A kettőspont a magyar rag nélkül old meg egy tetszőleges keretnevet.
 		"artifacts.canvas.movedIntoFrame": "Átkerült a keretbe: {frame}.",
 		"artifacts.canvas.movedOutOfFrame": "Kikerült a keretből: {frame}.",

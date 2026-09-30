@@ -169,6 +169,43 @@ export interface ArtifactComment {
 	replies: ArtifactComment[];
 }
 
+/**
+ * What `runAlfyCommentReply` answers with, whatever kind the artifact is: what
+ * became of the request (a change landed, every op was refused, or it was only
+ * a question), how many ops did and did not apply, the version the artifact is
+ * at afterwards, and Alfy's reply as it now stands in the thread.
+ */
+export type AlfyCommentOutcome = "applied" | "refused" | "answered";
+
+export interface AlfyCommentReplyResult {
+	outcome: AlfyCommentOutcome;
+	applied: number;
+	refused: number;
+	/** The version this reply's own change landed in, or the CURRENT version when nothing changed. */
+	version: number;
+	reply: ArtifactComment;
+}
+
+/**
+ * A comment thread as the `@Alfy` hook works on it, whatever the kind: the
+ * comment that asked, the thread it is in, the thread's own anchor (a reply has
+ * none), and the one way Alfy answers in it. Built once by the comment service
+ * so a kind's branch never opens the comment table itself.
+ */
+export interface AlfyThreadContext {
+	/** The comment that asked: a thread's root or one of its replies. */
+	target: ArtifactComment;
+	rootId: string;
+	/** The thread's anchor; null when it could not be read. */
+	anchor: Anchor | null;
+	/** The root with its replies, oldest first, as the reader sees the thread. */
+	thread: ArtifactComment;
+	/** Writes Alfy's reply under the root. */
+	reply: (body: string) => Promise<ArtifactComment>;
+	/** Moves the thread to another anchor: the block it was on was replaced by the change this reply made. */
+	reanchor: (anchor: Anchor) => Promise<void>;
+}
+
 export interface ArtifactKvRow {
 	key: string;
 	valueJson: string;

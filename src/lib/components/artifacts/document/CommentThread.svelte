@@ -44,6 +44,12 @@ let {
 	currentUserId = null,
 	currentUserName = null,
 	currentUserProfilePicture = null,
+	badge = null,
+	alfyBusy = false,
+	quoteLabel = null,
+	replyPlaceholder = null,
+	askAlfyHint = null,
+	kind = "document",
 }: {
 	thread: ArtifactComment;
 	/** The anchor's own quote text, already resolved by the caller — `null` when this thread has no text anchor (a malformed/unparseable one; T10.9). */
@@ -65,6 +71,17 @@ let {
 	currentUserId?: string | null;
 	currentUserName?: string | null;
 	currentUserProfilePicture?: string | null;
+	/** A Canvas thread's pin number, drawn before the quote so the card and its pin can be matched by eye. */
+	badge?: string | null;
+	/** Alfy is answering in this thread (a comment that asked it something, just posted): the typing dots show under the messages. */
+	alfyBusy?: boolean;
+	/** The quote button's accessible name, when "Show “{quote}” in the text" is not what it does (a Canvas block is shown on the board). */
+	quoteLabel?: string | null;
+	/** The reply box's placeholder and the hint under an `@Alfy` reply, when the Document's words ("edit the text") are not the kind's. */
+	replyPlaceholder?: string | null;
+	askAlfyHint?: string | null;
+	/** What the thread is on: "the text" of a Document, "the board" of a Canvas, in what Alfy's fixed replies say they left alone. */
+	kind?: "document" | "canvas";
 } = $props();
 
 /** Alfy's own notes (spec decision 8, redesign §3.2): a thread whose FIRST message is Alfy's own, unprompted — never a reply inside a thread the user started. */
@@ -127,6 +144,15 @@ let foldedA11yLabel = $derived(
 );
 </script>
 
+{#snippet typingIndicator()}
+	<div class="comment-thread-typing" role="status">
+		<span class="comment-thread-typing-dots" aria-hidden="true">
+			<span></span><span></span><span></span>
+		</span>
+		<span>{$t('artifacts.document.comment.alfyTyping')}</span>
+	</div>
+{/snippet}
+
 <div class="comment-thread">
 	<div class="comment-thread-collapsible" class:is-expanded={isFolded}>
 		<div class="comment-thread-collapsible-inner">
@@ -156,13 +182,16 @@ let foldedA11yLabel = $derived(
 			{#if !isFolded}
 				{#if quote}
 					<div class="comment-thread-quote-row">
+						{#if badge}
+							<span class="comment-thread-badge" aria-hidden="true">{badge}</span>
+						{/if}
 						<button
 							type="button"
 							class="comment-thread-quote"
 							class:comment-thread-quote-struck={quoteStruck}
 							onclick={onGoto}
 							disabled={!onGoto}
-							aria-label={$t('artifacts.document.comment.quoteA11y', { quote })}
+							aria-label={quoteLabel ?? $t('artifacts.document.comment.quoteA11y', { quote })}
 						>
 							<span class="comment-thread-quote-rule" aria-hidden="true"></span>
 							<span class="comment-thread-quote-text">{quote}</span>
@@ -176,6 +205,7 @@ let foldedA11yLabel = $derived(
 				<div class="comment-thread-messages">
 					<div class="comment-thread-message">
 						<CommentCard
+							{kind}
 							comment={thread}
 							isGuess={isGuessThread}
 							changeState={changeStateByCommentId[thread.id]}
@@ -189,6 +219,7 @@ let foldedA11yLabel = $derived(
 					{#each thread.replies as reply (reply.id)}
 						<div class="comment-thread-message">
 							<CommentCard
+								{kind}
 								comment={reply}
 								changeState={changeStateByCommentId[reply.id]}
 								onSeeChange={onSeeChange ? () => onSeeChange(reply.id) : undefined}
@@ -200,6 +231,12 @@ let foldedA11yLabel = $derived(
 						</div>
 					{/each}
 				</div>
+
+				{#if alfyBusy}
+					<div class="comment-thread-busy">
+						{@render typingIndicator()}
+					</div>
+				{/if}
 
 				{#if !replying}
 					<div class="comment-thread-actions">
@@ -227,21 +264,16 @@ let foldedA11yLabel = $derived(
 					<div class="comment-thread-composer">
 						<textarea
 							class="comment-thread-textarea"
-							placeholder={$t('artifacts.document.comment.replyPlaceholder')}
+							placeholder={replyPlaceholder ?? $t('artifacts.document.comment.replyPlaceholder')}
 							bind:value={draftText}
 							disabled={posting}
 							onkeydown={handleComposerKeydown}
 						></textarea>
 						{#if mentionsAlfy && !posting}
-							<p class="comment-thread-ask-hint">{$t('artifacts.document.comment.askAlfyHint')}</p>
+							<p class="comment-thread-ask-hint">{askAlfyHint ?? $t('artifacts.document.comment.askAlfyHint')}</p>
 						{/if}
 						{#if posting && mentionsAlfy}
-							<div class="comment-thread-typing" role="status">
-								<span class="comment-thread-typing-dots" aria-hidden="true">
-									<span></span><span></span><span></span>
-								</span>
-								<span>{$t('artifacts.document.comment.alfyTyping')}</span>
-							</div>
+							{@render typingIndicator()}
 						{/if}
 						<div class="comment-thread-composer-actions">
 							<button
@@ -358,6 +390,25 @@ let foldedA11yLabel = $derived(
 			transparent 3px 6px
 		);
 		opacity: 0.6;
+	}
+
+	/* The pin's number: the same dot as on the board, small, so a card and its pin are matched by eye. */
+	.comment-thread-badge {
+		flex: 0 0 auto;
+		display: inline-grid;
+		place-items: center;
+		min-width: 1.125rem;
+		height: 1.125rem;
+		padding: 0 0.25rem;
+		border-radius: var(--radius-full);
+		background: var(--accent-fill);
+		color: var(--on-accent);
+		font: 700 0.65625rem/1 var(--font-sans);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.comment-thread-busy {
+		padding: 0 0.75rem 0.5rem;
 	}
 
 	.comment-thread-quote-moved {

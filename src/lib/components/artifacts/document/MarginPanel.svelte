@@ -41,7 +41,6 @@
  * This component never touches Tiptap and never measures the text; its
  * inputs are plain data (`comment-threads.ts` explains the rest).
  */
-import { ChevronRight, X } from "@lucide/svelte";
 import type { ComponentProps } from "svelte";
 import { cubicOut } from "svelte/easing";
 import { fly } from "svelte/transition";
@@ -61,6 +60,9 @@ import {
 	prefersReducedMotion,
 	reducedMotionAware,
 } from "$lib/utils/motion";
+import CommentFoldedGroup from "../CommentFoldedGroup.svelte";
+import CommentListHeader from "../CommentListHeader.svelte";
+import "../comment-list.css";
 // RefusalNotice is a genuine runtime import for the <RefusalNotice /> mount in
 // the template below, on top of typing MarginRefusal via
 // ComponentProps<typeof RefusalNotice> — biome's import-usage check only sees
@@ -449,7 +451,7 @@ const noteIn = reducedMotionAware(fly);
 	     the card itself deliberately has no key handler. -->
 	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 	<article
-		class="margin-panel-item"
+		class="margin-panel-item comment-list-item"
 		class:is-active={activeCommentId === comment.id}
 		class:is-resolved={comment.status === 'resolved'}
 		class:is-goto={!struck && gotoFor(comment) !== undefined}
@@ -494,38 +496,13 @@ const noteIn = reducedMotionAware(fly);
 {/snippet}
 
 <div class="margin-panel" data-layout={layout}>
-	<div class="margin-panel-header">
-		<h2 class="margin-panel-title">{$t('artifacts.document.margin.title')}</h2>
-		{#if openCount > 0}
-			<span class="margin-panel-count">
-				<span aria-hidden="true">{openCount}</span>
-				<span class="sr-only">{$t('artifacts.document.margin.countA11y', { count: openCount })}</span>
-			</span>
-		{/if}
-		<span class="margin-panel-header-gap"></span>
-		{#if resolvedCount > 0 || filter === 'all'}
-			<button
-				type="button"
-				class="margin-panel-filter-toggle"
-				aria-pressed={filter === 'all'}
-				onclick={toggleFilter}
-			>
-				{filter === 'open'
-					? $t('artifacts.document.margin.resolvedToggle', { count: resolvedCount })
-					: $t('artifacts.document.margin.showOpenOnly')}
-			</button>
-		{/if}
-		{#if onClose}
-			<button
-				type="button"
-				class="btn-icon-bare margin-panel-close"
-				onclick={onClose}
-				aria-label={$t('common.close')}
-			>
-				<X size={16} strokeWidth={2} aria-hidden="true" />
-			</button>
-		{/if}
-	</div>
+	<CommentListHeader
+		{openCount}
+		{resolvedCount}
+		{filter}
+		ontogglefilter={toggleFilter}
+		{onClose}
+	/>
 
 	<!-- The list is the one thing in this column that scrolls. The pointer/
 	     focus listeners only feed scroll-follow's "never fight the reader"
@@ -575,34 +552,15 @@ const noteIn = reducedMotionAware(fly);
 		{/if}
 
 		{#if visibleOrphanedComments.length > 0}
-			<div class="margin-panel-orphaned-group" data-testid="margin-orphaned-group">
-				<button
-					type="button"
-					class="margin-panel-orphaned-toggle"
-					class:is-open={orphanedGroupOpen}
-					aria-expanded={orphanedGroupOpen}
-					onclick={toggleOrphanedGroup}
-				>
-					<ChevronRight
-						size={14}
-						strokeWidth={2}
-						class="margin-panel-orphaned-chevron"
-						aria-hidden="true"
-					/>
-					{$t('artifacts.document.margin.orphanedGroup', { count: visibleOrphanedComments.length })}
-				</button>
-				<div class="comment-thread-collapsible" class:is-expanded={orphanedGroupOpen}>
-					<div class="comment-thread-collapsible-inner">
-						{#if orphanedGroupOpen}
-							<div class="margin-panel-orphaned-list">
-								{#each visibleOrphanedComments as comment (comment.id)}
-									{@render threadArticle(comment, ORPHANED_ANCHOR_RESOLUTION, true)}
-								{/each}
-							</div>
-						{/if}
-					</div>
-				</div>
-			</div>
+			<CommentFoldedGroup
+				label={$t('artifacts.document.margin.orphanedGroup', { count: visibleOrphanedComments.length })}
+				open={orphanedGroupOpen}
+				ontoggle={toggleOrphanedGroup}
+			>
+				{#each visibleOrphanedComments as comment (comment.id)}
+					{@render threadArticle(comment, ORPHANED_ANCHOR_RESOLUTION, true)}
+				{/each}
+			</CommentFoldedGroup>
 		{/if}
 
 		{#if otherTabs.length > 0}
@@ -630,81 +588,6 @@ const noteIn = reducedMotionAware(fly);
 		flex: 1 1 auto;
 		height: 100%;
 		min-height: 0;
-	}
-
-	/* The header stays put while the list under it scrolls (in the phone
-	   sheet, where the sheet's own body is the scroller, `sticky` keeps it
-	   in view instead). */
-	.margin-panel-header {
-		position: sticky;
-		top: 0;
-		z-index: 2;
-		flex: 0 0 auto;
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0.25rem 0.5rem;
-		padding: 0.75rem 0.875rem 0.625rem;
-		background-color: var(--surface-page);
-		border-bottom: 1px solid var(--border-subtle);
-	}
-
-	.margin-panel-title {
-		margin: 0;
-		font-size: var(--text-sm);
-		font-weight: 700;
-		letter-spacing: 0.02em;
-		color: var(--text-primary);
-	}
-
-	.margin-panel-count {
-		display: inline-grid;
-		place-items: center;
-		min-width: 1.0625rem;
-		height: 1.0625rem;
-		padding: 0 0.3125rem;
-		border-radius: var(--radius-full);
-		background-color: var(--comment-mark);
-		color: var(--text-primary);
-		font-size: 0.65625rem;
-		font-weight: 700;
-		font-variant-numeric: tabular-nums;
-	}
-
-	.margin-panel-header-gap {
-		flex: 1 1 0;
-	}
-
-	.margin-panel-filter-toggle {
-		flex-shrink: 0;
-		position: relative;
-		border: none;
-		border-radius: var(--radius-sm);
-		background: none;
-		padding: 0.125rem 0.25rem;
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: 0.71875rem;
-		cursor: pointer;
-	}
-
-	.margin-panel-filter-toggle:hover {
-		color: var(--text-primary);
-		text-decoration: underline;
-	}
-
-	.margin-panel-filter-toggle:focus-visible,
-	.margin-panel-orphaned-toggle:focus-visible,
-	.margin-panel-other-tab-row:focus-visible {
-		outline: 2px solid var(--focus-ring);
-		outline-offset: 2px;
-	}
-
-	.margin-panel-close {
-		flex-shrink: 0;
-		min-height: 32px;
-		min-width: 32px;
-		margin: -0.25rem -0.375rem -0.25rem 0;
 	}
 
 	/* One scroll for the whole list — cards, the removed-text group, the
@@ -745,132 +628,13 @@ const noteIn = reducedMotionAware(fly);
 		color: var(--text-muted);
 	}
 
-	/* A thread is a real card: surface, border, radius, the same shape as
-	   every other card in the panel. A resolved one recedes (dashed, one
-	   tone down); the active one — hovered, focused, or the thread the
-	   reader's scroll position points at — deepens its border and shadow and
-	   shifts a few pixels towards the text (motion #16; colour only under
-	   reduced motion). Scroll-margin keeps a card revealed by scrolling clear
-	   of the sticky header in the phone sheet. */
-	.margin-panel-item {
-		flex: 0 0 auto;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-lg);
-		background-color: var(--surface-page);
-		scroll-margin-block: 0.75rem;
-		transition:
-			border-color var(--duration-standard) var(--ease-out),
-			box-shadow var(--duration-standard) var(--ease-out),
-			transform var(--duration-standard) var(--ease-out);
-	}
-
+	/* The card's own look is `comment-list.css`, shared with the Canvas's list. */
 	.margin-panel[data-layout='grouped'] .margin-panel-item {
 		scroll-margin-top: 4.5rem;
 	}
 
-	.margin-panel-item.is-goto {
-		cursor: pointer;
-	}
-
-	.margin-panel-item:hover,
-	.margin-panel-item.is-active {
-		border-color: color-mix(in srgb, var(--comment-rule) 55%, var(--border-default));
-		box-shadow: var(--shadow-md);
-	}
-
-	.margin-panel-item.is-active {
-		transform: translateX(-6px);
-	}
-
-	.margin-panel-item.is-resolved {
-		border-style: dashed;
-		background-color: var(--surface-overlay);
-	}
-
-	.margin-panel-item:focus-visible {
-		outline: 2px solid var(--focus-ring);
-		outline-offset: 2px;
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.margin-panel-item.is-active {
-			transform: none;
-		}
-	}
-
 	.margin-panel-note {
 		flex: 0 0 auto;
-	}
-
-	.margin-panel-orphaned-group {
-		display: flex;
-		flex-direction: column;
-		flex: 0 0 auto;
-		margin-top: 0.5rem;
-		padding-top: 0.5rem;
-		border-top: 1px solid var(--border-subtle);
-	}
-
-	.margin-panel-orphaned-toggle {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		width: 100%;
-		position: relative;
-		border: none;
-		border-radius: var(--radius-md);
-		background: none;
-		padding: 0.375rem 0.25rem;
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: 0.78125rem;
-		text-align: left;
-		cursor: pointer;
-		transition:
-			color var(--duration-standard) var(--ease-out),
-			background-color var(--duration-standard) var(--ease-out);
-	}
-
-	.margin-panel-orphaned-toggle:hover {
-		color: var(--text-primary);
-		background-color: var(--surface-elevated);
-	}
-
-	:global(.margin-panel-orphaned-chevron) {
-		flex-shrink: 0;
-		transition: transform var(--duration-standard) var(--ease-out);
-	}
-
-	.margin-panel-orphaned-toggle.is-open :global(.margin-panel-orphaned-chevron) {
-		transform: rotate(90deg);
-	}
-
-	/* A CSS-only height reveal, the same grid-template-rows technique
-	   `CommentThread.svelte`'s own fold uses — inherits the reduced-motion
-	   collapse app.css already applies to every `transition` (§7.3: "instant"). */
-	.comment-thread-collapsible {
-		display: grid;
-		grid-template-rows: 0fr;
-		overflow: hidden;
-		transition: grid-template-rows var(--duration-emphasis) var(--ease-emphasis);
-	}
-
-	.comment-thread-collapsible.is-expanded {
-		grid-template-rows: 1fr;
-	}
-
-	.comment-thread-collapsible-inner {
-		min-height: 0;
-	}
-
-	/* The fold clips (`overflow: hidden` on the collapsible), so the list
-	   keeps a few pixels of its own on both sides: an active card's shift
-	   towards the text and its shadow must not be cut off by it. */
-	.margin-panel-orphaned-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.625rem;
-		padding: 0.5rem 0.375rem 0.5rem;
 	}
 
 	.margin-panel-other-tabs {
@@ -905,6 +669,11 @@ const noteIn = reducedMotionAware(fly);
 		background-color: var(--surface-elevated);
 	}
 
+	.margin-panel-other-tab-row:focus-visible {
+		outline: 2px solid var(--focus-ring);
+		outline-offset: 2px;
+	}
+
 	.margin-panel-other-tab-title {
 		min-width: 0;
 		overflow: hidden;
@@ -918,18 +687,9 @@ const noteIn = reducedMotionAware(fly);
 		font-size: 0.75rem;
 	}
 
-	/* Phone sheet: nothing that is tapped is smaller than 44px (§3.4). The
-	   two small text controls keep their look and grow an invisible hit area
-	   instead; the rows are simply taller. */
+	/* Phone sheet: nothing that is tapped is smaller than 44px (§3.4): the rows are
+	   simply taller. */
 	@media (max-width: 767px) {
-		.margin-panel-filter-toggle::after,
-		.margin-panel-orphaned-toggle::after {
-			content: '';
-			position: absolute;
-			inset: -0.875rem -0.5rem;
-		}
-
-		.margin-panel-orphaned-toggle,
 		.margin-panel-other-tab-row {
 			min-height: 44px;
 			align-items: center;

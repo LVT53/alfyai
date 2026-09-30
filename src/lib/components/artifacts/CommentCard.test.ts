@@ -5,7 +5,9 @@ import {
 	ALFY_EMPTY_REPLY_MARKER,
 	ALFY_PARTIAL_REFUSAL_SUFFIX,
 	ALFY_REFUSED_MARKER,
+	withSkippedOps,
 } from "$lib/shared/artifact-document/alfy-reply";
+import { uiLanguage } from "$lib/stores/settings";
 import CommentCard from "./CommentCard.svelte";
 
 function makeComment(
@@ -226,5 +228,120 @@ describe("CommentCard", () => {
 				container.querySelector(".avatar-circle")?.textContent?.trim(),
 			).toBe("A");
 		});
+	});
+});
+
+describe("CommentCard on a Canvas: what Alfy says about a board", () => {
+	afterEach(() => {
+		cleanup();
+		uiLanguage.set("en");
+	});
+
+	const alfy = (body: string) => makeComment({ author: "alfy", body });
+
+	it("names each op that was skipped, in the reader's language, under Alfy's own note", () => {
+		uiLanguage.set("en");
+		render(CommentCard, {
+			comment: alfy(
+				withSkippedOps("Moved the museum note.", [
+					{ target: "Museum, 14:00", reason: "unknown_id" },
+					{ target: "Lunch", reason: "duplicate_id" },
+				]),
+			),
+			kind: "canvas",
+		});
+		expect(screen.getByText("Moved the museum note.")).toBeInTheDocument();
+		expect(
+			screen.getByText("Part of this could not be applied safely."),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("Museum, 14:00: nothing is at that position any more"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("Lunch: that id already exists"),
+		).toBeInTheDocument();
+	});
+
+	it("never shows the marker itself", () => {
+		render(CommentCard, {
+			comment: alfy(
+				withSkippedOps("Done.", [{ target: "x", reason: "cycle" }]),
+			),
+			kind: "canvas",
+		});
+		expect(document.body.textContent).not.toContain("[[alfy");
+	});
+
+	it("says it in Hungarian", () => {
+		uiLanguage.set("hu");
+		render(CommentCard, {
+			comment: alfy(
+				withSkippedOps("Kész.", [{ target: "Múzeum", reason: "unknown_id" }]),
+			),
+			kind: "canvas",
+		});
+		expect(screen.getByText("Múzeum: már nincs ott semmi")).toBeInTheDocument();
+	});
+
+	it("shows the plain code for a reason it has no words for, and just the reason when the op had no target", () => {
+		render(CommentCard, {
+			comment: alfy(
+				withSkippedOps("Done.", [
+					{ target: "", reason: "cycle" },
+					{ target: "Box", reason: "some_new_reason" },
+				]),
+			),
+			kind: "canvas",
+		});
+		expect(
+			screen.getByText("A frame cannot sit inside its own frame"),
+		).toBeInTheDocument();
+		expect(screen.getByText("Box: some_new_reason")).toBeInTheDocument();
+	});
+
+	it("still shows a note that is empty as Done, beside what was skipped", () => {
+		render(CommentCard, {
+			comment: alfy(
+				withSkippedOps(ALFY_EMPTY_REPLY_MARKER, [
+					{ target: "a", reason: "unknown_id" },
+				]),
+			),
+			kind: "canvas",
+		});
+		expect(screen.getByText("Done.")).toBeInTheDocument();
+		expect(
+			screen.getByText("a: nothing is at that position any more"),
+		).toBeInTheDocument();
+	});
+
+	it("says the BOARD was left alone for a refusal, not the text", () => {
+		render(CommentCard, { comment: alfy(ALFY_REFUSED_MARKER), kind: "canvas" });
+		expect(
+			screen.getByText(
+				"I left the board as it is — this comment didn't lead to a change I could make safely.",
+			),
+		).toBeInTheDocument();
+	});
+
+	it("still says the text was left alone on a Document", () => {
+		render(CommentCard, { comment: alfy(ALFY_REFUSED_MARKER) });
+		expect(
+			screen.getByText(
+				"I left the text as it is — this comment didn't lead to a change I could make safely.",
+			),
+		).toBeInTheDocument();
+	});
+
+	it("never reads a USER's comment for a marker, even one that looks like it", () => {
+		const looksLike = withSkippedOps("Hi", [
+			{ target: "x", reason: "unknown_id" },
+		]);
+		render(CommentCard, {
+			comment: makeComment({ author: "user", body: looksLike }),
+			kind: "canvas",
+		});
+		expect(
+			screen.queryByText("Part of this could not be applied safely."),
+		).toBeNull();
 	});
 });

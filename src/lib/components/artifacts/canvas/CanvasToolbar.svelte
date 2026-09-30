@@ -19,6 +19,7 @@ import {
 	Eraser,
 	Hand,
 	Highlighter,
+	MessageSquarePlus,
 	MousePointer2,
 	MoveUpRight,
 	Pencil,
@@ -227,6 +228,20 @@ let redoLabel = $derived(
 			</div>
 		</div>
 	{/if}
+
+	<button
+		type="button"
+		class="tool"
+		class:tool--on={tool === "comment"}
+		aria-pressed={tool === "comment"}
+		disabled={disabled}
+		aria-label={$t("artifacts.canvas.tool.comment")}
+		title={$t("artifacts.canvas.tool.comment")}
+		data-testid="canvas-tool-comment"
+		onclick={() => ontoolchange(tool === "comment" ? "select" : "comment")}
+	>
+		<MessageSquarePlus size={17} strokeWidth={1.9} aria-hidden="true" />
+	</button>
 
 	<span class="sep" aria-hidden="true"></span>
 

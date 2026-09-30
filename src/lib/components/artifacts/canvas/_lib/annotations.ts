@@ -23,7 +23,7 @@ import {
 /** The seven kinds of mark a reader can draw. */
 export type DrawingTool = AnnotationKind;
 /** What the toolbar's pointer does: move around, draw one of the seven, or erase. */
-export type Tool = "select" | "pan" | "eraser" | DrawingTool;
+export type Tool = "select" | "pan" | "eraser" | "comment" | DrawingTool;
 
 export const DRAWING_TOOLS: readonly DrawingTool[] = ANNOTATION_KINDS;
 

@@ -130,12 +130,39 @@ describe("the toolbar", () => {
 			"Green ink",
 			"Graphite ink",
 		]);
-		expect(names[15]).toMatch(/^Undo/);
-		expect(names[16]).toMatch(/^Redo/);
-		expect(names[17]).toBe("Insert");
+		expect(names[15]).toBe("Comment");
+		expect(names[16]).toMatch(/^Undo/);
+		expect(names[17]).toMatch(/^Redo/);
+		expect(names[18]).toBe("Insert");
 		for (const button of within(toolbar()).getAllByRole("button")) {
 			expect(button.getAttribute("tabindex")).not.toBe("0");
 		}
+	});
+
+	it("offers the Comment tool as a mode: pressed while it is on, and it hands over 'comment' when pressed", async () => {
+		const { ontoolchange, rerender } = mount({ tool: "select" });
+		const button = screen.getByRole("button", { name: "Comment" });
+		expect(button.getAttribute("aria-pressed")).toBe("false");
+		await fireEvent.click(button);
+		expect(ontoolchange).toHaveBeenCalledWith("comment");
+		await rerender({ tool: "comment" });
+		const on = screen.getByRole("button", { name: "Comment" });
+		expect(on.getAttribute("aria-pressed")).toBe("true");
+		// It is not a drawing tool: the tray stays shut.
+		expect(screen.queryByTestId("canvas-draw-tray")).toBeNull();
+		await fireEvent.click(on);
+		expect(ontoolchange).toHaveBeenLastCalledWith("select");
+	});
+
+	it("keeps the Comment tool on a narrow board, and turns it off with the rest when the board cannot change", () => {
+		const narrow = mount({ compact: true });
+		expect(screen.getByRole("button", { name: "Comment" })).toBeTruthy();
+		narrow.unmount();
+		mount({ disabled: true });
+		expect(
+			(screen.getByRole("button", { name: "Comment" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(true);
 	});
 
 	it("names undo and redo as the reader's OWN steps, so they cannot be taken for undoing Alfy's change", () => {
@@ -152,6 +179,7 @@ describe("the toolbar", () => {
 		uiLanguage.set("hu");
 		mount({ tool: "pen" });
 		expect(screen.getByRole("button", { name: "Rajzolás" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Megjegyzés" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Radír" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Kék tinta" })).toBeTruthy();
 		expect(
