@@ -1283,7 +1283,7 @@ function handleArtifactCountButtonClick() {
 	openArtifactList();
 }
 
-/** The chat the panel is showing, as the stored panel state names it (read through `getData()`: what the panel is, is decided where it is restored). */
+/** The chat this page shows right now, as the stored panel state names it: a restore and a save each name the conversation they happen in. */
 function getWorkspaceConversation(): WorkspaceConversation {
 	const { conversation } = getData();
 	return {
