@@ -24,10 +24,14 @@
  */
 import { get } from "svelte/store";
 import {
+	type ArtifactDetailResponse,
 	acknowledgeCanvasReview,
+	fetchArtifact,
 	fetchArtifactVersionBody,
 	fetchCanvasReviewState,
+	saveArtifactBody,
 } from "$lib/client/api/artifacts";
+import { alfyChangeShortcutFor } from "$lib/components/artifacts/document/keyboard-shortcuts";
 import { type I18nKey, t } from "$lib/i18n";
 import {
 	BOARD_REFUSAL_REASONS,
@@ -35,7 +39,10 @@ import {
 	refusalLabelKey,
 } from "$lib/shared/artifacts/board-ops";
 import type { CanvasBody } from "$lib/shared/artifacts/canvas";
-import { boardJson } from "$lib/shared/artifacts/canvas-body";
+import {
+	boardJson,
+	normalizeCanvasBody,
+} from "$lib/shared/artifacts/canvas-body";
 import type { CanvasReviewState } from "$lib/shared/artifacts/canvas-review";
 import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
 import { prefersReducedMotion } from "$lib/utils/motion";
@@ -69,6 +76,9 @@ export type WriteResult =
 	| { ok: true; board: CanvasBody }
 	| { ok: false; reason: "conflict" | "failed" | "too_large" };
 
+/** What a write of the reader's own is checked against: the version and body hash the editor last saw. */
+export type WriteGuard = { version: number | null; bodyHash: string | null };
+
 export interface ReviewHost {
 	artifactId: string;
 	conversationId: string | null;
@@ -76,12 +86,21 @@ export interface ReviewHost {
 	board: () => LandingBoard | null;
 	/** Saves the reader's last step and waits for the answer. */
 	saveNow: () => Promise<void>;
+	/** The version and hash the editor last saw. */
+	guard: () => WriteGuard;
+	/** A board of the reader's own (Undo, Redo) was saved: the editor takes it, and the version and hash that came with it, as its own. */
+	saved: (saved: {
+		board: CanvasBody;
+		json: string;
+		version: number;
+		bodyHash: string | null;
+	}) => void;
 	/**
-	 * Writes `body` as the board, as a version of the reader's own (Undo and
-	 * Redo): the editor keeps its own bookkeeping (the version and hash it last
-	 * saw) and answers the board that was saved, or why it was not.
+	 * A read of the artifact: the editor compares versions, takes the version and
+	 * hash as its own, and answers the board to draw, or null when there is
+	 * nothing to draw (the reader's own save seen early, or a conflict it has said so about).
 	 */
-	write: (body: string, summaryKind?: SaveSummaryKind) => Promise<WriteResult>;
+	adopt: (detail: ArtifactDetailResponse) => CanvasBody | null;
 	openVersions: () => void;
 	/** The number the chat's card, the list row and the count button show. */
 	reportCount: (count: number) => void;
@@ -151,6 +170,11 @@ export class CanvasReviewController {
 	#undone: { alfyBody: string } | null = null;
 	/** The replies that made the change that waits now; once it is decided their chips keep its outcome. */
 	#activeReplies: string[] = [];
+	/** The version and hash right after Undo wrote: what Redo is checked against, so a step of the reader's in between refuses it. */
+	#afterUndo: WriteGuard | null = null;
+	/** The call being shown, and the last one drawn: each is handled once. */
+	#arrangingKey = "";
+	#handled = "";
 
 	constructor(host: ReviewHost) {
 		this.#host = host;
@@ -455,13 +479,14 @@ export class CanvasReviewController {
 				this.#refuseUndo("failed");
 				return;
 			}
-			const written = await this.#host.write(parentBody, "undid_alfy_change");
+			const written = await this.#write(parentBody, "undid_alfy_change");
 			if (!written.ok) {
 				this.#refuseUndo(
 					written.reason === "conflict" ? "user_edited" : "failed",
 				);
 				return;
 			}
+			this.#afterUndo = this.#host.guard();
 			try {
 				await acknowledgeCanvasReview(
 					this.#host.artifactId,
@@ -494,7 +519,11 @@ export class CanvasReviewController {
 		this.busy = true;
 		try {
 			this.#clearTimer("undone");
-			const written = await this.#host.write(this.#undone.alfyBody);
+			const written = await this.#write(
+				this.#undone.alfyBody,
+				undefined,
+				this.#afterUndo ?? undefined,
+			);
 			if (!written.ok) {
 				this.#refuseUndo("failed");
 				return;
@@ -563,6 +592,131 @@ export class CanvasReviewController {
 	#goTo(id: string): void {
 		this.#token += 1;
 		this.goto = { id, token: this.#token };
+	}
+
+	// ---- Writing the reader's own board (Undo, Redo) -------------------------
+
+	/**
+	 * Writes a whole board as the reader's own version: a version of its own (never
+	 * merged into the one before), against the version and hash the editor last saw
+	 * (or `expect`), so a save that landed in between refuses it rather than being
+	 * written over. The reader's last step is saved first. Answers the board that was
+	 * saved, for the caller to draw, or why it was not.
+	 */
+	async #write(
+		body: string,
+		summaryKind?: SaveSummaryKind,
+		expect?: WriteGuard,
+	): Promise<WriteResult> {
+		let parsed: CanvasBody;
+		try {
+			parsed = normalizeCanvasBody(JSON.parse(body)).body;
+		} catch {
+			return { ok: false, reason: "failed" };
+		}
+		await this.#host.saveNow();
+		const guard = expect ?? this.#host.guard();
+		const json = boardJson(parsed);
+		const result = await saveArtifactBody(
+			this.#host.artifactId,
+			json,
+			guard.version ?? undefined,
+			this.#host.conversationId,
+			undefined,
+			{
+				baseHash: guard.bodyHash ?? undefined,
+				coalesce: false,
+				summaryKind,
+			},
+		).catch(() => null);
+		if (!result) return { ok: false, reason: "failed" };
+		if (!result.ok) {
+			return {
+				ok: false,
+				reason:
+					result.reason === "too_large"
+						? "too_large"
+						: result.reason === "not_found" || result.reason === "invalid_patch"
+							? "failed"
+							: "conflict",
+			};
+		}
+		this.#host.saved({
+			board: parsed,
+			json,
+			version: result.version,
+			bodyHash: result.bodyHash ?? null,
+		});
+		return { ok: true, board: parsed };
+	}
+
+	// ---- A call of Alfy's on this board --------------------------------------
+
+	/**
+	 * The chat page's latest artifact tool call, when it is on this board. A running
+	 * call frames what it addresses; a settled one is read back and drawn, once (the
+	 * editor hands over `settledAtMount`, the call that had already settled when it
+	 * was built: the server's review state holds that one, `restore`). `ready` is
+	 * whether the board is on screen: a call that settles before it is waits and is
+	 * handed over again when it is.
+	 */
+	onActivity(
+		activity: DocumentAlfyActivity,
+		options: { settledAtMount: string | null; ready: boolean },
+	): void {
+		if (activity.status === "running") {
+			if (activity.key === this.#arrangingKey) return;
+			this.#arrangingKey = activity.key;
+			this.beginArranging(activity);
+			return;
+		}
+		if (activity.key === options.settledAtMount) return;
+		const key = `${activity.key}:${activity.status}`;
+		if (key === this.#handled || !options.ready) return;
+		this.#handled = key;
+		void this.#landActivity(activity);
+	}
+
+	/**
+	 * A call has settled: the board is read again and drawn (only when the call
+	 * changed it: a highlight writes no version, and a call that changed nothing has
+	 * nothing to draw), what Alfy skipped is named, and the arranging frame goes.
+	 */
+	async #landActivity(activity: DocumentAlfyActivity): Promise<void> {
+		// A call fast enough that its running state never reached a render (a tool
+		// that answers in a few milliseconds) still shows "Alfy is arranging…" while
+		// it lands: the state is seen for a moment even when the call was faster.
+		if (this.#arrangingKey !== activity.key && activity.status !== "failed") {
+			this.#arrangingKey = activity.key;
+			this.beginArranging(activity);
+		}
+		if (activity.status === "failed") {
+			await this.endArranging();
+			return;
+		}
+		let next: CanvasBody | null = null;
+		if (activity.appliedCount > 0) {
+			try {
+				next = this.#host.adopt(
+					await fetchArtifact(this.#host.artifactId, this.#host.conversationId),
+				);
+			} catch {
+				// Not read: it is drawn by the next read of the artifact.
+			}
+		}
+		await this.settleActivity(activity, next);
+	}
+
+	/** Ctrl/Cmd+Alt+Z takes Alfy's change back, and +Shift puts it back: the Document's chord, and never the reader's own undo. */
+	handleKey(event: KeyboardEvent): void {
+		const chord = alfyChangeShortcutFor(event);
+		if (chord === "undo" && this.status === "pending" && this.change) {
+			event.preventDefault();
+			void this.undo();
+		} else if (chord === "redo" && this.status === "undone") {
+			event.preventDefault();
+			void this.redo();
+		}
 	}
 
 	// ---- Comment replies -----------------------------------------------------

@@ -30,7 +30,6 @@ import {
 	createDocumentAutosave,
 	type DocumentAutosaveResult,
 } from "$lib/components/artifacts/document/document-autosave";
-import { alfyChangeShortcutFor } from "$lib/components/artifacts/document/keyboard-shortcuts";
 import VersionsSheet from "$lib/components/artifacts/document/VersionsSheet.svelte";
 import { t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
@@ -40,7 +39,6 @@ import {
 	emptyCanvasBody,
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
-import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
 import type { BoardLayerApi } from "./_lib/board-layers";
 import type {
 	CanvasCommentsController,
@@ -52,7 +50,6 @@ import type {
 	CanvasReviewController,
 	changeLayerProps,
 	ReviewHost,
-	WriteResult,
 } from "./_lib/review-controller.svelte";
 import { judgeServerBoard } from "./_lib/server-board";
 import type AlfyChangeLayer from "./AlfyChangeLayer.svelte";
@@ -356,17 +353,13 @@ function adoptBoard(detail: ArtifactDetailResponse): CanvasBody | null {
 	}
 }
 
-/** What the comments controller calls after each read of the artifact: a board Alfy changed is drawn. */
+/** What the comments controller calls after each read of the artifact: a board Alfy changed is drawn as a landing (at once when the parts cannot load). */
 function adoptServerBoard(detail: ArtifactDetailResponse): void {
 	const next = adoptBoard(detail);
-	if (next) void drawServerBoard(next);
-}
-
-/** Draws a board the server holds as a landing (the structure, the glide, the rings); at once when the parts cannot load. */
-async function drawServerBoard(next: CanvasBody): Promise<void> {
-	const controller = await ensureReview();
-	if (controller) await controller.landChange(next);
-	else boardApi?.land(next);
+	if (!next) return;
+	void ensureReview().then((controller) =>
+		controller ? controller.landChange(next) : boardApi?.land(next),
+	);
 }
 
 function ensureComments(): Promise<void> {
@@ -417,67 +410,14 @@ function ensureComments(): Promise<void> {
 // ---- Alfy's change (T6, ruling 63) ---------------------------------------------
 // Loaded on demand (`review-parts.ts`): when a call of Alfy's on this board runs or
 // settles, a comment's answer changed the board, or the board is found with a change
-// waiting. Until then nothing of it is in the first paint. What is true about a
-// change (which blocks wait, whether Undo is still possible) is the server's; this
-// only draws it and saves what the reader decides.
+// waiting. Until then nothing of it is in the first paint, and this is only the glue:
+// what a call does to the board, Undo and Redo, and the chord are the controller's.
+// What is true about a change (which blocks wait, whether Undo is still possible)
+// is the server's.
 
 let reviewViews = $state.raw<ReviewViews | null>(null);
 let review = $state.raw<CanvasReviewController | null>(null);
 let reviewLoading: Promise<CanvasReviewController | null> | null = null;
-/** A call of Alfy's on this board is running or landing: the toolbar's Ask waits. Set before the parts have loaded. */
-let alfyBusy = $state(false);
-
-/**
- * Undo and Redo write a whole board as the reader's own version: a version of its
- * own (never merged into the one before), against the version and hash this editor
- * last saw, so a save that landed in between refuses it rather than being written
- * over. The reader's last step was saved first (`saveBoardNow`). Answers the board
- * that was saved, for the controller to draw, or why it was not.
- */
-async function writeBoard(
-	body: string,
-	summaryKind?: SaveSummaryKind,
-): Promise<WriteResult> {
-	let parsed: CanvasBody;
-	try {
-		parsed = normalizeCanvasBody(JSON.parse(body)).body;
-	} catch {
-		return { ok: false, reason: "failed" };
-	}
-	await autosave.flush();
-	const json = boardJson(parsed);
-	const result = await saveArtifactBody(
-		artifactId,
-		json,
-		versionNumber ?? undefined,
-		conversationId,
-		undefined,
-		{ baseHash: knownBodyHash ?? undefined, coalesce: false, summaryKind },
-	).catch(() => null);
-	if (!result) return { ok: false, reason: "failed" };
-	if (!result.ok) {
-		return {
-			ok: false,
-			reason:
-				result.reason === "too_large"
-					? "too_large"
-					: result.reason === "stale" ||
-							result.reason === "hash_mismatch" ||
-							result.reason === "version_conflict"
-						? "conflict"
-						: "failed",
-		};
-	}
-	versionNumber = result.version;
-	knownBodyHash = result.bodyHash ?? null;
-	savedJson = json;
-	latestJson = json;
-	boardNodes = parsed.nodes;
-	comments?.setNodes(boardNodes);
-	onBodyChange?.(json);
-	onDirtyChange?.(false);
-	return { ok: true, board: parsed };
-}
 
 const reviewHost: ReviewHost = {
 	get artifactId() {
@@ -488,7 +428,20 @@ const reviewHost: ReviewHost = {
 	},
 	board: () => boardApi,
 	saveNow: saveBoardNow,
-	write: writeBoard,
+	guard: () => ({ version: versionNumber, bodyHash: knownBodyHash }),
+	// A board of the reader's own (Undo, Redo) was saved: its version and hash are the
+	// ones the next autosave is checked against.
+	saved: ({ board, json, version, bodyHash }) => {
+		versionNumber = version;
+		knownBodyHash = bodyHash;
+		savedJson = json;
+		latestJson = json;
+		boardNodes = board.nodes;
+		comments?.setNodes(boardNodes);
+		onBodyChange?.(json);
+		onDirtyChange?.(false);
+	},
+	adopt: adoptBoard,
 	openVersions: () => (versionsOpen = true),
 	reportCount: (count) => onPendingReviewCountChange?.(count),
 };
@@ -547,91 +500,48 @@ async function restoreReview(id: string, token: number): Promise<void> {
 const settledActivityKeyAtMount = untrack(() =>
 	alfyActivity && alfyActivity.status !== "running" ? alfyActivity.key : null,
 );
-let arrangingKey = "";
-let handledActivity = "";
 
 $effect(() => {
 	const activity = alfyActivity;
-	if (!activity || activity.artifactId !== artifactId) {
-		untrack(() => {
-			alfyBusy = false;
-		});
+	if (!activity || activity.artifactId !== artifactId) return;
+	if (
+		activity.status !== "running" &&
+		activity.key === settledActivityKeyAtMount
+	) {
 		return;
 	}
-	if (activity.status === "running") {
-		alfyBusy = true;
-		if (activity.key !== arrangingKey) {
-			arrangingKey = activity.key;
-			untrack(
-				() => void ensureReview().then((c) => c?.beginArranging(activity)),
-			);
-		}
-		return;
-	}
-	if (activity.key === settledActivityKeyAtMount) {
-		alfyBusy = false;
-		return;
-	}
-	const key = `${activity.key}:${activity.status}`;
-	if (key === handledActivity) return;
 	// The board must be up before a change can be drawn on it: this runs again when it is.
-	if (phase !== "ready" || !boardApi) return;
-	handledActivity = key;
-	untrack(() => void landActivity(activity));
+	const ready = phase === "ready" && boardApi !== null;
+	untrack(
+		() =>
+			void ensureReview().then((controller) =>
+				controller?.onActivity(activity, {
+					settledAtMount: settledActivityKeyAtMount,
+					ready,
+				}),
+			),
+	);
 });
 
-/**
- * A call of Alfy's on this board has settled: the board is read again and drawn
- * (only when the call changed it: a highlight writes no version, and a call that
- * changed nothing has nothing to draw), what Alfy skipped is named, and the
- * arranging frame goes.
- */
-async function landActivity(activity: DocumentAlfyActivity): Promise<void> {
-	const controller = await ensureReview();
-	if (!controller) {
-		alfyBusy = false;
-		return;
-	}
-	// A call fast enough that its running state never reached a render (a tool that
-	// answers in a few milliseconds) still shows "Alfy is arranging…" while it lands:
-	// the state is seen for a moment even when the call was faster (redesign §4.2).
-	if (arrangingKey !== activity.key && activity.status !== "failed") {
-		arrangingKey = activity.key;
-		controller.beginArranging(activity);
-	}
-	if (activity.status === "failed") {
-		await controller.endArranging();
-		alfyBusy = false;
-		return;
-	}
-	let next: CanvasBody | null = null;
-	if (activity.appliedCount > 0) {
-		try {
-			next = adoptBoard(await fetchArtifact(artifactId, conversationId));
-		} catch {
-			// Not read: it is drawn by the next read of the artifact.
-		}
-	}
-	await controller.settleActivity(activity, next);
-	alfyBusy = false;
-}
+/** The toolbar's Ask waits while Alfy is at work on this board, from the moment its call starts. */
+let alfyBusy = $derived(
+	(review?.working ?? false) ||
+		(alfyActivity?.status === "running" &&
+			alfyActivity.artifactId === artifactId),
+);
 
-/** Ctrl/Cmd+Alt+Z takes Alfy's change back, and +Shift puts it back: the chord is the Document's, and never the reader's own undo. */
 function handleWindowKeydown(event: KeyboardEvent): void {
-	if (event.defaultPrevented || !review) return;
-	if (!editorEl?.contains(document.activeElement)) return;
-	const target = event.target as HTMLElement | null;
-	if (target?.closest("input, textarea, select, [contenteditable='true']")) {
+	if (
+		event.defaultPrevented ||
+		!review ||
+		!editorEl?.contains(document.activeElement)
+	) {
 		return;
 	}
-	const chord = alfyChangeShortcutFor(event);
-	if (chord === "undo" && review.status === "pending" && review.change) {
-		event.preventDefault();
-		void review.undo();
-	} else if (chord === "redo" && review.status === "undone") {
-		event.preventDefault();
-		void review.redo();
-	}
+	const target = event.target as HTMLElement | null;
+	if (target?.closest("input, textarea, select, [contenteditable='true']"))
+		return;
+	review.handleKey(event);
 }
 
 $effect(() => {
