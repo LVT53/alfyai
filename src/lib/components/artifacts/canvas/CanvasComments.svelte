@@ -177,6 +177,7 @@ $effect(() => {
 	>
 		<CommentThread
 			{thread}
+			kind="canvas"
 			quote={quoteOf(thread, orphaned)}
 			quoteLabel={orphaned
 				? null

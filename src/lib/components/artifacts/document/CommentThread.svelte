@@ -49,6 +49,7 @@ let {
 	quoteLabel = null,
 	replyPlaceholder = null,
 	askAlfyHint = null,
+	kind = "document",
 }: {
 	thread: ArtifactComment;
 	/** The anchor's own quote text, already resolved by the caller — `null` when this thread has no text anchor (a malformed/unparseable one; T10.9). */
@@ -79,6 +80,8 @@ let {
 	/** The reply box's placeholder and the hint under an `@Alfy` reply, when the Document's words ("edit the text") are not the kind's. */
 	replyPlaceholder?: string | null;
 	askAlfyHint?: string | null;
+	/** What the thread is on: "the text" of a Document, "the board" of a Canvas, in what Alfy's fixed replies say they left alone. */
+	kind?: "document" | "canvas";
 } = $props();
 
 /** Alfy's own notes (spec decision 8, redesign §3.2): a thread whose FIRST message is Alfy's own, unprompted — never a reply inside a thread the user started. */
@@ -202,6 +205,7 @@ let foldedA11yLabel = $derived(
 				<div class="comment-thread-messages">
 					<div class="comment-thread-message">
 						<CommentCard
+							{kind}
 							comment={thread}
 							isGuess={isGuessThread}
 							changeState={changeStateByCommentId[thread.id]}
@@ -215,6 +219,7 @@ let foldedA11yLabel = $derived(
 					{#each thread.replies as reply (reply.id)}
 						<div class="comment-thread-message">
 							<CommentCard
+								{kind}
 								comment={reply}
 								changeState={changeStateByCommentId[reply.id]}
 								onSeeChange={onSeeChange ? () => onSeeChange(reply.id) : undefined}
