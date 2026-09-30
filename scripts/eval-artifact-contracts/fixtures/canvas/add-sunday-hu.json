@@ -1,0 +1,10 @@
+{
+	"id": "add-sunday-hu",
+	"description": "The Hungarian catalogue and a Hungarian board: the same frame-and-three-notes request, whose new words must be Hungarian.",
+	"language": "hu",
+	"kind": "edit",
+	"board": "vienna-tidy-hu",
+	"artifactId": "3f6b2a94-7c1e-4d55-9a0e-5b2f1c8d7e10",
+	"title": "Bécsi hétvége",
+	"request": "Adj hozzá egy Vasárnap keretet három cetlivel: brunch, séta a Práterben és a vonat haza."
+}

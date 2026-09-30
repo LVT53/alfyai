@@ -184,6 +184,45 @@ export function createGroundedWebCandidates(
 	}));
 }
 
+/**
+ * The inverse of `createGroundedWebCandidates`: the payload sources a persisted
+ * web tool call stands for, rebuilt from the candidates it kept. Both directions
+ * live here so the way a source is shaped for a candidate and the way it is read
+ * back cannot drift apart; whatever needs the sources of an earlier search (a
+ * Canvas live-web block made from a chat's search) reads them through this rather
+ * than re-shaping `metadata` itself. What a record from before the tool kept its
+ * provider metadata lacks is filled with neutral values, never left undefined; a
+ * candidate that is not a web source or has no link is not a source.
+ */
+export function groundedWebSourcesFromCandidates(
+	candidates: ToolEvidenceCandidate[],
+): GroundedWebPayloadSource[] {
+	const sources: GroundedWebPayloadSource[] = [];
+	for (const candidate of candidates) {
+		if (candidate.sourceType !== "web") continue;
+		const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
+		if (!url) continue;
+		const meta = candidate.metadata ?? {};
+		sources.push({
+			id: candidate.id,
+			title: candidate.title,
+			url,
+			provider: typeof meta.provider === "string" ? meta.provider : "",
+			authorityClass:
+				typeof meta.authorityClass === "string"
+					? meta.authorityClass
+					: "unknown",
+			authorityScore:
+				typeof meta.authorityScore === "number" ? meta.authorityScore : 0,
+			publishedAt:
+				typeof meta.publishedAt === "string" ? meta.publishedAt : null,
+			updatedAt: typeof meta.updatedAt === "string" ? meta.updatedAt : null,
+			...(candidate.snippet ? { snippet: candidate.snippet } : {}),
+		});
+	}
+	return sources;
+}
+
 // Pick the top `limit` DISTINCT result URLs (by canonical URL, preserving
 // source-ranking order) for research_web's optional `readPages` page-read
 // follow-up. Sources that fail to canonicalize fall back to their raw URL as

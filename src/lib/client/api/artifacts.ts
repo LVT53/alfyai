@@ -26,7 +26,15 @@ import {
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas";
+import type { CanvasReviewState } from "$lib/shared/artifacts/canvas-review";
+import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import {
+	type CanvasWebFailure,
+	isCanvasWebFailure,
+} from "$lib/shared/artifacts/live-web";
+import type { OpRefusal, OpsDiff } from "$lib/shared/artifacts/ops";
 import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
 import { _unwrapList } from "./_utils";
 import {
@@ -68,6 +76,8 @@ export interface ArtifactDetailResponse {
  *   knows it — when the artifact was last changed (`updatedAt`, epoch ms).
  * - `deleted`: the item is gone (this browser deleted it, or the server said
  *   it no longer exists).
+ * - `files`: something was made in this chat outside a turn (a board's picture
+ *   was kept as a File): the chat reads its files again, so its list shows it.
  */
 export type ArtifactChange =
 	| {
@@ -76,7 +86,8 @@ export type ArtifactChange =
 			version: number;
 			updatedAt: number | null;
 	  }
-	| { type: "deleted"; artifactId: string };
+	| { type: "deleted"; artifactId: string }
+	| { type: "files"; conversationId: string };
 
 type ArtifactChangeListener = (change: ArtifactChange) => void;
 const artifactChangeListeners = new Set<ArtifactChangeListener>();
@@ -104,6 +115,11 @@ export function subscribeArtifactChanges(
 
 function announceArtifactChange(change: ArtifactChange): void {
 	for (const listener of artifactChangeListeners) listener(change);
+}
+
+/** This chat made a file outside a turn (a board's picture, kept as a File): whoever lists the chat's files reads them again. */
+export function announceChatFilesChanged(conversationId: string): void {
+	announceArtifactChange({ type: "files", conversationId });
 }
 
 /**
@@ -269,6 +285,132 @@ export async function fetchConversationArtifacts(
 }
 
 /**
+ * What a Canvas's own chat has that the board can hold — the Insert menu's
+ * "From this chat" (files, Apps, route maps, charts; newest first, a few of
+ * each). Keyed by the BOARD's id and scoped like every artifact read: the
+ * conversation the panel is showing travels as `?conversationId=` (ruling 51),
+ * so an incognito chat's own board lists its own work. Ruling 49: the route
+ * answers `{ ok: true, files, apps, maps, charts }`; `ok` is left behind, and a
+ * board out of reach throws (the caller says it could not look).
+ */
+export async function fetchCanvasChatBlocks(
+	artifactId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<CanvasChatBlocks> {
+	const query = conversationId
+		? `?conversationId=${encodeURIComponent(conversationId)}`
+		: "";
+	const response = await requestJson<Partial<CanvasChatBlocks> & { ok: true }>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/chat-blocks${query}`,
+		undefined,
+		"Failed to list this chat's blocks",
+		fetchImpl,
+	);
+	return {
+		files: response.files ?? [],
+		apps: response.apps ?? [],
+		maps: response.maps ?? [],
+		charts: response.charts ?? [],
+		photos: response.photos ?? [],
+		searches: response.searches ?? [],
+	};
+}
+
+export type RefreshCanvasBlockResult =
+	| { ok: true; nodeId: string; data: CanvasBlockData }
+	| { ok: false; reason: CanvasWebFailure };
+
+export type SearchCanvasWebResult =
+	| { ok: true; data: Extract<CanvasBlockData, { kind: "liveweb" }> }
+	| { ok: false; reason: CanvasWebFailure };
+
+/**
+ * A web read's answer as a value: a documented refusal names its reason, and an
+ * answer that cannot be read (a gateway's page, a dropped connection) is a failed
+ * read. Only the caller's own abort is let through, so a block that went away is
+ * not mistaken for a search that failed.
+ */
+async function readWebAnswer<T extends { ok: true }>(
+	request: () => Promise<Response>,
+	signal?: AbortSignal,
+): Promise<T | { ok: false; reason: CanvasWebFailure }> {
+	try {
+		const answer = (await (await request()).json()) as
+			| T
+			| { ok: false; reason?: unknown };
+		if (answer.ok === true) return answer;
+		const reason = (answer as { reason?: unknown }).reason;
+		return {
+			ok: false,
+			reason: isCanvasWebFailure(reason) ? reason : "refresh_failed",
+		};
+	} catch (error) {
+		if (signal?.aborted) throw error;
+		return { ok: false, reason: "refresh_failed" };
+	}
+}
+
+/**
+ * Re-runs a live-web block's search — `POST /api/artifacts/[id]/blocks/[nodeId]/refresh`.
+ * The request carries nothing of the client's: no body, no header. The server
+ * searches for the query STORED on the block and answers the snapshot to put in
+ * its place, so there is no address or query here for a page to tamper with, and
+ * a request with no body is one the server sees end when the tab goes away. The
+ * refresh writes nothing: the board's own save writes the new snapshot as the
+ * reader's version. `signal` cancels the search when the block goes away.
+ */
+export async function refreshCanvasBlock(
+	artifactId: string,
+	nodeId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+	signal?: AbortSignal,
+): Promise<RefreshCanvasBlockResult> {
+	return readWebAnswer<{ ok: true; nodeId: string; data: CanvasBlockData }>(
+		() =>
+			requestResponse(
+				`/api/artifacts/${encodeURIComponent(artifactId)}/blocks/${encodeURIComponent(nodeId)}/refresh${withConversationQuery(conversationId)}`,
+				{ method: "POST", ...(signal ? { signal } : {}) },
+				fetchImpl,
+			),
+		signal,
+	);
+}
+
+/**
+ * Searches the web for a query typed into the Insert menu —
+ * `POST /api/artifacts/[id]/blocks/liveweb` — and answers the snapshot a
+ * live-web block starts from. The query travels in the body, never the address,
+ * so it stays out of any server log's request line.
+ */
+export async function searchCanvasWeb(
+	artifactId: string,
+	query: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+	signal?: AbortSignal,
+): Promise<SearchCanvasWebResult> {
+	return readWebAnswer<{
+		ok: true;
+		data: Extract<CanvasBlockData, { kind: "liveweb" }>;
+	}>(
+		() =>
+			requestResponse(
+				`/api/artifacts/${encodeURIComponent(artifactId)}/blocks/liveweb${withConversationQuery(conversationId)}`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ query }),
+					...(signal ? { signal } : {}),
+				},
+				fetchImpl,
+			),
+		signal,
+	);
+}
+
+/**
  * The App storage bridge's two browser calls (`AppFrame.svelte`'s reply
  * path). Every status the kv route can answer — 200/400/404/413/409 — carries
  * the same `{ ok, ... }` body (ruling 49), so both functions read the parsed
@@ -423,6 +565,13 @@ export type SaveArtifactBodyResult =
 			 * hand-built response (or an older cached one) still decodes.
 			 */
 			bodyHash?: string;
+			/**
+			 * A board save only, and only when the server had to leave something
+			 * out (a block of an unknown kind, an edge to nothing, a stroke past
+			 * the cap): how many of each. The caller's own copy still has them, so
+			 * this is the one place it hears the stored board differs.
+			 */
+			dropped?: { nodes: number; edges: number; annotations: number };
 	  }
 	| {
 			ok: false;
@@ -487,6 +636,69 @@ export async function saveArtifactBody(
 	if (payload.ok)
 		announceArtifactVersion(artifactId, payload.version, Date.now());
 	return payload;
+}
+
+export type ApplyArtifactOpsResult =
+	| {
+			ok: true;
+			/** The version the diff landed in, or the current one when nothing changed. */
+			versionId: string;
+			version: number;
+			applied: number;
+			/** Each op that was skipped: its place in the diff, its name, what it named, and why. */
+			refused: OpRefusal[];
+			/** False when nothing was written: every op refused, or ops that change nothing (a highlight). */
+			changed: boolean;
+	  }
+	| { ok: false; reason: "version_conflict"; version: number }
+	| {
+			ok: false;
+			reason: "invalid_diff" | "unsupported_kind" | "not_found" | "too_large";
+			detail?: string;
+	  };
+
+/**
+ * An id-addressed change to an artifact — `POST /api/artifacts/[id]/ops`,
+ * ruling 14's one route for every kind's diff (a board's `BoardDiff` today).
+ * `baseVersionId` is the version the diff was made against; a stale one is a
+ * `version_conflict` carrying the version the artifact is really at, and the
+ * caller reloads. A documented refusal comes back as a value, like
+ * `saveArtifactBody`'s, so the panel decides what it means; only a failure of
+ * the request itself throws. There is no `saveCanvasBody`: the board's own
+ * saves go through `saveArtifactBody` (ruling 64).
+ *
+ * The version a landed diff reports is announced through the same channel a
+ * body save uses, so the list row, the in-chat card and the header follow it.
+ */
+export async function applyArtifactOps(
+	artifactId: string,
+	baseVersionId: string,
+	diff: OpsDiff<{ op: string }>,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<ApplyArtifactOpsResult> {
+	const response = await requestResponse(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/ops${withConversationQuery(conversationId)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ baseVersionId, diff }),
+		},
+		fetchImpl,
+	);
+	const result = (await response.json()) as ApplyArtifactOpsResult;
+	if (result.ok) {
+		// A write just happened, so "now" is when it changed; a diff that wrote
+		// nothing only says which version the artifact is at.
+		announceArtifactVersion(
+			artifactId,
+			result.version,
+			result.changed ? Date.now() : null,
+		);
+	} else if (result.reason === "version_conflict") {
+		announceArtifactVersion(artifactId, result.version, null);
+	}
+	return result;
 }
 
 export type ToggleDocumentTaskResult =
@@ -870,4 +1082,64 @@ export async function acknowledgeDocumentReviewBlocks(
 		fetchImpl,
 	);
 	return payload.pending;
+}
+
+/**
+ * A board's review (ruling 63): what Alfy's change left waiting, recomputed by
+ * the server on every call — never cached across a reload — with whether Undo
+ * is still possible and what it goes back to. Throws for anything that is not a
+ * board's answer (a 404, a Document's `{ pending }`): the caller reads that as
+ * "no review to show".
+ */
+export async function fetchCanvasReviewState(
+	artifactId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<CanvasReviewState> {
+	const payload = await requestJson<{
+		ok: true;
+		kind?: string;
+		review?: CanvasReviewState;
+	}>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/review${withConversationQuery(conversationId)}`,
+		undefined,
+		"Failed to load what Alfy changed",
+		fetchImpl,
+	);
+	if (payload.kind !== "canvas" || !payload.review) {
+		throw new Error("That item has no board review");
+	}
+	return payload.review;
+}
+
+/**
+ * Keep: moves the board's review marker past the newest change of Alfy's the
+ * reader was shown (`throughVersion`), so one that landed while they decided is
+ * not swallowed. Undo calls it too, once the parent's board is saved back.
+ * Answers what is left waiting.
+ */
+export async function acknowledgeCanvasReview(
+	artifactId: string,
+	throughVersion: number,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<CanvasReviewState> {
+	const payload = await requestJson<{
+		ok: true;
+		kind?: string;
+		review?: CanvasReviewState;
+	}>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/review${withConversationQuery(conversationId)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ throughVersion }),
+		},
+		"Failed to save what you reviewed",
+		fetchImpl,
+	);
+	if (payload.kind !== "canvas" || !payload.review) {
+		throw new Error("That item has no board review");
+	}
+	return payload.review;
 }

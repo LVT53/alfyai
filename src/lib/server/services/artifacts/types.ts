@@ -76,6 +76,16 @@ export interface DocumentCardPreview {
 }
 
 /**
+ * `kind: "canvas"` only (Slice 3): what a board's card says about it without
+ * shipping the board — how many blocks it holds. Counted by the board's own
+ * reader (`normalizeCanvasBody`), so a block of a kind nobody knows is not
+ * counted, and the card and the panel agree.
+ */
+export interface CanvasCardPreview {
+	blockCount: number;
+}
+
+/**
  * `kind: "app"` only (Wave 2.5 Step 13): the App panel's own status-row
  * verdict, carried along so the in-chat card can show the same fact-check
  * line without a second fetch. Mirrors the shape `AppBody.svelte` already
@@ -105,16 +115,21 @@ export interface ArtifactCardSummary {
 	documentPreview?: DocumentCardPreview;
 	/** `kind: "app"` only; `null` when the App's facts were never checked. */
 	appVerification?: AppVerificationSummary | null;
+	/** `kind: "canvas"` only. */
+	canvasPreview?: CanvasCardPreview;
 	/**
-	 * `kind: "document"` only (Wave 2.5 review, F1): the PERSISTED review
-	 * state — `document-ops.ts`'s `computePendingReviewBlocks`, through the
-	 * artifact's own stored `metadata.review` marker (ruling 61) — never the
+	 * `kind: "document"` or `"canvas"` (Wave 2.5 review, F1; ruling 63): the
+	 * PERSISTED review state — a Document's `computePendingReviewBlocks`, a
+	 * board's `computeCanvasReview`, through the artifact's own stored
+	 * `metadata.review` marker (ruling 61) — never the
 	 * ephemeral, session-only `liveDocumentAlfyActivity` signal the chat card,
 	 * list row and count-button dot used to read independently (and could
 	 * each go stale in a different way). `undefined` for a document that has
 	 * never had an Alfy edit land (no marker yet — nothing to review, ever):
 	 * distinct from `0`, which means "reviewed" (a marker exists and nothing
-	 * is pending right now). Every other kind always omits this field.
+	 * is pending right now). Every other kind always omits this field. For a
+	 * board it is the number of blocks waiting, and 1 for a change that only
+	 * took blocks away.
 	 */
 	pendingReviewCount?: number;
 	/**
@@ -155,6 +170,43 @@ export interface ArtifactComment {
 	createdAt: number;
 	/** Replies, oldest first. Empty on a reply itself. */
 	replies: ArtifactComment[];
+}
+
+/**
+ * What `runAlfyCommentReply` answers with, whatever kind the artifact is: what
+ * became of the request (a change landed, every op was refused, or it was only
+ * a question), how many ops did and did not apply, the version the artifact is
+ * at afterwards, and Alfy's reply as it now stands in the thread.
+ */
+export type AlfyCommentOutcome = "applied" | "refused" | "answered";
+
+export interface AlfyCommentReplyResult {
+	outcome: AlfyCommentOutcome;
+	applied: number;
+	refused: number;
+	/** The version this reply's own change landed in, or the CURRENT version when nothing changed. */
+	version: number;
+	reply: ArtifactComment;
+}
+
+/**
+ * A comment thread as the `@Alfy` hook works on it, whatever the kind: the
+ * comment that asked, the thread it is in, the thread's own anchor (a reply has
+ * none), and the one way Alfy answers in it. Built once by the comment service
+ * so a kind's branch never opens the comment table itself.
+ */
+export interface AlfyThreadContext {
+	/** The comment that asked: a thread's root or one of its replies. */
+	target: ArtifactComment;
+	rootId: string;
+	/** The thread's anchor; null when it could not be read. */
+	anchor: Anchor | null;
+	/** The root with its replies, oldest first, as the reader sees the thread. */
+	thread: ArtifactComment;
+	/** Writes Alfy's reply under the root. */
+	reply: (body: string) => Promise<ArtifactComment>;
+	/** Moves the thread to another anchor: the block it was on was replaced by the change this reply made. */
+	reanchor: (anchor: Anchor) => Promise<void>;
 }
 
 export interface ArtifactKvRow {

@@ -16,7 +16,9 @@ import {
 } from "$lib/server/services/normal-chat-control-model";
 import {
 	buildNormalChatModelRunProviderOptions,
+	mapNormalChatModelRunUsageToProviderSnapshot,
 	type NormalChatModelRunProvider,
+	type NormalChatModelRunUsage,
 	resolveNormalChatModelRunProvider,
 	runPlainNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
@@ -34,6 +36,8 @@ export interface AppModelCallUsage {
 	completionTokens: number;
 	totalTokens: number;
 	cachedInputTokens?: number;
+	cacheHitTokens?: number;
+	cacheMissTokens?: number;
 }
 
 /** The three measured prototype bug classes, plus everything the verifier is sure about but cannot name. */
@@ -298,6 +302,8 @@ function sumUsage(
 		completionTokens: a.completionTokens + b.completionTokens,
 		totalTokens: a.totalTokens + b.totalTokens,
 		cachedInputTokens: (a.cachedInputTokens ?? 0) + (b.cachedInputTokens ?? 0),
+		cacheHitTokens: (a.cacheHitTokens ?? 0) + (b.cacheHitTokens ?? 0),
+		cacheMissTokens: (a.cacheMissTokens ?? 0) + (b.cacheMissTokens ?? 0),
 	};
 }
 
@@ -320,6 +326,8 @@ async function recordVerificationCost(params: {
 		completionTokens: params.usage.completionTokens,
 		totalTokens: params.usage.totalTokens,
 		cachedInputTokens: params.usage.cachedInputTokens,
+		cacheHitTokens: params.usage.cacheHitTokens,
+		cacheMissTokens: params.usage.cacheMissTokens,
 	});
 }
 
@@ -420,7 +428,7 @@ async function reVerifyRepair(params: {
 			timeout,
 		]);
 
-		const usage = toModelCallUsage(result.usage);
+		const usage = toModelRunUsage(result.usage);
 		await recordVerificationCost({
 			userId: params.userId,
 			conversationId: params.conversationId,
@@ -578,7 +586,7 @@ export async function verifyApp(
 		return unavailable(describeError(caught), classifierUsage);
 	}
 
-	const verifierUsage = toModelCallUsage(verifierResult.usage);
+	const verifierUsage = toModelRunUsage(verifierResult.usage);
 	const totalUsage = sumUsage(classifierUsage, verifierUsage);
 	await recordVerificationCost({
 		userId: params.userId,
@@ -706,17 +714,17 @@ function describeError(caught: unknown): string {
 	return caught instanceof Error ? caught.message : String(caught);
 }
 
-function toModelCallUsage(
-	usage:
-		| {
-				promptTokens?: number;
-				completionTokens?: number;
-				totalTokens?: number;
-				cachedInputTokens?: number;
-		  }
-		| undefined,
-): AppModelCallUsage | null {
-	if (!usage) return null;
+/** The usage fields as the cost record says them (the control-model helper reports these). */
+type ReportedUsage = {
+	promptTokens?: number;
+	completionTokens?: number;
+	totalTokens?: number;
+	cachedInputTokens?: number;
+	cacheHitTokens?: number;
+	cacheMissTokens?: number;
+};
+
+function usageFrom(usage: ReportedUsage): AppModelCallUsage {
 	const promptTokens = usage.promptTokens ?? 0;
 	const completionTokens = usage.completionTokens ?? 0;
 	return {
@@ -724,5 +732,25 @@ function toModelCallUsage(
 		completionTokens,
 		totalTokens: usage.totalTokens ?? promptTokens + completionTokens,
 		cachedInputTokens: usage.cachedInputTokens,
+		cacheHitTokens: usage.cacheHitTokens,
+		cacheMissTokens: usage.cacheMissTokens,
 	};
+}
+
+/** The classifier's usage, from the control-model helper (prompt/completion tokens already). */
+function toModelCallUsage(
+	usage: ReportedUsage | undefined,
+): AppModelCallUsage | null {
+	return usage ? usageFrom(usage) : null;
+}
+
+/**
+ * A model run's usage. The run reports input/output tokens, not the
+ * prompt/completion the cost record prices, so it goes through the mapper the
+ * generator's own cost record uses; reading `promptTokens` off it directly
+ * priced the verifier and its re-verification at zero. A run that reported
+ * nothing still counts as a call.
+ */
+function toModelRunUsage(usage: NormalChatModelRunUsage): AppModelCallUsage {
+	return usageFrom(mapNormalChatModelRunUsageToProviderSnapshot(usage) ?? {});
 }

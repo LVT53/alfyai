@@ -79,6 +79,102 @@ the `edit_artifact` patch contract (`slice-1.md` Task T13) —
   the format — that fixture exists to prove the SCORER catches it if it
   ever does, not to reproduce a failure this model actually has).
 
+**Slice 3** (Wave 3) adds `canvas`: can the real model hold the Canvas contract — read
+a board with `read_artifact`, change it with `edit_artifact` ops, make one with
+`create_artifact`? Its cases go **through the real tools** (ruling 62), which
+`client.ts` cannot carry and ruling 44 keeps closed, so this slice ships beside the
+core:
+
+- `tool-path.ts` — sends the whole tool catalogue exactly as a chat turn does (read
+  from the app's own frozen `tool-catalogue.<lang>.snapshot.txt`, never re-typed) and
+  reads the answer back as a recorded envelope (`toolCalls`, `content`,
+  `finishReason`, and any `priorSteps`). A case may name tools a conversation would
+  not have (`withoutTools`) and take a bounded follow-up: a lookup the suite can
+  answer is answered and the model goes on, at most 4 steps; the call that is scored
+  is never answered.
+- `run-tool-suite.ts` — hands the harness's own `runSuite` a client built on it: the
+  same known-bad-first gate, one retry and circuit breaker. A known-bad case is
+  **never sent**: its hand-written answer is served from disk (ruling 59).
+  `npm run eval:artifacts:tools -- --suite canvas`.
+- `suites/canvas.ts`, `fixtures/canvas/` — six requests, each declaring its language
+  (ruling 65): the prototype's "arrange Saturday" on a board whose notes are piled up,
+  a Sunday frame with three stickies (English and Hungarian), "remove the museum note
+  and connect lunch to the walk", and a board for a Vienna weekend from nothing
+  (English and Hungarian). An edit case carries the artifact catalogue block the app
+  appends to the message, and when the model reads the board it is handed the real
+  `read_artifact` payload (`canvasReadBlocks`, compared with the tool's own answer by
+  a test). The scorer applies the model's ops with the app's own vocabulary
+  (`boardOpsArraySchema`, `validateBoardDiff` through `runOps`) and checks the board
+  they leave: every diff parses and lands (a refusal is a miss), every requested item
+  is there, nothing sticks out of its frame, no two nodes overlap (footprint: a node's
+  stored size, or its kind's default width (a note's 190, a checklist's 340, a chart's
+  360) and the height its words, items or plot take, the estimate the model is told and
+  the read reports: `estimatedNodeSize`), labels are not empty, nothing was removed that the request
+  did not name, and the new words are in the declared language. A create is judged
+  through `parseCanvasCreateBody`, the tool's own parse. Every reason starts with the
+  check that found it (`routing:`, `tool-args:`, `schema:`, `refusal:`, `request:`,
+  `frames:`, `overlap:`, `labels:`, `removed:`, `language:`, `note:`, `ok:`).
+- Known-bad (hand-written, `responses/canvas-known-bad-*.json`): a diff that leaves two
+  notes piled up, one that moves a note out of its frame, one with an op the vocabulary
+  does not have, one that removes a note the request never named. Each fails for
+  exactly the reason it exists; a test proves `runSuite` refuses to count real scores if
+  one is let through.
+
+```bash
+# Live, through the tunnel on the runner's own port, one command:
+ssh -N -o ExitOnForwardFailure=yes -L 30020:192.168.1.96:30000 alfyroot & T=$!; sleep 2; \
+  EVAL_ARTIFACTS_BASE_URL=http://127.0.0.1:30020/v1 EVAL_ARTIFACTS_MODEL=qwen3-6-27b \
+  npx tsx scripts/eval-artifact-contracts/run-tool-suite.ts --suite canvas; kill $T
+#   --repeat 3            three sequential runs, to estimate a rate
+#   --write-responses     record the answers under fixtures/canvas/responses/
+#   --responses-out DIR   keep every answer of every run for a closer look
+# Replay (no model, no key):
+npx tsx scripts/eval-artifact-contracts/run.ts --suite canvas --replay
+```
+
+**What the live runs measured** (`qwen3-6-27b`, thinking off, sequential, 5 repeats of the
+six cases each; the committed `fixtures/canvas/responses/` are one such run). A measurement,
+not a pass: the suite's bar is a clean first try, and it is not met. "Good" means nothing
+was wrong with any call and the board the conversation left passes the rubric.
+
+| Description | Answers | Good | Arrange | Add Sunday (en / hu) | Remove and connect | Create (en / hu) |
+|---|---|---|---|---|---|---|
+| v1 (as first registered) | 30 | 18 | 3/5 | 3/5 / 3/5 | 5/5 | 2/5 / 2/5 |
+| final (note size, arrows are not blocks) | 30 | **24** | 3/5 | 5/5 / 5/5 | 5/5 | 3/5 / 3/5 |
+| after RV-3 (the geometry the reader sees) | 18 | **15** | 3/3 | 2/3 / 1/3 | 3/3 | 3/3 / 3/3 |
+
+The last row is a different measurement, not a better model: the review of the Canvas (RV-3,
+C2) found that the rubric measured every note as 84 tall while the panel draws a note as tall as
+its words (64 for one or two lines, 18 more per further line, about 18 characters a line at
+190 wide), and that what Alfy adds had no stored width, so it was drawn as wide as its words
+ran (861 wide through a 420-wide frame). The app now stores the shared 190 width, the read, the
+tool text and this rubric all use `estimatedNodeHeight`, and the create example obeys its own
+layout rule. 3 repeats of the six cases, thinking off, sequential: 18 answers, 15 good, 1
+acceptable (a Hungarian edit made without reading the board first) and 2 bad: a mistyped id in
+an `add_edge` (mended in the next step) and a note at y 240 in a 300-high frame (its smallest
+size, 64, already ends at 304). The recorded run is one more such run (6 of 6 good; a single
+run is not a rate). Earlier rows were scored against the 84-tall geometry and are not
+comparable with this one.
+
+What failed, over the 30 final answers (6 bad): a note that sticks out of its frame (3: the
+model sized or enlarged the frame a note short — arithmetic on 84-tall notes), two frames
+overlapping (1), one board whose arrows were filed with the blocks (1), an invalid `tone` (1,
+mended in the next step). In v1's 30 (12 bad): notes or frames on top of each other (4), notes
+sticking out of their frame (6), a mistyped id in an `add_edge` (2, mended), arrows filed with the
+blocks (2), a script call still open at the last step (1). The edit cases with a stored board are
+the reliable half (Add Sunday 10/10 and Remove and connect 5/5 with the final wording); the
+arrange case is the one that needs arithmetic (five notes into a 460x360 frame) and the model
+gets it right 3 times in 5. The first 24 answers, recorded before the harness answered
+`run_python` and `map_route` (the model checks spacing with a script, or looks a place up),
+scored 13 good.
+
+Two ways to make a board were compared on the create cases, 20 answers each: the board in the
+`body` (12 good) against an empty board followed by `edit_artifact` ops (11 good). The
+structured ops did not beat the JSON string: an array of ops that the tool-call parser cannot
+read (a brace short after a nested checklist) arrives as text, which the tool now says
+(`tool-args.ts`); it was mended in the next step in 4 of 6 answers, and an arrow filed with the
+blocks in 6 of 6.
+
 ## What each type slice adds (ruling 44)
 
 Per `decisions.md` ruling 44, each type slice writes:

@@ -5,6 +5,10 @@ import {
 	collectDictionaryKeys,
 	mergedDictionaryModules,
 } from "$lib/i18n.test-helpers";
+import {
+	BOARD_REFUSAL_REASONS,
+	refusalLabelKey,
+} from "$lib/shared/artifacts/board-ops";
 import { uiLanguage } from "$lib/stores/settings";
 import artifactsDict from "./artifacts";
 
@@ -111,5 +115,77 @@ describe("the word 'artifact' in the UI", () => {
 				modules.includes(path.replace(/^\.\//, "").replace(/\.ts$/, "")),
 			),
 		).toHaveLength(modules.length);
+	});
+});
+
+// The Canvas tells the reader why a change of Alfy's skipped a block, in the
+// reader's own language: every reason the board can refuse for has a sentence,
+// in both. (`refusalLabelKey` is an exhaustive switch, so a new reason cannot
+// compile without a key; this is the half the compiler cannot see.)
+describe("the Canvas's refusal sentences", () => {
+	it("has a sentence, in English and in Hungarian, for every reason a board refuses for", () => {
+		for (const reason of BOARD_REFUSAL_REASONS) {
+			const key = refusalLabelKey(reason);
+			expect(artifactsDict.en, `${reason} in English`).toHaveProperty(key);
+			expect(artifactsDict.hu, `${reason} in Hungarian`).toHaveProperty(key);
+			expect((artifactsDict.hu as Record<string, string>)[key].trim()).not.toBe(
+				"",
+			);
+		}
+	});
+});
+
+// RV-3 Minor 8 and I2: a native speaker read the board's Hungarian and named the
+// sentences that read as translations; the refused-save banner named nobody and
+// blamed a reader "who was drawing". These pin what they were changed to.
+describe("the Canvas's wording after the review (RV-3 Minor 8, I2, Minor 9)", () => {
+	const en = artifactsDict.en as Record<string, string>;
+	const hu = artifactsDict.hu as Record<string, string>;
+
+	it("says in Hungarian what a Hungarian reader would say", () => {
+		expect(hu["artifacts.canvas.redo"]).toBe("Saját lépés ismét");
+		expect(hu["artifacts.canvas.offline"]).toBe(
+			"Nincs kapcsolat. A rajzod megmarad, a módosításaidat a kapcsolat helyreálltával mentjük.",
+		);
+		expect(hu["artifacts.canvas.comment.placed"]).toBe(
+			"Megjegyzés indítva — írd meg a listában.",
+		);
+		expect(hu["artifacts.canvas.arranging"]).toBe("Alfy dolgozik a táblán…");
+		expect(hu["artifacts.canvas.arrangingSummary"]).toBe(
+			"Alfy dolgozik a táblán: {summary}",
+		);
+		expect(hu["artifacts.canvas.staleBadge"]).toBe("Elavult");
+		expect(hu["artifacts.canvas.comment.blockGone"]).toBe(
+			"A blokk már nem létezik.",
+		);
+		expect(hu["artifacts.canvas.checklistReadOnlyNote"]).toBe(
+			"Az itt kipipált elemeket a táblával együtt mentjük.",
+		);
+		expect(hu["artifacts.canvas.review.landedLeft"]).toBe(
+			"{summary} {left} módosítást kihagyott. Nézd át a tábla alatt.",
+		);
+	});
+
+	it("says what happened when a save is refused: Alfy or another window changed the board, and the last step was not saved", () => {
+		const english = en["artifacts.canvas.saveConflict"];
+		expect(english).toContain("Alfy");
+		expect(english).toContain("your last step was not saved");
+		expect(english).not.toMatch(/someone|drawing/i);
+		const hungarian = hu["artifacts.canvas.saveConflict"];
+		expect(hungarian).toContain("Alfy");
+		expect(hungarian).toContain("utolsó lépésedet nem sikerült elmenteni");
+		expect(hungarian).not.toMatch(/valaki|rajzolt/i);
+	});
+
+	it("gives the zoom group and the button that zooms in different names, in both languages", () => {
+		for (const dict of [en, hu]) {
+			expect(dict["artifacts.canvas.zoom"]).not.toBe(
+				dict["artifacts.canvas.zoomIn"],
+			);
+			expect(dict["artifacts.canvas.zoom"]).not.toBe(
+				dict["artifacts.canvas.zoomOut"],
+			);
+		}
+		expect(hu["artifacts.canvas.zoom"]).toBe("Nagyítás mértéke");
 	});
 });

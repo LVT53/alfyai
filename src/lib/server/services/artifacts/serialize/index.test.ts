@@ -11,7 +11,7 @@ describe("the artifact serializer registry", () => {
 	});
 
 	it("answers null — not a throw — for a kind whose slice has not landed", () => {
-		for (const kind of ["app", "canvas", "slides"] as const) {
+		for (const kind of ["app", "slides"] as const) {
 			expect(getArtifactSerializer(kind)).toBeNull();
 		}
 	});

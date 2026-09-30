@@ -85,6 +85,7 @@ let {
 	onListOpenChange = undefined,
 	onPendingReviewCountChange = undefined,
 	onDeleteArtifact = undefined,
+	onFlushReady = undefined,
 	currentUser = null,
 }: {
 	open?: boolean;
@@ -134,6 +135,14 @@ let {
 	onDeleteArtifact?:
 		| ((item: DocumentWorkspaceItem) => Promise<void>)
 		| undefined;
+	/**
+	 * Hands the page the open body's way of saving what it has not saved yet
+	 * (`ArtifactPanelBodyActions.flush`), or null while the open item has none
+	 * (nothing open, the list, a body that keeps nothing back). The page awaits it
+	 * before a chat turn starts, so a turn that makes Alfy change the open board
+	 * finds the reader's last step already saved.
+	 */
+	onFlushReady?: ((flush: (() => Promise<void>) | null) => void) | undefined;
 	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
 	currentUser?: {
 		id: string;
@@ -303,6 +312,11 @@ let openBodyPanel = $derived(
 		: null,
 );
 let bodyPanelActions = $derived(openBodyPanel?.actions ?? null);
+$effect(() => {
+	const flush = bodyPanelActions?.flush ?? null;
+	untrack(() => onFlushReady?.(flush));
+	return () => untrack(() => onFlushReady?.(null));
+});
 /** Wave 2.5 Step 8: the Comments button's own badge (Document only — every other kind never calls `onCommentCountChange`, so this just stays 0 and the button never renders for them). */
 let documentOpenCommentCount = $derived(openBodyPanel?.commentCount ?? 0);
 /** Whether the Document's comments are showing (the column beside the text, or the drawer/sheet) — the Comments button's pressed state. */
@@ -325,6 +339,15 @@ function reportFromBody(patch: Partial<Omit<BodyPanelReport, "key">>): void {
 				: { key, actions: null, commentCount: 0, commentsShown: false };
 		bodyPanelReport = { ...current, ...patch };
 	});
+}
+/**
+ * A body asks the panel to open an item in its own viewer (a Canvas's File block
+ * names a file): through the host's one open, the same the chat's cards use — never
+ * a second viewer. A host that has no open (the Knowledge page) gives the body
+ * nothing to call, so the block is a plain row there.
+ */
+function handleBodyOpenItem(item: DocumentWorkspaceItem): void {
+	onOpenDocument?.(item);
 }
 // Only the open item's id: `activeDocument` itself is a new object whenever its
 // version number (or any other field) moves — a confirm asked about one item
@@ -1903,6 +1926,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								registerPanelActions={(actions) => reportFromBody({ actions })}
 								onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
+								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 								{currentUser}
 							/>
@@ -2218,6 +2242,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						registerPanelActions={(actions) => reportFromBody({ actions })}
 						onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
+						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						{currentUser}
 					/>

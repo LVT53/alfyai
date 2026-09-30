@@ -44,12 +44,12 @@ export type PanelTransitionParams = {
 //
 // Backed by the same stack primitive src/lib/utils/focus-trap.ts hands to
 // every migrated trap, but kept as its OWN instance here rather than a
-// shared default: CampaignModal.svelte imports these three functions
-// directly to join this exact stack (it is not a DialogShell but nests
-// inside/beside one), so this module-level singleton has to stay the one
-// source of truth for "is a dialog topmost" — moving it elsewhere would
-// fork the stack and let a DialogShell and CampaignModal fight over focus
-// again.
+// shared default: CampaignModal.svelte and CampaignCropModal.svelte import
+// these three functions directly to join this exact stack (neither is a
+// DialogShell, but both nest inside/beside one), so this module-level
+// singleton has to stay the one source of truth for "is a dialog topmost" —
+// moving it elsewhere would fork the stack and let a DialogShell and a
+// campaign dialog fight over focus again.
 const dialogStack = createFocusTrapStack();
 
 export function registerDialog(id: symbol): void {

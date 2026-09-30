@@ -145,6 +145,7 @@ import {
 	getChatFocusMessageIdFromUrl,
 } from "$lib/client/document-workspace-navigation";
 import {
+	discardPersistedWorkspaceDocumentStateOfIncognitoConversation,
 	loadPersistedWorkspaceDocumentState,
 	reduceWorkspaceClose,
 	reduceWorkspaceDocumentsForDeletedConversation,
@@ -152,6 +153,7 @@ import {
 	reduceWorkspaceDocumentOpen,
 	savePersistedWorkspaceDocumentState,
 	WORKSPACE_CONVERSATION_DELETED_EVENT,
+	type WorkspaceConversation,
 } from "$lib/client/document-workspace-state";
 import {
 	conversations,
@@ -183,6 +185,7 @@ import {
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
 	attachUnassignedPendingWritesToAssistant,
+	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
 	dropPendingFileProductionJobs,
 	failPendingFileProductionJobPlaceholder,
@@ -524,6 +527,32 @@ function handleCloudWarningCancel() {
 	const resolve = cloudWarningResolve;
 	cloudWarningResolve = null;
 	resolve?.(false);
+}
+
+// A turn can make Alfy change the artifact that is open beside the chat, and a step
+// of the reader's that has not been saved yet (typed a moment ago, still inside the
+// body's own save delay) would be written over, or refused as stale, when Alfy's
+// change lands (RV-3 I2). So the open body's pending step is saved before any fresh
+// turn starts. The body hands its way of doing that up through the workspace, once
+// it is open (`ArtifactPanelBodyActions.flush`); a plain variable, like the
+// composer's `ensureComposerCapabilitiesLoaded` above, because nothing renders from it.
+let saveOpenArtifactStep: (() => Promise<void>) | null = null;
+function handleFlushReady(flush: (() => Promise<void>) | null) {
+	saveOpenArtifactStep = flush;
+}
+
+/** A save that has not answered by now is left to finish on its own: a stalled connection never holds a message back. */
+const ARTIFACT_STEP_SAVE_MAX_MS = 2000;
+
+/** What every fresh turn passes first: the open artifact's pending step is saved, then the cloud-connector warning is settled. True once the turn may go. */
+function prepareTurn(): Promise<boolean> {
+	// With nothing open that keeps a step back (the usual chat) this is the cloud check
+	// alone, as it always was, without a tick more.
+	const save = saveOpenArtifactStep;
+	if (!save) return ensureCloudWarningAcked();
+	return awaitOpenStepSave(save, ARTIFACT_STEP_SAVE_MAX_MS).then(
+		ensureCloudWarningAcked,
+	);
 }
 let hasPersistedMessages = initialHasPersistedMessages;
 let contextStatus = $state<ConversationContextStatus | null>(
@@ -1281,9 +1310,26 @@ function handleArtifactCountButtonClick() {
 	openArtifactList();
 }
 
+/** The chat this page shows right now, as the stored panel state names it: a restore and a save each name the conversation they happen in. */
+function getWorkspaceConversation(): WorkspaceConversation {
+	const { conversation } = getData();
+	return {
+		conversationId: conversation.id,
+		incognito: conversation.memoryIncognito ?? false,
+	};
+}
+
+// The chat whose panel `workspaceDocuments` and the state beside it hold right
+// now: set where a panel is restored into them, so a save names the chat the
+// items belong to even in the moment `data` is already the next chat's.
+let workspaceConversation: WorkspaceConversation = getWorkspaceConversation();
+
 function getPersistedWorkspaceState() {
 	if (!browser) return null;
-	return loadPersistedWorkspaceDocumentState(window.sessionStorage);
+	return loadPersistedWorkspaceDocumentState(
+		window.sessionStorage,
+		getWorkspaceConversation(),
+	);
 }
 
 function triggerForkOpeningTransition() {
@@ -1297,6 +1343,7 @@ function triggerForkOpeningTransition() {
 }
 
 function restorePersistedWorkspaceState() {
+	workspaceConversation = getWorkspaceConversation();
 	const persistedWorkspaceState = getPersistedWorkspaceState();
 	if (!persistedWorkspaceState) {
 		workspaceDocuments = [];
@@ -1319,6 +1366,10 @@ $effect(() => {
 		activeDocumentId: activeWorkspaceDocumentId,
 		isOpen: workspaceOpen && workspaceDocuments.length > 0,
 		presentation: workspacePresentation,
+		// The panel's owner, not `data`'s chat: on a switch to another chat this
+		// effect can run before `resetState()` has replaced the old chat's items,
+		// and must not file them under the new one.
+		conversation: workspaceConversation,
 	});
 });
 
@@ -1801,7 +1852,7 @@ function maybeSendPendingInitialMessage() {
 	// awaiting the capability fetch itself before deciding (see its own
 	// comment above), so this call site no longer needs special handling.
 	void (async () => {
-		const proceed = await ensureCloudWarningAcked();
+		const proceed = await prepareTurn();
 		if (!proceed) return;
 		handleSend({ ...pendingDraft, pendingAttachments: [] });
 	})();
@@ -1984,6 +2035,18 @@ function applyConversationDetailMetadata(
 	void refreshPendingWrites();
 }
 
+/**
+ * A file was made outside a turn (a board's picture, kept as a File): read what
+ * this chat made again, so the panel's list, the count and the card under the
+ * reply it hangs from show it at once instead of at the next read of the chat.
+ */
+async function refreshConversationFiles() {
+	const detail = await fetchConversationDetail(data.conversation.id).catch(
+		() => null,
+	);
+	if (detail) applyConversationDetailMetadata(detail);
+}
+
 async function refreshPendingWrites() {
 	try {
 		pendingWrites = await fetchConversationPendingWrites(data.conversation.id);
@@ -2162,6 +2225,12 @@ onMount(() =>
 			handleArtifactDeleted(change.artifactId);
 			return;
 		}
+		if (change.type === "files") {
+			if (change.conversationId === data.conversation.id) {
+				void refreshConversationFiles();
+			}
+			return;
+		}
 		observedArtifactVersions = observeArtifactVersion(
 			observedArtifactVersions,
 			change.artifactId,
@@ -2177,6 +2246,14 @@ onMount(() =>
 
 onDestroy(() => {
 	if (browser) {
+		// Leaving an incognito chat leaves nothing of its panel in the tab.
+		const { conversationId, incognito } = workspaceConversation;
+		if (incognito) {
+			discardPersistedWorkspaceDocumentStateOfIncognitoConversation(
+				window.sessionStorage,
+				conversationId,
+			);
+		}
 		document.removeEventListener("visibilitychange", handleVisibilityChange);
 		window.removeEventListener("pageshow", recoverVisiblePageActivity);
 		window.removeEventListener("focus", recoverVisiblePageActivity);
@@ -2401,7 +2478,7 @@ async function handleAtlasLifecycleAction(payload: {
 	// Issue 7.4 fix pass — this was a direct normalChatRuntime.send() caller
 	// that bypassed MessageInput's send() entirely (found while centralizing
 	// the cloud-warning gate; not one of the three previously-known leaks).
-	const proceed = await ensureCloudWarningAcked();
+	const proceed = await prepareTurn();
 	if (!proceed) return;
 	void normalChatRuntime.send({
 		message: payload.message,
@@ -3031,7 +3108,7 @@ async function handleRetry() {
 	// via its own startStream call), so it never went through MessageInput's
 	// send() and, before this pass, never went through any cloud-warning
 	// check at all.
-	const proceed = await ensureCloudWarningAcked();
+	const proceed = await prepareTurn();
 	if (!proceed) return;
 	normalChatRuntime.retry();
 }
@@ -3086,7 +3163,7 @@ async function handleRegenerate(
 	// re-running it would risk a second round-trip re-showing the modal
 	// (e.g. after "Turn on local mode", which doesn't ack — see
 	// shouldWarnCloudConnector) for a single regenerate action.
-	const proceed = await ensureCloudWarningAcked();
+	const proceed = await prepareTurn();
 	if (!proceed) return;
 	const { messageId, reasoningDepthOverride } = payload;
 	const msgs = $messages;
@@ -3198,7 +3275,7 @@ async function handleEdit(
 	// below, so a cancelled edit leaves the conversation untouched. handleSend()
 	// at the end of this function is intentionally NOT gated again — see the
 	// matching note in handleRegenerate.
-	const proceed = await ensureCloudWarningAcked();
+	const proceed = await prepareTurn();
 	if (!proceed) return;
 	const { messageId, newText } = payload;
 	const msgs = $messages;
@@ -3758,7 +3835,7 @@ function handleDrop(event: DragEvent) {
 				onUploadReady={handleUploadReady}
 				onUploadFiles={handleUploadFiles}
 				bind:activeCapabilities={composerActiveCapabilities}
-				beforeSend={ensureCloudWarningAcked}
+				beforeSend={prepareTurn}
 				checkingCloudWarning={cloudWarningChecking}
 				onCapabilitiesReady={handleCapabilitiesReady}
 				placeholder={composerPlaceholder}
@@ -3798,6 +3875,7 @@ function handleDrop(event: DragEvent) {
 			}}
 			onPendingReviewCountChange={handlePendingReviewCountChange}
 			onDeleteArtifact={handleDeleteArtifact}
+			onFlushReady={handleFlushReady}
 			currentUser={data.user}
 		/>
 	</div>

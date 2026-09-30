@@ -6,11 +6,18 @@ import { z } from "zod";
 import {
 	getArtifact,
 	listArtifactCatalogueEntries,
+	listVersions,
 	readDocumentForAlfy,
 } from "$lib/server/services/artifacts";
+import type { CanvasBody } from "$lib/shared/artifacts/canvas";
+import {
+	boardJson,
+	normalizeCanvasBody,
+} from "$lib/shared/artifacts/canvas-body";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { MAX_INLINE_TEXT_CHARS } from "../files";
 import { truncateText } from "../shared";
+import { canvasReadBlocks } from "./canvas-model";
 import type { CreatableArtifactKind } from "./create";
 
 export const readArtifactInputSchema = z.object({
@@ -70,6 +77,11 @@ export interface ReadArtifactHandlerParams {
 export interface ReadArtifactHandlerResult {
 	blocks?: Array<Record<string, unknown>>;
 	body?: string;
+	/**
+	 * The version this read showed the model. It goes on the tool call's record
+	 * and never to the model: a later edit is judged against it (ruling 67).
+	 */
+	versionId?: string;
 }
 
 /**
@@ -124,6 +136,51 @@ export const READ_ARTIFACT_HANDLERS: Partial<
 		const body = read.blocks.map((block) => block.text).join("\n\n");
 		return { blocks, body };
 	},
+};
+
+/** A stored board, read without trust; a body that is not a board reads as an empty one. */
+function readStoredBoard(stored: string | null): CanvasBody | null {
+	if (!stored) return null;
+	try {
+		return normalizeCanvasBody(JSON.parse(stored)).body;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The Canvas branch (Slice 3): `blocks` lists every node and edge with the ids
+ * an op must name (`canvas-model.ts`'s `canvasReadBlocks`); `full` adds the
+ * board's canonical JSON, which the shell bounds like any body. A board has no
+ * hashes and nothing to snapshot — an op is judged against the board as it is
+ * when it lands — so a read writes nothing.
+ */
+READ_ARTIFACT_HANDLERS.canvas = async (params) => {
+	if (params.abortSignal.aborted) return {};
+	const scope = {
+		userId: params.userId,
+		artifactId: params.artifactId,
+		conversationId: params.conversationId,
+	};
+	const record = await getArtifact(scope);
+	const board = readStoredBoard(record?.body ?? null);
+	const blocks = board ? canvasReadBlocks(board) : [];
+	// Which version this is, by its number (the one the body was read at): a later
+	// edit refuses whatever the reader changed after it (ruling 67). A few versions
+	// are looked at in case a save lands between the two reads; none found, none said.
+	const versions = record
+		? await listVersions({ ...scope, limit: 4 }).catch(() => [])
+		: [];
+	const versionId = versions.find(
+		(version) => version.versionNumber === record?.versionNumber,
+	)?.id;
+	const known = versionId === undefined ? {} : { versionId };
+	if (params.detail === "blocks") return { blocks, ...known };
+	return {
+		blocks,
+		body: board ? boardJson(board) : (record?.body ?? ""),
+		...known,
+	};
 };
 
 /**
@@ -315,6 +372,9 @@ export async function runReadArtifactTool(params: {
 			found: true,
 			artifactId: record.id,
 			artifactKind: record.kind,
+			...(result.versionId === undefined
+				? {}
+				: { versionId: result.versionId }),
 		},
 	};
 }

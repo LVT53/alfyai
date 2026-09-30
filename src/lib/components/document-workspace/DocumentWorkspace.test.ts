@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ARTIFACT_BODIES } from "$lib/components/artifacts/artifact-bodies";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { MOTION_EASING } from "$lib/utils/motion";
+import { fakeFlush } from "./__fixtures__/fake-flush";
 import {
 	makeWorkspaceDocument,
 	renderWorkspace,
@@ -1860,6 +1861,76 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		expect(
 			within(shell).getByRole("button", { name: "Version 4" }),
 		).toBeInTheDocument();
+	});
+
+	// RV-3 I2: the page awaits the open body's `flush` before a chat turn starts, so
+	// a turn that makes Alfy change the board finds the reader's last step saved.
+	// The panel is only the courier: it hands the page whatever the open body
+	// registered, and takes it back when that body is gone.
+	describe("the open body's flush, for the page", () => {
+		it("hands the page the flush the open body registered, and takes it back when another item is open", async () => {
+			ARTIFACT_BODIES.document = () =>
+				import("./__fixtures__/FakeFlushingArtifactBody.svelte");
+			const onFlushReady = vi.fn();
+			const { rerender } = renderWorkspace({
+				documents: [
+					makeWorkspaceDocument({
+						id: "doc-1",
+						kind: "document",
+						title: "Vienna trip plan",
+						mimeType: null,
+					}),
+					makeWorkspaceDocument({
+						id: "file-1",
+						source: "chat_generated_file",
+						filename: "generated.txt",
+						title: "Generated notes",
+						mimeType: "text/plain",
+					}),
+				],
+				activeDocumentId: "doc-1",
+				onFlushReady,
+			});
+			await screen.findByTestId("fake-flushing-artifact-body");
+
+			await waitFor(() => {
+				expect(onFlushReady).toHaveBeenLastCalledWith(fakeFlush);
+			});
+			// The function it was handed is the body's own, and works.
+			const handed = onFlushReady.mock.calls.at(-1)?.[0] as () => Promise<void>;
+			await handed();
+			expect(fakeFlush).toHaveBeenCalledTimes(1);
+
+			// Another item (a file has no body to flush): the page is told there is none.
+			await rerender({ activeDocumentId: "file-1", onFlushReady });
+			await waitFor(() => {
+				expect(onFlushReady).toHaveBeenLastCalledWith(null);
+			});
+		});
+
+		it("tells the page there is nothing to flush while the open body registered none", async () => {
+			ARTIFACT_BODIES.document = () =>
+				import("./__fixtures__/FakeArtifactBody.svelte");
+			const onFlushReady = vi.fn();
+			renderWorkspace({
+				documents: [
+					makeWorkspaceDocument({
+						id: "doc-1",
+						kind: "document",
+						title: "Vienna trip plan",
+						mimeType: null,
+					}),
+				],
+				activeDocumentId: "doc-1",
+				onFlushReady,
+			});
+			await screen.findByTestId("fake-artifact-body");
+
+			await waitFor(() => {
+				expect(onFlushReady).toHaveBeenCalled();
+			});
+			expect(onFlushReady).toHaveBeenLastCalledWith(null);
+		});
 	});
 
 	// Final polish D1 (rd/recheck2.md): the body registers its actions once, when

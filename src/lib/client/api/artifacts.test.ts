@@ -5,6 +5,8 @@ import {
 } from "$lib/shared/artifact-document/blocks";
 import {
 	type ArtifactChange,
+	acknowledgeCanvasReview,
+	applyArtifactOps,
 	askAlfyInComment,
 	createArtifactComment,
 	deleteArtifact,
@@ -13,14 +15,18 @@ import {
 	fetchArtifact,
 	fetchArtifactVersionBody,
 	fetchArtifactVersions,
+	fetchCanvasChatBlocks,
+	fetchCanvasReviewState,
 	fetchConversationArtifacts,
 	readAppValue,
+	refreshCanvasBlock,
 	regenerateApp,
 	regenerateDeletedArtifact,
 	resolveArtifactComment,
 	restoreArtifactVersion,
 	saveArtifactBody,
 	saveDocumentTabs,
+	searchCanvasWeb,
 	subscribeArtifactChanges,
 	toggleDocumentTask,
 	writeAppValue,
@@ -128,6 +134,244 @@ describe("artifacts client API", () => {
 		await expect(
 			fetchConversationArtifacts("conv-1", fetchMock),
 		).resolves.toEqual([]);
+	});
+
+	describe("fetchCanvasChatBlocks", () => {
+		const listing = {
+			files: [],
+			apps: [],
+			maps: [],
+			charts: [],
+			photos: [],
+			searches: [],
+		};
+
+		it("asks for what the board's chat has, and leaves the wire-level ok behind", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, ...listing }),
+			);
+
+			const result = await fetchCanvasChatBlocks("board-1", null, fetchMock);
+
+			expect(result).toEqual(listing);
+			expect(result).not.toHaveProperty("ok");
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/artifacts/board-1/chat-blocks",
+			);
+		});
+
+		it("names the conversation the panel is showing, so an incognito chat's own board resolves (ruling 51)", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, ...listing }),
+			);
+
+			await fetchCanvasChatBlocks("board 1", "conv 1/2", fetchMock);
+
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/artifacts/board%201/chat-blocks?conversationId=conv%201%2F2",
+			);
+		});
+
+		it("throws when the board is out of reach, so the menu can say it could not look", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: false, reason: "not_found" }, 404),
+			);
+			await expect(
+				fetchCanvasChatBlocks("board-1", null, fetchMock),
+			).rejects.toThrow();
+		});
+
+		it("fills a group the answer leaves out with nothing, never with undefined", async () => {
+			const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
+			await expect(
+				fetchCanvasChatBlocks("board-1", null, fetchMock),
+			).resolves.toEqual(listing);
+		});
+	});
+
+	describe("refreshCanvasBlock", () => {
+		const DATA = {
+			kind: "liveweb",
+			query: "cork weather",
+			sources: [],
+			fetchedAt: 1,
+		};
+
+		it("asks the server to re-run a block's own stored query: a bare POST that names the board and the block and carries nothing else", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, nodeId: "web-1", data: DATA }),
+			);
+
+			const result = await refreshCanvasBlock(
+				"board-1",
+				"web-1",
+				null,
+				fetchMock,
+			);
+
+			expect(result).toEqual({ ok: true, nodeId: "web-1", data: DATA });
+			const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+			expect(url).toBe("/api/artifacts/board-1/blocks/web-1/refresh");
+			expect(init.method).toBe("POST");
+			// Nothing of the client's is sent: the query is the stored one, and a
+			// request with no body is one the server sees end if the tab goes away.
+			expect(init.body).toBeUndefined();
+			expect(init.headers).toBeUndefined();
+		});
+
+		it("names the conversation the panel is showing, and encodes both ids", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, nodeId: "web/1", data: DATA }),
+			);
+
+			await refreshCanvasBlock("board 1", "web/1", "conv 1/2", fetchMock);
+
+			expect((fetchMock.mock.calls[0] as unknown[])[0]).toBe(
+				"/api/artifacts/board%201/blocks/web%2F1/refresh?conversationId=conv%201%2F2",
+			);
+		});
+
+		it("hands the abort signal to the request, so a block that goes away stops the search", async () => {
+			const controller = new AbortController();
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, nodeId: "web-1", data: DATA }),
+			);
+
+			await refreshCanvasBlock(
+				"board-1",
+				"web-1",
+				null,
+				fetchMock,
+				controller.signal,
+			);
+
+			expect(
+				((fetchMock.mock.calls[0] as unknown[])[1] as RequestInit).signal,
+			).toBe(controller.signal);
+		});
+
+		it("answers each refusal as a value, by its reason", async () => {
+			const cases: [number, string, string][] = [
+				[404, "not_found", "not_found"],
+				[422, "not_refreshable", "not_refreshable"],
+				[422, "refresh_failed", "refresh_failed"],
+				[422, "no_results", "no_results"],
+				[429, "rate_limited", "rate_limited"],
+			];
+			for (const [status, reason, expected] of cases) {
+				const fetchMock = vi.fn(async () =>
+					jsonResponse({ ok: false, reason }, status),
+				);
+				await expect(
+					refreshCanvasBlock("board-1", "web-1", null, fetchMock),
+				).resolves.toEqual({ ok: false, reason: expected });
+			}
+		});
+
+		it("says the refresh failed for an answer it cannot read or a request that did not arrive, but lets an abort through", async () => {
+			const unreadable = vi.fn(
+				async () => new Response("<html>bad gateway</html>", { status: 502 }),
+			);
+			await expect(
+				refreshCanvasBlock("board-1", "web-1", null, unreadable),
+			).resolves.toEqual({ ok: false, reason: "refresh_failed" });
+
+			const offline = vi.fn(async () => {
+				throw new TypeError("Failed to fetch");
+			});
+			await expect(
+				refreshCanvasBlock("board-1", "web-1", null, offline),
+			).resolves.toEqual({ ok: false, reason: "refresh_failed" });
+
+			const controller = new AbortController();
+			controller.abort();
+			const aborted = vi.fn(async () => {
+				throw new DOMException("aborted", "AbortError");
+			});
+			await expect(
+				refreshCanvasBlock(
+					"board-1",
+					"web-1",
+					null,
+					aborted,
+					controller.signal,
+				),
+			).rejects.toMatchObject({ name: "AbortError" });
+		});
+
+		it("never reports a version: a refresh writes nothing, the board's own save does", async () => {
+			const seen: unknown[] = [];
+			const stop = subscribeArtifactChanges((change) => seen.push(change));
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, nodeId: "web-1", data: DATA, version: 9 }),
+			);
+			await refreshCanvasBlock("board-1", "web-1", null, fetchMock);
+			stop();
+			expect(seen).toEqual([]);
+		});
+	});
+
+	describe("searchCanvasWeb", () => {
+		const DATA = {
+			kind: "liveweb",
+			query: "cork weather",
+			sources: [],
+			fetchedAt: 1,
+		};
+
+		it("posts the query to the board's live-web route as JSON and answers the snapshot to place", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, data: DATA }),
+			);
+
+			const result = await searchCanvasWeb(
+				"board-1",
+				"cork weather",
+				"conv-1",
+				fetchMock,
+			);
+
+			expect(result).toEqual({ ok: true, data: DATA });
+			const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+			expect(url).toBe(
+				"/api/artifacts/board-1/blocks/liveweb?conversationId=conv-1",
+			);
+			expect(init.method).toBe("POST");
+			expect(JSON.parse(String(init.body))).toEqual({ query: "cork weather" });
+		});
+
+		it("keeps the query out of the address, where a server log would read it", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, data: DATA }),
+			);
+			await searchCanvasWeb("board-1", "secret plan", null, fetchMock);
+			expect(String((fetchMock.mock.calls[0] as unknown[])[0])).not.toContain(
+				"secret",
+			);
+		});
+
+		it("answers each refusal as a value, and an unreadable answer as a failed search", async () => {
+			for (const [status, reason] of [
+				[404, "not_found"],
+				[422, "refresh_failed"],
+				[422, "no_results"],
+				[422, "invalid_query"],
+				[429, "rate_limited"],
+			] as const) {
+				const fetchMock = vi.fn(async () =>
+					jsonResponse({ ok: false, reason }, status),
+				);
+				await expect(
+					searchCanvasWeb("board-1", "q", null, fetchMock),
+				).resolves.toEqual({ ok: false, reason });
+			}
+			const unreadable = vi.fn(
+				async () => new Response("nope", { status: 500 }),
+			);
+			await expect(
+				searchCanvasWeb("board-1", "q", null, unreadable),
+			).resolves.toEqual({ ok: false, reason: "refresh_failed" });
+		});
 	});
 
 	describe("readAppValue / writeAppValue", () => {
@@ -429,6 +673,30 @@ describe("artifacts client API", () => {
 
 			const call = fetchMock.mock.calls[0]?.[1];
 			expect(JSON.parse(String(call?.body))).toEqual({ body: "Text." });
+		});
+
+		it("passes on what the server had to leave out of a board save", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					version: 3,
+					bodyHash: "h",
+					dropped: { nodes: 1, edges: 0, annotations: 2 },
+				}),
+			);
+			const result = await saveArtifactBody(
+				"artifact-1",
+				"{}",
+				2,
+				null,
+				fetchMock,
+			);
+			expect(result).toEqual({
+				ok: true,
+				version: 3,
+				bodyHash: "h",
+				dropped: { nodes: 1, edges: 0, annotations: 2 },
+			});
 		});
 	});
 
@@ -1172,5 +1440,268 @@ describe("regenerateDeletedArtifact", () => {
 		await expect(
 			regenerateDeletedArtifact("conv-1", "doc-1", "en", offline),
 		).resolves.toEqual({ ok: false, reason: "failed" });
+	});
+});
+
+// Slice 3 (Canvas), T6: an id-addressed change to an artifact. One call per
+// diff, one version announced per landed diff (the same announcement a body
+// save makes), and a documented refusal comes back as a value, never a throw.
+describe("applyArtifactOps", () => {
+	const diff = {
+		id: "diff-1",
+		summary: "Tidied",
+		ops: [{ op: "move", id: "note-1", to: { x: 1, y: 2 } }],
+	};
+	const landed = {
+		ok: true,
+		versionId: "version-3",
+		version: 3,
+		applied: 1,
+		refused: [],
+		changed: true,
+	};
+
+	function listen() {
+		const heard: [string, number, number | null][] = [];
+		const unsubscribe = subscribeArtifactChanges((change) => {
+			if (change.type === "version") {
+				heard.push([change.artifactId, change.version, change.updatedAt]);
+			}
+		});
+		return { heard, unsubscribe };
+	}
+
+	it("posts { baseVersionId, diff } to the artifact's ops route and returns what it answers", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse(landed),
+		);
+
+		const result = await applyArtifactOps(
+			"artifact-1",
+			"version-2",
+			diff,
+			null,
+			fetchMock,
+		);
+
+		expect(result).toEqual(landed);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe("/api/artifacts/artifact-1/ops");
+		expect(init?.method).toBe("POST");
+		expect(new Headers(init?.headers).get("Content-Type")).toBe(
+			"application/json",
+		);
+		expect(JSON.parse(String(init?.body))).toEqual({
+			baseVersionId: "version-2",
+			diff,
+		});
+	});
+
+	it("names the conversation for a board made in an incognito chat, and encodes the id", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse(landed),
+		);
+
+		await applyArtifactOps("a/b c", "v", diff, "conv-1", fetchMock);
+
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"/api/artifacts/a%2Fb%20c/ops?conversationId=conv-1",
+		);
+	});
+
+	it("announces the version a landed diff reports, as changed just now", async () => {
+		const { heard, unsubscribe } = listen();
+		await applyArtifactOps(
+			"artifact-1",
+			"version-2",
+			diff,
+			null,
+			vi.fn(async () => jsonResponse(landed)),
+		);
+		unsubscribe();
+		expect(heard).toHaveLength(1);
+		expect(heard[0][0]).toBe("artifact-1");
+		expect(heard[0][1]).toBe(3);
+		expect(heard[0][2]).toBeGreaterThan(0);
+	});
+
+	it("announces the version a diff that changed nothing is still at, without claiming it changed", async () => {
+		const { heard, unsubscribe } = listen();
+		await applyArtifactOps(
+			"artifact-1",
+			"version-2",
+			diff,
+			null,
+			vi.fn(async () =>
+				jsonResponse({
+					...landed,
+					version: 2,
+					versionId: "version-2",
+					applied: 0,
+					changed: false,
+				}),
+			),
+		);
+		unsubscribe();
+		expect(heard).toEqual([["artifact-1", 2, null]]);
+	});
+
+	it("returns a stale-base conflict as a value and announces the version it reveals", async () => {
+		const { heard, unsubscribe } = listen();
+		const result = await applyArtifactOps(
+			"artifact-1",
+			"version-1",
+			diff,
+			null,
+			vi.fn(async () =>
+				jsonResponse(
+					{ ok: false, reason: "version_conflict", version: 4 },
+					409,
+				),
+			),
+		);
+		unsubscribe();
+		expect(result).toEqual({
+			ok: false,
+			reason: "version_conflict",
+			version: 4,
+		});
+		expect(heard).toEqual([["artifact-1", 4, null]]);
+	});
+
+	it("returns every other documented refusal as a value, carries its detail, and announces nothing", async () => {
+		const { heard, unsubscribe } = listen();
+		for (const [status, body] of [
+			[
+				400,
+				{
+					ok: false,
+					reason: "invalid_diff",
+					detail: "ops[0].op: not a known op. Valid ops: move.",
+				},
+			],
+			[
+				400,
+				{
+					ok: false,
+					reason: "unsupported_kind",
+					detail: "A document cannot be changed with ops.",
+				},
+			],
+			[404, { ok: false, reason: "not_found" }],
+			[413, { ok: false, reason: "too_large" }],
+		] as const) {
+			const result = await applyArtifactOps(
+				"artifact-1",
+				"v",
+				diff,
+				null,
+				vi.fn(async () => jsonResponse(body, status)),
+			);
+			expect(result).toEqual(body);
+		}
+		unsubscribe();
+		expect(heard).toEqual([]);
+	});
+
+	it("does not announce a version for a diff every op of which was refused", async () => {
+		const { heard, unsubscribe } = listen();
+		const result = await applyArtifactOps(
+			"artifact-1",
+			"version-2",
+			diff,
+			null,
+			vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					versionId: "version-2",
+					version: 2,
+					applied: 0,
+					changed: false,
+					refused: [
+						{
+							index: 0,
+							op: "move",
+							id: "note-1",
+							reason: "unknown_id",
+							detail: "no such node",
+						},
+					],
+				}),
+			),
+		);
+		unsubscribe();
+		if (!result.ok) throw new Error("expected a value");
+		expect(result.refused).toHaveLength(1);
+		expect(heard).toEqual([["artifact-1", 2, null]]);
+	});
+});
+
+describe("a board's review, over the network (ruling 63)", () => {
+	const review = {
+		changes: [],
+		touchedIds: ["note-1"],
+		removedCount: 0,
+		count: 1,
+		latestAlfyVersion: 4,
+		undo: { available: true, toVersion: 3, toVersionId: "v3" },
+	};
+
+	it("reads what is waiting, from the review route, leaving the wire-level parts behind", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: true, kind: "canvas", review }),
+		);
+		const result = await fetchCanvasReviewState("board-1", "conv-1", fetchMock);
+		expect(result).toEqual(review);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/artifacts/board-1/review?conversationId=conv-1",
+		);
+	});
+
+	it("keeps the change through the version it was shown, and answers the state that is left", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				kind: "canvas",
+				review: { ...review, count: 0, touchedIds: [] },
+			}),
+		);
+		const result = await acknowledgeCanvasReview(
+			"board-1",
+			4,
+			undefined,
+			fetchMock,
+		);
+		expect(result.count).toBe(0);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe("/api/artifacts/board-1/review");
+		expect(init.method).toBe("POST");
+		expect(JSON.parse(String(init.body))).toEqual({ throughVersion: 4 });
+	});
+
+	it("throws when the server does not answer with a board's review (a Document's answer, a 404)", async () => {
+		await expect(
+			fetchCanvasReviewState(
+				"doc-1",
+				null,
+				vi.fn(async () => jsonResponse({ ok: true, pending: [] })),
+			),
+		).rejects.toThrow();
+		await expect(
+			fetchCanvasReviewState(
+				"nope",
+				null,
+				vi.fn(async () =>
+					jsonResponse({ ok: false, reason: "not_found" }, 404),
+				),
+			),
+		).rejects.toThrow();
 	});
 });

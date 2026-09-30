@@ -18,6 +18,7 @@ import {
 	type PatchOpKind,
 } from "$lib/shared/artifact-document/patch";
 import { scoreAppEval } from "./suites/apps";
+import { scoreCanvasEval } from "./suites/canvas";
 import { DOCUMENT_FIXTURES } from "./suites/document";
 import { scoreVerificationEval } from "./suites/verification";
 import type {
@@ -172,6 +173,7 @@ export const SUITE_SCORERS: Partial<Record<string, SuiteScorer>> = {
 	document: documentScorer,
 	app: scoreAppEval,
 	verification: scoreVerificationEval,
+	canvas: scoreCanvasEval,
 };
 
 /** What `run.ts` calls for every case: a suite's own scorer when one is

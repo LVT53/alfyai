@@ -39,6 +39,7 @@ type WorkspaceRenderOptions = {
 		checked: boolean,
 	) => void;
 	onDeleteArtifact?: (document: DocumentWorkspaceItem) => Promise<void>;
+	onFlushReady?: (flush: (() => Promise<void>) | null) => void;
 };
 
 export function makeWorkspaceDocument(

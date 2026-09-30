@@ -32,3 +32,56 @@ export const ALFY_EMPTY_REPLY_MARKER = "[[alfy:done]]";
  * still renders its own localized text rather than the raw marker.
  */
 export const ALFY_PARTIAL_REFUSAL_SUFFIX = "\n\n[[alfy:partial-refusal]]";
+
+/**
+ * A Canvas `@Alfy` reply that applied some of its ops and could not apply
+ * others NAMES the ones it skipped: appended to Alfy's own note as one more
+ * marker (never replacing it), so the words stay Alfy's and what was skipped is
+ * shown in the reader's language. `target` is the block's own words (or the id
+ * an op addressed, when there is no such block) and `reason` a board refusal
+ * reason (`artifacts.canvas.refusal.*`); `CommentCard.svelte` reads it back with
+ * `splitSkippedOps` and renders the localized line.
+ */
+export type AlfySkippedOp = { target: string; reason: string };
+
+const SKIPPED_OPEN = "\n\n[[alfy:skipped:";
+const SKIPPED_CLOSE = "]]";
+
+export function withSkippedOps(
+	note: string,
+	skipped: readonly AlfySkippedOp[],
+): string {
+	return skipped.length === 0
+		? note
+		: `${note}${SKIPPED_OPEN}${JSON.stringify(skipped)}${SKIPPED_CLOSE}`;
+}
+
+function isSkippedOp(value: unknown): value is AlfySkippedOp {
+	if (typeof value !== "object" || value === null) return false;
+	const candidate = value as Record<string, unknown>;
+	return (
+		typeof candidate.target === "string" && typeof candidate.reason === "string"
+	);
+}
+
+/** The note without its marker, and the ops the marker names. A body with no readable marker is returned whole. */
+export function splitSkippedOps(body: string): {
+	text: string;
+	skipped: AlfySkippedOp[];
+} {
+	const at = body.lastIndexOf(SKIPPED_OPEN);
+	if (at === -1 || !body.endsWith(SKIPPED_CLOSE)) {
+		return { text: body, skipped: [] };
+	}
+	try {
+		const parsed: unknown = JSON.parse(
+			body.slice(at + SKIPPED_OPEN.length, -SKIPPED_CLOSE.length),
+		);
+		return {
+			text: body.slice(0, at),
+			skipped: Array.isArray(parsed) ? parsed.filter(isSkippedOp) : [],
+		};
+	} catch {
+		return { text: body.slice(0, at), skipped: [] };
+	}
+}

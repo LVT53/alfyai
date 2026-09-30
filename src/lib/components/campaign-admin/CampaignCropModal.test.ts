@@ -1,5 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	deregisterDialog,
+	hasOpenDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
 import { uiLanguage } from "$lib/stores/settings";
 import CampaignCropModal from "./CampaignCropModal.svelte";
 
@@ -99,5 +104,242 @@ describe("CampaignCropModal", () => {
 		expect(focusSpy).toHaveBeenLastCalledWith({ preventScroll: true });
 		opener.remove();
 		focusSpy.mockRestore();
+	});
+});
+
+// Presses a key the way the browser delivers it to whatever holds focus, and
+// hands back the event so a test can ask whether its default was cancelled.
+function pressKey(key: string, options: { shiftKey?: boolean } = {}) {
+	const event = new KeyboardEvent("keydown", {
+		key,
+		shiftKey: options.shiftKey ?? false,
+		bubbles: true,
+		cancelable: true,
+	});
+	(document.activeElement ?? document.body).dispatchEvent(event);
+	return event;
+}
+
+describe("CampaignCropModal keyboard and focus", () => {
+	const imageSrc = "data:image/png;base64,c291cmNl";
+
+	beforeEach(() => {
+		uiLanguage.set("en");
+		// jsdom has no canvas: hand the preview and the save path a context that
+		// accepts the draw calls. `toBlob` is left to the tests that save.
+		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+			clearRect: vi.fn(),
+			drawImage: vi.fn(),
+		} as unknown as RenderingContext);
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	function renderCrop(props: Record<string, unknown> = {}) {
+		return render(CampaignCropModal, {
+			props: {
+				imageSrc,
+				ratio: 16 / 10,
+				variant: "desktop",
+				onSave: vi.fn(),
+				onCancel: vi.fn(),
+				...props,
+			},
+		});
+	}
+
+	// The crop controls only become usable once the image has loaded and
+	// reported a size.
+	async function loadImage(container: HTMLElement) {
+		const image = container.querySelector("img");
+		if (!(image instanceof HTMLImageElement)) {
+			throw new Error("Expected the crop image to render.");
+		}
+		Object.defineProperty(image, "naturalWidth", {
+			configurable: true,
+			value: 1600,
+		});
+		Object.defineProperty(image, "naturalHeight", {
+			configurable: true,
+			value: 1000,
+		});
+		await fireEvent.load(image);
+		await waitFor(() =>
+			expect(screen.getByRole("button", { name: "Save crop" })).toBeEnabled(),
+		);
+	}
+
+	it("puts focus on the dialog panel itself when it opens", async () => {
+		renderCrop();
+		const dialog = screen.getByRole("dialog", {
+			name: "Crop campaign screenshot",
+		});
+
+		await waitFor(() => expect(dialog).toHaveFocus());
+	});
+
+	it("cancels on Escape and cancels the key", async () => {
+		const onCancel = vi.fn();
+		renderCrop({ onCancel });
+
+		const event = pressKey("Escape");
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(onCancel).toHaveBeenCalledTimes(1);
+	});
+
+	it("ignores Escape while a crop is being saved", async () => {
+		// `toBlob` never calls back, so the save stays in flight.
+		vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+			() => {},
+		);
+		const onCancel = vi.fn();
+		const { container } = renderCrop({ onCancel });
+		await loadImage(container);
+
+		await fireEvent.click(screen.getByRole("button", { name: "Save crop" }));
+		await waitFor(() =>
+			expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled(),
+		);
+		pressKey("Escape");
+
+		expect(onCancel).not.toHaveBeenCalled();
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
+	});
+
+	it("wraps Tab from the last enabled control to the first, and Shift+Tab back", async () => {
+		const { container } = renderCrop();
+		await loadImage(container);
+		const close = screen.getByRole("button", { name: "Close" });
+		const save = screen.getByRole("button", { name: "Save crop" });
+
+		save.focus();
+		const forward = pressKey("Tab");
+		expect(close).toHaveFocus();
+		expect(forward.defaultPrevented).toBe(true);
+
+		const backward = pressKey("Tab", { shiftKey: true });
+		expect(save).toHaveFocus();
+		expect(backward.defaultPrevented).toBe(true);
+	});
+
+	it("takes the ends from the enabled controls only", async () => {
+		// Before the image loads Reset, the slider and Save are disabled, so
+		// Cancel is the last stop.
+		renderCrop();
+		const close = screen.getByRole("button", { name: "Close" });
+		const cancel = screen.getByRole("button", { name: "Cancel" });
+
+		cancel.focus();
+		const forward = pressKey("Tab");
+		expect(close).toHaveFocus();
+		expect(forward.defaultPrevented).toBe(true);
+
+		const backward = pressKey("Tab", { shiftKey: true });
+		expect(cancel).toHaveFocus();
+		expect(backward.defaultPrevented).toBe(true);
+	});
+
+	it("leaves Tab between the two ends to the browser", async () => {
+		const { container } = renderCrop();
+		await loadImage(container);
+		const reset = screen.getByRole("button", { name: "Reset" });
+
+		reset.focus();
+		const event = pressKey("Tab");
+
+		expect(reset).toHaveFocus();
+		expect(event.defaultPrevented).toBe(false);
+	});
+
+	// Renders the dialog and waits for the panel to take its first focus, so a
+	// test that presses keys never races the deferred focus on open.
+	async function renderFocused(props: Record<string, unknown> = {}) {
+		const view = renderCrop(props);
+		const dialog = screen.getByRole("dialog", {
+			name: "Crop campaign screenshot",
+		});
+		await waitFor(() => expect(dialog).toHaveFocus());
+		return { ...view, dialog };
+	}
+
+	it("wraps Shift+Tab pressed on the panel itself, where focus starts, to the last enabled control", async () => {
+		await renderFocused();
+		const cancel = screen.getByRole("button", { name: "Cancel" });
+
+		const event = pressKey("Tab", { shiftKey: true });
+
+		expect(cancel).toHaveFocus();
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it("pulls focus that has left the dialog back to the first control", async () => {
+		const opener = document.createElement("button");
+		document.body.append(opener);
+		try {
+			await renderFocused();
+			const close = screen.getByRole("button", { name: "Close" });
+
+			opener.focus();
+			const event = pressKey("Tab");
+
+			expect(close).toHaveFocus();
+			expect(event.defaultPrevented).toBe(true);
+		} finally {
+			opener.remove();
+		}
+	});
+
+	it("keeps focus in the dialog while a save leaves nothing to tab to", async () => {
+		vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+			() => {},
+		);
+		const { container, dialog } = await renderFocused();
+		await loadImage(container);
+		await fireEvent.click(screen.getByRole("button", { name: "Save crop" }));
+		await waitFor(() =>
+			expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled(),
+		);
+
+		const event = pressKey("Tab");
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(dialog).toHaveFocus();
+	});
+
+	it("sits on the open-dialog stack while it is mounted", () => {
+		expect(hasOpenDialog()).toBe(false);
+		const { unmount } = renderCrop();
+		expect(hasOpenDialog()).toBe(true);
+
+		unmount();
+
+		expect(hasOpenDialog()).toBe(false);
+	});
+
+	it("leaves Escape and Tab to a dialog opened on top of it, and answers again once that dialog closes", async () => {
+		const onCancel = vi.fn();
+		await renderFocused({ onCancel });
+		const cancel = screen.getByRole("button", { name: "Cancel" });
+		const topmost = Symbol("dialog-on-top");
+
+		registerDialog(topmost);
+		try {
+			const escapeCovered = pressKey("Escape");
+			expect(escapeCovered.defaultPrevented).toBe(false);
+			expect(onCancel).not.toHaveBeenCalled();
+
+			cancel.focus();
+			const tabCovered = pressKey("Tab");
+			expect(tabCovered.defaultPrevented).toBe(false);
+			expect(cancel).toHaveFocus();
+		} finally {
+			deregisterDialog(topmost);
+		}
+
+		pressKey("Escape");
+		expect(onCancel).toHaveBeenCalledTimes(1);
 	});
 });

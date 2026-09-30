@@ -737,3 +737,94 @@ describe("ArtifactCard — exists, out of reach (chrome=full)", () => {
 		).not.toBeInTheDocument();
 	});
 });
+
+// Slice 3: a board's card says how many blocks it holds — "Canvas · 11 blocks"
+// — from a count the server already computed, so the chat never draws (or even
+// loads) a board to show it.
+describe("ArtifactCard — a Canvas", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("chrome=full names the kind and the block count on the head's second line", () => {
+		render(ArtifactCard, {
+			view: view({
+				kind: "canvas",
+				title: "Vienna trip board",
+				blockCount: 11,
+				versionNumber: 7,
+				openTargetId: "artifact-1",
+			}),
+			onOpen: vi.fn(),
+		});
+		const head = screen.getByTestId("artifact-card-head");
+		expect(head).toHaveTextContent("Canvas · 11 blocks");
+		expect(head).toHaveTextContent("v7");
+	});
+
+	it("says one block in the singular, and in Hungarian says it in Hungarian", () => {
+		const { unmount } = render(ArtifactCard, {
+			view: view({ kind: "canvas", blockCount: 1, openTargetId: "artifact-1" }),
+		});
+		expect(screen.getByTestId("artifact-card-head")).toHaveTextContent(
+			"Canvas · 1 block",
+		);
+		expect(screen.getByTestId("artifact-card-head")).not.toHaveTextContent(
+			"1 blocks",
+		);
+		unmount();
+		uiLanguage.set("hu");
+		render(ArtifactCard, {
+			view: view({ kind: "canvas", blockCount: 3, openTargetId: "artifact-1" }),
+		});
+		expect(screen.getByTestId("artifact-card-head")).toHaveTextContent(
+			"Tábla · 3 blokk",
+		);
+	});
+
+	it("falls back to the bare kind label when no count is known (a board made mid-turn, before the list has loaded)", () => {
+		render(ArtifactCard, {
+			view: view({ kind: "canvas", openTargetId: "artifact-1" }),
+		});
+		expect(screen.getByTestId("artifact-card-head")).toHaveTextContent(
+			"Canvas",
+		);
+		expect(screen.getByTestId("artifact-card-head")).not.toHaveTextContent(
+			"block",
+		);
+	});
+
+	it("an empty board says 0 blocks", () => {
+		render(ArtifactCard, {
+			view: view({ kind: "canvas", blockCount: 0, openTargetId: "artifact-1" }),
+		});
+		expect(screen.getByTestId("artifact-card-head")).toHaveTextContent(
+			"Canvas · 0 blocks",
+		);
+	});
+
+	it("never takes a caller's own subtitle from it, and ignores a count on any other kind", () => {
+		render(ArtifactCard, {
+			view: view({
+				kind: "document",
+				subtitle: "Document · 3 tabs",
+				blockCount: 9,
+				openTargetId: "artifact-1",
+			}),
+		});
+		const head = screen.getByTestId("artifact-card-head");
+		expect(head).toHaveTextContent("Document · 3 tabs");
+		expect(head).not.toHaveTextContent("blocks");
+	});
+
+	it("is cheap: the card imports nothing of the board", () => {
+		const source = readFileSync(
+			path.join(
+				path.dirname(fileURLToPath(import.meta.url)),
+				"ArtifactCard.svelte",
+			),
+			"utf8",
+		);
+		expect(source).not.toMatch(/@xyflow|\/canvas\//);
+	});
+});

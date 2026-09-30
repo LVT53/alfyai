@@ -14,7 +14,10 @@ import * as schema from "$lib/server/db/schema";
 import { EMPTY_TAB_ANCHOR_PLACEHOLDER } from "$lib/shared/artifact-document/blocks";
 import type { PatchOp, PatchSet } from "$lib/shared/artifact-document/patch";
 import { seedConversation, seedUser } from "./artifacts.test-helpers";
-import { computePendingReviewBlocks } from "./document-ops";
+import {
+	computePendingReviewBlocks,
+	reviewMarkerPatchFor,
+} from "./document-ops";
 
 // ---------------------------------------------------------------------------
 // computePendingReviewBlocks — pure, no DB.
@@ -675,5 +678,38 @@ describe("readDocumentForAlfy — the empty-tab placeholder", () => {
 		});
 
 		expect(doc.blocks[0].text).toBe("Booked the hotel already.");
+	});
+});
+
+// RV-3 Minor 7: the review marker's bootstrap was written twice (the Document's
+// patch and the board's ops envelope). One function says when an Alfy write
+// starts a review and what it writes.
+describe("reviewMarkerPatchFor — the marker the first Alfy write leaves behind (ruling 61)", () => {
+	it("names the version the write lands on top of when the artifact has no marker yet", () => {
+		expect(reviewMarkerPatchFor(null, 4)).toEqual({
+			review: { throughVersion: 4, keptBlockIds: [] },
+		});
+		expect(reviewMarkerPatchFor({ title: "Plan" } as never, 1)).toEqual({
+			review: { throughVersion: 1, keptBlockIds: [] },
+		});
+	});
+
+	it("leaves a marker that exists alone, and reads a malformed one as no marker at all", () => {
+		expect(
+			reviewMarkerPatchFor(
+				{ review: { throughVersion: 2, keptBlockIds: ["b@3"] } } as never,
+				5,
+			),
+		).toBeUndefined();
+		for (const review of [
+			{ throughVersion: 0, keptBlockIds: [] },
+			{ throughVersion: "2", keptBlockIds: [] },
+			"nope",
+			null,
+		]) {
+			expect(reviewMarkerPatchFor({ review } as never, 5)).toEqual({
+				review: { throughVersion: 5, keptBlockIds: [] },
+			});
+		}
 	});
 });

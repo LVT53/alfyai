@@ -20,11 +20,10 @@ import { artifactKindListEn } from "./services/normal-chat-tools/artifact-tools/
 // must stay byte-identical for the life of the process, exactly like every
 // other part of this prompt.
 describe("artifact-kinds paragraph (only advertise kinds that exist)", () => {
-	it("today, names only Document and App — not Canvas or Slides, which have no create handler yet", () => {
+	it("today, names Document, App and Canvas — not Slides, which has no create handler yet", () => {
 		expect(ALFYAI_NEMOTRON_PROMPT).toContain(
-			"You can also keep something as a Document or App item beside the chat",
+			"You can also keep something as a Document, App or Canvas item beside the chat",
 		);
-		expect(ALFYAI_NEMOTRON_PROMPT).not.toContain("Canvas");
 		expect(ALFYAI_NEMOTRON_PROMPT).not.toContain("Slides");
 	});
 

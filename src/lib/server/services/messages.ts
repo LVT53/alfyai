@@ -610,6 +610,29 @@ export async function getLastMessage(
 }
 
 /**
+ * The id of the conversation's newest assistant message, or null when it has
+ * none. A file the reader had made outside a turn (a picture of a board, from the
+ * panel's Download) hangs from it, because a produced file is shown, listed and
+ * remembered through the message it belongs to.
+ */
+export async function getLatestAssistantMessageId(
+	conversationId: string,
+): Promise<string | null> {
+	const [row] = await db
+		.select({ id: messages.id })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, conversationId),
+				eq(messages.role, "assistant"),
+			),
+		)
+		.orderBy(...messageOrderDesc())
+		.limit(1);
+	return row?.id ?? null;
+}
+
+/**
  * The most recent user-authored message texts in a conversation, newest
  * first. Used only to establish the conversation's response language (see
  * language.ts's `resolveResponseLanguage`) when the latest message's

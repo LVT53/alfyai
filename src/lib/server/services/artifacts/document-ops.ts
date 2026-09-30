@@ -373,17 +373,10 @@ export async function applyDocumentPatch(
 		// the version THIS patch is landing on top of, i.e. exactly "its parent
 		// version". A row that already has a marker (every later Alfy edit)
 		// leaves it for `acknowledgeDocumentReviewBlocks` to move.
-		const existingReview = readDocumentReviewMetadata(
+		const reviewMetadataPatch = reviewMarkerPatchFor(
 			parseArtifactMetadata(scoped.metadataJson),
+			currentVersionNumber,
 		);
-		const reviewMetadataPatch = existingReview
-			? undefined
-			: {
-					review: {
-						throughVersion: currentVersionNumber,
-						keptBlockIds: [] as string[],
-					} satisfies DocumentReviewMetadata,
-				};
 
 		const writeResult = await updateArtifactBody({
 			userId: params.userId,
@@ -545,8 +538,12 @@ export interface DocumentReviewMetadata {
 	keptBlockIds: string[];
 }
 
-/** Validates, never throws — malformed or missing metadata reads as "no marker yet". */
-function readDocumentReviewMetadata(
+/**
+ * Validates, never throws — malformed or missing metadata reads as "no marker yet".
+ * The marker's shape is the family's, not the Document's: a board's review state
+ * (`canvas-review.ts`) reads and writes the same one.
+ */
+export function readDocumentReviewMetadata(
 	metadata: ArtifactMetadata | null,
 ): DocumentReviewMetadata | null {
 	const raw = metadata?.review;
@@ -557,6 +554,53 @@ function readDocumentReviewMetadata(
 		? keptBlockIds.filter((id): id is string => typeof id === "string")
 		: [];
 	return { throughVersion, keptBlockIds: ids };
+}
+
+/**
+ * The metadata patch an Alfy write leaves behind when it starts a review (ruling
+ * 61's first point, ruling 63 for a board): `throughVersion` is the version the
+ * write lands on top of, so the version it writes is the first one waiting for
+ * the reader. `undefined` when the artifact already has a marker: every later
+ * Alfy change leaves it for the reader's Keep or Undo to move. The one place that
+ * says so, for the Document's patch and the board's ops envelope alike (RV-3
+ * Minor 7 found the bootstrap written twice).
+ */
+export function reviewMarkerPatchFor(
+	metadata: ArtifactMetadata | null,
+	parentVersionNumber: number,
+): { review: DocumentReviewMetadata } | undefined {
+	return readDocumentReviewMetadata(metadata)
+		? undefined
+		: { review: { throughVersion: parentVersionNumber, keptBlockIds: [] } };
+}
+
+type ReviewTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * An artifact's stored metadata and the review marker in it, read inside the
+ * transaction that is about to move the marker: `undefined` when the row is
+ * gone, `marker: null` when it has none yet. The Document's acknowledge and the
+ * board's read this the same way (RV-3 Minor 7); the raw JSON comes back so the
+ * write merges into what is stored, never over it.
+ */
+export function readReviewMarkerInTx(
+	tx: ReviewTransaction,
+	artifactId: string,
+):
+	| { metadataJson: string | null; marker: DocumentReviewMetadata | null }
+	| undefined {
+	const current = tx
+		.select({ metadataJson: artifacts.metadataJson })
+		.from(artifacts)
+		.where(eq(artifacts.id, artifactId))
+		.get();
+	if (!current) return undefined;
+	return {
+		metadataJson: current.metadataJson,
+		marker: readDocumentReviewMetadata(
+			parseArtifactMetadata(current.metadataJson),
+		),
+	};
 }
 
 /** The stored form of one kept block id: tied to the Alfy version it was kept against. */
@@ -879,16 +923,9 @@ export async function acknowledgeDocumentReviewBlocks(
 	}
 
 	return db.transaction((tx) => {
-		const current = tx
-			.select({ metadataJson: artifacts.metadataJson })
-			.from(artifacts)
-			.where(eq(artifacts.id, scoped.id))
-			.get();
+		const current = readReviewMarkerInTx(tx, scoped.id);
 		if (!current) return { ok: false as const, reason: "not_found" as const };
-
-		const review = readDocumentReviewMetadata(
-			parseArtifactMetadata(current.metadataJson),
-		);
+		const review = current.marker;
 		if (!review) return { ok: true as const, pending: [] };
 
 		const versions = readVersionsAscending(tx, scoped.id);

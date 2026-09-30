@@ -17,10 +17,10 @@ import {
 } from "./create";
 
 /** The kinds this test file's own "no handler registered" assertions still
- * cover — "app" is registered for real (Slice 2, Task A7) and gets its own
- * describe block below instead. */
+ * cover — "app" (Slice 2, Task A7) and "canvas" (Slice 3) are registered for
+ * real, and get their own describe blocks instead. */
 const UNREGISTERED_KINDS = CREATABLE_ARTIFACT_KINDS.filter(
-	(kind) => kind !== "app",
+	(kind) => kind !== "app" && kind !== "canvas",
 );
 
 describe("createArtifactModelInputSchema / createArtifactInputSchema", () => {
@@ -80,11 +80,11 @@ describe("createArtifactModelInputSchema / createArtifactInputSchema", () => {
 // second hand-kept "which kinds exist" list.
 describe("advertisedArtifactKinds()", () => {
 	afterEach(() => {
-		delete CREATE_ARTIFACT_HANDLERS.canvas;
+		delete CREATE_ARTIFACT_HANDLERS.slides;
 	});
 
-	it("today, returns exactly document and app — the two kinds with a registered handler", () => {
-		expect(advertisedArtifactKinds()).toEqual(["document", "app"]);
+	it("today, returns exactly document, app and canvas — the kinds with a registered handler", () => {
+		expect(advertisedArtifactKinds()).toEqual(["document", "app", "canvas"]);
 	});
 
 	it("every advertised kind has a registered create handler", () => {
@@ -102,21 +102,26 @@ describe("advertisedArtifactKinds()", () => {
 	});
 
 	it("registering a handler for an otherwise-unregistered kind adds it, in canonical order", () => {
-		expect(advertisedArtifactKinds()).not.toContain("canvas");
+		expect(advertisedArtifactKinds()).not.toContain("slides");
 
-		CREATE_ARTIFACT_HANDLERS.canvas = async () => ({
+		CREATE_ARTIFACT_HANDLERS.slides = async () => ({
 			ok: false,
 			reason: "not used by this test",
 		});
 
 		// canonical CREATABLE_ARTIFACT_KINDS order is document, app, canvas,
-		// slides — canvas must land between app and slides, not just anywhere.
-		expect(advertisedArtifactKinds()).toEqual(["document", "app", "canvas"]);
+		// slides — slides must land after canvas, not just anywhere.
+		expect(advertisedArtifactKinds()).toEqual([
+			"document",
+			"app",
+			"canvas",
+			"slides",
+		]);
 	});
 
 	it("removing a handler drops it from the advertised set", () => {
-		// Uses a fake handler on "slides" rather than touching document/app's
-		// real ones (Slice 1/Task A7) — this file's other describe blocks rely
+		// Uses a fake handler on "slides" rather than touching the real ones
+		// (Slice 1, Task A7, Slice 3) — this file's other describe blocks rely
 		// on those staying registered with their real implementations.
 		CREATE_ARTIFACT_HANDLERS.slides = async () => ({
 			ok: false,
@@ -129,23 +134,23 @@ describe("advertisedArtifactKinds()", () => {
 		expect(advertisedArtifactKinds()).not.toContain("slides");
 	});
 
-	it("the executed schema rejects canvas/slides by default (not advertised today), and accepts canvas once registered", () => {
+	it("the executed schema rejects slides by default (not advertised today), and accepts it once registered", () => {
 		expect(
 			buildCreateArtifactInputSchema().safeParse({
-				artifactType: "canvas",
+				artifactType: "slides",
 				title: "t",
 				body: "b",
 			}).success,
 		).toBe(false);
 
-		CREATE_ARTIFACT_HANDLERS.canvas = async () => ({
+		CREATE_ARTIFACT_HANDLERS.slides = async () => ({
 			ok: false,
 			reason: "not used by this test",
 		});
 
 		expect(
 			buildCreateArtifactInputSchema().safeParse({
-				artifactType: "canvas",
+				artifactType: "slides",
 				title: "t",
 				body: "b",
 			}).success,

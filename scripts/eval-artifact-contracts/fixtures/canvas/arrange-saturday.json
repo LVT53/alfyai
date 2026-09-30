@@ -1,0 +1,10 @@
+{
+	"id": "arrange-saturday",
+	"description": "The prototype's scenario: the Saturday notes are piled on top of each other inside their frame and the model is asked to arrange them. Only `move` (frame-relative) can do it, so it measures the read payload's sizes and the space ops are written in.",
+	"language": "en",
+	"kind": "edit",
+	"board": "vienna-messy",
+	"artifactId": "3f6b2a94-7c1e-4d55-9a0e-5b2f1c8d7e10",
+	"title": "Vienna weekend",
+	"request": "The Saturday notes are piled on top of each other. Arrange them neatly inside the Saturday frame, in the order of the day, so that none of them overlaps."
+}

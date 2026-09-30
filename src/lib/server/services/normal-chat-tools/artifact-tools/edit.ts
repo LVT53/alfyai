@@ -6,10 +6,14 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+	applyArtifactOps,
 	applyDocumentPatch,
 	getArtifact,
 	listArtifactCatalogueEntries,
+	listVersions,
+	type OpsEnvelopeResult,
 } from "$lib/server/services/artifacts";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import { parseDocument } from "$lib/shared/artifact-document/blocks";
 import {
 	type RefusalReason as DocumentRefusalReason,
@@ -19,7 +23,17 @@ import {
 	type PatchSet,
 	patchOpInputSchema,
 } from "$lib/shared/artifact-document/patch";
+import {
+	type BoardRefusalReason,
+	boardOpsArraySchema,
+} from "$lib/shared/artifacts/board-ops";
 import { truncateText } from "../shared";
+import {
+	canvasEditFailureMessage,
+	canvasEditOutcome,
+	canvasOpsRequiredMessage,
+	lastKnownBoardVersion,
+} from "./canvas-model";
 import {
 	editArtifactOpsFieldDescription,
 	editArtifactPatchesFieldDescription,
@@ -28,6 +42,7 @@ import {
 	advertisedArtifactKinds,
 	type CreatableArtifactKind,
 } from "./kind-registry";
+import { jsonArrayArg } from "./tool-args";
 
 /**
  * `patches`'s real, executed shape (Document's five ops — `patchOpInputSchema`
@@ -66,7 +81,12 @@ export function buildEditArtifactModelInputSchema(
 			: z.array(z.unknown())
 	).optional();
 	const patchesDescription = editArtifactPatchesFieldDescription(kinds);
-	const ops = z.array(z.unknown()).optional();
+	// Canvas: the board vocabulary's own array schema (`board-ops.ts`) — the SAME
+	// object EDIT_ARTIFACT_HANDLERS.canvas hands `applyArtifactOps`, which reads a
+	// diff with it (ruling 62). Never a hand-written twin.
+	const ops = (
+		kinds.includes("canvas") ? boardOpsArraySchema : z.array(z.unknown())
+	).optional();
 	const opsDescription = editArtifactOpsFieldDescription(kinds);
 	return z.object({
 		artifactId: z
@@ -91,8 +111,8 @@ export function buildEditArtifactModelInputSchema(
 /** Executed against: the caps are the server's, and they are enforced here. */
 export const editArtifactInputSchema = z.object({
 	artifactId: z.string().min(1),
-	patches: z.array(z.unknown()).min(1).max(40).optional(),
-	ops: z.array(z.unknown()).min(1).max(40).optional(),
+	patches: jsonArrayArg("patches").min(1).max(40).optional(),
+	ops: jsonArrayArg("ops").min(1).max(40).optional(),
 	summary: z.string().min(1).max(200).optional(),
 });
 
@@ -114,7 +134,10 @@ export type EditArtifactToolInput = z.infer<typeof editArtifactInputSchema>;
 // member plus the Document engine's ten reasons
 // ($lib/shared/artifact-document/patch's RefusalReason). Each later type
 // slice widens this with `|` when it appends its handler below.
-export type ArtifactRefusalReason = "unsupported_kind" | DocumentRefusalReason;
+export type ArtifactRefusalReason =
+	| "unsupported_kind"
+	| DocumentRefusalReason
+	| BoardRefusalReason;
 
 export interface ArtifactRefusal {
 	/** Document: blockId. Canvas: the op's target id. Slides: slideId. Unset for a whole-artifact refusal (e.g. `unsupported_kind`). */
@@ -128,6 +151,12 @@ export interface ArtifactRefusal {
 	 * say which one was refused (RV-1A).
 	 */
 	opIndex?: number;
+	/**
+	 * Canvas: what would have worked, in the model's own language — the ids that
+	 * exist, the five blocks it may add, the fields of the kind (ruling 62).
+	 * Document refusals carry a reason code only.
+	 */
+	detail?: string;
 }
 
 export type EditArtifactModelPayload =
@@ -162,6 +191,13 @@ export interface EditArtifactHandlerParams {
 	ops?: unknown[];
 	summary?: string;
 	/**
+	 * What this turn has already done, for a kind that judges an edit against what
+	 * the model last read (Canvas, ruling 67): the recorder's entries, the same
+	 * seam a create handler is handed. Optional: without it every op is judged
+	 * against the item as it is now.
+	 */
+	turnContext?: { sources: readonly ToolCallEntry[] };
+	/**
 	 * Fires on the tool's own timeout (20s, TOOL_TIMEOUTS_MS.edit_artifact) or
 	 * the turn's own stop/disconnect. A handler MUST check
 	 * `abortSignal.aborted` before any write (the model was already told the
@@ -177,6 +213,12 @@ export interface EditArtifactHandlerSuccess {
 	versionId: string;
 	applied: number;
 	refused: ArtifactRefusal[];
+	/**
+	 * Canvas: the version this edit landed on top of. With `versionId` it goes on
+	 * the tool call's record, so a later edit in the same turn knows whether the
+	 * model's own change is all that happened since it read (ruling 67).
+	 */
+	baseVersionId?: string;
 }
 
 /**
@@ -329,7 +371,96 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 			},
 		};
 	},
+	canvas: async (params) => {
+		if (params.abortSignal.aborted) {
+			return { ok: false, error: "The request was cancelled." };
+		}
+		if (params.patches) {
+			return { ok: false, error: canvasOpsRequiredMessage(true) };
+		}
+		if (!params.ops) {
+			return { ok: false, error: canvasOpsRequiredMessage(false) };
+		}
+		const summary = (params.summary ?? "").trim() || "Alfy's edit";
+		const diff = { id: randomUUID(), summary, ops: params.ops };
+
+		// The model addresses ids, never versions: a diff is made against the
+		// newest one, and every op is judged against the board as it is NOW. A
+		// user's save landing between the read of the newest version and the write
+		// is a conflict the envelope reports — one more try, since the ops are
+		// re-judged against whatever the board became.
+		// The signal is checked before each try, right before the write (ruling
+		// 53): once it fires the model was already told the call failed.
+		// Ruling 67: what the reader changed after the model last read this board is
+		// refused, not overwritten. The read is the turn's own (its earlier
+		// `read_artifact`, moved forward by its own edits); with none, the edit
+		// applies to the board as it is and the one-change review is the safeguard.
+		const readVersionId = lastKnownBoardVersion(
+			params.turnContext?.sources ?? [],
+			params.artifactId,
+		);
+		const attempt = () =>
+			params.abortSignal.aborted
+				? null
+				: applyBoardOps(params, diff, readVersionId);
+		let tried = await attempt();
+		if (
+			tried &&
+			!tried.outcome.ok &&
+			tried.outcome.reason === "version_conflict"
+		) {
+			tried = await attempt();
+		}
+		if (!tried) return { ok: false, error: "The request was cancelled." };
+		const { outcome, baseVersionId } = tried;
+		if (!outcome.ok) {
+			return { ok: false, error: canvasEditFailureMessage(outcome) };
+		}
+
+		const judged = canvasEditOutcome(outcome);
+		if (!judged.ok) {
+			return { ok: false, error: judged.error, refused: judged.refused };
+		}
+		return {
+			ok: true,
+			value: {
+				versionId: outcome.versionId,
+				applied: judged.applied,
+				refused: judged.refused,
+				...(baseVersionId === undefined ? {} : { baseVersionId }),
+			},
+		};
+	},
 };
+
+/**
+ * One try at applying a diff to a board, as a new Alfy version, against the
+ * board's newest version (`baseVersionId`: what the write lands on top of), and
+ * judged against the version the model last read (`readVersionId`), if any.
+ */
+async function applyBoardOps(
+	params: EditArtifactHandlerParams,
+	diff: { id: string; summary: string; ops: unknown[] },
+	readVersionId: string | undefined,
+): Promise<{ outcome: OpsEnvelopeResult; baseVersionId?: string }> {
+	const [newest] = await listVersions({
+		userId: params.userId,
+		artifactId: params.artifactId,
+		conversationId: params.conversationId,
+		limit: 1,
+	});
+	if (!newest) {
+		return { outcome: { ok: false, status: 404, reason: "not_found" } };
+	}
+	const outcome = await applyArtifactOps({
+		userId: params.userId,
+		artifactId: params.artifactId,
+		conversationId: params.conversationId,
+		payload: { baseVersionId: newest.id, diff },
+		readVersionId,
+	});
+	return { outcome, baseVersionId: newest.id };
+}
 
 // English only (see create.ts's identical note): App gets its own framing
 // because "edited in place" will never be true for it even once Slice 2
@@ -388,6 +519,7 @@ export async function runEditArtifactTool(params: {
 	patches?: unknown[];
 	ops?: unknown[];
 	summary?: string;
+	turnContext?: { sources: readonly ToolCallEntry[] };
 	abortSignal: AbortSignal;
 }): Promise<EditArtifactRunResult> {
 	if (params.patches && params.ops) {
@@ -469,9 +601,16 @@ export async function runEditArtifactTool(params: {
 		patches: params.patches,
 		ops: params.ops,
 		summary: params.summary,
+		turnContext: params.turnContext,
 		abortSignal: params.abortSignal,
 	});
 	if (!result.ok) {
+		// An edit in which every op was refused changed nothing, but the panel can still
+		// name what was left alone and why: the refusals that belong to an op of the call
+		// (never the ones about the call as a whole) travel op by op, as a partial edit's do.
+		const perOp = (result.refused ?? []).filter(
+			(item) => item.opIndex !== undefined,
+		);
 		return {
 			modelPayload: {
 				success: false,
@@ -483,6 +622,17 @@ export async function runEditArtifactTool(params: {
 				ok: false,
 				artifactId: record.id,
 				artifactKind: record.kind,
+				...(perOp.length > 0
+					? {
+							refusedBlocksJson: JSON.stringify(
+								perOp.map((item) => ({
+									blockId: item.target ?? "",
+									reason: item.reason,
+									opIndex: item.opIndex,
+								})),
+							),
+						}
+					: {}),
 			},
 		};
 	}
@@ -518,6 +668,14 @@ export async function runEditArtifactTool(params: {
 			// localises the `code` itself, the same way the model-facing
 			// `refused` array above only ever carried a code).
 			appliedCount: result.value.applied,
+			// A board's edit says which version it made and which it landed on, so a
+			// later edit in the turn can tell its own change from the reader's.
+			...(result.value.baseVersionId === undefined
+				? {}
+				: {
+						versionId: result.value.versionId,
+						parentVersionId: result.value.baseVersionId,
+					}),
 			...(refusedCount > 0
 				? {
 						refusedBlocksJson: JSON.stringify(

@@ -2,8 +2,11 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText, type ToolSet } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig } from "$lib/server/config-store";
+import { db } from "$lib/server/db";
+import { conversations, users } from "$lib/server/db/schema";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
+import { createArtifact } from "$lib/server/services/artifacts";
 import {
 	hasLocalDistillEnabled,
 	isCloudModel,
@@ -53,7 +56,12 @@ import {
 	CREATE_ARTIFACT_HANDLERS,
 	MAX_CREATE_ARTIFACT_CALLS_PER_TURN,
 } from "./artifact-tools/create";
-import { EDIT_ARTIFACT_DOCUMENT_EXAMPLE } from "./artifact-tools/kind-prose";
+import { EDIT_ARTIFACT_HANDLERS } from "./artifact-tools/edit";
+import {
+	CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE,
+	EDIT_ARTIFACT_CANVAS_EXAMPLE,
+	EDIT_ARTIFACT_DOCUMENT_EXAMPLE,
+} from "./artifact-tools/kind-prose";
 import {
 	createNormalChatTools,
 	isProduceFileRequest,
@@ -64,7 +72,7 @@ import {
 	type ReadGeneratedFileResult,
 	readGeneratedFileForTool,
 } from "./read-generated-file";
-import { TOOL_TIMEOUTS_MS } from "./shared";
+import { createToolCallRecorder, TOOL_TIMEOUTS_MS } from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
 // The ledger lookup is mocked (it is the DB), but the polling loop around it
@@ -4880,6 +4888,92 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 		});
 	});
 
+	// Ruling 67: a board edit is judged against the version the model last read in
+	// THIS turn, so the edit closure hands the handler the calls the turn's
+	// recorder already holds — the same seam a create handler is given.
+	describe("what an edit handler is told about its turn (ruling 67)", () => {
+		const realCanvasEdit = EDIT_ARTIFACT_HANDLERS.canvas;
+		afterEach(() => {
+			EDIT_ARTIFACT_HANDLERS.canvas = realCanvasEdit;
+		});
+
+		it("is the calls the turn's recorder already holds", async () => {
+			const now = new Date("2026-09-30T09:00:00.000Z");
+			const userId = "user-edit-wiring";
+			const conversationId = "conversation-edit-wiring";
+			db.insert(users)
+				.values({
+					id: userId,
+					email: "edit-wiring@example.com",
+					passwordHash: "hash",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			db.insert(conversations)
+				.values({
+					id: conversationId,
+					userId,
+					title: "Trip",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			const made = await createArtifact({
+				userId,
+				conversationId,
+				kind: "canvas",
+				title: "Board",
+				body: "{}",
+				author: "user",
+				versionSummary: "Created",
+			});
+			if (!made.ok) throw new Error(made.reason);
+			const artifactId = made.artifact.id;
+
+			const seen: unknown[] = [];
+			EDIT_ARTIFACT_HANDLERS.canvas = async (params) => {
+				seen.push(params.turnContext);
+				return {
+					ok: true,
+					value: { versionId: "version-2", applied: 1, refused: [] },
+				};
+			};
+			const recorder = createToolCallRecorder();
+			recorder.record({
+				name: "read_artifact",
+				input: { artifactId },
+				status: "done",
+				metadata: { ok: true, versionId: "version-1" },
+			});
+			const { tools } = createNormalChatTools({
+				userId,
+				conversationId,
+				turnId: "turn-1",
+				recorder,
+			});
+
+			await tools.edit_artifact.execute?.(
+				{
+					artifactId,
+					ops: [{ op: "highlight", ids: ["note-1"] }],
+				},
+				{ toolCallId: "call-1", messages: [] },
+			);
+
+			expect(seen).toHaveLength(1);
+			expect(seen[0]).toMatchObject({
+				sources: [
+					{
+						name: "read_artifact",
+						input: { artifactId },
+						metadata: { versionId: "version-1" },
+					},
+				],
+			});
+		});
+	});
+
 	afterEach(() => {
 		CREATE_ARTIFACT_HANDLERS.document = realDocumentHandler;
 	});
@@ -5141,15 +5235,16 @@ describe("advertised artifact kinds match the registry (only tell the model what
 		);
 	}
 
-	const CANVAS_SLIDES_MARKERS = {
-		en: ["canvas", "Canvas", "slides", "Slides"],
-		hu: ["Tábla", "tábla", "Diasor", "diasor"],
+	// Canvas registered in Wave 3; Slides has no create handler yet.
+	const SLIDES_MARKERS = {
+		en: ["slides", "Slides"],
+		hu: ["Diasor", "diasor"],
 	} as const;
 
 	it.each([
 		"en",
 		"hu",
-	] as const)("with today's registry, no create_artifact/read_artifact/edit_artifact %s text mentions canvas or slides", (lang) => {
+	] as const)("with today's registry, no create_artifact/read_artifact/edit_artifact %s text mentions slides", (lang) => {
 		const tools = buildArtifactTools(lang);
 		const surfaces = [
 			tools.create_artifact.description,
@@ -5161,36 +5256,48 @@ describe("advertised artifact kinds match the registry (only tell the model what
 		];
 
 		for (const surface of surfaces) {
-			for (const marker of CANVAS_SLIDES_MARKERS[lang]) {
+			for (const marker of SLIDES_MARKERS[lang]) {
 				expect(surface, `${lang} marker "${marker}"`).not.toContain(marker);
 			}
 		}
 	});
 
-	it("registering a fake canvas create handler makes its create_artifact fragment and enum value appear, through the real wiring", () => {
+	it("registering a fake slides create handler makes its create_artifact fragment and enum value appear, through the real wiring", () => {
 		try {
-			CREATE_ARTIFACT_HANDLERS.canvas = async () => ({
+			CREATE_ARTIFACT_HANDLERS.slides = async () => ({
 				ok: false,
 				reason: "not used by this test",
 			});
 
 			const tools = buildArtifactTools("en");
 
-			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("canvas");
+			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("slides");
 			expect(tools.create_artifact.description).toContain(
-				"canvas for a board of things arranged in space",
+				"slides for a small ordered deck to present",
 			);
 		} finally {
-			delete CREATE_ARTIFACT_HANDLERS.canvas;
+			delete CREATE_ARTIFACT_HANDLERS.slides;
 		}
 	});
 
-	it("removing canvas's handler again drops it from create_artifact's schema and description", () => {
+	it("removing slides's handler again drops it from create_artifact's schema and description", () => {
 		const before = buildArtifactTools("en");
 		expect(schemaJson(before.create_artifact.inputSchema)).not.toContain(
-			"canvas",
+			"slides",
 		);
-		expect(before.create_artifact.description).not.toContain("canvas for");
+		expect(before.create_artifact.description).not.toContain("slides for");
+	});
+
+	it("Canvas is registered: create_artifact offers it, in both languages, with the board's own words", () => {
+		for (const lang of ["en", "hu"] as const) {
+			const tools = buildArtifactTools(lang);
+			expect(schemaJson(tools.create_artifact.inputSchema)).toContain("canvas");
+			expect(tools.create_artifact.description).toContain(
+				lang === "en"
+					? "canvas for a board of notes and frames arranged in space, with arrows between them"
+					: "canvas térben elrendezett jegyzetek és keretek táblájához, nyilakkal összekötve",
+			);
+		}
 	});
 });
 
@@ -5248,6 +5355,79 @@ describe("edit_artifact's Document op contract is shown to the model, in both la
 			lang === "en"
 				? "Never make a new item to work around a refused edit"
 				: "Elutasított szerkesztés megkerülésére soha ne hozz létre új elemet",
+		);
+	});
+});
+
+// Ruling 62, through the REAL wiring (createNormalChatTools, both languages):
+// the Canvas `ops` the model is shown is the board vocabulary's own schema, the
+// description carries the worked example the tests parse, and create_artifact's
+// `body` shows the board a create accepts. A regression in the assembly path
+// (edit.ts's schema factory, kind-prose.ts, index.ts's description builders) is
+// caught here rather than by the next live check.
+describe("edit_artifact and create_artifact show the Canvas contract to the model, in both languages (ruling 62)", () => {
+	function buildArtifactTools(lang: "en" | "hu") {
+		return createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			language: lang,
+		}).tools;
+	}
+
+	function schemaJson(inputSchema: unknown): string {
+		return JSON.stringify(
+			(inputSchema as { jsonSchema?: unknown })?.jsonSchema ?? inputSchema,
+		);
+	}
+
+	it("the schema shown to the model carries all eight op names, and only the five blocks it may add", () => {
+		const schema = schemaJson(
+			buildArtifactTools("en").edit_artifact.inputSchema,
+		);
+		for (const op of [
+			"add_frame",
+			"add_node",
+			"move",
+			"add_edge",
+			"remove_edge",
+			"update_node",
+			"remove_node",
+			"highlight",
+		]) {
+			expect(schema).toContain(`"const":"${op}"`);
+		}
+		for (const kind of ["frame", "sticky", "text", "checklist", "chart"]) {
+			expect(schema).toContain(`"const":"${kind}"`);
+		}
+		for (const kind of ["map", "file", "app", "photo", "liveweb"]) {
+			expect(schema).not.toContain(`"const":"${kind}"`);
+		}
+		// The Document's five ops are still there beside them.
+		expect(schema).toContain('"const":"replaceBlock"');
+	});
+
+	it.each([
+		"en",
+		"hu",
+	] as const)("the %s edit description carries the Canvas worked example and the Document's", (lang) => {
+		const description = buildArtifactTools(lang).edit_artifact.description;
+		expect(description).toContain(JSON.stringify(EDIT_ARTIFACT_CANVAS_EXAMPLE));
+		expect(description).toContain(
+			JSON.stringify(EDIT_ARTIFACT_DOCUMENT_EXAMPLE),
+		);
+	});
+
+	it("create_artifact's body field shows the board a create accepts", () => {
+		const schema = schemaJson(
+			buildArtifactTools("en").create_artifact.inputSchema,
+		);
+		// Inside a JSON schema string the example's quotes are escaped once more.
+		expect(schema).toContain(
+			JSON.stringify(JSON.stringify(CREATE_ARTIFACT_CANVAS_BODY_EXAMPLE)).slice(
+				1,
+				-1,
+			),
 		);
 	});
 });
@@ -5381,12 +5561,67 @@ describe("tool description hygiene", () => {
 	// before (26 en / 27 hu), for the same reason as every earlier raise: a
 	// tripwire, not a round number.
 	//
+	// Registering Canvas's create handler (Feature 2, Wave 3, ruling 62) spent
+	// that headroom, as this note said it would: create_artifact now offers
+	// "canvas", and edit_artifact's description gained the Canvas rule (ids from
+	// read_artifact, no baseHash, the 40-op and 24-new-node limits, frames first,
+	// the size of a note) and ONE compact worked example (kind-prose.ts's
+	// EDIT_ARTIFACT_CANVAS_EXAMPLE, parsed by canvas-handlers.test.ts through the
+	// executed `ops` schema and `validateBoardDiff`). The op names are NOT
+	// repeated in prose: the `ops` schema, now the board vocabulary's own
+	// (edit.ts), carries them. Re-measured with Canvas in the catalogue: 5,002 en
+	// / 8,117 hu (229 en / 335 hu spent). The size-of-a-note sentence is 28 en
+	// tokens of that, and earns them: the first live runs (24 answers) had 4
+	// boards with notes on top of each other; the same request set with the
+	// sentence (18 answers) had none. The ceiling below is that measurement plus
+	// the SAME small margin as before (26 en / 27 hu). The schemas cost more than
+	// the descriptions and are not counted by this ceiling — the frozen snapshot
+	// shows them: the whole catalogue went from 33,935 to 40,634 characters (en),
+	// 37,406 to 44,163 (hu); the `ops` schema is about 4.9k of that, and
+	// create_artifact's `body` field carries the board example.
+	//
+	// Wave 3's small fix S3-Y: the first try at "make this note a checklist" is
+	// an update_node that changes data.kind, which is refused (`kind_mismatch`;
+	// the fix is remove + add), so the model spent a call learning a rule the
+	// description could state, on the tool path and on the @Alfy comment path,
+	// which is handed the same Canvas sentence. kind-prose.ts's Canvas rule
+	// gained ONE short clause ("A block's kind cannot change: remove it and add a
+	// new one."; the Hungarian says the same). Re-measured: 5,017 en / 8,139 hu
+	// (15 en / 22 hu spent). The ceiling below is that measurement plus the SAME
+	// margin (26 en / 27 hu). edit_artifact's own description is now 441 en /
+	// 700 hu tokens, under PER_TOOL_TOKEN_CEILING.
+	//
+	// RV-3 C2: what Alfy adds to a board is stored 190 wide, and a note is as tall
+	// as its words, but the description said "a note is 190 wide and 84 tall", so a
+	// board made from it spilled out of its frames on the reader's screen. The
+	// Canvas rule and create_artifact's `body` field now say what is drawn (one
+	// sentence, built from the constants the read and the eval share: a block is
+	// 190 wide, a note 64 tall for two lines and 18 more per further line, a
+	// checklist 74 plus 26 an item; kind-prose.ts's SIZE_FACTS). Re-measured:
+	// 5,060 en / 8,187 hu (43 en / 48 hu spent; edit_artifact hu is 750 tokens or
+	// fewer, the per-tool ceiling). The ceiling below is that measurement plus the
+	// SAME margin (26 en / 27 hu).
+	//
+	// RC-3 N1: what Alfy adds to a board is no longer one width. A chart's plot and
+	// a checklist's rows need more than a note's 190, so the size sentence (still
+	// one sentence built from the constants the read, the board and the eval share;
+	// kind-prose.ts's SIZE_FACTS) gained a checklist's and a chart's width (340,
+	// 360) and a chart's height (228; 397 for a round one). Re-measured: 5,084 en /
+	// 8,223 hu (24 en / 36 hu spent, all of it in edit_artifact's description: the
+	// create_artifact `body` field's copy is a schema description, which this
+	// ceiling does not count). edit_artifact hu, 748 tokens and so 2 under the
+	// per-tool ceiling, is now 784. Both ceilings move by the measured cost plus
+	// the SAME margin they had (catalogue 26 en / 27 hu, per tool 2): 5,110 en /
+	// 8,250 hu, and 786 per tool. Without the sentence a chart was planned 84
+	// tall with a block under it on its axis, and a checklist's items were cut off
+	// at about 16 characters.
+	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
-	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 4799, hu: 7809 } as const;
+	const PER_TOOL_TOKEN_CEILING = 786;
+	const CATALOGUE_TOKEN_CEILING = { en: 5110, hu: 8250 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);

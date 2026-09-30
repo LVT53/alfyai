@@ -19,6 +19,8 @@ import {
 	parseDocument,
 	readTaskBlock,
 } from "$lib/shared/artifact-document/blocks";
+import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
+import { computeCanvasPendingReviewCounts } from "./canvas-review";
 import {
 	computeDocumentPendingReviewCounts,
 	documentTabsFromMetadata,
@@ -32,6 +34,7 @@ import {
 import type {
 	AppVerificationSummary,
 	ArtifactCardSummary,
+	CanvasCardPreview,
 	DocumentCardPreview,
 } from "./types";
 
@@ -67,6 +70,23 @@ function buildDocumentPreview(row: {
 		}
 	}
 	return { tabCount, tasks, totalTaskCount };
+}
+
+/**
+ * A board's card line: how many blocks it holds, read the way the panel reads
+ * it. A body that is empty or is not a board counts as none, never a throw: a
+ * card must not be the thing that fails a whole conversation load.
+ */
+function buildCanvasPreview(row: {
+	contentText: string | null;
+}): CanvasCardPreview {
+	if (!row.contentText?.trim()) return { blockCount: 0 };
+	try {
+		const { body } = normalizeCanvasBody(JSON.parse(row.contentText));
+		return { blockCount: body.nodes.length };
+	} catch {
+		return { blockCount: 0 };
+	}
 }
 
 /**
@@ -131,8 +151,9 @@ export async function listArtifactsForConversation(params: {
 			conversationId: artifacts.conversationId,
 			updatedAt: artifacts.updatedAt,
 			// T9 steps 4/7: only ever read to COMPUTE `documentPreview` below
-			// (`buildDocumentPreview`) for a `kind: "document"` row — the raw
-			// text itself never reaches `ArtifactCardSummary`.
+			// (`buildDocumentPreview`) for a `kind: "document"` row, and a board's
+			// block count (`buildCanvasPreview`) — the raw text itself never
+			// reaches `ArtifactCardSummary`.
 			contentText: artifacts.contentText,
 		})
 		.from(artifacts)
@@ -176,7 +197,17 @@ export async function listArtifactsForConversation(params: {
 	const documentMetadataRows = listed
 		.filter((row) => kindForArtifactRow(row) === "document")
 		.map((row) => ({ id: row.id, metadataJson: row.metadataJson }));
-	const [versionRows, commentRows, pendingReviewCountById] = await Promise.all([
+	// A board's own (ruling 63): the same number for the same three readers, from
+	// the board's marker and its versions.
+	const canvasMetadataRows = listed
+		.filter((row) => kindForArtifactRow(row) === "canvas")
+		.map((row) => ({ id: row.id, metadataJson: row.metadataJson }));
+	const [
+		versionRows,
+		commentRows,
+		documentReviewCountById,
+		canvasReviewCountById,
+	] = await Promise.all([
 		db
 			.select({
 				artifactId: artifactVersions.artifactId,
@@ -194,6 +225,11 @@ export async function listArtifactsForConversation(params: {
 			.where(inArray(artifactComments.artifactId, ids))
 			.groupBy(artifactComments.artifactId),
 		computeDocumentPendingReviewCounts(documentMetadataRows),
+		computeCanvasPendingReviewCounts(canvasMetadataRows),
+	]);
+	const pendingReviewCountById = new Map([
+		...documentReviewCountById,
+		...canvasReviewCountById,
 	]);
 	const newestVersionById = new Map(
 		versionRows.map((row) => [row.artifactId, row.newest ?? 0]),
@@ -221,7 +257,14 @@ export async function listArtifactsForConversation(params: {
 					}
 				: kind === "app"
 					? { appVerification: buildAppVerificationSummary(row) }
-					: {}),
+					: kind === "canvas"
+						? {
+								canvasPreview: buildCanvasPreview(row),
+								...(pendingReviewCountById.has(row.id)
+									? { pendingReviewCount: pendingReviewCountById.get(row.id) }
+									: {}),
+							}
+						: {}),
 		};
 	});
 }

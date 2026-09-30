@@ -3,8 +3,9 @@
   "version": "2.0.0",
   "scripts": {
     "dev": "vite dev",
-    "build": "NODE_OPTIONS=--no-deprecation vite build && node scripts/patch-body-size-limit.mjs && npm run check:worker-assets",
+    "build": "NODE_OPTIONS=--no-deprecation vite build && node scripts/patch-body-size-limit.mjs && npm run check:worker-assets && npm run check:artifact-chunks",
     "check:worker-assets": "node scripts/check-built-worker-assets.mjs",
+    "check:artifact-chunks": "node scripts/check-artifact-chunks.mjs --allow-entry artifacts/canvas/ --max-target-gzip 65000 --max-gzip 69632 --forbid chart.js --forbid maplibre-gl --chat-route \"/(app)/chat/[conversationId]\" --chat-baseline 535771",
     "start": "npm run check:migrations && npm run db:prepare && node build",
     "preview": "vite preview",
     "check": "NODE_OPTIONS=--no-deprecation svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -22,7 +23,8 @@
     "db:studio": "drizzle-kit studio",
     "seed:mock": "tsx scripts/seed-mock-conversation.ts",
     "eval:artifacts": "tsx scripts/eval-artifact-contracts/run.ts",
-    "eval:artifacts:replay": "tsx scripts/eval-artifact-contracts/run.ts --replay --suite all"
+    "eval:artifacts:replay": "tsx scripts/eval-artifact-contracts/run.ts --replay --suite all",
+    "eval:artifacts:tools": "tsx scripts/eval-artifact-contracts/run-tool-suite.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
@@ -76,6 +78,7 @@
     "@tiptap/pm": "3.31.3",
     "@tiptap/starter-kit": "3.31.3",
     "@types/web-push": "^3.6.4",
+    "@xyflow/svelte": "1.7.0",
     "ai": "^6.0.193",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.8.0",
@@ -85,6 +88,7 @@
     "docx": "^9.6.1",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
+    "html-to-image": "1.11.11",
     "imapflow": "^1.4.6",
     "isomorphic-dompurify": "^3.7.1",
     "jsdom": "^29.0.0",
@@ -96,6 +100,7 @@
     "nodemailer": "^9.0.3",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.6.205",
+    "perfect-freehand": "1.2.3",
     "playwright": "^1.59.1",
     "pptxgenjs": "^4.0.1",
     "pptxviewjs": "^1.1.9",

@@ -17,6 +17,7 @@ import {
 	type FileServingPreviewProfile,
 	parseFileServingRange,
 } from "$lib/server/services/file-serving-response-policy";
+import { isPosterFileName } from "$lib/shared/artifacts/poster-file";
 import { requiresFullContentValidation } from "$lib/shared/file-types/production";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 
@@ -67,8 +68,12 @@ export async function resolveGeneratedFileServing(params: {
 		return succeededFileProductionJob;
 	};
 
+	// A file that hangs from no reply is one a job that did not succeed left, and is
+	// not to be seen. A board's poster hangs from none on purpose (nothing lists it),
+	// and is the reader's own picture of their own block.
 	if (
 		chatFile.assistantMessageId === null &&
+		!isPosterFileName(chatFile.filename) &&
 		!(await resolveSucceededFileProductionJob())
 	) {
 		return { ok: false, status: 404, error: "File not found" };

@@ -2,6 +2,12 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { login } from "./helpers";
 
+// A 1x1 PNG: enough for the slide's image input to open the crop dialog.
+const TINY_PNG = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+	"base64",
+);
+
 async function openAdminPane(page: Page, pane: "Users" | "Campaigns") {
 	await page.goto("/settings");
 	await page.waitForLoadState("networkidle");
@@ -150,6 +156,47 @@ test.describe("Admin Campaigns screen", () => {
 		await expect(
 			page.getByRole("heading", { name: "E2E smoke campaign" }),
 		).toHaveCount(0);
+	});
+
+	test("the crop dialog keeps Tab inside, cancels on Escape and hands focus back", async ({
+		page,
+	}) => {
+		await openAdminPane(page, "Campaigns");
+		await page.getByRole("button", { name: "New campaign" }).click();
+		await page.locator("#campaign-dialog-name").fill("E2E crop focus");
+		await page.getByRole("button", { name: "Create campaign" }).click();
+		await page.getByRole("button", { name: "Add slide" }).click();
+		// The New campaign dialog returns focus to its opener as it finishes
+		// fading out; let it, so that cannot take focus from the crop dialog.
+		await expect(page.getByRole("dialog")).toHaveCount(0);
+
+		await page
+			.locator('input[type="file"][accept="image/*"]')
+			.first()
+			.setInputFiles({
+				name: "shot.png",
+				mimeType: "image/png",
+				buffer: TINY_PNG,
+			});
+		const crop = page.getByRole("dialog", { name: "Crop campaign screenshot" });
+		await expect(crop).toBeFocused();
+		await expect(crop.getByRole("button", { name: "Save crop" })).toBeEnabled();
+
+		// Focus starts on the panel itself: Shift+Tab wraps to the last control
+		// rather than walking out to the page behind, and Tab wraps back.
+		await page.keyboard.press("Shift+Tab");
+		await expect(crop.getByRole("button", { name: "Save crop" })).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(crop.getByRole("button", { name: "Close" })).toBeFocused();
+
+		// Escape cancels the crop and focus goes back to what had it before.
+		await page.keyboard.press("Escape");
+		await expect(crop).toBeHidden();
+		await expect(page.getByRole("button", { name: "Add slide" })).toBeFocused();
+
+		await page.getByTestId("campaign-menu").click();
+		await page.getByRole("menuitem", { name: /Delete draft/ }).click();
+		await page.getByTestId("confirm-delete").click();
 	});
 
 	test("seeds the first-run campaign from the campaign menu", async ({

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/services/artifacts", () => ({
 	getArtifact: vi.fn(),
+	saveCanvasBoard: vi.fn(),
 	saveDocumentBody: vi.fn(),
 	updateArtifactBody: vi.fn(),
 	documentTabsFromMetadata: vi.fn(() => []),
@@ -10,12 +11,14 @@ vi.mock("$lib/server/services/artifacts", () => ({
 import {
 	documentTabsFromMetadata,
 	getArtifact,
+	saveCanvasBoard,
 	saveDocumentBody,
 	updateArtifactBody,
 } from "$lib/server/services/artifacts";
 import { PATCH } from "./+server";
 
 const mockGetArtifact = getArtifact as ReturnType<typeof vi.fn>;
+const mockSaveCanvasBoard = saveCanvasBoard as ReturnType<typeof vi.fn>;
 const mockSaveDocumentBody = saveDocumentBody as ReturnType<typeof vi.fn>;
 const mockUpdateArtifactBody = updateArtifactBody as ReturnType<typeof vi.fn>;
 const mockDocumentTabs = documentTabsFromMetadata as ReturnType<typeof vi.fn>;
@@ -206,8 +209,10 @@ describe("PATCH /api/artifacts/[id]/body", () => {
 		expect(response.status).toBe(413);
 	});
 
-	it("falls back to the generic updateArtifactBody for a non-document kind", async () => {
-		mockGetArtifact.mockResolvedValue({ ...documentFixture, kind: "canvas" });
+	// A canvas has its own save seam now (see the canvas suite below), so an App
+	// stands for "a kind the route knows nothing special about".
+	it("falls back to the generic updateArtifactBody for a kind with no seam of its own", async () => {
+		mockGetArtifact.mockResolvedValue({ ...documentFixture, kind: "app" });
 		mockUpdateArtifactBody.mockResolvedValue({
 			ok: true,
 			versionId: "v1",
@@ -382,5 +387,127 @@ describe("PATCH /api/artifacts/[id]/body", () => {
 				expect.objectContaining({ baseHash: undefined }),
 			);
 		});
+	});
+});
+
+// Ruling 12: a Canvas body is stored in its canonical form, so the route hands
+// a board to the Canvas's own save seam — never the raw client JSON straight to
+// `updateArtifactBody` — and tells the client what the server could not keep.
+describe("PATCH /api/artifacts/[id]/body — a canvas", () => {
+	const canvasFixture = {
+		id: "artifact-1",
+		kind: "canvas" as const,
+		title: "Weekend board",
+		conversationId: "conv-1",
+		versionNumber: 2,
+		commentCount: 0,
+		updatedAt: 1,
+		body: "{}",
+		bodyHash: "hash",
+		metadata: { artifactType: "canvas", title: "Weekend board" },
+	};
+	const board = JSON.stringify({ version: 1, nodes: [], edges: [] });
+	const saved = {
+		ok: true,
+		version: 3,
+		bodyHash: "canonical-hash",
+		dropped: { nodes: 0, edges: 0, annotations: 0 },
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockGetArtifact.mockResolvedValue(canvasFixture);
+	});
+
+	it("saves through saveCanvasBoard, opting into coalescing, and never hands the raw body to updateArtifactBody", async () => {
+		mockSaveCanvasBoard.mockResolvedValue(saved);
+
+		const response = await PATCH(
+			makeEvent({
+				body: { body: board, expectVersion: 2, baseHash: "abc" },
+				conversationId: "conv-1",
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({
+			ok: true,
+			version: 3,
+			bodyHash: "canonical-hash",
+		});
+		expect(mockSaveCanvasBoard).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "owner-user",
+				artifactId: "artifact-1",
+				conversationId: "conv-1",
+				body: board,
+				author: "user",
+				expectVersion: 2,
+				baseHash: "abc",
+				coalesceUserEdits: true,
+			}),
+		);
+		expect(mockUpdateArtifactBody).not.toHaveBeenCalled();
+		expect(mockSaveDocumentBody).not.toHaveBeenCalled();
+	});
+
+	it("says what the server could not keep, only when it left something out", async () => {
+		mockSaveCanvasBoard.mockResolvedValue({
+			...saved,
+			dropped: { nodes: 1, edges: 2, annotations: 0 },
+		});
+
+		const response = await PATCH(makeEvent({ body: { body: board } }));
+
+		await expect(response.json()).resolves.toEqual({
+			ok: true,
+			version: 3,
+			bodyHash: "canonical-hash",
+			dropped: { nodes: 1, edges: 2, annotations: 0 },
+		});
+	});
+
+	it("answers 400 invalid_patch for a body that is not a board", async () => {
+		mockSaveCanvasBoard.mockResolvedValue({
+			ok: false,
+			reason: "invalid_body",
+		});
+
+		const response = await PATCH(makeEvent({ body: { body: "{nope" } }));
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			ok: false,
+			reason: "invalid_patch",
+		});
+	});
+
+	it("answers 413 for a board over its caps and 409 for a stale one", async () => {
+		mockSaveCanvasBoard.mockResolvedValueOnce({
+			ok: false,
+			reason: "too_large",
+		});
+		const tooLarge = await PATCH(makeEvent({ body: { body: board } }));
+		expect(tooLarge.status).toBe(413);
+
+		mockSaveCanvasBoard.mockResolvedValueOnce({
+			ok: false,
+			reason: "version_conflict",
+		});
+		const conflict = await PATCH(makeEvent({ body: { body: board } }));
+		expect(conflict.status).toBe(409);
+		await expect(conflict.json()).resolves.toEqual({
+			ok: false,
+			reason: "version_conflict",
+		});
+	});
+
+	it("answers 404 and saves nothing when the board is out of scope", async () => {
+		mockGetArtifact.mockResolvedValue(null);
+
+		const response = await PATCH(makeEvent({ body: { body: board } }));
+
+		expect(response.status).toBe(404);
+		expect(mockSaveCanvasBoard).not.toHaveBeenCalled();
 	});
 });

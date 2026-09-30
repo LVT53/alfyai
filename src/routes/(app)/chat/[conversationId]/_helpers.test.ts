@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { I18nKey } from "$lib/i18n";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
@@ -11,6 +11,7 @@ import {
 	applyToolCallUpdateToMessageList,
 	attachUnassignedFileProductionJobsToAssistant,
 	attachUnassignedPendingWritesToAssistant,
+	awaitOpenStepSave,
 	buildPendingFileProductionJobPlaceholder,
 	cloneSendPayload,
 	createAssistantPlaceholder,
@@ -1529,20 +1530,100 @@ describe("findLiveDocumentAlfyActivity", () => {
 		);
 	});
 
-	it("ignores a tool call for a non-document kind", () => {
+	it("ignores a tool call for a kind the panel has no live edit for", () => {
 		let list = [createAssistantPlaceholder("assistant-1")];
 		list = applyToolCallUpdateToMessageList(list, {
 			placeholderId: "assistant-1",
 			name: "edit_artifact",
-			input: { artifactId: "canvas-1", patches: [] },
+			input: { artifactId: "app-1", patches: [] },
+			status: "running",
+			details: { callId: "call-1" },
+		});
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: { artifactId: "app-1", patches: [] },
 			status: "done",
 			details: {
 				callId: "call-1",
-				metadata: { ok: true, artifactId: "canvas-1", artifactKind: "canvas" },
+				metadata: { ok: true, artifactId: "app-1", artifactKind: "app" },
 			},
 		});
 
 		expect(findLiveDocumentAlfyActivity(list)).toBeNull();
+	});
+
+	it("finds an in-flight edit of a board by its ops, before the server has said what it is", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input: {
+				artifactId: "board-1",
+				summary: "Planned Sunday",
+				ops: [{ op: "move", id: "note-1", to: { x: 1, y: 2 } }],
+			},
+			status: "running",
+			details: { callId: "call-board" },
+		});
+
+		const activity = findLiveDocumentAlfyActivity(list);
+		expect(activity).toEqual(
+			expect.objectContaining({
+				artifactId: "board-1",
+				status: "running",
+				label: "Planned Sunday",
+				ops: [{ op: "move", id: "note-1", to: { x: 1, y: 2 } }],
+			}),
+		);
+	});
+
+	it("finds a settled edit of a board with the ops it made and the ones it left alone", () => {
+		let list = [createAssistantPlaceholder("assistant-1")];
+		const input = {
+			artifactId: "board-1",
+			ops: [
+				{ op: "move", id: "note-1", to: { x: 1, y: 2 } },
+				{ op: "move", id: "gone", to: { x: 3, y: 4 } },
+			],
+		};
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input,
+			status: "running",
+			details: { callId: "call-board" },
+		});
+		list = applyToolCallUpdateToMessageList(list, {
+			placeholderId: "assistant-1",
+			name: "edit_artifact",
+			input,
+			status: "done",
+			details: {
+				callId: "call-board",
+				metadata: {
+					ok: true,
+					artifactId: "board-1",
+					artifactKind: "canvas",
+					appliedCount: 1,
+					refusedBlocksJson: JSON.stringify([
+						{ blockId: "gone", reason: "unknown_id", opIndex: 1 },
+					]),
+				},
+			},
+		});
+
+		const activity = findLiveDocumentAlfyActivity(list);
+		expect(activity).toMatchObject({
+			artifactId: "board-1",
+			key: "call-board",
+			status: "refused",
+			appliedCount: 1,
+		});
+		expect(activity?.ops).toHaveLength(2);
+		expect(activity?.refusedBlocks).toEqual([
+			{ blockId: "gone", reason: "unknown_id", opIndex: 1 },
+		]);
 	});
 
 	it("ignores unrelated tool calls (e.g. research_web) even when present", () => {
@@ -1681,5 +1762,73 @@ describe("liveDocumentAlfyActivityExcluding", () => {
 		// Nothing to suppress yet (no prior settled activity in this session).
 		const activity = liveDocumentAlfyActivityExcluding(list, null);
 		expect(activity?.status).toBe("running");
+	});
+});
+
+// RV-3 I2: what the chat page waits for before a turn starts, so the reader's last
+// step on an open board is saved before Alfy may change the board.
+describe("awaitOpenStepSave", () => {
+	it("goes straight on when the open item has nothing to save", async () => {
+		await expect(awaitOpenStepSave(null, 2000)).resolves.toBeUndefined();
+	});
+
+	it("waits for the save to be answered", async () => {
+		vi.useFakeTimers();
+		try {
+			let answered = false;
+			const save = vi.fn(
+				() =>
+					new Promise<void>((resolve) => {
+						setTimeout(() => {
+							answered = true;
+							resolve();
+						}, 300);
+					}),
+			);
+			let settled = false;
+			const waiting = awaitOpenStepSave(save, 2000).then(() => {
+				settled = true;
+			});
+			await vi.advanceTimersByTimeAsync(299);
+			expect(save).toHaveBeenCalledTimes(1);
+			expect(settled).toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
+			await waiting;
+			expect(answered).toBe(true);
+			expect(settled).toBe(true);
+			// It leaves nothing behind: the bound is not a timer that outlives the save.
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not hold a message back for longer than the bound when the save never answers", async () => {
+		vi.useFakeTimers();
+		try {
+			const save = vi.fn(() => new Promise<void>(() => {}));
+			let settled = false;
+			const waiting = awaitOpenStepSave(save, 2000).then(() => {
+				settled = true;
+			});
+			await vi.advanceTimersByTimeAsync(1999);
+			expect(settled).toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
+			await waiting;
+			expect(settled).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("never rejects: a save that fails, or throws, does not stop the message", async () => {
+		await expect(
+			awaitOpenStepSave(() => Promise.reject(new Error("offline")), 2000),
+		).resolves.toBeUndefined();
+		await expect(
+			awaitOpenStepSave(() => {
+				throw new Error("the body is gone");
+			}, 2000),
+		).resolves.toBeUndefined();
 	});
 });

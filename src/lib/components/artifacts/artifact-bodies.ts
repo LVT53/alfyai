@@ -14,6 +14,7 @@
  */
 import type { Component } from "svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 
 export interface ArtifactBodyProps {
@@ -26,12 +27,21 @@ export interface ArtifactBodyProps {
 	/**
 	 * The latest Alfy tool-call activity (`create_artifact`/`edit_artifact`)
 	 * the chat page knows about, derived from the stream's own tool-call
-	 * parts — regardless of which artifact it targets. Only the Document body
-	 * interprets it today (T8 live: the "Alfy is writing" shimmer, change
-	 * marks and refusal notice); every other kind ignores it. `null`/absent
-	 * when nothing is happening.
+	 * parts — regardless of which artifact it targets. The Document body
+	 * interprets it (T8 live: the "Alfy is writing" shimmer, change marks and
+	 * refusal notice) and so does the Canvas body (Slice 3 T6: the arranging
+	 * frame, the landing, the refusal notice; a board's edit carries its `ops`);
+	 * every other kind ignores it. `null`/absent when nothing is happening.
 	 */
 	alfyActivity?: DocumentAlfyActivity | null;
+	/**
+	 * Opens an item in the panel's own viewer — the file a Canvas's File block
+	 * names, opened the way the chat's own file cards open theirs. Absent when the
+	 * host cannot open one (the Knowledge page, the project Files dialog); a body
+	 * that offers such a link then shows it as plain text. Only the Canvas body
+	 * reads it today.
+	 */
+	onOpenItem?: (item: DocumentWorkspaceItem) => void;
 	/** Fires when the body's own dirty state changes, so the panel can guard closing. */
 	onDirtyChange?: (dirty: boolean) => void;
 	/** The body hands its serialised form back for versions/refusal. Slice 1 first. */
@@ -108,6 +118,16 @@ export interface ArtifactPanelBodyActions {
 	 * the resulting state.
 	 */
 	toggleComments?: () => void;
+	/**
+	 * Saves what the body has not saved yet, and answers once the save has been
+	 * answered (it never rejects, and it does not wait for a connection to come
+	 * back). The chat page awaits it before a turn starts: a turn can make Alfy
+	 * change what is open, and a step of the reader's that is still inside the
+	 * body's own save delay would then be written over, or refused as stale (RV-3
+	 * I2). A body with nothing of the reader's to hold back registers none; the
+	 * Canvas is the one that does today.
+	 */
+	flush?: () => Promise<void>;
 }
 
 export type ArtifactBodyLoader = () => Promise<{
@@ -119,4 +139,5 @@ export const ARTIFACT_BODIES: Partial<
 > = {
 	document: () => import("./document/DocumentBody.svelte"),
 	app: () => import("./app/AppBody.svelte"),
+	canvas: () => import("./canvas/CanvasEditor.svelte"),
 };

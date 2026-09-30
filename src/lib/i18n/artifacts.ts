@@ -556,6 +556,297 @@ const artifactsDict = {
 			"This document isn't in a conversation yet, so it can't be exported.",
 		"artifacts.document.export.tryAgain": "Try again",
 		"artifacts.document.export.close": "Close",
+		// Slice 3 (Canvas), the ops protocol's own strings: why a change to the
+		// board was skipped (`board-ops.ts`'s `refusalLabelKey`), and the one line
+		// for a change that could not be read at all. The board's own strings
+		// (toolbar, blocks, pins) are the board agent's block.
+		"artifacts.canvas.invalidDiff":
+			"That change could not be read, so nothing moved.",
+		"artifacts.canvas.refusal.unknown_id":
+			"nothing is at that position any more",
+		"artifacts.canvas.refusal.duplicate_id": "that id already exists",
+		"artifacts.canvas.refusal.unknown_kind": "unknown block type",
+		"artifacts.canvas.refusal.kind_mismatch":
+			"a block cannot change type in place",
+		"artifacts.canvas.refusal.missing_parent":
+			"the frame it belongs to is missing",
+		"artifacts.canvas.refusal.self_parent": "a frame cannot contain itself",
+		"artifacts.canvas.refusal.cycle": "a frame cannot sit inside its own frame",
+		"artifacts.canvas.refusal.invalid_data":
+			"the block's content was not valid",
+		"artifacts.canvas.refusal.limit_exceeded": "the board is at its limit",
+		"artifacts.canvas.refusal.stale":
+			"you changed it after Alfy looked at the board, so Alfy left it alone",
+		// Slice 3 (Canvas), the board's own strings: toolbar, insert menu,
+		// blocks, the states of the panel's content area, the save line.
+		"artifacts.canvas.toolbar": "Canvas tools",
+		"artifacts.canvas.tool.select": "Select",
+		"artifacts.canvas.tool.pan": "Pan",
+		// Ruling 16: these undo the reader's OWN steps; Alfy's changes and an
+		// earlier session's are restored through History, and are named differently.
+		"artifacts.canvas.undo": "Undo your last step",
+		"artifacts.canvas.redo": "Redo your step",
+		"artifacts.canvas.insert": "Insert",
+		"artifacts.canvas.insert.block": "Insert block",
+		"artifacts.canvas.insert.text": "Text",
+		"artifacts.canvas.insert.sticky": "Sticky note",
+		"artifacts.canvas.insert.frame": "Frame",
+		"artifacts.canvas.insert.chart": "Chart",
+		"artifacts.canvas.insert.checklist": "Checklist",
+		"artifacts.canvas.blockCount":
+			"{count} {count, plural, one {block} other {blocks}}",
+		"artifacts.canvas.blockMissingKind":
+			"This block's type is not supported any more.",
+		"artifacts.canvas.blockDropped":
+			"{count} block(s) could not be read and were left out.",
+		"artifacts.canvas.dismiss": "Dismiss",
+		"artifacts.canvas.rebasedKept":
+			"Alfy changed {count} {count, plural, one {block} other {blocks}} you had also changed. Your version was kept.",
+		"artifacts.canvas.deleteBlock": "Delete block",
+		"artifacts.canvas.nodeDeleted": "Deleted from the board.",
+		"artifacts.canvas.tone": "Note colour",
+		"artifacts.canvas.tone.yellow": "Yellow",
+		"artifacts.canvas.tone.mint": "Mint",
+		"artifacts.canvas.tone.blue": "Blue",
+		"artifacts.canvas.tone.plain": "Plain",
+		"artifacts.canvas.stickyPlaceholder": "Write a note…",
+		"artifacts.canvas.textPlaceholder": "Write something…",
+		"artifacts.canvas.frameName": "Frame name",
+		"artifacts.canvas.checklistReadOnlyNote":
+			"Ticks here are saved with the board.",
+		"artifacts.canvas.checklistPlaceholder": "New item",
+		"artifacts.canvas.checklistAdd": "Add item",
+		"artifacts.canvas.checklistRemove": "Remove item",
+		"artifacts.canvas.checklistToggle": "{name}: toggle done",
+		"artifacts.canvas.zoom": "Zoom",
+		"artifacts.canvas.zoomIn": "Zoom in",
+		"artifacts.canvas.zoomOut": "Zoom out",
+		"artifacts.canvas.fitView": "Fit to view",
+		"artifacts.canvas.minimap": "Board overview",
+		"artifacts.canvas.emptyBoard": "Empty board. Insert a block or draw on it.",
+		"artifacts.canvas.loading": "Opening the board…",
+		"artifacts.canvas.loadFailed": "Could not open the board.",
+		"artifacts.canvas.retry": "Retry",
+		"artifacts.canvas.reload": "Reload",
+		"artifacts.canvas.saved": "Saved",
+		"artifacts.canvas.saving": "Saving…",
+		"artifacts.canvas.saveFailed": "Could not save the board.",
+		"artifacts.canvas.saveConflict":
+			"Alfy or another window changed the board, so your last step was not saved. Reload to see the newest version.",
+		"artifacts.canvas.offline":
+			"You are offline. Your drawing is kept and will be saved when the connection is back.",
+		"artifacts.canvas.tooLarge": "This board is too big to save.",
+		"artifacts.canvas.deletedWhileOpen": "This board was deleted.",
+		"artifacts.canvas.noAccess": "You do not have access to this board.",
+		// What the flow library reads out for its own elements, in the reader's language.
+		"artifacts.canvas.a11y.node":
+			"Press Enter or Space to select a block. Press Delete to remove it and Escape to let go.",
+		"artifacts.canvas.a11y.nodeKeyboard":
+			"Press Enter or Space to select a block. You can then use the arrow keys to move it. Press Delete to remove it and Escape to let go.",
+		"artifacts.canvas.a11y.moved":
+			"Moved the selected block. New position, x: {x}, y: {y}",
+		"artifacts.canvas.a11y.edge":
+			"Press Enter or Space to select a connection. You can then press Delete to remove it or Escape to let go.",
+		"artifacts.canvas.a11y.handle": "Connection point",
+		// Comments on the board (S3-C): the tool that places one, the pin it leaves,
+		// the line that says what it is on, and what a board's @Alfy reply reads.
+		// The list's own words (Comments, resolved toggle, empty states) are the
+		// Document's `artifacts.document.margin.*` and `.comment.*`: one comment
+		// feature, one vocabulary.
+		"artifacts.canvas.tool.comment": "Comment",
+		"artifacts.canvas.comment.placeHint":
+			"Click the board or a block to place a comment.",
+		"artifacts.canvas.comment.pin": "Comment {n} on the board",
+		"artifacts.canvas.comment.pinResolved":
+			"Comment {n} on the board, resolved",
+		"artifacts.canvas.comment.pinDraft": "New comment, not posted yet",
+		"artifacts.canvas.comment.spot": "a spot on the board",
+		"artifacts.canvas.comment.blockGone": "The block is gone.",
+		"artifacts.canvas.comment.orphanedGroup":
+			"{count} {count, plural, one {comment} other {comments}} on a block that was removed",
+		"artifacts.canvas.comment.empty":
+			"No comments yet. Choose Comment, then click a block or a spot on the board.",
+		// A colon, not a suffix, joins the target: the target is a block's own words.
+		"artifacts.canvas.comment.newOn": "New comment on: {target}",
+		"artifacts.canvas.comment.placeholder":
+			"Write a comment. Use @Alfy to ask for a change.",
+		"artifacts.canvas.comment.alfyHint":
+			"Alfy answers here and can change the board.",
+		"artifacts.canvas.comment.replyPlaceholder":
+			"Reply, or ask @Alfy to change the board…",
+		"artifacts.canvas.comment.quoteA11y": "Show {target} on the board",
+		"artifacts.canvas.comment.alfyRefused":
+			"I left the board as it is — this comment didn't lead to a change I could make safely.",
+		"artifacts.canvas.comment.skippedItem": "{target}: {reason}",
+		"artifacts.canvas.comment.landed": "Alfy changed the board.",
+		"artifacts.canvas.comment.placed":
+			"Comment started. Write it in the comments list.",
+		"artifacts.canvas.comment.alfyFailed":
+			"Alfy could not answer just now. Your comment is posted.",
+		"artifacts.canvas.comment.updateFailed": "Could not update this comment.",
+		// Alfy's change on the board (S3-A, ruling 63): the arranging state, the
+		// landing, and the one review of it (Keep or Undo for the whole change).
+		"artifacts.canvas.arranging": "Alfy is arranging…",
+		"artifacts.canvas.arrangingSummary": "Alfy is arranging: {summary}",
+		"artifacts.canvas.review.regionLabel": "Alfy's changes to the board",
+		"artifacts.canvas.review.summary":
+			"Alfy changed {count} {count, plural, one {block} other {blocks}}.",
+		"artifacts.canvas.review.summaryRemoved":
+			"Alfy removed {count} {count, plural, one {block} other {blocks}}.",
+		"artifacts.canvas.review.summaryBoth":
+			"Alfy changed {changed} {changed, plural, one {block} other {blocks}} and removed {removed}.",
+		"artifacts.canvas.review.landed": "{summary} Review it below the board.",
+		"artifacts.canvas.review.landedLeft":
+			"{summary} Left {left} alone. Review it below the board.",
+		"artifacts.canvas.review.refused":
+			"Alfy skipped {count} {count, plural, one {change} other {changes}}.",
+		"artifacts.canvas.review.undoRefused":
+			"Alfy's change can't be undone here because the board has changed since. Open Versions to go back to an earlier one.",
+		"artifacts.canvas.review.undoFailed":
+			"Could not undo Alfy's change. Try again, or open Versions.",
+		"artifacts.canvas.review.openVersions": "Open Versions",
+		// Asking Alfy about blocks, or the board (S3-A): the toolbar's button, the pill a
+		// selection raises, and what a request about several blocks says it is about.
+		"artifacts.canvas.ask": "Ask Alfy",
+		"artifacts.canvas.ask.busy":
+			"Alfy is still arranging. Try again in a moment.",
+		"artifacts.canvas.selection.label": "Selection",
+		"artifacts.canvas.comment.newOnMany":
+			"New comment on: {target} and {count} more",
+		"artifacts.canvas.comment.newOnBoard": "New comment on: the whole board",
+		"artifacts.canvas.comment.scopeLine": "About these blocks: {names}.",
+		// Frames and reparenting (S3-F): what a screen reader hears when a block
+		// joins or leaves a frame by a drag.
+		"artifacts.canvas.movedIntoFrame": "Moved into the frame {frame}.",
+		"artifacts.canvas.movedOutOfFrame": "Moved out of the frame {frame}.",
+		// The blocks made from the chat (S3-R1): the three kinds' names (the
+		// screen-reader name of a node reads them), the Insert menu's "From this
+		// chat" section, and what each block says about itself.
+		"artifacts.canvas.insert.map": "Map",
+		"artifacts.canvas.insert.file": "File",
+		"artifacts.canvas.insert.app": "App",
+		"artifacts.canvas.chat.title": "From this chat",
+		"artifacts.canvas.chat.files": "Files",
+		"artifacts.canvas.chat.apps": "Apps",
+		"artifacts.canvas.chat.maps": "Maps",
+		"artifacts.canvas.chat.charts": "Charts",
+		"artifacts.canvas.chat.loading": "Looking through this chat…",
+		"artifacts.canvas.chat.empty": "Nothing from this chat to insert yet.",
+		"artifacts.canvas.chat.failed": "Couldn't look through this chat.",
+		"artifacts.canvas.chat.retry": "Try again",
+		"artifacts.canvas.chat.version": "v{version}",
+		"artifacts.canvas.chat.chartType.bar": "Bar chart",
+		"artifacts.canvas.chat.chartType.line": "Line chart",
+		"artifacts.canvas.chat.chartType.pie": "Pie chart",
+		"artifacts.canvas.chat.chartType.doughnut": "Doughnut chart",
+		"artifacts.canvas.chat.chartType.radar": "Radar chart",
+		"artifacts.canvas.chat.chartType.polarArea": "Polar area chart",
+		"artifacts.canvas.chat.chartType.scatter": "Scatter chart",
+		"artifacts.canvas.chat.chartType.bubble": "Bubble chart",
+		"artifacts.canvas.chat.chartType.other": "Chart",
+		"artifacts.canvas.file.open": "Open {name}",
+		"artifacts.canvas.app.loading": "Opening the App…",
+		"artifacts.canvas.app.gone": "This App is no longer available.",
+		"artifacts.canvas.app.failed": "Couldn't open this App.",
+		"artifacts.canvas.block.loadFailed": "This block could not load.",
+		// Photos and live web (S3-R2): the two blocks with nothing to reuse from the
+		// chat. The Insert menu names them beside the other kinds, "From this chat"
+		// lists the photo and web searches the chat ran, and a live-web block says how
+		// old its snapshot is and refreshes it.
+		"artifacts.canvas.insert.photo": "Photos",
+		"artifacts.canvas.insert.liveweb": "Live web",
+		"artifacts.canvas.chat.photos": "Photos",
+		"artifacts.canvas.chat.searches": "Web searches",
+		"artifacts.canvas.chat.photoSearch": "Photo search",
+		"artifacts.canvas.chat.photoCount":
+			"{count} {count, plural, one {photo} other {photos}}",
+		"artifacts.canvas.chat.sourceCount":
+			"{count} {count, plural, one {source} other {sources}}",
+		"artifacts.canvas.chat.webSearch.row": "Search the web…",
+		"artifacts.canvas.chat.webSearch.label": "Search the web",
+		"artifacts.canvas.chat.webSearch.placeholder":
+			"What should the board look up?",
+		"artifacts.canvas.chat.webSearch.submit": "Search",
+		"artifacts.canvas.chat.webSearch.busy": "Searching the web…",
+		"artifacts.canvas.chat.webSearch.failed":
+			"The search did not work. Try again.",
+		"artifacts.canvas.chat.webSearch.empty":
+			"Nothing came back for that search.",
+		"artifacts.canvas.chat.webSearch.tooOften":
+			"That is a lot of searches at once. Wait a moment.",
+		"artifacts.canvas.photo.alt": "Photo {number}",
+		"artifacts.canvas.photo.open": "Open photo {number} of {total}",
+		"artifacts.canvas.photo.unavailable": "Photo not available",
+		"artifacts.canvas.photo.empty": "No photos in this block.",
+		"artifacts.canvas.liveweb.updated": "Updated {when}",
+		"artifacts.canvas.liveweb.more": "+{count} more",
+		"artifacts.canvas.liveweb.none": "No sources in this block.",
+		"artifacts.canvas.staleBadge": "Not live",
+		"artifacts.canvas.refresh": "Refresh",
+		"artifacts.canvas.refreshing": "Refreshing…",
+		"artifacts.canvas.refreshFailed": "Could not refresh this block.",
+		"artifacts.canvas.refreshNothing": "The search returned no results.",
+		"artifacts.canvas.refreshTooOften":
+			"Too many searches at once. Try again in a moment.",
+		// The drawing layer (S3-F): tools, inks, and what the layer says about itself.
+		"artifacts.canvas.tool.draw": "Draw",
+		"artifacts.canvas.tool.pen": "Pen",
+		"artifacts.canvas.tool.highlighter": "Highlighter",
+		"artifacts.canvas.tool.line": "Line",
+		"artifacts.canvas.tool.arrow": "Arrow",
+		"artifacts.canvas.tool.rect": "Rectangle",
+		"artifacts.canvas.tool.ellipse": "Ellipse",
+		"artifacts.canvas.tool.text": "Text",
+		"artifacts.canvas.tool.eraser": "Eraser",
+		"artifacts.canvas.drawTools": "Drawing tools",
+		"artifacts.canvas.ink.blue": "Blue ink",
+		"artifacts.canvas.ink.red": "Red ink",
+		"artifacts.canvas.ink.green": "Green ink",
+		"artifacts.canvas.ink.graphite": "Graphite ink",
+		"artifacts.canvas.drawingLayer": "Drawing layer",
+		"artifacts.canvas.drawingLayer.marks":
+			"{count} {count, plural, one {mark} other {marks}} drawn on the board.",
+		"artifacts.canvas.textMark": "Text on the board",
+		"artifacts.canvas.markDeleted": "Mark removed.",
+		"artifacts.canvas.markErased": "Marks erased.",
+		"artifacts.canvas.drawingLimit":
+			"The board holds at most {count} marks. Erase one to draw more.",
+		// A picture of the board (S3-X): the header's Download offers the board as a
+		// PNG, and the blocks a picture cannot carry live (an App, a map, photos, a web
+		// search) are drawn from a still image or, with none, as a card that says so.
+		"artifacts.canvas.export.title": "Download “{title}”",
+		"artifacts.canvas.export.close": "Close",
+		"artifacts.canvas.export.png": "PNG image",
+		"artifacts.canvas.export.pngHint": "The whole board as one picture.",
+		"artifacts.canvas.export.preparing": "Drawing the board…",
+		"artifacts.canvas.export.saved":
+			"The picture is saved with this chat's files.",
+		"artifacts.canvas.export.again": "Download again",
+		"artifacts.canvas.export.failed": "Could not export the board.",
+		"artifacts.canvas.export.tryAgain": "Try again",
+		"artifacts.canvas.export.empty":
+			"There is nothing on the board to export yet.",
+		"artifacts.canvas.export.noConversation":
+			"This board belongs to no chat, so it cannot be exported.",
+		"artifacts.canvas.export.tooLarge":
+			"The picture is too large to keep. Try a smaller board.",
+		"artifacts.canvas.exportMissingPosters":
+			"{count} {count, plural, one {block was} other {blocks were}} drawn as a card, without the live view: {names}",
+		"artifacts.canvas.posterFailed":
+			"Could not make a still image of this block.",
+		"artifacts.canvas.mapNotLive": "Basemap not live",
+		"artifacts.canvas.export.stillApp":
+			"The live App is not part of this image.",
+		"artifacts.canvas.export.stillMap":
+			"The live map is not part of this image.",
+		"artifacts.canvas.export.stillPhoto":
+			"The photos are not part of this image.",
+		"artifacts.canvas.export.stillWeb":
+			"The live web results are not part of this image.",
+		"artifacts.canvas.export.stillOther":
+			"This block is not part of this image.",
+		// After the Canvas review (RV-3, cluster B).
+		"artifacts.canvas.block.drawFailed": "This block could not be drawn.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -943,6 +1234,282 @@ const artifactsDict = {
 			"Ez a dokumentum még nincs beszélgetéshez rendelve, ezért nem exportálható.",
 		"artifacts.document.export.tryAgain": "Újrapróbálom",
 		"artifacts.document.export.close": "Bezárás",
+		// Slice 3 (Canvas), a protokoll saját szövegei: miért maradt ki egy
+		// módosítás a táblából, és az egy sor arra az esetre, ha egy módosítást
+		// egyáltalán nem sikerült értelmezni.
+		"artifacts.canvas.invalidDiff":
+			"Ezt a módosítást nem sikerült értelmezni, ezért semmi sem mozdult el.",
+		"artifacts.canvas.refusal.unknown_id": "már nincs ott semmi",
+		"artifacts.canvas.refusal.duplicate_id": "ez az azonosító már létezik",
+		"artifacts.canvas.refusal.unknown_kind": "ismeretlen blokktípus",
+		"artifacts.canvas.refusal.kind_mismatch":
+			"a blokk típusa nem változhat meg helyben",
+		"artifacts.canvas.refusal.missing_parent":
+			"hiányzik a keret, amihez tartozna",
+		"artifacts.canvas.refusal.self_parent":
+			"a keret nem tartalmazhatja önmagát",
+		"artifacts.canvas.refusal.cycle": "a keret nem kerülhet a saját keretébe",
+		"artifacts.canvas.refusal.invalid_data":
+			"a blokk tartalma nem volt érvényes",
+		"artifacts.canvas.refusal.limit_exceeded": "a tábla elérte a korlátját",
+		"artifacts.canvas.refusal.stale":
+			"a tábla megtekintése után módosítottad, ezért Alfy nem nyúlt hozzá",
+		// Slice 3 (Canvas), a tábla saját szövegei: eszköztár, beszúrás menü,
+		// blokkok, a panel tartalmi területének állapotai, a mentés sora.
+		"artifacts.canvas.toolbar": "Tábla eszközök",
+		"artifacts.canvas.tool.select": "Kijelölés",
+		"artifacts.canvas.tool.pan": "Mozgatás",
+		"artifacts.canvas.undo": "Saját lépés visszavonása",
+		"artifacts.canvas.redo": "Saját lépés ismét",
+		"artifacts.canvas.insert": "Beszúrás",
+		"artifacts.canvas.insert.block": "Blokk beszúrása",
+		"artifacts.canvas.insert.text": "Szöveg",
+		"artifacts.canvas.insert.sticky": "Jegyzet",
+		"artifacts.canvas.insert.frame": "Keret",
+		"artifacts.canvas.insert.chart": "Diagram",
+		"artifacts.canvas.insert.checklist": "Ellenőrzőlista",
+		// Nincs ICU többesszám, a cardSubtitle okán: a magyar főnév számnév
+		// után egyes számban marad.
+		"artifacts.canvas.blockCount": "{count} blokk",
+		"artifacts.canvas.blockMissingKind": "Ez a blokktípus már nem támogatott.",
+		"artifacts.canvas.blockDropped":
+			"{count} blokkot nem sikerült beolvasni, kimaradtak.",
+		"artifacts.canvas.dismiss": "Elrejtés",
+		"artifacts.canvas.rebasedKept":
+			"Alfy {count} olyan blokkot módosított, amelyen te is változtattál. A te változatod maradt meg.",
+		"artifacts.canvas.deleteBlock": "Blokk törlése",
+		"artifacts.canvas.nodeDeleted": "Törölve a tábláról.",
+		"artifacts.canvas.tone": "Jegyzet színe",
+		"artifacts.canvas.tone.yellow": "Sárga",
+		"artifacts.canvas.tone.mint": "Menta",
+		"artifacts.canvas.tone.blue": "Kék",
+		"artifacts.canvas.tone.plain": "Sima",
+		"artifacts.canvas.stickyPlaceholder": "Írj egy jegyzetet…",
+		"artifacts.canvas.textPlaceholder": "Írj valamit…",
+		"artifacts.canvas.frameName": "Keret neve",
+		"artifacts.canvas.checklistReadOnlyNote":
+			"Az itt kipipált elemeket a táblával együtt mentjük.",
+		"artifacts.canvas.checklistPlaceholder": "Új elem",
+		"artifacts.canvas.checklistAdd": "Elem hozzáadása",
+		"artifacts.canvas.checklistRemove": "Elem törlése",
+		"artifacts.canvas.checklistToggle": "{name}: kész állapot váltása",
+		"artifacts.canvas.zoom": "Nagyítás mértéke",
+		"artifacts.canvas.zoomIn": "Nagyítás",
+		"artifacts.canvas.zoomOut": "Kicsinyítés",
+		"artifacts.canvas.fitView": "Illesztés a nézetbe",
+		"artifacts.canvas.minimap": "Tábla áttekintése",
+		"artifacts.canvas.emptyBoard":
+			"Üres tábla. Szúrj be egy blokkot, vagy rajzolj rá.",
+		"artifacts.canvas.loading": "Tábla megnyitása…",
+		"artifacts.canvas.loadFailed": "Nem sikerült megnyitni a táblát.",
+		"artifacts.canvas.retry": "Újra",
+		"artifacts.canvas.reload": "Újratöltés",
+		"artifacts.canvas.saved": "Mentve",
+		"artifacts.canvas.saving": "Mentés…",
+		"artifacts.canvas.saveFailed": "Nem sikerült menteni a táblát.",
+		"artifacts.canvas.saveConflict":
+			"A táblát Alfy vagy egy másik ablak módosította, ezért az utolsó lépésedet nem sikerült elmenteni. Töltsd újra a legfrissebb változathoz.",
+		"artifacts.canvas.offline":
+			"Nincs kapcsolat. A rajzod megmarad, a módosításaidat a kapcsolat helyreálltával mentjük.",
+		"artifacts.canvas.tooLarge": "Ez a tábla túl nagy a mentéshez.",
+		"artifacts.canvas.deletedWhileOpen": "Ezt a táblát törölték.",
+		"artifacts.canvas.noAccess": "Nincs hozzáférésed ehhez a táblához.",
+		// Amit a folyamatkezelő könyvtár felolvas a saját elemeiről, az olvasó nyelvén.
+		"artifacts.canvas.a11y.node":
+			"Az Enter vagy a szóköz kijelöli a blokkot. A Delete törli, az Escape elengedi.",
+		"artifacts.canvas.a11y.nodeKeyboard":
+			"Az Enter vagy a szóköz kijelöli a blokkot. Utána a nyílbillentyűkkel mozgathatod. A Delete törli, az Escape elengedi.",
+		"artifacts.canvas.a11y.moved":
+			"A kijelölt blokk elmozdult. Új helye: x: {x}, y: {y}",
+		"artifacts.canvas.a11y.edge":
+			"Az Enter vagy a szóköz kijelöli a kapcsolatot. Utána a Delete törli, az Escape elengedi.",
+		"artifacts.canvas.a11y.handle": "Kapcsolódási pont",
+		// Megjegyzések a táblán (S3-C): az eszköz, ami elhelyezi őket, a jelölő,
+		// a sor, ami megmondja, mihez tartoznak, és amit egy @Alfy-válasz mond.
+		// A lista saját szövegei a Dokumentum `artifacts.document.margin.*` és
+		// `.comment.*` kulcsai: egy megjegyzés-funkció, egy szókincs.
+		"artifacts.canvas.tool.comment": "Megjegyzés",
+		"artifacts.canvas.comment.placeHint":
+			"Kattints a táblára vagy egy blokkra a megjegyzés elhelyezéséhez.",
+		"artifacts.canvas.comment.pin": "{n}. megjegyzés a táblán",
+		"artifacts.canvas.comment.pinResolved": "{n}. megjegyzés a táblán, lezárva",
+		"artifacts.canvas.comment.pinDraft": "Új megjegyzés, még nincs elküldve",
+		"artifacts.canvas.comment.spot": "egy pont a táblán",
+		"artifacts.canvas.comment.blockGone": "A blokk már nem létezik.",
+		// Nincs ICU többesszám: a magyar főnév számnév után egyes számban marad.
+		"artifacts.canvas.comment.orphanedGroup":
+			"{count} megjegyzés egy törölt blokkon",
+		"artifacts.canvas.comment.empty":
+			"Még nincs megjegyzés. Válaszd a Megjegyzés eszközt, majd kattints egy blokkra vagy a tábla egy pontjára.",
+		// Kettőspont köti a célhoz: a cél egy blokk saját szövege, toldalék nélkül.
+		"artifacts.canvas.comment.newOn": "Új megjegyzés ehhez: {target}",
+		"artifacts.canvas.comment.placeholder":
+			"Írj megjegyzést. Az @Alfy megszólításával változtatást kérhetsz.",
+		"artifacts.canvas.comment.alfyHint":
+			"Alfy itt válaszol, és módosíthatja a táblát.",
+		"artifacts.canvas.comment.replyPlaceholder":
+			"Válasz, vagy kérd @Alfyt, hogy módosítsa a táblát…",
+		"artifacts.canvas.comment.quoteA11y": "{target} megmutatása a táblán",
+		"artifacts.canvas.comment.alfyRefused":
+			"A táblát változatlanul hagytam — ez a megjegyzés nem vezetett biztonságosan végrehajtható módosításhoz.",
+		"artifacts.canvas.comment.skippedItem": "{target}: {reason}",
+		"artifacts.canvas.comment.landed": "Alfy módosította a táblát.",
+		"artifacts.canvas.comment.placed":
+			"Megjegyzés indítva — írd meg a listában.",
+		"artifacts.canvas.comment.alfyFailed":
+			"Alfy most nem tudott válaszolni. A megjegyzésed elküldve.",
+		"artifacts.canvas.comment.updateFailed":
+			"Nem sikerült frissíteni a megjegyzést.",
+		// Alfy módosítása a táblán (S3-A): a rendezés, a beérkezés és az egyetlen áttekintés.
+		"artifacts.canvas.arranging": "Alfy dolgozik a táblán…",
+		"artifacts.canvas.arrangingSummary": "Alfy dolgozik a táblán: {summary}",
+		"artifacts.canvas.review.regionLabel": "Alfy módosításai a táblán",
+		// Nincs ICU többesszám: a magyar főnév számnév után egyes számban marad.
+		"artifacts.canvas.review.summary": "Alfy {count} blokkot módosított.",
+		"artifacts.canvas.review.summaryRemoved":
+			"Alfy {count} blokkot eltávolított.",
+		"artifacts.canvas.review.summaryBoth":
+			"Alfy {changed} blokkot módosított és {removed} blokkot eltávolított.",
+		"artifacts.canvas.review.landed": "{summary} Nézd át a tábla alatt.",
+		"artifacts.canvas.review.landedLeft":
+			"{summary} {left} módosítást kihagyott. Nézd át a tábla alatt.",
+		"artifacts.canvas.review.refused": "Alfy {count} módosítást kihagyott.",
+		"artifacts.canvas.review.undoRefused":
+			"Alfy módosítása itt nem vonható vissza, mert azóta megváltozott a tábla. A Változatok megnyitásával visszatérhetsz egy korábbihoz.",
+		"artifacts.canvas.review.undoFailed":
+			"Nem sikerült visszavonni Alfy módosítását. Próbáld újra, vagy nyisd meg a Változatokat.",
+		"artifacts.canvas.review.openVersions": "Változatok megnyitása",
+		// Alfy megkérdezése blokkokról vagy a tábláról (S3-A).
+		"artifacts.canvas.ask": "Alfy megkérdezése",
+		"artifacts.canvas.ask.busy":
+			"Alfy még rendezi a táblát. Próbáld újra egy pillanat múlva.",
+		"artifacts.canvas.selection.label": "Kijelölés",
+		// Kettőspont köti a célhoz: a cél egy blokk saját szövege, toldalék nélkül.
+		"artifacts.canvas.comment.newOnMany":
+			"Új megjegyzés ehhez: {target} és még {count}",
+		"artifacts.canvas.comment.newOnBoard": "Új megjegyzés az egész táblához",
+		"artifacts.canvas.comment.scopeLine": "Ezekről a blokkokról: {names}.",
+		// A kettőspont a magyar rag nélkül old meg egy tetszőleges keretnevet.
+		"artifacts.canvas.movedIntoFrame": "Átkerült a keretbe: {frame}.",
+		"artifacts.canvas.movedOutOfFrame": "Kikerült a keretből: {frame}.",
+		// A beszélgetésből származó blokkok (S3-R1): a három fajta neve (a csomópont
+		// képernyőolvasós neve ezt olvassa), a Beszúrás menü „Ebből a beszélgetésből”
+		// része, és amit az egyes blokkok magukról mondanak.
+		"artifacts.canvas.insert.map": "Térkép",
+		"artifacts.canvas.insert.file": "Fájl",
+		"artifacts.canvas.insert.app": "Alkalmazás",
+		"artifacts.canvas.chat.title": "Ebből a beszélgetésből",
+		"artifacts.canvas.chat.files": "Fájlok",
+		"artifacts.canvas.chat.apps": "Alkalmazások",
+		"artifacts.canvas.chat.maps": "Térképek",
+		"artifacts.canvas.chat.charts": "Diagramok",
+		"artifacts.canvas.chat.loading": "A beszélgetés átnézése…",
+		"artifacts.canvas.chat.empty":
+			"Még nincs mit beszúrni ebből a beszélgetésből.",
+		"artifacts.canvas.chat.failed": "Nem sikerült átnézni a beszélgetést.",
+		"artifacts.canvas.chat.retry": "Újra",
+		"artifacts.canvas.chat.version": "v{version}",
+		"artifacts.canvas.chat.chartType.bar": "Oszlopdiagram",
+		"artifacts.canvas.chat.chartType.line": "Vonaldiagram",
+		"artifacts.canvas.chat.chartType.pie": "Kördiagram",
+		"artifacts.canvas.chat.chartType.doughnut": "Fánkdiagram",
+		"artifacts.canvas.chat.chartType.radar": "Radardiagram",
+		"artifacts.canvas.chat.chartType.polarArea": "Poláris területdiagram",
+		"artifacts.canvas.chat.chartType.scatter": "Pontdiagram",
+		"artifacts.canvas.chat.chartType.bubble": "Buborékdiagram",
+		"artifacts.canvas.chat.chartType.other": "Diagram",
+		// A kettőspont-mentes forma: a fájlnév a felhasználó szava, ragozás nélkül áll elöl.
+		"artifacts.canvas.file.open": "{name} megnyitása",
+		"artifacts.canvas.app.loading": "Az alkalmazás megnyitása…",
+		"artifacts.canvas.app.gone": "Ez az alkalmazás már nem érhető el.",
+		"artifacts.canvas.app.failed": "Nem sikerült megnyitni az alkalmazást.",
+		"artifacts.canvas.block.loadFailed":
+			"Ezt a blokkot nem sikerült betölteni.",
+		"artifacts.canvas.insert.photo": "Fényképek",
+		"artifacts.canvas.insert.liveweb": "Élő web",
+		"artifacts.canvas.chat.photos": "Fényképek",
+		"artifacts.canvas.chat.searches": "Webes keresések",
+		"artifacts.canvas.chat.photoSearch": "Fényképkeresés",
+		// Nincs többes szám: a számnév után a főnév egyes számban marad.
+		"artifacts.canvas.chat.photoCount": "{count} fénykép",
+		"artifacts.canvas.chat.sourceCount": "{count} forrás",
+		"artifacts.canvas.chat.webSearch.row": "Keresés a weben…",
+		"artifacts.canvas.chat.webSearch.label": "Keresés a weben",
+		"artifacts.canvas.chat.webSearch.placeholder": "Mit keressen a tábla?",
+		"artifacts.canvas.chat.webSearch.submit": "Keresés",
+		"artifacts.canvas.chat.webSearch.busy": "Keresés a weben…",
+		"artifacts.canvas.chat.webSearch.failed":
+			"A keresés nem sikerült. Próbáld újra.",
+		"artifacts.canvas.chat.webSearch.empty":
+			"Erre a keresésre nem jött találat.",
+		"artifacts.canvas.chat.webSearch.tooOften":
+			"Túl sok keresés egyszerre. Várj egy pillanatot.",
+		"artifacts.canvas.photo.alt": "{number}. fénykép",
+		"artifacts.canvas.photo.open":
+			"{number}. fénykép megnyitása ({total} közül)",
+		"artifacts.canvas.photo.unavailable": "A fénykép nem érhető el",
+		"artifacts.canvas.photo.empty": "Nincs fénykép ebben a blokkban.",
+		"artifacts.canvas.liveweb.updated": "Frissítve: {when}",
+		"artifacts.canvas.liveweb.more": "+{count} további",
+		"artifacts.canvas.liveweb.none": "Nincs forrás ebben a blokkban.",
+		"artifacts.canvas.staleBadge": "Elavult",
+		"artifacts.canvas.refresh": "Frissítés",
+		"artifacts.canvas.refreshing": "Frissítés…",
+		"artifacts.canvas.refreshFailed": "Nem sikerült frissíteni ezt a blokkot.",
+		"artifacts.canvas.refreshNothing": "A keresés nem hozott találatot.",
+		"artifacts.canvas.refreshTooOften":
+			"Túl sok keresés egyszerre. Próbáld újra egy pillanat múlva.",
+		"artifacts.canvas.tool.draw": "Rajzolás",
+		"artifacts.canvas.tool.pen": "Toll",
+		"artifacts.canvas.tool.highlighter": "Szövegkiemelő",
+		"artifacts.canvas.tool.line": "Vonal",
+		"artifacts.canvas.tool.arrow": "Nyíl",
+		"artifacts.canvas.tool.rect": "Téglalap",
+		"artifacts.canvas.tool.ellipse": "Ellipszis",
+		"artifacts.canvas.tool.text": "Szöveg",
+		"artifacts.canvas.tool.eraser": "Radír",
+		"artifacts.canvas.drawTools": "Rajzeszközök",
+		"artifacts.canvas.ink.blue": "Kék tinta",
+		"artifacts.canvas.ink.red": "Piros tinta",
+		"artifacts.canvas.ink.green": "Zöld tinta",
+		"artifacts.canvas.ink.graphite": "Grafitszürke tinta",
+		"artifacts.canvas.drawingLayer": "Rajzréteg",
+		// Nincs többes szám: a számnév után a főnév egyes számban marad.
+		"artifacts.canvas.drawingLayer.marks": "{count} rajzolt jel a táblán.",
+		"artifacts.canvas.textMark": "Szöveg a táblán",
+		"artifacts.canvas.markDeleted": "Jel törölve.",
+		"artifacts.canvas.markErased": "Jelek radírozva.",
+		"artifacts.canvas.drawingLimit":
+			"A táblán legfeljebb {count} jel lehet. Radírozz le egyet, hogy továbbrajzolhass.",
+		"artifacts.canvas.export.title": "„{title}” letöltése",
+		"artifacts.canvas.export.close": "Bezárás",
+		"artifacts.canvas.export.png": "PNG-kép",
+		"artifacts.canvas.export.pngHint": "A teljes tábla egyetlen képként.",
+		"artifacts.canvas.export.preparing": "A tábla lerajzolása…",
+		"artifacts.canvas.export.saved": "A kép a beszélgetés fájljai között van.",
+		"artifacts.canvas.export.again": "Letöltés újra",
+		"artifacts.canvas.export.failed": "Nem sikerült exportálni a táblát.",
+		"artifacts.canvas.export.tryAgain": "Próbáld újra",
+		"artifacts.canvas.export.empty": "A táblán még nincs mit exportálni.",
+		"artifacts.canvas.export.noConversation":
+			"Ez a tábla nem tartozik beszélgetéshez, ezért nem exportálható.",
+		"artifacts.canvas.export.tooLarge":
+			"A kép túl nagy a mentéshez. Próbálj kisebb táblát.",
+		// Nincs többes szám: a számnév után a főnév egyes számban marad.
+		"artifacts.canvas.exportMissingPosters":
+			"{count} blokk kártyaként került a képbe, élő nézet nélkül: {names}",
+		"artifacts.canvas.posterFailed":
+			"Nem sikerült állóképet készíteni erről a blokkról.",
+		"artifacts.canvas.mapNotLive": "Nem élő alaptérkép",
+		"artifacts.canvas.export.stillApp": "Az élő alkalmazás nem része a képnek.",
+		"artifacts.canvas.export.stillMap": "Az élő térkép nem része a képnek.",
+		"artifacts.canvas.export.stillPhoto": "A fényképek nem részei a képnek.",
+		"artifacts.canvas.export.stillWeb":
+			"Az élő webes találatok nem részei a képnek.",
+		"artifacts.canvas.export.stillOther": "Ez a blokk nem része a képnek.",
+		// A Canvas-áttekintés után (RV-3, B csoport).
+		"artifacts.canvas.block.drawFailed":
+			"Ezt a blokkot nem sikerült megrajzolni.",
 	},
 } as const;
 

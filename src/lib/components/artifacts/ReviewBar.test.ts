@@ -140,4 +140,22 @@ describe("ReviewBar", () => {
 		await fireEvent.click(link);
 		expect(onSeeRefused).toHaveBeenCalledOnce();
 	});
+
+	// The bar is the family's (a board's change is reviewed with it too): what it
+	// says about what changed is the caller's when the Document's words do not fit.
+	it("says what its caller says instead of the Document's sentence, and names its region", () => {
+		render(ReviewBar, {
+			pendingCount: 3,
+			currentIndex: 0,
+			summary: "Alfy changed 3 blocks.",
+			regionLabel: "Alfy's changes to the board",
+			...callbacks(),
+		});
+		const region = screen.getByRole("region", {
+			name: "Alfy's changes to the board",
+		});
+		expect(region).toHaveTextContent("Alfy changed 3 blocks.");
+		expect(region).not.toHaveTextContent("parts");
+		expect(screen.getByText("1 / 3")).toBeInTheDocument();
+	});
 });

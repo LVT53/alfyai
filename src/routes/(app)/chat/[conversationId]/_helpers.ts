@@ -1,3 +1,4 @@
+import { buildCanvasAlfyActivity } from "$lib/components/artifacts/canvas/canvas-alfy-activity";
 import {
 	buildDocumentAlfyActivity,
 	type DocumentAlfyActivity,
@@ -299,6 +300,34 @@ export function toFriendlySendError(
 	}
 
 	return friendlyError("backend_failure", translate);
+}
+
+/**
+ * What a fresh turn waits for before it starts: the open artifact's save of the
+ * reader's last step (`ArtifactPanelBodyActions.flush`), because the turn can make
+ * Alfy change what is open and a step still inside the body's save delay would then
+ * be written over, or refused as stale (RV-3 I2). Bounded, and it never rejects: a
+ * stalled connection, or a body that could not save, does not hold a message back.
+ * The save itself is left to finish.
+ */
+export async function awaitOpenStepSave(
+	save: (() => Promise<void>) | null,
+	maxMs: number,
+): Promise<void> {
+	if (!save) return;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([
+			Promise.resolve()
+				.then(save)
+				.catch(() => undefined),
+			new Promise<void>((resolve) => {
+				timer = setTimeout(resolve, maxMs);
+			}),
+		]);
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 export function hasActiveFileProductionJobs(
@@ -1045,6 +1074,12 @@ export function markPendingSkillUnavailable(payload: SendPayload): SendPayload {
  * itself filters by artifactId, so a call for a document the panel does not
  * currently show is simply ignored downstream; this scan does not need to
  * know which document (if any) is open.
+ *
+ * An `edit_artifact` of a BOARD is the same activity (Slice 3 T6): a board's
+ * call is recognised first (`buildCanvasAlfyActivity`: the ops on its input, or
+ * the kind its metadata names), everything else is the Document's reading. The
+ * name is the Document's for history's sake; the value is "the latest artifact
+ * edit the open body may want to show".
  */
 export function findLiveDocumentAlfyActivity(
 	messages: ChatMessage[],
@@ -1059,7 +1094,8 @@ export function findLiveDocumentAlfyActivity(
 			) {
 				continue;
 			}
-			const activity = buildDocumentAlfyActivity(segment);
+			const activity =
+				buildCanvasAlfyActivity(segment) ?? buildDocumentAlfyActivity(segment);
 			if (activity) return activity;
 		}
 	}

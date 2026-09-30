@@ -597,6 +597,134 @@ server under the existing ownership scope. Amends ruling 46 and the slice-7 amen
   one line either way.
 - **Tabs show only their own section.** Search, export, the card preview and Alfy's reads still cover the whole document.
 
+## 62. What a tool advertises is what its validator parses
+
+*Orchestrator, 2026-09-29 (Wave 3), from the Document edit's live failure in Wave 2: the model guessed op names seven
+times, then duplicated the document.* This supersedes `slice-5.md §The three tools`' "patches and ops are `z.unknown()`
+deliberately" for Canvas and Slides, exactly as the Document already did (`documentPatchesArraySchema`, `edit.ts`):
+- Canvas `ops` and Slides `patches` (and Slides' `create_artifact` body) are advertised with **the same zod schema the
+  handler validates with** — one exported schema, used by both `buildEditArtifactModelInputSchema` and the handler, never
+  a hand-written twin.
+- Each kind's description carries **one compact worked example**, and a unit test parses that literal through the
+  executed schema and the kind's validator against a real fixture body (`EDIT_ARTIFACT_DOCUMENT_EXAMPLE` is the pattern).
+- Every refusal the model sees **names the valid ops or fields** it could have used, so a wrong guess is corrected in one
+  step.
+- Every eval suite's live run goes through the real tool description and schema (`buildFullToolCatalogue`'s path), never
+  a hand-written prompt. Registering a kind's create handler spends catalogue headroom: raise
+  `CATALOGUE_TOKEN_CEILING` by the measured cost plus the existing margin, numbers in the commit message, and update the
+  frozen catalogue snapshots in the same commit (ruling 23's discipline; the test's own note anticipates this).
+
+## 63. A Canvas change is reviewed as one change, with the Document's review parts
+
+*Orchestrator, 2026-09-29 (Wave 3); the owner may overrule.* The approved redesign (§8) gives Canvas the Document's
+change pill and review bar; ruling 16 made "undo an Alfy change" a version restore. They meet like this:
+- An Alfy diff that lands on a board is **one pending change**: its touched nodes are highlighted, one change pill
+  (`ChangeBar`'s pill: "Alfy · Keep · Undo") sits at the corner of the touched nodes' bounding box, and the shared
+  `ReviewBar` at the bottom of the board steps through the touched nodes (prev/next centres the camera on each) with
+  Keep / Undo for the whole diff. There is no per-node Undo in v1.
+- **Undo** writes the parent version's body back as a **user** version ("Undid Alfy's change", the shared
+  version-summary vocabulary); if the user changed the board after the diff landed, Undo is refused with the shared
+  refusal card and History (restore) is the way back. Keep acknowledges.
+- A pending change **survives a reload** through the same review marker ruling 61 put in `metadata_json` (the last
+  reviewed Alfy version): a Canvas branch computes the touched node ids of each unreviewed Alfy version against its
+  parent. The in-session Ctrl/Cmd+Z (your own strokes and moves) stays as ruling 16 says, labelled differently.
+- Cost if wrong: per-node Undo later needs a node-level restore; the pill and bar are unchanged by that.
+
+## 64. Canvas block data schemas are server-safe, and the model makes only note-shaped blocks
+
+*Orchestrator, 2026-09-29 (Wave 3).* `slice-3.md §The block registry` puts each kind's zod schema in the component
+registry, but the server validates BoardDiffs with them and must never import Svelte components or icons.
+- The per-kind data schemas and the kind list live in **`src/lib/shared/artifacts/canvas-blocks.ts`** (zod only, no
+  Svelte), next to `canvas.ts`'s types; `_lib/block-registry.ts` imports them and adds component, icon, label, size and
+  poster policy. One schema per kind, declared once.
+- The model's `add_node` (and `add_frame`) may create **`frame`, `sticky`, `text`, `checklist` and `chart`** only — the
+  advertised `data` is the discriminated union of those five schemas, the same one the validator parses. The other kinds
+  (`map`, `file`, `app`, `photo`, `liveweb`) carry app-owned references the model cannot mint; they are placed by the
+  user's own inserts through the body route. An `add_node` of one of them from the ops path is refused `unknown_kind`,
+  and the refusal names the five kinds it may add. `update_node`, `move`, `remove_node` and `highlight` work on every
+  kind already on the board (an `update_node` is validated against that kind's own full schema).
+- The client keeps using the one shared body route and `saveArtifactBody` (`src/lib/client/api/artifacts.ts`); there is no
+  `saveCanvasBody`.
+
+## 65. Wave 3 order, and Slides waits on its own branch until Canvas ships
+
+*Orchestrator, 2026-09-29, from the owner's Wave 3 instruction (S3, S4, then the S6 remainder and focus-trap pass two;
+stop at each milestone for the owner's check).*
+- Canvas is the first milestone. Slides work runs beside it on **`feat/artifacts-slides`** (branched from
+  `feat/artifacts`, its agents branch from it, and `feat/artifacts` is merged into it after each Canvas merge). It joins
+  `feat/artifacts` only when Slides is whole, so ai.dev never offers a kind whose panel is half built.
+- Slides de-risks first: the deck model, the `create_artifact` handler and eval suite 4's create cases run before its
+  panel is built (`slice-4.md` treats suite 4 as a hard precondition; a weak result is an owner decision per ADR-0066).
+  The suite scores the fixture's **declared** language (ruling 55), not `detectLanguage`.
+- The S6 remainder follows Slides without waiting for S5b: ruling 31's order only governs appends to the shared
+  containment suite, which stays append-only either way.
+
+## 66. A deck is fact-checked before it is written
+
+*Owner, 2026-09-29, after suite 4's live run missed its bar (7/16 decks clean; 9/16 carried a number or name from the
+model's own knowledge, 5 of them only in speaker notes; 0 language misses in 69 decks): "Agreed with your
+recommendation" — option (c) of `wave-3/s4d-report.md` §7.* ADR-0066's rule applied: the design changes, not the bar.
+- **Before a deck is written**, the Slides create path runs a verification pass on the App pattern (Slice 2's
+  verifier, rulings 52 and 57): list the specifics in the deck — numbers, dates, times, prices, names, places — that the
+  user's own material (the conversation and the sources the turn used) does not contain; check the general-knowledge ones
+  with `research_web`; **remove or neutrally rephrase whatever cannot be confirmed**; then write. A personal specific
+  (a train time, a price, a booking, a person) is never "confirmed" by the web — if the user did not give it, it goes.
+  Speaker notes are checked like slide text.
+- It runs inside `create_artifact`'s 120 s (ruling 40) with its own deadline and the abort signal (ruling 53). Running
+  out of time removes the unconfirmed specifics rather than writing them; it never fails the create.
+- The result is recorded with the version (what was checked, confirmed with its source, removed) and shown the way an
+  App's fact check is: one quiet line on the card and in the panel ("Alfy checked 6 details; removed 2 it couldn't
+  confirm"), localized. Alfy's later edits that add text to a deck go through the same check.
+- **Suite 4's bar stays "zero unsupported specifics"**, measured on the deck as written, where a specific confirmed by the
+  verifier counts as sourced (its source recorded next to the response), over three repeats, reported as a rate.
+- Cost if wrong: one extra model pass (plus bounded web checks) per deck, about 20–60 s.
+
+## 67. What Alfy may change on a board, and Alfy never overwrites the reader's newer words
+
+*Orchestrator, 2026-09-30, from RV-3 (I5, I6); the owner may overrule at the Canvas check.*
+- **Amends ruling 64.** On the five app-owned kinds the model's `update_node` may change **only descriptive fields**: a
+  map's `label`, `route` and `meta`; an App's `title`. A live-web block's `query`/`sources`/`fetchedAt`, a photo block's
+  `items`, a file block's `fileId`/`name`, an App block's `artifactId`, and **any block's `poster`** are set only by the
+  app (the user's Insert, Refresh, the poster capture). Anything else is refused `invalid_data`, naming what may change
+  and saying the rest comes from Insert or Refresh. Why: a prompt-injected turn could otherwise plant attacker links
+  dressed as the app's own search result (with a fresh "Updated" line) that beacon through the favicon proxy on every
+  open.
+- **Alfy's edit is refused where the reader changed the block after Alfy read it** — the Document's `block_changed`
+  rule, for boards. The edit handler takes the version the model last read of this board **in the same turn** (the
+  turn's earlier `read_artifact` result) as its base; an op addressing a node whose content differs between that version
+  and now is refused `stale` ("the reader changed it; read the board again"), and the rest of the batch applies. With no
+  read in the turn, the edit applies to the current board and the one-change review (ruling 63) is the safeguard.
+- Cost if wrong: an extra read when the reader and Alfy touch the same block in one turn.
+
+## 68. The Canvas editor's first paint is budgeted at 67 KiB gzip, measured honestly
+
+*Orchestrator, 2026-09-30, from S3-X.* `slice-3.md`'s 65 kB came from the prototype's 51 kB route chunk; the product
+editor now also carries the hooks for comments, Alfy's landing and review, the selection pill and the Insert menu. S3-X
+brought what opening a board downloads (the editor chunk, its static imports and CSS, the lazy parts' shared chunks
+counted as its own) from 74.1 to **66.3 KiB gzip**; the last 1.3 KiB would cost an extra request at first paint (the
+note-shaped blocks), a visual change or the minimap. The budget for that honest measure is **67 KiB (68,608 B) gzip**,
+enforced by `check:artifact-chunks`; the chat route without an artifact open stays within +2 kB; Chart.js and MapLibre
+stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first open.
+- **Amended the same day, after F-C:** the review's I2 fix (flush the reader's pending step before a turn; merge it
+  with a landing Alfy change) put ~0.1 KiB of necessary safety into the first-paint closure (the merge itself loads
+  on demand). The ceiling is **68 KiB (69,632 B) gzip**; the guard enforces that number, and the next raise needs the
+  same kind of recorded reason.
+- **What the number counts (RC-3's N4):** the editor's own closure — its chunk, its static imports and CSS, the lazy
+  parts' shared chunks — **not** the chunks the chat route has already loaded. Opened from a cold page that has not
+  loaded the chat's Mermaid path, a board downloads 84.4 KiB gzip; the usual path (a board opened from its chat) is the
+  measured one.
+
+## 69. Slides is shelved; the tours come next
+
+*Owner, 2026-09-30: "I would shelf Slides for now and do the Tours as that would be necessary for a live deploy on main
+prod."* After the Canvas milestone and the owner's check, the next work is **the Slice 6 remainder (the tours)**, not
+Slides.
+- `feat/artifacts-slides` stays as it is (the deck model, the create handler, suite 4, the fact check of ruling 66) and
+  is not merged; nothing on `feat/artifacts` advertises or renders Slides, so the model never offers a deck.
+- **Three tours ship** — Document, App, Canvas (ruling 8's four, less Slides); Slides' tour lands with Slides.
+- Release checklist: the Knowledge tab's "Slides" chip (ruling 60's top row) is hidden while no Slides can exist, so
+  production shows no filter for a kind it cannot make.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
