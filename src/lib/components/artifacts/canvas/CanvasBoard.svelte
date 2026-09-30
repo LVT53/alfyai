@@ -51,6 +51,7 @@ import { historyShortcutFor } from "$lib/components/artifacts/document/keyboard-
 import { t } from "$lib/i18n";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import type { Annotation, CanvasBody, Pt } from "$lib/shared/artifacts/canvas";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	MAX_ANNOTATIONS_PER_BOARD,
 	normalizeCanvasBody,
@@ -300,7 +301,7 @@ function centerOn(point: Pt): void {
 
 // ---- Insert --------------------------------------------------------------
 
-function insertBlock(row: BlockRegistryEntry): void {
+function insertBlock(row: BlockRegistryEntry, data?: CanvasBlockData): void {
 	if (readonly || !boardEl) return;
 	// What was pending is a step of its own, so Undo takes the insert back alone.
 	commit();
@@ -314,7 +315,9 @@ function insertBlock(row: BlockRegistryEntry): void {
 		size: row.size,
 		taken: nodes.filter((node) => !node.parentId).map((node) => node.position),
 	});
-	const [added] = toFlowNodes([newBlockNode(row.kind, position)]);
+	const [added] = toFlowNodes([
+		newBlockNode(row.kind, position, undefined, data),
+	]);
 	// Text a reader writes opens for typing at once.
 	if (row.section === "text") editRequests.add(added.id);
 	nodes = [

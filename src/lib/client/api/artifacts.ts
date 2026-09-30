@@ -26,6 +26,7 @@ import {
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { OpRefusal, OpsDiff } from "$lib/shared/artifacts/ops";
 import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
@@ -267,6 +268,37 @@ export async function fetchConversationArtifacts(
 		fetchImpl,
 	);
 	return _unwrapList<ArtifactCardSummary>(payload, "artifacts");
+}
+
+/**
+ * What a Canvas's own chat has that the board can hold — the Insert menu's
+ * "From this chat" (files, Apps, route maps, charts; newest first, a few of
+ * each). Keyed by the BOARD's id and scoped like every artifact read: the
+ * conversation the panel is showing travels as `?conversationId=` (ruling 51),
+ * so an incognito chat's own board lists its own work. Ruling 49: the route
+ * answers `{ ok: true, files, apps, maps, charts }`; `ok` is left behind, and a
+ * board out of reach throws (the caller says it could not look).
+ */
+export async function fetchCanvasChatBlocks(
+	artifactId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<CanvasChatBlocks> {
+	const query = conversationId
+		? `?conversationId=${encodeURIComponent(conversationId)}`
+		: "";
+	const response = await requestJson<Partial<CanvasChatBlocks> & { ok: true }>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/chat-blocks${query}`,
+		undefined,
+		"Failed to list this chat's blocks",
+		fetchImpl,
+	);
+	return {
+		files: response.files ?? [],
+		apps: response.apps ?? [],
+		maps: response.maps ?? [],
+		charts: response.charts ?? [],
+	};
 }
 
 /**

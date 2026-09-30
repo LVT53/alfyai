@@ -10,9 +10,12 @@
  * component, one registry row — never an edit to the board.
  */
 import {
+	AppWindow,
 	ChartColumn,
+	FileText,
 	Frame,
 	ListChecks,
+	Map as MapIcon,
 	StickyNote,
 	TriangleAlert,
 	Type,
@@ -26,8 +29,11 @@ import type { BlockKind } from "$lib/shared/artifacts/canvas-blocks";
  *   other nodes, so its body lets pointers through;
  * - `note`: a filled paper (the sticky's tone), no header;
  * - `bare`: nothing but the content (a text block), so only its selection shows;
- * - `card`: a raised card with an icon-and-title header (chart, checklist and,
- *   later, the blocks made from the chat).
+ * - `card`: a raised card with an icon-and-title header (chart, checklist, and
+ *   the App and the map made from the chat).
+ *
+ * A file block is `bare` too: its own row draws the card, because it is one
+ * compact line and a header above it would be taller than the file.
  */
 export type BlockChrome = "frame" | "note" | "bare" | "card";
 
@@ -48,8 +54,12 @@ export type BlockMeta = {
 	 * with its text never clips it and the stored board carries no stale height.
 	 */
 	fixedHeight: boolean;
-	/** Insert-menu section: "text" for what a reader writes, "blocks" for what carries content of its own. */
-	section: "text" | "blocks";
+	/**
+	 * Insert-menu section: "text" for what a reader writes, "blocks" for what
+	 * carries content of its own, "chat" for what the chat made — never a row of
+	 * its own in the menu, only what "From this chat" offers of it.
+	 */
+	section: "text" | "blocks" | "chat";
 	/** Needs a poster in export and offline (an App, a map, photos, live web): none of the note-shaped kinds does. */
 	needsPoster: boolean;
 	/** True when the node must not be a frame child (a frame is a top-level container). */
@@ -58,7 +68,7 @@ export type BlockMeta = {
 	flow?: { zIndex?: number; dragHandle?: string; style?: string };
 };
 
-/** The kinds this build has a component for. The chat-derived kinds (map, file, App, photos, live web) get their row with their own slice. */
+/** The kinds this build has a component for. Photos and live web get their row with their own slice. */
 export const BLOCK_META = {
 	frame: {
 		kind: "frame",
@@ -122,6 +132,44 @@ export const BLOCK_META = {
 		fixedHeight: false,
 		section: "blocks",
 		needsPoster: false,
+	},
+	// The blocks made from the chat: picked from "From this chat", so no default
+	// data and no row of their own in the menu (section "chat").
+	map: {
+		kind: "map",
+		icon: MapIcon,
+		labelKey: "artifacts.canvas.insert.map",
+		chrome: "card",
+		// The chat's card is a 180 px map under a header and an attribution line.
+		size: { width: 360, height: 280 },
+		minSize: { width: 240, height: 230 },
+		fixedHeight: false,
+		section: "chat",
+		needsPoster: true,
+	},
+	file: {
+		kind: "file",
+		icon: FileText,
+		labelKey: "artifacts.canvas.insert.file",
+		chrome: "bare",
+		size: { width: 260, height: 56 },
+		minSize: { width: 180, height: 44 },
+		fixedHeight: false,
+		section: "chat",
+		needsPoster: false,
+	},
+	app: {
+		kind: "app",
+		icon: AppWindow,
+		labelKey: "artifacts.canvas.insert.app",
+		chrome: "card",
+		// A frame has no content height of its own, so an App is drawn at a
+		// height that is stored with it.
+		size: { width: 400, height: 340 },
+		minSize: { width: 240, height: 200 },
+		fixedHeight: true,
+		section: "chat",
+		needsPoster: true,
 	},
 } as const satisfies Partial<Record<BlockKind, BlockMeta>>;
 

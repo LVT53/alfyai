@@ -326,6 +326,15 @@ function reportFromBody(patch: Partial<Omit<BodyPanelReport, "key">>): void {
 		bodyPanelReport = { ...current, ...patch };
 	});
 }
+/**
+ * A body asks the panel to open an item in its own viewer (a Canvas's File block
+ * names a file): through the host's one open, the same the chat's cards use — never
+ * a second viewer. A host that has no open (the Knowledge page) gives the body
+ * nothing to call, so the block is a plain row there.
+ */
+function handleBodyOpenItem(item: DocumentWorkspaceItem): void {
+	onOpenDocument?.(item);
+}
 // Only the open item's id: `activeDocument` itself is a new object whenever its
 // version number (or any other field) moves — a confirm asked about one item
 // must close for a DIFFERENT item, never for the same item's number changing.
@@ -1903,6 +1912,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								registerPanelActions={(actions) => reportFromBody({ actions })}
 								onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
+								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 								{currentUser}
 							/>
@@ -2218,6 +2228,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						registerPanelActions={(actions) => reportFromBody({ actions })}
 						onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
+						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						{currentUser}
 					/>

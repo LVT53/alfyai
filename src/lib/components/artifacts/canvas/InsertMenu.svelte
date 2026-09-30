@@ -1,16 +1,34 @@
 <script lang="ts">
 /**
  * The rows of the Insert menu: what a reader can put on the board, in two
- * groups (what they write, and blocks that carry content of their own), as a
- * menu with one tab stop and arrow keys between the rows. The popover or sheet
- * around it, its Escape and its focus return belong to `AnchoredPopover`.
+ * groups (what they write, and blocks that carry content of their own), then
+ * "From this chat" — the files, Apps, maps and charts the board's own chat made.
+ * It is one menu with one tab stop and arrow keys between every row; the popover
+ * or sheet around it, its Escape and its focus return belong to `AnchoredPopover`.
+ *
+ * "From this chat" is its own component, loaded when the menu opens and only where
+ * there is a chat to read (`useChatContext().load`): a board that never inserts a
+ * block from the chat never pays for it. The arrow keys read the rows from the DOM
+ * when a key is pressed, so the rows that arrive after the chat has been read join
+ * the same order without this menu knowing what they are.
  */
+import { onMount } from "svelte";
 import { t, type I18nKey } from "$lib/i18n";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
+import { useChatContext } from "./_lib/chat-context";
 import type { BlockRegistryEntry } from "./_lib/block-registry";
-import { insertableEntries } from "./_lib/block-registry";
+import { blockEntry, insertableEntries } from "./_lib/block-registry";
+import type ChatBlocksSection from "./chat-blocks/ChatBlocksSection.svelte";
+import type { ChatBlockKind } from "./chat-blocks/chat-block-data";
 
-let { onpick }: { onpick: (row: BlockRegistryEntry) => void } = $props();
+let {
+	onpick,
+}: {
+	/** The row that was picked, and — for a block made from the chat — the data the chat made. */
+	onpick: (row: BlockRegistryEntry, data?: CanvasBlockData) => void;
+} = $props();
 
+const chat = useChatContext();
 const rows = insertableEntries();
 const groups = [
 	rows.filter((row) => row.section === "text"),
@@ -18,16 +36,43 @@ const groups = [
 ].filter((group) => group.length > 0);
 
 let active = $state(0);
-let items = $state<HTMLButtonElement[]>([]);
+let menu = $state<HTMLElement | null>(null);
+let Section = $state.raw<typeof ChatBlocksSection | null>(null);
+
+// The section is fetched when the menu opens, not before: nothing about it is
+// needed for a board's first paint.
+onMount(() => {
+	if (!chat.load) return;
+	let current = true;
+	void import("./chat-blocks/ChatBlocksSection.svelte").then((module) => {
+		if (current) Section = module.default;
+	});
+	return () => {
+		current = false;
+	};
+});
+
+function pickFromChat(kind: ChatBlockKind, data: CanvasBlockData): void {
+	const row = blockEntry(kind);
+	if (row) onpick(row, data);
+}
+
+/** Every row there is right now, written ones first, in the order they are drawn. */
+function allRows(): HTMLButtonElement[] {
+	return menu
+		? [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+		: [];
+}
 
 function move(to: number): void {
-	const next = (to + rows.length) % rows.length;
-	active = next;
-	items[next]?.focus();
+	const all = allRows();
+	if (all.length === 0) return;
+	all[(to + all.length) % all.length]?.focus();
 }
 
 function handleKeydown(event: KeyboardEvent): void {
-	const current = items.indexOf(document.activeElement as HTMLButtonElement);
+	const all = allRows();
+	const current = all.indexOf(document.activeElement as HTMLButtonElement);
 	const from = current === -1 ? active : current;
 	if (event.key === "ArrowDown" || event.key === "ArrowRight") {
 		event.preventDefault();
@@ -40,7 +85,7 @@ function handleKeydown(event: KeyboardEvent): void {
 		move(0);
 	} else if (event.key === "End") {
 		event.preventDefault();
-		move(rows.length - 1);
+		move(all.length - 1);
 	}
 }
 </script>
@@ -52,6 +97,7 @@ function handleKeydown(event: KeyboardEvent): void {
 	tabindex="-1"
 	aria-label={$t("artifacts.canvas.insert.block")}
 	data-testid="canvas-insert-menu-list"
+	bind:this={menu}
 	onkeydown={handleKeydown}
 >
 	{#each groups as group, groupIndex (groupIndex)}
@@ -65,7 +111,6 @@ function handleKeydown(event: KeyboardEvent): void {
 					class="insert-menu__row"
 					tabindex={index === active ? 0 : -1}
 					data-testid="canvas-insert-{row.kind}"
-					bind:this={items[index]}
 					onfocus={() => (active = index)}
 					onclick={() => onpick(row)}
 				>
@@ -75,6 +120,9 @@ function handleKeydown(event: KeyboardEvent): void {
 			{/each}
 		</div>
 	{/each}
+	{#if Section && chat.load}
+		<Section load={chat.load} onpick={pickFromChat} />
+	{/if}
 </div>
 
 <style>

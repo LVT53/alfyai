@@ -20,6 +20,7 @@ import { onDestroy, untrack } from "svelte";
 import {
 	type ArtifactDetailResponse,
 	fetchArtifact,
+	fetchCanvasChatBlocks,
 	saveArtifactBody,
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
@@ -31,6 +32,7 @@ import {
 import VersionsSheet from "$lib/components/artifacts/document/VersionsSheet.svelte";
 import { t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import {
 	boardJson,
@@ -38,6 +40,7 @@ import {
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
 import type { BoardLayerApi } from "./_lib/board-layers";
+import { provideChatContext } from "./_lib/chat-context";
 import type {
 	CanvasCommentsController,
 	catcherProps,
@@ -75,6 +78,8 @@ interface Props {
 	onCommentCountChange?: (openCount: number) => void;
 	/** Whether the comments are showing (the column, the drawer or the sheet): the button is a pressed toggle. */
 	onCommentsShownChange?: (shown: boolean) => void;
+	/** Opens an item in the panel's own viewer (the file a File block names). Absent where the host cannot: the block is then a plain row. */
+	onOpenItem?: (item: DocumentWorkspaceItem) => void;
 	currentUser?: {
 		id: string;
 		displayName: string;
@@ -90,8 +95,22 @@ let {
 	onBodyChange,
 	onCommentCountChange,
 	onCommentsShownChange,
+	onOpenItem,
 	currentUser = null,
 }: Props = $props();
+
+// What the blocks made from the chat need from the panel: the conversation it is
+// showing (an App block's frame and storage calls carry it, ruling 51), a way to
+// open a file in the panel's viewer, and the read behind "From this chat".
+provideChatContext({
+	get conversationId() {
+		return conversationId;
+	},
+	get openItem() {
+		return onOpenItem;
+	},
+	load: () => fetchCanvasChatBlocks(artifactId, conversationId),
+});
 
 type Phase = "loading" | "ready" | "load_error" | "no_access";
 type SaveState =

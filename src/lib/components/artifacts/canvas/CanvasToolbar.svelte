@@ -38,6 +38,7 @@ import {
 	historyShortcutLabel,
 } from "$lib/components/artifacts/document/keyboard-shortcuts";
 import { type I18nKey, t } from "$lib/i18n";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import { INKS, isDrawingTool, type Tool } from "./_lib/annotations";
 import type { BlockRegistryEntry } from "./_lib/block-registry";
 import InsertMenu from "./InsertMenu.svelte";
@@ -70,7 +71,8 @@ let {
 	oninkchange: (ink: string) => void;
 	onundo: () => void;
 	onredo: () => void;
-	oninsert: (row: BlockRegistryEntry) => void;
+	/** A block was picked from the Insert menu; a block made from the chat comes with the data the chat made. */
+	oninsert: (row: BlockRegistryEntry, data?: CanvasBlockData) => void;
 } = $props();
 
 let insertOpen = $state(false);
@@ -117,12 +119,15 @@ function closeInsert(): void {
 	insertOpen = false;
 }
 
-async function pick(row: BlockRegistryEntry): Promise<void> {
+async function pick(
+	row: BlockRegistryEntry,
+	data?: CanvasBlockData,
+): Promise<void> {
 	closeInsert();
 	// The menu hands focus back to Insert as it closes; the block lands after
 	// that, so a note that opens for typing is the last to take the focus.
 	await tick();
-	oninsert(row);
+	oninsert(row, data);
 }
 
 let undoLabel = $derived(
