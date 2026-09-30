@@ -9,9 +9,9 @@
 import type { Box } from "./review-geometry";
 
 /** How far the bottom of the pane is taken by the board's toolbar and the zoom control. */
-export const BOARD_TOOLBAR_CLEARANCE = 72;
+const BOARD_TOOLBAR_CLEARANCE = 72;
 /** The pill's own height, on screen. */
-export const SELECTION_PILL_HEIGHT = 38;
+const SELECTION_PILL_HEIGHT = 38;
 /** The gap between a block and the pill, on screen. */
 const GAP = 14;
 

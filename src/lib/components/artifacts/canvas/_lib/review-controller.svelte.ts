@@ -72,7 +72,7 @@ const UNDONE_MS = 5000;
 /** The board component's own surface: what a landing draws on, and what it compares against. */
 export type LandingBoard = LandingPort & { current: () => CanvasBody };
 
-export type WriteResult =
+type WriteResult =
 	| { ok: true; board: CanvasBody }
 	| { ok: false; reason: "conflict" | "failed" | "too_large" };
 
@@ -107,7 +107,7 @@ export interface ReviewHost {
 }
 
 /** What waits for the reader: the display model of the last state the server gave. */
-export interface ChangeView {
+interface ChangeView {
 	touched: string[];
 	removedCount: number;
 	/** The newest change's own summary ("Planned Sunday"), as Alfy wrote it. */
@@ -116,7 +116,7 @@ export interface ChangeView {
 	through: number;
 }
 
-export interface RefusalView {
+interface RefusalView {
 	message: string;
 	items: { label: string; reason: string }[];
 }
@@ -196,15 +196,6 @@ export class CanvasReviewController {
 			: change.removedCount > 0
 				? 1
 				: 0;
-	}
-
-	/** Every block that wears a ring: the strong ones first, then the resting ones of a change that waits. */
-	get rings(): string[] {
-		const resting = this.change?.touched ?? [];
-		return [
-			...this.pulseIds,
-			...resting.filter((id) => !this.pulseIds.includes(id)),
-		];
 	}
 
 	/** The block the stepper is on: ringed harder. Null until the reader has stepped. */
@@ -811,4 +802,60 @@ export function changeLayerProps(
 		onundo: () => void controller.undo(),
 		onredo: () => void controller.redo(),
 	};
+}
+
+// ---- What the editor asks of it --------------------------------------------
+//
+// The editor holds the controller in a state variable it may not have yet, and
+// reaches it through these, the way the comments' `toggleComments` and
+// `pinsProps` reach theirs: one function for each thing the editor does, named
+// for it, so the class's own surface stays what the parts read.
+
+/** What the toolbar's Ask and the reply chips need to know: Alfy is at work, and each reply's change state. */
+export function reviewSummary(controller: CanvasReviewController | null): {
+	working: boolean;
+	changeStates: Record<string, ChangeStatus>;
+} {
+	return {
+		working: controller?.working ?? false,
+		changeStates: controller?.changeStates ?? {},
+	};
+}
+
+/** The chat page's latest artifact call, when it is on this board. */
+export function reviewActivity(
+	controller: CanvasReviewController,
+	activity: DocumentAlfyActivity,
+	options: { settledAtMount: string | null; ready: boolean },
+): void {
+	controller.onActivity(activity, options);
+}
+
+/** A board found with a change waiting: shown as it is. */
+export function reviewRestore(
+	controller: CanvasReviewController,
+	state: CanvasReviewState,
+): void {
+	controller.restore(state);
+}
+
+/** The reply of Alfy's that made a change. */
+export function reviewReply(
+	controller: CanvasReviewController,
+	commentId: string,
+): void {
+	controller.linkReply(commentId);
+}
+
+/** A key pressed on the board: Alfy's change chords are the controller's. */
+export function reviewKey(
+	controller: CanvasReviewController,
+	event: KeyboardEvent,
+): void {
+	controller.handleKey(event);
+}
+
+/** The panel closed or another board opened: no timer may outlive it. */
+export function reviewEnd(controller: CanvasReviewController | null): void {
+	controller?.destroy();
 }

@@ -175,7 +175,6 @@ describe("a change lands", () => {
 		});
 		expect(controller.status).toBe("pending");
 		expect(controller.count).toBe(2);
-		expect(controller.rings).toEqual(["note-museum", "text-1"]);
 		expect(host.reportCount).toHaveBeenLastCalledWith(2);
 		expect(controller.announcement).toMatch(/Alfy changed 2 blocks/);
 	});
@@ -186,8 +185,7 @@ describe("a change lands", () => {
 		expect(controller.pulseIds.length).toBeGreaterThan(0);
 		await vi.advanceTimersByTimeAsync(HIGHLIGHT_MS + 10);
 		expect(controller.pulseIds).toEqual([]);
-		expect(controller.rings).toEqual(["note-museum", "text-1"]);
-		expect(controller.change).not.toBeNull();
+		expect(controller.change?.touched).toEqual(["note-museum", "text-1"]);
 	});
 
 	it("waits for a landing that is running instead of interleaving with it", async () => {
@@ -220,7 +218,8 @@ describe("a change lands", () => {
 		expect(controller.count).toBe(0);
 		expect(host.reportCount).toHaveBeenLastCalledWith(0);
 		await vi.advanceTimersByTimeAsync(HIGHLIGHT_MS + 10);
-		expect(controller.rings).toEqual([]);
+		expect(controller.pulseIds).toEqual([]);
+		expect(controller.change).toBeNull();
 	});
 
 	it("says what is on screen even when the server cannot be asked", async () => {
@@ -299,7 +298,7 @@ describe("after a reload", () => {
 		controller.restore(reviewState());
 		expect(controller.count).toBe(2);
 		expect(controller.pulseIds).toEqual([]);
-		expect(controller.rings).toEqual(["note-museum", "text-1"]);
+		expect(controller.change?.touched).toEqual(["note-museum", "text-1"]);
 		expect(host.reportCount).toHaveBeenCalledWith(2);
 		expect(surface.calls).toEqual([]);
 	});
@@ -328,7 +327,6 @@ describe("Keep", () => {
 		expect(controller.change).not.toBeNull();
 		await vi.advanceTimersByTimeAsync(1450);
 		expect(controller.change).toBeNull();
-		expect(controller.rings).toEqual([]);
 		expect(controller.count).toBe(0);
 	});
 

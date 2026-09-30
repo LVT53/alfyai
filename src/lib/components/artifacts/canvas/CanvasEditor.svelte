@@ -51,6 +51,12 @@ import type {
 	CanvasReviewController,
 	changeLayerProps,
 	ReviewHost,
+	reviewActivity,
+	reviewEnd,
+	reviewKey,
+	reviewReply,
+	reviewRestore,
+	reviewSummary,
 } from "./_lib/review-controller.svelte";
 import { judgeServerBoard } from "./_lib/server-board";
 import type AlfyChangeLayer from "./AlfyChangeLayer.svelte";
@@ -80,6 +86,12 @@ type ReviewViews = {
 	CanvasReviewBar: typeof CanvasReviewBar;
 	CanvasReviewNotices: typeof CanvasReviewNotices;
 	changeLayerProps: typeof changeLayerProps;
+	reviewActivity: typeof reviewActivity;
+	reviewEnd: typeof reviewEnd;
+	reviewKey: typeof reviewKey;
+	reviewReply: typeof reviewReply;
+	reviewRestore: typeof reviewRestore;
+	reviewSummary: typeof reviewSummary;
 };
 
 interface Props {
@@ -389,8 +401,10 @@ function ensureComments(): Promise<void> {
 					// The reply that made a change wears the change's state as a chip.
 					onreply: (result) => {
 						if (result.outcome !== "applied") return;
-						void ensureReview().then((controller) =>
-							controller?.linkReply(result.reply.id),
+						void ensureReview().then(
+							(controller) =>
+								controller &&
+								reviewViews?.reviewReply(controller, result.reply.id),
 						);
 					},
 				});
@@ -463,6 +477,12 @@ function ensureReview(): Promise<CanvasReviewController | null> {
 				CanvasReviewBar,
 				CanvasReviewNotices,
 				changeLayerProps,
+				reviewActivity,
+				reviewEnd,
+				reviewKey,
+				reviewReply,
+				reviewRestore,
+				reviewSummary,
 			}) => {
 				const controller = new Controller(reviewHost);
 				reviewViews = {
@@ -470,6 +490,12 @@ function ensureReview(): Promise<CanvasReviewController | null> {
 					CanvasReviewBar,
 					CanvasReviewNotices,
 					changeLayerProps,
+					reviewActivity,
+					reviewEnd,
+					reviewKey,
+					reviewReply,
+					reviewRestore,
+					reviewSummary,
 				};
 				review = controller;
 				return controller;
@@ -495,7 +521,9 @@ async function restoreReview(id: string, token: number): Promise<void> {
 	// Nothing waits and nothing was ever loaded: stay as light as an unedited board.
 	if (state.count === 0 && !review) return;
 	const controller = await ensureReview();
-	if (controller && token === loadToken) controller.restore(state);
+	if (controller && token === loadToken) {
+		reviewViews?.reviewRestore(controller, state);
+	}
 }
 
 /**
@@ -522,18 +550,20 @@ $effect(() => {
 	const ready = phase === "ready" && boardApi !== null;
 	untrack(
 		() =>
-			void ensureReview().then((controller) =>
-				controller?.onActivity(activity, {
-					settledAtMount: settledActivityKeyAtMount,
-					ready,
-				}),
+			void ensureReview().then(
+				(controller) =>
+					controller &&
+					reviewViews?.reviewActivity(controller, activity, {
+						settledAtMount: settledActivityKeyAtMount,
+						ready,
+					}),
 			),
 	);
 });
 
 /** The toolbar's Ask waits while Alfy is at work on this board, from the moment its call starts. */
 let alfyBusy = $derived(
-	(review?.working ?? false) ||
+	(reviewViews?.reviewSummary(review).working ?? false) ||
 		(alfyActivity?.status === "running" &&
 			alfyActivity.artifactId === artifactId),
 );
@@ -563,7 +593,7 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 	const target = event.target as HTMLElement | null;
 	if (target?.closest("input, textarea, select, [contenteditable='true']"))
 		return;
-	review.handleKey(event);
+	reviewViews?.reviewKey(review, event);
 }
 
 $effect(() => {
@@ -603,7 +633,7 @@ $effect(() => {
 
 onDestroy(() => {
 	loadToken += 1;
-	review?.destroy();
+	reviewViews?.reviewEnd(review);
 	clearSavedTimer();
 	// The board's last step may still be inside its settle delay.
 	boardApi?.flush();
@@ -751,7 +781,7 @@ let banner = $derived(
 					controller={comments}
 					panelWidth={editorWidth}
 					{currentUser}
-					changeStateByCommentId={review?.changeStates}
+					changeStateByCommentId={reviewViews?.reviewSummary(review).changeStates}
 					onSeeChange={() => review?.seeChange()}
 				/>
 			{/if}

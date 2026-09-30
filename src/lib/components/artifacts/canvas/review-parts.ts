@@ -14,6 +14,12 @@
 export {
 	CanvasReviewController,
 	changeLayerProps,
+	reviewActivity,
+	reviewEnd,
+	reviewKey,
+	reviewReply,
+	reviewRestore,
+	reviewSummary,
 } from "./_lib/review-controller.svelte";
 export { default as AlfyChangeLayer } from "./AlfyChangeLayer.svelte";
 export { default as CanvasReviewBar } from "./CanvasReviewBar.svelte";
