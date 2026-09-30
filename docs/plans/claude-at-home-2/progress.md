@@ -828,3 +828,16 @@ token fix is merged (S3-Y). Slides' merge must unify S4-V's `turnContext` seam w
   **F-E** (`fix/artifacts-budget-gate`): the budgets leave `npm run build` and run as their own gate step (`gates.sh`,
   `common.md` gate 4, AGENTS.md); still pass locally (editor 69,359 / 69,632 B; chat route +1,476 / 2,048) and still fail
   when exceeded. Merged (`feat/artifacts`), then into `dev`.
+- **M1 — CANVAS IS LIVE ON ai.dev (2026-09-30 late evening): `dev` = ai.dev = `63bc6626`** (deploy OK, health 200,
+  `current -> releases/63bc6626`). Budgets re-checked on `dev` in `dev-int` after F-E: build exit 0 (32/2), chunk gate
+  OK (editor closure 67.7 kB gzip; chat route +1,458 / 2,048 B), Fallow 124/4.
+- **Live check with the real model** (`~/.cache/alfyai-artifacts/live-checks/verify-canvas-w3.mjs`, piped over ssh):
+  create-en PASS (2 frames, 7 blocks, every block inside its frame by the stored sizes, no overlaps, 16.5 s); edit PASS
+  (v1→v2, one Alfy version, no refusal, "Rainy day" frame with both notes, 8.4 s); create-hu PASS (16/17 texts Hungarian,
+  frames "Szombat"/"Vasárnap"); incognito PASS (404 outside its chat, not in the library or search); sizes PASS (chart 360
+  wide, checklist 340 wide, 3 items); alfy-comment reported FAIL but **the product did it all** (HTTP 200, applied 1, a
+  reply, one Alfy version, the note ends in "moved to Monday"; the dev DB holds the user's comment and Alfy's reply) —
+  the script reads comments from `GET /api/artifacts/[id]`, which does not carry them (fix the script: read the comments
+  route). Test conversations kept: `a29accd1…`, `153f2a94…`, `652b16de…`.
+- **Stopped for the owner's check (M1).** Next after it (ruling 69): the tours for Document, App and Canvas, and hiding the
+  Knowledge tab's "Slides" chip.
