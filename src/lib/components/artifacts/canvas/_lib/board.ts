@@ -26,7 +26,7 @@ import {
 import { metaFor } from "./block-meta";
 
 type Size = { width: number; height: number };
-type Rect = { x: number; y: number; width: number; height: number };
+export type Rect = { x: number; y: number; width: number; height: number };
 
 /** The change a drop makes to a block. `parentId: undefined` is a release, and is named on purpose: a merge (`{ ...node, ...patch }`) would keep the old parent if the key were absent. */
 export type ReparentPatch = {

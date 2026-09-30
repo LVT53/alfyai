@@ -57,6 +57,7 @@ import {
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
 import {
+	nodeRect,
 	parentsFirst,
 	rehomeOnRemoval,
 	type ReparentPatch,
@@ -77,11 +78,13 @@ import {
 } from "./_lib/board-model";
 import {
 	type BlockRegistryEntry,
+	blockEntry,
 	boardNodeTypes,
 	newBlockNode,
 } from "./_lib/block-registry";
 import { newId } from "./_lib/ids";
-import { placeInsertedBlock } from "./_lib/placement";
+import { visibleBoardRect } from "./_lib/pane-rect";
+import { placeBesideBlocks, placeInsertedBlock } from "./_lib/placement";
 import AnnotationLayer from "./AnnotationLayer.svelte";
 import CanvasToolbar from "./CanvasToolbar.svelte";
 import ZoomChip from "./ZoomChip.svelte";
@@ -301,6 +304,17 @@ function centerOn(point: Pt): void {
 
 // ---- Insert --------------------------------------------------------------
 
+/** What the pane shows, in board units; undefined before the pane has been measured. */
+function visiblePaneRect() {
+	const shown = visibleBoardRect(
+		{ width: boardWidth, height: boardHeight },
+		viewport,
+	);
+	return shown.width > 0
+		? { x: shown.left, y: shown.top, width: shown.width, height: shown.height }
+		: undefined;
+}
+
 function insertBlock(row: BlockRegistryEntry, data?: CanvasBlockData): void {
 	if (readonly || !boardEl) return;
 	// What was pending is a step of its own, so Undo takes the insert back alone.
@@ -310,11 +324,26 @@ function insertBlock(row: BlockRegistryEntry, data?: CanvasBlockData): void {
 		x: rect.left + rect.width / 2,
 		y: rect.top + rect.height / 2,
 	});
-	const position = placeInsertedBlock({
-		center,
-		size: row.size,
-		taken: nodes.filter((node) => !node.parentId).map((node) => node.position),
-	});
+	// A note is staggered off the one under it. A block made from the chat is big
+	// (an App is 400 x 340), so it is put on free ground instead: laid over another
+	// App it would take that App's clicks. A frame is a backdrop, not in the way.
+	const position =
+		row.section === "chat"
+			? placeBesideBlocks({
+					center,
+					size: row.size,
+					occupied: nodes
+						.filter((node) => !blockEntry(node.type)?.structural)
+						.map((node) => nodeRect(node, nodes, node.measured)),
+					visible: visiblePaneRect(),
+				})
+			: placeInsertedBlock({
+					center,
+					size: row.size,
+					taken: nodes
+						.filter((node) => !node.parentId)
+						.map((node) => node.position),
+				});
 	const [added] = toFlowNodes([
 		newBlockNode(row.kind, position, undefined, data),
 	]);
