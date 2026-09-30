@@ -40,6 +40,7 @@ import {
 	BackgroundVariant,
 	type Connection,
 	ConnectionMode,
+	MarkerType,
 	type Edge,
 	MiniMap,
 	Panel,
@@ -131,6 +132,8 @@ let {
 const initial = untrack(() => body);
 const flow = useSvelteFlow();
 const nodeTypes = boardNodeTypes();
+/** An arrow points at the block it was drawn to (its head takes the edge's own colour), so the stored direction is seen (RV-3 Minor 4). */
+const edgeDefaults = { markerEnd: { type: MarkerType.ArrowClosed } };
 
 let nodes = $state.raw<FlowNode[]>(toFlowNodes(initial.nodes));
 let edges = $state.raw<Edge[]>(toFlowEdges(initial.edges, initial.nodes));
@@ -883,6 +886,7 @@ function minimapColor(node: {
 		bind:edges
 		bind:viewport
 		{nodeTypes}
+		defaultEdgeOptions={edgeDefaults}
 		class="canvas-flow"
 		aria-label={$t("artifacts.type.canvas")}
 		fitView={fitOnOpen}

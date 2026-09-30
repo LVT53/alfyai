@@ -397,6 +397,9 @@ test.describe("the Canvas kind, in the panel", () => {
 		const path = page.locator(".svelte-flow__edge-path").first();
 		const d = await path.getAttribute("d");
 		expect(d && d.length > 10).toBe(true);
+		// RV-3 Minor 4: an arrow says which way it points (the note, then the text):
+		// the stored direction was invisible, because no arrowhead was ever drawn.
+		await expect(path).toHaveAttribute("marker-end", /url\(['"]?#/);
 	});
 
 	test("says what an empty board is for, and points at Insert", async ({
