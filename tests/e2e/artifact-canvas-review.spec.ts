@@ -389,6 +389,48 @@ test.describe("Alfy's change lands where the reader can see it", () => {
 		}
 	});
 
+	// RV-3 Minor 2: on a phone the pill's Keep and Undo are 20 px tall to the eye; what a
+	// finger needs is the hit area, and that must reach 44 px.
+	test("on a phone the pill's Keep and Undo can be hit from 20 px above and below their centres", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		// The chat is under the panel on a phone: Alfy is asked with the panel closed,
+		// and the panel opens on the change that is waiting.
+		const scene = await open(page, { panel: false });
+		try {
+			await askAlfy(page, scene.artifactId, PLANNED_SUNDAY);
+			await expect(page.getByText(AI_SMOKE_CANVAS_EDIT_FINAL_TEXT)).toBeVisible(
+				{ timeout: 30_000 },
+			);
+			await openCanvasPanel(page);
+			await expect(pill(page)).toBeVisible({ timeout: 15_000 });
+			// The board opens on the camera it was saved with, which on a phone shows a
+			// corner of it: fit the whole board so the pill is on the screen.
+			await page.getByTestId("canvas-fit").click();
+			await expect(page.getByTestId("canvas-zoom-level")).not.toHaveText(
+				"100%",
+			);
+			await page.waitForTimeout(500);
+			for (const name of ["Keep Alfy's change", "Undo Alfy's change"]) {
+				const button = pill(page).getByRole("button", { name });
+				const box = await button.boundingBox();
+				if (!box) throw new Error(`no ${name} button`);
+				const reached = await page.evaluate(
+					({ x, y, dy }) =>
+						[-dy, dy].map((offset) => {
+							const hit = document.elementFromPoint(x, y + offset);
+							return hit?.closest("button")?.getAttribute("aria-label") ?? null;
+						}),
+					{ x: box.x + box.width / 2, y: box.y + box.height / 2, dy: 20 },
+				);
+				expect(reached, name).toEqual([name, name]);
+			}
+		} finally {
+			await scene.cleanup();
+		}
+	});
+
 	test("steps through the touched blocks and centres the camera on each", async ({
 		page,
 	}) => {

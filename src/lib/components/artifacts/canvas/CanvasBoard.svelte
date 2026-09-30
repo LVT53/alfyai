@@ -152,6 +152,16 @@ const STACK_ZOOM_BELOW = 680;
 let boardEl = $state<HTMLElement | null>(null);
 let boardWidth = $state(0);
 let boardHeight = $state(0);
+// What the zoom was when the camera last came to rest. A finger's hit area on a
+// block's handles is about 24 px on the screen, so it grows as the board zooms
+// out; it is sized to the resting zoom, not re-measured on every frame of a pinch.
+let restingZoom = $state(untrack(() => initial.viewport.zoom) || 1);
+let cameraZoom = $derived(viewport.zoom);
+$effect(() => {
+	const zoom = cameraZoom;
+	const timer = setTimeout(() => (restingZoom = zoom), 150);
+	return () => clearTimeout(timer);
+});
 let tool = $state<Tool>("select");
 /** The ink a new mark is drawn in (a colour token). */
 let ink = $state(DEFAULT_INK);
@@ -856,6 +866,7 @@ function minimapColor(node: {
 	bind:clientWidth={boardWidth}
 	bind:clientHeight={boardHeight}
 	style:--canvas-board-width="{boardWidth}px"
+	style:--canvas-inv-zoom={restingZoom > 0 ? 1 / restingZoom : 1}
 	data-testid="canvas-board"
 	data-tool={tool}
 >

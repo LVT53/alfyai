@@ -550,6 +550,18 @@ function reportBroken(error: unknown): void {
 		cursor: crosshair;
 	}
 
+	/* A finger is not a pointer: the anchors (9 px) and the resize corners (8 px)
+	   get an invisible hit area of about 24 px on the screen, whatever the zoom
+	   (--canvas-inv-zoom is 1 / zoom, set by the board once its camera is at rest). */
+	@media (pointer: coarse) {
+		:global(.svelte-flow__handle.canvas-anchor.canvas-anchor--shown::after),
+		:global(.svelte-flow__resize-control.handle.canvas-resize::after) {
+			content: "";
+			position: absolute;
+			inset: calc(4px - 12px * var(--canvas-inv-zoom, 1));
+		}
+	}
+
 	/* The four resize corners: the mockup's 7px squares. Grabbable even on a
 	   frame, whose own node ignores the pointer (that is inherited, so it is
 	   undone here). */

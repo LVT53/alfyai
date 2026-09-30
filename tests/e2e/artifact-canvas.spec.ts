@@ -1368,3 +1368,133 @@ test.describe("the Canvas kind, in the panel", () => {
 		).toBeVisible();
 	});
 });
+
+// RV-3 Minor 3: a finger is not a pointer. The connection anchors of a selected block
+// are 9 px (5 px at a phone's fit zoom) and its resize corners 8 px, and neither had a
+// larger hit area, so connecting or resizing with a finger was impractical. Each gets an
+// invisible hit area of about 24 px on the screen, whatever the zoom, on a touch screen only.
+/** The handles a selected block shows, and the ones a point 10 px from their centre does not reach. */
+async function handlesMissedFromTenPixels(page: Page, id: string) {
+	return page.evaluate((nodeId) => {
+		const handles = [
+			...document.querySelectorAll(
+				`.svelte-flow__node[data-id="${nodeId}"] .svelte-flow__handle.canvas-anchor--shown, .svelte-flow__node[data-id="${nodeId}"] .svelte-flow__resize-control.handle`,
+			),
+		];
+		const missed = handles
+			.filter((handle) => {
+				const rect = handle.getBoundingClientRect();
+				const hit = document.elementFromPoint(
+					rect.left + rect.width / 2 + 10,
+					rect.top + rect.height / 2,
+				);
+				return !(hit === handle || handle.contains(hit));
+			})
+			.map((handle) => handle.className);
+		return { total: handles.length, missed };
+	}, id);
+}
+
+/** A board of one note, so the camera fits it large and its handles are far from each other. */
+function oneNoteBoard(): CanvasBody {
+	return {
+		...emptyCanvasBody(),
+		nodes: [
+			{
+				id: "note-alone",
+				type: "sticky",
+				position: { x: 0, y: 0 },
+				width: 190,
+				data: {
+					kind: "sticky",
+					text: "A note with a few more words, so it is not a sliver",
+					tone: "yellow",
+				},
+			},
+		],
+	};
+}
+
+test.describe("a selected block's handles, by pointer", () => {
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("keep their own small hit area with a mouse", async ({ page }) => {
+		const conversationId = await createConversation(page, "Mouse handles");
+		await seedCanvas(conversationId, oneNoteBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+		const note = await nodeBox(page, "note-alone");
+		await page.mouse.click(note.x + note.width / 2, note.y + note.height / 2);
+		await expect(
+			page.locator('.svelte-flow__node[data-id="note-alone"]'),
+		).toHaveClass(/selected/);
+		const { total, missed } = await handlesMissedFromTenPixels(
+			page,
+			"note-alone",
+		);
+		expect(total).toBe(8);
+		expect(missed).toHaveLength(total);
+	});
+});
+
+test.describe("on a touch screen", () => {
+	test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("a selected block's anchors and resize corners can be hit from 10 px away", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Finger handles");
+		await seedCanvas(conversationId, oneNoteBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+		expect(
+			await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
+		).toBe(true);
+		const note = await nodeBox(page, "note-alone");
+		await page.touchscreen.tap(
+			note.x + note.width / 2,
+			note.y + note.height / 2,
+		);
+		await expect(
+			page.locator('.svelte-flow__node[data-id="note-alone"]'),
+		).toHaveClass(/selected/);
+		await page.waitForTimeout(400);
+		const { total, missed } = await handlesMissedFromTenPixels(
+			page,
+			"note-alone",
+		);
+		expect(total).toBe(8);
+		expect(missed).toEqual([]);
+	});
+
+	test("and so can a big block's when the board is zoomed far out: the hit area is 24 px on the screen, not on the board", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Far out handles");
+		await seedCanvas(conversationId, seededBoard());
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+		// The whole board fits the phone: far out.
+		expect((await cameraOf(page)).zoom).toBeLessThan(0.6);
+		const chip = page.getByTestId("canvas-frame-label").first();
+		const at = await chip.boundingBox();
+		if (!at) throw new Error("no frame chip");
+		await page.touchscreen.tap(at.x + at.width / 2, at.y + at.height / 2);
+		await expect(
+			page.locator(`.svelte-flow__node[data-id="${BOARD.frame}"]`),
+		).toHaveClass(/selected/);
+		await page.waitForTimeout(400);
+		const { total, missed } = await handlesMissedFromTenPixels(
+			page,
+			BOARD.frame,
+		);
+		expect(total).toBe(8);
+		expect(missed).toEqual([]);
+	});
+});
