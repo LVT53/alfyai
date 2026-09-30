@@ -9,8 +9,9 @@ export const theme = writable<Theme>("system");
 export const isDark = derived(theme, ($theme) => {
 	if (typeof window === "undefined") return false;
 	if ($theme === "dark") return true;
+	// An environment with no `matchMedia` (a test's DOM) has no dark preference to follow.
 	if ($theme === "system")
-		return window.matchMedia("(prefers-color-scheme: dark)").matches;
+		return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
 	return false;
 });
 

@@ -11,12 +11,17 @@ vi.mock("mermaid", () => ({
 	default: { initialize, render: renderMermaid },
 }));
 
+import { theme } from "$lib/stores/theme";
 import Mermaid from "./Mermaid.svelte";
+
+const SVG =
+	'<svg xmlns="http://www.w3.org/2000/svg"><g><rect x="0" y="0" width="4" height="4"></rect></g></svg>';
 
 describe("Mermaid", () => {
 	beforeEach(() => {
 		initialize.mockClear();
 		renderMermaid.mockReset();
+		theme.set("light");
 	});
 
 	it("sanitizes the mermaid SVG through the DOMPurify gate before injecting it", async () => {
@@ -74,5 +79,53 @@ describe("Mermaid", () => {
 		expect(placeholder?.textContent).toContain("graph TD");
 		expect(container.querySelector(".markdown-mermaid svg")).toBeNull();
 		expect(container.querySelector(".markdown-diagram-error")).toBeNull();
+	});
+
+	// Mermaid's default theme inks lines, arrows and labels dark, which a dark
+	// page swallows: the diagram is drawn in the reader's theme (the chat and a
+	// Canvas block both draw it through this component).
+	it("draws in Mermaid's default theme on a light page and its dark theme on a dark one", async () => {
+		renderMermaid.mockResolvedValue({ svg: SVG });
+
+		const light = render(Mermaid, { props: { code: "graph TD\nA-->B" } });
+		await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(1));
+		expect(initialize).toHaveBeenLastCalledWith(
+			expect.objectContaining({ theme: "default" }),
+		);
+		light.unmount();
+
+		theme.set("dark");
+		render(Mermaid, { props: { code: "graph TD\nA-->B" } });
+		await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(2));
+		expect(initialize).toHaveBeenLastCalledWith(
+			expect.objectContaining({ theme: "dark" }),
+		);
+	});
+
+	it("says the whole strict posture with every render, so a theme never gives back the labels the SVG gate is built for", async () => {
+		renderMermaid.mockResolvedValue({ svg: SVG });
+		theme.set("dark");
+		render(Mermaid, { props: { code: "graph TD\nA-->B" } });
+		await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(1));
+		expect(initialize).toHaveBeenLastCalledWith({
+			startOnLoad: false,
+			securityLevel: "strict",
+			htmlLabels: false,
+			flowchart: { htmlLabels: false },
+			theme: "dark",
+		});
+	});
+
+	it("draws again in the other theme when the reader switches", async () => {
+		renderMermaid.mockResolvedValue({ svg: SVG });
+		render(Mermaid, { props: { code: "graph TD\nA-->B" } });
+		await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(1));
+
+		theme.set("dark");
+
+		await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(2));
+		expect(initialize).toHaveBeenLastCalledWith(
+			expect.objectContaining({ theme: "dark" }),
+		);
 	});
 });

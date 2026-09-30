@@ -6,9 +6,12 @@
 // pass through OUR DOMPurify SVG gate (sanitizeHtml { svg: true }) before {@html}
 // injection. A parse error (or any render failure) is caught and degrades to the
 // raw source + an error note — it never crashes the message. Server-side and
-// pre-render we show a lightweight placeholder.
+// pre-render we show a lightweight placeholder. The diagram is drawn in the
+// reader's theme: Mermaid's default theme inks its lines, arrows and labels dark,
+// which a dark page swallows, so a dark page gets Mermaid's dark theme.
 import { onMount } from "svelte";
 import { t } from "$lib/i18n";
+import { isDark } from "$lib/stores/theme";
 import { sanitizeHtml } from "$lib/utils/html-sanitizer";
 
 let { code = "" }: { code?: string } = $props();
@@ -19,9 +22,9 @@ let svgHtml = $state("");
 let errored = $state(false);
 let mounted = $state(false);
 
-// Lazy-load mermaid + run its one-time init on first render. The dynamic
-// import() itself is module-cached by the runtime, so additional diagrams pay
-// only a cheap idempotent initialize, never a second download.
+// Lazy-load mermaid. The dynamic import() itself is module-cached by the
+// runtime, so additional diagrams pay only a cheap idempotent initialize, never a
+// second download.
 type MermaidModule = {
 	initialize: (config: Record<string, unknown>) => void;
 	render: (id: string, text: string) => Promise<{ svg: string }>;
@@ -29,28 +32,31 @@ type MermaidModule = {
 let mermaidPromise: Promise<MermaidModule> | null = null;
 
 async function loadMermaid(): Promise<MermaidModule> {
-	if (!mermaidPromise) {
-		mermaidPromise = import("mermaid").then((module) => {
-			const mermaid = module.default as unknown as MermaidModule;
-			mermaid.initialize({
-				startOnLoad: false,
-				// Strictest posture: mermaid's own DOMPurify pass runs too, and we
-				// render pure-SVG labels (htmlLabels:false) so nothing lands in a
-				// <foreignObject> that our SVG profile would strip.
-				securityLevel: "strict",
-				htmlLabels: false,
-				flowchart: { htmlLabels: false },
-				theme: "default",
-			});
-			return mermaid;
-		});
-	}
+	mermaidPromise ??= import("mermaid").then(
+		(module) => module.default as unknown as MermaidModule,
+	);
 	return mermaidPromise;
+}
+
+// Mermaid builds its site config from its defaults plus what `initialize` is
+// given, so every call says the whole posture and not only the theme: a call that
+// named the theme alone would quietly give back the labels this gate is built for.
+function mermaidConfig(dark: boolean): Record<string, unknown> {
+	return {
+		startOnLoad: false,
+		// Strictest posture: mermaid's own DOMPurify pass runs too, and we
+		// render pure-SVG labels (htmlLabels:false) so nothing lands in a
+		// <foreignObject> that our SVG profile would strip.
+		securityLevel: "strict",
+		htmlLabels: false,
+		flowchart: { htmlLabels: false },
+		theme: dark ? "dark" : "default",
+	};
 }
 
 let renderToken = 0;
 
-async function renderDiagram(source: string) {
+async function renderDiagram(source: string, dark: boolean) {
 	const token = ++renderToken;
 	const trimmed = source.trim();
 	if (!trimmed) {
@@ -62,6 +68,7 @@ async function renderDiagram(source: string) {
 	const renderId = `mermaid-${uid}`.replace(/[^a-zA-Z0-9_-]/g, "-");
 	try {
 		const mermaid = await loadMermaid();
+		mermaid.initialize(mermaidConfig(dark));
 		const { svg } = await mermaid.render(renderId, trimmed);
 		if (token !== renderToken) return; // a newer render superseded this one
 		// Gate the mermaid SVG through our own sanitizer before injecting it.
@@ -87,10 +94,11 @@ onMount(() => {
 	mounted = true;
 });
 
-// Client-only (effects never run during SSR). Re-renders if the source changes.
+// Client-only (effects never run during SSR). Re-renders if the source or the
+// reader's theme changes.
 $effect(() => {
 	if (!mounted) return;
-	void renderDiagram(code);
+	void renderDiagram(code, $isDark);
 });
 </script>
 
