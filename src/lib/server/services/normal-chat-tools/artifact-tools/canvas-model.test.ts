@@ -365,6 +365,29 @@ describe("parseCanvasCreateBody — the board a create_artifact call carries", (
 			);
 		});
 
+		it("a checklist whose items share an id, naming the id and saying nothing was made (RV-3 C1)", () => {
+			const error = refusal(
+				body([
+					{
+						id: "todo",
+						type: "checklist",
+						position: { x: 0, y: 0 },
+						data: {
+							kind: "checklist",
+							items: [
+								{ id: "1", text: "a", done: false },
+								{ id: "1", text: "b", done: false },
+							],
+						},
+					},
+				]),
+			);
+			expect(error).toContain("Nothing was created");
+			expect(error).toContain('nodes[0] "todo"');
+			expect(error).toContain('"1"');
+			expect(error).toMatch(/unique/);
+		});
+
 		it("an edge to a node that is not on the board, naming the ones that are", () => {
 			const error = refusal(
 				body([sticky("a")], [{ id: "e1", source: "a", target: "ghost" }]),

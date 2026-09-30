@@ -26,6 +26,7 @@ import {
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	MODEL_CREATABLE_KINDS,
 	modelCreatableBlockDataSchema,
+	repeatedEntryIds,
 } from "./canvas-blocks";
 import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
 import type { OpRefusal, OpsVocabulary } from "./ops";
@@ -390,6 +391,20 @@ function fieldsOf(kind: BlockKind): string {
 	return Object.keys(BLOCK_DATA_SCHEMAS[kind].shape).join(", ");
 }
 
+/**
+ * A checklist whose items share an id cannot be drawn (its rows are keyed by
+ * item id, and two with one id took the whole board down: RV-3 C1), so the
+ * model is refused it, told which id and what to do. The stored schema cannot
+ * say "unique" in the JSON Schema the model is shown, so this is the
+ * validator's rule and the refusal is where the model learns it.
+ */
+function repeatedIdsProblem(data: CanvasBlockData): string | null {
+	const repeated = repeatedEntryIds(data);
+	if (repeated.length === 0) return null;
+	const quoted = repeated.map((id) => `"${id}"`).join(", ");
+	return `checklist item ids must be unique: ${quoted} ${repeated.length === 1 ? "is" : "are"} used more than once. Give every item its own id, for example "i1", "i2", "i3".`;
+}
+
 function exceedsByteCap(body: CanvasBody): boolean {
 	return new TextEncoder().encode(boardJson(body)).length > MAX_BODY_BYTES;
 }
@@ -491,6 +506,8 @@ function stepAddNode(
 			spec.id,
 		);
 	}
+	const repeated = repeatedIdsProblem(data.data);
+	if (repeated !== null) return refuse("invalid_data", repeated, spec.id);
 	if (spec.parentId !== undefined) {
 		if (spec.parentId === spec.id) {
 			return refuse(
@@ -562,6 +579,8 @@ function stepUpdateNode(
 			op.id,
 		);
 	}
+	const repeated = repeatedIdsProblem(merged.data);
+	if (repeated !== null) return refuse("invalid_data", repeated, op.id);
 	return grow(applyOp(body, op), op.id);
 }
 

@@ -364,6 +364,104 @@ export const modelCreatableBlockDataSchema = z.discriminatedUnion("kind", [
 	MODEL_CREATABLE_DATA_SCHEMAS.chart,
 ]);
 
+// ── The ids of a block's own entries (RV-3 C1) ───────────────────────────
+
+/**
+ * A checklist's rows, a photo block's pictures and a web block's links are each
+ * drawn row by row and keyed by their entry's id, so two entries with one id
+ * make Svelte throw and the panel never leaves its loading skeleton. Nothing in
+ * a stored board's shape forbids it, so it is enforced at both doors: what the
+ * model writes is refused when an id repeats (`repeatedEntryIds`, judged by
+ * `board-ops.ts`), and a board that already holds a repeat is repaired on read
+ * (`withUniqueEntryIds`, applied by `normalizeCanvasBody`), never dropped.
+ */
+function entriesOf(data: CanvasBlockData): { id: string }[] | null {
+	switch (data.kind) {
+		case "checklist":
+		case "photo":
+			return data.items;
+		case "liveweb":
+			return data.sources;
+		default:
+			return null;
+	}
+}
+
+/** The ids that more than one entry of the block carries, each once, in the order they first repeat. */
+export function repeatedEntryIds(data: CanvasBlockData): string[] {
+	const entries = entriesOf(data);
+	if (!entries) return [];
+	const seen = new Set<string>();
+	const repeated: string[] = [];
+	for (const entry of entries) {
+		if (seen.has(entry.id) && !repeated.includes(entry.id)) {
+			repeated.push(entry.id);
+		}
+		seen.add(entry.id);
+	}
+	return repeated;
+}
+
+/** `base-2`, `base-3`, … the first that no entry has, cut short enough to stay inside the id cap. */
+function freshEntryId(base: string, taken: ReadonlySet<string>): string {
+	for (let n = 2; ; n += 1) {
+		const suffix = `-${n}`;
+		const candidate = base.slice(0, ID_MAX_CHARS - suffix.length) + suffix;
+		if (!taken.has(candidate)) return candidate;
+	}
+}
+
+function withEntryIds(data: CanvasBlockData, ids: string[]): CanvasBlockData {
+	switch (data.kind) {
+		case "checklist":
+		case "photo":
+			return {
+				...data,
+				items: data.items.map((item, index) => ({ ...item, id: ids[index] })),
+			} as CanvasBlockData;
+		case "liveweb":
+			return {
+				...data,
+				sources: data.sources.map((source, index) => ({
+					...source,
+					id: ids[index],
+				})),
+			};
+		default:
+			return data;
+	}
+}
+
+/**
+ * The block with every entry id unique: the first entry of an id keeps it, each
+ * later one gets `<id>-2`, `<id>-3`, … (never an id another entry already has),
+ * and every word stays. `renamed` names the ids that had to be. A block with
+ * nothing repeated is handed back as it is, so a caller can tell by identity.
+ */
+export function withUniqueEntryIds(data: CanvasBlockData): {
+	data: CanvasBlockData;
+	renamed: string[];
+} {
+	const entries = entriesOf(data);
+	if (!entries || repeatedEntryIds(data).length === 0) {
+		return { data, renamed: [] };
+	}
+	const taken = new Set(entries.map((entry) => entry.id));
+	const seen = new Set<string>();
+	const renamed: string[] = [];
+	const ids = entries.map((entry) => {
+		if (!seen.has(entry.id)) {
+			seen.add(entry.id);
+			return entry.id;
+		}
+		if (!renamed.includes(entry.id)) renamed.push(entry.id);
+		const fresh = freshEntryId(entry.id, taken);
+		taken.add(fresh);
+		return fresh;
+	});
+	return { data: withEntryIds(data, ids), renamed };
+}
+
 // ── Compile-time pins: a mirror that drifted from its source fails `npm run check` ──
 
 type Equal<A, B> =

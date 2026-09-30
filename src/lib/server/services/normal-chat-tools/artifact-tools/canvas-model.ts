@@ -157,7 +157,7 @@ const BLOCK_KINDS_PHRASE = (
  * read is answered with, because a zod issue alone says what is wrong and not
  * what would have been right.
  */
-export const BLOCK_SHAPES_HINT = `Blocks you can add, and the fields of their data — ${BLOCK_KINDS_PHRASE}. A sticky's tone is one of ${MODEL_CREATABLE_DATA_SCHEMAS.sticky.shape.tone.options.slice(0, -1).join(", ")} or ${MODEL_CREATABLE_DATA_SCHEMAS.sticky.shape.tone.options.at(-1)}; a checklist item is {id, text, done}; type must equal data.kind.`;
+export const BLOCK_SHAPES_HINT = `Blocks you can add, and the fields of their data — ${BLOCK_KINDS_PHRASE}. A sticky's tone is one of ${MODEL_CREATABLE_DATA_SCHEMAS.sticky.shape.tone.options.slice(0, -1).join(", ")} or ${MODEL_CREATABLE_DATA_SCHEMAS.sticky.shape.tone.options.at(-1)}; a checklist item is {id, text, done}, and each item's id is used once in its checklist; type must equal data.kind.`;
 
 const CREATE_SHAPE_HINT = `A board is {"nodes":[{"id","type","position":{"x","y"},"data":{"kind",...}}],"edges":[{"id","source","target"}]}, or {} for an empty board. ${BLOCK_SHAPES_HINT}`;
 

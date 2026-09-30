@@ -701,3 +701,81 @@ describe("the structural budget for a heavy board (ruling 9)", () => {
 		expect(boardJson(body).length).toBeLessThanOrEqual(512 * 1024);
 	});
 });
+
+// RV-3 C1: the board draws a checklist's rows, a photo's pictures and a web
+// block's links by their ids, and two with one id throw when it is opened. A board
+// that already holds such a block (Alfy could write one) must open, with every
+// word still on it.
+describe("normalizeCanvasBody — entries that share an id (RV-3 C1)", () => {
+	function boardWith(data: unknown, id = "todo-dup"): unknown {
+		const board = JSON.parse(boardJson(sampleBoard()));
+		board.nodes.push({
+			id,
+			type: (data as { kind: string }).kind,
+			position: { x: 0, y: 900 },
+			data,
+		});
+		return board;
+	}
+
+	it("keeps a checklist whose items share an id, makes the ids unique and loses no word", () => {
+		const raw = boardWith({
+			kind: "checklist",
+			items: [
+				{ id: "1", text: "a", done: false },
+				{ id: "1", text: "b", done: true },
+			],
+		});
+		const { body, dropped, repaired } = normalizeCanvasBody(raw);
+		const kept = body.nodes.find((node) => node.id === "todo-dup");
+		expect(kept?.data).toMatchObject({
+			kind: "checklist",
+			items: [
+				{ id: "1", text: "a", done: false },
+				{ id: "1-2", text: "b", done: true },
+			],
+		});
+		expect(dropped.nodes).toEqual([]);
+		expect(repaired).toEqual(["todo-dup"]);
+	});
+
+	it("repairs the entries of a photo block and of a web block in the same way", () => {
+		const board = JSON.parse(boardJson(sampleBoard()));
+		const photo = board.nodes.find(
+			(node: { id: string }) => node.id === "photo-1",
+		);
+		const web = board.nodes.find((node: { id: string }) => node.id === "web-1");
+		photo.data.items.push({ ...photo.data.items[0] });
+		web.data.sources.push({ ...web.data.sources[0] });
+		const { body, repaired } = normalizeCanvasBody(board);
+		const entryIds = (id: string): string[] => {
+			const data = body.nodes.find((node) => node.id === id)?.data;
+			if (data?.kind === "photo") return data.items.map((item) => item.id);
+			if (data?.kind === "liveweb") {
+				return data.sources.map((source) => source.id);
+			}
+			return [];
+		};
+		expect(new Set(entryIds("photo-1")).size).toBe(2);
+		expect(new Set(entryIds("web-1")).size).toBe(2);
+		expect(repaired.sort()).toEqual(["photo-1", "web-1"]);
+	});
+
+	it("reports nothing for a board that has no repeated id, and a repaired board is a fixed point", () => {
+		expect(normalizeCanvasBody(sampleBoard()).repaired).toEqual([]);
+		const once = normalizeCanvasBody(
+			boardWith({
+				kind: "checklist",
+				items: [
+					{ id: "a", text: "x", done: false },
+					{ id: "a", text: "y", done: false },
+					{ id: "a", text: "z", done: false },
+				],
+			}),
+		);
+		expect(once.repaired).toEqual(["todo-dup"]);
+		const twice = normalizeCanvasBody(JSON.parse(boardJson(once.body)));
+		expect(twice.repaired).toEqual([]);
+		expect(boardJson(twice.body)).toBe(boardJson(once.body));
+	});
+});

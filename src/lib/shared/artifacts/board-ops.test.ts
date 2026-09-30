@@ -1208,3 +1208,106 @@ describe("every refusal names what would have worked (ruling 62)", () => {
 		}
 	});
 });
+
+// RV-3 C1: a checklist whose items share an id could be written by the model and
+// then took the whole board down (the block draws its rows by item id). The
+// refusal names the id and the fix; a diff is judged per op, so the rest applies.
+describe("validateBoardDiff — a checklist's item ids are unique (RV-3 C1)", () => {
+	const checklistOp = (items: { id: string; text: string; done: boolean }[]) =>
+		({
+			op: "add_node",
+			node: {
+				id: "dup",
+				type: "checklist",
+				position: { x: 0, y: 900 },
+				data: { kind: "checklist", items },
+			},
+		}) as BoardOp;
+
+	it("refuses an added checklist whose items share an id, names the id and the fix, and lets the rest of the batch apply", () => {
+		const { accepted, refused } = validateBoardDiff(
+			diff(
+				checklistOp([
+					{ id: "1", text: "a", done: false },
+					{ id: "1", text: "b", done: false },
+				]),
+				addSticky("after-it"),
+			),
+			sampleBoard(),
+		);
+		expect(accepted.map((op) => op.op)).toEqual(["add_node"]);
+		expect(refused).toHaveLength(1);
+		expect(refused[0]).toMatchObject({
+			index: 0,
+			op: "add_node",
+			id: "dup",
+			reason: "invalid_data",
+		});
+		expect(refused[0].detail).toContain('"1"');
+		expect(refused[0].detail).toMatch(/unique/i);
+		expect(refused[0].detail).toMatch(/own id/i);
+	});
+
+	it("accepts a checklist whose items each have an id of their own", () => {
+		const { accepted, refused } = validateBoardDiff(
+			diff(
+				checklistOp([
+					{ id: "1", text: "a", done: false },
+					{ id: "2", text: "b", done: true },
+				]),
+			),
+			sampleBoard(),
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(1);
+	});
+
+	it("refuses an update_node that would leave two items with one id, and one that keeps them apart passes", () => {
+		const { accepted, refused } = validateBoardDiff(
+			unchecked(
+				{
+					op: "update_node",
+					id: "todo-1",
+					data: {
+						items: [
+							{ id: "i1", text: "Passport", done: true },
+							{ id: "i1", text: "Charger", done: false },
+						],
+					},
+				},
+				{
+					op: "update_node",
+					id: "todo-1",
+					data: {
+						items: [
+							{ id: "i1", text: "Passport", done: true },
+							{ id: "i2", text: "Charger", done: false },
+							{ id: "i3", text: "Tickets", done: false },
+						],
+					},
+				},
+			),
+			sampleBoard(),
+		);
+		expect(refused.map((r) => [r.index, r.reason])).toEqual([
+			[0, "invalid_data"],
+		]);
+		expect(refused[0].detail).toContain('"i1"');
+		expect(accepted).toHaveLength(1);
+	});
+
+	it("refuses a duplicate item id in a checklist that arrives with a whole made board too (the create path)", () => {
+		const { accepted, refused } = validateBoardDiff(
+			diff(
+				checklistOp([
+					{ id: "x", text: "a", done: false },
+					{ id: "y", text: "b", done: false },
+					{ id: "x", text: "c", done: false },
+				]),
+			),
+			sampleBoard(),
+		);
+		expect(accepted).toEqual([]);
+		expect(refused[0].detail).toContain('"x"');
+	});
+});

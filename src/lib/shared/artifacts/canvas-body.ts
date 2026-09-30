@@ -15,7 +15,11 @@ import {
 	type Pt,
 	type StoredCanvasNode,
 } from "./canvas";
-import { BLOCK_DATA_SCHEMAS, isBlockKind } from "./canvas-blocks";
+import {
+	BLOCK_DATA_SCHEMAS,
+	isBlockKind,
+	withUniqueEntryIds,
+} from "./canvas-blocks";
 
 /** A board past this is a rendering problem, not a deployment preference (perf budget). */
 export const MAX_NODES_PER_BOARD = 400;
@@ -277,16 +281,24 @@ function readViewport(value: unknown): CanvasBody["viewport"] {
  * cannot read (an unknown block kind, data that is not its kind's, an edge to a
  * node that is not there, a duplicate id, an annotation past the cap) is
  * dropped and NAMED in `dropped`, and the rest of the board opens.
+ *
+ * One thing is repaired instead of dropped (RV-3 C1): a block whose own list
+ * holds two entries with one id (a checklist's items, a photo block's pictures,
+ * a web block's links) keeps every word and gets fresh ids for the later ones,
+ * because the board draws those rows by id and two with one id would keep the
+ * panel from ever opening. `repaired` names the blocks it did that to.
  */
 export function normalizeCanvasBody(raw: unknown): {
 	body: CanvasBody;
 	dropped: CanvasDropReport;
+	repaired: string[];
 } {
 	const dropped: CanvasDropReport = { nodes: [], edges: [], annotations: [] };
 	const source = isRecord(raw) ? raw : {};
 
 	const nodeIds = new Set<string>();
 	const read: StoredCanvasNode[] = [];
+	const repaired: string[] = [];
 	(Array.isArray(source.nodes) ? source.nodes : []).forEach((value, index) => {
 		const node = readNode(value);
 		if (node === null) {
@@ -295,6 +307,11 @@ export function normalizeCanvasBody(raw: unknown): {
 			dropped.nodes.push(node.id);
 		} else {
 			nodeIds.add(node.id);
+			const unique = withUniqueEntryIds(node.data);
+			if (unique.renamed.length > 0) {
+				node.data = unique.data;
+				repaired.push(node.id);
+			}
 			read.push(node);
 		}
 	});
@@ -344,6 +361,7 @@ export function normalizeCanvasBody(raw: unknown): {
 			annotations,
 		},
 		dropped,
+		repaired,
 	};
 }
 

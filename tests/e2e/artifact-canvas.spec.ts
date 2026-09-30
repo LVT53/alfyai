@@ -146,6 +146,46 @@ test.describe("the Canvas kind, in the panel", () => {
 		).toBeVisible();
 	});
 
+	// RV-3 C1: Alfy could write a checklist whose items share an id, and the board
+	// draws its rows by id, so the panel never left its loading skeleton and the
+	// board could only be deleted. It opens now, with every item on it.
+	test("opens a board whose checklist repeats an item id, with every item on it", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"A board Alfy numbered twice",
+		);
+		const board = seededBoard();
+		board.nodes.push({
+			id: "list-doubled",
+			type: "checklist",
+			position: { x: 480, y: 40 },
+			data: {
+				kind: "checklist",
+				label: "Doubled",
+				items: [
+					{ id: "1", text: "First thing", done: false },
+					{ id: "1", text: "Second thing", done: true },
+				],
+			},
+		});
+		await seedCanvas(conversationId, board);
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const doubled = page
+			.locator('[data-testid="canvas-node"][data-kind="checklist"]')
+			.filter({ hasText: "Doubled" });
+		await expect(doubled.getByRole("checkbox")).toHaveCount(2);
+		await expect(
+			doubled.getByRole("checkbox", { name: "First thing: toggle done" }),
+		).not.toBeChecked();
+		await expect(
+			doubled.getByRole("checkbox", { name: "Second thing: toggle done" }),
+		).toBeChecked();
+	});
+
 	test("draws the edges a board was saved with, label and all", async ({
 		page,
 	}) => {
