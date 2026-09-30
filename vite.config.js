@@ -30,12 +30,19 @@ export default defineConfig({
 		external: ['@sveltejs/adapter-node']
 	},
 	optimizeDeps: {
-		// Everything the browser will need must be in the FIRST optimizer pass.
-		// The scan starts from the route files, so a package that only a hooks file
-		// imports (@sentry/sveltekit, from hooks.client.ts) is found on the first page
-		// load instead, which re-optimizes and reloads the page: on a dev server with
-		// an empty cache that aborts the first navigation and breaks hydration with a
-		// second copy of Svelte's runtime (the first e2e test of a fresh server).
-		include: ['chart.js/auto', '@sentry/sveltekit']
+		// Everything the browser will need must be in the FIRST optimizer pass. The
+		// scan starts from the route files, and does not follow an import() written
+		// inside a .svelte file or look at the hooks: a package found only by the first
+		// page (or panel) that needs it re-optimizes and reloads the page, which on a
+		// dev server with an empty cache aborts the first navigation and breaks
+		// hydration with a second copy of Svelte's runtime. So the scan is also
+		// started from the two places that hide packages that way: the client hooks
+		// (@sentry/sveltekit) and the Document editor, which DocumentBody.svelte
+		// loads with import() (all of TipTap).
+		entries: [
+			'src/hooks.client.ts',
+			'src/lib/components/artifacts/document/document-editor.ts'
+		],
+		include: ['chart.js/auto']
 	}
 });
