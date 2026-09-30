@@ -20,6 +20,17 @@ npm test > "$OUT/test.log" 2>&1
 note "test       exit=$? :: $(sed -E 's/\x1b\[[0-9;]*m//g' "$OUT/test.log" | grep -E '^\s*(Test Files|Tests) ' | tr -s ' ' | tr '\n' ' ')"
 npm run build > "$OUT/build.log" 2>&1
 note "build      exit=$? :: unused-css=$(grep -c 'Unused CSS selector' "$OUT/build.log") aria=$(grep -c 'must have an ARIA role' "$OUT/build.log") (baseline 32/2)"
+# The artifact size budgets are a gate of their own, run on the build just made, never a tail of `npm run build`:
+# the chat-route baseline is a fixed byte count and the server's build environment measures ~660 B heavier on every
+# route, so a deploy must not stand on it. Its summary: the editor's closure and the chat route's delta, plus any FAIL
+# line; a run that printed none of those (no manifest, a crash) shows the log's last line instead.
+npm run check:artifact-chunks > "$OUT/chunks.log" 2>&1; rc=$?
+cs=$(sed -nE \
+  -e 's/^\[artifact-chunks\] (FAIL.*)$/\1/p' \
+  -e 's/.*its own \([0-9.]+ kB raw, ([0-9.]+) kB gzip\).*/editor closure \1 kB gzip/p' \
+  -e 's/^.*chat route.*\((\+?-?[0-9]+) against the baseline of [0-9]+, ([0-9]+) allowed\)$/chat route \1 B (of \2)/p' \
+  "$OUT/chunks.log" | cut -c1-150 | tr '\n' ';')
+note "chunks     exit=$rc :: ${cs:-$(tail -1 "$OUT/chunks.log" | cut -c1-150)}"
 npx fallow --no-cache --format json --quiet --score --output-file "$OUT/fallow.json" > "$OUT/fallow.log" 2>&1
 note "fallow     exit=$? :: $(python3 - "$OUT/fallow.json" <<'PY'
 import json, sys

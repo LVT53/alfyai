@@ -78,7 +78,12 @@ brief names the other one and what it owns. The orchestrator merges, reviews and
    `RouteItinerary` 1).
 2. `npx biome check src scripts tests` (not `npm run lint`, which breaks on nested worktrees).
 3. `npm test` (full vitest, once; ~14,200 tests).
-4. `npm run build` — no new warning (baseline: 32 `Unused CSS selector` + 2 `must have an ARIA role` lines).
+4. `npm run build` — no new warning (baseline: 32 `Unused CSS selector` + 2 `must have an ARIA role` lines). Then, **as its
+   own step on that build**, `npm run check:artifact-chunks` — the size budgets (the editor's closure, Chart.js and
+   MapLibre out of it, the chat route within 2 KiB of its baseline) — which must exit 0. The budgets are a development
+   gate and no longer part of `npm run build`: the chat-route baseline is a fixed byte count, and the dev server's
+   build environment measures ~660 B heavier on every route, so a deploy of gated code must not stand on it. Report
+   its exit and numbers on their own line, never inside the build's.
 5. Playwright, once, on your port: **every** artifact suite plus chat, conversation and knowledge —
    `tests/e2e/artifact*.spec.ts tests/e2e/artifacts-*.spec.ts tests/e2e/knowledge.spec.ts tests/e2e/chat.spec.ts
    tests/e2e/conversation.spec.ts`. A failure in a suite you did not touch: rerun it alone first. A test that fails only
