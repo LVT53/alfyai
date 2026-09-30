@@ -804,7 +804,7 @@ test.describe("comments on the Canvas", () => {
 		).toBeGreaterThan(300);
 	});
 
-	test("a step the reader takes while Alfy is answering is not lost silently: the board says it changed, and offers Reload", async ({
+	test("a step the reader takes while Alfy is answering is not lost: it is put on top of Alfy's change, and both are on the board and saved", async ({
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
@@ -870,16 +870,27 @@ test.describe("comments on the Canvas", () => {
 			.getByTestId("canvas-board")
 			.click({ position: { x: 60, y: 420 } });
 
-		await expect(page.getByTestId("canvas-conflict")).toBeVisible({
+		// Alfy's version is past the one the reader's save was made against, but the step
+		// is not refused for good (RV-3 I2): it is put on top of Alfy's change, so both
+		// are on the board, with nothing to reload.
+		await expect(page.getByText("Booked", { exact: true })).toBeVisible({
 			timeout: 15_000,
 		});
-		await expect(page.getByTestId("canvas-conflict")).toContainText(
-			"Alfy or another window changed the board",
-		);
-		// What the reader wrote is still on their screen until they choose to reload.
 		await expect(
 			page.getByText("Lunch at the market (and coffee)"),
 		).toBeVisible();
+		await expect(page.getByTestId("canvas-conflict")).toHaveCount(0);
+		// And both are in the saved board, the reader's step a version of its own on top of Alfy's.
+		await expect
+			.poll(async () => (await versionRows(artifactId)).at(-1)?.author, {
+				timeout: 15_000,
+			})
+			.toBe("user");
+		const stored = await storedBoard(artifactId);
+		expect(stored.nodes.map((node) => node.id)).toContain("note-late");
+		expect(stored.nodes.find((node) => node.id === LUNCH)?.data).toMatchObject({
+			text: "Lunch at the market (and coffee)",
+		});
 	});
 
 	test("when Alfy cannot answer, the comment is still posted and the list says so", async ({

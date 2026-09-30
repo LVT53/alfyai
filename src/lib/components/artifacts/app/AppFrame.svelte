@@ -389,17 +389,34 @@ $effect(() => {
  * event from the DOM's point of view — a fresh iframe element being
  * inserted — so tracking "has THIS element's first load already happened"
  * covers all three at once with no separate counter needed. Any load after
- * that first one, on the SAME element, was not asked for: the app navigated
- * itself. It acts after the fact (the app already ran once), but it ends a
- * phishing flow before the fake form can be interacted with for long.
+ * that first one, in the SAME browsing context, was not asked for: the app
+ * navigated itself. It acts after the fact (the app already ran once), but it
+ * ends a phishing flow before the fake form can be interacted with for long.
+ *
+ * The parent can also cause a load on an element that is not new: taking the
+ * element out of the page and putting it back (a Canvas block whose wrapper a
+ * keyed list moves when a block joins a frame listed after it, RV-3 I1). A
+ * browser destroys the frame's browsing context on removal and makes a new one
+ * on insertion, which loads `src` again and fires `load` on the SAME element
+ * — but with a NEW window, while a document that navigates itself stays in the
+ * window it has (a frame's WindowProxy outlives every navigation of it, cross
+ * origin too). So what arms the tripwire is the window: the first load, or the
+ * first load in a window the element did not have before, is the parent's own;
+ * only a further load in the SAME window is uncalled for. An app cannot make
+ * its own element leave the page and come back — it has no reach into the
+ * page — so this gives a hostile app nothing.
  */
 let tripwireTripped = $state(false);
 
 function trackFrameLoad(node: HTMLIFrameElement) {
-	let expectingLoad = true;
+	let armedWindow: Window | null = null;
 	function onLoad(): void {
-		if (expectingLoad) {
-			expectingLoad = false;
+		const current = node.contentWindow;
+		// No window: the element is not in a page, so no document of an app's own
+		// can be the one that just loaded.
+		if (!current) return;
+		if (armedWindow === null || current !== armedWindow) {
+			armedWindow = current;
 			return;
 		}
 		// Tearing the element down (below) ends the runaway document

@@ -196,6 +196,8 @@ let boardBody = $state.raw<CanvasBody>(emptyCanvasBody());
 let boardKey = $state(0);
 let droppedCount = $state(0);
 let noticeDismissed = $state(false);
+/** The blocks where a newer version of the board and the reader's own step had both changed the same thing, and the reader's stood (`rebaseBoard`): the board says so until the reader dismisses it (0). */
+let keptCount = $state(0);
 let versionsOpen = $state(false);
 // The Versions sheet is the Document's own, and loads the first time it is opened.
 let VersionsSheet = $state.raw<
@@ -250,6 +252,27 @@ let commentViews = $state.raw<CommentViews | null>(null);
 let comments = $state.raw<CanvasCommentsController | null>(null);
 let commentsLoading: Promise<void> | null = null;
 
+// A step of the reader's and a newer version of the board (Alfy changed it while the
+// step was still in the browser) are put together by code that loads on demand
+// (`rebase-board.ts`): only a board that was changed elsewhere under an unsaved step
+// needs it, so it is fetched with the first step, and is here by the time it is wanted.
+type Rebase = typeof import("./rebase-board");
+let rebase: Rebase | null = null;
+let rebaseLoading: Promise<Rebase | null> | null = null;
+function loadRebase(): Promise<Rebase | null> {
+	rebaseLoading ??= import("./rebase-board").then(
+		(module) => (rebase = module),
+		// Offline, or a deploy in between: the next step tries again.
+		() => {
+			rebaseLoading = null;
+			return null;
+		},
+	);
+	return rebaseLoading;
+}
+/** The step whose save was refused with nothing newer on the server, and put in the queue once more. */
+let retriedRefusal: string | null = null;
+
 const autosave = createDocumentAutosave({
 	save: async (json) => {
 		const result = await saveArtifactBody(
@@ -275,8 +298,18 @@ function clearSavedTimer(): void {
 	savedTimer = null;
 }
 
+/** Says "Saved", and lets it go after a moment. */
+function noteSaved(): void {
+	saveState = "saved";
+	clearSavedTimer();
+	savedTimer = setTimeout(() => {
+		if (saveState === "saved") saveState = "idle";
+	}, SAVED_MS);
+}
+
 function handleSaveResult(result: DocumentAutosaveResult, json: string): void {
 	if (result.ok) {
+		retriedRefusal = null;
 		if (typeof result.version === "number") versionNumber = result.version;
 		if (typeof result.bodyHash === "string") knownBodyHash = result.bodyHash;
 		savedJson = json;
@@ -287,15 +320,8 @@ function handleSaveResult(result: DocumentAutosaveResult, json: string): void {
 			droppedCount = lastDropped;
 			noticeDismissed = false;
 		}
-		if (dirty) {
-			saveState = "saving";
-			return;
-		}
-		saveState = "saved";
-		clearSavedTimer();
-		savedTimer = setTimeout(() => {
-			if (saveState === "saved") saveState = "idle";
-		}, SAVED_MS);
+		if (dirty) saveState = "saving";
+		else noteSaved();
 		return;
 	}
 	clearSavedTimer();
@@ -309,9 +335,10 @@ function handleSaveResult(result: DocumentAutosaveResult, json: string): void {
 			break;
 		case "version_conflict":
 		case "stale":
-			// The reader's own steps stay on screen until they choose to reload.
-			saveState = "conflict";
-			autosave.stop();
+			// The server is past the version this save was made against (Alfy changed
+			// the board, or another tab of the reader's saved). The step is put on top
+			// of what it holds now instead of being refused for good.
+			void recoverFromRefusal(json);
 			break;
 		case "offline":
 			saveState = "offline";
@@ -323,6 +350,7 @@ function handleSaveResult(result: DocumentAutosaveResult, json: string): void {
 
 function handleBoardChange(next: CanvasBody): void {
 	if (autosave.stopped) return;
+	void loadRebase();
 	setBoardNodes(next.nodes);
 	latestJson = boardJson(next);
 	saveState = "saving";
@@ -354,6 +382,7 @@ async function load(id: string): Promise<void> {
 			read.dropped.edges.length +
 			read.dropped.annotations.length;
 		noticeDismissed = false;
+		keptCount = 0;
 		versionNumber = detail.artifact.versionNumber;
 		knownBodyHash = detail.artifact.bodyHash;
 		latestJson = boardJson(read.body);
@@ -420,17 +449,21 @@ async function refreshBlock(
  * Every read of the artifact, from the comments or from a chat turn's edit. When
  * the version moved it is usually because Alfy changed the board:
  * `judgeServerBoard` says whether to draw it, whether it is only the reader's own
- * save seen early, and whether it cannot be drawn at all (the reader has steps the
- * server has not seen: their save would be refused as stale, so this says so
- * instead of losing them silently). Answers the board to draw, or null when there
- * is nothing to draw. The version, hash and bookkeeping are taken here, at once;
- * the drawing (a landing) follows, and a second one waits for the first.
+ * save seen early, and whether the reader has steps the server has not seen. Those
+ * steps are not given up: they are put on top of the newer version (`rebaseBoard`),
+ * the board drawn is that one, and it is saved as the reader's own step. Answers the
+ * board to draw, or null when there is nothing to draw. The version, hash and
+ * bookkeeping are taken here, at once; the drawing (a landing) follows, and a second
+ * one waits for the first.
  */
 function adoptBoard(detail: ArtifactDetailResponse): CanvasBody | null {
 	try {
 		const stored = detail.artifact.body;
 		const read = normalizeCanvasBody(stored?.trim() ? JSON.parse(stored) : {});
 		const serverJson = boardJson(read.body);
+		// A step still inside the board's settle delay is the reader's too: it is
+		// settled before anything is judged, so a landing never draws over it.
+		const live = boardApi?.flush();
 		const verdict = judgeServerBoard({
 			serverVersion: detail.artifact.versionNumber,
 			knownVersion: versionNumber,
@@ -439,23 +472,52 @@ function adoptBoard(detail: ArtifactDetailResponse): CanvasBody | null {
 			savedJson,
 		});
 		if (verdict === "unchanged") return null;
-		if (verdict === "conflict") {
-			saveState = "conflict";
-			autosave.stop();
-			return null;
+		const merge = verdict === "conflict";
+		let drawn = read.body;
+		let kept: string[] = [];
+		if (merge) {
+			// A board that is waiting for the reader's Reload (or was deleted) takes no
+			// step of theirs and no landing on top of it.
+			if (autosave.stopped) return null;
+			if (!rebase) {
+				// The code that puts the two together is not here yet (a step was only just
+				// taken, or it could not be fetched): the read is taken up again when it is.
+				void loadRebase().then((loaded) =>
+					loaded ? adoptServerBoard(detail) : autosave.stopped || giveUp(),
+				);
+				return null;
+			}
+			({ body: drawn, kept } = rebase.rebaseOnto(
+				savedJson,
+				read.body,
+				live ?? latestJson,
+			));
 		}
 		versionNumber = detail.artifact.versionNumber;
 		knownBodyHash = detail.artifact.bodyHash;
 		savedJson = serverJson;
 		if (verdict === "ours") return null;
-		latestJson = serverJson;
-		setBoardNodes(read.body.nodes);
+		latestJson = boardJson(drawn);
+		setBoardNodes(drawn.nodes);
 		onBodyChange?.(latestJson);
-		return read.body;
+		if (merge) {
+			// The reader's step is on the board, and not on the server yet: it is theirs to keep.
+			if (kept.length > 0) keptCount = kept.length;
+			saveState = "saving";
+			onDirtyChange?.(true);
+			autosave.schedule(latestJson);
+		}
+		return drawn;
 	} catch {
 		// A body that will not read is left to the next load.
 		return null;
 	}
+}
+
+/** The step cannot be put on the newer version (the code for it did not load, or the server holds nothing newer to put it on): the reader is told, and the board stays as it is. */
+function giveUp(): void {
+	saveState = "conflict";
+	autosave.stop();
 }
 
 /** What the comments controller calls after each read of the artifact: a board Alfy changed is drawn as a landing (at once when the parts cannot load). */
@@ -465,6 +527,46 @@ function adoptServerBoard(detail: ArtifactDetailResponse): void {
 	void ensureReview().then((controller) =>
 		controller ? controller.landChange(next) : boardApi?.land(next),
 	);
+}
+
+/**
+ * A save was refused because the server is past the version it was made against:
+ * Alfy changed the board while the step was still in the browser, or another tab of
+ * the reader's saved. The step is not given up (that used to end in a Reload that
+ * took it away): the board is read again, the step is put on top of it, and the
+ * result is saved as the reader's own. When the server holds nothing newer than
+ * what this editor already has, the refusal was a race with the reader's own save
+ * and the step goes once more against the version it has now; refused a second time
+ * in a row with nothing newer, it is a conflict the reader is told about.
+ */
+async function recoverFromRefusal(refusedJson: string): Promise<void> {
+	// A later step, or a landing that already put the step on the newer version,
+	// has its own save queued: this one is history.
+	if (refusedJson !== latestJson) return;
+	const token = loadToken;
+	try {
+		const detail = await fetchArtifact(artifactId, conversationId);
+		if (token !== loadToken || autosave.stopped || refusedJson !== latestJson) {
+			return;
+		}
+		if (detail.artifact.versionNumber === versionNumber) {
+			if (retriedRefusal === refusedJson) {
+				giveUp();
+			} else {
+				retriedRefusal = refusedJson;
+				autosave.schedule(refusedJson);
+			}
+			return;
+		}
+		adoptServerBoard(detail);
+		if (saveState === "saving" && latestJson === savedJson) {
+			onDirtyChange?.(false);
+			noteSaved();
+		}
+	} catch {
+		// It could not be asked: the step is kept, as any save that could not go.
+		if (token === loadToken) saveState = "failed";
+	}
 }
 
 /** The blocks the board has as of a step, a load or a landing: what the comments resolve against, and what still images are taken of. */
@@ -754,7 +856,9 @@ $effect(() => {
 });
 
 // The header's Versions and Comments buttons: the Versions sheet lives in this
-// body, and Comments is one toggle for whichever surface applies.
+// body, and Comments is one toggle for whichever surface applies. `flush` is for
+// the chat page, which saves the reader's last step before a turn starts (a turn
+// can make Alfy change this board).
 $effect(() => {
 	registerPanelActions?.({
 		openVersions: () => (versionsOpen = true),
@@ -763,6 +867,7 @@ $effect(() => {
 			void ensureComments().then(() => {
 				if (commentViews && comments) commentViews.toggleComments(comments);
 			}),
+		flush: saveBoardNow,
 	});
 });
 
@@ -832,6 +937,7 @@ $effect(() => {
 		saveState === "deleted" ||
 		banner !== null ||
 		showDroppedNotice ||
+		keptCount > 0 ||
 		missingBlocks.length > 0
 	) {
 		void import("./state-parts").then(({ CanvasBanners, CanvasStates }) => {
@@ -913,10 +1019,12 @@ $effect(() => {
 					{#if reviewViews && review}
 						<reviewViews.CanvasReviewNotices controller={review} />
 					{/if}
-					{#if stateViews && (showDroppedNotice || banner || missingBlocks.length > 0)}
+					{#if stateViews && (showDroppedNotice || keptCount > 0 || banner || missingBlocks.length > 0)}
 						<stateViews.CanvasBanners
 							{banner}
 							droppedCount={showDroppedNotice ? droppedCount : 0}
+							{keptCount}
+							ondismisskept={() => (keptCount = 0)}
 							{missingBlocks}
 							onretry={retrySave}
 							onreload={() => load(artifactId)}

@@ -1262,6 +1262,75 @@ describe("chat page runtime integration", () => {
 		});
 	});
 
+	// RV-3 I2: a turn can make Alfy change the artifact that is open beside the chat,
+	// and a step of the reader's that is still inside the body's save delay would be
+	// written over, or refused as stale, when Alfy's change lands. The open body's
+	// pending step is saved first, and the message goes once that save has answered.
+	it("saves the open artifact's pending step before a message is sent, and sends it once the save has answered", async () => {
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		const { ARTIFACT_BODIES } = await import(
+			"$lib/components/artifacts/artifact-bodies"
+		);
+		const { fakeFlush } = await import(
+			"$lib/components/document-workspace/__fixtures__/fake-flush"
+		);
+		let answerSave: () => void = () => {};
+		fakeFlush.mockReset().mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					answerSave = resolve;
+				}),
+		);
+		ARTIFACT_BODIES.document = () =>
+			import(
+				"$lib/components/document-workspace/__fixtures__/FakeFlushingArtifactBody.svelte"
+			);
+		try {
+			renderPage(
+				pageData({
+					artifacts: [
+						{
+							id: "doc-1",
+							kind: "document",
+							title: "Vienna trip plan",
+							conversationId: "conv-1",
+							versionNumber: 1,
+							commentCount: 0,
+							updatedAt: Date.now(),
+						},
+					],
+				}),
+			);
+			await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+			const list = await screen.findByTestId("artifact-panel-list");
+			await fireEvent.click(within(list).getByTestId("artifact-row"));
+			await screen.findByTestId("fake-flushing-artifact-body");
+
+			await fireEvent.input(screen.getByTestId("message-input"), {
+				target: { value: "Rearrange this" },
+			});
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+
+			// The step is being saved, and the message is not on its way yet.
+			await waitFor(() => {
+				expect(fakeFlush).toHaveBeenCalledTimes(1);
+			});
+			expect(runtimeHarness.streamInvocations).toHaveLength(0);
+
+			answerSave();
+			await waitFor(() => {
+				expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			});
+		} finally {
+			delete ARTIFACT_BODIES.document;
+		}
+	});
+
 	// Wave 2.5 polish G1-B (owner: "the version numbers are all over the place"):
 	// the list row and the header's version button used to keep the number they
 	// were loaded or opened with. Every version the server reports through the
