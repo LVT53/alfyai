@@ -850,6 +850,83 @@ describe("AppFrame — the tripwire", () => {
 		expect(container.querySelector(".app-frame-tripwire")).toBeNull();
 	});
 
+	it("does not trip when the page moves the frame: a reinserted element loads afresh in a new browsing context, and that is the page's own doing", async () => {
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const iframe = getIframe(container);
+		fireLoad(iframe); // the load AppFrame itself caused
+		const firstWindow = iframe.contentWindow;
+
+		// What a keyed list does to a block that is reordered (a Canvas block taken
+		// into a frame that is listed after it): its wrapper is taken out of the
+		// page and put back, and the browser loads the frame again from its src.
+		const parent = iframe.parentNode as HTMLElement;
+		const next = iframe.nextSibling;
+		parent.removeChild(iframe);
+		parent.insertBefore(iframe, next);
+		// The premise: it IS a new browsing context now (a browser gives it a new
+		// WindowProxy; an app that navigates itself keeps the one it has).
+		// (A boolean, not `not.toBe`: a matcher that fails to tell two windows apart
+		// walks the closed one's properties and throws.)
+		expect(iframe.contentWindow === firstWindow).toBe(false);
+		fireLoad(iframe);
+		await tick();
+
+		expect(container.querySelector(".app-frame-tripwire")).toBeNull();
+		expect(container.querySelector("iframe")).not.toBeNull();
+	});
+
+	it("still trips on an app that navigates itself after the page moved its frame: only the load in the SAME browsing context is uncalled for", async () => {
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const iframe = getIframe(container);
+		fireLoad(iframe);
+		const parent = iframe.parentNode as HTMLElement;
+		const next = iframe.nextSibling;
+		parent.removeChild(iframe);
+		parent.insertBefore(iframe, next);
+		fireLoad(iframe); // the reload the move caused
+		await tick();
+		expect(container.querySelector(".app-frame-tripwire")).toBeNull();
+
+		fireLoad(iframe); // the app now navigating itself, in the window it has
+		await tick();
+
+		expect(container.querySelector("iframe")).toBeNull();
+		expect(container.querySelector(".app-frame-tripwire")).not.toBeNull();
+	});
+
+	it("keeps serving the storage bridge to the moved frame's new document, and to no other", async () => {
+		readAppValue.mockResolvedValue({ ok: true, value: "kept" });
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+		const iframe = getIframe(container);
+		fireLoad(iframe);
+		const oldWindow = iframe.contentWindow as Window;
+		const parent = iframe.parentNode as HTMLElement;
+		const next = iframe.nextSibling;
+		parent.removeChild(iframe);
+		parent.insertBefore(iframe, next);
+		fireLoad(iframe);
+		await tick();
+		const newWindow = iframe.contentWindow as Window;
+		expect(newWindow === oldWindow).toBe(false);
+
+		// The document that was torn down by the move is not served any more...
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: ["k"] },
+			oldWindow,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(readAppValue).not.toHaveBeenCalled();
+
+		// ...and the new one is, against the same App.
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: ["k"] },
+			newWindow,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(readAppValue).toHaveBeenCalledTimes(1);
+		expect(readAppValue.mock.calls[0]?.[0]).toBe("app-1");
+	});
+
 	it("offers a reload action that remounts a fresh frame with its own free pass", async () => {
 		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
 		const iframe = getIframe(container);
