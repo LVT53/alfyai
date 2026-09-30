@@ -5602,12 +5602,26 @@ describe("tool description hygiene", () => {
 	// fewer, the per-tool ceiling). The ceiling below is that measurement plus the
 	// SAME margin (26 en / 27 hu).
 	//
+	// RC-3 N1: what Alfy adds to a board is no longer one width. A chart's plot and
+	// a checklist's rows need more than a note's 190, so the size sentence (still
+	// one sentence built from the constants the read, the board and the eval share;
+	// kind-prose.ts's SIZE_FACTS) gained a checklist's and a chart's width (340,
+	// 360) and a chart's height (228; 397 for a round one). Re-measured: 5,084 en /
+	// 8,223 hu (24 en / 36 hu spent, all of it in edit_artifact's description: the
+	// create_artifact `body` field's copy is a schema description, which this
+	// ceiling does not count). edit_artifact hu, 748 tokens and so 2 under the
+	// per-tool ceiling, is now 784. Both ceilings move by the measured cost plus
+	// the SAME margin they had (catalogue 26 en / 27 hu, per tool 2): 5,110 en /
+	// 8,250 hu, and 786 per tool. Without the sentence a chart was planned 84
+	// tall with a block under it on its axis, and a checklist's items were cut off
+	// at about 16 characters.
+	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
-	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 5086, hu: 8214 } as const;
+	const PER_TOOL_TOKEN_CEILING = 786;
+	const CATALOGUE_TOKEN_CEILING = { en: 5110, hu: 8250 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);

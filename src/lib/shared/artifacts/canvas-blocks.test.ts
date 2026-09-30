@@ -468,6 +468,11 @@ describe("the size a block has when it stores none (RC-3 N1)", () => {
 				chart("bar", 0, { options: { aspectRatio: 0 } }).data.code,
 			),
 		).toBe(2);
+		// The chart node reads its config as leniently as the chat does (one brace
+		// short still draws), so a pie one brace short is estimated as the pie it is.
+		expect(
+			chartAspectRatio('{"type":"pie","data":{"datasets":[{"data":[1,2]}]}'),
+		).toBe(1);
 		// A config that is not JSON is drawn as its source, and is estimated like a bar.
 		expect(chartAspectRatio("not json")).toBe(2);
 		expect(chartAspectRatio("[1, 2]")).toBe(2);

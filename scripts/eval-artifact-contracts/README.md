@@ -107,8 +107,9 @@ core:
   (`boardOpsArraySchema`, `validateBoardDiff` through `runOps`) and checks the board
   they leave: every diff parses and lands (a refusal is a miss), every requested item
   is there, nothing sticks out of its frame, no two nodes overlap (footprint: a node's
-  stored size, or the shared 190 width and the height its words take, the estimate
-  the model is told and the read reports: `estimatedNodeHeight`), labels are not empty, nothing was removed that the request
+  stored size, or its kind's default width (a note's 190, a checklist's 340, a chart's
+  360) and the height its words, items or plot take, the estimate the model is told and
+  the read reports: `estimatedNodeSize`), labels are not empty, nothing was removed that the request
   did not name, and the new words are in the declared language. A create is judged
   through `parseCanvasCreateBody`, the tool's own parse. Every reason starts with the
   check that found it (`routing:`, `tool-args:`, `schema:`, `refusal:`, `request:`,
