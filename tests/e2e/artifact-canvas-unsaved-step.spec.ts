@@ -479,6 +479,33 @@ test.describe("screenshots of a board after a send that raced an edit", () => {
 		});
 	});
 
+	test("the same board in the dark, Hungarian, 1440x900", async ({ page }) => {
+		await setUiLanguage("hu");
+		await page.emulateMedia({ colorScheme: "dark" });
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const scene = await openBoardOnly(page);
+		await typeIntoNote(page, LUNCH, " (két főre)");
+		await leaveNote(page);
+		await writeAlfyVersion(scene.artifactId, (stored) => ({
+			...stored,
+			nodes: [
+				...stored.nodes.map((node) =>
+					node.id === LUNCH
+						? { ...node, data: { ...node.data, text: "Ebéd délben" } }
+						: node,
+				),
+				note("note-booked", 420, 260, "Lefoglalva 15:30-ra"),
+			],
+		}));
+		await expect(page.getByTestId("canvas-rebased-notice")).toBeVisible({
+			timeout: 15_000,
+		});
+		await page.waitForTimeout(1_500);
+		await page.screenshot({
+			path: join(SHOTS as string, "1440-dark-board-kept-notice.png"),
+		});
+	});
+
 	test("the same notice on a phone, Hungarian, 390x844", async ({ page }) => {
 		await setUiLanguage("hu");
 		await page.setViewportSize({ width: 390, height: 844 });

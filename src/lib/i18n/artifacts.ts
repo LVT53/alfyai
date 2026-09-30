@@ -1274,7 +1274,7 @@ const artifactsDict = {
 			"{count} blokkot nem sikerült beolvasni, kimaradtak.",
 		"artifacts.canvas.dismiss": "Elrejtés",
 		"artifacts.canvas.rebasedKept":
-			"Alfy {count} olyan blokkot is módosított, amelyen te is változtattál. A te változatod maradt meg.",
+			"Alfy {count} olyan blokkot módosított, amelyen te is változtattál. A te változatod maradt meg.",
 		"artifacts.canvas.deleteBlock": "Blokk törlése",
 		"artifacts.canvas.nodeDeleted": "Törölve a tábláról.",
 		"artifacts.canvas.tone": "Jegyzet színe",

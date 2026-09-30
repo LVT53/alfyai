@@ -476,6 +476,9 @@ function adoptBoard(detail: ArtifactDetailResponse): CanvasBody | null {
 		let drawn = read.body;
 		let kept: string[] = [];
 		if (merge) {
+			// A board that is waiting for the reader's Reload (or was deleted) takes no
+			// step of theirs and no landing on top of it.
+			if (autosave.stopped) return null;
 			if (!rebase) {
 				// The code that puts the two together is not here yet (a step was only just
 				// taken, or it could not be fetched): the read is taken up again when it is.
