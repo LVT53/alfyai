@@ -414,6 +414,32 @@ test.describe("Alfy's change lands where the reader can see it", () => {
 		}
 	});
 
+	test("names what Alfy left alone when it refused every op: nothing to review, and no version", async ({
+		page,
+	}) => {
+		const scene = await open(page);
+		try {
+			await askAlfy(page, scene.artifactId, [
+				{ op: "move", id: "ghost", to: { x: 5, y: 5 } },
+				{ op: "move", id: "phantom", to: { x: 9, y: 9 } },
+			]);
+			const notice = page.getByTestId("refusal-notice");
+			await expect(notice).toContainText("Alfy skipped 2 changes.", {
+				timeout: 30_000,
+			});
+			await expect(notice).toContainText("ghost");
+			await expect(notice).toContainText(
+				"nothing is at that position any more",
+			);
+			// Nothing changed, so nothing waits for the reader.
+			await expect(bar(page)).toBeHidden();
+			await expect(pill(page)).toBeHidden();
+			expect((await versions(scene.artifactId)).length).toBe(1);
+		} finally {
+			await scene.cleanup();
+		}
+	});
+
 	test("a highlight rings for a moment and asks for nothing to review: it writes no version", async ({
 		page,
 	}) => {

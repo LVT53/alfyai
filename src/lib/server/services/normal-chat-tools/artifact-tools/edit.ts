@@ -563,6 +563,12 @@ export async function runEditArtifactTool(params: {
 		abortSignal: params.abortSignal,
 	});
 	if (!result.ok) {
+		// An edit in which every op was refused changed nothing, but the panel can still
+		// name what was left alone and why: the refusals that belong to an op of the call
+		// (never the ones about the call as a whole) travel op by op, as a partial edit's do.
+		const perOp = (result.refused ?? []).filter(
+			(item) => item.opIndex !== undefined,
+		);
 		return {
 			modelPayload: {
 				success: false,
@@ -574,6 +580,17 @@ export async function runEditArtifactTool(params: {
 				ok: false,
 				artifactId: record.id,
 				artifactKind: record.kind,
+				...(perOp.length > 0
+					? {
+							refusedBlocksJson: JSON.stringify(
+								perOp.map((item) => ({
+									blockId: item.target ?? "",
+									reason: item.reason,
+									opIndex: item.opIndex,
+								})),
+							),
+						}
+					: {}),
 			},
 		};
 	}

@@ -94,6 +94,19 @@ export function buildCanvasAlfyActivity(
 		};
 	}
 	if (segment.status === "failed" || metadata.ok === false) {
+		// A call in which every op was refused changed nothing, but says which and why
+		// (`refusedBlocksJson`): that is a refusal to name, not a failure to hide. A call
+		// that failed for any other reason has nothing to show.
+		const refused = parseRefusedBlocks(metadata.refusedBlocksJson);
+		if (refused.length > 0) {
+			return {
+				...base,
+				status: "refused",
+				ops: parseRawOps(segment.input?.ops),
+				refusedBlocks: refused,
+				appliedCount: 0,
+			};
+		}
 		return {
 			...base,
 			status: "failed",

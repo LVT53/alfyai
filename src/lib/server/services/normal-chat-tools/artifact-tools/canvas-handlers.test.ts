@@ -528,6 +528,16 @@ describe("edit_artifact.canvas", () => {
 		expect(details).toContain("frame, sticky, text, checklist, chart");
 		expect(details).toContain("Node ids:");
 		expect(await versionCount(artifactId)).toBe(before);
+		// The panel is told too, op by op, so it can name what Alfy left alone: the call
+		// changed nothing, but "changed nothing" is not the whole story to the reader.
+		expect(result.metadata).toMatchObject({
+			ok: false,
+			artifactKind: "canvas",
+		});
+		expect(JSON.parse(String(result.metadata.refusedBlocksJson))).toEqual([
+			{ blockId: "nope", reason: "unknown_id", opIndex: 0 },
+			{ blockId: "x", reason: "unknown_kind", opIndex: 1 },
+		]);
 	});
 
 	it("names the valid ops and the blocks it may add when the ops cannot be read (the Document's dev incident, for the board)", async () => {

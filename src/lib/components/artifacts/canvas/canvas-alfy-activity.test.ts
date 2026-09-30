@@ -144,6 +144,29 @@ describe("a settled edit of a board", () => {
 		expect(activity?.ops ?? []).toEqual([]);
 	});
 
+	it("refused: a call in which every op was refused still says which, so the panel can name what was left alone", () => {
+		const activity = buildCanvasAlfyActivity(
+			call({
+				status: "failed",
+				metadata: {
+					ok: false,
+					artifactId: "board-1",
+					artifactKind: "canvas",
+					refusedBlocksJson: JSON.stringify([
+						{ blockId: "note-museum", reason: "unknown_id", opIndex: 0 },
+						{ blockId: "todo-1", reason: "unknown_kind", opIndex: 2 },
+					]),
+				},
+			}),
+		);
+		expect(activity).toMatchObject({ status: "refused", appliedCount: 0 });
+		expect(activity?.refusedBlocks.map((item) => item.opIndex)).toEqual([0, 2]);
+		expect(activity?.ops).toEqual([MOVE, ADD_NOTE, ARROW]);
+		expect(acceptedCanvasOps(activity as NonNullable<typeof activity>)).toEqual(
+			[ADD_NOTE],
+		);
+	});
+
 	it("is not a Document's edit, nor a creation", () => {
 		expect(
 			buildCanvasAlfyActivity(
