@@ -224,7 +224,15 @@ function chartsIn(
 	lex: Lexer,
 	seenCode: Set<string>,
 ): ChatChartBlock[] {
-	const codes = classifyMarkdownBlocks(lex(message.content))
+	let blocks: ReturnType<typeof classifyMarkdownBlocks>;
+	try {
+		blocks = classifyMarkdownBlocks(lex(message.content));
+	} catch {
+		// A reply the tokeniser cannot read has no charts to offer; it must not
+		// fail the listing of the rest.
+		return [];
+	}
+	const codes = blocks
 		.flatMap((block) => (block.kind === "chart" ? [block.code] : []))
 		.reverse();
 	const charts: ChatChartBlock[] = [];

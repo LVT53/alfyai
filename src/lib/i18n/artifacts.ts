@@ -1271,7 +1271,7 @@ const artifactsDict = {
 		"artifacts.canvas.chat.chartType.pie": "Kördiagram",
 		"artifacts.canvas.chat.chartType.doughnut": "Fánkdiagram",
 		"artifacts.canvas.chat.chartType.radar": "Radardiagram",
-		"artifacts.canvas.chat.chartType.polarArea": "Sarkköri diagram",
+		"artifacts.canvas.chat.chartType.polarArea": "Poláris területdiagram",
 		"artifacts.canvas.chat.chartType.scatter": "Pontdiagram",
 		"artifacts.canvas.chat.chartType.bubble": "Buborékdiagram",
 		"artifacts.canvas.chat.chartType.other": "Diagram",
