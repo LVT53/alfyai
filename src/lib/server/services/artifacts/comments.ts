@@ -21,6 +21,7 @@ import { resolveTextAnchor } from "$lib/shared/artifact-document/anchor";
 import type { DocumentBlock } from "$lib/shared/artifact-document/blocks";
 import type { PatchOp, PatchSet } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import { canvasAnchorResolver } from "$lib/shared/artifacts/comments";
 import { sendJsonControlMessage } from "../normal-chat-control-model";
 import {
 	applyDocumentPatch,
@@ -28,7 +29,7 @@ import {
 	readDocumentForAlfy,
 } from "./document-ops";
 import { ARTIFACT_COMMENT_BODY_MAX_CHARS } from "./limits";
-import { readScopedArtifactRow } from "./record";
+import { kindForArtifactRow, readScopedArtifactRow } from "./record";
 import type {
 	ArtifactAuthor,
 	ArtifactComment,
@@ -163,6 +164,15 @@ export async function createComment(
 	} else {
 		const anchor = toAnchor(params.anchor);
 		if (!anchor) return null;
+		// A board places node and point anchors only: a Document's text anchor
+		// would be an orphan the moment it was stored, so it is refused here
+		// rather than shown as one (ruling 11: the resolver's `kinds`).
+		if (
+			kindForArtifactRow(artifact) === "canvas" &&
+			!canvasAnchorResolver.kinds.includes(anchor.kind)
+		) {
+			return null;
+		}
 		anchorJson = JSON.stringify(anchor);
 	}
 
