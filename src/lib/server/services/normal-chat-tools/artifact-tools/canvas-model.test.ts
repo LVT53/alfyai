@@ -231,14 +231,33 @@ describe("parseCanvasCreateBody — the board a create_artifact call carries", (
 			expect(error).toMatch(/every \{ and \[ is closed/);
 		});
 
-		it("an arrow listed among the blocks, saying where arrows go", () => {
+		it("an entry that is an arrow in name only, saying where arrows go", () => {
+			// `type: "edge"` with no ends is not an arrow the parse can file: there is
+			// nothing to file it by.
+			const error = refusal(
+				body([sticky("a"), sticky("b"), { id: "e1", type: "edge" }]),
+			);
+			expect(error).toContain('nodes[2] "e1": is an edge');
+			expect(error).toContain('edges go in the "edges" array');
+		});
+
+		it("an entry that is both an arrow and a block, saying which is which", () => {
+			// Both an arrow's fields and a block's: which one it is cannot be guessed,
+			// so it is not filed anywhere. The message says what each looks like.
 			for (const entry of [
-				{ id: "e1", type: "edge", source: "a", target: "b" },
-				{ id: "e2", source: "a", target: "b" },
+				{ id: "e1", type: "edge", source: "a", target: "b", data: { x: 1 } },
+				{ id: "e2", source: "a", target: "b", position: { x: 0, y: 0 } },
+				{
+					...sticky("e3"),
+					source: "a",
+					target: "b",
+				},
 			]) {
 				const error = refusal(body([sticky("a"), sticky("b"), entry]));
-				expect(error).toContain(`nodes[2] "${entry.id}": is an edge`);
-				expect(error).toContain('edges go in the "edges" array');
+				expect(error, entry.id).toContain(`nodes[2] "${entry.id}"`);
+				expect(error, entry.id).toMatch(/both/);
+				expect(error, entry.id).toContain('"edges"');
+				expect(error, entry.id).toContain('"nodes"');
 			}
 		});
 
@@ -394,6 +413,173 @@ describe("parseCanvasCreateBody — the board a create_artifact call carries", (
 			expect(error).toMatch(/\+\d+ more/);
 			expect(error.length).toBeLessThan(2500);
 		});
+	});
+});
+
+describe("parseCanvasCreateBody — an arrow listed with the blocks is still an arrow", () => {
+	// About a third of English creates list their arrows under "nodes" (a habit
+	// from other editors), whatever the wording says. An entry there with a
+	// source and a target and no data is unambiguous, so it is filed where an
+	// arrow goes instead of costing the whole board a resend. Nothing else about
+	// the contract relaxes.
+	function edgesOf(raw: string) {
+		const result = parseCanvasCreateBody(raw);
+		if (!result.ok) throw new Error(result.error);
+		return result.body;
+	}
+
+	it("files an entry with a source and a target and no data under edges, whatever type it names", () => {
+		const board = edgesOf(
+			body([
+				sticky("a"),
+				sticky("b"),
+				{ id: "e1", type: "edge", source: "a", target: "b" },
+				{ id: "e2", source: "b", target: "a", label: "back" },
+				{ id: "e3", type: "smoothstep", source: "a", target: "b" },
+			]),
+		);
+
+		expect(board.nodes.map((node) => node.id)).toEqual(["a", "b"]);
+		expect(board.edges).toEqual([
+			{ id: "e1", source: "a", target: "b" },
+			{ id: "e2", source: "b", target: "a", label: "back" },
+			{ id: "e3", source: "a", target: "b" },
+		]);
+	});
+
+	it("makes the very board the model would have made by listing the arrows where they go", () => {
+		const blocks = [sticky("a"), frame("f"), sticky("b", { parentId: "f" })];
+		const arrows = [
+			{ id: "e1", source: "a", target: "b", label: "then" },
+			{ id: "e2", type: "edge", source: "b", target: "f" },
+		];
+
+		expect(edgesOf(body([...blocks, ...arrows]))).toEqual(
+			edgesOf(body(blocks, arrows)),
+		);
+		// Wherever among the blocks it stands.
+		expect(edgesOf(body([arrows[0], ...blocks, arrows[1]]))).toEqual(
+			edgesOf(body(blocks, arrows)),
+		);
+	});
+
+	it("keeps the arrows it was given where they are and files the moved ones after them, in the order they were listed", () => {
+		const board = edgesOf(
+			body(
+				[
+					sticky("a"),
+					{ id: "moved-1", source: "a", target: "b" },
+					sticky("b"),
+					{ id: "moved-2", source: "b", target: "a" },
+				],
+				[{ id: "given", source: "a", target: "b" }],
+			),
+		);
+
+		expect(board.edges.map((edge) => edge.id)).toEqual([
+			"given",
+			"moved-1",
+			"moved-2",
+		]);
+	});
+
+	it("drops an arrow listed with the blocks that the arrows already hold, exactly as written — the same arrow listed twice", () => {
+		// Seen live: all ten arrows written under "nodes" and again under "edges".
+		// Nothing is lost by dropping the second listing, so the board is made.
+		const arrows = [
+			{ id: "e1", source: "a", target: "b", label: "then" },
+			{ id: "e2", source: "b", target: "a" },
+		];
+		const board = edgesOf(body([sticky("a"), sticky("b"), ...arrows], arrows));
+
+		expect(board.edges).toEqual(arrows);
+		expect(board).toEqual(edgesOf(body([sticky("a"), sticky("b")], arrows)));
+	});
+
+	it("still refuses an arrow listed with the blocks that reuses an arrow's id for other ends", () => {
+		const error = refusal(
+			body(
+				[
+					sticky("a"),
+					sticky("b"),
+					// Same id, other ends: which one is meant cannot be guessed.
+					{ id: "e1", source: "b", target: "a" },
+				],
+				[{ id: "e1", source: "a", target: "b" }],
+			),
+		);
+		expect(error).toContain('nodes[2] "e1"');
+		expect(error).toMatch(/already exists/);
+		// A different label is a different arrow as well.
+		expect(
+			refusal(
+				body(
+					[sticky("a"), sticky("b"), { id: "e1", source: "a", target: "b" }],
+					[{ id: "e1", source: "a", target: "b", label: "then" }],
+				),
+			),
+		).toMatch(/already exists/);
+	});
+
+	it("judges a moved arrow as it judges an arrow, and names where it stood in the body", () => {
+		const toNothing = refusal(
+			body([sticky("a"), { id: "e1", source: "a", target: "ghost" }]),
+		);
+		expect(toNothing).toContain('nodes[1] "e1"');
+		expect(toNothing).toMatch(/Node ids: a/);
+
+		const twice = refusal(
+			body(
+				[sticky("a"), sticky("b"), { id: "e1", source: "a", target: "b" }],
+				[{ id: "e1", source: "b", target: "a" }],
+			),
+		);
+		expect(twice).toContain('nodes[2] "e1"');
+
+		// Ends that are not ids are an arrow with a bad end, said in the arrow's words.
+		const badEnd = refusal(
+			body([sticky("a"), { id: "e1", source: "a", target: 7 }]),
+		);
+		expect(badEnd).toContain('nodes[1] "e1"');
+		expect(badEnd).toMatch(/target/);
+	});
+
+	it("still refuses everything else the way it did: an arrow with a block's fields, and a block among the arrows", () => {
+		// Data or a position makes it possibly a block: refused, not filed.
+		expect(
+			refusal(
+				body([
+					sticky("a"),
+					{ id: "e1", source: "a", target: "a", data: { kind: "sticky" } },
+				]),
+			),
+		).toContain('nodes[1] "e1"');
+		// A block among the arrows is not moved the other way.
+		const error = refusal(
+			body(
+				[sticky("a")],
+				[{ id: "n2", type: "sticky", position: { x: 0, y: 0 }, data: {} }],
+			),
+		);
+		expect(error).toContain('blocks go in the "nodes" array');
+	});
+
+	it("does not count a moved arrow against the node cap, and does not let a board past it in", () => {
+		const blocks = Array.from({ length: 400 }, (_, index) =>
+			sticky(`n${index}`),
+		);
+		const arrows = [
+			{ id: "e1", source: "n0", target: "n1" },
+			{ id: "e2", source: "n1", target: "n2" },
+		];
+
+		const board = edgesOf(body([...blocks, ...arrows]));
+		expect(board.nodes).toHaveLength(400);
+		expect(board.edges).toHaveLength(2);
+
+		expect(
+			refusal(body([...blocks, sticky("one-too-many"), ...arrows])),
+		).toMatch(/400/);
 	});
 });
 

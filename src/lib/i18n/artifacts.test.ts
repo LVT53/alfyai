@@ -5,6 +5,10 @@ import {
 	collectDictionaryKeys,
 	mergedDictionaryModules,
 } from "$lib/i18n.test-helpers";
+import {
+	BOARD_REFUSAL_REASONS,
+	refusalLabelKey,
+} from "$lib/shared/artifacts/board-ops";
 import { uiLanguage } from "$lib/stores/settings";
 import artifactsDict from "./artifacts";
 
@@ -111,5 +115,22 @@ describe("the word 'artifact' in the UI", () => {
 				modules.includes(path.replace(/^\.\//, "").replace(/\.ts$/, "")),
 			),
 		).toHaveLength(modules.length);
+	});
+});
+
+// The Canvas tells the reader why a change of Alfy's skipped a block, in the
+// reader's own language: every reason the board can refuse for has a sentence,
+// in both. (`refusalLabelKey` is an exhaustive switch, so a new reason cannot
+// compile without a key; this is the half the compiler cannot see.)
+describe("the Canvas's refusal sentences", () => {
+	it("has a sentence, in English and in Hungarian, for every reason a board refuses for", () => {
+		for (const reason of BOARD_REFUSAL_REASONS) {
+			const key = refusalLabelKey(reason);
+			expect(artifactsDict.en, `${reason} in English`).toHaveProperty(key);
+			expect(artifactsDict.hu, `${reason} in Hungarian`).toHaveProperty(key);
+			expect((artifactsDict.hu as Record<string, string>)[key].trim()).not.toBe(
+				"",
+			);
+		}
 	});
 });

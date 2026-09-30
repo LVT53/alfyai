@@ -1091,6 +1091,172 @@ describe("createAccountDataArchive", () => {
 		);
 	});
 
+	// The Canvas (Feature 2, slice 3). A board is the user's own content twice
+	// over — the notes they wrote on it and the arrangement they made — so its
+	// body, every saved version and its comment threads travel with the export
+	// (ruling 24's reading, exactly as a Document's do), as inert text: a note
+	// can hold anything, markup included, and the archive must never become a
+	// place it runs.
+	it("archives a Canvas with its body, every version and its comment threads, as inert text, and nothing of another user's", async () => {
+		await seedArchiveUser();
+		const at = new Date("2026-03-01T09:00:00Z");
+		const board = (note: string) =>
+			JSON.stringify({
+				version: 1,
+				nodes: [
+					{
+						id: "note-1",
+						type: "sticky",
+						position: { x: 40, y: 40 },
+						width: 190,
+						data: { kind: "sticky", text: note, tone: "yellow" },
+					},
+				],
+				edges: [],
+				viewport: { x: 0, y: 0, zoom: 1 },
+				annotations: [],
+			});
+		const current = board("Book the <b>venue</b> before Friday");
+		await db.insert(schema.artifacts).values([
+			{
+				id: "artifact-canvas",
+				userId: "user-1",
+				conversationId: "conv-1",
+				type: "artifact",
+				name: "Launch board",
+				contentText: current,
+				metadataJson: JSON.stringify({
+					artifactType: "canvas",
+					title: "Launch board",
+				}),
+				createdAt: at,
+				updatedAt: at,
+			},
+			{
+				id: "artifact-canvas-other",
+				userId: "user-2",
+				conversationId: "conv-other",
+				type: "artifact",
+				name: "DO_NOT_EXPORT_OTHER_BOARD",
+				contentText: board("DO_NOT_EXPORT_OTHER_BOARD_NOTE"),
+				metadataJson: JSON.stringify({ artifactType: "canvas", title: "x" }),
+				createdAt: at,
+				updatedAt: at,
+			},
+		]);
+		await db.insert(schema.artifactVersions).values([
+			{
+				id: "version-canvas-1",
+				artifactId: "artifact-canvas",
+				userId: "user-1",
+				versionNumber: 1,
+				author: "alfy",
+				summary: "Alfy made the board",
+				body: board("Book the venue"),
+				bodyHash: "c1",
+				createdAt: at,
+			},
+			{
+				id: "version-canvas-2",
+				artifactId: "artifact-canvas",
+				userId: "user-1",
+				versionNumber: 2,
+				author: "user",
+				summary: "Reworded the note",
+				body: current,
+				bodyHash: "c2",
+				createdAt: at,
+			},
+			{
+				id: "version-canvas-other",
+				artifactId: "artifact-canvas-other",
+				userId: "user-2",
+				versionNumber: 1,
+				author: "user",
+				summary: "DO_NOT_EXPORT_OTHER_BOARD_VERSION",
+				body: board("DO_NOT_EXPORT_OTHER_BOARD_NOTE"),
+				bodyHash: "c3",
+				createdAt: at,
+			},
+		]);
+		await db.insert(schema.artifactComments).values([
+			{
+				id: "comment-canvas-root",
+				artifactId: "artifact-canvas",
+				userId: "user-1",
+				anchorJson: JSON.stringify({ kind: "node", nodeId: "note-1" }),
+				author: "user",
+				body: "Is Friday too late for the venue?",
+				createdAt: at,
+			},
+			{
+				id: "comment-canvas-reply",
+				artifactId: "artifact-canvas",
+				userId: "user-1",
+				parentId: "comment-canvas-root",
+				author: "alfy",
+				body: "The venue asks for a week of notice.",
+				createdAt: at,
+			},
+			{
+				id: "comment-canvas-other",
+				artifactId: "artifact-canvas-other",
+				userId: "user-2",
+				anchorJson: JSON.stringify({ kind: "node", nodeId: "note-1" }),
+				author: "user",
+				body: "DO_NOT_EXPORT_OTHER_BOARD_COMMENT",
+				createdAt: at,
+			},
+		]);
+
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+			now: new Date("2026-06-15T08:00:00Z"),
+		});
+		expect(result.status).toBe("ok");
+		if (result.status !== "ok") return;
+		const zip = await JSZip.loadAsync(
+			Buffer.from(await new Response(result.zipStream).arrayBuffer()),
+		);
+
+		const page = (await zip
+			.file("Files/Readable/Launch board.html")
+			?.async("string")) as string;
+
+		// The board as it stands, and each version's own board.
+		expect(page).toContain("Book the &lt;b&gt;venue&lt;/b&gt; before Friday");
+		expect(page).toContain("v1");
+		expect(page).toContain("Alfy made the board");
+		expect(page).toContain("Book the venue");
+		expect(page).toContain("v2");
+		expect(page).toContain("Reworded the note");
+		// The threads.
+		expect(page).toContain("Is Friday too late for the venue?");
+		expect(page).toContain("The venue asks for a week of notice.");
+		// Inert: the markup a note holds is text, never a tag.
+		expect(page).not.toContain("<b>venue</b>");
+
+		const combinedText = await Promise.all(
+			Object.keys(zip.files).map(async (name) => {
+				const file = zip.file(name);
+				if (!file || file.dir) return "";
+				return file.async("string").catch(() => "");
+			}),
+		).then((parts) => parts.join("\n"));
+		for (const marker of [
+			"DO_NOT_EXPORT_OTHER_BOARD",
+			"DO_NOT_EXPORT_OTHER_BOARD_NOTE",
+			"DO_NOT_EXPORT_OTHER_BOARD_VERSION",
+			"DO_NOT_EXPORT_OTHER_BOARD_COMMENT",
+		]) {
+			expect(combinedText).not.toContain(marker);
+		}
+		// The interface never names the family, and neither does the export.
+		expect(combinedText).not.toMatch(/\bartifacts?\b/i);
+	});
+
 	it("fails the whole archive when an in-scope original file cannot be read", async () => {
 		await seedArchiveUser();
 		await rm(join(tempDir, "data", "knowledge", "user-1", "roadmap-notes.txt"));

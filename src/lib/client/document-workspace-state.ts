@@ -8,9 +8,23 @@ export type WorkspaceDocumentState = {
 	isOpen: boolean;
 };
 
+/**
+ * The chat a panel belongs to. The stored state is ONE record for the whole
+ * browser tab, so it says whose panel it is: a chat restores its own panel
+ * whole, and what another chat left there only as far as it is meant to
+ * travel. `incognito` is recorded because an item itself does not say
+ * (`conversationId` is an id, and a library open carries none).
+ */
+export type WorkspaceConversation = {
+	conversationId: string;
+	incognito: boolean;
+};
+
 export type PersistedWorkspaceDocumentState = WorkspaceDocumentState & {
 	presentation: WorkspacePresentation;
 	updatedAt: number;
+	/** Whose panel this is. Absent on a record written before it was recorded. */
+	conversation?: WorkspaceConversation;
 };
 
 type WorkspaceEventTarget = Pick<Window, "dispatchEvent">;
@@ -119,9 +133,21 @@ export function reduceWorkspaceDocumentsForDeletedConversation(
 	};
 }
 
-export function loadPersistedWorkspaceDocumentState(
+function parseWorkspaceConversation(
+	value: unknown,
+): WorkspaceConversation | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const { conversationId, incognito } = value as Partial<WorkspaceConversation>;
+	if (typeof conversationId !== "string" || conversationId === "") {
+		return undefined;
+	}
+	return { conversationId, incognito: incognito === true };
+}
+
+/** The stored record as it is, whoever it belongs to. `now: null` skips the age limit. */
+function readPersistedRecord(
 	storage: Pick<Storage, "getItem"> | null | undefined,
-	now = Date.now(),
+	now: number | null,
 ): PersistedWorkspaceDocumentState | null {
 	if (!storage) return null;
 
@@ -132,6 +158,7 @@ export function loadPersistedWorkspaceDocumentState(
 		const parsed = JSON.parse(raw) as Partial<PersistedWorkspaceDocumentState>;
 		if (!Array.isArray(parsed.documents)) return null;
 		if (
+			now !== null &&
 			typeof parsed.updatedAt === "number" &&
 			now - parsed.updatedAt > MAX_PERSISTED_STATE_AGE_MS
 		) {
@@ -160,22 +187,25 @@ export function loadPersistedWorkspaceDocumentState(
 			activeDocumentId,
 			isOpen: parsed.isOpen === true,
 			presentation: parsed.presentation === "expanded" ? "expanded" : "docked",
-			updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : now,
+			updatedAt:
+				typeof parsed.updatedAt === "number" ? parsed.updatedAt : (now ?? 0),
+			conversation: parseWorkspaceConversation(parsed.conversation),
 		};
 	} catch {
 		return null;
 	}
 }
 
-export function savePersistedWorkspaceDocumentState(
+function writePersistedRecord(
 	storage: Pick<Storage, "setItem" | "removeItem"> | null | undefined,
 	state: {
 		documents: DocumentWorkspaceItem[];
 		activeDocumentId: string | null;
 		isOpen: boolean;
 		presentation: WorkspacePresentation;
+		conversation?: WorkspaceConversation;
 	},
-	now = Date.now(),
+	now: number,
 ): void {
 	if (!storage) return;
 
@@ -199,8 +229,104 @@ export function savePersistedWorkspaceDocumentState(
 			isOpen: state.isOpen,
 			presentation: state.presentation,
 			updatedAt: now,
+			conversation: state.conversation,
 		} satisfies PersistedWorkspaceDocumentState),
 	);
+}
+
+/** An item no chat owns: a library or search open, or a source opened from a citation. */
+function isWorkspaceDocumentFromNoConversation(
+	document: DocumentWorkspaceItem,
+): boolean {
+	return !document.conversationId && !document.originConversationId;
+}
+
+/**
+ * What `conversation`'s panel restores from the stored record: the panel a
+ * chat is shown after a reload, or when the tab moves from one chat to another.
+ *
+ * - The chat's own panel comes back whole, an item its parent made included.
+ * - Another normal chat's panel gives only what belongs to this chat
+ *   (`conversationId` / `originConversationId`) and the library and search
+ *   opens that belong to none. If the item that was on screen was not carried,
+ *   the panel stays closed rather than opening on a stranger.
+ * - An incognito chat's panel goes nowhere else: it is not restored, and it is
+ *   removed from storage on the spot. An incognito chat likewise starts with
+ *   nothing of another chat's.
+ * - A record written before it said whose panel it is gives only this chat's
+ *   own items.
+ */
+export function loadPersistedWorkspaceDocumentState(
+	storage: Pick<Storage, "getItem" | "removeItem"> | null | undefined,
+	conversation: WorkspaceConversation,
+	now = Date.now(),
+): PersistedWorkspaceDocumentState | null {
+	const persisted = readPersistedRecord(storage, now);
+	if (!persisted) return null;
+
+	const saved = persisted.conversation;
+	if (saved?.conversationId === conversation.conversationId) {
+		return { ...persisted, conversation };
+	}
+	if (saved?.incognito) {
+		storage?.removeItem(CHAT_WORKSPACE_STATE_STORAGE_KEY);
+		return null;
+	}
+
+	const carriesUnownedOpens = Boolean(saved) && !conversation.incognito;
+	const documents = persisted.documents.filter(
+		(document) =>
+			isWorkspaceDocumentFromConversation(
+				document,
+				conversation.conversationId,
+			) ||
+			(carriesUnownedOpens && isWorkspaceDocumentFromNoConversation(document)),
+	);
+	if (documents.length === 0) return null;
+
+	const activeCarried = documents.some(
+		(document) => document.id === persisted.activeDocumentId,
+	);
+	const isOpen = activeCarried && persisted.isOpen;
+	return {
+		documents,
+		activeDocumentId: activeCarried
+			? persisted.activeDocumentId
+			: (documents.at(-1)?.id ?? null),
+		isOpen,
+		presentation: isOpen ? persisted.presentation : "docked",
+		updatedAt: persisted.updatedAt,
+		conversation,
+	};
+}
+
+export function savePersistedWorkspaceDocumentState(
+	storage: Pick<Storage, "setItem" | "removeItem"> | null | undefined,
+	state: {
+		documents: DocumentWorkspaceItem[];
+		activeDocumentId: string | null;
+		isOpen: boolean;
+		presentation: WorkspacePresentation;
+		conversation: WorkspaceConversation;
+	},
+	now = Date.now(),
+): void {
+	writePersistedRecord(storage, state, now);
+}
+
+/**
+ * An incognito chat is left: what it kept for its own reload does not stay in
+ * the tab's storage. A normal chat's panel, and another incognito chat's, are
+ * left alone.
+ */
+export function discardPersistedWorkspaceDocumentStateOfIncognitoConversation(
+	storage: Pick<Storage, "getItem" | "removeItem"> | null | undefined,
+	conversationId: string,
+): void {
+	const saved = readPersistedRecord(storage, null)?.conversation;
+	if (saved?.incognito && saved.conversationId === conversationId) {
+		storage?.removeItem(CHAT_WORKSPACE_STATE_STORAGE_KEY);
+	}
 }
 
 export function removeConversationFromPersistedWorkspaceDocumentState(
@@ -211,8 +337,15 @@ export function removeConversationFromPersistedWorkspaceDocumentState(
 	conversationId: string,
 	now = Date.now(),
 ): PersistedWorkspaceDocumentState | null {
-	const persisted = loadPersistedWorkspaceDocumentState(storage, now);
+	const persisted = readPersistedRecord(storage, now);
 	if (!persisted) return null;
+
+	const saved = persisted.conversation;
+	if (saved?.incognito && saved.conversationId === conversationId) {
+		// The whole panel was the deleted incognito chat's, library opens included.
+		storage?.removeItem(CHAT_WORKSPACE_STATE_STORAGE_KEY);
+		return null;
+	}
 
 	const next = reduceWorkspaceDocumentsForDeletedConversation(
 		persisted.documents,
@@ -221,11 +354,12 @@ export function removeConversationFromPersistedWorkspaceDocumentState(
 	);
 	const presentation = next.isOpen ? persisted.presentation : "docked";
 
-	savePersistedWorkspaceDocumentState(
+	writePersistedRecord(
 		storage,
 		{
 			...next,
 			presentation,
+			conversation: saved,
 		},
 		now,
 	);
@@ -235,6 +369,7 @@ export function removeConversationFromPersistedWorkspaceDocumentState(
 				...next,
 				presentation,
 				updatedAt: now,
+				conversation: saved,
 			}
 		: null;
 }
