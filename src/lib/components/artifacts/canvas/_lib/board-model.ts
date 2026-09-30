@@ -15,6 +15,7 @@ import type {
 	CanvasEdge,
 	CanvasNode,
 } from "$lib/shared/artifacts/canvas";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { metaFor } from "./block-meta";
 import { facingHandles, withoutDanglingEdges } from "./board";
@@ -122,4 +123,21 @@ export function hasStoredCamera(body: CanvasBody): boolean {
 		camera.y !== DEFAULT_CAMERA.y ||
 		camera.zoom !== DEFAULT_CAMERA.zoom
 	);
+}
+
+/**
+ * The nodes with one block's data replaced — a live-web block's new snapshot — or
+ * null when there is no such block or it is a block of another kind (the reader
+ * deleted it, or something else took its place, while the search ran). Only the
+ * data changes: the block stays where it is, at its size, in its frame. The nodes
+ * it is given are not touched.
+ */
+export function withBlockData<N extends CanvasNode>(
+	nodes: readonly N[],
+	id: string,
+	data: CanvasBlockData,
+): N[] | null {
+	const target = nodes.find((node) => node.id === id);
+	if (!target || target.data.kind !== data.kind) return null;
+	return nodes.map((node) => (node === target ? { ...node, data } : node));
 }

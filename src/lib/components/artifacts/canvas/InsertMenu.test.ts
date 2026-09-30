@@ -48,6 +48,8 @@ const LISTING: CanvasChatBlocks = {
 	searches: [],
 };
 
+const EMPTY_LISTING = emptyChatBlocks();
+
 function mount(chat: CanvasChatContext, onpick = vi.fn()) {
 	const view = render(WithChat, {
 		props: {
@@ -177,5 +179,105 @@ describe("From this chat, in the menu", () => {
 		);
 		await fireEvent.click(screen.getByTestId("canvas-insert-text"));
 		expect(onpick).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("Search the web…, in the menu", () => {
+	const WEB = {
+		kind: "liveweb",
+		query: "cork weather",
+		sources: [
+			{
+				id: "s1",
+				title: "Result",
+				url: "https://example.com/r",
+				provider: "parallel",
+				authorityClass: "primary",
+				authorityScore: 0.9,
+				publishedAt: null,
+				updatedAt: null,
+			},
+		],
+		fetchedAt: 1_000,
+	} as const;
+
+	const searchWeb = () => vi.fn(async () => ({ ok: true as const, data: WEB }));
+
+	it("is offered where the panel can search, first among what the chat has, and not where it cannot", async () => {
+		mount({
+			conversationId: "conv-1",
+			load: async () => LISTING,
+			searchWeb: searchWeb(),
+		});
+		await screen.findByText("Vienna trip.pdf");
+		const rows = screen.getAllByRole("menuitem");
+		expect(rows[STATIC.length]).toHaveAccessibleName("Search the web…");
+
+		document.body.innerHTML = "";
+		mount({ conversationId: "conv-1", load: async () => LISTING });
+		await screen.findByText("Vienna trip.pdf");
+		expect(
+			screen.queryByRole("menuitem", { name: "Search the web…" }),
+		).toBeNull();
+	});
+
+	it("hands over the live-web row and the snapshot the search made", async () => {
+		const search = searchWeb();
+		const { onpick } = mount({
+			conversationId: "conv-1",
+			load: async () => EMPTY_LISTING,
+			searchWeb: search,
+		});
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Search the web…" }),
+		);
+		const field = screen.getByRole("textbox", { name: "Search the web" });
+		await fireEvent.input(field, { target: { value: "cork weather" } });
+		await fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+		await waitFor(() => expect(onpick).toHaveBeenCalledTimes(1));
+		const [row, data] = onpick.mock.calls[0];
+		expect(row).toMatchObject({ kind: "liveweb", section: "chat" });
+		expect(data).toEqual(WEB);
+	});
+
+	it("leaves the keys of the field to the field: the menu's arrows, Home and End do not carry the cursor out of what is being typed", async () => {
+		mount({
+			conversationId: "conv-1",
+			load: async () => EMPTY_LISTING,
+			searchWeb: searchWeb(),
+		});
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Search the web…" }),
+		);
+		const field = screen.getByRole("textbox", { name: "Search the web" });
+		await waitFor(() => expect(field).toHaveFocus());
+
+		for (const key of [
+			"ArrowLeft",
+			"ArrowRight",
+			"ArrowUp",
+			"ArrowDown",
+			"Home",
+			"End",
+		]) {
+			const notPrevented = await fireEvent.keyDown(field, { key });
+			expect(notPrevented, key).toBe(true);
+			expect(field, key).toHaveFocus();
+		}
+	});
+
+	it("still moves between the rows with the arrows from a row", async () => {
+		mount({
+			conversationId: "conv-1",
+			load: async () => EMPTY_LISTING,
+			searchWeb: searchWeb(),
+		});
+		const row = await screen.findByRole("menuitem", {
+			name: "Search the web…",
+		});
+		row.focus();
+		await fireEvent.keyDown(row, { key: "ArrowUp" });
+		expect(screen.getByRole("menuitem", { name: "Checklist" })).toHaveFocus();
 	});
 });

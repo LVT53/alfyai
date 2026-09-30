@@ -15,6 +15,7 @@ import {
 	structuralJson,
 	toFlowEdges,
 	toFlowNodes,
+	withBlockData,
 } from "./board-model";
 
 function stateOf(body: CanvasBody) {
@@ -214,5 +215,59 @@ describe("what counts as a change", () => {
 				viewport: { x: 0, y: 0, zoom: 1.5 },
 			}),
 		).toBe(true);
+	});
+});
+
+describe("a block's new data", () => {
+	const FRESH = {
+		kind: "liveweb",
+		query: "weather in Salzburg",
+		sources: [],
+		fetchedAt: 2_000_000_000_000,
+	} as const;
+
+	it("replaces the data of the block it names and leaves every other block, and the board's order, alone", () => {
+		const nodes = toFlowNodes(cloneBoard(sampleBoard()).nodes);
+
+		const next = withBlockData(nodes, "web-1", FRESH);
+
+		expect(next).not.toBeNull();
+		expect(next).toHaveLength(nodes.length);
+		expect(next?.map((node) => node.id)).toEqual(nodes.map((node) => node.id));
+		expect(next?.find((node) => node.id === "web-1")?.data).toEqual(FRESH);
+		for (const node of nodes) {
+			if (node.id === "web-1") continue;
+			expect(next?.find((n) => n.id === node.id)).toBe(node);
+		}
+	});
+
+	it("keeps the block where it is, at its size, in its frame and selected: only its data changes", () => {
+		const nodes = toFlowNodes(cloneBoard(sampleBoard()).nodes);
+		const before = nodes.find((node) => node.id === "web-1");
+
+		const after = withBlockData(nodes, "web-1", FRESH)?.find(
+			(node) => node.id === "web-1",
+		);
+
+		expect({ ...after, data: null }).toEqual({ ...before, data: null });
+		expect(after?.data).not.toEqual(before?.data);
+	});
+
+	it("does not touch the nodes it was given", () => {
+		const nodes = toFlowNodes(cloneBoard(sampleBoard()).nodes);
+		const before = JSON.stringify(nodes);
+		withBlockData(nodes, "web-1", FRESH);
+		expect(JSON.stringify(nodes)).toBe(before);
+	});
+
+	it("answers null for a block that is gone (the reader deleted it while the search ran)", () => {
+		const nodes = toFlowNodes(cloneBoard(sampleBoard()).nodes);
+		expect(withBlockData(nodes, "no-such-block", FRESH)).toBeNull();
+	});
+
+	it("answers null for a block of another kind: a snapshot never turns a note into a web block", () => {
+		const nodes = toFlowNodes(cloneBoard(sampleBoard()).nodes);
+		expect(withBlockData(nodes, "note-1", FRESH)).toBeNull();
+		expect(withBlockData(nodes, "map-1", FRESH)).toBeNull();
 	});
 });
