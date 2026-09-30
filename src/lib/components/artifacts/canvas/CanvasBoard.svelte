@@ -25,11 +25,12 @@
  * the frame that would take it. A frame that is deleted does not take the blocks
  * inside it (`onbeforedelete` re-homes them: the ops protocol does the same).
  *
- * Seams for the slices after this one: pins render through a second
- * `<ViewportPortal target="front">` inside the flow (explicit `z-index: 2`, and
- * sized from the visible pane, never from the board); a diff from Alfy arrives
- * as new `nodes` state through `applyBody`-style replacement followed by
- * `commit`'s bookkeeping.
+ * Seams: a layer written apart from the board (the comment pins and the
+ * catcher for the Comment tool) is a snippet the board renders INSIDE its flow,
+ * handed `BoardLayerApi` (the blocks as drawn, the camera, the tool and a few
+ * things it may ask the board to do); a board the server changed under the
+ * reader (Alfy answered a comment) is drawn with `land`, which is not a step of
+ * the reader's. The chat's own Alfy edits will land through the same method.
  */
 import "@xyflow/svelte/dist/base.css";
 import {
@@ -45,11 +46,11 @@ import {
 	type Viewport,
 	ViewportPortal,
 } from "@xyflow/svelte";
-import { onDestroy, untrack } from "svelte";
+import { onDestroy, type Snippet, untrack } from "svelte";
 import { historyShortcutFor } from "$lib/components/artifacts/document/keyboard-shortcuts";
 import { t } from "$lib/i18n";
 import { prefersReducedMotion } from "$lib/utils/motion";
-import type { Annotation, CanvasBody } from "$lib/shared/artifacts/canvas";
+import type { Annotation, CanvasBody, Pt } from "$lib/shared/artifacts/canvas";
 import {
 	MAX_ANNOTATIONS_PER_BOARD,
 	normalizeCanvasBody,
@@ -62,6 +63,7 @@ import {
 	withoutDanglingEdges,
 } from "./_lib/board";
 import { DEFAULT_INK, isDrawingTool, type Tool } from "./_lib/annotations";
+import type { BoardLayerApi } from "./_lib/board-layers";
 import { type BoardHistory, createBoardHistory } from "./_lib/board-history";
 import { provideBoardContext } from "./_lib/board-context";
 import {
@@ -88,6 +90,8 @@ let {
 	readonly = false,
 	onchange,
 	oncamera,
+	layers,
+	ontool,
 }: {
 	/** The board to draw. Read once, when the board mounts: to show a different one (a reload, a restore) the editor mounts a new board. */
 	body: CanvasBody;
@@ -97,6 +101,10 @@ let {
 	onchange: (body: CanvasBody) => void;
 	/** The camera settled somewhere. In memory only: it is saved with the next real change. */
 	oncamera?: (camera: Viewport) => void;
+	/** A layer drawn inside the flow, written apart from the board (see the seams above). */
+	layers?: Snippet<[BoardLayerApi]>;
+	/** The tool changed: a layer that is loaded on demand hears of the tool that needs it here. */
+	ontool?: (tool: Tool) => void;
 } = $props();
 
 const initial = untrack(() => body);
@@ -129,7 +137,7 @@ let limitTimer: ReturnType<typeof setTimeout> | null = null;
 /** The frame a block being dragged would join if it were dropped now. */
 let dropTargetId = $state<string | null>(null);
 
-const history: BoardHistory = createBoardHistory();
+let history: BoardHistory = createBoardHistory();
 let canUndo = $state(false);
 let canRedo = $state(false);
 let committedJson = structuralJson(snapshot());
@@ -209,6 +217,22 @@ export function flush(): CanvasBody {
 	return snapshot();
 }
 
+/**
+ * Draws a board the server changed under the reader (Alfy answered a comment
+ * with a change): the blocks, connections and marks are replaced, the camera is
+ * left where it is. It is not a step of the reader's (Alfy's change is a
+ * version, ruling 16), so the reader's own undo is emptied: it could only take
+ * them back to before Alfy's change and save that over it.
+ */
+export function land(next: CanvasBody): void {
+	nodes = toFlowNodes(next.nodes);
+	edges = toFlowEdges(next.edges, next.nodes);
+	annotations = [...next.annotations];
+	history = createBoardHistory();
+	committedJson = structuralJson(snapshot());
+	syncHistoryFlags();
+}
+
 // ---- The reader's own history (ruling 16) --------------------------------
 
 function restore(json: string): void {
@@ -262,6 +286,14 @@ const ZOOM_STEP = 1.2;
 // they answer `false` and do nothing). Every other member reads the live store.
 function zoomBy(factor: number): void {
 	void flow.setZoom(flow.getZoom() * factor);
+}
+
+/** Moves the camera so a board point is in the middle of the pane, at a zoom a block is legible at. */
+function centerOn(point: Pt): void {
+	void flow.setCenter(point.x, point.y, {
+		zoom: Math.max(flow.getZoom(), 0.6),
+		duration: prefersReducedMotion() ? 0 : 300,
+	});
 }
 
 // ---- Insert --------------------------------------------------------------
@@ -462,6 +494,20 @@ $effect(() => {
 	return () => query.removeEventListener("change", listener);
 });
 
+$effect(() => {
+	ontool?.(tool);
+});
+
+let layerApi = $derived<BoardLayerApi>({
+	nodes,
+	viewport,
+	tool,
+	setTool,
+	toBoard: (point) => flow.screenToFlowPosition(point),
+	centerOn,
+	announce,
+});
+
 let compact = $derived(boardWidth > 0 && boardWidth < COMPACT_BELOW);
 let showMinimap = $derived(boardWidth >= MINIMAP_ABOVE && nodes.length > 0);
 let empty = $derived(nodes.length === 0 && annotations.length === 0);
@@ -592,6 +638,7 @@ function minimapColor(node: {
 				onlimit={handleLimit}
 			/>
 		</ViewportPortal>
+		{@render layers?.(layerApi)}
 		{#if showMinimap}
 			<MiniMap
 				width={132}

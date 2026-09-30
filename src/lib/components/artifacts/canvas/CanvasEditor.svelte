@@ -17,7 +17,11 @@
  */
 import { SvelteFlowProvider } from "@xyflow/svelte";
 import { onDestroy, untrack } from "svelte";
-import { fetchArtifact, saveArtifactBody } from "$lib/client/api/artifacts";
+import {
+	type ArtifactDetailResponse,
+	fetchArtifact,
+	saveArtifactBody,
+} from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactPanelBodyActions } from "$lib/components/artifacts/artifact-bodies";
 import {
@@ -26,12 +30,14 @@ import {
 } from "$lib/components/artifacts/document/document-autosave";
 import VersionsSheet from "$lib/components/artifacts/document/VersionsSheet.svelte";
 import { t } from "$lib/i18n";
-import type { CanvasBody } from "$lib/shared/artifacts/canvas";
+import type { ArtifactComment } from "$lib/server/services/artifacts/types";
+import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import {
 	boardJson,
 	emptyCanvasBody,
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
+import type { BoardLayerApi } from "./_lib/board-layers";
 import CanvasBoard from "./CanvasBoard.svelte";
 
 interface Props {
@@ -45,6 +51,10 @@ interface Props {
 	registerPanelActions?: (actions: ArtifactPanelBodyActions) => void;
 	onDirtyChange?: (dirty: boolean) => void;
 	onBodyChange?: (body: string) => void;
+	/** The open threads, for the header's Comments button: reported from load and after every change. */
+	onCommentCountChange?: (openCount: number) => void;
+	/** Whether the comments are showing (the column, the drawer or the sheet): the button is a pressed toggle. */
+	onCommentsShownChange?: (shown: boolean) => void;
 	currentUser?: {
 		id: string;
 		displayName: string;
@@ -58,6 +68,8 @@ let {
 	registerPanelActions,
 	onDirtyChange,
 	onBodyChange,
+	onCommentCountChange,
+	onCommentsShownChange,
 	currentUser = null,
 }: Props = $props();
 
@@ -87,10 +99,28 @@ let versionsOpen = $state(false);
 let versionNumber: number | null = null;
 let knownBodyHash: string | null = null;
 let latestJson = "";
+/** The board JSON the server last acknowledged: `latestJson` differs from it while a step of the reader's is unsaved. */
+let savedJson = "";
+let boardNodes: CanvasNode[] = [];
 let loadToken = 0;
 let savedTimer: ReturnType<typeof setTimeout> | null = null;
-let boardApi = $state<{ flush: () => CanvasBody } | null>(null);
+let boardApi = $state<{
+	flush: () => CanvasBody;
+	land: (body: CanvasBody) => void;
+} | null>(null);
 let lastDropped = 0;
+let editorWidth = $state(0);
+
+// Comments load on demand (`comment-parts.ts`): when the board has threads to
+// pin, or the reader presses Comment or picks the tool. Until then the header's
+// count is read off what was loaded.
+type CommentParts = typeof import("./comment-parts");
+let loadedThreads = $state.raw<ArtifactComment[]>([]);
+let commentParts = $state.raw<CommentParts | null>(null);
+let comments = $state.raw<InstanceType<
+	CommentParts["CanvasCommentsController"]
+> | null>(null);
+let commentsLoading: Promise<void> | null = null;
 
 const autosave = createDocumentAutosave({
 	save: async (json) => {
@@ -121,6 +151,7 @@ function handleSaveResult(result: DocumentAutosaveResult, json: string): void {
 	if (result.ok) {
 		if (typeof result.version === "number") versionNumber = result.version;
 		if (typeof result.bodyHash === "string") knownBodyHash = result.bodyHash;
+		savedJson = json;
 		const dirty = json !== latestJson;
 		onDirtyChange?.(dirty);
 		onBodyChange?.(json);
@@ -164,6 +195,8 @@ function handleSaveResult(result: DocumentAutosaveResult, json: string): void {
 
 function handleBoardChange(next: CanvasBody): void {
 	if (autosave.stopped) return;
+	boardNodes = next.nodes;
+	comments?.setNodes(boardNodes);
 	latestJson = boardJson(next);
 	saveState = "saving";
 	onDirtyChange?.(true);
@@ -197,6 +230,15 @@ async function load(id: string): Promise<void> {
 		versionNumber = detail.artifact.versionNumber;
 		knownBodyHash = detail.artifact.bodyHash;
 		latestJson = boardJson(read.body);
+		savedJson = latestJson;
+		boardNodes = read.body.nodes;
+		loadedThreads = detail.comments;
+		if (comments) {
+			comments.threads = detail.comments;
+			comments.setNodes(boardNodes);
+		} else if (detail.comments.length > 0) {
+			void ensureComments();
+		}
 		saveState = "idle";
 		autosave.resume();
 		onDirtyChange?.(false);
@@ -211,14 +253,82 @@ async function load(id: string): Promise<void> {
 	}
 }
 
+/** What Alfy reads is what is SAVED, so the reader's last step is saved (and the save acknowledged) before a comment asks it anything. */
+async function saveBoardNow(): Promise<void> {
+	boardApi?.flush();
+	await autosave.flush();
+}
+
+/**
+ * Every read of the artifact the comments make. When the version moved it is
+ * because Alfy changed the board: it is drawn, unless the reader has steps the
+ * server has not seen, which cannot be merged into Alfy's change (their save
+ * would be refused as stale, and this says so instead of losing them silently).
+ */
+function adoptServerBoard(detail: ArtifactDetailResponse): void {
+	const version = detail.artifact.versionNumber;
+	if (version === versionNumber) return;
+	if (latestJson !== savedJson) {
+		saveState = "conflict";
+		autosave.stop();
+		return;
+	}
+	try {
+		const stored = detail.artifact.body;
+		const read = normalizeCanvasBody(stored?.trim() ? JSON.parse(stored) : {});
+		versionNumber = version;
+		knownBodyHash = detail.artifact.bodyHash;
+		latestJson = boardJson(read.body);
+		savedJson = latestJson;
+		boardNodes = read.body.nodes;
+		comments?.setNodes(boardNodes);
+		boardApi?.land(read.body);
+		onBodyChange?.(latestJson);
+	} catch {
+		// A body that will not read is left to the next load.
+	}
+}
+
+function ensureComments(): Promise<void> {
+	commentsLoading ??= import("./comment-parts").then((parts) => {
+		const controller = new parts.CanvasCommentsController({
+			artifactId,
+			conversationId,
+			threads: loadedThreads,
+			beforeAsk: saveBoardNow,
+			onserver: adoptServerBoard,
+		});
+		controller.setNodes(boardNodes);
+		commentParts = parts;
+		comments = controller;
+	});
+	return commentsLoading;
+}
+
 $effect(() => {
 	const id = artifactId;
 	untrack(() => void load(id));
 });
 
-// The header's Versions button opens the shared sheet, which lives in this body.
+// The header's Versions and Comments buttons: the Versions sheet lives in this
+// body, and Comments is one toggle for whichever surface applies.
 $effect(() => {
-	registerPanelActions?.({ openVersions: () => (versionsOpen = true) });
+	registerPanelActions?.({
+		openVersions: () => (versionsOpen = true),
+		toggleComments: () => void ensureComments().then(() => comments?.toggle()),
+	});
+});
+
+let openCommentCount = $derived(
+	comments
+		? comments.openCount
+		: loadedThreads.filter((thread) => thread.status !== "resolved").length,
+);
+$effect(() => {
+	onCommentCountChange?.(openCommentCount);
+});
+$effect(() => {
+	onCommentsShownChange?.(comments?.open ?? false);
 });
 
 $effect(() => {
@@ -253,7 +363,13 @@ let banner = $derived(
 );
 </script>
 
-<div class="canvas-editor" data-testid="canvas-editor">
+{#snippet commentLayers(api: BoardLayerApi)}
+	{#if commentParts && comments}
+		<commentParts.CommentLayer {...comments.layerProps(api)} />
+	{/if}
+{/snippet}
+
+<div class="canvas-editor" data-testid="canvas-editor" bind:clientWidth={editorWidth}>
 	{#if phase === "loading"}
 		<div class="canvas-editor__skeleton" role="status" aria-busy="true" data-testid="canvas-loading">
 			<span class="sr-only">{$t("artifacts.canvas.loading")}</span>
@@ -277,58 +393,66 @@ let banner = $derived(
 			<p>{$t("artifacts.canvas.deletedWhileOpen")}</p>
 		</div>
 	{:else}
-		{#key boardKey}
-			<SvelteFlowProvider>
-				<CanvasBoard
-					bind:this={boardApi}
-					body={boardBody}
-					readonly={boardReadonly}
-					onchange={handleBoardChange}
-				/>
-			</SvelteFlowProvider>
-		{/key}
+		<div class="canvas-editor__row">
+			<div class="canvas-editor__board">
+				{#key boardKey}
+					<SvelteFlowProvider>
+						<CanvasBoard
+							bind:this={boardApi}
+							body={boardBody}
+							readonly={boardReadonly}
+							onchange={handleBoardChange}
+							layers={commentLayers}
+							ontool={(tool) => tool === "comment" && void ensureComments()}
+						/>
+					</SvelteFlowProvider>
+				{/key}
+				<div class="canvas-editor__notices">
+					{#if showDroppedNotice}
+						<div class="notice notice--warning" role="status" data-testid="canvas-dropped-notice">
+							<span>{$t("artifacts.canvas.blockDropped", { count: droppedCount })}</span>
+							<button type="button" class="notice__button" onclick={() => (noticeDismissed = true)}>
+								{$t("artifacts.canvas.dismiss")}
+							</button>
+						</div>
+					{/if}
+					{#if banner === "offline"}
+						<div class="notice notice--warning" role="alert" data-testid="canvas-offline">
+							<span>{$t("artifacts.canvas.offline")}</span>
+						</div>
+					{:else if banner === "failed"}
+						<div class="notice notice--warning" role="alert" data-testid="canvas-save-failed">
+							<span>{$t("artifacts.canvas.saveFailed")}</span>
+							<button type="button" class="notice__button" onclick={retrySave}>
+								{$t("artifacts.canvas.retry")}
+							</button>
+						</div>
+					{:else if banner === "conflict"}
+						<div class="notice notice--warning" role="alert" data-testid="canvas-conflict">
+							<span>{$t("artifacts.canvas.saveConflict")}</span>
+							<button type="button" class="notice__button" onclick={() => load(artifactId)}>
+								{$t("artifacts.canvas.reload")}
+							</button>
+						</div>
+					{:else if banner === "tooLarge"}
+						<div class="notice notice--warning" role="alert" data-testid="canvas-too-large">
+							<span>{$t("artifacts.canvas.tooLarge")}</span>
+						</div>
+					{/if}
+				</div>
 
-		<div class="canvas-editor__notices">
-			{#if showDroppedNotice}
-				<div class="notice notice--warning" role="status" data-testid="canvas-dropped-notice">
-					<span>{$t("artifacts.canvas.blockDropped", { count: droppedCount })}</span>
-					<button type="button" class="notice__button" onclick={() => (noticeDismissed = true)}>
-						{$t("artifacts.canvas.dismiss")}
-					</button>
-				</div>
-			{/if}
-			{#if banner === "offline"}
-				<div class="notice notice--warning" role="alert" data-testid="canvas-offline">
-					<span>{$t("artifacts.canvas.offline")}</span>
-				</div>
-			{:else if banner === "failed"}
-				<div class="notice notice--warning" role="alert" data-testid="canvas-save-failed">
-					<span>{$t("artifacts.canvas.saveFailed")}</span>
-					<button type="button" class="notice__button" onclick={retrySave}>
-						{$t("artifacts.canvas.retry")}
-					</button>
-				</div>
-			{:else if banner === "conflict"}
-				<div class="notice notice--warning" role="alert" data-testid="canvas-conflict">
-					<span>{$t("artifacts.canvas.saveConflict")}</span>
-					<button type="button" class="notice__button" onclick={() => load(artifactId)}>
-						{$t("artifacts.canvas.reload")}
-					</button>
-				</div>
-			{:else if banner === "tooLarge"}
-				<div class="notice notice--warning" role="alert" data-testid="canvas-too-large">
-					<span>{$t("artifacts.canvas.tooLarge")}</span>
-				</div>
+				<p class="canvas-editor__status" role="status" aria-live="polite" data-testid="canvas-save-status">
+					{#if saveState === "saving"}
+						{$t("artifacts.canvas.saving")}
+					{:else if saveState === "saved"}
+						{$t("artifacts.canvas.saved")}
+					{/if}
+				</p>
+			</div>
+			{#if commentParts && comments}
+				<commentParts.CanvasComments controller={comments} panelWidth={editorWidth} {currentUser} />
 			{/if}
 		</div>
-
-		<p class="canvas-editor__status" role="status" aria-live="polite" data-testid="canvas-save-status">
-			{#if saveState === "saving"}
-				{$t("artifacts.canvas.saving")}
-			{:else if saveState === "saved"}
-				{$t("artifacts.canvas.saved")}
-			{/if}
-		</p>
 	{/if}
 
 	{#if versionsOpen}
@@ -351,6 +475,27 @@ let banner = $derived(
 	.canvas-editor {
 		position: relative;
 		isolation: isolate;
+		display: flex;
+		flex: 1 1 auto;
+		flex-direction: column;
+		min-height: 0;
+		min-width: 0;
+	}
+
+	/* The board, and beside it the comment column when there is room for one (the
+	   drawer is positioned against this row, so it starts where the board does). */
+	.canvas-editor__row {
+		position: relative;
+		display: flex;
+		flex: 1 1 auto;
+		flex-direction: row;
+		min-height: 0;
+		min-width: 0;
+	}
+
+	/* The notices and the save line are the board's: they sit over it, not over the column. */
+	.canvas-editor__board {
+		position: relative;
 		display: flex;
 		flex: 1 1 auto;
 		flex-direction: column;

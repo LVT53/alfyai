@@ -1,0 +1,65 @@
+/*
+ * The card every thread in a comment list sits in (redesign.md §3.2), shared by
+ * the Document's `MarginPanel` and the Canvas's list, so a thread looks and
+ * behaves the same on every kind. Global on purpose: the card is an element of
+ * each list's own markup (it carries that list's hover, focus and scroll
+ * handlers), so the look is one stylesheet both import rather than one
+ * copy each.
+ *
+ * A thread is a real card: surface, border, radius, the same shape as every
+ * other card in the panel. A resolved one recedes (dashed, one tone down); the
+ * active one — hovered, focused, or the thread the reader's place points at —
+ * deepens its border and shadow and shifts a few pixels towards what it is
+ * about (motion #16; colour only under reduced motion). Scroll-margin keeps a
+ * card revealed by scrolling clear of the sticky header in the phone sheet.
+ */
+.comment-list-item {
+	flex: 0 0 auto;
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-lg);
+	background-color: var(--surface-page);
+	scroll-margin-block: 0.75rem;
+	transition:
+		border-color var(--duration-standard) var(--ease-out),
+		box-shadow var(--duration-standard) var(--ease-out),
+		transform var(--duration-standard) var(--ease-out);
+}
+
+.comment-list-item.is-goto {
+	cursor: pointer;
+}
+
+.comment-list-item:hover,
+.comment-list-item.is-active {
+	border-color: color-mix(
+		in srgb,
+		var(--comment-rule) 55%,
+		var(--border-default)
+	);
+	box-shadow: var(--shadow-md);
+}
+
+.comment-list-item.is-active {
+	transform: translateX(-6px);
+}
+
+.comment-list-item.is-resolved {
+	border-style: dashed;
+	background-color: var(--surface-overlay);
+}
+
+/* A thread whose block is gone: still readable, quieter. */
+.comment-list-item.is-orphaned {
+	opacity: 0.72;
+}
+
+.comment-list-item:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.comment-list-item.is-active {
+		transform: none;
+	}
+}

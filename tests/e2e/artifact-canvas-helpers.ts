@@ -7,6 +7,11 @@ import {
 	artifactVersions,
 	users,
 } from "../../src/lib/server/db/schema";
+import {
+	createComment,
+	resolveComment,
+} from "../../src/lib/server/services/artifacts";
+import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
 import { waitForStableBoundingBox } from "./helpers";
@@ -16,7 +21,7 @@ import { waitForStableBoundingBox } from "./helpers";
 // since `create_artifact` has no scriptable tool-call fixture), the panel opened
 // on it, and a look at what was actually saved.
 
-async function testUserId(): Promise<string> {
+export async function testUserId(): Promise<string> {
 	const [user] = await db
 		.select({ id: users.id })
 		.from(users)
@@ -184,4 +189,31 @@ export async function cameraOf(
 		if (!match) return { x: 0, y: 0, zoom: 1 };
 		return { x: Number(match[1]), y: Number(match[2]), zoom: Number(match[3]) };
 	});
+}
+
+/** A thread on a board, written through the service the routes use (author, scope and anchor rules included). Returns its id. */
+export async function seedThread(
+	artifactId: string,
+	anchor: Anchor,
+	body: string,
+	options: { resolved?: boolean; author?: "user" | "alfy" } = {},
+): Promise<string> {
+	const userId = await testUserId();
+	const created = await createComment({
+		userId,
+		artifactId,
+		anchor,
+		author: options.author ?? "user",
+		body,
+	});
+	if (!created) throw new Error("the seeded thread was refused");
+	if (options.resolved) {
+		await resolveComment({
+			userId,
+			artifactId,
+			commentId: created.id,
+			resolved: true,
+		});
+	}
+	return created.id;
 }

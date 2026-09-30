@@ -88,7 +88,13 @@ let pins = $derived.by<Pin[]>(() => {
 		const resolved = thread.status === "resolved";
 		if (resolved && !showResolved) continue;
 		const at = pinAt(thread, nodes);
-		if (at) drawn.push({ id: thread.id, at, label: pinLabel(threads, thread.id), resolved });
+		if (at)
+			drawn.push({
+				id: thread.id,
+				at,
+				label: pinLabel(threads, thread.id),
+				resolved,
+			});
 	}
 	return drawn;
 });
@@ -139,7 +145,9 @@ $effect(() => {
 	if (!request || request.token === appliedGoto) return;
 	appliedGoto = request.token;
 	untrack(() => {
-		const thread = threads.find((candidate) => candidate.id === request.commentId);
+		const thread = threads.find(
+			(candidate) => candidate.id === request.commentId,
+		);
 		const at = thread ? pinAt(thread, nodes) : null;
 		if (!at) return;
 		oncenter(at);
@@ -258,11 +266,12 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 		cursor: pointer;
 	}
 
-	/* A finger needs 44 px: the visible dot stays 22, the hit area does not. */
+	/* A finger needs 44 px: the visible dot stays 22, the hit area does not. The
+	   offset is from the padding box (the 2 px border is outside it), so -13. */
 	button.pin::after {
 		content: "";
 		position: absolute;
-		inset: -11px;
+		inset: -13px;
 		border-radius: 50%;
 	}
 
