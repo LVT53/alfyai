@@ -709,6 +709,10 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
   with a landing Alfy change) put ~0.1 KiB of necessary safety into the first-paint closure (the merge itself loads
   on demand). The ceiling is **68 KiB (69,632 B) gzip**; the guard enforces that number, and the next raise needs the
   same kind of recorded reason.
+- **What the number counts (RC-3's N4):** the editor's own closure — its chunk, its static imports and CSS, the lazy
+  parts' shared chunks — **not** the chunks the chat route has already loaded. Opened from a cold page that has not
+  loaded the chat's Mermaid path, a board downloads 84.4 KiB gzip; the usual path (a board opened from its chat) is the
+  measured one.
 
 ## 69. Slides is shelved; the tours come next
 
