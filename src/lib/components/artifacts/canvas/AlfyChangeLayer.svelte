@@ -28,10 +28,13 @@ import { tick, untrack } from "svelte";
 import ChangeBar from "../document/ChangeBar.svelte";
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
 import { nodeRect } from "./_lib/board";
+import { measuredBy, type ScreenRect } from "./_lib/floating";
 import {
 	type Box,
 	boxOf,
 	changePillAnchor,
+	changePillScreenRect,
+	keepPillInPane,
 	padded,
 	rectsOf,
 } from "./_lib/review-geometry";
@@ -58,6 +61,7 @@ let {
 	paneSize = { width: 0, height: 0 },
 	landed = 0,
 	oncenter,
+	onpillbox,
 	onkeep,
 	onundo,
 	onredo,
@@ -84,6 +88,8 @@ let {
 	/** Counts the landings that have settled: a change that came in is looked for on screen, once. */
 	landed?: number;
 	oncenter: (point: Pt) => void;
+	/** Where the pill is on the screen (the pane's pixels), or null when there is none: the selection's pill keeps off it. */
+	onpillbox?: (box: ScreenRect | null) => void;
 	onkeep: () => void;
 	onundo: () => void;
 	onredo: () => void;
@@ -137,6 +143,37 @@ $effect(() => {
 	if (live) untrack(() => (lastAt = live));
 });
 let anchor = $derived(liveAt ?? lastAt);
+
+// The pill is kept inside the pane (RC-3 N3): it hangs to the left of its corner and
+// above it, so a block near an edge put it half outside. Its size is what the pane
+// shows of it, measured; its widest until then.
+let measuredPill = $state.raw({ width: 0, height: 0 });
+let pillSize = $derived(
+	measuredPill.width > 0 && measuredPill.height > 0 ? measuredPill : undefined,
+);
+let pillAt = $derived(
+	anchor
+		? keepPillInPane({
+				anchor,
+				camera: viewport,
+				pane: paneSize,
+				size: pillSize,
+			})
+		: null,
+);
+
+// Where it is on the screen goes to the selection's pill, which keeps off it: the
+// two hang from neighbouring blocks, and one sat on the other's Keep and Undo.
+let reportedBox: string | null = null;
+$effect(() => {
+	const box =
+		pill && pillAt ? changePillScreenRect(pillAt, viewport, pillSize) : null;
+	const key = box ? `${box.left}|${box.top}|${box.right}|${box.bottom}` : null;
+	if (key === reportedBox) return;
+	reportedBox = key;
+	onpillbox?.(box);
+});
+$effect(() => () => onpillbox?.(null));
 
 // A landing puts blocks where the camera is not looking, and did not move it: a
 // change that is wholly off the pane (or behind its toolbar) went unseen. When none
@@ -253,13 +290,14 @@ $effect(() => {
 			style:height="{ring.box.height}px"
 		></div>
 	{/each}
-	{#if pill && anchor}
+	{#if pill && pillAt}
 		<div
 			class="pill nopan"
 			bind:this={pillEl}
+			{@attach measuredBy((size) => (measuredPill = size))}
 			data-testid="canvas-change-pill"
-			style:left="{anchor.x}px"
-			style:top="{anchor.y}px"
+			style:left="{pillAt.x}px"
+			style:top="{pillAt.y}px"
 		>
 			<ChangeBar
 				status={pill.status}

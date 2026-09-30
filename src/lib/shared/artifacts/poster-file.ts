@@ -14,7 +14,20 @@ function namePart(id: string): string {
 }
 
 export function posterFileName(boardId: string, nodeId: string): string {
-	return `${POSTER_FILE_PREFIX}${namePart(boardId)}-${namePart(nodeId)}.png`;
+	return `${POSTER_FILE_PREFIX}${posterFileScope(boardId)}${namePart(nodeId)}.png`;
+}
+
+/** What every poster of one board's file name starts with: the board's id and the dash before the block's. */
+function posterFileScope(boardId: string): string {
+	return `${namePart(boardId)}-`;
+}
+
+/** Whether this is a poster of this board (a board's id is a whole id, so no board's scope starts another's). */
+export function isPosterOfBoard(filename: string, boardId: string): boolean {
+	return (
+		isPosterFileName(filename) &&
+		filename.startsWith(`${POSTER_FILE_PREFIX}${posterFileScope(boardId)}`)
+	);
 }
 
 export function isPosterFileName(filename: string): boolean {

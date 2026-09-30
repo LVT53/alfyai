@@ -877,6 +877,24 @@ describe("the rubric's own geometry", () => {
 		).toEqual([]);
 	});
 
+	// RC-3 N1: the rubric measures with the size the panel draws. A chart is 360 wide
+	// and 228 tall, so a note 100 below one covers its plot, which a blanket 190 x 84
+	// would have let through.
+	it("takes a chart at the size the panel draws it, so a note planned 100 below one covers it", () => {
+		const chart = {
+			id: "chart",
+			type: "chart",
+			position: { x: 0, y: 0 },
+			data: { kind: "chart", code: '{"type":"bar","data":{"datasets":[]}}' },
+		};
+		expect(
+			overlapProblems(board([chart, sticky("below", "below", 0, 100)])),
+		).toHaveLength(1);
+		expect(
+			overlapProblems(board([chart, sticky("below", "below", 0, 240)])),
+		).toEqual([]);
+	});
+
 	it("reads a note in a frame in board coordinates: two frames' children can share coordinates and not space", () => {
 		expect(
 			overlapProblems(

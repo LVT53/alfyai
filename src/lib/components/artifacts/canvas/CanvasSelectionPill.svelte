@@ -28,6 +28,7 @@ import {
 	selectionChordFor,
 	selectionChordLabel,
 } from "../document/keyboard-shortcuts";
+import { measuredBy, type ScreenRect } from "./_lib/floating";
 import type { Tool } from "./_lib/tools";
 import { boxOf } from "./_lib/review-geometry";
 import { selectionPillPlacement } from "./_lib/selection-pill-placement";
@@ -36,6 +37,7 @@ let {
 	nodes,
 	viewport,
 	size,
+	avoid = null,
 	tool,
 	readonly,
 	hidden,
@@ -48,6 +50,8 @@ let {
 	viewport: { x: number; y: number; zoom: number };
 	/** The pane's size: where there is room below the blocks. */
 	size: { width: number; height: number };
+	/** Where the change pill is on the screen: this pill keeps off it. */
+	avoid?: ScreenRect | null;
 	tool: Tool;
 	/** The board cannot change now: there is nothing to comment on or ask. */
 	readonly: boolean;
@@ -76,8 +80,19 @@ let shown = $derived(
 		dismissedKey !== key,
 );
 let box = $derived(shown ? boxOf(selected, nodes) : null);
+// What the pane shows of the pill, measured (a phone's is taller and a Hungarian
+// label wider): the placement keeps the whole of it inside the pane.
+let measuredPill = $state.raw({ width: 0, height: 0 });
 let placement = $derived(
-	box ? selectionPillPlacement(box, viewport, size) : null,
+	box
+		? selectionPillPlacement(box, viewport, size, {
+				avoid,
+				size:
+					measuredPill.width > 0 && measuredPill.height > 0
+						? measuredPill
+						: undefined,
+			})
+		: null,
 );
 let inv = $derived(viewport.zoom > 0 ? 1 / viewport.zoom : 1);
 
@@ -134,7 +149,12 @@ function handleKeydown(event: KeyboardEvent): void {
 			style:left="{placement.x}px"
 			style:top="{placement.y}px"
 		>
-			<div class="pill" role="toolbar" aria-label={$t('artifacts.canvas.selection.label')}>
+			<div
+				class="pill"
+				role="toolbar"
+				aria-label={$t('artifacts.canvas.selection.label')}
+				{@attach measuredBy((pillSize) => (measuredPill = pillSize))}
+			>
 				<button
 					type="button"
 					class="action"

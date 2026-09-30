@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import {
 	type CanvasBlockData,
-	NODE_WIDTH,
+	defaultNodeWidth,
 } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	boardJson,
@@ -96,9 +96,21 @@ describe("stored nodes to library nodes", () => {
 			]) {
 				const [live] = toFlowNodes([node]);
 				expect(live.style, node.type).toMatch(
-					new RegExp(`width:\\s*${NODE_WIDTH}px`),
+					new RegExp(`width:\\s*${defaultNodeWidth(node.type as "sticky")}px`),
 				);
 			}
+		});
+
+		// RC-3 N1: a checklist's rows and a chart's plot do not fit a note's 190.
+		it("is drawn at its kind's own width: a checklist 340, a chart 360, a note 190", () => {
+			const widths = [
+				unsized("sticky", { kind: "sticky", text: "x", tone: "yellow" }),
+				unsized("checklist", { kind: "checklist", items: [] }),
+				unsized("chart", { kind: "chart", code: "{}" }),
+			].map(
+				(node) => toFlowNodes([node])[0].style?.match(/width:\s*(\d+)px/)?.[1],
+			);
+			expect(widths).toEqual(["190", "340", "360"]);
 		});
 
 		it("does not write that width into the board's data: what is drawn is not a change to what is stored", () => {

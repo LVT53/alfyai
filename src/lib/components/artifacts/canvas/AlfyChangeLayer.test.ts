@@ -260,6 +260,74 @@ describe("the pill", () => {
 	});
 });
 
+// RC-3 N3: the pill hangs to the LEFT of its corner, so a block near the pane's left
+// edge put it half outside it. It is kept a gap inside the pane, and says where it
+// is, on the screen, so the selection's pill can keep off it.
+describe("the pill, kept in the pane", () => {
+	const PANE = { width: 800, height: 600 };
+
+	it("slides in from the left edge: a gap inside it, its widest until it is measured", () => {
+		const onpillbox = vi.fn();
+		mount({
+			nodes: [sticky("a", 20, 200)],
+			touched: ["a"],
+			pill: { status: "pending", label: "x" },
+			paneSize: PANE,
+			onpillbox,
+		});
+		// Hung from the block's right edge (220), 280 wide, it ran from -60: now from 8.
+		const pill = screen.getByTestId("canvas-change-pill");
+		expect(pill.style.left).toBe("288px");
+		expect(pill.style.top).toBe("200px");
+		expect(onpillbox).toHaveBeenLastCalledWith({
+			left: 8,
+			top: 156,
+			right: 288,
+			bottom: 184,
+		});
+	});
+
+	it("reads the screen, not the board: a camera that has panned the block to the edge moves it the same way", () => {
+		mount({
+			nodes: [sticky("a", 300, 200)],
+			viewport: { x: -280, y: 0, zoom: 1 },
+			touched: ["a"],
+			pill: { status: "pending", label: "x" },
+			paneSize: PANE,
+		});
+		// The block's right edge is at 500 - 280 = 220 on the screen: the pill is at 288 on the screen, 568 on the board.
+		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("568px");
+	});
+
+	it("says it has no pill when there is none, and when the layer goes", () => {
+		const onpillbox = vi.fn();
+		const { unmount } = mount({
+			nodes: [sticky("a", 400, 200)],
+			touched: ["a"],
+			pill: { status: "pending", label: "x" },
+			paneSize: PANE,
+			onpillbox,
+		});
+		expect(onpillbox).toHaveBeenLastCalledWith({
+			left: 320,
+			top: 156,
+			right: 600,
+			bottom: 184,
+		});
+		unmount();
+		expect(onpillbox).toHaveBeenLastCalledWith(null);
+	});
+
+	it("leaves the pill where it hangs while the pane is not measured", () => {
+		mount({
+			nodes: [sticky("a", 20, 200)],
+			touched: ["a"],
+			pill: { status: "pending", label: "x" },
+		});
+		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("220px");
+	});
+});
+
 describe("where focus goes when the change is decided", () => {
 	it("lands on Redo when Alfy's change is undone and the button that was pressed is gone", async () => {
 		const { rerender } = mount({

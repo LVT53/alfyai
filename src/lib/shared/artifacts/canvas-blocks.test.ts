@@ -3,10 +3,14 @@ import {
 	BLOCK_DATA_SCHEMAS,
 	BLOCK_KINDS,
 	type CanvasBlockData,
+	chartAspectRatio,
+	defaultNodeWidth,
 	estimatedNodeHeight,
+	estimatedNodeSize,
 	isBlockKind,
 	MODEL_CREATABLE_KINDS,
 	modelCreatableBlockDataSchema,
+	NODE_WIDTH,
 	repeatedEntryIds,
 	withUniqueEntryIds,
 } from "./canvas-blocks";
@@ -362,5 +366,110 @@ describe("the height a block is drawn at, as the model is told it (RV-3 C2)", ()
 					?.data as CanvasBlockData,
 			}),
 		).toBe(84);
+	});
+});
+
+// RC-3 N1: a chart and a checklist are not note-sized. A chart 190 wide was a
+// sliver of a plot under its legend, and planned at 84 tall against the ~143 the
+// panel draws; a checklist 190 wide cut every natural item off at about 16
+// characters. Each kind has ONE default width (what Alfy's add stores, what the
+// board draws an unsized block at, what the model's read and the eval's
+// geometry report), and a chart's height is the one the panel draws: measured in
+// the browser at zoom 1 for a chart of each type and width.
+describe("the size a block has when it stores none (RC-3 N1)", () => {
+	const chart = (type: string, width?: number, extra: object = {}) => ({
+		type: "chart" as const,
+		...(width === undefined ? {} : { width }),
+		data: {
+			kind: "chart" as const,
+			code: JSON.stringify({
+				type,
+				data: { labels: ["A", "B"], datasets: [{ data: [1, 2] }] },
+				...extra,
+			}),
+		},
+	});
+
+	it("has one width per kind: a note's 190, and the checklist's and the chart's own", () => {
+		expect(NODE_WIDTH).toBe(190);
+		expect(defaultNodeWidth("sticky")).toBe(190);
+		expect(defaultNodeWidth("text")).toBe(190);
+		expect(defaultNodeWidth("checklist")).toBe(340);
+		expect(defaultNodeWidth("chart")).toBe(360);
+		// A kind the model cannot make keeps the blanket width it always had.
+		expect(defaultNodeWidth("map")).toBe(190);
+	});
+
+	// [type, width, the node height the panel drew, in board units]
+	const DRAWN_CHARTS: [string, number, number][] = [
+		["bar", 190, 143],
+		["bar", 240, 168],
+		["bar", 360, 228],
+		["bar", 420, 258],
+		["line", 360, 228],
+		["scatter", 300, 198],
+		["pie", 190, 227],
+		["pie", 360, 397],
+		["doughnut", 300, 337],
+		["radar", 420, 457],
+	];
+
+	it("is as tall as the panel draws a chart: the header, and a plot twice as wide as tall (square for a pie), never shorter", () => {
+		for (const [type, width, drawn] of DRAWN_CHARTS) {
+			const estimate = estimatedNodeHeight(chart(type, width));
+			expect(estimate, `${type} ${width}`).toBeGreaterThanOrEqual(drawn);
+			expect(estimate, `${type} ${width}`).toBeLessThanOrEqual(drawn + 2);
+		}
+	});
+
+	it("takes an unsized chart at its own width, so the model and the board agree on the box", () => {
+		expect(estimatedNodeSize(chart("bar"))).toEqual({
+			width: 360,
+			height: 228,
+		});
+		expect(estimatedNodeSize(chart("pie"))).toEqual({
+			width: 360,
+			height: 397,
+		});
+		expect(
+			estimatedNodeSize({
+				type: "checklist",
+				data: { kind: "checklist", items: [] },
+			}),
+		).toEqual({ width: 340, height: 74 });
+		expect(
+			estimatedNodeSize({
+				type: "frame",
+				data: { kind: "frame", label: "F", width: 300, height: 240 },
+			}),
+		).toEqual({ width: 300, height: 240 });
+		expect(estimatedNodeSize({ ...chart("bar", 420), height: 300 })).toEqual({
+			width: 420,
+			height: 300,
+		});
+	});
+
+	it("reads the aspect ratio a config asks for, and the type's own otherwise", () => {
+		expect(chartAspectRatio(chart("bar").data.code)).toBe(2);
+		expect(chartAspectRatio(chart("PolarArea").data.code)).toBe(1);
+		expect(
+			chartAspectRatio(
+				chart("bar", 0, { options: { aspectRatio: 4 } }).data.code,
+			),
+		).toBe(4);
+		// Not a ratio Chart.js would keep: the type's own.
+		expect(
+			chartAspectRatio(
+				chart("pie", 0, { options: { maintainAspectRatio: false } }).data.code,
+			),
+		).toBe(1);
+		expect(
+			chartAspectRatio(
+				chart("bar", 0, { options: { aspectRatio: 0 } }).data.code,
+			),
+		).toBe(2);
+		// A config that is not JSON is drawn as its source, and is estimated like a bar.
+		expect(chartAspectRatio("not json")).toBe(2);
+		expect(chartAspectRatio("[1, 2]")).toBe(2);
 	});
 });

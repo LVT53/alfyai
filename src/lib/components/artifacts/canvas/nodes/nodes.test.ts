@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TEXT_MAX_CHARS } from "$lib/shared/artifacts/canvas-blocks";
 import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasBoardContext } from "../_lib/board-context";
+import { keepInPicture } from "../_lib/poster";
 import { broken } from "../_test/broken-content";
 import ShellWithBrokenContent from "../_test/ShellWithBrokenContent.svelte";
 import WithBoard from "../_test/WithBoard.svelte";
@@ -402,6 +403,23 @@ describe("the board's own checklist", () => {
 		expect(
 			screen.getByRole("checkbox", { name: "Passport: toggle done" }),
 		).toBeChecked();
+	});
+
+	// RC-3 N5: the picture of the board is of what the board holds, not of the tools
+	// the reader edits it with: the row a new item is typed in, and each item's remove
+	// button, are left out of it.
+	it("leaves the reader's tools out of a picture of the board: the add row and the remove buttons", () => {
+		mount(ChecklistNode, props());
+		const addRow = screen.getByPlaceholderText("New item").closest("div");
+		expect(addRow).not.toBeNull();
+		expect(keepInPicture(addRow as Element)).toBe(false);
+		const removes = screen.getAllByRole("button", { name: "Remove item" });
+		expect(removes).toHaveLength(items.length);
+		for (const button of removes) expect(keepInPicture(button)).toBe(false);
+		// The items themselves are the board's content.
+		expect(
+			keepInPicture(screen.getByRole("checkbox", { name: /Passport/ })),
+		).toBe(true);
 	});
 
 	// RV-3 C1: the rows were keyed by item id, and Svelte throws for a repeated key

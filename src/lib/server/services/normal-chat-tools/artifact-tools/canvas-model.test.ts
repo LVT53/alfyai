@@ -78,7 +78,10 @@ describe("canvasReadBlocks — what read_artifact shows the model of a board", (
 		expect(byId("frame-a")).toMatchObject({ width: 360, height: 300 });
 		// Not stored: the shared width, and the height its words or items take.
 		expect(byId("text-1")).toMatchObject({ width: NODE_WIDTH, height: 32 });
-		expect(byId("todo-1")).toMatchObject({ width: NODE_WIDTH, height: 126 });
+		// A checklist and a chart have widths of their own (RC-3 N1): an unsized one
+		// is read at the width the panel draws it, and the chart at its height.
+		expect(byId("todo-1")).toMatchObject({ width: 340, height: 126 });
+		expect(byId("chart-1")).toMatchObject({ width: 360, height: 228 });
 		expect(byId("map-1")).toMatchObject({
 			width: NODE_WIDTH,
 			height: DEFAULT_NODE_HEIGHT,

@@ -13,6 +13,7 @@ import {
 } from "../../src/lib/shared/artifacts/board-ops";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import {
+	defaultNodeWidth,
 	estimatedNodeHeight,
 	NODE_WIDTH,
 } from "../../src/lib/shared/artifacts/canvas-blocks";
@@ -299,7 +300,8 @@ test.describe("the Canvas kind, in the panel", () => {
 
 	// RV-3 C2, the board's half: a board stored before Alfy's blocks carried a width
 	// has blocks with none, and they were drawn as wide as their words ran. They are
-	// drawn at the width Alfy reads them at, and the board's data is not changed by it.
+	// drawn at the width Alfy reads them at (RC-3 N1: a note's and a text's 190, a
+	// checklist's and a chart's own), and the board's data is not changed by it.
 	test("draws a board stored with no widths at the width Alfy reads it at", async ({
 		page,
 	}) => {
@@ -354,11 +356,16 @@ test.describe("the Canvas kind, in the panel", () => {
 		await openCanvasPanel(page);
 
 		const frame = await nodeBox(page, "frame-old");
-		for (const id of ["note-old", "text-old", "list-old"]) {
+		const readAt = {
+			"note-old": NODE_WIDTH,
+			"text-old": NODE_WIDTH,
+			"list-old": defaultNodeWidth("checklist"),
+		};
+		for (const [id, width] of Object.entries(readAt)) {
 			const drawn = await page
 				.locator(`.svelte-flow__node[data-id="${id}"]`)
 				.evaluate((el) => (el as HTMLElement).offsetWidth);
-			expect(drawn, `${id} width`).toBe(NODE_WIDTH);
+			expect(drawn, `${id} width`).toBe(width);
 			const box = await nodeBox(page, id);
 			expect(box.x + box.width, `${id} right`).toBeLessThanOrEqual(
 				frame.x + frame.width + 1,
@@ -372,6 +379,171 @@ test.describe("the Canvas kind, in the panel", () => {
 			undefined,
 		]);
 	});
+
+	// RC-3 N1: Alfy's charts and checklists got a note's 190, and a chart 190 wide is
+	// a sliver of a plot under its legend (planned at 84 tall, drawn ~143, so the
+	// block below it sat on its axis) while a checklist cut its items off at about
+	// 16 characters. A chart is 360 wide and is the height Alfy plans with, at any
+	// zoom (Chart.js measures its box on the screen, so a board opened from further
+	// away drew a chart that many times smaller and shorter), and a checklist is wide
+	// enough for its items.
+	for (const camera of [
+		// The default camera: the board is fitted to the pane when it opens.
+		{ name: "fitted on open", viewport: { x: 0, y: 0, zoom: 1 }, real: false },
+		{ name: "at 100%", viewport: { x: 10, y: 10, zoom: 1 }, real: true },
+		{ name: "at 50%", viewport: { x: 30, y: 30, zoom: 0.5 }, real: false },
+		{ name: "at 150%", viewport: { x: 10, y: 10, zoom: 1.5 }, real: true },
+	]) {
+		test(`draws a chart and a checklist Alfy adds at the size Alfy is told, ${camera.name}`, async ({
+			page,
+		}) => {
+			const conversationId = await createConversation(
+				page,
+				"A chart and a list",
+			);
+			const ITEMS = [
+				"Útlevél és személyi igazolvány",
+				"Telefon töltő és power bank szett",
+				"Esőkabát és összecsukható esernyő",
+				"Fényképezőgép és akkumulátor",
+			];
+			const chartData = {
+				kind: "chart",
+				label: "Eladás",
+				code: '{"type":"bar","data":{"labels":["Alma","Körte","Szilva"],"datasets":[{"label":"Eladás","data":[30,20,25]}]}}',
+			};
+			const pieData = {
+				kind: "chart",
+				label: "Részesedés",
+				code: '{"type":"pie","data":{"labels":["Alma","Körte"],"datasets":[{"data":[60,40]}]}}',
+			};
+			const chartHeight = estimatedNodeHeight({
+				type: "chart",
+				width: defaultNodeWidth("chart"),
+				data: chartData as never,
+			});
+			const pieHeight = estimatedNodeHeight({
+				type: "chart",
+				width: defaultNodeWidth("chart"),
+				data: pieData as never,
+			});
+			// The board Alfy's own ops make: a note planned 10 below the chart, as the
+			// tool text tells the model to leave.
+			let board = emptyCanvasBody();
+			const ops: BoardOp[] = [
+				{
+					op: "add_node",
+					node: {
+						id: "chart-a",
+						type: "chart",
+						position: { x: 40, y: 40 },
+						data: chartData,
+					},
+				},
+				{
+					op: "add_node",
+					node: {
+						id: "note-below",
+						type: "sticky",
+						position: { x: 40, y: 40 + chartHeight + 10 },
+						data: { kind: "sticky", text: "Below the chart", tone: "mint" },
+					},
+				},
+				{
+					op: "add_node",
+					node: {
+						id: "chart-pie",
+						type: "chart",
+						position: { x: 900, y: 40 },
+						data: pieData,
+					},
+				},
+				{
+					op: "add_node",
+					node: {
+						id: "list-a",
+						type: "checklist",
+						position: { x: 460, y: 40 },
+						data: {
+							kind: "checklist",
+							label: "Csomagolás",
+							items: ITEMS.map((text, index) => ({
+								id: `i${index}`,
+								text,
+								done: false,
+							})),
+						},
+					},
+				},
+			] as BoardOp[];
+			for (const op of ops) board = applyOp(board, op);
+			board = { ...board, viewport: camera.viewport };
+			await seedCanvas(conversationId, board);
+			await openChatAndReload(page, conversationId);
+			await openCanvasPanel(page);
+			// Chart.js draws after its own lazy import; wait for the plot.
+			const plot = page
+				.locator(`.svelte-flow__node[data-id="chart-a"]`)
+				.locator("canvas");
+			await expect(plot).toBeVisible();
+			await expect(async () => {
+				const drawn = await page
+					.locator(`.svelte-flow__node[data-id="chart-a"]`)
+					.evaluate((el) => (el as HTMLElement).offsetHeight);
+				expect(Math.abs(drawn - chartHeight)).toBeLessThanOrEqual(2);
+			}).toPass({ timeout: 10_000 });
+
+			// A round chart is square, and is planned at the height it is drawn at too.
+			await expect(async () => {
+				const drawn = await page
+					.locator(`.svelte-flow__node[data-id="chart-pie"]`)
+					.evaluate((el) => (el as HTMLElement).offsetHeight);
+				expect(Math.abs(drawn - pieHeight)).toBeLessThanOrEqual(2);
+			}).toPass({ timeout: 10_000 });
+
+			// In board units (layout pixels), whatever the camera is doing.
+			const chartBox = await page
+				.locator(`.svelte-flow__node[data-id="chart-a"]`)
+				.evaluate((el) => ({
+					width: (el as HTMLElement).offsetWidth,
+					height: (el as HTMLElement).offsetHeight,
+				}));
+			expect(chartBox.width).toBe(defaultNodeWidth("chart"));
+			expect(chartBox.height).toBeLessThanOrEqual(chartHeight + 2);
+			const plotLayout = await plot.evaluate((el) => ({
+				width: (el as HTMLCanvasElement).clientWidth,
+				height: (el as HTMLCanvasElement).clientHeight,
+			}));
+			expect(plotLayout.height).toBeGreaterThanOrEqual(160);
+			expect(plotLayout.width).toBeGreaterThanOrEqual(330);
+			// On the screen, the two blocks do not meet, and the plot is a real size.
+			const chart = await nodeBox(page, "chart-a");
+			const below = await nodeBox(page, "note-below");
+			expect(below.y).toBeGreaterThanOrEqual(chart.y + chart.height);
+			if (camera.real && camera.viewport.zoom >= 1) {
+				const onScreen = await plot.boundingBox();
+				expect(onScreen?.height ?? 0).toBeGreaterThanOrEqual(120);
+			}
+
+			// Every item of the checklist is whole.
+			const list = page.locator(`.svelte-flow__node[data-id="list-a"]`);
+			expect(await list.evaluate((el) => (el as HTMLElement).offsetWidth)).toBe(
+				defaultNodeWidth("checklist"),
+			);
+			const cut = await list
+				.locator("input.row__text")
+				.evaluateAll((inputs) =>
+					inputs
+						.filter(
+							(input) =>
+								(input as HTMLInputElement).scrollWidth >
+								(input as HTMLInputElement).clientWidth,
+						)
+						.map((input) => (input as HTMLInputElement).value),
+				);
+			expect(cut, "items cut off").toEqual([]);
+		});
+	}
 
 	test("draws the edges a board was saved with, label and all", async ({
 		page,
@@ -525,6 +697,73 @@ test.describe("the Canvas kind, in the panel", () => {
 			apart,
 			"the inserted note lies clear of the one that was there",
 		).toBe(true);
+	});
+
+	// RC-3 N7: Insert -> Frame was the one insert that was only staggered off the
+	// blocks' corners, so a new frame landed across the frame that was in the middle
+	// of the view and its notes (a frame is a backdrop, but one laid across another
+	// has to be pulled apart before either can be used). It takes free ground like the
+	// other blocks, clear of the frames too.
+	test("puts an inserted frame on free ground, clear of the frame and the blocks in the middle of the view", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Crowded frames");
+		await seedCanvas(
+			conversationId,
+			{
+				...emptyCanvasBody(),
+				nodes: [
+					{
+						id: "frame-saturday",
+						type: "frame",
+						position: { x: 0, y: 0 },
+						width: 360,
+						height: 260,
+						data: { kind: "frame", label: "Saturday", width: 360, height: 260 },
+					},
+					{
+						id: "note-inside",
+						type: "sticky",
+						position: { x: 24, y: 64 },
+						parentId: "frame-saturday",
+						width: 190,
+						data: { kind: "sticky", text: "Museum, 14:00", tone: "yellow" },
+					},
+					{
+						id: "note-outside",
+						type: "sticky",
+						position: { x: 420, y: 40 },
+						width: 190,
+						data: { kind: "sticky", text: "Dinner, 19:30", tone: "mint" },
+					},
+				],
+			},
+			"Crowded frames",
+		);
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		await openInsertMenu(page);
+		await page.getByTestId("canvas-insert-frame").click();
+		await expect(page.getByTestId("canvas-node")).toHaveCount(4);
+		await page.keyboard.press("Escape");
+
+		const inserted = await page
+			.locator('[data-testid="canvas-node"][data-selected="true"]')
+			.evaluate((el) =>
+				el.closest(".svelte-flow__node")?.getAttribute("data-id"),
+			);
+		if (!inserted) throw new Error("the inserted frame is not selected");
+		const added = await nodeBox(page, inserted);
+		for (const id of ["frame-saturday", "note-inside", "note-outside"]) {
+			const other = await nodeBox(page, id);
+			const apart =
+				added.x + added.width <= other.x ||
+				other.x + other.width <= added.x ||
+				added.y + added.height <= other.y ||
+				other.y + other.height <= added.y;
+			expect(apart, `the inserted frame lies clear of ${id}`).toBe(true);
+		}
 	});
 
 	test("closes the Insert menu on Escape, which hands focus back to Insert, and on a click outside, which leaves focus where the reader clicked", async ({

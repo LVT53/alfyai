@@ -73,6 +73,7 @@ import {
 } from "./_lib/board";
 import { DEFAULT_INK, isDrawingTool, type Tool } from "./_lib/tools";
 import type { BoardLayerApi } from "./_lib/board-layers";
+import type { ScreenRect } from "./_lib/floating";
 import { type BoardHistory, createBoardHistory } from "./_lib/board-history";
 import { type BlockPicture, provideBoardContext } from "./_lib/board-context";
 import {
@@ -517,7 +518,7 @@ async function insertBlock(
 	// opens: only an insert that beat the load waits for it.
 	const where = placement ?? (await loadPlacement());
 	if (!where || readonly || !boardEl) return;
-	const { placeBesideBlocks, placeInsertedBlock } = where;
+	const { placeBesideBlocks } = where;
 	// Whatever the reader did while it loaded is a step before the insert.
 	commit();
 	const rect = boardEl.getBoundingClientRect();
@@ -528,24 +529,19 @@ async function insertBlock(
 	// A block goes on free ground: laid over another it would hide it and take the
 	// clicks meant for it (a made-from-the-chat block is big, an App is 400 x 340,
 	// and a note's own toolbar sits over what is beneath it). A frame is a backdrop,
-	// not in the way of a block, and a new frame is only staggered off the others.
-	const position =
-		data !== undefined || row.kind !== "frame"
-			? placeBesideBlocks({
-					center,
-					size: row.size,
-					occupied: nodes
-						.filter((node) => !blockEntry(node.type)?.structural)
-						.map((node) => nodeRect(node, nodes, node.measured)),
-					visible: visiblePaneRect(),
-				})
-			: placeInsertedBlock({
-					center,
-					size: row.size,
-					taken: nodes
-						.filter((node) => !node.parentId)
-						.map((node) => node.position),
-				});
+	// so a block may be dropped inside one and keeps off only what is not a frame;
+	// a new frame keeps off everything, frames too, which it would otherwise lie
+	// across and leave the reader to pull apart (RC-3 N7).
+	const position = placeBesideBlocks({
+		center,
+		size: row.size,
+		occupied: nodes
+			.filter(
+				(node) => row.kind === "frame" || !blockEntry(node.type)?.structural,
+			)
+			.map((node) => nodeRect(node, nodes, node.measured)),
+		visible: visiblePaneRect(),
+	});
 	const [added] = toFlowNodes([
 		newBlockNode(row.kind, position, undefined, data),
 	]);
@@ -792,6 +788,9 @@ function handleAsk(): void {
 	});
 }
 
+// Where the change layer's pill is: the selection's pill keeps off it (RC-3 N3).
+let changePillBox = $state.raw<ScreenRect | null>(null);
+
 let layerApi = $derived<BoardLayerApi>({
 	nodes,
 	viewport,
@@ -802,10 +801,43 @@ let layerApi = $derived<BoardLayerApi>({
 	announce,
 	size: { width: boardWidth, height: boardHeight },
 	readonly,
+	changePillBox,
+	setChangePillBox: (box) => (changePillBox = box),
 });
 
 let compact = $derived(boardWidth > 0 && boardWidth < COMPACT_BELOW);
 let stackedZoom = $derived(boardWidth > 0 && boardWidth < STACK_ZOOM_BELOW);
+
+// The zoom control steps aside from a selected block it would cover (RC-3 N3): it
+// stands over the pane's lower right corner, where a selected block's corner
+// handles are, and sat on a corner of it on a phone. Measured on the screen, after
+// the blocks and the camera have been drawn; it comes back when nothing selected
+// is under it.
+let zoomAside = $state(false);
+$effect(() => {
+	void [nodes, viewport, boardWidth, boardHeight, stackedZoom];
+	// Nothing selected, nothing to measure: a pan or a zoom never forces a layout.
+	if (!nodes.some((node) => node.selected)) {
+		zoomAside = false;
+		return;
+	}
+	const chip = boardEl
+		?.querySelector('[data-testid="canvas-zoom"]')
+		?.getBoundingClientRect();
+	zoomAside =
+		chip !== undefined &&
+		[...(boardEl?.querySelectorAll(".svelte-flow__node.selected") ?? [])].some(
+			(element) => {
+				const rect = element.getBoundingClientRect();
+				return (
+					rect.left < chip.right &&
+					rect.right > chip.left &&
+					rect.top < chip.bottom &&
+					rect.bottom > chip.top
+				);
+			},
+		);
+});
 let showMinimap = $derived(boardWidth >= MINIMAP_ABOVE && nodes.length > 0);
 let empty = $derived(nodes.length === 0 && annotations.length === 0);
 // A tool that draws (or the eraser) owns the pointer: the drawing pad takes the
@@ -967,6 +999,7 @@ function minimapColor(node: {
 				"canvas-corner",
 				stackedZoom && "canvas-corner--compact",
 				stackedZoom && drawing && "canvas-corner--under-tray",
+				zoomAside && "canvas-corner--aside",
 			]}
 		>
 			<ZoomChip
@@ -1075,7 +1108,8 @@ function minimapColor(node: {
 
 	/* On a phone the drawing tools take the space above the toolbar, where the
 	   zoom sits; nothing zooms by button while a finger is drawing anyway. */
-	.canvas-board :global(.canvas-corner--under-tray) {
+	.canvas-board :global(.canvas-corner--under-tray),
+	.canvas-board :global(.canvas-corner--aside) {
 		visibility: hidden;
 	}
 

@@ -26,6 +26,8 @@ import {
 	CHECKLIST_BASE_HEIGHT,
 	CHECKLIST_ROW_HEIGHT,
 	charsPerLine,
+	defaultNodeWidth,
+	estimatedNodeHeight,
 	NODE_WIDTH,
 	NOTE_LINE_HEIGHT,
 	NOTE_MIN_HEIGHT,
@@ -34,13 +36,25 @@ import type { CreatableArtifactKind } from "./kind-registry";
 
 /**
  * The sizes of what a model adds to a board, said the way the panel draws them
- * (RV-3 C2): a block is `NODE_WIDTH` wide (the app stores that width when it
- * adds one), and only a frame has a height of its own — a note is as tall as its
- * words, a checklist as its items. Built from the constants the read, the eval
- * and the estimate share, so the sentence cannot drift from what is drawn.
+ * (RV-3 C2, RC-3 N1): a block is `NODE_WIDTH` wide unless its kind has a width of
+ * its own (the app stores that width when it adds one: a checklist's rows and a
+ * chart's plot need more than a note's), and only a frame has a height of its
+ * own — a note is as tall as its words, a checklist as its items, a chart as its
+ * plot (a square one for a pie, a doughnut, a radar or a polar area chart, so
+ * taller). Built from the constants and the estimate the read, the eval and the
+ * board share, so the sentence cannot drift from what is drawn.
  */
-const SIZE_FACTS_EN = `a block you add is ${NODE_WIDTH} wide (a frame is the size you give it); a note is ${NOTE_MIN_HEIGHT} tall for up to two lines (about ${charsPerLine()} characters a line), plus ${NOTE_LINE_HEIGHT} for each further line; a checklist is ${CHECKLIST_BASE_HEIGHT} plus ${CHECKLIST_ROW_HEIGHT} an item`;
-const SIZE_FACTS_HU = `Egy blokk ${NODE_WIDTH} széles (a keret: amit megadsz), egy jegyzet két sorig ${NOTE_MIN_HEIGHT} magas (soronként kb. ${charsPerLine()} karakter), minden további sor +${NOTE_LINE_HEIGHT}, egy feladatlista ${CHECKLIST_BASE_HEIGHT} + ${CHECKLIST_ROW_HEIGHT} elemenként`;
+const CHECKLIST_WIDTH = defaultNodeWidth("checklist");
+const CHART_WIDTH = defaultNodeWidth("chart");
+const chartHeightOf = (type: string): number =>
+	estimatedNodeHeight({
+		type: "chart",
+		data: { kind: "chart", code: JSON.stringify({ type, data: {} }) },
+	});
+const CHART_HEIGHT = chartHeightOf("bar");
+const ROUND_CHART_HEIGHT = chartHeightOf("pie");
+const SIZE_FACTS_EN = `a block you add is ${NODE_WIDTH} wide (a checklist ${CHECKLIST_WIDTH}, a chart ${CHART_WIDTH}, a frame the size you give it); a note is ${NOTE_MIN_HEIGHT} tall for up to two lines (about ${charsPerLine()} characters a line), plus ${NOTE_LINE_HEIGHT} for each further line; a checklist is ${CHECKLIST_BASE_HEIGHT} plus ${CHECKLIST_ROW_HEIGHT} an item; a chart is ${CHART_HEIGHT} tall (${ROUND_CHART_HEIGHT} for a pie, doughnut, radar or polar chart)`;
+const SIZE_FACTS_HU = `Egy blokk ${NODE_WIDTH} széles (a feladatlista ${CHECKLIST_WIDTH}, a diagram ${CHART_WIDTH}, a keret: amit megadsz), egy jegyzet két sorig ${NOTE_MIN_HEIGHT} magas (soronként kb. ${charsPerLine()} karakter), minden további sor +${NOTE_LINE_HEIGHT}, egy feladatlista ${CHECKLIST_BASE_HEIGHT} + ${CHECKLIST_ROW_HEIGHT} elemenként, egy diagram ${CHART_HEIGHT} magas (kör-, fánk-, radar- vagy polárdiagramnál ${ROUND_CHART_HEIGHT})`;
 
 /** No-Oxford-comma list join matching this tool family's existing prose
  *  style: "a" / "a or b" / "a, b or c". */

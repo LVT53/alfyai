@@ -505,6 +505,18 @@ describe("what the layer rings, once the change is decided", () => {
 		centerOn: () => {},
 	} as unknown as BoardLayerApi;
 
+	// RC-3 N3: the layer says where its pill is, through the board, to the selection's pill.
+	it("hands the layer the board's way of saying where the pill is", () => {
+		const setChangePillBox = vi.fn();
+		const { controller } = make({ board: sampleBoard() });
+		expect(
+			changeLayerProps(controller, {
+				...layerApi,
+				setChangePillBox,
+			} as unknown as BoardLayerApi).onpillbox,
+		).toBe(setChangePillBox);
+	});
+
 	it("rings the blocks while the change waits, and none once it is undone, redone or kept; the pill still follows them", async () => {
 		api.fetchArtifactVersionBody.mockResolvedValue(boardJson(sampleBoard()));
 		const { controller } = make({

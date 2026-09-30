@@ -25,6 +25,7 @@ import {
 } from "$lib/server/services/knowledge/store/core";
 import { deleteSemanticEmbeddingsForSubjects } from "$lib/server/services/semantic-embeddings";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import { deleteBoardPosters } from "./canvas-posters";
 import { hashArtifactBody } from "./hash";
 import {
 	ARTIFACT_BODY_MAX_BYTES,
@@ -708,6 +709,23 @@ export async function deleteArtifact(
 			tx.delete(artifacts).where(eq(artifacts.id, row.id)).run().changes > 0,
 	);
 	if (!removed) return { ok: false, reason: "not_found" };
+	if (row.conversationId && kindForArtifactRow(row) === "canvas") {
+		// The posters of its blocks, a board's own chat files, go with it. Like the
+		// embedding below, never allowed to undo the delete: a failure leaves files that
+		// go with the chat.
+		try {
+			await deleteBoardPosters({
+				userId: row.userId,
+				conversationId: row.conversationId,
+				boardId: row.id,
+			});
+		} catch (error) {
+			console.warn("[ARTIFACTS] Deleted a board but not its poster files", {
+				artifactId: row.id,
+				error,
+			});
+		}
+	}
 	try {
 		await deleteSemanticEmbeddingsForSubjects({
 			userId: row.userId,

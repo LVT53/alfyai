@@ -24,6 +24,10 @@ import {
 	validateBoardDiff,
 } from "$lib/shared/artifacts/board-ops";
 import type { CanvasBody } from "$lib/shared/artifacts/canvas";
+import {
+	defaultNodeWidth,
+	estimatedNodeSize,
+} from "$lib/shared/artifacts/canvas-blocks";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
@@ -758,6 +762,37 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 		expect(hu).toMatch(/típusa nem változtatható/);
 		expect(hu).toMatch(/töröld/);
 		expect(hu).toMatch(/adj hozzá/);
+	});
+
+	// RC-3 N1: a chart and a checklist are not a note's 190, and a chart is as tall
+	// as its plot. The sentence is built from the numbers the board, the model's read
+	// and the eval draw with, so a model that plans by it leaves room for what is
+	// really drawn (a pie is square, so it is taller).
+	it("says, in both languages, how wide a checklist and a chart are and how tall a chart is, from the numbers the board is drawn with", () => {
+		const chart = (type: string) =>
+			estimatedNodeSize({
+				type: "chart",
+				data: { kind: "chart", code: JSON.stringify({ type, data: {} }) },
+			});
+		const flat = chart("bar").height;
+		const round = chart("pie").height;
+		expect(round).toBeGreaterThan(flat);
+		const checklist = defaultNodeWidth("checklist");
+		const chartWidth = defaultNodeWidth("chart");
+		const en = [
+			editArtifactRuleClause(kinds, "en"),
+			createArtifactBodyFormat(kinds),
+		];
+		for (const text of en) {
+			expect(text).toContain(`a checklist ${checklist}`);
+			expect(text).toContain(`a chart ${chartWidth}`);
+			expect(text).toContain(`a chart is ${flat} tall (${round} for a pie`);
+		}
+		const hu = editArtifactRuleClause(kinds, "hu");
+		expect(hu).toContain(`a feladatlista ${checklist}`);
+		expect(hu).toContain(`a diagram ${chartWidth}`);
+		expect(hu).toContain(`egy diagram ${flat} magas`);
+		expect(hu).toContain(`${round}`);
 	});
 
 	it("parses the edit example, whole, through the advertised schema — and its ops through the validator against a real board with zero refusals", () => {

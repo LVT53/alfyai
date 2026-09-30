@@ -8,6 +8,11 @@
  */
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
 import { nodeRect } from "./board";
+import {
+	BOARD_TOOLBAR_CLEARANCE,
+	PANE_EDGE_GAP,
+	type ScreenRect,
+} from "./floating";
 
 export type Box = { x: number; y: number; width: number; height: number };
 
@@ -112,4 +117,53 @@ export function changePillAnchor(input: {
 		}
 	}
 	return best;
+}
+
+type Camera = { x: number; y: number; zoom: number };
+type Size = { width: number; height: number };
+
+/** Where the change pill is on the screen, in the pane's pixels, when it hangs from `anchor`: its right edge at the anchor, 16 above it. */
+export function changePillScreenRect(
+	anchor: Pt,
+	camera: Camera,
+	size: Size = { width: PILL_WIDTH, height: PILL_HEIGHT },
+): ScreenRect {
+	const right = anchor.x * camera.zoom + camera.x;
+	const bottom = anchor.y * camera.zoom + camera.y - PILL_LIFT;
+	return { left: right - size.width, top: bottom - size.height, right, bottom };
+}
+
+/**
+ * The change pill's anchor moved along the screen until the pill is inside the
+ * pane (RC-3 N3): it hangs to the LEFT of its corner and above it, so a block
+ * near the left edge put it half outside, and one near the top put it over the
+ * pane's header. A gap inside the edge, and above the board's own toolbar along
+ * the bottom; the left edge wins when the pane is narrower than the pill. The
+ * arithmetic is on the screen (the pill is the same size at any zoom), the answer
+ * in board units. Before the pane is measured the anchor is left as it is.
+ */
+export function keepPillInPane(input: {
+	anchor: Pt;
+	camera: Camera;
+	pane: Size;
+	/** The pill's size on the screen: measured, else its widest. */
+	size?: Size;
+}): Pt {
+	const { anchor, camera, pane } = input;
+	const size = input.size ?? { width: PILL_WIDTH, height: PILL_HEIGHT };
+	if (!(pane.width > 0) || !(pane.height > 0) || !(camera.zoom > 0)) {
+		return anchor;
+	}
+	const screenX = anchor.x * camera.zoom + camera.x;
+	const screenY = anchor.y * camera.zoom + camera.y;
+	const x = Math.max(
+		Math.min(screenX, pane.width - PANE_EDGE_GAP),
+		PANE_EDGE_GAP + size.width,
+	);
+	const y = Math.max(
+		Math.min(screenY, pane.height - BOARD_TOOLBAR_CLEARANCE + PILL_LIFT),
+		PANE_EDGE_GAP + PILL_LIFT + size.height,
+	);
+	if (x === screenX && y === screenY) return anchor;
+	return { x: (x - camera.x) / camera.zoom, y: (y - camera.y) / camera.zoom };
 }
