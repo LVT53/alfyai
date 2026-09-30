@@ -1,31 +1,44 @@
 <script lang="ts">
 /**
- * What the registry draws for a block made from the chat (a file, an App, a map)
- * until its own code has loaded, and then the block itself. The editor's first
- * paint does not pay for these blocks: each one's component (and what it brings —
- * the App's frame, the chat's map card) is a chunk of its own, fetched when a
- * block of that kind is on the board. Every prop the flow hands a node is passed
- * on untouched, so the block cannot tell it was loaded late.
+ * What the registry draws for a block made from the chat (a file, an App, a map):
+ * the block's shell at once — its chrome, its anchors, its resize corners, its
+ * toolbar, its name for a screen reader, so an edge can attach and a block can be
+ * moved before anything has loaded — and, inside it, the block's content when its
+ * own chunk has arrived. The editor's first paint does not pay for the content of
+ * these blocks (the App's frame, the chat's map card); it pays only for this
+ * wrapper, and the shell it already has.
  *
- * While it loads this is a plain box the size of the block's smallest form, not a
- * node (it has no anchors and is not counted as a block); if the chunk cannot be
- * fetched (the network went away) it says so and offers a retry, and the block
- * stays in the board's data either way.
+ * The content module says how it dresses the shell (`shell`: a title, a summary,
+ * what Enter does) once it is loaded. If its chunk cannot be fetched (the network
+ * went away) the block says so and offers a retry; it stays in the board's data
+ * either way.
  */
-import type { NodeProps, NodeTypes } from "@xyflow/svelte";
+import type { NodeProps } from "@xyflow/svelte";
 import { t } from "$lib/i18n";
 import { metaFor } from "../_lib/block-meta";
-import { lazyNodeLoader } from "../_lib/lazy-nodes";
+import { useChatContext } from "../_lib/chat-context";
+import {
+	type LazyNodeModule,
+	type LazyShell,
+	lazyNodeLoader,
+} from "../_lib/lazy-nodes";
+import NodeShell from "../NodeShell.svelte";
 import MissingKindNode from "./MissingKindNode.svelte";
 
 let props: NodeProps = $props();
 
-let Loaded = $state.raw<NodeTypes[string] | null>(null);
+const chat = useChatContext();
+
+let loaded = $state.raw<LazyNodeModule | null>(null);
 let failed = $state(false);
 let attempt = $state(0);
 
-let loader = $derived(lazyNodeLoader(String(props.type)));
-let minHeight = $derived(metaFor(String(props.type)).minSize.height);
+let kind = $derived(String(props.type));
+let loader = $derived(lazyNodeLoader(kind));
+let blockMeta = $derived(metaFor(kind));
+let shell = $derived<LazyShell>(
+	loaded?.shell?.(props.data as never, chat) ?? {},
+);
 
 $effect(() => {
 	const load = loader;
@@ -33,11 +46,11 @@ $effect(() => {
 	void attempt;
 	if (!load) return;
 	let current = true;
-	Loaded = null;
+	loaded = null;
 	failed = false;
 	load().then(
 		(module) => {
-			if (current) Loaded = module.default;
+			if (current) loaded = module;
 		},
 		() => {
 			if (current) failed = true;
@@ -50,26 +63,40 @@ $effect(() => {
 </script>
 
 {#if !loader}
-	<MissingKindNode id={props.id} type={String(props.type)} selected={props.selected} />
-{:else if Loaded}
-	<Loaded {...props} />
+	<MissingKindNode id={props.id} type={kind} selected={props.selected} />
 {:else}
-	<div
-		class="lazy"
-		class:lazy--failed={failed}
-		style:min-height="{minHeight}px"
-		aria-busy={!failed}
-		data-testid="canvas-node-loading"
+	<NodeShell
+		id={props.id}
+		{kind}
+		selected={props.selected}
+		minWidth={blockMeta.minSize.width}
+		minHeight={blockMeta.minSize.height}
+		title={shell.title}
+		meta={shell.meta}
+		summary={shell.summary}
+		activate={shell.activate}
 	>
-		{#if failed}
-			<p class="lazy__text">{$t("artifacts.canvas.block.loadFailed")}</p>
-			<button type="button" class="lazy__retry nodrag" onclick={() => (attempt += 1)}>
-				{$t("artifacts.canvas.chat.retry")}
-			</button>
+		{#if loaded}
+			{@const Content = loaded.default}
+			<Content id={props.id} data={props.data} selected={props.selected} />
+		{:else if failed}
+			<div class="lazy lazy--failed" role="alert" data-testid="canvas-node-load-failed">
+				<p class="lazy__text">{$t("artifacts.canvas.block.loadFailed")}</p>
+				<button type="button" class="lazy__retry nodrag" onclick={() => (attempt += 1)}>
+					{$t("artifacts.canvas.chat.retry")}
+				</button>
+			</div>
 		{:else}
-			<span class="lazy__bar" aria-hidden="true"></span>
+			<div
+				class="lazy"
+				style:min-height="{blockMeta.minSize.height}px"
+				aria-busy="true"
+				data-testid="canvas-node-loading"
+			>
+				<span class="lazy__bar" aria-hidden="true"></span>
+			</div>
 		{/if}
-	</div>
+	</NodeShell>
 {/if}
 
 <style>
@@ -80,10 +107,9 @@ $effect(() => {
 		justify-content: center;
 		gap: 6px;
 		width: 100%;
+		height: 100%;
 		padding: 10px 12px;
-		border: 1px solid var(--border-default);
 		border-radius: 10px;
-		background: var(--surface-page);
 		color: var(--text-muted);
 		font-family: var(--font-sans);
 		font-size: var(--text-xs);

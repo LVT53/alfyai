@@ -52,6 +52,11 @@ onMount(() => {
 	};
 });
 
+/** The glyph of a block kind, for the section (which is loaded on demand and so does not import the registry itself). */
+function iconFor(kind: ChatBlockKind) {
+	return blockEntry(kind)?.icon;
+}
+
 function pickFromChat(kind: ChatBlockKind, data: CanvasBlockData): void {
 	const row = blockEntry(kind);
 	if (row) onpick(row, data);
@@ -121,7 +126,7 @@ function handleKeydown(event: KeyboardEvent): void {
 		</div>
 	{/each}
 	{#if Section && chat.load}
-		<Section load={chat.load} onpick={pickFromChat} />
+		<Section load={chat.load} onpick={pickFromChat} iconFor={iconFor} />
 	{/if}
 </div>
 

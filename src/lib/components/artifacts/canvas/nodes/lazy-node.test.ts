@@ -2,34 +2,44 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import type { Component } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
+import type { LazyNodeModule } from "../_lib/lazy-nodes";
 import WithBoard from "../_test/WithBoard.svelte";
 import LazyNode from "./LazyNode.svelte";
 
 // The blocks made from the chat are loaded when one is on the board, not with
-// the editor: `LazyNode` is what stands in the registry for them. What is
-// measured here is the wrapper's own behaviour (a stand-in while it loads, every
-// prop passed on, a way back from a failed load); which loader each kind has is
-// `lazy-nodes.test.ts`'s.
+// the editor. `LazyNode` is what stands in the registry for them: it draws the
+// block's shell at once and the block's content when its chunk arrives. What is
+// measured here is the wrapper's own behaviour (the shell first, what it passes
+// on, how the content dresses the shell, a way back from a failed load); which
+// loader each kind has is `lazy-nodes.test.ts`'s, and what each block's content
+// does is `chat-block-nodes.test.ts`'s.
 
 vi.mock("@xyflow/svelte", async () =>
 	(await import("../_test/xyflow-mock")).xyflowMock(),
 );
 
-const loaders: Record<string, () => Promise<{ default: Component<never> }>> =
-	{};
+const loaders: Record<string, () => Promise<LazyNodeModule>> = {};
 vi.mock("../_lib/lazy-nodes", () => ({
 	lazyNodeLoader: (kind: string) => loaders[kind] ?? null,
 }));
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-/** A node component that shows the props it was given. */
-async function probe() {
-	return (await import("../_test/StubChart.svelte"))
-		.default as Component<never>;
+/** A content module that shows the props it was given and dresses the shell from the data. */
+async function content(
+	shell: LazyNodeModule["shell"] = (data: never) => ({
+		title: `Title of ${(data as { name: string }).name}`,
+		meta: "meta line",
+		summary: `Summary of ${(data as { name: string }).name}`,
+	}),
+): Promise<LazyNodeModule> {
+	return {
+		default: (await import("../_test/StubContent.svelte"))
+			.default as LazyNodeModule["default"],
+		shell,
+	};
 }
 
 function mount(props: Record<string, unknown>) {
@@ -47,6 +57,14 @@ function mount(props: Record<string, unknown>) {
 	});
 }
 
+const nodeProps = (extra: Record<string, unknown> = {}) => ({
+	id: "n1",
+	type: "file",
+	selected: false,
+	data: { name: "trip.pdf" },
+	...extra,
+});
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	for (const key of Object.keys(loaders)) delete loaders[key];
@@ -54,68 +72,108 @@ beforeEach(() => {
 });
 
 describe("the loading wrapper", () => {
-	it("stands in for the block while its code loads, then draws the block itself", async () => {
-		let arrive: (value: { default: Component<never> }) => void = () => {};
+	it("draws the block's shell at once, anchors and all, and its content when the chunk arrives", async () => {
+		let arrive: (value: LazyNodeModule) => void = () => {};
 		loaders.file = () => new Promise((resolve) => (arrive = resolve));
-		mount({ id: "n1", type: "file", selected: false, data: { code: "x" } });
+		mount(nodeProps());
 
+		// A real node from the first frame: it can be moved, and an edge can attach.
+		expect(screen.getByTestId("canvas-node").getAttribute("data-kind")).toBe(
+			"file",
+		);
+		expect(screen.getAllByTestId("canvas-anchor")).toHaveLength(4);
 		expect(screen.getByTestId("canvas-node-loading")).toBeInTheDocument();
-		expect(screen.queryByTestId("chart-stub")).toBeNull();
+		expect(screen.queryByTestId("content-stub")).toBeNull();
 
-		arrive({ default: await probe() });
+		arrive(await content());
 
-		expect(await screen.findByTestId("chart-stub")).toBeInTheDocument();
+		expect(await screen.findByTestId("content-stub")).toBeInTheDocument();
 		expect(screen.queryByTestId("canvas-node-loading")).toBeNull();
+		expect(screen.getAllByTestId("canvas-node")).toHaveLength(1);
 	});
 
-	it("passes every prop the flow gave the node on to the block, untouched", async () => {
-		loaders.file = async () => ({ default: await probe() });
-		// The probe reads its own `code` prop; the flow's props are `id`, `type`,
-		// `selected` and the rest, and all of them must arrive.
-		mount({ id: "n1", type: "file", selected: true, code: "the code" });
-		const stub = await screen.findByTestId("chart-stub");
-		expect(stub.dataset.code).toBe("the code");
+	it("hands the content the node's id, data and selection, and nothing else of the flow's", async () => {
+		loaders.file = () => content();
+		mount(
+			nodeProps({ selected: true, width: 200, dragging: false, zIndex: 3 }),
+		);
+		const stub = await screen.findByTestId("content-stub");
 		expect(JSON.parse(stub.dataset.propNames ?? "[]")).toEqual([
-			"code",
+			"data",
 			"id",
 			"selected",
-			"type",
 		]);
+		expect(stub.dataset.nodeId).toBe("n1");
+		expect(stub.dataset.selected).toBe("true");
+		expect(JSON.parse(stub.dataset.data ?? "null")).toEqual({
+			name: "trip.pdf",
+		});
 	});
 
-	it("does not load a block's code twice for two blocks of one kind", async () => {
-		const load = vi.fn(async () => ({ default: await probe() }));
-		loaders.file = load;
-		mount({ id: "n1", type: "file", selected: false, data: { code: "a" } });
-		mount({ id: "n2", type: "file", selected: false, data: { code: "b" } });
+	// A card draws a header (a title and a muted line); a file's row draws its own.
+	it("lets the loaded content dress the shell: a title, a name for a screen reader, what Enter does", async () => {
+		const activate = vi.fn();
+		loaders.app = () =>
+			content(() => ({
+				title: "Trip",
+				summary: "Trip App",
+				meta: "2 KB",
+				activate,
+			}));
+		mount(nodeProps({ type: "app" }));
+		await screen.findByTestId("content-stub");
+
+		expect(screen.getByText("Trip")).toBeInTheDocument();
+		expect(screen.getByText("2 KB")).toBeInTheDocument();
+		const wrapper = screen.getByTestId("node-wrapper");
 		await waitFor(() =>
-			expect(screen.getAllByTestId("chart-stub")).toHaveLength(2),
+			expect(wrapper.getAttribute("aria-label")).toBe("App: Trip App"),
 		);
-		// The browser caches a dynamic import; each wrapper still asks once.
-		expect(load).toHaveBeenCalledTimes(2);
+		await fireEvent.keyDown(wrapper, { key: "Enter" });
+		expect(activate).toHaveBeenCalledTimes(1);
 	});
 
-	it("says the block could not load, and tries again on request", async () => {
+	it("names the shell after the kind alone until the content has said more", async () => {
+		loaders.file = () => new Promise(() => {});
+		mount(nodeProps());
+		const wrapper = screen.getByTestId("node-wrapper");
+		expect(wrapper.getAttribute("aria-label")).toBe("File");
+	});
+
+	it("follows the block: new data dresses the shell again", async () => {
+		loaders.app = () => content();
+		const view = mount(nodeProps({ type: "app" }));
+		await screen.findByTestId("content-stub");
+		expect(screen.getByText("Title of trip.pdf")).toBeInTheDocument();
+		await view.rerender({
+			componentProps: nodeProps({ type: "app", data: { name: "plan.docx" } }),
+		});
+		expect(await screen.findByText("Title of plan.docx")).toBeInTheDocument();
+		expect(screen.queryByText("Title of trip.pdf")).toBeNull();
+	});
+
+	it("says the block could not load, in the shell, and tries again on request", async () => {
 		const load = vi
 			.fn()
 			.mockRejectedValueOnce(new Error("chunk failed"))
-			.mockResolvedValue({ default: await probe() });
+			.mockResolvedValue(await content());
 		loaders.file = load;
-		mount({ id: "n1", type: "file", selected: false, data: { code: "x" } });
+		mount(nodeProps());
 
 		expect(
 			await screen.findByText("This block could not load."),
 		).toBeInTheDocument();
+		expect(screen.getByTestId("canvas-node")).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-		expect(await screen.findByTestId("chart-stub")).toBeInTheDocument();
+		expect(await screen.findByTestId("content-stub")).toBeInTheDocument();
 		expect(load).toHaveBeenCalledTimes(2);
 	});
 
 	it("says it in Hungarian in Hungarian", async () => {
 		uiLanguage.set("hu");
 		loaders.file = () => Promise.reject(new Error("no"));
-		mount({ id: "n1", type: "file", selected: false, data: {} });
+		mount(nodeProps());
 		expect(
 			await screen.findByText("Ezt a blokkot nem sikerült betölteni."),
 		).toBeInTheDocument();
@@ -123,34 +181,19 @@ describe("the loading wrapper", () => {
 	});
 
 	it("draws the missing-kind card for a kind it has no loader for, and stays a real node", () => {
-		const { container } = mount({
-			id: "n1",
-			type: "photo",
-			selected: false,
-			data: {},
-		});
+		const { container } = mount(nodeProps({ type: "photo" }));
 		expect(container.querySelector('[data-missing="true"]')).not.toBeNull();
-	});
-
-	it("keeps a stand-in that is not a node: a count of nodes is a count of drawn blocks", () => {
-		loaders.file = () => new Promise(() => {});
-		mount({ id: "n1", type: "file", selected: false, data: {} });
-		expect(screen.queryByTestId("canvas-node")).toBeNull();
-		expect(screen.getByTestId("canvas-node-loading")).toBeInTheDocument();
 	});
 });
 
 describe("the editor's first paint", () => {
-	it("holds no static import of a block made from the chat (or of what they carry), so none of it is in the editor's chunk", () => {
-		const registry = readFileSync(
-			path.join(here, "..", "_lib", "block-registry.ts"),
-			"utf8",
-		);
-		const wrapper = readFileSync(path.join(here, "LazyNode.svelte"), "utf8");
-		const loaders = readFileSync(
-			path.join(here, "..", "_lib", "lazy-nodes.ts"),
-			"utf8",
-		);
+	const read = (...parts: string[]) =>
+		readFileSync(path.join(here, ...parts), "utf8");
+
+	it("holds no static import of a block made from the chat, or of what they carry, so none of it is in the editor's chunk", () => {
+		const registry = read("..", "_lib", "block-registry.ts");
+		const wrapper = read("LazyNode.svelte");
+		const loaderSource = read("..", "_lib", "lazy-nodes.ts");
 		for (const name of ["FileNode", "AppNode", "MapNode"]) {
 			expect(registry, `${name} in the registry`).not.toMatch(
 				new RegExp(`import\\s+\\w+\\s+from\\s+"[^"]*${name}`),
@@ -158,7 +201,7 @@ describe("the editor's first paint", () => {
 			expect(wrapper, `${name} in the wrapper`).not.toMatch(
 				new RegExp(`import\\s+\\w+\\s+from\\s+"[^"]*${name}`),
 			);
-			expect(loaders).toContain(`import("../nodes/${name}.svelte")`);
+			expect(loaderSource).toContain(`import("../nodes/${name}.svelte")`);
 		}
 		for (const heavy of [
 			"AppFrame",
@@ -168,6 +211,20 @@ describe("the editor's first paint", () => {
 		]) {
 			expect(registry, heavy).not.toContain(heavy);
 			expect(wrapper, heavy).not.toContain(heavy);
+		}
+	});
+
+	// A block module that imported the shell (or the flow library) would make the
+	// bundler move the shell out of the editor's own chunk into one the editor and
+	// the block share: the editor would pay more than the block saves.
+	it("keeps the shell and the flow library out of every block module, which are loaded on demand", () => {
+		for (const name of ["FileNode", "AppNode", "MapNode"]) {
+			const source = read(`${name}.svelte`);
+			expect(source, name).not.toMatch(/from\s+"\.\.\/NodeShell\.svelte"/);
+			expect(source, name).not.toMatch(/from\s+"@xyflow\//);
+			expect(source, name).not.toMatch(
+				/from\s+"\.\.\/_lib\/block-(meta|registry)"/,
+			);
 		}
 	});
 });

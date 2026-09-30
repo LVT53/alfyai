@@ -18,19 +18,22 @@ import { t } from "$lib/i18n";
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
 import { getCategory } from "$lib/shared/file-types";
-import { BLOCK_META } from "../_lib/block-meta";
-import {
-	type ChatBlockKind,
-	type ChatBlockRow,
-	chatBlockGroups,
-} from "./chat-block-data";
+import { type ChatBlockKind, chatBlockGroups } from "./chat-block-data";
 
 let {
 	load,
 	onpick,
+	iconFor,
 }: {
 	load: () => Promise<CanvasChatBlocks>;
 	onpick: (kind: ChatBlockKind, data: CanvasBlockData) => void;
+	/**
+	 * The glyph a kind wears in the menu and on the board. Handed in by the menu
+	 * (which already holds them) rather than imported here: this section is loaded
+	 * on demand, and a module it shares with the editor would be split out of the
+	 * editor's own chunk to make that possible.
+	 */
+	iconFor: (kind: ChatBlockKind) => Component | undefined;
 } = $props();
 
 type Phase =
@@ -64,11 +67,6 @@ onMount(() => {
 let groups = $derived(
 	phase.name === "ready" ? chatBlockGroups(phase.listing, $t) : [],
 );
-
-/** The icon the chat shows beside a kind: a file's own type, else the kind's glyph. */
-function iconFor(row: ChatBlockRow): Component {
-	return BLOCK_META[row.kind].icon;
-}
 </script>
 
 <div
@@ -95,7 +93,7 @@ function iconFor(row: ChatBlockRow): Component {
 			<div class="chat-blocks__group" role="group" aria-label={group.label}>
 				<div class="chat-blocks__label" aria-hidden="true">{group.label}</div>
 				{#each group.rows as row (row.key)}
-					{@const Icon = iconFor(row)}
+					{@const Icon = iconFor(row.kind)}
 					<button
 						type="button"
 						role="menuitem"
@@ -108,7 +106,7 @@ function iconFor(row: ChatBlockRow): Component {
 						<span class="chat-blocks__icon">
 							{#if row.kind === "file"}
 								<FileTypeIcon category={getCategory(row.filename ?? "", row.mime || null)} size={16} />
-							{:else}
+							{:else if Icon}
 								<Icon size={16} strokeWidth={1.75} aria-hidden="true" />
 							{/if}
 						</span>

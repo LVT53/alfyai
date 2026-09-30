@@ -1,18 +1,31 @@
+<script module lang="ts">
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
+import type { LazyShell } from "../_lib/lazy-nodes";
+
+type AppData = Extract<CanvasBlockData, { kind: "app" }>;
+
+/** How an App block dresses the shell `LazyNode` draws: titled and named after the App. */
+export function shell(data: AppData): LazyShell {
+	return { title: data.title, summary: data.title };
+}
+</script>
+
 <script lang="ts">
 /**
- * An App block: the App itself, running on the board in the panel's own frame
- * (`AppFrame.svelte`, untouched) at the node's size. It is the panel's frame, not
- * a lookalike: the same `sandbox="allow-scripts allow-forms"` under the same strict
- * CSP (the served route sets both, ruling 58), the same storage bridge, the same
- * tripwire. What it keeps in `window.alfy.storage` is the App's OWN — the bridge is
- * given the App's id and nothing else, so it is never the board's and two Apps on
+ * An App block's content: the App itself, running on the board in the panel's own
+ * frame (`AppFrame.svelte`, untouched) at the block's size. It is the panel's frame,
+ * not a lookalike: the same `sandbox="allow-scripts allow-forms"` under the same
+ * strict CSP (the served route sets both, ruling 58), the same storage bridge, the
+ * same tripwire. What it keeps in `window.alfy.storage` is the App's OWN — the bridge
+ * is given the App's id and nothing else, so it is never the board's and two Apps on
  * one board never share it. The frame is drawn only once the panel has read the App
  * (its current version is what reloads the frame, and a deleted or out-of-reach App
  * is said in words instead of drawing the route's raw 404 inside the frame).
  *
- * Dragging, scrolling and panning on the App belong to the App (`nodrag`,
- * `nowheel`, `nopan`): the block is moved by its header and its edge. The App loads
- * when its block mounts, never with the editor.
+ * Dragging, scrolling and panning on the App belong to the App (`nodrag`, `nowheel`,
+ * `nopan`): the block is moved by its header and its edge. The App loads when its
+ * block mounts, never with the editor; the shell around it is `LazyNode`'s and this
+ * module never imports it.
  */
 import { untrack } from "svelte";
 import {
@@ -22,28 +35,18 @@ import {
 import { ApiError } from "$lib/client/api/http";
 import AppFrame from "$lib/components/artifacts/app/AppFrame.svelte";
 import { t } from "$lib/i18n";
-import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
-import { BLOCK_META } from "../_lib/block-meta";
 import { useChatContext } from "../_lib/chat-context";
-import NodeShell from "../NodeShell.svelte";
 
-type AppData = Extract<CanvasBlockData, { kind: "app" }>;
 type Phase = "loading" | "ready" | "gone" | "error";
 
-let {
-	id,
-	data,
-	selected = false,
-}: { id: string; data: AppData; selected?: boolean } = $props();
+let { data }: { data: AppData } = $props();
 
 const chat = useChatContext();
-const minSize = BLOCK_META.app.minSize;
 
 let phase = $state<Phase>("loading");
 let version = $state(0);
 let attempt = $state(0);
 let token = 0;
-
 /** Reads the App: its current version, or that it is gone (deleted, out of reach, or no longer an App). */
 async function load(
 	artifactId: string,
@@ -94,16 +97,7 @@ $effect(() => {
 });
 </script>
 
-<NodeShell
-	{id}
-	kind="app"
-	{selected}
-	minWidth={minSize.width}
-	minHeight={minSize.height}
-	title={data.title}
-	summary={data.title}
->
-	<div class="app nodrag nowheel nopan" data-testid="canvas-app">
+<div class="app nodrag nowheel nopan" data-testid="canvas-app">
 		{#if phase === "ready"}
 			<AppFrame
 				artifactId={data.artifactId}
@@ -124,7 +118,6 @@ $effect(() => {
 			</div>
 		{/if}
 	</div>
-</NodeShell>
 
 <style>
 	/* The frame fills what the block was given: a frame has no content height of

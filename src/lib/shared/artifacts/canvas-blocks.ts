@@ -14,20 +14,26 @@
  */
 import { z } from "zod";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
+import {
+	CHECKLIST_ITEM_MAX_CHARS,
+	CHECKLIST_MAX_ITEMS,
+	LABEL_MAX_CHARS,
+	TEXT_MAX_CHARS,
+} from "./canvas-limits";
 import type { ArtifactSource } from "./sources";
 
 // ── Limits ───────────────────────────────────────────────────────────────
-// Generous on purpose: the board's real cap is its byte size, and a limit that
-// drops a node on the user's own save is worse than a long note. These only
-// exist so a runaway value is refused with a reason.
-// The board's own inputs enforce the same numbers (`maxlength`), because a
-// node past them is DROPPED on save, not clipped.
-export const LABEL_MAX_CHARS = 500;
-export const TEXT_MAX_CHARS = 20_000;
+// The four a reader's own inputs also enforce live in `canvas-limits.ts` (the
+// numbers alone, for code that needs no schema) and are re-exported here.
+export {
+	CHECKLIST_ITEM_MAX_CHARS,
+	CHECKLIST_MAX_ITEMS,
+	LABEL_MAX_CHARS,
+	TEXT_MAX_CHARS,
+};
+
 const CHART_CODE_MAX_CHARS = 100_000;
 const ID_MAX_CHARS = 128;
-export const CHECKLIST_MAX_ITEMS = 200;
-export const CHECKLIST_ITEM_MAX_CHARS = 1_000;
 const PHOTO_MAX_ITEMS = 50;
 const SOURCES_MAX = 50;
 

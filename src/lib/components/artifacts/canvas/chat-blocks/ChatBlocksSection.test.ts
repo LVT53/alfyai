@@ -62,7 +62,12 @@ const LISTING: CanvasChatBlocks = {
 const EMPTY: CanvasChatBlocks = { files: [], apps: [], maps: [], charts: [] };
 
 function mount(load: () => Promise<CanvasChatBlocks>, onpick = vi.fn()) {
-	const view = render(ChatBlocksSection, { load, onpick });
+	// The menu hands the section its glyphs; a test that does not care gives none.
+	const view = render(ChatBlocksSection, {
+		load,
+		onpick,
+		iconFor: () => undefined,
+	});
 	return { ...view, onpick };
 }
 

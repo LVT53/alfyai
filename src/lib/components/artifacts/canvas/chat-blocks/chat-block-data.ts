@@ -6,10 +6,8 @@
  * language, because the server lists facts and never words.
  */
 import type { I18nKey } from "$lib/i18n";
-import {
-	type CanvasBlockData,
-	LABEL_MAX_CHARS,
-} from "$lib/shared/artifacts/canvas-blocks";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
+import { LABEL_MAX_CHARS } from "$lib/shared/artifacts/canvas-limits";
 import type {
 	CanvasChatBlocks,
 	ChatMapBlock,

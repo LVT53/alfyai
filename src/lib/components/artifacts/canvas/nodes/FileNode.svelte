@@ -1,35 +1,45 @@
-<script lang="ts">
-/**
- * A file block: one compact row — the file's icon, its name, its type and its
- * size. It is a pointer to a file the chat already holds (a produced file, or
- * one the reader attached), never a copy and never a renderer: a click opens
- * the file in the panel's own viewer (the callback the editor was given), so no
- * heavy preview is ever drawn on the board. Where the panel cannot open a file
- * (a board opened outside a chat) it is a plain row.
- *
- * The row is a real button but does not opt out of the board's drag: a click
- * opens the file and a drag moves the block, and the flow tells the two apart.
- */
-import { t } from "$lib/i18n";
-import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
+<script module lang="ts">
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
-import { getCategory } from "$lib/shared/file-types";
-import { formatByteSize } from "$lib/utils/format";
-import { BLOCK_META } from "../_lib/block-meta";
-import { useChatContext } from "../_lib/chat-context";
+import type { CanvasChatContext } from "../_lib/chat-context";
 import { fileBlockWorkspaceItem } from "../_lib/file-item";
-import NodeShell from "../NodeShell.svelte";
+import type { LazyShell } from "../_lib/lazy-nodes";
 
 type FileData = Extract<CanvasBlockData, { kind: "file" }>;
 
-let {
-	id,
-	data,
-	selected = false,
-}: { id: string; data: FileData; selected?: boolean } = $props();
+/** How a file block dresses the shell `LazyNode` draws: named after the file, and Enter opens it where the panel can. */
+export function shell(data: FileData, chat: CanvasChatContext): LazyShell {
+	const item = fileBlockWorkspaceItem(data);
+	const open = chat.openItem;
+	return {
+		summary: data.name,
+		activate: open && item ? () => open(item) : undefined,
+	};
+}
+</script>
+
+<script lang="ts">
+/**
+ * A file block's content: one compact row — the file's icon, its name, its type
+ * and its size. It is a pointer to a file the chat already holds (a produced file,
+ * or one the reader attached), never a copy and never a renderer: a click opens the
+ * file in the panel's own viewer (the callback the editor was given), so no heavy
+ * preview is ever drawn on the board. Where the panel cannot open a file (a board
+ * opened outside a chat) it is a plain row.
+ *
+ * The row is a real button but does not opt out of the board's drag: a click opens
+ * the file and a drag moves the block, and the flow tells the two apart. The shell
+ * around it is `LazyNode`'s, and this module never imports it (see
+ * `lazy-nodes.ts`).
+ */
+import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
+import { t } from "$lib/i18n";
+import { getCategory } from "$lib/shared/file-types";
+import { formatByteSize } from "$lib/utils/format";
+import { useChatContext } from "../_lib/chat-context";
+
+let { data }: { data: FileData } = $props();
 
 const chat = useChatContext();
-const minSize = BLOCK_META.file.minSize;
 
 let category = $derived(getCategory(data.name, data.mime || null));
 let meta = $derived(
@@ -53,31 +63,21 @@ function open(): void {
 	</span>
 {/snippet}
 
-<NodeShell
-	{id}
-	kind="file"
-	{selected}
-	minWidth={minSize.width}
-	minHeight={minSize.height}
-	summary={data.name}
-	activate={canOpen ? open : undefined}
->
-	{#if canOpen}
-		<button
-			type="button"
-			class="file file--button"
-			data-testid="canvas-file"
-			aria-label={$t("artifacts.canvas.file.open", { name: data.name })}
-			onclick={open}
-		>
-			{@render row()}
-		</button>
-	{:else}
-		<div class="file" data-testid="canvas-file">
-			{@render row()}
-		</div>
-	{/if}
-</NodeShell>
+{#if canOpen}
+	<button
+		type="button"
+		class="file file--button"
+		data-testid="canvas-file"
+		aria-label={$t("artifacts.canvas.file.open", { name: data.name })}
+		onclick={open}
+	>
+		{@render row()}
+	</button>
+{:else}
+	<div class="file" data-testid="canvas-file">
+		{@render row()}
+	</div>
+{/if}
 
 <style>
 	.file {

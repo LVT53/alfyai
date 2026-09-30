@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
-import AppNode from "../nodes/AppNode.svelte";
-import FileNode from "../nodes/FileNode.svelte";
-import MapNode from "../nodes/MapNode.svelte";
+import * as AppModule from "../nodes/AppNode.svelte";
+import * as FileModule from "../nodes/FileNode.svelte";
+import * as MapModule from "../nodes/MapNode.svelte";
 import { lazyNodeLoader } from "./lazy-nodes";
 
 describe("the loaders of the blocks made from the chat", () => {
-	it("has one for each of the three, and each resolves to that block's own node component", async () => {
-		expect((await lazyNodeLoader("file")?.())?.default).toBe(FileNode);
-		expect((await lazyNodeLoader("app")?.())?.default).toBe(AppNode);
-		expect((await lazyNodeLoader("map")?.())?.default).toBe(MapNode);
+	it("has one for each of the three, and each resolves to that block's own content and its shell dress", async () => {
+		for (const [kind, module] of [
+			["file", FileModule],
+			["app", AppModule],
+			["map", MapModule],
+		] as const) {
+			const loaded = await lazyNodeLoader(kind)?.();
+			expect(loaded?.default, kind).toBe(module.default);
+			expect(loaded?.shell, kind).toBe(module.shell);
+			expect(typeof loaded?.shell, kind).toBe("function");
+		}
 	});
 
 	it("has none for a note-shaped block (those are in the editor already) or for a kind that has no node", () => {

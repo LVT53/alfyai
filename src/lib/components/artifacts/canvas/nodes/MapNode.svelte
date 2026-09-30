@@ -1,32 +1,34 @@
-<script lang="ts">
-/**
- * A map block: the chat's own route card, given exactly the `map` the chat gives
- * it and no canvas-only prop (`MapRouteCard.svelte` is untouched). Its header is
- * what the chat's own activity row says of the route — the route and its summary
- * — read when the block was inserted. The card, and MapLibre behind it, load when
- * the block mounts, never with the editor; until then the space is held, so the
- * block does not jump. Where WebGL is unavailable the card draws its own
- * inline-SVG fallback, which is also the offline shape.
- *
- * Dragging and scrolling on the map move the MAP, not the board (`nodrag`,
- * `nowheel`, `nopan`); the block is moved by its header and its edge.
- */
-import { untrack } from "svelte";
+<script module lang="ts">
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
-import { BLOCK_META } from "../_lib/block-meta";
-import NodeShell from "../NodeShell.svelte";
+import type { LazyShell } from "../_lib/lazy-nodes";
 
 type MapData = Extract<CanvasBlockData, { kind: "map" }>;
-type MapCard =
-	typeof import("$lib/components/chat/MapRouteCard.svelte").default;
 
-let {
-	id,
-	data,
-	selected = false,
-}: { id: string; data: MapData; selected?: boolean } = $props();
+/** How a map block dresses the shell `LazyNode` draws: titled with the route and its summary, as the chat's own row reads them. */
+export function shell(data: MapData): LazyShell {
+	const title = data.label || data.route;
+	return { title, meta: data.meta ?? "", summary: title };
+}
+</script>
 
-const minSize = BLOCK_META.map.minSize;
+<script lang="ts">
+/**
+ * A map block's content: the chat's own route card, given exactly the `map` the
+ * chat gives it and no canvas-only prop (`MapRouteCard.svelte` is untouched). The
+ * card, and MapLibre behind it, load when the block mounts, never with the editor;
+ * until then the space is held, so the block does not jump. Where WebGL is
+ * unavailable the card draws its own inline-SVG fallback, which is also the offline
+ * shape.
+ *
+ * Dragging and scrolling on the map move the MAP, not the board (`nodrag`,
+ * `nowheel`, `nopan`); the block is moved by its header and its edge. The shell
+ * (header, anchors, resize corners) is `LazyNode`'s; this module never imports it.
+ */
+import { untrack } from "svelte";
+
+type MapCard = typeof import("$lib/components/chat/MapRouteCard.svelte").default;
+
+let { data }: { data: MapData } = $props();
 
 let MapRouteCard = $state.raw<MapCard | null>(null);
 $effect(() => {
@@ -41,22 +43,11 @@ $effect(() => {
 });
 </script>
 
-<NodeShell
-	{id}
-	kind="map"
-	{selected}
-	minWidth={minSize.width}
-	minHeight={minSize.height}
-	title={data.label || data.route}
-	meta={data.meta ?? ""}
-	summary={data.label || data.route}
->
-	<div class="map nodrag nowheel nopan" data-testid="canvas-map">
-		{#if MapRouteCard}
-			<MapRouteCard map={data.map} />
-		{/if}
-	</div>
-</NodeShell>
+<div class="map nodrag nowheel nopan" data-testid="canvas-map">
+	{#if MapRouteCard}
+		<MapRouteCard map={data.map} />
+	{/if}
+</div>
 
 <style>
 	.map {

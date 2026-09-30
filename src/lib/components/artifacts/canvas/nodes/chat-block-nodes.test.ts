@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import type { Component } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "$lib/client/api/http";
 import { APP_IFRAME_SANDBOX } from "$lib/server/services/artifacts/app/sandbox-response";
@@ -7,15 +6,14 @@ import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasBoardContext } from "../_lib/board-context";
 import type { CanvasChatContext } from "../_lib/chat-context";
 import WithChat from "../_test/WithChat.svelte";
-import AppNode from "./AppNode.svelte";
-import FileNode from "./FileNode.svelte";
-import MapNode from "./MapNode.svelte";
+import LazyNode from "./LazyNode.svelte";
 
-// The blocks made from the chat, drawn against a stand-in for the flow library
-// and for the chat's map card (MapLibre needs a WebGL context jsdom lacks). What
-// is measured is what each block PROMISES: the chat's own components with the
-// chat's own props, the App's own sandbox and storage, and the board's gestures
-// kept off them.
+// The blocks made from the chat, drawn the way the board draws them: through
+// `LazyNode`, which loads each block's content (the real loaders here) inside the
+// shell, against a stand-in for the flow library and for the chat's map card
+// (MapLibre needs a WebGL context jsdom lacks). What is measured is what each block
+// PROMISES: the chat's own components with the chat's own props, the App's own
+// sandbox and storage, and the board's gestures kept off them.
 
 vi.mock("@xyflow/svelte", async () =>
 	(await import("../_test/xyflow-mock")).xyflowMock(),
@@ -52,13 +50,17 @@ function chatContext(
 }
 
 function mount(
-	// biome-ignore lint/suspicious/noExplicitAny: any node component, whatever its props
-	component: Component<any>,
-	componentProps: Record<string, unknown>,
+	kind: "file" | "app" | "map",
+	data: Record<string, unknown>,
 	chat: CanvasChatContext = chatContext(),
 ) {
 	return render(WithChat, {
-		props: { component, componentProps, context: board(), chat },
+		props: {
+			component: LazyNode,
+			componentProps: { id: `${kind}-node`, type: kind, selected: false, data },
+			context: board(),
+			chat,
+		},
 	});
 }
 
@@ -73,30 +75,24 @@ beforeEach(() => {
 	});
 });
 
+const wrapper = () => screen.getByTestId("node-wrapper");
+
 // ── File ────────────────────────────────────────────────────────────────────
 
-const fileProps = (
-	data: Record<string, unknown> = {},
-	extra: Record<string, unknown> = {},
-) => ({
-	id: "file-1",
-	selected: false,
-	data: {
-		kind: "file",
-		fileId: "chat-file-1",
-		name: "Vienna trip.pdf",
-		mime: "application/pdf",
-		bytes: 2048,
-		label: "PDF",
-		...data,
-	},
+const fileData = (extra: Record<string, unknown> = {}) => ({
+	kind: "file",
+	fileId: "chat-file-1",
+	name: "Vienna trip.pdf",
+	mime: "application/pdf",
+	bytes: 2048,
+	label: "PDF",
 	...extra,
 });
 
 describe("a file block", () => {
-	it("is one compact row: the file's icon, its name, its type and its size", () => {
-		const { container } = mount(FileNode, fileProps());
-		const row = screen.getByTestId("canvas-file");
+	it("is one compact row: the file's icon, its name, its type and its size", async () => {
+		const { container } = mount("file", fileData());
+		const row = await screen.findByTestId("canvas-file");
 		expect(row).toHaveTextContent("Vienna trip.pdf");
 		expect(row).toHaveTextContent("PDF");
 		expect(row).toHaveTextContent("2.0 KB");
@@ -105,19 +101,19 @@ describe("a file block", () => {
 		).not.toBeNull();
 	});
 
-	it("shows just the name for a file with no type and no size", () => {
-		mount(FileNode, fileProps({ label: "", bytes: 0 }));
-		const row = screen.getByTestId("canvas-file");
+	it("shows just the name for a file with no type and no size", async () => {
+		mount("file", fileData({ label: "", bytes: 0 }));
+		const row = await screen.findByTestId("canvas-file");
 		expect(row).toHaveTextContent("Vienna trip.pdf");
 		expect(row.textContent).not.toMatch(/\b0 B\b/);
 	});
 
 	it("opens a produced file in the panel's viewer, as the chat's own card opens it", async () => {
 		const openItem = vi.fn();
-		mount(FileNode, fileProps(), chatContext({ openItem }));
+		mount("file", fileData(), chatContext({ openItem }));
 
 		await fireEvent.click(
-			screen.getByRole("button", { name: /Open Vienna trip\.pdf/ }),
+			await screen.findByRole("button", { name: /Open Vienna trip\.pdf/ }),
 		);
 
 		expect(openItem).toHaveBeenCalledTimes(1);
@@ -138,13 +134,13 @@ describe("a file block", () => {
 	it("opens an attached file the way the library opens one: by its own id", async () => {
 		const openItem = vi.fn();
 		mount(
-			FileNode,
-			fileProps({ fileId: "artifact:art-1", name: "budget.xlsx", mime: "" }),
+			"file",
+			fileData({ fileId: "artifact:art-1", name: "budget.xlsx", mime: "" }),
 			chatContext({ openItem }),
 		);
 
 		await fireEvent.click(
-			screen.getByRole("button", { name: /Open budget\.xlsx/ }),
+			await screen.findByRole("button", { name: /Open budget\.xlsx/ }),
 		);
 
 		expect(openItem).toHaveBeenCalledWith(
@@ -159,20 +155,17 @@ describe("a file block", () => {
 		);
 	});
 
-	it("does not open anything for a file whose id names no file", async () => {
+	it("offers no way to open a file whose id names no file", async () => {
 		const openItem = vi.fn();
-		mount(
-			FileNode,
-			fileProps({ fileId: "artifact:" }),
-			chatContext({ openItem }),
-		);
-		await fireEvent.click(screen.getByTestId("canvas-file"));
+		mount("file", fileData({ fileId: "artifact:" }), chatContext({ openItem }));
+		await fireEvent.click(await screen.findByTestId("canvas-file"));
+		expect(screen.queryByRole("button", { name: /Open/ })).toBeNull();
 		expect(openItem).not.toHaveBeenCalled();
 	});
 
-	it("is a real button that takes the keyboard, and does not stop the block being dragged", () => {
-		mount(FileNode, fileProps(), chatContext({ openItem: vi.fn() }));
-		const button = screen.getByRole("button", {
+	it("is a real button that takes the keyboard, and does not stop the block being dragged", async () => {
+		mount("file", fileData(), chatContext({ openItem: vi.fn() }));
+		const button = await screen.findByRole("button", {
 			name: /Open Vienna trip\.pdf/,
 		});
 		expect(button.tagName).toBe("BUTTON");
@@ -185,37 +178,40 @@ describe("a file block", () => {
 
 	it("opens on Enter while the block itself has focus, like a note opens for editing", async () => {
 		const openItem = vi.fn();
-		mount(FileNode, fileProps(), chatContext({ openItem }));
-		await fireEvent.keyDown(screen.getByTestId("node-wrapper"), {
-			key: "Enter",
-		});
+		mount("file", fileData(), chatContext({ openItem }));
+		await screen.findByTestId("canvas-file");
+		await fireEvent.keyDown(wrapper(), { key: "Enter" });
 		expect(openItem).toHaveBeenCalledTimes(1);
 	});
 
-	it("is a plain row, not a button, where the panel cannot open a file", () => {
-		mount(FileNode, fileProps(), chatContext({ openItem: undefined }));
+	it("is a plain row, not a button, where the panel cannot open a file", async () => {
+		mount("file", fileData(), chatContext({ openItem: undefined }));
+		const row = await screen.findByTestId("canvas-file");
 		expect(screen.queryByRole("button", { name: /Open/ })).toBeNull();
-		expect(screen.getByTestId("canvas-file")).toHaveTextContent(
-			"Vienna trip.pdf",
+		expect(row).toHaveTextContent("Vienna trip.pdf");
+		await fireEvent.keyDown(wrapper(), { key: "Enter" });
+	});
+
+	it("names the node for a screen reader from the file's name, and its kind", async () => {
+		mount("file", fileData());
+		await screen.findByTestId("canvas-file");
+		await waitFor(() =>
+			expect(wrapper().getAttribute("aria-label")).toBe(
+				"File: Vienna trip.pdf",
+			),
 		);
+		expect(wrapper().getAttribute("aria-roledescription")).toBe("File");
 	});
 
-	it("names the node for a screen reader from the file's name, and its kind", () => {
-		mount(FileNode, fileProps());
-		const wrapper = screen.getByTestId("node-wrapper");
-		expect(wrapper.getAttribute("aria-roledescription")).toBe("File");
-		expect(wrapper.getAttribute("aria-label")).toBe("File: Vienna trip.pdf");
-	});
-
-	it("says it in Hungarian in Hungarian", () => {
+	it("says it in Hungarian in Hungarian", async () => {
 		uiLanguage.set("hu");
-		mount(FileNode, fileProps(), chatContext({ openItem: vi.fn() }));
+		mount("file", fileData(), chatContext({ openItem: vi.fn() }));
 		expect(
-			screen.getByTestId("node-wrapper").getAttribute("aria-roledescription"),
-		).toBe("Fájl");
-		expect(
-			screen.getByRole("button", { name: /Vienna trip\.pdf megnyitása/ }),
+			await screen.findByRole("button", {
+				name: /Vienna trip\.pdf megnyitása/,
+			}),
 		).toBeInTheDocument();
+		expect(wrapper().getAttribute("aria-roledescription")).toBe("Fájl");
 	});
 });
 
@@ -228,21 +224,17 @@ const MAP = {
 	attribution: "© OpenStreetMap contributors",
 };
 
-const mapProps = (data: Record<string, unknown> = {}) => ({
-	id: "map-1",
-	selected: false,
-	data: {
-		kind: "map",
-		route: "Cork → Kinsale",
-		meta: "27.0 km · 34 min",
-		map: MAP,
-		...data,
-	},
+const mapData = (data: Record<string, unknown> = {}) => ({
+	kind: "map",
+	route: "Cork → Kinsale",
+	meta: "27.0 km · 34 min",
+	map: MAP,
+	...data,
 });
 
 describe("a map block", () => {
 	it("hands the chat's own map card the map the chat hands it, and no prop the chat does not have", async () => {
-		mount(MapNode, mapProps());
+		mount("map", mapData());
 		const stub = await screen.findByTestId("map-card-stub");
 		const names = JSON.parse(stub.dataset.propNames ?? "[]") as string[];
 		expect(names).toContain("map");
@@ -253,20 +245,20 @@ describe("a map block", () => {
 	});
 
 	it("reads the route and its summary off the card's header, as the chat's row reads them", async () => {
-		mount(MapNode, mapProps());
+		mount("map", mapData());
 		await screen.findByTestId("map-card-stub");
 		expect(screen.getByText("Cork → Kinsale")).toBeInTheDocument();
 		expect(screen.getByText("27.0 km · 34 min")).toBeInTheDocument();
 	});
 
 	it("titles a route with no name after the kind", async () => {
-		mount(MapNode, mapProps({ route: "", meta: undefined }));
+		mount("map", mapData({ route: "", meta: undefined }));
 		await screen.findByTestId("map-card-stub");
 		expect(screen.getByText("Map")).toBeInTheDocument();
 	});
 
 	it("keeps the map's own gestures: dragging or scrolling on it moves the map, not the board", async () => {
-		mount(MapNode, mapProps());
+		mount("map", mapData());
 		await screen.findByTestId("map-card-stub");
 		const surface = screen.getByTestId("canvas-map");
 		for (const name of ["nodrag", "nowheel", "nopan"]) {
@@ -274,20 +266,23 @@ describe("a map block", () => {
 		}
 	});
 
-	it("names the node after the route", () => {
-		mount(MapNode, mapProps());
-		const wrapper = screen.getByTestId("node-wrapper");
-		expect(wrapper.getAttribute("aria-roledescription")).toBe("Map");
-		expect(wrapper.getAttribute("aria-label")).toBe("Map: Cork → Kinsale");
+	it("names the node after the route", async () => {
+		mount("map", mapData());
+		await screen.findByTestId("map-card-stub");
+		await waitFor(() =>
+			expect(wrapper().getAttribute("aria-label")).toBe("Map: Cork → Kinsale"),
+		);
+		expect(wrapper().getAttribute("aria-roledescription")).toBe("Map");
 	});
 });
 
 // ── App ─────────────────────────────────────────────────────────────────────
 
-const appProps = (data: Record<string, unknown> = {}) => ({
-	id: "node-app-1",
-	selected: false,
-	data: { kind: "app", artifactId: "app-7", title: "Tip calculator", ...data },
+const appData = (data: Record<string, unknown> = {}) => ({
+	kind: "app",
+	artifactId: "app-7",
+	title: "Tip calculator",
+	...data,
 });
 
 const frame = (container: HTMLElement) =>
@@ -297,18 +292,18 @@ describe("an App block", () => {
 	it("asks for the App by its own id in the panel's conversation, and draws no frame until it is answered", async () => {
 		let answer: (value: unknown) => void = () => {};
 		fetchArtifact.mockReturnValue(new Promise((resolve) => (answer = resolve)));
-		const { container } = mount(AppNode, appProps());
+		const { container } = mount("app", appData());
 
+		expect(await screen.findByText("Opening the App…")).toBeInTheDocument();
 		expect(fetchArtifact).toHaveBeenCalledWith("app-7", "conv-1");
 		expect(frame(container)).toBeNull();
-		expect(screen.getByText("Opening the App…")).toBeInTheDocument();
 
 		answer({ artifact: { id: "app-7", kind: "app", versionNumber: 3 } });
 		await waitFor(() => expect(frame(container)).not.toBeNull());
 	});
 
 	it("runs the App in the panel's own frame: exactly the sandbox the panel's frame has, at the App's own route", async () => {
-		const { container } = mount(AppNode, appProps());
+		const { container } = mount("app", appData());
 		await waitFor(() => expect(frame(container)).not.toBeNull());
 		const iframe = frame(container) as HTMLIFrameElement;
 
@@ -326,7 +321,7 @@ describe("an App block", () => {
 	});
 
 	it("keeps the board's gestures off the App: dragging, scrolling and panning on it belong to the App", async () => {
-		const { container } = mount(AppNode, appProps());
+		const { container } = mount("app", appData());
 		await waitFor(() => expect(frame(container)).not.toBeNull());
 		const stage = screen.getByTestId("canvas-app");
 		for (const name of ["nodrag", "nowheel", "nopan"]) {
@@ -337,7 +332,7 @@ describe("an App block", () => {
 
 	it("saves the App's storage under the App's own id, never the block's and never the board's", async () => {
 		writeAppValue.mockResolvedValue({ ok: true });
-		const { container } = mount(AppNode, appProps());
+		const { container } = mount("app", appData());
 		await waitFor(() => expect(frame(container)).not.toBeNull());
 		const iframe = frame(container) as HTMLIFrameElement;
 
@@ -372,12 +367,12 @@ describe("an App block", () => {
 			comments: [],
 		}));
 		const first = mount(
-			AppNode,
-			appProps({ artifactId: "app-a", title: "First" }),
+			"app",
+			appData({ artifactId: "app-a", title: "First" }),
 		);
 		const second = mount(
-			AppNode,
-			appProps({ artifactId: "app-b", title: "Second" }),
+			"app",
+			appData({ artifactId: "app-b", title: "Second" }),
 		);
 		await waitFor(() => {
 			expect(frame(first.container)).not.toBeNull();
@@ -417,7 +412,7 @@ describe("an App block", () => {
 
 	it("says the App is no longer available when it cannot be read (deleted, or out of reach), and draws no frame", async () => {
 		fetchArtifact.mockRejectedValue(new ApiError("gone", { status: 404 }));
-		const { container } = mount(AppNode, appProps());
+		const { container } = mount("app", appData());
 		expect(
 			await screen.findByText("This App is no longer available."),
 		).toBeInTheDocument();
@@ -431,7 +426,7 @@ describe("an App block", () => {
 			versions: [],
 			comments: [],
 		});
-		const { container } = mount(AppNode, appProps());
+		const { container } = mount("app", appData());
 		expect(
 			await screen.findByText("This App is no longer available."),
 		).toBeInTheDocument();
@@ -440,7 +435,7 @@ describe("an App block", () => {
 
 	it("offers a retry when the read failed for another reason, and draws the App once it works", async () => {
 		fetchArtifact.mockRejectedValueOnce(new ApiError("boom", { status: 500 }));
-		const { container } = mount(AppNode, appProps());
+		const { container } = mount("app", appData());
 		expect(
 			await screen.findByText("Couldn't open this App."),
 		).toBeInTheDocument();
@@ -459,7 +454,7 @@ describe("an App block", () => {
 				return () => {};
 			},
 		);
-		const { container } = mount(AppNode, appProps());
+		const { container } = mount("app", appData());
 		await waitFor(() => expect(frame(container)).not.toBeNull());
 
 		listener({
@@ -496,22 +491,22 @@ describe("an App block", () => {
 	});
 
 	it("titles the card after the App and names the node for a screen reader", async () => {
-		mount(AppNode, appProps());
+		mount("app", appData());
+		await screen.findByTestId("canvas-app");
+		await waitFor(() =>
+			expect(wrapper().getAttribute("aria-label")).toBe("App: Tip calculator"),
+		);
+		expect(wrapper().getAttribute("aria-roledescription")).toBe("App");
 		expect(screen.getByText("Tip calculator")).toBeInTheDocument();
-		const wrapper = screen.getByTestId("node-wrapper");
-		expect(wrapper.getAttribute("aria-roledescription")).toBe("App");
-		expect(wrapper.getAttribute("aria-label")).toBe("App: Tip calculator");
 	});
 
 	it("says its states in Hungarian in Hungarian", async () => {
 		uiLanguage.set("hu");
 		fetchArtifact.mockRejectedValue(new ApiError("gone", { status: 404 }));
-		mount(AppNode, appProps());
+		mount("app", appData());
 		expect(
 			await screen.findByText("Ez az alkalmazás már nem érhető el."),
 		).toBeInTheDocument();
-		expect(
-			screen.getByTestId("node-wrapper").getAttribute("aria-roledescription"),
-		).toBe("Alkalmazás");
+		expect(wrapper().getAttribute("aria-roledescription")).toBe("Alkalmazás");
 	});
 });
