@@ -73,6 +73,13 @@ export {
 	parseArtifactMetadata,
 	updateArtifactBody,
 } from "./record";
+// The review state of an artifact of either kind that has one (a Document's,
+// ruling 61; a board's, ruling 63), behind the one review route.
+export {
+	type ArtifactReviewResult,
+	acknowledgeArtifactReview,
+	getArtifactReviewState,
+} from "./review";
 export {
 	type ArtifactSerializer,
 	type FileArtifactDescriptor,

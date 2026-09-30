@@ -20,6 +20,7 @@ import {
 	readTaskBlock,
 } from "$lib/shared/artifact-document/blocks";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
+import { computeCanvasPendingReviewCounts } from "./canvas-review";
 import {
 	computeDocumentPendingReviewCounts,
 	documentTabsFromMetadata,
@@ -196,7 +197,17 @@ export async function listArtifactsForConversation(params: {
 	const documentMetadataRows = listed
 		.filter((row) => kindForArtifactRow(row) === "document")
 		.map((row) => ({ id: row.id, metadataJson: row.metadataJson }));
-	const [versionRows, commentRows, pendingReviewCountById] = await Promise.all([
+	// A board's own (ruling 63): the same number for the same three readers, from
+	// the board's marker and its versions.
+	const canvasMetadataRows = listed
+		.filter((row) => kindForArtifactRow(row) === "canvas")
+		.map((row) => ({ id: row.id, metadataJson: row.metadataJson }));
+	const [
+		versionRows,
+		commentRows,
+		documentReviewCountById,
+		canvasReviewCountById,
+	] = await Promise.all([
 		db
 			.select({
 				artifactId: artifactVersions.artifactId,
@@ -214,6 +225,11 @@ export async function listArtifactsForConversation(params: {
 			.where(inArray(artifactComments.artifactId, ids))
 			.groupBy(artifactComments.artifactId),
 		computeDocumentPendingReviewCounts(documentMetadataRows),
+		computeCanvasPendingReviewCounts(canvasMetadataRows),
+	]);
+	const pendingReviewCountById = new Map([
+		...documentReviewCountById,
+		...canvasReviewCountById,
 	]);
 	const newestVersionById = new Map(
 		versionRows.map((row) => [row.artifactId, row.newest ?? 0]),
@@ -242,7 +258,12 @@ export async function listArtifactsForConversation(params: {
 				: kind === "app"
 					? { appVerification: buildAppVerificationSummary(row) }
 					: kind === "canvas"
-						? { canvasPreview: buildCanvasPreview(row) }
+						? {
+								canvasPreview: buildCanvasPreview(row),
+								...(pendingReviewCountById.has(row.id)
+									? { pendingReviewCount: pendingReviewCountById.get(row.id) }
+									: {}),
+							}
 						: {}),
 		};
 	});

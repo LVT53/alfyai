@@ -545,8 +545,12 @@ export interface DocumentReviewMetadata {
 	keptBlockIds: string[];
 }
 
-/** Validates, never throws — malformed or missing metadata reads as "no marker yet". */
-function readDocumentReviewMetadata(
+/**
+ * Validates, never throws — malformed or missing metadata reads as "no marker yet".
+ * The marker's shape is the family's, not the Document's: a board's review state
+ * (`canvas-review.ts`) reads and writes the same one.
+ */
+export function readDocumentReviewMetadata(
 	metadata: ArtifactMetadata | null,
 ): DocumentReviewMetadata | null {
 	const raw = metadata?.review;
