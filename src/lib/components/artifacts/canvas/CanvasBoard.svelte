@@ -816,6 +816,11 @@ let stackedZoom = $derived(boardWidth > 0 && boardWidth < STACK_ZOOM_BELOW);
 let zoomAside = $state(false);
 $effect(() => {
 	void [nodes, viewport, boardWidth, boardHeight, stackedZoom];
+	// Nothing selected, nothing to measure: a pan or a zoom never forces a layout.
+	if (!nodes.some((node) => node.selected)) {
+		zoomAside = false;
+		return;
+	}
 	const chip = boardEl
 		?.querySelector('[data-testid="canvas-zoom"]')
 		?.getBoundingClientRect();

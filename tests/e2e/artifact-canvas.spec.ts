@@ -300,7 +300,8 @@ test.describe("the Canvas kind, in the panel", () => {
 
 	// RV-3 C2, the board's half: a board stored before Alfy's blocks carried a width
 	// has blocks with none, and they were drawn as wide as their words ran. They are
-	// drawn at the width Alfy reads them at, and the board's data is not changed by it.
+	// drawn at the width Alfy reads them at (RC-3 N1: a note's and a text's 190, a
+	// checklist's and a chart's own), and the board's data is not changed by it.
 	test("draws a board stored with no widths at the width Alfy reads it at", async ({
 		page,
 	}) => {
@@ -355,11 +356,16 @@ test.describe("the Canvas kind, in the panel", () => {
 		await openCanvasPanel(page);
 
 		const frame = await nodeBox(page, "frame-old");
-		for (const id of ["note-old", "text-old", "list-old"]) {
+		const readAt = {
+			"note-old": NODE_WIDTH,
+			"text-old": NODE_WIDTH,
+			"list-old": defaultNodeWidth("checklist"),
+		};
+		for (const [id, width] of Object.entries(readAt)) {
 			const drawn = await page
 				.locator(`.svelte-flow__node[data-id="${id}"]`)
 				.evaluate((el) => (el as HTMLElement).offsetWidth);
-			expect(drawn, `${id} width`).toBe(NODE_WIDTH);
+			expect(drawn, `${id} width`).toBe(width);
 			const box = await nodeBox(page, id);
 			expect(box.x + box.width, `${id} right`).toBeLessThanOrEqual(
 				frame.x + frame.width + 1,
