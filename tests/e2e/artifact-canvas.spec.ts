@@ -297,6 +297,82 @@ test.describe("the Canvas kind, in the panel", () => {
 		}
 	});
 
+	// RV-3 C2, the board's half: a board stored before Alfy's blocks carried a width
+	// has blocks with none, and they were drawn as wide as their words ran. They are
+	// drawn at the width Alfy reads them at, and the board's data is not changed by it.
+	test("draws a board stored with no widths at the width Alfy reads it at", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"A board from before",
+		);
+		const words =
+			"Ebéd a Nagycsarnokban, utána séta a Duna-parton a Szabadság hídtól a Margit-szigetig és vissza a belvárosba";
+		const board: CanvasBody = {
+			version: 1,
+			nodes: [
+				{
+					id: "frame-old",
+					type: "frame",
+					position: { x: 40, y: 40 },
+					width: 420,
+					height: 600,
+					data: { kind: "frame", label: "Szombat", width: 420, height: 600 },
+				},
+				{
+					id: "note-old",
+					type: "sticky",
+					parentId: "frame-old",
+					position: { x: 20, y: 60 },
+					data: { kind: "sticky", text: words, tone: "yellow" },
+				},
+				{
+					id: "text-old",
+					type: "text",
+					parentId: "frame-old",
+					position: { x: 20, y: 240 },
+					data: { kind: "text", text: words },
+				},
+				{
+					id: "list-old",
+					type: "checklist",
+					parentId: "frame-old",
+					position: { x: 20, y: 380 },
+					data: {
+						kind: "checklist",
+						items: [{ id: "i1", text: words, done: false }],
+					},
+				},
+			],
+			edges: [],
+			viewport: { x: 0, y: 0, zoom: 1 },
+			annotations: [],
+		};
+		const artifactId = await seedCanvas(conversationId, board);
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		const frame = await nodeBox(page, "frame-old");
+		for (const id of ["note-old", "text-old", "list-old"]) {
+			const drawn = await page
+				.locator(`.svelte-flow__node[data-id="${id}"]`)
+				.evaluate((el) => (el as HTMLElement).offsetWidth);
+			expect(drawn, `${id} width`).toBe(NODE_WIDTH);
+			const box = await nodeBox(page, id);
+			expect(box.x + box.width, `${id} right`).toBeLessThanOrEqual(
+				frame.x + frame.width + 1,
+			);
+		}
+		// Opening it is not an edit: nothing was written, so there is one version.
+		expect((await storedBoard(artifactId)).nodes.map((n) => n.width)).toEqual([
+			420,
+			undefined,
+			undefined,
+			undefined,
+		]);
+	});
+
 	test("draws the edges a board was saved with, label and all", async ({
 		page,
 	}) => {
