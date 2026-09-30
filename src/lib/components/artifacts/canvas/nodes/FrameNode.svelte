@@ -15,6 +15,7 @@ import {
 import { BLOCK_META } from "../_lib/block-meta";
 import { useBoardContext } from "../_lib/board-context";
 import { focusWhenShown } from "../_lib/focus";
+import { handsHistoryToBoard } from "../_lib/history-keys";
 import NodeShell from "../NodeShell.svelte";
 
 type FrameData = Extract<CanvasBlockData, { kind: "frame" }>;
@@ -71,6 +72,7 @@ function handleKeydown(event: KeyboardEvent): void {
 				oninput={(event) => flow.updateNodeData(id, { label: event.currentTarget.value })}
 				onblur={() => (editing = false)}
 				onkeydown={handleKeydown}
+				{@attach handsHistoryToBoard(board.history, () => (editing = false))}
 			/>
 		{:else}
 			<span class="chip__text" class:chip__text--empty={!data.label}>

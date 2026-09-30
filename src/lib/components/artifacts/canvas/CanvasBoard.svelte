@@ -49,8 +49,7 @@ import {
 	type Viewport,
 	ViewportPortal,
 } from "@xyflow/svelte";
-import { onDestroy, type Snippet, untrack } from "svelte";
-import { historyShortcutFor } from "$lib/components/artifacts/document/keyboard-shortcuts";
+import { onDestroy, type Snippet, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import type { Annotation, CanvasBody, Pt } from "$lib/shared/artifacts/canvas";
@@ -92,6 +91,7 @@ import {
 	boardNodeTypes,
 	newBlockNode,
 } from "./_lib/block-registry";
+import { boardHistoryChord } from "./_lib/history-keys";
 import { newId } from "./_lib/ids";
 import { visibleBoardRect } from "./_lib/pane-rect";
 import type AnnotationLayer from "./AnnotationLayer.svelte";
@@ -244,6 +244,7 @@ provideBoardContext({
 	picture: (id) => pictures?.get(id) ?? null,
 	posterFailed: (id) => posterFailedIds.has(id),
 	updateData: (id, patch) => flow.updateNodeData(id, patch),
+	history: (action) => (action === "undo" ? undo() : redo()),
 });
 
 function snapshot(): CanvasBody {
@@ -440,6 +441,23 @@ function restore(json: string): void {
 	annotations = restored.annotations;
 	committedJson = json;
 	onchange(snapshot());
+	keepFocusInBoard();
+}
+
+/**
+ * A block that goes (deleted, or an insert undone) takes the focus it had with
+ * it, and the page's body has it then: a keyboard reader is dropped out of the
+ * board and their next key goes nowhere. The board itself takes the focus back,
+ * only when it was lost — never from a field, a button or anything else the reader
+ * is on.
+ */
+function keepFocusInBoard(): void {
+	void tick().then(() => {
+		const active = document.activeElement;
+		if (boardEl && (!active || active === document.body)) {
+			boardEl.focus({ preventScroll: true });
+		}
+	});
 }
 
 function undo(): void {
@@ -458,16 +476,13 @@ function redo(): void {
 	syncHistoryFlags();
 }
 
-/** Ctrl/Cmd+Z and its redo, whenever focus is inside the board and not in a text field (which has its own). */
+/**
+ * Ctrl/Cmd+Z and its redo: the board's while the focus is on it or on nothing (a
+ * click on the empty board leaves it on the page's body), and not in a field the
+ * reader is typing in, which has its own text history (`boardHistoryChord`).
+ */
 function handleWindowKeydown(event: KeyboardEvent): void {
-	if (event.defaultPrevented || !boardEl?.contains(document.activeElement)) {
-		return;
-	}
-	const target = event.target as HTMLElement | null;
-	if (target?.closest("input, textarea, select, [contenteditable='true']")) {
-		return;
-	}
-	const action = historyShortcutFor(event);
+	const action = boardHistoryChord(event, boardEl);
 	if (!action) return;
 	event.preventDefault();
 	if (action === "undo") undo();
@@ -754,6 +769,7 @@ function handleDelete(): void {
 	edges = withoutDanglingEdges(edges, nodes);
 	commit();
 	announce($t("artifacts.canvas.nodeDeleted"));
+	keepFocusInBoard();
 }
 
 $effect(() => {
@@ -896,9 +912,11 @@ function minimapColor(node: {
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
+<!-- Focusable by a click and by the script, not by Tab (-1): a click on the empty board leaves the focus HERE, inside the board, where the reader's Ctrl/Cmd+Z is heard. -->
 <div
 	class="canvas-board"
 	class:canvas-board--picture={pictures !== null}
+	tabindex="-1"
 	bind:this={boardEl}
 	bind:clientWidth={boardWidth}
 	bind:clientHeight={boardHeight}
@@ -1034,6 +1052,7 @@ function minimapColor(node: {
 	   so it can neither sit over the app's sheets nor be covered by them. */
 	.canvas-board {
 		position: relative;
+		outline: none;
 		isolation: isolate;
 		flex: 1 1 auto;
 		width: 100%;

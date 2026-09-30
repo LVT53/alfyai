@@ -32,6 +32,8 @@ export interface CanvasBoardContext {
 	posterFailed?(id: string): boolean;
 	/** Puts a change to a block's own data on the board (a tick in a checklist): the board notices and saves it. A block loaded on demand cannot import the flow library, so it reaches it here. */
 	updateData?(id: string, patch: Record<string, unknown>): void;
+	/** Runs the reader's own Undo or Redo (ruling 16): a field that has nothing of its own to undo hands the chord here (`handsHistoryToBoard`). */
+	history?(action: "undo" | "redo"): void;
 }
 
 const BOARD_CONTEXT = Symbol("artifact-canvas-board");
