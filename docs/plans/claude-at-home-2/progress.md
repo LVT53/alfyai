@@ -814,3 +814,17 @@ partly); S3-X's poster lifecycle (a removed block's poster, the OCR readback); S
 list (`ImageLightbox`, `ModelSelectionGuideModal`, `ModelForm` Escape, `settings-admin.spec.ts:411`); the App verifier
 token fix is merged (S3-Y). Slides' merge must unify S4-V's `turnContext` seam with F-A's turn memory in
 `normal-chat-tools/index.ts`.
+
+### Wave 3 · M1 deploy (2026-09-30 evening, after the pause)
+
+- F-D finished by **F-D2** and merged (`5471f11a`); `feat/artifacts` merged into `dev` (`d460a9b6`). Release gates in
+  `dev-int`: check 0/17, 15,867 tests (one run exited 1 on `chatgpt-import/index.test.ts`'s intermittent teardown race —
+  it passes alone and the full rerun exited 0), build 32/2, **Fallow 126 → the two live-check `.mjs` copies I had put under
+  `docs/` counted as unused files**; they moved to `~/.cache/alfyai-artifacts/live-checks/` (`3a30e8fa`) → Fallow 124/4,
+  Playwright 354 + 18 skipped, chunk guard OK. `dev` pushed (`81905e6e`).
+- **First deploy failed on the server's build**: `npm run build` chained `check:artifact-chunks`, whose chat-route
+  comparison against a fixed byte baseline (535,771, measured locally) read +2,129 B there (limit 2,048) against +1,467 B
+  locally — the server's build environment adds ~660 B to every route. ai.dev kept serving `f6701fce` (health 200).
+  **F-E** (`fix/artifacts-budget-gate`): the budgets leave `npm run build` and run as their own gate step (`gates.sh`,
+  `common.md` gate 4, AGENTS.md); still pass locally (editor 69,359 / 69,632 B; chat route +1,476 / 2,048) and still fail
+  when exceeded. Merged (`feat/artifacts`), then into `dev`.
