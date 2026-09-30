@@ -24,8 +24,7 @@ import {
 	newBlockNode,
 } from "./block-registry";
 
-// The kinds this build draws; the two it has no row for yet (photos, live web)
-// draw as the missing-kind card.
+// The kinds this build draws: all ten.
 const NOTE_SHAPED: BlockKind[] = [
 	"frame",
 	"sticky",
@@ -33,11 +32,10 @@ const NOTE_SHAPED: BlockKind[] = [
 	"chart",
 	"checklist",
 ];
-// The blocks made from the chat: picked from "From this chat", never inserted
-// bare, and loaded only when one mounts.
-const FROM_CHAT: BlockKind[] = ["map", "file", "app"];
+// The blocks made from the chat (or, for live web, from a search): picked in
+// "From this chat", never inserted bare, and loaded only when one mounts.
+const FROM_CHAT: BlockKind[] = ["map", "file", "app", "photo", "liveweb"];
 const BUILT: BlockKind[] = [...NOTE_SHAPED, ...FROM_CHAT];
-const NOT_BUILT: BlockKind[] = ["photo", "liveweb"];
 
 vi.mock("@xyflow/svelte", async () =>
 	(await import("../_test/xyflow-mock")).xyflowMock(),
@@ -67,16 +65,32 @@ function blockOf(kind: BlockKind): CanvasBlockData | undefined {
 					attribution: "© OpenStreetMap contributors",
 				},
 			};
+		case "photo":
+			return {
+				kind: "photo",
+				items: [
+					{
+						id: "asset-1",
+						imageUrl: "/api/connections/immich/thumbnail/asset-1",
+					},
+				],
+			};
+		case "liveweb":
+			return {
+				kind: "liveweb",
+				query: "cork weather",
+				sources: [],
+				fetchedAt: 1_000,
+			};
 		default:
 			return undefined;
 	}
 }
 
 describe("the block registry", () => {
-	it("has a row for every kind this build draws and none for the two it does not", () => {
-		expect(Object.keys(BLOCK_REGISTRY).sort()).toEqual([...BUILT].sort());
-		for (const kind of BUILT) expect(blockEntry(kind)?.kind).toBe(kind);
-		for (const kind of NOT_BUILT) expect(blockEntry(kind)).toBeNull();
+	it("has a row for every one of the ten kinds", () => {
+		expect(Object.keys(BLOCK_REGISTRY).sort()).toEqual([...BLOCK_KINDS].sort());
+		for (const kind of BLOCK_KINDS) expect(blockEntry(kind)?.kind).toBe(kind);
 	});
 
 	it("answers null for a kind it has never heard of, and for a name that is only on the prototype chain", () => {
@@ -116,10 +130,10 @@ describe("the block registry", () => {
 		}
 	});
 
-	it("marks as needing a poster exactly what a snapshot cannot be drawn from a stored value: the map and the App (the spec's poster policy)", () => {
+	it("marks as needing a poster exactly what an export cannot draw from its stored value: the App, the map, photos and live web (the spec's poster policy)", () => {
 		expect(
 			BUILT.filter((kind) => blockEntry(kind)?.needsPoster).sort(),
-		).toEqual(["app", "map"]);
+		).toEqual(["app", "liveweb", "map", "photo"]);
 	});
 
 	it("marks only the frame as one that must not be a frame child", () => {
@@ -143,12 +157,17 @@ describe("the block registry", () => {
 		expect(metaFor("map").chrome).toBe("card");
 		expect(metaFor("app").chrome).toBe("card");
 		expect(metaFor("file").chrome).toBe("bare");
+		expect(metaFor("photo").chrome).toBe("card");
+		expect(metaFor("liveweb").chrome).toBe("card");
 	});
 
 	it("keeps the map and the App on their own footprint: an App is drawn at a height it stores, a map grows with its content", () => {
 		expect(BLOCK_META.app.fixedHeight).toBe(true);
 		expect(BLOCK_META.map.fixedHeight).toBe(false);
 		expect(BLOCK_META.file.fixedHeight).toBe(false);
+		// Photos and live web are as tall as what they hold until they are resized.
+		expect(BLOCK_META.photo.fixedHeight).toBe(false);
+		expect(BLOCK_META.liveweb.fixedHeight).toBe(false);
 	});
 
 	it("maps every insert label to a message in both languages", () => {
@@ -192,14 +211,13 @@ describe("the block registry", () => {
 });
 
 describe("boardNodeTypes", () => {
-	it("maps EVERY block kind to a component, the missing-kind card for the ones with no row", () => {
+	it("maps EVERY block kind to its own component, and none to the missing-kind card", () => {
 		const types = boardNodeTypes();
 		expect(Object.keys(types).sort()).toEqual([...BLOCK_KINDS].sort());
 		for (const kind of BUILT) {
 			expect(types[kind]).toBe(blockEntry(kind)?.component);
 			expect(types[kind]).not.toBe(MissingKindNode);
 		}
-		for (const kind of NOT_BUILT) expect(types[kind]).toBe(MissingKindNode);
 	});
 
 	// The editor's first paint pays for none of the blocks made from the chat:
@@ -232,6 +250,8 @@ describe("newBlockNode", () => {
 			"checklist",
 			"map",
 			"file",
+			"photo",
+			"liveweb",
 		] as const) {
 			const node = newBlockNode(kind, { x: 0, y: 0 }, undefined, blockOf(kind));
 			expect(node.width).toBe(BLOCK_META[kind].size.width);

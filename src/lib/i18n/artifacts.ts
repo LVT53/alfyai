@@ -745,6 +745,45 @@ const artifactsDict = {
 		"artifacts.canvas.app.gone": "This App is no longer available.",
 		"artifacts.canvas.app.failed": "Couldn't open this App.",
 		"artifacts.canvas.block.loadFailed": "This block could not load.",
+		// Photos and live web (S3-R2): the two blocks with nothing to reuse from the
+		// chat. The Insert menu names them beside the other kinds, "From this chat"
+		// lists the photo and web searches the chat ran, and a live-web block says how
+		// old its snapshot is and refreshes it.
+		"artifacts.canvas.insert.photo": "Photos",
+		"artifacts.canvas.insert.liveweb": "Live web",
+		"artifacts.canvas.chat.photos": "Photos",
+		"artifacts.canvas.chat.searches": "Web searches",
+		"artifacts.canvas.chat.photoSearch": "Photo search",
+		"artifacts.canvas.chat.photoCount":
+			"{count} {count, plural, one {photo} other {photos}}",
+		"artifacts.canvas.chat.sourceCount":
+			"{count} {count, plural, one {source} other {sources}}",
+		"artifacts.canvas.chat.webSearch.row": "Search the web…",
+		"artifacts.canvas.chat.webSearch.label": "Search the web",
+		"artifacts.canvas.chat.webSearch.placeholder":
+			"What should the board look up?",
+		"artifacts.canvas.chat.webSearch.submit": "Search",
+		"artifacts.canvas.chat.webSearch.busy": "Searching the web…",
+		"artifacts.canvas.chat.webSearch.failed":
+			"The search did not work. Try again.",
+		"artifacts.canvas.chat.webSearch.empty":
+			"Nothing came back for that search.",
+		"artifacts.canvas.chat.webSearch.tooOften":
+			"That is a lot of searches at once. Wait a moment.",
+		"artifacts.canvas.photo.alt": "Photo {number}",
+		"artifacts.canvas.photo.open": "Open photo {number} of {total}",
+		"artifacts.canvas.photo.unavailable": "Photo not available",
+		"artifacts.canvas.photo.empty": "No photos in this block.",
+		"artifacts.canvas.liveweb.updated": "Updated {when}",
+		"artifacts.canvas.liveweb.more": "+{count} more",
+		"artifacts.canvas.liveweb.none": "No sources in this block.",
+		"artifacts.canvas.staleBadge": "Not live",
+		"artifacts.canvas.refresh": "Refresh",
+		"artifacts.canvas.refreshing": "Refreshing…",
+		"artifacts.canvas.refreshFailed": "Could not refresh this block.",
+		"artifacts.canvas.refreshNothing": "The search returned no results.",
+		"artifacts.canvas.refreshTooOften":
+			"Too many searches at once. Try again in a moment.",
 		// The drawing layer (S3-F): tools, inks, and what the layer says about itself.
 		"artifacts.canvas.tool.draw": "Draw",
 		"artifacts.canvas.tool.pen": "Pen",
@@ -1342,6 +1381,40 @@ const artifactsDict = {
 		"artifacts.canvas.app.failed": "Nem sikerült megnyitni az alkalmazást.",
 		"artifacts.canvas.block.loadFailed":
 			"Ezt a blokkot nem sikerült betölteni.",
+		"artifacts.canvas.insert.photo": "Fényképek",
+		"artifacts.canvas.insert.liveweb": "Élő web",
+		"artifacts.canvas.chat.photos": "Fényképek",
+		"artifacts.canvas.chat.searches": "Webes keresések",
+		"artifacts.canvas.chat.photoSearch": "Fényképkeresés",
+		// Nincs többes szám: a számnév után a főnév egyes számban marad.
+		"artifacts.canvas.chat.photoCount": "{count} fénykép",
+		"artifacts.canvas.chat.sourceCount": "{count} forrás",
+		"artifacts.canvas.chat.webSearch.row": "Keresés a weben…",
+		"artifacts.canvas.chat.webSearch.label": "Keresés a weben",
+		"artifacts.canvas.chat.webSearch.placeholder": "Mit keressen a tábla?",
+		"artifacts.canvas.chat.webSearch.submit": "Keresés",
+		"artifacts.canvas.chat.webSearch.busy": "Keresés a weben…",
+		"artifacts.canvas.chat.webSearch.failed":
+			"A keresés nem sikerült. Próbáld újra.",
+		"artifacts.canvas.chat.webSearch.empty":
+			"Erre a keresésre nem jött találat.",
+		"artifacts.canvas.chat.webSearch.tooOften":
+			"Túl sok keresés egyszerre. Várj egy pillanatot.",
+		"artifacts.canvas.photo.alt": "{number}. fénykép",
+		"artifacts.canvas.photo.open":
+			"{number}. fénykép megnyitása ({total} közül)",
+		"artifacts.canvas.photo.unavailable": "A fénykép nem érhető el",
+		"artifacts.canvas.photo.empty": "Nincs fénykép ebben a blokkban.",
+		"artifacts.canvas.liveweb.updated": "Frissítve: {when}",
+		"artifacts.canvas.liveweb.more": "+{count} további",
+		"artifacts.canvas.liveweb.none": "Nincs forrás ebben a blokkban.",
+		"artifacts.canvas.staleBadge": "Nem élő",
+		"artifacts.canvas.refresh": "Frissítés",
+		"artifacts.canvas.refreshing": "Frissítés…",
+		"artifacts.canvas.refreshFailed": "Nem sikerült frissíteni ezt a blokkot.",
+		"artifacts.canvas.refreshNothing": "A keresés nem hozott találatot.",
+		"artifacts.canvas.refreshTooOften":
+			"Túl sok keresés egyszerre. Próbáld újra egy pillanat múlva.",
 		"artifacts.canvas.tool.draw": "Rajzolás",
 		"artifacts.canvas.tool.pen": "Toll",
 		"artifacts.canvas.tool.highlighter": "Szövegkiemelő",

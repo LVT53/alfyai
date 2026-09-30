@@ -26,9 +26,14 @@ import {
 	type PatchSet,
 } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas";
 import type { CanvasReviewState } from "$lib/shared/artifacts/canvas-review";
 import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import {
+	type CanvasWebFailure,
+	isCanvasWebFailure,
+} from "$lib/shared/artifacts/live-web";
 import type { OpRefusal, OpsDiff } from "$lib/shared/artifacts/ops";
 import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
 import { _unwrapList } from "./_utils";
@@ -299,7 +304,102 @@ export async function fetchCanvasChatBlocks(
 		apps: response.apps ?? [],
 		maps: response.maps ?? [],
 		charts: response.charts ?? [],
+		photos: response.photos ?? [],
+		searches: response.searches ?? [],
 	};
+}
+
+export type RefreshCanvasBlockResult =
+	| { ok: true; nodeId: string; data: CanvasBlockData }
+	| { ok: false; reason: CanvasWebFailure };
+
+export type SearchCanvasWebResult =
+	| { ok: true; data: Extract<CanvasBlockData, { kind: "liveweb" }> }
+	| { ok: false; reason: CanvasWebFailure };
+
+/**
+ * A web read's answer as a value: a documented refusal names its reason, and an
+ * answer that cannot be read (a gateway's page, a dropped connection) is a failed
+ * read. Only the caller's own abort is let through, so a block that went away is
+ * not mistaken for a search that failed.
+ */
+async function readWebAnswer<T extends { ok: true }>(
+	request: () => Promise<Response>,
+	signal?: AbortSignal,
+): Promise<T | { ok: false; reason: CanvasWebFailure }> {
+	try {
+		const answer = (await (await request()).json()) as
+			| T
+			| { ok: false; reason?: unknown };
+		if (answer.ok === true) return answer;
+		const reason = (answer as { reason?: unknown }).reason;
+		return {
+			ok: false,
+			reason: isCanvasWebFailure(reason) ? reason : "refresh_failed",
+		};
+	} catch (error) {
+		if (signal?.aborted) throw error;
+		return { ok: false, reason: "refresh_failed" };
+	}
+}
+
+/**
+ * Re-runs a live-web block's search — `POST /api/artifacts/[id]/blocks/[nodeId]/refresh`.
+ * The request carries nothing of the client's: no body, no header. The server
+ * searches for the query STORED on the block and answers the snapshot to put in
+ * its place, so there is no address or query here for a page to tamper with, and
+ * a request with no body is one the server sees end when the tab goes away. The
+ * refresh writes nothing: the board's own save writes the new snapshot as the
+ * reader's version. `signal` cancels the search when the block goes away.
+ */
+export async function refreshCanvasBlock(
+	artifactId: string,
+	nodeId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+	signal?: AbortSignal,
+): Promise<RefreshCanvasBlockResult> {
+	return readWebAnswer<{ ok: true; nodeId: string; data: CanvasBlockData }>(
+		() =>
+			requestResponse(
+				`/api/artifacts/${encodeURIComponent(artifactId)}/blocks/${encodeURIComponent(nodeId)}/refresh${withConversationQuery(conversationId)}`,
+				{ method: "POST", ...(signal ? { signal } : {}) },
+				fetchImpl,
+			),
+		signal,
+	);
+}
+
+/**
+ * Searches the web for a query typed into the Insert menu —
+ * `POST /api/artifacts/[id]/blocks/liveweb` — and answers the snapshot a
+ * live-web block starts from. The query travels in the body, never the address,
+ * so it stays out of any server log's request line.
+ */
+export async function searchCanvasWeb(
+	artifactId: string,
+	query: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+	signal?: AbortSignal,
+): Promise<SearchCanvasWebResult> {
+	return readWebAnswer<{
+		ok: true;
+		data: Extract<CanvasBlockData, { kind: "liveweb" }>;
+	}>(
+		() =>
+			requestResponse(
+				`/api/artifacts/${encodeURIComponent(artifactId)}/blocks/liveweb${withConversationQuery(conversationId)}`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ query }),
+					...(signal ? { signal } : {}),
+				},
+				fetchImpl,
+			),
+		signal,
+	);
 }
 
 /**

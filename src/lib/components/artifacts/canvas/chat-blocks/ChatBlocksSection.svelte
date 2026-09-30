@@ -12,11 +12,13 @@
  * the data of the ONE block it makes; the board places it.
  */
 import type { Component } from "svelte";
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
+import type { SearchCanvasWebResult } from "$lib/client/api/artifacts";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
+import { LABEL_MAX_CHARS } from "$lib/shared/artifacts/canvas-limits";
 import { getCategory } from "$lib/shared/file-types";
 import { type ChatBlockKind, chatBlockGroups } from "./chat-block-data";
 
@@ -24,9 +26,20 @@ let {
 	load,
 	onpick,
 	iconFor,
+	search,
 }: {
 	load: () => Promise<CanvasChatBlocks>;
 	onpick: (kind: ChatBlockKind, data: CanvasBlockData) => void;
+	/**
+	 * Searches the web for a query typed here and answers the snapshot a live-web
+	 * block starts from. Absent where there is no chat to search for: the section then
+	 * has no "Search the web…". It is the server that searches (`searchCanvasWeb`):
+	 * nothing here calls a provider or names an address.
+	 */
+	search?: (
+		query: string,
+		signal?: AbortSignal,
+	) => Promise<SearchCanvasWebResult>;
 	/**
 	 * The glyph a kind wears in the menu and on the board. Handed in by the menu
 	 * (which already holds them) rather than imported here: this section is loaded
@@ -61,8 +74,67 @@ onMount(() => {
 	return () => {
 		// An answer that arrives after the menu closed is not shown.
 		attempt += 1;
+		// A search that is still running goes with the menu.
+		webRun?.abort();
 	};
 });
+
+// ---- Search the web… ------------------------------------------------------
+
+type WebPhase = "idle" | "busy" | "failed" | "nothing" | "tooOften";
+let webOpen = $state(false);
+let webQuery = $state("");
+let webPhase = $state<WebPhase>("idle");
+let webField = $state<HTMLInputElement | null>(null);
+let webRun: AbortController | null = null;
+
+const WEB_MESSAGE = {
+	busy: "artifacts.canvas.chat.webSearch.busy",
+	failed: "artifacts.canvas.chat.webSearch.failed",
+	nothing: "artifacts.canvas.chat.webSearch.empty",
+	tooOften: "artifacts.canvas.chat.webSearch.tooOften",
+} as const;
+
+let webReady = $derived(webQuery.trim().length > 0 && webPhase !== "busy");
+
+async function openWebSearch(): Promise<void> {
+	webOpen = true;
+	await tick();
+	webField?.focus();
+}
+
+async function submitWebSearch(event: SubmitEvent): Promise<void> {
+	event.preventDefault();
+	const query = webQuery.trim();
+	if (!search || query.length === 0 || webPhase === "busy") return;
+	webPhase = "busy";
+	const run = new AbortController();
+	webRun = run;
+	try {
+		const result = await search(query, run.signal);
+		// The menu closed while it searched: nothing is handed over.
+		if (run.signal.aborted) return;
+		if (result.ok) {
+			webPhase = "idle";
+			onpick("liveweb", result.data);
+			return;
+		}
+		webPhase =
+			result.reason === "no_results"
+				? "nothing"
+				: result.reason === "rate_limited"
+					? "tooOften"
+					: "failed";
+	} catch {
+		if (run.signal.aborted) return;
+		webPhase = "failed";
+	} finally {
+		if (webRun === run) webRun = null;
+	}
+	// What was typed stays, with the cursor in it, for another try.
+	await tick();
+	webField?.focus();
+}
 
 let groups = $derived(
 	phase.name === "ready" ? chatBlockGroups(phase.listing, $t) : [],
@@ -77,6 +149,50 @@ let groups = $derived(
 	data-testid="canvas-chat-blocks"
 >
 	<div class="chat-blocks__title" aria-hidden="true">{$t("artifacts.canvas.chat.title")}</div>
+	{#if search}
+		{#if !webOpen}
+			{@const WebIcon = iconFor("liveweb")}
+			<button
+				type="button"
+				role="menuitem"
+				class="chat-blocks__row"
+				tabindex="-1"
+				data-testid="canvas-chat-websearch"
+				onclick={() => void openWebSearch()}
+			>
+				<span class="chat-blocks__icon">
+					{#if WebIcon}<WebIcon size={16} strokeWidth={1.75} aria-hidden="true" />{/if}
+				</span>
+				<span class="chat-blocks__name">{$t("artifacts.canvas.chat.webSearch.row")}</span>
+			</button>
+		{:else}
+			<form class="chat-blocks__search" data-testid="canvas-chat-websearch-form" onsubmit={submitWebSearch}>
+				<input
+					type="text"
+					class="chat-blocks__query"
+					bind:this={webField}
+					bind:value={webQuery}
+					maxlength={LABEL_MAX_CHARS}
+					autocomplete="off"
+					spellcheck="false"
+					aria-label={$t("artifacts.canvas.chat.webSearch.label")}
+					placeholder={$t("artifacts.canvas.chat.webSearch.placeholder")}
+					readonly={webPhase === "busy"}
+				/>
+				<button
+					type="submit"
+					class="btn-secondary btn-sm"
+					aria-disabled={!webReady}
+					aria-busy={webPhase === "busy"}
+				>
+					{$t("artifacts.canvas.chat.webSearch.submit")}
+				</button>
+				<p class="chat-blocks__status" role="status">
+					{#if webPhase !== "idle"}{$t(WEB_MESSAGE[webPhase])}{/if}
+				</p>
+			</form>
+		{/if}
+	{/if}
 	{#if phase.name === "loading"}
 		<p class="chat-blocks__note">{$t("artifacts.canvas.chat.loading")}</p>
 	{:else if phase.name === "failed"}
@@ -180,6 +296,44 @@ let groups = $derived(
 		background: var(--surface-elevated);
 	}
 
+	.chat-blocks__search {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 6px;
+		align-items: center;
+		padding: 4px 8px 6px;
+	}
+
+	.chat-blocks__query {
+		box-sizing: border-box;
+		min-width: 0;
+		min-height: 32px;
+		padding: 4px 8px;
+		border: 1px solid var(--border-default);
+		border-radius: 6px;
+		background: var(--surface-page);
+		color: var(--text-primary);
+		font: inherit;
+		font-size: var(--text-md);
+	}
+
+	.chat-blocks__query:focus-visible {
+		outline: 2px solid var(--focus-ring);
+		outline-offset: 1px;
+	}
+
+	.chat-blocks__search [aria-disabled="true"] {
+		cursor: default;
+		opacity: 0.6;
+	}
+
+	.chat-blocks__status {
+		grid-column: 1 / -1;
+		margin: 0;
+		color: var(--text-muted);
+		font-size: var(--text-xs);
+	}
+
 	.chat-blocks__row:focus-visible {
 		outline: 2px solid var(--focus-ring);
 		outline-offset: -2px;
@@ -211,6 +365,11 @@ let groups = $derived(
 
 	@media (max-width: 767px), (pointer: coarse) {
 		.chat-blocks__row {
+			min-height: 44px;
+		}
+
+		.chat-blocks__query,
+		.chat-blocks__search :global(button) {
 			min-height: 44px;
 		}
 	}

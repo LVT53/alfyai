@@ -566,8 +566,9 @@ test.describe("blocks from this chat", () => {
 		await page.keyboard.press("Enter");
 		await expect(menu(page)).toBeVisible();
 		const rows = menu(page).getByRole("menuitem");
-		// Five written rows, then what the chat made (5 rows in this chat).
-		await expect(rows).toHaveCount(10);
+		// Five written rows, then what the chat offers: the row to search the web
+		// first, then what the chat made (5 rows in this chat).
+		await expect(rows).toHaveCount(11);
 
 		// One tab stop for the whole menu, and it is a written row.
 		const stops = await rows.evaluateAll((nodes) =>
@@ -584,15 +585,16 @@ test.describe("blocks from this chat", () => {
 		await expect(rows.last()).toBeFocused();
 		await page.keyboard.press("ArrowDown");
 		await expect(rows.first()).toBeFocused();
-		// Down from the last written row goes into what the chat made.
+		// Down from the last written row goes into what the chat offers.
 		await rows.nth(4).focus();
 		await page.keyboard.press("ArrowDown");
+		await expect(rows.nth(5)).toHaveAccessibleName("Search the web…");
 		await expect(rows.nth(5)).toBeFocused();
 		await page.keyboard.press("Home");
 		await expect(rows.first()).toBeFocused();
 
 		// Enter on a chat row inserts it, and the menu closes.
-		await rows.nth(5).focus();
+		await rows.nth(6).focus();
 		await page.keyboard.press("Enter");
 		await expect(menu(page)).toHaveCount(0);
 		expect(await nodeCount(page)).toBe(1);
@@ -619,7 +621,8 @@ test.describe("blocks from this chat", () => {
 		await expect(
 			menu(page).getByText("Nothing from this chat to insert yet."),
 		).toBeVisible();
-		await expect(menu(page).getByRole("menuitem")).toHaveCount(5);
+		// The five written rows, and the row to search the web: a search needs no chat history.
+		await expect(menu(page).getByRole("menuitem")).toHaveCount(6);
 	});
 
 	test("keeps the written rows working when the chat cannot be read", async ({

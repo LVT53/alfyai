@@ -2,7 +2,8 @@
 /**
  * The rows of the Insert menu: what a reader can put on the board, in two
  * groups (what they write, and blocks that carry content of their own), then
- * "From this chat" — the files, Apps, maps and charts the board's own chat made.
+ * "From this chat" — the files, Apps, maps, charts, photos and web searches the
+ * board's own chat made, and a new web search typed into the menu.
  * It is one menu with one tab stop and arrow keys between every row; the popover
  * or sheet around it, its Escape and its focus return belong to `AnchoredPopover`.
  *
@@ -59,7 +60,11 @@ function iconFor(kind: ChatBlockKind) {
 
 function pickFromChat(kind: ChatBlockKind, data: CanvasBlockData): void {
 	const row = blockEntry(kind);
-	if (row) onpick(row, data);
+	// What lands on the board is what the board would keep: data its own schema
+	// would refuse (a photo that is not the app's own thumbnail, a source that is
+	// not a web address) is never put there, rather than put there and left out
+	// by the next save.
+	if (row?.schema.safeParse(data).success) onpick(row, data);
 }
 
 /** Every row there is right now, written ones first, in the order they are drawn. */
@@ -76,6 +81,14 @@ function move(to: number): void {
 }
 
 function handleKeydown(event: KeyboardEvent): void {
+	// A field inside the menu (the web search's query) keeps its own keys: the
+	// arrows, Home and End move the cursor in what is being typed, not the focus.
+	if (
+		event.target instanceof HTMLInputElement ||
+		event.target instanceof HTMLTextAreaElement
+	) {
+		return;
+	}
 	const all = allRows();
 	const current = all.indexOf(document.activeElement as HTMLButtonElement);
 	const from = current === -1 ? active : current;
@@ -126,7 +139,7 @@ function handleKeydown(event: KeyboardEvent): void {
 		</div>
 	{/each}
 	{#if Section && chat.load}
-		<Section load={chat.load} onpick={pickFromChat} iconFor={iconFor} />
+		<Section load={chat.load} onpick={pickFromChat} iconFor={iconFor} search={chat.searchWeb} />
 	{/if}
 </div>
 

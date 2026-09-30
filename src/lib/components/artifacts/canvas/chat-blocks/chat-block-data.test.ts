@@ -1,10 +1,13 @@
 import { get } from "svelte/store";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "$lib/i18n";
 import { BLOCK_DATA_SCHEMAS } from "$lib/shared/artifacts/canvas-blocks";
-import type {
-	CanvasChatBlocks,
-	ChatMapBlock,
+import {
+	type CanvasChatBlocks,
+	type ChatMapBlock,
+	type ChatPhotoBlock,
+	type ChatSearchBlock,
+	emptyChatBlocks,
 } from "$lib/shared/artifacts/chat-blocks";
 import { uiLanguage } from "$lib/stores/settings";
 import { chatBlockGroups, mapBlockData } from "./chat-block-data";
@@ -178,7 +181,56 @@ const LISTING: CanvasChatBlocks = {
 			data: { kind: "chart", code: "{}" },
 		},
 	],
+	photos: [],
+	searches: [],
 };
+
+const NOW = Date.UTC(2026, 8, 30, 12, 0, 0);
+
+function photoItem(
+	overrides: Partial<ChatPhotoBlock> & { count?: number } = {},
+): ChatPhotoBlock {
+	const { count = 3, ...rest } = overrides;
+	return {
+		key: "photos:m1:c1",
+		at: NOW - 5 * 60_000,
+		query: "beach",
+		data: {
+			kind: "photo",
+			items: Array.from({ length: count }, (_, index) => ({
+				id: `asset-${index}`,
+				imageUrl: `/api/connections/immich/thumbnail/asset-${index}`,
+			})),
+		},
+		...rest,
+	};
+}
+
+function searchItem(
+	overrides: Partial<ChatSearchBlock> & { count?: number; query?: string } = {},
+): ChatSearchBlock {
+	const { count = 4, query = "cork weather", ...rest } = overrides;
+	return {
+		key: "search:m1:c1",
+		at: NOW - 90 * 60_000,
+		data: {
+			kind: "liveweb",
+			query,
+			fetchedAt: NOW - 90 * 60_000,
+			sources: Array.from({ length: count }, (_, index) => ({
+				id: `s${index}`,
+				title: `Result ${index}`,
+				url: `https://example.com/${index}`,
+				provider: "parallel",
+				authorityClass: "primary",
+				authorityScore: 0.9,
+				publishedAt: null,
+				updatedAt: null,
+			})),
+		},
+		...rest,
+	};
+}
 
 describe("the section's groups", () => {
 	it("groups by kind in one fixed order, and hides a kind the chat has none of", () => {
@@ -193,12 +245,7 @@ describe("the section's groups", () => {
 				(g) => g.kind,
 			),
 		).toEqual(["app", "chart"]);
-		expect(
-			chatBlockGroups(
-				{ files: [], apps: [], maps: [], charts: [] },
-				translate(),
-			),
-		).toEqual([]);
+		expect(chatBlockGroups(emptyChatBlocks(), translate())).toEqual([]);
 	});
 
 	it("names each group by its kind, in both languages", () => {
@@ -292,5 +339,115 @@ describe("the section's groups", () => {
 			g.rows.map((row) => row.key),
 		);
 		expect(new Set(keys).size).toBe(keys.length);
+	});
+});
+
+describe("photo searches and web searches, as rows", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(NOW);
+	});
+	afterEach(() => vi.useRealTimers());
+
+	it("comes after the charts in the fixed order, one group each", () => {
+		const groups = chatBlockGroups(
+			{ ...LISTING, photos: [photoItem()], searches: [searchItem()] },
+			translate(),
+		);
+		expect(groups.map((g) => g.kind)).toEqual([
+			"file",
+			"app",
+			"map",
+			"chart",
+			"photo",
+			"liveweb",
+		]);
+		expect(groups.slice(-2).map((g) => g.label)).toEqual([
+			"Photos",
+			"Web searches",
+		]);
+		uiLanguage.set("hu");
+		expect(
+			chatBlockGroups(
+				{ ...LISTING, photos: [photoItem()], searches: [searchItem()] },
+				translate(),
+			)
+				.slice(-2)
+				.map((g) => g.label),
+		).toEqual(["Fényképek", "Webes keresések"]);
+	});
+
+	it("reads a photo search by what was looked for, with how many photos it found and how long ago, and inserts exactly its block", () => {
+		const item = photoItem();
+		const [group] = chatBlockGroups(
+			{ ...emptyChatBlocks(), photos: [item] },
+			translate(),
+		);
+		expect(group.kind).toBe("photo");
+		expect(group.rows[0]).toMatchObject({
+			key: "photos:m1:c1",
+			kind: "photo",
+			name: "beach",
+			meta: "3 photos · 5 min ago",
+			data: item.data,
+		});
+		expect(BLOCK_DATA_SCHEMAS.photo.safeParse(group.rows[0].data).success).toBe(
+			true,
+		);
+	});
+
+	it("says one photo in the singular, and a search that named nothing plainly", () => {
+		const [group] = chatBlockGroups(
+			{
+				...emptyChatBlocks(),
+				photos: [
+					photoItem({ count: 1, query: null }),
+					photoItem({ key: "p2", count: 2, query: null }),
+				],
+			},
+			translate(),
+		);
+		expect(group.rows[0].meta).toBe("1 photo · 5 min ago");
+		expect(group.rows[0].name).toBe("Photo search");
+		uiLanguage.set("hu");
+		expect(
+			chatBlockGroups(
+				{ ...emptyChatBlocks(), photos: [photoItem({ query: null })] },
+				translate(),
+			)[0].rows[0].name,
+		).toBe("Fényképkeresés");
+	});
+
+	it("reads a web search by its query, with how many sources came back and how long ago, and inserts exactly its block", () => {
+		const item = searchItem();
+		const [group] = chatBlockGroups(
+			{ ...emptyChatBlocks(), searches: [item] },
+			translate(),
+		);
+		expect(group.kind).toBe("liveweb");
+		expect(group.rows[0]).toMatchObject({
+			key: "search:m1:c1",
+			kind: "liveweb",
+			name: "cork weather",
+			meta: "4 sources · 2 h ago",
+			data: item.data,
+		});
+		expect(
+			BLOCK_DATA_SCHEMAS.liveweb.safeParse(group.rows[0].data).success,
+		).toBe(true);
+	});
+
+	it("says both in Hungarian, where the noun stays singular after a number", () => {
+		uiLanguage.set("hu");
+		const groups = chatBlockGroups(
+			{
+				...emptyChatBlocks(),
+				photos: [photoItem()],
+				searches: [searchItem({ count: 1 })],
+			},
+			translate(),
+		);
+		expect(groups[0].rows[0].meta).toBe("3 fénykép · 5 perce");
+		expect(groups[1].rows[0].meta).toBe("1 forrás · 2 órája");
 	});
 });

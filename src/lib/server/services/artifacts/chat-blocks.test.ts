@@ -109,6 +109,77 @@ function mapCall(map: unknown = MAP, extra: Record<string, unknown> = {}) {
 	};
 }
 
+/** A photo the photos tool found, as the tool persists it on the call: the chat's own strip reads exactly this. */
+function photoCandidate(assetId: string, title = `${assetId}.jpg`) {
+	return {
+		id: `photos:${assetId}`,
+		title,
+		url: "",
+		snippet: title,
+		sourceType: "tool",
+		metadata: { thumbnailPath: `/api/assets/${assetId}/thumbnail` },
+	};
+}
+
+function photosCall(
+	assetIds: string[],
+	extra: Record<string, unknown> = {},
+	input: Record<string, unknown> = { action: "search", query: "beach" },
+) {
+	sequence += 1;
+	return {
+		type: "tool_call",
+		callId: `call-${sequence}`,
+		name: "photos",
+		input,
+		status: "done",
+		candidates: assetIds.map((id) => photoCandidate(id)) as unknown[],
+		metadata: { ok: true, action: input.action, resultCount: assetIds.length },
+		...extra,
+	};
+}
+
+/** A source the web search returned, as the tool persists it as a candidate. */
+function webCandidate(index: number, extra: Record<string, unknown> = {}) {
+	return {
+		id: `src-${index}`,
+		title: `Result ${index}`,
+		url: `https://example.com/page-${index}`,
+		snippet: `About result ${index}.`,
+		sourceType: "web",
+		material: true,
+		metadata: {
+			provider: "parallel",
+			authorityClass: "primary",
+			authorityScore: 0.9 - index / 100,
+			providerRank: index,
+			publishedAt: "2026-09-01",
+		},
+		...extra,
+	};
+}
+
+function researchCall(
+	count: number,
+	extra: Record<string, unknown> = {},
+	query = "cork weather this weekend",
+) {
+	sequence += 1;
+	return {
+		type: "tool_call",
+		callId: `call-${sequence}`,
+		name: "research_web",
+		input: { query },
+		status: "done",
+		sourceType: "web",
+		candidates: Array.from({ length: count }, (_, index) =>
+			webCandidate(index + 1),
+		) as unknown[],
+		metadata: { ok: true, evidenceReady: true, sourceCount: count },
+		...extra,
+	};
+}
+
 function seedChatFile(params: {
 	id: string;
 	filename: string;
@@ -225,7 +296,14 @@ async function listFor(board: { id: string }, conversationId?: string | null) {
 	});
 }
 
-const EMPTY = { files: [], apps: [], maps: [], charts: [] };
+const EMPTY = {
+	files: [],
+	apps: [],
+	maps: [],
+	charts: [],
+	photos: [],
+	searches: [],
+};
 
 beforeEach(() => {
 	sequence = 0;
@@ -275,12 +353,18 @@ describe("who may ask, and about which chat", () => {
 		const board = await makeArtifact("canvas", "Private", {
 			conversationId: INCOGNITO,
 		});
-		seedMessage({ conversationId: INCOGNITO, content: fence(CHART) });
+		seedMessage({
+			conversationId: INCOGNITO,
+			content: fence(CHART),
+			toolCalls: [photosCall(["private-1"]), researchCall(2)],
+		});
 
 		expect(await listFor(board)).toBeNull();
 		expect(await listFor(board, OTHER_CONVERSATION)).toBeNull();
 		const named = await listFor(board, INCOGNITO);
 		expect(named?.charts).toHaveLength(1);
+		expect(named?.photos).toHaveLength(1);
+		expect(named?.searches).toHaveLength(1);
 	});
 
 	it("answers nothing for a board whose chat link is gone: the family never reads such a row, and neither does this", async () => {
@@ -305,7 +389,7 @@ describe("who may ask, and about which chat", () => {
 		seedMessage({
 			conversationId: OTHER_CONVERSATION,
 			content: fence(CHART),
-			toolCalls: [mapCall()],
+			toolCalls: [mapCall(), photosCall(["theirs-1"]), researchCall(2)],
 		});
 
 		expect(await listFor(board)).toEqual(EMPTY);
@@ -608,5 +692,348 @@ describe("charts", () => {
 			seedMessage({ at: index + 2, content: "Plain words." });
 		}
 		expect((await listFor(board))?.charts).toEqual([]);
+	});
+});
+
+describe("photos", () => {
+	it("lists the photos a search found as one block, each as the app's own thumbnail address the chat's strip shows", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({
+			at: 4,
+			toolCalls: [photosCall(["asset-1", "asset-2", "asset-3"])],
+		});
+
+		const listing = await listFor(board);
+
+		expect(listing?.photos).toHaveLength(1);
+		expect(listing?.photos[0]).toMatchObject({
+			query: "beach",
+			at: minute(4).getTime(),
+			data: {
+				kind: "photo",
+				items: [
+					{
+						id: "asset-1",
+						imageUrl: "/api/connections/immich/thumbnail/asset-1",
+					},
+					{
+						id: "asset-2",
+						imageUrl: "/api/connections/immich/thumbnail/asset-2",
+					},
+					{
+						id: "asset-3",
+						imageUrl: "/api/connections/immich/thumbnail/asset-3",
+					},
+				],
+			},
+		});
+		expect(typeof listing?.photos[0].key).toBe("string");
+	});
+
+	it("carries no file name and no description into the board: the chat kept them for the reader's own screen, and a board can be read to a model", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		const call = photosCall(["asset-1"]);
+		call.candidates = [
+			photoCandidate("asset-1", "hospital-visit-2024-oncology.jpg"),
+		];
+		seedMessage({ toolCalls: [call] });
+
+		const listing = await listFor(board);
+
+		const text = JSON.stringify(listing?.photos);
+		expect(text).not.toContain("hospital");
+		expect(text).not.toContain("oncology");
+		for (const item of listing?.photos[0].data.items ?? []) {
+			expect(item).not.toHaveProperty("alt");
+		}
+	});
+
+	it("takes only finished searches that found photos, from the photos tool alone", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({
+			toolCalls: [
+				photosCall(["a"], { status: "failed" }),
+				photosCall(["b"], { status: "running" }),
+				photosCall(["c"], { metadata: { ok: false } }),
+				photosCall([], {}, { action: "list_albums" }),
+				photosCall(["d"], { name: "research_web" }),
+				{ type: "text", content: "thinking" },
+			],
+		});
+
+		expect((await listFor(board))?.photos).toEqual([]);
+	});
+
+	it("leaves out a result that is not an asset thumbnail of the photo library, so no other address can ride in on a candidate", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		const call = photosCall(["good-1"]);
+		const withPath = (id: string, thumbnailPath: unknown) => ({
+			...photoCandidate(id),
+			metadata: { thumbnailPath },
+		});
+		call.candidates.push(
+			withPath("evil-1", "https://evil.example/p.png"),
+			withPath("evil-2", "/api/assets/../../auth/logout/thumbnail"),
+			withPath("evil-3", "/api/assets/a%2fb/thumbnail"),
+			withPath("evil-4", "/api/assets/a\\evil.example/thumbnail"),
+			withPath("evil-5", "//evil.example/api/assets/x/thumbnail"),
+			withPath("evil-6", 42),
+			withPath("evil-7", "/api/assets/x/original"),
+		);
+		seedMessage({ toolCalls: [call] });
+
+		const listing = await listFor(board);
+
+		expect(listing?.photos[0].data.items.map((item) => item.id)).toEqual([
+			"good-1",
+		]);
+		expect(JSON.stringify(listing?.photos)).not.toContain("evil");
+	});
+
+	it("lists one search's photo once however many times it came back, and the same photo again in another search", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({
+			at: 1,
+			toolCalls: [photosCall(["a", "b", "a", "c", "b"])],
+		});
+		seedMessage({
+			at: 2,
+			toolCalls: [photosCall(["a"], {}, { action: "search", query: "again" })],
+		});
+
+		const listing = await listFor(board);
+
+		expect(listing?.photos).toHaveLength(2);
+		expect(listing?.photos[0].data.items.map((item) => item.id)).toEqual(["a"]);
+		expect(listing?.photos[1].data.items.map((item) => item.id)).toEqual([
+			"a",
+			"b",
+			"c",
+		]);
+	});
+
+	it("names what was looked for in the model's own words: the query, else the person, else the place", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({
+			at: 1,
+			toolCalls: [
+				photosCall(["a"], {}, { action: "search", query: "  a dog in snow " }),
+				photosCall(
+					["b"],
+					{},
+					{ action: "search_by_date", personName: "Anna", city: "Graz" },
+				),
+				photosCall(
+					["c"],
+					{},
+					{ action: "search_by_date", city: "Graz", country: "AT" },
+				),
+				photosCall(["d"], {}, { action: "album", albumId: "album-7" }),
+			],
+		});
+
+		const listing = await listFor(board);
+
+		const byFirst = new Map(
+			listing?.photos.map((row) => [row.data.items[0].id, row.query]),
+		);
+		expect(byFirst.get("a")).toBe("a dog in snow");
+		expect(byFirst.get("b")).toBe("Anna");
+		expect(byFirst.get("c")).toBe("Graz");
+		expect(byFirst.get("d")).toBeNull();
+	});
+
+	it("stops at the bound of searches, keeping the newest", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		for (let index = 0; index < CHAT_BLOCKS_PER_KIND + 3; index += 1) {
+			seedMessage({
+				at: index + 1,
+				toolCalls: [
+					photosCall(
+						[`search-${index}`],
+						{},
+						{ action: "search", query: `q${index}` },
+					),
+				],
+			});
+		}
+
+		const listing = await listFor(board);
+
+		expect(listing?.photos).toHaveLength(CHAT_BLOCKS_PER_KIND);
+		expect(listing?.photos[0].query).toBe(`q${CHAT_BLOCKS_PER_KIND + 2}`);
+	});
+
+	it("caps one block at the photos the board's schema allows, instead of offering a block that vanishes on save", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({
+			toolCalls: [
+				photosCall(Array.from({ length: 80 }, (_, index) => `many-${index}`)),
+			],
+		});
+
+		const listing = await listFor(board);
+
+		expect(listing?.photos).toHaveLength(1);
+		expect(listing?.photos[0].data.items).toHaveLength(50);
+	});
+});
+
+describe("web searches", () => {
+	it("lists what a research_web call returned with the query it ran, stamped with the time the chat searched", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({ at: 7, toolCalls: [researchCall(3)] });
+
+		const listing = await listFor(board);
+
+		expect(listing?.searches).toHaveLength(1);
+		const search = listing?.searches[0];
+		expect(search?.at).toBe(minute(7).getTime());
+		expect(search?.data).toMatchObject({
+			kind: "liveweb",
+			query: "cork weather this weekend",
+			fetchedAt: minute(7).getTime(),
+		});
+		expect(search?.data.sources).toHaveLength(3);
+		expect(search?.data.sources[0]).toEqual({
+			id: "src-1",
+			title: "Result 1",
+			url: "https://example.com/page-1",
+			provider: "parallel",
+			authorityClass: "primary",
+			authorityScore: 0.89,
+			publishedAt: "2026-09-01",
+			updatedAt: null,
+			snippet: "About result 1.",
+		});
+	});
+
+	it("takes only finished research_web calls that returned sources, and web sources alone", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({
+			toolCalls: [
+				researchCall(2, { status: "failed" }),
+				researchCall(2, { status: "running" }),
+				researchCall(2, { metadata: { ok: false } }),
+				researchCall(0),
+				researchCall(2, { name: "fetch_url" }),
+				researchCall(2, { name: "photos" }),
+				{
+					...researchCall(2),
+					candidates: [webCandidate(1, { sourceType: "tool" })],
+				},
+				{ type: "text", content: "thinking" },
+			],
+		});
+
+		expect((await listFor(board))?.searches).toEqual([]);
+	});
+
+	it("keeps a source only if its link is a web address, and drops a search that has none left", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		const mixed = researchCall(1);
+		mixed.candidates = [
+			webCandidate(1),
+			webCandidate(2, { url: "javascript:alert(1)" }),
+			webCandidate(3, { url: "data:text/html,<script>alert(1)</script>" }),
+			webCandidate(4, { url: "//evil.example/x" }),
+			webCandidate(5, { url: "https://example.com/has space" }),
+			webCandidate(6),
+		];
+		const onlyBad = researchCall(1, {}, "only bad");
+		onlyBad.candidates = [webCandidate(1, { url: "javascript:alert(1)" })];
+		seedMessage({ toolCalls: [mixed, onlyBad] });
+
+		const listing = await listFor(board);
+
+		expect(listing?.searches).toHaveLength(1);
+		expect(
+			listing?.searches[0].data.sources.map((source) => source.id),
+		).toEqual(["src-1", "src-6"]);
+	});
+
+	it("lists a source once even when a page read returned it again, and fills what an older record does not have", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		const call = researchCall(1);
+		call.candidates = [
+			webCandidate(1),
+			webCandidate(1, { id: "page-1" }),
+			{
+				id: "old-1",
+				title: "Older record",
+				url: "https://example.org/older",
+				snippet: null,
+				sourceType: "web",
+			},
+		];
+		seedMessage({ toolCalls: [call] });
+
+		const listing = await listFor(board);
+
+		expect(listing?.searches[0].data.sources).toHaveLength(2);
+		expect(listing?.searches[0].data.sources[1]).toEqual({
+			id: "old-1",
+			title: "Older record",
+			url: "https://example.org/older",
+			provider: "",
+			authorityClass: "unknown",
+			authorityScore: 0,
+			publishedAt: null,
+			updatedAt: null,
+		});
+	});
+
+	it("leaves out a search whose query a block could not keep whole, since a refresh runs exactly the stored query", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({
+			toolCalls: [
+				researchCall(2, {}, "x".repeat(501)),
+				researchCall(2, {}, "   "),
+				{ ...researchCall(2), input: {} },
+				{ ...researchCall(2), input: { query: 42 } },
+				researchCall(2, {}, "  kept query  "),
+			],
+		});
+
+		const listing = await listFor(board);
+
+		expect(listing?.searches.map((search) => search.data.query)).toEqual([
+			"kept query",
+		]);
+	});
+
+	it("shows a query the chat searched more than once as one row, at its newest run", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		seedMessage({ at: 1, toolCalls: [researchCall(2, {}, "Cork weather")] });
+		seedMessage({ at: 2, toolCalls: [researchCall(3, {}, "something else")] });
+		seedMessage({ at: 3, toolCalls: [researchCall(4, {}, "cork  weather ")] });
+
+		const listing = await listFor(board);
+
+		expect(listing?.searches.map((search) => search.data.query)).toEqual([
+			"cork  weather",
+			"something else",
+		]);
+		expect(listing?.searches[0].data.sources).toHaveLength(4);
+	});
+
+	it("stops at the bound, keeping the newest, and at the sources one block may hold", async () => {
+		const board = await makeArtifact("canvas", "Board");
+		for (let index = 0; index < CHAT_BLOCKS_PER_KIND + 3; index += 1) {
+			seedMessage({
+				at: index + 1,
+				toolCalls: [researchCall(2, {}, `query ${index}`)],
+			});
+		}
+		seedMessage({
+			at: 500,
+			toolCalls: [researchCall(70, {}, "very wide search")],
+		});
+
+		const listing = await listFor(board);
+
+		expect(listing?.searches).toHaveLength(CHAT_BLOCKS_PER_KIND);
+		expect(listing?.searches[0].data.query).toBe("very wide search");
+		expect(listing?.searches[0].data.sources).toHaveLength(50);
 	});
 });

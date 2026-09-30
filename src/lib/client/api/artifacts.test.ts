@@ -19,12 +19,14 @@ import {
 	fetchCanvasReviewState,
 	fetchConversationArtifacts,
 	readAppValue,
+	refreshCanvasBlock,
 	regenerateApp,
 	regenerateDeletedArtifact,
 	resolveArtifactComment,
 	restoreArtifactVersion,
 	saveArtifactBody,
 	saveDocumentTabs,
+	searchCanvasWeb,
 	subscribeArtifactChanges,
 	toggleDocumentTask,
 	writeAppValue,
@@ -135,7 +137,14 @@ describe("artifacts client API", () => {
 	});
 
 	describe("fetchCanvasChatBlocks", () => {
-		const listing = { files: [], apps: [], maps: [], charts: [] };
+		const listing = {
+			files: [],
+			apps: [],
+			maps: [],
+			charts: [],
+			photos: [],
+			searches: [],
+		};
 
 		it("asks for what the board's chat has, and leaves the wire-level ok behind", async () => {
 			const fetchMock = vi.fn(async () =>
@@ -177,6 +186,191 @@ describe("artifacts client API", () => {
 			await expect(
 				fetchCanvasChatBlocks("board-1", null, fetchMock),
 			).resolves.toEqual(listing);
+		});
+	});
+
+	describe("refreshCanvasBlock", () => {
+		const DATA = {
+			kind: "liveweb",
+			query: "cork weather",
+			sources: [],
+			fetchedAt: 1,
+		};
+
+		it("asks the server to re-run a block's own stored query: a bare POST that names the board and the block and carries nothing else", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, nodeId: "web-1", data: DATA }),
+			);
+
+			const result = await refreshCanvasBlock(
+				"board-1",
+				"web-1",
+				null,
+				fetchMock,
+			);
+
+			expect(result).toEqual({ ok: true, nodeId: "web-1", data: DATA });
+			const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+			expect(url).toBe("/api/artifacts/board-1/blocks/web-1/refresh");
+			expect(init.method).toBe("POST");
+			// Nothing of the client's is sent: the query is the stored one, and a
+			// request with no body is one the server sees end if the tab goes away.
+			expect(init.body).toBeUndefined();
+			expect(init.headers).toBeUndefined();
+		});
+
+		it("names the conversation the panel is showing, and encodes both ids", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, nodeId: "web/1", data: DATA }),
+			);
+
+			await refreshCanvasBlock("board 1", "web/1", "conv 1/2", fetchMock);
+
+			expect((fetchMock.mock.calls[0] as unknown[])[0]).toBe(
+				"/api/artifacts/board%201/blocks/web%2F1/refresh?conversationId=conv%201%2F2",
+			);
+		});
+
+		it("hands the abort signal to the request, so a block that goes away stops the search", async () => {
+			const controller = new AbortController();
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, nodeId: "web-1", data: DATA }),
+			);
+
+			await refreshCanvasBlock(
+				"board-1",
+				"web-1",
+				null,
+				fetchMock,
+				controller.signal,
+			);
+
+			expect(
+				((fetchMock.mock.calls[0] as unknown[])[1] as RequestInit).signal,
+			).toBe(controller.signal);
+		});
+
+		it("answers each refusal as a value, by its reason", async () => {
+			const cases: [number, string, string][] = [
+				[404, "not_found", "not_found"],
+				[422, "not_refreshable", "not_refreshable"],
+				[422, "refresh_failed", "refresh_failed"],
+				[422, "no_results", "no_results"],
+				[429, "rate_limited", "rate_limited"],
+			];
+			for (const [status, reason, expected] of cases) {
+				const fetchMock = vi.fn(async () =>
+					jsonResponse({ ok: false, reason }, status),
+				);
+				await expect(
+					refreshCanvasBlock("board-1", "web-1", null, fetchMock),
+				).resolves.toEqual({ ok: false, reason: expected });
+			}
+		});
+
+		it("says the refresh failed for an answer it cannot read or a request that did not arrive, but lets an abort through", async () => {
+			const unreadable = vi.fn(
+				async () => new Response("<html>bad gateway</html>", { status: 502 }),
+			);
+			await expect(
+				refreshCanvasBlock("board-1", "web-1", null, unreadable),
+			).resolves.toEqual({ ok: false, reason: "refresh_failed" });
+
+			const offline = vi.fn(async () => {
+				throw new TypeError("Failed to fetch");
+			});
+			await expect(
+				refreshCanvasBlock("board-1", "web-1", null, offline),
+			).resolves.toEqual({ ok: false, reason: "refresh_failed" });
+
+			const controller = new AbortController();
+			controller.abort();
+			const aborted = vi.fn(async () => {
+				throw new DOMException("aborted", "AbortError");
+			});
+			await expect(
+				refreshCanvasBlock(
+					"board-1",
+					"web-1",
+					null,
+					aborted,
+					controller.signal,
+				),
+			).rejects.toMatchObject({ name: "AbortError" });
+		});
+
+		it("never reports a version: a refresh writes nothing, the board's own save does", async () => {
+			const seen: unknown[] = [];
+			const stop = subscribeArtifactChanges((change) => seen.push(change));
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, nodeId: "web-1", data: DATA, version: 9 }),
+			);
+			await refreshCanvasBlock("board-1", "web-1", null, fetchMock);
+			stop();
+			expect(seen).toEqual([]);
+		});
+	});
+
+	describe("searchCanvasWeb", () => {
+		const DATA = {
+			kind: "liveweb",
+			query: "cork weather",
+			sources: [],
+			fetchedAt: 1,
+		};
+
+		it("posts the query to the board's live-web route as JSON and answers the snapshot to place", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, data: DATA }),
+			);
+
+			const result = await searchCanvasWeb(
+				"board-1",
+				"cork weather",
+				"conv-1",
+				fetchMock,
+			);
+
+			expect(result).toEqual({ ok: true, data: DATA });
+			const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+			expect(url).toBe(
+				"/api/artifacts/board-1/blocks/liveweb?conversationId=conv-1",
+			);
+			expect(init.method).toBe("POST");
+			expect(JSON.parse(String(init.body))).toEqual({ query: "cork weather" });
+		});
+
+		it("keeps the query out of the address, where a server log would read it", async () => {
+			const fetchMock = vi.fn(async (..._args: unknown[]) =>
+				jsonResponse({ ok: true, data: DATA }),
+			);
+			await searchCanvasWeb("board-1", "secret plan", null, fetchMock);
+			expect(String((fetchMock.mock.calls[0] as unknown[])[0])).not.toContain(
+				"secret",
+			);
+		});
+
+		it("answers each refusal as a value, and an unreadable answer as a failed search", async () => {
+			for (const [status, reason] of [
+				[404, "not_found"],
+				[422, "refresh_failed"],
+				[422, "no_results"],
+				[422, "invalid_query"],
+				[429, "rate_limited"],
+			] as const) {
+				const fetchMock = vi.fn(async () =>
+					jsonResponse({ ok: false, reason }, status),
+				);
+				await expect(
+					searchCanvasWeb("board-1", "q", null, fetchMock),
+				).resolves.toEqual({ ok: false, reason });
+			}
+			const unreadable = vi.fn(
+				async () => new Response("nope", { status: 500 }),
+			);
+			await expect(
+				searchCanvasWeb("board-1", "q", null, unreadable),
+			).resolves.toEqual({ ok: false, reason: "refresh_failed" });
 		});
 	});
 

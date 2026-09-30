@@ -15,3 +15,6 @@ export const LABEL_MAX_CHARS = 500;
 export const TEXT_MAX_CHARS = 20_000;
 export const CHECKLIST_MAX_ITEMS = 200;
 export const CHECKLIST_ITEM_MAX_CHARS = 1_000;
+/** How many photos one photo block holds, and how many sources one live-web block does. */
+export const PHOTO_MAX_ITEMS = 50;
+export const SOURCES_MAX = 50;

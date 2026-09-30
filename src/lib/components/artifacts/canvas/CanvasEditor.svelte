@@ -22,7 +22,9 @@ import {
 	fetchArtifact,
 	fetchCanvasChatBlocks,
 	fetchCanvasReviewState,
+	refreshCanvasBlock,
 	saveArtifactBody,
+	searchCanvasWeb,
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactPanelBodyActions } from "$lib/components/artifacts/artifact-bodies";
@@ -36,13 +38,17 @@ import { t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	boardJson,
 	emptyCanvasBody,
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
 import type { BoardLayerApi } from "./_lib/board-layers";
-import { provideChatContext } from "./_lib/chat-context";
+import {
+	type BlockRefreshResult,
+	provideChatContext,
+} from "./_lib/chat-context";
 import type {
 	CanvasCommentsController,
 	catcherProps,
@@ -155,6 +161,9 @@ provideChatContext({
 		return onOpenItem;
 	},
 	load: () => fetchCanvasChatBlocks(artifactId, conversationId),
+	refreshBlock: (nodeId, signal) => refreshBlock(nodeId, signal),
+	searchWeb: (query, signal) =>
+		searchCanvasWeb(artifactId, query, conversationId, undefined, signal),
 });
 
 type Phase = "loading" | "ready" | "load_error" | "no_access";
@@ -194,6 +203,7 @@ let boardApi = $state<{
 	current: () => CanvasBody;
 	place: (positions: ReadonlyMap<string, { x: number; y: number }>) => void;
 	hold: (on: boolean) => void;
+	setBlockData: (id: string, data: CanvasBlockData) => boolean;
 } | null>(null);
 let lastDropped = 0;
 let editorWidth = $state(0);
@@ -343,6 +353,35 @@ async function load(id: string): Promise<void> {
 async function saveBoardNow(): Promise<void> {
 	boardApi?.flush();
 	await autosave.flush();
+}
+
+/**
+ * A live-web block's Refresh. What is searched is the query STORED on the block,
+ * which the server reads from the SAVED board, so the reader's last step is saved
+ * first (and a block inserted a moment ago is there to be found). The server
+ * writes nothing: the new snapshot comes back and is put on the board as a step
+ * of the reader's own, which the board's autosave keeps as their version — one
+ * writer, so no save of theirs can be refused because a refresh landed in between.
+ */
+async function refreshBlock(
+	nodeId: string,
+	signal?: AbortSignal,
+): Promise<BlockRefreshResult> {
+	await saveBoardNow();
+	if (signal?.aborted) return { ok: false, reason: "refresh_failed" };
+	const result = await refreshCanvasBlock(
+		artifactId,
+		nodeId,
+		conversationId,
+		undefined,
+		signal,
+	);
+	if (!result.ok) return result;
+	// The block can be gone (deleted while the search ran), or the board unable to
+	// change (a conflict arrived): the snapshot is not put anywhere then.
+	return boardApi?.setBlockData(result.nodeId, result.data)
+		? { ok: true }
+		: { ok: false, reason: "not_found" };
 }
 
 /**

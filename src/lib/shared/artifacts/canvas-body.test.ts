@@ -489,6 +489,15 @@ describe("normalizeCanvasBody — what a block may carry", () => {
 			"//evil.example/x.png",
 			"javascript:alert(1)",
 			"data:image/png;base64,AAAA",
+			// A URL parser reads a backslash as a slash and drops tabs and line
+			// breaks: each of these starts with one slash and is another origin.
+			"/\\evil.example/x.png",
+			"/\t/evil.example/x.png",
+			"/\n/evil.example/x.png",
+			// A path of the app's own that is not the thumbnail proxy would have the
+			// browser call another route with the reader's cookies.
+			"/api/auth/logout",
+			"/api/chat/files/f1/download",
 		]) {
 			const r = cloneBoard(sampleBoard());
 			r.nodes[9] = {
@@ -500,14 +509,19 @@ describe("normalizeCanvasBody — what a block may carry", () => {
 	});
 
 	it("refuses a source link that is not http or https", () => {
-		const raw = cloneBoard(sampleBoard());
-		const web = raw.nodes[10];
-		if (web.data.kind !== "liveweb") throw new Error("fixture");
-		web.data.sources[0] = {
-			...web.data.sources[0],
-			url: "javascript:alert(1)",
-		};
-		expect(normalizeCanvasBody(raw).dropped.nodes).toEqual(["web-1"]);
+		for (const url of [
+			"javascript:alert(1)",
+			"data:text/html,<script>alert(1)</script>",
+			"//example.com/x",
+			"https://example.com/ with space",
+			"https:\\\\example.com",
+		]) {
+			const raw = cloneBoard(sampleBoard());
+			const web = raw.nodes[10];
+			if (web.data.kind !== "liveweb") throw new Error("fixture");
+			web.data.sources[0] = { ...web.data.sources[0], url };
+			expect(normalizeCanvasBody(raw).dropped.nodes, url).toEqual(["web-1"]);
+		}
 	});
 
 	it("caps a checklist's length instead of letting one node hold the board's whole budget", () => {

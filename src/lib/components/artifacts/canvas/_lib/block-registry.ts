@@ -6,10 +6,9 @@
  *
  * The schema is the shared one (`canvas-blocks.ts`, ruling 64: the server
  * validates a stored board and a model's change with the same objects). The
- * blocks made from the chat (map, file, App) are drawn by `LazyNode`, which
- * loads the real node when one is on the board, so the editor's first paint pays
- * for none of them. Photos and live web have no row yet; a stored block of
- * either draws as the missing-kind card until their slice adds it.
+ * blocks made from the chat (map, file, App, photos, live web) are drawn by
+ * `LazyNode`, which loads the real node when one is on the board, so the
+ * editor's first paint pays for none of them.
  */
 import type { NodeTypes } from "@xyflow/svelte";
 import type { z } from "zod";
@@ -59,6 +58,8 @@ export const BLOCK_REGISTRY: Partial<Record<BlockKind, BlockRegistryEntry>> = {
 	map: entry("map", LazyNode),
 	file: entry("file", LazyNode),
 	app: entry("app", LazyNode),
+	photo: entry("photo", LazyNode),
+	liveweb: entry("liveweb", LazyNode),
 };
 
 /** The row of a block kind, or `null` for a kind this build cannot draw (which the board draws as the missing-kind card). */
@@ -145,6 +146,8 @@ export function defaultDataFor(kind: RegisteredKind): CanvasBlockData | null {
 		case "map":
 		case "file":
 		case "app":
+		case "photo":
+		case "liveweb":
 			return null;
 	}
 }

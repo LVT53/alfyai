@@ -14,10 +14,13 @@
  */
 import { z } from "zod";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
+import { isHttpSourceUrl, isPhotoProxyPath } from "./block-urls";
 import {
 	CHECKLIST_ITEM_MAX_CHARS,
 	CHECKLIST_MAX_ITEMS,
 	LABEL_MAX_CHARS,
+	PHOTO_MAX_ITEMS,
+	SOURCES_MAX,
 	TEXT_MAX_CHARS,
 } from "./canvas-limits";
 import type { ArtifactSource } from "./sources";
@@ -34,8 +37,6 @@ export {
 
 const CHART_CODE_MAX_CHARS = 100_000;
 const ID_MAX_CHARS = 128;
-const PHOTO_MAX_ITEMS = 50;
-const SOURCES_MAX = 50;
 
 /**
  * What a node that stores no size of its own is taken to occupy until the
@@ -245,15 +246,20 @@ const appDataSchema = z.object({
 });
 
 /**
- * A photo is one of the app's own thumbnail proxies. A board never loads a
- * picture from outside the app: an image URL is a request the browser makes on
- * its own, so an address from anywhere else would let whatever wrote the board
- * (a model included) send a page's contents to a stranger in the query string.
+ * A photo is one of the app's own thumbnail proxies, and nothing else. A board
+ * never loads a picture from outside the app: an image URL is a request the
+ * browser makes on its own, so an address from anywhere else would let whatever
+ * wrote the board (a model included) send a page's contents to a stranger in the
+ * query string, and a path of the app's own that is not the proxy would make the
+ * browser call another route with the reader's cookies. The rule is
+ * `block-urls.ts`'s, which the listing and the block that draws it hold to as well.
  */
-const sameOriginPathSchema = z
+const photoUrlSchema = z
 	.string()
-	.max(2_000)
-	.regex(/^\/(?!\/)/, "an image must be one of the app's own paths");
+	.refine(
+		isPhotoProxyPath,
+		"an image must be one of the app's own thumbnail paths",
+	);
 
 const photoDataSchema = z.object({
 	kind: z.literal("photo"),
@@ -261,7 +267,7 @@ const photoDataSchema = z.object({
 		.array(
 			z.object({
 				id: idSchema,
-				imageUrl: sameOriginPathSchema,
+				imageUrl: photoUrlSchema,
 				alt: labelSchema.optional(),
 			}),
 		)
@@ -273,7 +279,9 @@ const photoDataSchema = z.object({
 const artifactSourceSchema = z.object({
 	id: z.string(),
 	title: z.string(),
-	url: z.string().regex(/^https?:\/\//i, "a source link must be http or https"),
+	url: z
+		.string()
+		.refine(isHttpSourceUrl, "a source link must be a web address"),
 	provider: z.string(),
 	authorityClass: z.string(),
 	authorityScore: z.number(),

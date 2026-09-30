@@ -181,7 +181,7 @@ describe("the loading wrapper", () => {
 	});
 
 	it("draws the missing-kind card for a kind it has no loader for, and stays a real node", () => {
-		const { container } = mount(nodeProps({ type: "photo" }));
+		const { container } = mount(nodeProps({ type: "hologram" }));
 		expect(container.querySelector('[data-missing="true"]')).not.toBeNull();
 	});
 });
@@ -194,7 +194,13 @@ describe("the editor's first paint", () => {
 		const registry = read("..", "_lib", "block-registry.ts");
 		const wrapper = read("LazyNode.svelte");
 		const loaderSource = read("..", "_lib", "lazy-nodes.ts");
-		for (const name of ["FileNode", "AppNode", "MapNode"]) {
+		for (const name of [
+			"FileNode",
+			"AppNode",
+			"MapNode",
+			"PhotoNode",
+			"LiveWebNode",
+		]) {
 			expect(registry, `${name} in the registry`).not.toMatch(
 				new RegExp(`import\\s+\\w+\\s+from\\s+"[^"]*${name}`),
 			);
@@ -207,6 +213,7 @@ describe("the editor's first paint", () => {
 			"AppFrame",
 			"MapRouteCard",
 			"FileTypeIcon",
+			"ImageLightbox",
 			"chat-blocks",
 		]) {
 			expect(registry, heavy).not.toContain(heavy);
@@ -218,7 +225,13 @@ describe("the editor's first paint", () => {
 	// bundler move the shell out of the editor's own chunk into one the editor and
 	// the block share: the editor would pay more than the block saves.
 	it("keeps the shell and the flow library out of every block module, which are loaded on demand", () => {
-		for (const name of ["FileNode", "AppNode", "MapNode"]) {
+		for (const name of [
+			"FileNode",
+			"AppNode",
+			"MapNode",
+			"PhotoNode",
+			"LiveWebNode",
+		]) {
 			const source = read(`${name}.svelte`);
 			expect(source, name).not.toMatch(/from\s+"\.\.\/NodeShell\.svelte"/);
 			expect(source, name).not.toMatch(/from\s+"@xyflow\//);

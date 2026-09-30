@@ -77,6 +77,7 @@ import {
 	structuralJson,
 	toFlowEdges,
 	toFlowNodes,
+	withBlockData,
 } from "./_lib/board-model";
 import {
 	type BlockRegistryEntry,
@@ -262,6 +263,24 @@ export function land(next: CanvasBody): void {
 /** The board as it is drawn now, without ending the step in progress: what a landing compares the server's board against. */
 export function current(): CanvasBody {
 	return snapshot();
+}
+
+/**
+ * Puts a block's new data on the board (a live-web block's refreshed snapshot) as
+ * one step of the reader's own, exactly as a tick in a checklist is: it is
+ * undoable, and the board's own save keeps it. What was pending is a step of its
+ * own first, so Undo takes back the new data alone. False, and nothing changes,
+ * when the board cannot change now, or the block is gone or is another kind of
+ * block (the reader deleted it while the search ran).
+ */
+export function setBlockData(id: string, data: CanvasBlockData): boolean {
+	if (readonly || held) return false;
+	const next = withBlockData(nodes, id, data);
+	if (!next) return false;
+	commit();
+	nodes = next;
+	commit();
+	return true;
 }
 
 /** Puts blocks at these positions, each in its own space: one frame of a glide. Nothing else about the board changes, and it is not a step. */

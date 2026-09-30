@@ -1,7 +1,8 @@
 /**
  * The loaders of the blocks made from the chat. The editor's first paint does not
- * need a File, an App or a map on the board, and each of them brings something
- * heavy (the App's frame and its storage bridge, the chat's map card), so none is
+ * need a File, an App, a map, photos or live web on the board, and each of them brings
+ * something heavy (the App's frame and its storage bridge, the chat's map card, the
+ * chat's lightbox), so none is
  * imported statically: `LazyNode` asks for one here when a block of its kind is on
  * the board, and the bundler splits each into a chunk of its own that loads then.
  * A kind the editor already draws (a note, a chart, a checklist) has no loader.
@@ -56,6 +57,16 @@ const LOADERS = {
 		import("../nodes/MapNode.svelte").then((module) => ({
 			default: module.default,
 			shell: module.mapShell,
+		})),
+	// Photos dress the shell with nothing but the kind's own name.
+	photo: () =>
+		import("../nodes/PhotoNode.svelte").then((module) => ({
+			default: module.default,
+		})),
+	liveweb: () =>
+		import("../nodes/LiveWebNode.svelte").then((module) => ({
+			default: module.default,
+			shell: module.livewebShell,
 		})),
 } as const satisfies Record<string, LazyNodeLoader>;
 
