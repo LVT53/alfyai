@@ -73,8 +73,14 @@ async function load(
 	}
 }
 
+// The App's id, on its own: a block's data is replaced as a whole when anything on
+// it changes (its still image, a picture of the board being taken), and an App that
+// reloaded every time would lose what it was doing. A derived value passes on only
+// a CHANGE of the id, so the App below is left running.
+let appId = $derived(data.artifactId);
+
 $effect(() => {
-	const artifactId = data.artifactId;
+	const artifactId = appId;
 	const conversationId = chat.conversationId;
 	// A retry is a new attempt of the same read.
 	void attempt;
@@ -84,7 +90,7 @@ $effect(() => {
 // The App's own news: a newer version reloads the frame (a stale App must not
 // keep running), a deletion ends it.
 $effect(() => {
-	const artifactId = data.artifactId;
+	const artifactId = appId;
 	return subscribeArtifactChanges((change) => {
 		if (change.artifactId !== artifactId) return;
 		if (change.type === "deleted") {
@@ -100,7 +106,7 @@ $effect(() => {
 <div class="app nodrag nowheel nopan" data-testid="canvas-app">
 		{#if phase === "ready"}
 			<AppFrame
-				artifactId={data.artifactId}
+				artifactId={appId}
 				{version}
 				title={data.title}
 				conversationId={chat.conversationId}

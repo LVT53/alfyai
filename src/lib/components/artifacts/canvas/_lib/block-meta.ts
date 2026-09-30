@@ -231,3 +231,13 @@ export function metaFor(kind: string): BlockMeta {
 			: undefined) ?? MISSING_BLOCK_META
 	);
 }
+
+/**
+ * Whether a block of this kind needs a poster (an App, a map, photos, live web):
+ * a picture of the board cannot reproduce it live, so it carries a still image of
+ * itself. Asked by the editor, which must be able to ask without loading the
+ * code that draws a poster.
+ */
+export function needsPoster(kind: string): boolean {
+	return metaFor(kind).needsPoster;
+}

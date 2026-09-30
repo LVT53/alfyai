@@ -9,6 +9,9 @@
 // tables directly (the account data archive, which reads everything a user
 // owns on purpose, is the one named exception — see its own header).
 
+// Slice 3 (Canvas): a picture of a board — the PNG the reader downloads, and a
+// block's still image — and how each is kept.
+export { canvasImageFailureStatus, storeCanvasImage } from "./canvas-export";
 // Slice 3 (Canvas): the board's own save seam and the ops envelope every
 // kind's id-addressed changes go through. Each type slice appends one block.
 export { saveCanvasBoard } from "./canvas-ops";

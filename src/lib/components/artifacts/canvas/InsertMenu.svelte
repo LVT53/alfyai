@@ -18,23 +18,29 @@ import { t, type I18nKey } from "$lib/i18n";
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import { useChatContext } from "./_lib/chat-context";
 import type { BlockRegistryEntry } from "./_lib/block-registry";
-import { blockEntry, insertableEntries } from "./_lib/block-registry";
 import type ChatBlocksSection from "./chat-blocks/ChatBlocksSection.svelte";
 import type { ChatBlockKind } from "./chat-blocks/chat-block-data";
 
 let {
+	rows,
+	entryFor,
 	onpick,
 }: {
+	/** The rows the menu offers, in the order they are listed. Handed in by the toolbar, which the editor already carries: this menu loads on demand and must not bring the registry (and the library it draws) into a chunk of its own. */
+	rows: readonly BlockRegistryEntry[];
+	/** A kind's registry row (its glyph, its schema). */
+	entryFor: (kind: string) => BlockRegistryEntry | null | undefined;
 	/** The row that was picked, and — for a block made from the chat — the data the chat made. */
 	onpick: (row: BlockRegistryEntry, data?: CanvasBlockData) => void;
 } = $props();
 
 const chat = useChatContext();
-const rows = insertableEntries();
-const groups = [
-	rows.filter((row) => row.section === "text"),
-	rows.filter((row) => row.section === "blocks"),
-].filter((group) => group.length > 0);
+const groups = $derived(
+	[
+		rows.filter((row) => row.section === "text"),
+		rows.filter((row) => row.section === "blocks"),
+	].filter((group) => group.length > 0),
+);
 
 let active = $state(0);
 let menu = $state<HTMLElement | null>(null);
@@ -55,11 +61,11 @@ onMount(() => {
 
 /** The glyph of a block kind, for the section (which is loaded on demand and so does not import the registry itself). */
 function iconFor(kind: ChatBlockKind) {
-	return blockEntry(kind)?.icon;
+	return entryFor(kind)?.icon;
 }
 
 function pickFromChat(kind: ChatBlockKind, data: CanvasBlockData): void {
-	const row = blockEntry(kind);
+	const row = entryFor(kind);
 	// What lands on the board is what the board would keep: data its own schema
 	// would refuse (a photo that is not the app's own thumbnail, a source that is
 	// not a web address) is never put there, rather than put there and left out

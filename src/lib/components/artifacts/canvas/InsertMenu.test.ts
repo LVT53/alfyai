@@ -6,6 +6,7 @@ import {
 	emptyChatBlocks,
 } from "$lib/shared/artifacts/chat-blocks";
 import { uiLanguage } from "$lib/stores/settings";
+import { blockEntry, insertableEntries } from "./_lib/block-registry";
 import type { CanvasChatContext } from "./_lib/chat-context";
 import WithChat from "./_test/WithChat.svelte";
 import InsertMenu from "./InsertMenu.svelte";
@@ -55,7 +56,12 @@ function mount(chat: CanvasChatContext, onpick = vi.fn()) {
 	const view = render(WithChat, {
 		props: {
 			component: InsertMenu,
-			componentProps: { onpick },
+			// The toolbar hands the menu its rows: the menu itself does not import the registry.
+			componentProps: {
+				onpick,
+				rows: insertableEntries(),
+				entryFor: blockEntry,
+			},
 			context: {
 				readonly: false,
 				requestEdit() {},

@@ -147,6 +147,8 @@ const posterRefSchema = z.object({
 	capturedAt: z.number(),
 });
 
+export type PosterRef = z.infer<typeof posterRefSchema>;
+
 // ── The five note-shaped kinds ───────────────────────────────────────────
 
 const frameDataSchema = z.object({

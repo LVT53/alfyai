@@ -420,7 +420,8 @@ test.describe("the Canvas kind, in the panel", () => {
 
 		await page.getByTestId("canvas-insert-button").click();
 		const rows = page.getByRole("menuitem");
-		await expect(rows).toHaveCount(5);
+		// The five a reader writes and "Search the web…" (the web search is offered wherever there is a chat).
+		await expect(rows).toHaveCount(6);
 		// The popover puts focus on its first control in a timer of its own, straight
 		// after it mounts; a row focused before that lands loses its focus to it (a
 		// race a busy machine makes easy to lose). The keys are driven after it.

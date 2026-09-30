@@ -19,7 +19,7 @@ import { untrack } from "svelte";
 import { t } from "$lib/i18n";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
-import type { Tool } from "./_lib/annotations";
+import type { Tool } from "./_lib/tools";
 import { nodeAt } from "./_lib/comments";
 
 let {

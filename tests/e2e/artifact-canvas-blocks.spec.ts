@@ -555,6 +555,29 @@ test.describe("blocks from this chat", () => {
 		expect((await storedBoard(seeded.boardId)).nodes).toHaveLength(1);
 	});
 
+	test("fetches the code that places a block as soon as a reader reaches for Insert, before any row is picked", async ({
+		page,
+	}) => {
+		const seeded = await seedChat(page);
+		await openChatAndReload(page, seeded.conversationId);
+		await openBoard(page);
+		// Nothing has asked for it yet: the editor opens without it.
+		const requests: string[] = [];
+		page.on("request", (request) => {
+			if (/\/_lib\/placement/.test(request.url())) requests.push(request.url());
+		});
+		expect(requests).toHaveLength(0);
+		await insertButton(page).hover();
+		await expect.poll(() => requests.length).toBeGreaterThan(0);
+		// A block picked after that lands with the row: no other request for it.
+		const before = requests.length;
+		await openInsertMenu(page);
+		await menu(page).getByRole("menuitem", { name: "Sticky note" }).click();
+		await expect(menu(page)).toHaveCount(0);
+		await expect.poll(() => nodeCount(page)).toBe(1);
+		expect(requests).toHaveLength(before);
+	});
+
 	test("the section is one part of the menu: arrow keys move through every row, one tab stop, Escape returns focus to Insert", async ({
 		page,
 	}) => {
@@ -593,11 +616,12 @@ test.describe("blocks from this chat", () => {
 		await page.keyboard.press("Home");
 		await expect(rows.first()).toBeFocused();
 
-		// Enter on a chat row inserts it, and the menu closes.
+		// Enter on a chat row inserts it, and the menu closes. The block lands as the
+		// menu goes: what the board waits for is drawn a beat after, so it is polled.
 		await rows.nth(6).focus();
 		await page.keyboard.press("Enter");
 		await expect(menu(page)).toHaveCount(0);
-		expect(await nodeCount(page)).toBe(1);
+		await expect.poll(() => nodeCount(page)).toBe(1);
 
 		// Escape closes the menu and hands focus back to Insert.
 		await insertButton(page).click();

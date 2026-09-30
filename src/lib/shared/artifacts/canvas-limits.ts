@@ -18,3 +18,13 @@ export const CHECKLIST_ITEM_MAX_CHARS = 1_000;
 /** How many photos one photo block holds, and how many sources one live-web block does. */
 export const PHOTO_MAX_ITEMS = 50;
 export const SOURCES_MAX = 50;
+
+/**
+ * What a picture of a board may weigh when it reaches the server: the export the
+ * reader downloads, and the still image (poster) of one block. Both are PNGs the
+ * browser drew, so they are bounded by what it can draw — the export by the
+ * clamp of 2,400 x 1,800 (twice that on a dense display), a poster by 640 x 400 —
+ * and these caps only refuse a request that is neither.
+ */
+export const EXPORT_PNG_MAX_BYTES = 10 * 1024 * 1024;
+export const POSTER_PNG_MAX_BYTES = 1536 * 1024;

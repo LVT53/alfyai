@@ -16,6 +16,7 @@
 import type { NodeProps } from "@xyflow/svelte";
 import { t } from "$lib/i18n";
 import { metaFor } from "../_lib/block-meta";
+import { useBoardContext } from "../_lib/board-context";
 import { useChatContext } from "../_lib/chat-context";
 import {
 	type LazyNodeModule,
@@ -28,12 +29,17 @@ import MissingKindNode from "./MissingKindNode.svelte";
 let props: NodeProps = $props();
 
 const chat = useChatContext();
+const board = useBoardContext();
 
 let loaded = $state.raw<LazyNodeModule | null>(null);
 let failed = $state(false);
 let attempt = $state(0);
 
 let kind = $derived(String(props.type));
+// Said in the block's meta line while it has no still image; not in a picture of the board.
+let showPosterFailed = $derived(
+	Boolean(board.posterFailed?.(props.id)) && !board.picture?.(props.id),
+);
 let loader = $derived(lazyNodeLoader(kind));
 let blockMeta = $derived(metaFor(kind));
 let shell = $derived<LazyShell>(
@@ -72,7 +78,7 @@ $effect(() => {
 		minWidth={blockMeta.minSize.width}
 		minHeight={blockMeta.minSize.height}
 		title={shell.title}
-		meta={shell.meta}
+		meta={showPosterFailed ? $t("artifacts.canvas.posterFailed") : shell.meta}
 		summary={shell.summary}
 		activate={shell.activate}
 	>

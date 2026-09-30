@@ -43,6 +43,8 @@ export default defineConfig({
 			'src/hooks.client.ts',
 			'src/lib/components/artifacts/document/document-editor.ts'
 		],
-		include: ['chart.js/auto']
+		// html-to-image is imported only by the board's picture parts, which the Canvas
+		// editor loads with import() from a .svelte file, so the scan never sees it.
+		include: ['chart.js/auto', 'html-to-image']
 	}
 });

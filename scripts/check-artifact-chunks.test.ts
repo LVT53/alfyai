@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	checkArtifactChunks,
+	checkChatRoute,
 	chunkReader,
 	findTargetKeys,
 	formatReport,
 	PACKAGE_FINGERPRINTS,
+	parseRouteNodes,
 	staticClosure,
 	// @ts-expect-error — plain .mjs build script, no type declarations
 } from "./check-artifact-chunks.mjs";
@@ -27,7 +29,7 @@ type Chunk = {
 
 const FLOW = '…class="svelte-flow__pane"…'; // what Svelte Flow keeps through minification
 const PEN = "…{simulatePressure:!0}…runningLength…";
-const SNAP = "…throw new Error('Failed to clone iframe')…";
+const SNAP = "…Error inlining remote css file…externalResourcesRequired…";
 
 /** A tiny app: the entry, the chat and knowledge route nodes, the lazy Canvas editor and a shared helper. */
 function app(
@@ -424,13 +426,395 @@ describe("checkArtifactChunks", () => {
 });
 
 describe("the fingerprints", () => {
-	it("cover the three packages this slice installs, each with something a minifier keeps", () => {
+	it("cover the packages the editor guards, each with something a minifier keeps", () => {
 		expect(Object.keys(PACKAGE_FINGERPRINTS).sort()).toEqual([
 			"@xyflow",
+			"chart.js",
 			"html-to-image",
+			"maplibre-gl",
 			"perfect-freehand",
 		]);
 		expect(PACKAGE_FINGERPRINTS["@xyflow"]).toContain("svelte-flow__pane");
+		// The strings the installed html-to-image really keeps (1.11.11), not another version's.
+		expect(PACKAGE_FINGERPRINTS["html-to-image"]).toContain(
+			"Error inlining remote css file",
+		);
+	});
+});
+
+describe("lazy parts of the editor", () => {
+	/** The editor, and a part of it (the export) that loads on demand and brings its own library. */
+	function withPart() {
+		return app({
+			manifest: {
+				"src/lib/components/artifacts/canvas/export-parts.ts": {
+					file: "chunks/export-parts.js",
+					name: "export-parts",
+					src: "src/lib/components/artifacts/canvas/export-parts.ts",
+					isDynamicEntry: true,
+					imports: ["_shared", "_export"],
+				},
+				_export: { file: "chunks/export.js" },
+				"src/lib/components/artifacts/canvas/CanvasEditor.svelte": {
+					file: "chunks/canvas-editor.js",
+					name: "CanvasEditor",
+					src: "src/lib/components/artifacts/canvas/CanvasEditor.svelte",
+					isDynamicEntry: true,
+					imports: ["_shared", "_board"],
+					dynamicImports: [
+						"src/lib/components/artifacts/canvas/export-parts.ts",
+					],
+				},
+			},
+			texts: {
+				"chunks/canvas-editor.js": `editor ${FLOW}`,
+				"chunks/board.js": PEN,
+				"chunks/export.js": SNAP,
+			},
+		});
+	}
+
+	it("keeps a library that lives only in a lazy part outside the editor unless the part is named", () => {
+		const { manifest, readChunk } = withPart();
+		const result = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["html-to-image"],
+		});
+		expect(result.ok).toBe(false);
+		expect(result.violations[0].kind).toBe("outside");
+	});
+
+	it("counts a named part as the editor's own: its library may live in its closure, and only there", () => {
+		const { manifest, readChunk } = withPart();
+		const named = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow", "perfect-freehand", "html-to-image"],
+			allowEntries: ["export-parts"],
+		});
+		expect(named.ok).toBe(true);
+		expect(
+			named.packages.find((p: { pkg: string }) => p.pkg === "html-to-image")
+				.chunks,
+		).toEqual(["chunks/export.js"]);
+		// The same library leaking into a chunk the chat shell loads is still a leak.
+		const leaky = withPart();
+		leaky.manifest["nodes/chat"].imports = ["_shared", "_export"];
+		const result = checkArtifactChunks({
+			manifest: leaky.manifest,
+			readChunk: leaky.readChunk,
+			name: "CanvasEditor",
+			confine: ["html-to-image"],
+			allowEntries: ["export-parts"],
+		});
+		expect(result.ok).toBe(false);
+		expect(result.violations[0].kind).toBe("leak");
+	});
+
+	it("does not count what only a named part loads in what the editor loads on its own", () => {
+		const big = "y".repeat(30_000);
+		const { manifest, readChunk } = withPart();
+		const texts = {
+			"chunks/export.js": `${SNAP} ${big}`,
+		};
+		const read = (chunk: Chunk) =>
+			chunk.file === "chunks/export.js"
+				? texts["chunks/export.js"]
+				: readChunk(chunk);
+		const result = checkArtifactChunks({
+			manifest,
+			readChunk: read,
+			name: "CanvasEditor",
+			confine: ["html-to-image"],
+			allowEntries: ["export-parts"],
+			maxGzip: 200,
+		});
+		expect(result.ok).toBe(true);
+		expect(result.numbers.exclusiveRawBytes).toBeLessThan(1000);
+	});
+});
+
+describe("the target chunk's own budget", () => {
+	it("is held apart from the closure's: a chunk can be small because its modules moved to a chunk a lazy part shares", () => {
+		const big = "q".repeat(60_000);
+		const { manifest, readChunk } = app({ texts: { "chunks/board.js": big } });
+		const closure = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+		});
+		const own = closure.numbers.targetGzipBytes;
+		expect(own).toBeLessThan(closure.numbers.exclusiveGzipBytes);
+
+		const roomy = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+			maxTargetGzip: own + 1,
+			maxGzip: closure.numbers.exclusiveGzipBytes + 1,
+		});
+		expect(roomy.ok).toBe(true);
+		// The chunk alone is under its cap, the closure is not: only the honest number fails.
+		const tight = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+			maxTargetGzip: own + 1,
+			maxGzip: own + 1,
+		});
+		expect(tight.ok).toBe(false);
+		expect(
+			tight.violations.map((v: { message: string }) => v.message).join("|"),
+		).toContain("loads on its own");
+		const own2 = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+			maxTargetGzip: own - 1,
+		});
+		expect(own2.ok).toBe(false);
+		expect(own2.violations[0].message).toContain("chunk alone");
+	});
+});
+
+describe("what the editor loads that is shared only with other lazy entries", () => {
+	it("is counted apart from what the editor loads on its own, and named in the report", () => {
+		const big = "z".repeat(20_000);
+		const { manifest, readChunk } = app({
+			manifest: {
+				// Another editor the chat loads on demand, which shares a helper with this one.
+				"src/lib/components/artifacts/document/DocumentBody.svelte": {
+					file: "chunks/document-body.js",
+					isDynamicEntry: true,
+					imports: ["_versions"],
+				},
+				_versions: { file: "chunks/versions.js" },
+				"src/lib/components/artifacts/canvas/CanvasEditor.svelte": {
+					file: "chunks/canvas-editor.js",
+					name: "CanvasEditor",
+					src: "src/lib/components/artifacts/canvas/CanvasEditor.svelte",
+					isDynamicEntry: true,
+					imports: ["_shared", "_board", "_versions"],
+				},
+			},
+			texts: {
+				"chunks/versions.js": big,
+				"chunks/canvas-editor.js": `editor ${FLOW}`,
+			},
+		});
+		const result = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+		});
+		expect(result.ok).toBe(true);
+		// Not the editor's own (another entry loads it) and not the shell's: shared with a lazy entry only.
+		expect(result.numbers.lazySharedChunks).toBe(1);
+		expect(result.numbers.lazySharedGzipBytes).toBeGreaterThan(0);
+		expect(result.numbers.exclusiveChunks).toBe(2);
+		expect(formatReport("CanvasEditor", result)).toContain(
+			"shared only with other lazy entries",
+		);
+	});
+
+	it("does not count a chunk the chat shell loads too", () => {
+		const { manifest, readChunk } = app();
+		const result = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+		});
+		expect(result.numbers.lazySharedChunks).toBe(0);
+	});
+});
+
+describe("packages the editor must not load", () => {
+	const CHART = "…chartjs-…_adapters…";
+
+	it("FAILS when a forbidden package is in a chunk the editor loads when it opens", () => {
+		const { manifest, readChunk } = app({
+			texts: { "chunks/board.js": CHART },
+		});
+		const result = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+			forbid: ["chart.js"],
+		});
+		expect(result.ok).toBe(false);
+		expect(result.violations[0]).toMatchObject({
+			kind: "forbidden",
+			pkg: "chart.js",
+		});
+	});
+
+	it("passes when it is only in a chunk loaded on demand, which is how the chat already loads it", () => {
+		const { manifest, readChunk } = app({
+			manifest: {
+				"src/lib/components/chat/Chart.svelte": {
+					file: "chunks/chart.js",
+					isDynamicEntry: true,
+				},
+				"src/lib/components/artifacts/canvas/CanvasEditor.svelte": {
+					file: "chunks/canvas-editor.js",
+					name: "CanvasEditor",
+					src: "src/lib/components/artifacts/canvas/CanvasEditor.svelte",
+					isDynamicEntry: true,
+					imports: ["_shared", "_board"],
+					dynamicImports: ["src/lib/components/chat/Chart.svelte"],
+				},
+			},
+			texts: { "chunks/chart.js": CHART },
+		});
+		const result = checkArtifactChunks({
+			manifest,
+			readChunk,
+			name: "CanvasEditor",
+			confine: ["@xyflow"],
+			forbid: ["chart.js", "maplibre-gl"],
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("throws for a package it has no fingerprint for, rather than vouching for it", () => {
+		const { manifest, readChunk } = app();
+		expect(() =>
+			checkArtifactChunks({
+				manifest,
+				readChunk,
+				name: "CanvasEditor",
+				confine: ["@xyflow"],
+				forbid: ["left-pad"],
+			}),
+		).toThrow(/left-pad/);
+	});
+});
+
+describe("the chat route's own weight", () => {
+	const APP = `export const dictionary = {
+		"/(app)": [3,[2]],
+		"/(app)/chat": [~4,[2]],
+		"/(app)/chat/[conversationId]": [5,[2]],
+		"/login": [9]
+	};`;
+
+	it("finds a route's page, its layouts and the root layout in the generated route table", () => {
+		expect(parseRouteNodes(APP, "/(app)/chat/[conversationId]")).toEqual([
+			0, 2, 5,
+		]);
+		expect(parseRouteNodes(APP, "/(app)/chat")).toEqual([0, 2, 4]);
+		expect(parseRouteNodes(APP, "/login")).toEqual([0, 9]);
+		expect(parseRouteNodes(APP, "/nowhere")).toBeNull();
+	});
+
+	/** A build with three route nodes and a lazy editor the chat page reaches only by import(). */
+	function build(chatText = "chat page") {
+		const manifest: Record<string, Chunk> = {
+			".svelte-kit/generated/client-optimized/nodes/0.js": {
+				file: "nodes/0.js",
+				isEntry: true,
+				imports: ["_shared"],
+			},
+			".svelte-kit/generated/client-optimized/nodes/2.js": {
+				file: "nodes/2.js",
+				isEntry: true,
+				imports: ["_shared"],
+			},
+			".svelte-kit/generated/client-optimized/nodes/5.js": {
+				file: "nodes/5.js",
+				isEntry: true,
+				imports: ["_shared", "_chat"],
+				dynamicImports: ["editor"],
+			},
+			editor: {
+				file: "chunks/editor.js",
+				isDynamicEntry: true,
+				imports: ["_shared"],
+			},
+			_shared: { file: "chunks/shared.js" },
+			_chat: { file: "chunks/chat.js" },
+		};
+		const texts: Record<string, string> = {
+			"nodes/0.js": "root ".repeat(500),
+			"nodes/2.js": "layout ".repeat(500),
+			"nodes/5.js": "page ".repeat(500),
+			"chunks/shared.js": "shared ".repeat(2000),
+			"chunks/chat.js": chatText,
+			"chunks/editor.js": "editor ".repeat(20_000),
+		};
+		return { manifest, readChunk: (chunk: Chunk) => texts[chunk.file] ?? "" };
+	}
+	const nodes = [0, 2, 5];
+
+	it("sums every chunk the route's first load needs, once, and never a lazy one", () => {
+		const { manifest, readChunk } = build();
+		const result = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			baseline: 1_000_000,
+		});
+		expect(result.ok).toBe(true);
+		expect(result.chunks).toBe(5);
+		expect(result.gzipBytes).toBeGreaterThan(0);
+		// The editor's own chunk is not in it, however big.
+		expect(result.gzipBytes).toBeLessThan(2_000);
+	});
+
+	it("passes within the tolerance of the baseline and FAILS past it", () => {
+		const { manifest, readChunk } = build();
+		const measured = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			baseline: 1_000_000,
+		}).gzipBytes;
+		const within = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			baseline: measured - 2_000,
+			tolerance: 2_048,
+		});
+		expect(within.ok).toBe(true);
+		const past = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			baseline: measured - 2_049,
+			tolerance: 2_048,
+		});
+		expect(past.ok).toBe(false);
+		expect(past.message).toContain("grew");
+	});
+
+	it("does not fail when the route got lighter", () => {
+		const { manifest, readChunk } = build();
+		expect(
+			checkChatRoute({ manifest, readChunk, nodes, baseline: 90_000 }).ok,
+		).toBe(true);
+	});
+
+	it("says so, and fails, when a route node is not in the build", () => {
+		const { manifest, readChunk } = build();
+		const result = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes: [0, 2, 99],
+			baseline: 1,
+		});
+		expect(result.ok).toBe(false);
+		expect(result.message).toContain("99");
 	});
 });
 

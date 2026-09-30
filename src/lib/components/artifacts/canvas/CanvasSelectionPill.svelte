@@ -28,7 +28,7 @@ import {
 	selectionChordFor,
 	selectionChordLabel,
 } from "../document/keyboard-shortcuts";
-import type { Tool } from "./_lib/annotations";
+import type { Tool } from "./_lib/tools";
 import { boxOf } from "./_lib/review-geometry";
 import { selectionPillPlacement } from "./_lib/selection-pill-placement";
 

@@ -3,7 +3,7 @@ import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasNode } from "$lib/shared/artifacts/canvas";
 import { uiLanguage } from "$lib/stores/settings";
-import type { Tool } from "./_lib/annotations";
+import type { Tool } from "./_lib/tools";
 import CommentCatcher from "./CommentCatcher.svelte";
 
 // The Comment tool's catcher on its own, on a board whose screen and board

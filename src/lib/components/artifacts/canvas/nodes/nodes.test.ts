@@ -9,8 +9,8 @@ import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasBoardContext } from "../_lib/board-context";
 import WithBoard from "../_test/WithBoard.svelte";
 import { flowSpies, xyflowMock } from "../_test/xyflow-mock";
-import ChartNode from "./ChartNode.svelte";
-import ChecklistNode from "./ChecklistNode.svelte";
+import ChartNode, { chartShell } from "./ChartNode.svelte";
+import ChecklistNode, { checklistShell } from "./ChecklistNode.svelte";
 import FrameNode from "./FrameNode.svelte";
 import MissingKindNode from "./MissingKindNode.svelte";
 import StickyNode from "./StickyNode.svelte";
@@ -31,6 +31,8 @@ function board(
 		requestEdit() {},
 		takeEditRequest: () => false,
 		dropTargetId: null,
+		// A block loaded on demand changes its data through the board, which hands it to the flow.
+		updateData: (id, patch) => flowSpies.updateNodeData(id, patch),
 		...overrides,
 	};
 }
@@ -350,13 +352,26 @@ describe("the board's own checklist", () => {
 		expect(items[1].done).toBe(false);
 	});
 
-	it("shows the ticks it was given, and how many of them there are", () => {
+	it("shows the ticks it was given", () => {
 		mount(ChecklistNode, props());
 		expect(
 			screen.getByRole("checkbox", { name: "Passport: toggle done" }),
 		).toBeChecked();
-		expect(screen.getByText("1/2")).toBeInTheDocument();
-		expect(screen.getByText("Pack")).toBeInTheDocument();
+	});
+
+	it("dresses the shell with its label and how many of its items are done", () => {
+		expect(checklistShell({ kind: "checklist", label: "Pack", items })).toEqual(
+			{
+				title: "Pack",
+				meta: "1/2",
+				summary: "Pack",
+			},
+		);
+		expect(checklistShell({ kind: "checklist", items: [] })).toEqual({
+			title: "",
+			meta: "",
+			summary: "",
+		});
 	});
 
 	it("adds an item on Enter, trimmed, with an id of its own, and ignores an empty one", async () => {
@@ -464,16 +479,22 @@ describe("a chart block", () => {
 		const chart = screen.getByTestId("chart-stub");
 		expect(chart).toHaveAttribute("data-code", code);
 		expect(chart).toHaveAttribute("data-prop-names", '["code"]');
-		expect(screen.getByText("Budget")).toBeInTheDocument();
 	});
 
-	it("draws a card header with the kind's name when the chart has no label", () => {
-		mount(ChartNode, {
-			id: "chart-1",
-			selected: false,
-			data: { kind: "chart", code: "{}" },
+	it("dresses the shell with its label and its subtitle, and with nothing when it has neither", () => {
+		expect(
+			chartShell({
+				kind: "chart",
+				label: "Budget",
+				subtitle: "Q3",
+				code: "{}",
+			}),
+		).toEqual({ title: "Budget", meta: "Q3", summary: "Budget" });
+		expect(chartShell({ kind: "chart", code: "{}" })).toEqual({
+			title: "",
+			meta: "",
+			summary: "",
 		});
-		expect(screen.getByText("Chart")).toBeInTheDocument();
 	});
 });
 

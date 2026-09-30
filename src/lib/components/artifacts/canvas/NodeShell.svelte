@@ -80,6 +80,9 @@ let chrome: BlockChrome = $derived(blockMeta.chrome);
 let Icon: Component = $derived(blockMeta.icon);
 let kindLabel = $derived($t(blockMeta.labelKey as I18nKey));
 let editable = $derived(!board.readonly);
+// While a picture of the board is being taken, a block whose live content a
+// picture cannot carry shows a still image of it, or a card that says it has none.
+let picture = $derived(board.picture?.(id) ?? null);
 
 const CORNERS = [
 	"top-left",
@@ -163,12 +166,20 @@ function deleteBlock(): void {
 				{:else}
 					<Icon size={13} strokeWidth={2} aria-hidden="true" />
 					<b class="canvas-node__title">{title || kindLabel}</b>
-					{#if meta}<span class="canvas-node__meta">{meta}</span>{/if}
+					{#if meta}<span class="canvas-node__meta" title={meta}>{meta}</span>{/if}
 				{/if}
 			</div>
 		{/if}
-		<div class="canvas-node__content">
+		<div class="canvas-node__content" class:canvas-node__content--posted={picture}>
 			{@render children?.()}
+			{#if picture?.kind === "poster"}
+				<img class="canvas-node__poster" src={picture.url} alt="" draggable="false" data-testid="canvas-node-poster" />
+			{:else if picture?.kind === "placeholder"}
+				<div class="canvas-node__placeholder" data-testid="canvas-node-placeholder">
+					<b>{picture.title}</b>
+					<span>{picture.subtitle}</span>
+				</div>
+			{/if}
 		</div>
 	</div>
 
@@ -239,9 +250,52 @@ function deleteBlock(): void {
 	}
 
 	.canvas-node__content {
+		position: relative;
 		flex: 1 1 auto;
 		min-height: 0;
 		min-width: 0;
+	}
+
+	/* A picture of the board is being taken: the live content stays where it is
+	   (an App's frame keeps running, the map keeps its place) and is not seen; the
+	   still image, or the card that says there is none, is drawn over it. */
+	.canvas-node__content--posted > :global(*:not(.canvas-node__poster):not(.canvas-node__placeholder)) {
+		visibility: hidden;
+	}
+
+	.canvas-node__poster {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		background: var(--surface-elevated);
+		visibility: visible;
+	}
+
+	.canvas-node__placeholder {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 4px;
+		padding: 12px;
+		background: var(--surface-elevated);
+		color: var(--text-muted);
+		font-size: var(--text-xs);
+		text-align: center;
+		visibility: visible;
+	}
+
+	.canvas-node__placeholder b {
+		max-width: 100%;
+		overflow: hidden;
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.canvas-node--selected .canvas-node__box {
@@ -282,11 +336,17 @@ function deleteBlock(): void {
 		white-space: nowrap;
 	}
 
+	/* The meta line gives way before the title does: a long one (a block that says it
+	   has no still image) is cut short, and the block keeps its name. */
 	.canvas-node__meta {
+		flex: 0 100 auto;
+		min-width: 0;
+		overflow: hidden;
 		margin-left: auto;
 		padding-left: 6px;
 		color: var(--text-muted);
 		font-size: var(--text-2xs);
+		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 

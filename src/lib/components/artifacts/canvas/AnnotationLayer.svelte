@@ -41,12 +41,9 @@ import {
 	annotationBounds,
 	arrowHead,
 	baseSize,
-	type DrawingTool,
-	isDrawingTool,
 	normRect,
 	pickAnnotation,
 	strokePath,
-	type Tool,
 	translate,
 } from "./_lib/annotations";
 import { newId } from "./_lib/ids";
@@ -55,6 +52,7 @@ import {
 	visibleBoardRect,
 	type ViewportLike,
 } from "./_lib/pane-rect";
+import { type DrawingTool, isDrawingTool, type Tool } from "./_lib/tools";
 
 let {
 	annotations,

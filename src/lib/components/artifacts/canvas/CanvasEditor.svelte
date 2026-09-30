@@ -33,7 +33,6 @@ import {
 	createDocumentAutosave,
 	type DocumentAutosaveResult,
 } from "$lib/components/artifacts/document/document-autosave";
-import VersionsSheet from "$lib/components/artifacts/document/VersionsSheet.svelte";
 import { t } from "$lib/i18n";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
@@ -44,11 +43,17 @@ import {
 	emptyCanvasBody,
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
+import { needsPoster } from "./_lib/block-meta";
 import type { BoardLayerApi } from "./_lib/board-layers";
 import {
 	type BlockRefreshResult,
 	provideChatContext,
 } from "./_lib/chat-context";
+import type {
+	CanvasPicturesController,
+	PicturesBoard,
+	picturesEnd,
+} from "./_lib/pictures-controller.svelte";
 import type {
 	CanvasCommentsController,
 	catcherProps,
@@ -70,8 +75,11 @@ import type {
 import { judgeServerBoard } from "./_lib/server-board";
 import type AlfyChangeLayer from "./AlfyChangeLayer.svelte";
 import CanvasBoard from "./CanvasBoard.svelte";
+import type CanvasBanners from "./CanvasBanners.svelte";
 import type CanvasComments from "./CanvasComments.svelte";
+import type CanvasDownload from "./CanvasDownload.svelte";
 import type CanvasSelectionPill from "./CanvasSelectionPill.svelte";
+import type CanvasStates from "./CanvasStates.svelte";
 import type CanvasReviewBar from "./CanvasReviewBar.svelte";
 import type CanvasReviewNotices from "./CanvasReviewNotices.svelte";
 import type CommentCatcher from "./CommentCatcher.svelte";
@@ -138,6 +146,7 @@ interface Props {
 
 let {
 	artifactId,
+	title = "",
 	conversationId = null,
 	registerPanelActions,
 	onDirtyChange,
@@ -188,6 +197,23 @@ let boardKey = $state(0);
 let droppedCount = $state(0);
 let noticeDismissed = $state(false);
 let versionsOpen = $state(false);
+// The Versions sheet is the Document's own, and loads the first time it is opened.
+let VersionsSheet = $state.raw<
+	| typeof import("$lib/components/artifacts/document/VersionsSheet.svelte").default
+	| null
+>(null);
+$effect(() => {
+	if (!versionsOpen || VersionsSheet) return;
+	let current = true;
+	void import("$lib/components/artifacts/document/VersionsSheet.svelte").then(
+		(module) => {
+			if (current) VersionsSheet = module.default;
+		},
+	);
+	return () => {
+		current = false;
+	};
+});
 
 let versionNumber: number | null = null;
 let knownBodyHash: string | null = null;
@@ -204,6 +230,13 @@ let boardApi = $state<{
 	place: (positions: ReadonlyMap<string, { x: number; y: number }>) => void;
 	hold: (on: boolean) => void;
 	setBlockData: (id: string, data: CanvasBlockData) => boolean;
+	setBlockPoster: PicturesBoard["setBlockPoster"];
+	showPictures: PicturesBoard["showPictures"];
+	markPosterFailed: PicturesBoard["markPosterFailed"];
+	pictureSource: PicturesBoard["pictureSource"];
+	nodeContentElement: PicturesBoard["nodeContentElement"];
+	getCamera: PicturesBoard["getCamera"];
+	setCamera: PicturesBoard["setCamera"];
 } | null>(null);
 let lastDropped = 0;
 let editorWidth = $state(0);
@@ -290,8 +323,7 @@ function handleSaveResult(result: DocumentAutosaveResult, json: string): void {
 
 function handleBoardChange(next: CanvasBody): void {
 	if (autosave.stopped) return;
-	boardNodes = next.nodes;
-	comments?.setNodes(boardNodes);
+	setBoardNodes(next.nodes);
 	latestJson = boardJson(next);
 	saveState = "saving";
 	onDirtyChange?.(true);
@@ -326,7 +358,7 @@ async function load(id: string): Promise<void> {
 		knownBodyHash = detail.artifact.bodyHash;
 		latestJson = boardJson(read.body);
 		savedJson = latestJson;
-		boardNodes = read.body.nodes;
+		setBoardNodes(read.body.nodes, { commentsToo: false });
 		loadedThreads = detail.comments;
 		if (comments) {
 			comments.threads = detail.comments;
@@ -417,8 +449,7 @@ function adoptBoard(detail: ArtifactDetailResponse): CanvasBody | null {
 		savedJson = serverJson;
 		if (verdict === "ours") return null;
 		latestJson = serverJson;
-		boardNodes = read.body.nodes;
-		comments?.setNodes(boardNodes);
+		setBoardNodes(read.body.nodes);
 		onBodyChange?.(latestJson);
 		return read.body;
 	} catch {
@@ -434,6 +465,70 @@ function adoptServerBoard(detail: ArtifactDetailResponse): void {
 	void ensureReview().then((controller) =>
 		controller ? controller.landChange(next) : boardApi?.land(next),
 	);
+}
+
+/** The blocks the board has as of a step, a load or a landing: what the comments resolve against, and what still images are taken of. */
+function setBoardNodes(
+	nodes: CanvasNode[],
+	options: { commentsToo?: boolean } = {},
+): void {
+	boardNodes = nodes;
+	if (options.commentsToo !== false) comments?.setNodes(nodes);
+	if (pictures) pictures.setNodes(nodes);
+	else if (nodes.some((node) => needsPoster(node.type))) void ensurePictures();
+}
+
+// ---- A picture of the board (T7) ----------------------------------------------------
+// Loaded on demand (`export-parts.ts`): when the board has an App, a map, photos or
+// live web whose still image is due, or the reader presses Download. Until then none
+// of it, nor the renderer it brings, is in the first paint. The controller keeps the
+// state (drawing, kept, which blocks were drawn as a card); this is only the glue.
+
+let pictures = $state.raw<CanvasPicturesController | null>(null);
+let pictureViews = $state.raw<{
+	CanvasDownload: typeof CanvasDownload;
+	picturesEnd: typeof picturesEnd;
+} | null>(null);
+let picturesLoading: Promise<CanvasPicturesController | null> | null = null;
+let downloadOpen = $state(false);
+
+function ensurePictures(): Promise<CanvasPicturesController | null> {
+	picturesLoading ??= import("./export-parts")
+		.then(
+			({
+				CanvasPicturesController: Controller,
+				CanvasDownload,
+				picturesEnd,
+			}) => {
+				const controller = new Controller({
+					artifactId,
+					conversationId,
+					board: () => boardApi,
+				});
+				controller.setNodes(boardNodes);
+				pictureViews = { CanvasDownload, picturesEnd };
+				pictures = controller;
+				return controller;
+			},
+		)
+		// Offline, or a deploy in between: the next press tries again instead of waiting on a rejected import.
+		.catch(() => {
+			picturesLoading = null;
+			return null;
+		});
+	return picturesLoading;
+}
+
+function toggleDownload(): void {
+	if (downloadOpen) {
+		downloadOpen = false;
+		return;
+	}
+	void ensurePictures().then((controller) => {
+		if (!controller) return;
+		controller.reset();
+		downloadOpen = true;
+	});
 }
 
 function ensureComments(): Promise<void> {
@@ -516,8 +611,7 @@ const reviewHost: ReviewHost = {
 		knownBodyHash = bodyHash;
 		savedJson = json;
 		latestJson = json;
-		boardNodes = board.nodes;
-		comments?.setNodes(boardNodes);
+		setBoardNodes(board.nodes);
 		onBodyChange?.(json);
 		onDirtyChange?.(false);
 	},
@@ -664,6 +758,7 @@ $effect(() => {
 $effect(() => {
 	registerPanelActions?.({
 		openVersions: () => (versionsOpen = true),
+		openDownload: toggleDownload,
 		toggleComments: () =>
 			void ensureComments().then(() => {
 				if (commentViews && comments) commentViews.toggleComments(comments);
@@ -692,6 +787,7 @@ $effect(() => {
 onDestroy(() => {
 	loadToken += 1;
 	reviewViews?.reviewEnd(review);
+	if (pictures) pictureViews?.picturesEnd(pictures);
 	clearSavedTimer();
 	// The board's last step may still be inside its settle delay.
 	boardApi?.flush();
@@ -703,7 +799,7 @@ let boardReadonly = $derived(
 	saveState === "conflict" || saveState === "deleted",
 );
 let showDroppedNotice = $derived(droppedCount > 0 && !noticeDismissed);
-let banner = $derived(
+let banner = $derived<"offline" | "failed" | "conflict" | "tooLarge" | null>(
 	saveState === "offline"
 		? "offline"
 		: saveState === "failed"
@@ -714,6 +810,35 @@ let banner = $derived(
 					? "tooLarge"
 					: null,
 );
+
+/** The blocks the last picture drew as a card, named in a notice once the Download's own popover is out of the way. */
+let missingBlocks = $derived(
+	pictures?.noticeOpen && !downloadOpen
+		? pictures.missing.map((block) => block.title)
+		: [],
+);
+
+// The words for what goes wrong with a board load on demand (`state-parts.ts`): the first
+// time a board cannot be shown or a saving notice is due.
+let stateViews = $state.raw<{
+	CanvasBanners: typeof CanvasBanners;
+	CanvasStates: typeof CanvasStates;
+} | null>(null);
+$effect(() => {
+	if (stateViews) return;
+	if (
+		phase === "load_error" ||
+		phase === "no_access" ||
+		saveState === "deleted" ||
+		banner !== null ||
+		showDroppedNotice ||
+		missingBlocks.length > 0
+	) {
+		void import("./state-parts").then(({ CanvasBanners, CanvasStates }) => {
+			stateViews = { CanvasBanners, CanvasStates };
+		});
+	}
+});
 </script>
 
 {#snippet boardLayers(api: BoardLayerApi)}
@@ -753,21 +878,13 @@ let banner = $derived(
 			<span class="skeleton-card skeleton-card--b" aria-hidden="true"></span>
 			<span class="skeleton-card skeleton-card--c" aria-hidden="true"></span>
 		</div>
-	{:else if phase === "load_error"}
-		<div class="canvas-editor__state" role="alert" data-testid="canvas-load-error">
-			<p>{$t("artifacts.canvas.loadFailed")}</p>
-			<button type="button" class="btn-secondary" onclick={() => load(artifactId)}>
-				{$t("artifacts.canvas.retry")}
-			</button>
-		</div>
-	{:else if phase === "no_access"}
-		<div class="canvas-editor__state" role="status" data-testid="canvas-no-access">
-			<p>{$t("artifacts.canvas.noAccess")}</p>
-		</div>
-	{:else if saveState === "deleted"}
-		<div class="canvas-editor__state" role="alert" data-testid="canvas-deleted">
-			<p>{$t("artifacts.canvas.deletedWhileOpen")}</p>
-		</div>
+	{:else if phase === "load_error" || phase === "no_access" || saveState === "deleted"}
+		{#if stateViews}
+			<stateViews.CanvasStates
+				state={phase === "load_error" ? "load_error" : phase === "no_access" ? "no_access" : "deleted"}
+				onretry={() => load(artifactId)}
+			/>
+		{/if}
 	{:else}
 		<div class="canvas-editor__row">
 			<div class="canvas-editor__board">
@@ -786,40 +903,26 @@ let banner = $derived(
 						/>
 					</SvelteFlowProvider>
 				{/key}
+				{#if pictures?.status === "working"}
+					<!-- The board's camera goes to where the whole board fits and comes back; nobody watches it do that. -->
+					<div class="canvas-editor__veil" role="status" data-testid="canvas-export-veil">
+						<span>{$t("artifacts.canvas.export.preparing")}</span>
+					</div>
+				{/if}
 				<div class="canvas-editor__notices">
 					{#if reviewViews && review}
 						<reviewViews.CanvasReviewNotices controller={review} />
 					{/if}
-					{#if showDroppedNotice}
-						<div class="notice notice--warning" role="status" data-testid="canvas-dropped-notice">
-							<span>{$t("artifacts.canvas.blockDropped", { count: droppedCount })}</span>
-							<button type="button" class="notice__button" onclick={() => (noticeDismissed = true)}>
-								{$t("artifacts.canvas.dismiss")}
-							</button>
-						</div>
-					{/if}
-					{#if banner === "offline"}
-						<div class="notice notice--warning" role="alert" data-testid="canvas-offline">
-							<span>{$t("artifacts.canvas.offline")}</span>
-						</div>
-					{:else if banner === "failed"}
-						<div class="notice notice--warning" role="alert" data-testid="canvas-save-failed">
-							<span>{$t("artifacts.canvas.saveFailed")}</span>
-							<button type="button" class="notice__button" onclick={retrySave}>
-								{$t("artifacts.canvas.retry")}
-							</button>
-						</div>
-					{:else if banner === "conflict"}
-						<div class="notice notice--warning" role="alert" data-testid="canvas-conflict">
-							<span>{$t("artifacts.canvas.saveConflict")}</span>
-							<button type="button" class="notice__button" onclick={() => load(artifactId)}>
-								{$t("artifacts.canvas.reload")}
-							</button>
-						</div>
-					{:else if banner === "tooLarge"}
-						<div class="notice notice--warning" role="alert" data-testid="canvas-too-large">
-							<span>{$t("artifacts.canvas.tooLarge")}</span>
-						</div>
+					{#if stateViews && (showDroppedNotice || banner || missingBlocks.length > 0)}
+						<stateViews.CanvasBanners
+							{banner}
+							droppedCount={showDroppedNotice ? droppedCount : 0}
+							{missingBlocks}
+							onretry={retrySave}
+							onreload={() => load(artifactId)}
+							ondismiss={() => (noticeDismissed = true)}
+							ondismissmissing={() => pictures?.dismissNotice()}
+						/>
 					{/if}
 				</div>
 
@@ -846,7 +949,15 @@ let banner = $derived(
 		</div>
 	{/if}
 
-	{#if versionsOpen}
+	{#if downloadOpen && pictures && pictureViews}
+		<pictureViews.CanvasDownload
+			controller={pictures}
+			{title}
+			onClose={() => (downloadOpen = false)}
+		/>
+	{/if}
+
+	{#if versionsOpen && VersionsSheet}
 		<VersionsSheet
 			{artifactId}
 			{conversationId}
@@ -894,21 +1005,18 @@ let banner = $derived(
 		min-width: 0;
 	}
 
-	.canvas-editor__state {
+	/* Over the board while a picture of it is drawn: the camera's short trip to where
+	   the whole board fits is not something to watch. Opaque, and over the toolbar. */
+	.canvas-editor__veil {
+		position: absolute;
+		inset: 0;
+		z-index: calc(var(--artifact-overlay-z, 2100) + 1);
 		display: flex;
-		flex: 1 1 auto;
-		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: var(--space-md);
-		padding: var(--space-lg);
-		text-align: center;
-		color: var(--text-secondary);
-	}
-
-	.canvas-editor__state p {
-		margin: 0;
-		max-width: 28rem;
+		background: var(--surface-page);
+		color: var(--text-muted);
+		font-size: var(--text-sm);
 	}
 
 	/* Three cards on the board's dot grid, no spinner. */
@@ -984,43 +1092,6 @@ let banner = $derived(
 		max-width: calc(100% - 24px);
 		transform: translateX(-50%);
 		pointer-events: none;
-	}
-
-	.notice {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-		padding: 6px 10px;
-		border: 1px solid var(--border-default);
-		border-radius: 8px;
-		background: var(--surface-page);
-		box-shadow: var(--shadow-md);
-		color: var(--text-primary);
-		font-size: var(--text-sm);
-		pointer-events: auto;
-	}
-
-	.notice--warning {
-		border-color: color-mix(in srgb, var(--warning) 45%, transparent);
-		background: color-mix(in srgb, var(--warning-tint) 100%, var(--surface-page));
-		color: var(--warning-text);
-	}
-
-	.notice__button {
-		flex: none;
-		padding: 2px 8px;
-		border: 1px solid currentColor;
-		border-radius: 6px;
-		background: transparent;
-		color: inherit;
-		font: inherit;
-		font-weight: 600;
-		cursor: pointer;
-	}
-
-	.notice__button:focus-visible {
-		outline: 2px solid var(--focus-ring);
-		outline-offset: 1px;
 	}
 
 	/* Top-left: the toolbar, the overview, the zoom and the library's own
