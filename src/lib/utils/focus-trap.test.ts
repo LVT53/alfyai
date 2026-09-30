@@ -174,6 +174,36 @@ describe("trapTabKey", () => {
 		expect(event.defaultPrevented).toBe(true);
 	});
 
+	it("wraps Shift+Tab pressed while the container itself holds focus to the last element", () => {
+		// A dialog that focuses its own panel on open (or a click on its plain
+		// text) leaves focus on the container: it counts as "before the first
+		// element", or Shift+Tab would walk out of the dialog.
+		const { container, last } = twoButtons();
+		container.focus();
+		const event = new KeyboardEvent("keydown", {
+			key: "Tab",
+			shiftKey: true,
+			cancelable: true,
+		});
+		trapTabKey(container, event);
+
+		expect(document.activeElement).toBe(last);
+		expect(event.defaultPrevented).toBe(true);
+	});
+
+	it("leaves a forward Tab pressed on the container itself to the browser", () => {
+		const { container } = twoButtons();
+		container.focus();
+		const event = new KeyboardEvent("keydown", {
+			key: "Tab",
+			cancelable: true,
+		});
+		trapTabKey(container, event);
+
+		expect(document.activeElement).toBe(container);
+		expect(event.defaultPrevented).toBe(false);
+	});
+
 	it("falls back to focusing the container when nothing is focusable", () => {
 		const container = document.createElement("div");
 		container.setAttribute("tabindex", "-1");
@@ -416,6 +446,63 @@ describe("focusTrap (attachment, called directly)", () => {
 
 		cleanup?.();
 		expect(document.activeElement).toBe(outside);
+	});
+
+	it("focuses and restores without scrolling when preventScroll is set", async () => {
+		const outside = document.createElement("button");
+		document.body.appendChild(outside);
+		outside.focus();
+		const { container } = twoButtons();
+		const target = document.createElement("button");
+		container.appendChild(target);
+		const targetFocus = vi.spyOn(target, "focus");
+		const outsideFocus = vi.spyOn(outside, "focus");
+
+		const cleanup = focusTrap({
+			focus: { target: () => target },
+			restoreFocusOnCleanup: true,
+			preventScroll: true,
+		})(container);
+		await waitFor(() => expect(document.activeElement).toBe(target));
+		expect(targetFocus).toHaveBeenCalledWith({ preventScroll: true });
+
+		cleanup?.();
+		expect(document.activeElement).toBe(outside);
+		expect(outsideFocus).toHaveBeenCalledWith({ preventScroll: true });
+	});
+
+	it("calls focus() with no arguments when preventScroll is not set", async () => {
+		const outside = document.createElement("button");
+		document.body.appendChild(outside);
+		outside.focus();
+		const { container } = twoButtons();
+		const target = document.createElement("button");
+		container.appendChild(target);
+		const targetFocus = vi.spyOn(target, "focus");
+		const outsideFocus = vi.spyOn(outside, "focus");
+
+		const cleanup = focusTrap({
+			focus: { target: () => target },
+			restoreFocusOnCleanup: true,
+		})(container);
+		await waitFor(() => expect(document.activeElement).toBe(target));
+		expect(targetFocus).toHaveBeenCalledWith();
+
+		cleanup?.();
+		expect(outsideFocus).toHaveBeenCalledWith();
+	});
+
+	it("keeps Tab-wrap focus moves scrolling even when preventScroll is set", () => {
+		const { container, first, last } = twoButtons();
+		const firstFocus = vi.spyOn(first, "focus");
+		const cleanup = focusTrap({ preventScroll: true })(container);
+
+		last.focus();
+		pressTab(window);
+
+		expect(document.activeElement).toBe(first);
+		expect(firstFocus).toHaveBeenCalledWith();
+		cleanup?.();
 	});
 
 	it("does not touch focus on cleanup when restoreFocusOnCleanup is not set", () => {
