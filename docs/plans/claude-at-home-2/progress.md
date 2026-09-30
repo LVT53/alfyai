@@ -747,7 +747,8 @@ de-risks with its model contract first. Briefs, reports: `docs/plans/claude-at-h
 reports land in this session's scratchpad `w3/` and are copied here at merge.
 
 Milestones (stop for the owner at each): **M1 Canvas on ai.dev**, **M2 Slides on ai.dev**, **M3 the S6 remainder and
-focus-trap pass two**. At most two agents at a time, Sonnet (`claude-sonnet-5-5`) for building, Opus only for the Canvas
+focus-trap pass two**. **Owner, 2026-09-30 (ruling 69): Slides is shelved; after M1 and the owner's check the tours come
+next (three: Document, App, Canvas); focus-trap pass two is already merged (FT-2).** At most two agents at a time, Sonnet (`claude-sonnet-5-5`) for building, Opus only for the Canvas
 and Slides protocol reviews and anything touching ownership or deletion.
 
 | Agent | Scope | Branch / worktree (port) | Needs | State |

@@ -710,6 +710,17 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
   on demand). The ceiling is **68 KiB (69,632 B) gzip**; the guard enforces that number, and the next raise needs the
   same kind of recorded reason.
 
+## 69. Slides is shelved; the tours come next
+
+*Owner, 2026-09-30: "I would shelf Slides for now and do the Tours as that would be necessary for a live deploy on main
+prod."* After the Canvas milestone and the owner's check, the next work is **the Slice 6 remainder (the tours)**, not
+Slides.
+- `feat/artifacts-slides` stays as it is (the deck model, the create handler, suite 4, the fact check of ruling 66) and
+  is not merged; nothing on `feat/artifacts` advertises or renders Slides, so the model never offers a deck.
+- **Three tours ship** — Document, App, Canvas (ruling 8's four, less Slides); Slides' tour lands with Slides.
+- Release checklist: the Knowledge tab's "Slides" chip (ruling 60's top row) is hidden while no Slides can exist, so
+  production shows no filter for a kind it cannot make.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
