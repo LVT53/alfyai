@@ -390,6 +390,22 @@ function duplicateNode(id: string): Step {
 	);
 }
 
+/**
+ * Blocks and arrows are listed together when the model reads a board, each under
+ * its id, so a later op could not say which of two it means: an id is taken when
+ * either has it (RV-3 Minor 5). A block is refused an arrow's id and an arrow a
+ * block's, each saying which it clashes with.
+ */
+function takenByArrow(body: CanvasBody, id: string): Step | null {
+	return body.edges.some((edge) => edge.id === id)
+		? refuse(
+				"duplicate_id",
+				`"${id}" is already the id of an arrow, and blocks and arrows are read back under one list of ids; choose a new id for the block.`,
+				id,
+			)
+		: null;
+}
+
 /** A zod issue list, short and pointed: where, and what was wrong. */
 function issuesOf(error: z.ZodError): string {
 	return error.issues
@@ -471,6 +487,8 @@ function stepAddFrame(
 	created: number,
 ): Step {
 	if (findNode(body, op.id)) return duplicateNode(op.id);
+	const arrowHasIt = takenByArrow(body, op.id);
+	if (arrowHasIt) return arrowHasIt;
 	const data = MODEL_CREATABLE_DATA_SCHEMAS.frame.safeParse({
 		kind: "frame",
 		label: op.label,
@@ -494,6 +512,8 @@ function stepAddNode(
 ): Step {
 	const spec = op.node;
 	if (findNode(body, spec.id)) return duplicateNode(spec.id);
+	const arrowHasIt = takenByArrow(body, spec.id);
+	if (arrowHasIt) return arrowHasIt;
 	if (!isModelCreatableKind(spec.type)) {
 		return refuse(
 			"unknown_kind",
@@ -659,8 +679,22 @@ function step(op: BoardOp, body: CanvasBody, created: number): Step {
 					op.edge.id,
 				);
 			}
+			if (findNode(body, op.edge.id)) {
+				return refuse(
+					"duplicate_id",
+					`"${op.edge.id}" is already the id of a block, and blocks and arrows are read back under one list of ids; choose a new id for the arrow.`,
+					op.edge.id,
+				);
+			}
 			for (const end of [op.edge.source, op.edge.target]) {
 				if (!findNode(body, end)) return unknownNode(body, end);
+			}
+			if (op.edge.source === op.edge.target) {
+				return refuse(
+					"invalid_data",
+					`An arrow joins two different blocks, and "${op.edge.source}" is both ends. Set source and target to two ids of blocks on the board.`,
+					op.edge.id,
+				);
 			}
 			return grow(applyOp(body, op), op.edge.id);
 		}

@@ -1719,3 +1719,78 @@ describe("validateBoardDiff — the reader's newer words are never overwritten (
 		expect(node(run.doc, "s-new").id).toBe("s-new");
 	});
 });
+
+// RV-3 Minor 5: a block and an arrow with one id are listed under that one id when
+// the model reads the board, so a later op cannot say which it means, and an arrow
+// from a block to itself joins nothing. Both are refused at the model's door.
+describe("validateBoardDiff — arrows and blocks read back under one list of ids (RV-3 Minor 5)", () => {
+	const arrow = (id: string, source: string, target: string): BoardOp => ({
+		op: "add_edge",
+		edge: { id, source, target },
+	});
+
+	it("refuses an arrow from a block to itself, naming the block, and applies the arrow that joins two", () => {
+		const { accepted, refused } = validateBoardDiff(
+			diff(
+				arrow("loop", "note-museum", "note-museum"),
+				arrow("fine", "note-museum", "text-1"),
+			),
+			sampleBoard(),
+		);
+		expect(refused).toHaveLength(1);
+		expect(refused[0]).toMatchObject({
+			index: 0,
+			reason: "invalid_data",
+			id: "loop",
+		});
+		expect(refused[0].detail).toContain('"note-museum"');
+		expect(refused[0].detail).toMatch(/two different blocks/);
+		expect(accepted).toHaveLength(1);
+	});
+
+	it("still names a missing end before it calls an arrow a loop", () => {
+		const { refused } = validateBoardDiff(
+			diff(arrow("ghosts", "ghost", "ghost")),
+			sampleBoard(),
+		);
+		expect(refused[0].reason).toBe("unknown_id");
+	});
+
+	it("refuses an arrow whose id is a block's, and a block or frame whose id is an arrow's, in either order", () => {
+		const { accepted, refused } = validateBoardDiff(
+			diff(
+				arrow("note-museum", "note-1", "text-1"),
+				addSticky("edge-1"),
+				addFrame("edge-1"),
+				// Within one change: the arrow made here holds its id.
+				arrow("fresh", "note-1", "text-1"),
+				addSticky("fresh"),
+				arrow("fresh-2", "note-1", "text-1"),
+			),
+			sampleBoard(),
+		);
+		expect(refused.map((r) => [r.index, r.reason, r.id])).toEqual([
+			[0, "duplicate_id", "note-museum"],
+			[1, "duplicate_id", "edge-1"],
+			[2, "duplicate_id", "edge-1"],
+			[4, "duplicate_id", "fresh"],
+		]);
+		expect(refused[0].detail).toMatch(/block/);
+		expect(refused[1].detail).toMatch(/arrow/);
+		expect(accepted).toHaveLength(2);
+	});
+
+	it("lets an id be an arrow's once the arrow is gone, and a block's once the block is", () => {
+		const { accepted, refused } = validateBoardDiff(
+			diff(
+				{ op: "remove_edge", id: "edge-1" },
+				addSticky("edge-1"),
+				{ op: "remove_node", id: "text-1" },
+				arrow("text-1", "note-1", "note-museum"),
+			),
+			sampleBoard(),
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(4);
+	});
+});
