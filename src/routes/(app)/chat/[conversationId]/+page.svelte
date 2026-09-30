@@ -145,6 +145,7 @@ import {
 	getChatFocusMessageIdFromUrl,
 } from "$lib/client/document-workspace-navigation";
 import {
+	discardPersistedWorkspaceDocumentStateOfIncognitoConversation,
 	loadPersistedWorkspaceDocumentState,
 	reduceWorkspaceClose,
 	reduceWorkspaceDocumentsForDeletedConversation,
@@ -152,6 +153,7 @@ import {
 	reduceWorkspaceDocumentOpen,
 	savePersistedWorkspaceDocumentState,
 	WORKSPACE_CONVERSATION_DELETED_EVENT,
+	type WorkspaceConversation,
 } from "$lib/client/document-workspace-state";
 import {
 	conversations,
@@ -1281,9 +1283,21 @@ function handleArtifactCountButtonClick() {
 	openArtifactList();
 }
 
+/** The chat the panel is showing, as the stored panel state names it (read through `getData()`: what the panel is, is decided where it is restored). */
+function getWorkspaceConversation(): WorkspaceConversation {
+	const { conversation } = getData();
+	return {
+		conversationId: conversation.id,
+		incognito: conversation.memoryIncognito ?? false,
+	};
+}
+
 function getPersistedWorkspaceState() {
 	if (!browser) return null;
-	return loadPersistedWorkspaceDocumentState(window.sessionStorage);
+	return loadPersistedWorkspaceDocumentState(
+		window.sessionStorage,
+		getWorkspaceConversation(),
+	);
 }
 
 function triggerForkOpeningTransition() {
@@ -1319,6 +1333,10 @@ $effect(() => {
 		activeDocumentId: activeWorkspaceDocumentId,
 		isOpen: workspaceOpen && workspaceDocuments.length > 0,
 		presentation: workspacePresentation,
+		// Not tracked: on a switch to another chat this effect must not run ahead
+		// of `resetState()` and file the old chat's items under the new one. It
+		// runs again, for the new chat, once the restore has replaced them.
+		conversation: untrack(getWorkspaceConversation),
 	});
 });
 
@@ -2177,6 +2195,14 @@ onMount(() =>
 
 onDestroy(() => {
 	if (browser) {
+		// Leaving an incognito chat leaves nothing of its panel in the tab.
+		const { conversationId, incognito } = getWorkspaceConversation();
+		if (incognito) {
+			discardPersistedWorkspaceDocumentStateOfIncognitoConversation(
+				window.sessionStorage,
+				conversationId,
+			);
+		}
 		document.removeEventListener("visibilitychange", handleVisibilityChange);
 		window.removeEventListener("pageshow", recoverVisiblePageActivity);
 		window.removeEventListener("focus", recoverVisiblePageActivity);

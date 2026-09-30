@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import {
+	discardPersistedWorkspaceDocumentStateOfIncognitoConversation,
 	loadPersistedWorkspaceDocumentState,
 	reduceWorkspaceClose,
 	reduceWorkspaceDocumentClose,
@@ -8,7 +9,14 @@ import {
 	reduceWorkspaceDocumentsForDeletedConversation,
 	removeConversationFromPersistedWorkspaceDocumentState,
 	savePersistedWorkspaceDocumentState,
+	type WorkspaceConversation,
 } from "./document-workspace-state";
+
+// The chat whose panel a test saves from and restores into, unless it says otherwise.
+const CHAT_A: WorkspaceConversation = {
+	conversationId: "chat-a",
+	incognito: false,
+};
 
 function makeDocument(id: string, title = id): DocumentWorkspaceItem {
 	return {
@@ -94,9 +102,12 @@ describe("document workspace state", () => {
 			activeDocumentId: "doc-2",
 			isOpen: true,
 			presentation: "expanded",
+			conversation: CHAT_A,
 		});
 
-		expect(loadPersistedWorkspaceDocumentState(storageAdapter)).toMatchObject({
+		expect(
+			loadPersistedWorkspaceDocumentState(storageAdapter, CHAT_A),
+		).toMatchObject({
 			documents,
 			activeDocumentId: "doc-2",
 			isOpen: true,
@@ -119,6 +130,7 @@ describe("document workspace state", () => {
 				activeDocumentId: "doc-1",
 				isOpen: true,
 				presentation: "docked",
+				conversation: CHAT_A,
 			},
 			1000,
 		);
@@ -126,6 +138,7 @@ describe("document workspace state", () => {
 		expect(
 			loadPersistedWorkspaceDocumentState(
 				storageAdapter,
+				CHAT_A,
 				1000 + 8 * 24 * 60 * 60 * 1000,
 			),
 		).toBeNull();
@@ -135,9 +148,12 @@ describe("document workspace state", () => {
 			activeDocumentId: null,
 			isOpen: false,
 			presentation: "docked",
+			conversation: CHAT_A,
 		});
 
-		expect(loadPersistedWorkspaceDocumentState(storageAdapter)).toBeNull();
+		expect(
+			loadPersistedWorkspaceDocumentState(storageAdapter, CHAT_A),
+		).toBeNull();
 	});
 
 	it("removes documents owned by a deleted conversation and keeps the remaining active document valid", () => {
@@ -182,6 +198,7 @@ describe("document workspace state", () => {
 			activeDocumentId: "file-1",
 			isOpen: true,
 			presentation: "expanded",
+			conversation: CHAT_A,
 		});
 
 		expect(
@@ -190,6 +207,257 @@ describe("document workspace state", () => {
 				"deleted-conversation",
 			),
 		).toBeNull();
-		expect(loadPersistedWorkspaceDocumentState(storageAdapter)).toBeNull();
+		expect(
+			loadPersistedWorkspaceDocumentState(storageAdapter, CHAT_A),
+		).toBeNull();
+	});
+});
+
+// A chat's panel after a reload. The stored state is ONE tab-wide record, so
+// what a chat restores has to be decided by who is asking: the panel is "what
+// this chat made", and an incognito chat's panel is never anyone else's.
+describe("restoring a chat's panel", () => {
+	const CHAT_B: WorkspaceConversation = {
+		conversationId: "chat-b",
+		incognito: false,
+	};
+	const INCOGNITO_I: WorkspaceConversation = {
+		conversationId: "chat-i",
+		incognito: true,
+	};
+	const INCOGNITO_J: WorkspaceConversation = {
+		conversationId: "chat-j",
+		incognito: true,
+	};
+	// The storage key is part of the persisted format: a legacy record is written
+	// under it by hand.
+	const STORAGE_KEY = "alfyai-chat-document-workspace";
+
+	function memoryStorage() {
+		const values = new Map<string, string>();
+		return {
+			getItem: (key: string) => values.get(key) ?? null,
+			setItem: (key: string, value: string) => {
+				values.set(key, value);
+			},
+			removeItem: (key: string) => {
+				values.delete(key);
+			},
+			isEmpty: () => values.size === 0,
+		};
+	}
+
+	function madeIn(id: string, conversationId: string): DocumentWorkspaceItem {
+		return { ...makeDocument(id), conversationId };
+	}
+
+	function savePanel(
+		storage: ReturnType<typeof memoryStorage>,
+		conversation: WorkspaceConversation,
+		documents: DocumentWorkspaceItem[],
+		activeDocumentId: string | null = documents.at(-1)?.id ?? null,
+		presentation: "docked" | "expanded" = "docked",
+	) {
+		savePersistedWorkspaceDocumentState(storage, {
+			documents,
+			activeDocumentId,
+			isOpen: true,
+			presentation,
+			conversation,
+		});
+	}
+
+	it("gives a chat back its own panel whole, including an item its parent made", () => {
+		const storage = memoryStorage();
+		savePanel(
+			storage,
+			CHAT_A,
+			[madeIn("own", "chat-a"), madeIn("from-the-parent", "the-parent")],
+			"from-the-parent",
+			"expanded",
+		);
+
+		const restored = loadPersistedWorkspaceDocumentState(storage, CHAT_A);
+
+		expect(restored?.documents.map((entry) => entry.id)).toEqual([
+			"own",
+			"from-the-parent",
+		]);
+		expect(restored).toMatchObject({
+			activeDocumentId: "from-the-parent",
+			isOpen: true,
+			presentation: "expanded",
+		});
+	});
+
+	it("does not open another chat's items in this chat (normal to normal)", () => {
+		const storage = memoryStorage();
+		savePanel(storage, CHAT_A, [
+			madeIn("made-in-a", "chat-a"),
+			{ ...makeDocument("file-from-a"), originConversationId: "chat-a" },
+		]);
+
+		expect(loadPersistedWorkspaceDocumentState(storage, CHAT_B)).toBeNull();
+	});
+
+	it("keeps what belongs to this chat and drops what belongs to another, without opening the panel on a stranger", () => {
+		const storage = memoryStorage();
+		savePanel(
+			storage,
+			CHAT_A,
+			[
+				madeIn("a-1", "chat-a"),
+				madeIn("b-1", "chat-b"),
+				madeIn("a-2", "chat-a"),
+			],
+			"a-1",
+			"expanded",
+		);
+
+		const restored = loadPersistedWorkspaceDocumentState(storage, CHAT_B);
+
+		expect(restored?.documents.map((entry) => entry.id)).toEqual(["b-1"]);
+		expect(restored).toMatchObject({
+			activeDocumentId: "b-1",
+			// The item that was on screen was chat A's: chat B's panel does not open
+			// on something else, and does not stay expanded.
+			isOpen: false,
+			presentation: "docked",
+		});
+	});
+
+	it("carries the library and search opens that belong to no chat", () => {
+		const storage = memoryStorage();
+		const libraryOpen = makeDocument("library-open");
+		savePanel(
+			storage,
+			CHAT_A,
+			[madeIn("made-in-a", "chat-a"), libraryOpen],
+			"library-open",
+			"expanded",
+		);
+
+		const restored = loadPersistedWorkspaceDocumentState(storage, CHAT_B);
+
+		expect(restored?.documents).toEqual([libraryOpen]);
+		expect(restored).toMatchObject({
+			activeDocumentId: "library-open",
+			isOpen: true,
+			presentation: "expanded",
+		});
+	});
+
+	it("never restores an incognito chat's items into another chat, and leaves nothing of them in storage", () => {
+		const storage = memoryStorage();
+		savePanel(storage, INCOGNITO_I, [
+			madeIn("made-in-i", "chat-i"),
+			// Opened while the incognito chat was on screen, but linked to no chat:
+			// it is still that chat's, and no other chat inherits it.
+			makeDocument("library-open-in-i"),
+		]);
+
+		expect(loadPersistedWorkspaceDocumentState(storage, CHAT_B)).toBeNull();
+		expect(storage.isEmpty()).toBe(true);
+	});
+
+	it("gives an incognito chat its own panel back when it is reloaded", () => {
+		const storage = memoryStorage();
+		const libraryOpen = makeDocument("library-open-in-i");
+		savePanel(storage, INCOGNITO_I, [
+			madeIn("made-in-i", "chat-i"),
+			libraryOpen,
+		]);
+
+		const restored = loadPersistedWorkspaceDocumentState(storage, INCOGNITO_I);
+
+		expect(restored?.documents.map((entry) => entry.id)).toEqual([
+			"made-in-i",
+			"library-open-in-i",
+		]);
+		expect(restored?.isOpen).toBe(true);
+	});
+
+	it("does not carry a normal chat's panel into an incognito chat either", () => {
+		const storage = memoryStorage();
+		savePanel(storage, CHAT_A, [
+			madeIn("made-in-a", "chat-a"),
+			makeDocument("library-open"),
+		]);
+
+		expect(
+			loadPersistedWorkspaceDocumentState(storage, INCOGNITO_I),
+		).toBeNull();
+	});
+
+	it("reads a record written before the conversation was recorded as unknown: only this chat's own items", () => {
+		const storage = memoryStorage();
+		storage.setItem(
+			STORAGE_KEY,
+			JSON.stringify({
+				documents: [
+					madeIn("made-in-a", "chat-a"),
+					makeDocument("library-open"),
+				],
+				activeDocumentId: "made-in-a",
+				isOpen: true,
+				presentation: "docked",
+				updatedAt: Date.now(),
+			}),
+		);
+
+		const forA = loadPersistedWorkspaceDocumentState(storage, CHAT_A);
+		expect(forA?.documents.map((entry) => entry.id)).toEqual(["made-in-a"]);
+		expect(loadPersistedWorkspaceDocumentState(storage, CHAT_B)).toBeNull();
+	});
+
+	it("discards an incognito chat's stored panel when the chat is left, and nothing else", () => {
+		const storage = memoryStorage();
+		savePanel(storage, INCOGNITO_I, [madeIn("made-in-i", "chat-i")]);
+		discardPersistedWorkspaceDocumentStateOfIncognitoConversation(
+			storage,
+			"chat-i",
+		);
+		expect(storage.isEmpty()).toBe(true);
+
+		// A normal chat's panel is kept for its reload: leaving it discards nothing.
+		savePanel(storage, CHAT_A, [madeIn("made-in-a", "chat-a")]);
+		discardPersistedWorkspaceDocumentStateOfIncognitoConversation(
+			storage,
+			"chat-a",
+		);
+		expect(loadPersistedWorkspaceDocumentState(storage, CHAT_A)).not.toBeNull();
+
+		// Nor does one incognito chat's leaving take another's panel with it.
+		savePanel(storage, INCOGNITO_J, [madeIn("made-in-j", "chat-j")]);
+		discardPersistedWorkspaceDocumentStateOfIncognitoConversation(
+			storage,
+			"chat-i",
+		);
+		expect(
+			loadPersistedWorkspaceDocumentState(storage, INCOGNITO_J),
+		).not.toBeNull();
+	});
+
+	it("keeps whose panel it is when a deleted chat's items are removed, and drops a deleted incognito chat's panel whole", () => {
+		const storage = memoryStorage();
+		savePanel(storage, CHAT_A, [
+			madeIn("made-in-a", "chat-a"),
+			madeIn("made-in-b", "chat-b"),
+		]);
+		removeConversationFromPersistedWorkspaceDocumentState(storage, "chat-b");
+		expect(
+			loadPersistedWorkspaceDocumentState(storage, CHAT_A)?.documents.map(
+				(entry) => entry.id,
+			),
+		).toEqual(["made-in-a"]);
+		// Still chat A's: another chat still cannot pick it up.
+		expect(loadPersistedWorkspaceDocumentState(storage, CHAT_B)).toBeNull();
+
+		savePanel(storage, INCOGNITO_I, [
+			madeIn("made-in-i", "chat-i"),
+			makeDocument("library-open-in-i"),
+		]);
+		removeConversationFromPersistedWorkspaceDocumentState(storage, "chat-i");
+		expect(storage.isEmpty()).toBe(true);
 	});
 });
