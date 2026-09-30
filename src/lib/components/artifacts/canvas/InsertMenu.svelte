@@ -60,7 +60,11 @@ function iconFor(kind: ChatBlockKind) {
 
 function pickFromChat(kind: ChatBlockKind, data: CanvasBlockData): void {
 	const row = blockEntry(kind);
-	if (row) onpick(row, data);
+	// What lands on the board is what the board would keep: data its own schema
+	// would refuse (a photo that is not the app's own thumbnail, a source that is
+	// not a web address) is never put there, rather than put there and left out
+	// by the next save.
+	if (row?.schema.safeParse(data).success) onpick(row, data);
 }
 
 /** Every row there is right now, written ones first, in the order they are drawn. */
