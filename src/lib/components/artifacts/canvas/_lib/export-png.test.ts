@@ -106,7 +106,13 @@ function harness(
 		},
 		upload: vi.fn(async () => {
 			events.push("upload");
-			return { ok: true as const, fileId: "export-1", width: 800, height: 600 };
+			return {
+				ok: true as const,
+				fileId: "export-1",
+				filename: "Board.png",
+				width: 800,
+				height: 600,
+			};
 		}),
 		...overrides,
 	};

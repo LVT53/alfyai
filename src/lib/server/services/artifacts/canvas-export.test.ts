@@ -171,7 +171,12 @@ describe("the export the reader downloads", () => {
 			source: "canvas-export",
 			dataUrl: dataUrl(png({ width: 1200, height: 900 })),
 		});
-		expect(result).toMatchObject({ ok: true, width: 1200, height: 900 });
+		expect(result).toMatchObject({
+			ok: true,
+			width: 1200,
+			height: 900,
+			filename: "Weekend board.png",
+		});
 		if (!result.ok) return;
 
 		const [file] = files();

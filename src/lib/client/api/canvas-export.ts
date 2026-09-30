@@ -14,7 +14,13 @@ import { type FetchLike, requestResponse } from "$lib/client/api/http";
 export type CanvasImageSource = "canvas-export" | "canvas-poster";
 
 export type UploadCanvasImageResult =
-	| { ok: true; fileId: string; width: number; height: number }
+	| {
+			ok: true;
+			fileId: string;
+			width: number;
+			height: number;
+			filename: string;
+	  }
 	| {
 			ok: false;
 			reason:

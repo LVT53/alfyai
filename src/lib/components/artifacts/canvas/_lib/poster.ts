@@ -124,6 +124,89 @@ const STILL_NOTE: Partial<Record<CanvasBlockData["kind"], I18nKey>> = {
 	liveweb: "artifacts.canvas.export.stillWeb",
 };
 
+/** A short line of text in the card that stands where a block's live content was: inline styles only, because it is drawn into a picture. */
+function stillCard(title: string, note: string): HTMLElement {
+	const card = document.createElement("div");
+	card.style.cssText =
+		"display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;box-sizing:border-box;width:100%;height:100%;min-height:120px;padding:12px;text-align:center;background:var(--surface-elevated);color:var(--text-muted);font-family:var(--font-sans);font-size:var(--text-xs)";
+	const heading = document.createElement("b");
+	heading.textContent = title;
+	heading.style.cssText =
+		"max-width:100%;overflow:hidden;color:var(--text-primary);font-size:var(--text-sm);text-overflow:ellipsis;white-space:nowrap";
+	const line = document.createElement("span");
+	line.textContent = note;
+	card.append(heading, line);
+	return card;
+}
+
+/**
+ * Turns a copy of a block's content into the form a picture can carry, without
+ * touching the block on the board: whatever is live is taken out (frames,
+ * bitmaps), what a picture cannot show is said in words in its place, and the
+ * thumbnails a browser would load only when scrolled to are loaded now. It works
+ * on a detached copy, so the reader never sees a block flicker into its still
+ * form and an App's frame is never reloaded.
+ */
+export function stillify(
+	copy: HTMLElement,
+	data: CanvasBlockData,
+	translate: (key: I18nKey) => string,
+): void {
+	for (const live of copy.querySelectorAll("iframe, canvas, video, script")) {
+		live.remove();
+	}
+	for (const image of copy.querySelectorAll("img")) image.loading = "eager";
+	if (data.kind === "app") {
+		const frame = copy.querySelector('[data-testid="canvas-app"]') ?? copy;
+		const { title, subtitle } = posterPlaceholder(data, translate);
+		frame.replaceChildren(stillCard(title, subtitle));
+	}
+	if (data.kind === "map") {
+		// The card's own inline route drawing is what a picture can carry: it is
+		// always there, and hidden on screen only while the live map is up. The live
+		// map (its markers are page elements over a bitmap) is not part of the still.
+		copy.querySelector(".map-route-card__map")?.remove();
+		copy
+			.querySelector(".map-route-card__fallback--screen-hidden")
+			?.classList.remove("map-route-card__fallback--screen-hidden");
+		const body = copy.querySelector(".map-route-card__body");
+		if (body) {
+			const badge = document.createElement("span");
+			badge.textContent = translate("artifacts.canvas.mapNotLive");
+			badge.style.cssText =
+				"position:absolute;top:6px;left:6px;padding:1px 6px;border-radius:999px;background:var(--surface-page);border:1px solid var(--border-default);color:var(--text-muted);font-family:var(--font-sans);font-size:var(--text-2xs)";
+			body.append(badge);
+		}
+	}
+}
+
+/** Resolves when every image in `root` has loaded (or failed), or after `timeoutMs`: a poster is drawn with what arrived. */
+export function imagesSettled(
+	root: ParentNode,
+	timeoutMs = 3000,
+): Promise<void> {
+	const pending = [...root.querySelectorAll("img")].filter(
+		(image) => !image.complete,
+	);
+	if (pending.length === 0) return Promise.resolve();
+	return new Promise((resolve) => {
+		const done = () => resolve();
+		const timer = setTimeout(done, timeoutMs);
+		let left = pending.length;
+		for (const image of pending) {
+			const settle = () => {
+				left -= 1;
+				if (left === 0) {
+					clearTimeout(timer);
+					done();
+				}
+			};
+			image.addEventListener("load", settle, { once: true });
+			image.addEventListener("error", settle, { once: true });
+		}
+	});
+}
+
 let embeddedFonts: Promise<string> | null = null;
 
 /**

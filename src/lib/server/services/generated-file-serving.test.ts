@@ -384,6 +384,53 @@ describe("resolveGeneratedFileServing", () => {
 		expect(mockReadChatFileContentByConversationOwner).not.toHaveBeenCalled();
 	});
 
+	it("serves a board's poster, which hangs from no reply on purpose, with no job link", async () => {
+		mockGetChatFileByUser.mockResolvedValue(
+			chatFile({
+				assistantMessageId: null,
+				filename: "canvas-poster-board-1-app-1.png",
+				mimeType: "image/png",
+			}),
+		);
+		mockReadChatFileContentByUser.mockResolvedValue(
+			Buffer.from([
+				0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+				0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+				0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00,
+				0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+			]),
+		);
+
+		const result = await resolveGeneratedFileServing({
+			userId: "user-1",
+			fileId: "file-1",
+			mode: "preview",
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.headers["Content-Type"]).toBe("image/png");
+		expect(mockGetSucceededFileProductionJobForChatFile).not.toHaveBeenCalled();
+	});
+
+	it("still refuses an unassigned file that only looks like one (a poster's name is a png's)", async () => {
+		mockGetChatFileByUser.mockResolvedValue(
+			chatFile({
+				assistantMessageId: null,
+				filename: "canvas-poster-board-1-app-1.txt",
+				mimeType: "text/plain",
+			}),
+		);
+
+		const result = await resolveGeneratedFileServing({
+			userId: "user-1",
+			fileId: "file-1",
+			mode: "preview",
+		});
+
+		expect(result).toEqual({ ok: false, status: 404, error: "File not found" });
+	});
+
 	it("serves unassigned generated files linked to a succeeded file-production job", async () => {
 		mockGetChatFileByUser.mockResolvedValue(
 			chatFile({ assistantMessageId: null }),

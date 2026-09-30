@@ -53,7 +53,10 @@ import { historyShortcutFor } from "$lib/components/artifacts/document/keyboard-
 import { t } from "$lib/i18n";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import type { Annotation, CanvasBody, Pt } from "$lib/shared/artifacts/canvas";
-import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
+import type {
+	CanvasBlockData,
+	PosterRef,
+} from "$lib/shared/artifacts/canvas-blocks";
 import {
 	MAX_ANNOTATIONS_PER_BOARD,
 	normalizeCanvasBody,
@@ -61,6 +64,7 @@ import {
 import {
 	nodeRect,
 	parentsFirst,
+	type Rect,
 	rehomeOnRemoval,
 	type ReparentPatch,
 	reparentOnDrop,
@@ -69,7 +73,7 @@ import {
 import { DEFAULT_INK, isDrawingTool, type Tool } from "./_lib/annotations";
 import type { BoardLayerApi } from "./_lib/board-layers";
 import { type BoardHistory, createBoardHistory } from "./_lib/board-history";
-import { provideBoardContext } from "./_lib/board-context";
+import { type BlockPicture, provideBoardContext } from "./_lib/board-context";
 import {
 	bodyOfState,
 	type FlowNode,
@@ -78,6 +82,7 @@ import {
 	toFlowEdges,
 	toFlowNodes,
 	withBlockData,
+	withBlockPoster,
 } from "./_lib/board-model";
 import {
 	type BlockRegistryEntry,
@@ -154,6 +159,11 @@ let limitNotice = $state(false);
 let limitTimer: ReturnType<typeof setTimeout> | null = null;
 /** The frame a block being dragged would join if it were dropped now. */
 let dropTargetId = $state<string | null>(null);
+// While a picture of the board is taken (the export): what stands in for the live
+// content of each block a picture cannot carry. Null on the live board.
+let pictures = $state.raw<ReadonlyMap<string, BlockPicture> | null>(null);
+// The blocks whose still image could not be made: their meta line says so.
+let posterFailedIds = $state.raw<ReadonlySet<string>>(new Set());
 
 /** A landing is drawing (Alfy's change): the reader's gestures and steps wait until it lets go. */
 let held = $state(false);
@@ -179,6 +189,8 @@ provideBoardContext({
 	get dropTargetId() {
 		return dropTargetId;
 	},
+	picture: (id) => pictures?.get(id) ?? null,
+	posterFailed: (id) => posterFailedIds.has(id),
 });
 
 function snapshot(): CanvasBody {
@@ -281,6 +293,75 @@ export function setBlockData(id: string, data: CanvasBlockData): boolean {
 	nodes = next;
 	commit();
 	return true;
+}
+
+/**
+ * Puts a block's still image on it (or takes it off). Not a step of the reader's:
+ * a picture of a block is something the board made about itself, so it is not in
+ * their history and not saved on its own; it rides with the next step they take.
+ * What they were doing is settled first, so nothing they did is swallowed by it.
+ * False, and nothing changes, when the board cannot change now, a block is being
+ * dragged, or the block is gone or has no poster.
+ */
+export function setBlockPoster(id: string, poster: PosterRef | null): boolean {
+	if (readonly || held || nodes.some((node) => node.dragging)) return false;
+	commit();
+	const next = withBlockPoster(nodes, id, poster);
+	if (!next) return false;
+	nodes = next;
+	committedJson = structuralJson(snapshot());
+	return true;
+}
+
+/** Draws these blocks as their still images (or cards) for a picture of the board, and with null goes back to the live board. */
+export function showPictures(
+	next: ReadonlyMap<string, BlockPicture> | null,
+): void {
+	pictures = next;
+}
+
+/** The blocks whose still image could not be made. */
+export function markPosterFailed(ids: ReadonlySet<string>): void {
+	posterFailedIds = ids;
+}
+
+/**
+ * What a picture of the board is taken from: the board as drawn now, every
+ * block's rectangle as the panel measured it (a note stores no height), and the
+ * library's viewport element. Nothing here ends a step or changes the board.
+ */
+export function pictureSource(): {
+	body: CanvasBody;
+	rects: Rect[];
+	viewportEl: HTMLElement | null;
+} {
+	const body = snapshot();
+	const measuredById = new Map(nodes.map((node) => [node.id, node.measured]));
+	return {
+		body,
+		rects: body.nodes.map((node) =>
+			nodeRect(node, body.nodes, measuredById.get(node.id)),
+		),
+		viewportEl:
+			boardEl?.querySelector<HTMLElement>(".svelte-flow__viewport") ?? null,
+	};
+}
+
+/** The element a block's poster is a picture of: its content region, below the header. Null when the block is not drawn. */
+export function nodeContentElement(id: string): HTMLElement | null {
+	const nodeEl = [
+		...(boardEl?.querySelectorAll<HTMLElement>('[data-testid="canvas-node"]') ??
+			[]),
+	].find((el) => el.dataset.nodeId === id);
+	return nodeEl?.querySelector<HTMLElement>(".canvas-node__content") ?? null;
+}
+
+/** The camera as it is now, and a way to put it somewhere at once (a picture of the board moves it and puts it back). */
+export function getCamera(): Viewport {
+	return flow.getViewport();
+}
+export function setCamera(camera: Viewport): Promise<boolean> {
+	return flow.setViewport(camera, { duration: 0 });
 }
 
 /** Puts blocks at these positions, each in its own space: one frame of a glide. Nothing else about the board changes, and it is not a step. */
@@ -683,6 +764,7 @@ function minimapColor(node: {
 
 <div
 	class="canvas-board"
+	class:canvas-board--picture={pictures !== null}
 	bind:this={boardEl}
 	bind:clientWidth={boardWidth}
 	bind:clientHeight={boardHeight}
@@ -812,6 +894,17 @@ function minimapColor(node: {
 		min-height: 320px;
 		overflow: hidden;
 		background: var(--surface-page);
+	}
+
+	/* A picture of the board shows the board, not the reader's selection: no
+	   outline on a selected block, no anchors, no resize corners. */
+	.canvas-board--picture :global(.canvas-node__box) {
+		outline: none;
+	}
+
+	.canvas-board--picture :global(.svelte-flow__handle),
+	.canvas-board--picture :global(.svelte-flow__resize-control) {
+		display: none;
 	}
 
 	.canvas-board :global(.svelte-flow.svelte-flow) {

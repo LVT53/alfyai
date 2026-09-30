@@ -105,6 +105,8 @@ export function cameraForBounds(
 
 export type CanvasExportResult = {
 	fileId: string;
+	/** The stored file's name: what the browser saves the download as. */
+	filename: string;
 	width: number;
 	height: number;
 	/** Blocks drawn as a placeholder card because no poster existed. */
@@ -212,6 +214,7 @@ export async function exportBoardPng(
 	if (!stored.ok) throw new ExportError("upload", stored.reason);
 	return {
 		fileId: stored.fileId,
+		filename: stored.filename,
 		width: stored.width,
 		height: stored.height,
 		missingPosters: missing.map((node) => ({

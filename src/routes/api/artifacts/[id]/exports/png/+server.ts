@@ -66,5 +66,6 @@ export const POST: RequestHandler = async (event) => {
 		fileId: result.fileId,
 		width: result.width,
 		height: result.height,
+		filename: result.filename,
 	});
 };

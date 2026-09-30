@@ -15,7 +15,10 @@ import type {
 	CanvasEdge,
 	CanvasNode,
 } from "$lib/shared/artifacts/canvas";
-import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
+import type {
+	CanvasBlockData,
+	PosterRef,
+} from "$lib/shared/artifacts/canvas-blocks";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { metaFor } from "./block-meta";
 import { facingHandles, withoutDanglingEdges } from "./board";
@@ -139,5 +142,25 @@ export function withBlockData<N extends CanvasNode>(
 ): N[] | null {
 	const target = nodes.find((node) => node.id === id);
 	if (!target || target.data.kind !== data.kind) return null;
+	return nodes.map((node) => (node === target ? { ...node, data } : node));
+}
+
+/**
+ * The nodes with one block's still image set (or, with null, taken off), or null
+ * when there is no such block or it is a kind that has no poster. Only the
+ * poster changes; the block's own data, place and size are the ones it had. The
+ * nodes it is given are not touched.
+ */
+export function withBlockPoster<N extends CanvasNode>(
+	nodes: readonly N[],
+	id: string,
+	poster: PosterRef | null,
+): N[] | null {
+	const target = nodes.find((node) => node.id === id);
+	if (!target || !metaFor(target.type).needsPoster) return null;
+	const { poster: _dropped, ...rest } = target.data as CanvasBlockData & {
+		poster?: PosterRef;
+	};
+	const data = (poster ? { ...rest, poster } : rest) as CanvasBlockData;
 	return nodes.map((node) => (node === target ? { ...node, data } : node));
 }

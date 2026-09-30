@@ -8,6 +8,7 @@ import { BLOCK_META, needsPoster } from "./block-meta";
 import {
 	blockName,
 	capturePoster,
+	imagesSettled,
 	keepInPicture,
 	POSTER_HEIGHT,
 	POSTER_WIDTH,
@@ -16,6 +17,7 @@ import {
 	posterPixelRatio,
 	posterPlaceholder,
 	renderPoster,
+	stillify,
 } from "./poster";
 
 const words: Partial<Record<I18nKey, string>> = {
@@ -29,6 +31,7 @@ const words: Partial<Record<I18nKey, string>> = {
 	"artifacts.canvas.export.stillPhoto": "Photos: not in the image",
 	"artifacts.canvas.export.stillWeb": "Web: not in the image",
 	"artifacts.canvas.export.stillOther": "Not in the image",
+	"artifacts.canvas.mapNotLive": "Basemap not live",
 };
 const translate = (key: I18nKey) => words[key] ?? key;
 
@@ -213,6 +216,7 @@ describe("capturing a poster", () => {
 			fileId: "file-9",
 			width: 533,
 			height: 400,
+			filename: "canvas-poster-board-1-app-1.png",
 		}));
 		const ref = await capturePoster(input, {
 			toPng: (async () => "data:image/png;base64,AAAA") as never,
@@ -262,5 +266,124 @@ describe("capturing a poster", () => {
 				})) as never,
 			}),
 		).rejects.toMatchObject({ reason: "upload" });
+	});
+});
+
+describe("the copy of a block a picture is drawn from", () => {
+	function copyOf(markup: string): HTMLElement {
+		const el = document.createElement("div");
+		el.className = "canvas-node__content";
+		el.innerHTML = markup;
+		return el;
+	}
+
+	it("has nothing live in it: no frame, no bitmap, no script", () => {
+		const copy = copyOf(
+			'<iframe src="/app"></iframe><canvas></canvas><video></video><script>1</script><p>text</p>',
+		);
+		stillify(copy, photo, translate);
+		expect(copy.querySelectorAll("iframe, canvas, video, script")).toHaveLength(
+			0,
+		);
+		expect(copy.textContent).toBe("text");
+	});
+
+	it("loads the thumbnails a browser would load only when scrolled to", () => {
+		const copy = copyOf(
+			'<img loading="lazy" src="/a.jpg"><img loading="lazy" src="/b.jpg">',
+		);
+		stillify(copy, photo, translate);
+		expect(
+			[...copy.querySelectorAll("img")].map((image) => image.loading),
+		).toEqual(["eager", "eager"]);
+	});
+
+	it("draws an App as a card with its name and the words that it is not in the image, never as nothing", () => {
+		const copy = copyOf(
+			'<div data-testid="canvas-app"><iframe class="app-frame" src="/app"></iframe></div>',
+		);
+		stillify(copy, app, translate);
+		const card = copy.querySelector('[data-testid="canvas-app"]');
+		expect(card?.querySelector("iframe")).toBeNull();
+		expect(card?.textContent).toContain("Tip calculator");
+		expect(card?.textContent).toContain("App: live version not in the image");
+	});
+
+	it("draws a map from the card's own route drawing, without the live map and its markers, and says the basemap is not live", () => {
+		const copy = copyOf(
+			`<div class="map-route-card"><div class="map-route-card__body">
+				<div class="map-route-card__map"><canvas></canvas><div class="maplibregl-marker">pin</div></div>
+				<svg class="map-route-card__fallback map-route-card__fallback--screen-hidden" data-testid="map-route-fallback"></svg>
+			</div></div>`,
+		);
+		stillify(copy, map, translate);
+		expect(copy.querySelector(".map-route-card__map")).toBeNull();
+		expect(copy.querySelector(".maplibregl-marker")).toBeNull();
+		const route = copy.querySelector('[data-testid="map-route-fallback"]');
+		expect(
+			route?.classList.contains("map-route-card__fallback--screen-hidden"),
+		).toBe(false);
+		expect(copy.querySelector(".map-route-card__body")?.textContent).toContain(
+			"Basemap not live",
+		);
+	});
+
+	it("says the basemap is not live on a map that had no live map to begin with", () => {
+		const copy = copyOf(
+			'<div class="map-route-card__body"><svg class="map-route-card__fallback" data-testid="map-route-fallback"></svg></div>',
+		);
+		stillify(copy, map, translate);
+		expect(copy.textContent).toContain("Basemap not live");
+	});
+
+	it("leaves the block it was copied from as it was", () => {
+		const source = copyOf(
+			'<div data-testid="canvas-app"><iframe src="/app"></iframe></div>',
+		);
+		const copy = source.cloneNode(true) as HTMLElement;
+		stillify(copy, app, translate);
+		expect(source.querySelectorAll("iframe")).toHaveLength(1);
+	});
+});
+
+describe("waiting for a copy's images", () => {
+	it("is done at once when there is nothing to wait for", async () => {
+		const root = document.createElement("div");
+		root.innerHTML = "<p>no images</p>";
+		await expect(imagesSettled(root)).resolves.toBeUndefined();
+	});
+
+	it("is done when the last image has loaded or failed", async () => {
+		const root = document.createElement("div");
+		root.innerHTML = '<img src="/a.jpg"><img src="/b.jpg">';
+		const [first, second] = [...root.querySelectorAll("img")];
+		Object.defineProperty(first, "complete", { value: false });
+		Object.defineProperty(second, "complete", { value: false });
+		let done = false;
+		void imagesSettled(root, 10_000).then(() => {
+			done = true;
+		});
+		first.dispatchEvent(new Event("load"));
+		await Promise.resolve();
+		expect(done).toBe(false);
+		second.dispatchEvent(new Event("error"));
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(done).toBe(true);
+	});
+
+	it("gives up after a while: a poster is drawn with what arrived", async () => {
+		vi.useFakeTimers();
+		try {
+			const root = document.createElement("div");
+			root.innerHTML = '<img src="/never.jpg">';
+			const image = root.querySelector("img") as HTMLImageElement;
+			Object.defineProperty(image, "complete", { value: false });
+			const settled = imagesSettled(root, 500);
+			await vi.advanceTimersByTimeAsync(600);
+			await expect(settled).resolves.toBeUndefined();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

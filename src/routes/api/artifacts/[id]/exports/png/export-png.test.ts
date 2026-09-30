@@ -171,6 +171,7 @@ describe("POST /api/artifacts/[id]/exports/png", () => {
 			fileId: files()[0].id,
 			width: 800,
 			height: 600,
+			filename: "Board.png",
 		});
 		expect(outputs()).toHaveLength(1);
 		expect(

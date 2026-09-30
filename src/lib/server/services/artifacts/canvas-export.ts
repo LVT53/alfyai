@@ -38,6 +38,7 @@ import {
 	EXPORT_PNG_MAX_BYTES,
 	POSTER_PNG_MAX_BYTES,
 } from "$lib/shared/artifacts/canvas-limits";
+import { posterFileName } from "$lib/shared/artifacts/poster-file";
 import { sanitizeDocumentFilename } from "./export";
 import { getArtifact } from "./record";
 
@@ -57,7 +58,13 @@ type StoreCanvasImageFailure =
 	| "too_large";
 
 type StoreCanvasImageResult =
-	| { ok: true; fileId: string; width: number; height: number }
+	| {
+			ok: true;
+			fileId: string;
+			width: number;
+			height: number;
+			filename: string;
+	  }
 	| { ok: false; reason: StoreCanvasImageFailure };
 
 /** The status each failure answers with (`400`, `404`, `409`, `413`, `415`). */
@@ -137,11 +144,6 @@ function decodePngDataUrl(
 	return { ok: true, bytes, width, height };
 }
 
-/** A block's id as a piece of a file name: nothing but letters, digits, dashes and underscores. */
-function fileNamePart(id: string): string {
-	return id.replace(/[^A-Za-z0-9_-]+/g, "-").slice(0, 64) || "block";
-}
-
 export async function storeCanvasImage(input: {
 	userId: string;
 	artifactId: string;
@@ -199,7 +201,7 @@ async function storePoster(params: {
 	nodeId: string;
 	png: Extract<DecodedPng, { ok: true }>;
 }): Promise<StoreCanvasImageResult> {
-	const filename = `canvas-poster-${params.boardId}-${fileNamePart(params.nodeId)}.png`;
+	const filename = posterFileName(params.boardId, params.nodeId);
 	const stored = await storeGeneratedFile(
 		params.conversationId,
 		params.userId,
@@ -232,6 +234,7 @@ async function storePoster(params: {
 		fileId: stored.id,
 		width: params.png.width,
 		height: params.png.height,
+		filename: stored.filename,
 	};
 }
 
@@ -286,5 +289,6 @@ async function storeExport(params: {
 		fileId: stored.id,
 		width: params.png.width,
 		height: params.png.height,
+		filename: stored.filename,
 	};
 }
