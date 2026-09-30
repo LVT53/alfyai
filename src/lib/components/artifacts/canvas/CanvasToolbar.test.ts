@@ -55,6 +55,17 @@ describe("the toolbar", () => {
 		expect(onwarm).toHaveBeenCalledWith("draw");
 	});
 
+	it("asks the board for what ends an insert when a reader reaches for Insert, before they press it", async () => {
+		const onwarm = vi.fn();
+		mount({ onwarm } as never);
+		const insert = screen.getByRole("button", { name: "Insert" });
+		await fireEvent.pointerEnter(insert);
+		await fireEvent.focus(insert);
+		expect(onwarm).toHaveBeenCalledTimes(2);
+		expect(onwarm).toHaveBeenCalledWith("insert");
+		expect(onwarm).not.toHaveBeenCalledWith("draw");
+	});
+
 	it("draws no tray until the tray has loaded, even with a tool that draws on (the board loads it first)", () => {
 		mount({ tool: "pen", Tray: null });
 		expect(screen.queryByTestId("canvas-draw-tray")).toBeNull();

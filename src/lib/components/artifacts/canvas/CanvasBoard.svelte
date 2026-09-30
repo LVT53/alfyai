@@ -182,6 +182,25 @@ function ensureDrawing(): Promise<boolean> {
 	return drawingLoading;
 }
 
+// Where an inserted block goes is worked out by code that loads on demand: when a
+// reader reaches for Insert (the toolbar asks), or with the first insert. Once it
+// is here an insert lands in the same beat the row is picked.
+type Placement = typeof import("./_lib/placement");
+let placement: Placement | null = null;
+let placementLoading: Promise<Placement | null> | null = null;
+
+function loadPlacement(): Promise<Placement | null> {
+	placementLoading ??= import("./_lib/placement").then(
+		(module) => (placement = module),
+		// Offline, or a deploy in between: the next insert tries again.
+		() => {
+			placementLoading = null;
+			return null;
+		},
+	);
+	return placementLoading;
+}
+
 // While a picture of the board is taken (the export): what stands in for the live
 // content of each block a picture cannot carry. Null on the live board.
 let pictures = $state.raw<ReadonlyMap<string, BlockPicture> | null>(null);
@@ -486,11 +505,10 @@ async function insertBlock(
 	// What was pending is a step of its own, so Undo takes the insert back alone.
 	commit();
 	// Where a block goes is worked out when one is inserted, not when the editor
-	// opens: the placement code loads with the first insert.
-	const { placeBesideBlocks, placeInsertedBlock } = await import(
-		"./_lib/placement"
-	);
-	if (readonly || !boardEl) return;
+	// opens: only an insert that beat the load waits for it.
+	const where = placement ?? (await loadPlacement());
+	if (!where || readonly || !boardEl) return;
+	const { placeBesideBlocks, placeInsertedBlock } = where;
 	// Whatever the reader did while it loaded is a step before the insert.
 	commit();
 	const rect = boardEl.getBoundingClientRect();
@@ -834,7 +852,8 @@ function minimapColor(node: {
 		{askBusy}
 		{ink}
 		Tray={drawingViews?.DrawTray ?? null}
-		onwarm={() => void ensureDrawing()}
+		onwarm={(what) =>
+			void (what === "draw" ? ensureDrawing() : loadPlacement())}
 		oninkchange={(next) => (ink = next)}
 		ontoolchange={setTool}
 		onundo={undo}

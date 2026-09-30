@@ -76,8 +76,8 @@ let {
 		ontoolchange: (tool: Tool) => void;
 		oninkchange: (ink: string) => void;
 	}> | null;
-	/** A reader reached for a button whose code loads on demand (Draw): fetch it now, so it is there when they press. */
-	onwarm?: (what: "draw") => void;
+	/** A reader reached for a button whose code loads on demand (Draw, Insert): fetch it now, so it is there when they press. */
+	onwarm?: (what: "draw" | "insert") => void;
 	ontoolchange: (tool: Tool) => void;
 	oninkchange: (ink: string) => void;
 	onundo: () => void;
@@ -96,9 +96,15 @@ let Menu = $state.raw<typeof import("./InsertMenu.svelte").default | null>(
 $effect(() => {
 	if (!insertOpen || Menu) return;
 	let current = true;
-	void import("./InsertMenu.svelte").then((module) => {
-		if (current) Menu = module.default;
-	});
+	void import("./InsertMenu.svelte").then(
+		(module) => {
+			if (current) Menu = module.default;
+		},
+		// Offline, or a deploy in between: the menu does not stand open and empty; the next press tries again.
+		() => {
+			if (current) insertOpen = false;
+		},
+	);
 	return () => {
 		current = false;
 	};
@@ -112,10 +118,11 @@ $effect(() => {
 	if (drawing) lastDrawTool = tool;
 });
 
-/** The menu's code, and the placement that ends an insert, are fetched as soon as a reader reaches for Insert, so they are there by the time it is pressed. */
+/** The menu's code is fetched as soon as a reader reaches for Insert, so it is there by the time it is pressed; the board fetches the placement that ends an insert. */
 function warmInsert(): void {
-	void import("./InsertMenu.svelte");
-	void import("./_lib/placement");
+	// A head start only: a failure is met again, and handled, when the menu opens.
+	import("./InsertMenu.svelte").catch(() => {});
+	onwarm?.("insert");
 }
 
 function closeInsert(): void {
