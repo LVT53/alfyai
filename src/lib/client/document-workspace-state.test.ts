@@ -213,9 +213,10 @@ describe("document workspace state", () => {
 	});
 });
 
-// A chat's panel after a reload. The stored state is ONE tab-wide record, so
-// what a chat restores has to be decided by who is asking: the panel is "what
-// this chat made", and an incognito chat's panel is never anyone else's.
+// A chat's panel after a reload. The tab's storage is shared by every chat it
+// visits, so what a chat restores has to be decided by who is asking: the panel
+// is "what this chat made", and an incognito chat's panel is never anyone
+// else's.
 describe("restoring a chat's panel", () => {
 	const CHAT_B: WorkspaceConversation = {
 		conversationId: "chat-b",
@@ -458,6 +459,353 @@ describe("restoring a chat's panel", () => {
 			makeDocument("library-open-in-i"),
 		]);
 		removeConversationFromPersistedWorkspaceDocumentState(storage, "chat-i");
-		expect(storage.isEmpty()).toBe(true);
+		// Nothing of the incognito chat is left in the tab. (The storage as a whole
+		// is not empty: chat A's panel is remembered beside it now, and is its own
+		// business, see "each chat remembers its own panel" below.)
+		const stored = storage.getItem(STORAGE_KEY) ?? "";
+		expect(stored).not.toContain("chat-i");
+		expect(stored).not.toContain("made-in-i");
+		expect(stored).not.toContain("library-open-in-i");
+		expect(
+			loadPersistedWorkspaceDocumentState(storage, CHAT_A)?.documents.map(
+				(entry) => entry.id,
+			),
+		).toEqual(["made-in-a"]);
+	});
+});
+
+// Each chat remembers its own panel. The tab keeps one stored panel PER chat
+// (the last few it visited), so going to chat B and back to chat A gives A its
+// panel again, while every rule above about what may cross from one chat to
+// another still holds.
+describe("each chat remembers its own panel", () => {
+	const CHAT_B: WorkspaceConversation = {
+		conversationId: "chat-b",
+		incognito: false,
+	};
+	const INCOGNITO_I: WorkspaceConversation = {
+		conversationId: "chat-i",
+		incognito: true,
+	};
+	// The storage key and the value's shape are part of the persisted format: a
+	// value written by the previous build is put there by hand, and the newest
+	// panel stays at the value's top level, where the e2e suite reads it.
+	const STORAGE_KEY = "alfyai-chat-document-workspace";
+	const DAY = 24 * 60 * 60 * 1000;
+
+	function memoryStorage() {
+		const values = new Map<string, string>();
+		return {
+			getItem: (key: string) => values.get(key) ?? null,
+			setItem: (key: string, value: string) => {
+				values.set(key, value);
+			},
+			removeItem: (key: string) => {
+				values.delete(key);
+			},
+			isEmpty: () => values.size === 0,
+		};
+	}
+	type Storage = ReturnType<typeof memoryStorage>;
+
+	function madeIn(id: string, conversationId: string): DocumentWorkspaceItem {
+		return { ...makeDocument(id), conversationId };
+	}
+
+	function savePanel(
+		storage: Storage,
+		conversation: WorkspaceConversation,
+		documents: DocumentWorkspaceItem[],
+		options: {
+			activeDocumentId?: string | null;
+			presentation?: "docked" | "expanded";
+			now?: number;
+		} = {},
+	) {
+		savePersistedWorkspaceDocumentState(
+			storage,
+			{
+				documents,
+				activeDocumentId:
+					options.activeDocumentId === undefined
+						? (documents.at(-1)?.id ?? null)
+						: options.activeDocumentId,
+				isOpen: documents.length > 0,
+				presentation: options.presentation ?? "docked",
+				conversation,
+			},
+			options.now,
+		);
+	}
+
+	function idsFor(
+		storage: Storage,
+		conversation: WorkspaceConversation,
+		now?: number,
+	): string[] | null {
+		return (
+			loadPersistedWorkspaceDocumentState(
+				storage,
+				conversation,
+				now,
+			)?.documents.map((entry) => entry.id) ?? null
+		);
+	}
+
+	function chatOf(index: number): WorkspaceConversation {
+		return { conversationId: `chat-${index}`, incognito: false };
+	}
+
+	it("gives chat A its own panel back after the tab visited chat B", () => {
+		const storage = memoryStorage();
+		savePanel(
+			storage,
+			CHAT_A,
+			[madeIn("a-1", "chat-a"), madeIn("a-2", "chat-a")],
+			{ activeDocumentId: "a-1", presentation: "expanded" },
+		);
+		savePanel(storage, CHAT_B, [madeIn("b-1", "chat-b")]);
+
+		const restoredA = loadPersistedWorkspaceDocumentState(storage, CHAT_A);
+		expect(restoredA?.documents.map((entry) => entry.id)).toEqual([
+			"a-1",
+			"a-2",
+		]);
+		expect(restoredA).toMatchObject({
+			activeDocumentId: "a-1",
+			isOpen: true,
+			presentation: "expanded",
+		});
+		expect(idsFor(storage, CHAT_B)).toEqual(["b-1"]);
+	});
+
+	it("keeps a chat's panel when another chat is visited with nothing open", () => {
+		const storage = memoryStorage();
+		savePanel(storage, CHAT_A, [madeIn("a-1", "chat-a")]);
+		savePanel(storage, CHAT_B, []);
+
+		expect(idsFor(storage, CHAT_A)).toEqual(["a-1"]);
+		expect(idsFor(storage, CHAT_B)).toBeNull();
+	});
+
+	it("remembers the last 20 chats and lets the oldest go", () => {
+		const storage = memoryStorage();
+		for (let index = 1; index <= 25; index += 1) {
+			savePanel(storage, chatOf(index), [
+				madeIn(`doc-${index}`, `chat-${index}`),
+			]);
+		}
+
+		for (let index = 1; index <= 5; index += 1) {
+			expect(idsFor(storage, chatOf(index)), `chat ${index}`).toBeNull();
+		}
+		for (let index = 6; index <= 25; index += 1) {
+			expect(idsFor(storage, chatOf(index)), `chat ${index}`).toEqual([
+				`doc-${index}`,
+			]);
+		}
+	});
+
+	it("counts a chat that is visited again as the newest, so the chat nobody came back to goes first", () => {
+		const storage = memoryStorage();
+		for (let index = 1; index <= 20; index += 1) {
+			savePanel(storage, chatOf(index), [
+				madeIn(`doc-${index}`, `chat-${index}`),
+			]);
+		}
+		savePanel(storage, chatOf(1), [madeIn("doc-1", "chat-1")]);
+		savePanel(storage, chatOf(21), [madeIn("doc-21", "chat-21")]);
+
+		expect(idsFor(storage, chatOf(2))).toBeNull();
+		expect(idsFor(storage, chatOf(1))).toEqual(["doc-1"]);
+		expect(idsFor(storage, chatOf(21))).toEqual(["doc-21"]);
+	});
+
+	it("forgets a panel that was last saved more than a week ago and keeps the others", () => {
+		const storage = memoryStorage();
+		savePanel(storage, CHAT_A, [madeIn("a-1", "chat-a")], { now: 1000 });
+		savePanel(storage, CHAT_B, [madeIn("b-1", "chat-b")], {
+			now: 1000 + 6 * DAY,
+		});
+
+		expect(idsFor(storage, CHAT_A, 1000 + 8 * DAY)).toBeNull();
+		expect(idsFor(storage, CHAT_B, 1000 + 8 * DAY)).toEqual(["b-1"]);
+	});
+
+	it("gives a chat that has a panel of its own only that panel, not the library opens of the chat visited last", () => {
+		const storage = memoryStorage();
+		savePanel(storage, CHAT_B, [madeIn("b-1", "chat-b")]);
+		savePanel(storage, CHAT_A, [
+			madeIn("a-1", "chat-a"),
+			makeDocument("library-open"),
+		]);
+
+		expect(idsFor(storage, CHAT_B)).toEqual(["b-1"]);
+		// A chat with none of its own still gets what belongs to no chat.
+		expect(idsFor(storage, chatOf(3))).toEqual(["library-open"]);
+	});
+
+	it("does not bring back in a new chat what was closed in the chat visited last", () => {
+		const storage = memoryStorage();
+		const libraryOpen = makeDocument("library-open");
+		savePanel(storage, CHAT_A, [libraryOpen]);
+		// Chat B is given it, and closes it.
+		expect(idsFor(storage, CHAT_B)).toEqual(["library-open"]);
+		savePanel(storage, CHAT_B, [libraryOpen]);
+		savePanel(storage, CHAT_B, []);
+
+		// Chat A still remembers it for itself, but a chat that has none of its
+		// own does not pick it up from A behind B's back.
+		expect(idsFor(storage, chatOf(3))).toBeNull();
+		expect(idsFor(storage, CHAT_A)).toEqual(["library-open"]);
+	});
+
+	describe("an incognito chat", () => {
+		it("is never restored in another chat, is taken out of the tab when another chat asks, and leaves the normal chats' panels alone", () => {
+			const storage = memoryStorage();
+			savePanel(storage, CHAT_A, [madeIn("a-1", "chat-a")]);
+			savePanel(storage, INCOGNITO_I, [
+				madeIn("made-in-i", "chat-i"),
+				makeDocument("library-open-in-i"),
+			]);
+
+			expect(idsFor(storage, CHAT_B)).toBeNull();
+			const stored = storage.getItem(STORAGE_KEY) ?? "";
+			expect(stored).not.toContain("made-in-i");
+			expect(stored).not.toContain("library-open-in-i");
+			expect(stored).not.toContain("chat-i");
+			expect(idsFor(storage, CHAT_A)).toEqual(["a-1"]);
+		});
+
+		it("gets its own panel back when it is reloaded, and a normal chat's panel is still there for that chat afterwards", () => {
+			const storage = memoryStorage();
+			savePanel(storage, CHAT_A, [madeIn("a-1", "chat-a")]);
+			savePanel(storage, INCOGNITO_I, [madeIn("made-in-i", "chat-i")]);
+
+			expect(idsFor(storage, INCOGNITO_I)).toEqual(["made-in-i"]);
+			expect(idsFor(storage, CHAT_A)).toEqual(["a-1"]);
+			expect(storage.getItem(STORAGE_KEY)).not.toContain("made-in-i");
+		});
+
+		it("is discarded alone when the chat is left", () => {
+			const storage = memoryStorage();
+			savePanel(storage, CHAT_A, [madeIn("a-1", "chat-a")]);
+			savePanel(storage, INCOGNITO_I, [madeIn("made-in-i", "chat-i")]);
+
+			discardPersistedWorkspaceDocumentStateOfIncognitoConversation(
+				storage,
+				"chat-i",
+			);
+
+			expect(storage.getItem(STORAGE_KEY)).not.toContain("chat-i");
+			expect(idsFor(storage, CHAT_A)).toEqual(["a-1"]);
+		});
+
+		it("is dropped whole, library opens included, when the chat is deleted, and the normal chats' panels stay", () => {
+			const storage = memoryStorage();
+			savePanel(storage, CHAT_A, [madeIn("a-1", "chat-a")]);
+			savePanel(storage, INCOGNITO_I, [
+				madeIn("made-in-i", "chat-i"),
+				makeDocument("library-open-in-i"),
+			]);
+
+			removeConversationFromPersistedWorkspaceDocumentState(storage, "chat-i");
+
+			const stored = storage.getItem(STORAGE_KEY) ?? "";
+			expect(stored).not.toContain("made-in-i");
+			expect(stored).not.toContain("library-open-in-i");
+			expect(idsFor(storage, CHAT_A)).toEqual(["a-1"]);
+		});
+
+		it("is not kept when another chat's panel is saved beside it", () => {
+			const storage = memoryStorage();
+			savePanel(storage, INCOGNITO_I, [madeIn("made-in-i", "chat-i")]);
+			savePanel(storage, CHAT_B, [madeIn("b-1", "chat-b")]);
+
+			expect(storage.getItem(STORAGE_KEY)).not.toContain("made-in-i");
+			expect(idsFor(storage, CHAT_B)).toEqual(["b-1"]);
+		});
+	});
+
+	describe("a stored value that was written by the previous build, or is not one at all", () => {
+		function legacyValue(overrides: Record<string, unknown> = {}) {
+			return JSON.stringify({
+				documents: [madeIn("a-1", "chat-a"), makeDocument("library-open")],
+				activeDocumentId: "a-1",
+				isOpen: true,
+				presentation: "expanded",
+				updatedAt: Date.now(),
+				conversation: CHAT_A,
+				...overrides,
+			});
+		}
+
+		it("reads one stored panel as that chat's panel, and keeps it when another chat saves its own", () => {
+			const storage = memoryStorage();
+			storage.setItem(STORAGE_KEY, legacyValue());
+
+			expect(idsFor(storage, CHAT_A)).toEqual(["a-1", "library-open"]);
+			expect(idsFor(storage, CHAT_B)).toEqual(["library-open"]);
+
+			savePanel(storage, CHAT_B, [madeIn("b-1", "chat-b")]);
+			expect(idsFor(storage, CHAT_A)).toEqual(["a-1", "library-open"]);
+			expect(idsFor(storage, CHAT_B)).toEqual(["b-1"]);
+		});
+
+		it("drops a stored panel that does not say whose it is once another panel is saved", () => {
+			const storage = memoryStorage();
+			storage.setItem(STORAGE_KEY, legacyValue({ conversation: undefined }));
+
+			expect(idsFor(storage, CHAT_A)).toEqual(["a-1"]);
+			savePanel(storage, CHAT_B, [madeIn("b-1", "chat-b")]);
+
+			expect(idsFor(storage, CHAT_A)).toBeNull();
+			expect(idsFor(storage, CHAT_B)).toEqual(["b-1"]);
+		});
+
+		it.each([
+			["text that is not JSON", "not json {"],
+			["JSON that is not a panel", "[1, 2, 3]"],
+			["a panel whose documents are not a list", '{"documents": "x"}'],
+			["a null", "null"],
+		])("reads %s as nothing, without throwing", (_name, value) => {
+			const storage = memoryStorage();
+			storage.setItem(STORAGE_KEY, value);
+
+			expect(idsFor(storage, CHAT_A)).toBeNull();
+			// And the next save simply replaces it.
+			savePanel(storage, CHAT_A, [madeIn("a-1", "chat-a")]);
+			expect(idsFor(storage, CHAT_A)).toEqual(["a-1"]);
+		});
+
+		it("ignores stored panels of the other chats that are not panels, and still restores the newest", () => {
+			const storage = memoryStorage();
+			storage.setItem(
+				STORAGE_KEY,
+				legacyValue({ others: [null, 5, "x", { documents: "y" }, {}] }),
+			);
+			expect(idsFor(storage, CHAT_A)).toEqual(["a-1", "library-open"]);
+
+			storage.setItem(STORAGE_KEY, legacyValue({ others: "not a list" }));
+			expect(idsFor(storage, CHAT_A)).toEqual(["a-1", "library-open"]);
+		});
+	});
+
+	it("keeps the newest panel at the top level of the stored value, and the panels of the chats before it under `others`", () => {
+		const storage = memoryStorage();
+		savePanel(storage, CHAT_A, [madeIn("a-1", "chat-a")]);
+		savePanel(storage, CHAT_B, [madeIn("b-1", "chat-b")]);
+
+		const stored = JSON.parse(storage.getItem(STORAGE_KEY) ?? "null");
+		expect(stored.documents.map((entry: { id: string }) => entry.id)).toEqual([
+			"b-1",
+		]);
+		expect(stored.conversation).toEqual(CHAT_B);
+		expect(
+			stored.others.map(
+				(entry: { conversation: WorkspaceConversation }) =>
+					entry.conversation.conversationId,
+			),
+		).toEqual(["chat-a"]);
 	});
 });

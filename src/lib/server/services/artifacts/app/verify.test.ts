@@ -16,7 +16,24 @@ const buildNormalChatModelRunProviderOptions = vi.fn(
 		"stub-provider": { enable_thinking: false },
 	}),
 );
+// What a model run reports is input/output tokens; the real mapper turns that
+// into the prompt/completion vocabulary the cost record uses, and so does this.
+const mapNormalChatModelRunUsageToProviderSnapshot = vi.fn(
+	(usage: Record<string, number | undefined>) =>
+		Object.values(usage).some((value) => typeof value === "number")
+			? {
+					promptTokens: usage.inputTokens,
+					completionTokens: usage.outputTokens,
+					totalTokens: usage.totalTokens,
+					cachedInputTokens: usage.cachedInputTokens,
+					cacheHitTokens: usage.cacheHitTokens,
+					cacheMissTokens: usage.cacheMissTokens,
+				}
+			: null,
+);
 vi.mock("$lib/server/services/normal-chat-model", () => ({
+	mapNormalChatModelRunUsageToProviderSnapshot: (usage: never) =>
+		mapNormalChatModelRunUsageToProviderSnapshot(usage),
 	resolveNormalChatModelRunProvider: (
 		modelId: unknown,
 		runtimeConfig: unknown,
@@ -63,16 +80,19 @@ function classifierUsage() {
 	return { promptTokens: 50, completionTokens: 10, totalTokens: 60 };
 }
 
+// A model run reports input/output tokens (NormalChatModelRunUsage); the
+// classifier goes through the control-model helper, which says
+// prompt/completion. The two fixtures keep to their own vocabulary.
 function verifierResult(
 	text: string,
-	overrides: Partial<{ usage: Record<string, number> }> = {},
+	overrides: Partial<{ usage: Record<string, number | undefined> }> = {},
 ) {
 	return {
 		text,
 		finishReason: "stop",
 		usage: overrides.usage ?? {
-			promptTokens: 500,
-			completionTokens: 100,
+			inputTokens: 500,
+			outputTokens: 100,
 			totalTokens: 600,
 		},
 		model: {
@@ -530,6 +550,172 @@ describe("verifyApp — ruling 52: a repair is re-verified before acceptance", (
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe("verifyApp — cost: the verification is priced by the tokens it really used", () => {
+	const CHECKABLE = {
+		text: JSON.stringify({ checkable: true, kinds: ["computed_numbers"] }),
+		rawResponse: {},
+		modelId: "model2",
+		modelDisplayName: "Model 2",
+	};
+	const NO_FINDINGS = fenceJson({
+		claims: ["the grand total amount"],
+		findings: [],
+		repairedHtml: null,
+		repairSafe: false,
+	});
+	const REPAIR_PROPOSAL = fenceJson({
+		claims: ["the grand total amount"],
+		findings: [
+			{
+				claim: "Total: 900",
+				problem: "The displayed total does not match the sum of the rows.",
+				class: "other",
+				location: "Total row",
+				settled: true,
+			},
+		],
+		repairedHtml: "<html><body>fixed total</body></html>",
+		repairSafe: true,
+	});
+
+	function recordedFor(feature: string) {
+		const calls = recordControlModelUsage.mock.calls
+			.map(([params]) => params as Record<string, unknown>)
+			.filter((params) => params.feature === feature);
+		expect(calls, feature).toHaveLength(1);
+		return calls[0];
+	}
+
+	it("records the verifier's own prompt and completion tokens, not only its total", async () => {
+		sendJsonControlMessage.mockResolvedValue({
+			...CHECKABLE,
+			usage: classifierUsage(),
+		});
+		runPlainNormalChatModelRun.mockResolvedValue(verifierResult(NO_FINDINGS));
+
+		const result = await verifyApp(baseParams());
+
+		expect(recordedFor("app_verification_classifier")).toMatchObject({
+			promptTokens: 50,
+			completionTokens: 10,
+			totalTokens: 60,
+		});
+		expect(recordedFor("app_verification_verifier")).toMatchObject({
+			userId: "user-1",
+			conversationId: "conv-1",
+			promptTokens: 500,
+			completionTokens: 100,
+			totalTokens: 600,
+		});
+		// The verification's own usage is the two calls, summed.
+		expect(result.usage).toMatchObject({
+			promptTokens: 550,
+			completionTokens: 110,
+			totalTokens: 660,
+		});
+	});
+
+	it("records the re-verification of a repair with its own tokens, and counts it in the total", async () => {
+		sendJsonControlMessage.mockResolvedValue({
+			...CHECKABLE,
+			usage: classifierUsage(),
+		});
+		runPlainNormalChatModelRun
+			.mockResolvedValueOnce(verifierResult(REPAIR_PROPOSAL))
+			.mockResolvedValueOnce(
+				verifierResult(NO_FINDINGS, {
+					usage: { inputTokens: 700, outputTokens: 30, totalTokens: 730 },
+				}),
+			);
+
+		const result = await verifyApp(baseParams());
+
+		expect(result.verdict).toBe("repaired");
+		expect(recordedFor("app_verification_reverify")).toMatchObject({
+			promptTokens: 700,
+			completionTokens: 30,
+			totalTokens: 730,
+		});
+		expect(result.usage).toMatchObject({
+			promptTokens: 50 + 500 + 700,
+			completionTokens: 10 + 100 + 30,
+			totalTokens: 60 + 600 + 730,
+		});
+	});
+
+	it("passes the provider's cache breakdown on, so a cache-priced model is priced as the generator's call is", async () => {
+		sendJsonControlMessage.mockResolvedValue({
+			...CHECKABLE,
+			usage: classifierUsage(),
+		});
+		runPlainNormalChatModelRun.mockResolvedValue(
+			verifierResult(NO_FINDINGS, {
+				usage: {
+					inputTokens: 500,
+					outputTokens: 100,
+					totalTokens: 600,
+					cachedInputTokens: 300,
+					cacheHitTokens: 300,
+					cacheMissTokens: 200,
+				},
+			}),
+		);
+
+		await verifyApp(baseParams());
+
+		expect(recordedFor("app_verification_verifier")).toMatchObject({
+			promptTokens: 500,
+			cachedInputTokens: 300,
+			cacheHitTokens: 300,
+			cacheMissTokens: 200,
+		});
+	});
+
+	it("still counts the call when the run reports only a total, or nothing at all", async () => {
+		sendJsonControlMessage.mockResolvedValue({
+			...CHECKABLE,
+			usage: classifierUsage(),
+		});
+		runPlainNormalChatModelRun.mockResolvedValue(
+			verifierResult(NO_FINDINGS, { usage: { totalTokens: 600 } }),
+		);
+		const onlyTotal = await verifyApp(baseParams());
+		expect(recordedFor("app_verification_verifier")).toMatchObject({
+			promptTokens: 0,
+			completionTokens: 0,
+			totalTokens: 600,
+		});
+		expect(onlyTotal.usage?.totalTokens).toBe(660);
+
+		vi.clearAllMocks();
+		sendJsonControlMessage.mockResolvedValue({
+			...CHECKABLE,
+			usage: classifierUsage(),
+		});
+		runPlainNormalChatModelRun.mockResolvedValue(
+			verifierResult(NO_FINDINGS, {
+				usage: {
+					inputTokens: undefined,
+					outputTokens: undefined,
+					totalTokens: undefined,
+				},
+			}),
+		);
+		const nothing = await verifyApp(baseParams());
+		// A zero row, so the call is still counted; never NaN.
+		expect(recordedFor("app_verification_verifier")).toMatchObject({
+			promptTokens: 0,
+			completionTokens: 0,
+			totalTokens: 0,
+		});
+		expect(nothing.usage).toMatchObject({
+			promptTokens: 50,
+			completionTokens: 10,
+			totalTokens: 60,
+		});
 	});
 });
 
