@@ -6,7 +6,7 @@ import type {
 	CanvasNode,
 } from "$lib/shared/artifacts/canvas";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
-import { rebaseBoard } from "./rebase-board";
+import { rebaseBoard, rebaseOnto } from "./rebase-board";
 
 // The reader's step that is not saved yet, put on top of the board the server holds
 // now (RV-3 I2). Three boards: `base` is what the reader started from (the last one
@@ -317,5 +317,25 @@ describe("rebaseBoard", () => {
 		expect(merged.selected).toBeUndefined();
 		expect(merged.measured).toBeUndefined();
 		expect(merged.dragging).toBeUndefined();
+	});
+});
+
+describe("rebaseOnto", () => {
+	const base = board([note("a", "Lunch")]);
+	const server = board([note("a", "Lunch"), note("alfy", "Booked")]);
+	const reader = board([note("a", "Lunch (two seats)")]);
+
+	it("takes the saved board and the reader's board as their JSON, which is what the editor keeps", () => {
+		const result = rebaseOnto(boardJson(base), server, boardJson(reader));
+		expect(result.body.nodes.map((node) => node.id)).toEqual(["a", "alfy"]);
+		expect(textOf(result.body, "a")).toBe("Lunch (two seats)");
+		expect(result.kept).toEqual([]);
+	});
+
+	it("takes the reader's board as it is when the board is drawn", () => {
+		const result = rebaseOnto(boardJson(base), server, reader);
+		expect(boardJson(result.body)).toBe(
+			boardJson(rebaseBoard(base, server, reader).body),
+		);
 	});
 });

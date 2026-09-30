@@ -305,3 +305,21 @@ export function rebaseBoard(
 	};
 	return { body: normalizeCanvasBody(merged).body, kept };
 }
+
+/**
+ * The editor's call: the board the server last acknowledged (as its JSON), the newer
+ * version, and the reader's board as it is now (a board, or its JSON when the board
+ * is not drawn). The parsing is here so the editor carries none of it.
+ */
+export function rebaseOnto(
+	savedJson: string,
+	server: CanvasBody,
+	reader: CanvasBody | string,
+): Rebased {
+	const read = (json: string) => normalizeCanvasBody(JSON.parse(json)).body;
+	return rebaseBoard(
+		read(savedJson),
+		server,
+		typeof reader === "string" ? read(reader) : reader,
+	);
+}

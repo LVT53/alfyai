@@ -196,9 +196,8 @@ let boardBody = $state.raw<CanvasBody>(emptyCanvasBody());
 let boardKey = $state(0);
 let droppedCount = $state(0);
 let noticeDismissed = $state(false);
-/** The blocks where a newer version of the board and the reader's own step had both changed the same thing, and the reader's stood (`rebaseBoard`): the board says so. */
+/** The blocks where a newer version of the board and the reader's own step had both changed the same thing, and the reader's stood (`rebaseBoard`): the board says so until the reader dismisses it (0). */
 let keptCount = $state(0);
-let keptDismissed = $state(false);
 let versionsOpen = $state(false);
 // The Versions sheet is the Document's own, and loads the first time it is opened.
 let VersionsSheet = $state.raw<
@@ -299,6 +298,15 @@ function clearSavedTimer(): void {
 	savedTimer = null;
 }
 
+/** Says "Saved", and lets it go after a moment. */
+function noteSaved(): void {
+	saveState = "saved";
+	clearSavedTimer();
+	savedTimer = setTimeout(() => {
+		if (saveState === "saved") saveState = "idle";
+	}, SAVED_MS);
+}
+
 function handleSaveResult(result: DocumentAutosaveResult, json: string): void {
 	if (result.ok) {
 		retriedRefusal = null;
@@ -312,15 +320,8 @@ function handleSaveResult(result: DocumentAutosaveResult, json: string): void {
 			droppedCount = lastDropped;
 			noticeDismissed = false;
 		}
-		if (dirty) {
-			saveState = "saving";
-			return;
-		}
-		saveState = "saved";
-		clearSavedTimer();
-		savedTimer = setTimeout(() => {
-			if (saveState === "saved") saveState = "idle";
-		}, SAVED_MS);
+		if (dirty) saveState = "saving";
+		else noteSaved();
 		return;
 	}
 	clearSavedTimer();
@@ -382,7 +383,6 @@ async function load(id: string): Promise<void> {
 			read.dropped.annotations.length;
 		noticeDismissed = false;
 		keptCount = 0;
-		retriedRefusal = null;
 		versionNumber = detail.artifact.versionNumber;
 		knownBodyHash = detail.artifact.bodyHash;
 		latestJson = boardJson(read.body);
@@ -454,53 +454,41 @@ async function refreshBlock(
  * the board drawn is that one, and it is saved as the reader's own step. Answers the
  * board to draw, or null when there is nothing to draw. The version, hash and
  * bookkeeping are taken here, at once; the drawing (a landing) follows, and a second
- * one waits for the first. `refused`: this read follows a save the server refused, so
- * a body that is not the one known is a change even at the same version number
- * (another tab saved in place).
+ * one waits for the first.
  */
-function adoptBoard(
-	detail: ArtifactDetailResponse,
-	options: { refused?: boolean } = {},
-): CanvasBody | null {
+function adoptBoard(detail: ArtifactDetailResponse): CanvasBody | null {
 	try {
 		const stored = detail.artifact.body;
 		const read = normalizeCanvasBody(stored?.trim() ? JSON.parse(stored) : {});
 		const serverJson = boardJson(read.body);
 		// A step still inside the board's settle delay is the reader's too: it is
 		// settled before anything is judged, so a landing never draws over it.
-		boardApi?.flush();
+		const live = boardApi?.flush();
 		const verdict = judgeServerBoard({
 			serverVersion: detail.artifact.versionNumber,
-			knownVersion:
-				options.refused && detail.artifact.bodyHash !== knownBodyHash
-					? null
-					: versionNumber,
+			knownVersion: versionNumber,
 			serverJson,
 			latestJson,
 			savedJson,
 		});
 		if (verdict === "unchanged") return null;
+		const merge = verdict === "conflict";
 		let drawn = read.body;
 		let kept: string[] = [];
-		if (verdict === "conflict") {
+		if (merge) {
 			if (!rebase) {
 				// The code that puts the two together is not here yet (a step was only just
 				// taken, or it could not be fetched): the read is taken up again when it is.
-				void loadRebase().then((loaded) => {
-					if (loaded) adoptServerBoard(detail, options);
-					else if (!autosave.stopped) {
-						saveState = "conflict";
-						autosave.stop();
-					}
-				});
+				void loadRebase().then((loaded) =>
+					loaded ? adoptServerBoard(detail) : autosave.stopped || giveUp(),
+				);
 				return null;
 			}
-			const base = normalizeCanvasBody(JSON.parse(savedJson)).body;
-			const reader =
-				boardApi?.current() ?? normalizeCanvasBody(JSON.parse(latestJson)).body;
-			const rebased = rebase.rebaseBoard(base, read.body, reader);
-			drawn = rebased.body;
-			kept = rebased.kept;
+			({ body: drawn, kept } = rebase.rebaseOnto(
+				savedJson,
+				read.body,
+				live ?? latestJson,
+			));
 		}
 		versionNumber = detail.artifact.versionNumber;
 		knownBodyHash = detail.artifact.bodyHash;
@@ -509,12 +497,9 @@ function adoptBoard(
 		latestJson = boardJson(drawn);
 		setBoardNodes(drawn.nodes);
 		onBodyChange?.(latestJson);
-		if (verdict === "conflict") {
+		if (merge) {
 			// The reader's step is on the board, and not on the server yet: it is theirs to keep.
-			if (kept.length > 0) {
-				keptCount = kept.length;
-				keptDismissed = false;
-			}
+			if (kept.length > 0) keptCount = kept.length;
 			saveState = "saving";
 			onDirtyChange?.(true);
 			autosave.schedule(latestJson);
@@ -526,26 +511,19 @@ function adoptBoard(
 	}
 }
 
+/** The step cannot be put on the newer version (the code for it did not load, or the server holds nothing newer to put it on): the reader is told, and the board stays as it is. */
+function giveUp(): void {
+	saveState = "conflict";
+	autosave.stop();
+}
+
 /** What the comments controller calls after each read of the artifact: a board Alfy changed is drawn as a landing (at once when the parts cannot load). */
-function adoptServerBoard(
-	detail: ArtifactDetailResponse,
-	options: { refused?: boolean } = {},
-): void {
-	const next = adoptBoard(detail, options);
+function adoptServerBoard(detail: ArtifactDetailResponse): void {
+	const next = adoptBoard(detail);
 	if (!next) return;
 	void ensureReview().then((controller) =>
 		controller ? controller.landChange(next) : boardApi?.land(next),
 	);
-}
-
-/** Says "Saved" the way a save that landed does, for a board the server was found to hold already. */
-function noteSaved(): void {
-	saveState = "saved";
-	onDirtyChange?.(false);
-	clearSavedTimer();
-	savedTimer = setTimeout(() => {
-		if (saveState === "saved") saveState = "idle";
-	}, SAVED_MS);
 }
 
 /**
@@ -563,33 +541,29 @@ async function recoverFromRefusal(refusedJson: string): Promise<void> {
 	// has its own save queued: this one is history.
 	if (refusedJson !== latestJson) return;
 	const token = loadToken;
-	let detail: ArtifactDetailResponse;
 	try {
-		detail = await fetchArtifact(artifactId, conversationId);
+		const detail = await fetchArtifact(artifactId, conversationId);
+		if (token !== loadToken || autosave.stopped || refusedJson !== latestJson) {
+			return;
+		}
+		if (detail.artifact.versionNumber === versionNumber) {
+			if (retriedRefusal === refusedJson) {
+				giveUp();
+			} else {
+				retriedRefusal = refusedJson;
+				autosave.schedule(refusedJson);
+			}
+			return;
+		}
+		adoptServerBoard(detail);
+		if (saveState === "saving" && latestJson === savedJson) {
+			onDirtyChange?.(false);
+			noteSaved();
+		}
 	} catch {
 		// It could not be asked: the step is kept, as any save that could not go.
 		if (token === loadToken) saveState = "failed";
-		return;
 	}
-	if (token !== loadToken || autosave.stopped || refusedJson !== latestJson) {
-		return;
-	}
-	if (
-		detail.artifact.versionNumber === versionNumber &&
-		detail.artifact.bodyHash === knownBodyHash
-	) {
-		if (retriedRefusal !== refusedJson) {
-			retriedRefusal = refusedJson;
-			saveState = "saving";
-			autosave.schedule(refusedJson);
-			return;
-		}
-		saveState = "conflict";
-		autosave.stop();
-		return;
-	}
-	adoptServerBoard(detail, { refused: true });
-	if (saveState === "saving" && latestJson === savedJson) noteSaved();
 }
 
 /** The blocks the board has as of a step, a load or a landing: what the comments resolve against, and what still images are taken of. */
@@ -927,7 +901,6 @@ let boardReadonly = $derived(
 	saveState === "conflict" || saveState === "deleted",
 );
 let showDroppedNotice = $derived(droppedCount > 0 && !noticeDismissed);
-let showKeptNotice = $derived(keptCount > 0 && !keptDismissed);
 let banner = $derived<"offline" | "failed" | "conflict" | "tooLarge" | null>(
 	saveState === "offline"
 		? "offline"
@@ -961,7 +934,7 @@ $effect(() => {
 		saveState === "deleted" ||
 		banner !== null ||
 		showDroppedNotice ||
-		showKeptNotice ||
+		keptCount > 0 ||
 		missingBlocks.length > 0
 	) {
 		void import("./state-parts").then(({ CanvasBanners, CanvasStates }) => {
@@ -1043,12 +1016,12 @@ $effect(() => {
 					{#if reviewViews && review}
 						<reviewViews.CanvasReviewNotices controller={review} />
 					{/if}
-					{#if stateViews && (showDroppedNotice || showKeptNotice || banner || missingBlocks.length > 0)}
+					{#if stateViews && (showDroppedNotice || keptCount > 0 || banner || missingBlocks.length > 0)}
 						<stateViews.CanvasBanners
 							{banner}
 							droppedCount={showDroppedNotice ? droppedCount : 0}
-							keptCount={showKeptNotice ? keptCount : 0}
-							ondismisskept={() => (keptDismissed = true)}
+							{keptCount}
+							ondismisskept={() => (keptCount = 0)}
 							{missingBlocks}
 							onretry={retrySave}
 							onreload={() => load(artifactId)}
