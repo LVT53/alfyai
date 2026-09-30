@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { expect, type Page, type Route, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
@@ -1151,4 +1152,154 @@ test.describe("photos and live web on the board", () => {
 		await anonymous.dispose();
 		void request;
 	});
+
+	test("on a phone the menu's search is a 44 px row, a 44 px field and a 44 px button, and the board does not scroll sideways", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const seeded = await seedChat(page);
+		await openChatAndReload(page, seeded.conversationId);
+		await openBoard(page);
+		await openInsertMenu(page);
+
+		const row = menu(page).getByRole("menuitem", { name: "Search the web…" });
+		await row.scrollIntoViewIfNeeded();
+		expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+		await row.click();
+		const field = menu(page).getByRole("textbox", { name: "Search the web" });
+		expect((await field.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+		expect(
+			(await menu(page).getByRole("button", { name: "Search" }).boundingBox())
+				?.height,
+		).toBeGreaterThanOrEqual(44);
+		// Nothing in the sheet pushes the page wider than the phone.
+		expect(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= window.innerWidth,
+			),
+		).toBe(true);
+	});
+});
+
+// Screenshots for the report, not part of the gates: run with S3R2_SHOTS=<dir>.
+const SHOTS = process.env.S3R2_SHOTS;
+test.describe("screenshots of photos and live web", () => {
+	test.skip(
+		!SHOTS,
+		"set S3R2_SHOTS to a folder to write the report's screenshots",
+	);
+
+	// The other specs assume an English UI.
+	test.afterAll(async () => {
+		await setUiLanguage("en");
+	});
+
+	async function build(
+		page: Page,
+		scheme: "light" | "dark",
+		size: [number, number],
+	) {
+		await setUiLanguage("hu");
+		await page.emulateMedia({ colorScheme: scheme });
+		await page.setViewportSize({ width: size[0], height: size[1] });
+		await stubThumbnails(page);
+		await login(page);
+		const seeded = await seedChat(page);
+		await openChatAndReload(page, seeded.conversationId);
+		await openBoard(page);
+		await pickFromChat(page, /beach/, "hu");
+		await pickFromChat(page, new RegExp(FRESH_QUERY), "hu");
+		await pickFromChat(page, new RegExp(OLD_QUERY), "hu");
+		await savedStatus(page).catch(() => undefined);
+		await fitBoard(page);
+		await expect(page.getByTestId("canvas-photo-thumb")).toHaveCount(6);
+		await page.waitForTimeout(800);
+		return seeded;
+	}
+
+	for (const scheme of ["light", "dark"] as const) {
+		test(`the board with photos and live web, Hungarian, ${scheme}, 1440x900`, async ({
+			page,
+		}) => {
+			await build(page, scheme, [1440, 900]);
+			await page.screenshot({
+				path: join(SHOTS as string, `1440-${scheme}-board.png`),
+			});
+		});
+	}
+
+	test("the lightbox, a stale block and a failed refresh, Hungarian, light, 1440x900", async ({
+		page,
+	}) => {
+		await stubRefresh(page, () => ({
+			status: 422,
+			body: { ok: false, reason: "refresh_failed" },
+		}));
+		await build(page, "light", [1440, 900]);
+		await page.getByTestId("canvas-photo-thumb").nth(2).click();
+		await expect(page.getByRole("dialog")).toBeVisible();
+		await page.waitForTimeout(500);
+		await page.screenshot({
+			path: join(SHOTS as string, "1440-light-lightbox.png"),
+		});
+		await page.keyboard.press("Escape");
+		await expect(page.getByRole("dialog")).toHaveCount(0);
+
+		// The stale block's Refresh fails: it says so and keeps what it had.
+		const stale = page
+			.locator('[data-testid="canvas-node"][data-kind="liveweb"]')
+			.filter({ has: page.getByTestId("canvas-liveweb-stale") });
+		await stale.getByRole("button", { name: "Frissítés" }).click();
+		await expect(stale.getByTestId("canvas-liveweb-status")).toHaveText(
+			"Nem sikerült frissíteni ezt a blokkot.",
+		);
+		await page.waitForTimeout(400);
+		await page.screenshot({
+			path: join(SHOTS as string, "1440-light-refresh-failed.png"),
+		});
+	});
+
+	test("the Insert menu with the chat's photo and web searches and the search field, Hungarian, light, 1440x900", async ({
+		page,
+	}) => {
+		await setUiLanguage("hu");
+		await page.emulateMedia({ colorScheme: "light" });
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+		const seeded = await seedChat(page);
+		await openChatAndReload(page, seeded.conversationId);
+		await openBoard(page);
+		await openInsertMenu(page, "hu");
+		await menu(page)
+			.getByRole("menuitem", { name: "Keresés a weben…" })
+			.click();
+		await menu(page)
+			.getByRole("textbox", { name: "Keresés a weben" })
+			.fill("időjárás Budapesten");
+		await page.waitForTimeout(400);
+		await page.screenshot({
+			path: join(SHOTS as string, "1440-light-insert-menu.png"),
+		});
+	});
+
+	for (const scheme of ["light", "dark"] as const) {
+		test(`the board with photos and live web on a phone, Hungarian, ${scheme}, 390x844`, async ({
+			page,
+		}) => {
+			await build(page, scheme, [390, 844]);
+			await page.screenshot({
+				path: join(SHOTS as string, `390-${scheme}-board.png`),
+			});
+			if (scheme === "light") {
+				await openInsertMenu(page, "hu");
+				await menu(page)
+					.getByRole("menuitem", { name: "Keresés a weben…" })
+					.click();
+				await page.waitForTimeout(400);
+				await page.screenshot({
+					path: join(SHOTS as string, "390-light-insert-sheet.png"),
+				});
+			}
+		});
+	}
 });

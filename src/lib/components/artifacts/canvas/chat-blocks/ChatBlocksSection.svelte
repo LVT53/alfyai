@@ -368,7 +368,8 @@ let groups = $derived(
 			min-height: 44px;
 		}
 
-		.chat-blocks__query {
+		.chat-blocks__query,
+		.chat-blocks__search :global(button) {
 			min-height: 44px;
 		}
 	}

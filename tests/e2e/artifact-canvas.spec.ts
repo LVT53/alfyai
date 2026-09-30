@@ -136,12 +136,10 @@ test.describe("the Canvas kind, in the panel", () => {
 		await expect(
 			page.getByRole("checkbox", { name: "Passport: toggle done" }),
 		).toBeChecked();
-		// A kind this build has no component for is drawn as a card that says so,
-		// and stays on the board.
-		await expect(page.locator('[data-missing="true"]')).toHaveCount(1);
-		await expect(
-			page.getByText("This block's type is not supported any more."),
-		).toBeVisible();
+		// A photo block with no photos in it is drawn (every kind has a component
+		// now, so none is drawn as the missing-kind card), says so, and stays on the board.
+		await expect(page.locator('[data-missing="true"]')).toHaveCount(0);
+		await expect(page.getByText("No photos in this block.")).toBeVisible();
 		// The chart is the chat's own: it painted a canvas element.
 		await expect(
 			page.getByTestId("canvas-chart").locator("canvas"),
@@ -339,7 +337,7 @@ test.describe("the Canvas kind, in the panel", () => {
 				{ id: "i2", done: true },
 			],
 		});
-		// The block this build cannot draw (photos) came through the save untouched.
+		// A photo block with no photos in it came through the save untouched.
 		expect(
 			stored.nodes.find((node) => node.id === BOARD.photo)?.data,
 		).toMatchObject({ kind: "photo", items: [] });

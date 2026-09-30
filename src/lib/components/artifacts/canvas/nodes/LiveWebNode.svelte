@@ -270,9 +270,10 @@ async function refresh(): Promise<void> {
 		white-space: nowrap;
 	}
 
+	/* The site is what tells two results apart when their titles run long: it keeps its own room and the title gives way. */
 	.web__host {
-		flex: 0 1 auto;
-		max-width: 40%;
+		flex: 0 0 auto;
+		max-width: 45%;
 		overflow: hidden;
 		color: var(--text-muted);
 		font-size: var(--text-xs);
