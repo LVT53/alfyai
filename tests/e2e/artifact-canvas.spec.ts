@@ -693,6 +693,73 @@ test.describe("the Canvas kind, in the panel", () => {
 		).toBe(true);
 	});
 
+	// RC-3 N7: Insert -> Frame was the one insert that was only staggered off the
+	// blocks' corners, so a new frame landed across the frame that was in the middle
+	// of the view and its notes (a frame is a backdrop, but one laid across another
+	// has to be pulled apart before either can be used). It takes free ground like the
+	// other blocks, clear of the frames too.
+	test("puts an inserted frame on free ground, clear of the frame and the blocks in the middle of the view", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Crowded frames");
+		await seedCanvas(
+			conversationId,
+			{
+				...emptyCanvasBody(),
+				nodes: [
+					{
+						id: "frame-saturday",
+						type: "frame",
+						position: { x: 0, y: 0 },
+						width: 360,
+						height: 260,
+						data: { kind: "frame", label: "Saturday", width: 360, height: 260 },
+					},
+					{
+						id: "note-inside",
+						type: "sticky",
+						position: { x: 24, y: 64 },
+						parentId: "frame-saturday",
+						width: 190,
+						data: { kind: "sticky", text: "Museum, 14:00", tone: "yellow" },
+					},
+					{
+						id: "note-outside",
+						type: "sticky",
+						position: { x: 420, y: 40 },
+						width: 190,
+						data: { kind: "sticky", text: "Dinner, 19:30", tone: "mint" },
+					},
+				],
+			},
+			"Crowded frames",
+		);
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+
+		await openInsertMenu(page);
+		await page.getByTestId("canvas-insert-frame").click();
+		await expect(page.getByTestId("canvas-node")).toHaveCount(4);
+		await page.keyboard.press("Escape");
+
+		const inserted = await page
+			.locator('[data-testid="canvas-node"][data-selected="true"]')
+			.evaluate((el) =>
+				el.closest(".svelte-flow__node")?.getAttribute("data-id"),
+			);
+		if (!inserted) throw new Error("the inserted frame is not selected");
+		const added = await nodeBox(page, inserted);
+		for (const id of ["frame-saturday", "note-inside", "note-outside"]) {
+			const other = await nodeBox(page, id);
+			const apart =
+				added.x + added.width <= other.x ||
+				other.x + other.width <= added.x ||
+				added.y + added.height <= other.y ||
+				other.y + other.height <= added.y;
+			expect(apart, `the inserted frame lies clear of ${id}`).toBe(true);
+		}
+	});
+
 	test("closes the Insert menu on Escape, which hands focus back to Insert, and on a click outside, which leaves focus where the reader clicked", async ({
 		page,
 	}) => {

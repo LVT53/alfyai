@@ -518,7 +518,7 @@ async function insertBlock(
 	// opens: only an insert that beat the load waits for it.
 	const where = placement ?? (await loadPlacement());
 	if (!where || readonly || !boardEl) return;
-	const { placeBesideBlocks, placeInsertedBlock } = where;
+	const { placeBesideBlocks } = where;
 	// Whatever the reader did while it loaded is a step before the insert.
 	commit();
 	const rect = boardEl.getBoundingClientRect();
@@ -529,24 +529,19 @@ async function insertBlock(
 	// A block goes on free ground: laid over another it would hide it and take the
 	// clicks meant for it (a made-from-the-chat block is big, an App is 400 x 340,
 	// and a note's own toolbar sits over what is beneath it). A frame is a backdrop,
-	// not in the way of a block, and a new frame is only staggered off the others.
-	const position =
-		data !== undefined || row.kind !== "frame"
-			? placeBesideBlocks({
-					center,
-					size: row.size,
-					occupied: nodes
-						.filter((node) => !blockEntry(node.type)?.structural)
-						.map((node) => nodeRect(node, nodes, node.measured)),
-					visible: visiblePaneRect(),
-				})
-			: placeInsertedBlock({
-					center,
-					size: row.size,
-					taken: nodes
-						.filter((node) => !node.parentId)
-						.map((node) => node.position),
-				});
+	// so a block may be dropped inside one and keeps off only what is not a frame;
+	// a new frame keeps off everything, frames too, which it would otherwise lie
+	// across and leave the reader to pull apart (RC-3 N7).
+	const position = placeBesideBlocks({
+		center,
+		size: row.size,
+		occupied: nodes
+			.filter(
+				(node) => row.kind === "frame" || !blockEntry(node.type)?.structural,
+			)
+			.map((node) => nodeRect(node, nodes, node.measured)),
+		visible: visiblePaneRect(),
+	});
 	const [added] = toFlowNodes([
 		newBlockNode(row.kind, position, undefined, data),
 	]);
