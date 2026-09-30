@@ -17,7 +17,13 @@ import { formatRelativeTime } from "$lib/utils/time";
 import { buildToolActivityItem } from "$lib/utils/tool-activity";
 import type { Translate } from "$lib/utils/tool-evidence-presentation";
 
-export type ChatBlockKind = "file" | "app" | "map" | "chart";
+export type ChatBlockKind =
+	| "file"
+	| "app"
+	| "map"
+	| "chart"
+	| "photo"
+	| "liveweb";
 
 export interface ChatBlockRow {
 	/** Stable, for a list to key on. */
@@ -176,6 +182,44 @@ export function chatBlockGroups(
 				name: chartName(chart.title, chart.chartType, translate),
 				meta: formatRelativeTime(chart.at, { t: translate }),
 				data: chart.data,
+			})),
+		});
+	}
+
+	if (listing.photos.length > 0) {
+		groups.push({
+			kind: "photo",
+			label: translate("artifacts.canvas.chat.photos"),
+			rows: listing.photos.map((search) => ({
+				key: search.key,
+				kind: "photo",
+				name: search.query ?? translate("artifacts.canvas.chat.photoSearch"),
+				meta: [
+					translate("artifacts.canvas.chat.photoCount", {
+						count: search.data.items.length,
+					}),
+					formatRelativeTime(search.at, { t: translate }),
+				].join(SEPARATOR),
+				data: search.data,
+			})),
+		});
+	}
+
+	if (listing.searches.length > 0) {
+		groups.push({
+			kind: "liveweb",
+			label: translate("artifacts.canvas.chat.searches"),
+			rows: listing.searches.map((search) => ({
+				key: search.key,
+				kind: "liveweb",
+				name: search.data.query,
+				meta: [
+					translate("artifacts.canvas.chat.sourceCount", {
+						count: search.data.sources.length,
+					}),
+					formatRelativeTime(search.at, { t: translate }),
+				].join(SEPARATOR),
+				data: search.data,
 			})),
 		});
 	}

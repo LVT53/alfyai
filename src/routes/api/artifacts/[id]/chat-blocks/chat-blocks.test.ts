@@ -44,6 +44,8 @@ const LISTING = {
 	apps: [],
 	maps: [],
 	charts: [],
+	photos: [],
+	searches: [],
 };
 
 describe("GET /api/artifacts/[id]/chat-blocks", () => {

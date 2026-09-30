@@ -90,15 +90,46 @@ export interface ChatChartBlock {
 	data: BlockData<"chart">;
 }
 
+export interface ChatPhotoBlock {
+	key: string;
+	at: number;
+	/** What was looked for, in the model's own words: the query, else the person, else the place. Null when the search named none. */
+	query: string | null;
+	/**
+	 * Exactly what a photo block stores: the photos the search found, each as the
+	 * app's own thumbnail address. Never a file name or a description: the chat keeps
+	 * those for the reader's own screen, and a board can be read to a model.
+	 */
+	data: BlockData<"photo">;
+}
+
+export interface ChatSearchBlock {
+	key: string;
+	/** When the chat ran the search: the age the block starts with. */
+	at: number;
+	/** Exactly what a live-web block stores: the search's own query, its sources, and when it ran. */
+	data: BlockData<"liveweb">;
+}
+
 /** What the listing route answers, grouped by kind, each group newest first and bounded. */
 export interface CanvasChatBlocks {
 	files: ChatFileBlock[];
 	apps: ChatAppBlock[];
 	maps: ChatMapBlock[];
 	charts: ChatChartBlock[];
+	photos: ChatPhotoBlock[];
+	/** The web searches the chat ran (`research_web`), each with the sources it returned. */
+	searches: ChatSearchBlock[];
 }
 
 /** A listing with nothing in it (a board that belongs to no chat, a chat that has made nothing). */
 export function emptyChatBlocks(): CanvasChatBlocks {
-	return { files: [], apps: [], maps: [], charts: [] };
+	return {
+		files: [],
+		apps: [],
+		maps: [],
+		charts: [],
+		photos: [],
+		searches: [],
+	};
 }

@@ -1,8 +1,9 @@
 // "From this chat" (Feature 2 · Canvas): what a board's own conversation has
 // that can be put on the board — its produced and attached files, its Apps, the
-// route maps its `map_route` calls returned and the charts its replies drew —
+// route maps its `map_route` calls returned, the charts its replies drew, the
+// photos its photo searches found and the sources its web searches returned —
 // newest first, a few of each. The Insert menu offers them; a pick becomes a
-// File, App, map or chart block.
+// File, App, map, chart, photo or live-web block.
 //
 // This is a second way to read a conversation's work, so it reads nothing the
 // artifact routes could not: the board is resolved through THE scoped read
@@ -23,9 +24,19 @@ import { listMessageWindow } from "$lib/server/services/messages";
 import type {
 	ChatAttachment,
 	ChatMessage,
+	ThinkingSegment,
 } from "$lib/server/services/messages-types";
 import { classifyMarkdownBlocks } from "$lib/services/markdown-blocks";
+import {
+	isHttpSourceUrl,
+	isPhotoProxyPath,
+} from "$lib/shared/artifacts/block-urls";
 import { BLOCK_DATA_SCHEMAS } from "$lib/shared/artifacts/canvas-blocks";
+import {
+	LABEL_MAX_CHARS,
+	PHOTO_MAX_ITEMS,
+	SOURCES_MAX,
+} from "$lib/shared/artifacts/canvas-limits";
 import {
 	attachedFileId,
 	type CanvasChatBlocks,
@@ -35,9 +46,13 @@ import {
 	type ChatChartBlock,
 	type ChatFileBlock,
 	type ChatMapBlock,
+	type ChatPhotoBlock,
+	type ChatSearchBlock,
 	emptyChatBlocks,
 } from "$lib/shared/artifacts/chat-blocks";
+import type { ArtifactSource } from "$lib/shared/artifacts/sources";
 import { fileExtension } from "$lib/shared/file-types";
+import { immichThumbnailUrl } from "$lib/utils/tool-evidence-presentation";
 import { listArtifactsForConversation } from "./read-model";
 import { kindForArtifactRow, readScopedArtifactRow } from "./record";
 import type { ArtifactScopeOptions } from "./types";
@@ -257,34 +272,209 @@ function chartsIn(
 	return charts;
 }
 
-/** Route maps and charts, read from the chat's newest messages: what the chat itself drew. */
-async function listDrawn(
-	conversationId: string,
-): Promise<Pick<CanvasChatBlocks, "maps" | "charts">> {
+type ToolCall = Extract<ThinkingSegment, { type: "tool_call" }>;
+
+/** A finished call of one tool that did not report a failure (a failed call is persisted as "done" too). */
+function finishedCall(
+	segment: ThinkingSegment,
+	name: string,
+): segment is ToolCall {
+	return (
+		segment.type === "tool_call" &&
+		segment.name === name &&
+		segment.status === "done" &&
+		segment.metadata?.ok !== false
+	);
+}
+
+function firstText(
+	input: Record<string, unknown> | undefined,
+	keys: readonly string[],
+): string | null {
+	for (const key of keys) {
+		const value = input?.[key];
+		if (typeof value === "string" && value.trim().length > 0) {
+			return value.trim().slice(0, 200);
+		}
+	}
+	return null;
+}
+
+/**
+ * The photos one search found, as the chat's own strip reads them: each result
+ * carries the path of its Immich thumbnail, which the chat maps to the app's own
+ * proxy (`immichThumbnailUrl`). Whatever else a result carries (a file name, a
+ * description) stays in the chat: the block holds the address and the asset id,
+ * so a board that is read to a model discloses no more than the tool's own
+ * structural fields do.
+ */
+function photoItems(call: ToolCall): { id: string; imageUrl: string }[] {
+	const seen = new Set<string>();
+	const items: { id: string; imageUrl: string }[] = [];
+	for (const candidate of call.candidates ?? []) {
+		const imageUrl = immichThumbnailUrl(candidate.metadata?.thumbnailPath);
+		if (!imageUrl || !isPhotoProxyPath(imageUrl)) continue;
+		const id = imageUrl.slice(imageUrl.lastIndexOf("/") + 1);
+		if (id.length > 128 || seen.has(id)) continue;
+		seen.add(id);
+		items.push({ id, imageUrl });
+		if (items.length >= PHOTO_MAX_ITEMS) break;
+	}
+	return items;
+}
+
+/** The photo searches a reply ran, newest call first. */
+function photosIn(message: ChatMessage): ChatPhotoBlock[] {
+	const segments = message.thinkingSegments ?? [];
+	const photos: ChatPhotoBlock[] = [];
+	for (let index = segments.length - 1; index >= 0; index -= 1) {
+		const segment = segments[index];
+		if (!finishedCall(segment, "photos")) continue;
+		const items = photoItems(segment);
+		if (items.length === 0) continue;
+		const parsed = BLOCK_DATA_SCHEMAS.photo.safeParse({ kind: "photo", items });
+		if (!parsed.success) continue;
+		photos.push({
+			key: `photos:${message.id}:${segment.callId ?? index}`,
+			at: message.timestamp,
+			query: firstText(segment.input, [
+				"query",
+				"personName",
+				"city",
+				"country",
+			]),
+			data: parsed.data,
+		});
+	}
+	return photos;
+}
+
+function textOr(value: unknown, fallback: string): string {
+	return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
+/**
+ * The sources a web search returned, as a block keeps them (`ArtifactSource`,
+ * the web-grounding payload's own shape). A candidate is what the tool
+ * persisted of a source, so what an older record lacks is filled with the same
+ * neutral values the payload would have carried. A link that is not a web
+ * address is left out (the block's schema would drop the whole block for it),
+ * and a page read that returned a source again does not list it twice.
+ */
+function searchSources(call: ToolCall): ArtifactSource[] {
+	const seen = new Set<string>();
+	const sources: ArtifactSource[] = [];
+	for (const candidate of call.candidates ?? []) {
+		if (candidate.sourceType !== "web") continue;
+		const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
+		if (!isHttpSourceUrl(url) || seen.has(url)) continue;
+		seen.add(url);
+		const meta = candidate.metadata ?? {};
+		const snippet =
+			typeof candidate.snippet === "string" && candidate.snippet.length > 0
+				? candidate.snippet
+				: null;
+		sources.push({
+			id: candidate.id,
+			title: textOr(candidate.title, url),
+			url,
+			provider: textOr(meta.provider, ""),
+			authorityClass: textOr(meta.authorityClass, "unknown"),
+			authorityScore:
+				typeof meta.authorityScore === "number" ? meta.authorityScore : 0,
+			publishedAt:
+				typeof meta.publishedAt === "string" ? meta.publishedAt : null,
+			updatedAt: typeof meta.updatedAt === "string" ? meta.updatedAt : null,
+			...(snippet ? { snippet } : {}),
+		});
+		if (sources.length >= SOURCES_MAX) break;
+	}
+	return sources;
+}
+
+/** A query as the chat would count it the same one: case and runs of spaces do not tell two searches apart. */
+function queryKey(query: string): string {
+	return query.replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * The web searches a reply ran, newest call first. A search is a block that a
+ * refresh re-runs, so its query is stored whole: a call with no query, or one
+ * longer than a block keeps, is not offered. A query the chat searched more
+ * than once is one row, at its newest run (`seenQueries` carries that across
+ * replies, which are read newest first).
+ */
+function searchesIn(
+	message: ChatMessage,
+	seenQueries: Set<string>,
+): ChatSearchBlock[] {
+	const segments = message.thinkingSegments ?? [];
+	const searches: ChatSearchBlock[] = [];
+	for (let index = segments.length - 1; index >= 0; index -= 1) {
+		const segment = segments[index];
+		if (!finishedCall(segment, "research_web")) continue;
+		const rawQuery = segment.input?.query;
+		if (typeof rawQuery !== "string") continue;
+		const query = rawQuery.trim();
+		if (query.length === 0 || query.length > LABEL_MAX_CHARS) continue;
+		if (seenQueries.has(queryKey(query))) continue;
+		const sources = searchSources(segment);
+		if (sources.length === 0) continue;
+		const parsed = BLOCK_DATA_SCHEMAS.liveweb.safeParse({
+			kind: "liveweb",
+			query,
+			sources,
+			fetchedAt: message.timestamp,
+		});
+		if (!parsed.success) continue;
+		seenQueries.add(queryKey(query));
+		searches.push({
+			key: `search:${message.id}:${segment.callId ?? index}`,
+			at: message.timestamp,
+			data: parsed.data,
+		});
+	}
+	return searches;
+}
+
+type Drawn = Pick<CanvasChatBlocks, "maps" | "charts" | "photos" | "searches">;
+
+/** What the chat itself drew or found, read from its newest messages: route maps, charts, photo searches and web searches. */
+async function listDrawn(conversationId: string): Promise<Drawn> {
 	const [{ messages }, lex] = await Promise.all([
 		listMessageWindow(conversationId, { limit: CHAT_BLOCKS_SCAN_MESSAGES }),
 		loadLexer(),
 	]);
-	const maps: ChatMapBlock[] = [];
-	const charts: ChatChartBlock[] = [];
+	const drawn: Drawn = { maps: [], charts: [], photos: [], searches: [] };
 	const seenCode = new Set<string>();
+	const seenQueries = new Set<string>();
+	const full = () =>
+		drawn.maps.length >= CHAT_BLOCKS_PER_KIND &&
+		drawn.charts.length >= CHAT_BLOCKS_PER_KIND &&
+		drawn.photos.length >= CHAT_BLOCKS_PER_KIND &&
+		drawn.searches.length >= CHAT_BLOCKS_PER_KIND;
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
 		if (message.role !== "assistant") continue;
-		if (maps.length < CHAT_BLOCKS_PER_KIND) maps.push(...mapsIn(message));
-		if (charts.length < CHAT_BLOCKS_PER_KIND) {
-			charts.push(...chartsIn(message, lex, seenCode));
+		if (drawn.maps.length < CHAT_BLOCKS_PER_KIND) {
+			drawn.maps.push(...mapsIn(message));
 		}
-		if (
-			maps.length >= CHAT_BLOCKS_PER_KIND &&
-			charts.length >= CHAT_BLOCKS_PER_KIND
-		) {
-			break;
+		if (drawn.charts.length < CHAT_BLOCKS_PER_KIND) {
+			drawn.charts.push(...chartsIn(message, lex, seenCode));
 		}
+		if (drawn.photos.length < CHAT_BLOCKS_PER_KIND) {
+			drawn.photos.push(...photosIn(message));
+		}
+		if (drawn.searches.length < CHAT_BLOCKS_PER_KIND) {
+			drawn.searches.push(...searchesIn(message, seenQueries));
+		}
+		if (full()) break;
 	}
 	return {
-		maps: maps.slice(0, CHAT_BLOCKS_PER_KIND),
-		charts: charts.slice(0, CHAT_BLOCKS_PER_KIND),
+		maps: drawn.maps.slice(0, CHAT_BLOCKS_PER_KIND),
+		charts: drawn.charts.slice(0, CHAT_BLOCKS_PER_KIND),
+		photos: drawn.photos.slice(0, CHAT_BLOCKS_PER_KIND),
+		searches: drawn.searches.slice(0, CHAT_BLOCKS_PER_KIND),
 	};
 }
 

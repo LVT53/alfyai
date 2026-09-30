@@ -19,6 +19,8 @@ import {
 	CHECKLIST_ITEM_MAX_CHARS,
 	CHECKLIST_MAX_ITEMS,
 	LABEL_MAX_CHARS,
+	PHOTO_MAX_ITEMS,
+	SOURCES_MAX,
 	TEXT_MAX_CHARS,
 } from "./canvas-limits";
 import type { ArtifactSource } from "./sources";
@@ -35,8 +37,6 @@ export {
 
 const CHART_CODE_MAX_CHARS = 100_000;
 const ID_MAX_CHARS = 128;
-const PHOTO_MAX_ITEMS = 50;
-const SOURCES_MAX = 50;
 
 /**
  * What a node that stores no size of its own is taken to occupy until the

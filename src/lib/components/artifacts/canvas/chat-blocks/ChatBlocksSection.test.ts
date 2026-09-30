@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
+import {
+	type CanvasChatBlocks,
+	emptyChatBlocks,
+} from "$lib/shared/artifacts/chat-blocks";
 import { uiLanguage } from "$lib/stores/settings";
 import ChatBlocksSection from "./ChatBlocksSection.svelte";
 
@@ -57,9 +60,11 @@ const LISTING: CanvasChatBlocks = {
 			data: { kind: "chart", code: '{"type":"bar"}' },
 		},
 	],
+	photos: [],
+	searches: [],
 };
 
-const EMPTY: CanvasChatBlocks = { files: [], apps: [], maps: [], charts: [] };
+const EMPTY: CanvasChatBlocks = emptyChatBlocks();
 
 function mount(load: () => Promise<CanvasChatBlocks>, onpick = vi.fn()) {
 	// The menu hands the section its glyphs; a test that does not care gives none.

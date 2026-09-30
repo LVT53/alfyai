@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
+import {
+	type CanvasChatBlocks,
+	emptyChatBlocks,
+} from "$lib/shared/artifacts/chat-blocks";
 import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasChatContext } from "./_lib/chat-context";
 import WithChat from "./_test/WithChat.svelte";
@@ -41,6 +44,8 @@ const LISTING: CanvasChatBlocks = {
 	],
 	maps: [],
 	charts: [],
+	photos: [],
+	searches: [],
 };
 
 function mount(chat: CanvasChatContext, onpick = vi.fn()) {
@@ -152,7 +157,7 @@ describe("From this chat, in the menu", () => {
 	it("says the chat has nothing, quietly, and still offers every written row", async () => {
 		mount({
 			conversationId: "conv-1",
-			load: async () => ({ files: [], apps: [], maps: [], charts: [] }),
+			load: async () => emptyChatBlocks(),
 		});
 		expect(
 			await screen.findByText("Nothing from this chat to insert yet."),
