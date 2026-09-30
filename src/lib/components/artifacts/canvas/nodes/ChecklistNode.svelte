@@ -107,6 +107,7 @@ function add(): void {
 					<button
 						type="button"
 						class="row__remove nodrag"
+						data-export-skip
 						aria-label={$t("artifacts.canvas.checklistRemove")}
 						title={$t("artifacts.canvas.checklistRemove")}
 						onclick={() => remove(index)}
@@ -118,7 +119,7 @@ function add(): void {
 		{/each}
 	</ul>
 	{#if editable && !full}
-		<div class="add">
+		<div class="add" data-export-skip>
 			<input
 				type="text"
 				class="add__input nodrag"
