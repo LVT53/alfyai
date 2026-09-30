@@ -841,3 +841,19 @@ token fix is merged (S3-Y). Slides' merge must unify S4-V's `turnContext` seam w
   route). Test conversations kept: `a29accd1…`, `153f2a94…`, `652b16de…`.
 - **Stopped for the owner's check (M1).** Next after it (ruling 69): the tours for Document, App and Canvas, and hiding the
   Knowledge tab's "Slides" chip.
+
+### Owner's walk of the Canvas (2026-09-30, late) → fixes before the tours
+
+The owner: "I can't undo actions." · "I'd also like a new option added, to multi-select elements on the canvas and move
+them/resize them together." · "All other chart types that would load in chat do not load inside the canvases." ·
+"sometimes the 'Keep Undo' row moves into weird locations far from the element." · "what's the point of adding canvas
+elements into bigger groups if I can't even select the group when I click inside it's empty areas or even move it/resize
+it anywhere? Fix these gaps too."
+
+| Agent | Scope | Branch / worktree (port) | State |
+|---|---|---|---|
+| OW-1 | Undo (reproduce, root cause), the pill beside what changed, frames selectable by their empty area, draggable with their children, resizable on every edge | `fix/canvas-owner-walk-1` / `art-ow1` (5610) | dispatched |
+| OW-C | every chart type the chat draws also draws on the board (inventory, the cause, one e2e per type) | `fix/canvas-owner-walk-charts` / `art-owc` (5620) | dispatched |
+| OW-2 | multi-select (shift/⌘-click, a marquee), move, resize and delete together | — | after OW-1 |
+
+Weekly budget 89 % at dispatch; these fixes take it to ~95 %; the tours wait for the reset (2026-10-05 09:00 UTC).
