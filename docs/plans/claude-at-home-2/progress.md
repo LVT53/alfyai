@@ -801,8 +801,9 @@ tunnel is running.
    suite, push `dev`, deploy the dev environment (command in `wave-3-handoff.md` §Tools), health check.
 3. Live check with the real model on ai.dev, without writing a file on the box:
    `ssh -T alfyroot 'set -a; . /root/verify-harness.env; set +a; BASE=http://127.0.0.1:3002 node --input-type=module -' < …/scratchpad/w3/verify-canvas-w3.mjs`
-   (the script was written by RC-3 and checked against the Wave 2 script's routes; it is in this session's scratchpad
-   `w3/` — copy it into `docs/plans/claude-at-home-2/wave-3/` before the scratchpad goes).
+   (the script was written by RC-3 and checked against the Wave 2 script's routes; it lives **outside the repo** in
+   `~/.cache/alfyai-artifacts/live-checks/` with its offline self-test — a copy under `docs/` counted as two Fallow
+   unused files).
 4. Tell the owner what to look at on ai.dev (M1) and stop for their check.
 5. Then (ruling 69): **the tours** (Slice 6 remainder: merge `feat/artifacts-s6` — migration `1777140000112` — and build
    T3/T4/T6/T7 for three kinds: Document, App, Canvas), and hide the Knowledge tab's "Slides" chip. Slides stays shelved
