@@ -489,25 +489,94 @@ test.describe("a frame is a group a reader can grab", () => {
 	});
 });
 
-test.describe("on a phone", () => {
-	test.use({ viewport: { width: 390, height: 844 } });
+test.describe("under a finger, on a phone", () => {
+	test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
-	test("a tap in the frame's empty area selects it, and its edge handles can be grabbed", async ({
+	type Touch = { x: number; y: number };
+
+	/** One finger, through the browser's own touch input: down, along a straight line in steps, up. */
+	async function drag(page: Page, from: Touch, to: Touch, steps = 10) {
+		const client = await page.context().newCDPSession(page);
+		await client.send("Input.dispatchTouchEvent", {
+			type: "touchStart",
+			touchPoints: [{ ...from, id: 1 }],
+		});
+		for (let step = 1; step <= steps; step += 1) {
+			const t = step / steps;
+			await client.send("Input.dispatchTouchEvent", {
+				type: "touchMove",
+				touchPoints: [
+					{
+						x: from.x + (to.x - from.x) * t,
+						y: from.y + (to.y - from.y) * t,
+						id: 1,
+					},
+				],
+			});
+		}
+		await client.send("Input.dispatchTouchEvent", {
+			type: "touchEnd",
+			touchPoints: [],
+		});
+		await client.detach();
+	}
+
+	async function tapEmptyGround(page: Page) {
+		const box = await nodeBox(page, FRAME);
+		// On a narrow pane the frame runs past the edge: aim at the empty ground right of the notes.
+		await page.touchscreen.tap(box.x + 300, box.y + 60);
+		await expect.poll(() => selectedIds(page)).toEqual([FRAME]);
+	}
+
+	test("a tap in the frame's empty ground selects it", async ({ page }) => {
+		await openBoard(page);
+		expect(
+			await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
+		).toBe(true);
+		await tapEmptyGround(page);
+		await expect(
+			frameNode(page).locator(".svelte-flow__resize-control.line"),
+		).toHaveCount(4);
+	});
+
+	test("a finger drags the selected frame by its body, with its notes", async ({
+		page,
+	}) => {
+		const artifactId = await openBoard(page);
+		const before = await boxes(page);
+		await tapEmptyGround(page);
+		const from = { x: before.frame.x + 300, y: before.frame.y + 250 };
+		await drag(page, from, { x: from.x - 40, y: from.y + 50 });
+		await savedStatus(page);
+		const after = await boxes(page);
+		const dx = after.frame.x - before.frame.x;
+		const dy = after.frame.y - before.frame.y;
+		expect(dx).toBeLessThan(-25);
+		expect(dy).toBeGreaterThan(30);
+		expect(after.a.x - before.a.x).toBeCloseTo(dx, 0);
+		expect(after.b.y - before.b.y).toBeCloseTo(dy, 0);
+		const saved = await storedBoard(artifactId);
+		expect(saved.nodes.find((node) => node.id === NOTE_A)?.position).toEqual({
+			x: 24,
+			y: 48,
+		});
+	});
+
+	test("a finger resizes it from a side, whose strip is as tall as a fingertip", async ({
 		page,
 	}) => {
 		await openBoard(page);
-		const box = await nodeBox(page, FRAME);
-		// On a narrow pane the board is fitted; aim at the frame's right-hand empty ground.
-		await page.mouse.click(box.x + box.width * 0.88, box.y + box.height * 0.3);
-		await expect.poll(() => selectedIds(page)).toEqual([FRAME]);
-		const handle = frameNode(page).locator(
-			".svelte-flow__resize-control.line.bottom",
-		);
-		await expect(handle).toHaveCount(1);
-		const at = await handle.boundingBox();
-		expect(at?.height ?? 0).toBeGreaterThanOrEqual(10);
-		await page.screenshot({
-			path: "/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/cabde459-204b-43f4-96fb-60f3639a68a8/scratchpad/w3/shots/ow1/frame-phone-selected.png",
-		});
+		const before = await nodeBox(page, FRAME);
+		await tapEmptyGround(page);
+		const strip = await frameNode(page)
+			.locator(".svelte-flow__resize-control.line.bottom")
+			.boundingBox();
+		if (!strip) throw new Error("no bottom strip");
+		expect(strip.height).toBeGreaterThanOrEqual(43);
+		const from = grabPoint(strip, "bottom");
+		await drag(page, from, { x: from.x, y: from.y + 60 });
+		await expect
+			.poll(async () => (await nodeBox(page, FRAME)).height)
+			.toBeGreaterThan(before.height + 30);
 	});
 });
