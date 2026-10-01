@@ -26,6 +26,8 @@ export interface CanvasBoardContext {
 	takeEditRequest(id: string): boolean;
 	/** The frame the block being dragged would join if it were dropped now (it wears a highlight), or null. */
 	readonly dropTargetId: string | null;
+	/** Several blocks are picked and one box stands for them: a picked block shows no corners, anchors or toolbar of its own. */
+	readonly grouped?: boolean;
 	/** Set only while a picture of the board is being taken: what stands in for this block's live content, or null (the live board). */
 	picture?(id: string): BlockPicture | null;
 	/** True while this block's last still image could not be made: its meta line says so. */

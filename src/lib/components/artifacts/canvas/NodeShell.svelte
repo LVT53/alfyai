@@ -240,11 +240,11 @@ function reportBroken(error: unknown): void {
 			id={anchor.id}
 			type={anchor.type}
 			position={anchor.position}
-			class={["canvas-anchor", selected && editable && "canvas-anchor--shown"]}
+			class={["canvas-anchor", selected && editable && !board.grouped && "canvas-anchor--shown"]}
 		/>
 	{/each}
 
-	{#if selected && editable}
+	{#if selected && editable && !board.grouped}
 		{#if chrome === "frame"}
 			<!-- The sides first, so a corner (drawn after them) is on top where they meet. -->
 			{#each SIDES as side (side)}

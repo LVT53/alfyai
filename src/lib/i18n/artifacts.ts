@@ -711,6 +711,11 @@ const artifactsDict = {
 		"artifacts.canvas.ask.busy":
 			"Alfy is still arranging. Try again in a moment.",
 		"artifacts.canvas.selection.label": "Selection",
+		// Several blocks picked at once (OW-2): the box's toolbar, and what a long press says.
+		"artifacts.canvas.group.label": "{count} blocks selected",
+		"artifacts.canvas.group.delete": "Delete {count} blocks",
+		"artifacts.canvas.group.touchHint":
+			"Selection started. Tap blocks to add or remove them.",
 		"artifacts.canvas.comment.newOnMany":
 			"New comment on: {target} and {count} more",
 		"artifacts.canvas.comment.newOnBoard": "New comment on: the whole board",
@@ -1396,6 +1401,11 @@ const artifactsDict = {
 		"artifacts.canvas.ask.busy":
 			"Alfy még rendezi a táblát. Próbáld újra egy pillanat múlva.",
 		"artifacts.canvas.selection.label": "Kijelölés",
+		// Egyszerre kijelölt blokkok (OW-2): a keret eszköztára és amit a hosszú érintés mond.
+		"artifacts.canvas.group.label": "{count} blokk kijelölve",
+		"artifacts.canvas.group.delete": "{count} blokk törlése",
+		"artifacts.canvas.group.touchHint":
+			"A kijelölés elindult. Koppints a blokkokra a hozzáadáshoz vagy az elvételhez.",
 		// Kettőspont köti a célhoz: a cél egy blokk saját szövege, toldalék nélkül.
 		"artifacts.canvas.comment.newOnMany":
 			"Új megjegyzés ehhez: {target} és még {count}",

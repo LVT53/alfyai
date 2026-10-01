@@ -79,7 +79,21 @@ let shown = $derived(
 		!dragging &&
 		dismissedKey !== key,
 );
-let box = $derived(shown ? boxOf(selected, nodes) : null);
+// Several picked blocks wear the group box, 9 px out, and its handles, which reach
+// a little further: the pill hangs clear of them.
+const GROUP_REACH = 9 + 6;
+let reach = $derived(selected.length < 2 ? 0 : GROUP_REACH);
+let box = $derived.by(() => {
+	const around = shown ? boxOf(selected, nodes) : null;
+	if (!around || reach === 0) return around;
+	const out = reach / (viewport.zoom || 1);
+	return {
+		x: around.x - out,
+		y: around.y - out,
+		width: around.width + out * 2,
+		height: around.height + out * 2,
+	};
+});
 // What the pane shows of the pill, measured (a phone's is taller and a Hungarian
 // label wider): the placement keeps the whole of it inside the pane.
 let measuredPill = $state.raw({ width: 0, height: 0 });
