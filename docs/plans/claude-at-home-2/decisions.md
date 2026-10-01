@@ -713,6 +713,10 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
   parts' shared chunks — **not** the chunks the chat route has already loaded. Opened from a cold page that has not
   loaded the chat's Mermaid path, a board downloads 84.4 KiB gzip; the usual path (a board opened from its chat) is the
   measured one.
+- **The chat-route baseline moved once, 2026-10-01 (OW-C), by a measured 1,112 B gzip (535,771 → 536,883):** the diagram
+  block's names in both languages live in the dictionary the chat loads (+463 B) and the chat's own Mermaid component now
+  shares a chunk with the board's diagram block, as Chart.js's already did. A move of this baseline needs the same:
+  measured on one machine against the commit before, the reason in the commit message.
 
 ## 69. Slides is shelved; the tours come next
 
