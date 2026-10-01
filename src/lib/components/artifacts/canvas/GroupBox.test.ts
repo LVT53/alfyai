@@ -3,6 +3,7 @@ import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasNode } from "$lib/shared/artifacts/canvas";
 import { uiLanguage } from "$lib/stores/settings";
+import { isTextEntry } from "./_lib/history-keys";
 import GroupBox from "./GroupBox.svelte";
 
 // The box round several picked blocks, on its own, on a board whose screen and board
@@ -68,6 +69,7 @@ function mount(props: Record<string, unknown> = {}) {
 		viewport: { x: 0, y: 0, zoom: 1 },
 		size: { width: 1000, height: 800 },
 		coarse: false,
+		typing: isTextEntry,
 		...callbacks,
 		...props,
 	} as never);
@@ -191,10 +193,11 @@ describe("a handle", () => {
 			string,
 			{ position: { x: number; y: number }; width: number; height: number }
 		>;
-		expect(restored.get("b")).toEqual({
+		expect(restored.get("b")).toMatchObject({
 			position: { x: 400, y: 100 },
 			width: 200,
 			height: 100,
+			measured: { width: 200, height: 100 },
 		});
 		expect(onresizeend).toHaveBeenCalledTimes(1);
 		// Escape cancelled the gesture and nothing more: the selection stays.

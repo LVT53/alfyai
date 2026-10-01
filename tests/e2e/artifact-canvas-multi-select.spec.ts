@@ -321,6 +321,33 @@ test.describe("selecting several blocks", () => {
 	});
 });
 
+test.describe("panning stays where it was", () => {
+	test("Space and a drag, and the middle button, pan the board and pick nothing", async ({
+		page,
+	}) => {
+		await open(page, notesBoard());
+		const boxes = await boxesOf(page, ["a", "d"]);
+		const from = { x: boxes.a.x - 30, y: boxes.d.y + boxes.d.height + 60 };
+		const before = await cameraOf(page);
+		await page.keyboard.down("Space");
+		await dragBetween(page, from, { x: from.x + 90, y: from.y + 40 });
+		await page.keyboard.up("Space");
+		const afterSpace = await cameraOf(page);
+		expect(afterSpace.x - before.x).toBeGreaterThan(60);
+		expect(afterSpace.y - before.y).toBeGreaterThan(20);
+		expect(await selectedIds(page)).toEqual([]);
+
+		await page.mouse.move(from.x, from.y);
+		await page.mouse.down({ button: "middle" });
+		await page.mouse.move(from.x - 70, from.y - 30, { steps: 10 });
+		await page.mouse.up({ button: "middle" });
+		const afterMiddle = await cameraOf(page);
+		expect(afterSpace.x - afterMiddle.x).toBeGreaterThan(40);
+		expect(afterSpace.y - afterMiddle.y).toBeGreaterThan(15);
+		expect(await selectedIds(page)).toEqual([]);
+	});
+});
+
 test.describe("the box around several blocks", () => {
 	test("two selected blocks get one box with eight handles, and give up their own corners and toolbars", async ({
 		page,
@@ -888,6 +915,9 @@ test.describe("on a phone", () => {
 			expect(handle?.width).toBeGreaterThanOrEqual(43);
 			expect(handle?.height).toBeGreaterThanOrEqual(43);
 		}
+		const trash = await page.getByTestId("canvas-group-delete").boundingBox();
+		expect(trash?.width).toBeGreaterThanOrEqual(43);
+		expect(trash?.height).toBeGreaterThanOrEqual(43);
 		// The two blocks are 70 px tall: no room for a left and right handle between the corners.
 		await expect(groupHandle(page, "e")).toHaveCount(0);
 		await expect(groupHandle(page, "w")).toHaveCount(0);

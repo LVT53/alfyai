@@ -22,7 +22,6 @@
 import { Trash2 } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
-import { isTextEntry } from "./_lib/history-keys";
 import {
 	type Group,
 	type GroupHandle,
@@ -30,13 +29,20 @@ import {
 	resizeGroup,
 } from "./_lib/group-scale";
 
-type Geometry = { position: Pt; width?: number; height?: number };
+/** What a block is given: its place and size, and the size as measured (what the library would find on its next look, so the box never reads a stale one). */
+type Geometry = {
+	position: Pt;
+	width?: number;
+	height?: number;
+	measured?: { width: number; height: number };
+};
 
 let {
 	nodes,
 	viewport,
 	size,
 	coarse,
+	typing,
 	onresizestart,
 	onresize,
 	onresizeend,
@@ -51,6 +57,8 @@ let {
 	size: { width: number; height: number };
 	/** A finger: handles are 44 px, and an edge too short for two of them has none. */
 	coarse: boolean;
+	/** Whether a key's target is a field the reader types words in (`isTextEntry`, handed over so this part never imports a module the editor shares: it would be split out of the editor's chunk). */
+	typing: (target: EventTarget | null) => boolean;
 	/** A handle is held: the board waits before calling what changed a step. */
 	onresizestart: () => void;
 	/** Puts these places and sizes on the blocks (each in the space it is stored in). */
@@ -181,6 +189,7 @@ function begin(event: PointerEvent, handle: GroupHandle): void {
 				position: node.position,
 				width: node.width,
 				height: node.height,
+				measured: node.measured,
 			});
 		}
 	}
@@ -204,7 +213,14 @@ function drag(event: PointerEvent): void {
 		y: (event.clientY - gesture.y) / zoom,
 	});
 	gesture = { ...gesture, box: next.box };
-	onresize(next.patches);
+	onresize(
+		new Map(
+			[...next.patches].map(([id, patch]) => [
+				id,
+				{ ...patch, measured: { width: patch.width, height: patch.height } },
+			]),
+		),
+	);
 }
 
 function finish(event: PointerEvent): void {
@@ -243,7 +259,7 @@ function handleKeydown(event: KeyboardEvent): void {
 		cancel();
 		return;
 	}
-	if (isTextEntry(event.target) || !insideBoard()) return;
+	if (typing(event.target) || !insideBoard()) return;
 	event.preventDefault();
 	event.stopPropagation();
 	onclear();

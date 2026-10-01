@@ -100,7 +100,7 @@ import {
 	boardNodeTypes,
 	newBlockNode,
 } from "./_lib/block-registry";
-import { boardHistoryChord } from "./_lib/history-keys";
+import { boardHistoryChord, isTextEntry } from "./_lib/history-keys";
 import { newId } from "./_lib/ids";
 import { visibleBoardRect } from "./_lib/pane-rect";
 import { withSelection } from "./_lib/selection";
@@ -284,17 +284,11 @@ let grouped = $derived(
 
 /** What a handle of the group box does to the blocks, as it goes: places and sizes, each in the space it is stored in. */
 function applyGroupPatches(
-	patches: ReadonlyMap<string, { position: Pt; width?: number; height?: number }>,
+	patches: ReadonlyMap<string, Partial<FlowNode>>,
 ): void {
 	nodes = nodes.map((node) => {
 		const patch = patches.get(node.id);
-		if (!patch) return node;
-		const { width, height } = patch;
-		return {
-			...node,
-			...patch,
-			...(width && height ? { measured: { width, height } } : {}),
-		};
+		return patch ? { ...node, ...patch } : node;
 	});
 }
 
@@ -835,15 +829,14 @@ function handlePaneClick({ event }: { event: MouseEvent }): void {
 	});
 	const frame = frameAt(point, nodes.map(measured));
 	if (!frame) return;
-	// With Shift, Cmd or Ctrl held the frame joins what is picked, or leaves it.
-	const picked = nodes.filter((node) => node.selected).map((node) => node.id);
-	const ids =
+	// With Shift, Cmd or Ctrl held the frame joins what is picked (a picked frame takes the
+	// pointer itself, so a click on its ground that gets here is never one to take out).
+	// What was picked is read now: by the microtask the library has put it all down.
+	const kept =
 		event.shiftKey || event.metaKey || event.ctrlKey
-			? picked.includes(frame.id)
-				? picked.filter((id) => id !== frame.id)
-				: [...picked, frame.id]
-			: [frame.id];
-	queueMicrotask(() => selectBlocks(ids));
+			? nodes.filter((node) => node.selected).map((node) => node.id)
+			: [];
+	queueMicrotask(() => selectBlocks([...kept, frame.id]));
 }
 
 /**
@@ -972,7 +965,7 @@ let stackedZoom = $derived(boardWidth > 0 && boardWidth < STACK_ZOOM_BELOW);
 // is under it.
 let zoomAside = $state(false);
 $effect(() => {
-	void [nodes, viewport, boardWidth, boardHeight, stackedZoom];
+	void [nodes, viewport, boardWidth, boardHeight, stackedZoom, grouped];
 	// Nothing selected, nothing to measure: a pan or a zoom never forces a layout.
 	if (!nodes.some((node) => node.selected)) {
 		zoomAside = false;
@@ -981,19 +974,22 @@ $effect(() => {
 	const chip = boardEl
 		?.querySelector('[data-testid="canvas-zoom"]')
 		?.getBoundingClientRect();
+	// What is selected, and the box round several: the handles stand outside the blocks.
 	zoomAside =
 		chip !== undefined &&
-		[...(boardEl?.querySelectorAll(".svelte-flow__node.selected") ?? [])].some(
-			(element) => {
-				const rect = element.getBoundingClientRect();
-				return (
-					rect.left < chip.right &&
-					rect.right > chip.left &&
-					rect.top < chip.bottom &&
-					rect.bottom > chip.top
-				);
-			},
-		);
+		[
+			...(boardEl?.querySelectorAll(
+				".svelte-flow__node.selected, [data-testid='canvas-group-box']",
+			) ?? []),
+		].some((element) => {
+			const rect = element.getBoundingClientRect();
+			return (
+				rect.left < chip.right &&
+				rect.right > chip.left &&
+				rect.top < chip.bottom &&
+				rect.bottom > chip.top
+			);
+		});
 });
 let showMinimap = $derived(boardWidth >= MINIMAP_ABOVE && nodes.length > 0);
 let empty = $derived(nodes.length === 0 && annotations.length === 0);
@@ -1149,6 +1145,7 @@ function minimapColor(node: {
 				{viewport}
 				size={{ width: boardWidth, height: boardHeight }}
 				coarse={coarsePointer}
+				typing={isTextEntry}
 				onresizestart={() => (resizing = true)}
 				onresize={applyGroupPatches}
 				onresizeend={() => {
