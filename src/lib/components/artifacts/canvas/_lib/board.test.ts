@@ -6,10 +6,12 @@ import {
 	absoluteOf,
 	facingHandles,
 	frameAt,
+	heldRect,
 	nodeRect,
 	parentsFirst,
 	rehomeOnRemoval,
 	reparentOnDrop,
+	resizeFloor,
 	withoutDanglingEdges,
 } from "./board";
 
@@ -434,5 +436,133 @@ describe("withoutDanglingEdges", () => {
 	it("hands back the same array when there was nothing to drop", () => {
 		const edges = [{ id: "1", source: "a", target: "b" }];
 		expect(withoutDanglingEdges(edges, nodes)).toBe(edges);
+	});
+});
+
+describe("heldRect", () => {
+	it("is the rectangle around everything inside the frame, in board space", () => {
+		const all = [
+			frame("f", 100, 50, 400, 300),
+			note("a", 20, 30, "f", { width: 100, height: 60 }),
+			note("b", 200, 150, "f", { width: 120, height: 80 }),
+		];
+		expect(heldRect(all[0], all)).toEqual({
+			x: 120,
+			y: 80,
+			width: 300,
+			height: 200,
+		});
+	});
+
+	it("leaves out what is not in the frame, and is null for a frame that holds nothing", () => {
+		const all = [
+			frame("f", 0, 0, 300, 200),
+			note("loose", 10, 10, undefined, { width: 50, height: 50 }),
+		];
+		expect(heldRect(all[0], all)).toBeNull();
+	});
+
+	it("counts only the part of a block that is inside, so a block hanging out is not held against the reader", () => {
+		const all = [
+			frame("f", 0, 0, 300, 200),
+			note("wide", 200, 20, "f", { width: 400, height: 50 }),
+		];
+		expect(heldRect(all[0], all)).toEqual({
+			x: 200,
+			y: 20,
+			width: 100,
+			height: 50,
+		});
+		const outside = [
+			frame("f", 0, 0, 300, 200),
+			note("gone", 500, 20, "f", { width: 50, height: 50 }),
+		];
+		expect(heldRect(outside[0], outside)).toBeNull();
+	});
+
+	it("takes a nested frame as one of the blocks it holds", () => {
+		const all = [
+			frame("outer", 0, 0, 500, 400),
+			frame("inner", 100, 100, 200, 150, "outer"),
+		];
+		expect(heldRect(all[0], all)).toEqual({
+			x: 100,
+			y: 100,
+			width: 200,
+			height: 150,
+		});
+	});
+});
+
+describe("resizeFloor", () => {
+	// A frame at (100, 50), 400 x 300, holding a block from (120, 80) to (420, 280).
+	const frameRect = { x: 100, y: 50, width: 400, height: 300 };
+	const held = { x: 120, y: 80, width: 300, height: 200 };
+
+	it("lets the right side come in to the right edge of what is inside, and no further", () => {
+		expect(resizeFloor(frameRect, held, "right")).toEqual({
+			width: 320,
+			height: 0,
+		});
+	});
+
+	it("lets the bottom side come in to the bottom edge of what is inside", () => {
+		expect(resizeFloor(frameRect, held, "bottom")).toEqual({
+			width: 0,
+			height: 230,
+		});
+	});
+
+	it("measures the left and top sides from the far edge, which does not move", () => {
+		// Right edge 500, what is inside starts at 120: the frame may be 380 wide.
+		expect(resizeFloor(frameRect, held, "left")).toEqual({
+			width: 380,
+			height: 0,
+		});
+		// Bottom edge 350, what is inside starts at 80: the frame may be 270 high.
+		expect(resizeFloor(frameRect, held, "top")).toEqual({
+			width: 0,
+			height: 270,
+		});
+	});
+
+	it("asks both axes of a corner", () => {
+		expect(resizeFloor(frameRect, held, "bottom-right")).toEqual({
+			width: 320,
+			height: 230,
+		});
+		expect(resizeFloor(frameRect, held, "top-left")).toEqual({
+			width: 380,
+			height: 270,
+		});
+		expect(resizeFloor(frameRect, held, "top-right")).toEqual({
+			width: 320,
+			height: 270,
+		});
+		expect(resizeFloor(frameRect, held, "bottom-left")).toEqual({
+			width: 380,
+			height: 230,
+		});
+	});
+
+	it("asks nothing of a frame that holds nothing", () => {
+		expect(resizeFloor(frameRect, null, "right")).toEqual({
+			width: 0,
+			height: 0,
+		});
+	});
+
+	it("does not change when the frame is moved: a size, not a place", () => {
+		const moved = { x: 400, y: 300, width: 400, height: 300 };
+		const heldMoved = { x: 420, y: 330, width: 300, height: 200 };
+		expect(resizeFloor(moved, heldMoved, "bottom-right")).toEqual(
+			resizeFloor(frameRect, held, "bottom-right"),
+		);
+	});
+
+	it("rounds up, so the stop is never a pixel short of the block", () => {
+		expect(
+			resizeFloor(frameRect, { ...held, width: 300.2 }, "right").width,
+		).toBe(321);
 	});
 });

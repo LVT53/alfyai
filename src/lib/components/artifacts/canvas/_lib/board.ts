@@ -163,6 +163,72 @@ export function frameAt(
 }
 
 /**
+ * What a frame holds, in board space: the one rectangle around everything that
+ * is inside it. A block that hangs out of the frame (Alfy placed it so, or an
+ * older resize left it) counts only for the part that is inside, so a reader is
+ * never held to a size they did not choose. Null for a frame with nothing in it.
+ */
+export function heldRect(
+	frame: CanvasNode,
+	all: readonly CanvasNode[],
+): Rect | null {
+	const byId = indexById(all);
+	const own = rectIn(byId, frame);
+	let left = Number.POSITIVE_INFINITY;
+	let top = Number.POSITIVE_INFINITY;
+	let right = Number.NEGATIVE_INFINITY;
+	let bottom = Number.NEGATIVE_INFINITY;
+	for (const node of all) {
+		if (node.parentId !== frame.id) continue;
+		const box = rectIn(byId, node);
+		const x1 = Math.max(box.x, own.x);
+		const y1 = Math.max(box.y, own.y);
+		const x2 = Math.min(box.x + box.width, own.x + own.width);
+		const y2 = Math.min(box.y + box.height, own.y + own.height);
+		if (x2 <= x1 || y2 <= y1) continue;
+		left = Math.min(left, x1);
+		top = Math.min(top, y1);
+		right = Math.max(right, x2);
+		bottom = Math.max(bottom, y2);
+	}
+	return left === Number.POSITIVE_INFINITY
+		? null
+		: { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/**
+ * The smallest a frame may be made by the resize control at `position` (`top`,
+ * `bottom-left`, …) without cutting off what it holds: the side the control
+ * moves may come in as far as the nearest thing inside, and no further. The other
+ * sides stay where they are, so a control asks about its own axis only (a side
+ * that moves nothing on an axis asks nothing of it). Sizes, not places, so the
+ * answer does not change while the frame is moved, and the library (which clamps
+ * a drag to `minWidth` / `minHeight`) stops the side exactly at what is inside.
+ * A frame that holds nothing asks for nothing.
+ */
+export function resizeFloor(
+	frame: Rect,
+	held: Rect | null,
+	position: string,
+): Size {
+	if (!held) return { width: 0, height: 0 };
+	const width = position.includes("right")
+		? held.x + held.width - frame.x
+		: position.includes("left")
+			? frame.x + frame.width - held.x
+			: 0;
+	const height = position.includes("bottom")
+		? held.y + held.height - frame.y
+		: position.includes("top")
+			? frame.y + frame.height - held.y
+			: 0;
+	return {
+		width: Math.ceil(Math.max(0, width)),
+		height: Math.ceil(Math.max(0, height)),
+	};
+}
+
+/**
  * What a drop changes about `node`, or null when it changes nothing (which is
  * what keeps a nudge inside a frame from being rewritten). `all` holds the node
  * at its dropped position. The hit point is the block's CENTRE.

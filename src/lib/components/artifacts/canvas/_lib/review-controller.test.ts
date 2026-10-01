@@ -566,6 +566,27 @@ describe("stepping through the blocks", () => {
 		expect(controller.activeId).toBe("text-1");
 	});
 
+	it("tells the layer which block the bar is on, so the pill hangs from it and follows the stepper", () => {
+		const layerApi = {
+			nodes: [],
+			viewport: { x: 0, y: 0, zoom: 1 },
+			centerOn: () => {},
+		} as unknown as BoardLayerApi;
+		const { controller } = make();
+		controller.restore(reviewState());
+		// Until the reader steps the bar is on the first block, though none is ringed harder.
+		expect(changeLayerProps(controller, layerApi).currentId).toBe(
+			"note-museum",
+		);
+		expect(changeLayerProps(controller, layerApi).activeId).toBeNull();
+		controller.step(1);
+		expect(changeLayerProps(controller, layerApi).currentId).toBe("text-1");
+		controller.step(1);
+		expect(changeLayerProps(controller, layerApi).currentId).toBe(
+			"note-museum",
+		);
+	});
+
 	it("has nothing to step to when a change only took blocks away, and still counts as one change", () => {
 		const { controller } = make();
 		controller.restore(

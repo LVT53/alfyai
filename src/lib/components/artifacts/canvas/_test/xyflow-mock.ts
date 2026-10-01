@@ -21,6 +21,7 @@ export function xyflowMock() {
 		Handle: StubHandle,
 		NodeResizeControl: StubResizeControl,
 		NodeToolbar: StubNodeToolbar,
+		ResizeControlVariant: { Line: "line", Handle: "handle" },
 		Position: { Top: "top", Right: "right", Bottom: "bottom", Left: "left" },
 		useSvelteFlow: () => flowSpies,
 	};

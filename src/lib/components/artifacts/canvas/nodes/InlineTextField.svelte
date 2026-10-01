@@ -10,7 +10,9 @@
  * text. `maxlength` is the same number the body's schema enforces on save,
  * because a block past it would be dropped, not clipped.
  */
+import { useBoardContext } from "../_lib/board-context";
 import { focusWhenShown } from "../_lib/focus";
+import { handsHistoryToBoard } from "../_lib/history-keys";
 
 let {
 	value,
@@ -31,6 +33,7 @@ let {
 	onchange: (value: string) => void;
 } = $props();
 
+const board = useBoardContext();
 let field = $state<HTMLTextAreaElement | null>(null);
 
 // Focus once the textarea exists (and its block is showing), with the caret
@@ -83,6 +86,7 @@ function handleKeydown(event: KeyboardEvent): void {
 			oninput={(event) => onchange(event.currentTarget.value)}
 			onblur={stop}
 			onkeydown={handleKeydown}
+			{@attach handsHistoryToBoard(board.history, stop)}
 		></textarea>
 	{/if}
 </div>

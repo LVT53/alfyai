@@ -404,13 +404,16 @@ test.describe("Alfy's change lands where the reader can see it", () => {
 				{ timeout: 30_000 },
 			);
 			await openCanvasPanel(page);
-			await expect(pill(page)).toBeVisible({ timeout: 15_000 });
+			await expect(bar(page)).toBeVisible({ timeout: 15_000 });
 			// The board opens on the camera it was saved with, which on a phone shows a
-			// corner of it: fit the whole board so the pill is on the screen.
+			// corner of it, and the block the bar is on is not in that corner: the pill has
+			// nothing to be beside (it is not left at the pane's edge), and the bar still
+			// offers the decision. Fit the whole board so the block, and the pill, are on the screen.
 			await page.getByTestId("canvas-fit").click();
 			await expect(page.getByTestId("canvas-zoom-level")).not.toHaveText(
 				"100%",
 			);
+			await expect(pill(page)).toBeVisible({ timeout: 15_000 });
 			await page.waitForTimeout(500);
 			for (const name of ["Keep Alfy's change", "Undo Alfy's change"]) {
 				const button = pill(page).getByRole("button", { name });

@@ -1,10 +1,14 @@
 <script lang="ts">
 /**
  * A frame: a dashed outline with a name chip that groups what sits inside it.
- * The chip is the frame's drag handle (the board sets `dragHandle`), and a
- * double-click on it, or Enter on the focused frame, renames it. A frame's
- * size lives on the node AND in its data; the board keeps the two equal when
- * it saves, so a resize here never has to touch the data.
+ * It is a group a reader can grab: a click in its empty ground selects it (the
+ * board picks it, `CanvasBoard.handlePaneClick`, because a frame lets the pointer
+ * through), and once selected a drag on its body, its ring or its chip moves it
+ * with what is in it (the board sets `dragHandle`). A double-click on the chip, or
+ * Enter on the focused frame, renames it. A frame's size lives on the node AND in
+ * its data; the board keeps the two equal when it saves, so a resize here never
+ * has to touch the data; its four sides and corners resize it, never past what is
+ * inside it (`NodeShell`, `resizeFloor`).
  */
 import { useSvelteFlow } from "@xyflow/svelte";
 import { t } from "$lib/i18n";
@@ -15,6 +19,7 @@ import {
 import { BLOCK_META } from "../_lib/block-meta";
 import { useBoardContext } from "../_lib/board-context";
 import { focusWhenShown } from "../_lib/focus";
+import { handsHistoryToBoard } from "../_lib/history-keys";
 import NodeShell from "../NodeShell.svelte";
 
 type FrameData = Extract<CanvasBlockData, { kind: "frame" }>;
@@ -71,6 +76,7 @@ function handleKeydown(event: KeyboardEvent): void {
 				oninput={(event) => flow.updateNodeData(id, { label: event.currentTarget.value })}
 				onblur={() => (editing = false)}
 				onkeydown={handleKeydown}
+				{@attach handsHistoryToBoard(board.history, () => (editing = false))}
 			/>
 		{:else}
 			<span class="chip__text" class:chip__text--empty={!data.label}>
