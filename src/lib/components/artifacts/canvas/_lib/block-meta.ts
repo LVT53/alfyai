@@ -149,8 +149,10 @@ export const BLOCK_META = {
 		labelKey: "artifacts.canvas.insert.mermaid",
 		chrome: "card",
 		// The width is the one table's. The height is the drawing's: what Mermaid
-		// draws is as tall as it is, so this is only what placement leaves room for.
-		size: { width: defaultNodeWidth("mermaid"), height: 320 },
+		// draws is as tall as it is (a Gantt chart 100, a flowchart or a pie 350 to
+		// 450 at this width), so this is only what placement leaves room for, and
+		// room that is left over is better than a diagram laid over its neighbour.
+		size: { width: defaultNodeWidth("mermaid"), height: 420 },
 		minSize: { width: 240, height: 140 },
 		fixedHeight: false,
 		section: "chat",
