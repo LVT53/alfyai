@@ -49,6 +49,7 @@ import {
 	type Edge,
 	MiniMap,
 	Panel,
+	SelectionMode,
 	SvelteFlow,
 	useSvelteFlow,
 	type Viewport,
@@ -237,9 +238,72 @@ const editRequests = new Set<string>();
 /** The block an Insert selected, until the reader touches it or reaches for the Comment tool. */
 let insertSelectedId: string | null = null;
 
+// ---- Several blocks at once: the box that moves and scales them loads on demand ----
+
+/** Shift, like Cmd and Ctrl, adds a block to the picked ones or takes it out; the library's own default is Cmd/Ctrl alone. */
+const MULTI_SELECTION_KEY = ["Shift", "Meta", "Control"];
+type GroupParts = typeof import("./group-parts");
+let groupParts = $state.raw<GroupParts | null>(null);
+let groupLoading: Promise<void> | null = null;
+/** A handle of the group box is held: the step is not settled until it is let go. */
+let resizing = false;
+
+function ensureGroup(): void {
+	groupLoading ??= import("./group-parts").then(
+		(parts) => void (groupParts = parts),
+		// Offline, or a deploy in between: the next selection tries again.
+		() => void (groupLoading = null),
+	);
+}
+
+let pickedCount = $derived(nodes.filter((node) => node.selected).length);
+// The long press that starts a selection on a finger needs the part from the start.
+$effect(() => {
+	if (pickedCount >= 2 || coarsePointer) ensureGroup();
+});
+// A finger starts a selection of several with a long press; then taps add and remove.
+$effect(() => {
+	if (!coarsePointer || !groupParts || !boardEl) return;
+	return groupParts.watchTouchSelection(boardEl, {
+		selected: () =>
+			nodes.filter((node) => node.selected).map((node) => node.id),
+		select: selectBlocks,
+		enabled: () => tool === "select" && !readonly && !held,
+		announce,
+		hint: () => $t("artifacts.canvas.group.touchHint"),
+	});
+});
+/** Two or more blocks are picked and the box that stands for them is drawn: the blocks give up their own corners and toolbars. */
+let grouped = $derived(
+	groupParts !== null &&
+		tool === "select" &&
+		!readonly &&
+		!held &&
+		pickedCount >= 2,
+);
+
+/** What a handle of the group box does to the blocks, as it goes: places and sizes, each in the space it is stored in. */
+function applyGroupPatches(
+	patches: ReadonlyMap<string, { position: Pt; width?: number; height?: number }>,
+): void {
+	nodes = nodes.map((node) => {
+		const patch = patches.get(node.id);
+		if (!patch) return node;
+		const { width, height } = patch;
+		return {
+			...node,
+			...patch,
+			...(width && height ? { measured: { width, height } } : {}),
+		};
+	});
+}
+
 provideBoardContext({
 	get readonly() {
 		return readonly;
+	},
+	get grouped() {
+		return grouped;
 	},
 	requestEdit(id) {
 		editRequests.add(id);
@@ -281,8 +345,9 @@ function commit(): void {
 		clearTimeout(settleTimer);
 		settleTimer = null;
 	}
-	// A landing is moving blocks about: what is on screen is not the reader's.
-	if (held) {
+	// A landing is moving blocks about: what is on screen is not the reader's. A handle
+	// of the group box is held: the let-go is what ends the step.
+	if (held || resizing) {
 		scheduleCommit();
 		return;
 	}
@@ -770,7 +835,15 @@ function handlePaneClick({ event }: { event: MouseEvent }): void {
 	});
 	const frame = frameAt(point, nodes.map(measured));
 	if (!frame) return;
-	queueMicrotask(() => selectBlocks([frame.id]));
+	// With Shift, Cmd or Ctrl held the frame joins what is picked, or leaves it.
+	const picked = nodes.filter((node) => node.selected).map((node) => node.id);
+	const ids =
+		event.shiftKey || event.metaKey || event.ctrlKey
+			? picked.includes(frame.id)
+				? picked.filter((id) => id !== frame.id)
+				: [...picked, frame.id]
+			: [frame.id];
+	queueMicrotask(() => selectBlocks(ids));
 }
 
 /**
@@ -854,7 +927,7 @@ $effect(() => {
 	ontool?.(tool);
 });
 
-let anySelected = $derived(nodes.some((node) => node.selected));
+let anySelected = $derived(pickedCount > 0);
 $effect(() => {
 	onselect?.(anySelected);
 });
@@ -1029,6 +1102,8 @@ function minimapColor(node: {
 		maxZoom={2}
 		{panOnDrag}
 		{selectionOnDrag}
+		selectionMode={SelectionMode.Full}
+		multiSelectionKey={MULTI_SELECTION_KEY}
 		{nodesDraggable}
 		nodesConnectable={!readonly && !held}
 		connectionMode={ConnectionMode.Loose}
@@ -1067,6 +1142,23 @@ function minimapColor(node: {
 					onlimit={handleLimit}
 				/>
 			</ViewportPortal>
+		{/if}
+		{#if groupParts && grouped}
+			<groupParts.GroupBox
+				{nodes}
+				{viewport}
+				size={{ width: boardWidth, height: boardHeight }}
+				coarse={coarsePointer}
+				onresizestart={() => (resizing = true)}
+				onresize={applyGroupPatches}
+				onresizeend={() => {
+					resizing = false;
+					scheduleCommit();
+				}}
+				ondelete={(ids) => void flow.deleteElements({ nodes: ids.map((id) => ({ id })) })}
+				onclear={() => selectBlocks([])}
+				onannounce={announce}
+			/>
 		{/if}
 		{@render layers?.(layerApi)}
 		{#if showMinimap}
@@ -1170,6 +1262,13 @@ function minimapColor(node: {
 	   dragging still moves the whole selection, from any selected block. */
 	.canvas-board :global(.svelte-flow__selection-wrapper) {
 		pointer-events: none;
+	}
+
+	/* The rectangle the library keeps round a picked set is not drawn: the group box is
+	   that, with handles. The wrapper stays (the library puts the keyboard's focus there,
+	   so the arrow keys move what was picked); only the live marquee is the library's to draw. */
+	.canvas-board :global(.svelte-flow__selection-wrapper .svelte-flow__selection) {
+		opacity: 0;
 	}
 
 	.canvas-board :global(.svelte-flow__node:focus-visible) {

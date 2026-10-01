@@ -57,7 +57,9 @@ function square(): CanvasNode[] {
 describe("groupOf", () => {
 	it("needs two blocks picked to be a group", () => {
 		expect(groupOf([])).toBeNull();
-		expect(groupOf([picked(sticky("a", 0, 0)), sticky("b", 200, 0)])).toBeNull();
+		expect(
+			groupOf([picked(sticky("a", 0, 0)), sticky("b", 200, 0)]),
+		).toBeNull();
 	});
 
 	it("is the box around what was picked, and nothing else", () => {
@@ -72,7 +74,10 @@ describe("groupOf", () => {
 	});
 
 	it("reads a block's size as drawn (measured) before what it stores", () => {
-		const wide = { ...picked(sticky("a", 0, 0, 100, 60)), measured: { width: 140, height: 80 } };
+		const wide = {
+			...picked(sticky("a", 0, 0, 100, 60)),
+			measured: { width: 140, height: 80 },
+		};
 		const group = groupOf([wide, picked(sticky("b", 300, 0))]);
 		expect(group?.box.width).toBe(400);
 		expect(group?.box.height).toBe(80);
@@ -97,7 +102,11 @@ describe("groupOf", () => {
 });
 
 describe("resizeGroup", () => {
-	function resized(handle: Parameters<typeof resizeGroup>[1], dx: number, dy: number) {
+	function resized(
+		handle: Parameters<typeof resizeGroup>[1],
+		dx: number,
+		dy: number,
+	) {
 		const group = groupOf(square());
 		if (!group) throw new Error("no group");
 		return { group, ...resizeGroup(group, handle, { x: dx, y: dy }) };
@@ -161,16 +170,21 @@ describe("resizeGroup", () => {
 		const { box, patches } = resized("se", -9999, -9999);
 		const a = patches.get("a");
 		const b = patches.get("b");
-		expect(a && a.width).toBeGreaterThanOrEqual(96);
-		expect(b && b.width).toBeGreaterThanOrEqual(96);
+		expect(a?.width).toBeGreaterThanOrEqual(96);
+		expect(b?.width).toBeGreaterThanOrEqual(96);
 		// The box never turns inside out.
 		expect(box.width).toBeGreaterThan(0);
 		expect(box.height).toBeGreaterThan(0);
 		// And what is left is the same arrangement, smaller: widths all alike.
-		expect(new Set([...patches.values()].map((patch) => patch.width)).size).toBe(1);
+		expect(
+			new Set([...patches.values()].map((patch) => patch.width)).size,
+		).toBe(1);
 		// The gap between the columns shrank by the same factor as the widths.
 		const factor = (a?.width ?? 0) / 100;
-		expect((b?.position.x ?? 0) - (a?.position.x ?? 0)).toBeCloseTo(200 * factor, 0);
+		expect((b?.position.x ?? 0) - (a?.position.x ?? 0)).toBeCloseTo(
+			200 * factor,
+			0,
+		);
 	});
 
 	it("does not make a block that is already smaller than its minimum grow when shrinking", () => {
@@ -205,7 +219,11 @@ describe("resizeGroup", () => {
 		if (!group) throw new Error("no group");
 		// The box is x 100..700, y 100..400: x1.5 across, unchanged down.
 		const { patches } = resizeGroup(group, "e", { x: 300, y: 0 });
-		expect(patches.get("f")).toEqual({ position: { x: 100, y: 100 }, width: 600, height: 300 });
+		expect(patches.get("f")).toEqual({
+			position: { x: 100, y: 100 },
+			width: 600,
+			height: 300,
+		});
 		// Its note: places and sizes scale; its position stays relative to the frame.
 		expect(patches.get("inside")).toEqual({
 			position: { x: 60, y: 60 },
@@ -239,7 +257,10 @@ describe("resizeGroup", () => {
 	it("a zero-sized block cannot make the scale blow up", () => {
 		const group = groupOf([
 			picked(sticky("a", 0, 0, 100, 60)),
-			{ ...picked(sticky("b", 200, 0, 0, 0)), measured: { width: 0, height: 0 } },
+			{
+				...picked(sticky("b", 200, 0, 0, 0)),
+				measured: { width: 0, height: 0 },
+			},
 		]);
 		if (!group) throw new Error("no group");
 		const { box } = resizeGroup(group, "se", { x: 40, y: 40 });
