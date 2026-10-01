@@ -23,7 +23,12 @@
  * is judged here (`onnodedragstop` -> `reparentOnDrop`) and the block's
  * `parentId` and position rewritten; while the drag is on, `onnodedrag` lights
  * the frame that would take it. A frame that is deleted does not take the blocks
- * inside it (`onbeforedelete` re-homes them: the ops protocol does the same).
+ * inside it (`onbeforedelete` re-homes them: the ops protocol does the same). A
+ * frame is also a group a reader can grab: it lets the pointer through, so a click
+ * in its empty ground reaches the board, which selects the innermost frame under
+ * it (`handlePaneClick` -> `selectBlocks`); a selected frame takes the pointer back
+ * and moves with its blocks from anywhere on it, and its sides and corners resize
+ * it, never past what it holds (`resizeFloor`).
  *
  * Seams: a layer written apart from the board (the comment pins and the
  * catcher for the Comment tool) is a snippet the board renders INSIDE its flow,
