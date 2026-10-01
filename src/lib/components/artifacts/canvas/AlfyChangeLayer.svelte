@@ -32,10 +32,12 @@ import { measuredBy, type ScreenRect } from "./_lib/floating";
 import {
 	type Box,
 	boxOf,
-	changePillAnchor,
+	changePillPlacement,
 	changePillScreenRect,
 	keepPillInPane,
+	outOfView,
 	padded,
+	type PillPlacement,
 	rectsOf,
 } from "./_lib/review-geometry";
 
@@ -56,6 +58,7 @@ let {
 	waiting = true,
 	pulseIds,
 	activeId = null,
+	currentId = null,
 	pill = null,
 	goto = null,
 	paneSize = { width: 0, height: 0 },
@@ -79,6 +82,8 @@ let {
 	pulseIds: readonly string[];
 	/** The block the review bar's stepper is on. */
 	activeId?: string | null;
+	/** The block the review bar is showing (the first until the reader steps): the pill hangs from it. */
+	currentId?: string | null;
 	/** The change pill: its state and the change's own summary. Absent when there is nothing to decide. */
 	pill?: { status: "pending" | "kept" | "undone"; label: string } | null;
 	/** One-shot "show this block": the camera centres on it. */
@@ -122,44 +127,60 @@ let rings = $derived.by(() => {
 });
 let pulseSet = $derived(new Set(pulseIds));
 
-// The pill follows the blocks it points at, and keeps off the blocks Alfy left
-// alone (a frame is a backdrop, not one of them). When the change is decided (the
-// rings go, an Undo takes blocks away) it keeps the corner it had, so "Undone ·
-// Redo" stays put.
-let liveAt = $derived(
-	touched.length === 0
-		? null
-		: changePillAnchor({
-				touched: rectsOf(touched, nodes).map(({ box }) => box),
-				obstacles: nodes
-					.filter((node) => node.type !== "frame")
-					.map((node) => nodeRect(node, nodes, node.measured)),
-				zoom: viewport.zoom,
-			}),
-);
-let lastAt = $state<Pt | null>(null);
-$effect(() => {
-	const live = liveAt;
-	if (live) untrack(() => (lastAt = live));
-});
-let anchor = $derived(liveAt ?? lastAt);
-
-// The pill is kept inside the pane (RC-3 N3): it hangs to the left of its corner and
-// above it, so a block near an edge put it half outside. Its size is what the pane
-// shows of it, measured; its widest until then.
+// The pill hangs from the block the review bar is on (`currentId`; the first touched
+// until the reader steps), not from the box that holds every touched block, which for a
+// change spread over the board is a corner beside none of them. It follows that block,
+// and keeps off the blocks Alfy left alone (a frame is a backdrop, not one of them). When
+// the change is decided (the rings go, an Undo takes blocks away) it keeps the place it
+// had, so "Undone · Redo" stays put.
+// Its size is what the pane shows of it, measured; its widest until then.
 let measuredPill = $state.raw({ width: 0, height: 0 });
 let pillSize = $derived(
 	measuredPill.width > 0 && measuredPill.height > 0 ? measuredPill : undefined,
 );
+let currentBox = $derived.by<Box | null>(() => {
+	const id =
+		currentId !== null && touched.includes(currentId) ? currentId : touched[0];
+	return id === undefined ? null : (rectsOf([id], nodes)[0]?.box ?? null);
+});
+let livePlacement = $derived(
+	currentBox
+		? changePillPlacement({
+				current: currentBox,
+				obstacles: nodes
+					.filter((node) => node.type !== "frame")
+					.map((node) => nodeRect(node, nodes, node.measured)),
+				zoom: viewport.zoom,
+				size: pillSize,
+			})
+		: null,
+);
+let lastPlacement = $state<PillPlacement | null>(null);
+$effect(() => {
+	const live = livePlacement;
+	if (live) untrack(() => (lastPlacement = live));
+});
+let placement = $derived(livePlacement ?? lastPlacement);
+
+// The pill is kept inside the pane (RC-3 N3): it hangs to one side of its point and
+// above or below it, so a block near an edge put it half outside.
 let pillAt = $derived(
-	anchor
+	placement
 		? keepPillInPane({
-				anchor,
+				placement,
 				camera: viewport,
 				pane: paneSize,
 				size: pillSize,
 			})
 		: null,
+);
+// A block wholly out of the pane has nothing for the pill to be beside: it is not drawn
+// (the pane's edge is no place for it), the review bar still offers the decision, and
+// its stepper brings the block back into view.
+let pillShown = $derived(
+	pill !== null &&
+		pillAt !== null &&
+		!(currentBox && outOfView(currentBox, viewport, paneSize)),
 );
 
 // Where it is on the screen goes to the selection's pill, which keeps off it: the
@@ -167,7 +188,9 @@ let pillAt = $derived(
 let reportedBox: string | null = null;
 $effect(() => {
 	const box =
-		pill && pillAt ? changePillScreenRect(pillAt, viewport, pillSize) : null;
+		pillShown && pillAt
+			? changePillScreenRect(pillAt, viewport, pillSize)
+			: null;
 	const key = box ? `${box.left}|${box.top}|${box.right}|${box.bottom}` : null;
 	if (key === reportedBox) return;
 	reportedBox = key;
@@ -231,12 +254,17 @@ $effect(() => {
 	if (before === null || status === null || before === status) return;
 	void tick().then(() => {
 		if (!focusIsAdrift()) return;
+		const firstTool = () =>
+			document.querySelector<HTMLElement>('[data-testid="canvas-tool-select"]');
 		if (status === "kept") {
-			document
-				.querySelector<HTMLElement>('[data-testid="canvas-tool-select"]')
-				?.focus();
+			firstTool()?.focus();
 		} else {
-			pillEl?.querySelector<HTMLElement>(".alfy-change-bar-undo")?.focus();
+			// The pill is not drawn while its block is out of the pane (the reader decided
+			// from the review bar): the board's first tool then, never the page's body.
+			(
+				pillEl?.querySelector<HTMLElement>(".alfy-change-bar-undo") ??
+				firstTool()
+			)?.focus();
 		}
 	});
 });
@@ -290,14 +318,18 @@ $effect(() => {
 			style:height="{ring.box.height}px"
 		></div>
 	{/each}
-	{#if pill && pillAt}
+	{#if pill && pillAt && pillShown}
 		<div
 			class="pill nopan"
 			bind:this={pillEl}
 			{@attach measuredBy((size) => (measuredPill = size))}
 			data-testid="canvas-change-pill"
-			style:left="{pillAt.x}px"
-			style:top="{pillAt.y}px"
+			data-side={pillAt.side}
+			data-align={pillAt.align}
+			style:left="{pillAt.at.x}px"
+			style:top="{pillAt.at.y}px"
+			style:--pill-x={pillAt.align === "end" ? "-100%" : "0%"}
+			style:--pill-y={pillAt.side === "above" ? "calc(-100% - 16px)" : "16px"}
 		>
 			<ChangeBar
 				status={pill.status}
@@ -391,14 +423,16 @@ $effect(() => {
 		box-shadow: 0 0 0 calc(3px * var(--inv)) var(--accent-fill);
 	}
 
-	/* At the corner, the size of a button whatever the zoom: scaled by 1 / zoom from
-	   the point it hangs from, then lifted clear of the box and of a comment's pin,
-	   which sits on that same corner. */
+	/* At the block's corner, the size of a button whatever the zoom: scaled by 1 / zoom
+	   from the point it hangs from, then clear of the box and of a comment's pin, which
+	   sits on that same corner: above the point running left by default, or (when that
+	   spot is taken) running right, or dropped below it (`--pill-x`, `--pill-y`). */
 	.pill {
 		position: absolute;
 		pointer-events: auto;
 		transform-origin: 0 0;
-		transform: scale(var(--inv)) translate(-100%, calc(-100% - 16px));
+		transform: scale(var(--inv))
+			translate(var(--pill-x, -100%), var(--pill-y, calc(-100% - 16px)));
 		white-space: nowrap;
 	}
 

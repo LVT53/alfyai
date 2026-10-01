@@ -432,9 +432,12 @@ describe("the fingerprints", () => {
 			"chart.js",
 			"html-to-image",
 			"maplibre-gl",
+			"mermaid",
 			"perfect-freehand",
 		]);
 		expect(PACKAGE_FINGERPRINTS["@xyflow"]).toContain("svelte-flow__pane");
+		// Mermaid's core keeps its own error for a source it cannot place (a diagram block loads it on demand).
+		expect(PACKAGE_FINGERPRINTS.mermaid).toContain("No diagram type detected");
 		// The strings the installed html-to-image really keeps (1.11.11), not another version's.
 		expect(PACKAGE_FINGERPRINTS["html-to-image"]).toContain(
 			"Error inlining remote css file",

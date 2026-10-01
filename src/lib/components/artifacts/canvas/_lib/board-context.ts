@@ -32,6 +32,13 @@ export interface CanvasBoardContext {
 	posterFailed?(id: string): boolean;
 	/** Puts a change to a block's own data on the board (a tick in a checklist): the board notices and saves it. A block loaded on demand cannot import the flow library, so it reaches it here. */
 	updateData?(id: string, patch: Record<string, unknown>): void;
+	/** Runs the reader's own Undo or Redo (ruling 16): a field that has nothing of its own to undo hands the chord here (`handsHistoryToBoard`). */
+	history?(action: "undo" | "redo"): void;
+	/** The smallest a block may be made by the resize control at this position, as sizes: a frame may not be pulled in past what is inside it. Absent (or null) for a block that holds nothing. */
+	resizeFloor?(
+		id: string,
+		position: string,
+	): { width: number; height: number } | null;
 }
 
 const BOARD_CONTEXT = Symbol("artifact-canvas-board");

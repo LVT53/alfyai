@@ -68,6 +68,15 @@ const LISTING: CanvasChatBlocks = {
 			data: { kind: "chart", code: '{"type":"bar"}' },
 		},
 	],
+	diagrams: [
+		{
+			key: "mermaid:m:0",
+			at: 900,
+			title: null,
+			diagramType: "flowchart",
+			data: { kind: "mermaid", code: "flowchart TD\n  A --> B" },
+		},
+	],
 	photos: [],
 	searches: [],
 };
@@ -143,10 +152,10 @@ describe("From this chat", () => {
 		await screen.findByText("Vienna trip.pdf");
 
 		const section = screen.getByRole("group", { name: "From this chat" });
-		for (const name of ["Files", "Apps", "Maps", "Charts"]) {
+		for (const name of ["Files", "Apps", "Maps", "Charts", "Diagrams"]) {
 			expect(within(section).getByRole("group", { name })).toBeInTheDocument();
 		}
-		expect(within(section).getAllByRole("menuitem")).toHaveLength(4);
+		expect(within(section).getAllByRole("menuitem")).toHaveLength(5);
 	});
 
 	it("leaves a kind out entirely when the chat has none of it", async () => {
@@ -168,6 +177,7 @@ describe("From this chat", () => {
 		expect(rows[2]).toHaveTextContent("Cork → Kinsale");
 		expect(rows[2]).toHaveTextContent("27.0 km · 34 min");
 		expect(rows[3]).toHaveTextContent("Sales");
+		expect(rows[4]).toHaveTextContent("Flowchart");
 	});
 
 	it("keeps every row out of the tab order: the menu's own roving position is the one tab stop", async () => {
@@ -194,6 +204,17 @@ describe("From this chat", () => {
 
 		await fireEvent.click(screen.getByRole("menuitem", { name: /Sales/ }));
 		expect(onpick).toHaveBeenLastCalledWith("chart", LISTING.charts[0].data);
+	});
+
+	it("lists a diagram under its own heading, named by its kind, and hands over the diagram block", async () => {
+		const { onpick } = mount(async () => LISTING);
+		await screen.findByText("Vienna trip.pdf");
+		expect(screen.getByRole("group", { name: "Diagrams" })).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole("menuitem", { name: /Flowchart/ }));
+		expect(onpick).toHaveBeenLastCalledWith(
+			"mermaid",
+			LISTING.diagrams[0].data,
+		);
 	});
 
 	it("hands over the map block built the way the chat reads its route", async () => {
@@ -303,7 +324,7 @@ describe("Search the web…", () => {
 		await screen.findByText("Vienna trip.pdf");
 		const rows = screen.getAllByRole("menuitem");
 		expect(rows[0]).toHaveAccessibleName("Search the web…");
-		expect(rows).toHaveLength(5);
+		expect(rows).toHaveLength(6);
 	});
 
 	it("opens a field for the query, named for a screen reader, with a limit of what a block keeps, and puts the cursor in it", async () => {

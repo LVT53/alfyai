@@ -6,6 +6,7 @@ import {
 	BLOCK_KINDS,
 	type BlockKind,
 	type CanvasBlockData,
+	estimatedNodeSize,
 } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	boardJson,
@@ -21,10 +22,11 @@ import {
 	boardNodeTypes,
 	defaultDataFor,
 	insertableEntries,
+	insertSize,
 	newBlockNode,
 } from "./block-registry";
 
-// The kinds this build draws: all ten.
+// The kinds this build draws: all eleven.
 const NOTE_SHAPED: BlockKind[] = [
 	"frame",
 	"sticky",
@@ -34,7 +36,14 @@ const NOTE_SHAPED: BlockKind[] = [
 ];
 // The blocks made from the chat (or, for live web, from a search): picked in
 // "From this chat", never inserted bare, and loaded only when one mounts.
-const FROM_CHAT: BlockKind[] = ["map", "file", "app", "photo", "liveweb"];
+const FROM_CHAT: BlockKind[] = [
+	"map",
+	"file",
+	"app",
+	"photo",
+	"liveweb",
+	"mermaid",
+];
 /** Drawn by the loading wrapper too, though the board's own: a board with none never needs them. */
 const LOADED_ON_DEMAND: BlockKind[] = ["chart", "checklist"];
 const BUILT: BlockKind[] = [...NOTE_SHAPED, ...FROM_CHAT];
@@ -84,13 +93,15 @@ function blockOf(kind: BlockKind): CanvasBlockData | undefined {
 				sources: [],
 				fetchedAt: 1_000,
 			};
+		case "mermaid":
+			return { kind: "mermaid", code: "flowchart TD\n  A --> B" };
 		default:
 			return undefined;
 	}
 }
 
 describe("the block registry", () => {
-	it("has a row for every one of the ten kinds", () => {
+	it("has a row for every one of the eleven kinds", () => {
 		expect(Object.keys(BLOCK_REGISTRY).sort()).toEqual([...BLOCK_KINDS].sort());
 		for (const kind of BLOCK_KINDS) expect(blockEntry(kind)?.kind).toBe(kind);
 	});
@@ -132,7 +143,9 @@ describe("the block registry", () => {
 		}
 	});
 
-	it("marks as needing a poster exactly what an export cannot draw from its stored value: the App, the map, photos and live web (the spec's poster policy)", () => {
+	// A diagram is an inline SVG with its own <style>: the picture's clone carries it
+	// (the export spec holds that to a pixel count), so it needs no still image.
+	it("marks as needing a poster exactly what an export cannot draw from its stored value: the App, the map, photos and live web (the spec's poster policy), and not a diagram", () => {
 		expect(
 			BUILT.filter((kind) => blockEntry(kind)?.needsPoster).sort(),
 		).toEqual(["app", "liveweb", "map", "photo"]);
@@ -161,6 +174,7 @@ describe("the block registry", () => {
 		expect(metaFor("file").chrome).toBe("bare");
 		expect(metaFor("photo").chrome).toBe("card");
 		expect(metaFor("liveweb").chrome).toBe("card");
+		expect(metaFor("mermaid").chrome).toBe("card");
 	});
 
 	it("keeps the map and the App on their own footprint: an App is drawn at a height it stores, a map grows with its content", () => {
@@ -170,6 +184,8 @@ describe("the block registry", () => {
 		// Photos and live web are as tall as what they hold until they are resized.
 		expect(BLOCK_META.photo.fixedHeight).toBe(false);
 		expect(BLOCK_META.liveweb.fixedHeight).toBe(false);
+		// A diagram is as tall as what Mermaid draws.
+		expect(BLOCK_META.mermaid.fixedHeight).toBe(false);
 	});
 
 	it("maps every insert label to a message in both languages", () => {
@@ -209,6 +225,45 @@ describe("the block registry", () => {
 				.filter((row) => row.section === "blocks")
 				.map((row) => row.kind),
 		).toEqual(["chart", "checklist"]);
+	});
+});
+
+describe("insertSize", () => {
+	const chart = (type: string): CanvasBlockData => ({
+		kind: "chart",
+		code: JSON.stringify({ type, data: {} }),
+	});
+
+	it("leaves a chart the room its plot takes: a pie is square, a bar chart half as tall as it is wide", () => {
+		const row = blockEntry("chart");
+		if (!row) throw new Error("no chart row");
+		const pie = insertSize(row, chart("pie"));
+		const bar = insertSize(row, chart("bar"));
+		expect(pie.width).toBe(row.size.width);
+		expect(bar.width).toBe(row.size.width);
+		// The same estimate the model reads and the eval measures by.
+		expect(pie).toEqual(
+			estimatedNodeSize({
+				type: "chart",
+				width: row.size.width,
+				data: chart("pie"),
+			}),
+		);
+		expect(pie.height).toBeGreaterThan(bar.height + 100);
+		for (const round of ["doughnut", "polarArea", "radar"]) {
+			expect(insertSize(row, chart(round)).height).toBe(pie.height);
+		}
+	});
+
+	it("leaves every other kind, and a chart inserted with no data of its own, the size its row has", () => {
+		for (const kind of BUILT) {
+			const row = blockEntry(kind);
+			if (!row || kind === "chart") continue;
+			expect(insertSize(row, blockOf(kind))).toBe(row.size);
+		}
+		const chartRow = blockEntry("chart");
+		if (!chartRow) throw new Error("no chart row");
+		expect(insertSize(chartRow)).toBe(chartRow.size);
 	});
 });
 
@@ -259,6 +314,7 @@ describe("newBlockNode", () => {
 			"file",
 			"photo",
 			"liveweb",
+			"mermaid",
 		] as const) {
 			const node = newBlockNode(kind, { x: 0, y: 0 }, undefined, blockOf(kind));
 			expect(node.width).toBe(BLOCK_META[kind].size.width);

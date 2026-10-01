@@ -1,7 +1,7 @@
 /**
  * "From this chat": what a Canvas can hold that its own conversation already
- * made — files, Apps, route maps and charts (Slice 3, the blocks made from the
- * chat). The server lists them (`services/artifacts/chat-blocks.ts`), the
+ * made — files, Apps, route maps, charts and diagrams (Slice 3, the blocks made
+ * from the chat). The server lists them (`services/artifacts/chat-blocks.ts`), the
  * board's Insert menu offers them, and a pick becomes one of the block kinds in
  * `canvas-blocks.ts`. Client-safe on purpose: the listing's wire shape, the one
  * file-id convention and the bound live here, so neither side redeclares them.
@@ -16,7 +16,7 @@ type BlockData<K extends CanvasBlockData["kind"]> = Extract<
 /** How many of each kind the listing carries: the newest, so the menu it fills stays a menu. */
 export const CHAT_BLOCKS_PER_KIND = 12;
 
-/** How many of the chat's newest messages are read for route maps and charts. */
+/** How many of the chat's newest messages are read for route maps, charts and diagrams. */
 export const CHAT_BLOCKS_SCAN_MESSAGES = 200;
 
 /**
@@ -90,6 +90,17 @@ export interface ChatChartBlock {
 	data: BlockData<"chart">;
 }
 
+export interface ChatMermaidBlock {
+	key: string;
+	at: number;
+	/** The diagram's own title, when its source has one. */
+	title: string | null;
+	/** The first word of the source ("flowchart", "sequenceDiagram", …): which kind of diagram it is. */
+	diagramType: string | null;
+	/** Exactly what a diagram block stores: the chat's Mermaid source. */
+	data: BlockData<"mermaid">;
+}
+
 export interface ChatPhotoBlock {
 	key: string;
 	at: number;
@@ -117,6 +128,8 @@ export interface CanvasChatBlocks {
 	apps: ChatAppBlock[];
 	maps: ChatMapBlock[];
 	charts: ChatChartBlock[];
+	/** The Mermaid diagrams its replies drew: flowcharts, sequence, class and state diagrams, and the rest Mermaid draws. */
+	diagrams: ChatMermaidBlock[];
 	photos: ChatPhotoBlock[];
 	/** The web searches the chat ran (`research_web`), each with the sources it returned. */
 	searches: ChatSearchBlock[];
@@ -129,6 +142,7 @@ export function emptyChatBlocks(): CanvasChatBlocks {
 		apps: [],
 		maps: [],
 		charts: [],
+		diagrams: [],
 		photos: [],
 		searches: [],
 	};

@@ -1,7 +1,7 @@
 <script lang="ts">
 /**
- * "From this chat", the Insert menu's second section: the files, Apps, maps and
- * charts the board's own chat made, grouped by kind, newest first. It reads the
+ * "From this chat", the Insert menu's second section: the files, Apps, maps,
+ * charts and diagrams the board's own chat made, grouped by kind, newest first. It reads the
  * chat when it mounts (the menu loads this whole component only when it opens, so
  * a board that is never given a block from the chat never pays for any of it) and
  * says quietly what it is doing: reading, nothing to insert, or could not look.

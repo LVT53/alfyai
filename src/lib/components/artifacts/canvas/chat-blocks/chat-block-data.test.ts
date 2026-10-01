@@ -181,11 +181,55 @@ const LISTING: CanvasChatBlocks = {
 			data: { kind: "chart", code: "{}" },
 		},
 	],
+	diagrams: [],
 	photos: [],
 	searches: [],
 };
 
 const NOW = Date.UTC(2026, 8, 30, 12, 0, 0);
+
+/** What a chat that drew three Mermaid diagrams lists: one titled, two by their kind, one of a kind with no name of its own. */
+const DIAGRAMS: CanvasChatBlocks["diagrams"] = [
+	{
+		key: "mermaid:m:0",
+		at: NOW - 60_000,
+		title: "Release plan",
+		diagramType: "gantt",
+		data: {
+			kind: "mermaid",
+			label: "Release plan",
+			code: "gantt\n  title Release plan",
+		},
+	},
+	{
+		key: "mermaid:m:1",
+		at: NOW - 120_000,
+		title: null,
+		diagramType: "sequenceDiagram",
+		data: { kind: "mermaid", code: "sequenceDiagram\n  A->>B: hi" },
+	},
+	{
+		key: "mermaid:m:2",
+		at: NOW - 180_000,
+		title: null,
+		diagramType: "stateDiagram-v2",
+		data: { kind: "mermaid", code: "stateDiagram-v2\n  [*] --> A" },
+	},
+	{
+		key: "mermaid:m:3",
+		at: NOW - 240_000,
+		title: null,
+		diagramType: "mindmap",
+		data: { kind: "mermaid", code: "mindmap\n  root" },
+	},
+	{
+		key: "mermaid:m:4",
+		at: NOW - 300_000,
+		title: null,
+		diagramType: null,
+		data: { kind: "mermaid", code: "x" },
+	},
+];
 
 function photoItem(
 	overrides: Partial<ChatPhotoBlock> & { count?: number } = {},
@@ -323,6 +367,61 @@ describe("the section's groups", () => {
 			"Sales",
 			"Vonaldiagram",
 			"Diagram",
+		]);
+	});
+
+	it("lists diagrams under their own heading, right after the charts", () => {
+		const groups = chatBlockGroups(
+			{ ...LISTING, diagrams: DIAGRAMS },
+			translate(),
+		);
+		expect(groups.map((g) => g.kind)).toEqual([
+			"file",
+			"app",
+			"map",
+			"chart",
+			"mermaid",
+		]);
+		expect(groups.at(-1)?.label).toBe("Diagrams");
+		uiLanguage.set("hu");
+		expect(
+			chatBlockGroups({ ...LISTING, diagrams: DIAGRAMS }, translate()).at(-1)
+				?.label,
+		).toBe("Ábrák");
+	});
+
+	it("reads a diagram by its title, else by its kind of diagram, else plainly; and what a pick inserts is the diagram block itself", () => {
+		const group = chatBlockGroups(
+			{ ...emptyChatBlocks(), diagrams: DIAGRAMS },
+			translate(),
+		)[0];
+		expect(group.kind).toBe("mermaid");
+		expect(group.rows.map((row) => row.name)).toEqual([
+			"Release plan",
+			"Sequence diagram",
+			"State diagram",
+			"Diagram",
+			"Diagram",
+		]);
+		for (const row of group.rows) {
+			expect(row.kind).toBe("mermaid");
+			expect(row.meta.length).toBeGreaterThan(0);
+		}
+		expect(group.rows[1].data).toEqual(DIAGRAMS[1].data);
+	});
+
+	it("names a diagram's kind in Hungarian in Hungarian", () => {
+		uiLanguage.set("hu");
+		const [group] = chatBlockGroups(
+			{ ...emptyChatBlocks(), diagrams: DIAGRAMS },
+			translate(),
+		);
+		expect(group.rows.map((row) => row.name)).toEqual([
+			"Release plan",
+			"Szekvenciadiagram",
+			"Állapotdiagram",
+			"Ábra",
+			"Ábra",
 		]);
 	});
 

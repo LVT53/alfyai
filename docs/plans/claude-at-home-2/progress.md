@@ -828,3 +828,32 @@ token fix is merged (S3-Y). Slides' merge must unify S4-V's `turnContext` seam w
   **F-E** (`fix/artifacts-budget-gate`): the budgets leave `npm run build` and run as their own gate step (`gates.sh`,
   `common.md` gate 4, AGENTS.md); still pass locally (editor 69,359 / 69,632 B; chat route +1,476 / 2,048) and still fail
   when exceeded. Merged (`feat/artifacts`), then into `dev`.
+- **M1 — CANVAS IS LIVE ON ai.dev (2026-09-30 late evening): `dev` = ai.dev = `63bc6626`** (deploy OK, health 200,
+  `current -> releases/63bc6626`). Budgets re-checked on `dev` in `dev-int` after F-E: build exit 0 (32/2), chunk gate
+  OK (editor closure 67.7 kB gzip; chat route +1,458 / 2,048 B), Fallow 124/4.
+- **Live check with the real model** (`~/.cache/alfyai-artifacts/live-checks/verify-canvas-w3.mjs`, piped over ssh):
+  create-en PASS (2 frames, 7 blocks, every block inside its frame by the stored sizes, no overlaps, 16.5 s); edit PASS
+  (v1→v2, one Alfy version, no refusal, "Rainy day" frame with both notes, 8.4 s); create-hu PASS (16/17 texts Hungarian,
+  frames "Szombat"/"Vasárnap"); incognito PASS (404 outside its chat, not in the library or search); sizes PASS (chart 360
+  wide, checklist 340 wide, 3 items); alfy-comment reported FAIL but **the product did it all** (HTTP 200, applied 1, a
+  reply, one Alfy version, the note ends in "moved to Monday"; the dev DB holds the user's comment and Alfy's reply) —
+  the script reads comments from `GET /api/artifacts/[id]`, which does not carry them (fix the script: read the comments
+  route). Test conversations kept: `a29accd1…`, `153f2a94…`, `652b16de…`.
+- **Stopped for the owner's check (M1).** Next after it (ruling 69): the tours for Document, App and Canvas, and hiding the
+  Knowledge tab's "Slides" chip.
+
+### Owner's walk of the Canvas (2026-09-30, late) → fixes before the tours
+
+The owner: "I can't undo actions." · "I'd also like a new option added, to multi-select elements on the canvas and move
+them/resize them together." · "All other chart types that would load in chat do not load inside the canvases." ·
+"sometimes the 'Keep Undo' row moves into weird locations far from the element." · "what's the point of adding canvas
+elements into bigger groups if I can't even select the group when I click inside it's empty areas or even move it/resize
+it anywhere? Fix these gaps too."
+
+| Agent | Scope | Branch / worktree (port) | State |
+|---|---|---|---|
+| OW-1 | Undo (reproduce, root cause), the pill beside what changed, frames selectable by their empty area, draggable with their children, resizable on every edge | `fix/canvas-owner-walk-1` / `art-ow1` (5610) | **merged** (`8ea1edde`, 12 commits `5a614d95..ddec2845`; `claude-sonnet-5-5`; two keep-both conflicts with OW-C resolved by the orchestrator). Root causes: **undo** — ⌘/Ctrl+Z was the board's only while focus was inside it and not on an input, but a person's focus sits on `<body>` after clicking the empty board or deleting a block (now the board's whenever focus is on it or on nothing, never in a field; the history was never emptied by save/land/rebase); **the pill** hung from the touched blocks' bounding-box corner (empty space, the pane edge, a neighbour) → now from the block the review bar shows, following the stepper; **frames** — the body ignored the pointer, only the chip dragged, corner handles only, no stop → a click on the ground selects the innermost frame, a selected frame drags by its body with its notes, 4 sides + 4 corners resize and stop at the notes. Kept: ruling 16 (closing the panel forgets the undo stack; a design to keep it is in the report). Gates on the merged head (dev-int): check 0/17, 15,942 tests, build 32/2, Fallow 124/4, Playwright 419 + 22 skipped; chunks 70,710 B → ceiling raised to 71,680 B (ruling 68 note) |
+| OW-C | every chart type the chat draws also draws on the board (inventory, the cause, one e2e per type) | `fix/canvas-owner-walk-charts` / `art-owc` (5620) | **merged** (9 commits `5a614d95..f6ede881`; `claude-sonnet-5-5`). **Every Chart.js type already drew** (bar, line, pie, doughnut, radar, polarArea, scatter, bubble, mixed — pixel-checked on dev and a production build; `chart.js/auto` in the one lazy import). **The gap was Mermaid** (flowchart, sequence, class, state, ER, Gantt, pie): no block kind, not listed → a lazy `mermaid` block on the chat's own `Mermaid.svelte` (the model still cannot add one, ruling 64), listed in "From this chat". Also fixed: a chart one brace short listed as a bare "Chart" (the listing now reads it as leniently as the chat), round charts placed in a bar chart's room, Mermaid unreadable on a dark page (chat and board). Not built: a csv fence as a table block (design in the report). Gates: check 0/17, 15,893 tests, build 32/2, chunks OK (editor 68.0 kB / 69.6; Mermaid fingerprinted out of the editor), Playwright 380 + 22 skipped, Fallow 124/4. Chat-route baseline moved by a measured 1,112 B (ruling 68 note) |
+| OW-2 | multi-select (shift/⌘-click, a marquee), move, resize and delete together | — | after OW-1 |
+
+Weekly budget 89 % at dispatch; these fixes take it to ~95 %; the tours wait for the reset (2026-10-05 09:00 UTC).

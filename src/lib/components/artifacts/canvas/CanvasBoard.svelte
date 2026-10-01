@@ -23,7 +23,12 @@
  * is judged here (`onnodedragstop` -> `reparentOnDrop`) and the block's
  * `parentId` and position rewritten; while the drag is on, `onnodedrag` lights
  * the frame that would take it. A frame that is deleted does not take the blocks
- * inside it (`onbeforedelete` re-homes them: the ops protocol does the same).
+ * inside it (`onbeforedelete` re-homes them: the ops protocol does the same). A
+ * frame is also a group a reader can grab: it lets the pointer through, so a click
+ * in its empty ground reaches the board, which selects the innermost frame under
+ * it (`handlePaneClick` -> `selectBlocks`); a selected frame takes the pointer back
+ * and moves with its blocks from anywhere on it, and its sides and corners resize
+ * it, never past what it holds (`resizeFloor`).
  *
  * Seams: a layer written apart from the board (the comment pins and the
  * catcher for the Comment tool) is a snippet the board renders INSIDE its flow,
@@ -49,8 +54,7 @@ import {
 	type Viewport,
 	ViewportPortal,
 } from "@xyflow/svelte";
-import { onDestroy, type Snippet, untrack } from "svelte";
-import { historyShortcutFor } from "$lib/components/artifacts/document/keyboard-shortcuts";
+import { onDestroy, type Snippet, tick, untrack } from "svelte";
 import { t } from "$lib/i18n";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import type { Annotation, CanvasBody, Pt } from "$lib/shared/artifacts/canvas";
@@ -63,12 +67,15 @@ import {
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
 import {
+	frameAt,
+	heldRect,
 	nodeRect,
 	parentsFirst,
 	type Rect,
 	rehomeOnRemoval,
 	type ReparentPatch,
 	reparentOnDrop,
+	resizeFloor as floorOf,
 	withoutDanglingEdges,
 } from "./_lib/board";
 import { DEFAULT_INK, isDrawingTool, type Tool } from "./_lib/tools";
@@ -92,8 +99,10 @@ import {
 	boardNodeTypes,
 	newBlockNode,
 } from "./_lib/block-registry";
+import { boardHistoryChord } from "./_lib/history-keys";
 import { newId } from "./_lib/ids";
 import { visibleBoardRect } from "./_lib/pane-rect";
+import { withSelection } from "./_lib/selection";
 import type AnnotationLayer from "./AnnotationLayer.svelte";
 import CanvasToolbar from "./CanvasToolbar.svelte";
 import type DrawTray from "./DrawTray.svelte";
@@ -244,6 +253,8 @@ provideBoardContext({
 	picture: (id) => pictures?.get(id) ?? null,
 	posterFailed: (id) => posterFailedIds.has(id),
 	updateData: (id, patch) => flow.updateNodeData(id, patch),
+	history: (action) => (action === "undo" ? undo() : redo()),
+	resizeFloor,
 });
 
 function snapshot(): CanvasBody {
@@ -440,6 +451,23 @@ function restore(json: string): void {
 	annotations = restored.annotations;
 	committedJson = json;
 	onchange(snapshot());
+	keepFocusInBoard();
+}
+
+/**
+ * A block that goes (deleted, or an insert undone) takes the focus it had with
+ * it, and the page's body has it then: a keyboard reader is dropped out of the
+ * board and their next key goes nowhere. The board itself takes the focus back,
+ * only when it was lost — never from a field, a button or anything else the reader
+ * is on.
+ */
+function keepFocusInBoard(): void {
+	void tick().then(() => {
+		const active = document.activeElement;
+		if (boardEl && (!active || active === document.body)) {
+			boardEl.focus({ preventScroll: true });
+		}
+	});
 }
 
 function undo(): void {
@@ -458,16 +486,13 @@ function redo(): void {
 	syncHistoryFlags();
 }
 
-/** Ctrl/Cmd+Z and its redo, whenever focus is inside the board and not in a text field (which has its own). */
+/**
+ * Ctrl/Cmd+Z and its redo: the board's while the focus is on it or on nothing (a
+ * click on the empty board leaves it on the page's body), and not in a field the
+ * reader is typing in, which has its own text history (`boardHistoryChord`).
+ */
 function handleWindowKeydown(event: KeyboardEvent): void {
-	if (event.defaultPrevented || !boardEl?.contains(document.activeElement)) {
-		return;
-	}
-	const target = event.target as HTMLElement | null;
-	if (target?.closest("input, textarea, select, [contenteditable='true']")) {
-		return;
-	}
-	const action = historyShortcutFor(event);
+	const action = boardHistoryChord(event, boardEl);
 	if (!action) return;
 	event.preventDefault();
 	if (action === "undo") undo();
@@ -709,6 +734,64 @@ function handleNodeDragStop({ nodes: dragged }: { nodes: FlowNode[] }): void {
 	);
 }
 
+// ---- Frames as groups: picking one by its ground, and resizing one ----------
+
+/**
+ * Selects exactly these blocks, and puts the keyboard's focus on the first of
+ * them so the arrow keys move what was picked. The one way the board picks a
+ * block by itself (a click on a frame's ground); a pick of several blocks at once
+ * goes through the same `withSelection`, `additive` or not.
+ */
+function selectBlocks(
+	ids: readonly string[],
+	options: { additive?: boolean } = {},
+): void {
+	nodes = withSelection(nodes, ids, options);
+	if (ids[0] === undefined) return;
+	boardEl
+		?.querySelector<HTMLElement>(
+			`.svelte-flow__node[data-id="${CSS.escape(ids[0])}"]`,
+		)
+		?.focus({ preventScroll: true });
+}
+
+/**
+ * A click that reached the board itself. A frame lets the pointer through, so a
+ * click in its empty ground comes here, and it is the frame's: the innermost
+ * frame under the click is selected (a click on a block in it never gets here, the
+ * block takes it). The library unselects everything once this has returned, so
+ * the frame is picked after that.
+ */
+function handlePaneClick({ event }: { event: MouseEvent }): void {
+	if (readonly || held || (tool !== "select" && tool !== "pan")) return;
+	const point = flow.screenToFlowPosition({
+		x: event.clientX,
+		y: event.clientY,
+	});
+	const frame = frameAt(point, nodes.map(measured));
+	if (!frame) return;
+	queueMicrotask(() => selectBlocks([frame.id]));
+}
+
+/**
+ * How far in a resize control may bring a frame's side: to the nearest thing
+ * inside it, and no further (`resizeFloor`). The library clamps the drag to it, so
+ * the side stops exactly at what the frame holds instead of cutting it off. Read
+ * from the blocks as they are drawn, so it is current when the next drag starts.
+ */
+function resizeFloor(
+	id: string,
+	position: string,
+): { width: number; height: number } | null {
+	const frame = nodes.find((node) => node.id === id);
+	if (frame?.data.kind !== "frame") return null;
+	return floorOf(
+		nodeRect(frame, nodes, frame.measured),
+		heldRect(frame, nodes),
+		position,
+	);
+}
+
 // The library cascades a delete to a frame's children. A frame removed to tidy
 // up must not cost a reader their notes, so the ones nobody selected are taken
 // out of the deletion and moved up to where the frame was (the ops protocol's
@@ -754,6 +837,7 @@ function handleDelete(): void {
 	edges = withoutDanglingEdges(edges, nodes);
 	commit();
 	announce($t("artifacts.canvas.nodeDeleted"));
+	keepFocusInBoard();
 }
 
 $effect(() => {
@@ -896,9 +980,11 @@ function minimapColor(node: {
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
+<!-- Focusable by a click and by the script, not by Tab (-1): a click on the empty board leaves the focus HERE, inside the board, where the reader's Ctrl/Cmd+Z is heard. -->
 <div
 	class="canvas-board"
 	class:canvas-board--picture={pictures !== null}
+	tabindex="-1"
 	bind:this={boardEl}
 	bind:clientWidth={boardWidth}
 	bind:clientHeight={boardHeight}
@@ -953,6 +1039,7 @@ function minimapColor(node: {
 		isValidConnection={(connection) => connection.source !== connection.target}
 		onbeforeconnect={handleBeforeConnect}
 		onnodeclick={() => (insertSelectedId = null)}
+		onpaneclick={handlePaneClick}
 		onnodedrag={handleNodeDrag}
 		onnodedragstop={handleNodeDragStop}
 		onbeforedelete={handleBeforeDelete}
@@ -1034,6 +1121,7 @@ function minimapColor(node: {
 	   so it can neither sit over the app's sheets nor be covered by them. */
 	.canvas-board {
 		position: relative;
+		outline: none;
 		isolation: isolate;
 		flex: 1 1 auto;
 		width: 100%;

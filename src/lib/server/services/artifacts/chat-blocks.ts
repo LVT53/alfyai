@@ -1,9 +1,9 @@
 // "From this chat" (Feature 2 · Canvas): what a board's own conversation has
 // that can be put on the board — its produced and attached files, its Apps, the
-// route maps its `map_route` calls returned, the charts its replies drew, the
-// photos its photo searches found and the sources its web searches returned —
-// newest first, a few of each. The Insert menu offers them; a pick becomes a
-// File, App, map, chart, photo or live-web block.
+// route maps its `map_route` calls returned, the charts and diagrams its replies
+// drew, the photos its photo searches found and the sources its web searches
+// returned — newest first, a few of each. The Insert menu offers them; a pick
+// becomes a File, App, map, chart, diagram, photo or live-web block.
 //
 // This is a second way to read a conversation's work, so it reads nothing the
 // artifact routes could not: the board is resolved through THE scoped read
@@ -47,12 +47,14 @@ import {
 	type ChatChartBlock,
 	type ChatFileBlock,
 	type ChatMapBlock,
+	type ChatMermaidBlock,
 	type ChatPhotoBlock,
 	type ChatSearchBlock,
 	emptyChatBlocks,
 } from "$lib/shared/artifacts/chat-blocks";
 import type { ArtifactSource } from "$lib/shared/artifacts/sources";
 import { fileExtension } from "$lib/shared/file-types";
+import { parseJsonLenient } from "$lib/utils/lenient-json";
 import { immichThumbnailUrl } from "$lib/utils/tool-evidence-presentation";
 import { listArtifactsForConversation } from "./read-model";
 import { kindForArtifactRow, readScopedArtifactRow } from "./record";
@@ -197,28 +199,32 @@ function mapsIn(message: ChatMessage): ChatMapBlock[] {
 	return maps;
 }
 
-/** What a chart's own config says about itself: its title, when it has one, and its type. */
+/**
+ * What a chart's own config says about itself: its title, when it has one, and its
+ * type. Read the way the chat's chart reads it (`parseJsonLenient`): a config that
+ * is only one closing brace short is a chart the chat draws, so it is one the
+ * listing names.
+ */
 function chartFacts(code: string): {
 	title: string | null;
 	chartType: string | null;
 } {
-	try {
-		const config = JSON.parse(code) as {
-			type?: unknown;
-			options?: { plugins?: { title?: { text?: unknown } } };
-		};
-		const text = config?.options?.plugins?.title?.text;
-		const title = (Array.isArray(text) ? text.join(" ") : text) as unknown;
-		return {
-			title:
-				typeof title === "string" && title.trim().length > 0
-					? title.trim().slice(0, 200)
-					: null,
-			chartType: typeof config?.type === "string" ? config.type : null,
-		};
-	} catch {
-		return { title: null, chartType: null };
-	}
+	const config = parseJsonLenient(code) as
+		| {
+				type?: unknown;
+				options?: { plugins?: { title?: { text?: unknown } } };
+		  }
+		| null
+		| undefined;
+	const text = config?.options?.plugins?.title?.text;
+	const title = (Array.isArray(text) ? text.join(" ") : text) as unknown;
+	return {
+		title:
+			typeof title === "string" && title.trim().length > 0
+				? title.trim().slice(0, 200)
+				: null,
+		chartType: typeof config?.type === "string" ? config.type : null,
+	};
 }
 
 type Lexer = (source: string) => Parameters<typeof classifyMarkdownBlocks>[0];
@@ -234,20 +240,56 @@ function loadLexer(): Promise<Lexer> {
 	return lexer;
 }
 
+/** What a Mermaid source says about itself: what kind of diagram it is, and its title when it has one. */
+function mermaidFacts(code: string): {
+	title: string | null;
+	diagramType: string | null;
+} {
+	let body = code.replace(/\r\n?/g, "\n");
+	let title: string | null = null;
+	// Frontmatter is where a flowchart, a class or a state diagram keeps its title.
+	const frontmatter = /^\s*---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/.exec(body);
+	if (frontmatter) {
+		title = /^\s*title:\s*(.+?)\s*$/m.exec(frontmatter[1])?.[1] ?? null;
+		body = body.slice(frontmatter[0].length);
+	}
+	const lines = body
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0 && !line.startsWith("%%"));
+	const first = lines[0] ?? "";
+	// A pie, a Gantt chart, a timeline or a journey says `title …` on a line of its own, and a pie may say it after its keyword.
+	title ??=
+		/^pie\b.*?\btitle\s+(.+)$/i.exec(first)?.[1] ??
+		lines
+			.slice(1)
+			.map((line) => /^title\s+(.+)$/i.exec(line)?.[1])
+			.find((text) => text !== undefined) ??
+		null;
+	const cleaned = title?.replace(/^["']|["']$/g, "").trim() ?? "";
+	return {
+		title: cleaned.length > 0 ? cleaned.slice(0, 200) : null,
+		diagramType: /^[A-Za-z][\w-]*/.exec(first)?.[0] ?? null,
+	};
+}
+
+type Classified = ReturnType<typeof classifyMarkdownBlocks>;
+
+/** A reply as the chat reads it: the chat's own block reading. A reply the tokeniser cannot read has no charts or diagrams to offer; it must not fail the listing of the rest. */
+function blocksIn(message: ChatMessage, lex: Lexer): Classified {
+	try {
+		return classifyMarkdownBlocks(lex(message.content));
+	} catch {
+		return [];
+	}
+}
+
 /** The charts a reply drew, last first: the chat's own block reading (`classifyMarkdownBlocks`), so a fence and a bar-column table both count. */
 function chartsIn(
 	message: ChatMessage,
-	lex: Lexer,
+	blocks: Classified,
 	seenCode: Set<string>,
 ): ChatChartBlock[] {
-	let blocks: ReturnType<typeof classifyMarkdownBlocks>;
-	try {
-		blocks = classifyMarkdownBlocks(lex(message.content));
-	} catch {
-		// A reply the tokeniser cannot read has no charts to offer; it must not
-		// fail the listing of the rest.
-		return [];
-	}
 	const codes = blocks
 		.flatMap((block) => (block.kind === "chart" ? [block.code] : []))
 		.reverse();
@@ -271,6 +313,37 @@ function chartsIn(
 		});
 	}
 	return charts;
+}
+
+/** The diagrams a reply drew, last first: every closed ```mermaid fence, as the chat reads them. */
+function diagramsIn(
+	message: ChatMessage,
+	blocks: Classified,
+	seenCode: Set<string>,
+): ChatMermaidBlock[] {
+	const codes = blocks
+		.flatMap((block) => (block.kind === "mermaid" ? [block.code] : []))
+		.reverse();
+	const diagrams: ChatMermaidBlock[] = [];
+	for (const [index, code] of codes.entries()) {
+		if (seenCode.has(code)) continue;
+		const facts = mermaidFacts(code);
+		// A diagram's own title heads its block, as it heads the diagram.
+		const parsed = BLOCK_DATA_SCHEMAS.mermaid.safeParse({
+			kind: "mermaid",
+			...(facts.title ? { label: facts.title } : {}),
+			code,
+		});
+		if (!parsed.success) continue;
+		seenCode.add(code);
+		diagrams.push({
+			key: `mermaid:${message.id}:${index}`,
+			at: message.timestamp,
+			...facts,
+			data: parsed.data,
+		});
+	}
+	return diagrams;
 }
 
 type ToolCall = Extract<ThinkingSegment, { type: "tool_call" }>;
@@ -418,20 +491,31 @@ function searchesIn(
 	return searches;
 }
 
-type Drawn = Pick<CanvasChatBlocks, "maps" | "charts" | "photos" | "searches">;
+type Drawn = Pick<
+	CanvasChatBlocks,
+	"maps" | "charts" | "diagrams" | "photos" | "searches"
+>;
 
-/** What the chat itself drew or found, read from its newest messages: route maps, charts, photo searches and web searches. */
+/** What the chat itself drew or found, read from its newest messages: route maps, charts, diagrams, photo searches and web searches. */
 async function listDrawn(conversationId: string): Promise<Drawn> {
 	const [{ messages }, lex] = await Promise.all([
 		listMessageWindow(conversationId, { limit: CHAT_BLOCKS_SCAN_MESSAGES }),
 		loadLexer(),
 	]);
-	const drawn: Drawn = { maps: [], charts: [], photos: [], searches: [] };
+	const drawn: Drawn = {
+		maps: [],
+		charts: [],
+		diagrams: [],
+		photos: [],
+		searches: [],
+	};
 	const seenCode = new Set<string>();
+	const seenDiagrams = new Set<string>();
 	const seenQueries = new Set<string>();
 	const full = () =>
 		drawn.maps.length >= CHAT_BLOCKS_PER_KIND &&
 		drawn.charts.length >= CHAT_BLOCKS_PER_KIND &&
+		drawn.diagrams.length >= CHAT_BLOCKS_PER_KIND &&
 		drawn.photos.length >= CHAT_BLOCKS_PER_KIND &&
 		drawn.searches.length >= CHAT_BLOCKS_PER_KIND;
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -440,8 +524,18 @@ async function listDrawn(conversationId: string): Promise<Drawn> {
 		if (drawn.maps.length < CHAT_BLOCKS_PER_KIND) {
 			drawn.maps.push(...mapsIn(message));
 		}
-		if (drawn.charts.length < CHAT_BLOCKS_PER_KIND) {
-			drawn.charts.push(...chartsIn(message, lex, seenCode));
+		if (
+			drawn.charts.length < CHAT_BLOCKS_PER_KIND ||
+			drawn.diagrams.length < CHAT_BLOCKS_PER_KIND
+		) {
+			// One reading of the reply serves both.
+			const blocks = blocksIn(message, lex);
+			if (drawn.charts.length < CHAT_BLOCKS_PER_KIND) {
+				drawn.charts.push(...chartsIn(message, blocks, seenCode));
+			}
+			if (drawn.diagrams.length < CHAT_BLOCKS_PER_KIND) {
+				drawn.diagrams.push(...diagramsIn(message, blocks, seenDiagrams));
+			}
 		}
 		if (drawn.photos.length < CHAT_BLOCKS_PER_KIND) {
 			drawn.photos.push(...photosIn(message));
@@ -454,6 +548,7 @@ async function listDrawn(conversationId: string): Promise<Drawn> {
 	return {
 		maps: drawn.maps.slice(0, CHAT_BLOCKS_PER_KIND),
 		charts: drawn.charts.slice(0, CHAT_BLOCKS_PER_KIND),
+		diagrams: drawn.diagrams.slice(0, CHAT_BLOCKS_PER_KIND),
 		photos: drawn.photos.slice(0, CHAT_BLOCKS_PER_KIND),
 		searches: drawn.searches.slice(0, CHAT_BLOCKS_PER_KIND),
 	};

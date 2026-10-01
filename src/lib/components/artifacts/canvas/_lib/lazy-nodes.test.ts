@@ -5,17 +5,19 @@ import * as ChecklistModule from "../nodes/ChecklistNode.svelte";
 import * as FileModule from "../nodes/FileNode.svelte";
 import * as LiveWebModule from "../nodes/LiveWebNode.svelte";
 import * as MapModule from "../nodes/MapNode.svelte";
+import * as MermaidModule from "../nodes/MermaidNode.svelte";
 import * as PhotoModule from "../nodes/PhotoNode.svelte";
 import { lazyNodeLoader } from "./lazy-nodes";
 
 describe("the loaders of the blocks made from the chat", () => {
-	it("has one for each of the five, and the checklist, and each resolves to that block's own content and its shell dress", async () => {
+	it("has one for each of the six, and the checklist, and each resolves to that block's own content and its shell dress", async () => {
 		const expected = [
 			["chart", ChartModule.default, ChartModule.chartShell],
 			["checklist", ChecklistModule.default, ChecklistModule.checklistShell],
 			["file", FileModule.default, FileModule.fileShell],
 			["app", AppModule.default, AppModule.appShell],
 			["map", MapModule.default, MapModule.mapShell],
+			["mermaid", MermaidModule.default, MermaidModule.mermaidShell],
 			["liveweb", LiveWebModule.default, LiveWebModule.livewebShell],
 		] as const;
 		for (const [kind, content, shell] of expected) {
