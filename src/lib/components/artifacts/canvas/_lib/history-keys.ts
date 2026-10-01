@@ -79,7 +79,7 @@ export function boardHistoryChord(
 export function handsHistoryToBoard(
 	handOver: ((action: HistoryShortcut) => void) | undefined,
 	leave: () => void,
-): (field: HTMLInputElement | HTMLTextAreaElement) => () => void {
+): (field: HTMLElement) => () => void {
 	return (field) => {
 		if (!handOver) return () => {};
 		let typed = false;
