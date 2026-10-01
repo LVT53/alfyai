@@ -100,7 +100,9 @@ let gesture = $state.raw<{
 	originals: Map<string, Geometry>;
 } | null>(null);
 
-let ids = $derived(nodes.filter((node) => node.selected).map((node) => node.id));
+let ids = $derived(
+	nodes.filter((node) => node.selected).map((node) => node.id),
+);
 let box = $derived(gesture?.box ?? group?.box ?? null);
 let screen = $derived(
 	box

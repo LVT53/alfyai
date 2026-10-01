@@ -86,7 +86,8 @@ const FINE_REACH = 9 + 6;
 let reach = $derived(
 	selected.length < 2
 		? 0
-		: typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches
+		: typeof matchMedia === "function" &&
+				matchMedia("(pointer: coarse)").matches
 			? COARSE_REACH
 			: FINE_REACH,
 );

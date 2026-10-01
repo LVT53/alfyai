@@ -259,9 +259,13 @@ let resizing = false;
 
 function ensureGroup(): void {
 	groupLoading ??= import("./group-parts").then(
-		(parts) => void (groupParts = parts),
+		(parts) => {
+			groupParts = parts;
+		},
 		// Offline, or a deploy in between: the next selection tries again.
-		() => void (groupLoading = null),
+		() => {
+			groupLoading = null;
+		},
 	);
 }
 
