@@ -863,3 +863,13 @@ Weekly budget 89 % at dispatch; these fixes take it to ~95 %; the tours wait for
   first-paint ceiling at 71,680 B. Gates on the merged head: check 0/17, 15,942 tests, build 32/2, Fallow 124/4,
   Playwright 419 + 22 skipped, chunks OK. Weekly budget **95 %** (resets 2026-10-05 09:00 UTC): OW-2 (multi-select) and
   the tours wait for the owner's word or the reset.
+- **Multi-select LIVE on ai.dev (2026-10-01 ~08:10 UTC): `dev` = ai.dev = `27274c0e`** (deploy OK, health 200). Release
+  gates on `db756795` (dev-int): check 0/17, 15,977 tests, build 32/2, chunks OK (editor 69.6 kB gzip; chat route +1,666 /
+  2,048 B), Fallow 124/4, Playwright 443 + 23 skipped.
+- **STOPPED for the owner's check; the weekly budget is spent (~98 %).** Next, after the reset (2026-10-05 09:00 UTC), in
+  a fresh orchestrator session: anything from the owner's second walk, then **the tours** (ruling 69: Slice 6 remainder for
+  Document, App, Canvas; merge `feat/artifacts-s6` with migration `1777140000112`; hide the Knowledge tab's "Slides" chip),
+  then Wave 4. Slides stays shelved on `feat/artifacts-slides`. Open follow-ups are listed in the PAUSED section above and
+  in the OW rows (select-all; edge handles mouse-only; ruling 16's undo stack forgotten on close — a design is in
+  `ow1-report.md`; a csv fence as a table block; Knowledge's Delete leaves a board's posters; the live-check script reads
+  comments from the wrong route).
