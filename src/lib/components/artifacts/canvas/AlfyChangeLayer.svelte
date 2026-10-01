@@ -254,12 +254,17 @@ $effect(() => {
 	if (before === null || status === null || before === status) return;
 	void tick().then(() => {
 		if (!focusIsAdrift()) return;
+		const firstTool = () =>
+			document.querySelector<HTMLElement>('[data-testid="canvas-tool-select"]');
 		if (status === "kept") {
-			document
-				.querySelector<HTMLElement>('[data-testid="canvas-tool-select"]')
-				?.focus();
+			firstTool()?.focus();
 		} else {
-			pillEl?.querySelector<HTMLElement>(".alfy-change-bar-undo")?.focus();
+			// The pill is not drawn while its block is out of the pane (the reader decided
+			// from the review bar): the board's first tool then, never the page's body.
+			(
+				pillEl?.querySelector<HTMLElement>(".alfy-change-bar-undo") ??
+				firstTool()
+			)?.focus();
 		}
 	});
 });

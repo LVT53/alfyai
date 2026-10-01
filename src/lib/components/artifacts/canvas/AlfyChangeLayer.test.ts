@@ -421,6 +421,24 @@ describe("where focus goes when the change is decided", () => {
 		expect(document.activeElement).toBe(field);
 	});
 
+	it("puts the focus on the board's first tool when the pill is not drawn (its block is out of the pane) and the change is undone", async () => {
+		const select = document.createElement("button");
+		select.setAttribute("data-testid", "canvas-tool-select");
+		document.body.append(select);
+		const { rerender } = mount({
+			nodes: [sticky("a", 100, 200)],
+			viewport: { x: -900, y: 0, zoom: 1 },
+			touched: ["a"],
+			pill: { status: "pending", label: "x" },
+			paneSize: { width: 800, height: 600 },
+		});
+		expect(screen.queryByTestId("canvas-change-pill")).toBeNull();
+		await rerender({ pill: { status: "undone", label: "x" } });
+		await tick();
+		await tick();
+		expect(document.activeElement).toBe(select);
+	});
+
 	it("puts a Kept change's focus on the board's first tool", async () => {
 		const select = document.createElement("button");
 		select.setAttribute("data-testid", "canvas-tool-select");
