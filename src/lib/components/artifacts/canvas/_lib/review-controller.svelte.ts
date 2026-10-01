@@ -807,6 +807,8 @@ export function changeLayerProps(
 		waiting: controller.status === "pending",
 		pulseIds: controller.pulseIds,
 		activeId: controller.activeId,
+		// The block the review bar is showing: the pill hangs from it.
+		currentId: change?.touched[controller.index] ?? change?.touched[0] ?? null,
 		pill:
 			change && controller.count > 0
 				? {

@@ -162,7 +162,8 @@ describe("the rings", () => {
 			pill: { status: "undone", label: "Planned Sunday" },
 		});
 		expect(screen.queryAllByTestId("canvas-alfy-ring")).toHaveLength(0);
-		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("700px");
+		// It hangs from the block the bar was on (a, whose right edge is 300).
+		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("300px");
 	});
 
 	it("keeps a ring 2 px on screen at any zoom", () => {
@@ -176,15 +177,18 @@ describe("the rings", () => {
 });
 
 describe("the pill", () => {
-	it("sits at the top-right corner of the touched blocks' box, and keeps and undoes", async () => {
+	it("hangs above the top-right corner of the block the review bar is on, and keeps and undoes", async () => {
 		const { onkeep, onundo } = mount({
 			touched: ["a", "b"],
 			pill: { status: "pending", label: "Planned Sunday" },
 		});
 		const anchor = screen.getByTestId("canvas-change-pill");
-		// The box is 100..700 x 100..400: its top-right corner is (700, 100).
-		expect(anchor.style.left).toBe("700px");
+		// The bar is on the first touched block, a (100..300 x 100..200): its top-right corner is (300, 100),
+		// not the corner of the box that holds both (700, 100), which is beside neither.
+		expect(anchor.style.left).toBe("300px");
 		expect(anchor.style.top).toBe("100px");
+		expect(anchor.dataset.side).toBe("above");
+		expect(anchor.dataset.align).toBe("end");
 		expect(screen.getByRole("group", { name: /Planned Sunday/ })).toBeTruthy();
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Keep Alfy's change" }),
@@ -196,21 +200,38 @@ describe("the pill", () => {
 		expect(onundo).toHaveBeenCalledTimes(1);
 	});
 
-	// RV-3 Minor 2: the pill hung from the corner of the box that holds every touched
-	// block, over blocks Alfy left alone when the change is spread over the board.
-	it("does not sit over a block Alfy left alone: it hangs from a touched block's corner instead", () => {
-		// The box holding a and b has its corner at (700, 100), where the pill (280 x 28,
-		// 16 above it) would cover 420..700 x 56..84: a block that was not touched is there.
+	it("follows the review bar's stepper to the next touched block", async () => {
+		const { rerender } = mount({
+			touched: ["a", "b"],
+			currentId: "a",
+			pill: { status: "pending", label: "x" },
+		});
+		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("300px");
+		await rerender({ currentId: "b" });
+		await tick();
+		// b is 500..700 x 300..400.
+		const pill = screen.getByTestId("canvas-change-pill");
+		expect(pill.style.left).toBe("700px");
+		expect(pill.style.top).toBe("300px");
+	});
+
+	// The walk: the pill hung from the corner of the box that holds every touched block,
+	// which for a change spread over the board is beside none of them.
+	it("does not sit over a block Alfy left alone: it hangs from another side of its block instead", () => {
+		// Above a's top-right corner the pill (280 x 28, 16 up) would cover 20..300 x 56..84:
+		// a block that was not touched is at 10..140 x 40..90. Above its top-left corner it
+		// covers 100..380 x 56..84, which a block at 10..140 is also in; below its bottom-right
+		// corner (20..300 x 216..244) nothing is.
 		mount({
-			nodes: [...NODES, sticky("d", 600, 40)].map((node) =>
-				node.id === "d" ? { ...node, height: 50 } : node,
-			),
+			nodes: [...NODES, { ...sticky("d", 10, 40), width: 130, height: 50 }],
 			touched: ["a", "b"],
 			pill: { status: "pending", label: "Planned Sunday" },
 		});
 		const pill = screen.getByTestId("canvas-change-pill");
 		expect(pill.style.left).toBe("300px");
-		expect(pill.style.top).toBe("100px");
+		expect(pill.style.top).toBe("200px");
+		expect(pill.dataset.side).toBe("below");
+		expect(pill.style.getPropertyValue("--pill-y")).toBe("16px");
 	});
 
 	it("does not mind a frame under it: a frame is a backdrop", () => {
@@ -220,7 +241,7 @@ describe("the pill", () => {
 				{
 					id: "frame",
 					type: "frame",
-					position: { x: 400, y: 20 },
+					position: { x: 0, y: 20 },
 					width: 400,
 					height: 100,
 					data: { kind: "frame", label: "Sunday", width: 400, height: 100 },
@@ -229,7 +250,9 @@ describe("the pill", () => {
 			touched: ["a", "b"],
 			pill: { status: "pending", label: "Planned Sunday" },
 		});
-		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("700px");
+		const pill = screen.getByTestId("canvas-change-pill");
+		expect(pill.style.left).toBe("300px");
+		expect(pill.dataset.side).toBe("above");
 	});
 
 	it("offers Redo once it is undone", async () => {
@@ -248,10 +271,10 @@ describe("the pill", () => {
 			touched: ["a", "b"],
 			pill: { status: "pending", label: "x" },
 		});
-		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("700px");
+		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("300px");
 		await rerender({ nodes: [sticky("c", 900, 100)] });
 		await tick();
-		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("700px");
+		expect(screen.getByTestId("canvas-change-pill").style.left).toBe("300px");
 	});
 
 	it("is not drawn without a change to decide", () => {
@@ -316,6 +339,38 @@ describe("the pill, kept in the pane", () => {
 		});
 		unmount();
 		expect(onpillbox).toHaveBeenLastCalledWith(null);
+	});
+
+	// A pill at the pane's edge beside nothing is the walk's "far from the element": with the
+	// block gone from view it is not drawn, and the review bar still decides.
+	it("is not drawn while the block it is for is wholly out of the pane, and is back with it", async () => {
+		const onpillbox = vi.fn();
+		const { rerender } = mount({
+			nodes: [sticky("a", 100, 200)],
+			touched: ["a"],
+			pill: { status: "pending", label: "x" },
+			paneSize: PANE,
+			onpillbox,
+		});
+		expect(screen.getByTestId("canvas-change-pill")).toBeTruthy();
+		// Panned so that the block is 600 to the left of the pane.
+		await rerender({ viewport: { x: -900, y: 0, zoom: 1 } });
+		await tick();
+		expect(screen.queryByTestId("canvas-change-pill")).toBeNull();
+		expect(onpillbox).toHaveBeenLastCalledWith(null);
+		await rerender({ viewport: { x: 0, y: 0, zoom: 1 } });
+		await tick();
+		expect(screen.getByTestId("canvas-change-pill")).toBeTruthy();
+	});
+
+	it("is drawn, slid in, while the block is only partly in the pane", () => {
+		mount({
+			nodes: [sticky("a", -150, 200)],
+			touched: ["a"],
+			pill: { status: "pending", label: "x" },
+			paneSize: PANE,
+		});
+		expect(screen.getByTestId("canvas-change-pill")).toBeTruthy();
 	});
 
 	it("leaves the pill where it hangs while the pane is not measured", () => {
