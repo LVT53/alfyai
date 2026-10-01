@@ -107,7 +107,7 @@ export function nodeAt(
 
 /**
  * A block's own words, for the line that says what a comment is on ("Trains
- * card"): a note's text cut short, a frame's, a list's or a chart's label.
+ * card"): a note's text cut short, a frame's, a list's, a chart's or a diagram's label.
  * Null when it has none; the caller then names its kind.
  */
 export function nodeWords(node: CanvasNode): string | null {
@@ -120,6 +120,7 @@ export function nodeWords(node: CanvasNode): string | null {
 			return data.label.trim() || null;
 		case "checklist":
 		case "chart":
+		case "mermaid":
 			return data.label?.trim() || null;
 		case "map":
 			return data.route.trim() || null;

@@ -27,6 +27,7 @@ describe("the block data schemas (ruling 64)", () => {
 				"frame",
 				"liveweb",
 				"map",
+				"mermaid",
 				"photo",
 				"sticky",
 				"text",

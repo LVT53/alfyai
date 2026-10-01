@@ -15,6 +15,7 @@ import { flowSpies, xyflowMock } from "../_test/xyflow-mock";
 import ChartNode, { chartShell } from "./ChartNode.svelte";
 import ChecklistNode, { checklistShell } from "./ChecklistNode.svelte";
 import FrameNode from "./FrameNode.svelte";
+import MermaidNode, { mermaidShell } from "./MermaidNode.svelte";
 import MissingKindNode from "./MissingKindNode.svelte";
 import StickyNode from "./StickyNode.svelte";
 import TextNode from "./TextNode.svelte";
@@ -24,6 +25,9 @@ vi.mock("@xyflow/svelte", async () =>
 );
 vi.mock("$lib/components/chat/Chart.svelte", async () => ({
 	default: (await import("../_test/StubChart.svelte")).default,
+}));
+vi.mock("$lib/components/chat/Mermaid.svelte", async () => ({
+	default: (await import("../_test/StubMermaid.svelte")).default,
 }));
 
 function board(
@@ -578,6 +582,37 @@ describe("a chart block", () => {
 			}),
 		).toEqual({ title: "Budget", meta: "Q3", summary: "Budget" });
 		expect(chartShell({ kind: "chart", code: "{}" })).toEqual({
+			title: "",
+			meta: "",
+			summary: "",
+		});
+	});
+});
+
+describe("a diagram block", () => {
+	it("hands the chat's Mermaid exactly the source the chat hands it, and no other prop", () => {
+		const code = "flowchart TD\n  A[Start] --> B{Valid?}";
+		mount(MermaidNode, {
+			id: "diagram-1",
+			selected: false,
+			data: { kind: "mermaid", label: "Checkout", code },
+		});
+		const diagram = screen.getByTestId("mermaid-stub");
+		expect(diagram).toHaveAttribute("data-code", code);
+		expect(diagram).toHaveAttribute("data-prop-names", '["code"]');
+		expect(screen.getByTestId("canvas-mermaid")).toContainElement(diagram);
+	});
+
+	it("dresses the shell with its label and its subtitle, and with nothing when it has neither", () => {
+		expect(
+			mermaidShell({
+				kind: "mermaid",
+				label: "Checkout",
+				subtitle: "v2",
+				code: "flowchart TD",
+			}),
+		).toEqual({ title: "Checkout", meta: "v2", summary: "Checkout" });
+		expect(mermaidShell({ kind: "mermaid", code: "flowchart TD" })).toEqual({
 			title: "",
 			meta: "",
 			summary: "",

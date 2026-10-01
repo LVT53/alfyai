@@ -312,6 +312,7 @@ export async function fetchCanvasChatBlocks(
 		apps: response.apps ?? [],
 		maps: response.maps ?? [],
 		charts: response.charts ?? [],
+		diagrams: response.diagrams ?? [],
 		photos: response.photos ?? [],
 		searches: response.searches ?? [],
 	};

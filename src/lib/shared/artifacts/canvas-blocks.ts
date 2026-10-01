@@ -36,6 +36,8 @@ export {
 };
 
 const CHART_CODE_MAX_CHARS = 100_000;
+/** A Mermaid source past this is not a diagram a reader drew or a model wrote; the chat's own longest ones are a few KB. */
+const MERMAID_CODE_MAX_CHARS = 50_000;
 const ID_MAX_CHARS = 128;
 
 /**
@@ -58,11 +60,14 @@ export const DEFAULT_NODE_HEIGHT = 84;
  * what the board draws a block with no width at, what the model's read reports
  * and what the eval's geometry measures all come from `defaultNodeWidth`. The
  * checklist's holds an item of about 37 natural characters, measured in the
- * browser.
+ * browser. A diagram is drawn as wide as its block and scales down to fit, so a
+ * flowchart of ten boxes or a sequence of four lifelines needs more than a
+ * chart's 360 to keep its words above ten pixels.
  */
 const KIND_WIDTHS: Readonly<Partial<Record<BlockKind, number>>> = {
 	checklist: 340,
 	chart: 360,
+	mermaid: 480,
 };
 
 /** The width a block of this kind is given when it is added, and drawn at when it stores none. */
@@ -183,7 +188,8 @@ function estimatedNodeWidth(node: SizedNode): number {
  * The height a block is drawn at: the one it stores, a frame's own, or an
  * estimate from its words (a note, a text), its items (a checklist) or its plot
  * (a chart). The kinds whose height the app decides (a map, a file, an App,
- * photos, a web search) are left at `DEFAULT_NODE_HEIGHT`.
+ * photos, a web search, a diagram: it is as tall as what Mermaid draws) are left
+ * at `DEFAULT_NODE_HEIGHT`.
  */
 export function estimatedNodeHeight(node: SizedNode): number {
 	if (node.height !== undefined) return node.height;
@@ -273,6 +279,14 @@ const chartDataSchema = z.object({
 	subtitle: labelSchema.optional(),
 	/** The chat's chart fence body: a Chart.js config as JSON, passed to `Chart.svelte` exactly as the chat does. */
 	code: z.string().min(1).max(CHART_CODE_MAX_CHARS),
+});
+
+const mermaidDataSchema = z.object({
+	kind: z.literal("mermaid"),
+	label: labelSchema.optional(),
+	subtitle: labelSchema.optional(),
+	/** The chat's diagram fence body: Mermaid source, passed to `Mermaid.svelte` exactly as the chat does. */
+	code: z.string().min(1).max(MERMAID_CODE_MAX_CHARS),
 });
 
 const checklistDataSchema = z.object({
@@ -488,6 +502,7 @@ export const BLOCK_DATA_SCHEMAS = {
 	sticky: stickyDataSchema,
 	text: textDataSchema,
 	chart: chartDataSchema,
+	mermaid: mermaidDataSchema,
 	checklist: checklistDataSchema,
 	map: mapDataSchema,
 	file: fileDataSchema,
@@ -507,9 +522,10 @@ export function isBlockKind(value: unknown): value is BlockKind {
 
 /**
  * What the model may add to a board (ruling 64): the five kinds that carry
- * only what it can write. The other five carry app-owned references (a file, an
- * App, a route, a photo, a fetched page) it cannot mint, so the user places
- * those, and an `add_node` of one is refused `unknown_kind`. Strict variants of
+ * only what it can write. The others carry app-owned references (a file, an
+ * App, a route, a photo, a fetched page) it cannot mint, or what the chat drew (a
+ * diagram), so the user places those, and an `add_node` of one is refused
+ * `unknown_kind`. Strict variants of
  * the stored schemas: what the model writes must not carry a field the block
  * does not read, or a misspelt one would be stripped into an op that "worked"
  * and changed nothing.
@@ -546,10 +562,13 @@ export function isModelCreatableKind(
  * Refresh, the poster capture): a turn that could rewrite them could plant its
  * own links, dressed as the app's search result with a fresh "Updated" line, and
  * every source's favicon would then contact whatever host it names on each open.
- * On them the model may change the descriptive part only.
+ * On them the model may change the descriptive part only. So it may on a diagram
+ * (a Mermaid block the reader inserted from what the chat drew): it may name it,
+ * and the drawing itself stays the chat's.
  */
 const APP_OWNED_UPDATABLE_FIELDS = {
 	map: ["label", "route", "meta"],
+	mermaid: ["label", "subtitle"],
 	file: [],
 	app: ["title"],
 	photo: [],

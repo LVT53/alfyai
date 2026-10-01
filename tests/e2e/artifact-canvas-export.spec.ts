@@ -52,6 +52,14 @@ const CHART = {
 	},
 	options: { animation: false, plugins: { legend: { display: false } } },
 };
+// Mermaid's default theme fills a box lavender: the colour nothing else on the board uses.
+const LAVENDER = { r: 236, g: 236, b: 255 };
+const DIAGRAM = [
+	"flowchart TD",
+	"    A[Start] --> B{Valid?}",
+	"    B -- Yes --> C[Done]",
+	"    B -- No --> A",
+].join("\n");
 const MAP = {
 	bounds: { minLat: 51.706, minLng: -8.53, maxLat: 51.897, maxLng: -8.47 },
 	markers: [
@@ -130,6 +138,16 @@ function chartNode(id: string, x: number, y: number): CanvasNode {
 			label: "Sales by fruit",
 			code: JSON.stringify(CHART),
 		},
+	};
+}
+
+function mermaidNode(id: string, x: number, y: number): CanvasNode {
+	return {
+		id,
+		type: "mermaid",
+		position: { x, y },
+		width: 480,
+		data: { kind: "mermaid", label: "Checkout flow", code: DIAGRAM },
 	};
 }
 
@@ -360,6 +378,44 @@ test.describe("a picture of the board", () => {
 		// A canvas bitmap either survived the clone or it did not: the bars are a
 		// colour nothing else on the board uses.
 		expect(stats.violet).toBeGreaterThan(400);
+	});
+
+	// A diagram is an inline SVG with its own <style>: the picture's clone carries it
+	// (no still image, no card), so the boxes Mermaid filled are in the picture.
+	test("exports the board as a PNG that contains the diagram itself, not a card that stands in for it", async ({
+		page,
+	}) => {
+		const { conversationId } = await seedChat(page, async () => [
+			sticky("note-a", 0, 0, "Market on Saturday"),
+			mermaidNode("diagram-1", 260, 0),
+		]);
+		await openBoard(page, conversationId);
+		// The diagram draws lazily; the picture must find it drawn.
+		await expect(page.locator('[data-kind="mermaid"] svg').first()).toBeVisible(
+			{
+				timeout: 30_000,
+			},
+		);
+		await page.waitForTimeout(600);
+
+		await openDownload(page);
+		const { fileId } = await exportPng(page);
+
+		await expect(page.getByTestId("canvas-download-missing")).toHaveCount(0);
+		const stats = await pngStats(page, fileId, undefined, LAVENDER);
+		expect(stats.width).toBeGreaterThanOrEqual(800);
+		// The boxes Mermaid filled are in the picture, by the hundred of pixels.
+		expect(stats.violet).toBeGreaterThan(300);
+
+		// The picture itself, for a report that looks at it (OWC_SHOTS=<dir>).
+		if (process.env.OWC_SHOTS) {
+			const png = await page.request.get(`/api/chat/files/${fileId}/preview`);
+			mkdirSync(process.env.OWC_SHOTS, { recursive: true });
+			writeFileSync(
+				join(process.env.OWC_SHOTS, "export-diagram.png"),
+				await png.body(),
+			);
+		}
 	});
 
 	test("draws an App as its still card, never as an empty box, and leaves the board as it was", async ({

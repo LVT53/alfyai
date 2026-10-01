@@ -6,7 +6,7 @@
  *
  * The schema is the shared one (`canvas-blocks.ts`, ruling 64: the server
  * validates a stored board and a model's change with the same objects). The
- * blocks made from the chat (map, file, App, photos, live web), and the chart and the checklist,
+ * blocks made from the chat (map, file, App, photos, live web, diagram), and the chart and the checklist,
  * are drawn by `LazyNode`, which loads the real node when one is on the board, so
  * the editor's first paint pays for none of them.
  */
@@ -18,6 +18,7 @@ import {
 	BLOCK_KINDS,
 	type BlockKind,
 	type CanvasBlockData,
+	estimatedNodeSize,
 } from "$lib/shared/artifacts/canvas-blocks";
 import FrameNode from "../nodes/FrameNode.svelte";
 import LazyNode from "../nodes/LazyNode.svelte";
@@ -52,6 +53,7 @@ export const BLOCK_REGISTRY: Partial<Record<BlockKind, BlockRegistryEntry>> = {
 	sticky: entry("sticky", StickyNode),
 	text: entry("text", TextNode),
 	chart: entry("chart", LazyNode),
+	mermaid: entry("mermaid", LazyNode),
 	checklist: entry("checklist", LazyNode),
 	map: entry("map", LazyNode),
 	file: entry("file", LazyNode),
@@ -76,6 +78,7 @@ const INSERT_ORDER: readonly BlockKind[] = [
 	"text",
 	"frame",
 	"chart",
+	"mermaid",
 	"checklist",
 	"map",
 	"photo",
@@ -107,6 +110,22 @@ export function boardNodeTypes(): NodeTypes {
 		types[kind] = BLOCK_REGISTRY[kind]?.component ?? MissingKindNode;
 	}
 	return types;
+}
+
+/**
+ * The box placement leaves room for when a block is inserted with the data the
+ * reader picked. A kind has one size in its meta, but a chart's height is its
+ * plot's (a pie is square, a bar chart half as tall as it is wide), so a pie placed
+ * in a bar chart's room would reach over whatever is below it: the estimate the
+ * model reads and the eval measures by (`estimatedNodeSize`) is the room for a
+ * chart. Every other kind keeps its meta's size.
+ */
+export function insertSize(
+	row: BlockRegistryEntry,
+	data?: CanvasBlockData,
+): { width: number; height: number } {
+	if (data?.kind !== "chart") return row.size;
+	return estimatedNodeSize({ type: "chart", width: row.size.width, data });
 }
 
 /** A small sample, so a chart inserted by hand has something to show until it is asked to say something else. */
@@ -141,6 +160,7 @@ export function defaultDataFor(kind: RegisteredKind): CanvasBlockData | null {
 			return { kind: "chart", code: SAMPLE_CHART };
 		case "checklist":
 			return { kind: "checklist", items: [] };
+		case "mermaid":
 		case "map":
 		case "file":
 		case "app":

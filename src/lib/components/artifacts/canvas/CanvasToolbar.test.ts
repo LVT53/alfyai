@@ -1,9 +1,23 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { estimatedNodeSize } from "$lib/shared/artifacts/canvas-blocks";
+import { emptyChatBlocks } from "$lib/shared/artifacts/chat-blocks";
 import { uiLanguage } from "$lib/stores/settings";
+import { BLOCK_META } from "./_lib/block-meta";
 import type { Tool } from "./_lib/tools";
+import WithChat from "./_test/WithChat.svelte";
 import CanvasToolbar from "./CanvasToolbar.svelte";
 import DrawTray from "./DrawTray.svelte";
+
+vi.mock("@xyflow/svelte", async () =>
+	(await import("./_test/xyflow-mock")).xyflowMock(),
+);
 
 beforeEach(() => {
 	uiLanguage.set("en");
@@ -278,5 +292,85 @@ describe("the toolbar", () => {
 		expect(
 			screen.getByRole("button", { name: "Alfy megkérdezése" }),
 		).toBeTruthy();
+	});
+});
+
+describe("what an insert hands the board", () => {
+	const PIE = JSON.stringify({
+		type: "pie",
+		data: { labels: ["A"], datasets: [{ data: [1] }] },
+	});
+
+	/** The toolbar under a chat that drew one pie chart. */
+	function mountWithChat() {
+		const oninsert = vi.fn();
+		render(WithChat, {
+			props: {
+				component: CanvasToolbar,
+				componentProps: {
+					tool: "select",
+					ink: "var(--ink-blue)",
+					canUndo: false,
+					canRedo: false,
+					Tray: DrawTray,
+					ontoolchange: vi.fn(),
+					oninkchange: vi.fn(),
+					onundo: vi.fn(),
+					onredo: vi.fn(),
+					oninsert,
+					onask: vi.fn(),
+				},
+				context: {
+					readonly: false,
+					requestEdit() {},
+					takeEditRequest: () => false,
+					dropTargetId: null,
+				},
+				chat: {
+					conversationId: "conv-1",
+					load: async () => ({
+						...emptyChatBlocks(),
+						charts: [
+							{
+								key: "chart:m:0",
+								at: 1_000,
+								title: null,
+								chartType: "pie",
+								data: { kind: "chart", code: PIE },
+							},
+						],
+					}),
+				},
+			},
+		});
+		return { oninsert };
+	}
+
+	// A chart's height is its plot's: a pie is square, so the room placement leaves
+	// for it is not the bar chart's the chart row says.
+	it("places a chart picked from the chat in the room its plot takes", async () => {
+		const { oninsert } = mountWithChat();
+		await fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+		await fireEvent.click(
+			await screen.findByRole("menuitem", { name: /Pie chart/ }),
+		);
+		await waitFor(() => expect(oninsert).toHaveBeenCalledTimes(1));
+		const [row, data] = oninsert.mock.calls[0];
+		expect(row.kind).toBe("chart");
+		expect(data).toEqual({ kind: "chart", code: PIE });
+		expect(row.size).toEqual(
+			estimatedNodeSize({ type: "chart", width: row.size.width, data }),
+		);
+		expect(row.size.height).toBeGreaterThan(BLOCK_META.chart.size.height);
+	});
+
+	it("hands over a row a reader writes exactly as the registry has it", async () => {
+		const { oninsert } = mountWithChat();
+		await fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+		await fireEvent.click(await screen.findByTestId("canvas-insert-sticky"));
+		await waitFor(() => expect(oninsert).toHaveBeenCalledTimes(1));
+		const [row, data] = oninsert.mock.calls[0];
+		expect(row.size).toEqual(BLOCK_META.sticky.size);
+		expect(data).toBeUndefined();
 	});
 });

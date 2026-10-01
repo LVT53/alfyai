@@ -66,6 +66,7 @@ function labelOf(node: CanvasNode): string {
 			return clip(data.text);
 		case "checklist":
 		case "chart":
+		case "mermaid":
 			return data.label ?? "";
 		case "map":
 			return data.route;

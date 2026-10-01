@@ -21,6 +21,7 @@ import {
 	StickyNote,
 	TriangleAlert,
 	Type,
+	Workflow,
 } from "@lucide/svelte";
 import type { Component } from "svelte";
 import {
@@ -73,7 +74,7 @@ export type BlockMeta = {
 	flow?: { zIndex?: number; dragHandle?: string; style?: string };
 };
 
-/** The kinds this build has a component for: all ten. */
+/** The kinds this build has a component for: all eleven. */
 export const BLOCK_META = {
 	frame: {
 		kind: "frame",
@@ -142,6 +143,23 @@ export const BLOCK_META = {
 	},
 	// The blocks made from the chat: picked from "From this chat", so no default
 	// data and no row of their own in the menu (section "chat").
+	mermaid: {
+		kind: "mermaid",
+		icon: Workflow,
+		labelKey: "artifacts.canvas.insert.mermaid",
+		chrome: "card",
+		// The width is the one table's. The height is the drawing's: what Mermaid
+		// draws is as tall as it is (a Gantt chart 100, a flowchart or a pie 350 to
+		// 450 at this width), so this is only what placement leaves room for, and
+		// room that is left over is better than a diagram laid over its neighbour.
+		size: { width: defaultNodeWidth("mermaid"), height: 420 },
+		minSize: { width: 240, height: 140 },
+		fixedHeight: false,
+		section: "chat",
+		// An inline SVG is carried by the picture (`html-to-image` clones it, its
+		// own <style> with it); nothing about it is live.
+		needsPoster: false,
+	},
 	map: {
 		kind: "map",
 		icon: MapIcon,

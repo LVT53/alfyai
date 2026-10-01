@@ -137,6 +137,16 @@ export function sampleBoard(): CanvasBody {
 					fetchedAt: 1_700_000_000_000,
 				},
 			},
+			{
+				id: "diagram-1",
+				type: "mermaid",
+				position: { x: 40, y: 1000 },
+				data: {
+					kind: "mermaid",
+					label: "Release flow",
+					code: "flowchart TD\n  A --> B",
+				},
+			},
 		],
 		edges: [
 			{ id: "edge-1", source: "note-1", target: "text-1", label: "then" },

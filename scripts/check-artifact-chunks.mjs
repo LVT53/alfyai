@@ -44,8 +44,8 @@
 //      beside the honest one so a move of modules into a chunk a lazy part shares,
 //      which makes this number fall while the bytes loaded do not, is visible.
 //   7. `--forbid PACKAGE` names a package that must NOT be in any chunk the editor
-//      loads when it opens (Chart.js and MapLibre load on demand, in the chat's own
-//      chunks, and must stay out of the editor's first paint).
+//      loads when it opens (Chart.js, MapLibre and Mermaid load on demand, in the
+//      chat's own chunks or a block's, and must stay out of the editor's first paint).
 //   8. `--chat-route ID --chat-baseline BYTES` holds the chat page's own first
 //      load: the gzip size of the route's root layout, layouts and page with
 //      everything they statically import (never a lazy chunk, so never an open
@@ -85,9 +85,11 @@ export const PACKAGE_FINGERPRINTS = {
 		"Error inlining remote css file",
 		"externalResourcesRequired",
 	],
-	// The two libraries the chat loads on demand and the editor must not load when it opens.
+	// The libraries the chat loads on demand and the editor must not load when it opens.
 	"chart.js": ["chartjs-", "_adapters"],
 	"maplibre-gl": ["maplibregl-canvas", "maplibregl-map"],
+	// Mermaid's core keeps its own error for a source it cannot place.
+	mermaid: ["No diagram type detected", "UnknownDiagramError"],
 };
 
 /** What is confined to the editor when the CLI is not told which packages. */

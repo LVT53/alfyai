@@ -37,6 +37,7 @@ import {
 	type BlockRegistryEntry,
 	blockEntry,
 	insertableEntries,
+	insertSize,
 } from "./_lib/block-registry";
 
 let {
@@ -137,7 +138,8 @@ async function pick(
 	// The menu hands focus back to Insert as it closes; the block lands after
 	// that, so a note that opens for typing is the last to take the focus.
 	await tick();
-	oninsert(row, data);
+	// A block made from the chat is placed in the room its own data takes (a pie is taller than a bar chart).
+	oninsert(data ? { ...row, size: insertSize(row, data) } : row, data);
 }
 
 let undoLabel = $derived(

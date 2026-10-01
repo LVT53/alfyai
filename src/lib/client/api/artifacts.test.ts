@@ -142,6 +142,7 @@ describe("artifacts client API", () => {
 			apps: [],
 			maps: [],
 			charts: [],
+			diagrams: [],
 			photos: [],
 			searches: [],
 		};
