@@ -162,16 +162,6 @@ export function frameAt(
 	return best;
 }
 
-function intersection(a: Rect, b: Rect): Rect | null {
-	const left = Math.max(a.x, b.x);
-	const top = Math.max(a.y, b.y);
-	const right = Math.min(a.x + a.width, b.x + b.width);
-	const bottom = Math.min(a.y + a.height, b.y + b.height);
-	return right > left && bottom > top
-		? { x: left, y: top, width: right - left, height: bottom - top }
-		: null;
-}
-
 /**
  * What a frame holds, in board space: the one rectangle around everything that
  * is inside it. A block that hangs out of the frame (Alfy placed it so, or an
@@ -184,25 +174,26 @@ export function heldRect(
 ): Rect | null {
 	const byId = indexById(all);
 	const own = rectIn(byId, frame);
-	let held: Rect | null = null;
+	let left = Number.POSITIVE_INFINITY;
+	let top = Number.POSITIVE_INFINITY;
+	let right = Number.NEGATIVE_INFINITY;
+	let bottom = Number.NEGATIVE_INFINITY;
 	for (const node of all) {
 		if (node.parentId !== frame.id) continue;
-		const inside = intersection(rectIn(byId, node), own);
-		if (!inside) continue;
-		held = held
-			? {
-					x: Math.min(held.x, inside.x),
-					y: Math.min(held.y, inside.y),
-					width:
-						Math.max(held.x + held.width, inside.x + inside.width) -
-						Math.min(held.x, inside.x),
-					height:
-						Math.max(held.y + held.height, inside.y + inside.height) -
-						Math.min(held.y, inside.y),
-				}
-			: inside;
+		const box = rectIn(byId, node);
+		const x1 = Math.max(box.x, own.x);
+		const y1 = Math.max(box.y, own.y);
+		const x2 = Math.min(box.x + box.width, own.x + own.width);
+		const y2 = Math.min(box.y + box.height, own.y + own.height);
+		if (x2 <= x1 || y2 <= y1) continue;
+		left = Math.min(left, x1);
+		top = Math.min(top, y1);
+		right = Math.max(right, x2);
+		bottom = Math.max(bottom, y2);
 	}
-	return held;
+	return left === Number.POSITIVE_INFINITY
+		? null
+		: { x: left, y: top, width: right - left, height: bottom - top };
 }
 
 /**

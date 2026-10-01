@@ -22,30 +22,18 @@ import {
 } from "$lib/components/artifacts/document/keyboard-shortcuts";
 
 /** `input` types that are not a place words go: a chord pressed on one is not aimed at its text. */
-const NOT_TEXT_INPUT_TYPES = new Set([
-	"button",
-	"checkbox",
-	"color",
-	"file",
-	"image",
-	"radio",
-	"range",
-	"reset",
-	"submit",
-]);
+const NOT_TEXT_INPUT =
+	/^(button|checkbox|color|file|image|radio|range|reset|submit)$/;
 
 /** True for an element the reader types words into: it keeps ⌘/Ctrl+Z for its own text history. */
 export function isTextEntry(target: EventTarget | null): boolean {
-	if (!(target instanceof HTMLElement)) return false;
-	const editable = target.closest<HTMLElement>(
-		"input, textarea, [contenteditable]",
-	);
-	if (!editable) return false;
-	if (editable instanceof HTMLInputElement) {
-		return !NOT_TEXT_INPUT_TYPES.has(editable.type);
-	}
-	if (editable instanceof HTMLTextAreaElement) return true;
-	return editable.getAttribute("contenteditable") !== "false";
+	const field =
+		target instanceof HTMLElement
+			? target.closest("input, textarea, [contenteditable]")
+			: null;
+	return field instanceof HTMLInputElement
+		? !NOT_TEXT_INPUT.test(field.type)
+		: !!field && field.getAttribute("contenteditable") !== "false";
 }
 
 /**
@@ -59,12 +47,16 @@ export function boardHistoryChord(
 	boardEl: HTMLElement | null,
 	doc: Document = document,
 ): HistoryShortcut | null {
-	if (event.defaultPrevented || !boardEl || !boardEl.isConnected) return null;
 	const active = doc.activeElement;
-	const nothingFocused =
-		!active || active === doc.body || active === doc.documentElement;
-	if (!nothingFocused && !boardEl.contains(active)) return null;
-	if (isTextEntry(event.target)) return null;
+	const nothingFocused = !active || active === doc.body;
+	if (
+		event.defaultPrevented ||
+		!boardEl?.isConnected ||
+		(!nothingFocused && !boardEl.contains(active)) ||
+		isTextEntry(event.target)
+	) {
+		return null;
+	}
 	return historyShortcutFor(event);
 }
 
@@ -79,16 +71,16 @@ export function boardHistoryChord(
 export function handsHistoryToBoard(
 	handOver: ((action: HistoryShortcut) => void) | undefined,
 	leave: () => void,
-): (field: HTMLElement) => () => void {
+): (field: HTMLElement) => (() => void) | undefined {
 	return (field) => {
-		if (!handOver) return () => {};
+		if (!handOver) return;
 		let typed = false;
 		const onInput = () => {
 			typed = true;
 		};
 		const onKeydown = (event: KeyboardEvent) => {
-			if (typed || event.defaultPrevented) return;
-			const action = historyShortcutFor(event);
+			const action =
+				typed || event.defaultPrevented ? null : historyShortcutFor(event);
 			if (!action) return;
 			event.preventDefault();
 			event.stopPropagation();

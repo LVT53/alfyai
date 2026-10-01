@@ -182,6 +182,6 @@ describe("handsHistoryToBoard", () => {
 		const event = chord();
 		textarea.dispatchEvent(event);
 		expect(event.defaultPrevented).toBe(false);
-		detach();
+		detach?.();
 	});
 });

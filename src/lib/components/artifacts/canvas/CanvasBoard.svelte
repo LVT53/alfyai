@@ -747,12 +747,12 @@ function selectBlocks(
 	options: { additive?: boolean } = {},
 ): void {
 	nodes = withSelection(nodes, ids, options);
-	const [first] = ids;
-	if (first === undefined) return;
-	const wrapper = [
-		...(boardEl?.querySelectorAll<HTMLElement>(".svelte-flow__node") ?? []),
-	].find((element) => element.dataset.id === first);
-	wrapper?.focus({ preventScroll: true });
+	if (ids[0] === undefined) return;
+	boardEl
+		?.querySelector<HTMLElement>(
+			`.svelte-flow__node[data-id="${CSS.escape(ids[0])}"]`,
+		)
+		?.focus({ preventScroll: true });
 }
 
 /**
