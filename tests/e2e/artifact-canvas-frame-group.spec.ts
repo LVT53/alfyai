@@ -402,7 +402,7 @@ test.describe("a frame is a group a reader can grab", () => {
 		});
 	}
 
-	test("a selected frame's name and its connection anchors are not covered by the strips along its sides", async ({
+	test("a selected frame's name, its anchors and its corners are not covered by the strips along its sides", async ({
 		page,
 	}) => {
 		await openBoard(page);
@@ -426,6 +426,27 @@ test.describe("a frame is a group a reader can grab", () => {
 			expect(
 				await topmost(centreOf(anchor), ".svelte-flow__handle"),
 				side,
+			).toBe(true);
+		}
+		// The corners are the topmost of all, the name's own corner included (the chip
+		// starts ten units from it).
+		for (const corner of [
+			"top.left",
+			"top.right",
+			"bottom.left",
+			"bottom.right",
+		]) {
+			const handle = await frameNode(page)
+				.locator(`.svelte-flow__resize-control.handle.${corner}`)
+				.boundingBox();
+			if (!handle) throw new Error(`no ${corner} corner`);
+			const at = {
+				x: handle.x + handle.width / 2,
+				y: handle.y + handle.height / 2,
+			};
+			expect(
+				await topmost(at, ".svelte-flow__resize-control.handle"),
+				corner,
 			).toBe(true);
 		}
 		// And the name still opens for renaming on a double-click.

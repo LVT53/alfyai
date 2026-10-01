@@ -3,7 +3,11 @@
  * Everything canvas-specific about how a block sits on the board (spec T2): its
  * chrome, its selection outline, the four resize corners and the four
  * connection anchors — the corners and the anchors only while the block is
- * selected — and the small toolbar above a selected block. The block's own
+ * selected — and the small toolbar above a selected block. A selected frame is
+ * also resized from its four sides, never below what is inside it, and takes the
+ * pointer back so its body can be grabbed (a frame is blind to it until then);
+ * on a frame the stacking is the strips, then the name chip, then the anchors,
+ * then the corners, so each can be pressed where it is drawn. The block's own
  * component (a note, a chart, a checklist) is what goes inside; reused chat
  * components (the chart) never gain a canvas-only prop, so whatever the board
  * needs around them lives here.
@@ -474,8 +478,9 @@ function reportBroken(error: unknown): void {
 		line-height: 24px;
 		pointer-events: auto;
 		/* Above the resize strips that run along the frame's sides, which would
-		   otherwise cover the chip across the middle of its height. */
-		z-index: 2;
+		   otherwise cover the chip across the middle of its height; below the
+		   anchors and the corners, as it always was. */
+		z-index: 1;
 	}
 
 	.canvas-node__ring {
@@ -580,8 +585,8 @@ function reportBroken(error: unknown): void {
 		opacity: 1;
 		pointer-events: all;
 		cursor: crosshair;
-		/* Above the strips along a frame's sides, which run through the same middle. */
-		z-index: 1;
+		/* Above the strips along a frame's sides, which run through the same middle, and above the name chip. */
+		z-index: 2;
 	}
 
 	/* A finger is not a pointer: the anchors (9 px) and the resize corners (8 px)
@@ -618,6 +623,8 @@ function reportBroken(error: unknown): void {
 		border-radius: 2px;
 		background: var(--surface-page);
 		pointer-events: auto;
+		/* Above everything else on the block: the sides, the name chip, the anchors. */
+		z-index: 3;
 	}
 
 	/* A side of a selected frame: a strip along the border, about a fingertip wide on
