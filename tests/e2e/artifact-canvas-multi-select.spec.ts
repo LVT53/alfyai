@@ -921,18 +921,18 @@ test.describe("on a phone", () => {
 		await page.touchscreen.tap(centreOf(boxes.b).x, centreOf(boxes.b).y);
 		await expect.poll(() => selectedIds(page)).toEqual(["a", "b"]);
 		await expect(groupBox(page)).toBeVisible();
-		// Corners, and the edges long enough for two fingertips to tell apart: 44 px each.
-		for (const which of ["nw", "ne", "se", "sw", "n", "s"]) {
+		// The four corners, 44 px each; a finger gets no handle in the middle of a side.
+		for (const which of ["nw", "ne", "se", "sw"]) {
 			const handle = await groupHandle(page, which).boundingBox();
 			expect(handle?.width).toBeGreaterThanOrEqual(43);
 			expect(handle?.height).toBeGreaterThanOrEqual(43);
 		}
+		for (const which of ["n", "e", "s", "w"]) {
+			await expect(groupHandle(page, which)).toHaveCount(0);
+		}
 		const trash = await page.getByTestId("canvas-group-delete").boundingBox();
 		expect(trash?.width).toBeGreaterThanOrEqual(43);
 		expect(trash?.height).toBeGreaterThanOrEqual(43);
-		// The two blocks are 70 px tall: no room for a left and right handle between the corners.
-		await expect(groupHandle(page, "e")).toHaveCount(0);
-		await expect(groupHandle(page, "w")).toHaveCount(0);
 		// Drag by a selected block: both go, by the same amount (the browser holds back the first
 		// 15 px or so of a finger's travel as slop, so it falls short of the finger's 60).
 		const from = centreOf(boxes.b);

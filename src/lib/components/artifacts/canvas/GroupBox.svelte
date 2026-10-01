@@ -55,7 +55,7 @@ let {
 	viewport: { x: number; y: number; zoom: number };
 	/** The pane's size, for the toolbar to stay inside it. */
 	size: { width: number; height: number };
-	/** A finger: handles are 44 px, and an edge too short for two of them has none. */
+	/** A finger: the handles are the four corners, 44 px each. */
 	coarse: boolean;
 	/** Whether a key's target is a field the reader types words in (`isTextEntry`, handed over so this part never imports a module the editor shares: it would be split out of the editor's chunk). */
 	typing: (target: EventTarget | null) => boolean;
@@ -83,8 +83,6 @@ const HANDLES: readonly GroupHandle[] = [
 ];
 /** How far outside the blocks the box is drawn, in screen pixels: clear of each block's own outline. */
 const GAP = 9;
-/** A side shorter than this has no edge handle for a finger: two 44 px targets would overlap. */
-const EDGE_MIN_COARSE = 140;
 const TOOLBAR_HALF = 56;
 
 let layerEl = $state<HTMLDivElement | undefined>();
@@ -131,10 +129,9 @@ let toolbar = $derived(
 		: null,
 );
 
+/** A finger gets the four corners only: 44 px targets in the middle of the sides would sit on the blocks, the toolbar and the selection's pill. */
 function shown(handle: GroupHandle): boolean {
-	if (!coarse || !screen || handle.length === 2) return true;
-	const along = handle === "n" || handle === "s" ? screen.width : screen.height;
-	return along >= EDGE_MIN_COARSE;
+	return !coarse || handle.length === 2;
 }
 
 // While a pointer drags something else (a block) the box keeps out of its way, and comes

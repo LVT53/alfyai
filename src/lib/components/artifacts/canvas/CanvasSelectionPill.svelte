@@ -80,17 +80,9 @@ let shown = $derived(
 		dismissedKey !== key,
 );
 // Several picked blocks wear the group box, 9 px out, and its handles, which reach
-// further (a fingertip's worth on a touch screen): the pill hangs clear of them.
-const COARSE_REACH = 9 + 24;
-const FINE_REACH = 9 + 6;
-let reach = $derived(
-	selected.length < 2
-		? 0
-		: typeof matchMedia === "function" &&
-				matchMedia("(pointer: coarse)").matches
-			? COARSE_REACH
-			: FINE_REACH,
-);
+// a little further: the pill hangs clear of them.
+const GROUP_REACH = 9 + 6;
+let reach = $derived(selected.length < 2 ? 0 : GROUP_REACH);
 let box = $derived.by(() => {
 	const around = shown ? boxOf(selected, nodes) : null;
 	if (!around || reach === 0) return around;

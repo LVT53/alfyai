@@ -92,24 +92,6 @@ describe("when it shows", () => {
 		expect(anchor?.style.top).toBe("215px");
 	});
 
-	it("hangs a fingertip further down from several blocks on a touch screen, clear of the box's handles", () => {
-		vi.stubGlobal("matchMedia", (query: string) => ({
-			matches: query === "(pointer: coarse)",
-			addEventListener() {},
-			removeEventListener() {},
-		}));
-		mount({
-			nodes: NODES.map((node) =>
-				node.id === "c" ? node : { ...node, selected: true },
-			),
-		});
-		const anchor = pill()?.closest<HTMLElement>(
-			"[data-testid='canvas-selection-pill']",
-		);
-		expect(anchor?.style.top).toBe("233px");
-		vi.unstubAllGlobals();
-	});
-
 	it("hangs from one block's own edge: it has no group box", () => {
 		mount();
 		const anchor = pill()?.closest<HTMLElement>(

@@ -127,15 +127,17 @@ describe("the box", () => {
 		expect(onannounce).toHaveBeenCalledWith("4 blocks selected");
 	});
 
-	it("on a finger has no edge handle on a side too short for two fingertips", () => {
-		// Two blocks 500 px wide and 100 tall: wide enough for top and bottom, not for the sides.
+	it("on a finger has the four corners and no edge handle", () => {
 		mount({
 			coarse: true,
-			nodes: [sticky("a", 100, 100, true), sticky("b", 400, 100, true)],
+			nodes: [sticky("a", 100, 100, true), sticky("b", 400, 700, true)],
 		});
-		expect(screen.queryByTestId("canvas-group-handle-n")).toBeTruthy();
-		expect(screen.queryByTestId("canvas-group-handle-w")).toBeNull();
-		expect(screen.queryByTestId("canvas-group-handle-se")).toBeTruthy();
+		for (const name of ["nw", "ne", "se", "sw"]) {
+			expect(screen.queryByTestId(`canvas-group-handle-${name}`)).toBeTruthy();
+		}
+		for (const name of ["n", "e", "s", "w"]) {
+			expect(screen.queryByTestId(`canvas-group-handle-${name}`)).toBeNull();
+		}
 	});
 
 	it("Delete hands over every picked id", async () => {
