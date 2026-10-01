@@ -73,8 +73,8 @@ const HANDLES: readonly GroupHandle[] = [
 	"sw",
 	"w",
 ];
-/** How far outside the blocks the box is drawn, in screen pixels. */
-const GAP = 5;
+/** How far outside the blocks the box is drawn, in screen pixels: clear of each block's own outline. */
+const GAP = 9;
 /** A side shorter than this has no edge handle for a finger: two 44 px targets would overlap. */
 const EDGE_MIN_COARSE = 140;
 const TOOLBAR_HALF = 56;
@@ -126,6 +126,37 @@ function shown(handle: GroupHandle): boolean {
 	const along = handle === "n" || handle === "s" ? screen.width : screen.height;
 	return along >= EDGE_MIN_COARSE;
 }
+
+// While a pointer drags something else (a block, the marquee) the box keeps out of its
+// way, and comes back when it lets go; a press that does not travel changes nothing.
+let quiet = $state(false);
+$effect(() => {
+	let from: { x: number; y: number } | null = null;
+	const down = (event: PointerEvent) => {
+		from = layerEl?.contains(event.target as Node)
+			? null
+			: { x: event.clientX, y: event.clientY };
+	};
+	const move = (event: PointerEvent) => {
+		if (from && Math.hypot(event.clientX - from.x, event.clientY - from.y) > 4) {
+			quiet = true;
+		}
+	};
+	const up = () => {
+		from = null;
+		quiet = false;
+	};
+	window.addEventListener("pointerdown", down, true);
+	window.addEventListener("pointermove", move, true);
+	window.addEventListener("pointerup", up, true);
+	window.addEventListener("pointercancel", up, true);
+	return () => {
+		window.removeEventListener("pointerdown", down, true);
+		window.removeEventListener("pointermove", move, true);
+		window.removeEventListener("pointerup", up, true);
+		window.removeEventListener("pointercancel", up, true);
+	};
+});
 
 // What a screen reader hears when the number of picked blocks changes.
 let announcedCount = 0;
@@ -219,7 +250,7 @@ function handleKeydown(event: KeyboardEvent): void {
 }
 </script>
 
-<div class="group-layer" bind:this={layerEl}>
+<div class="group-layer" class:quiet bind:this={layerEl}>
 	{#if screen && toolbar}
 		<div
 			class="group-box"
@@ -273,6 +304,10 @@ function handleKeydown(event: KeyboardEvent): void {
 		z-index: 4;
 		overflow: hidden;
 		pointer-events: none;
+	}
+
+	.group-layer.quiet {
+		visibility: hidden;
 	}
 
 	.group-box {

@@ -301,6 +301,8 @@ test.describe("selecting several blocks", () => {
 	}) => {
 		await open(page, notesBoard());
 		await selectWithMarquee(page, ["a", "b"]);
+		// The box (and with it this key) arrives a beat after the second block is picked.
+		await expect(groupBox(page)).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect.poll(() => selectedIds(page)).toEqual([]);
 		await expect(groupBox(page)).toHaveCount(0);
@@ -613,6 +615,31 @@ test.describe("resizing together", () => {
 		expect(
 			Math.min(small.a.width - 96, small.a.height - 64),
 		).toBeLessThanOrEqual(1.5);
+	});
+
+	test("a pause in the middle of a drag does not split it into two steps", async ({
+		page,
+	}) => {
+		const artifactId = await open(page, notesBoard());
+		await selectWithMarquee(page, ["a", "b", "c", "d"]);
+		const before = await boxesOf(page, ["a", "d"]);
+		const saves = countSaves(page, artifactId);
+		const from = await handleCentre(page, "se");
+		await page.mouse.move(from.x, from.y);
+		await page.mouse.down();
+		await page.mouse.move(from.x + 50, from.y + 30, { steps: 6 });
+		// Longer than the board's settle delay: it still holds the step open.
+		await page.waitForTimeout(900);
+		await page.mouse.move(from.x + 100, from.y + 60, { steps: 6 });
+		await page.mouse.up();
+		await expect.poll(saves).toBe(1);
+		await page.waitForTimeout(1200);
+		expect(saves()).toBe(1);
+		await undo(page);
+		await expect
+			.poll(async () => (await nodeBox(page, "d")).width)
+			.toBeCloseTo(before.d.width, 0);
+		expectBox(await nodeBox(page, "a"), before.a, 1);
 	});
 
 	test("Escape while dragging a handle puts everything back", async ({
