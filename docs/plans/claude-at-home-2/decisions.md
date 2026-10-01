@@ -713,6 +713,10 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
   parts' shared chunks — **not** the chunks the chat route has already loaded. Opened from a cold page that has not
   loaded the chat's Mermaid path, a board downloads 84.4 KiB gzip; the usual path (a board opened from its chat) is the
   measured one.
+- **Raised twice more after the owner's walk (2026-10-01):** OW-1's working undo, the pill on the reviewed block and frames
+  as groups added 1.2 KiB of first-paint code (ceiling 69,632 → 70,656 B), and OW-C's diagram block row and loader
+  0.3 KiB; together 70,710 B → **ceiling 71,680 B (70 KiB) gzip**. The owner asked for both; the multi-select that comes
+  next loads on demand.
 - **The chat-route baseline moved once, 2026-10-01 (OW-C), by a measured 1,112 B gzip (535,771 → 536,883):** the diagram
   block's names in both languages live in the dictionary the chat loads (+463 B) and the chat's own Mermaid component now
   shares a chunk with the board's diagram block, as Chart.js's already did. A move of this baseline needs the same:
