@@ -135,18 +135,17 @@ function shown(handle: GroupHandle): boolean {
 	return along >= EDGE_MIN_COARSE;
 }
 
-// While a pointer drags something else (a block, the marquee) the box keeps out of its
-// way, and comes back when it lets go; a press that does not travel changes nothing.
+// While a pointer drags something else (a block) the box keeps out of its way, and comes
+// back when it lets go. A press that does not travel changes nothing, and a press on the
+// box itself (a handle, the toolbar) is its own. (The library's marquee, which is picking
+// these very blocks, is hidden for by the stylesheet: the box can mount in its last step.)
 let quiet = $state(false);
 $effect(() => {
 	let from: { x: number; y: number } | null = null;
-	const down = (event: PointerEvent) => {
-		from = layerEl?.contains(event.target as Node)
-			? null
-			: { x: event.clientX, y: event.clientY };
-	};
 	const move = (event: PointerEvent) => {
-		if (from && Math.hypot(event.clientX - from.x, event.clientY - from.y) > 4) {
+		if (!event.buttons || layerEl?.contains(event.target as Node)) return;
+		from ??= { x: event.clientX, y: event.clientY };
+		if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > 4) {
 			quiet = true;
 		}
 	};
@@ -154,12 +153,10 @@ $effect(() => {
 		from = null;
 		quiet = false;
 	};
-	window.addEventListener("pointerdown", down, true);
 	window.addEventListener("pointermove", move, true);
 	window.addEventListener("pointerup", up, true);
 	window.addEventListener("pointercancel", up, true);
 	return () => {
-		window.removeEventListener("pointerdown", down, true);
 		window.removeEventListener("pointermove", move, true);
 		window.removeEventListener("pointerup", up, true);
 		window.removeEventListener("pointercancel", up, true);
@@ -332,7 +329,9 @@ function handleKeydown(event: KeyboardEvent): void {
 		pointer-events: none;
 	}
 
-	.group-layer.quiet {
+	.group-layer.quiet,
+	:global(.canvas-board:has(.svelte-flow__pane > .svelte-flow__selection))
+		.group-layer {
 		visibility: hidden;
 	}
 
