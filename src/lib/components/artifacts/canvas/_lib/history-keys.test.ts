@@ -171,7 +171,7 @@ describe("handsHistoryToBoard", () => {
 		const { textarea, handOver, detach } = field();
 		textarea.dispatchEvent(chord({ key: "a", code: "KeyA" }));
 		expect(handOver).not.toHaveBeenCalled();
-		detach();
+		detach?.();
 		textarea.dispatchEvent(chord());
 		expect(handOver).not.toHaveBeenCalled();
 	});
