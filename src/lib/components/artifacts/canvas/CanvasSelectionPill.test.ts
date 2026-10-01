@@ -86,8 +86,35 @@ describe("when it shows", () => {
 		const anchor = pill()?.closest<HTMLElement>(
 			"[data-testid='canvas-selection-pill']",
 		);
-		// a: 100..300, b: 500..700 -> centre 400; c is not selected: bottom of the row is 200.
+		// a: 100..300, b: 500..700 -> centre 400; c is not selected: bottom of the row is 200,
+		// and the group box's handles reach 15 px past it (its 9 px gap and their own half).
 		expect(anchor?.style.left).toBe("400px");
+		expect(anchor?.style.top).toBe("215px");
+	});
+
+	it("hangs a fingertip further down from several blocks on a touch screen, clear of the box's handles", () => {
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			matches: query === "(pointer: coarse)",
+			addEventListener() {},
+			removeEventListener() {},
+		}));
+		mount({
+			nodes: NODES.map((node) =>
+				node.id === "c" ? node : { ...node, selected: true },
+			),
+		});
+		const anchor = pill()?.closest<HTMLElement>(
+			"[data-testid='canvas-selection-pill']",
+		);
+		expect(anchor?.style.top).toBe("233px");
+		vi.unstubAllGlobals();
+	});
+
+	it("hangs from one block's own edge: it has no group box", () => {
+		mount();
+		const anchor = pill()?.closest<HTMLElement>(
+			"[data-testid='canvas-selection-pill']",
+		);
 		expect(anchor?.style.top).toBe("200px");
 	});
 
