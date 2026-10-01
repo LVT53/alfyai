@@ -445,8 +445,10 @@ test.describe("undo and redo of the reader's own steps on a Canvas", () => {
 			page,
 			{
 				act: async () => {
-					const at = centreOf(await nodeBox(page, LIST));
-					await page.mouse.click(at.x, at.y - 40);
+					// The card's header, where nothing is pressable: a click on a checkbox would
+					// leave the focus in an input, which the library's Delete key does not serve.
+					const box = await nodeBox(page, LIST);
+					await page.mouse.click(box.x + box.width / 2, box.y + 14);
 					await page.keyboard.press("Delete");
 				},
 				done: async () => {
