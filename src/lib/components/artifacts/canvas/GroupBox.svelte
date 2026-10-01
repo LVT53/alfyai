@@ -229,6 +229,15 @@ function finish(event: PointerEvent): void {
 	onresizeend();
 }
 
+// The box can go while a handle is held (a landing starts drawing, the panel closes):
+// the board must not wait for a let-go that will not come.
+$effect(() => () => {
+	if (gesture) {
+		gesture = null;
+		onresizeend();
+	}
+});
+
 /** Puts everything back as it was when the handle was taken, and ends the gesture. */
 function cancel(): void {
 	if (!gesture) return;
@@ -285,6 +294,7 @@ function handleKeydown(event: KeyboardEvent): void {
 						onpointerdown={(event) => begin(event, handle)}
 						onpointermove={drag}
 						onpointerup={finish}
+						onlostpointercapture={finish}
 						onpointercancel={() => cancel()}
 					></span>
 				{/if}

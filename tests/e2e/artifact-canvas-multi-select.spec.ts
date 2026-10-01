@@ -264,6 +264,18 @@ test.describe("selecting several blocks", () => {
 		await expect.poll(() => selectedIds(page)).toEqual(["a", "b"]);
 	});
 
+	test("from the keyboard, Shift+Space adds the block that has the focus, and takes it out again", async ({
+		page,
+	}) => {
+		await open(page, notesBoard());
+		await page.locator('.svelte-flow__node[data-id="a"]').click();
+		await page.locator('.svelte-flow__node[data-id="c"]').focus();
+		await page.keyboard.press("Shift+Space");
+		await expect.poll(() => selectedIds(page)).toEqual(["a", "c"]);
+		await page.keyboard.press("Shift+Space");
+		await expect.poll(() => selectedIds(page)).toEqual(["a"]);
+	});
+
 	test("a marquee takes what it encloses, never a block it only crosses, and leaves the camera", async ({
 		page,
 	}) => {

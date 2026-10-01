@@ -30,6 +30,15 @@
  * and moves with its blocks from anywhere on it, and its sides and corners resize
  * it, never past what it holds (`resizeFloor`).
  *
+ * Several blocks: Shift, Cmd and Ctrl add or remove a block (`multiSelectionKey`), and
+ * a marquee takes what it fully encloses (`selectionMode`: the library's real default is
+ * partial, which picks a frame the marquee only crosses). Two or more picked blocks give
+ * up their own corners, anchors and toolbar (`grouped`, on the board context) to ONE box
+ * with eight handles and one toolbar, drawn by `group-parts.ts`: a lazy entry holding the
+ * box, the arithmetic that scales the blocks with it and a finger's long press, loaded
+ * when a selection first has two blocks (at once on a coarse pointer). A handle's drag is
+ * one step: `resizing` holds the settle timer until the handle is let go.
+ *
  * Seams: a layer written apart from the board (the comment pins and the
  * catcher for the Comment tool) is a snippet the board renders INSIDE its flow,
  * handed `BoardLayerApi` (the blocks as drawn, the camera, the tool and a few
@@ -370,6 +379,7 @@ onDestroy(() => {
 	if (announceTimer) clearTimeout(announceTimer);
 	if (limitTimer) clearTimeout(limitTimer);
 	// Half way through a landing the blocks are between places: not a step to save.
+	resizing = false;
 	if (!held) commit();
 });
 

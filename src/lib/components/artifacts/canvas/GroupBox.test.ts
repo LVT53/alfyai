@@ -204,6 +204,14 @@ describe("a handle", () => {
 		expect(onclear).not.toHaveBeenCalled();
 	});
 
+	it("is ended for the board when the box goes with the handle still held", async () => {
+		const { onresizestart, onresizeend, unmount } = mount();
+		await pointer(handle("se"), "pointerDown", { x: 600, y: 400 });
+		expect(onresizestart).toHaveBeenCalledTimes(1);
+		unmount();
+		expect(onresizeend).toHaveBeenCalledTimes(1);
+	});
+
 	it("puts a block that had no size of its own back without one", async () => {
 		const bare = BOARD.map((node) => ({
 			...node,
