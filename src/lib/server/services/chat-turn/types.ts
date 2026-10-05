@@ -12,6 +12,7 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
+import type { SupportedLanguage } from "$lib/server/services/language";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
@@ -253,4 +254,8 @@ export type RunPostTurnTasksParams = {
 	// never races it — without gating the send path's other, independent tail
 	// work. Optional: a caller with no evidence write in flight simply omits it.
 	evidenceWriteBarrier?: Promise<unknown>;
+	// The turn's reply language, decided once per turn (resolveTurnResponseLanguage);
+	// the rail headline is written in it. Optional: a caller without one leaves
+	// the rail summary to read the language off the user message.
+	responseLanguage?: SupportedLanguage;
 };

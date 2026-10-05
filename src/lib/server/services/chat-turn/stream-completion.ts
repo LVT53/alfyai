@@ -17,6 +17,7 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
+import type { SupportedLanguage } from "$lib/server/services/language";
 import { listMessageWindow } from "$lib/server/services/messages";
 import type {
 	ChatTurnCompletionWarningCode,
@@ -99,6 +100,11 @@ export interface StreamCompletionFacts {
 }
 
 export interface CompleteStreamTurnParams extends StreamCompletionFacts {
+	// The turn's reply language, resolved once by the route (resolveTurnResponseLanguage)
+	// and threaded through the orchestrator: the follow-up chips and the rail
+	// headline are written in it. Optional; without it each reads the language
+	// off the user message alone.
+	responseLanguage?: SupportedLanguage;
 	wasStopped: boolean;
 	conversationId: string;
 	streamId: string | null;
@@ -186,6 +192,7 @@ export async function completeStreamTurn(
 	params: CompleteStreamTurnParams,
 ): Promise<void> {
 	const {
+		responseLanguage,
 		wasStopped,
 		conversationId,
 		streamId,
@@ -565,6 +572,7 @@ export async function completeStreamTurn(
 				userMessage: normalizedMessage,
 				assistantResponse: finalResponse,
 				recentHistory,
+				responseLanguage,
 			}).catch((error) => {
 				console.error("[CHAT_STREAM] Follow-up suggestions failed", {
 					conversationId,
@@ -662,6 +670,7 @@ export async function completeStreamTurn(
 			assistantMirrorContent: wasStopped ? "" : finalResponse,
 			maintenanceReason: "chat_stream",
 			startedResetGeneration,
+			responseLanguage,
 			toolCalls: toolCallRecords,
 			skillUse,
 			turnOrigin,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SupportedLanguage } from "../language";
 import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import type { JsonControlResponseSchema } from "../normal-chat-control-model";
 import {
@@ -243,13 +244,21 @@ export async function generateFollowUpSuggestions(params: {
 	userMessage: string;
 	assistantResponse: string;
 	recentHistory?: FollowUpHistoryMessage[];
+	/**
+	 * The turn's reply language, decided once per turn (latest message, the
+	 * recent user messages, then the UI language). The chips are in the language
+	 * the reply is in: read off the latest message alone, a Hungarian message the
+	 * detector has too little evidence on reads as English.
+	 */
+	responseLanguage?: SupportedLanguage;
 	signal?: AbortSignal;
 }): Promise<string[] | null> {
 	const response = params.assistantResponse.trim();
 	if (response.length < FOLLOW_UP_SUGGESTIONS_MIN_CONTENT_LENGTH) return null;
 	if (looksLikeClarificationQuestion(response)) return null;
 
-	const language = resolveShortTextLanguage(params.userMessage);
+	const language =
+		params.responseLanguage ?? resolveShortTextLanguage(params.userMessage);
 	const history = renderFollowUpHistory(params.recentHistory ?? []);
 	const prompt = [
 		...(history ? [`Earlier in this conversation:\n${history}`] : []),

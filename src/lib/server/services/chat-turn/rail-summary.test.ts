@@ -98,6 +98,42 @@ describe("persistAssistantRailSummary", () => {
 		expect(args.prompt).not.toContain("How did Q3 segments perform?");
 	});
 
+	it("writes the headline in the language the turn resolved, whatever the latest message alone reads as", async () => {
+		generateShortLocalTextMock.mockResolvedValue("Heti étrend");
+
+		await persistAssistantRailSummary({
+			userId: "u1",
+			conversationId: "c1",
+			assistantMessageId: "a1",
+			userMessage: "Mikor ultessem el a paradicsompalantakat?",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "hu",
+		});
+
+		const [args] = generateShortLocalTextMock.mock.calls[0] as [
+			{ language?: string; systemPrompt: string },
+		];
+		expect(args.language).toBe("hu");
+		expect(args.systemPrompt).toContain("in Hungarian");
+	});
+
+	it("still reads the language off the user message when the turn did not pass one", async () => {
+		generateShortLocalTextMock.mockResolvedValue("Heti étrend");
+
+		await persistAssistantRailSummary({
+			userId: "u1",
+			conversationId: "c1",
+			assistantMessageId: "a1",
+			userMessage: "Mesélj a filmről kérlek.",
+			assistantResponse: LONG_REPLY,
+		});
+
+		const [args] = generateShortLocalTextMock.mock.calls[0] as [
+			{ language?: string },
+		];
+		expect(args.language).toBe("hu");
+	});
+
 	it("persists nothing when the generator returns null (silent degrade)", async () => {
 		generateShortLocalTextMock.mockResolvedValue(null);
 

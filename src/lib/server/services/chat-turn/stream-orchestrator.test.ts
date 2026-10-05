@@ -1418,6 +1418,38 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	it("hands the same resolved language on to the post-turn tail (the rail headline) and not a fresh read of the message", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { runPostTurnTasks } = await import(
+			"$lib/server/services/chat-turn/finalize-steps"
+		);
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Szia" },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream(
+			{
+				conversationId: "hu-language-tail-conv",
+				// no accent: read on its own this message is English
+				normalizedMessage: "Mikor ultessem el a paradicsompalantakat?",
+			},
+			{ resolvedResponseLanguage: "hu" },
+		);
+		await readSseResponse(response);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(runPostTurnTasks).toHaveBeenCalledWith(
+			expect.objectContaining({ responseLanguage: "hu" }),
+		);
+	});
+
 	it("threads English as the target language for an English turn", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
