@@ -112,26 +112,29 @@ describe("isPlausibleFollowUpSuggestion", () => {
 		expect(isPlausibleFollowUpSuggestion("Is that true. Really?")).toBe(false);
 	});
 
-	it("accepts a question at the max word count", () => {
-		// Seven words plus the bare "?" — inside the eight-word cap.
+	it("accepts a chip at the max word count", () => {
+		// Ten words — the cap.
 		expect(
-			isPlausibleFollowUpSuggestion("Can you draft the email to them?"),
+			isPlausibleFollowUpSuggestion(
+				"Turn this into a day-by-day itinerary with times and distances",
+			),
 		).toBe(true);
 	});
 
-	it("rejects a question one word over the max word count", () => {
-		// Nine words — one past the cap.
+	it("rejects a chip one word over the max word count", () => {
+		// Eleven words — one past the cap.
 		expect(
 			isPlausibleFollowUpSuggestion(
-				"Can you draft the follow up email to them?",
+				"Turn this into a day-by-day itinerary with times and walking distances",
 			),
 		).toBe(false);
 	});
 
-	it("rejects a question longer than the max word count", () => {
+	it("rejects a chip longer than the character budget", () => {
+		// Few words, but long ones: a Hungarian chip can run past the width a pill has.
 		expect(
 			isPlausibleFollowUpSuggestion(
-				"Is this one single question far too long to ever pass the eight word cap?",
+				"Összehasonlítottatlanságaikat dokumentálhatatlanságukról elmagyarázhatatlanul",
 			),
 		).toBe(false);
 	});
@@ -255,7 +258,7 @@ describe("generateFollowUpSuggestions", () => {
 		expect(args.systemPrompt).toContain(
 			"never repeat anything the user has already asked",
 		);
-		expect(args.maxTokens).toBeGreaterThanOrEqual(160);
+		expect(args.maxTokens).toBeGreaterThanOrEqual(180);
 	});
 
 	it("keeps the first two survivors when a candidate fails the filter", async () => {

@@ -56,7 +56,11 @@ export const FOLLOW_UP_SUGGESTIONS_COUNT = 2;
 // malformed line without leaving the turn with a single chip; the first two
 // survivors (the model is asked to order them best first) win.
 export const FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT = 3;
-export const FOLLOW_UP_SUGGESTIONS_MAX_WORDS = 8;
+// A chip that names what it acts on ("Compare Dean Village and Calton Hill for
+// Sunday morning") needs a couple more words than the old eight-word question;
+// the chip wraps, so the character budget is what keeps it a chip.
+export const FOLLOW_UP_SUGGESTIONS_MAX_WORDS = 10;
+const FOLLOW_UP_SUGGESTIONS_MAX_CHARS = 80;
 
 // The reply's opening carries the substance, but its END carries the
 // conclusion, the caveat and the "want me to…" hook a good next step hangs
@@ -70,10 +74,10 @@ const FOLLOW_UP_SUGGESTIONS_HISTORY_CHAR_BUDGET = 300;
 // Up to three prior turns (user + assistant each). The caller reads exactly
 // this many rows; this module trims whatever it is handed to the same bound.
 export const FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT = 6;
-// Room for three 8-word messages inside the JSON envelope (Hungarian words
+// Room for three 10-word messages inside the JSON envelope (Hungarian words
 // cost about three tokens each), with headroom for a model that pretty-prints
 // it.
-const FOLLOW_UP_SUGGESTIONS_MAX_TOKENS = 160;
+const FOLLOW_UP_SUGGESTIONS_MAX_TOKENS = 180;
 
 // A reply this short (a one-liner, a bare number, an acknowledgment) rarely
 // has a follow-up worth surfacing — on staging "17 × 23 = 391" produced
@@ -111,6 +115,9 @@ export const FOLLOW_UP_CHIP_EXAMPLES: Record<"en" | "hu", string[]> = {
 		"Turn the moving advice into a checklist",
 		"Draft the email to the contractor",
 		"Explain the second step in more detail",
+		"Shorten the cover letter to one page",
+		"Work out the monthly cost for three people",
+		"Give an example of the retry logic in Python",
 		"How do I set up the firewall?",
 	],
 	hu: [
@@ -118,6 +125,9 @@ export const FOLLOW_UP_CHIP_EXAMPLES: Record<"en" | "hu", string[]> = {
 		"Készíts ellenőrzőlistát a költözéshez",
 		"Írd meg az e-mailt a kivitelezőnek",
 		"Magyarázd el részletesebben a második lépést",
+		"Rövidítsd le a motivációs levelet egy oldalra",
+		"Számold ki a havi költséget három főre",
+		"Mutass példát az újrapróbálkozásra Pythonban",
 		"Hogyan állítsam be a tűzfalat?",
 	],
 };
@@ -230,6 +240,7 @@ export function isPlausibleFollowUpSuggestion(
 	return checkFollowUpChip(text, {
 		language,
 		maxWords: FOLLOW_UP_SUGGESTIONS_MAX_WORDS,
+		maxChars: FOLLOW_UP_SUGGESTIONS_MAX_CHARS,
 	}).ok;
 }
 
@@ -248,6 +259,7 @@ function parseFollowUpSuggestions(
 		const chip = checkFollowUpChip(candidate, {
 			language,
 			maxWords: FOLLOW_UP_SUGGESTIONS_MAX_WORDS,
+			maxChars: FOLLOW_UP_SUGGESTIONS_MAX_CHARS,
 		});
 		if (!chip.ok) continue;
 		// The client keys chips by text; a repeated suggestion must never

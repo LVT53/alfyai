@@ -214,11 +214,17 @@ const NON_LATIN_SCRIPT_RE =
  * Whether `raw` is a follow-up chip, and the chip's normalized text when it is
  * (whitespace collapsed, a trailing full stop or "!" and wrapping quotes
  * removed). `language` is the turn's reply language; without it the checks that
- * need one run for both. `maxWords` is the chip's word budget.
+ * need one run for both. `maxWords` (and `maxChars`) are the chip's length
+ * budget.
  */
 export function checkFollowUpChip(
 	raw: string,
-	options: { language?: SupportedLanguage; maxWords: number },
+	options: {
+		language?: SupportedLanguage;
+		maxWords: number;
+		/** The chip's length budget in characters, for a language with long words. */
+		maxChars?: number;
+	},
 ): FollowUpChipCheck {
 	const text = normalizeChip(raw);
 	const reject = (reason: FollowUpChipRejection): FollowUpChipCheck => ({
@@ -231,6 +237,9 @@ export function checkFollowUpChip(
 	const wordList = body.split(" ").filter(Boolean);
 	if (wordList.length < 2) return reject("too_short");
 	if (wordList.length > options.maxWords) return reject("too_long");
+	if (options.maxChars !== undefined && text.length > options.maxChars) {
+		return reject("too_long");
+	}
 
 	// One plain sentence: no list, markdown or JSON leftovers, at most one comma,
 	// no sentence break inside ("package.json" and "3.5" are fine).
