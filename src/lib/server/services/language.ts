@@ -346,10 +346,16 @@ const ENGLISH_SPEECH_VERBS = wordSet(
 	"speak talk chat converse communicate continue switch go stick keep use",
 );
 const ENGLISH_SUBJECTS = wordSet("i we they he she it people students");
+// Learning, translation and meaning in English: the language is the subject.
+const ENGLISH_SUBJECT_STEM_RE =
+	/^(?:learn|study|studying|teach|practi[sc]e|translat|pronounc|spell|grammar|meaning|means?$)/;
 const ENGLISH_POLITE_WORDS = wordSet("please pls plz kindly");
 const BARE_FILLERS = wordSet(
 	"please pls plz only just in the language instead rather better then now and but so ok okay yes no nope sorry oh yeah thanks thank you kerlek kerem kernek legy legyel legyen szives szivesen inkabb csak mostantol ezentul most es de akkor igen nem ne na hat ja nos is",
 );
+
+// How many words an instruction that opens the sentence reaches.
+const HEAD_DIRECTIVE_REACH = 20;
 
 function isHungarianDirective(word: string): boolean {
 	return HUNGARIAN_DIRECTIVE_RE.test(word);
@@ -376,6 +382,8 @@ function hasRequestFrame(words: string[]): boolean {
 // What the whole sentence says, read once however many language words it holds.
 type SentenceContext = {
 	first: string | undefined;
+	// The index of the sentence's first word that is not a filler.
+	firstAt: number;
 	requestFrame: boolean;
 	asking: boolean;
 	wants: boolean;
@@ -386,8 +394,10 @@ type SentenceContext = {
 };
 
 function readSentence(words: string[]): SentenceContext {
+	const firstAt = words.findIndex((word) => !LEADING_FILLERS.has(word));
 	return {
-		first: words.find((word) => !LEADING_FILLERS.has(word)),
+		first: words[firstAt],
+		firstAt,
 		requestFrame: hasRequestFrame(words),
 		// "Let's...", "Can we...", "please...".
 		asking: words.some(
@@ -402,8 +412,10 @@ function readSentence(words: string[]): SentenceContext {
 				(word === "like" && /^(?:would|i'd|id)$/.test(words[at - 1] ?? "")),
 		),
 		translating: words.some((word) => word.startsWith("translat")),
-		subjectIsTheLanguage: words.some((word) =>
-			HUNGARIAN_SUBJECT_STEM_RE.test(word),
+		subjectIsTheLanguage: words.some(
+			(word) =>
+				HUNGARIAN_SUBJECT_STEM_RE.test(word) ||
+				ENGLISH_SUBJECT_STEM_RE.test(word),
 		),
 		requestModal: words.some((word) => HUNGARIAN_REQUEST_MODALS.has(word)),
 		abilityModal: words.includes("tudsz"),
@@ -454,12 +466,11 @@ function isRequestAround(
 		);
 	}
 
-	// A directive about the reply within a few words either side.
+	// A directive about the reply within a few words either side; and one that
+	// opens the sentence, however far the language word is ("Write a short thank-you
+	// email to our hosts in English"), unless the language is the subject.
 	const first = sentence.first;
-	const from = Math.max(0, marker.at - 7);
-	const to = Math.min(words.length - 1, marker.end + 7);
-	for (let at = from; at <= to; at++) {
-		if (at >= marker.at && at <= marker.end) continue;
+	const isDirectiveAt = (at: number): boolean => {
 		const word = words[at];
 		const previous = words[at - 1];
 		if (
@@ -474,16 +485,39 @@ function isRequestAround(
 		}
 		if (isHungarianDirective(word)) return true;
 		if (HUNGARIAN_INFINITIVE_RE.test(word)) {
-			const modalAsks =
+			return (
 				sentence.requestModal ||
-				(sentence.abilityModal && HUNGARIAN_ANSWER_INFINITIVE_RE.test(word));
-			if (modalAsks) return true;
+				(sentence.abilityModal && HUNGARIAN_ANSWER_INFINITIVE_RE.test(word))
+			);
 		}
+		return false;
+	};
+	const from = Math.max(0, marker.at - 7);
+	const to = Math.min(words.length - 1, marker.end + 7);
+	for (let at = from; at <= to; at++) {
+		if (at >= marker.at && at <= marker.end) continue;
+		if (isDirectiveAt(at)) return true;
+	}
+	const headAt = sentence.firstAt;
+	if (
+		headAt >= 0 &&
+		headAt < from &&
+		marker.at - headAt <= HEAD_DIRECTIVE_REACH &&
+		!sentence.subjectIsTheLanguage &&
+		isDirectiveAt(headAt)
+	) {
+		return true;
 	}
 
 	if (marker.kind === "adverb") {
-		// "Legyen angolul a válasz", "Lehet angolul?".
-		if (nextToMarker(HUNGARIAN_WISH_WORDS, 3)) return true;
+		// "Legyen angolul a válasz", "Lehet angolul?" (not "hogyan lehet megtanulni
+		// angolul").
+		if (
+			!sentence.subjectIsTheLanguage &&
+			nextToMarker(HUNGARIAN_WISH_WORDS, 3)
+		) {
+			return true;
+		}
 		// "Kérlek angolul", "Angolul, légy szíves", "Csak angolul".
 		if (
 			!sentence.subjectIsTheLanguage &&

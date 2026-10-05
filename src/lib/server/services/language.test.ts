@@ -277,6 +277,10 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			"A válaszod legyen angolul",
 			"Tudsz angolul válaszolni?",
 			"Írj angol nyelvű levelet a főnökömnek",
+			// The instruction opens the sentence and the language word closes it, many
+			// words later: the whole sentence is the request.
+			"Írj egy rövid köszönő e-mailt a vendéglátónknak angolul",
+			"Írj egy rövid, de udvarias köszönő e-mailt a hétvégi vacsoráért a vendéglátóinknak angolul",
 			"Kérlek nézd át ezt a kódot, és válaszolj angolul.",
 		])("%j asks for English", (text) => {
 			expect(detectExplicitLanguageRequest(text)).toBe("en");
@@ -330,6 +334,9 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			"Magyarul is tudsz?",
 			"Tudsz angolul beszélni?",
 			"Az angol nyelvű oldal hibás, mit tegyek?",
+			// A directive that opens the sentence reaches a language word far away only
+			// when the language is not the subject.
+			"Írj egy hosszú összefoglalót arról, hogy hogyan lehet gyorsan megtanulni angolul",
 		])("%j keeps the conversation's language", (text) => {
 			expect(detectExplicitLanguageRequest(text)).toBeNull();
 		});
@@ -357,6 +364,11 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			["Write your reply in Hungarian", "hu"],
 			["Give me the answer in Hungarian", "hu"],
 			["Give me an English title", "en"],
+			["Write a short thank-you email to our hosts in English", "en"],
+			[
+				"Write a polite reminder to the whole team about Friday's meeting in English",
+				"en",
+			],
 			["Can we switch to Hungarian?", "hu"],
 			["Let's speak Hungarian", "hu"],
 			["Use English from now on", "en"],
@@ -392,6 +404,7 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			"I want to learn Hungarian",
 			"Should I write in Hungarian or English?",
 			"Translate this in Hungarian please",
+			"Write a long summary of how people learn to speak in English",
 		])("%j keeps the conversation's language", (text) => {
 			expect(detectExplicitLanguageRequest(text)).toBeNull();
 		});
