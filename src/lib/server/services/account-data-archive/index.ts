@@ -169,7 +169,11 @@ export async function createAccountDataArchive(
 		(row) => row.type === "skill_note",
 	);
 
-	await addProfileSection(archive, { user, rootDir });
+	await addProfileSection(archive, {
+		user,
+		rootDir,
+		tourStates: artifactTourStateRows,
+	});
 	addProjectsSection(archive, {
 		projectRows,
 		filesByProjectId: groupProjectFileNames(projectFileRows),
@@ -190,7 +194,6 @@ export async function createAccountDataArchive(
 	addMemorySection(archive, {
 		tasks: taskStateRows,
 		events: memoryEventRows,
-		tourStates: artifactTourStateRows,
 	});
 	addSkillsSection(archive, {
 		skills: skillRows,
@@ -265,6 +268,7 @@ async function addProfileSection(
 	params: {
 		user: typeof users.$inferSelect;
 		rootDir: string;
+		tourStates: Array<typeof artifactTourStates.$inferSelect>;
 	},
 ) {
 	let avatarMarkup = "";
@@ -306,7 +310,9 @@ async function addProfileSection(
 		renderArchivePage({
 			title: "Profile",
 			subtitle: "Account facts and preferences included in this archive.",
-			body: `${avatarMarkup}${renderTable(profileRows)}`,
+			// The introductions the user has seen are a fact about the account, so
+			// they sit with it and not with what the app remembers.
+			body: `${avatarMarkup}${renderTable(profileRows)}${renderArtifactTourStates(params.tourStates)}`,
 		}),
 	);
 }
@@ -760,13 +766,11 @@ function addMemorySection(
 	params: {
 		tasks: Array<typeof conversationTaskStates.$inferSelect>;
 		events: Array<typeof memoryEvents.$inferSelect>;
-		tourStates: Array<typeof artifactTourStates.$inferSelect>;
 	},
 ) {
 	const sections = [
 		renderTaskStates(params.tasks),
 		renderMemoryEvents(params.events),
-		renderArtifactTourStates(params.tourStates),
 	].join("");
 	archive.addHtml(
 		"Memory/Memory.html",
