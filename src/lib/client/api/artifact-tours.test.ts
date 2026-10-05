@@ -330,6 +330,39 @@ describe("the answer kept for a page load", () => {
 		expect(reads(fetchStub)).toHaveLength(2);
 	});
 
+	it("drops what the last reader was told when the tab is another reader's", async () => {
+		// Login and logout are client-side navigations: the module outlives a reader.
+		const { getArtifactTour, keepArtifactToursFor, fetchStub } = await pageLoad(
+			[{ seen: true }, { seen: false }],
+		);
+		keepArtifactToursFor("reader-a");
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: true,
+		});
+
+		// The same reader again: what they were told stands.
+		keepArtifactToursFor("reader-a");
+		await getArtifactTour("document");
+		expect(reads(fetchStub)).toHaveLength(1);
+
+		// Someone else: their answer is the server's, not the last reader's.
+		keepArtifactToursFor("reader-b");
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: false,
+		});
+		expect(reads(fetchStub)).toHaveLength(2);
+
+		// A host that does not say who is reading starts clean too.
+		keepArtifactToursFor(null);
+		keepArtifactToursFor(undefined);
+		fetchStub.mockImplementationOnce(async () =>
+			jsonResponse({ ok: true, tour: TOUR, seen: true, lastSlide: 2 }),
+		);
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: true,
+		});
+	});
+
 	it("keeps nothing for a fetch it was handed", async () => {
 		const { getArtifactTour } = await pageLoad([]);
 		const handed = vi

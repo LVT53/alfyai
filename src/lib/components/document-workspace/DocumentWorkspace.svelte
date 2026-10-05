@@ -17,6 +17,7 @@ import {
 } from "$lib/utils/motion";
 import {
 	getArtifactTour,
+	keepArtifactToursFor,
 	markArtifactTourSeen,
 	refreshArtifactTour,
 } from "$lib/client/api/artifact-tours";
@@ -635,6 +636,9 @@ async function presentTour(
 	isStale: () => boolean,
 ): Promise<void> {
 	try {
+		// The page can change hands without being reloaded (login and logout are
+		// client-side navigations): the answers it holds are this reader's.
+		keepArtifactToursFor(currentUser?.id);
 		// A replay asks again (it shows the copy as it is now); an open takes the
 		// answer this page load already has, which is why a second item of a kind
 		// costs no request and shows its line from the first frame.

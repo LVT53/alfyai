@@ -19,7 +19,9 @@
  * item needs is in hand when it opens. A failed read is not kept; a reader who
  * finishes or skips a tour is taken as having seen it at once; a refused or
  * failed write, and a replay, go back to the server. A `fetchImpl` a caller
- * hands in (a test's) is never kept.
+ * hands in (a test's) is never kept. Logging in and out are client-side
+ * navigations, so the page outlives a reader: the panel says whose answers
+ * these are (`keepArtifactToursFor`) and a different reader starts clean.
  */
 import type {
 	ArtifactTourResponse,
@@ -37,6 +39,16 @@ const jsonHeaders = { "Content-Type": "application/json" };
  * shares it, which is also what lets a caller ask before it knows it needs to.
  */
 const kept = new Map<ShippedArtifactTourType, Promise<ArtifactTourResponse>>();
+/** Whose answers `kept` holds: undefined until someone is named. */
+let keptFor: string | null | undefined;
+
+/** Names the reader the panel is showing; what was kept for another one (or for a host that names no one) is dropped. */
+export function keepArtifactToursFor(userId: string | null | undefined): void {
+	const reader = userId ?? null;
+	if (reader === keptFor) return;
+	keptFor = reader;
+	kept.clear();
+}
 
 /** One round trip to the route. `ok` is the wire shape's success marker (ruling 49), not part of what a caller wants, so it is read here and left behind — as `fetchArtifact` does. */
 async function ask(

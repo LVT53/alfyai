@@ -36,6 +36,7 @@ const tourClient = vi.hoisted(() => ({
 	getArtifactTour: vi.fn(),
 	refreshArtifactTour: vi.fn(),
 	markArtifactTourSeen: vi.fn(),
+	keepArtifactToursFor: vi.fn(),
 }));
 
 vi.mock("$lib/client/api/artifact-tours", () => tourClient);
@@ -204,6 +205,18 @@ describe("DocumentWorkspace: the first-open tour", () => {
 		).not.toBeNull();
 		// Showing it wrote nothing.
 		expect(tourClient.markArtifactTourSeen).not.toHaveBeenCalled();
+	});
+
+	it("says whose answers they are before it asks, so another reader in the same tab is not told the last one's", async () => {
+		openDocument({
+			currentUser: { id: "reader-a", displayName: "A", profilePicture: null },
+		});
+		await card();
+
+		expect(tourClient.keepArtifactToursFor).toHaveBeenCalledWith("reader-a");
+		expect(
+			tourClient.keepArtifactToursFor.mock.invocationCallOrder[0],
+		).toBeLessThan(tourClient.getArtifactTour.mock.invocationCallOrder[0]);
 	});
 
 	it("shows nothing for a tour the reader has seen, and nothing for one with no slides", async () => {
