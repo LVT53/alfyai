@@ -45,6 +45,14 @@ describe("a chip is the next message the person would send to Alfy", () => {
 			["Szeretném látni a heti bevásárlólistát", "hu"],
 			["Konkrét modelleket javasolnál?", "hu"],
 			["Hogyan jutok el a Széchenyi fürdőbe?", "hu"],
+			// A colon inside a question, a list's commas and a Hungarian ordinal's dot
+			// are not a second sentence (each of these was a good chip the first
+			// version of the check threw away).
+			["Melyik a jobb: lenmag vagy banán?", "hu"],
+			["Magyarázd el a 2. lépést részletesen", "hu"],
+			// "reggel" ends like a second-person verb but is "in the morning".
+			["Melyik vonattal utazzak, ha csak reggel indulhatok?", "hu"],
+			["List songs using G, C and D", "en"],
 			["Compare the two options in a table", "en"],
 			["Turn the weekly menu into a shopping list", "en"],
 			["Draft the email to my landlord", "en"],
@@ -105,6 +113,11 @@ describe("a chip is the next message the person would send to Alfy", () => {
 			["Mekkora a költségvetésed?", "hu", "asks_person"],
 			["Dolgozol otthonról?", "hu", "asks_person"],
 			["Voltál már Bécsben?", "hu", "asks_person"],
+			// "your boss" in the person's own mouth is "my boss".
+			["Írj e-mailt a főnöködnek a prioritásokról", "hu", "asks_person"],
+			// An instruction to the person: Alfy cannot paste or upload for them.
+			["Ragaszd be a hibás Python kódrészletet", "hu", "asks_person"],
+			["Paste the faulty snippet here", "en", "asks_person"],
 			["Do you have a car?", "en", "asks_person"],
 			["Are you vegetarian?", "en", "asks_person"],
 			["What is your current salary range?", "en", "asks_person"],
@@ -220,8 +233,9 @@ describe("a chip is the next message the person would send to Alfy", () => {
 			"Compare {both} options",
 			"**Compare** the two options",
 			"1. Compare the two options",
-			"Compare: the two options",
-			"Compare, the two, options in a table",
+			"Melyik olcsóbb hosszú távon? Részletes számítás",
+			"Hogyan töltsük ki a [Name] helyét?",
+			"Compare, the two, options, in, a table",
 		])("rejects %j as not one plain sentence", (text) => {
 			expect(rejectionOf(text)).toBe("format");
 		});

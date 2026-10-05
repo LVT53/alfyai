@@ -94,6 +94,9 @@ const ASKS_PERSON_PATTERNS: Record<SupportedLanguage, RegExp[]> = {
 			"your\\s+(?:budget|income|salary|age|level|goals?|experience|schedule|situation|preferences?|needs?|diet|weight|height|name|location|city|team|stack|setup|timeline|deadline|favou?rite|current|usual|typical|family|partner|kids|children|job|company|business|background|plans?|health|dietary|allerg\\w*|home|house|apartment|garden|car|phone|laptop)",
 		),
 		anywhere("(?:if|when|since|because|whenever|while)\\s+you"),
+		// An instruction to the person, not to Alfy: Alfy cannot paste, upload or
+		// attach anything for them.
+		atStart("(?:paste|upload|attach|copy\\s+and\\s+paste)"),
 	],
 	hu: [
 		atStart(
@@ -103,9 +106,19 @@ const ASKS_PERSON_PATTERNS: Record<SupportedLanguage, RegExp[]> = {
 			"(?:kereted|kereseted|fizetésed|jövedelmed|korod|célod|céljaid|költségvetésed|büdzséd|tapasztalatod|helyzeted|igényeid|igényed|preferenciád|kedvenced|munkád|városod|csapatod|határidőd|időd|étrended|súlyod|magasságod|neved|lakhelyed|terveid)",
 		),
 		anywhere("hány\\s+éves\\s+vagy|mennyi\\s+(?:pénzed|időd)"),
-		// "ha sokat autózol", "ha szereted": the person as "you".
+		// The person's own people and things as "your": "Írj e-mailt a
+		// főnöködnek" (their boss is "my boss" in their mouth).
 		anywhere(
-			"(?:ha|amikor|mivel|mert|amíg)\\s+(?:\\p{L}+\\s+){0,3}\\p{L}{3,}(?:ol|el|öl|sz|od|ed|öd)",
+			"(?:főnök|kolléga|férj|feleség|barát|barátnő|gyerek|szüle|tanár|orvos|ügyfél|cég|munkahely|lakás|házad|autó|kutyá|macská|család|szomszéd)\\p{L}*(?:öd|ed|od|ád|éd|d)(?:nek|et|ot|hez|től|ről|ben|ért|nél|re|nak)?",
+		),
+		// "ha sokat autózol", "ha szereted": the person as "you". A list of the
+		// verbs, not a suffix: "reggel" (in the morning) ends like one.
+		anywhere(
+			"(?:ha|amikor|mivel|mert|amíg)\\s+(?:\\p{L}+\\s+){0,3}(?:autózol|dolgozol|laksz|élsz|eszel|iszol|edzel|sportolsz|főzöl|vásárolsz|tanulsz|használsz|vezetsz|utazol|alszol|szeretsz|szereted|használod|akarod|szeretnéd|tudod|(?:vegán|vegetáriánus|kezdő|haladó|egyedül)\\s+vagy)",
+		),
+		// An instruction to the person, not to Alfy.
+		atStart(
+			"(?:ragaszd|másold|töltsd|csatold|mellékeld)\\s+(?:be|fel|ide|mellé)",
 		),
 	],
 };
@@ -241,11 +254,16 @@ export function checkFollowUpChip(
 		return reject("too_long");
 	}
 
-	// One plain sentence: no list, markdown or JSON leftovers, at most one comma,
-	// no sentence break inside ("package.json" and "3.5" are fine).
-	if (/[{}[\]<>|\\*`~^]/.test(text)) return reject("format");
-	if (/[.!?:;](?:\s|$)/.test(body)) return reject("format");
-	if ((body.match(/,/g) ?? []).length > 1) return reject("format");
+	// One plain sentence: no list, markdown or JSON leftovers, at most three
+	// commas ("G, C, D and Em"), no sentence break inside ("package.json", "3.5"
+	// and the Hungarian ordinal "2. lépés" are fine).
+	if (/[{}[\]<>|\\*`~^]/.test(text) || /^\d+[.)]\s/.test(text)) {
+		return reject("format");
+	}
+	if (/[.!?;](?:\s|$)/.test(body.replace(/\d\.(?=\s)/g, ""))) {
+		return reject("format");
+	}
+	if ((body.match(/,/g) ?? []).length > 3) return reject("format");
 
 	if (NON_LATIN_SCRIPT_RE.test(text)) return reject("script");
 
