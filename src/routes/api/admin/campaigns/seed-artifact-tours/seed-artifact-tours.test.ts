@@ -18,9 +18,9 @@ const mockSeedArtifactTourDrafts = seedArtifactTourDrafts as ReturnType<
 	typeof vi.fn
 >;
 
-function makeEvent() {
+function makeEvent(uiLanguage: "en" | "hu" = "en") {
 	return {
-		locals: { user: { id: "admin-user", role: "admin" } },
+		locals: { user: { id: "admin-user", role: "admin", uiLanguage } },
 	} as unknown as Parameters<typeof POST>[0];
 }
 
@@ -37,7 +37,19 @@ describe("POST /api/admin/campaigns/seed-artifact-tours", () => {
 
 		expect(response.status).toBe(201);
 		expect(await response.json()).toEqual({ created: 3, existing: 0 });
-		expect(mockSeedArtifactTourDrafts).toHaveBeenCalledWith("admin-user");
+		expect(mockSeedArtifactTourDrafts).toHaveBeenCalledWith("admin-user", {
+			language: "en",
+		});
+	});
+
+	it("names the drafts in the language of the admin who seeds them", async () => {
+		mockSeedArtifactTourDrafts.mockResolvedValue({ created: 3, existing: 0 });
+
+		await POST(makeEvent("hu"));
+
+		expect(mockSeedArtifactTourDrafts).toHaveBeenCalledWith("admin-user", {
+			language: "hu",
+		});
 	});
 
 	it("is a no-op with 200 on a second run", async () => {

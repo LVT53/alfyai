@@ -368,10 +368,16 @@ describe("createAccountDataArchive", () => {
 		expect(memoryIndex).not.toContain("embedding");
 		// Slice 6: a seen tour names the kind and nothing about a chat — the
 		// row has no conversation id and no artifact id to leak in the first
-		// place (decisions.md ruling 33).
-		expect(memoryIndex).toContain("Canvas");
-		expect(memoryIndex).toContain("completed");
-		expect(memoryIndex).not.toContain("default:1");
+		// place (decisions.md ruling 33). It is a fact about the account, filed
+		// with the profile and not with what the app remembers (RC-T Minor 10).
+		expect(memoryIndex).not.toContain("Feature introductions seen");
+		const profileIndex = await zip
+			.file("Profile/Profile.html")
+			?.async("string");
+		expect(profileIndex).toContain("Feature introductions seen");
+		expect(profileIndex).toContain("Canvas");
+		expect(profileIndex).toContain("completed");
+		expect(profileIndex).not.toContain("default:1");
 
 		const skillPage = await zip
 			.file("Skills/Meeting Notes.html")
@@ -1280,7 +1286,7 @@ describe("createAccountDataArchive", () => {
 	// so they leave with them — named by kind in the app's own words, and with
 	// nothing that identifies a chat, a file or a campaign snapshot.
 	describe("the introductions a user has seen", () => {
-		async function memoryPage(): Promise<string> {
+		async function profilePage(): Promise<string> {
 			const result = await createAccountDataArchive("user-1", {
 				password: "correct-password",
 				db,
@@ -1292,7 +1298,7 @@ describe("createAccountDataArchive", () => {
 			const zip = await JSZip.loadAsync(
 				Buffer.from(await new Response(result.zipStream).arrayBuffer()),
 			);
-			return (await zip.file("Memory/Memory.html")?.async("string")) ?? "";
+			return (await zip.file("Profile/Profile.html")?.async("string")) ?? "";
 		}
 
 		function introductionsSection(page: string): string {
@@ -1337,7 +1343,7 @@ describe("createAccountDataArchive", () => {
 				},
 			]);
 
-			const section = introductionsSection(await memoryPage());
+			const section = introductionsSection(await profilePage());
 
 			expect(section).toContain("Document");
 			expect(section).toContain("dismissed");
@@ -1360,7 +1366,7 @@ describe("createAccountDataArchive", () => {
 			await seedArchiveUser();
 			await db.delete(schema.artifactTourStates);
 
-			expect(introductionsSection(await memoryPage())).toBe("");
+			expect(introductionsSection(await profilePage())).toBe("");
 		});
 
 		it("has no label for a kind that does not ship: a stray Slides row reads as the stored word (ruling 69)", async () => {
@@ -1377,7 +1383,7 @@ describe("createAccountDataArchive", () => {
 				completedAt: new Date("2026-03-04T09:00:00Z"),
 			});
 
-			const section = introductionsSection(await memoryPage());
+			const section = introductionsSection(await profilePage());
 
 			expect(section).toContain("slides");
 			expect(section).not.toContain("Slides");

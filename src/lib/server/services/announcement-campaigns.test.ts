@@ -16,7 +16,7 @@ import {
 	getCampaignAnalyticsSummary,
 	getCampaignById,
 	getEligibleCampaignForUser,
-	getLatestPublishedCampaign,
+	getLatestPublishedAnnouncement,
 	publishCampaign,
 	recordCampaignEvent,
 	seedFirstRunOnboardingTemplate,
@@ -182,9 +182,7 @@ describe("announcement campaign service", () => {
 			fieldErrors: { status: "Only draft campaigns can be edited." },
 		});
 
-		const latest = await getLatestPublishedCampaign("first_run_onboarding", {
-			db,
-		});
+		const latest = await getLatestPublishedAnnouncement({ db });
 		expect(latest?.slides.map((slide) => slide.title.en)).toEqual([
 			"Set up",
 			"Data use",
@@ -1000,6 +998,239 @@ describe("announcement campaign service", () => {
 		});
 	});
 
+	// RC-T Minor 1: the resolver reads the newest published tour of a kind, so a
+	// published revision that stayed live when its successor went out would be
+	// what archiving the successor revealed, instead of the code copy (ruling
+	// 71). A kind has one live tour: publishing a revision retires the one it
+	// replaces.
+	describe("one live tour per kind", () => {
+		// A slide's id is unique across campaigns, so each revision gets its own.
+		function ownSlides(kind: string, campaignId: string) {
+			return buildTourSlides(kind).map((slide) => ({
+				...slide,
+				id: `${campaignId}-${slide.id}`,
+			}));
+		}
+
+		async function publishTourRevision(kind: string, campaignId: string) {
+			await createTourDraft(kind, campaignId, ownSlides(kind, campaignId));
+			return publishCampaign(campaignId, "admin-user", {
+				db,
+				ids: [`${campaignId}-snapshot`],
+			});
+		}
+
+		function statusOf(campaignId: string) {
+			return db
+				.select({
+					status: schema.announcementCampaigns.status,
+					archivedAt: schema.announcementCampaigns.archivedAt,
+				})
+				.from(schema.announcementCampaigns)
+				.where(eq(schema.announcementCampaigns.id, campaignId))
+				.get();
+		}
+
+		it("archives the tour a newer revision of the same kind replaces, snapshot included", async () => {
+			await publishTourRevision("canvas", "canvas-rev-1");
+			expect(statusOf("canvas-rev-1")?.status).toBe("published");
+
+			await publishTourRevision("canvas", "canvas-rev-2");
+
+			expect(statusOf("canvas-rev-1")?.status).toBe("archived");
+			expect(statusOf("canvas-rev-1")?.archivedAt).toBeTruthy();
+			expect(statusOf("canvas-rev-2")?.status).toBe("published");
+			const snapshots = db
+				.select({
+					id: schema.announcementCampaignSnapshots.id,
+					archivedAt: schema.announcementCampaignSnapshots.archivedAt,
+				})
+				.from(schema.announcementCampaignSnapshots)
+				.all();
+			expect(
+				Object.fromEntries(
+					snapshots.map((row) => [row.id, Boolean(row.archivedAt)]),
+				),
+			).toEqual({
+				"canvas-rev-1-snapshot": true,
+				"canvas-rev-2-snapshot": false,
+			});
+		});
+
+		it("leaves one published tour per kind after three revisions", async () => {
+			await publishTourRevision("app", "app-rev-1");
+			await publishTourRevision("app", "app-rev-2");
+			await publishTourRevision("app", "app-rev-3");
+
+			const published = db
+				.select({ id: schema.announcementCampaigns.id })
+				.from(schema.announcementCampaigns)
+				.where(eq(schema.announcementCampaigns.status, "published"))
+				.all();
+			expect(published.map((row) => row.id)).toEqual(["app-rev-3"]);
+		});
+
+		it("does not touch another kind's tour", async () => {
+			await publishTourRevision("document", "document-rev-1");
+			await publishTourRevision("app", "app-rev-1");
+			await publishTourRevision("canvas", "canvas-rev-1");
+
+			expect(statusOf("document-rev-1")?.status).toBe("published");
+			expect(statusOf("app-rev-1")?.status).toBe("published");
+			expect(statusOf("canvas-rev-1")?.status).toBe("published");
+		});
+
+		it("does not touch a draft, an archived revision or a campaign of another type", async () => {
+			await createTourDraft(
+				"canvas",
+				"canvas-draft",
+				ownSlides("canvas", "canvas-draft"),
+			);
+			await publishTourRevision("canvas", "canvas-rev-1");
+			await publishTourRevision("canvas", "canvas-rev-2");
+			await archiveCampaign("canvas-rev-2", { db });
+			await createCampaignDraft(
+				{
+					type: "release_update",
+					name: "Release 3.0.0",
+					releaseVersion: "canvas",
+					createdByUserId: "admin-user",
+				},
+				{ db, ids: ["release-named-canvas"] },
+			);
+
+			expect(statusOf("canvas-draft")?.status).toBe("draft");
+			expect(statusOf("canvas-rev-1")?.status).toBe("archived");
+			expect(statusOf("canvas-rev-2")?.status).toBe("archived");
+			expect(statusOf("release-named-canvas")?.status).toBe("draft");
+		});
+
+		it("keeps every published release note live: only a tour is one-per-kind", async () => {
+			for (const [id, version] of [
+				["release-a", "3.0.0"],
+				["release-b", "3.1.0"],
+			] as const) {
+				await createCampaignDraft(
+					{
+						type: "release_update",
+						name: `Release ${version}`,
+						releaseVersion: version,
+						createdByUserId: "admin-user",
+					},
+					{ db, ids: [id] },
+				);
+				await updateCampaignDraft(
+					id,
+					{
+						slides: [
+							{
+								id: `${id}-slide`,
+								layoutType: "standard",
+								sortOrder: 1,
+								title: { en: "News", hu: "Hír" },
+								body: { en: "Details.", hu: "Részletek." },
+							},
+						],
+					},
+					{ db },
+				);
+				await publishCampaign(id, "admin-user", {
+					db,
+					ids: [`${id}-snapshot`, `${id}-snapshot-slide`],
+				});
+			}
+
+			expect(statusOf("release-a")?.status).toBe("published");
+			expect(statusOf("release-b")?.status).toBe("published");
+		});
+	});
+
+	// RC-T I-2: the summary slide's TITLE is the line an empty Document, App or
+	// Canvas shows, and nothing draws a second line under it. Requiring a body
+	// there made the admin write words no reader ever sees.
+	it("publishes a tour whose summary slide has no body: only its title is shown", async () => {
+		const slides = buildTourSlides("canvas");
+		slides[0] = { ...slides[0], body: { en: "", hu: "" } };
+		await createTourDraft("canvas", "tour-summary-no-body", slides);
+
+		const published = await publishCampaign(
+			"tour-summary-no-body",
+			"admin-user",
+			{ db, ids: ["tour-summary-no-body-snapshot"] },
+		);
+
+		expect(published.status).toBe("published");
+	});
+
+	it("still wants a tour's summary title in both languages", async () => {
+		const slides = buildTourSlides("canvas");
+		slides[0] = {
+			...slides[0],
+			title: { en: "Empty canvas.", hu: "" },
+			body: { en: "", hu: "" },
+		};
+		await createTourDraft("canvas", "tour-summary-no-hu-title", slides);
+
+		await expect(
+			publishCampaign("tour-summary-no-hu-title", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: {
+				"slides.canvas-summary.title.hu": expect.any(String),
+			},
+		});
+	});
+
+	it("still wants a body on each of a tour's three steps", async () => {
+		const slides = buildTourSlides("canvas");
+		slides[2] = { ...slides[2], body: { en: "Body two.", hu: "" } };
+		await createTourDraft("canvas", "tour-step-no-body", slides);
+
+		await expect(
+			publishCampaign("tour-step-no-body", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: {
+				"slides.canvas-slide-2.body.hu":
+					"Localized EN/HU title and body are required.",
+			},
+		});
+	});
+
+	it("keeps asking a release update's summary-layout slide for its body: only a tour's summary is a bare line", async () => {
+		await createCampaignDraft(
+			{
+				type: "release_update",
+				name: "Release with a summary slide",
+				releaseVersion: "2.5.0",
+				createdByUserId: "admin-user",
+			},
+			{ db, ids: ["release-summary-no-body"] },
+		);
+		await updateCampaignDraft(
+			"release-summary-no-body",
+			{
+				slides: [
+					{
+						id: "release-summary-slide",
+						layoutType: "summary",
+						sortOrder: 1,
+						title: { en: "Summary", hu: "Összegzés" },
+						body: { en: "", hu: "" },
+					},
+				],
+			},
+			{ db },
+		);
+
+		await expect(
+			publishCampaign("release-summary-no-body", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: expect.objectContaining({
+				"slides.release-summary-slide.body.en":
+					"Localized EN/HU title and body are required.",
+			}),
+		});
+	});
+
 	// Ruling 71 (TR-A's concern 2): a tour's kind lives in `releaseVersion`, and
 	// the resolver finds a tour by exactly that text. A tour that names no
 	// shipped kind would publish and then reach nobody, silently, so it is
@@ -1321,14 +1552,10 @@ describe("announcement campaign service", () => {
 	it("never returns an artifact_tour as the latest published campaign", async () => {
 		await publishReleaseNoteThenTour();
 
-		const latest = await getLatestPublishedCampaign("release_update", { db });
+		const latest = await getLatestPublishedAnnouncement({ db });
 
 		expect(latest?.type).toBe("release_update");
 		expect(latest?.id).toBe("badge-release");
-		// Asked for a tour by type, the same reader still finds it: the filter is
-		// the type, not a blanket refusal.
-		const tour = await getLatestPublishedCampaign("artifact_tour", { db });
-		expect(tour?.id).toBe("badge-tour");
 	});
 
 	it("returns nothing for the badge while only a tour is published", async () => {
@@ -1338,9 +1565,59 @@ describe("announcement campaign service", () => {
 			ids: ["badge-only-tour-snapshot"],
 		});
 
-		expect(
-			await getLatestPublishedCampaign("release_update", { db }),
-		).toBeNull();
+		expect(await getLatestPublishedAnnouncement({ db })).toBeNull();
+	});
+
+	// RC-T Minor 9 and ADR-0012: the badge opens the latest published
+	// ANNOUNCEMENT campaign, which is a first-run onboarding as well as a release
+	// note; only a tour is left out (ruling 32).
+	describe("an onboarding is an announcement too", () => {
+		async function publishOnboardingAt(secondsAgo: number) {
+			await publishFirstRunOnboardingCampaign(db, {
+				campaignId: "badge-onboarding",
+				snapshotIds: ["badge-onboarding-snapshot", "bo-slide-1", "bo-slide-2"],
+				name: "Onboarding",
+				slides: buildFirstRunOnboardingSlides(),
+				assetPrefixes: ["setup", "disclosure"],
+			});
+			const now = Math.floor(Date.now() / 1000);
+			db.update(schema.announcementCampaigns)
+				.set({ publishedAt: new Date((now - secondsAgo) * 1000) })
+				.where(eq(schema.announcementCampaigns.id, "badge-onboarding"))
+				.run();
+		}
+
+		it("is what the badge replays when it is newer than the last release note", async () => {
+			await publishReleaseNoteThenTour(); // release 60 s ago, a tour just now
+			await publishOnboardingAt(30);
+
+			const latest = await getLatestPublishedAnnouncement({ db });
+
+			expect(latest?.type).toBe("first_run_onboarding");
+			expect(latest?.id).toBe("badge-onboarding");
+		});
+
+		it("gives way to a release note published after it", async () => {
+			await publishReleaseNoteThenTour(); // release 60 s ago, a tour just now
+			await publishOnboardingAt(120);
+
+			const latest = await getLatestPublishedAnnouncement({ db });
+
+			expect(latest?.id).toBe("badge-release");
+		});
+
+		it("is what the badge replays when it is the only announcement, a newer tour notwithstanding", async () => {
+			await publishOnboardingAt(60);
+			await createTourDraft("canvas", "badge-tour-after-onboarding");
+			await publishCampaign("badge-tour-after-onboarding", "admin-user", {
+				db,
+				ids: ["badge-tour-after-onboarding-snapshot"],
+			});
+
+			expect((await getLatestPublishedAnnouncement({ db }))?.id).toBe(
+				"badge-onboarding",
+			);
+		});
 	});
 
 	it("still returns the newest published release_update", async () => {
@@ -1382,7 +1659,7 @@ describe("announcement campaign service", () => {
 			.where(eq(schema.announcementCampaigns.id, "badge-release-2"))
 			.run();
 
-		const latest = await getLatestPublishedCampaign("release_update", { db });
+		const latest = await getLatestPublishedAnnouncement({ db });
 
 		// Older than the tour, newer than the first note: the newest note wins.
 		expect(latest?.id).toBe("badge-release-2");

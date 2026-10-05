@@ -13,7 +13,10 @@ import type { RequestHandler } from "./$types";
 export const POST: RequestHandler = async (event) => {
 	requireAdmin(event);
 	try {
-		const result = await seedArtifactTourDrafts(event.locals.user.id);
+		// Named in the language of the admin who seeds them.
+		const result = await seedArtifactTourDrafts(event.locals.user.id, {
+			language: event.locals.user.uiLanguage,
+		});
 		return json(result, { status: result.created > 0 ? 201 : 200 });
 	} catch (error) {
 		return campaignErrorResponse(error, "Failed to seed the tour drafts.");

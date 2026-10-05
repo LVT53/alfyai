@@ -329,26 +329,28 @@ export async function markArtifactTourSeen(
 	return { ok: true, alreadyRecorded: written.changes === 0 };
 }
 
-/** Admin-facing draft name per kind. Never "Artifact" (ADR-0066); the kind's
- *  own ratified name is enough context in the campaign rail. */
-const TOUR_DRAFT_NAMES: Record<ShippedArtifactTourType, string> = {
-	document: "Document tour",
-	app: "App tour",
-	canvas: "Canvas tour",
-};
-
 /**
- * The seed's summary-slide body is a placeholder, not shipped copy: the
- * summary slide's TITLE carries the real one-line summary
- * (`ARTIFACT_TOUR_DEFAULTS[kind].summary`, the same text the code default and
- * the empty state show), but a campaign slide's smaller second-line body has
- * no shipped equivalent to seed — the same reason `seedFirstRunOnboardingTemplate`
- * seeds "Replace this draft copy with admin-authored campaign content." for
- * its own non-critical slide.
+ * What an admin sees in the campaign rail for each seeded draft, in the
+ * language of the admin who seeded it (RC-T Minor 8(d)). The kind is the word
+ * the interface uses for it (`artifacts.type.*`: Document / Dokumentum, App /
+ * Alkalmazás, Canvas / Tábla), and "artifact" is not a word anyone sees
+ * (ADR-0066). `artifact-tours.test.ts` holds the Hungarian words to the
+ * dictionary's.
  */
-const TOUR_SUMMARY_BODY_PLACEHOLDER = {
-	en: "Add a short second line here, shown under the artwork.",
-	hu: "Adj hozzá egy rövid második sort, ami a kép alatt jelenik meg.",
+const TOUR_DRAFT_NAMES: Record<
+	"en" | "hu",
+	Record<ShippedArtifactTourType, string>
+> = {
+	en: {
+		document: "Document tour",
+		app: "App tour",
+		canvas: "Canvas tour",
+	},
+	hu: {
+		document: "Dokumentum bemutatója",
+		app: "Alkalmazás bemutatója",
+		canvas: "Tábla bemutatója",
+	},
 };
 
 /**
@@ -369,9 +371,10 @@ const TOUR_SUMMARY_BODY_PLACEHOLDER = {
  */
 export async function seedArtifactTourDrafts(
 	createdByUserId: string,
-	options: CampaignServiceOptions = {},
+	options: CampaignServiceOptions & { language?: "en" | "hu" } = {},
 ): Promise<{ created: number; existing: number }> {
 	const db = database(options);
+	const names = TOUR_DRAFT_NAMES[options.language ?? "en"];
 	let created = 0;
 	let existing = 0;
 
@@ -395,7 +398,7 @@ export async function seedArtifactTourDrafts(
 		const campaign = await createCampaignDraft(
 			{
 				type: "artifact_tour",
-				name: TOUR_DRAFT_NAMES[kind],
+				name: names[kind],
 				releaseVersion: kind,
 				createdByUserId,
 			},
@@ -409,7 +412,9 @@ export async function seedArtifactTourDrafts(
 						layoutType: "summary",
 						sortOrder: 1,
 						title: defaults.summary,
-						body: TOUR_SUMMARY_BODY_PLACEHOLDER,
+						// One bare line, the empty state's: nothing draws a body under
+						// it, so none is seeded and none is asked for (RC-T I-2).
+						body: { en: "", hu: "" },
 					},
 					...defaults.slides.map((slide, index) => ({
 						layoutType: "standard",

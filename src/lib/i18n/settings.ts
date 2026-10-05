@@ -88,8 +88,10 @@ const settingsDict = {
 		"admin.campaigns.listLabel": "Campaign list",
 		"admin.campaigns.loading": "Loading campaigns…",
 		"admin.campaigns.loadingDetail": "Loading campaign…",
+		"admin.campaigns.messages.artifactToursExist":
+			"The tour drafts already exist.",
 		"admin.campaigns.messages.artifactToursSeeded":
-			"Seeded {created} tour drafts, {skipped} already existed.",
+			"Created {created} tour draft{created, plural, one {} other {s}}.",
 		"admin.campaigns.messages.archived": "Campaign archived.",
 		"admin.campaigns.messages.created": "Campaign created.",
 		"admin.campaigns.messages.deleted": "Campaign draft deleted.",
@@ -134,6 +136,13 @@ const settingsDict = {
 		"admin.campaigns.title": "Campaigns",
 		"admin.campaigns.titleEn": "English title",
 		"admin.campaigns.titleHu": "Hungarian title",
+		"admin.campaigns.tour.emptyStateTag": "Empty state",
+		"admin.campaigns.tour.stepCount":
+			"{count} step{count, plural, one {} other {s}} + empty-state line",
+		"admin.campaigns.tour.stepNumber": "Step {number}",
+		"admin.campaigns.tour.summaryHint":
+			"The title is the line an empty Document, App or Canvas shows. Nothing else on this slide is shown.",
+		"admin.campaigns.tour.summarySlide": "Empty-state line",
 		"admin.campaigns.type": "Type",
 		"admin.campaigns.type.feature": "Feature",
 		"admin.campaigns.type.firstRun": "First-run",
@@ -2028,13 +2037,15 @@ const settingsDict = {
 		"admin.campaigns.errors.seed":
 			"Az első indítási kampány létrehozása sikertelen.",
 		"admin.campaigns.errors.seedArtifactTours":
-			"A bemutatók létrehozása sikertelen.",
+			"A bemutató-piszkozatok létrehozása sikertelen.",
 		"admin.campaigns.history": "Előzmények",
 		"admin.campaigns.listLabel": "Kampánylista",
 		"admin.campaigns.loading": "Kampányok betöltése…",
 		"admin.campaigns.loadingDetail": "Kampány betöltése…",
+		"admin.campaigns.messages.artifactToursExist":
+			"A bemutató-piszkozatok már léteznek.",
 		"admin.campaigns.messages.artifactToursSeeded":
-			"{created} bemutató piszkozat létrejött, {skipped} már létezett.",
+			"{created} bemutató-piszkozat létrejött.",
 		"admin.campaigns.messages.archived": "Kampány archiválva.",
 		"admin.campaigns.messages.created": "Kampány létrehozva.",
 		"admin.campaigns.messages.deleted": "Kampánypiszkozat törölve.",
@@ -2060,10 +2071,10 @@ const settingsDict = {
 		"admin.campaigns.publishedAt": "Publikálva",
 		"admin.campaigns.releaseVersion": "Kiadás",
 		"admin.campaigns.saveDraft": "Piszkozat mentése",
-		"admin.campaigns.seedArtifactTours": "Bemutatók létrehozása",
+		"admin.campaigns.seedArtifactTours": "Bemutató-piszkozatok létrehozása",
 		"admin.campaigns.seedFirstRun": "Első indítás magkampány",
 		"admin.campaigns.seedFirstRunHelp":
-			"Létrehozza a szokásos első indítású bemutatókampányt szerkeszthető vázlatként.",
+			"Létrehozza a szokásos első indítási kampányt szerkeszthető piszkozatként.",
 		"admin.campaigns.selectCampaign": "Válassz kampányt a szerkesztéshez.",
 		"admin.campaigns.slideCount": "{count} dia",
 		"admin.campaigns.slideEditorLabel": "{number}. dia szerkesztője",
@@ -2079,6 +2090,12 @@ const settingsDict = {
 		"admin.campaigns.title": "Kampányok",
 		"admin.campaigns.titleEn": "Angol cím",
 		"admin.campaigns.titleHu": "Magyar cím",
+		"admin.campaigns.tour.emptyStateTag": "Üres állapot",
+		"admin.campaigns.tour.stepCount": "{count} lépés + üres állapot sora",
+		"admin.campaigns.tour.stepNumber": "{number}. lépés",
+		"admin.campaigns.tour.summaryHint":
+			"A cím az a sor, amit egy üres dokumentum, alkalmazás vagy tábla mutat. Ezen a dián más nem jelenik meg.",
+		"admin.campaigns.tour.summarySlide": "Üres állapot sora",
 		"admin.campaigns.type": "Típus",
 		"admin.campaigns.type.feature": "Funkció",
 		"admin.campaigns.type.firstRun": "Első indítás",

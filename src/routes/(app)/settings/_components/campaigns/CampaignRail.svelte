@@ -2,7 +2,7 @@
 import { Plus } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type { Campaign, CampaignStatus } from "$lib/client/api/campaigns";
-import { tourLead } from "./campaign-labels";
+import { tourCountLabel, tourLead } from "./campaign-labels";
 
 let {
 	campaigns,
@@ -49,7 +49,13 @@ function metaLine(campaign: Campaign): string {
 					$t("admin.campaigns.versionShort", {
 						version: campaign.version ?? 1,
 					});
-	return `${lead} · ${$t("admin.campaigns.slideCount", { count: slideCount })}`;
+	// A tour is counted by what a reader meets (its steps and the empty-state
+	// line), not as "4 slides".
+	const count =
+		campaign.type === "artifact_tour"
+			? tourCountLabel(slideCount, $t)
+			: $t("admin.campaigns.slideCount", { count: slideCount });
+	return `${lead} · ${count}`;
 }
 </script>
 

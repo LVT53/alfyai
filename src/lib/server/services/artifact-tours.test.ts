@@ -3,9 +3,15 @@ import { and, eq, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import artifactsDict from "$lib/i18n/artifacts";
 import { ARTIFACT_TOUR_CONTENT_VERSION } from "$lib/server/artifact-tour-defaults";
 import * as schema from "$lib/server/db/schema";
 import type { ArtifactTourType } from "$lib/shared/artifacts/tours";
+import {
+	archiveCampaign,
+	duplicateCampaignAsDraft,
+	publishCampaign,
+} from "./announcement-campaigns";
 import {
 	getArtifactTour,
 	markArtifactTourSeen,
@@ -984,6 +990,164 @@ describe("seedArtifactTourDrafts", () => {
 			"Empty board. Insert a block or draw on it.",
 		);
 		expect(slides[1]?.titleEn).toBe("A board for anything");
+	});
+
+	// RC-T Minor 8(d): a Hungarian admin was handed "Document tour", "App tour"
+	// and "Canvas tour". Drafts are named in the language of the admin who seeds
+	// them, with the kind in the word the interface uses for it.
+	function seededNames() {
+		return Object.fromEntries(
+			db
+				.select({
+					kind: schema.announcementCampaigns.releaseVersion,
+					name: schema.announcementCampaigns.name,
+				})
+				.from(schema.announcementCampaigns)
+				.where(eq(schema.announcementCampaigns.type, "artifact_tour"))
+				.all()
+				.map((row) => [row.kind, row.name]),
+		);
+	}
+
+	it("names the drafts in English for an English admin, and by default", async () => {
+		await seedArtifactTourDrafts("admin-user", { db, language: "en" });
+		expect(seededNames()).toEqual({
+			document: "Document tour",
+			app: "App tour",
+			canvas: "Canvas tour",
+		});
+	});
+
+	it("names them in English when no language is given", async () => {
+		await seedArtifactTourDrafts("admin-user", { db });
+		expect(seededNames()).toEqual({
+			document: "Document tour",
+			app: "App tour",
+			canvas: "Canvas tour",
+		});
+	});
+
+	it("names them in Hungarian for a Hungarian admin, with the kinds' own Hungarian words", async () => {
+		await seedArtifactTourDrafts("admin-user", { db, language: "hu" });
+		const names = seededNames();
+		expect(names).toEqual({
+			document: "Dokumentum bemutatója",
+			app: "Alkalmazás bemutatója",
+			canvas: "Tábla bemutatója",
+		});
+		// The kind is the interface's word for it (artifacts.type.*), never a
+		// second translation of it.
+		for (const kind of ["document", "app", "canvas"] as const) {
+			expect(names[kind]).toContain(artifactsDict.hu[`artifacts.type.${kind}`]);
+		}
+	});
+
+	it("names no draft with the word artifact in either language", async () => {
+		for (const language of ["en", "hu"] as const) {
+			sqlite.exec("DELETE FROM announcement_campaigns");
+			await seedArtifactTourDrafts("admin-user", { db, language });
+			for (const name of Object.values(seededNames())) {
+				expect(String(name).toLowerCase()).not.toMatch(/artifact|artefakt/);
+			}
+		}
+	});
+
+	// RC-T I-2: the seed wrote "Add a short second line here, shown under the
+	// artwork." into the summary slide's body, which nothing shows. The body is
+	// left empty, and the draft is still ready to publish.
+	it("leaves each summary slide's body empty instead of promising a second line nobody sees", async () => {
+		await seedArtifactTourDrafts("admin-user", { db });
+
+		const summaries = db
+			.select()
+			.from(schema.announcementCampaignSlides)
+			.where(eq(schema.announcementCampaignSlides.layoutType, "summary"))
+			.all();
+		expect(summaries).toHaveLength(3);
+		for (const slide of summaries) {
+			expect([slide.bodyEn, slide.bodyHu]).toEqual(["", ""]);
+			expect(slide.titleEn).not.toBe("");
+			expect(slide.titleHu).not.toBe("");
+		}
+	});
+
+	// RC-T Minor 1, through the path an admin takes: seed, publish, then the
+	// Duplicate > edit > Publish loop, then Archive. The code copy has to be what
+	// comes back, not the revision before the one archived.
+	it("gives the kind its code copy back when the newest of three published revisions is archived", async () => {
+		await db
+			.insert(schema.users)
+			.values({ id: "reader", email: "reader@example.com", passwordHash: "x" });
+		await seedArtifactTourDrafts("admin-user", { db });
+		const draft = db
+			.select({ id: schema.announcementCampaigns.id })
+			.from(schema.announcementCampaigns)
+			.where(eq(schema.announcementCampaigns.releaseVersion, "canvas"))
+			.get();
+		const read = () =>
+			getArtifactTour({
+				userId: "reader",
+				artifactType: "canvas",
+				options: { db },
+			});
+
+		// The code copy until the first publish.
+		expect((await read())?.tour.source).toBe("default");
+
+		const first = await publishCampaign(draft?.id ?? "", "admin-user", { db });
+		const second = await publishCampaign(
+			(await duplicateCampaignAsDraft(first.id, "admin-user", { db })).id,
+			"admin-user",
+			{ db },
+		);
+		const third = await publishCampaign(
+			(await duplicateCampaignAsDraft(second.id, "admin-user", { db })).id,
+			"admin-user",
+			{ db },
+		);
+		expect([first.revision, second.revision, third.revision]).toEqual([
+			1, 2, 3,
+		]);
+
+		// Only the newest is live, and it is what the reader is served.
+		const live = await read();
+		expect(live?.tour.contentKey).toBe(`snapshot:${third.snapshot?.id}`);
+		const statuses = db
+			.select({
+				revision: schema.announcementCampaigns.revision,
+				status: schema.announcementCampaigns.status,
+			})
+			.from(schema.announcementCampaigns)
+			.where(eq(schema.announcementCampaigns.releaseVersion, "canvas"))
+			.orderBy(schema.announcementCampaigns.revision)
+			.all();
+		expect(statuses).toEqual([
+			{ revision: 1, status: "archived" },
+			{ revision: 2, status: "archived" },
+			{ revision: 3, status: "published" },
+		]);
+
+		// Archiving it is "take my words back": the code copy returns, not rev 2.
+		await archiveCampaign(third.id, { db });
+		const back = await read();
+		expect(back?.tour.source).toBe("default");
+		expect(back?.tour.contentKey).toBe(
+			`default:${ARTIFACT_TOUR_CONTENT_VERSION}`,
+		);
+	});
+
+	it("seeds drafts an admin can publish as they are", async () => {
+		await seedArtifactTourDrafts("admin-user", { db });
+		const drafts = db
+			.select({ id: schema.announcementCampaigns.id })
+			.from(schema.announcementCampaigns)
+			.where(eq(schema.announcementCampaigns.type, "artifact_tour"))
+			.all();
+
+		for (const draft of drafts) {
+			const published = await publishCampaign(draft.id, "admin-user", { db });
+			expect(published.status).toBe("published");
+		}
 	});
 });
 

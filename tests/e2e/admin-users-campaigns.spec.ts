@@ -246,7 +246,9 @@ test.describe("Admin Campaigns screen", () => {
 		// against the same database seeds nothing new and reports the existing
 		// three, so the count in the message is not asserted.)
 		await expect(
-			page.getByText(/Seeded \d+ tour drafts, \d+ already existed\./),
+			page.getByText(
+				/Created \d+ tour drafts?\.|The tour drafts already exist\./,
+			),
 		).toBeVisible();
 		const rows = page.locator('[data-testid="admin-campaign-row"]');
 		for (const name of ["Document tour", "App tour", "Canvas tour"]) {
@@ -306,7 +308,7 @@ test.describe("Admin Campaigns screen", () => {
 				page.getByRole("heading", { name: "E2E typo tour" }).first(),
 			).toBeVisible();
 			await expect(page.locator(".editor-meta")).toContainText(
-				"Tour · 2.1.0 · 4 slides",
+				"Tour · 2.1.0 · 3 steps + empty-state line",
 			);
 			const checklist = page.getByTestId("campaign-checklist");
 			await expect(checklist.getByText("1 check failing")).toBeVisible();
@@ -335,7 +337,7 @@ test.describe("Admin Campaigns screen", () => {
 				page.getByRole("heading", { name: "E2E good tour" }).first(),
 			).toBeVisible();
 			await expect(page.locator(".editor-meta")).toContainText(
-				"Tour · Canvas · 4 slides",
+				"Tour · Canvas · 3 steps + empty-state line",
 			);
 			await expect(
 				page.getByTestId("campaign-checklist").getByText(/Ready to publish/),

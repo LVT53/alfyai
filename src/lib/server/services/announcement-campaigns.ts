@@ -769,15 +769,27 @@ function validatePublishInput(
 		}
 		orderSet.add(slide.sortOrder);
 
+		// A tour's summary slide is one bare line: its title is what an empty
+		// Document, App or Canvas shows, and nothing draws a body under it
+		// (RC-T I-2), so asking for one made an admin write words no reader sees.
+		const isTourSummary =
+			campaignType === "artifact_tour" && slide.layoutType === "summary";
 		validateRequiredLocalizedFields(
 			prefix,
-			[
-				["title.en", slide.titleEn],
-				["title.hu", slide.titleHu],
-				["body.en", slide.bodyEn],
-				["body.hu", slide.bodyHu],
-			],
-			"Localized EN/HU title and body are required.",
+			isTourSummary
+				? [
+						["title.en", slide.titleEn],
+						["title.hu", slide.titleHu],
+					]
+				: [
+						["title.en", slide.titleEn],
+						["title.hu", slide.titleHu],
+						["body.en", slide.bodyEn],
+						["body.hu", slide.bodyHu],
+					],
+			isTourSummary
+				? "Localized EN/HU title is required."
+				: "Localized EN/HU title and body are required.",
 			errors,
 		);
 
@@ -851,6 +863,30 @@ function validatePublishInput(
 			"Campaign is not ready to publish.",
 			errors,
 		);
+	}
+}
+
+type CampaignTx = Parameters<Parameters<CampaignDb["transaction"]>[0]>[0];
+
+/**
+ * Takes a published campaign out of service: the campaign row and the snapshot
+ * it published are both marked archived. The one place that does it, for the
+ * admin's Archive and for a tour revision that replaces its predecessor.
+ */
+function archivePublishedRow(
+	tx: CampaignTx,
+	row: { id: string; publishedSnapshotId: string | null },
+	now: Date,
+) {
+	tx.update(announcementCampaigns)
+		.set({ status: "archived", archivedAt: now, updatedAt: now })
+		.where(eq(announcementCampaigns.id, row.id))
+		.run();
+	if (row.publishedSnapshotId) {
+		tx.update(announcementCampaignSnapshots)
+			.set({ archivedAt: now })
+			.where(eq(announcementCampaignSnapshots.id, row.publishedSnapshotId))
+			.run();
 	}
 }
 
@@ -966,6 +1002,28 @@ export async function publishCampaign(
 				.where(inArray(campaignAssets.id, assetIds))
 				.run();
 		}
+		// A kind has ONE live tour. The resolver reads the newest published
+		// revision, so an older one left published would be what archiving this
+		// one revealed, instead of the code copy (ruling 71). A release note is
+		// different: older ones stay published and the latest wins (RC-T Minor 1).
+		if (campaign.type === "artifact_tour" && campaign.releaseVersion !== null) {
+			const replaced = tx
+				.select({
+					id: announcementCampaigns.id,
+					publishedSnapshotId: announcementCampaigns.publishedSnapshotId,
+				})
+				.from(announcementCampaigns)
+				.where(
+					and(
+						eq(announcementCampaigns.type, "artifact_tour"),
+						eq(announcementCampaigns.releaseVersion, campaign.releaseVersion),
+						eq(announcementCampaigns.status, "published"),
+						ne(announcementCampaigns.id, campaignId),
+					),
+				)
+				.all();
+			for (const row of replaced) archivePublishedRow(tx, row, now);
+		}
 	});
 
 	const published = await getCampaignById(campaignId, { db });
@@ -999,20 +1057,7 @@ export async function archiveCampaign(
 		);
 	}
 	const now = new Date();
-	db.transaction((tx) => {
-		tx.update(announcementCampaigns)
-			.set({ status: "archived", archivedAt: now, updatedAt: now })
-			.where(eq(announcementCampaigns.id, campaignId))
-			.run();
-		if (campaign.publishedSnapshotId) {
-			tx.update(announcementCampaignSnapshots)
-				.set({ archivedAt: now })
-				.where(
-					eq(announcementCampaignSnapshots.id, campaign.publishedSnapshotId),
-				)
-				.run();
-		}
-	});
+	db.transaction((tx) => archivePublishedRow(tx, campaign, now));
 	const archived = await getCampaignById(campaignId, { db });
 	if (!archived) throw new Error("Failed to archive campaign.");
 	return archived;
@@ -1111,8 +1156,8 @@ async function getPublishedCampaignFromRow(campaign: DraftRow, db: CampaignDb) {
 	};
 }
 
-async function latestPublishedByType(
-	type: AnnouncementCampaignType,
+async function latestPublishedOfTypes(
+	types: readonly AnnouncementCampaignType[],
 	db: CampaignDb,
 ) {
 	const campaign = db
@@ -1120,7 +1165,7 @@ async function latestPublishedByType(
 		.from(announcementCampaigns)
 		.where(
 			and(
-				eq(announcementCampaigns.type, type),
+				inArray(announcementCampaigns.type, [...types]),
 				eq(announcementCampaigns.status, "published"),
 			),
 		)
@@ -1130,6 +1175,10 @@ async function latestPublishedByType(
 		)
 		.get();
 	return campaign ? getPublishedCampaignFromRow(campaign, db) : null;
+}
+
+function latestPublishedByType(type: AnnouncementCampaignType, db: CampaignDb) {
+	return latestPublishedOfTypes([type], db);
 }
 
 async function userHasFinishedSnapshot(
@@ -1173,19 +1222,28 @@ export async function getEligibleCampaignForUser(
 }
 
 /**
- * The newest published campaign OF ONE TYPE, for the sidebar version badge's
- * replay. The type is required, not optional: with none, a published
- * `artifact_tour` newer than the last release note became the badge's
- * campaign, and a click opened a kind tour and recorded it as a replay of the
- * release (decisions.md ruling 32). `getEligibleCampaignForUser` already
- * filters by type through the same `latestPublishedByType`; the badge path did
- * not, and a required argument lets the compiler find any caller that forgets.
+ * The campaigns that announce something to the whole app: a first-run
+ * onboarding and a release note. A tour is not one: it is about one kind of
+ * item and shows in that kind's panel (decisions.md ruling 32).
  */
-export async function getLatestPublishedCampaign(
-	campaignType: AnnouncementCampaignType,
+const ANNOUNCEMENT_CAMPAIGN_TYPES = [
+	"first_run_onboarding",
+	"release_update",
+] as const satisfies readonly AnnouncementCampaignType[];
+
+/**
+ * The newest published ANNOUNCEMENT campaign, for the sidebar version badge's
+ * replay (ADR-0012: the badge opens the latest published campaign). Without a
+ * type predicate a published `artifact_tour` newer than the last note became the
+ * badge's campaign, and a click opened a kind tour and recorded it as a replay
+ * of the release; with a release note as the only type, a newer first-run
+ * onboarding stopped being what the badge opened. The rule is here, once, so no
+ * caller has an argument to get wrong.
+ */
+export async function getLatestPublishedAnnouncement(
 	options: CampaignServiceOptions = {},
 ) {
-	return latestPublishedByType(campaignType, database(options));
+	return latestPublishedOfTypes(ANNOUNCEMENT_CAMPAIGN_TYPES, database(options));
 }
 
 function eventTypeForCompletion(

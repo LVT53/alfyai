@@ -450,6 +450,69 @@ describe("artifact_tour slide shape (Slice 6)", () => {
 		);
 	});
 
+	// RC-T I-2, the mirror of the server's rule: a tour's summary slide is the
+	// line an empty item shows, so its title is required and its body is not.
+	describe("a tour's summary slide is one bare line", () => {
+		const tour = (slides: ChecklistSlide[]) =>
+			evaluateCampaignChecklist(
+				campaign({
+					type: "artifact_tour",
+					releaseVersion: "canvas",
+					slides,
+				}),
+			);
+
+		it("lets a tour through whose summary slide has no body in either language", () => {
+			const checklist = tour(
+				tourSlides({ summary: { bodyEn: "", bodyHu: "" } }),
+			);
+			expect(checklist.ready).toBe(true);
+			expect(checklist.failures).toEqual([]);
+		});
+
+		it("still wants the summary title in both languages", () => {
+			const checklist = tour(
+				tourSlides({ summary: { titleHu: "", bodyEn: "", bodyHu: "" } }),
+			);
+			expect(checklist.ready).toBe(false);
+			expect(
+				checklist.failures.map((failure) => [
+					failure.slideLocalId,
+					failure.field,
+					failure.locale,
+				]),
+			).toEqual([["summary", "title", "hu"]]);
+		});
+
+		it("still wants a body on each step of the tour", () => {
+			const checklist = tour(tourSlides({ "2": { bodyHu: "" } }));
+			expect(checklist.ready).toBe(false);
+			expect(
+				checklist.failures.map((failure) => [
+					failure.slideLocalId,
+					failure.field,
+					failure.locale,
+				]),
+			).toEqual([["s2", "body", "hu"]]);
+		});
+
+		it("keeps asking a release note's summary-layout slide for its body", () => {
+			const checklist = evaluateCampaignChecklist(
+				campaign({
+					type: "release_update",
+					slides: [slide({ kind: "summary", bodyEn: "", bodyHu: "" })],
+				}),
+			);
+			expect(checklist.ready).toBe(false);
+			expect(
+				checklist.failures.map((failure) => [failure.field, failure.locale]),
+			).toEqual([
+				["body", "en"],
+				["body", "hu"],
+			]);
+		});
+	});
+
 	// Ruling 71: the mirror of the server's `tourKind` rule
 	// (announcement-campaigns.ts `validatePublishInput`). A tour is found by its
 	// release text, which must be a kind whose tour ships.

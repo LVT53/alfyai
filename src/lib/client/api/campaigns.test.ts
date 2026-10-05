@@ -11,6 +11,7 @@ import {
 	fetchLatestCampaign,
 	publishAdminCampaign,
 	recordCampaignEvent,
+	seedArtifactTours,
 	seedFirstRunCampaign,
 	updateAdminCampaign,
 } from "./campaigns";
@@ -295,5 +296,42 @@ describe("campaign client API", () => {
 					"Localized EN/HU alt text is required when an image is uploaded.",
 			},
 		} satisfies Partial<ApiError>);
+	});
+});
+
+function jsonResponse(body: unknown, status = 200) {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { "Content-Type": "application/json" },
+	});
+}
+
+// Admin only, and kept here beside the other admin calls: the module the chat
+// loads for the tours (`artifact-tours.ts`) has no use for it.
+describe("seedArtifactTours", () => {
+	it("seeds the tour drafts and reports the counts", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse({ created: 3, existing: 0 }, 201));
+
+		await expect(seedArtifactTours(fetchImpl)).resolves.toEqual({
+			created: 3,
+			existing: 0,
+		});
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/admin/campaigns/seed-artifact-tours",
+			expect.objectContaining({ method: "POST" }),
+		);
+	});
+
+	it("falls back to a plain message on a failed seed", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValue(new Response("", { status: 500 }));
+
+		await expect(seedArtifactTours(fetchImpl)).rejects.toMatchObject({
+			status: 500,
+			message: "Failed to seed the tour drafts",
+		});
 	});
 });

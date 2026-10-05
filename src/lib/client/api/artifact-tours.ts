@@ -1,6 +1,8 @@
 /**
  * Browser calls for the first-open tours (Feature 2 · Artifacts, Slice 6) —
- * the only place the panel and the admin pane reach the tour routes from.
+ * the only place the panel reaches the tour routes from. The admin's seeding of
+ * the tour drafts is not here: this module rides in the chat, which has no use
+ * for it (`campaigns.ts` has `seedArtifactTours`, with the other admin calls).
  * Follows `campaigns.ts`: an injectable `fetchImpl`, `requestJson` with a
  * plain fallback message, no store.
  *
@@ -20,12 +22,6 @@ import type {
 import { type FetchLike, requestJson } from "./http";
 
 const jsonHeaders = { "Content-Type": "application/json" };
-
-/** Counts, not a single campaign: one seed call creates up to one draft per shipped tour kind. */
-type SeedArtifactToursResponse = {
-	created: number;
-	existing: number;
-};
 
 /**
  * The kind's tour as it is right now, and whether THIS user has already seen
@@ -80,18 +76,6 @@ export async function markArtifactTourSeen(
 			}),
 		},
 		"Failed to record the introduction",
-		fetchImpl,
-	);
-}
-
-/** Admin only: create one `artifact_tour` draft per shipped kind that has none yet. */
-export async function seedArtifactTours(
-	fetchImpl: FetchLike = fetch,
-): Promise<SeedArtifactToursResponse> {
-	return requestJson<SeedArtifactToursResponse>(
-		"/api/admin/campaigns/seed-artifact-tours",
-		{ method: "POST" },
-		"Failed to seed the tour drafts",
 		fetchImpl,
 	);
 }

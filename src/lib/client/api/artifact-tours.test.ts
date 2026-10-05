@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-	getArtifactTour,
-	markArtifactTourSeen,
-	seedArtifactTours,
-} from "./artifact-tours";
+import { getArtifactTour, markArtifactTourSeen } from "./artifact-tours";
 import { ApiError } from "./http";
 
 function jsonResponse(body: unknown, status = 200) {
@@ -167,34 +163,6 @@ describe("markArtifactTourSeen", () => {
 		).rejects.toMatchObject({
 			status: 400,
 			fieldErrors: { lastSlide: "invalid" },
-		});
-	});
-});
-
-describe("seedArtifactTours", () => {
-	it("seeds the tour drafts and reports the counts", async () => {
-		const fetchImpl = vi
-			.fn()
-			.mockResolvedValueOnce(jsonResponse({ created: 3, existing: 0 }, 201));
-
-		await expect(seedArtifactTours(fetchImpl)).resolves.toEqual({
-			created: 3,
-			existing: 0,
-		});
-		expect(fetchImpl).toHaveBeenCalledWith(
-			"/api/admin/campaigns/seed-artifact-tours",
-			expect.objectContaining({ method: "POST" }),
-		);
-	});
-
-	it("falls back to a plain message on a failed seed", async () => {
-		const fetchImpl = vi
-			.fn()
-			.mockResolvedValue(new Response("", { status: 500 }));
-
-		await expect(seedArtifactTours(fetchImpl)).rejects.toMatchObject({
-			status: 500,
-			message: "Failed to seed the tour drafts",
 		});
 	});
 });
