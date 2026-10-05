@@ -101,7 +101,13 @@ let primaryButton = $state<HTMLButtonElement | undefined>(undefined);
 let ended = false;
 /** What the live region says: empty until the reader moves, then the new step's position and title. */
 let announcement = $state("");
-/** The card's entrance and exit: a short slide of its height, instant under prefers-reduced-motion. */
+/**
+ * The card's entrance and exit: its wrapper grows from nothing to the card's own
+ * height and back (`slide`, eased in and out so the first frame moves what is
+ * below by a few pixels and not by a fifth of the card), so the card inside is
+ * revealed, never re-laid out. Instant under prefers-reduced-motion. `slide` costs
+ * the chat shell nothing: only this lazy chunk imports it.
+ */
 const reveal = reducedMotionAware(slideHeight);
 /** Gives focus back to where it was, once. Set when the card shows; called when the reader leaves and again (harmlessly) when the card is torn down. */
 let giveFocusBack = (): void => {};
@@ -220,102 +226,102 @@ onMount(() => {
 			easing: cubicInOut,
 		}}
 	>
-	<section
-		bind:this={region}
-		class="artifact-tour"
-		aria-label={$t('artifacts.tour.region')}
-		data-testid="artifact-tour"
-		data-kind={tour.artifactType}
-		data-replay={replay ? 'true' : 'false'}
-		tabindex="-1"
-		{@attach escapeIsSkip}
-	>
-		<div class="tour-art" data-testid="artifact-tour-illustration" aria-hidden="true">
-			<Illustration />
-		</div>
-
-		<div class="tour-main">
-			<div class="tour-meta">
-				<div
-					class="tour-dots"
-					role="img"
-					aria-label={$t('artifacts.tour.dots', { count: slideCount })}
-				>
-					{#each slides as _, index (index)}
-						<i
-							class="tour-dot"
-							data-testid="artifact-tour-dot"
-							data-active={index === slide ? 'true' : 'false'}
-						></i>
-					{/each}
-				</div>
-				<p class="tour-step" data-testid="artifact-tour-step">
-					{$t('artifacts.tour.stepOf', { n: slide + 1, m: slideCount })}
-				</p>
-				<p
-					class="sr-only"
-					data-testid="artifact-tour-live"
-					aria-live="polite"
-					aria-atomic="true"
-				>
-					{announcement}
-				</p>
-				{#if replay}
-					<span class="tour-replaying" data-testid="artifact-tour-replaying">
-						{$t('artifacts.tour.replayOpened')}
-					</span>
-				{/if}
+		<section
+			bind:this={region}
+			class="artifact-tour"
+			aria-label={$t('artifacts.tour.region')}
+			data-testid="artifact-tour"
+			data-kind={tour.artifactType}
+			data-replay={replay ? 'true' : 'false'}
+			tabindex="-1"
+			{@attach escapeIsSkip}
+		>
+			<div class="tour-art" data-testid="artifact-tour-illustration" aria-hidden="true">
+				<Illustration />
 			</div>
 
-			<div class="tour-slide" bind:this={slideElement}>
-				<h3 class="tour-title" data-testid="artifact-tour-title">
-					{localized(current.title)}
-				</h3>
-				<p class="tour-body" data-testid="artifact-tour-body">
-					{localized(current.body)}
-				</p>
-			</div>
-
-			<div class="tour-footer">
-				{#if isLast && !replay}
-					<p class="tour-hint" data-testid="artifact-tour-hint">
-						{$t('artifacts.tour.replayHint')}
+			<div class="tour-main">
+				<div class="tour-meta">
+					<div
+						class="tour-dots"
+						role="img"
+						aria-label={$t('artifacts.tour.dots', { count: slideCount })}
+					>
+						{#each slides as _, index (index)}
+							<i
+								class="tour-dot"
+								data-testid="artifact-tour-dot"
+								data-active={index === slide ? 'true' : 'false'}
+							></i>
+						{/each}
+					</div>
+					<p class="tour-step" data-testid="artifact-tour-step">
+						{$t('artifacts.tour.stepOf', { n: slide + 1, m: slideCount })}
 					</p>
-				{/if}
-				<div class="tour-actions">
-					<button
-						type="button"
-						class="btn-secondary btn-sm"
-						data-testid="artifact-tour-skip"
-						onclick={skip}
+					<p
+						class="sr-only"
+						data-testid="artifact-tour-live"
+						aria-live="polite"
+						aria-atomic="true"
 					>
-						{$t('artifacts.tour.skip')}
-					</button>
-					{#if slide > 0}
-						<button
-							bind:this={backButton}
-							type="button"
-							class="btn-ghost btn-sm"
-							data-testid="artifact-tour-back"
-							onclick={() => go(slide - 1)}
-						>
-							{$t('artifacts.tour.back')}
-						</button>
+						{announcement}
+					</p>
+					{#if replay}
+						<span class="tour-replaying" data-testid="artifact-tour-replaying">
+							{$t('artifacts.tour.replayOpened')}
+						</span>
 					{/if}
-					<!-- One element for "Next" and "Got it": the keyboard keeps its place when the last slide arrives. -->
-					<button
-						bind:this={primaryButton}
-						type="button"
-						class="btn-primary btn-sm"
-						data-testid={isLast ? 'artifact-tour-done' : 'artifact-tour-next'}
-						onclick={isLast ? finish : () => go(slide + 1)}
-					>
-						{isLast ? $t('artifacts.tour.done') : $t('artifacts.tour.next')}
-					</button>
+				</div>
+
+				<div class="tour-slide" bind:this={slideElement}>
+					<h3 class="tour-title" data-testid="artifact-tour-title">
+						{localized(current.title)}
+					</h3>
+					<p class="tour-body" data-testid="artifact-tour-body">
+						{localized(current.body)}
+					</p>
+				</div>
+
+				<div class="tour-footer">
+					{#if isLast && !replay}
+						<p class="tour-hint" data-testid="artifact-tour-hint">
+							{$t('artifacts.tour.replayHint')}
+						</p>
+					{/if}
+					<div class="tour-actions">
+						<button
+							type="button"
+							class="btn-secondary btn-sm"
+							data-testid="artifact-tour-skip"
+							onclick={skip}
+						>
+							{$t('artifacts.tour.skip')}
+						</button>
+						{#if slide > 0}
+							<button
+								bind:this={backButton}
+								type="button"
+								class="btn-ghost btn-sm"
+								data-testid="artifact-tour-back"
+								onclick={() => go(slide - 1)}
+							>
+								{$t('artifacts.tour.back')}
+							</button>
+						{/if}
+						<!-- One element for "Next" and "Got it": the keyboard keeps its place when the last slide arrives. -->
+						<button
+							bind:this={primaryButton}
+							type="button"
+							class="btn-primary btn-sm"
+							data-testid={isLast ? 'artifact-tour-done' : 'artifact-tour-next'}
+							onclick={isLast ? finish : () => go(slide + 1)}
+						>
+							{isLast ? $t('artifacts.tour.done') : $t('artifacts.tour.next')}
+						</button>
+					</div>
 				</div>
 			</div>
-		</div>
-	</section>
+		</section>
 	</div>
 {/if}
 
