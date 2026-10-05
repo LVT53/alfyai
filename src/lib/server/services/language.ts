@@ -220,10 +220,10 @@ const HUNGARIAN_SUFFIXES = [
 //    (how, what, which; hogy, mit, melyik) and requests nothing;
 //  - otherwise the language word asks for the reply when a directive about the
 //    reply (answer, write, speak, talk, explain, summarize; válaszolj, írd,
-//    beszéljünk, magyarázd, foglald össze) stands within a few words of it, or
-//    "please" / "kérlek" / "legyen" / "only" is right beside it, or the
-//    sentence is little more than the language word ("In English, please." /
-//    "Angolul.");
+//    beszéljünk, magyarázd, foglald össze) stands within seven words of it (an
+//    instruction that opens the sentence reaches twenty), or "please" / "kérlek"
+//    / "legyen" / "only" is right beside it, or the sentence is little more
+//    than the language word ("In English, please." / "Angolul.");
 //  - translate / fordítsd, learn / tanulni, mean / jelent and "can you speak"
 //    are none of those, so they never flip it.
 // The latest request in the message wins.
