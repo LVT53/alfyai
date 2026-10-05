@@ -29,4 +29,5 @@ shared utility and its nesting pattern are in `src/lib/utils/focus-trap.ts`, `Di
 Then the full gates once (Wave 3 rules' list; Playwright adds `settings-admin.spec.ts`, `settings-admin-system.spec.ts`,
 `admin-users-campaigns.spec.ts` and any spec that opens the lightbox or the model guide).
 
-**Runs beside you:** named by the orchestrator at dispatch. You touch no `artifacts/**` file.
+**Runs beside you:** TR-D1 (tours' reader side) and W4-B (the project bundle, the doc fixes). You touch no `artifacts/**`
+file, no `i18n/artifacts.ts` and no project/knowledge file.

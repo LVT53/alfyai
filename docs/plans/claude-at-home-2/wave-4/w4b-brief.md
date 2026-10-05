@@ -32,6 +32,6 @@ Then the full gates once (Wave 3 rules' list; add the project e2e specs you touc
 to the Playwright run). Screenshots you look at yourself: the project dialog with a Document, an App and a Canvas row,
 HU at 1440×900 and 390×844, light and dark.
 
-**Runs beside you:** agent TR-B on `feat/artifacts-tours` (the tour card, its trigger and replay in
-`DocumentWorkspace.svelte`, `components/artifacts/tour/`). The only file you may share is `src/lib/i18n/artifacts.ts`:
-append your keys in your own block at the end of each language.
+**Runs beside you:** TR-D1 on `fix/tours-reader` (the tour card's timing in `DocumentWorkspace.svelte`, the Canvas
+re-fit) and FU-2 on `fix/focus-trap-pass-three` (dialogs' focus traps, `ModelForm`, the admin test). The only file you may
+share is `src/lib/i18n/artifacts.ts` (with TR-D1): append your keys in your own block at the end of each language.
