@@ -12,7 +12,7 @@ export type ModelCallSampling = {
 	topP: number | undefined;
 };
 
-export type ModelCallSamplingOptions = {
+type ModelCallSamplingOptions = {
 	/**
 	 * The temperature of an answer only a MACHINE reads (a JSON classification,
 	 * a digest the model itself re-reads): it wins over the family's, and the
