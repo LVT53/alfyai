@@ -97,6 +97,7 @@ import {
 	bodyOfState,
 	type FlowNode,
 	hasStoredCamera,
+	sameCamera,
 	structuralJson,
 	toFlowEdges,
 	toFlowNodes,
@@ -1039,6 +1040,37 @@ let fitViewOptions = $derived({
 	maxZoom: 1,
 } as const);
 
+// A board is fitted again when its pane changes size (a tour card arriving or
+// going, a window resize, a column of comments opening), but only while the camera
+// is exactly where the last fit left it: that is "the reader has not moved it".
+// Once they pan or zoom (or a save brought a camera of its own, which no fit
+// ever left) it is theirs and nothing here touches it; their own Fit button is a
+// fit again. A pane that changes size over a transition changes every frame, so
+// the board follows it, a frame at a time, instead of being cut after it.
+let fitted: Viewport | null = null;
+
+function fitBoard(duration: number): void {
+	void flow
+		.fitView({ ...fitViewOptions, duration })
+		.then(() => (fitted = { ...flow.getViewport() }));
+}
+
+$effect(() => {
+	void [boardWidth, boardHeight];
+	untrack(() => {
+		if (
+			fitted &&
+			boardWidth > 0 &&
+			boardHeight > 0 &&
+			!pictures &&
+			!held &&
+			sameCamera(flow.getViewport(), fitted)
+		) {
+			fitBoard(0);
+		}
+	});
+});
+
 let ariaLabelConfig = $derived({
 	"node.a11yDescription.default": $t("artifacts.canvas.a11y.node"),
 	"node.a11yDescription.keyboardDisabled": $t(
@@ -1136,9 +1168,12 @@ function minimapColor(node: {
 		onnodedragstop={handleNodeDragStop}
 		onbeforedelete={handleBeforeDelete}
 		ondelete={handleDelete}
-		onmoveend={(_, camera) => {
+		onmoveend={(event, camera) => {
 			restingZoom = camera.zoom;
 			oncamera?.(camera);
+			// The library's own first fit has no pointer or key behind it: it is the
+			// first camera a fit left.
+			if (fitOnOpen && !event && !fitted) fitted = { ...camera };
 		}}
 	>
 		<Background variant={BackgroundVariant.Dots} gap={18} size={1} />
@@ -1203,7 +1238,7 @@ function minimapColor(node: {
 				zoom={viewport.zoom}
 				onzoomin={() => zoomBy(ZOOM_STEP)}
 				onzoomout={() => zoomBy(1 / ZOOM_STEP)}
-				onfit={() => flow.fitView({ ...fitViewOptions, duration: prefersReducedMotion() ? 0 : 200 })}
+				onfit={() => fitBoard(prefersReducedMotion() ? 0 : 200)}
 			/>
 		</Panel>
 	</SvelteFlow>
