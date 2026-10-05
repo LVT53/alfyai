@@ -739,11 +739,13 @@ describe("chat page runtime integration", () => {
 		firstInvocation.callbacks.onToken("Here is the plan.");
 		firstInvocation.callbacks.onEnd("Here is the plan.", {
 			assistantMessageId: "assistant-1",
-			followUps: ["What about risks?", "Any alternatives?"],
+			followUps: ["List the risks in a table", "Compare the two alternatives"],
 		});
 
+		// A chip is the user's next message: the button is named for what a tap
+		// does, and the text that goes out is the chip's own.
 		const chip = await screen.findByRole("button", {
-			name: "Ask: What about risks?",
+			name: "Send: List the risks in a table",
 		});
 		await fireEvent.click(chip);
 
@@ -751,7 +753,7 @@ describe("chat page runtime integration", () => {
 			expect(runtimeHarness.streamInvocations).toHaveLength(2);
 		});
 		expect(runtimeHarness.streamInvocations[1].message).toBe(
-			"What about risks?",
+			"List the risks in a table",
 		);
 	});
 
