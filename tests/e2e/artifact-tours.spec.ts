@@ -289,6 +289,35 @@ test.describe("the first-open tours", () => {
 		await expect(panelShell(page)).toBeVisible();
 	});
 
+	test("Escape leaves the tour in an expanded panel without closing the panel", async ({
+		page,
+	}) => {
+		const user = await createTourUser();
+		const chatId = await startChatAs(page, user);
+		await seedItem(user, chatId, "document");
+		await reopenChat(page, chatId);
+
+		const card = await openAndExpectTour(page, "document");
+		await panelShell(page)
+			.getByRole("button", { name: /Expand document workspace/ })
+			.click();
+		await expect(panelShell(page)).toHaveClass(/workspace-shell-expanded/);
+		await expect(card).toBeVisible();
+		// The card is still the one with the focus, or the reader puts it there.
+		await card.focus();
+		await page.keyboard.press("Escape");
+
+		// One Escape, one layer: the card goes and the panel stays.
+		await expect(tourCard(page)).toHaveCount(0);
+		await expect(panelShell(page)).toBeVisible();
+		await expect(panelShell(page)).toHaveClass(/workspace-shell-expanded/);
+		await expect.poll(async () => (await tourRows(user.id)).length).toBe(1);
+		expect((await tourRows(user.id))[0]).toMatchObject({
+			status: "dismissed",
+			lastSlide: 0,
+		});
+	});
+
 	test("the sidebar version badge never opens a tour, even with one published", async ({
 		page,
 		request,
