@@ -453,6 +453,12 @@ export type GenerateShortLocalTextParams = {
 	maxTokens?: number;
 	/** A deterministic machine-read answer's own temperature; omit for text a person reads (the family sampling profile). */
 	temperature?: number;
+	/**
+	 * The JSON object the answer is asked to come in. Without one the transport
+	 * only asks for "a JSON object" and the model picks its own shape; the cleanup
+	 * unwraps the string either way.
+	 */
+	jsonSchema?: JsonControlResponseSchema;
 	thinkingMode?: ThinkingMode;
 	timeoutMs?: number;
 	maxConcurrent?: number;
@@ -484,6 +490,7 @@ export async function generateShortLocalText(
 		thinkingMode: params.thinkingMode ?? "off",
 		temperature: params.temperature,
 		maxTokens: params.maxTokens,
+		jsonSchema: params.jsonSchema,
 		timeoutMs: params.timeoutMs,
 		maxConcurrent: params.maxConcurrent,
 		signal: params.signal,

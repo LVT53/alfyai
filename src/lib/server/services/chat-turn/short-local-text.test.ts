@@ -678,6 +678,35 @@ describe("generateShortLocalText", () => {
 		);
 	});
 
+	it("forwards a requested JSON schema to the control model, and still unwraps the object it returns", async () => {
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({ text: '{"headline": "Heti étrend"}' }),
+		);
+		const jsonSchema = {
+			name: "rail_headline",
+			strict: true,
+			schema: {
+				type: "object",
+				additionalProperties: false,
+				required: ["headline"],
+				properties: { headline: { type: "string" } },
+			},
+		};
+
+		const out = await generateShortLocalText({
+			prompt: "Summarize this turn",
+			feature: "rail_summary",
+			userId: "u1",
+			conversationId: "c1",
+			jsonSchema,
+		});
+
+		expect(out).toBe("Heti étrend");
+		expect(sendJsonControlMessageMock.mock.calls[0]?.[2]).toMatchObject({
+			jsonSchema,
+		});
+	});
+
 	it("returns null for an empty prompt without calling the control model", async () => {
 		const out = await generateShortLocalText({
 			prompt: "   ",

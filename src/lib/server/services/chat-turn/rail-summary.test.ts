@@ -79,6 +79,32 @@ describe("persistAssistantRailSummary", () => {
 		);
 	});
 
+	it("asks for a strict one-field {headline} object, not any JSON object the model likes", async () => {
+		// Left free, the real model answered 8% of rail requests with a function-call
+		// shape ({"name": "write_headline", "arguments": ...}) or its own thoughts
+		// ({"thought": ...}); with this schema 0 of 120 did.
+		generateShortLocalTextMock.mockResolvedValue("Concise Headline");
+
+		await persistAssistantRailSummary({
+			userId: "u1",
+			conversationId: "c1",
+			assistantMessageId: "a1",
+			userMessage: "How did Q3 segments perform?",
+			assistantResponse: LONG_REPLY,
+		});
+
+		const [args] = generateShortLocalTextMock.mock.calls[0] as [
+			{ jsonSchema?: { strict?: boolean; schema: Record<string, unknown> } },
+		];
+		expect(args.jsonSchema?.strict).toBe(true);
+		expect(args.jsonSchema?.schema).toMatchObject({
+			type: "object",
+			additionalProperties: false,
+			required: ["headline"],
+			properties: { headline: { type: "string" } },
+		});
+	});
+
 	it("summarizes the ASSISTANT reply, not the user message (assistant-only, O-3)", async () => {
 		generateShortLocalTextMock.mockResolvedValue("Concise Headline");
 
