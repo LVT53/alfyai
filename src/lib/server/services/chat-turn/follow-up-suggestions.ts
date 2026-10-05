@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { SupportedLanguage } from "../language";
 import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import type { JsonControlResponseSchema } from "../normal-chat-control-model";
+import { checkFollowUpChip } from "./follow-up-chip";
 import {
 	callShortLocalControlModel,
 	resolveShortTextLanguage,
@@ -9,13 +10,17 @@ import {
 
 /**
  * Follow-up suggestions (owner idea, variant A) — after an assistant turn
- * finishes, ask the shared local control model ("model2") for the best
- * NEXT-STEP questions the user might want to ask: what the reply did not
- * cover, the decision it leaves open, the concrete action it sets up. The
+ * finishes, ask the shared local control model ("model2") for the best NEXT
+ * MESSAGES the user might send: what the reply did not cover, the decision it
+ * leaves open, the concrete thing the assistant can do next. A chip is the
+ * user's own next message: tapping it sends its text, as it stands, as the
+ * user's message, so it is written as an instruction or the user's own
+ * question, never as the assistant offering or asking the user something
+ * (`follow-up-chip.ts` says what a chip is and rejects what is not one). The
  * model sees the last few turns of the conversation (so a suggestion cannot
- * simply restate what the user already asked), the current user message,
- * and the reply's head AND tail (so a long answer's conclusion — usually
- * where the next step lives — is never truncated away).
+ * simply restate what the user already asked), the current user message, and
+ * the reply's head AND tail (so a long answer's conclusion — usually where
+ * the next step lives — is never truncated away).
  *
  * Same discipline as the rail-summary / thought-step-classifier control
  * calls this module sits beside: fire only from the stream's synchronous
@@ -51,7 +56,11 @@ export const FOLLOW_UP_SUGGESTIONS_COUNT = 2;
 // malformed line without leaving the turn with a single chip; the first two
 // survivors (the model is asked to order them best first) win.
 export const FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT = 3;
-export const FOLLOW_UP_SUGGESTIONS_MAX_WORDS = 8;
+// A chip that names what it acts on ("Compare Dean Village and Calton Hill for
+// Sunday morning") needs a couple more words than the old eight-word question;
+// the chip wraps, so the character budget is what keeps it a chip.
+export const FOLLOW_UP_SUGGESTIONS_MAX_WORDS = 10;
+const FOLLOW_UP_SUGGESTIONS_MAX_CHARS = 80;
 
 // The reply's opening carries the substance, but its END carries the
 // conclusion, the caveat and the "want me to…" hook a good next step hangs
@@ -65,9 +74,10 @@ const FOLLOW_UP_SUGGESTIONS_HISTORY_CHAR_BUDGET = 300;
 // Up to three prior turns (user + assistant each). The caller reads exactly
 // this many rows; this module trims whatever it is handed to the same bound.
 export const FOLLOW_UP_SUGGESTIONS_HISTORY_MESSAGE_LIMIT = 6;
-// Room for three 8-word questions inside the JSON envelope, with headroom
-// for a model that pretty-prints it.
-const FOLLOW_UP_SUGGESTIONS_MAX_TOKENS = 120;
+// Room for three 10-word messages inside the JSON envelope (Hungarian words
+// cost about three tokens each), with headroom for a model that pretty-prints
+// it.
+const FOLLOW_UP_SUGGESTIONS_MAX_TOKENS = 180;
 
 // A reply this short (a one-liner, a bare number, an acknowledgment) rarely
 // has a follow-up worth surfacing — on staging "17 × 23 = 391" produced
@@ -96,24 +106,53 @@ export type FollowUpHistoryMessage = {
 	content: string;
 };
 
+// The shape of a good chip, from other conversations than the one being asked
+// about so that a chip never copies its example. Each is written in the language
+// it teaches and has to pass `checkFollowUpChip` (a test holds it to that).
+export const FOLLOW_UP_CHIP_EXAMPLES: Record<"en" | "hu", string[]> = {
+	en: [
+		"Compare the two phone plans in a table",
+		"Turn the moving advice into a checklist",
+		"Draft the email to the contractor",
+		"Explain the second step in more detail",
+		"Shorten the cover letter to one page",
+		"Work out the monthly cost for three people",
+		"Give an example of the retry logic in Python",
+		"How do I set up the firewall?",
+	],
+	hu: [
+		"Hasonlítsd össze a két telefontarifát táblázatban",
+		"Készíts ellenőrzőlistát a költözéshez",
+		"Írd meg az e-mailt a kivitelezőnek",
+		"Magyarázd el részletesebben a második lépést",
+		"Rövidítsd le a motivációs levelet egy oldalra",
+		"Számold ki a havi költséget három főre",
+		"Mutass példát az újrapróbálkozásra Pythonban",
+		"Hogyan állítsam be a tűzfalat?",
+	],
+};
+
 function buildFollowUpSuggestionsSystemPrompt(language: "en" | "hu"): string {
 	const languageLabel = language === "hu" ? "Hungarian" : "English";
-	// The example is written in the target language so the rule reads as an
-	// instruction in the language the chips themselves must be written in.
-	const actionExample =
-		language === "hu" ? "Megírod az e-mailt?" : "Draft the email?";
-	return `You suggest what a user might usefully ask NEXT, after reading an assistant's reply. Respond with strict JSON only, matching exactly: {"followUps": [string, string, string]} — no preamble, no explanation, no markdown.
+	const examples = FOLLOW_UP_CHIP_EXAMPLES[language].join("\n");
+	return `You write the suggestion chips shown under an assistant's reply in a chat app. A chip is the NEXT MESSAGE THE USER WOULD SEND to the assistant: tapping it sends its text, exactly as written, as the user's own message. So every chip is the user speaking to the assistant, and it must make sense on its own. Respond with strict JSON only, matching exactly: {"followUps": [string, string, string]} — no preamble, no explanation, no markdown.
 
 Rules:
-- Write exactly ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} candidate questions, in ${languageLabel}.
-- Each must be at most ${FOLLOW_UP_SUGGESTIONS_MAX_WORDS} words.
-- Each must end with a question mark and contain no other punctuation.
-- Each must move the conversation forward: something the reply did not cover, a decision the user now faces, or a concrete next action ("${actionExample}").
-- Never ask something the reply already answers. No comprehension checks, no asking the assistant to repeat or summarise what it just said.
-- Never restate or rephrase anything the user has already asked earlier in the conversation.
-- Make the ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} genuinely different from one another, and order them best first.
-- Never invent a fact or claim that is not supported by the reply.
-- Write each one the way the user would type it: natural, idiomatic ${languageLabel}, addressed to the assistant.
+- Write exactly ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} candidate messages, in ${languageLabel}, best first.
+- Each is an instruction to the assistant, or the user's own question about something named in the reply, in at most ${FOLLOW_UP_SUGGESTIONS_MAX_WORDS} words: one plain sentence, no quotes.
+- Each asks for something concrete the assistant can do in its next message: turn the reply into a table, a checklist or a plan; compare options the reply names; draft the message or email the user needs; write an example, a shorter version or a more formal one; go one step deeper on one named point; work the advice out for the user's own situation, only if the conversation states it.
+- Each names what it acts on (the dish, the plan, the code, the two options), in the reply's own words. Never just "this", "it" or "more".
+- Never write what the assistant would say. No offers ("Would you like me to…", "Shall I…"), no questions to the user ("What is your budget?"), no statements about the user.
+- Never answer a question the assistant asked the user, and never state a fact about the user that the conversation has not stated.
+- Ask only for what the assistant can do in the chat itself, never for sending, booking, buying or calling.
+- Never ask for something the reply already gives, and never repeat anything the user has already asked earlier in the conversation.
+- If the reply ends by offering something, the first message accepts that offer.
+- Make the ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} genuinely different from one another.
+- Avoid "you": write an instruction, or the user's own question with "I".
+- Write natural, idiomatic ${languageLabel}, the way a person types to an assistant.
+
+The shape of a good message, from other conversations (adapt to this reply, never copy):
+${examples}
 - Output the JSON object only.`;
 }
 
@@ -187,42 +226,50 @@ const followUpSuggestionsResponseSchema = z.object({
 });
 
 /**
- * A candidate follow-up survives only when it is a short, single-question
- * line: non-empty, at most `FOLLOW_UP_SUGGESTIONS_MAX_WORDS` words, ending in
- * "?" with no other punctuation. Exported for direct unit testing of the
- * plausibility boundary, mirroring `isPlausibleShortText`'s precedent.
+ * A candidate follow-up survives only when it is a chip: one short plain
+ * sentence, in the turn's language when it is given, written as the user's own
+ * next message to the assistant — not the assistant offering, a question put to
+ * the user, a statement about the user or a generic push. Exported for direct
+ * unit testing of the plausibility boundary, mirroring `isPlausibleShortText`'s
+ * precedent; the rules themselves live in `follow-up-chip.ts`.
  */
-export function isPlausibleFollowUpSuggestion(text: string): boolean {
-	const trimmed = text.replace(/\s+/g, " ").trim();
-	if (!trimmed) return false;
-	if (!trimmed.endsWith("?")) return false;
-	const withoutQuestionMark = trimmed.slice(0, -1);
-	if (!withoutQuestionMark.trim()) return false;
-	// No punctuation beyond the single trailing "?".
-	if (/[.!,:;?]/.test(withoutQuestionMark)) return false;
-	const wordCount = withoutQuestionMark.split(" ").filter(Boolean).length;
-	return wordCount > 0 && wordCount <= FOLLOW_UP_SUGGESTIONS_MAX_WORDS;
+export function isPlausibleFollowUpSuggestion(
+	text: string,
+	language?: "en" | "hu",
+): boolean {
+	return checkFollowUpChip(text, {
+		language,
+		maxWords: FOLLOW_UP_SUGGESTIONS_MAX_WORDS,
+		maxChars: FOLLOW_UP_SUGGESTIONS_MAX_CHARS,
+	}).ok;
 }
 
-function parseFollowUpSuggestions(rawText: string): string[] | null {
+function parseFollowUpSuggestions(
+	rawText: string,
+	language: "en" | "hu",
+): string[] | null {
 	const data = parseJsonWithEnvelopeExtraction(rawText, "followUps");
 	if (!data) return null;
 	const result = followUpSuggestionsResponseSchema.safeParse(data);
 	if (!result.success || !result.data.followUps) return null;
 
 	const seen = new Set<string>();
-	const cleaned = result.data.followUps
-		.map((question) => question.replace(/\s+/g, " ").trim())
-		.filter(isPlausibleFollowUpSuggestion)
-		.filter((question) => {
-			// The client keys chips by text; a repeated suggestion must never
-			// reach the persisted array.
-			const key = question.toLowerCase();
-			if (seen.has(key)) return false;
-			seen.add(key);
-			return true;
-		})
-		.slice(0, FOLLOW_UP_SUGGESTIONS_COUNT);
+	const cleaned: string[] = [];
+	for (const candidate of result.data.followUps) {
+		const chip = checkFollowUpChip(candidate, {
+			language,
+			maxWords: FOLLOW_UP_SUGGESTIONS_MAX_WORDS,
+			maxChars: FOLLOW_UP_SUGGESTIONS_MAX_CHARS,
+		});
+		if (!chip.ok) continue;
+		// The client keys chips by text; a repeated suggestion must never
+		// reach the persisted array.
+		const key = chip.text.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		cleaned.push(chip.text);
+		if (cleaned.length === FOLLOW_UP_SUGGESTIONS_COUNT) break;
+	}
 
 	return cleaned.length > 0 ? cleaned : null;
 }
@@ -288,7 +335,7 @@ export async function generateFollowUpSuggestions(params: {
 	if (!result) return null;
 
 	try {
-		return parseFollowUpSuggestions(result.text);
+		return parseFollowUpSuggestions(result.text, language);
 	} catch (error) {
 		console.error("[FOLLOW_UP_SUGGESTIONS] Failed to parse response", error);
 		return null;
