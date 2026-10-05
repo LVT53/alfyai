@@ -1,7 +1,8 @@
 import { APICallError, generateText, Output } from "ai";
 import { getConfig } from "$lib/server/config-store";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "$lib/server/services/normal-chat-model/openai-compatible-provider";
-import { resolveOpenAICompatibleProviderAdapterProfile } from "$lib/server/services/normal-chat-model/provider-compatibility";
+import { resolveModelCallSampling } from "$lib/server/services/normal-chat-model/sampling";
+import { CONTROL_MODEL_TEMPERATURE } from "$lib/server/services/normal-chat-model-config";
 
 /**
  * System prompt for batch classification of persona memory facts.
@@ -166,15 +167,11 @@ function createContextSummarizerProvider(
 			includeUsage: false,
 			normalizeStreaming: false,
 		}),
-		// Same shared per-family adapter normal-chat-model/index.ts and
-		// sendJsonControlMessage use (AGENTS.md: apply qwen sampling defaults
-		// through the adapter, not a copied constant). This client never sent
-		// topP at all and always fell back to a flat 0.1 temperature regardless
-		// of family; top_k already reaches the wire for free via the adapter's
-		// transformRequestBody hook, since this always builds its provider
-		// through createOpenAICompatibleProviderForNormalChatModelRun.
-		samplingDefaults:
-			resolveOpenAICompatibleProviderAdapterProfile(provider).defaultSampling,
+		// The provider the one sampling route (normal-chat-model/sampling.ts)
+		// reads the family from; each request below names its own machine-read
+		// temperature, if any. top_k reaches the wire for free via the provider
+		// builder's transformRequestBody.
+		provider,
 	};
 }
 
@@ -253,12 +250,18 @@ export async function requestContextSummarizer(params: {
 	const config = getConfig();
 	const { resolvedModelName, overrideProvider } =
 		await resolveContextSummarizerModelAndProvider(config);
-	const { openaiCompatible, samplingDefaults } =
-		createContextSummarizerProvider(
-			config,
-			resolvedModelName,
-			overrideProvider,
-		);
+	const { openaiCompatible, provider } = createContextSummarizerProvider(
+		config,
+		resolvedModelName,
+		overrideProvider,
+	);
+	// A caller's own temperature is for a deterministic machine-read answer
+	// (JSON, a digest the model re-reads); anything else takes the family
+	// profile, and a family without one keeps the flat control temperature.
+	const sampling = resolveModelCallSampling(provider, {
+		machineReadTemperature: params.temperature,
+		profilelessTemperature: CONTROL_MODEL_TEMPERATURE,
+	});
 
 	try {
 		const result = await generateText({
@@ -266,8 +269,8 @@ export async function requestContextSummarizer(params: {
 			system: params.system,
 			messages: [{ role: "user", content: params.user }],
 			maxOutputTokens: params.maxTokens,
-			temperature: params.temperature ?? samplingDefaults?.temperature ?? 0.1,
-			topP: samplingDefaults?.topP,
+			temperature: sampling.temperature,
+			topP: sampling.topP,
 			maxRetries: 0,
 		});
 		return result.text.trim() || null;
@@ -293,12 +296,18 @@ export async function requestStructuredControlModel<
 	const config = getConfig();
 	const { resolvedModelName, overrideProvider } =
 		await resolveContextSummarizerModelAndProvider(config);
-	const { openaiCompatible, samplingDefaults } =
-		createContextSummarizerProvider(
-			config,
-			resolvedModelName,
-			overrideProvider,
-		);
+	const { openaiCompatible, provider } = createContextSummarizerProvider(
+		config,
+		resolvedModelName,
+		overrideProvider,
+	);
+	// A caller's own temperature is for a deterministic machine-read answer
+	// (JSON, a digest the model re-reads); anything else takes the family
+	// profile, and a family without one keeps the flat control temperature.
+	const sampling = resolveModelCallSampling(provider, {
+		machineReadTemperature: params.temperature,
+		profilelessTemperature: CONTROL_MODEL_TEMPERATURE,
+	});
 
 	try {
 		const result = await generateText({
@@ -307,8 +316,8 @@ export async function requestStructuredControlModel<
 			messages: [{ role: "user", content: params.user }],
 			output: Output.json(),
 			maxOutputTokens: params.maxTokens,
-			temperature: params.temperature ?? samplingDefaults?.temperature ?? 0.1,
-			topP: samplingDefaults?.topP,
+			temperature: sampling.temperature,
+			topP: sampling.topP,
 			maxRetries: 0,
 		});
 		if (!result.output) return null;

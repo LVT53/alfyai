@@ -308,6 +308,44 @@ describe("generateFollowUpSuggestions", () => {
 		expect(args.systemPrompt).not.toContain("Draft the email?");
 	});
 
+	it("writes in the language the turn resolved, whatever the latest message alone reads as", async () => {
+		// The chat reply's language is decided once per turn (latest message, the
+		// recent user messages, then the UI language). Read from the latest message
+		// alone, a Hungarian message typed without accents, or one the detector has
+		// too little evidence on, reads as English: on the real model 4 of 10
+		// Hungarian conversations got English chips beside a Hungarian reply.
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(JSON.stringify({ followUps: ["Megírod az e-mailt?"] })),
+		);
+
+		await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Mikor ultessem el a paradicsompalantakat?",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "hu",
+		});
+		const [hu] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ systemPrompt: string },
+		];
+		expect(hu.systemPrompt).toContain("in Hungarian");
+		expect(hu.systemPrompt).toContain("Megírod az e-mailt?");
+
+		callShortLocalControlModelMock.mockClear();
+		await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Mesélj a filmről kérlek, angolul.",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
+		});
+		const [en] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ systemPrompt: string },
+		];
+		expect(en.systemPrompt).toContain("in English");
+		expect(en.systemPrompt).toContain("Draft the email?");
+	});
+
 	it("omits the history section entirely when there are no prior turns", async () => {
 		callShortLocalControlModelMock.mockResolvedValue(
 			controlResult(JSON.stringify({ followUps: ["Draft the email?"] })),

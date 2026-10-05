@@ -551,6 +551,32 @@ describe("runPostTurnTasks", () => {
 		);
 	});
 
+	it("hands the turn's resolved language to the rail summary", async () => {
+		mockGenerateShortLocalText.mockResolvedValue("Heti étrend");
+		const { runPostTurnTasks } =
+			await vi.importActual<typeof import("./finalize-steps")>(
+				"./finalize-steps",
+			);
+
+		await runPostTurnTasks({
+			turnKind: "stream",
+			userId: "user-1",
+			conversationId: "conv-1",
+			upstreamMessage: "upstream prompt payload",
+			// no accent: on its own this message reads as English
+			userMessage: "Mikor ultessem el a paradicsompalantakat?",
+			assistantResponse: "S".repeat(250),
+			assistantMirrorContent: "S".repeat(250),
+			assistantMessageId: "assistant-message-1",
+			maintenanceReason: "chat_stream",
+			responseLanguage: "hu",
+		});
+
+		expect(mockGenerateShortLocalText).toHaveBeenCalledWith(
+			expect.objectContaining({ language: "hu" }),
+		);
+	});
+
 	// Fix 1 (data-loss race) — locks the ordering invariant at the tail level:
 	// the rail-summary metadata write (an unsynchronized metadataJson RMW, same
 	// as evidence/webCitationAudit) must not run until the evidence write has
@@ -715,6 +741,36 @@ describe("finalizeChatTurn", () => {
 				conversationId: "conv-1",
 				assistantMessageId: "assistant-message",
 			}),
+		);
+	});
+
+	it("passes the turn's resolved language from finalizeChatTurn to the post-turn tail", async () => {
+		const { finalizeChatTurn } = await import("./finalize");
+
+		await finalizeChatTurn({
+			turnKind: "send",
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "user message",
+			persistUserMessage: true,
+			normalizedMessage: "user message",
+			upstreamMessage: "upstream message",
+			assistantResponse: "assistant response",
+			assistantMetadata: { evidenceStatus: "pending" },
+			attachmentIds: [],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: null,
+			assistantMirrorContent: "assistant response",
+			maintenanceReason: "chat_send",
+			responseLanguage: "hu",
+		});
+		await flushMicrotasks();
+
+		expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
+			expect.objectContaining({ responseLanguage: "hu" }),
 		);
 	});
 

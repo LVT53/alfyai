@@ -180,6 +180,8 @@ export async function generateAndStorePersonaSummary(params: {
 			modelId: getConfig().memoryConsolidationModel,
 			inputSizeHint: context.items.length,
 			jsonSchema: PERSONA_SUMMARY_JSON_SCHEMA,
+			// The summary is prose the person reads in their Memory Profile.
+			readBy: "person",
 		});
 		responseText = res.text;
 	} catch (error) {

@@ -17,7 +17,7 @@ import {
 	type NormalChatModelRunProvider,
 	resolveNormalChatModelRunProvider,
 } from "./normal-chat-model";
-import { resolveOpenAICompatibleProviderAdapterProfile } from "./normal-chat-model/provider-compatibility";
+import { resolveModelCallSampling } from "./normal-chat-model/sampling";
 import {
 	CONTROL_MODEL_DEFAULT_MAX_TOKENS,
 	CONTROL_MODEL_MAX_TOKEN_CAP,
@@ -55,8 +55,19 @@ export type JsonControlMessageOptions = {
 	systemPrompt: string;
 	thinkingMode?: ThinkingMode;
 	maxTokens?: number;
+	/**
+	 * The temperature of an answer only a machine reads (a JSON classification):
+	 * it wins over the family's, and the family's top_p/top_k still go along.
+	 * Omit it for anything a person reads: that takes the whole family profile
+	 * (normal-chat-model/sampling.ts).
+	 */
 	temperature?: number;
-	topP?: number;
+	/**
+	 * What a family with no sampling profile sends for an answer a person reads
+	 * (default: the flat control-model temperature); the family's own profile
+	 * wins whenever it has one.
+	 */
+	profilelessTemperature?: number;
 	signal?: AbortSignal;
 	jsonSchema?: JsonControlResponseSchema;
 	allowReasoningFallback?: boolean;
@@ -362,18 +373,16 @@ export async function sendJsonControlMessage(
 		fetch: options.fetch,
 		skipStructuredOutputs: options.skipStructuredOutputs,
 	});
-	// Same shared per-family adapter normal-chat-model/index.ts uses for the
-	// main chat path (AGENTS.md: apply qwen sampling defaults through the
-	// adapter, not a copied constant). CONTROL_MODEL_TEMPERATURE is a flat
-	// constant across every provider family; a caller's own explicit
-	// `temperature` (e.g. the thought-step classifier's/turn-acknowledgment's
-	// deterministic 0) always wins, but when nothing is set, prefer the
-	// family's own tuned default (qwen: 0.6) over the flat fallback. topP has
-	// no caller default at all today, so it always comes from here for
-	// families that define one; other families are unaffected
-	// (defaultSampling is undefined for them, same as before this change).
-	const samplingDefaults =
-		resolveOpenAICompatibleProviderAdapterProfile(provider).defaultSampling;
+	// The one sampling route (normal-chat-model/sampling.ts), the same one the
+	// chat turn's own run takes. A caller's own temperature is for a deterministic
+	// machine-read answer only (the turn acknowledgment's and the App
+	// classifier's 0); anything a person reads names none and takes the family
+	// profile. top_k reaches the wire through the provider builder.
+	const sampling = resolveModelCallSampling(provider, {
+		machineReadTemperature: options.temperature,
+		profilelessTemperature:
+			options.profilelessTemperature ?? CONTROL_MODEL_TEMPERATURE,
+	});
 	const messages: ModelMessage[] = [{ role: "user", content: message }];
 	const generate = (params: { useJsonFallbackOutput?: boolean }) =>
 		generateText({
@@ -388,11 +397,8 @@ export async function sendJsonControlMessage(
 						jsonSchema: options.jsonSchema,
 						skipStructuredOutputs: options.skipStructuredOutputs,
 					}),
-			temperature:
-				options.temperature ??
-				samplingDefaults?.temperature ??
-				CONTROL_MODEL_TEMPERATURE,
-			topP: options.topP ?? samplingDefaults?.topP,
+			temperature: sampling.temperature,
+			topP: sampling.topP,
 			maxOutputTokens:
 				options.maxTokens ??
 				(provider.maxOutputTokens != null

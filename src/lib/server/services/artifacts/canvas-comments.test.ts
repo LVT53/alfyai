@@ -579,6 +579,9 @@ describe("@Alfy on a board: what the model is told", () => {
 		expect(prompt).toContain(editArtifactRuleClause(["canvas"], "en"));
 		expect(prompt).toContain(JSON.stringify(EDIT_ARTIFACT_CANVAS_EXAMPLE.ops));
 		expect(options.thinkingMode).toBe("off");
+		// A note a person reads: it names no temperature, so it takes the family
+		// sampling profile through the control transport.
+		expect(options.temperature).toBeUndefined();
 	});
 
 	it("describes a spot as a spot, not a block", async () => {

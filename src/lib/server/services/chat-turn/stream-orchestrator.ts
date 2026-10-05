@@ -846,6 +846,10 @@ export function runChatStreamOrchestrator(
 				streamClosedWithoutFinish: boolean;
 			}) => {
 				await completeStreamTurn({
+					// The turn's own reply language (resolved once by the route): the
+					// follow-up chips and the rail headline follow it, not a fresh
+					// read of the latest message.
+					responseLanguage: resolvedResponseLanguage,
 					wasStopped: args.wasStopped,
 					conversationId,
 					streamId: streamId ?? null,

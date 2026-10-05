@@ -16,6 +16,7 @@ import type { SupportedLanguage } from "../language";
 import { parseJsonWithEnvelopeExtraction } from "../memory-judge/schema";
 import type { JsonControlResponseSchema } from "../normal-chat-control-model";
 import { createRequestAbortSignal } from "./shared-normal-chat-model-run-helpers";
+import { isRequestRestatement } from "./short-local-text";
 import { resolveThoughtStepAnchorSpan } from "./thought-steps";
 import { extractVerbatimTopic } from "./turn-acknowledgment";
 
@@ -686,16 +687,14 @@ export function assertsExternalAction(summary: string): boolean {
  */
 // Meta / administrative fragments — the model restating the user's request or
 // quoting its own prompt scaffolding — make weak, non-thinking summaries like
-// "Latest user request: ...". The classifier prompt is told to avoid these; a
-// summary that begins with such a label is dropped to the plain phase-label
-// floor (defense-in-depth) so it is never shown as a thinking step. English
-// only on purpose: the model reasons in English, so these scaffolding labels
-// it echoes are English even in a non-English conversation.
-const META_RESTATEMENT_PREFIX_REGEX =
-	/^(?:latest\s+user\s+request|the\s+user(?:'s)?\s+(?:request|message|prompt)\b|the\s+user\s+(?:wants|is\s+asking|asks|asked|requested|requests)\b|user\s+(?:request|message)\b|the\s+(?:request|prompt)\s+is\b|(?:the\s+)?task\s*[:\-–—])/i;
-
+// "Latest user request: ..." or, on a Hungarian chat where the model reasons in
+// Hungarian, "Kezdő futóedzéstervet kért négy hétre". The classifier prompt is
+// told to avoid these; a summary that is one is dropped to the plain phase-label
+// floor (defense-in-depth) so it is never shown as a thinking step. The check is
+// the shared short-text one (short-local-text.ts: English labels and Hungarian
+// stems, the Hungarian ones collected from the real model's own status lines).
 export function isMetaRestatement(summary: string): boolean {
-	return META_RESTATEMENT_PREFIX_REGEX.test(summary.trim());
+	return isRequestRestatement(summary);
 }
 
 // ── Runtime "not very conclusive" guard (owner feedback, 2026-09-08) ───────
@@ -836,7 +835,10 @@ export async function classifyThoughtStepChunk(params: {
 				params.targetLanguage,
 			),
 			thinkingMode: "off",
-			temperature: 0,
+			// The step's summary headline is a status line a person reads, so
+			// the call takes the family sampling profile (sampling.ts), not a
+			// temperature of its own; a family without a profile keeps its 0.
+			profilelessTemperature: 0,
 			maxTokens: THOUGHT_STEP_CLASSIFIER_MAX_TOKENS,
 			jsonSchema: THOUGHT_STEP_CLASSIFIER_JSON_SCHEMA,
 			signal,

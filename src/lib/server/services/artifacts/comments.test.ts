@@ -826,6 +826,11 @@ describe("RV-1A: @Alfy on a passage with formatting", () => {
 
 		if (!result.ok) throw new Error(result.reason);
 		expect(sendJsonControlMessageMock).toHaveBeenCalledTimes(1);
+		// A reply a person reads: it names no temperature, so it takes the family
+		// sampling profile through the control transport.
+		expect(
+			sendJsonControlMessageMock.mock.calls[0]?.[2]?.temperature,
+		).toBeUndefined();
 		expect(result.value.outcome).toBe("applied");
 	});
 });

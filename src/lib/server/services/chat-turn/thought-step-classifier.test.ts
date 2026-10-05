@@ -522,6 +522,52 @@ describe("classifyThoughtStepChunk", () => {
 		});
 	});
 
+	it("drops a Hungarian headline that only says what the user asked, but keeps the Hungarian one that states what was chosen", async () => {
+		const chunkText =
+			"A felhasználó magyarul kér segítséget: heti étrend összeállítása, ami olcsó és gyorsan elkészíthető. Válaszolni kell magyarul. Olcsó alapanyagok: tojás, csirkecomb, darált hús, krumpli, rizs.";
+		const { classifyThoughtStepChunk } = await import(
+			"./thought-step-classifier"
+		);
+
+		openSeedDatabase().sqlite.close();
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"understanding-request","summary":"A felhasználó olcsó és gyorsan elkészíthető heti étrendet kér."}',
+			}),
+		);
+		await expect(
+			classifyThoughtStepChunk({
+				userId: "u1",
+				conversationId: "conv-1",
+				chunkText,
+				currentActivityClass: null,
+				targetLanguage: "hu",
+			}),
+		).resolves.toEqual({
+			verdict: "new_step",
+			activityClass: "understanding-request",
+		});
+
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlModelResult({
+				text: '{"verdict":"new_step","activityClass":"drafting-approach","summary":"A 7 napos étrendhez a tojás, csirkecomb, darált hús alapanyagokat választotta"}',
+			}),
+		);
+		await expect(
+			classifyThoughtStepChunk({
+				userId: "u1",
+				conversationId: "conv-1",
+				chunkText,
+				currentActivityClass: null,
+				targetLanguage: "hu",
+			}),
+		).resolves.toMatchObject({
+			verdict: "new_step",
+			summary:
+				"A 7 napos étrendhez a tojás, csirkecomb, darált hús alapanyagokat választotta",
+		});
+	});
+
 	it("keeps a conclusive past-tense headline that states what the reasoning found", async () => {
 		openSeedDatabase().sqlite.close();
 		sendJsonControlMessageMock.mockResolvedValue(
@@ -892,6 +938,24 @@ describe("isMetaRestatement", () => {
 		expect(isMetaRestatement("User request: build a rate limiter")).toBe(true);
 		expect(isMetaRestatement("Task: shard the social graph")).toBe(true);
 		expect(isMetaRestatement("The prompt is ambiguous")).toBe(true);
+	});
+
+	it("drops Hungarian summaries that say what was asked (the model reasons in Hungarian on a Hungarian chat)", async () => {
+		const { isMetaRestatement } = await import("./thought-step-classifier");
+		for (const summary of [
+			"A felhasználó olcsó és gyorsan elkészíthető heti étrendet kér.",
+			"Négyhetes futóedzéstervet kért a kezdő felhasználó",
+			"Északi fekvésű erkélyre árnyéktűrő növények kérése",
+			"A 'eventual consistency' definícióját kérdezte magyarul",
+		]) {
+			expect(isMetaRestatement(summary), summary).toBe(true);
+		}
+		for (const summary of [
+			"A négy hetes futó-séta terv kereteit határozta meg",
+			"A tojás, rizs és zöldségek felhasználásának módjai",
+		]) {
+			expect(isMetaRestatement(summary), summary).toBe(false);
+		}
 	});
 
 	it("keeps genuine thinking summaries, including ones that merely contain 'task'/'prompt' as normal words", async () => {

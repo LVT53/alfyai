@@ -1,7 +1,8 @@
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { resolveEvalArtifactsConfig } from "./config";
+import { resolveOpenAICompatibleProviderAdapterProfile } from "../../src/lib/server/services/normal-chat-model/provider-compatibility";
+import { EVAL_ARTIFACTS_SAMPLING, resolveEvalArtifactsConfig } from "./config";
 
 describe("resolveEvalArtifactsConfig", () => {
 	it("defaults to suite=all, thinking=off, everything else unset", () => {
@@ -120,5 +121,24 @@ describe("resolveEvalArtifactsConfig", () => {
 		expect(config.suite).toBe("all");
 		expect(config.only).toBeNull();
 		expect(config.baseUrl).toBeNull();
+	});
+});
+
+describe("EVAL_ARTIFACTS_SAMPLING", () => {
+	it("is the qwen family's one declared sampling profile, so the eval cannot drift from what the app sends", () => {
+		// The harness builds its request bodies by hand (and keeps them frozen so
+		// runs stay comparable), so this is the one place its copy of the numbers
+		// is held to the profile declared in provider-compatibility.ts.
+		const profile = resolveOpenAICompatibleProviderAdapterProfile({
+			name: "eval",
+			displayName: "eval",
+			baseUrl: "http://192.168.1.96:30000/v1",
+			modelName: "qwen3-6-27b",
+		}).defaultSampling;
+		expect({
+			temperature: EVAL_ARTIFACTS_SAMPLING.temperature,
+			topP: EVAL_ARTIFACTS_SAMPLING.topP,
+			topK: EVAL_ARTIFACTS_SAMPLING.topK,
+		}).toEqual(profile);
 	});
 });

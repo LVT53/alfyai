@@ -3,12 +3,13 @@ import { APICallError, generateText } from "ai";
 import { getConfig } from "../config-store";
 import { normalizeAssistantOutput } from "./chat-turn/normalizer";
 import {
+	askWithThinkingRetry,
 	isHungarianText,
 	isPlausibleShortText,
 	resolveShortTextLanguage,
 } from "./chat-turn/short-local-text";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "./normal-chat-model/openai-compatible-provider";
-import { resolveOpenAICompatibleProviderAdapterProfile } from "./normal-chat-model/provider-compatibility";
+import { resolveModelCallSampling } from "./normal-chat-model/sampling";
 import {
 	DEFAULT_MODEL_MAX_RETRIES,
 	TITLE_GEN_MAX_TOKENS,
@@ -43,16 +44,14 @@ function createTitleGenProvider(
 					})
 				: undefined,
 		}),
-		// Same shared per-family adapter normal-chat-model/index.ts uses on the
-		// main chat path (AGENTS.md: apply qwen sampling defaults through the
-		// adapter, not a copied constant). Title generation never set topP/topK
-		// at all, leaving the checkpoint's own (temp 1.0-tuned) defaults for
-		// those two in effect even though TITLE_GEN_TEMPERATURE capped
-		// temperature. `top_k` reaches the wire via transformRequestBody above
-		// (see provider-compatibility.ts's applyDefaultSamplingTopK); topP is a
-		// supported call option, threaded through below.
-		samplingDefaults:
-			resolveOpenAICompatibleProviderAdapterProfile(provider).defaultSampling,
+		// A title is read by a person, so it takes the whole family profile
+		// through the one sampling route (normal-chat-model/sampling.ts), the
+		// chat turn's own; a family with no profile keeps the flat low
+		// TITLE_GEN_TEMPERATURE. top_k reaches the wire via the provider
+		// builder's transformRequestBody.
+		sampling: resolveModelCallSampling(provider, {
+			profilelessTemperature: TITLE_GEN_TEMPERATURE,
+		}),
 	};
 }
 
@@ -99,7 +98,7 @@ async function generateTitleWithAiSdk(
 	}
 
 	const tryCall = async (includeVllmControls: boolean): Promise<string> => {
-		const { openaiCompatible, samplingDefaults } = createTitleGenProvider(
+		const { openaiCompatible, sampling } = createTitleGenProvider(
 			config,
 			includeVllmControls,
 			overrideProvider,
@@ -115,25 +114,33 @@ async function generateTitleWithAiSdk(
 				role: "system" | "user" | "assistant";
 				content: string;
 			}>,
-			temperature: TITLE_GEN_TEMPERATURE,
-			topP: samplingDefaults?.topP,
+			temperature: sampling.temperature,
+			topP: sampling.topP,
 			maxOutputTokens: TITLE_GEN_MAX_TOKENS,
 			maxRetries: DEFAULT_MODEL_MAX_RETRIES,
 		});
-		return normalizeAssistantOutput(result.text);
+		return result.text;
 	};
 
-	try {
-		return await tryCall(true);
-	} catch (error) {
-		if (APICallError.isInstance(error) && error.statusCode === 400) {
-			console.info(
-				"[TITLE_GENERATE] Retrying with strict OpenAI-compatible request body",
-			);
-			return await tryCall(false);
+	const askOnce = async (): Promise<string> => {
+		try {
+			return await tryCall(true);
+		} catch (error) {
+			if (APICallError.isInstance(error) && error.statusCode === 400) {
+				console.info(
+					"[TITLE_GENERATE] Retrying with strict OpenAI-compatible request body",
+				);
+				return await tryCall(false);
+			}
+			throw error;
 		}
-		throw error;
-	}
+	};
+
+	// The model sometimes opens a think block although thinking is off (see
+	// short-local-text.ts): a block it left empty costs nothing, one it left
+	// unclosed gets one more request, then the caller's own fallback title.
+	const answer = await askWithThinkingRetry(askOnce);
+	return answer === null ? "" : normalizeAssistantOutput(answer);
 }
 
 // Common misspellings dictionary for post-processing correction
@@ -299,12 +306,14 @@ function fallbackTitle(userMessage: string): string {
  * Build few-shot examples for the prompt
  * @param language The detected language ('en' or 'hu')
  * @param isCodeRelated Whether the conversation is code-related
- * @returns Array of example messages
+ * @returns The examples: a conversation's first exchange and its title
  */
+type TitleExample = { user: string; assistant: string; title: string };
+
 function buildFewShotExamples(
 	language: "en" | "hu",
 	isCodeRelated: boolean,
-): Array<{ role: "user" | "assistant"; content: string }> {
+): TitleExample[] {
 	if (language === "hu") {
 		const examples = [
 			{
@@ -332,13 +341,7 @@ function buildFewShotExamples(
 			},
 		];
 
-		return examples.flatMap((ex) => [
-			{
-				role: "user" as const,
-				content: `User: ${ex.user}\nAssistant: ${ex.assistant}`,
-			},
-			{ role: "assistant" as const, content: ex.title },
-		]);
+		return examples;
 	} else {
 		const examples = [
 			{
@@ -376,13 +379,7 @@ function buildFewShotExamples(
 			});
 		}
 
-		return examples.flatMap((ex) => [
-			{
-				role: "user" as const,
-				content: `User: ${ex.user}\nAssistant: ${ex.assistant}`,
-			},
-			{ role: "assistant" as const, content: ex.title },
-		]);
+		return examples;
 	}
 }
 
@@ -402,12 +399,23 @@ function buildTitleMessages(
 		messages.push({ role: "system", content: systemPrompt.trim() });
 	}
 
+	// The examples ride in the one user message as text, never as earlier
+	// assistant turns: the chat template renders every earlier assistant turn
+	// with an empty think block, and with four of them in the request the real
+	// model re-opened a block of its own as its first token for 19% of titles
+	// (0 of 100 with the same examples as text, titles as good).
+	const examples = buildFewShotExamples(language, isCodeRelated)
+		.map(
+			(example) =>
+				`User: ${example.user}\nAssistant: ${example.assistant}\nTitle: ${example.title}`,
+		)
+		.join("\n\n");
+
 	return [
 		...messages,
-		...buildFewShotExamples(language, isCodeRelated),
 		{
 			role: "user",
-			content: `Return only a concise conversation title, 3-8 words, with no explanation.\nUser: ${userMessage}\nAssistant: ${assistantResponse.slice(0, 200)}`,
+			content: `Examples of the task (input, then the title):\n\n${examples}\n\nNow the real input.\nReturn only a concise conversation title, 3-8 words, with no explanation.\nUser: ${userMessage}\nAssistant: ${assistantResponse.slice(0, 200)}`,
 		},
 	];
 }
