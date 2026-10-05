@@ -226,6 +226,35 @@ test.describe("Admin Campaigns screen", () => {
 		await expect(page.getByTestId("campaign-checklist")).toBeVisible();
 	});
 
+	test("seeds the three shipped tour drafts from the campaign menu, and no Slides one", async ({
+		page,
+	}) => {
+		await openAdminPane(page, "Campaigns");
+
+		// Like the first-run seed: the menu belongs to an open campaign.
+		await page.getByRole("button", { name: "New campaign" }).click();
+		await page.locator("#campaign-dialog-name").fill("E2E tour seed host");
+		await page.getByRole("button", { name: "Create campaign" }).click();
+		await expect(
+			page.getByRole("heading", { name: "E2E tour seed host" }).first(),
+		).toBeVisible();
+
+		await page.getByTestId("campaign-menu").click();
+		await page.getByRole("menuitem", { name: /Seed tour drafts/ }).click();
+
+		// Ruling 69: Document, App and Canvas ship; Slides is shelved. (A rerun
+		// against the same database seeds nothing new and reports the existing
+		// three, so the count in the message is not asserted.)
+		await expect(
+			page.getByText(/Seeded \d+ tour drafts, \d+ already existed\./),
+		).toBeVisible();
+		const rows = page.locator('[data-testid="admin-campaign-row"]');
+		for (const name of ["Document tour", "App tour", "Canvas tour"]) {
+			await expect(rows.filter({ hasText: name }).first()).toBeVisible();
+		}
+		await expect(rows.filter({ hasText: "Slides tour" })).toHaveCount(0);
+	});
+
 	test("stacks the slide rail into a filmstrip of equal frames", async ({
 		page,
 	}) => {
