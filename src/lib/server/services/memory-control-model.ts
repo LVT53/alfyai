@@ -57,8 +57,8 @@ export type CallMemoryControlModelParams = {
 	 */
 	envelopeKey?: string;
 	/**
-	 * Defaults to 0 (deterministic structured extraction). Ignored when the
-	 * answer is read by a person.
+	 * Defaults to 0 (deterministic structured extraction). For an answer a
+	 * person reads it is only what a family with no sampling profile sends.
 	 */
 	temperature?: number;
 	/**
@@ -87,10 +87,15 @@ export async function callMemoryControlModel(
 	const { sendJsonControlMessage } = await import(
 		"./normal-chat-control-model"
 	);
+	const deterministicTemperature = params.temperature ?? 0;
 	const res = await sendJsonControlMessage(params.userMessage, params.modelId, {
 		systemPrompt: params.systemPrompt,
+		// A deterministic JSON extraction keeps its own temperature; prose a
+		// person reads takes the family sampling profile, and a family without
+		// one keeps the 0 this adapter always sent.
 		temperature:
-			params.readBy === "person" ? undefined : (params.temperature ?? 0),
+			params.readBy === "person" ? undefined : deterministicTemperature,
+		profilelessTemperature: deterministicTemperature,
 		// Structured extraction, not reasoning: chain-of-thought is same-quality
 		// and far cheaper/faster here (ADR-0045). Never turned on on any path.
 		thinkingMode: "off",

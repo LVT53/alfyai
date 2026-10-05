@@ -392,6 +392,19 @@ describe("a family with no sampling profile sends exactly what it always sent", 
 		expect(wire()).toEqual({ temperature: 0.2 });
 	});
 
+	it("memory adapter: the persona summary keeps the 0 the adapter always sent", async () => {
+		await callMemoryControlModel({
+			userId: "u1",
+			feature: "summary",
+			systemPrompt: "Write the summary.",
+			userMessage: "- [f1] (preference) Szereti a gulyást.",
+			modelId: "model2",
+			inputSizeHint: 1,
+			readBy: "person",
+		}).catch(() => null);
+		expect(wire()).toEqual({ temperature: 0 });
+	});
+
 	it("rail summary: the control transport's flat 0.1", async () => {
 		await persistAssistantRailSummary({
 			userId: "u1",
