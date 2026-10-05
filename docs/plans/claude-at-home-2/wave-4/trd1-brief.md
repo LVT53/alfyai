@@ -1,12 +1,12 @@
 # Fix agent TR-D1 · the tour card arrives without moving what the reader is looking at (RC-T, reader side)
 
 RC-T re-checked the tours (`wave-4/rct-report.md`: verdict ready, 2 Important, 14 Minor). You fix the reader side before
-they go to ai.dev; TR-D2 fixes the admin side beside you. **Read RC-T's report first**: I-1 and Minors 5, 6, 7, 8(a, b),
+they go to ai.dev; TR-D2 fixed the admin side and is merged (`wave-4/trd2-report.md`). **Read RC-T's report first**: I-1 and Minors 5, 6, 7, 8(a, b),
 11, and its "Method notes for a fix agent" (how to reproduce I-1: delay `**/api/artifact-tours/*` 400–500 ms, a tall board
 of 21 notes, a fresh user from `tests/e2e/artifact-tours-helpers.ts`).
 
 - Worktree `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/.claude/worktrees/art-trd1`, branch
-  `fix/tours-reader` (from `feat/artifacts-tours` `c66d80c1`), e2e port **5410**, label `trd1`.
+  `fix/tours-reader` (from `feat/artifacts-tours` `4956efb3`, which already holds TR-D2's admin fixes), e2e port **5410**, label `trd1`.
 - Report: `/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/5c073247-a423-47a9-b825-91f05ce97740/scratchpad/w4/trd1-report.md`;
   screenshots `…/scratchpad/w4/shots/trd1/`.
 - Read first: `wave-4/common.md` (+ the Wave 3 rules); rulings 33, 68 (its last note), 71; the TR-B hand-off
@@ -35,6 +35,6 @@ list; Playwright with `artifact-tours*.spec.ts` and every artifact suite). Scree
 light): the 21-note board with the card up and after closing; the Document mid-entrance is not needed — prove it with
 numbers in the test.
 
-**Runs beside you:** TR-D2 on `fix/tours-admin` (admin pane, campaigns service, tour defaults, the badge route,
-`settings.ts`). You touch `DocumentWorkspace.svelte`, `artifacts/tour/**`, `canvas/**` for the re-fit,
+**Note:** TR-D2 moved `seedArtifactTours` out of `client/api/artifact-tours.ts` and moved the chat-route baseline to
+539,142 B for its admin strings; measure your growth against the head you start from. You touch `DocumentWorkspace.svelte`, `artifacts/tour/**`, `canvas/**` for the re-fit,
 `ArtifactDeletePopover.svelte`, `client/api/artifact-tours.ts` (reader functions only) and `i18n/artifacts.ts`.
