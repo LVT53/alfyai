@@ -21,7 +21,7 @@ import {
 	waitForTourAnswer,
 	watchTourRequests,
 } from "./artifact-tours-helpers";
-import { ensureSidebarExpanded, login } from "./helpers";
+import { ensureSidebarExpanded, login, waitForMotionToSettle } from "./helpers";
 
 // The first-open tours, through a real browser with real clicks and keys
 // (Slice 6; rulings 4, 8, 32, 33, 69). Every flow here is something a person
@@ -45,6 +45,8 @@ async function openAndExpectTour(
 	await openItem(page, ITEM_TITLES[kind]);
 	const card = tourCard(page);
 	await expect(card).toBeVisible({ timeout: 20_000 });
+	// The card slides in; what the test measures next is where it will stay.
+	await waitForMotionToSettle(page);
 	await expect(card.getByTestId("artifact-tour-title")).toHaveText(
 		SLIDE_ONE[kind],
 	);
@@ -121,7 +123,6 @@ test.describe("the first-open tours", () => {
 		// and a new page load asks for itself.
 		const answered = waitForTourAnswer(page, "document");
 		await page.reload({ waitUntil: "networkidle" });
-		await openItem(page, ITEM_TITLES.document);
 		await answered;
 		await page.waitForTimeout(400);
 		await expect(tourCard(page)).toHaveCount(0);
@@ -577,11 +578,10 @@ test.describe("the first-open tours", () => {
 		try {
 			await card.getByTestId("artifact-tour-skip").click();
 			// Refused with a 409, nothing written; the new copy begins at slide one.
-			const again = tourCard(page);
+			// The old card is still on its way out for a moment: the new one is the
+			// card that says "Step 1 of 3".
+			const again = tourCard(page).filter({ hasText: "Step 1 of 3" });
 			await expect(again).toBeVisible({ timeout: 20_000 });
-			await expect(again.getByTestId("artifact-tour-step")).toHaveText(
-				"Step 1 of 3",
-			);
 			expect(requests.gets().length).toBeGreaterThanOrEqual(2);
 			expect(await tourRows(user.id)).toEqual([]);
 

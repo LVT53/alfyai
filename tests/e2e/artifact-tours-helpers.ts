@@ -132,12 +132,37 @@ function weekendBoard(): CanvasBody {
 	};
 }
 
+/**
+ * A tall board: 21 notes in three columns, 200 px apart, so fitted into a docked
+ * panel it is nowhere near its natural size and every row counts (a populated
+ * board is what a card that arrives late used to leave half out of sight).
+ */
+export function bigBoard(): CanvasBody {
+	return {
+		version: 1,
+		nodes: Array.from({ length: 21 }, (_, index) => ({
+			id: `note-${index + 1}`,
+			type: "sticky" as const,
+			position: { x: (index % 3) * 240, y: Math.floor(index / 3) * 200 },
+			width: 190,
+			data: {
+				kind: "sticky" as const,
+				text: `Note ${index + 1}`,
+				tone: "yellow" as const,
+			},
+		})),
+		edges: [],
+		viewport: { x: 0, y: 0, zoom: 1 },
+		annotations: [],
+	};
+}
+
 /** One item of the kind, in the user's chat, seeded the way the other artifact specs seed theirs. */
 export async function seedItem(
 	user: TourUser,
 	conversationId: string,
 	kind: TourKind,
-	options: { empty?: boolean; title?: string } = {},
+	options: { empty?: boolean; title?: string; board?: CanvasBody } = {},
 ): Promise<string> {
 	const title = options.title ?? ITEM_TITLES[kind];
 	if (kind === "document") {
@@ -159,7 +184,7 @@ export async function seedItem(
 			: boardJson({ ...weekendBoard(), nodes: [] })
 		: kind === "app"
 			? APP_HTML
-			: boardJson(weekendBoard());
+			: boardJson(options.board ?? weekendBoard());
 	const artifactId = randomUUID();
 	const now = new Date();
 	await db.insert(artifacts).values({
@@ -323,9 +348,13 @@ export function waitForTourAnswer(page: Page, kind: TourKind) {
 	);
 }
 
-/** Real clicks through the card: Next until the last slide, then "Got it". */
+/**
+ * Real clicks through the card: Next until the last slide, then "Got it". The
+ * newest card is the one read: an older one that is still on its way out (a
+ * 409 brought the tour back) is not.
+ */
 export async function finishTour(page: Page) {
-	const card = tourCard(page);
+	const card = tourCard(page).last();
 	await expect(card).toBeVisible({ timeout: 20_000 });
 	await card.getByTestId("artifact-tour-next").click();
 	await card.getByTestId("artifact-tour-next").click();

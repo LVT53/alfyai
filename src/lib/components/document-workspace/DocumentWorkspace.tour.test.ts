@@ -5,7 +5,15 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type Mock,
+	vi,
+} from "vitest";
 import { ApiError } from "$lib/client/api/http";
 import { ARTIFACT_BODIES } from "$lib/components/artifacts/artifact-bodies";
 import type {
@@ -98,6 +106,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	localStorage.clear();
 	uiLanguage.set("en");
+	stubReducedMotion(true);
 	global.fetch = vi.fn();
 	tourClient.getArtifactTour.mockImplementation(
 		async (kind: ShippedArtifactTourType) => answer(kind),
@@ -117,6 +126,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	cleanup();
+	vi.unstubAllGlobals();
 	delete ARTIFACT_BODIES.document;
 	delete ARTIFACT_BODIES.app;
 	warn.mockRestore();
@@ -130,6 +140,47 @@ async function card() {
 
 async function settle() {
 	await new Promise((resolve) => setTimeout(resolve, 30));
+}
+
+/** The reader's motion preference. The card slides in and out unless it asks for reduced motion; a test that is not about the slide asks for none, so an exit is over at once. */
+function stubReducedMotion(reduced: boolean) {
+	vi.stubGlobal(
+		"matchMedia",
+		vi.fn((query: string) => ({
+			matches: reduced,
+			media: query,
+			onchange: null,
+			addListener: () => undefined,
+			removeListener: () => undefined,
+			addEventListener: () => undefined,
+			removeEventListener: () => undefined,
+			dispatchEvent: () => false,
+		})),
+	);
+}
+
+/** Plays every pending web animation out, in the order they were started (jsdom has none of its own). */
+function finishAnimations() {
+	const animate = Element.prototype.animate as unknown as Mock;
+	const finished = new Set<unknown>();
+	for (let guard = 0; guard < 50; guard++) {
+		const next = animate.mock.results
+			.map((result) => result.value as { onfinish?: () => void })
+			.find(
+				(made) => typeof made?.onfinish === "function" && !finished.has(made),
+			);
+		if (!next) return;
+		finished.add(next);
+		next.onfinish?.();
+	}
+}
+
+/** What was animated on `element`, in the order it was asked. */
+function animationsOn(element: Element) {
+	const animate = Element.prototype.animate as unknown as Mock;
+	return animate.mock.calls.filter(
+		(_call, index) => animate.mock.contexts[index] === element,
+	) as [Keyframe[], KeyframeAnimationOptions][];
 }
 
 describe("DocumentWorkspace: the first-open tour", () => {
@@ -629,5 +680,92 @@ describe("DocumentWorkspace: replaying a tour", () => {
 		expect(
 			screen.queryByRole("menuitem", { name: "How this kind works" }),
 		).toBeNull();
+	});
+});
+
+describe("DocumentWorkspace: how the card arrives and leaves", () => {
+	beforeEach(() => stubReducedMotion(false));
+
+	it("slides in from nothing, and leaves by sliding out: it is in the page until its exit has played", async () => {
+		openDocument();
+		const tour = await card();
+		const wrapper = tour.closest(".tour-reveal") as HTMLElement;
+		expect(wrapper).not.toBeNull();
+
+		// The entrance starts from a collapsed height: the page below the card is
+		// moved by a height that grows, not by a card that appears.
+		const entrance = animationsOn(wrapper);
+		expect(entrance.length).toBeGreaterThan(0);
+		expect(entrance[0][0][0]).toHaveProperty("height");
+		expect(entrance[0][0][0]).toHaveProperty("overflow", "hidden");
+		finishAnimations();
+
+		await fireEvent.click(screen.getByTestId("artifact-tour-skip"));
+
+		// The write is not held back by the exit...
+		expect(tourClient.markArtifactTourSeen).toHaveBeenCalledTimes(1);
+		// ...but the card stays, out of reach, until it has shrunk away.
+		expect(screen.getByTestId("artifact-tour")).toBeInTheDocument();
+		expect(wrapper).toHaveProperty("inert", true);
+		const before = animationsOn(wrapper).length;
+		expect(before).toBeGreaterThan(entrance.length);
+		finishAnimations();
+		await waitFor(() =>
+			expect(screen.queryByTestId("artifact-tour")).toBeNull(),
+		);
+	});
+
+	it("brings the tour back as a new card at its first slide when the copy changed while the old one was leaving", async () => {
+		tourClient.markArtifactTourSeen.mockRejectedValueOnce(
+			new ApiError("changed", { status: 409 }),
+		);
+		tourClient.getArtifactTour
+			.mockResolvedValueOnce(answer("document"))
+			.mockResolvedValueOnce(answer("document", {}, "snapshot:new"));
+		openDocument();
+		await card();
+		finishAnimations();
+		await fireEvent.click(screen.getByTestId("artifact-tour-next"));
+		expect(screen.getByTestId("artifact-tour-step")).toHaveTextContent(
+			"Step 2 of 3",
+		);
+
+		// Skipped: the 409 comes back while that card is still on its way out.
+		await fireEvent.click(screen.getByTestId("artifact-tour-skip"));
+		await waitFor(() =>
+			expect(tourClient.getArtifactTour).toHaveBeenCalledTimes(2),
+		);
+
+		// The card that is shown now is a new one, not the old card called back:
+		// first slide, and its buttons work (the old one had already been left).
+		const newest = await waitFor(() => {
+			const found = screen
+				.getAllByTestId("artifact-tour")
+				.find((card) => within(card).queryByText("Step 1 of 3"));
+			expect(found).toBeTruthy();
+			return found as HTMLElement;
+		});
+		finishAnimations();
+		await fireEvent.click(within(newest).getByTestId("artifact-tour-next"));
+		await fireEvent.click(within(newest).getByTestId("artifact-tour-next"));
+		await fireEvent.click(within(newest).getByTestId("artifact-tour-done"));
+		await waitFor(() =>
+			expect(tourClient.markArtifactTourSeen).toHaveBeenLastCalledWith(
+				"document",
+				{ contentKey: "snapshot:new", status: "completed", lastSlide: 2 },
+			),
+		);
+	});
+
+	it("is simply there, and simply gone, under reduced motion", async () => {
+		stubReducedMotion(true);
+		openDocument();
+		const tour = await card();
+		expect(animationsOn(tour.closest(".tour-reveal") as HTMLElement)).toEqual(
+			[],
+		);
+
+		await fireEvent.click(screen.getByTestId("artifact-tour-skip"));
+		expect(screen.queryByTestId("artifact-tour")).toBeNull();
 	});
 });

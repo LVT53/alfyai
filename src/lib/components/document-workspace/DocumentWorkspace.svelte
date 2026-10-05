@@ -1827,14 +1827,21 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	<!-- The first-open tour: in the content area above the item, inside the panel's own flow. -->
 	{#snippet tourCard()}
 		{#if tourView && tourView.itemKey === activeBodyKey}
-			{@const Card = tourView.Card}
-			<Card
-				tour={tourView.tour}
-				replay={tourView.replay}
-				onSeen={handleTourSeen}
-				onDismiss={handleTourDismiss}
-				onClose={handleTourClose}
-			/>
+			<!-- One card per presentation. A card is on its way out for a quarter of a second after it is
+			     left, and an {#if} that turns true again in that time brings the SAME card back, with its
+			     finished state and its slide. A presentation wanted while one is leaving (the copy changed
+			     under the reader, a replay at once) is a new card, at its first slide. -->
+			{#key tourView}
+				{@const Card = tourView.Card}
+				<Card
+					tour={tourView.tour}
+					replay={tourView.replay}
+					animate
+					onSeen={handleTourSeen}
+					onDismiss={handleTourDismiss}
+					onClose={handleTourClose}
+				/>
+			{/key}
 		{/if}
 	{/snippet}
 
