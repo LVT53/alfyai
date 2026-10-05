@@ -331,6 +331,90 @@ test.describe("Admin provider table layout", () => {
 	});
 });
 
+// The model form is a modal dialog that other dialogs open above: choosing an
+// icon file opens the crop dialog on top of it. Everything here is driven by
+// real keys and real clicks, and the provider is seeded straight into SQLite
+// for the reason the layout block above gives (creating one through the admin
+// API would dial out to validate the connection).
+const PIXEL_PNG = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+	"base64",
+);
+
+test.describe("Admin model form dialog", () => {
+	const providerId = randomUUID();
+	const modelId = randomUUID();
+	const modelName = "Form Probe Model";
+
+	test.beforeEach(async ({ page }) => {
+		const now = new Date();
+		await db.insert(providers).values({
+			id: providerId,
+			name: `form_probe_${providerId.slice(0, 8)}`,
+			displayName: "Form Probe Provider",
+			baseUrl: "https://form-probe.example.com/v1",
+			apiKeyEncrypted: "probe-encrypted",
+			apiKeyIv: "probe-iv",
+			sortOrder: 999,
+			enabled: 1,
+			createdAt: now,
+			updatedAt: now,
+		});
+		await db.insert(providerModels).values({
+			id: modelId,
+			providerId,
+			name: "form-probe-1",
+			displayName: modelName,
+			enabled: 1,
+			sortOrder: 0,
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		await login(page);
+		await openAdministrationTab(page, "models");
+		await page.getByTestId(`provider-models-${providerId}`).click();
+	});
+
+	test.afterEach(async () => {
+		await db.delete(providers).where(eq(providers.id, providerId));
+	});
+
+	test("one Escape in the icon crop closes the crop and leaves the form and its unsaved edit", async ({
+		page,
+	}) => {
+		await page.getByRole("button", { name: `Edit ${modelName}` }).click();
+		const form = page.getByRole("dialog", { name: "Edit Model" });
+		await expect(form).toBeVisible();
+
+		const displayName = form.locator("#model-form-display-name");
+		await displayName.fill("Renamed, not saved yet");
+
+		// Picking an icon file opens the crop dialog above the form.
+		const [chooser] = await Promise.all([
+			page.waitForEvent("filechooser"),
+			form.locator("#model-form-icon").click(),
+		]);
+		await chooser.setFiles({
+			name: "icon.png",
+			mimeType: "image/png",
+			buffer: PIXEL_PNG,
+		});
+		const crop = page.getByRole("dialog", { name: "Crop model icon" });
+		await expect(crop).toBeVisible();
+
+		// The first Escape belongs to the crop, the dialog on top ...
+		await page.keyboard.press("Escape");
+		await expect(crop).toBeHidden();
+		await expect(form).toBeVisible();
+		await expect(displayName).toHaveValue("Renamed, not saved yet");
+
+		// ... and only the next one reaches the form.
+		await page.keyboard.press("Escape");
+		await expect(form).toBeHidden();
+	});
+});
+
 // Phone-width guard for the same `.sys-grow` fix. With `.sys-grow` a real
 // utility, the save bar's detail span pushes Discard/Save to the bar's right
 // edge. Below 900px the System shell stacks, and if the main column is sized

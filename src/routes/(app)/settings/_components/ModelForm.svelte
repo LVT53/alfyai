@@ -1,6 +1,11 @@
 <script lang="ts">
 import { untrack } from "svelte";
 import { get } from "svelte/store";
+import {
+	deregisterDialog,
+	isTopmostDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
 import type {
 	Provider,
@@ -26,8 +31,18 @@ type ProviderModelUpdateWithAliases = ProviderModelUpdate & {
 	aliases: string[];
 };
 
+// The icon crop opens above this form, and a window-level Escape handler can
+// not tell which of the two the key was meant for. The shared open-dialog stack
+// can: this form joins it, and only the topmost layer answers Escape.
+const dialogId = Symbol("model-form");
+
+$effect(() => {
+	registerDialog(dialogId);
+	return () => deregisterDialog(dialogId);
+});
+
 function handleKeydown(e: KeyboardEvent) {
-	if (e.key === "Escape") {
+	if (e.key === "Escape" && isTopmostDialog(dialogId)) {
 		onClose?.();
 	}
 }
