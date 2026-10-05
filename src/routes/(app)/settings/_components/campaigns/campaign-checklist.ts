@@ -291,8 +291,16 @@ export function evaluateCampaignChecklist(
 			...(isTourSummary
 				? []
 				: [
-						{ field: "body" as const, locale: "en" as const, value: slide.bodyEn },
-						{ field: "body" as const, locale: "hu" as const, value: slide.bodyHu },
+						{
+							field: "body" as const,
+							locale: "en" as const,
+							value: slide.bodyEn,
+						},
+						{
+							field: "body" as const,
+							locale: "hu" as const,
+							value: slide.bodyHu,
+						},
 					]),
 		];
 		for (const entry of localizedFields) {

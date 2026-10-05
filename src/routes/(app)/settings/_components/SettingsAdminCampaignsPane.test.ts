@@ -6,6 +6,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/svelte";
+import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
 import SettingsAdminCampaignsPane from "./SettingsAdminCampaignsPane.svelte";
@@ -44,6 +45,7 @@ import {
 	fetchAdminCampaign,
 	fetchAdminCampaigns,
 	publishAdminCampaign,
+	seedArtifactTours,
 	updateAdminCampaign,
 } from "$lib/client/api/campaigns";
 import { ApiError } from "$lib/client/api/http";
@@ -60,6 +62,7 @@ const mockPublishAdminCampaign = publishAdminCampaign as ReturnType<
 	typeof vi.fn
 >;
 const mockUpdateAdminCampaign = updateAdminCampaign as ReturnType<typeof vi.fn>;
+const mockSeedArtifactTours = seedArtifactTours as ReturnType<typeof vi.fn>;
 const mockUploadCampaignAssetSource = uploadCampaignAssetSource as ReturnType<
 	typeof vi.fn
 >;
@@ -521,8 +524,10 @@ describe("SettingsAdminCampaignsPane", () => {
 					semanticRole: "feature",
 					titleEn: `Slide ${index + 1}`,
 					titleHu: `${index + 1}. dia`,
-					bodyEn: "Body.",
-					bodyHu: "Szöveg.",
+					// The summary slide is one bare line, the empty state's: the seed
+					// leaves its body empty and nothing asks for one.
+					bodyEn: kind === "summary" ? "" : "Body.",
+					bodyHu: kind === "summary" ? "" : "Szöveg.",
 				}),
 			);
 		}
@@ -551,18 +556,21 @@ describe("SettingsAdminCampaignsPane", () => {
 			return document.querySelector(".editor-meta")?.textContent ?? "";
 		}
 
-		it("says Tour and the kind's word in the rail and above the editor", async () => {
+		it("says Tour and the kind's word in the rail and above the editor, counting steps and not slides", async () => {
 			openTour("canvas");
 			await waitForEditor("Canvas tour");
 
 			expect(
 				within(screen.getByTestId("admin-campaign-row")).getByText(
-					"Tour · Canvas · 4 slides",
+					"Tour · Canvas · 3 steps + empty-state line",
 				),
 			).toBeInTheDocument();
-			expect(editorMeta()).toMatch(/^\s*Tour · Canvas · 4 slides · /);
+			expect(editorMeta()).toMatch(
+				/^\s*Tour · Canvas · 3 steps \+ empty-state line · /,
+			);
 			expect(document.body.textContent).not.toContain("Release · canvas");
 			expect(document.body.textContent).not.toContain("canvas · 4");
+			expect(document.body.textContent).not.toContain("4 slides");
 		});
 
 		it("names each kind that ships by the word the rest of the interface uses", async () => {
@@ -575,7 +583,7 @@ describe("SettingsAdminCampaignsPane", () => {
 				openTour(release, `${word} tour`);
 				await waitForEditor(`${word} tour`);
 				expect(editorMeta()).toMatch(
-					new RegExp(`^\\s*Tour · ${word} · 4 slides`),
+					new RegExp(`^\\s*Tour · ${word} · 3 steps \\+ empty-state line`),
 				);
 			}
 		});
@@ -592,7 +600,9 @@ describe("SettingsAdminCampaignsPane", () => {
 					openTour(release, `${word} bemutató`);
 					await waitForEditor(`${word} bemutató`);
 					expect(editorMeta()).toMatch(
-						new RegExp(`^\\s*Bemutató · ${word} · 4 dia`),
+						new RegExp(
+							`^\\s*Bemutató · ${word} · 3 lépés \\+ üres állapot sora`,
+						),
 					);
 				}
 			} finally {
@@ -604,7 +614,546 @@ describe("SettingsAdminCampaignsPane", () => {
 			openTour("2.1.0", "Typo tour");
 			await waitForEditor("Typo tour");
 
-			expect(editorMeta()).toMatch(/^\s*Tour · 2\.1\.0 · 4 slides/);
+			expect(editorMeta()).toMatch(/^\s*Tour · 2\.1\.0 · 3 steps/);
+		});
+
+		it("says one step in the singular", async () => {
+			const summary = {
+				id: "tour-1",
+				type: "artifact_tour",
+				version: 1,
+				name: "Short tour",
+				releaseVersion: "app",
+				status: "draft",
+				slideCount: 2,
+			};
+			mockFetchAdminCampaigns.mockResolvedValue([summary]);
+			mockFetchAdminCampaign.mockResolvedValue({
+				...summary,
+				slides: tourSlides().slice(0, 2),
+				validationErrors: [],
+			});
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor("Short tour");
+
+			expect(editorMeta()).toMatch(
+				/^\s*Tour · App · 1 step \+ empty-state line/,
+			);
+		});
+
+		const SUMMARY_HINT =
+			"The title is the line an empty Document, App or Canvas shows. Nothing else on this slide is shown.";
+
+		// RC-T I-2: the summary slide's body is shown nowhere, so the editor does
+		// not ask for one; it says what the title is instead.
+		it("tells the summary slide what it is and has no body field for it", async () => {
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+
+			expect(screen.getByText(SUMMARY_HINT)).toBeInTheDocument();
+			expect(
+				screen.getByRole("heading", { name: "Empty-state line" }),
+			).toBeInTheDocument();
+			expect(screen.getByLabelText("Title")).toHaveValue("Slide 1");
+			expect(screen.queryByLabelText("Body")).not.toBeInTheDocument();
+		});
+
+		it("says the same in Hungarian", async () => {
+			uiLanguage.set("hu");
+			try {
+				openTour("canvas");
+				await waitForEditor("Canvas tour");
+
+				expect(
+					screen.getByText(
+						"A cím az a sor, amit egy üres dokumentum, alkalmazás vagy tábla mutat. Ezen a dián más nem jelenik meg.",
+					),
+				).toBeInTheDocument();
+				expect(
+					screen.getByRole("heading", { name: "Üres állapot sora" }),
+				).toBeInTheDocument();
+			} finally {
+				uiLanguage.set("en");
+			}
+		});
+
+		it("gives a step its title and body, numbers it as a reader does, and has no hint there", async () => {
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+
+			await fireEvent.click(
+				screen.getAllByTestId("admin-campaign-slide-thumb")[1],
+			);
+
+			expect(
+				screen.getByRole("heading", { name: "Step 1" }),
+			).toBeInTheDocument();
+			expect(screen.getByLabelText("Title")).toHaveValue("Slide 2");
+			expect(screen.getByLabelText("Body")).toHaveValue("Body.");
+			expect(screen.queryByText(SUMMARY_HINT)).not.toBeInTheDocument();
+		});
+
+		it("offers no screenshot, alt text or button to any slide of a tour", async () => {
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+
+			const thumbs = screen.getAllByTestId("admin-campaign-slide-thumb");
+			expect(thumbs).toHaveLength(4);
+			for (const thumb of thumbs) {
+				await fireEvent.click(thumb);
+				expect(screen.queryByLabelText(/Alt text/)).not.toBeInTheDocument();
+				expect(
+					screen.queryByLabelText("Action destination"),
+				).not.toBeInTheDocument();
+				expect(screen.queryByLabelText("Action label")).not.toBeInTheDocument();
+				expect(
+					screen.queryByText("Desktop screenshot"),
+				).not.toBeInTheDocument();
+				expect(screen.queryByText("Mobile screenshot")).not.toBeInTheDocument();
+			}
+		});
+
+		it("reads the rail as a reader meets the tour: the empty-state line, then steps 1 to 3, with no picture slots", async () => {
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+
+			const thumbs = screen.getAllByTestId("admin-campaign-slide-thumb");
+			expect(within(thumbs[0]).getByText("Empty state")).toBeInTheDocument();
+			expect(within(thumbs[1]).getByText("1")).toBeInTheDocument();
+			expect(within(thumbs[2]).getByText("2")).toBeInTheDocument();
+			expect(within(thumbs[3]).getByText("3")).toBeInTheDocument();
+			expect(thumbs[0].querySelector(".thumb")).toBeNull();
+		});
+
+		it("keeps the first-run purpose and setup controls out of a tour's slide menu", async () => {
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+
+			await openSlideMenu();
+			expect(
+				screen.getByRole("menuitem", { name: /^Layout/ }),
+			).toBeInTheDocument();
+			expect(screen.queryByRole("menuitem", { name: /Purpose/ })).toBeNull();
+			expect(
+				screen.queryByRole("menuitem", { name: /Setup controls/ }),
+			).toBeNull();
+		});
+
+		// RC-T Minor 3: the Summary layout means something only to a tour.
+		it("offers the Summary layout to a tour, and not the first-run Setup one", async () => {
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+			await fireEvent.click(
+				screen.getAllByTestId("admin-campaign-slide-thumb")[1],
+			);
+
+			await openSlideMenu();
+			await fireEvent.click(screen.getByRole("menuitem", { name: /^Layout/ }));
+
+			const dialog = screen.getByRole("dialog");
+			expect(
+				within(dialog).getByRole("button", { name: "Standard" }),
+			).toBeInTheDocument();
+			expect(
+				within(dialog).getByRole("button", { name: "Summary" }),
+			).toBeInTheDocument();
+			expect(
+				within(dialog).queryByRole("button", { name: "Setup" }),
+			).toBeNull();
+			expect(
+				within(dialog).queryByRole("button", { name: "Feature" }),
+			).toBeNull();
+			expect(within(dialog).queryByText("Setup controls")).toBeNull();
+		});
+
+		it("does not offer the Summary layout to a release note or a first-run campaign", async () => {
+			// The default fixture is a first-run campaign: setup and standard slides.
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor();
+
+			await openSlideMenu();
+			await fireEvent.click(screen.getByRole("menuitem", { name: /^Layout/ }));
+
+			const dialog = screen.getByRole("dialog");
+			expect(
+				within(dialog).getByRole("button", { name: "Setup" }),
+			).toBeInTheDocument();
+			expect(
+				within(dialog).queryByRole("button", { name: "Summary" }),
+			).toBeNull();
+		});
+
+		it("still shows the Summary layout on a release slide that already has it, so the state is never hidden", async () => {
+			const summary = {
+				id: "release-1",
+				type: "release_update",
+				version: 1,
+				name: "Odd release",
+				releaseVersion: "2.0.0",
+				status: "draft",
+				slideCount: 1,
+			};
+			mockFetchAdminCampaigns.mockResolvedValue([summary]);
+			mockFetchAdminCampaign.mockResolvedValue({
+				...summary,
+				slides: [tourSlides()[0]],
+				validationErrors: [],
+			});
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor("Odd release");
+
+			await openSlideMenu();
+			await fireEvent.click(screen.getByRole("menuitem", { name: /^Layout/ }));
+
+			const dialog = screen.getByRole("dialog");
+			expect(
+				within(dialog).getByRole("button", { name: "Summary" }),
+			).toBeInTheDocument();
+		});
+
+		// RC-T Minor 4: the preview of a tour is the card a reader meets, not the
+		// announcement modal (logo, title, body, "1 / 4") with desktop and mobile.
+		it("previews a tour as the reader's card, with no device toggle and no announcement", async () => {
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+
+			// The summary slide is open: the empty state's line.
+			expect(await screen.findByTestId("tour-preview-line")).toHaveTextContent(
+				"Slide 1",
+			);
+
+			await fireEvent.click(
+				screen.getAllByTestId("admin-campaign-slide-thumb")[1],
+			);
+
+			expect(await screen.findByTestId("artifact-tour")).toBeInTheDocument();
+			expect(screen.getByTestId("artifact-tour-title")).toHaveTextContent(
+				"Slide 2",
+			);
+			expect(screen.getByTestId("artifact-tour-step")).toHaveTextContent(
+				"Step 1 of 3",
+			);
+			expect(screen.queryByRole("group", { name: "Preview size" })).toBeNull();
+			expect(screen.queryByText("1 / 4")).toBeNull();
+		});
+
+		it("follows what the admin types into the open step", async () => {
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+			await fireEvent.click(
+				screen.getAllByTestId("admin-campaign-slide-thumb")[1],
+			);
+			await screen.findByTestId("artifact-tour");
+
+			await fireEvent.input(screen.getByLabelText("Title"), {
+				target: { value: "A new first step" },
+			});
+
+			await waitFor(() =>
+				expect(screen.getByTestId("artifact-tour-title")).toHaveTextContent(
+					"A new first step",
+				),
+			);
+		});
+
+		it("still previews a release note as the announcement, with its device toggle", async () => {
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor();
+
+			expect(
+				screen.getByRole("group", { name: "Preview size" }),
+			).toBeInTheDocument();
+			expect(screen.queryByTestId("tour-preview")).toBeNull();
+		});
+
+		// RC-T Minor 2: a tour's kind is its own; the details dialog said it was a
+		// first-run or release campaign and let an admin click either.
+		it("shows a tour's type in its details as a tour and lets nothing change it", async () => {
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Campaign details" }),
+			);
+
+			const dialog = screen.getByRole("dialog");
+			expect(within(dialog).getByText("Tour · Canvas")).toBeInTheDocument();
+			expect(
+				within(dialog).queryByRole("button", { name: "First-run" }),
+			).toBeNull();
+			expect(
+				within(dialog).queryByRole("button", { name: "Release" }),
+			).toBeNull();
+			expect(within(dialog).queryByLabelText("Release")).toBeNull();
+			expect(within(dialog).getByLabelText("Name")).toHaveValue("Canvas tour");
+		});
+
+		it("saves a renamed tour as the same tour of the same kind", async () => {
+			// The server answers with the whole campaign it saved.
+			mockUpdateAdminCampaign.mockImplementation(async (id, payload) => ({
+				id,
+				type: payload.type,
+				name: payload.name,
+				releaseVersion: payload.releaseVersion,
+				status: "draft",
+				slides: payload.slides ?? [],
+			}));
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Campaign details" }),
+			);
+			const dialog = screen.getByRole("dialog");
+			await fireEvent.input(within(dialog).getByLabelText("Name"), {
+				target: { value: "Canvas tour, second try" },
+			});
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Save details" }),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+			await waitFor(() => expect(mockUpdateAdminCampaign).toHaveBeenCalled());
+			expect(mockUpdateAdminCampaign.mock.calls[0][1]).toEqual(
+				expect.objectContaining({
+					name: "Canvas tour, second try",
+					type: "artifact_tour",
+					releaseVersion: "canvas",
+				}),
+			);
+			expect(editorMeta()).toMatch(/^\s*Tour · Canvas/);
+		});
+
+		it("still lets a first-run or release draft pick its type in its details", async () => {
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor();
+
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Campaign details" }),
+			);
+
+			const dialog = screen.getByRole("dialog");
+			expect(
+				within(dialog).getByRole("button", { name: "First-run" }),
+			).toBeInTheDocument();
+			expect(
+				within(dialog).getByRole("button", { name: "Release" }),
+			).toBeInTheDocument();
+		});
+
+		// RC-T Minor 4: a tour records nothing, so there is no performance to show.
+		it("shows no performance card for a published tour, and still shows one for a published release note", async () => {
+			const published = {
+				id: "tour-1",
+				type: "artifact_tour",
+				version: 1,
+				name: "Live tour",
+				releaseVersion: "canvas",
+				status: "published",
+				slideCount: 4,
+				analyticsSummary: {
+					autoShown: 0,
+					completed: 0,
+					skipped: 0,
+					replayOpened: 0,
+				},
+			};
+			mockFetchAdminCampaigns.mockResolvedValue([published]);
+			mockFetchAdminCampaign.mockResolvedValue({
+				...published,
+				slides: tourSlides(),
+				validationErrors: [],
+			});
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor("Live tour");
+			expect(screen.queryByTestId("campaign-performance")).toBeNull();
+
+			cleanup();
+			mockFetchAdminCampaigns.mockResolvedValue([
+				{ ...published, type: "release_update", name: "Live release" },
+			]);
+			mockFetchAdminCampaign.mockResolvedValue({
+				...published,
+				type: "release_update",
+				name: "Live release",
+				releaseVersion: "2.0.0",
+				slides: [{ ...tourSlides()[1], kind: "standard" }],
+				validationErrors: [],
+			});
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor("Live release");
+			expect(screen.getByTestId("campaign-performance")).toBeInTheDocument();
+		});
+	});
+
+	// RC-T Minor 1: publishing a tour archives the revision it replaces, on the
+	// server, so the rail has to be asked again to show what is live.
+	describe("publishing a tour", () => {
+		function tourSlides() {
+			return ["summary", "standard", "standard", "standard"].map(
+				(kind, index) => ({
+					id: `tour-slide-${index + 1}`,
+					kind,
+					sortOrder: index + 1,
+					semanticRole: "feature",
+					titleEn: `Slide ${index + 1}`,
+					titleHu: `${index + 1}. dia`,
+					bodyEn: kind === "summary" ? "" : "Body.",
+					bodyHu: kind === "summary" ? "" : "Szöveg.",
+				}),
+			);
+		}
+
+		it("publishes a tour whose summary slide has no body, and shows the older revision archived", async () => {
+			const older = {
+				id: "tour-old",
+				type: "artifact_tour",
+				version: 1,
+				name: "Canvas tour",
+				releaseVersion: "canvas",
+				status: "published",
+				slideCount: 4,
+			};
+			const draftTour = {
+				...older,
+				id: "tour-new",
+				name: "Canvas tour copy",
+				status: "draft",
+			};
+			mockFetchAdminCampaigns
+				.mockResolvedValueOnce([draftTour, older])
+				.mockResolvedValue([
+					{ ...draftTour, status: "published" },
+					{ ...older, status: "archived" },
+				]);
+			mockFetchAdminCampaign.mockResolvedValue({
+				...draftTour,
+				slides: tourSlides(),
+				validationErrors: [],
+			});
+			mockUpdateAdminCampaign.mockResolvedValue({
+				...draftTour,
+				slides: tourSlides(),
+			});
+			mockPublishAdminCampaign.mockResolvedValue({
+				...draftTour,
+				status: "published",
+				slides: tourSlides(),
+			});
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor("Canvas tour copy");
+
+			const publish = screen.getByRole("button", { name: "Publish" });
+			expect(publish).toBeEnabled();
+			await fireEvent.click(publish);
+
+			await waitFor(() => expect(mockPublishAdminCampaign).toHaveBeenCalled());
+			const rows = await screen.findAllByTestId("admin-campaign-row");
+			await waitFor(() => {
+				expect(
+					within(screen.getAllByTestId("admin-campaign-row")[1]).getByText(
+						"Archived",
+					),
+				).toBeInTheDocument();
+			});
+			expect(rows).toHaveLength(2);
+			expect(mockFetchAdminCampaigns).toHaveBeenCalledTimes(2);
+		});
+
+		it("does not ask for the list again after publishing a release note", async () => {
+			mockPublishAdminCampaign.mockResolvedValue({
+				id: "campaign-1",
+				type: "release_update",
+				status: "published",
+				slides: [],
+			});
+			mockFetchAdminCampaign.mockResolvedValue({
+				id: "campaign-1",
+				type: "release_update",
+				version: 3,
+				name: "Release note",
+				releaseVersion: "2.0.0",
+				status: "draft",
+				slides: [
+					{
+						id: "slide-1",
+						kind: "standard",
+						sortOrder: 1,
+						semanticRole: "feature",
+						titleEn: "News",
+						titleHu: "Hír",
+						bodyEn: "Details.",
+						bodyHu: "Részletek.",
+					},
+				],
+				validationErrors: [],
+			});
+			render(SettingsAdminCampaignsPane);
+			await waitForEditor("Release note");
+
+			await fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+			await waitFor(() => expect(mockPublishAdminCampaign).toHaveBeenCalled());
+			expect(mockFetchAdminCampaigns).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	// RC-T Minor 8 (c, e): the seed says it makes drafts, and its answer counts
+	// what it made in the admin's language, with one and with none.
+	describe("seeding the tour drafts", () => {
+		async function seedFromTheEmptyPane(result: {
+			created: number;
+			existing: number;
+		}) {
+			mockFetchAdminCampaigns.mockResolvedValue([]);
+			mockSeedArtifactTours.mockResolvedValue(result);
+			render(SettingsAdminCampaignsPane);
+			await fireEvent.click(
+				await screen.findByRole("button", {
+					name:
+						get(uiLanguage) === "hu"
+							? "Bemutató-piszkozatok létrehozása"
+							: "Seed tour drafts",
+				}),
+			);
+		}
+
+		it("says one draft in the singular", async () => {
+			await seedFromTheEmptyPane({ created: 1, existing: 2 });
+			expect(
+				await screen.findByText("Created 1 tour draft."),
+			).toBeInTheDocument();
+		});
+
+		it("says several drafts in the plural", async () => {
+			await seedFromTheEmptyPane({ created: 3, existing: 0 });
+			expect(
+				await screen.findByText("Created 3 tour drafts."),
+			).toBeInTheDocument();
+		});
+
+		it("says they already exist when it made none", async () => {
+			await seedFromTheEmptyPane({ created: 0, existing: 3 });
+			expect(
+				await screen.findByText("The tour drafts already exist."),
+			).toBeInTheDocument();
+		});
+
+		it("says it in Hungarian, on a button that names drafts", async () => {
+			uiLanguage.set("hu");
+			try {
+				await seedFromTheEmptyPane({ created: 3, existing: 0 });
+				expect(
+					await screen.findByText("3 bemutató-piszkozat létrejött."),
+				).toBeInTheDocument();
+				cleanup();
+				await seedFromTheEmptyPane({ created: 0, existing: 3 });
+				expect(
+					await screen.findByText("A bemutató-piszkozatok már léteznek."),
+				).toBeInTheDocument();
+			} finally {
+				uiLanguage.set("en");
+			}
 		});
 	});
 

@@ -8,7 +8,10 @@
 import type { I18nKey } from "$lib/i18n";
 import { isShippedArtifactTourType } from "$lib/shared/artifacts/tours";
 
-type Translate = (key: I18nKey) => string;
+type Translate = (
+	key: I18nKey,
+	params?: Record<string, string | number>,
+) => string;
 
 /**
  * What a tour campaign's release text reads as: the kind's own word when it
@@ -32,4 +35,32 @@ export function tourLead(
 	return kind
 		? [t("admin.campaigns.type.tour"), kind]
 		: [t("admin.campaigns.type.tour")];
+}
+
+/**
+ * How many a tour has, in the words of what a reader meets: its steps, and the
+ * line an empty item shows. A tour is one summary slide and three steps, so it
+ * never reads "4 slides" (RC-T Minor 4). `slideCount` is every slide the
+ * campaign holds, which is all the campaign list carries.
+ */
+export function tourCountLabel(slideCount: number, t: Translate): string {
+	return t("admin.campaigns.tour.stepCount", {
+		count: Math.max(slideCount - 1, 0),
+	});
+}
+
+/**
+ * The number of each slide as a reader counts a tour's steps: the summary slide
+ * (the empty-state line) has none, and the slides after it are steps 1, 2, 3
+ * whatever their place in the list.
+ */
+export function tourStepNumbers(
+	slides: ReadonlyArray<{ kind: string }>,
+): Array<number | null> {
+	let step = 0;
+	return slides.map((slide) => {
+		if (slide.kind === "summary") return null;
+		step += 1;
+		return step;
+	});
 }

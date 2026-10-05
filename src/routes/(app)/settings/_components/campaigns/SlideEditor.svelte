@@ -52,6 +52,7 @@ let {
 	menuAttention = false,
 	assetDetails = {},
 	uploadingVariant = null,
+	tour = null,
 	onUpdate,
 	onLocaleChange,
 	onAssetUpload,
@@ -67,6 +68,13 @@ let {
 	menuAttention?: boolean;
 	assetDetails?: Record<string, AssetDetails | undefined>;
 	uploadingVariant?: CampaignAssetVariant | null;
+	/**
+	 * Set when the slide belongs to a tour: it has only words (a title and, on a
+	 * step, a body), because no tour shows a screenshot, alt text or a button.
+	 * The summary slide is the empty-state line and has a title alone. `step` is
+	 * the number a reader counts the step by.
+	 */
+	tour?: { summary: boolean; step: number | null } | null;
 	onUpdate: (patch: Partial<EditorSlide>) => void;
 	onLocaleChange: (locale: ChecklistLocale) => void;
 	onAssetUpload: (variant: CampaignAssetVariant, file: File) => void;
@@ -90,6 +98,7 @@ let altText = $derived((locale === "en" ? slide.altEn : slide.altHu) ?? "");
 let actionLabel = $derived(
 	(locale === "en" ? slide.actionLabelEn : slide.actionLabelHu) ?? "",
 );
+let tourSummary = $derived(tour?.summary === true);
 let failures = $derived(slideFieldFailures(checklist, slide.localId));
 let languageName = $derived(
 	locale === "hu"
@@ -130,7 +139,15 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 
 <section class="slide-editor" aria-label={$t('admin.campaigns.slideEditorLabel', { number: slideNumber })}>
 	<header class="slide-head">
-		<h3 class="slide-title">{$t('admin.campaigns.slideNumber', { number: slideNumber })}</h3>
+		<h3 class="slide-title">
+			{#if !tour}
+				{$t('admin.campaigns.slideNumber', { number: slideNumber })}
+			{:else if tourSummary}
+				{$t('admin.campaigns.tour.summarySlide')}
+			{:else}
+				{$t('admin.campaigns.tour.stepNumber', { number: tour.step ?? slideNumber })}
+			{/if}
+		</h3>
 		<div class="locale-pills" role="group" aria-label={$t('admin.campaigns.previewLanguage')}>
 			{#each ['en', 'hu'] as const as option (option)}
 				<button
@@ -174,8 +191,14 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 					{$t('admin.campaigns.fieldError.title', { language: languageName })}
 				</p>
 			{/if}
+			{#if tourSummary}
+				<p class="field-hint" data-testid="tour-summary-hint">
+					{$t('admin.campaigns.tour.summaryHint')}
+				</p>
+			{/if}
 		</div>
 
+		{#if !tourSummary}
 		<div class="field">
 			<label class="field-label" for={`slide-body-${slide.localId}`}>
 				{$t('admin.campaigns.slideBody')}
@@ -199,7 +222,11 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 				</span>
 			</div>
 		</div>
+		{/if}
 
+		<!-- A screenshot, its alt text and a button are an announcement's: no tour
+		     shows any of them, so none is asked for. -->
+		{#if !tour}
 		<div class="field">
 			<label class="field-label" for={`slide-alt-${slide.localId}`}>
 				{$t('admin.campaigns.slideAlt')}
@@ -273,8 +300,10 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 				</div>
 			</div>
 		</div>
+		{/if}
 	</div>
 
+	{#if !tour}
 	<div class="asset-grid">
 		<SlideAssetBlock
 			variant="desktop"
@@ -301,6 +330,7 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 			onRemove={() => onAssetRemove('mobile')}
 		/>
 	</div>
+	{/if}
 </section>
 
 <style>
@@ -403,6 +433,13 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 		align-items: center;
 		gap: 0.5rem;
 		margin-top: 0.2rem;
+	}
+
+	.field-hint {
+		margin-top: 0.4rem;
+		font-size: var(--text-2xs);
+		line-height: 1.5;
+		color: var(--text-muted);
 	}
 
 	.char-count {

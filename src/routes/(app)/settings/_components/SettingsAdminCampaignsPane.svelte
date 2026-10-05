@@ -51,7 +51,11 @@ import { ApiError } from "$lib/client/api/http";
 import { t } from "$lib/i18n";
 import type { I18nKey } from "$lib/i18n";
 import { reducedMotionAware } from "$lib/utils/motion";
-import { tourLead } from "./campaigns/campaign-labels";
+import {
+	tourCountLabel,
+	tourLead,
+	tourStepNumbers,
+} from "./campaigns/campaign-labels";
 import CampaignDialog from "./campaigns/CampaignDialog.svelte";
 import CampaignRail from "./campaigns/CampaignRail.svelte";
 import ChecklistStatus from "./campaigns/ChecklistStatus.svelte";
@@ -61,6 +65,7 @@ import PerformanceCard from "./campaigns/PerformanceCard.svelte";
 import SlideEditor from "./campaigns/SlideEditor.svelte";
 import SlideOptionsDialog from "./campaigns/SlideOptionsDialog.svelte";
 import SlideRail from "./campaigns/SlideRail.svelte";
+import TourPreview from "./campaigns/TourPreview.svelte";
 import type { SlideRailItem } from "./campaigns/SlideRail.svelte";
 import {
 	type ChecklistLocale,
@@ -150,6 +155,10 @@ let previewCampaign = $derived<Campaign | null>(
 );
 
 let isDraftEditable = $derived(draft?.status === "draft");
+// A tour is a campaign of its own kind: one summary slide (the empty-state
+// line) and three steps, with words only and nothing recorded about it.
+let isTour = $derived(draft?.type === "artifact_tour");
+let tourSteps = $derived(tourStepNumbers(draft?.slides ?? []));
 let activeSlide = $derived(draft?.slides[activeSlideIndex] ?? null);
 
 let checklist = $derived(
@@ -212,17 +221,32 @@ let canArchive = $derived(
 let canDuplicate = $derived(Boolean(draft && !actionLoading && !saving));
 
 let slideRailItems = $derived<SlideRailItem[]>(
-	(draft?.slides ?? []).map((slide) => ({
-		localId: slide.localId,
-		title: slideTitle(slide),
-		thumbnailUrl: slide.desktopAssetId
-			? `/api/campaign-assets/${encodeURIComponent(slide.desktopAssetId)}/content`
-			: slide.mobileAssetId
-				? `/api/campaign-assets/${encodeURIComponent(slide.mobileAssetId)}/content`
-				: null,
-		failing: isDraftEditable && slideHasFailure(checklist, slide.localId),
-		isSetup: slide.kind === "setup",
-	})),
+	(draft?.slides ?? []).map((slide, index) => {
+		const step = isTour ? (tourSteps[index] ?? null) : null;
+		return {
+			localId: slide.localId,
+			title: slideTitle(slide),
+			thumbnailUrl: slide.desktopAssetId
+				? `/api/campaign-assets/${encodeURIComponent(slide.desktopAssetId)}/content`
+				: slide.mobileAssetId
+					? `/api/campaign-assets/${encodeURIComponent(slide.mobileAssetId)}/content`
+					: null,
+			failing: isDraftEditable && slideHasFailure(checklist, slide.localId),
+			isSetup: slide.kind === "setup",
+			// A tour is read the way a reader meets it: the empty-state line, then
+			// steps 1, 2, 3. It has no pictures, so no slot is kept for one.
+			...(isTour
+				? {
+						picture: false,
+						label: step === null ? "" : String(step),
+						tag:
+							slide.kind === "summary"
+								? $t("admin.campaigns.tour.emptyStateTag")
+								: null,
+					}
+				: {}),
+		};
+	}),
 );
 
 let activeSlideAttention = $derived(
@@ -231,9 +255,12 @@ let activeSlideAttention = $derived(
 		: { layout: false, purpose: false, setupControls: false, any: false },
 );
 
+// A tour records nothing (it writes one "seen" row per reader and no campaign
+// event), so a performance card for it could only ever read zero.
 let showPerformance = $derived(
 	Boolean(
 		draft &&
+			!isTour &&
 			(draft.status !== "draft" ||
 				(draft.analyticsSummary?.autoShown ?? 0) > 0),
 	),
@@ -355,6 +382,15 @@ async function loadCampaigns(preferredId: string | null = selectedCampaignId) {
 		showError(error, $t("admin.campaigns.errors.load"));
 	} finally {
 		loading = false;
+	}
+}
+
+/** The rail alone, with the open campaign and slide left as they are; a failure leaves it as it was. */
+async function refreshCampaignList() {
+	try {
+		campaigns = await fetchAdminCampaigns();
+	} catch {
+		// What was published stays published; the list catches up on the next load.
 	}
 }
 
@@ -570,10 +606,11 @@ async function seedArtifactToursAction() {
 	try {
 		const result = await seedArtifactTours();
 		showSuccess(
-			$t("admin.campaigns.messages.artifactToursSeeded", {
-				created: result.created,
-				skipped: result.existing,
-			}),
+			result.created > 0
+				? $t("admin.campaigns.messages.artifactToursSeeded", {
+						created: result.created,
+					})
+				: $t("admin.campaigns.messages.artifactToursExist"),
 		);
 		await loadCampaigns();
 	} catch (error) {
@@ -600,6 +637,11 @@ async function publishCampaign() {
 		);
 		if (campaign.type === "release_update") {
 			await invalidateAll();
+		}
+		if (campaign.type === "artifact_tour") {
+			// A kind has one live tour: publishing this one archived the revision
+			// it replaced, on the server, so the rail is asked what is live now.
+			await refreshCampaignList();
 		}
 		showSuccess($t("admin.campaigns.messages.published"));
 	} catch (error) {
@@ -852,32 +894,38 @@ let slideMenuItems = $derived<OverflowMenuItem[]>(
 					disabled: !isDraftEditable,
 					onSelect: () => openSlideOptions("layout"),
 				},
-				{
-					id: "purpose",
-					label: $t("admin.campaigns.menu.purpose", {
-						value:
-							activeSlide.semanticRole === "data_disclosure"
-								? $t("admin.campaigns.purpose.dataDisclosure")
-								: $t("admin.campaigns.purpose.feature"),
-					}),
-					icon: Flag,
-					attention: activeSlideAttention.purpose,
-					disabled: !isDraftEditable,
-					onSelect: () => openSlideOptions("purpose"),
-				},
-				{
-					id: "setupControls",
-					label:
-						(activeSlide.setupControls?.length ?? 0) === 0
-							? $t("admin.campaigns.menu.setupControlsNone")
-							: $t("admin.campaigns.menu.setupControls", {
-									count: activeSlide.setupControls?.length ?? 0,
+				// Purpose (data disclosure) and setup controls are first-run
+				// onboarding's: no tour slide uses either, so a tour's menu has neither.
+				...(isTour
+					? []
+					: [
+							{
+								id: "purpose",
+								label: $t("admin.campaigns.menu.purpose", {
+									value:
+										activeSlide.semanticRole === "data_disclosure"
+											? $t("admin.campaigns.purpose.dataDisclosure")
+											: $t("admin.campaigns.purpose.feature"),
 								}),
-					icon: SlidersHorizontal,
-					attention: activeSlideAttention.setupControls,
-					disabled: !isDraftEditable,
-					onSelect: () => openSlideOptions("setupControls"),
-				},
+								icon: Flag,
+								attention: activeSlideAttention.purpose,
+								disabled: !isDraftEditable,
+								onSelect: () => openSlideOptions("purpose"),
+							},
+							{
+								id: "setupControls",
+								label:
+									(activeSlide.setupControls?.length ?? 0) === 0
+										? $t("admin.campaigns.menu.setupControlsNone")
+										: $t("admin.campaigns.menu.setupControls", {
+												count: activeSlide.setupControls?.length ?? 0,
+											}),
+								icon: SlidersHorizontal,
+								attention: activeSlideAttention.setupControls,
+								disabled: !isDraftEditable,
+								onSelect: () => openSlideOptions("setupControls"),
+							},
+						]),
 				{
 					id: "copy",
 					label: $t("admin.campaigns.menu.copyEnToHu"),
@@ -930,7 +978,11 @@ let metaLine = $derived.by(() => {
 	if (draft.type !== "artifact_tour" && draft.releaseVersion) {
 		parts.push(draft.releaseVersion);
 	}
-	parts.push($t("admin.campaigns.slideCount", { count: draft.slides.length }));
+	parts.push(
+		draft.type === "artifact_tour"
+			? tourCountLabel(draft.slides.length, $t)
+			: $t("admin.campaigns.slideCount", { count: draft.slides.length }),
+	);
 	if (draft.status === "published" && draft.publishedAt) {
 		parts.push(
 			$t("admin.campaigns.liveSince", { date: formatDate(draft.publishedAt) }),
@@ -1139,6 +1191,9 @@ onMount(() => {
 							{checklist}
 							menuItems={slideMenuItems}
 							menuAttention={activeSlideAttention.any}
+							tour={isTour
+								? { summary: slide.kind === 'summary', step: tourSteps[activeSlideIndex] ?? null }
+								: null}
 							{assetDetails}
 							uploadingVariant={assetLoading === `${slide.localId}:desktop`
 								? 'desktop'
@@ -1192,6 +1247,7 @@ onMount(() => {
 				<section class="preview-card" aria-label={$t('admin.campaigns.previewLabel')}>
 					<div class="preview-head">
 						<p class="eyebrow">{$t('admin.campaigns.preview')}</p>
+						{#if !isTour}
 						<div class="device-toggle" role="group" aria-label={$t('admin.campaigns.previewDevice')}>
 							<button
 								type="button"
@@ -1216,18 +1272,31 @@ onMount(() => {
 								<Smartphone size={12} strokeWidth={2} aria-hidden="true" />
 							</button>
 						</div>
+						{/if}
 					</div>
-					<div class="preview-frame" class:preview-frame-mobile={previewDevice === 'mobile'}>
-						<CampaignModal
-							campaign={previewCampaign}
+					{#if isTour}
+						<!-- A tour is not an announcement: it previews as the card a reader
+						     meets, or as the empty-state line for the summary slide, and has
+						     no desktop and mobile screenshots to switch between. -->
+						<TourPreview
+							releaseVersion={draft.releaseVersion}
+							slides={draft.slides}
 							locale={editLocale}
-							preview={true}
-							inline={true}
 							slideIndex={activeSlideIndex}
-							previewVariant={previewDevice}
-							onSlideChange={(index) => (activeSlideIndex = index)}
 						/>
-					</div>
+					{:else}
+						<div class="preview-frame" class:preview-frame-mobile={previewDevice === 'mobile'}>
+							<CampaignModal
+								campaign={previewCampaign}
+								locale={editLocale}
+								preview={true}
+								inline={true}
+								slideIndex={activeSlideIndex}
+								previewVariant={previewDevice}
+								onSlideChange={(index) => (activeSlideIndex = index)}
+							/>
+						</div>
+					{/if}
 				</section>
 
 				{#if showPerformance}
