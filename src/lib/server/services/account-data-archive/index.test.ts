@@ -1276,6 +1276,114 @@ describe("createAccountDataArchive", () => {
 		expect(combinedText).not.toMatch(/\bartifacts?\b/i);
 	});
 
+	// Slice 6 (rulings 33 and 69): the introductions a user has seen are theirs,
+	// so they leave with them — named by kind in the app's own words, and with
+	// nothing that identifies a chat, a file or a campaign snapshot.
+	describe("the introductions a user has seen", () => {
+		async function memoryPage(): Promise<string> {
+			const result = await createAccountDataArchive("user-1", {
+				password: "correct-password",
+				db,
+				rootDir: tempDir,
+				now: new Date("2026-06-15T08:00:00Z"),
+			});
+			expect(result.status).toBe("ok");
+			if (result.status !== "ok") return "";
+			const zip = await JSZip.loadAsync(
+				Buffer.from(await new Response(result.zipStream).arrayBuffer()),
+			);
+			return (await zip.file("Memory/Memory.html")?.async("string")) ?? "";
+		}
+
+		function introductionsSection(page: string): string {
+			const start = page.indexOf("Feature introductions seen");
+			if (start === -1) return "";
+			return page.slice(start, page.indexOf("</section>", start));
+		}
+
+		it("lists each by its kind and how it ended, for this user only, and without any id or content key", async () => {
+			await seedArchiveUser();
+			await db.delete(schema.artifactTourStates);
+			await db.insert(schema.artifactTourStates).values([
+				{
+					id: "tour-doc-row-id",
+					userId: "user-1",
+					artifactType: "document",
+					contentKey: "snapshot:campaign-snapshot-id",
+					status: "dismissed",
+					slideCount: 3,
+					lastSlide: 1,
+					dismissedAt: new Date("2026-03-01T09:00:00Z"),
+				},
+				{
+					id: "tour-app-row-id",
+					userId: "user-1",
+					artifactType: "app",
+					contentKey: "default:1",
+					status: "completed",
+					slideCount: 3,
+					lastSlide: 2,
+					completedAt: new Date("2026-03-02T09:00:00Z"),
+				},
+				{
+					id: "tour-canvas-of-another-user",
+					userId: "user-2",
+					artifactType: "canvas",
+					contentKey: "default:1",
+					status: "completed",
+					slideCount: 3,
+					lastSlide: 2,
+					completedAt: new Date("2026-03-03T09:00:00Z"),
+				},
+			]);
+
+			const section = introductionsSection(await memoryPage());
+
+			expect(section).toContain("Document");
+			expect(section).toContain("dismissed");
+			expect(section).toContain("App");
+			expect(section).toContain("completed");
+			// Another user's introduction is not this user's data.
+			expect(section).not.toContain("Canvas");
+			for (const identifier of [
+				"snapshot:campaign-snapshot-id",
+				"default:1",
+				"tour-doc-row-id",
+				"tour-app-row-id",
+			]) {
+				expect(section).not.toContain(identifier);
+			}
+			expect(section.toLowerCase()).not.toContain("artifact");
+		});
+
+		it("leaves the section out when the user has seen none", async () => {
+			await seedArchiveUser();
+			await db.delete(schema.artifactTourStates);
+
+			expect(introductionsSection(await memoryPage())).toBe("");
+		});
+
+		it("has no label for a kind that does not ship: a stray Slides row reads as the stored word (ruling 69)", async () => {
+			await seedArchiveUser();
+			await db.delete(schema.artifactTourStates);
+			await db.insert(schema.artifactTourStates).values({
+				id: "tour-stray-slides",
+				userId: "user-1",
+				artifactType: "slides",
+				contentKey: "default:1",
+				status: "completed",
+				slideCount: 3,
+				lastSlide: 2,
+				completedAt: new Date("2026-03-04T09:00:00Z"),
+			});
+
+			const section = introductionsSection(await memoryPage());
+
+			expect(section).toContain("slides");
+			expect(section).not.toContain("Slides");
+		});
+	});
+
 	it("fails the whole archive when an in-scope original file cannot be read", async () => {
 		await seedArchiveUser();
 		await rm(join(tempDir, "data", "knowledge", "user-1", "roadmap-notes.txt"));

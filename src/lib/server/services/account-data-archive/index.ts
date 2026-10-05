@@ -25,6 +25,10 @@ import {
 } from "$lib/server/db/schema";
 import { verifyPassword } from "$lib/server/services/auth";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import {
+	isShippedArtifactTourType,
+	type ShippedArtifactTourType,
+} from "$lib/shared/artifacts/tours";
 import { escapeHtml, renderArchiveEntryPage, renderArchivePage } from "./html";
 
 export type AccountDataArchiveResult =
@@ -1284,12 +1288,14 @@ function renderMemoryEvents(rows: Array<typeof memoryEvents.$inferSelect>) {
 }
 
 /** Kind labels for the first-open tour, in the same words the app itself
- *  uses (`artifacts.type.*`, Slice 0) — never "artifact" (ADR-0066). */
-const ARTIFACT_TOUR_KIND_LABELS: Record<string, string> = {
+ *  uses (`artifacts.type.*`, Slice 0) — never "artifact" (ADR-0066). Keyed by
+ *  the kinds whose tour ships (ruling 69): a row for any other kind cannot be
+ *  written, and if one ever turned up it reads as the stored word, so the
+ *  archive never names a kind the product does not offer. */
+const ARTIFACT_TOUR_KIND_LABELS: Record<ShippedArtifactTourType, string> = {
 	document: "Document",
 	app: "App",
 	canvas: "Canvas",
-	slides: "Slides",
 };
 
 /**
@@ -1305,7 +1311,9 @@ function renderArtifactTourStates(
 	if (rows.length === 0) return "";
 	return `<section><h2>Feature introductions seen</h2>${renderTable(
 		rows.map((row) => [
-			ARTIFACT_TOUR_KIND_LABELS[row.artifactType] ?? row.artifactType,
+			isShippedArtifactTourType(row.artifactType)
+				? ARTIFACT_TOUR_KIND_LABELS[row.artifactType]
+				: row.artifactType,
 			row.status,
 			formatDateTime(row.completedAt ?? row.dismissedAt),
 		]),
