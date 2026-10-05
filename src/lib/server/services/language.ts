@@ -373,8 +373,49 @@ function hasRequestFrame(words: string[]): boolean {
 	});
 }
 
-function isRequestAround(words: string[], marker: LanguageMarker): boolean {
-	const requestFrame = hasRequestFrame(words);
+// What the whole sentence says, read once however many language words it holds.
+type SentenceContext = {
+	first: string | undefined;
+	requestFrame: boolean;
+	asking: boolean;
+	wants: boolean;
+	translating: boolean;
+	subjectIsTheLanguage: boolean;
+	requestModal: boolean;
+	abilityModal: boolean;
+};
+
+function readSentence(words: string[]): SentenceContext {
+	return {
+		first: words.find((word) => !LEADING_FILLERS.has(word)),
+		requestFrame: hasRequestFrame(words),
+		// "Let's...", "Can we...", "please...".
+		asking: words.some(
+			(word) =>
+				/^(?:we|us|let's|lets)$/.test(word) || ENGLISH_POLITE_WORDS.has(word),
+		),
+		// "I want / I'd like / I prefer" it in the language.
+		wants: words.some(
+			(word, at) =>
+				(/^(?:want|need|prefer)$/.test(word) &&
+					/^(?:i|we)$/.test(words[at - 1] ?? "")) ||
+				(word === "like" && /^(?:would|i'd|id)$/.test(words[at - 1] ?? "")),
+		),
+		translating: words.some((word) => word.startsWith("translat")),
+		subjectIsTheLanguage: words.some((word) =>
+			HUNGARIAN_SUBJECT_STEM_RE.test(word),
+		),
+		requestModal: words.some((word) => HUNGARIAN_REQUEST_MODALS.has(word)),
+		abilityModal: words.includes("tudsz"),
+	};
+}
+
+function isRequestAround(
+	words: string[],
+	marker: LanguageMarker,
+	sentence: SentenceContext,
+): boolean {
+	const requestFrame = sentence.requestFrame;
 	const nextToMarker = (set: Set<string>, reach: number) =>
 		words
 			.slice(Math.max(0, marker.at - reach), marker.end + reach + 1)
@@ -398,14 +439,11 @@ function isRequestAround(words: string[], marker: LanguageMarker): boolean {
 		// whether you can, and "I want to learn Hungarian" is not a request.
 		const before = words.slice(Math.max(0, marker.at - 4), marker.at);
 		const speech = before.some((word) => ENGLISH_SPEECH_VERBS.has(word));
-		const asking = words.some(
-			(word) =>
-				/^(?:we|us|let's|lets)$/.test(word) || ENGLISH_POLITE_WORDS.has(word),
-		);
-		const first = words.find((word) => !LEADING_FILLERS.has(word));
+		const first = sentence.first;
 		if (
 			speech &&
-			(asking || (first !== undefined && ENGLISH_SPEECH_VERBS.has(first)))
+			(sentence.asking ||
+				(first !== undefined && ENGLISH_SPEECH_VERBS.has(first)))
 		) {
 			return true;
 		}
@@ -417,7 +455,7 @@ function isRequestAround(words: string[], marker: LanguageMarker): boolean {
 	}
 
 	// A directive about the reply within a few words either side.
-	const first = words.find((word) => !LEADING_FILLERS.has(word));
+	const first = sentence.first;
 	const from = Math.max(0, marker.at - 7);
 	const to = Math.min(words.length - 1, marker.end + 7);
 	for (let at = from; at <= to; at++) {
@@ -436,11 +474,9 @@ function isRequestAround(words: string[], marker: LanguageMarker): boolean {
 		}
 		if (isHungarianDirective(word)) return true;
 		if (HUNGARIAN_INFINITIVE_RE.test(word)) {
-			const modalAsks = words.some(
-				(other) =>
-					HUNGARIAN_REQUEST_MODALS.has(other) ||
-					(other === "tudsz" && HUNGARIAN_ANSWER_INFINITIVE_RE.test(word)),
-			);
+			const modalAsks =
+				sentence.requestModal ||
+				(sentence.abilityModal && HUNGARIAN_ANSWER_INFINITIVE_RE.test(word));
 			if (modalAsks) return true;
 		}
 	}
@@ -449,26 +485,19 @@ function isRequestAround(words: string[], marker: LanguageMarker): boolean {
 		// "Legyen angolul a válasz", "Lehet angolul?".
 		if (nextToMarker(HUNGARIAN_WISH_WORDS, 3)) return true;
 		// "Kérlek angolul", "Angolul, légy szíves", "Csak angolul".
-		const subjectIsTheLanguage = words.some((word) =>
-			HUNGARIAN_SUBJECT_STEM_RE.test(word),
-		);
-		if (!subjectIsTheLanguage && nextToMarker(HUNGARIAN_POLITE_WORDS, 2)) {
+		if (
+			!sentence.subjectIsTheLanguage &&
+			nextToMarker(HUNGARIAN_POLITE_WORDS, 2)
+		) {
 			return true;
 		}
 	}
 
 	if (marker.kind === "in") {
-		// "I want / I'd like / I prefer" it in the language.
-		const wants = words.some(
-			(word, at) =>
-				(/^(?:want|need|prefer)$/.test(word) &&
-					/^(?:i|we)$/.test(words[at - 1] ?? "")) ||
-				(word === "like" && /^(?:would|i'd|id)$/.test(words[at - 1] ?? "")),
-		);
-		if (wants) return true;
+		if (sentence.wants) return true;
 		// "In English please", "only in Hungarian" — but not "translate it in
 		// Hungarian please".
-		if (!words.some((word) => word.startsWith("translat"))) {
+		if (!sentence.translating) {
 			if (nextToMarker(ENGLISH_POLITE_WORDS, 1)) return true;
 			if (words[marker.at - 1] === "only" || words[marker.end + 1] === "only") {
 				return true;
@@ -486,9 +515,10 @@ function requestInSentence(sentence: string): SupportedLanguage | null {
 	if (first !== undefined && QUESTION_STARTERS.has(first)) return null;
 	if (HUNGARIAN_HOW_SAID_RE.test(words.join(" "))) return null;
 
+	const context = readSentence(words);
 	let found: SupportedLanguage | null = null;
 	for (const marker of markers) {
-		if (isRequestAround(words, marker)) found = marker.language;
+		if (isRequestAround(words, marker, context)) found = marker.language;
 	}
 	return found;
 }
