@@ -880,3 +880,17 @@ The owner chose: **sampling on internal model calls** (first, branched from `dev
 tours** and **the rest of Feature 2 excluding Slides** (Wave 4/S5b, the final review, the owner's walk, the release
 checklist). Hand-off: `docs/plans/claude-at-home-2/wave-4-handoff.md`. Weekly budget 0 % at the reset; this session's
 context had reached 85 %, so the phase starts in a fresh session from a task card.
+
+## Wave 4 — the sampling fix, the tours, S5b, the final (orchestrator session of 2026-10-05)
+
+Start: `dev` = `origin/dev` = ai.dev = `27274c0e`; `feat/artifacts` = `43694579` (= `dev` + docs). Weekly budget (all
+models) **1 %** (resets 2026-10-12 09:00 UTC); 5-hour window 8 %. Rules for agents: `wave-4/common.md` (on top of
+`wave-3/common.md`); briefs `wave-4/*-brief.md`; reports land in this session's scratchpad `w4/` and are copied to
+`wave-4/` at merge. `feat/artifacts-s6` merged cleanly onto `feat/artifacts` as `cf97b891` on the new branch
+`feat/artifacts-tours` (migration `1777140000112` is still the next free number on `dev`: its journal ends at idx 124,
+`1777140000111`).
+
+| Agent | Scope | Branch / worktree (port) | State |
+|---|---|---|---|
+| SMP | every internal model call takes the provider family's one sampling profile (inventory, a wire test per path, before/after live probe) | `fix/internal-call-sampling` (from `dev`) / `smp` (5400, tunnel 30401) | dispatched |
+| TR-A | tours server: merged groundwork green, the badge predicate fix (T3.0), GET + seen routes, browser module, ruling 69's three kinds, T4 invariants, archive/erasure | `feat/artifacts-tours` / `art-tra` (5410) | dispatched |
