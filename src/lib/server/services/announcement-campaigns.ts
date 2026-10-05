@@ -11,6 +11,10 @@ import {
 	announcementCampaignUserStates,
 	campaignAssets,
 } from "$lib/server/db/schema";
+import {
+	isShippedArtifactTourType,
+	SHIPPED_ARTIFACT_TOUR_TYPES,
+} from "$lib/shared/artifacts/tours";
 
 type CampaignDb = typeof defaultDb;
 
@@ -830,6 +834,15 @@ function validatePublishInput(
 		if (!wellShaped) {
 			errors.tourSlideShape =
 				"A tour campaign requires exactly one summary slide, placed first, and exactly three standard slides after it.";
+		}
+		// A tour's kind is its release text, and the resolver finds a tour by
+		// exactly that (`artifact-tours.ts`). Published under any other text it
+		// would reach nobody and say nothing, so it is refused here instead
+		// (ruling 71). Only a kind whose tour ships can be named: not Slides,
+		// which is shelved, and never File.
+		if (!isShippedArtifactTourType(campaign.releaseVersion)) {
+			const kinds = SHIPPED_ARTIFACT_TOUR_TYPES;
+			errors.tourKind = `A tour campaign's release must be the kind it introduces: ${kinds.slice(0, -1).join(", ")} or ${kinds[kinds.length - 1]}.`;
 		}
 	}
 

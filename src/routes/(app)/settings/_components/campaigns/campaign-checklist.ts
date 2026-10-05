@@ -19,6 +19,7 @@
  */
 
 import { isAllowedActionDestination } from "$lib/campaign-action-destinations";
+import { isShippedArtifactTourType } from "$lib/shared/artifacts/tours";
 
 export {
 	ALLOWED_ACTION_DESTINATIONS,
@@ -81,7 +82,8 @@ export type ChecklistRuleId =
 	| "setupControls"
 	| "setupSlide"
 	| "dataDisclosure"
-	| "tourShape";
+	| "tourShape"
+	| "tourKind";
 
 /** The three slide properties that live behind the slide's ⋯ menu. */
 export type SlideMenuItem = "layout" | "purpose" | "setupControls";
@@ -418,6 +420,17 @@ export function evaluateCampaignChecklist(
 				messageKey: `${VALIDATION}.tourShapeInvalid`,
 			});
 		}
+
+		// A tour is found by its release text, which must name a kind whose
+		// tour ships (ruling 71, the server's `tourKind` rule).
+		use("tourKind");
+		if (!isShippedArtifactTourType(campaign.releaseVersion.trim())) {
+			fail({
+				ruleId: "tourKind",
+				path: "tourKind",
+				messageKey: `${VALIDATION}.tourKindInvalid`,
+			});
+		}
 	}
 
 	const ruleList: ChecklistRule[] = applicable.map((id) => ({
@@ -483,6 +496,7 @@ const RULE_LABEL: Record<ChecklistRuleId, string> = {
 	setupSlide: "admin.campaigns.checklist.rule.setupSlide",
 	dataDisclosure: "admin.campaigns.checklist.rule.dataDisclosure",
 	tourShape: "admin.campaigns.checklist.rule.tourShape",
+	tourKind: "admin.campaigns.checklist.rule.tourKind",
 };
 
 /** What a failing row says; the localized ones name the missing language. */
@@ -502,6 +516,7 @@ const FAILURE_LABEL: Record<ChecklistRuleId, string> = {
 	setupSlide: "admin.campaigns.checklist.fail.setupSlide",
 	dataDisclosure: "admin.campaigns.checklist.fail.dataDisclosure",
 	tourShape: "admin.campaigns.checklist.fail.tourShape",
+	tourKind: "admin.campaigns.checklist.fail.tourKind",
 };
 
 /** The rule label shown in the expanded checklist, per rule id. */

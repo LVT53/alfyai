@@ -1000,6 +1000,86 @@ describe("announcement campaign service", () => {
 		});
 	});
 
+	// Ruling 71 (TR-A's concern 2): a tour's kind lives in `releaseVersion`, and
+	// the resolver finds a tour by exactly that text. A tour that names no
+	// shipped kind would publish and then reach nobody, silently, so it is
+	// refused where an admin can still read why.
+	it("publishes a tour for each kind that ships", async () => {
+		for (const kind of ["document", "app", "canvas"]) {
+			await createTourDraft(kind, `tour-ships-${kind}`);
+			const published = await publishCampaign(
+				`tour-ships-${kind}`,
+				"admin-user",
+				{ db, ids: [`tour-ships-${kind}-snapshot`] },
+			);
+			expect(published.status).toBe("published");
+		}
+	});
+
+	it("refuses to publish a tour whose release is not a kind that ships", async () => {
+		const cases = [
+			["tour-typo", "2.1.0"],
+			["tour-slides", "slides"],
+			["tour-file", "file"],
+			["tour-case", "Canvas"],
+			["tour-word", "canvass"],
+		] as const;
+		for (const [campaignId, release] of cases) {
+			await createTourDraft(release, campaignId);
+			await expect(
+				publishCampaign(campaignId, "admin-user", { db }),
+			).rejects.toMatchObject({
+				fieldErrors: {
+					tourKind:
+						"A tour campaign's release must be the kind it introduces: document, app or canvas.",
+				},
+			});
+		}
+	});
+
+	it("says the kind is wrong in addition to what else is wrong, never instead of it", async () => {
+		const slides = buildTourSlides("canvas").slice(0, 3);
+		await createTourDraft("2.1.0", "tour-typo-and-shape", slides);
+
+		await expect(
+			publishCampaign("tour-typo-and-shape", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: expect.objectContaining({
+				tourKind: expect.any(String),
+				tourSlideShape: expect.any(String),
+			}),
+		});
+	});
+
+	it("leaves a release update's version alone: only a tour is held to a kind", async () => {
+		await createCampaignDraft(
+			{
+				type: "release_update",
+				name: "Release 2.1.0",
+				releaseVersion: "2.1.0",
+				createdByUserId: "admin-user",
+			},
+			{ db, ids: ["release-2-1-0"] },
+		);
+		await updateCampaignDraft(
+			"release-2-1-0",
+			{
+				slides: buildTourSlides("release").map((slide) => ({
+					...slide,
+					layoutType: "standard",
+				})),
+			},
+			{ db },
+		);
+
+		const published = await publishCampaign("release-2-1-0", "admin-user", {
+			db,
+			ids: ["release-2-1-0-snapshot"],
+		});
+
+		expect(published.status).toBe("published");
+	});
+
 	it("requires en and hu title and body on every slide", async () => {
 		const slides = buildTourSlides("canvas");
 		slides[1] = { ...slides[1], title: { en: "", hu: "Első dia" } };

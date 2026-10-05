@@ -174,6 +174,8 @@ const settingsDict = {
 			"At least one slide is required.",
 		"admin.campaigns.validation.sortOrderInvalid":
 			"Slide order must use unique positive integers.",
+		"admin.campaigns.validation.tourKindInvalid":
+			"A tour must belong to a Document, App or Canvas, or no one will ever see it.",
 		"admin.campaigns.validation.tourShapeInvalid":
 			"A tour needs exactly one summary slide first, followed by exactly three standard slides.",
 		"admin.campaigns.validation.typeInvalid":
@@ -988,6 +990,7 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupControls": "Setup controls",
 		"admin.campaigns.checklist.fail.setupSlide": "Exactly one setup slide",
 		"admin.campaigns.checklist.fail.slides": "At least one slide",
+		"admin.campaigns.checklist.fail.tourKind": "Tour kind",
 		"admin.campaigns.checklist.fail.tourShape":
 			"One summary slide, then three standard slides",
 		"admin.campaigns.checklist.fail.type": "Campaign type",
@@ -1013,6 +1016,8 @@ const settingsDict = {
 			"Setup controls are placed correctly",
 		"admin.campaigns.checklist.rule.setupSlide": "Exactly one setup slide",
 		"admin.campaigns.checklist.rule.slides": "At least one slide",
+		"admin.campaigns.checklist.rule.tourKind":
+			"Tour belongs to a Document, App or Canvas",
 		"admin.campaigns.checklist.rule.tourShape":
 			"One summary slide, then three standard slides",
 		"admin.campaigns.checklist.rule.type": "Campaign type",
@@ -2111,6 +2116,8 @@ const settingsDict = {
 		"admin.campaigns.validation.slideRequired": "Legalább egy dia szükséges.",
 		"admin.campaigns.validation.sortOrderInvalid":
 			"A diasorrendnek egyedi pozitív egész számokat kell használnia.",
+		"admin.campaigns.validation.tourKindInvalid":
+			"A bemutatónak egy dokumentumhoz, alkalmazáshoz vagy táblához kell tartoznia, különben senki nem látja soha.",
 		"admin.campaigns.validation.tourShapeInvalid":
 			"A bemutatóhoz pontosan egy összegző dia szükséges elsőként, amit pontosan három általános dia követ.",
 		"admin.campaigns.validation.typeInvalid":
@@ -2949,6 +2956,7 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupControls": "Beállítási vezérlők",
 		"admin.campaigns.checklist.fail.setupSlide": "Pontosan egy beállítási dia",
 		"admin.campaigns.checklist.fail.slides": "Legalább egy dia",
+		"admin.campaigns.checklist.fail.tourKind": "A bemutató típusa",
 		"admin.campaigns.checklist.fail.tourShape":
 			"Egy összegző, utána három általános dia",
 		"admin.campaigns.checklist.fail.type": "Kampány típusa",
@@ -2972,6 +2980,8 @@ const settingsDict = {
 			"A beállítási vezérlők jó helyen vannak",
 		"admin.campaigns.checklist.rule.setupSlide": "Pontosan egy beállítási dia",
 		"admin.campaigns.checklist.rule.slides": "Legalább egy dia",
+		"admin.campaigns.checklist.rule.tourKind":
+			"A bemutató dokumentumhoz, alkalmazáshoz vagy táblához tartozik",
 		"admin.campaigns.checklist.rule.tourShape":
 			"Egy összegző dia, utána három általános dia",
 		"admin.campaigns.checklist.rule.type": "Kampány típusa",

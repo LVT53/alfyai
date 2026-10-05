@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import settingsDict from "$lib/i18n/settings";
 import {
 	type ChecklistCampaign,
 	type ChecklistSlide,
@@ -447,5 +448,79 @@ describe("artifact_tour slide shape (Slice 6)", () => {
 		expect(checklist.rules.find((rule) => rule.id === "layout")?.passed).toBe(
 			true,
 		);
+	});
+
+	// Ruling 71: the mirror of the server's `tourKind` rule
+	// (announcement-campaigns.ts `validatePublishInput`). A tour is found by its
+	// release text, which must be a kind whose tour ships.
+	describe("the kind a tour introduces", () => {
+		const kindRule = (releaseVersion: string) =>
+			evaluateCampaignChecklist(
+				campaign({
+					type: "artifact_tour",
+					releaseVersion,
+					slides: tourSlides(),
+				}),
+			);
+
+		it("lets each kind that ships through, and names the rule among the passing ones", () => {
+			for (const kind of ["document", "app", "canvas"]) {
+				const checklist = kindRule(kind);
+				expect(checklist.ready).toBe(true);
+				expect(
+					checklist.rules.find((rule) => rule.id === "tourKind")?.passed,
+				).toBe(true);
+			}
+		});
+
+		it("blocks a tour whose release is not a kind that ships", () => {
+			for (const release of ["2.1.0", "slides", "file", "Canvas", "", "  "]) {
+				const checklist = kindRule(release);
+				expect(checklist.ready, `release "${release}"`).toBe(false);
+				expect(
+					checklist.failures.filter((failure) => failure.ruleId === "tourKind"),
+				).toEqual([
+					{
+						ruleId: "tourKind",
+						path: "tourKind",
+						messageKey: "admin.campaigns.validation.tourKindInvalid",
+					},
+				]);
+			}
+		});
+
+		it("fails only this rule when only the kind is wrong", () => {
+			const checklist = kindRule("2.1.0");
+			expect(
+				checklist.rules.filter((rule) => !rule.passed).map((rule) => rule.id),
+			).toEqual(["tourKind"]);
+		});
+
+		it("is not asked of any other campaign type", () => {
+			for (const type of ["release_update", "first_run_onboarding"]) {
+				const checklist = evaluateCampaignChecklist(
+					campaign({ type, releaseVersion: "2.1.0", slides: [slide()] }),
+				);
+				expect(checklist.rules.some((rule) => rule.id === "tourKind")).toBe(
+					false,
+				);
+			}
+		});
+
+		it("says what is wrong in both languages, in the list, the sentence and the passing label", () => {
+			const failing = summarizeFailures(kindRule("2.1.0"));
+			expect(failing.map((row) => row.ruleId)).toEqual(["tourKind"]);
+			const keys = [
+				failing[0]?.labelKey,
+				checklistRuleLabelKey("tourKind"),
+				"admin.campaigns.validation.tourKindInvalid",
+			] as string[];
+			for (const key of keys) {
+				for (const language of ["en", "hu"] as const) {
+					const dictionary = settingsDict[language] as Record<string, string>;
+					expect(dictionary[key], `${language} ${key}`).toBeTruthy();
+				}
+			}
+		});
 	});
 });
