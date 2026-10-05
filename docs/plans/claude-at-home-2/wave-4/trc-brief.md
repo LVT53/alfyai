@@ -40,4 +40,4 @@ and give the numbers. Then the full gates once (Wave 3 rules' list, Playwright w
 `admin-users-campaigns.spec.ts`). Screenshots you look at yourself (HU): a new empty Canvas with the line and link, at
 1440×900 light and dark and 390×844; the Knowledge tab's chips; the admin refusal.
 
-**Runs beside you:** agent SMP-2 on `fix/internal-call-sampling` (from `dev`) — no shared files.
+**Runs beside you:** agent CHP on `fix/follow-up-chips` (from `dev`: the follow-up chips and the language rule) — no shared files.
