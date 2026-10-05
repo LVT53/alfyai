@@ -445,14 +445,28 @@ test.describe("Admin user management", () => {
 			page.getByRole("button", { name: "Create User" }).last().click(),
 		]);
 
-		await expect(page.getByText(uniqueEmail)).toBeVisible();
+		// The new account's address is on the screen in three places by the time the
+		// list has reloaded (its table row, the detail panel, and the panel's
+		// "Created …" notice), and which of them is there yet is a matter of timing:
+		// the row is the one this step is about.
+		await expect(page.getByRole("cell", { name: uniqueEmail })).toBeVisible();
+
+		// A confirmation that has just been answered fades out while the next
+		// one fades in, and the one leaving stays in the DOM (inert, so it takes no
+		// click) for the length of its fade: two `confirm-delete` buttons, and two
+		// "Promote to Admin" buttons, exist at once. So every control here is named
+		// through the surface it belongs to, never by its test id or label alone.
+		const detail = page.getByTestId("admin-user-detail");
+		const promoteDialog = page.getByRole("dialog", { name: /an admin\?$/ });
+		const deleteDialog = page.getByRole("dialog", { name: "Delete User" });
+
 		await expect(
-			page.getByRole("button", { name: "Promote to Admin" }),
+			detail.getByRole("button", { name: "Promote to Admin" }),
 		).toBeVisible();
 
 		// Promotion is a privilege escalation, so it confirms first.
-		await page.getByRole("button", { name: "Promote to Admin" }).click();
-		await expect(page.getByText(/an admin\?$/)).toBeVisible();
+		await detail.getByRole("button", { name: "Promote to Admin" }).click();
+		await expect(promoteDialog).toBeVisible();
 		await Promise.all([
 			page.waitForResponse(
 				(response) =>
@@ -460,11 +474,11 @@ test.describe("Admin user management", () => {
 					response.request().method() === "PATCH" &&
 					response.status() === 200,
 			),
-			page.getByTestId("confirm-delete").click(),
+			promoteDialog.getByTestId("confirm-delete").click(),
 		]);
 
 		await expect(
-			page.getByRole("button", { name: "Demote to User" }),
+			detail.getByRole("button", { name: "Demote to User" }),
 		).toBeVisible();
 
 		await Promise.all([
@@ -474,14 +488,14 @@ test.describe("Admin user management", () => {
 					response.request().method() === "PATCH" &&
 					response.status() === 200,
 			),
-			page.getByRole("button", { name: "Demote to User" }).click(),
+			detail.getByRole("button", { name: "Demote to User" }).click(),
 		]);
 
 		await expect(
-			page.getByRole("button", { name: "Promote to Admin" }),
+			detail.getByRole("button", { name: "Promote to Admin" }),
 		).toBeVisible();
 
-		await page.getByRole("button", { name: "Delete User" }).click();
+		await detail.getByRole("button", { name: "Delete User" }).click();
 
 		await Promise.all([
 			page.waitForResponse(
@@ -490,7 +504,7 @@ test.describe("Admin user management", () => {
 					response.request().method() === "DELETE" &&
 					response.status() === 200,
 			),
-			page.getByTestId("confirm-delete").click(),
+			deleteDialog.getByTestId("confirm-delete").click(),
 		]);
 
 		// The address appears in both the table row and the detail panel while
