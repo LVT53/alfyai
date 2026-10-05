@@ -15,6 +15,7 @@ function renderPopover(
 		title: string;
 		regenerable: boolean;
 		initialStage: "confirm" | "menu";
+		onReplayTour: () => void;
 		onConfirm: () => Promise<void>;
 		onClose: () => void;
 	}> = {},
@@ -44,6 +45,49 @@ describe("ArtifactDeletePopover", () => {
 		cleanup();
 		document.body.innerHTML = "";
 		uiLanguage.set("en");
+	});
+
+	// Ruling 32: the first-open tour's replay lives in the list row's menu.
+	describe("the row menu's tour replay", () => {
+		it("leads with 'How this kind works', above Delete, and closes after calling it", async () => {
+			const onReplayTour = vi.fn();
+			const { onClose } = renderPopover({ initialStage: "menu", onReplayTour });
+
+			const items = await screen.findAllByRole("menuitem");
+			expect(items.map((item) => item.textContent?.trim())).toEqual([
+				"How this kind works",
+				"Delete document",
+			]);
+			await fireEvent.click(items[0]);
+
+			expect(onReplayTour).toHaveBeenCalledTimes(1);
+			expect(onClose).toHaveBeenCalledTimes(1);
+		});
+
+		it("is not in the menu when the host cannot replay a tour (an incognito chat, a kind with no tour)", async () => {
+			renderPopover({ initialStage: "menu" });
+
+			const items = await screen.findAllByRole("menuitem");
+			expect(items.map((item) => item.textContent?.trim())).toEqual([
+				"Delete document",
+			]);
+		});
+
+		it("is said in Hungarian on a Hungarian UI", async () => {
+			uiLanguage.set("hu");
+			renderPopover({ initialStage: "menu", onReplayTour: vi.fn() });
+
+			expect(
+				await screen.findByRole("menuitem", { name: "Így működik ez a típus" }),
+			).toBeInTheDocument();
+		});
+
+		it("is never in the delete confirm that the header's trash button opens", async () => {
+			renderPopover({ onReplayTour: vi.fn() });
+
+			await screen.findByRole("dialog", { name: "Delete this document?" });
+			expect(screen.queryByRole("menuitem")).toBeNull();
+		});
 	});
 
 	it("asks by name, per kind, and says it cannot be undone", async () => {

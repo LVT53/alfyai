@@ -7,13 +7,18 @@
  * closes on Escape and returns focus to its trigger.
  *
  * Two entrances share it. The panel header's trash button opens it straight
- * on the confirm; a list row's overflow opens it as a one-item menu whose
+ * on the confirm; a list row's overflow opens it as a small menu whose
  * "Delete …" leads to that same confirm inside the same popover (no second
  * layer). The component does not delete anything itself: `onConfirm` does,
  * and this waits for it — working state on the button, a failed delete stays
  * open and says so, a finished one closes.
+ *
+ * The row menu also carries the first-open tour's replay (ruling 32: the
+ * replay lives in the panel's list menu, so the version badge stays for release
+ * notes): "How this kind works", a quiet row above Delete, present when the
+ * host passes `onReplayTour`.
  */
-import { Trash2 } from "@lucide/svelte";
+import { CircleQuestionMark, Trash2 } from "@lucide/svelte";
 import { untrack } from "svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
@@ -24,6 +29,7 @@ let {
 	title,
 	anchorTestId,
 	regenerable = false,
+	onReplayTour = undefined,
 	initialStage = "confirm",
 	onConfirm,
 	onClose,
@@ -39,6 +45,8 @@ let {
 	 * cannot be undone, which is then the whole truth.
 	 */
 	regenerable?: boolean;
+	/** Shows the kind's first-open tour again. Given, the menu leads with "How this kind works"; the popover closes itself after calling it. */
+	onReplayTour?: (() => void) | undefined;
 	initialStage?: "confirm" | "menu";
 	/** Does the delete. Resolves when the item is gone; rejects when it is not. */
 	onConfirm: () => Promise<void>;
@@ -87,6 +95,23 @@ async function confirm(): Promise<void> {
 >
 	{#if stage === 'menu'}
 		<ul class="artifact-delete-menu" role="menu">
+			{#if onReplayTour}
+				<li role="none">
+					<button
+						type="button"
+						role="menuitem"
+						class="artifact-delete-menuitem artifact-delete-menuitem-quiet"
+						data-testid="artifact-replay-tour"
+						onclick={() => {
+							onReplayTour?.();
+							onClose();
+						}}
+					>
+						<CircleQuestionMark size={16} strokeWidth={2} aria-hidden="true" />
+						{$t('artifacts.tour.region')}
+					</button>
+				</li>
+			{/if}
 			<li role="none">
 				<button
 					type="button"
@@ -184,6 +209,12 @@ async function confirm(): Promise<void> {
 		font-weight: 600;
 		text-align: left;
 		cursor: pointer;
+	}
+
+	/* The replay is help, not a danger: the quiet row beside the red one. */
+	.artifact-delete-menuitem-quiet {
+		color: var(--text-secondary);
+		font-weight: 500;
 	}
 
 	.artifact-delete-menuitem:hover {

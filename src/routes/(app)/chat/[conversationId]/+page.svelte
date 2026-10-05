@@ -3850,6 +3850,7 @@ function handleDrop(event: DragEvent) {
 			availableDocuments={availableWorkspaceDocumentsWithArtifacts}
 			activeDocumentId={activeWorkspaceDocumentId}
 			conversationId={data.conversation.id}
+			incognito={data.conversation.memoryIncognito ?? false}
 			alfyActivity={liveDocumentAlfyActivity}
 			list={{
 				open: artifactListOpen,

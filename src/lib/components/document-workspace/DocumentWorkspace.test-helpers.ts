@@ -25,6 +25,7 @@ type WorkspaceRenderOptions = {
 	availableDocuments?: DocumentWorkspaceItem[];
 	activeDocumentId?: string | null;
 	conversationId?: string | null;
+	incognito?: boolean;
 	list?: WorkspaceList;
 	onSelectDocument?: SelectDocumentCallback;
 	onOpenDocument?: OpenDocumentCallback;

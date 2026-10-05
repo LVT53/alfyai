@@ -93,6 +93,14 @@ export interface ArtifactBodyProps {
 	 */
 	onPendingReviewCountChange?: (count: number) => void;
 	/**
+	 * Shows this kind's first-open tour again (ruling 32: the replay lives in
+	 * the panel, so a body offers it as a quiet link in its empty state and
+	 * nowhere else). The panel supplies it only where a tour can show: absent
+	 * for a kind that has none, and in an incognito chat, which asks for none, so
+	 * a body renders the link exactly when it is given. Replaying records nothing.
+	 */
+	onReplayTour?: () => void;
+	/**
 	 * rd/review-2-5.md:272-275: the signed-in user's own id/name/profile
 	 * picture, for a "you" row (a comment, a version) to show the real avatar
 	 * instead of a placeholder "U" — the layout already resolves this
