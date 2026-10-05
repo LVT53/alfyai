@@ -76,6 +76,9 @@ export {
 	type OpsEnvelopeInput,
 	type OpsEnvelopeResult,
 } from "./ops";
+// Slice 5b (T5): what a project's bundle lists — its files and the Documents,
+// Apps and Canvases its chats made — behind the one scoped read.
+export { listProjectBundle } from "./project-bundle";
 export {
 	listArtifactsForConversation,
 	listMissingArtifactIds,
