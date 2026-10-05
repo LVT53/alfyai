@@ -22,6 +22,7 @@ vi.mock("$lib/client/api/campaigns", () => ({
 	fetchAdminCampaign: vi.fn(),
 	fetchAdminCampaigns: vi.fn(),
 	publishAdminCampaign: vi.fn(),
+	seedArtifactTours: vi.fn(),
 	seedFirstRunCampaign: vi.fn(),
 	updateAdminCampaign: vi.fn(),
 }));

@@ -29,6 +29,7 @@ import {
 	fetchAdminCampaign,
 	fetchAdminCampaigns,
 	publishAdminCampaign,
+	seedArtifactTours,
 	seedFirstRunCampaign,
 	updateAdminCampaign,
 	type Campaign,
@@ -39,7 +40,6 @@ import {
 	type CampaignType,
 	type CampaignValidationIssue,
 } from "$lib/client/api/campaigns";
-import { seedArtifactTours } from "$lib/client/api/artifact-tours";
 import {
 	fetchAdminCampaignAsset,
 	saveCampaignAssetCrop,

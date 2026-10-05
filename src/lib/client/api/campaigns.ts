@@ -275,6 +275,24 @@ export async function seedFirstRunCampaign(
 	);
 }
 
+/** Counts, not a single campaign: one seed call creates up to one draft per shipped tour kind. */
+type SeedArtifactToursResponse = {
+	created: number;
+	existing: number;
+};
+
+/** Admin only: create one `artifact_tour` draft per shipped kind that has none yet. */
+export async function seedArtifactTours(
+	fetchImpl: FetchLike = fetch,
+): Promise<SeedArtifactToursResponse> {
+	return requestJson<SeedArtifactToursResponse>(
+		"/api/admin/campaigns/seed-artifact-tours",
+		{ method: "POST" },
+		"Failed to seed the tour drafts",
+		fetchImpl,
+	);
+}
+
 export async function fetchEligibleCampaign(
 	fetchImpl: FetchLike = fetch,
 ): Promise<Campaign | null> {
