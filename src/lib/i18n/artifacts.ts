@@ -74,6 +74,21 @@ const artifactsDict = {
 			"{count} {count, plural, one {part} other {parts}} left alone",
 		"artifacts.panel.backA11y":
 			"Back to This chat ({count} {count, plural, one {item} other {items}})",
+		// First-open tours (Wave 4, TR-B): the card's chrome and the panel list's
+		// replay row. The tour's own words (titles, bodies, the empty-state line)
+		// are content — the code-owned copy or a published campaign — and never
+		// live here. `region` is also the replay row's label: one string, one
+		// meaning.
+		"artifacts.tour.region": "How this kind works",
+		"artifacts.tour.stepOf": "Step {n} of {m}",
+		"artifacts.tour.dots": "{count} step{count, plural, one {} other {s}}",
+		"artifacts.tour.next": "Next",
+		"artifacts.tour.back": "Back",
+		"artifacts.tour.done": "Got it",
+		"artifacts.tour.skip": "Skip",
+		"artifacts.tour.replayHint":
+			"You'll see this once. You can replay it any time.",
+		"artifacts.tour.replayOpened": "Replaying",
 		// The shared card.
 		"artifacts.card.open": "Open",
 		"artifacts.card.openA11y": "Open {title}",
@@ -892,6 +907,16 @@ const artifactsDict = {
 		// nouns after a numeral stay singular.
 		"artifacts.panel.leftAlone": "{count} részt nem érintett",
 		"artifacts.panel.backA11y": "Vissza: Ez a beszélgetés ({count} elem)",
+		"artifacts.tour.region": "Így működik ez a típus",
+		"artifacts.tour.stepOf": "{n}. lépés, összesen {m}",
+		// A számnév után a főnév egyes számban marad: nincs többes szám.
+		"artifacts.tour.dots": "{count} lépés",
+		"artifacts.tour.next": "Tovább",
+		"artifacts.tour.back": "Vissza",
+		"artifacts.tour.done": "Értem",
+		"artifacts.tour.skip": "Kihagyás",
+		"artifacts.tour.replayHint": "Egyszer látod. Bármikor újranézheted.",
+		"artifacts.tour.replayOpened": "Újranézés",
 		"artifacts.card.open": "Megnyitás",
 		"artifacts.card.openA11y": "{title} megnyitása",
 		"artifacts.card.openInPanel": "Megnyitva a panelen",
