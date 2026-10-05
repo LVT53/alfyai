@@ -93,9 +93,10 @@ export function stripLeakedThinking(raw: string): LeakedThinkingCleanup {
 	}
 }
 
-// One extra attempt when the answer comes back as an unclosed reasoning block:
-// the same request answers cleanly about four times in five, so a second ask
-// all but removes the fallback, and a third would only spend the model's time.
+// One extra attempt when the answer comes back as an unclosed reasoning block.
+// A model that opens one does not do it every time (the title request did it for
+// 19% of requests, and cleanly the other 81%), so a second ask all but removes
+// the fallback, and a third would only spend the model's time.
 export const THINKING_RETRY_MAX_ATTEMPTS = 2;
 
 /**
@@ -128,11 +129,12 @@ const REASONING_LEAK_RE =
 	/^(Here's (a thinking|my) process|Let me (think about|work through|break (this|it) down)|I('ll| will) (approach|break (this|it) down)|First,? let me (think|analyze|break down)|Okay,? let me (think|analyze|work through)|Let's think about|I need to (think|determine)|The user (is asking|asks|asked|wants|provided)|The (assistant|reply|response) (is|provides|explains|summari[sz]es|discusses|introduces|explicitly)\b|This (looks like|seems like|is a)|Hmm,? let me|Alright,? let me)/i;
 
 // The Hungarian side. On a Hungarian conversation the model reasons in
-// Hungarian, and every reasoning text collected from it (40 of 40) opens with
-// the same subject: "A felhasználó magyarul kérdez: ...", "A felhasználó egy
-// heti étrendet kért, és az asszisztens ...", "A felhasználó kérésére a
-// rendszer ...". `felhasználói` (user-facing) and `felhasználás` (use) are other
-// words and do not match.
+// Hungarian: 35 of the 40 reasoning texts collected from it open with the same
+// subject ("A felhasználó magyarul kérdez: ...", "A felhasználó egy heti
+// étrendet kért, és az asszisztens ...", "A felhasználó kérésére a rendszer
+// ..."); the other five open in English ("We need answer in Hungarian."), which
+// no short surface has shown yet, so it is not matched. `felhasználói`
+// (user-facing) and `felhasználás` (use) are other words and do not match.
 const REASONING_LEAK_HU_RE = /^a\s+felhasználó(?!i)\p{L}*/iu;
 
 /**
