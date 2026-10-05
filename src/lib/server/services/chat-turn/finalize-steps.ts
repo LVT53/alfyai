@@ -388,6 +388,7 @@ export async function runPostTurnTasks(
 					assistantMessageId: railAssistantMessageId,
 					userMessage: params.userMessage,
 					assistantResponse: params.assistantResponse,
+					responseLanguage: params.responseLanguage,
 				});
 			})().catch((error) =>
 				console.error(

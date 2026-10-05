@@ -230,8 +230,13 @@ describe("persona summary generation", () => {
 		// max_tokens on the OpenAI-compatible providers this runs on.
 		const callOptions = sendJsonControlMessageMock.mock.calls[0]?.[2] as {
 			maxTokens?: number;
+			temperature?: number;
 		};
 		expect(callOptions?.maxTokens).toBe(2400 + 500 * 3);
+		// Prose the person reads in their Memory Profile: no temperature of its
+		// own, so it takes the family sampling profile (the judge's JSON
+		// decisions keep their deterministic 0).
+		expect(callOptions?.temperature).toBeUndefined();
 	});
 
 	it("caps the model input at the 30 newest facts so a large profile does not overflow the token budget", async () => {

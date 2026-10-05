@@ -138,7 +138,7 @@ describe("generateTitle", () => {
 		);
 	});
 
-	it("applies Qwen's default topP/topK sampling to the outbound title request", async () => {
+	it("applies the qwen family's whole sampling profile to the outbound title request", async () => {
 		vi.doMock("../env", async (importOriginal) => {
 			const { getDatabasePath } = await importOriginal<EnvModule>();
 			return {
@@ -182,12 +182,11 @@ describe("generateTitle", () => {
 		const body = JSON.parse(
 			typeof callArgs?.body === "string" ? callArgs.body : "{}",
 		);
+		// A title is read by a person, so it takes the whole family profile,
+		// temperature included (the flat 0.2 is only for a family with none).
+		expect(body.temperature).toBe(0.6);
 		expect(body.top_p).toBe(0.95);
 		expect(body.top_k).toBe(20);
-		// Title generation keeps its own deliberate low temperature (unaffected
-		// by the qwen family's 0.6 main-chat default) — only topP/topK, which
-		// were never sent by this path at all before, come from the adapter.
-		expect(body.temperature).toBe(0.2);
 	});
 
 	it("resolves an 'auto' title language to the user's uiLanguage when the message is ambiguous", async () => {
@@ -353,6 +352,100 @@ describe("generateTitle", () => {
 				generateTitle("User message here", "Assistant"),
 			).resolves.toBe("User message here");
 		}
+	});
+
+	it("sends the few-shot examples as text in the one user message, never as assistant turns", async () => {
+		// The chat template renders every earlier assistant turn with an empty think
+		// block, and with four of them in the request the real model re-opened a
+		// block of its own as its first token for 19% of titles (0 of 100 when the
+		// same examples ride in the system or the user message).
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(
+				JSON.stringify({ choices: [{ message: { content: "Heti étrend" } }] }),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			),
+		);
+
+		await generateTitle(
+			"Szia! Segítenél összeállítani egy heti étrendet?",
+			"Természetesen! Íme egy egyszerű heti étrend.",
+			"hu",
+		);
+
+		const callArgs = mockFetch.mock.calls[0]?.[1];
+		const body = JSON.parse(
+			typeof callArgs?.body === "string" ? callArgs.body : "{}",
+		) as { messages: Array<{ role: string; content: string }> };
+		expect(body.messages.map((message) => message.role)).toEqual(["user"]);
+		const content = body.messages[0].content;
+		expect(content).toContain("Examples of the task");
+		expect(content).toContain("Title: React komponens létrehozási alapok");
+		// The real conversation comes last, after the instruction.
+		expect(
+			content.lastIndexOf("Return only a concise conversation title"),
+		).toBeGreaterThan(
+			content.lastIndexOf("Title: Adatbázis tervezési tanácsok kezdéshez"),
+		);
+		expect(
+			content.endsWith(
+				"Assistant: Természetesen! Íme egy egyszerű heti étrend.",
+			),
+		).toBe(true);
+	});
+
+	describe("a stray think block (the model re-opens one although thinking is off)", () => {
+		const HU_USER =
+			"Hogyan tudnék havi százezer forintot félretenni a fizetésemből?";
+		const HU_REPLY =
+			"Érdemes az 50-30-20 szabállyal kezdeni: a nettó jövedelem felét a fix költségekre szánd.";
+		const answerWith = (content: string) =>
+			new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		// The two shapes the real model returned (17.5% of 416 title requests): an
+		// empty block whose closer the server dropped, and cut-off reasoning.
+		const EMPTY_BLOCK =
+			"<think>\n\n\n\nHavi százezer forint megtakarítási tippek";
+		const CUT_OFF_REASONING =
+			"<think>\nThe user wants me to generate a concise conversation title (3-8 words) based on the conversation about saving 100,000 HUF monthly from a salary. The conversation is in Hungarian. I need to";
+
+		it("keeps the title the model wrote behind an empty block, with one request", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(answerWith(EMPTY_BLOCK));
+
+			await expect(generateTitle(HU_USER, HU_REPLY, "hu")).resolves.toBe(
+				"Havi százezer forint megtakarítási tippek",
+			);
+			expect(mockFetch).toHaveBeenCalledTimes(1);
+		});
+
+		it("asks once more when the first answer is reasoning that was never closed, and uses the second", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch
+				.mockResolvedValueOnce(answerWith(CUT_OFF_REASONING))
+				.mockResolvedValueOnce(
+					answerWith("Havi százezer forint megtakarítása"),
+				);
+
+			await expect(generateTitle(HU_USER, HU_REPLY, "hu")).resolves.toBe(
+				"Havi százezer forint megtakarítása",
+			);
+			expect(mockFetch).toHaveBeenCalledTimes(2);
+		});
+
+		it("falls back to the user message when the second answer is unclosed too, after exactly two requests", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch
+				.mockResolvedValueOnce(answerWith(CUT_OFF_REASONING))
+				.mockResolvedValueOnce(answerWith(CUT_OFF_REASONING));
+
+			await expect(generateTitle(HU_USER, HU_REPLY, "hu")).resolves.toBe(
+				HU_USER,
+			);
+			expect(mockFetch).toHaveBeenCalledTimes(2);
+		});
 	});
 
 	it("handles title generation service being unreachable (throws)", async () => {

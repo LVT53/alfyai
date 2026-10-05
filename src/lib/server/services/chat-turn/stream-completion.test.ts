@@ -2320,6 +2320,17 @@ describe("completeStreamTurn", () => {
 			});
 		});
 
+		it("hands the turn's resolved language to the suggester and to the post-turn tail", async () => {
+			await completeStreamTurn({ ...defaultParams, responseLanguage: "hu" });
+
+			expect(mockGenerateFollowUpSuggestions).toHaveBeenCalledWith(
+				expect.objectContaining({ responseLanguage: "hu" }),
+			);
+			expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
+				expect.objectContaining({ responseLanguage: "hu" }),
+			);
+		});
+
 		it("hands the suggester the bounded prior-turn window, user/assistant rows only", async () => {
 			mockListMessageWindow.mockResolvedValue({
 				messages: [

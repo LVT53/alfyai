@@ -79,6 +79,32 @@ describe("persistAssistantRailSummary", () => {
 		);
 	});
 
+	it("asks for a strict one-field {headline} object, not any JSON object the model likes", async () => {
+		// Left free, the real model answered 8% of rail requests with a function-call
+		// shape ({"name": "write_headline", "arguments": ...}) or its own thoughts
+		// ({"thought": ...}); with this schema 0 of 120 did.
+		generateShortLocalTextMock.mockResolvedValue("Concise Headline");
+
+		await persistAssistantRailSummary({
+			userId: "u1",
+			conversationId: "c1",
+			assistantMessageId: "a1",
+			userMessage: "How did Q3 segments perform?",
+			assistantResponse: LONG_REPLY,
+		});
+
+		const [args] = generateShortLocalTextMock.mock.calls[0] as [
+			{ jsonSchema?: { strict?: boolean; schema: Record<string, unknown> } },
+		];
+		expect(args.jsonSchema?.strict).toBe(true);
+		expect(args.jsonSchema?.schema).toMatchObject({
+			type: "object",
+			additionalProperties: false,
+			required: ["headline"],
+			properties: { headline: { type: "string" } },
+		});
+	});
+
 	it("summarizes the ASSISTANT reply, not the user message (assistant-only, O-3)", async () => {
 		generateShortLocalTextMock.mockResolvedValue("Concise Headline");
 
@@ -96,6 +122,42 @@ describe("persistAssistantRailSummary", () => {
 		// The prompt is derived from the assistant reply, never the user turn.
 		expect(args.prompt).toContain("substantive assistant answer");
 		expect(args.prompt).not.toContain("How did Q3 segments perform?");
+	});
+
+	it("writes the headline in the language the turn resolved, whatever the latest message alone reads as", async () => {
+		generateShortLocalTextMock.mockResolvedValue("Heti étrend");
+
+		await persistAssistantRailSummary({
+			userId: "u1",
+			conversationId: "c1",
+			assistantMessageId: "a1",
+			userMessage: "Mikor ultessem el a paradicsompalantakat?",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "hu",
+		});
+
+		const [args] = generateShortLocalTextMock.mock.calls[0] as [
+			{ language?: string; systemPrompt: string },
+		];
+		expect(args.language).toBe("hu");
+		expect(args.systemPrompt).toContain("in Hungarian");
+	});
+
+	it("still reads the language off the user message when the turn did not pass one", async () => {
+		generateShortLocalTextMock.mockResolvedValue("Heti étrend");
+
+		await persistAssistantRailSummary({
+			userId: "u1",
+			conversationId: "c1",
+			assistantMessageId: "a1",
+			userMessage: "Mesélj a filmről kérlek.",
+			assistantResponse: LONG_REPLY,
+		});
+
+		const [args] = generateShortLocalTextMock.mock.calls[0] as [
+			{ language?: string },
+		];
+		expect(args.language).toBe("hu");
 	});
 
 	it("persists nothing when the generator returns null (silent degrade)", async () => {

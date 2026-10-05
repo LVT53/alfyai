@@ -7,6 +7,10 @@ import {
 	resolveNormalChatModelRunProvider,
 } from "$lib/server/services/normal-chat-model";
 import {
+	type ModelCallSampling,
+	resolveModelCallSampling,
+} from "$lib/server/services/normal-chat-model/sampling";
+import {
 	SUMMARIZER_MAX_RETRIES,
 	SUMMARIZER_MAX_TOKENS,
 	SUMMARIZER_TEMPERATURE,
@@ -20,6 +24,10 @@ type SummaryOpenAICompatibleProvider = ReturnType<
 	typeof createOpenAICompatibleProviderForNormalChatModelRun
 >;
 type SummaryLanguageModel = ReturnType<SummaryOpenAICompatibleProvider>;
+type SummaryModelCall = {
+	model: SummaryLanguageModel;
+	sampling: ModelCallSampling;
+};
 type SummaryRuntimeConfig = NonNullable<
 	Parameters<typeof resolveNormalChatModelRunProvider>[1]
 >;
@@ -81,6 +89,7 @@ const SUMMARY_SYSTEM_PROMPT = [
 async function createSummaryModelProvider(): Promise<{
 	provider: SummaryOpenAICompatibleProvider;
 	modelName: string;
+	sampling: ModelCallSampling;
 }> {
 	const config = getConfig();
 	const modelProvider = await resolveNormalChatModelRunProvider(
@@ -97,6 +106,13 @@ async function createSummaryModelProvider(): Promise<{
 	return {
 		provider: openaiCompatible,
 		modelName: modelProvider.modelName,
+		// A digest only the memory judge and the prompt re-read keeps its low
+		// machine-read temperature; the family's top_p (and, through the
+		// provider builder, top_k) still go along. A family with no profile
+		// sends the same low temperature, exactly as before.
+		sampling: resolveModelCallSampling(modelProvider, {
+			machineReadTemperature: SUMMARIZER_TEMPERATURE,
+		}),
 	};
 }
 
@@ -114,23 +130,23 @@ export async function summarizeConversation(
 		throw new Error("Cannot summarize empty conversation");
 	}
 
-	const { provider, modelName } = await createSummaryModelProvider();
-	const model = provider(modelName);
+	const { provider, modelName, sampling } = await createSummaryModelProvider();
+	const call: SummaryModelCall = { model: provider(modelName), sampling };
 
 	const totalChars = estimateChars(messages);
 	const needsChunking = totalChars > MAX_CHARS_BEFORE_CHUNKING;
 
 	if (needsChunking) {
-		return summarizeWithChunking(messages, title, model);
+		return summarizeWithChunking(messages, title, call);
 	}
 
-	return summarizeDirect(messages, title, model);
+	return summarizeDirect(messages, title, call);
 }
 
 async function summarizeDirect(
 	messages: { role: string; content: string }[],
 	title: string,
-	model: SummaryLanguageModel,
+	{ model, sampling }: SummaryModelCall,
 ): Promise<string> {
 	const formatted = formatMessagesForPrompt(messages);
 
@@ -143,7 +159,8 @@ async function summarizeDirect(
 				content: `These are messages from a conversation titled "${title}":\n\n${formatted}`,
 			},
 		],
-		temperature: SUMMARIZER_TEMPERATURE,
+		temperature: sampling.temperature,
+		topP: sampling.topP,
 		maxOutputTokens: SUMMARIZER_MAX_TOKENS,
 		maxRetries: SUMMARIZER_MAX_RETRIES,
 	});
@@ -154,7 +171,7 @@ async function summarizeDirect(
 async function summarizeWithChunking(
 	messages: { role: string; content: string }[],
 	title: string,
-	model: SummaryLanguageModel,
+	{ model, sampling }: SummaryModelCall,
 ): Promise<string> {
 	const chunks = chunkMessages(messages);
 
@@ -173,7 +190,8 @@ async function summarizeWithChunking(
 					content: `These are messages from a conversation titled "${title}"${chunkLabel}:\n\n${formatted}`,
 				},
 			],
-			temperature: SUMMARIZER_TEMPERATURE,
+			temperature: sampling.temperature,
+			topP: sampling.topP,
 			maxOutputTokens: SUMMARIZER_MAX_TOKENS,
 			maxRetries: SUMMARIZER_MAX_RETRIES,
 		});
@@ -185,7 +203,7 @@ async function summarizeWithChunking(
 		return chunkSummaries[0];
 	}
 
-	return combineChunkSummaries(chunkSummaries, title, model);
+	return combineChunkSummaries(chunkSummaries, title, { model, sampling });
 }
 
 const COMBINE_SYSTEM_PROMPT = [
@@ -199,7 +217,7 @@ const COMBINE_SYSTEM_PROMPT = [
 async function combineChunkSummaries(
 	chunkSummaries: string[],
 	title: string,
-	model: SummaryLanguageModel,
+	{ model, sampling }: SummaryModelCall,
 ): Promise<string> {
 	const combined = chunkSummaries
 		.map((summary, i) => `Summary part ${i + 1}:\n${summary}`)
@@ -214,7 +232,8 @@ async function combineChunkSummaries(
 				content: `Combine these summaries of the conversation "${title}" into one cohesive summary:\n\n${combined}`,
 			},
 		],
-		temperature: SUMMARIZER_TEMPERATURE,
+		temperature: sampling.temperature,
+		topP: sampling.topP,
 		maxOutputTokens: SUMMARIZER_MAX_TOKENS,
 		maxRetries: SUMMARIZER_MAX_RETRIES,
 	});

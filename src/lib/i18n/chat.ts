@@ -810,7 +810,7 @@ const chatDict = {
 		"messageBubble.depthThorough": "Thorough",
 		"messageBubble.editMessage": "Edit message",
 		"messageBubble.extendedReasoningDepth": "Extended reasoning depth",
-		"messageBubble.followUpAriaLabel": "Ask: {question}",
+		"messageBubble.followUpAriaLabel": "Send: {question}",
 		"messageBubble.forkFromHere": "Fork from here",
 		"messageBubble.info": "Info",
 		"messageBubble.maxReasoningDepth": "Max reasoning depth",
@@ -1923,7 +1923,7 @@ const chatDict = {
 		"messageBubble.editMessage": "Üzenet szerkesztése",
 		"messageBubble.extendedReasoningDepth":
 			"Kiterjesztett gondolkodási mélység",
-		"messageBubble.followUpAriaLabel": "Kérdés: {question}",
+		"messageBubble.followUpAriaLabel": "Küldés: {question}",
 		"messageBubble.forkFromHere": "Elágazás innen",
 		"messageBubble.info": "Infó",
 		"messageBubble.maxReasoningDepth": "Max gondolkodási mélység",

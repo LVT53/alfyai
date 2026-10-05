@@ -19,6 +19,7 @@ import {
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
 import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
+import type { SupportedLanguage } from "$lib/server/services/language";
 import { createMessage } from "$lib/server/services/messages";
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import type { InstructionSuggestion } from "$lib/shared/instructions";
@@ -157,6 +158,9 @@ export type FinalizeChatTurnParams = {
 	persistTurnState?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
 	skipAssistantProseMemoryIntake?: boolean;
+	// The turn's reply language, decided once per turn (resolveTurnResponseLanguage),
+	// handed to the post-turn tail so the rail headline is in the reply's language.
+	responseLanguage?: SupportedLanguage;
 	// Stream-only. finalizeChatTurn owns scheduling every post-turn side
 	// effect itself (ADR-0015) — it never hands a caller a promise or a
 	// task-starting function to manage. For a deferred (stream) turn, the
@@ -688,6 +692,7 @@ export async function finalizeChatTurn(
 				maintenanceReason: params.maintenanceReason,
 				startedResetGeneration: params.startedResetGeneration,
 				skipAssistantProseMemoryIntake: params.skipAssistantProseMemoryIntake,
+				responseLanguage: params.responseLanguage,
 				// Fix 1 (data-loss race) — hand the in-flight evidence write to the
 				// tail so the rail-summary metadata write awaits it (both share the
 				// same unsynchronized metadataJson RMW). On the stream path below the

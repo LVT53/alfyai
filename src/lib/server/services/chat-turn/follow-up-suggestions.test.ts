@@ -13,7 +13,9 @@ vi.mock("./short-local-text", () => ({
 		/[áéíóöőúüű]/i.test(message) ? "hu" : "en",
 }));
 
+import { checkFollowUpChip } from "./follow-up-chip";
 import {
+	FOLLOW_UP_CHIP_EXAMPLES,
 	FOLLOW_UP_SUGGESTIONS_COUNT,
 	FOLLOW_UP_SUGGESTIONS_FEATURE,
 	FOLLOW_UP_SUGGESTIONS_MAX_CONCURRENT,
@@ -40,38 +42,99 @@ function controlResult(text: string) {
 }
 
 describe("isPlausibleFollowUpSuggestion", () => {
-	it("accepts a short question ending in a bare question mark", () => {
+	it("accepts a short question about a named thing", () => {
 		expect(isPlausibleFollowUpSuggestion("What about the sequel?")).toBe(true);
 	});
 
-	it("rejects text with no trailing question mark", () => {
-		expect(isPlausibleFollowUpSuggestion("Tell me more")).toBe(false);
-	});
-
-	it("rejects text with punctuation beyond the trailing question mark", () => {
-		expect(isPlausibleFollowUpSuggestion("Really, is that true?")).toBe(false);
-	});
-
-	it("accepts a question at the max word count", () => {
-		// Seven words plus the bare "?" — inside the eight-word cap.
+	it("accepts an instruction to the assistant, with no question mark", () => {
+		// A chip is the user's next message: "Compare the two options in a table"
+		// is how a person asks, and the old rule (a question mark was required)
+		// threw it away.
 		expect(
-			isPlausibleFollowUpSuggestion("Can you draft the email to them?"),
+			isPlausibleFollowUpSuggestion("Compare the two options in a table", "en"),
+		).toBe(true);
+		expect(
+			isPlausibleFollowUpSuggestion("Hasonlítsd össze a két opciót", "hu"),
 		).toBe(true);
 	});
 
-	it("rejects a question one word over the max word count", () => {
-		// Nine words — one past the cap.
+	it("rejects the assistant offering, in both languages", () => {
 		expect(
 			isPlausibleFollowUpSuggestion(
-				"Can you draft the follow up email to them?",
+				"Would you like me to draft the email?",
+				"en",
+			),
+		).toBe(false);
+		expect(
+			isPlausibleFollowUpSuggestion("Szeretnéd rövidebbre venni?", "hu"),
+		).toBe(false);
+		expect(
+			isPlausibleFollowUpSuggestion(
+				"Írjam le a bemelegítő gyakorlatokat?",
+				"hu",
 			),
 		).toBe(false);
 	});
 
-	it("rejects a question longer than the max word count", () => {
+	it("rejects a question put to the user, in both languages", () => {
+		expect(isPlausibleFollowUpSuggestion("What's your budget?", "en")).toBe(
+			false,
+		);
+		expect(isPlausibleFollowUpSuggestion("Mennyi a kereted?", "hu")).toBe(
+			false,
+		);
+	});
+
+	it("rejects a generic chip, in both languages", () => {
+		expect(isPlausibleFollowUpSuggestion("Tell me more")).toBe(false);
+		expect(isPlausibleFollowUpSuggestion("Mondj többet erről", "hu")).toBe(
+			false,
+		);
+	});
+
+	it("rejects a chip in the other language than the turn's", () => {
 		expect(
 			isPlausibleFollowUpSuggestion(
-				"Is this one single question far too long to ever pass the eight word cap?",
+				"Can you recommend specific ruin bars?",
+				"hu",
+			),
+		).toBe(false);
+		expect(
+			isPlausibleFollowUpSuggestion("Melyik podcast appot ajánlod?", "en"),
+		).toBe(false);
+	});
+
+	it("rejects a statement that is neither a question nor a request", () => {
+		expect(isPlausibleFollowUpSuggestion("Not a question at all")).toBe(false);
+	});
+
+	it("rejects text with a sentence break inside", () => {
+		expect(isPlausibleFollowUpSuggestion("Is that true. Really?")).toBe(false);
+	});
+
+	it("accepts a chip at the max word count", () => {
+		// Ten words — the cap.
+		expect(
+			isPlausibleFollowUpSuggestion(
+				"Turn this into a day-by-day itinerary with times and distances",
+			),
+		).toBe(true);
+	});
+
+	it("rejects a chip one word over the max word count", () => {
+		// Eleven words — one past the cap.
+		expect(
+			isPlausibleFollowUpSuggestion(
+				"Turn this into a day-by-day itinerary with times and walking distances",
+			),
+		).toBe(false);
+	});
+
+	it("rejects a chip longer than the character budget", () => {
+		// Few words, but long ones: a Hungarian chip can run past the width a pill has.
+		expect(
+			isPlausibleFollowUpSuggestion(
+				"Összehasonlítottatlanságaikat dokumentálhatatlanságukról elmagyarázhatatlanul",
 			),
 		).toBe(false);
 	});
@@ -181,21 +244,21 @@ describe("generateFollowUpSuggestions", () => {
 		];
 		// The prompt asks for three candidates even though two are returned.
 		expect(args.systemPrompt).toContain(
-			`Write exactly ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} candidate questions`,
+			`Write exactly ${FOLLOW_UP_SUGGESTIONS_REQUESTED_COUNT} candidate messages`,
 		);
 		expect(args.systemPrompt).toContain(
 			`at most ${FOLLOW_UP_SUGGESTIONS_MAX_WORDS} words`,
 		);
 		expect(args.systemPrompt).toContain("[string, string, string]");
 		// Next-step framing, not comprehension checks.
-		expect(args.systemPrompt).toContain("Draft the email?");
+		expect(args.systemPrompt).toContain("Draft the email to the contractor");
 		expect(args.systemPrompt).toContain(
-			"Never ask something the reply already answers",
+			"Never ask for something the reply already gives",
 		);
 		expect(args.systemPrompt).toContain(
-			"Never restate or rephrase anything the user has already asked",
+			"never repeat anything the user has already asked",
 		);
-		expect(args.maxTokens).toBeGreaterThanOrEqual(120);
+		expect(args.maxTokens).toBeGreaterThanOrEqual(180);
 	});
 
 	it("keeps the first two survivors when a candidate fails the filter", async () => {
@@ -287,9 +350,11 @@ describe("generateFollowUpSuggestions", () => {
 		expect(historyLine.length).toBeLessThanOrEqual("User: ".length + 300);
 	});
 
-	it("writes the rules and the action example in Hungarian for a Hungarian turn", async () => {
+	it("writes the rules and the examples in Hungarian for a Hungarian turn", async () => {
 		callShortLocalControlModelMock.mockResolvedValue(
-			controlResult(JSON.stringify({ followUps: ["Megírod az e-mailt?"] })),
+			controlResult(
+				JSON.stringify({ followUps: ["Írd meg az e-mailt a vendéglátónak"] }),
+			),
 		);
 
 		const result = await generateFollowUpSuggestions({
@@ -299,13 +364,215 @@ describe("generateFollowUpSuggestions", () => {
 			assistantResponse: LONG_REPLY,
 		});
 
-		expect(result).toEqual(["Megírod az e-mailt?"]);
+		expect(result).toEqual(["Írd meg az e-mailt a vendéglátónak"]);
 		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
 			{ systemPrompt: string },
 		];
 		expect(args.systemPrompt).toContain("in Hungarian");
-		expect(args.systemPrompt).toContain("Megírod az e-mailt?");
-		expect(args.systemPrompt).not.toContain("Draft the email?");
+		for (const example of FOLLOW_UP_CHIP_EXAMPLES.hu) {
+			expect(args.systemPrompt).toContain(example);
+		}
+		expect(args.systemPrompt).not.toContain(
+			"Draft the email to the contractor",
+		);
+	});
+
+	it("writes in the language the turn resolved, whatever the latest message alone reads as", async () => {
+		// The chat reply's language is decided once per turn (latest message, the
+		// recent user messages, then the UI language). Read from the latest message
+		// alone, a Hungarian message typed without accents, or one the detector has
+		// too little evidence on, reads as English: on the real model 4 of 10
+		// Hungarian conversations got English chips beside a Hungarian reply.
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({ followUps: ["Írd meg az e-mailt a vendéglátónak"] }),
+			),
+		);
+
+		await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Mikor ultessem el a paradicsompalantakat?",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "hu",
+		});
+		const [hu] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ systemPrompt: string },
+		];
+		expect(hu.systemPrompt).toContain("in Hungarian");
+		expect(hu.systemPrompt).toContain(FOLLOW_UP_CHIP_EXAMPLES.hu[0]);
+
+		callShortLocalControlModelMock.mockClear();
+		await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Mesélj a filmről kérlek, angolul.",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
+		});
+		const [en] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ systemPrompt: string },
+		];
+		expect(en.systemPrompt).toContain("in English");
+		expect(en.systemPrompt).toContain(FOLLOW_UP_CHIP_EXAMPLES.en[0]);
+	});
+
+	it("returns instructions that have no question mark, and drops the generic one", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({
+					followUps: [
+						"Compare the two options in a table",
+						"Tell me more",
+						"Draft the email to my landlord",
+					],
+				}),
+			),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Which flat should I take?",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
+		});
+
+		expect(result).toEqual([
+			"Compare the two options in a table",
+			"Draft the email to my landlord",
+		]);
+	});
+
+	it("drops the assistant's offers and questions to the user, keeps the user's own messages", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({
+					followUps: [
+						"Szeretnéd, hogy összeállítsak egy órarendet?",
+						"Mennyi a kereted?",
+						"Készíts bevásárlólistát a heti étrendhez",
+						"Hogyan telepítem a Husky-t?",
+					],
+				}),
+			),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Segíts az étrenddel",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "hu",
+		});
+
+		expect(result).toEqual([
+			"Készíts bevásárlólistát a heti étrendhez",
+			"Hogyan telepítem a Husky-t?",
+		]);
+	});
+
+	it("drops a chip written in the other language than the turn's", async () => {
+		// On the real model a Hungarian conversation got "Can you recommend
+		// specific ruin bars?" beside its Hungarian reply.
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({
+					followUps: [
+						"Can you recommend specific ruin bars?",
+						"Oszd be a három napot óránként",
+						"Foglald táblázatba a három nap programját",
+					],
+				}),
+			),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "Három napot szeretnék Budapesten tölteni",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "hu",
+		});
+
+		expect(result).toEqual([
+			"Oszd be a három napot óránként",
+			"Foglald táblázatba a három nap programját",
+		]);
+	});
+
+	it("persists a chip in its normalized form", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(
+				JSON.stringify({
+					followUps: [
+						'"Compare the two options in a table."',
+						"  Draft the  email. ",
+					],
+				}),
+			),
+		);
+
+		const result = await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "hi",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
+		});
+
+		expect(result).toEqual([
+			"Compare the two options in a table",
+			"Draft the email",
+		]);
+	});
+
+	it("tells the model a chip is the user's next message, never the assistant's offer or a question to the user", async () => {
+		callShortLocalControlModelMock.mockResolvedValue(
+			controlResult(JSON.stringify({ followUps: ["Draft the email"] })),
+		);
+
+		await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
+			userMessage: "hi",
+			assistantResponse: LONG_REPLY,
+			responseLanguage: "en",
+		});
+
+		const [args] = callShortLocalControlModelMock.mock.calls[0] as [
+			{ systemPrompt: string },
+		];
+		const prompt = args.systemPrompt;
+		expect(prompt).toContain("NEXT MESSAGE THE USER WOULD SEND");
+		expect(prompt).toContain("exactly as written");
+		expect(prompt).toContain("Each names what it acts on");
+		expect(prompt).toContain('No offers ("Would you like me to…"');
+		expect(prompt).toContain(
+			'no questions to the user ("What is your budget?")',
+		);
+		expect(prompt).toContain("no statements about the user");
+		expect(prompt).toContain(
+			"Never answer a question the assistant asked the user",
+		);
+		expect(prompt).toContain(
+			"If the reply ends by offering something, the first message accepts that offer",
+		);
+		expect(prompt).toContain('Avoid "you"');
+		expect(prompt).toContain("never for sending, booking, buying or calling");
+	});
+
+	it("only teaches with examples that are themselves chips", () => {
+		for (const language of ["en", "hu"] as const) {
+			for (const example of FOLLOW_UP_CHIP_EXAMPLES[language]) {
+				expect(
+					checkFollowUpChip(example, {
+						language,
+						maxWords: FOLLOW_UP_SUGGESTIONS_MAX_WORDS,
+					}),
+				).toEqual({ ok: true, text: example });
+			}
+		}
 	});
 
 	it("omits the history section entirely when there are no prior turns", async () => {
@@ -370,7 +637,7 @@ describe("generateFollowUpSuggestions", () => {
 		callShortLocalControlModelMock.mockResolvedValue(
 			controlResult(
 				JSON.stringify({
-					followUps: ["This one has, extra punctuation?", "A fine follow-up?"],
+					followUps: ["Would you like me to draft it?", "A fine follow-up?"],
 				}),
 			),
 		);
@@ -387,7 +654,15 @@ describe("generateFollowUpSuggestions", () => {
 
 	it("returns null when every candidate is implausible", async () => {
 		callShortLocalControlModelMock.mockResolvedValue(
-			controlResult(JSON.stringify({ followUps: ["no question mark here"] })),
+			controlResult(
+				JSON.stringify({
+					followUps: [
+						"no question mark here",
+						"Tell me more",
+						"What's your budget?",
+					],
+				}),
+			),
 		);
 
 		const result = await generateFollowUpSuggestions({

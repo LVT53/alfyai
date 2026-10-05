@@ -228,7 +228,10 @@ export async function expectTopmost(
 		.toBe(true);
 }
 
-export function buildAiSdkUiStreamBody(text: string): string {
+export function buildAiSdkUiStreamBody(
+	text: string,
+	metadata: Record<string, unknown> = {},
+): string {
 	const words = text.split(" ");
 	const chunks = [
 		[
@@ -264,7 +267,7 @@ export function buildAiSdkUiStreamBody(text: string): string {
 			"data: ",
 			JSON.stringify({
 				type: "data-stream-metadata",
-				data: {},
+				data: metadata,
 				transient: true,
 			}),
 			"\n\n",

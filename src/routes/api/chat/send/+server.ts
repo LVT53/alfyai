@@ -326,6 +326,7 @@ async function runAtlasSendTurn({
 
 		const completion = await finalizeChatTurn({
 			turnKind: "send",
+			responseLanguage,
 			userId: user.id,
 			conversationId: turn.conversationId,
 			userMessageContent: turn.normalizedMessage,
@@ -583,6 +584,7 @@ async function runStandardSendTurn({
 
 	const completion = await finalizeChatTurn({
 		turnKind: "send",
+		responseLanguage: resolvedResponseLanguage,
 		userId: user.id,
 		conversationId: turn.conversationId,
 		userMessageContent: turn.normalizedMessage,

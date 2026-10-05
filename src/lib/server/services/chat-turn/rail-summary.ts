@@ -1,4 +1,6 @@
+import type { SupportedLanguage } from "$lib/server/services/language";
 import { updateMessageRailSummary } from "$lib/server/services/messages";
+import type { JsonControlResponseSchema } from "../normal-chat-control-model";
 import {
 	generateShortLocalText,
 	resolveShortTextLanguage,
@@ -64,6 +66,23 @@ const RAIL_SUMMARY_MAX_TOKENS = 40;
 const RAIL_SUMMARY_MAX_CHARS = 100;
 const RAIL_SUMMARY_MAX_WORDS = 14;
 
+// Asked for as a strict one-field object, not "any JSON object": left free, the
+// real model answered 8% of rail requests with a function-call shape
+// ({"name": "write_headline", "arguments": ...}) or with its own thoughts
+// ({"thought": ...}), none of them a headline. With this schema 0 of 120 did.
+// The cleanup still unwraps `headline`, and still rejects the other shapes for a
+// server that cannot enforce a schema.
+const RAIL_SUMMARY_JSON_SCHEMA: JsonControlResponseSchema = {
+	name: "rail_headline",
+	strict: true,
+	schema: {
+		type: "object",
+		additionalProperties: false,
+		required: ["headline"],
+		properties: { headline: { type: "string" } },
+	},
+};
+
 function buildRailSummarySystemPrompt(language: "en" | "hu"): string {
 	const languageLabel = language === "hu" ? "Hungarian" : "English";
 	return `You are writing a very short, glanceable headline for a navigation rail that summarizes what an assistant's reply is about. You will be given the assistant's reply. Respond with ONLY the headline text — no quotes, no punctuation-only, no preamble, no explanation, no reasoning.
@@ -90,13 +109,20 @@ export async function persistAssistantRailSummary(params: {
 	userMessage: string;
 	/** The assistant reply being summarized. */
 	assistantResponse: string;
+	/**
+	 * The turn's reply language, decided once per turn; the headline is in the
+	 * language the reply is in. Without it the language is read off the user
+	 * message alone, which misreads a Hungarian message with little evidence.
+	 */
+	responseLanguage?: SupportedLanguage;
 }): Promise<void> {
 	const response = params.assistantResponse.trim();
 	// Short/empty replies: the verbatim 120-char start is already glanceable,
 	// so the deterministic fallback is honest and complete — no control call.
 	if (response.length < RAIL_SUMMARY_MIN_CONTENT_LENGTH) return;
 
-	const language = resolveShortTextLanguage(params.userMessage);
+	const language =
+		params.responseLanguage ?? resolveShortTextLanguage(params.userMessage);
 
 	const summary = await generateShortLocalText({
 		prompt: response.slice(0, RAIL_SUMMARY_SOURCE_CHAR_BUDGET),
@@ -105,6 +131,7 @@ export async function persistAssistantRailSummary(params: {
 		conversationId: params.conversationId,
 		systemPrompt: buildRailSummarySystemPrompt(language),
 		maxTokens: RAIL_SUMMARY_MAX_TOKENS,
+		jsonSchema: RAIL_SUMMARY_JSON_SCHEMA,
 		timeoutMs: RAIL_SUMMARY_TIMEOUT_MS,
 		maxConcurrent: RAIL_SUMMARY_MAX_CONCURRENT,
 		language,

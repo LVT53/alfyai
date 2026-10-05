@@ -371,6 +371,8 @@ describe("context compression snapshots", () => {
 			}),
 			allowReasoningFallback: true,
 		});
+		// The summary names no temperature of its own: the family sampling profile.
+		expect(call?.[2]?.temperature).toBeUndefined();
 
 		const [stored] = await listContextCompressionSnapshots("conv-1");
 		expect(stored).toEqual(
