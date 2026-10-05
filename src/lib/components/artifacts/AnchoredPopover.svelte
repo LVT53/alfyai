@@ -44,6 +44,7 @@ let {
 	width = 340,
 	maxHeight = 480,
 	boundarySelector = ".workspace-shell",
+	initialFocus = undefined,
 	onClose,
 	children,
 }: {
@@ -60,6 +61,8 @@ let {
 	maxHeight?: number;
 	/** The panel the popover must stay inside, found from the trigger. */
 	boundarySelector?: string;
+	/** Where focus lands when the popover opens, when that is not its first control (a menu opens on its first item). Asked once the content is there; nothing, or null, leaves the first control. */
+	initialFocus?: (() => HTMLElement | null | undefined) | undefined;
 	onClose: () => void;
 	children: Snippet;
 } = $props();
@@ -172,7 +175,7 @@ const popoverFocusTrap = focusTrap({
 		event.stopImmediatePropagation();
 		onClose();
 	},
-	focus: { defer: true },
+	focus: { defer: true, target: () => initialFocus?.() },
 	restoreFocusOnCleanup: true,
 });
 </script>
