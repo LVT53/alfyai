@@ -29,7 +29,7 @@
 //   through the project file list.
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative as relativePath } from "node:path";
-import { eq } from "drizzle-orm";
+import { eq, getTableColumns } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInMemoryDatabase,
@@ -2246,5 +2246,277 @@ describe("every user-scoped artifact query goes through the ownership scope", ()
 				(entry) => !exemptionsAsOf20260925.includes(entry),
 			),
 		).toEqual([]);
+	});
+});
+
+// ─── First-open tours (Feature 2, Slice 6, ruling 33) ───────────────────────
+//
+// A tour's seen state is a write, and an incognito chat promises none. The
+// panel never asks for a tour inside an incognito chat (that half is the
+// panel's trigger, pinned in its own suite); this half is what the SERVER
+// guarantees however it is asked. The state names a user, a kind and a content
+// key and nothing else — no conversation, no artifact — so there is no row an
+// incognito chat's open could leave, and no path from a row back to a chat. And
+// no tour code path reads an artifact table, so the tours cannot become a way
+// to enumerate what a chat holds.
+//
+// There is NO `ALLOWED_WITHOUT_SCOPE` entry for any of it, and adding one
+// would be a bug: the guard above fires only on files that read the artifact
+// tables, a tour file reads none, and an entry the guard can never consult is
+// dead weight that "keeps the allow-list honest" fails — and that teaches the
+// next reader the guard is decorative. The assertions below are the coverage;
+// nothing is exempted.
+
+const tourRoutes = {
+	read: await import("../../src/routes/api/artifact-tours/[type]/+server"),
+	seen: await import("../../src/routes/api/artifact-tours/[type]/seen/+server"),
+};
+
+/** Every module a tour is served, recorded, seeded or fetched through. */
+const TOUR_CODE_PATHS = [
+	"lib/server/services/artifact-tours.ts",
+	"lib/server/artifact-tour-defaults.ts",
+	"lib/shared/artifacts/tours.ts",
+	"lib/client/api/artifact-tours.ts",
+	"routes/api/artifact-tours/[type]/+server.ts",
+	"routes/api/artifact-tours/[type]/seen/+server.ts",
+	"routes/api/admin/campaigns/seed-artifact-tours/+server.ts",
+];
+
+/** The only tables a tour code path may name: the campaigns it overrides from, and its own state. */
+const TOUR_TABLES = new Set(["announcementCampaigns", "artifactTourStates"]);
+
+/** The names a module imports from the schema, `type` and `as` stripped. */
+function schemaImportNames(source: string): string[] {
+	const names: string[] = [];
+	for (const match of source.matchAll(
+		/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+["']\$lib\/server\/db\/schema["']/g,
+	)) {
+		for (const part of (match[1] ?? "").split(",")) {
+			const name = part
+				.trim()
+				.replace(/^type\s+/, "")
+				.split(/\s+as\s+/)[0]
+				?.trim();
+			if (name) names.push(name);
+		}
+	}
+	return names;
+}
+
+/** Services whose job is artifacts, chats or files: a tour has no business in any. */
+const ARTIFACT_SIDE_SPECIFIER =
+	/\/(?:services\/(?:artifacts|knowledge|chat-files|file-production|working-set|document-resolution|task-state|workspace-search|conversation-detail|conversations|messages)|client\/api\/(?:artifacts|conversations|knowledge))(?:\/|["']|$)/;
+
+function importedSpecifiers(source: string): string[] {
+	return [
+		...source.matchAll(/from\s+["']([^"']+)["']/g),
+		...source.matchAll(/import\(\s*["']([^"']+)["']\s*\)/g),
+	].map((match) => match[1] ?? "");
+}
+
+describe("a first-open tour's seen state, beside an incognito conversation", () => {
+	function tourGetEvent(type: string, search = "") {
+		return {
+			params: { type },
+			url: new URL(`http://localhost/api/artifact-tours/${type}${search}`),
+			locals: { user: { id: USER, role: "user" } },
+		} as never;
+	}
+
+	function tourSeenEvent(type: string, body: unknown, search = "") {
+		return {
+			params: { type },
+			url: new URL(`http://localhost/api/artifact-tours/${type}/seen${search}`),
+			locals: { user: { id: USER, role: "user" } },
+			request: { json: async () => body },
+		} as never;
+	}
+
+	it("has a row of a user, a kind, a content key, a status and slide counters, and nowhere to put a conversation or an artifact", () => {
+		const columns = Object.values(getTableColumns(schema.artifactTourStates))
+			.map((column) => column.name)
+			.sort();
+
+		expect(columns).toEqual([
+			"artifact_type",
+			"completed_at",
+			"content_key",
+			"created_at",
+			"dismissed_at",
+			"id",
+			"last_slide",
+			"slide_count",
+			"status",
+			"updated_at",
+			"user_id",
+		]);
+		// The only references the row holds are its own id and its user.
+		expect(
+			columns.filter((name) => name === "id" || name.endsWith("_id")),
+		).toEqual(["id", "user_id"]);
+	});
+
+	it("is written by an ordinary reader while an incognito chat holds work, and the row names neither the chat nor anything in it", async () => {
+		const secret = seedIncognitoWork();
+		const needles = [
+			INCOGNITO,
+			NORMAL,
+			secret.artifactId,
+			secret.fileId,
+			secret.uploadId,
+			secret.sourceId,
+			SECRET_FILENAME,
+			SECRET_WORD,
+		];
+		const familyBefore = {
+			artifacts: memory.db.select().from(schema.artifacts).all(),
+			chunks: memory.db.select().from(schema.artifactChunks).all(),
+			links: memory.db.select().from(schema.artifactLinks).all(),
+			files: memory.db.select().from(schema.chatGeneratedFiles).all(),
+		};
+
+		// A client that names the incognito conversation and its artifact
+		// everywhere it can: in the query string and in the body.
+		const query = `?conversationId=${INCOGNITO}&artifactId=${secret.artifactId}`;
+		const read = await tourRoutes.read.GET(tourGetEvent("document", query));
+		const readBody = await read.json();
+		expect(readBody).toMatchObject({ ok: true, seen: false });
+		for (const needle of needles) {
+			expect(JSON.stringify(readBody)).not.toContain(needle);
+		}
+
+		const wrote = await tourRoutes.seen.POST(
+			tourSeenEvent(
+				"document",
+				{
+					contentKey: readBody.tour.contentKey,
+					status: "completed",
+					lastSlide: 2,
+					conversationId: INCOGNITO,
+					artifactId: secret.artifactId,
+				},
+				query,
+			),
+		);
+		expect(await wrote.json()).toEqual({ ok: true, alreadyRecorded: false });
+
+		const rows = memory.db.select().from(schema.artifactTourStates).all();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.userId).toBe(USER);
+		for (const needle of needles) {
+			expect(JSON.stringify(rows[0])).not.toContain(needle);
+		}
+		// And the tour left the artifact family exactly as it found it.
+		expect({
+			artifacts: memory.db.select().from(schema.artifacts).all(),
+			chunks: memory.db.select().from(schema.artifactChunks).all(),
+			links: memory.db.select().from(schema.artifactLinks).all(),
+			files: memory.db.select().from(schema.chatGeneratedFiles).all(),
+		}).toEqual(familyBefore);
+	});
+
+	it("runs the tour routes without one statement against an artifact, chat or file table", async () => {
+		seedIncognitoWork();
+		const statements: string[] = [];
+		const realPrepare = memory.sqlite.prepare.bind(memory.sqlite);
+		memory.sqlite.prepare = ((sql: string) => {
+			statements.push(sql);
+			return realPrepare(sql);
+		}) as never;
+
+		const read = await tourRoutes.read.GET(tourGetEvent("canvas"));
+		const readBody = await read.json();
+		await tourRoutes.seen.POST(
+			tourSeenEvent("canvas", {
+				contentKey: readBody.tour.contentKey,
+				status: "dismissed",
+				lastSlide: 1,
+			}),
+		);
+		await tourRoutes.read.GET(tourGetEvent("canvas"));
+
+		expect(statements.length).toBeGreaterThan(0);
+		const artifactSide =
+			/\b(?:from|join|into|update)\s+"?(?:artifacts|artifact_chunks|artifact_links|artifact_versions|artifact_comments|artifact_kv|chat_generated_files|project_knowledge_links|conversations|messages)"?(?![\w])/i;
+		expect(statements.filter((sql) => artifactSide.test(sql))).toEqual([]);
+		// Sanity: the spy saw the tour's own table, so it is looking.
+		expect(statements.some((sql) => sql.includes("artifact_tour_states"))).toBe(
+			true,
+		);
+	});
+
+	it("reads no artifact table on any tour code path, by what each module imports and queries", () => {
+		const offenders: string[] = [];
+		for (const relative of TOUR_CODE_PATHS) {
+			const source = readFileSync(join(process.cwd(), "src", relative), "utf8");
+			if (readsGuardedTables(source)) {
+				offenders.push(`${relative} — reads a guarded table`);
+			}
+			for (const name of schemaImportNames(source)) {
+				if (!TOUR_TABLES.has(name)) {
+					offenders.push(`${relative} — imports the table ${name}`);
+				}
+			}
+			for (const specifier of importedSpecifiers(source)) {
+				if (ARTIFACT_SIDE_SPECIFIER.test(`${specifier}"`)) {
+					offenders.push(`${relative} — imports ${specifier}`);
+				}
+			}
+		}
+		expect(offenders).toEqual([]);
+	});
+
+	it("lists the modules it checks, so a tour module that moved cannot slip out of the check", () => {
+		for (const relative of TOUR_CODE_PATHS) {
+			expect(
+				() => readFileSync(join(process.cwd(), "src", relative), "utf8"),
+				relative,
+			).not.toThrow();
+		}
+	});
+
+	it("flags a tour module that did import an artifact table or an artifact-side service (the check's own self-test)", () => {
+		expect(
+			schemaImportNames(
+				'import { artifactTourStates, type artifacts as a, artifactVersions } from "$lib/server/db/schema";',
+			),
+		).toEqual(["artifactTourStates", "artifacts", "artifactVersions"]);
+		expect(readsGuardedTables("db.select().from(artifacts)")).toBe(true);
+		for (const specifier of [
+			"$lib/server/services/artifacts",
+			"$lib/server/services/artifacts/index",
+			"$lib/server/services/knowledge/store",
+			"$lib/client/api/artifacts",
+		]) {
+			expect(ARTIFACT_SIDE_SPECIFIER.test(`${specifier}"`), specifier).toBe(
+				true,
+			);
+		}
+		// Its own neighbours are not the artifact side.
+		for (const specifier of [
+			"$lib/server/services/artifact-tours",
+			"$lib/client/api/artifact-tours",
+			"$lib/server/artifact-tour-defaults",
+		]) {
+			expect(ARTIFACT_SIDE_SPECIFIER.test(`${specifier}"`), specifier).toBe(
+				false,
+			);
+		}
+	});
+
+	it("needs no exemption from the ownership guard, and has none", () => {
+		expect(
+			Object.keys(ALLOWED_WITHOUT_SCOPE).filter((entry) => /tour/i.test(entry)),
+		).toEqual([]);
+		// The reason an exemption would be dead weight: the guard's own test for
+		// "a file that reads a guarded table" never fires on a tour module, so
+		// there is nothing for an entry to excuse.
+		for (const relative of TOUR_CODE_PATHS.filter((path) =>
+			path.startsWith("lib/server/"),
+		)) {
+			const source = readFileSync(join(process.cwd(), "src", relative), "utf8");
+			expect(readsGuardedTables(source), relative).toBe(false);
+		}
 	});
 });
