@@ -56,8 +56,18 @@ export type CallMemoryControlModelParams = {
 	 * top-level key, recovered from any surrounding reasoning prose.
 	 */
 	envelopeKey?: string;
-	/** Defaults to 0 (deterministic structured extraction). */
+	/**
+	 * Defaults to 0 (deterministic structured extraction). Ignored when the
+	 * answer is read by a person.
+	 */
 	temperature?: number;
+	/**
+	 * Who reads the answer. Default `machine`: a JSON decision or extraction (the
+	 * judge, reconcile/merge, re-curation), deterministic. `person`: prose a
+	 * person reads (the persona summary), which takes the whole family sampling
+	 * profile (normal-chat-model/sampling.ts), temperature included.
+	 */
+	readBy?: "machine" | "person";
 	signal?: AbortSignal;
 	fetch?: typeof fetch;
 };
@@ -79,7 +89,8 @@ export async function callMemoryControlModel(
 	);
 	const res = await sendJsonControlMessage(params.userMessage, params.modelId, {
 		systemPrompt: params.systemPrompt,
-		temperature: params.temperature ?? 0,
+		temperature:
+			params.readBy === "person" ? undefined : (params.temperature ?? 0),
 		// Structured extraction, not reasoning: chain-of-thought is same-quality
 		// and far cheaper/faster here (ADR-0045). Never turned on on any path.
 		thinkingMode: "off",

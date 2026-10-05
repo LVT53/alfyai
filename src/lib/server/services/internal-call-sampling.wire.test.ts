@@ -202,6 +202,18 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 		expect(wire()).toEqual(keepsOwnTemperature(0));
 	});
 
+	it("thought-step classifier: the status line a person reads takes the family profile", async () => {
+		await classifyThoughtStepChunk({
+			userId: "u1",
+			conversationId: "c1",
+			chunkText:
+				"The user wants a weekly meal plan in Hungarian, so I should list dishes per day.",
+			currentActivityClass: null,
+			targetLanguage: "hu",
+		});
+		expect(wire()).toEqual(PROFILE);
+	});
+
 	it("turn acknowledgment: a JSON classification keeps temperature 0, family top_p/top_k ride along", async () => {
 		await resolveTurnAcknowledgment({
 			userId: "u1",
@@ -216,6 +228,16 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			userId: "u1",
 			conversationId: "c1",
 			assistantMessageId: "m1",
+			userMessage: HU_USER,
+			assistantResponse: HU_REPLY,
+		});
+		expect(wire()).toEqual(PROFILE);
+	});
+
+	it("follow-up suggestions: the questions a person reads take the family profile", async () => {
+		await generateFollowUpSuggestions({
+			userId: "u1",
+			conversationId: "c1",
 			userMessage: HU_USER,
 			assistantResponse: HU_REPLY,
 		});
@@ -260,6 +282,19 @@ describe("internal model calls on a qwen-family model: what reaches the wire", (
 			inputSizeHint: 3,
 		}).catch(() => null);
 		expect(wire()).toEqual(keepsOwnTemperature(0));
+	});
+
+	it("memory adapter: the persona summary a person reads takes the family profile", async () => {
+		await callMemoryControlModel({
+			userId: "u1",
+			feature: "summary",
+			systemPrompt: "Write the summary.",
+			userMessage: "- [f1] (preference) Szereti a gulyást.",
+			modelId: "model2",
+			inputSizeHint: 1,
+			readBy: "person",
+		}).catch(() => null);
+		expect(wire()).toEqual(PROFILE);
 	});
 
 	it("chat turn (plain run): the profile's own route, through the same helper", async () => {

@@ -136,7 +136,14 @@ export type ShortLocalControlCallParams = {
 	systemPrompt: string;
 	/** Defaults to "off" — short local calls never want visible reasoning. */
 	thinkingMode?: ThinkingMode;
+	/**
+	 * The temperature of a deterministic machine-read answer (a JSON
+	 * classification). Omit it for anything a person reads: that takes the
+	 * family sampling profile (normal-chat-model/sampling.ts).
+	 */
 	temperature?: number;
+	/** What a family with no sampling profile sends for an answer a person reads. */
+	profilelessTemperature?: number;
 	maxTokens?: number;
 	jsonSchema?: JsonControlResponseSchema;
 	/** Hard timeout combined with `signal`. When omitted, only `signal` bounds the call. */
@@ -182,6 +189,7 @@ export async function callShortLocalControlModel(
 				systemPrompt: params.systemPrompt,
 				thinkingMode: params.thinkingMode ?? "off",
 				temperature: params.temperature,
+				profilelessTemperature: params.profilelessTemperature,
 				maxTokens: params.maxTokens,
 				jsonSchema: params.jsonSchema,
 				signal,
@@ -290,6 +298,7 @@ export type GenerateShortLocalTextParams = {
 	systemPrompt?: string;
 	modelId?: ModelId;
 	maxTokens?: number;
+	/** A deterministic machine-read answer's own temperature; omit for text a person reads (the family sampling profile). */
 	temperature?: number;
 	thinkingMode?: ThinkingMode;
 	timeoutMs?: number;

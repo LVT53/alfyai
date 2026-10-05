@@ -836,7 +836,10 @@ export async function classifyThoughtStepChunk(params: {
 				params.targetLanguage,
 			),
 			thinkingMode: "off",
-			temperature: 0,
+			// The step's summary headline is a status line a person reads, so
+			// the call takes the family sampling profile (sampling.ts), not a
+			// temperature of its own; a family without a profile keeps its 0.
+			profilelessTemperature: 0,
 			maxTokens: THOUGHT_STEP_CLASSIFIER_MAX_TOKENS,
 			jsonSchema: THOUGHT_STEP_CLASSIFIER_JSON_SCHEMA,
 			signal,

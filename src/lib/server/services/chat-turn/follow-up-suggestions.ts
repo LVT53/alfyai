@@ -267,7 +267,9 @@ export async function generateFollowUpSuggestions(params: {
 		conversationId: params.conversationId,
 		systemPrompt: buildFollowUpSuggestionsSystemPrompt(language),
 		thinkingMode: "off",
-		temperature: 0.4,
+		// The suggestions are read by a person: the family sampling profile
+		// (sampling.ts); a family without one keeps its 0.4.
+		profilelessTemperature: 0.4,
 		maxTokens: FOLLOW_UP_SUGGESTIONS_MAX_TOKENS,
 		jsonSchema: FOLLOW_UP_SUGGESTIONS_JSON_SCHEMA,
 		timeoutMs: FOLLOW_UP_SUGGESTIONS_TIMEOUT_MS,
