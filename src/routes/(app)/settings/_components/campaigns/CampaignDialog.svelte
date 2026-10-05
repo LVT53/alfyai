@@ -138,14 +138,10 @@ function confirm() {
 		gap: 0.5rem;
 	}
 
-	/* Read-only: it looks like the chosen pill but is not a control. */
+	/* Read-only: it looks like the chosen pill but is not a control, so it takes
+	   no pointer and so none of the pill's hover. */
 	.type-fixed {
-		cursor: default;
-	}
-
-	.type-fixed:hover {
-		border-color: var(--accent);
-		color: var(--accent);
+		pointer-events: none;
 	}
 
 	.dialog-help {
