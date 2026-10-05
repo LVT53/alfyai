@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import artifactsDict from "$lib/i18n/artifacts";
-import type { ArtifactTourType } from "$lib/shared/artifacts/tours";
+import {
+	type ArtifactTourType,
+	SHIPPED_ARTIFACT_TOUR_TYPES,
+} from "$lib/shared/artifacts/tours";
 import {
 	ARTIFACT_TOUR_CONTENT_VERSION,
 	ARTIFACT_TOUR_DEFAULTS,
-	isArtifactTourType,
 } from "./artifact-tour-defaults";
 
 const KINDS: ArtifactTourType[] = ["document", "app", "canvas", "slides"];
@@ -236,13 +238,16 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 		}
 	});
 
-	it("narrows only the four kinds at runtime", () => {
-		for (const kind of KINDS) {
-			expect(isArtifactTourType(kind)).toBe(true);
+	it("keeps Slides' copy for its return, and reaches nobody with it (ruling 69)", () => {
+		// The table has an entry for every kind a tour can be written for; the
+		// shipped list is what decides who is served. Slides is in the first
+		// and not in the second, so its copy is dead data until Slides ships.
+		expect(ARTIFACT_TOUR_DEFAULTS.slides.slides).toHaveLength(3);
+		expect(SHIPPED_ARTIFACT_TOUR_TYPES).not.toContain("slides");
+		// Every shipped kind has copy, so nothing on the list can come up empty.
+		for (const kind of SHIPPED_ARTIFACT_TOUR_TYPES) {
+			expect(ARTIFACT_TOUR_DEFAULTS[kind].slides).toHaveLength(3);
 		}
-		expect(isArtifactTourType("file")).toBe(false);
-		expect(isArtifactTourType("bogus")).toBe(false);
-		expect(isArtifactTourType("")).toBe(false);
 	});
 
 	it("has a stable content version", () => {

@@ -6,8 +6,9 @@ import type { RequestHandler } from "./$types";
 
 /**
  * Sibling of `../seed-first-run/+server.ts`, with one deliberate difference:
- * this seeds one draft per tour kind (document, app, canvas, slides), so the
- * response is counts rather than a single campaign.
+ * this seeds one draft per shipped tour kind (document, app, canvas —
+ * `SHIPPED_ARTIFACT_TOUR_TYPES`, ruling 69), so the response is counts rather
+ * than a single campaign.
  */
 export const POST: RequestHandler = async (event) => {
 	requireAdmin(event);

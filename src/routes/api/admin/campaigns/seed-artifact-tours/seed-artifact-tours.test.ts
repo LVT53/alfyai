@@ -30,23 +30,23 @@ describe("POST /api/admin/campaigns/seed-artifact-tours", () => {
 		mockRequireAdmin.mockReturnValue(undefined);
 	});
 
-	it("seeds the four tour drafts and reports the counts", async () => {
-		mockSeedArtifactTourDrafts.mockResolvedValue({ created: 4, existing: 0 });
+	it("seeds the three tour drafts and reports the counts", async () => {
+		mockSeedArtifactTourDrafts.mockResolvedValue({ created: 3, existing: 0 });
 
 		const response = await POST(makeEvent());
 
 		expect(response.status).toBe(201);
-		expect(await response.json()).toEqual({ created: 4, existing: 0 });
+		expect(await response.json()).toEqual({ created: 3, existing: 0 });
 		expect(mockSeedArtifactTourDrafts).toHaveBeenCalledWith("admin-user");
 	});
 
 	it("is a no-op with 200 on a second run", async () => {
-		mockSeedArtifactTourDrafts.mockResolvedValue({ created: 0, existing: 4 });
+		mockSeedArtifactTourDrafts.mockResolvedValue({ created: 0, existing: 3 });
 
 		const response = await POST(makeEvent());
 
 		expect(response.status).toBe(200);
-		expect(await response.json()).toEqual({ created: 0, existing: 4 });
+		expect(await response.json()).toEqual({ created: 0, existing: 3 });
 	});
 
 	it("maps a validation failure to the campaign error response shape", async () => {

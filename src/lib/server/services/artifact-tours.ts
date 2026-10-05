@@ -9,23 +9,37 @@
  * `getCampaignById` for snapshot assembly rather than re-implementing
  * snapshot mapping, and it never trusts the campaign tables enough to let a
  * read failure reach the panel as an error (see `getArtifactTour`).
+ *
+ * Which kinds have a tour at all is `SHIPPED_ARTIFACT_TOUR_TYPES`
+ * (`$lib/shared/artifacts/tours`, ruling 69): the resolver, the seen write and
+ * the admin seeding below all read that one list, and no function here
+ * answers for a kind that is not on it.
+ *
+ * Nothing in this module reads an artifact, a conversation or a chat file —
+ * the seen state names a user, a kind and a content key and no more
+ * (ruling 33), and `tests/cross-cutting/incognito-artifact-containment.test.ts`
+ * pins that it stays so.
  */
+import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
 	ARTIFACT_TOUR_CONTENT_VERSION,
 	ARTIFACT_TOUR_DEFAULTS,
-	isArtifactTourType,
 } from "$lib/server/artifact-tour-defaults";
 import { db as defaultDb } from "$lib/server/db";
 import {
 	announcementCampaigns,
 	artifactTourStates,
 } from "$lib/server/db/schema";
-import type {
-	ArtifactTourSlideContent,
-	ArtifactTourType,
-	LocalizedText,
-	ResolvedArtifactTour,
+import {
+	ARTIFACT_TOUR_SLIDE_COUNT,
+	type ArtifactTourSeenRequest,
+	type ArtifactTourSlideContent,
+	isShippedArtifactTourType,
+	type LocalizedText,
+	type ResolvedArtifactTour,
+	SHIPPED_ARTIFACT_TOUR_TYPES,
+	type ShippedArtifactTourType,
 } from "$lib/shared/artifacts/tours";
 import {
 	type CampaignServiceOptions,
@@ -46,7 +60,9 @@ export type ArtifactTourLookup = {
 	lastSlide: number;
 };
 
-function defaultTour(artifactType: ArtifactTourType): ResolvedArtifactTour {
+function defaultTour(
+	artifactType: ShippedArtifactTourType,
+): ResolvedArtifactTour {
 	const content = ARTIFACT_TOUR_DEFAULTS[artifactType];
 	return {
 		artifactType,
@@ -67,7 +83,7 @@ function defaultTour(artifactType: ArtifactTourType): ResolvedArtifactTour {
  */
 async function currentCampaignForKind(
 	db: ArtifactToursDb,
-	artifactType: ArtifactTourType,
+	artifactType: ShippedArtifactTourType,
 ) {
 	return db
 		.select()
@@ -99,7 +115,7 @@ function toSlideContent(slide: {
  * default rather than show a broken card.
  */
 function resolvePublishedTour(
-	artifactType: ArtifactTourType,
+	artifactType: ShippedArtifactTourType,
 	snapshot: {
 		id: string;
 		slides: Array<{
@@ -131,29 +147,24 @@ function resolvePublishedTour(
 }
 
 /**
- * Resolves the tour for `params.artifactType` and this user's seen state
- * against it. Returns `null` only when the kind's tour has been
- * DELIBERATELY retired (its latest campaign is archived, and archiving must
- * not silently resurrect the default — decisions.md ruling 4) or when the
- * kind is not a real tour type at all; every other path — including a
- * broken campaign table — resolves to a tour, because the four shipped
- * kinds always have a code default.
+ * The tour that is current for a kind right now, independent of any user: a
+ * published campaign's snapshot when one exists, the code default otherwise,
+ * and `null` only when the kind's tour has been DELIBERATELY retired (its
+ * latest campaign is archived, and archiving must not silently resurrect the
+ * default — decisions.md ruling 4). A broken campaign table resolves to the
+ * default, never to an error: the shipped kinds always have code copy.
+ *
+ * One function for the read and the write, so the key the panel was shown and
+ * the key the seen write is compared with can never come from two places.
  */
-export async function getArtifactTour(params: {
-	userId: string;
-	artifactType: ArtifactTourType;
-	options?: CampaignServiceOptions;
-}): Promise<ArtifactTourLookup | null> {
-	// `isArtifactTourType` (a `Set.has()` check), not `in` — an object literal's
-	// `in` operator also matches inherited `Object.prototype` keys such as
-	// `toString`, which would otherwise read as a "valid" kind.
-	if (!isArtifactTourType(params.artifactType)) return null;
-
-	const db = database(params.options);
-	let tour: ResolvedArtifactTour = defaultTour(params.artifactType);
+async function resolveCurrentTour(
+	db: ArtifactToursDb,
+	artifactType: ShippedArtifactTourType,
+): Promise<ResolvedArtifactTour | null> {
+	let tour: ResolvedArtifactTour = defaultTour(artifactType);
 
 	try {
-		const campaign = await currentCampaignForKind(db, params.artifactType);
+		const campaign = await currentCampaignForKind(db, artifactType);
 		if (campaign) {
 			if (campaign.status === "archived") {
 				// A deliberate retirement: the kind has no tour at all right now,
@@ -162,7 +173,7 @@ export async function getArtifactTour(params: {
 			}
 			const full = await getCampaignById(campaign.id, { db });
 			const resolved = full?.snapshot
-				? resolvePublishedTour(params.artifactType, full.snapshot)
+				? resolvePublishedTour(artifactType, full.snapshot)
 				: null;
 			if (resolved) tour = resolved;
 		}
@@ -172,6 +183,29 @@ export async function getArtifactTour(params: {
 			error,
 		);
 	}
+	return tour;
+}
+
+/**
+ * Resolves the tour for `params.artifactType` and this user's seen state
+ * against it. Returns `null` when the kind's tour has been deliberately
+ * retired (see `resolveCurrentTour`) or when the kind is not one whose tour
+ * ships (ruling 69: not Slides, never File, and nothing a hand-typed path
+ * segment can name); every other path — including a broken campaign table —
+ * resolves to a tour.
+ */
+export async function getArtifactTour(params: {
+	userId: string;
+	artifactType: ShippedArtifactTourType;
+	options?: CampaignServiceOptions;
+}): Promise<ArtifactTourLookup | null> {
+	// The shipped list, not a lookup in an object literal: `in` would also
+	// match inherited `Object.prototype` keys such as `toString`.
+	if (!isShippedArtifactTourType(params.artifactType)) return null;
+
+	const db = database(params.options);
+	const tour = await resolveCurrentTour(db, params.artifactType);
+	if (!tour) return null;
 
 	const state = db
 		.select()
@@ -192,13 +226,125 @@ export async function getArtifactTour(params: {
 	};
 }
 
+export type ParsedArtifactTourSeenBody =
+	| { ok: true; value: ArtifactTourSeenRequest }
+	| { ok: false; fieldErrors: Record<string, "invalid"> };
+
+/**
+ * Reads the body of `POST /api/artifact-tours/[type]/seen`. Hand-validated
+ * like the rest of the family's routes, and it keeps only the three fields it
+ * asks for: whatever else a client sends (a conversation id, an artifact id)
+ * is dropped here, before anything could reach a row (ruling 33).
+ */
+export function parseArtifactTourSeenBody(
+	payload: unknown,
+): ParsedArtifactTourSeenBody {
+	const body =
+		payload !== null && typeof payload === "object" && !Array.isArray(payload)
+			? (payload as Record<string, unknown>)
+			: {};
+	const fieldErrors: Record<string, "invalid"> = {};
+
+	const contentKey =
+		typeof body.contentKey === "string" && body.contentKey.length > 0
+			? body.contentKey
+			: null;
+	if (contentKey === null) fieldErrors.contentKey = "invalid";
+
+	const status =
+		body.status === "completed" || body.status === "dismissed"
+			? body.status
+			: null;
+	if (status === null) fieldErrors.status = "invalid";
+
+	const lastSlide =
+		typeof body.lastSlide === "number" &&
+		Number.isInteger(body.lastSlide) &&
+		body.lastSlide >= 0 &&
+		body.lastSlide < ARTIFACT_TOUR_SLIDE_COUNT
+			? body.lastSlide
+			: null;
+	if (lastSlide === null) fieldErrors.lastSlide = "invalid";
+
+	if (contentKey === null || status === null || lastSlide === null) {
+		return { ok: false, fieldErrors };
+	}
+	return { ok: true, value: { contentKey, status, lastSlide } };
+}
+
+export type MarkArtifactTourSeenResult =
+	| { ok: true; alreadyRecorded: boolean }
+	| { ok: false; reason: "unknown_type" }
+	/**
+	 * The user was shown something other than the tour that is current now (an
+	 * admin published while they were reading). `contentKey` is the current
+	 * key, or `null` when the kind's tour has been retired and there is none.
+	 */
+	| { ok: false; reason: "content_changed"; contentKey: string | null };
+
+/**
+ * Records that this user finished or dismissed this kind's tour — once. The
+ * write is insert-if-absent on the unique `(user, kind, content)` index, so a
+ * retry or a second tab says `alreadyRecorded` and writes nothing, and the
+ * first answer stands (a dismissal is not turned into a completion later; the
+ * panel's replay writes no state at all).
+ *
+ * `contentKey` is trusted for exactly one thing: being compared with the tour
+ * that resolves now. A mismatch is a `content_changed` refusal, never a
+ * write against copy the user did not read. The row's `slide_count` is the
+ * resolved tour's, not the client's.
+ *
+ * The row holds a user, a kind, a content key, a status and a slide index —
+ * no conversation, no artifact, no copy (ruling 33) — and this is the only
+ * thing a tour writes: no campaign event, no analytics, nothing in a log.
+ */
+export async function markArtifactTourSeen(
+	params: {
+		userId: string;
+		artifactType: ShippedArtifactTourType;
+		options?: CampaignServiceOptions;
+	} & ArtifactTourSeenRequest,
+): Promise<MarkArtifactTourSeenResult> {
+	if (!isShippedArtifactTourType(params.artifactType)) {
+		return { ok: false, reason: "unknown_type" };
+	}
+	const db = database(params.options);
+	const tour = await resolveCurrentTour(db, params.artifactType);
+	if (!tour || tour.contentKey !== params.contentKey) {
+		return {
+			ok: false,
+			reason: "content_changed",
+			contentKey: tour?.contentKey ?? null,
+		};
+	}
+
+	const now = new Date();
+	const written = db
+		.insert(artifactTourStates)
+		.values({
+			id: randomUUID(),
+			userId: params.userId,
+			artifactType: params.artifactType,
+			contentKey: tour.contentKey,
+			status: params.status,
+			slideCount: tour.slides.length,
+			lastSlide: params.lastSlide,
+			completedAt: params.status === "completed" ? now : null,
+			dismissedAt: params.status === "dismissed" ? now : null,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.onConflictDoNothing()
+		.run();
+	return { ok: true, alreadyRecorded: written.changes === 0 };
+}
+
 /** Admin-facing draft name per kind. Never "Artifact" (ADR-0066); the kind's
  *  own ratified name is enough context in the campaign rail. */
-const TOUR_DRAFT_NAMES: Record<ArtifactTourType, string> = {
+const TOUR_DRAFT_NAMES: Record<ShippedArtifactTourType, string> = {
 	document: "Document tour",
 	app: "App tour",
 	canvas: "Canvas tour",
-	slides: "Slides tour",
 };
 
 /**
@@ -216,14 +362,16 @@ const TOUR_SUMMARY_BODY_PLACEHOLDER = {
 };
 
 /**
- * Seeds one `artifact_tour` draft per kind — document, app, canvas, slides —
- * each with the shipped default copy pre-filled (Task T2's
+ * Seeds one `artifact_tour` draft per shipped kind — document, app, canvas
+ * (`SHIPPED_ARTIFACT_TOUR_TYPES`, ruling 69: no Slides draft while Slides is
+ * shelved) — each with the shipped default copy pre-filled (Task T2's
  * `ARTIFACT_TOUR_DEFAULTS`) so an admin reviews and publishes real content
  * rather than starting from a blank campaign. `releaseVersion` is set to the
  * kind, which `defaultVersionFor` uses as the campaign version for
  * `artifact_tour`, giving four distinct identities
  * (`artifact_tour:<kind>:r1`) instead of four revisions of one version
- * string — see slice-6.md "The identity rule for four drafts".
+ * string — see slice-6.md "The identity rule for four drafts" (three
+ * since ruling 69).
  *
  * Idempotent per kind, like `seedFirstRunOnboardingTemplate`: a kind that
  * already has a campaign row (draft, published or archived) is left alone
@@ -237,9 +385,7 @@ export async function seedArtifactTourDrafts(
 	let created = 0;
 	let existing = 0;
 
-	for (const kind of Object.keys(
-		ARTIFACT_TOUR_DEFAULTS,
-	) as ArtifactTourType[]) {
+	for (const kind of SHIPPED_ARTIFACT_TOUR_TYPES) {
 		const existingRow = db
 			.select({ id: announcementCampaigns.id })
 			.from(announcementCampaigns)

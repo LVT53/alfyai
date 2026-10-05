@@ -6,6 +6,12 @@
  * published `artifact_tour` campaign snapshot overrides per kind
  * (`services/artifact-tours.ts`, decisions.md ruling 4).
  *
+ * The table holds copy for every kind a tour can be written for, which is more
+ * than the kinds whose tour ships: ruling 69 shelved Slides, so its entry
+ * waits here, unreachable, until `SHIPPED_ARTIFACT_TOUR_TYPES`
+ * (`$lib/shared/artifacts/tours`) names it. Nothing may serve, seed or list a
+ * kind by walking this table's keys; walk the shipped list.
+ *
  * Every string here is shipped product copy, not a placeholder — see
  * `docs/plans/claude-at-home-2/slice-6.md` §"The shipped copy" for the table
  * this file transcribes verbatim. "Artifact" never appears (ADR-0066); the
@@ -175,19 +181,3 @@ export const ARTIFACT_TOUR_DEFAULTS: Record<
 		],
 	},
 };
-
-const ARTIFACT_TOUR_TYPES = new Set<ArtifactTourType>([
-	"document",
-	"app",
-	"canvas",
-	"slides",
-]);
-
-/**
- * The only place the four tour-type strings are enumerated at runtime;
- * routes and the resolver narrow an untyped `[type]` param through this
- * rather than re-listing the literals.
- */
-export function isArtifactTourType(value: string): value is ArtifactTourType {
-	return ARTIFACT_TOUR_TYPES.has(value as ArtifactTourType);
-}
