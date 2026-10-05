@@ -114,6 +114,7 @@ import { newId } from "./_lib/ids";
 import { visibleBoardRect } from "./_lib/pane-rect";
 import { withSelection } from "./_lib/selection";
 import type AnnotationLayer from "./AnnotationLayer.svelte";
+import EmptyState from "$lib/components/artifacts/EmptyState.svelte";
 import CanvasToolbar from "./CanvasToolbar.svelte";
 import type DrawTray from "./DrawTray.svelte";
 import ZoomChip from "./ZoomChip.svelte";
@@ -128,6 +129,8 @@ let {
 	onselect,
 	onask,
 	askBusy = false,
+	emptyLine,
+	onReplayTour,
 }: {
 	/** The board to draw. Read once, when the board mounts: to show a different one (a reload, a restore) the editor mounts a new board. */
 	body: CanvasBody;
@@ -147,6 +150,10 @@ let {
 	onask?: (request: { ids: string[]; centre: Pt }) => void;
 	/** Alfy is arranging: Ask waits. */
 	askBusy?: boolean;
+	/** What an empty board says (the Canvas tour's summary, `empty-state.ts`); the dictionary's own line when the host gives none. */
+	emptyLine?: string;
+	/** Shows the Canvas tour again: the empty state's link, there only when the panel supplies it. */
+	onReplayTour?: () => void;
 } = $props();
 
 const initial = untrack(() => body);
@@ -1202,9 +1209,13 @@ function minimapColor(node: {
 	</SvelteFlow>
 
 	{#if empty}
-		<p class="canvas-empty" data-testid="canvas-empty">
-			{$t("artifacts.canvas.emptyBoard")}
-		</p>
+		<div class="canvas-empty">
+			<EmptyState
+				line={emptyLine ?? $t("artifacts.canvas.emptyBoard")}
+				testId="canvas-empty"
+				{onReplayTour}
+			/>
+		</div>
 	{/if}
 
 	{#if limitNotice}
@@ -1329,6 +1340,7 @@ function minimapColor(node: {
 		text-align: center;
 	}
 
+	/* The empty state lets every click through to the board but its own link. */
 	.canvas-empty {
 		position: absolute;
 		inset: 0;
@@ -1336,10 +1348,7 @@ function minimapColor(node: {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		margin: 0;
 		padding: var(--space-lg);
-		color: var(--text-muted);
-		font-size: var(--text-base);
 		text-align: center;
 		pointer-events: none;
 	}

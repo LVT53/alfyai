@@ -30,6 +30,7 @@ import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.s
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	isShippedArtifactTourType,
+	type LocalizedText,
 	type ResolvedArtifactTour,
 	type ShippedArtifactTourType,
 } from "$lib/shared/artifacts/tours";
@@ -608,6 +609,21 @@ let tourItemKind = $derived(
 );
 let tourItemKey = $derived(tourItemKind ? activeBodyKey : null);
 let tourView = $state.raw<TourView | null>(null);
+/**
+ * The open item's tour summary, from the same answer that decides the card. It
+ * is kept whether or not the card shows (a reader who has seen the tour still
+ * meets an empty body, which says it) and handed to the body as
+ * `tourSummary`; never read for another item than the one it names.
+ */
+let tourSummary = $state.raw<{
+	itemKey: string;
+	summary: LocalizedText;
+} | null>(null);
+let bodyTourSummary = $derived(
+	tourSummary && tourSummary.itemKey === activeBodyKey
+		? tourSummary.summary
+		: null,
+);
 /** The item whose tour the list's menu asked to replay: read once, when that item becomes the open one. */
 let pendingTourReplayKey: string | null = null;
 
@@ -619,8 +635,10 @@ async function presentTour(
 ): Promise<void> {
 	try {
 		const answer = await getArtifactTour(kind);
+		if (isStale()) return;
+		tourSummary = { itemKey, summary: answer.tour.summary };
 		// A tour with no slides is nothing to show.
-		if (isStale() || answer.tour.slides.length === 0) return;
+		if (answer.tour.slides.length === 0) return;
 		if (answer.seen && !replay) return;
 		const { default: Card } = await import(
 			"$lib/components/artifacts/tour/ArtifactTour.svelte"
@@ -644,6 +662,7 @@ $effect(() => {
 	return () => {
 		stale = true;
 		tourView = null;
+		tourSummary = null;
 	};
 });
 
@@ -2104,6 +2123,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 								onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
+								tourSummary={bodyTourSummary}
 								{currentUser}
 							/>
 						{/key}
@@ -2424,6 +2444,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
+						tourSummary={bodyTourSummary}
 						{currentUser}
 					/>
 				{/key}

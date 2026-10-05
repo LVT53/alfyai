@@ -33,7 +33,10 @@ import {
 	createDocumentAutosave,
 	type DocumentAutosaveResult,
 } from "$lib/components/artifacts/document/document-autosave";
+import { emptyStateLine } from "$lib/components/artifacts/empty-state";
 import { t } from "$lib/i18n";
+import { uiLanguage } from "$lib/stores/settings";
+import type { LocalizedText } from "$lib/shared/artifacts/tours";
 import type { ArtifactComment } from "$lib/server/services/artifacts/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
@@ -137,6 +140,10 @@ interface Props {
 	alfyActivity?: DocumentAlfyActivity | null;
 	/** The number behind the chat card, the list row and the count button: what waits for the reader. */
 	onPendingReviewCountChange?: (count: number) => void;
+	/** The Canvas tour's summary (`ArtifactBodyProps.tourSummary`): what an empty board says. */
+	tourSummary?: LocalizedText | null;
+	/** Shows the Canvas tour again (`ArtifactBodyProps.onReplayTour`): the empty state's link, only when the panel supplies it. */
+	onReplayTour?: () => void;
 	currentUser?: {
 		id: string;
 		displayName: string;
@@ -156,8 +163,14 @@ let {
 	onOpenItem,
 	alfyActivity = null,
 	onPendingReviewCountChange,
+	tourSummary = null,
+	onReplayTour,
 	currentUser = null,
 }: Props = $props();
+
+let emptyLine = $derived(
+	emptyStateLine(tourSummary, $uiLanguage, $t, "canvas"),
+);
 
 // What the blocks made from the chat need from the panel: the conversation it is
 // showing (an App block's frame and storage calls carry it, ruling 51), a way to
@@ -1006,6 +1019,8 @@ $effect(() => {
 							onselect={(selected) => selected && void ensureComments()}
 							onask={askAlfy}
 							askBusy={alfyBusy}
+							{emptyLine}
+							{onReplayTour}
 						/>
 					</SvelteFlowProvider>
 				{/key}

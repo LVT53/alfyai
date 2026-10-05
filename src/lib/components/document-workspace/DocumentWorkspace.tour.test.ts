@@ -172,6 +172,91 @@ describe("DocumentWorkspace: the first-open tour", () => {
 		expect(screen.queryByTestId("artifact-tour")).toBeNull();
 	});
 
+	// The empty states (Slice 6 T6) say what the tour says: the panel keeps the
+	// summary from its one request per open and hands it to the body, seen or not.
+	it("hands the open item's tour summary to its body, whether or not the reader has seen the tour", async () => {
+		const seen = answer("document", { seen: true, lastSlide: 2 });
+		seen.tour.summary = { en: "Seen summary.", hu: "Látott összegzés." };
+		tourClient.getArtifactTour.mockResolvedValueOnce(seen);
+		openDocument();
+
+		const body = await screen.findByTestId("fake-replay-body");
+		await waitFor(() =>
+			expect(body).toHaveAttribute("data-tour-summary", "Seen summary."),
+		);
+		expect(screen.queryByTestId("artifact-tour")).toBeNull();
+		// One request answered both: the card's question and the empty state's.
+		expect(tourClient.getArtifactTour).toHaveBeenCalledTimes(1);
+	});
+
+	it("hands the summary on while the card shows, and after it has gone", async () => {
+		openDocument();
+		const tour = await card();
+		const body = screen.getByTestId("fake-replay-body");
+		await waitFor(() =>
+			expect(body).toHaveAttribute("data-tour-summary", "Empty."),
+		);
+
+		await fireEvent.click(within(tour).getByTestId("artifact-tour-skip"));
+
+		await waitFor(() =>
+			expect(screen.queryByTestId("artifact-tour")).toBeNull(),
+		);
+		expect(screen.getByTestId("fake-replay-body")).toHaveAttribute(
+			"data-tour-summary",
+			"Empty.",
+		);
+	});
+
+	it("hands each kind its own summary, and an item the previous one's summary never", async () => {
+		const doc = answer("document", { seen: true });
+		doc.tour.summary = { en: "Document summary.", hu: "Dokumentum." };
+		const app = answer("app", { seen: true });
+		app.tour.summary = { en: "App summary.", hu: "Alkalmazás." };
+		tourClient.getArtifactTour
+			.mockResolvedValueOnce(doc)
+			.mockResolvedValueOnce(app);
+		const { rerender } = openDocument();
+		await waitFor(() =>
+			expect(screen.getByTestId("fake-replay-body")).toHaveAttribute(
+				"data-tour-summary",
+				"Document summary.",
+			),
+		);
+
+		await rerender({
+			documents: [documentItem(), appItem()],
+			activeDocumentId: "app-1",
+		});
+
+		await waitFor(() =>
+			expect(screen.getByTestId("fake-replay-body")).toHaveAttribute(
+				"data-tour-summary",
+				"App summary.",
+			),
+		);
+	});
+
+	it("hands none in an incognito chat, which asks for none", async () => {
+		openDocument({ incognito: true });
+
+		const body = await screen.findByTestId("fake-replay-body");
+		await settle();
+		expect(body).toHaveAttribute("data-tour-summary", "none");
+		expect(tourClient.getArtifactTour).not.toHaveBeenCalled();
+	});
+
+	it("hands none when the request fails, and the body still shows", async () => {
+		tourClient.getArtifactTour.mockRejectedValueOnce(
+			new ApiError("Failed to load the introduction", { status: 500 }),
+		);
+		openDocument();
+
+		const body = await screen.findByTestId("fake-replay-body");
+		await settle();
+		expect(body).toHaveAttribute("data-tour-summary", "none");
+	});
+
 	it("never asks about a File, an upload, or a kind whose tour does not ship", async () => {
 		for (const kind of [undefined, "file", "slides"] as const) {
 			cleanup();

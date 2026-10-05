@@ -34,7 +34,10 @@ import DialogShell, {
 	registerDialog,
 } from "$lib/components/ui/DialogShell.svelte";
 import type { ArtifactPanelBodyActions } from "$lib/components/artifacts/artifact-bodies";
+import { emptyStateLine } from "$lib/components/artifacts/empty-state";
+import EmptyState from "$lib/components/artifacts/EmptyState.svelte";
 import { t, type I18nKey } from "$lib/i18n";
+import { uiLanguage } from "$lib/stores/settings";
 import { isDark } from "$lib/stores/theme";
 import { showToast } from "$lib/stores/toast";
 import { focusTrap } from "$lib/utils/focus-trap";
@@ -54,6 +57,7 @@ import {
 import type { AppContractRuleId } from "$lib/server/services/artifacts/app/contract";
 import type { AppVerificationVerdict } from "$lib/server/services/artifacts/app/verify";
 import { APP_VERIFY_LINE_KEYS } from "$lib/shared/artifacts/app-verify-labels";
+import type { LocalizedText } from "$lib/shared/artifacts/tours";
 import { renderHighlightedText } from "$lib/services/markdown";
 import AppFrame from "./AppFrame.svelte";
 
@@ -66,6 +70,10 @@ interface Props {
 	conversationId?: string | null;
 	/** Wave 2.5 Step 13: hands the panel header a direct download trigger — App has no Versions sheet, so only `openDownload` is ever registered. See `ArtifactBodyProps`'s own doc comment. */
 	registerPanelActions?: (actions: ArtifactPanelBodyActions) => void;
+	/** The App tour's summary (`ArtifactBodyProps.tourSummary`): what an App with nothing in it says. */
+	tourSummary?: LocalizedText | null;
+	/** Shows the App tour again (`ArtifactBodyProps.onReplayTour`): the empty state's link, only when the panel supplies it. */
+	onReplayTour?: () => void;
 }
 
 let {
@@ -73,6 +81,8 @@ let {
 	title,
 	conversationId = null,
 	registerPanelActions,
+	tourSummary = null,
+	onReplayTour,
 }: Props = $props();
 
 let detail = $state<ArtifactDetailResponse | null>(null);
@@ -132,6 +142,9 @@ $effect(() => {
 });
 
 let htmlBody = $derived(detail?.artifact.body ?? "");
+/** An App with no source has nothing to run: the Preview says so (and what the tour says) where a blank frame would be. */
+let appEmpty = $derived(detail !== null && htmlBody.trim() === "");
+let emptyLine = $derived(emptyStateLine(tourSummary, $uiLanguage, $t, "app"));
 let versionNumber = $derived(detail?.artifact.versionNumber ?? 0);
 /** Whether the App is linked to ANY conversation at all (spec §4: a project-linked App has none) — the domain fact that gates download, independent of which conversation the panel happens to be showing it from. */
 let artifactConversationId = $derived(detail?.artifact.conversationId ?? null);
@@ -608,7 +621,13 @@ const regeneratePopoverFocusTrap = focusTrap({
 					class="app-body-frame-wrap"
 					inert={regenerateBusy}
 				>
-					<AppFrame {artifactId} version={versionNumber} {title} {conversationId} />
+					{#if appEmpty}
+						<div class="app-body-state app-body-empty">
+							<EmptyState line={emptyLine} testId="app-empty" {onReplayTour} />
+						</div>
+					{:else}
+						<AppFrame {artifactId} version={versionNumber} {title} {conversationId} />
+					{/if}
 				</div>
 			{:else}
 				<div
@@ -750,6 +769,10 @@ const regeneratePopoverFocusTrap = focusTrap({
 		padding: 0.3rem 0.7rem;
 		color: var(--text-primary);
 		cursor: pointer;
+	}
+
+	.app-body-empty {
+		text-align: center;
 	}
 
 	.app-body-hint {

@@ -68,6 +68,8 @@ import {
 } from "$lib/client/api/artifacts";
 import { ApiError } from "$lib/client/api/http";
 import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodies";
+import EmptyState from "$lib/components/artifacts/EmptyState.svelte";
+import { emptyStateLine } from "$lib/components/artifacts/empty-state";
 import ReviewBar from "$lib/components/artifacts/ReviewBar.svelte";
 import { t } from "$lib/i18n";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
@@ -80,6 +82,7 @@ import {
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import { uiLanguage } from "$lib/stores/settings";
 import { documentCommentsRailHidden } from "$lib/stores/ui";
 import { isPhoneViewport, watchPhoneViewport } from "$lib/utils/viewport.svelte";
 import {
@@ -141,6 +144,8 @@ let {
 	onCommentCountChange,
 	onCommentsShownChange,
 	onPendingReviewCountChange,
+	tourSummary = null,
+	onReplayTour,
 	currentUser = null,
 }: ArtifactBodyProps = $props();
 
@@ -195,6 +200,12 @@ let appendEmptyTabSectionFn:
 	| typeof DocumentEditorModule.appendEmptyTabSection
 	| null = null;
 let editorReady = $derived(loadState === "ready");
+/** Whether the page has no words in it (reported by the editor on every transaction), which is when the empty state shows. */
+let documentEmpty = $state(false);
+/** What an empty page says: the Document's tour summary, else the dictionary's line (`empty-state.ts`). */
+let emptyLine = $derived(
+	emptyStateLine(tourSummary, $uiLanguage, $t, "document"),
+);
 
 /**
  * The toolbar's own right-aligned save state (redesign §5.2/§9.2: "the
@@ -2085,6 +2096,9 @@ async function runLoad(id: string): Promise<void> {
 			onDirty: handleDirty,
 			onUpdate: handleUpdate,
 			onSelectionUpdate: handleSelectionUpdate,
+			onEmptyChange: (empty) => {
+				documentEmpty = empty;
+			},
 			changePillCallbacks: {
 				onKeep: handleKeepChange,
 				onUndo: handleUndoChange,
@@ -2448,6 +2462,17 @@ function saveNoticeText(notice: SaveNotice): string {
 								</button>
 							</div>
 						{/if}
+						<!-- Slice 6 T6: an empty page says what the Document's tour says, and
+						     offers the tour again. Zero-height anchor ahead of the host, with the
+						     block laid just under the first line, so the text's own column does not
+						     move when the first word is typed (the block goes, nothing shifts). -->
+						{#if editorReady && documentEmpty}
+							<div class="document-empty-anchor">
+								<div class="document-empty">
+									<EmptyState line={emptyLine} testId="document-empty" {onReplayTour} />
+								</div>
+							</div>
+						{/if}
 						<div
 							class="document-editor-host"
 							bind:this={editorEl}
@@ -2745,6 +2770,28 @@ function saveNoticeText(notice: SaveNotice): string {
 		flex: 1;
 		min-height: 240px;
 		padding: 1rem 1.25rem;
+	}
+
+	/* The empty state (Slice 6 T6): a zero-height anchor ahead of the host and
+	   the block laid under the page's first, empty line (the host's top padding,
+	   then one line of the prose layer's 16px at 1.72), left-aligned with the
+	   text and no wider than its column. It lets every click through to the page
+	   but its own link, and goes the moment the first word is typed. */
+	.document-empty-anchor {
+		position: relative;
+		height: 0;
+	}
+
+	.document-empty {
+		position: absolute;
+		top: calc(1rem + 1.72 * 16px + 0.5rem);
+		left: 1.25rem;
+		right: 1.25rem;
+		z-index: 1;
+		max-width: 62ch;
+		pointer-events: none;
+		align-items: flex-start;
+		text-align: start;
 	}
 
 	.document-editor-host :global(.document-content) {

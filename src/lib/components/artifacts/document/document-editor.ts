@@ -67,6 +67,14 @@ export interface CreateDocumentEditorOptions {
 	onDirty?: () => void;
 	onSelectionUpdate?: () => void;
 	onUpdate?: () => void;
+	/**
+	 * Whether the page is empty, said at creation and then each time the answer
+	 * changes (the empty state's line and its replay link show exactly then).
+	 * Asked of EVERY transaction rather than of the ones that emit `onUpdate`:
+	 * Alfy's landing content and a restored version arrive with `preventUpdate`,
+	 * and an empty state that waited for an update would stay up over them.
+	 */
+	onEmptyChange?: (empty: boolean) => void;
 	/** Wave 2.5 Step 10: the inline pill's own Keep/Undo/Redo — see `change-pill-decoration.ts`. */
 	changePillCallbacks?: ChangePillCallbacks;
 	/**
@@ -89,6 +97,12 @@ export interface CreateDocumentEditorOptions {
 export function createDocumentEditor(
 	options: CreateDocumentEditorOptions,
 ): Editor {
+	let wasEmpty: boolean | null = null;
+	const reportEmpty = (empty: boolean) => {
+		if (empty === wasEmpty) return;
+		wasEmpty = empty;
+		options.onEmptyChange?.(empty);
+	};
 	const editor = new Editor({
 		element: options.element,
 		extensions: buildDocumentExtensions(
@@ -129,8 +143,10 @@ export function createDocumentEditor(
 		onSelectionUpdate: () => {
 			options.onSelectionUpdate?.();
 		},
+		onTransaction: ({ editor: current }) => reportEmpty(current.isEmpty),
 	});
 	ensureBlockIds(editor);
+	reportEmpty(editor.isEmpty);
 	return editor;
 }
 

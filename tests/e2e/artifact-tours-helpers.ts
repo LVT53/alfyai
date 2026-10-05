@@ -7,6 +7,7 @@ import {
 } from "@playwright/test";
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
+import { ARTIFACT_TOUR_CONTENT_VERSION } from "../../src/lib/server/artifact-tour-defaults";
 import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
@@ -19,7 +20,10 @@ import {
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
-import type { ShippedArtifactTourType } from "../../src/lib/shared/artifacts/tours";
+import {
+	SHIPPED_ARTIFACT_TOUR_TYPES,
+	type ShippedArtifactTourType,
+} from "../../src/lib/shared/artifacts/tours";
 import { createConversation, login } from "./helpers";
 
 // What the first-open tours' specs share. The e2e admin (the one user every
@@ -46,6 +50,7 @@ export function isMobile(page: Page): boolean {
 /** A user who has seen nothing: a fresh row, a password only this test knows. */
 export async function createTourUser(
 	language: "en" | "hu" = "en",
+	role: "user" | "admin" = "user",
 ): Promise<TourUser> {
 	const id = randomUUID();
 	const suffix = id.slice(0, 8);
@@ -59,10 +64,29 @@ export async function createTourUser(
 		email: user.email,
 		passwordHash: bcrypt.hashSync(user.password, 4),
 		name: `Tour reader ${suffix}`,
-		role: "user",
+		role,
 		uiLanguage: language,
 	});
 	return user;
+}
+
+/**
+ * The user has finished every tour as it ships: a returning reader, who meets
+ * no card and whose empty states are the thing under test. (The shared e2e
+ * admin is made the same way, in global-setup.)
+ */
+export async function markToursSeen(user: TourUser) {
+	for (const kind of SHIPPED_ARTIFACT_TOUR_TYPES) {
+		await db.insert(artifactTourStates).values({
+			id: randomUUID(),
+			userId: user.id,
+			artifactType: kind,
+			contentKey: `default:${ARTIFACT_TOUR_CONTENT_VERSION}`,
+			status: "completed",
+			slideCount: 3,
+			lastSlide: 2,
+		});
+	}
 }
 
 /** Signs in as the user and starts a chat through the real composer. */
@@ -71,10 +95,26 @@ export async function startChatAs(page: Page, user: TourUser): Promise<string> {
 	return createConversation(page, "A chat for the tour");
 }
 
+/** Signs in as the user and starts an incognito chat the way a person does: arm it, then send. */
+export async function startIncognitoChatAs(
+	page: Page,
+	user: TourUser,
+): Promise<string> {
+	await login(page, user.email, user.password);
+	await page.getByTestId("incognito-arm").click();
+	await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
+	await page.getByTestId("message-input").fill("Nothing of this is kept.");
+	await page.getByTestId("send-button").click();
+	await page.waitForURL(/\/chat\//, { timeout: 20_000 });
+	const chatId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? "";
+	expect(chatId).not.toBe("");
+	return chatId;
+}
+
 const APP_HTML =
 	'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Tip calculator</title></head><body><h1>Tip calculator</h1><p data-testid="tour-app-ready">Ready</p></body></html>';
 
-function emptyBoard(): CanvasBody {
+function weekendBoard(): CanvasBody {
 	return {
 		version: 1,
 		nodes: [
@@ -97,20 +137,29 @@ export async function seedItem(
 	user: TourUser,
 	conversationId: string,
 	kind: TourKind,
+	options: { empty?: boolean; title?: string } = {},
 ): Promise<string> {
-	const title = ITEM_TITLES[kind];
+	const title = options.title ?? ITEM_TITLES[kind];
 	if (kind === "document") {
 		const document = await createDocumentArtifact({
 			userId: user.id,
 			conversationId,
 			title,
-			markdown: "## Plan\n\nFriday: Naschmarkt, Secession.\n",
+			markdown: options.empty
+				? ""
+				: "## Plan\n\nFriday: Naschmarkt, Secession.\n",
 			author: "user",
 			summary: "Seeded for E2E",
 		});
 		return document.id;
 	}
-	const body = kind === "app" ? APP_HTML : boardJson(emptyBoard());
+	const body = options.empty
+		? kind === "app"
+			? ""
+			: boardJson({ ...weekendBoard(), nodes: [] })
+		: kind === "app"
+			? APP_HTML
+			: boardJson(weekendBoard());
 	const artifactId = randomUUID();
 	const now = new Date();
 	await db.insert(artifacts).values({
