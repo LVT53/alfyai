@@ -18,6 +18,7 @@ import {
 import {
 	getArtifactTour,
 	markArtifactTourSeen,
+	refreshArtifactTour,
 } from "$lib/client/api/artifact-tours";
 import { ApiError } from "$lib/client/api/http";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
@@ -634,7 +635,12 @@ async function presentTour(
 	isStale: () => boolean,
 ): Promise<void> {
 	try {
-		const answer = await getArtifactTour(kind);
+		// A replay asks again (it shows the copy as it is now); an open takes the
+		// answer this page load already has, which is why a second item of a kind
+		// costs no request and shows its line from the first frame.
+		const answer = await (replay
+			? refreshArtifactTour(kind)
+			: getArtifactTour(kind));
 		if (isStale()) return;
 		tourSummary = { itemKey, summary: answer.tour.summary };
 		// A tour with no slides is nothing to show.

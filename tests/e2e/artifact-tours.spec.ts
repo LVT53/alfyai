@@ -106,18 +106,23 @@ test.describe("the first-open tours", () => {
 		});
 		expect(row.contentKey).toMatch(/^(default|snapshot):/);
 
-		// The second open of the same kind: asked, answered "seen", and no card.
+		// The second open of the same kind in this page load: the page already
+		// knows the answer ("seen"), so it asks nothing and shows nothing.
+		const asked = requests.gets().length;
 		await backToList(page);
-		const answered = waitForTourAnswer(page, "document");
 		await openItem(page, ITEM_TITLES.document);
-		await answered;
 		await expect(editor).toBeVisible();
 		await page.waitForTimeout(400);
 		await expect(tourCard(page)).toHaveCount(0);
+		expect(requests.gets()).toHaveLength(asked);
 		expect(requests.posts()).toHaveLength(1);
 
-		// And not after a reload either: the state is the server's, not the tab's.
+		// And not after a reload either: the state is the server's, not the tab's,
+		// and a new page load asks for itself.
+		const answered = waitForTourAnswer(page, "document");
 		await page.reload({ waitUntil: "networkidle" });
+		await openItem(page, ITEM_TITLES.document);
+		await answered;
 		await page.waitForTimeout(400);
 		await expect(tourCard(page)).toHaveCount(0);
 	});
@@ -201,6 +206,7 @@ test.describe("the first-open tours", () => {
 		page,
 	}) => {
 		const user = await createTourUser();
+		const requests = watchTourRequests(page);
 		const chatId = await startChatAs(page, user);
 		await seedItem(user, chatId, "document");
 		await reopenChat(page, chatId);
@@ -221,12 +227,16 @@ test.describe("the first-open tours", () => {
 			lastSlide: 1,
 		});
 
+		// Skipped is seen: the page knows it, asks nothing, and shows nothing.
+		const asked = requests.gets().length;
 		await backToList(page);
-		const answered = waitForTourAnswer(page, "document");
 		await openItem(page, ITEM_TITLES.document);
-		await answered;
+		await expect(
+			panelShell(page).locator(".document-editor-host .ProseMirror"),
+		).toBeVisible();
 		await page.waitForTimeout(400);
 		await expect(tourCard(page)).toHaveCount(0);
+		expect(requests.gets()).toHaveLength(asked);
 	});
 
 	test("the tour can be finished with the keyboard alone, and Escape leaves it", async ({

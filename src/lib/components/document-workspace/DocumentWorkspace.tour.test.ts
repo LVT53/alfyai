@@ -26,6 +26,7 @@ import {
 
 const tourClient = vi.hoisted(() => ({
 	getArtifactTour: vi.fn(),
+	refreshArtifactTour: vi.fn(),
 	markArtifactTourSeen: vi.fn(),
 }));
 
@@ -99,6 +100,9 @@ beforeEach(() => {
 	uiLanguage.set("en");
 	global.fetch = vi.fn();
 	tourClient.getArtifactTour.mockImplementation(
+		async (kind: ShippedArtifactTourType) => answer(kind),
+	);
+	tourClient.refreshArtifactTour.mockImplementation(
 		async (kind: ShippedArtifactTourType) => answer(kind),
 	);
 	tourClient.markArtifactTourSeen.mockResolvedValue({
@@ -506,20 +510,31 @@ describe("DocumentWorkspace: replaying a tour", () => {
 		items,
 	});
 
+	/** Every answer the page gets says the reader has seen the tour. */
+	function everyTourSeen() {
+		const seen = async (kind: ShippedArtifactTourType) =>
+			answer(kind, { seen: true, lastSlide: 2 });
+		tourClient.getArtifactTour.mockImplementation(seen);
+		tourClient.refreshArtifactTour.mockImplementation(seen);
+	}
+
 	it("hands a body the replay, which shows the tour again whether or not it was seen, and writes nothing", async () => {
-		tourClient.getArtifactTour.mockImplementation(
-			async (kind: ShippedArtifactTourType) =>
-				answer(kind, { seen: true, lastSlide: 2 }),
-		);
+		everyTourSeen();
 		openDocument();
 		const replayButton = await screen.findByTestId("fake-replay");
 		await settle();
 		expect(screen.queryByTestId("artifact-tour")).toBeNull();
 
+		expect(tourClient.refreshArtifactTour).not.toHaveBeenCalled();
 		await fireEvent.click(replayButton);
 
 		const tour = await card();
 		expect(tour).toHaveAttribute("data-replay", "true");
+		// The open took what the page load had; the replay asked the server again,
+		// so it shows the copy as it is now.
+		expect(tourClient.getArtifactTour).toHaveBeenCalledTimes(1);
+		expect(tourClient.refreshArtifactTour).toHaveBeenCalledTimes(1);
+		expect(tourClient.refreshArtifactTour.mock.calls[0][0]).toBe("document");
 		expect(screen.getByTestId("artifact-tour-replaying")).toHaveTextContent(
 			"Replaying",
 		);
@@ -531,10 +546,7 @@ describe("DocumentWorkspace: replaying a tour", () => {
 	});
 
 	it("opens the item and replays its tour from the list row's menu, writing nothing", async () => {
-		tourClient.getArtifactTour.mockImplementation(
-			async (kind: ShippedArtifactTourType) =>
-				answer(kind, { seen: true, lastSlide: 2 }),
-		);
+		everyTourSeen();
 		const onSelectDocument = vi.fn();
 		const onListOpenChange = vi.fn();
 		const { rerender } = renderWorkspace({
