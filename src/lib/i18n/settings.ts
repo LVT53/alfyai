@@ -991,7 +991,8 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupControls": "Setup controls",
 		"admin.campaigns.checklist.fail.setupSlide": "Exactly one setup slide",
 		"admin.campaigns.checklist.fail.slides": "At least one slide",
-		"admin.campaigns.checklist.fail.tourKind": "Tour kind",
+		"admin.campaigns.checklist.fail.tourKind":
+			"Tour kind: Document, App or Canvas",
 		"admin.campaigns.checklist.fail.tourShape":
 			"One summary slide, then three standard slides",
 		"admin.campaigns.checklist.fail.type": "Campaign type",
@@ -2958,7 +2959,8 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupControls": "Beállítási vezérlők",
 		"admin.campaigns.checklist.fail.setupSlide": "Pontosan egy beállítási dia",
 		"admin.campaigns.checklist.fail.slides": "Legalább egy dia",
-		"admin.campaigns.checklist.fail.tourKind": "A bemutató típusa",
+		"admin.campaigns.checklist.fail.tourKind":
+			"A bemutató típusa: dokumentum, alkalmazás vagy tábla",
 		"admin.campaigns.checklist.fail.tourShape":
 			"Egy összegző, utána három általános dia",
 		"admin.campaigns.checklist.fail.type": "Kampány típusa",

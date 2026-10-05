@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-
+import { ARTIFACT_TOUR_DEFAULTS } from "../../src/lib/server/artifact-tour-defaults";
 import { login } from "./helpers";
 
 // A 1x1 PNG: enough for the slide's image input to open the crop dialog.
@@ -253,6 +253,101 @@ test.describe("Admin Campaigns screen", () => {
 			await expect(rows.filter({ hasText: name }).first()).toBeVisible();
 		}
 		await expect(rows.filter({ hasText: "Slides tour" })).toHaveCount(0);
+	});
+
+	// Ruling 71: a tour is found by its release text, so a tour whose release
+	// names no kind that ships would publish and reach nobody. The pane's own
+	// "New campaign" dialog only makes first-run and release campaigns, so a
+	// tour with such a release can only come from the API; the arrangement is
+	// made there, and everything the admin sees and clicks is the pane's.
+	test("refuses to publish a tour whose release names no kind that ships, and says why in the checklist", async ({
+		page,
+	}) => {
+		const slides = [
+			{
+				layoutType: "summary",
+				sortOrder: 1,
+				title: ARTIFACT_TOUR_DEFAULTS.canvas.summary,
+				body: { en: "A second line.", hu: "Egy második sor." },
+			},
+			...ARTIFACT_TOUR_DEFAULTS.canvas.slides.map((slide, index) => ({
+				layoutType: "standard",
+				sortOrder: index + 2,
+				title: slide.title,
+				body: slide.body,
+			})),
+		];
+		const made: string[] = [];
+		async function tourDraft(name: string, releaseVersion: string) {
+			const created = await page.request.post("/api/admin/campaigns", {
+				data: { type: "artifact_tour", name, releaseVersion },
+			});
+			expect(created.status()).toBe(201);
+			const id = ((await created.json()) as { campaign: { id: string } })
+				.campaign.id;
+			made.push(id);
+			const filled = await page.request.patch(`/api/admin/campaigns/${id}`, {
+				data: { slides },
+			});
+			expect(filled.ok()).toBe(true);
+			return id;
+		}
+
+		try {
+			const typoId = await tourDraft("E2E typo tour", "2.1.0");
+			await tourDraft("E2E good tour", "canvas");
+			await openAdminPane(page, "Campaigns");
+
+			// The tour that names no kind: the pane says what it is, the checklist
+			// says what is wrong, and Publish is not clickable.
+			const rail = page.getByTestId("admin-campaign-row");
+			await rail.filter({ hasText: "E2E typo tour" }).click();
+			await expect(
+				page.getByRole("heading", { name: "E2E typo tour" }).first(),
+			).toBeVisible();
+			await expect(page.locator(".editor-meta")).toContainText(
+				"Tour · 2.1.0 · 4 slides",
+			);
+			const checklist = page.getByTestId("campaign-checklist");
+			await expect(checklist.getByText("1 check failing")).toBeVisible();
+			await expect(
+				checklist.getByText("Tour kind: Document, App or Canvas"),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", { name: "Publish", exact: true }),
+			).toBeDisabled();
+
+			// A client that skips the pane meets the server's own refusal.
+			const refused = await page.request.post(
+				`/api/admin/campaigns/${typoId}/publish`,
+			);
+			expect(refused.status()).toBe(400);
+			expect(await refused.json()).toMatchObject({
+				fieldErrors: {
+					tourKind:
+						"A tour campaign's release must be the kind it introduces: document, app or canvas.",
+				},
+			});
+
+			// The same tour under a kind that ships is ready, in the kind's own word.
+			await rail.filter({ hasText: "E2E good tour" }).click();
+			await expect(
+				page.getByRole("heading", { name: "E2E good tour" }).first(),
+			).toBeVisible();
+			await expect(page.locator(".editor-meta")).toContainText(
+				"Tour · Canvas · 4 slides",
+			);
+			await expect(
+				page.getByTestId("campaign-checklist").getByText(/Ready to publish/),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", { name: "Publish", exact: true }),
+			).toBeEnabled();
+		} finally {
+			for (const id of made) {
+				await page.request.delete(`/api/admin/campaigns/${id}`);
+			}
+		}
 	});
 
 	test("stacks the slide rail into a filmstrip of equal frames", async ({
