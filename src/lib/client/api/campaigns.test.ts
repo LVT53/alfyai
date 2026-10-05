@@ -11,7 +11,6 @@ import {
 	fetchLatestCampaign,
 	publishAdminCampaign,
 	recordCampaignEvent,
-	seedArtifactTours,
 	seedFirstRunCampaign,
 	updateAdminCampaign,
 } from "./campaigns";
@@ -296,23 +295,5 @@ describe("campaign client API", () => {
 					"Localized EN/HU alt text is required when an image is uploaded.",
 			},
 		} satisfies Partial<ApiError>);
-	});
-
-	it("seeds artifact tour drafts and reports the counts", async () => {
-		const fetchImpl = vi.fn().mockResolvedValueOnce(
-			new Response(JSON.stringify({ created: 4, existing: 0 }), {
-				status: 201,
-				headers: { "Content-Type": "application/json" },
-			}),
-		);
-
-		await expect(seedArtifactTours(fetchImpl)).resolves.toEqual({
-			created: 4,
-			existing: 0,
-		});
-		expect(fetchImpl).toHaveBeenCalledWith(
-			"/api/admin/campaigns/seed-artifact-tours",
-			expect.objectContaining({ method: "POST" }),
-		);
 	});
 });
