@@ -13,7 +13,7 @@ import {
 	seedCanvas,
 	storedBoard,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createConversation, expectTopmost, login } from "./helpers";
 
 // The reader's own undo and redo on a Canvas (ruling 16), driven the way a person
 // drives it: real pointer and keyboard input on a seeded board, the autosave
@@ -445,6 +445,16 @@ test.describe("undo and redo of the reader's own steps on a Canvas", () => {
 			page,
 			{
 				act: async () => {
+					// The scene before ended with a Redo. A Redo (like every undo) hands the
+					// library fresh blocks, and a block is `visibility: hidden`, so it takes no
+					// pointer, until the library has measured it again on the next frame. Its box
+					// is the same rect either way, so `nodeBox` cannot tell: a click made at once
+					// fell through to the empty board, nothing was picked, and Delete deleted
+					// nothing (one run in four). Wait until the card is what the point hits.
+					await expectTopmost(
+						page.locator(`.svelte-flow__node[data-id="${LIST}"]`),
+						{ message: "the checklist takes a pointer again after the redo" },
+					);
 					// The card's header, where nothing is pressable: a click on a checkbox would
 					// leave the focus in an input, which the library's Delete key does not serve.
 					const box = await nodeBox(page, LIST);
