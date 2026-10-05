@@ -16,7 +16,7 @@ import {
 	getCampaignAnalyticsSummary,
 	getCampaignById,
 	getEligibleCampaignForUser,
-	getLatestPublishedCampaign,
+	getLatestPublishedAnnouncement,
 	publishCampaign,
 	recordCampaignEvent,
 	seedFirstRunOnboardingTemplate,
@@ -182,9 +182,7 @@ describe("announcement campaign service", () => {
 			fieldErrors: { status: "Only draft campaigns can be edited." },
 		});
 
-		const latest = await getLatestPublishedCampaign("first_run_onboarding", {
-			db,
-		});
+		const latest = await getLatestPublishedAnnouncement({ db });
 		expect(latest?.slides.map((slide) => slide.title.en)).toEqual([
 			"Set up",
 			"Data use",
@@ -1554,14 +1552,10 @@ describe("announcement campaign service", () => {
 	it("never returns an artifact_tour as the latest published campaign", async () => {
 		await publishReleaseNoteThenTour();
 
-		const latest = await getLatestPublishedCampaign("release_update", { db });
+		const latest = await getLatestPublishedAnnouncement({ db });
 
 		expect(latest?.type).toBe("release_update");
 		expect(latest?.id).toBe("badge-release");
-		// Asked for a tour by type, the same reader still finds it: the filter is
-		// the type, not a blanket refusal.
-		const tour = await getLatestPublishedCampaign("artifact_tour", { db });
-		expect(tour?.id).toBe("badge-tour");
 	});
 
 	it("returns nothing for the badge while only a tour is published", async () => {
@@ -1571,9 +1565,59 @@ describe("announcement campaign service", () => {
 			ids: ["badge-only-tour-snapshot"],
 		});
 
-		expect(
-			await getLatestPublishedCampaign("release_update", { db }),
-		).toBeNull();
+		expect(await getLatestPublishedAnnouncement({ db })).toBeNull();
+	});
+
+	// RC-T Minor 9 and ADR-0012: the badge opens the latest published
+	// ANNOUNCEMENT campaign, which is a first-run onboarding as well as a release
+	// note; only a tour is left out (ruling 32).
+	describe("an onboarding is an announcement too", () => {
+		async function publishOnboardingAt(secondsAgo: number) {
+			await publishFirstRunOnboardingCampaign(db, {
+				campaignId: "badge-onboarding",
+				snapshotIds: ["badge-onboarding-snapshot", "bo-slide-1", "bo-slide-2"],
+				name: "Onboarding",
+				slides: buildFirstRunOnboardingSlides(),
+				assetPrefixes: ["setup", "disclosure"],
+			});
+			const now = Math.floor(Date.now() / 1000);
+			db.update(schema.announcementCampaigns)
+				.set({ publishedAt: new Date((now - secondsAgo) * 1000) })
+				.where(eq(schema.announcementCampaigns.id, "badge-onboarding"))
+				.run();
+		}
+
+		it("is what the badge replays when it is newer than the last release note", async () => {
+			await publishReleaseNoteThenTour(); // release 60 s ago, a tour just now
+			await publishOnboardingAt(30);
+
+			const latest = await getLatestPublishedAnnouncement({ db });
+
+			expect(latest?.type).toBe("first_run_onboarding");
+			expect(latest?.id).toBe("badge-onboarding");
+		});
+
+		it("gives way to a release note published after it", async () => {
+			await publishReleaseNoteThenTour(); // release 60 s ago, a tour just now
+			await publishOnboardingAt(120);
+
+			const latest = await getLatestPublishedAnnouncement({ db });
+
+			expect(latest?.id).toBe("badge-release");
+		});
+
+		it("is what the badge replays when it is the only announcement, a newer tour notwithstanding", async () => {
+			await publishOnboardingAt(60);
+			await createTourDraft("canvas", "badge-tour-after-onboarding");
+			await publishCampaign("badge-tour-after-onboarding", "admin-user", {
+				db,
+				ids: ["badge-tour-after-onboarding-snapshot"],
+			});
+
+			expect((await getLatestPublishedAnnouncement({ db }))?.id).toBe(
+				"badge-onboarding",
+			);
+		});
 	});
 
 	it("still returns the newest published release_update", async () => {
@@ -1615,7 +1659,7 @@ describe("announcement campaign service", () => {
 			.where(eq(schema.announcementCampaigns.id, "badge-release-2"))
 			.run();
 
-		const latest = await getLatestPublishedCampaign("release_update", { db });
+		const latest = await getLatestPublishedAnnouncement({ db });
 
 		// Older than the tour, newer than the first note: the newest note wins.
 		expect(latest?.id).toBe("badge-release-2");

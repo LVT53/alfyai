@@ -1156,8 +1156,8 @@ async function getPublishedCampaignFromRow(campaign: DraftRow, db: CampaignDb) {
 	};
 }
 
-async function latestPublishedByType(
-	type: AnnouncementCampaignType,
+async function latestPublishedOfTypes(
+	types: readonly AnnouncementCampaignType[],
 	db: CampaignDb,
 ) {
 	const campaign = db
@@ -1165,7 +1165,7 @@ async function latestPublishedByType(
 		.from(announcementCampaigns)
 		.where(
 			and(
-				eq(announcementCampaigns.type, type),
+				inArray(announcementCampaigns.type, [...types]),
 				eq(announcementCampaigns.status, "published"),
 			),
 		)
@@ -1175,6 +1175,10 @@ async function latestPublishedByType(
 		)
 		.get();
 	return campaign ? getPublishedCampaignFromRow(campaign, db) : null;
+}
+
+function latestPublishedByType(type: AnnouncementCampaignType, db: CampaignDb) {
+	return latestPublishedOfTypes([type], db);
 }
 
 async function userHasFinishedSnapshot(
@@ -1218,19 +1222,28 @@ export async function getEligibleCampaignForUser(
 }
 
 /**
- * The newest published campaign OF ONE TYPE, for the sidebar version badge's
- * replay. The type is required, not optional: with none, a published
- * `artifact_tour` newer than the last release note became the badge's
- * campaign, and a click opened a kind tour and recorded it as a replay of the
- * release (decisions.md ruling 32). `getEligibleCampaignForUser` already
- * filters by type through the same `latestPublishedByType`; the badge path did
- * not, and a required argument lets the compiler find any caller that forgets.
+ * The campaigns that announce something to the whole app: a first-run
+ * onboarding and a release note. A tour is not one: it is about one kind of
+ * item and shows in that kind's panel (decisions.md ruling 32).
  */
-export async function getLatestPublishedCampaign(
-	campaignType: AnnouncementCampaignType,
+const ANNOUNCEMENT_CAMPAIGN_TYPES = [
+	"first_run_onboarding",
+	"release_update",
+] as const satisfies readonly AnnouncementCampaignType[];
+
+/**
+ * The newest published ANNOUNCEMENT campaign, for the sidebar version badge's
+ * replay (ADR-0012: the badge opens the latest published campaign). Without a
+ * type predicate a published `artifact_tour` newer than the last note became the
+ * badge's campaign, and a click opened a kind tour and recorded it as a replay
+ * of the release; with a release note as the only type, a newer first-run
+ * onboarding stopped being what the badge opened. The rule is here, once, so no
+ * caller has an argument to get wrong.
+ */
+export async function getLatestPublishedAnnouncement(
 	options: CampaignServiceOptions = {},
 ) {
-	return latestPublishedByType(campaignType, database(options));
+	return latestPublishedOfTypes(ANNOUNCEMENT_CAMPAIGN_TYPES, database(options));
 }
 
 function eventTypeForCompletion(
