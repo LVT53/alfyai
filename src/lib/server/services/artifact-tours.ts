@@ -329,12 +329,28 @@ export async function markArtifactTourSeen(
 	return { ok: true, alreadyRecorded: written.changes === 0 };
 }
 
-/** Admin-facing draft name per kind. Never "Artifact" (ADR-0066); the kind's
- *  own ratified name is enough context in the campaign rail. */
-const TOUR_DRAFT_NAMES: Record<ShippedArtifactTourType, string> = {
-	document: "Document tour",
-	app: "App tour",
-	canvas: "Canvas tour",
+/**
+ * What an admin sees in the campaign rail for each seeded draft, in the
+ * language of the admin who seeded it (RC-T Minor 8(d)). The kind is the word
+ * the interface uses for it (`artifacts.type.*`: Document / Dokumentum, App /
+ * Alkalmazás, Canvas / Tábla), and "artifact" is not a word anyone sees
+ * (ADR-0066). `artifact-tours.test.ts` holds the Hungarian words to the
+ * dictionary's.
+ */
+const TOUR_DRAFT_NAMES: Record<
+	"en" | "hu",
+	Record<ShippedArtifactTourType, string>
+> = {
+	en: {
+		document: "Document tour",
+		app: "App tour",
+		canvas: "Canvas tour",
+	},
+	hu: {
+		document: "Dokumentum bemutatója",
+		app: "Alkalmazás bemutatója",
+		canvas: "Tábla bemutatója",
+	},
 };
 
 /**
@@ -355,9 +371,10 @@ const TOUR_DRAFT_NAMES: Record<ShippedArtifactTourType, string> = {
  */
 export async function seedArtifactTourDrafts(
 	createdByUserId: string,
-	options: CampaignServiceOptions = {},
+	options: CampaignServiceOptions & { language?: "en" | "hu" } = {},
 ): Promise<{ created: number; existing: number }> {
 	const db = database(options);
+	const names = TOUR_DRAFT_NAMES[options.language ?? "en"];
 	let created = 0;
 	let existing = 0;
 
@@ -381,7 +398,7 @@ export async function seedArtifactTourDrafts(
 		const campaign = await createCampaignDraft(
 			{
 				type: "artifact_tour",
-				name: TOUR_DRAFT_NAMES[kind],
+				name: names[kind],
 				releaseVersion: kind,
 				createdByUserId,
 			},

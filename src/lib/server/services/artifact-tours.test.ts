@@ -3,6 +3,7 @@ import { and, eq, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import artifactsDict from "$lib/i18n/artifacts";
 import { ARTIFACT_TOUR_CONTENT_VERSION } from "$lib/server/artifact-tour-defaults";
 import * as schema from "$lib/server/db/schema";
 import type { ArtifactTourType } from "$lib/shared/artifacts/tours";
@@ -989,6 +990,66 @@ describe("seedArtifactTourDrafts", () => {
 			"Empty board. Insert a block or draw on it.",
 		);
 		expect(slides[1]?.titleEn).toBe("A board for anything");
+	});
+
+	// RC-T Minor 8(d): a Hungarian admin was handed "Document tour", "App tour"
+	// and "Canvas tour". Drafts are named in the language of the admin who seeds
+	// them, with the kind in the word the interface uses for it.
+	function seededNames() {
+		return Object.fromEntries(
+			db
+				.select({
+					kind: schema.announcementCampaigns.releaseVersion,
+					name: schema.announcementCampaigns.name,
+				})
+				.from(schema.announcementCampaigns)
+				.where(eq(schema.announcementCampaigns.type, "artifact_tour"))
+				.all()
+				.map((row) => [row.kind, row.name]),
+		);
+	}
+
+	it("names the drafts in English for an English admin, and by default", async () => {
+		await seedArtifactTourDrafts("admin-user", { db, language: "en" });
+		expect(seededNames()).toEqual({
+			document: "Document tour",
+			app: "App tour",
+			canvas: "Canvas tour",
+		});
+	});
+
+	it("names them in English when no language is given", async () => {
+		await seedArtifactTourDrafts("admin-user", { db });
+		expect(seededNames()).toEqual({
+			document: "Document tour",
+			app: "App tour",
+			canvas: "Canvas tour",
+		});
+	});
+
+	it("names them in Hungarian for a Hungarian admin, with the kinds' own Hungarian words", async () => {
+		await seedArtifactTourDrafts("admin-user", { db, language: "hu" });
+		const names = seededNames();
+		expect(names).toEqual({
+			document: "Dokumentum bemutatója",
+			app: "Alkalmazás bemutatója",
+			canvas: "Tábla bemutatója",
+		});
+		// The kind is the interface's word for it (artifacts.type.*), never a
+		// second translation of it.
+		for (const kind of ["document", "app", "canvas"] as const) {
+			expect(names[kind]).toContain(artifactsDict.hu[`artifacts.type.${kind}`]);
+		}
+	});
+
+	it("names no draft with the word artifact in either language", async () => {
+		for (const language of ["en", "hu"] as const) {
+			sqlite.exec("DELETE FROM announcement_campaigns");
+			await seedArtifactTourDrafts("admin-user", { db, language });
+			for (const name of Object.values(seededNames())) {
+				expect(String(name).toLowerCase()).not.toMatch(/artifact|artefakt/);
+			}
+		}
 	});
 
 	// RC-T I-2: the seed wrote "Add a short second line here, shown under the
