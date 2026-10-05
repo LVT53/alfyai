@@ -211,8 +211,10 @@ export function isPlausibleShortText(
  * Resolve the target language for a short local-model surface: an explicit
  * preference wins outright ("en"/"hu"); otherwise (including an "auto"
  * preference) this delegates the whole cascade to language.ts's shared
- * `resolveResponseLanguage` — an inline hint in the user's message ("in
- * English", "magyarul"), then the message's own detected language, then
+ * `resolveResponseLanguage` — an explicit request for the reply language in
+ * the user's message ("answer in English", "válaszolj magyarul"; a message that
+ * only mentions a language is not one), then the message's own detected
+ * language, then
  * (2026-09-25 language review) the caller's `uiLanguage` when the message is
  * genuinely ambiguous, then English. No second fallback policy lives here:
  * this used to fall straight to `detectLanguage` on an ambiguous message,
