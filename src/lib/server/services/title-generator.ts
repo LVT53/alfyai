@@ -306,12 +306,14 @@ function fallbackTitle(userMessage: string): string {
  * Build few-shot examples for the prompt
  * @param language The detected language ('en' or 'hu')
  * @param isCodeRelated Whether the conversation is code-related
- * @returns Array of example messages
+ * @returns The examples: a conversation's first exchange and its title
  */
+type TitleExample = { user: string; assistant: string; title: string };
+
 function buildFewShotExamples(
 	language: "en" | "hu",
 	isCodeRelated: boolean,
-): Array<{ role: "user" | "assistant"; content: string }> {
+): TitleExample[] {
 	if (language === "hu") {
 		const examples = [
 			{
@@ -339,13 +341,7 @@ function buildFewShotExamples(
 			},
 		];
 
-		return examples.flatMap((ex) => [
-			{
-				role: "user" as const,
-				content: `User: ${ex.user}\nAssistant: ${ex.assistant}`,
-			},
-			{ role: "assistant" as const, content: ex.title },
-		]);
+		return examples;
 	} else {
 		const examples = [
 			{
@@ -383,13 +379,7 @@ function buildFewShotExamples(
 			});
 		}
 
-		return examples.flatMap((ex) => [
-			{
-				role: "user" as const,
-				content: `User: ${ex.user}\nAssistant: ${ex.assistant}`,
-			},
-			{ role: "assistant" as const, content: ex.title },
-		]);
+		return examples;
 	}
 }
 
@@ -409,12 +399,23 @@ function buildTitleMessages(
 		messages.push({ role: "system", content: systemPrompt.trim() });
 	}
 
+	// The examples ride in the one user message as text, never as earlier
+	// assistant turns: the chat template renders every earlier assistant turn
+	// with an empty think block, and with four of them in the request the real
+	// model re-opened a block of its own as its first token for 19% of titles
+	// (0 of 100 with the same examples as text, titles as good).
+	const examples = buildFewShotExamples(language, isCodeRelated)
+		.map(
+			(example) =>
+				`User: ${example.user}\nAssistant: ${example.assistant}\nTitle: ${example.title}`,
+		)
+		.join("\n\n");
+
 	return [
 		...messages,
-		...buildFewShotExamples(language, isCodeRelated),
 		{
 			role: "user",
-			content: `Return only a concise conversation title, 3-8 words, with no explanation.\nUser: ${userMessage}\nAssistant: ${assistantResponse.slice(0, 200)}`,
+			content: `Examples of the task (input, then the title):\n\n${examples}\n\nNow the real input.\nReturn only a concise conversation title, 3-8 words, with no explanation.\nUser: ${userMessage}\nAssistant: ${assistantResponse.slice(0, 200)}`,
 		},
 	];
 }

@@ -354,6 +354,46 @@ describe("generateTitle", () => {
 		}
 	});
 
+	it("sends the few-shot examples as text in the one user message, never as assistant turns", async () => {
+		// The chat template renders every earlier assistant turn with an empty think
+		// block, and with four of them in the request the real model re-opened a
+		// block of its own as its first token for 19% of titles (0 of 100 when the
+		// same examples ride in the system or the user message).
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(
+				JSON.stringify({ choices: [{ message: { content: "Heti étrend" } }] }),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			),
+		);
+
+		await generateTitle(
+			"Szia! Segítenél összeállítani egy heti étrendet?",
+			"Természetesen! Íme egy egyszerű heti étrend.",
+			"hu",
+		);
+
+		const callArgs = mockFetch.mock.calls[0]?.[1];
+		const body = JSON.parse(
+			typeof callArgs?.body === "string" ? callArgs.body : "{}",
+		) as { messages: Array<{ role: string; content: string }> };
+		expect(body.messages.map((message) => message.role)).toEqual(["user"]);
+		const content = body.messages[0].content;
+		expect(content).toContain("Examples of the task");
+		expect(content).toContain("Title: React komponens létrehozási alapok");
+		// The real conversation comes last, after the instruction.
+		expect(
+			content.lastIndexOf("Return only a concise conversation title"),
+		).toBeGreaterThan(
+			content.lastIndexOf("Title: Adatbázis tervezési tanácsok kezdéshez"),
+		);
+		expect(
+			content.endsWith(
+				"Assistant: Természetesen! Íme egy egyszerű heti étrend.",
+			),
+		).toBe(true);
+	});
+
 	describe("a stray think block (the model re-opens one although thinking is off)", () => {
 		const HU_USER =
 			"Hogyan tudnék havi százezer forintot félretenni a fizetésemből?";
