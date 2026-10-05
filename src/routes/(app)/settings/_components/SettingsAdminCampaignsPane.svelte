@@ -51,6 +51,7 @@ import { ApiError } from "$lib/client/api/http";
 import { t } from "$lib/i18n";
 import type { I18nKey } from "$lib/i18n";
 import { reducedMotionAware } from "$lib/utils/motion";
+import { tourLead } from "./campaigns/campaign-labels";
 import CampaignDialog from "./campaigns/CampaignDialog.svelte";
 import CampaignRail from "./campaigns/CampaignRail.svelte";
 import ChecklistStatus from "./campaigns/ChecklistStatus.svelte";
@@ -916,12 +917,19 @@ let slideMenuItems = $derived<OverflowMenuItem[]>(
 
 let metaLine = $derived.by(() => {
 	if (!draft) return "";
-	const parts: string[] = [
-		draft.type === "first_run_onboarding"
-			? $t("admin.campaigns.type.firstRun")
-			: $t("admin.campaigns.type.release"),
-	];
-	if (draft.releaseVersion) parts.push(draft.releaseVersion);
+	// A tour is not a release: it reads as a tour of the kind its release text
+	// names, in the kind's own word (campaign-labels.ts).
+	const parts: string[] =
+		draft.type === "artifact_tour"
+			? tourLead(draft.releaseVersion, $t)
+			: [
+					draft.type === "first_run_onboarding"
+						? $t("admin.campaigns.type.firstRun")
+						: $t("admin.campaigns.type.release"),
+				];
+	if (draft.type !== "artifact_tour" && draft.releaseVersion) {
+		parts.push(draft.releaseVersion);
+	}
 	parts.push($t("admin.campaigns.slideCount", { count: draft.slides.length }));
 	if (draft.status === "published" && draft.publishedAt) {
 		parts.push(

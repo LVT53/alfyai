@@ -2,6 +2,7 @@
 import { Plus } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type { Campaign, CampaignStatus } from "$lib/client/api/campaigns";
+import { tourLead } from "./campaign-labels";
 
 let {
 	campaigns,
@@ -40,10 +41,14 @@ function metaLine(campaign: Campaign): string {
 	const lead =
 		campaign.type === "first_run_onboarding"
 			? $t("admin.campaigns.type.firstRun")
-			: // `||`, not `??`: a release draft with no version yet carries "",
-				// which is not nullish, so `??` left the row reading " · 3 slides".
-				campaign.releaseVersion?.trim() ||
-				$t("admin.campaigns.versionShort", { version: campaign.version ?? 1 });
+			: campaign.type === "artifact_tour"
+				? tourLead(campaign.releaseVersion, $t).join(" · ")
+				: // `||`, not `??`: a release draft with no version yet carries "",
+					// which is not nullish, so `??` left the row reading " · 3 slides".
+					campaign.releaseVersion?.trim() ||
+					$t("admin.campaigns.versionShort", {
+						version: campaign.version ?? 1,
+					});
 	return `${lead} · ${$t("admin.campaigns.slideCount", { count: slideCount })}`;
 }
 </script>

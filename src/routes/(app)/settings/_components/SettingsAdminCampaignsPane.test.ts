@@ -1,4 +1,5 @@
 import {
+	cleanup,
 	fireEvent,
 	render,
 	screen,
@@ -6,6 +7,7 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { uiLanguage } from "$lib/stores/settings";
 import SettingsAdminCampaignsPane from "./SettingsAdminCampaignsPane.svelte";
 
 vi.mock("$app/navigation", () => ({
@@ -503,6 +505,106 @@ describe("SettingsAdminCampaignsPane", () => {
 		const row = screen.getByTestId("admin-campaign-row");
 		// …and "1 slide", not "1 slides".
 		expect(within(row).getByText("v4 · 1 slide")).toBeInTheDocument();
+	});
+
+	// A tour is a campaign of its own type whose release text is the kind it
+	// introduces: the lines above the editor and in the rail say so in words,
+	// never as "Release · canvas".
+	describe("a tour campaign's meta line", () => {
+		function tourSlides() {
+			return ["summary", "standard", "standard", "standard"].map(
+				(kind, index) => ({
+					id: `tour-slide-${index + 1}`,
+					kind,
+					sortOrder: index + 1,
+					semanticRole: "feature",
+					titleEn: `Slide ${index + 1}`,
+					titleHu: `${index + 1}. dia`,
+					bodyEn: "Body.",
+					bodyHu: "Szöveg.",
+				}),
+			);
+		}
+
+		function openTour(releaseVersion: string, name = "Canvas tour") {
+			const summary = {
+				id: "tour-1",
+				type: "artifact_tour",
+				version: 1,
+				name,
+				releaseVersion,
+				status: "draft",
+				slideCount: 4,
+				updatedAt: "2026-05-17T08:00:00.000Z",
+			};
+			mockFetchAdminCampaigns.mockResolvedValue([summary]);
+			mockFetchAdminCampaign.mockResolvedValue({
+				...summary,
+				slides: tourSlides(),
+				validationErrors: [],
+			});
+			render(SettingsAdminCampaignsPane);
+		}
+
+		function editorMeta() {
+			return document.querySelector(".editor-meta")?.textContent ?? "";
+		}
+
+		it("says Tour and the kind's word in the rail and above the editor", async () => {
+			openTour("canvas");
+			await waitForEditor("Canvas tour");
+
+			expect(
+				within(screen.getByTestId("admin-campaign-row")).getByText(
+					"Tour · Canvas · 4 slides",
+				),
+			).toBeInTheDocument();
+			expect(editorMeta()).toMatch(/^\s*Tour · Canvas · 4 slides · /);
+			expect(document.body.textContent).not.toContain("Release · canvas");
+			expect(document.body.textContent).not.toContain("canvas · 4");
+		});
+
+		it("names each kind that ships by the word the rest of the interface uses", async () => {
+			for (const [release, word] of [
+				["document", "Document"],
+				["app", "App"],
+				["canvas", "Canvas"],
+			] as const) {
+				cleanup();
+				openTour(release, `${word} tour`);
+				await waitForEditor(`${word} tour`);
+				expect(editorMeta()).toMatch(
+					new RegExp(`^\\s*Tour · ${word} · 4 slides`),
+				);
+			}
+		});
+
+		it("says it in Hungarian with the ratified Hungarian kind names", async () => {
+			uiLanguage.set("hu");
+			try {
+				for (const [release, word] of [
+					["document", "Dokumentum"],
+					["app", "Alkalmazás"],
+					["canvas", "Tábla"],
+				] as const) {
+					cleanup();
+					openTour(release, `${word} bemutató`);
+					await waitForEditor(`${word} bemutató`);
+					expect(editorMeta()).toMatch(
+						new RegExp(`^\\s*Bemutató · ${word} · 4 dia`),
+					);
+				}
+			} finally {
+				uiLanguage.set("en");
+			}
+		});
+
+		it("shows a release text that names no kind as it is, so the mistake can be read", async () => {
+			openTour("2.1.0", "Typo tour");
+			await waitForEditor("Typo tour");
+
+			expect(editorMeta()).toMatch(/^\s*Tour · 2\.1\.0 · 4 slides/);
+		});
 	});
 
 	it("names the ⋯ menu when a first-run rule that lives there fails", async () => {
