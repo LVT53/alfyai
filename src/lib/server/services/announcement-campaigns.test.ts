@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -7,6 +8,7 @@ import * as schema from "$lib/server/db/schema";
 import { evaluateCampaignChecklist } from "../../../routes/(app)/settings/_components/campaigns/campaign-checklist";
 import {
 	archiveCampaign,
+	type CampaignSlideInput,
 	completeCampaignForUser,
 	createCampaignDraft,
 	deleteCampaignDraft,
@@ -861,5 +863,320 @@ describe("announcement campaign service", () => {
 
 			expect(isAllowedActionDestination(actionDestination)).toBe(false);
 		}
+	});
+
+	// --- Slice 6: the `artifact_tour` campaign type and `summary` layout ---
+
+	function buildTourSlides(kind: string): CampaignSlideInput[] {
+		return [
+			{
+				id: `${kind}-summary`,
+				layoutType: "summary",
+				sortOrder: 1,
+				title: { en: `Empty ${kind}.`, hu: `Üres ${kind}.` },
+				body: { en: "Second line.", hu: "Második sor." },
+			},
+			{
+				id: `${kind}-slide-1`,
+				layoutType: "standard",
+				sortOrder: 2,
+				title: { en: "Slide one", hu: "Első dia" },
+				body: { en: "Body one.", hu: "Első törzs." },
+			},
+			{
+				id: `${kind}-slide-2`,
+				layoutType: "standard",
+				sortOrder: 3,
+				title: { en: "Slide two", hu: "Második dia" },
+				body: { en: "Body two.", hu: "Második törzs." },
+			},
+			{
+				id: `${kind}-slide-3`,
+				layoutType: "standard",
+				sortOrder: 4,
+				title: { en: "Slide three", hu: "Harmadik dia" },
+				body: { en: "Body three.", hu: "Harmadik törzs." },
+			},
+		];
+	}
+
+	async function createTourDraft(
+		kind: string,
+		campaignId: string,
+		slides: CampaignSlideInput[] = buildTourSlides(kind),
+	) {
+		await createCampaignDraft(
+			{
+				type: "artifact_tour",
+				name: `${kind} tour`,
+				releaseVersion: kind,
+				createdByUserId: "admin-user",
+			},
+			{ db, ids: [campaignId] },
+		);
+		return updateCampaignDraft(campaignId, { slides }, { db });
+	}
+
+	it("accepts artifact_tour as a campaign type and refuses an unknown one", async () => {
+		const draft = await createCampaignDraft(
+			{
+				type: "artifact_tour",
+				name: "Canvas tour",
+				releaseVersion: "canvas",
+				createdByUserId: "admin-user",
+			},
+			{ db, ids: ["tour-campaign-accept"] },
+		);
+		expect(draft.type).toBe("artifact_tour");
+
+		await expect(
+			createCampaignDraft(
+				{ type: "onboarding_v2", name: "Bogus", createdByUserId: "admin-user" },
+				{ db, ids: ["bogus-campaign"] },
+			),
+		).rejects.toMatchObject({
+			fieldErrors: {
+				type: "Campaign type must be first_run_onboarding, release_update or artifact_tour.",
+			},
+		});
+	});
+
+	it("publishes a tour with exactly one summary and three standard slides", async () => {
+		await createTourDraft("canvas", "tour-canvas-valid");
+
+		const published = await publishCampaign("tour-canvas-valid", "admin-user", {
+			db,
+			ids: ["tour-canvas-valid-snapshot"],
+		});
+
+		expect(published.status).toBe("published");
+		expect(published.snapshot?.slides.map((slide) => slide.layoutType)).toEqual(
+			["summary", "standard", "standard", "standard"],
+		);
+	});
+
+	it("refuses a tour with two summary slides", async () => {
+		const slides = buildTourSlides("canvas");
+		slides[1] = { ...slides[1], layoutType: "summary" };
+		await createTourDraft("canvas", "tour-two-summaries", slides);
+
+		await expect(
+			publishCampaign("tour-two-summaries", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: expect.objectContaining({
+				tourSlideShape:
+					"A tour campaign requires exactly one summary slide, placed first, and exactly three standard slides after it.",
+			}),
+		});
+	});
+
+	it("refuses a tour with two standard slides", async () => {
+		const slides = buildTourSlides("canvas").slice(0, 3); // summary + 2 standard
+		await createTourDraft("canvas", "tour-two-standard", slides);
+
+		await expect(
+			publishCampaign("tour-two-standard", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: expect.objectContaining({
+				tourSlideShape: expect.any(String),
+			}),
+		});
+	});
+
+	it("refuses a tour whose first slide is not the summary", async () => {
+		const slides = buildTourSlides("canvas");
+		slides[0] = { ...slides[0], layoutType: "standard" };
+		slides[1] = { ...slides[1], layoutType: "summary" };
+		await createTourDraft("canvas", "tour-order-wrong", slides);
+
+		await expect(
+			publishCampaign("tour-order-wrong", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: expect.objectContaining({
+				tourSlideShape: expect.any(String),
+			}),
+		});
+	});
+
+	it("requires en and hu title and body on every slide", async () => {
+		const slides = buildTourSlides("canvas");
+		slides[1] = { ...slides[1], title: { en: "", hu: "Első dia" } };
+		await createTourDraft("canvas", "tour-missing-title", slides);
+
+		await expect(
+			publishCampaign("tour-missing-title", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: expect.objectContaining({
+				[`slides.${slides[1]?.id}.title.en`]:
+					"Localized EN/HU title and body are required.",
+			}),
+		});
+	});
+
+	it("does not require a crop or alt text", async () => {
+		await createTourDraft("canvas", "tour-no-crop");
+
+		const published = await publishCampaign("tour-no-crop", "admin-user", {
+			db,
+			ids: ["tour-no-crop-snapshot"],
+		});
+
+		expect(published.status).toBe("published");
+		expect(
+			published.snapshot?.slides.every(
+				(slide) => slide.desktopCropAssetId === null,
+			),
+		).toBe(true);
+	});
+
+	it("accepts a crop on a tour slide and then requires its alt text", async () => {
+		insertRequiredCampaignCrops(db, "tour-crop");
+		const slides = buildTourSlides("canvas");
+		const cropSlideId = slides[1]?.id;
+		slides[1] = {
+			...slides[1],
+			desktopCropAssetId: "tour-crop-desktop",
+			mobileCropAssetId: "tour-crop-mobile",
+		};
+		await createTourDraft("canvas", "tour-with-crop", slides);
+
+		await expect(
+			publishCampaign("tour-with-crop", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: expect.objectContaining({
+				[`slides.${cropSlideId}.altText.en`]:
+					"Localized EN/HU alt text is required when an image is uploaded.",
+			}),
+		});
+
+		slides[1] = { ...slides[1], altText: { en: "Alt", hu: "Alt HU" } };
+		await updateCampaignDraft("tour-with-crop", { slides }, { db });
+		const published = await publishCampaign("tour-with-crop", "admin-user", {
+			db,
+			ids: ["tour-with-crop-snapshot"],
+		});
+		expect(published.status).toBe("published");
+	});
+
+	it("keeps a published tour immutable when the draft is edited", async () => {
+		await createTourDraft("canvas", "tour-immutable");
+		const published = await publishCampaign("tour-immutable", "admin-user", {
+			db,
+			ids: ["tour-immutable-snapshot"],
+		});
+		const originalTitle = published.snapshot?.slides[0]?.title.en;
+
+		await expect(
+			updateCampaignDraft(
+				"tour-immutable",
+				{
+					slides: buildTourSlides("canvas").map((slide) => ({
+						...slide,
+						title: { en: "Changed", hu: "Megváltozott" },
+					})),
+				},
+				{ db },
+			),
+		).rejects.toMatchObject({
+			fieldErrors: { status: "Only draft campaigns can be edited." },
+		});
+
+		const reloaded = await getCampaignById("tour-immutable", { db });
+		expect(reloaded?.snapshot?.slides[0]?.title.en).toBe(originalTitle);
+	});
+
+	it("seeds four drafts, one per kind, and seeds nothing on a second call, and leaves them unpublished with a real event ledger once published", async () => {
+		await createTourDraft("canvas", "tour-events");
+		await publishCampaign("tour-events", "admin-user", {
+			db,
+			ids: ["tour-events-snapshot"],
+		});
+
+		await recordCampaignEvent(
+			{
+				campaignId: "tour-events",
+				userId: "viewer-user",
+				eventType: "completed",
+			},
+			{ db },
+		);
+
+		const events = db
+			.select()
+			.from(schema.announcementCampaignEvents)
+			.where(eq(schema.announcementCampaignEvents.campaignId, "tour-events"))
+			.all();
+		expect(events).toHaveLength(1);
+		expect(events[0]?.eventType).toBe("completed");
+	});
+
+	it("still refuses a summary slide on a first_run_onboarding campaign", async () => {
+		// The `summary` layout becoming globally valid must not let it
+		// substitute for first-run's own required setup slide — the count
+		// rule stays strict per type.
+		const slides = buildFirstRunOnboardingImageFreeSlides();
+		slides[0] = { ...slides[0], layoutType: "summary" };
+		await createFirstRunOnboardingDraft(db, {
+			campaignId: "onboarding-summary-swap",
+			name: "Onboarding",
+			slides,
+		});
+
+		await expect(
+			publishCampaign("onboarding-summary-swap", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: expect.objectContaining({
+				setupSlide: "First-run onboarding requires exactly one setup slide.",
+			}),
+		});
+	});
+
+	it("names all three types in the thrown type error", async () => {
+		await expect(
+			createCampaignDraft(
+				{
+					type: "totally_unknown",
+					name: "Bogus",
+					createdByUserId: "admin-user",
+				},
+				{ db },
+			),
+		).rejects.toMatchObject({
+			fieldErrors: {
+				type: "Campaign type must be first_run_onboarding, release_update or artifact_tour.",
+			},
+		});
+	});
+
+	it("names all three layouts in the thrown layout error", async () => {
+		const slides = buildTourSlides("canvas");
+		const badSlideId = slides[1]?.id;
+		slides[1] = { ...slides[1], layoutType: "bogus-layout" };
+		await createTourDraft("canvas", "tour-bogus-layout", slides);
+
+		await expect(
+			publishCampaign("tour-bogus-layout", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: expect.objectContaining({
+				[`slides.${badSlideId}.layoutType`]:
+					"Slide layout must be setup, standard or summary.",
+			}),
+		});
+	});
+
+	it("keeps both validation messages in step with the unions, both locales", async () => {
+		const settingsDict = (await import("$lib/i18n/settings")).default;
+		expect(settingsDict.en["admin.campaigns.validation.typeInvalid"]).toBe(
+			"Campaign type must be first-run onboarding, release update or first-open tour.",
+		);
+		expect(
+			settingsDict.en["admin.campaigns.validation.slideLayoutInvalid"],
+		).toBe("Slide layout must be setup, standard or summary.");
+		expect(settingsDict.hu["admin.campaigns.validation.typeInvalid"]).toBe(
+			"A kampány típusa első indítási, kiadási vagy bemutató kampány lehet.",
+		);
+		expect(
+			settingsDict.hu["admin.campaigns.validation.slideLayoutInvalid"],
+		).toBe("A dia elrendezése beállítás, általános vagy összegzés lehet.");
 	});
 });

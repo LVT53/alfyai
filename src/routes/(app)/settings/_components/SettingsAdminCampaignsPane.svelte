@@ -29,6 +29,7 @@ import {
 	fetchAdminCampaign,
 	fetchAdminCampaigns,
 	publishAdminCampaign,
+	seedArtifactTours,
 	seedFirstRunCampaign,
 	updateAdminCampaign,
 	type Campaign,
@@ -563,6 +564,24 @@ async function seedFirstRun() {
 	}
 }
 
+async function seedArtifactToursAction() {
+	actionLoading = true;
+	try {
+		const result = await seedArtifactTours();
+		showSuccess(
+			$t("admin.campaigns.messages.artifactToursSeeded", {
+				created: result.created,
+				skipped: result.existing,
+			}),
+		);
+		await loadCampaigns();
+	} catch (error) {
+		showError(error, $t("admin.campaigns.errors.seedArtifactTours"));
+	} finally {
+		actionLoading = false;
+	}
+}
+
 async function publishCampaign() {
 	if (!draft || !isDraftEditable || clientValidationErrors.length > 0) return;
 	actionLoading = true;
@@ -793,6 +812,13 @@ let campaignMenuItems = $derived.by<OverflowMenuItem[]>(() => {
 		icon: FlaskConical,
 		disabled: actionLoading,
 		onSelect: () => void seedFirstRun(),
+	});
+	items.push({
+		id: "seed-artifact-tours",
+		label: $t("admin.campaigns.seedArtifactTours"),
+		icon: FlaskConical,
+		disabled: actionLoading,
+		onSelect: () => void seedArtifactToursAction(),
 	});
 	if (isDraftEditable) {
 		items.push({
@@ -1137,6 +1163,15 @@ onMount(() => {
 					>
 						<FlaskConical size={14} strokeWidth={2} aria-hidden="true" />
 						{$t('admin.campaigns.seedFirstRun')}
+					</button>
+					<button
+						type="button"
+						class="btn-secondary gap-1.5"
+						disabled={actionLoading}
+						onclick={() => void seedArtifactToursAction()}
+					>
+						<FlaskConical size={14} strokeWidth={2} aria-hidden="true" />
+						{$t('admin.campaigns.seedArtifactTours')}
 					</button>
 				</div>
 			{:else}

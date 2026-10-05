@@ -75,6 +75,7 @@ const requiredExistingTables = [
 	"announcement_campaign_snapshot_slides",
 	"announcement_campaign_user_states",
 	"announcement_campaign_events",
+	"artifact_tour_states",
 	"import_jobs",
 	"admin_config",
 	"providers",

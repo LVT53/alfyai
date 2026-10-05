@@ -6,8 +6,13 @@ export type CampaignStatus = "draft" | "published" | "archived" | (string & {});
 export type CampaignType =
 	| "first_run_onboarding"
 	| "release_update"
+	| "artifact_tour"
 	| (string & {});
-export type CampaignSlideKind = "setup" | "standard" | (string & {});
+export type CampaignSlideKind =
+	| "setup"
+	| "standard"
+	| "summary"
+	| (string & {});
 export type CampaignSetupControl =
 	| "ui_language"
 	| "theme"
@@ -146,6 +151,13 @@ export type SeedFirstRunCampaignResponse = {
 	created: boolean;
 };
 
+/** Counts, not a single campaign: one seed call creates up to four drafts
+ *  (one per tour kind), unlike the first-run seed's single template. */
+export type SeedArtifactToursResponse = {
+	created: number;
+	existing: number;
+};
+
 const jsonHeaders = { "Content-Type": "application/json" };
 
 export async function fetchAdminCampaigns(
@@ -266,6 +278,17 @@ export async function seedFirstRunCampaign(
 		"/api/admin/campaigns/seed-first-run",
 		{ method: "POST" },
 		"Failed to seed first-run campaign",
+		fetchImpl,
+	);
+}
+
+export async function seedArtifactTours(
+	fetchImpl: FetchLike = fetch,
+): Promise<SeedArtifactToursResponse> {
+	return requestJson<SeedArtifactToursResponse>(
+		"/api/admin/campaigns/seed-artifact-tours",
+		{ method: "POST" },
+		"Failed to seed the tour drafts",
 		fetchImpl,
 	);
 }

@@ -30,7 +30,7 @@ let {
 	editable?: boolean;
 	attention: SlideMenuAttention;
 	focus?: SlideMenuItem;
-	onChangeKind: (kind: "setup" | "standard") => void;
+	onChangeKind: (kind: "setup" | "standard" | "summary") => void;
 	onChangeRole: (role: "feature" | "data_disclosure") => void;
 	onChangeSetupControls: (controls: string[]) => void;
 	onClose: () => void;
@@ -78,7 +78,7 @@ function toggleControl(control: string, checked: boolean) {
 				{/if}
 			</p>
 			<div class="pill-row">
-				{#each ['standard', 'setup'] as const as option (option)}
+				{#each ['standard', 'setup', 'summary'] as const as option (option)}
 					<button
 						type="button"
 						class="pref-pill"
@@ -88,7 +88,9 @@ function toggleControl(control: string, checked: boolean) {
 					>
 						{option === 'setup'
 							? $t('admin.campaigns.slideKind.setup')
-							: $t('admin.campaigns.slideKind.standard')}
+							: option === 'summary'
+								? $t('admin.campaigns.slideKind.summary')
+								: $t('admin.campaigns.slideKind.standard')}
 					</button>
 				{/each}
 			</div>

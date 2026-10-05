@@ -9,6 +9,7 @@ import {
 	artifactComments,
 	artifactKv,
 	artifacts,
+	artifactTourStates,
 	artifactVersions,
 	chatGeneratedFiles,
 	conversations,
@@ -111,6 +112,7 @@ export async function createAccountDataArchive(
 		generatedFileRows,
 		taskStateRows,
 		memoryEventRows,
+		artifactTourStateRows,
 		skillRows,
 		importJobRows,
 		usageRows,
@@ -127,6 +129,7 @@ export async function createAccountDataArchive(
 		listGeneratedFiles(database, userId),
 		listTaskStates(database, userId),
 		listMemoryBehaviorEvents(database, userId),
+		listArtifactTourStates(database, userId),
 		listUserSkills(database, userId),
 		listImportJobs(database, userId),
 		listUsageEvents(database, userId),
@@ -183,6 +186,7 @@ export async function createAccountDataArchive(
 	addMemorySection(archive, {
 		tasks: taskStateRows,
 		events: memoryEventRows,
+		tourStates: artifactTourStateRows,
 	});
 	addSkillsSection(archive, {
 		skills: skillRows,
@@ -752,11 +756,13 @@ function addMemorySection(
 	params: {
 		tasks: Array<typeof conversationTaskStates.$inferSelect>;
 		events: Array<typeof memoryEvents.$inferSelect>;
+		tourStates: Array<typeof artifactTourStates.$inferSelect>;
 	},
 ) {
 	const sections = [
 		renderTaskStates(params.tasks),
 		renderMemoryEvents(params.events),
+		renderArtifactTourStates(params.tourStates),
 	].join("");
 	archive.addHtml(
 		"Memory/Memory.html",
@@ -1187,6 +1193,14 @@ async function listMemoryBehaviorEvents(database: ArchiveDb, userId: string) {
 		.orderBy(asc(memoryEvents.observedAt));
 }
 
+async function listArtifactTourStates(database: ArchiveDb, userId: string) {
+	return database
+		.select()
+		.from(artifactTourStates)
+		.where(eq(artifactTourStates.userId, userId))
+		.orderBy(desc(artifactTourStates.updatedAt));
+}
+
 async function listUserSkills(database: ArchiveDb, userId: string) {
 	return database
 		.select()
@@ -1265,6 +1279,35 @@ function renderMemoryEvents(rows: Array<typeof memoryEvents.$inferSelect>) {
 			row.eventType,
 			memoryEventSummary(row),
 			formatDateTime(row.observedAt),
+		]),
+	)}</section>`;
+}
+
+/** Kind labels for the first-open tour, in the same words the app itself
+ *  uses (`artifacts.type.*`, Slice 0) — never "artifact" (ADR-0066). */
+const ARTIFACT_TOUR_KIND_LABELS: Record<string, string> = {
+	document: "Document",
+	app: "App",
+	canvas: "Canvas",
+	slides: "Slides",
+};
+
+/**
+ * Feature introductions the user has already seen. The row names only a
+ * kind and a completed/dismissed status — no conversation id, no artifact
+ * id, and the raw `content_key` is deliberately left off this page, since it
+ * identifies a campaign snapshot rather than anything the user wrote or read
+ * (decisions.md ruling 33).
+ */
+function renderArtifactTourStates(
+	rows: Array<typeof artifactTourStates.$inferSelect>,
+) {
+	if (rows.length === 0) return "";
+	return `<section><h2>Feature introductions seen</h2>${renderTable(
+		rows.map((row) => [
+			ARTIFACT_TOUR_KIND_LABELS[row.artifactType] ?? row.artifactType,
+			row.status,
+			formatDateTime(row.completedAt ?? row.dismissedAt),
 		]),
 	)}</section>`;
 }

@@ -184,6 +184,19 @@ async function seedArchiveUser() {
 		createdAt: new Date("2026-02-01T12:15:00Z"),
 	});
 
+	await db.insert(schema.artifactTourStates).values({
+		id: "tour-state-1",
+		userId: "user-1",
+		artifactType: "canvas",
+		contentKey: "default:1",
+		status: "completed",
+		slideCount: 3,
+		lastSlide: 2,
+		completedAt: new Date("2026-02-01T13:30:00Z"),
+		createdAt: new Date("2026-02-01T13:30:00Z"),
+		updatedAt: new Date("2026-02-01T13:30:00Z"),
+	});
+
 	await db.insert(schema.userSkillDefinitions).values({
 		id: "skill-1",
 		userId: "user-1",
@@ -353,6 +366,12 @@ describe("createAccountDataArchive", () => {
 		expect(memoryIndex).toContain("Prepare Q3 launch plan");
 		expect(memoryIndex).toContain("Customer interviews are required");
 		expect(memoryIndex).not.toContain("embedding");
+		// Slice 6: a seen tour names the kind and nothing about a chat — the
+		// row has no conversation id and no artifact id to leak in the first
+		// place (decisions.md ruling 33).
+		expect(memoryIndex).toContain("Canvas");
+		expect(memoryIndex).toContain("completed");
+		expect(memoryIndex).not.toContain("default:1");
 
 		const skillPage = await zip
 			.file("Skills/Meeting Notes.html")
