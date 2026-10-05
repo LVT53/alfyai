@@ -338,20 +338,6 @@ const TOUR_DRAFT_NAMES: Record<ShippedArtifactTourType, string> = {
 };
 
 /**
- * The seed's summary-slide body is a placeholder, not shipped copy: the
- * summary slide's TITLE carries the real one-line summary
- * (`ARTIFACT_TOUR_DEFAULTS[kind].summary`, the same text the code default and
- * the empty state show), but a campaign slide's smaller second-line body has
- * no shipped equivalent to seed — the same reason `seedFirstRunOnboardingTemplate`
- * seeds "Replace this draft copy with admin-authored campaign content." for
- * its own non-critical slide.
- */
-const TOUR_SUMMARY_BODY_PLACEHOLDER = {
-	en: "Add a short second line here, shown under the artwork.",
-	hu: "Adj hozzá egy rövid második sort, ami a kép alatt jelenik meg.",
-};
-
-/**
  * Seeds one `artifact_tour` draft per shipped kind — document, app, canvas
  * (`SHIPPED_ARTIFACT_TOUR_TYPES`, ruling 69: no Slides draft while Slides is
  * shelved) — each with the shipped default copy pre-filled (Task T2's
@@ -409,7 +395,9 @@ export async function seedArtifactTourDrafts(
 						layoutType: "summary",
 						sortOrder: 1,
 						title: defaults.summary,
-						body: TOUR_SUMMARY_BODY_PLACEHOLDER,
+						// One bare line, the empty state's: nothing draws a body under
+						// it, so none is seeded and none is asked for (RC-T I-2).
+						body: { en: "", hu: "" },
 					},
 					...defaults.slides.map((slide, index) => ({
 						layoutType: "standard",

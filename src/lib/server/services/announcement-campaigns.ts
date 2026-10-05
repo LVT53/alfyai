@@ -769,15 +769,27 @@ function validatePublishInput(
 		}
 		orderSet.add(slide.sortOrder);
 
+		// A tour's summary slide is one bare line: its title is what an empty
+		// Document, App or Canvas shows, and nothing draws a body under it
+		// (RC-T I-2), so asking for one made an admin write words no reader sees.
+		const isTourSummary =
+			campaignType === "artifact_tour" && slide.layoutType === "summary";
 		validateRequiredLocalizedFields(
 			prefix,
-			[
-				["title.en", slide.titleEn],
-				["title.hu", slide.titleHu],
-				["body.en", slide.bodyEn],
-				["body.hu", slide.bodyHu],
-			],
-			"Localized EN/HU title and body are required.",
+			isTourSummary
+				? [
+						["title.en", slide.titleEn],
+						["title.hu", slide.titleHu],
+					]
+				: [
+						["title.en", slide.titleEn],
+						["title.hu", slide.titleHu],
+						["body.en", slide.bodyEn],
+						["body.hu", slide.bodyHu],
+					],
+			isTourSummary
+				? "Localized EN/HU title is required."
+				: "Localized EN/HU title and body are required.",
 			errors,
 		);
 

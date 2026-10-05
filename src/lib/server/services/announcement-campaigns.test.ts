@@ -1000,6 +1000,92 @@ describe("announcement campaign service", () => {
 		});
 	});
 
+	// RC-T I-2: the summary slide's TITLE is the line an empty Document, App or
+	// Canvas shows, and nothing draws a second line under it. Requiring a body
+	// there made the admin write words no reader ever sees.
+	it("publishes a tour whose summary slide has no body: only its title is shown", async () => {
+		const slides = buildTourSlides("canvas");
+		slides[0] = { ...slides[0], body: { en: "", hu: "" } };
+		await createTourDraft("canvas", "tour-summary-no-body", slides);
+
+		const published = await publishCampaign(
+			"tour-summary-no-body",
+			"admin-user",
+			{ db, ids: ["tour-summary-no-body-snapshot"] },
+		);
+
+		expect(published.status).toBe("published");
+	});
+
+	it("still wants a tour's summary title in both languages", async () => {
+		const slides = buildTourSlides("canvas");
+		slides[0] = {
+			...slides[0],
+			title: { en: "Empty canvas.", hu: "" },
+			body: { en: "", hu: "" },
+		};
+		await createTourDraft("canvas", "tour-summary-no-hu-title", slides);
+
+		await expect(
+			publishCampaign("tour-summary-no-hu-title", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: {
+				"slides.canvas-summary.title.hu": expect.any(String),
+			},
+		});
+	});
+
+	it("still wants a body on each of a tour's three steps", async () => {
+		const slides = buildTourSlides("canvas");
+		slides[2] = { ...slides[2], body: { en: "Body two.", hu: "" } };
+		await createTourDraft("canvas", "tour-step-no-body", slides);
+
+		await expect(
+			publishCampaign("tour-step-no-body", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: {
+				"slides.canvas-slide-2.body.hu":
+					"Localized EN/HU title and body are required.",
+			},
+		});
+	});
+
+	it("keeps asking a release update's summary-layout slide for its body: only a tour's summary is a bare line", async () => {
+		await createCampaignDraft(
+			{
+				type: "release_update",
+				name: "Release with a summary slide",
+				releaseVersion: "2.5.0",
+				createdByUserId: "admin-user",
+			},
+			{ db, ids: ["release-summary-no-body"] },
+		);
+		await updateCampaignDraft(
+			"release-summary-no-body",
+			{
+				slides: [
+					{
+						id: "release-summary-slide",
+						layoutType: "summary",
+						sortOrder: 1,
+						title: { en: "Summary", hu: "Összegzés" },
+						body: { en: "", hu: "" },
+					},
+				],
+			},
+			{ db },
+		);
+
+		await expect(
+			publishCampaign("release-summary-no-body", "admin-user", { db }),
+		).rejects.toMatchObject({
+			fieldErrors: expect.objectContaining({
+				"slides.release-summary-slide.body.en":
+					"Localized EN/HU title and body are required.",
+			}),
+		});
+	});
+
 	// Ruling 71 (TR-A's concern 2): a tour's kind lives in `releaseVersion`, and
 	// the resolver finds a tour by exactly that text. A tour that names no
 	// shipped kind would publish and then reach nobody, silently, so it is

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ARTIFACT_TOUR_CONTENT_VERSION } from "$lib/server/artifact-tour-defaults";
 import * as schema from "$lib/server/db/schema";
 import type { ArtifactTourType } from "$lib/shared/artifacts/tours";
+import { publishCampaign } from "./announcement-campaigns";
 import {
 	getArtifactTour,
 	markArtifactTourSeen,
@@ -984,6 +985,39 @@ describe("seedArtifactTourDrafts", () => {
 			"Empty board. Insert a block or draw on it.",
 		);
 		expect(slides[1]?.titleEn).toBe("A board for anything");
+	});
+
+	// RC-T I-2: the seed wrote "Add a short second line here, shown under the
+	// artwork." into the summary slide's body, which nothing shows. The body is
+	// left empty, and the draft is still ready to publish.
+	it("leaves each summary slide's body empty instead of promising a second line nobody sees", async () => {
+		await seedArtifactTourDrafts("admin-user", { db });
+
+		const summaries = db
+			.select()
+			.from(schema.announcementCampaignSlides)
+			.where(eq(schema.announcementCampaignSlides.layoutType, "summary"))
+			.all();
+		expect(summaries).toHaveLength(3);
+		for (const slide of summaries) {
+			expect([slide.bodyEn, slide.bodyHu]).toEqual(["", ""]);
+			expect(slide.titleEn).not.toBe("");
+			expect(slide.titleHu).not.toBe("");
+		}
+	});
+
+	it("seeds drafts an admin can publish as they are", async () => {
+		await seedArtifactTourDrafts("admin-user", { db });
+		const drafts = db
+			.select({ id: schema.announcementCampaigns.id })
+			.from(schema.announcementCampaigns)
+			.where(eq(schema.announcementCampaigns.type, "artifact_tour"))
+			.all();
+
+		for (const draft of drafts) {
+			const published = await publishCampaign(draft.id, "admin-user", { db });
+			expect(published.status).toBe("published");
+		}
 	});
 });
 

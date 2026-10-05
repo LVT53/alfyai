@@ -276,6 +276,11 @@ export function evaluateCampaignChecklist(
 		}
 		seenSortOrders.add(sortOrder);
 
+		// A tour's summary slide is one bare line (the empty state's): its title
+		// is required and nothing draws a body, so none is asked for. The server
+		// holds the same rule (`validatePublishInput`).
+		const isTourSummary =
+			campaign.type === "artifact_tour" && slide.kind === "summary";
 		const localizedFields: Array<{
 			field: "title" | "body";
 			locale: ChecklistLocale;
@@ -283,8 +288,12 @@ export function evaluateCampaignChecklist(
 		}> = [
 			{ field: "title", locale: "en", value: slide.titleEn },
 			{ field: "title", locale: "hu", value: slide.titleHu },
-			{ field: "body", locale: "en", value: slide.bodyEn },
-			{ field: "body", locale: "hu", value: slide.bodyHu },
+			...(isTourSummary
+				? []
+				: [
+						{ field: "body" as const, locale: "en" as const, value: slide.bodyEn },
+						{ field: "body" as const, locale: "hu" as const, value: slide.bodyHu },
+					]),
 		];
 		for (const entry of localizedFields) {
 			if (isBlank(entry.value)) {
