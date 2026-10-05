@@ -1000,6 +1000,153 @@ describe("announcement campaign service", () => {
 		});
 	});
 
+	// RC-T Minor 1: the resolver reads the newest published tour of a kind, so a
+	// published revision that stayed live when its successor went out would be
+	// what archiving the successor revealed, instead of the code copy (ruling
+	// 71). A kind has one live tour: publishing a revision retires the one it
+	// replaces.
+	describe("one live tour per kind", () => {
+		// A slide's id is unique across campaigns, so each revision gets its own.
+		function ownSlides(kind: string, campaignId: string) {
+			return buildTourSlides(kind).map((slide) => ({
+				...slide,
+				id: `${campaignId}-${slide.id}`,
+			}));
+		}
+
+		async function publishTourRevision(kind: string, campaignId: string) {
+			await createTourDraft(kind, campaignId, ownSlides(kind, campaignId));
+			return publishCampaign(campaignId, "admin-user", {
+				db,
+				ids: [`${campaignId}-snapshot`],
+			});
+		}
+
+		function statusOf(campaignId: string) {
+			return db
+				.select({
+					status: schema.announcementCampaigns.status,
+					archivedAt: schema.announcementCampaigns.archivedAt,
+				})
+				.from(schema.announcementCampaigns)
+				.where(eq(schema.announcementCampaigns.id, campaignId))
+				.get();
+		}
+
+		it("archives the tour a newer revision of the same kind replaces, snapshot included", async () => {
+			await publishTourRevision("canvas", "canvas-rev-1");
+			expect(statusOf("canvas-rev-1")?.status).toBe("published");
+
+			await publishTourRevision("canvas", "canvas-rev-2");
+
+			expect(statusOf("canvas-rev-1")?.status).toBe("archived");
+			expect(statusOf("canvas-rev-1")?.archivedAt).toBeTruthy();
+			expect(statusOf("canvas-rev-2")?.status).toBe("published");
+			const snapshots = db
+				.select({
+					id: schema.announcementCampaignSnapshots.id,
+					archivedAt: schema.announcementCampaignSnapshots.archivedAt,
+				})
+				.from(schema.announcementCampaignSnapshots)
+				.all();
+			expect(
+				Object.fromEntries(
+					snapshots.map((row) => [row.id, Boolean(row.archivedAt)]),
+				),
+			).toEqual({
+				"canvas-rev-1-snapshot": true,
+				"canvas-rev-2-snapshot": false,
+			});
+		});
+
+		it("leaves one published tour per kind after three revisions", async () => {
+			await publishTourRevision("app", "app-rev-1");
+			await publishTourRevision("app", "app-rev-2");
+			await publishTourRevision("app", "app-rev-3");
+
+			const published = db
+				.select({ id: schema.announcementCampaigns.id })
+				.from(schema.announcementCampaigns)
+				.where(eq(schema.announcementCampaigns.status, "published"))
+				.all();
+			expect(published.map((row) => row.id)).toEqual(["app-rev-3"]);
+		});
+
+		it("does not touch another kind's tour", async () => {
+			await publishTourRevision("document", "document-rev-1");
+			await publishTourRevision("app", "app-rev-1");
+			await publishTourRevision("canvas", "canvas-rev-1");
+
+			expect(statusOf("document-rev-1")?.status).toBe("published");
+			expect(statusOf("app-rev-1")?.status).toBe("published");
+			expect(statusOf("canvas-rev-1")?.status).toBe("published");
+		});
+
+		it("does not touch a draft, an archived revision or a campaign of another type", async () => {
+			await createTourDraft(
+				"canvas",
+				"canvas-draft",
+				ownSlides("canvas", "canvas-draft"),
+			);
+			await publishTourRevision("canvas", "canvas-rev-1");
+			await publishTourRevision("canvas", "canvas-rev-2");
+			await archiveCampaign("canvas-rev-2", { db });
+			await createCampaignDraft(
+				{
+					type: "release_update",
+					name: "Release 3.0.0",
+					releaseVersion: "canvas",
+					createdByUserId: "admin-user",
+				},
+				{ db, ids: ["release-named-canvas"] },
+			);
+
+			expect(statusOf("canvas-draft")?.status).toBe("draft");
+			expect(statusOf("canvas-rev-1")?.status).toBe("archived");
+			expect(statusOf("canvas-rev-2")?.status).toBe("archived");
+			expect(statusOf("release-named-canvas")?.status).toBe("draft");
+		});
+
+		it("keeps every published release note live: only a tour is one-per-kind", async () => {
+			for (const [id, version] of [
+				["release-a", "3.0.0"],
+				["release-b", "3.1.0"],
+			] as const) {
+				await createCampaignDraft(
+					{
+						type: "release_update",
+						name: `Release ${version}`,
+						releaseVersion: version,
+						createdByUserId: "admin-user",
+					},
+					{ db, ids: [id] },
+				);
+				await updateCampaignDraft(
+					id,
+					{
+						slides: [
+							{
+								id: `${id}-slide`,
+								layoutType: "standard",
+								sortOrder: 1,
+								title: { en: "News", hu: "Hír" },
+								body: { en: "Details.", hu: "Részletek." },
+							},
+						],
+					},
+					{ db },
+				);
+				await publishCampaign(id, "admin-user", {
+					db,
+					ids: [`${id}-snapshot`, `${id}-snapshot-slide`],
+				});
+			}
+
+			expect(statusOf("release-a")?.status).toBe("published");
+			expect(statusOf("release-b")?.status).toBe("published");
+		});
+	});
+
 	// RC-T I-2: the summary slide's TITLE is the line an empty Document, App or
 	// Canvas shows, and nothing draws a second line under it. Requiring a body
 	// there made the admin write words no reader ever sees.

@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ARTIFACT_TOUR_CONTENT_VERSION } from "$lib/server/artifact-tour-defaults";
 import * as schema from "$lib/server/db/schema";
 import type { ArtifactTourType } from "$lib/shared/artifacts/tours";
-import { publishCampaign } from "./announcement-campaigns";
+import {
+	archiveCampaign,
+	duplicateCampaignAsDraft,
+	publishCampaign,
+} from "./announcement-campaigns";
 import {
 	getArtifactTour,
 	markArtifactTourSeen,
@@ -1004,6 +1008,71 @@ describe("seedArtifactTourDrafts", () => {
 			expect(slide.titleEn).not.toBe("");
 			expect(slide.titleHu).not.toBe("");
 		}
+	});
+
+	// RC-T Minor 1, through the path an admin takes: seed, publish, then the
+	// Duplicate > edit > Publish loop, then Archive. The code copy has to be what
+	// comes back, not the revision before the one archived.
+	it("gives the kind its code copy back when the newest of three published revisions is archived", async () => {
+		await db
+			.insert(schema.users)
+			.values({ id: "reader", email: "reader@example.com", passwordHash: "x" });
+		await seedArtifactTourDrafts("admin-user", { db });
+		const draft = db
+			.select({ id: schema.announcementCampaigns.id })
+			.from(schema.announcementCampaigns)
+			.where(eq(schema.announcementCampaigns.releaseVersion, "canvas"))
+			.get();
+		const read = () =>
+			getArtifactTour({
+				userId: "reader",
+				artifactType: "canvas",
+				options: { db },
+			});
+
+		// The code copy until the first publish.
+		expect((await read())?.tour.source).toBe("default");
+
+		const first = await publishCampaign(draft?.id ?? "", "admin-user", { db });
+		const second = await publishCampaign(
+			(await duplicateCampaignAsDraft(first.id, "admin-user", { db })).id,
+			"admin-user",
+			{ db },
+		);
+		const third = await publishCampaign(
+			(await duplicateCampaignAsDraft(second.id, "admin-user", { db })).id,
+			"admin-user",
+			{ db },
+		);
+		expect([first.revision, second.revision, third.revision]).toEqual([
+			1, 2, 3,
+		]);
+
+		// Only the newest is live, and it is what the reader is served.
+		const live = await read();
+		expect(live?.tour.contentKey).toBe(`snapshot:${third.snapshot?.id}`);
+		const statuses = db
+			.select({
+				revision: schema.announcementCampaigns.revision,
+				status: schema.announcementCampaigns.status,
+			})
+			.from(schema.announcementCampaigns)
+			.where(eq(schema.announcementCampaigns.releaseVersion, "canvas"))
+			.orderBy(schema.announcementCampaigns.revision)
+			.all();
+		expect(statuses).toEqual([
+			{ revision: 1, status: "archived" },
+			{ revision: 2, status: "archived" },
+			{ revision: 3, status: "published" },
+		]);
+
+		// Archiving it is "take my words back": the code copy returns, not rev 2.
+		await archiveCampaign(third.id, { db });
+		const back = await read();
+		expect(back?.tour.source).toBe("default");
+		expect(back?.tour.contentKey).toBe(
+			`default:${ARTIFACT_TOUR_CONTENT_VERSION}`,
+		);
 	});
 
 	it("seeds drafts an admin can publish as they are", async () => {

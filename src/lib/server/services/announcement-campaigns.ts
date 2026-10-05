@@ -866,6 +866,30 @@ function validatePublishInput(
 	}
 }
 
+type CampaignTx = Parameters<Parameters<CampaignDb["transaction"]>[0]>[0];
+
+/**
+ * Takes a published campaign out of service: the campaign row and the snapshot
+ * it published are both marked archived. The one place that does it, for the
+ * admin's Archive and for a tour revision that replaces its predecessor.
+ */
+function archivePublishedRow(
+	tx: CampaignTx,
+	row: { id: string; publishedSnapshotId: string | null },
+	now: Date,
+) {
+	tx.update(announcementCampaigns)
+		.set({ status: "archived", archivedAt: now, updatedAt: now })
+		.where(eq(announcementCampaigns.id, row.id))
+		.run();
+	if (row.publishedSnapshotId) {
+		tx.update(announcementCampaignSnapshots)
+			.set({ archivedAt: now })
+			.where(eq(announcementCampaignSnapshots.id, row.publishedSnapshotId))
+			.run();
+	}
+}
+
 export async function publishCampaign(
 	campaignId: string,
 	publishedByUserId: string,
@@ -978,6 +1002,28 @@ export async function publishCampaign(
 				.where(inArray(campaignAssets.id, assetIds))
 				.run();
 		}
+		// A kind has ONE live tour. The resolver reads the newest published
+		// revision, so an older one left published would be what archiving this
+		// one revealed, instead of the code copy (ruling 71). A release note is
+		// different: older ones stay published and the latest wins (RC-T Minor 1).
+		if (campaign.type === "artifact_tour" && campaign.releaseVersion !== null) {
+			const replaced = tx
+				.select({
+					id: announcementCampaigns.id,
+					publishedSnapshotId: announcementCampaigns.publishedSnapshotId,
+				})
+				.from(announcementCampaigns)
+				.where(
+					and(
+						eq(announcementCampaigns.type, "artifact_tour"),
+						eq(announcementCampaigns.releaseVersion, campaign.releaseVersion),
+						eq(announcementCampaigns.status, "published"),
+						ne(announcementCampaigns.id, campaignId),
+					),
+				)
+				.all();
+			for (const row of replaced) archivePublishedRow(tx, row, now);
+		}
 	});
 
 	const published = await getCampaignById(campaignId, { db });
@@ -1011,20 +1057,7 @@ export async function archiveCampaign(
 		);
 	}
 	const now = new Date();
-	db.transaction((tx) => {
-		tx.update(announcementCampaigns)
-			.set({ status: "archived", archivedAt: now, updatedAt: now })
-			.where(eq(announcementCampaigns.id, campaignId))
-			.run();
-		if (campaign.publishedSnapshotId) {
-			tx.update(announcementCampaignSnapshots)
-				.set({ archivedAt: now })
-				.where(
-					eq(announcementCampaignSnapshots.id, campaign.publishedSnapshotId),
-				)
-				.run();
-		}
-	});
+	db.transaction((tx) => archivePublishedRow(tx, campaign, now));
 	const archived = await getCampaignById(campaignId, { db });
 	if (!archived) throw new Error("Failed to archive campaign.");
 	return archived;
