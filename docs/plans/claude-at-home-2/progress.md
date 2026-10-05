@@ -873,3 +873,10 @@ Weekly budget 89 % at dispatch; these fixes take it to ~95 %; the tours wait for
   in the OW rows (select-all; edge handles mouse-only; ruling 16's undo stack forgotten on close — a design is in
   `ow1-report.md`; a csv fence as a table block; Knowledge's Delete leaves a board's posters; the live-check script reads
   comments from the wrong route).
+
+## Next phase (owner, 2026-10-05) — handed to a fresh orchestrator session
+
+The owner chose: **sampling on internal model calls** (first, branched from `dev`, in tandem with Feature 2), then **the
+tours** and **the rest of Feature 2 excluding Slides** (Wave 4/S5b, the final review, the owner's walk, the release
+checklist). Hand-off: `docs/plans/claude-at-home-2/wave-4-handoff.md`. Weekly budget 0 % at the reset; this session's
+context had reached 85 %, so the phase starts in a fresh session from a task card.
