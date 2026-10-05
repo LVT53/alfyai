@@ -64,21 +64,57 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 		}
 	});
 
-	it("never says the word artifact in any default string", () => {
+	// Every string a kind's default copy says: the summary and the three
+	// slides' titles and bodies, in one language or in both.
+	function strings(kind: ArtifactTourType, languages: ("en" | "hu")[]) {
+		const content = ARTIFACT_TOUR_DEFAULTS[kind];
+		return languages.flatMap((language) => [
+			content.summary[language],
+			...content.slides.flatMap((slide) => [
+				slide.title[language],
+				slide.body[language],
+			]),
+		]);
+	}
+
+	it("never says the word artifact in any default string, in either language", () => {
+		// ADR-0066: "Artifact" is engineering's word; the Hungarian one is the
+		// same word with Hungarian endings ("artefaktum").
 		for (const kind of KINDS) {
-			const content = ARTIFACT_TOUR_DEFAULTS[kind];
-			const strings = [
-				content.summary.en,
-				content.summary.hu,
-				...content.slides.flatMap((slide) => [
-					slide.title.en,
-					slide.title.hu,
-					slide.body.en,
-					slide.body.hu,
-				]),
-			];
-			for (const value of strings) {
-				expect(value.toLowerCase()).not.toContain("artifact");
+			for (const value of strings(kind, ["en", "hu"])) {
+				expect(value, `${kind}: ${value}`).not.toMatch(/artifact|artefakt/i);
+			}
+		}
+	});
+
+	// The tour is where a reader learns what a kind is called, so it is the worst
+	// place to invent a fifth word for it (slice 6 T7).
+	it("says each kind's ratified Hungarian name in its own Hungarian copy", () => {
+		const ratified = {
+			document: "dokumentum",
+			app: "alkalmazás",
+			canvas: "tábla",
+			slides: "diasor",
+		} as const;
+		for (const kind of KINDS) {
+			// The ratified name is the artifacts.type.* row, which is the source…
+			expect(artifactsDict.hu[`artifacts.type.${kind}`].toLowerCase()).toBe(
+				ratified[kind],
+			);
+			// …and the kind's own Hungarian copy says it, in some inflection.
+			expect(
+				strings(kind, ["hu"]).join(" ").toLowerCase(),
+				`${kind} names itself`,
+			).toContain(ratified[kind]);
+		}
+	});
+
+	it("never names a kind in Hungarian by an English word or an invented one", () => {
+		// "vászon" is what "canvas" becomes when someone translates it as a noun.
+		const foreign = /\b(canvas|document|slides?|deck|apps?)\b|vászon/i;
+		for (const kind of KINDS) {
+			for (const value of strings(kind, ["hu"])) {
+				expect(value, `${kind}: ${value}`).not.toMatch(foreign);
 			}
 		}
 	});

@@ -399,6 +399,28 @@ describe("ArtifactTour", () => {
 		}
 	});
 
+	// Slice 6 T7 asks for the illustration's alt text to be built from
+	// `artifacts.type.*`. The drawings are decorative (`aria-hidden`, next to
+	// the very words that say what they show), so they have no alt text to
+	// build: what the test can hold is that the drawing carries no words of its
+	// own, in either language, so a kind's name cannot differ from the
+	// dictionary's by being typed into a picture.
+	it("gives the drawing no words of its own, in either language", () => {
+		for (const language of ["en", "hu"] as const) {
+			uiLanguage.set(language);
+			for (const artifactType of ["document", "app", "canvas"] as const) {
+				renderTour({ tour: makeTour({ artifactType }) });
+				const art = screen.getByTestId("artifact-tour-illustration");
+				expect(art.textContent?.trim()).toBe("");
+				expect(art.querySelector("title, desc, text")).toBeNull();
+				expect(
+					art.querySelector("[aria-label], [alt], [aria-labelledby]"),
+				).toBeNull();
+				cleanup();
+			}
+		}
+	});
+
 	it("moves between slides with a short animation, and stays instant under prefers-reduced-motion", async () => {
 		const { user } = renderTour();
 		animateSpy.mockClear();

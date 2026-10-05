@@ -118,6 +118,88 @@ describe("the word 'artifact' in the UI", () => {
 	});
 });
 
+// The first-open tours' chrome and the empty states' lines (Slice 6 T7). The
+// parity test above covers "every key in both languages"; this names the keys
+// the card, the list's menu and the three empty states read, so a key that
+// loses its reader, or a reader that loses its key, shows up here.
+describe("the tours' strings", () => {
+	const TOUR_KEYS = [
+		"artifacts.tour.region",
+		"artifacts.tour.stepOf",
+		"artifacts.tour.dots",
+		"artifacts.tour.next",
+		"artifacts.tour.back",
+		"artifacts.tour.done",
+		"artifacts.tour.skip",
+		"artifacts.tour.replayHint",
+		"artifacts.tour.replayOpened",
+		"artifacts.tour.replay",
+	] as const;
+	const EMPTY_STATE_KEYS = [
+		"artifacts.document.emptyState",
+		"artifacts.app.emptyState",
+		"artifacts.canvas.emptyBoard",
+	] as const;
+
+	it("has exactly the artifacts.tour keys the card, the menu and the empty states read, in both languages", () => {
+		for (const language of ["en", "hu"] as const) {
+			const present = Object.keys(artifactsDict[language]).filter((key) =>
+				key.startsWith("artifacts.tour."),
+			);
+			expect(present.sort()).toEqual([...TOUR_KEYS].sort());
+			for (const key of TOUR_KEYS) {
+				expect(
+					artifactsDict[language][key].trim(),
+					`${language} ${key}`,
+				).not.toBe("");
+			}
+		}
+	});
+
+	it("has the three empty states' fallback lines in both languages, none blank", () => {
+		for (const language of ["en", "hu"] as const) {
+			for (const key of EMPTY_STATE_KEYS) {
+				expect(artifactsDict[language][key].trim().length).toBeGreaterThan(10);
+			}
+		}
+	});
+
+	it("keeps each tour string's placeholders the same in both languages", () => {
+		// The house plural, `{count, plural, one {} other {s}}`, counts as the one
+		// parameter it reads (`t()` resolves it, and its branches take no braces).
+		const placeholders = (text: string) =>
+			[
+				...new Set(
+					[
+						...text
+							.replace(
+								/\{(\w+), plural, one \{[^{}]*\} other \{[^{}]*\}\}/g,
+								"{$1}",
+							)
+							.matchAll(/\{(\w+)\}/g),
+					].map((match) => match[1]),
+				),
+			].sort();
+		for (const key of TOUR_KEYS) {
+			expect(placeholders(artifactsDict.hu[key]), key).toEqual(
+				placeholders(artifactsDict.en[key]),
+			);
+		}
+	});
+
+	it("says Újra megnézem and Show it again for the link, and never the engineering word", () => {
+		expect(artifactsDict.en["artifacts.tour.replay"]).toBe("Show it again");
+		expect(artifactsDict.hu["artifacts.tour.replay"]).toBe("Újra megnézem");
+		for (const language of ["en", "hu"] as const) {
+			for (const key of [...TOUR_KEYS, ...EMPTY_STATE_KEYS]) {
+				expect(artifactsDict[language][key], `${language} ${key}`).not.toMatch(
+					/artifact|artefakt/i,
+				);
+			}
+		}
+	});
+});
+
 // The Canvas tells the reader why a change of Alfy's skipped a block, in the
 // reader's own language: every reason the board can refuse for has a sentence,
 // in both. (`refusalLabelKey` is an exhaustive switch, so a new reason cannot
