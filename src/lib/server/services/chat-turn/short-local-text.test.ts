@@ -25,6 +25,7 @@ import {
 	isHungarianText,
 	isPlausibleShortText,
 	isReasoningLeak,
+	isRequestRestatement,
 	resolveShortTextLanguage,
 	stripLeakedThinking,
 	unwrapJsonControlText,
@@ -183,6 +184,116 @@ describe("askWithThinkingRetry", () => {
 		});
 		await expect(askWithThinkingRetry(ask)).rejects.toThrow("boom");
 		expect(ask).toHaveBeenCalledTimes(1);
+	});
+});
+
+// Everything below is what the real model wrote (Flash-Next, the app's own
+// requests), not what a Hungarian preamble might look like: the reasoning the
+// model produced about Hungarian conversations, and the status lines and
+// headlines the app accepted before it knew these shapes.
+describe("isReasoningLeak in both languages", () => {
+	it("flags the Hungarian reasoning the model wrote about the request", () => {
+		for (const text of [
+			"A felhasználó magyarul kérdez: „Mikor ültessem el a paradicsompalántákat a kertben?”",
+			"A felhasználó magyarul kér segítséget: heti étrend összeállítása, ami olcsó és gyorsan elkészíthető.",
+			"A felhasználó egy heti étrendet kért, és az asszisztens egy konkrét, egyszerű hetitervet vázolt fel",
+			"A felhasználó kérésére a rendszer egy rövid, magyar nyelvű címsort generál",
+		]) {
+			expect(isReasoningLeak(text), text).toBe(true);
+		}
+	});
+
+	it("flags the English reasoning a rail summary came back with", () => {
+		for (const text of [
+			"The user wants a short Hungarian headline for a text describing a 4-week running plan.",
+			"The user provided a short recipe for egg fried rice in Hungarian.",
+			"The assistant provides a simple weekly diet plan including meals for each day and shopping tips.",
+			"The response is in Hungarian, and it discusses the timing, location, and method for planting tomatoes.",
+		]) {
+			expect(isReasoningLeak(text), text).toBe(true);
+		}
+	});
+
+	it("does not flag ordinary headlines and titles", () => {
+		for (const text of [
+			"Egyszerű heti étrend",
+			"Indexelési hiba listákban",
+			"Válasz Anna és Péter hétvégi vacsorájára",
+			"Északi erkély növényei és öntözése",
+			"A tojás, rizs és zöldségek felhasználásának módjai",
+			"A CPU és GPU specifikációk mérlegelése a felhasználói igények szerint",
+			"Daily Protein Intake Guidelines",
+			"What Is a Mutex",
+			// a title that only starts with the same words as a preamble
+			"The Response Time Problem",
+			"The Assistant Manager Handbook",
+		]) {
+			expect(isReasoningLeak(text), text).toBe(false);
+		}
+	});
+});
+
+// The status line is a conclusion of the reasoning. On Hungarian conversations
+// the model reasons in Hungarian ("A felhasználó magyarul kérdez: ..."), and 6%
+// of the status lines the app accepted (72 of 1,170) just said what was asked.
+describe("isRequestRestatement", () => {
+	it("flags the Hungarian status lines that say what was asked", () => {
+		for (const text of [
+			"A felhasználó olcsó és gyorsan elkészíthető heti étrendet kér.",
+			"Budapesti három napos programot kért a felhasználó",
+			"Négyhetes futóedzéstervet kért a kezdő felhasználó",
+			"Tojás, rizs és zöldség alapú vacsoraötletek kérése",
+			"Északi fekvésű erkélyre árnyéktűrő növények kérése",
+			"Kezdő futóedzéstervet kért négy hétre",
+			"Köszönő e-mailt kért a vendéglátónak a hétvégi vacsoráért",
+			"A git pre-commit hook beállítását kérdezi",
+			"Az egyszeres és kettős könyvelés különbségeit kérték",
+			"A kérés a egyszeres és kettős könyvelés különbségét kérte",
+			"A Városliget és Vajdahunyad helyszínekre fókuszált a kérés",
+			"A 'eventual consistency' definícióját kérdezte magyarul",
+			"Az egyszeres és kettős könyvelés különbségeit kell tisztázni magyarul.",
+		]) {
+			expect(isRequestRestatement(text), text).toBe(true);
+		}
+	});
+
+	it("keeps the Hungarian status lines that state what the reasoning found or chose", () => {
+		for (const text of [
+			"A négy hetes futó-séta terv kereteit határozta meg",
+			"A 300-as ársávban a Core i5 és Ryzen 5 modellek között választott",
+			"A 7 napos étrendhez a tojás, csirkecomb, darált hús alapanyagokat választotta",
+			"Husky-t választott a versioning miatt, chmod +x említése szükséges",
+			"A havi százezer forint megtakarításának automatikus átutalással történő megvalósítása",
+			"A munkáltató igazolt elszámolása esetén nem kell SZJA-bevallást benyújtani",
+			// stems that only look alike: felhasználás (use), felhasználói (user-facing), kérdés (a question)
+			"A tojás, rizs és zöldségek felhasználásának módjai",
+			"A CPU és GPU specifikációk mérlegelése a felhasználói igények szerint",
+			"A Budapest-Bécs vonat utazási idő és jegyár kérdését azonosította",
+			"Tisztázó kérdések helyett kész terv adása",
+		]) {
+			expect(isRequestRestatement(text), text).toBe(false);
+		}
+	});
+
+	it("keeps the English labels the status line has always dropped, and its ordinary lines", () => {
+		for (const text of [
+			"Latest user request: compare the two databases",
+			"The user wants a leaderboard design",
+			"The user's request about caching",
+			"User request: build a rate limiter",
+			"Task: shard the social graph",
+			"The prompt is ambiguous",
+		]) {
+			expect(isRequestRestatement(text), text).toBe(true);
+		}
+		for (const text of [
+			"Identified need to explain mutex using bathroom door analogy",
+			"Calculated protein needs using g/kg body weight",
+			"Task management approach for the sprint",
+			"Mapping the prompt tokens to embeddings",
+		]) {
+			expect(isRequestRestatement(text), text).toBe(false);
+		}
 	});
 });
 
@@ -487,6 +598,28 @@ describe("unwrapJsonControlText", () => {
 	});
 });
 
+describe("unwrapJsonControlText: an object the model filled with its own reasoning", () => {
+	it("never takes a reasoning-named value for the answer, and reads a suffixed headline key", () => {
+		// Keys seen on the real model when it is handed a free JSON object.
+		expect(
+			unwrapJsonControlText(
+				'{\n  "reasoning": "The assistant provides a simple weekly diet plan including meals for each day and shopping tips.",\n  "headline_hu": "Egyszerű heti étrend"\n}',
+			),
+		).toBe("Egyszerű heti étrend");
+		expect(
+			unwrapJsonControlText('{"headline_hu": "Északi erkély növényei"}'),
+		).toBe("Északi erkély növényei");
+		// An answer under an unusual key is still the answer.
+		expect(
+			unwrapJsonControlText('{"point": "Irodai ülés és hátfájás kezelése"}'),
+		).toBe("Irodai ülés és hátfájás kezelése");
+		// Only reasoning in the object: nothing to unwrap, the raw text stays.
+		const onlyReasoning =
+			'{"thought": "The user wants a short Hungarian headline summarizing the provided text."}';
+		expect(unwrapJsonControlText(onlyReasoning)).toBe(onlyReasoning);
+	});
+});
+
 describe("generateShortLocalText", () => {
 	beforeEach(() => {
 		sendJsonControlMessageMock.mockReset();
@@ -598,6 +731,73 @@ describe("generateShortLocalText", () => {
 		});
 
 		expect(out).toBeNull();
+	});
+
+	it("returns null for an object that holds only the model's reasoning, in either language", async () => {
+		for (const text of [
+			'{"thought": "The user wants a short Hungarian headline summarizing the provided text."}',
+			'{"thought": "A felhasználó egy heti étrendet kért, és az asszisztens egy konkrét hetitervet vázolt fel."}',
+		]) {
+			sendJsonControlMessageMock.mockResolvedValue(controlResult({ text }));
+			const out = await generateShortLocalText({
+				prompt: "Summarize this turn",
+				feature: "rail_summary",
+				userId: "u1",
+				conversationId: "c1",
+			});
+			expect(out, text).toBeNull();
+		}
+	});
+
+	it("returns null for a JSON blob the model cut off, instead of storing it as the headline", async () => {
+		// Real: 0.6% of 520 rail summaries came back as a truncated tool-call-shaped
+		// object that was short enough to pass the length bounds.
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({
+				text: '{\n  "name": "Local Qwen",\n  "arguments": {\n    "headline": "Egyszerű heti étrend és bevásárlás"\n  }',
+			}),
+		);
+		const out = await generateShortLocalText({
+			prompt: "Summarize this turn",
+			feature: "rail_summary",
+			userId: "u1",
+			conversationId: "c1",
+			// the rail summary's own bounds, which the blob fits inside
+			cleanup: { maxChars: 100, maxWords: 14 },
+		});
+		expect(out).toBeNull();
+	});
+
+	it("returns null for a Hungarian headline that is the model's reasoning about the request", async () => {
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({
+				text: '{"headline": "A felhasználó magyarul kérdez az étrendről"}',
+			}),
+		);
+		const out = await generateShortLocalText({
+			prompt: "Summarize this turn",
+			feature: "rail_summary",
+			userId: "u1",
+			conversationId: "c1",
+			language: "hu",
+		});
+		expect(out).toBeNull();
+	});
+
+	it("keeps an ordinary Hungarian headline", async () => {
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({
+				text: '{\n  "headline_hu": "Északi erkély növényei és öntözése"\n}',
+			}),
+		);
+		const out = await generateShortLocalText({
+			prompt: "Summarize this turn",
+			feature: "rail_summary",
+			userId: "u1",
+			conversationId: "c1",
+			language: "hu",
+		});
+		expect(out).toBe("Északi erkély növényei és öntözése");
 	});
 
 	it("returns null when the text is not in the expected language", async () => {

@@ -39,11 +39,15 @@ import type {
 // A request that says `enable_thinking: false` reaches the chat template in the
 // form vLLM reads (`chat_template_kwargs`), and the rendered prompt then ends
 // with an empty `<think>\n\n</think>\n\n` (checked on the real server through
-// /tokenize). The model nevertheless opens another block as its first token in
-// about one free-text answer in six; the guided-JSON calls (status line, rail
-// summary, follow-ups, acknowledgment) cannot, their grammar forbids it. The
-// server also drops the closing `</think>` from the text it returns but keeps
-// the opener, so the app sees the model's answer behind an unbalanced marker:
+// /tokenize). The model nevertheless opened another block as its first token for
+// about one title in five, and the cause was the request: the chat template
+// renders every earlier assistant turn with an empty block too, and the title
+// carried four few-shot examples as assistant turns (now text; see
+// title-generator.ts). The status line, rail summary, follow-ups and
+// acknowledgment have no earlier assistant turn and never did it (0 of 1,900
+// requests). Whatever a model still opens is dealt with here. The server drops
+// the closing `</think>` from the text it returns but keeps the opener, so the
+// app sees the model's answer behind an unbalanced marker:
 //
 //   - `<think>\n\n\n\nTitle`              an empty block, the answer is intact
 //                                          (86% of the leaks on the real model);
@@ -112,17 +116,62 @@ export async function askWithThinkingRetry(
 
 // Thinking/chain-of-thought preambles that indicate the model leaked its
 // reasoning into the visible output (it did not respect `enable_thinking:
-// false`). These never describe a valid short answer. Kept byte-identical to
-// the former `title-generator` THINKING_LEAK_RE so title behavior is preserved.
+// false`, or it filled a free JSON object with its thoughts). These never
+// describe a valid short answer. The English half was kept byte-identical to
+// the former `title-generator` THINKING_LEAK_RE; the additions are the shapes
+// the real model produced (reasoning inside a rail-summary object: "The user
+// wants a short Hungarian headline...", "The assistant provides a simple weekly
+// diet plan...", "The response is in Hungarian, and it discusses..."). The
+// assistant/reply/response openers need their verb, so a title that merely
+// starts with those words ("The Response Time Problem") stays.
 const REASONING_LEAK_RE =
-	/^(Here's (a thinking|my) process|Let me (think about|work through|break (this|it) down)|I('ll| will) (approach|break (this|it) down)|First,? let me (think|analyze|break down)|Okay,? let me (think|analyze|work through)|Let's think about|I need to (think|determine)|The user (is asking|asks|asked)|This (looks like|seems like|is a)|Hmm,? let me|Alright,? let me)/i;
+	/^(Here's (a thinking|my) process|Let me (think about|work through|break (this|it) down)|I('ll| will) (approach|break (this|it) down)|First,? let me (think|analyze|break down)|Okay,? let me (think|analyze|work through)|Let's think about|I need to (think|determine)|The user (is asking|asks|asked|wants|provided)|The (assistant|reply|response) (is|provides|explains|summari[sz]es|discusses|introduces|explicitly)\b|This (looks like|seems like|is a)|Hmm,? let me|Alright,? let me)/i;
+
+// The Hungarian side. On a Hungarian conversation the model reasons in
+// Hungarian, and every reasoning text collected from it (40 of 40) opens with
+// the same subject: "A felhasználó magyarul kérdez: ...", "A felhasználó egy
+// heti étrendet kért, és az asszisztens ...", "A felhasználó kérésére a
+// rendszer ...". `felhasználói` (user-facing) and `felhasználás` (use) are other
+// words and do not match.
+const REASONING_LEAK_HU_RE = /^a\s+felhasználó(?!i)\p{L}*/iu;
 
 /**
  * Detect whether raw text looks like leaked reasoning rather than a genuine
- * short answer/title.
+ * short answer/title, in English or Hungarian.
  */
 export function isReasoningLeak(text: string): boolean {
-	return REASONING_LEAK_RE.test(text.trim());
+	const trimmed = text.trim();
+	return REASONING_LEAK_RE.test(trimmed) || REASONING_LEAK_HU_RE.test(trimmed);
+}
+
+// A status line is the conclusion of a stretch of reasoning, and a line that
+// only says what was asked is not one. English: the labels the model echoes from
+// its own prompt scaffolding. Hungarian (agglutinative, so stems; collected from
+// 1,170 status lines the real model produced for Hungarian conversations, 72 of
+// which only said what was asked: "Tojás, rizs és zöldség alapú vacsoraötletek
+// kérése", "Kezdő futóedzéstervet kért négy hétre", "A git pre-commit hook
+// beállítását kérdezi", "... kell tisztázni magyarul"):
+//   felhasználó  the person (not felhasználói "user-facing", not felhasználás "use")
+//   kér, kért, kérés ...  asking for / the request (not kérdés, "a question")
+//   kérdezi, kérdezte ...  asking
+//   magyarul  the prompt's own "write it in Hungarian" echoed back
+const REQUEST_RESTATEMENT_EN_RE =
+	/^(?:latest\s+user\s+request|the\s+user(?:'s)?\s+(?:request|message|prompt)\b|the\s+user\s+(?:wants|is\s+asking|asks|asked|requested|requests)\b|user\s+(?:request|message)\b|the\s+(?:request|prompt)\s+is\b|(?:the\s+)?task\s*[:\-–—])/i;
+const REQUEST_RESTATEMENT_HU_RE =
+	/(?<![\p{L}\p{N}])(?:felhasználó(?!i)|kér(?:t|te|tek|ték|ik|i|ek|nek|és\p{L}*)?(?![\p{L}\p{N}])|kérdez(?:i|ik|te|ték|ett)(?![\p{L}\p{N}])|magyarul(?![\p{L}\p{N}]))/iu;
+
+/**
+ * Does a status line restate the user's request (or the prompt's own
+ * scaffolding) instead of stating what the reasoning found or chose? Narrow on
+ * purpose, like the other status-line guards: a miss shows a restatement, a
+ * false hit only drops the headline to the phase label.
+ */
+export function isRequestRestatement(text: string): boolean {
+	const trimmed = text.trim();
+	return (
+		REQUEST_RESTATEMENT_EN_RE.test(trimmed) ||
+		REQUEST_RESTATEMENT_HU_RE.test(trimmed)
+	);
 }
 
 export type PlausibleShortTextOptions = {
@@ -321,12 +370,25 @@ const JSON_TEXT_WRAPPER_KEYS = [
 	"response",
 ];
 
+// A model handed a free JSON object sometimes puts its own thinking in it, under
+// keys like these (all seen on the real model: "thought", "thoughts",
+// "reasoning", "analysis", "hypothesis"). Their values are never the answer.
+const JSON_REASONING_KEY_RE =
+	/^(?:thoughts?|reasoning|analysis|hypothesis|thinking|rationale|reason|explanation|notes?)$/i;
+// "headline_hu": a wrapper key with a language suffix.
+const JSON_SUFFIXED_WRAPPER_KEY_RE = new RegExp(
+	`^(?:${JSON_TEXT_WRAPPER_KEYS.join("|")})_[a-z]+$`,
+	"i",
+);
+
 /**
  * Unwrap the single string carried by a JSON object the control transport
  * returned for a schemaless "plain text" call. Leaves genuinely-plain text (and
  * anything that does not parse as a JSON object holding a string) untouched, so
  * it is safe to run on every short-text result. A ```json … ``` fence, if
- * present, is peeled first.
+ * present, is peeled first. The answer is the value under a known wrapper key
+ * (or the same key with a language suffix), else the first string value that is
+ * not under a key the model uses for its own reasoning.
  */
 export function unwrapJsonControlText(raw: string): string {
 	let text = raw.trim();
@@ -343,14 +405,28 @@ export function unwrapJsonControlText(raw: string): string {
 			const value = record[key];
 			if (typeof value === "string" && value.trim()) return value;
 		}
-		const firstString = Object.values(record).find(
-			(value) => typeof value === "string" && value.trim(),
+		const entries = Object.entries(record);
+		const suffixed = entries.find(
+			([key, value]) =>
+				JSON_SUFFIXED_WRAPPER_KEY_RE.test(key) &&
+				typeof value === "string" &&
+				value.trim(),
 		);
-		return typeof firstString === "string" ? firstString : raw;
+		if (suffixed) return suffixed[1] as string;
+		const firstString = entries.find(
+			([key, value]) =>
+				!JSON_REASONING_KEY_RE.test(key) &&
+				typeof value === "string" &&
+				value.trim(),
+		);
+		return firstString ? (firstString[1] as string) : raw;
 	} catch {
 		return raw;
 	}
 }
+
+// A string that opens like a JSON object or array: `{"` or `[{`, `["`, `[[`.
+const JSON_BLOB_START_RE = /^(?:\{\s*"|\[\s*["{[])/;
 
 // --- plain-text convenience -------------------------------------------------
 
@@ -431,6 +507,9 @@ function cleanShortLocalText(
 	if (cleanup.normalize) text = cleanup.normalize(text);
 	text = text.trim();
 	if (!text) return null;
+	// An object the model cut off, or one with nothing to unwrap, stays raw JSON;
+	// short enough, it would pass the length bounds and be shown as the headline.
+	if (JSON_BLOB_START_RE.test(text)) return null;
 
 	if (
 		!isPlausibleShortText(text, {
