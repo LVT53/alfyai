@@ -31,7 +31,6 @@
  */
 import { onMount, tick, untrack } from "svelte";
 import type { Component } from "svelte";
-import { cubicInOut } from "svelte/easing";
 import { slide as slideHeight } from "svelte/transition";
 import { t } from "$lib/i18n";
 import type {
@@ -109,6 +108,9 @@ let announcement = $state("");
  * the chat shell nothing: only this lazy chunk imports it.
  */
 const reveal = reducedMotionAware(slideHeight);
+/** Cubic, in and out. Not `svelte/easing`'s own: that module is in the chat shell, and the one function would ride into every chat's first load. */
+const easeInOut = (t: number) =>
+	t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 /** Gives focus back to where it was, once. Set when the card shows; called when the reader leaves and again (harmlessly) when the card is torn down. */
 let giveFocusBack = (): void => {};
 
@@ -223,7 +225,7 @@ onMount(() => {
 		class="tour-reveal"
 		transition:reveal|global={{
 			duration: animate ? MOTION_DURATION.emphasis : 0,
-			easing: cubicInOut,
+			easing: easeInOut,
 		}}
 	>
 		<section
