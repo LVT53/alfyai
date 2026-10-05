@@ -14,10 +14,14 @@ import type { RequestHandler } from "./$types";
 // shipped list (ruling 69), so Slides — shelved — and File — never — are a 404
 // like any other unknown segment.
 //
-//  - 401 `{ message: "Unauthorized" }`: no session (`requireApiUser`, ruling
-//    39 — the panel `fetch`es this, so a redirect to the login page would be
-//    parsed as JSON; the campaign routes chose `requireAuth` for a modal that
-//    can take a redirect, this is deliberately not that).
+//  - 401: no session. Over HTTP, `hooks.server.ts` answers an unauthenticated
+//    /api call first, with its own 401 JSON (`{ code: "session_expired" }`,
+//    ruling 19: the HTTP layer); `requireApiUser` is the route's own guard
+//    and throws the same status (`{ message: "Unauthorized" }`, ruling 39) so
+//    the route is safe whatever sits in front of it. The panel `fetch`es this,
+//    so a redirect to the login page would be parsed as JSON; the campaign
+//    routes chose `requireAuth` for a modal that can take a redirect, and this
+//    is deliberately not that.
 //  - 404 `{ ok: false, reason: "unknown_type" }`: the path names no shipped
 //    tour kind. A resource address, so 404 and not 400.
 //  - 200 `{ ok: true, tour, seen, lastSlide }` (ruling 49). `tour` is `null`

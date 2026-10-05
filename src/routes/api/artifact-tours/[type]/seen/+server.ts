@@ -16,7 +16,8 @@ import type { RequestHandler } from "./$types";
 // (`{ ok: true, … }` / `{ ok: false, reason, … }`, ruling 49). The comparison
 // and the insert-if-absent live in `markArtifactTourSeen`.
 //
-//  - 401 `{ message: "Unauthorized" }`: no session (ruling 39, as the GET).
+//  - 401: no session (the HTTP layer's own 401 first, then `requireApiUser`'s,
+//    exactly as the GET says: rulings 19 and 39).
 //  - 404 `{ ok: false, reason: "unknown_type" }`: not a shipped tour kind.
 //  - 400 `{ ok: false, reason: "invalid_state", fieldErrors }`: a `status`
 //    outside the two values, a `lastSlide` that is not a whole number inside
