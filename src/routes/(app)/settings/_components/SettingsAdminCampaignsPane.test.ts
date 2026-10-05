@@ -691,6 +691,10 @@ describe("SettingsAdminCampaignsPane", () => {
 			expect(screen.getByLabelText("Title")).toHaveValue("Slide 2");
 			expect(screen.getByLabelText("Body")).toHaveValue("Body.");
 			expect(screen.queryByText(SUMMARY_HINT)).not.toBeInTheDocument();
+			// The region is named by what the slide is, as its heading says.
+			expect(
+				screen.getByRole("region", { name: "Step 1" }),
+			).toBeInTheDocument();
 		});
 
 		it("offers no screenshot, alt text or button to any slide of a tour", async () => {

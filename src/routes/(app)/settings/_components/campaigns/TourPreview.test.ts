@@ -142,7 +142,7 @@ describe("TourPreview", () => {
 
 		expect(
 			screen.getByText(
-				"The preview needs the tour's kind: Document, App or Canvas.",
+				"A tour must belong to a Document, App or Canvas, or no one will ever see it.",
 			),
 		).toBeInTheDocument();
 		expect(screen.queryByTestId("artifact-tour")).not.toBeInTheDocument();

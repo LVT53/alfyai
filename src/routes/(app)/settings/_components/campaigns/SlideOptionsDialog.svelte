@@ -107,9 +107,9 @@ function toggleControl(control: string, checked: boolean) {
 					</button>
 				{/each}
 			</div>
-			<p class="option-help">
-				{isTour ? $t('admin.campaigns.tour.layoutHelp') : $t('admin.campaigns.slideLayoutHelp')}
-			</p>
+			{#if !isTour}
+				<p class="option-help">{$t('admin.campaigns.slideLayoutHelp')}</p>
+			{/if}
 		</section>
 
 		<!-- Purpose (data disclosure) and setup controls are first-run onboarding's:

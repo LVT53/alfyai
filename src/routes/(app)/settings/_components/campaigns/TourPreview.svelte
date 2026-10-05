@@ -98,7 +98,7 @@ function nothing() {}
 
 <div class="tour-preview" data-testid="tour-preview" inert>
 	{#if !tour}
-		<p class="tour-preview-note">{$t('admin.campaigns.tour.previewNoKind')}</p>
+		<p class="tour-preview-note">{$t('admin.campaigns.validation.tourKindInvalid')}</p>
 	{:else if stepIndex < 0}
 		<div class="tour-preview-empty" data-testid="tour-preview-empty">
 			<EmptyState

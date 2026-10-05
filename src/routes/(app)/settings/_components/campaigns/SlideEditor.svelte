@@ -99,6 +99,17 @@ let actionLabel = $derived(
 	(locale === "en" ? slide.actionLabelEn : slide.actionLabelHu) ?? "",
 );
 let tourSummary = $derived(tour?.summary === true);
+// What the slide is called: "Slide 3", or for a tour "Step 1" and "Empty-state
+// line" (a reader never meets a tour's slides as numbered slides).
+let heading = $derived(
+	!tour
+		? $t("admin.campaigns.slideNumber", { number: slideNumber })
+		: tourSummary
+			? $t("admin.campaigns.tour.summarySlide")
+			: $t("admin.campaigns.tour.stepNumber", {
+					number: tour.step ?? slideNumber,
+				}),
+);
 let failures = $derived(slideFieldFailures(checklist, slide.localId));
 let languageName = $derived(
 	locale === "hu"
@@ -137,17 +148,12 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 }
 </script>
 
-<section class="slide-editor" aria-label={$t('admin.campaigns.slideEditorLabel', { number: slideNumber })}>
+<section
+	class="slide-editor"
+	aria-label={tour ? heading : $t('admin.campaigns.slideEditorLabel', { number: slideNumber })}
+>
 	<header class="slide-head">
-		<h3 class="slide-title">
-			{#if !tour}
-				{$t('admin.campaigns.slideNumber', { number: slideNumber })}
-			{:else if tourSummary}
-				{$t('admin.campaigns.tour.summarySlide')}
-			{:else}
-				{$t('admin.campaigns.tour.stepNumber', { number: tour.step ?? slideNumber })}
-			{/if}
-		</h3>
+		<h3 class="slide-title">{heading}</h3>
 		<div class="locale-pills" role="group" aria-label={$t('admin.campaigns.previewLanguage')}>
 			{#each ['en', 'hu'] as const as option (option)}
 				<button

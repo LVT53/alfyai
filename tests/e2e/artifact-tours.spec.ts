@@ -340,11 +340,14 @@ test.describe("the first-open tours", () => {
 			const body = (await (await latest).json()) as {
 				campaign: { type?: string } | null;
 			};
-			// The badge asks for release notes only: with a tour published and no
-			// release note, there is nothing to open and nothing opens.
+			// The badge opens the latest announcement (a first-run onboarding or a
+			// release note) and never a tour: with a tour published and nothing
+			// announced, there is nothing to open and nothing opens.
 			expect(body.campaign?.type ?? null).not.toBe("artifact_tour");
 			await page.waitForTimeout(500);
-			await expect(page.getByRole("dialog")).toHaveCount(0);
+			if (body.campaign === null) {
+				await expect(page.getByRole("dialog")).toHaveCount(0);
+			}
 		} finally {
 			await archiveTour(api, campaignId);
 		}

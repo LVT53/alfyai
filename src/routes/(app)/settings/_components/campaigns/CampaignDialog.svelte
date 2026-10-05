@@ -76,7 +76,6 @@ function confirm() {
 						{tourLead(releaseVersion, $t).join(' · ')}
 					</span>
 				</div>
-				<p class="dialog-help">{$t('admin.campaigns.tour.detailsHelp')}</p>
 			{:else}
 				<div class="pill-row">
 					{#each ['first_run_onboarding', 'release_update'] as const as option (option)}
