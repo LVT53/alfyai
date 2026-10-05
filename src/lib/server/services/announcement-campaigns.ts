@@ -1159,20 +1159,20 @@ export async function getEligibleCampaignForUser(
 	return null;
 }
 
+/**
+ * The newest published campaign OF ONE TYPE, for the sidebar version badge's
+ * replay. The type is required, not optional: with none, a published
+ * `artifact_tour` newer than the last release note became the badge's
+ * campaign, and a click opened a kind tour and recorded it as a replay of the
+ * release (decisions.md ruling 32). `getEligibleCampaignForUser` already
+ * filters by type through the same `latestPublishedByType`; the badge path did
+ * not, and a required argument lets the compiler find any caller that forgets.
+ */
 export async function getLatestPublishedCampaign(
+	campaignType: AnnouncementCampaignType,
 	options: CampaignServiceOptions = {},
 ) {
-	const db = database(options);
-	const row = db
-		.select()
-		.from(announcementCampaigns)
-		.where(eq(announcementCampaigns.status, "published"))
-		.orderBy(
-			desc(announcementCampaigns.publishedAt),
-			desc(announcementCampaigns.revision),
-		)
-		.get();
-	return row ? getPublishedCampaignFromRow(row, db) : null;
+	return latestPublishedByType(campaignType, database(options));
 }
 
 function eventTypeForCompletion(

@@ -182,7 +182,9 @@ describe("announcement campaign service", () => {
 			fieldErrors: { status: "Only draft campaigns can be edited." },
 		});
 
-		const latest = await getLatestPublishedCampaign({ db });
+		const latest = await getLatestPublishedCampaign("first_run_onboarding", {
+			db,
+		});
 		expect(latest?.slides.map((slide) => slide.title.en)).toEqual([
 			"Set up",
 			"Data use",
@@ -1178,5 +1180,157 @@ describe("announcement campaign service", () => {
 		expect(
 			settingsDict.hu["admin.campaigns.validation.slideLayoutInvalid"],
 		).toBe("A dia elrendezése beállítás, általános vagy összegzés lehet.");
+	});
+
+	// --- T3.0: the sidebar badge asks for a type, so a tour can never be it ---
+
+	/** A published release note, then (a second later) a published tour: the
+	 *  order in which the unfixed badge query would have picked the tour. */
+	async function publishReleaseNoteThenTour() {
+		insertRequiredCampaignCrops(db, "release");
+		await createCampaignDraft(
+			{
+				type: "release_update",
+				name: "Release update",
+				releaseVersion: "2.1.0",
+				createdByUserId: "admin-user",
+			},
+			{ db, ids: ["badge-release"] },
+		);
+		await updateCampaignDraft(
+			"badge-release",
+			{
+				slides: [
+					{
+						id: "badge-release-slide",
+						layoutType: "standard",
+						sortOrder: 1,
+						title: { en: "New release", hu: "Új kiadás" },
+						body: { en: "Version details.", hu: "Verzió részletei." },
+						altText: { en: "Release screenshot", hu: "Kiadási képernyőkép" },
+						desktopCropAssetId: "release-desktop",
+						mobileCropAssetId: "release-mobile",
+					},
+				],
+			},
+			{ db },
+		);
+		await publishCampaign("badge-release", "admin-user", {
+			db,
+			ids: ["badge-release-snapshot", "badge-release-snap-slide"],
+		});
+		await createTourDraft("canvas", "badge-tour");
+		await publishCampaign("badge-tour", "admin-user", {
+			db,
+			ids: ["badge-tour-snapshot"],
+		});
+		// `published_at` has one-second resolution and both publishes land in the
+		// same second, which would leave the order to the revision tie-break.
+		// Say plainly that the tour is the newer one.
+		const now = Math.floor(Date.now() / 1000);
+		db.update(schema.announcementCampaigns)
+			.set({ publishedAt: new Date((now - 60) * 1000) })
+			.where(eq(schema.announcementCampaigns.id, "badge-release"))
+			.run();
+		db.update(schema.announcementCampaigns)
+			.set({ publishedAt: new Date(now * 1000) })
+			.where(eq(schema.announcementCampaigns.id, "badge-tour"))
+			.run();
+	}
+
+	it("never returns an artifact_tour as the latest published campaign", async () => {
+		await publishReleaseNoteThenTour();
+
+		const latest = await getLatestPublishedCampaign("release_update", { db });
+
+		expect(latest?.type).toBe("release_update");
+		expect(latest?.id).toBe("badge-release");
+		// Asked for a tour by type, the same reader still finds it: the filter is
+		// the type, not a blanket refusal.
+		const tour = await getLatestPublishedCampaign("artifact_tour", { db });
+		expect(tour?.id).toBe("badge-tour");
+	});
+
+	it("returns nothing for the badge while only a tour is published", async () => {
+		await createTourDraft("document", "badge-only-tour");
+		await publishCampaign("badge-only-tour", "admin-user", {
+			db,
+			ids: ["badge-only-tour-snapshot"],
+		});
+
+		expect(
+			await getLatestPublishedCampaign("release_update", { db }),
+		).toBeNull();
+	});
+
+	it("still returns the newest published release_update", async () => {
+		await publishReleaseNoteThenTour();
+		await createCampaignDraft(
+			{
+				type: "release_update",
+				name: "Release update, again",
+				releaseVersion: "2.2.0",
+				createdByUserId: "admin-user",
+			},
+			{ db, ids: ["badge-release-2"] },
+		);
+		await updateCampaignDraft(
+			"badge-release-2",
+			{
+				slides: [
+					{
+						id: "badge-release-2-slide",
+						layoutType: "standard",
+						sortOrder: 1,
+						title: { en: "Newer release", hu: "Újabb kiadás" },
+						body: { en: "More details.", hu: "További részletek." },
+						altText: { en: "Release screenshot", hu: "Kiadási képernyőkép" },
+						desktopCropAssetId: "release-desktop",
+						mobileCropAssetId: "release-mobile",
+					},
+				],
+			},
+			{ db },
+		);
+		await publishCampaign("badge-release-2", "admin-user", {
+			db,
+			ids: ["badge-release-2-snapshot", "badge-release-2-snap-slide"],
+		});
+		const now = Math.floor(Date.now() / 1000);
+		db.update(schema.announcementCampaigns)
+			.set({ publishedAt: new Date((now - 30) * 1000) })
+			.where(eq(schema.announcementCampaigns.id, "badge-release-2"))
+			.run();
+
+		const latest = await getLatestPublishedCampaign("release_update", { db });
+
+		// Older than the tour, newer than the first note: the newest note wins.
+		expect(latest?.id).toBe("badge-release-2");
+	});
+
+	it("keeps the eligible path on first_run_onboarding then release_update, and never queues a tour", async () => {
+		const onboarding = await publishFirstRunOnboardingCampaign(db, {
+			campaignId: "badge-onboarding",
+			snapshotIds: ["badge-onboarding-snapshot", "bo-slide-1", "bo-slide-2"],
+			name: "Onboarding",
+			slides: buildFirstRunOnboardingSlides(),
+			assetPrefixes: ["setup", "disclosure"],
+		});
+		await publishReleaseNoteThenTour();
+
+		expect((await getEligibleCampaignForUser("viewer-user", { db }))?.id).toBe(
+			onboarding.id,
+		);
+		await completeCampaignForUser(onboarding.id, "viewer-user", "completed", {
+			db,
+		});
+		expect((await getEligibleCampaignForUser("viewer-user", { db }))?.id).toBe(
+			"badge-release",
+		);
+		await completeCampaignForUser("badge-release", "viewer-user", "completed", {
+			db,
+		});
+		// Only the tour is left unseen, and it is not in the queue.
+		expect(await getEligibleCampaignForUser("viewer-user", { db })).toBeNull();
 	});
 });

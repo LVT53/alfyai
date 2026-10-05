@@ -5,5 +5,7 @@ import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async (event) => {
 	requireAuth(event);
-	return json({ campaign: await getLatestPublishedCampaign() });
+	// The version badge replays the release note. A published first-open tour
+	// is a different campaign type and must never be what the badge opens.
+	return json({ campaign: await getLatestPublishedCampaign("release_update") });
 };

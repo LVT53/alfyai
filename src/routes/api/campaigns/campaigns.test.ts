@@ -102,6 +102,18 @@ describe("user announcement campaign routes", () => {
 		expect(mockGetLatestPublishedCampaign).toHaveBeenCalledTimes(1);
 	});
 
+	it("asks for the release note by type, never for whatever campaign is newest", async () => {
+		mockGetLatestPublishedCampaign.mockResolvedValue(null);
+
+		await LATEST(makeEvent() as unknown as Parameters<typeof LATEST>[0]);
+
+		// A published first-open tour must not become the version badge's
+		// campaign (ruling 32): the route names the one type the badge is for.
+		expect(mockGetLatestPublishedCampaign).toHaveBeenCalledWith(
+			"release_update",
+		);
+	});
+
 	it("records campaign events for the current user", async () => {
 		mockRecordCampaignEvent.mockResolvedValue({
 			id: "event-1",
