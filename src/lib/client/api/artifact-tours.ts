@@ -29,11 +29,10 @@ type SeedArtifactToursResponse = {
 
 /**
  * The kind's tour as it is right now, and whether THIS user has already seen
- * that exact content (and the slide they left it on). `tour` is `null` when
- * the kind's tour was retired by an admin: a value, not an error, and the
- * panel then shows the kind's own empty-state line. Only the kinds whose tour
- * ships (`SHIPPED_ARTIFACT_TOUR_TYPES`) can be asked for: the type says so,
- * and the route answers any other segment with a 404.
+ * that exact content (and the slide they left it on). Only the kinds whose tour
+ * ships (`SHIPPED_ARTIFACT_TOUR_TYPES`) can be asked for: the type says so, and
+ * the route answers any other segment with a 404. A shipped kind always has a
+ * tour (an archived one falls back to the code copy, ruling 71).
  *
  * `ok` is the wire shape's success marker (ruling 49), not part of what a
  * caller wants, so it is read here and left behind — as `fetchArtifact` does.

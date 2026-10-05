@@ -9,7 +9,6 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
-	announcementCampaigns,
 	artifacts,
 	artifactTourStates,
 	artifactVersions,
@@ -297,47 +296,88 @@ export async function adminApi(
 	return request;
 }
 
-/** Seeds the tour drafts, publishes the newest draft of `kind`, and returns the campaign id (to archive afterwards). */
-export async function publishTour(
+type AdminCampaign = {
+	id: string;
+	type: string;
+	status: string;
+	revision: number;
+	releaseVersion: string | null;
+};
+
+/** Every `artifact_tour` campaign of `kind`, newest revision first. */
+async function tourCampaigns(
 	api: APIRequestContext,
 	kind: TourKind,
-): Promise<string> {
-	const seeded = await api.post("/api/admin/campaigns/seed-artifact-tours");
-	expect(seeded.ok(), "seeding the tour drafts").toBe(true);
+): Promise<AdminCampaign[]> {
 	const listed = await api.get("/api/admin/campaigns");
 	expect(listed.ok()).toBe(true);
-	const { campaigns } = (await listed.json()) as {
-		campaigns: {
-			id: string;
-			type: string;
-			status: string;
-			releaseVersion: string | null;
-		}[];
-	};
-	const draft = campaigns.find(
-		(campaign) =>
-			campaign.type === "artifact_tour" &&
-			campaign.releaseVersion === kind &&
-			campaign.status === "draft",
-	);
-	expect(draft, `a ${kind} tour draft to publish`).toBeTruthy();
-	const published = await api.post(
-		`/api/admin/campaigns/${(draft as { id: string }).id}/publish`,
-	);
-	expect(published.ok(), "publishing the tour").toBe(true);
-	return (draft as { id: string }).id;
+	const { campaigns } = (await listed.json()) as { campaigns: AdminCampaign[] };
+	return campaigns
+		.filter(
+			(campaign) =>
+				campaign.type === "artifact_tour" && campaign.releaseVersion === kind,
+		)
+		.sort((a, b) => b.revision - a.revision);
 }
 
 /**
- * Takes a published tour back out, by deleting its campaign (the snapshot, its
- * slides and every reader's state of it go with it: the tables cascade).
- * Archiving would be wrong here: an archived tour is a deliberate retirement
- * (ruling 4), after which the kind has NO tour at all, and the e2e database
- * outlives this spec. Deleting returns the kind to its code copy, as the run
- * found it.
+ * Publishes a tour for `kind` the way an admin does, and returns the campaign
+ * id (to archive afterwards). The seed leaves one draft per kind; when an
+ * earlier test has published and archived it, there is none left, so the admin
+ * duplicates the newest campaign of the kind, which is what the pane offers.
+ * `summary` rewords the empty-state line before it goes out.
  */
-export async function removeTour(campaignId: string) {
-	await db
-		.delete(announcementCampaigns)
-		.where(eq(announcementCampaigns.id, campaignId));
+export async function publishTour(
+	api: APIRequestContext,
+	kind: TourKind,
+	options: { summary?: { en: string; hu: string } } = {},
+): Promise<string> {
+	const seeded = await api.post("/api/admin/campaigns/seed-artifact-tours");
+	expect(seeded.ok(), "seeding the tour drafts").toBe(true);
+	const campaigns = await tourCampaigns(api, kind);
+	let draftId = campaigns.find((campaign) => campaign.status === "draft")?.id;
+	if (!draftId) {
+		const last = campaigns[0];
+		expect(last, `a ${kind} tour campaign to duplicate`).toBeTruthy();
+		const duplicated = await api.post(
+			`/api/admin/campaigns/${last.id}/duplicate`,
+		);
+		expect(duplicated.status(), "duplicating the last tour").toBe(201);
+		draftId = ((await duplicated.json()) as { campaign: { id: string } })
+			.campaign.id;
+	}
+	if (options.summary) await rewordSummary(api, draftId, options.summary);
+	const published = await api.post(`/api/admin/campaigns/${draftId}/publish`);
+	expect(published.ok(), "publishing the tour").toBe(true);
+	return draftId;
+}
+
+/** Changes the summary slide's title, which is the empty state's line, and keeps every other slide as it is. */
+async function rewordSummary(
+	api: APIRequestContext,
+	campaignId: string,
+	summary: { en: string; hu: string },
+) {
+	const got = await api.get(`/api/admin/campaigns/${campaignId}`);
+	expect(got.ok()).toBe(true);
+	const { campaign } = (await got.json()) as {
+		campaign: { slides: { layoutType: string; title: unknown }[] };
+	};
+	const slides = campaign.slides.map((slide) =>
+		slide.layoutType === "summary" ? { ...slide, title: summary } : slide,
+	);
+	const patched = await api.patch(`/api/admin/campaigns/${campaignId}`, {
+		data: { slides },
+	});
+	expect(patched.ok(), "rewording the summary").toBe(true);
+}
+
+/**
+ * Takes a published tour back out, as an admin does: archives it. Ruling 71:
+ * the kind then shows its code copy again, which is how the run found it, so
+ * no later spec on this database meets a tour nobody has seen.
+ */
+export async function archiveTour(api: APIRequestContext, campaignId: string) {
+	const archived = await api.post(`/api/admin/campaigns/${campaignId}/archive`);
+	expect(archived.ok(), "archiving the tour").toBe(true);
 }

@@ -23,9 +23,10 @@ import type { RequestHandler } from "./$types";
 //    outside the two values, a `lastSlide` that is not a whole number inside
 //    the tour, or a missing `contentKey`.
 //  - 409 `{ ok: false, reason: "content_changed", contentKey }`: the user was
-//    shown something other than what is current (an admin published while they
-//    were reading), or the tour was retired (`contentKey: null`). Nothing is
-//    written; the panel re-fetches and shows the new copy from its first slide.
+//    shown something other than what is current (an admin published, or
+//    archived, while they were reading). `contentKey` is the key that is current
+//    now. Nothing is written; the panel re-fetches and shows the new copy from
+//    its first slide.
 //  - 200 `{ ok: true, alreadyRecorded }`: written, or already there (a retry, a
 //    second tab). Idempotent: the first answer stands.
 //

@@ -619,8 +619,8 @@ async function presentTour(
 ): Promise<void> {
 	try {
 		const answer = await getArtifactTour(kind);
-		// `tour: null` is an admin's retirement; a tour with no slides is nothing to show.
-		if (isStale() || !answer.tour || answer.tour.slides.length === 0) return;
+		// A tour with no slides is nothing to show.
+		if (isStale() || answer.tour.slides.length === 0) return;
 		if (answer.seen && !replay) return;
 		const { default: Card } = await import(
 			"$lib/components/artifacts/tour/ArtifactTour.svelte"

@@ -151,7 +151,7 @@ describe("DocumentWorkspace: the first-open tour", () => {
 		expect(tourClient.markArtifactTourSeen).not.toHaveBeenCalled();
 	});
 
-	it("shows nothing for a tour the reader has seen, and nothing for one an admin retired", async () => {
+	it("shows nothing for a tour the reader has seen, and nothing for one with no slides", async () => {
 		tourClient.getArtifactTour.mockResolvedValueOnce(
 			answer("document", { seen: true, lastSlide: 2 }),
 		);
@@ -160,11 +160,9 @@ describe("DocumentWorkspace: the first-open tour", () => {
 		await settle();
 		expect(screen.queryByTestId("artifact-tour")).toBeNull();
 
-		tourClient.getArtifactTour.mockResolvedValueOnce({
-			tour: null,
-			seen: false,
-			lastSlide: 0,
-		});
+		const slideless = answer("app");
+		slideless.tour.slides = [];
+		tourClient.getArtifactTour.mockResolvedValueOnce(slideless);
 		await rerender({
 			documents: [documentItem(), appItem()],
 			activeDocumentId: "app-1",

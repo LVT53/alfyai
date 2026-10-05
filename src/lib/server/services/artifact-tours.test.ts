@@ -199,7 +199,9 @@ describe("artifact tours service", () => {
 		);
 	});
 
-	it("ignores an archived campaign and does not fall back to the default", async () => {
+	// Ruling 71: the text is editable, the trigger is not. Archiving a published
+	// tour takes the admin's words back; it never takes the kind's tour away.
+	it("falls back to the code copy when the published tour is archived", async () => {
 		insertTourCampaign({
 			campaignId: "c1",
 			snapshotId: "s1",
@@ -213,7 +215,91 @@ describe("artifact tours service", () => {
 			options: { db },
 		});
 
-		expect(result).toBeNull();
+		expect(result?.tour.source).toBe("default");
+		expect(result?.tour.contentKey).toBe(CURRENT_DEFAULT_KEY);
+		expect(result?.tour.slides).toHaveLength(3);
+	});
+
+	it("serves the code copy again once the one published tour is archived, and not before", async () => {
+		insertTourCampaign({
+			campaignId: "c1",
+			snapshotId: "s1",
+			kind: "app",
+			status: "published",
+		});
+		const live = await getArtifactTour({
+			userId: "user-1",
+			artifactType: "app",
+			options: { db },
+		});
+		expect(live?.tour.contentKey).toBe("snapshot:s1");
+
+		db.update(schema.announcementCampaigns)
+			.set({ status: "archived", archivedAt: new Date("2026-01-03T00:00:00Z") })
+			.where(eq(schema.announcementCampaigns.id, "c1"))
+			.run();
+		const retired = await getArtifactTour({
+			userId: "user-1",
+			artifactType: "app",
+			options: { db },
+		});
+		expect(retired?.tour.source).toBe("default");
+		expect(retired?.tour.contentKey).toBe(CURRENT_DEFAULT_KEY);
+	});
+
+	it("keeps serving an older published tour when a newer revision of it is archived", async () => {
+		// An archived revision is no longer live; what is still published is.
+		insertTourCampaign({
+			campaignId: "c1",
+			snapshotId: "s1",
+			kind: "canvas",
+			status: "published",
+			revision: 1,
+		});
+		insertTourCampaign({
+			campaignId: "c2",
+			snapshotId: "s2",
+			kind: "canvas",
+			status: "archived",
+			revision: 2,
+		});
+
+		const result = await getArtifactTour({
+			userId: "user-1",
+			artifactType: "canvas",
+			options: { db },
+		});
+
+		expect(result?.tour.contentKey).toBe("snapshot:s1");
+	});
+
+	it("reads a seen state against the code copy's key once the published tour is archived", async () => {
+		insertTourCampaign({
+			campaignId: "c1",
+			snapshotId: "s1",
+			kind: "document",
+			status: "archived",
+		});
+		// The reader finished the code copy before anything was published.
+		db.insert(schema.artifactTourStates)
+			.values({
+				id: "seen-default",
+				userId: "user-1",
+				artifactType: "document",
+				contentKey: CURRENT_DEFAULT_KEY,
+				status: "completed",
+				slideCount: 3,
+				lastSlide: 2,
+			})
+			.run();
+
+		const result = await getArtifactTour({
+			userId: "user-1",
+			artifactType: "document",
+			options: { db },
+		});
+
+		expect(result).toMatchObject({ seen: true, lastSlide: 2 });
 	});
 
 	it("keys a published tour as snapshot:<id> and a default as default:<version>", async () => {
@@ -611,7 +697,7 @@ describe("artifact tours service", () => {
 		expect(stateRows("user-1")).toEqual([]);
 	});
 
-	it("names no current key when the kind's tour was retired, and writes nothing", async () => {
+	it("names the code copy's key when the published tour was archived while the reader read it, and writes nothing", async () => {
 		insertTourCampaign({
 			campaignId: "c1",
 			snapshotId: "s1",
@@ -631,9 +717,21 @@ describe("artifact tours service", () => {
 		expect(result).toEqual({
 			ok: false,
 			reason: "content_changed",
-			contentKey: null,
+			contentKey: CURRENT_DEFAULT_KEY,
 		});
 		expect(stateRows("user-1")).toEqual([]);
+
+		// And the key it names is the one that writes.
+		const again = await markArtifactTourSeen({
+			userId: "user-1",
+			artifactType: "app",
+			contentKey: CURRENT_DEFAULT_KEY,
+			status: "completed",
+			lastSlide: 2,
+			options: { db },
+		});
+		expect(again).toEqual({ ok: true, alreadyRecorded: false });
+		expect(stateRows("user-1")).toHaveLength(1);
 	});
 
 	it("refuses a write for a kind that is not a tour kind, and writes nothing", async () => {

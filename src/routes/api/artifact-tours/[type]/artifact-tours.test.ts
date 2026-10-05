@@ -83,7 +83,7 @@ function stateRows(userId = USER) {
 		.all();
 }
 
-/** An archived `artifact_tour` campaign for a kind: its tour was retired. */
+/** An archived `artifact_tour` campaign for a kind: its published words were taken back (ruling 71). */
 function insertArchivedTour(kind: string) {
 	memory.db
 		.insert(schema.announcementCampaigns)
@@ -171,18 +171,20 @@ describe("GET /api/artifact-tours/[type]", () => {
 		expect(theirs).toMatchObject({ seen: false, lastSlide: 0 });
 	});
 
-	it("answers 200 with no tour, never a 404, when the kind's tour was retired", async () => {
+	it("answers 200 with the code copy, never a 404 and never no tour, when the kind's published tour was archived", async () => {
 		insertArchivedTour("app");
 
 		const response = await GET(getEvent({ type: "app" }));
 
 		expect(response.status).toBe(200);
-		expect(await response.json()).toEqual({
-			ok: true,
-			tour: null,
-			seen: false,
-			lastSlide: 0,
+		const body = await response.json();
+		expect(body).toMatchObject({ ok: true, seen: false, lastSlide: 0 });
+		expect(body.tour).toMatchObject({
+			artifactType: "app",
+			source: "default",
+			contentKey: DEFAULT_KEY,
 		});
+		expect(body.tour.slides).toHaveLength(3);
 	});
 
 	it("takes the user from the session only, and writes nothing", async () => {
@@ -321,16 +323,21 @@ describe("POST /api/artifact-tours/[type]/seen", () => {
 		expect(stateRows()).toEqual([]);
 	});
 
-	it("answers 409 with no key when the kind's tour was retired", async () => {
+	it("answers 409 with the code copy's key when the published tour was archived under the reader", async () => {
 		insertArchivedTour("canvas");
 
-		const response = await POST(postEvent({ type: "canvas", body: completed }));
+		const response = await POST(
+			postEvent({
+				type: "canvas",
+				body: { ...completed, contentKey: "snapshot:archived-canvas-snapshot" },
+			}),
+		);
 
 		expect(response.status).toBe(409);
 		expect(await response.json()).toEqual({
 			ok: false,
 			reason: "content_changed",
-			contentKey: null,
+			contentKey: DEFAULT_KEY,
 		});
 		expect(stateRows()).toEqual([]);
 	});

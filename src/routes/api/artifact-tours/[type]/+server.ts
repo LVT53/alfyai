@@ -24,10 +24,9 @@ import type { RequestHandler } from "./$types";
 //    is deliberately not that.
 //  - 404 `{ ok: false, reason: "unknown_type" }`: the path names no shipped
 //    tour kind. A resource address, so 404 and not 400.
-//  - 200 `{ ok: true, tour, seen, lastSlide }` (ruling 49). `tour` is `null`
-//    when the kind's tour was retired by archiving its campaign: the panel
-//    shows the kind's own empty-state line, and a missing tour is NOT an
-//    error to paint over a working panel.
+//  - 200 `{ ok: true, tour, seen, lastSlide }` (ruling 49). A shipped kind
+//    always has a tour: the newest published campaign's, else the code copy,
+//    which is also what archiving a published tour falls back to (ruling 71).
 //
 // The user is the session's, never a query parameter. The route takes no
 // conversation and no artifact id and writes nothing: opening a tour is not a
@@ -40,10 +39,15 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	const result = await getArtifactTour({ userId: user.id, artifactType });
+	// `null` is the service's own answer for a kind that does not ship, which
+	// the check above has already turned away.
+	if (!result) {
+		return json({ ok: false, reason: "unknown_type" }, { status: 404 });
+	}
 	return json({
 		ok: true,
-		tour: result?.tour ?? null,
-		seen: result?.seen ?? false,
-		lastSlide: result?.lastSlide ?? 0,
+		tour: result.tour,
+		seen: result.seen,
+		lastSlide: result.lastSlide,
 	});
 };

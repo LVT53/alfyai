@@ -84,11 +84,12 @@ export type ArtifactTourState = { seen: boolean; lastSlide: number };
 /**
  * `GET /api/artifact-tours/[type]` without the success marker the route also
  * carries (`ok: true`, ruling 49 — the browser module reads it and leaves it
- * behind, as `fetchArtifact` does). `tour` is `null` when the kind's tour was
- * retired by archiving its campaign: a 200, never an error.
+ * behind, as `fetchArtifact` does). Every shipped kind has a tour: archiving a
+ * published one falls back to the code copy (ruling 71), so `tour` is never
+ * absent from a 200.
  */
 export type ArtifactTourResponse = ArtifactTourState & {
-	tour: ResolvedArtifactTour | null;
+	tour: ResolvedArtifactTour;
 };
 
 export type ArtifactTourSeenStatus = "completed" | "dismissed";

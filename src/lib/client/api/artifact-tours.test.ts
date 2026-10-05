@@ -41,20 +41,6 @@ describe("getArtifactTour", () => {
 		expect(result).not.toHaveProperty("ok");
 	});
 
-	it("passes a retired kind's null tour through as a value, not an error", async () => {
-		const fetchImpl = vi
-			.fn()
-			.mockResolvedValueOnce(
-				jsonResponse({ ok: true, tour: null, seen: false, lastSlide: 0 }),
-			);
-
-		await expect(getArtifactTour("app", fetchImpl)).resolves.toEqual({
-			tour: null,
-			seen: false,
-			lastSlide: 0,
-		});
-	});
-
 	it("throws an ApiError carrying the status on a failed read", async () => {
 		const fetchImpl = vi
 			.fn()

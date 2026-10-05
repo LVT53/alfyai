@@ -21,7 +21,7 @@
  * pins that it stays so.
  */
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
 	ARTIFACT_TOUR_CONTENT_VERSION,
 	ARTIFACT_TOUR_DEFAULTS,
@@ -74,14 +74,14 @@ function defaultTour(
 }
 
 /**
- * The current live-or-retired `artifact_tour` campaign for this kind, if one
- * was ever published. Ordered by `revision` (which only increases per
- * (type, releaseVersion), see `announcement-campaigns.ts`'s `nextRevision`),
- * so the top row is always the latest publish-or-archive action for this
- * kind — a draft created after an archive does not resurrect the tour until
- * IT is published.
+ * The newest PUBLISHED `artifact_tour` campaign for this kind, if there is one.
+ * Ordered by `revision` (which only increases per (type, releaseVersion), see
+ * `announcement-campaigns.ts`'s `nextRevision`), so a republish wins over the
+ * one it follows. A draft is not live yet and an archived campaign is not live
+ * any more: archiving takes an admin's words back and leaves the kind with its
+ * code copy (ruling 71), so only `published` rows are read.
  */
-async function currentCampaignForKind(
+async function publishedCampaignForKind(
 	db: ArtifactToursDb,
 	artifactType: ShippedArtifactTourType,
 ) {
@@ -92,7 +92,7 @@ async function currentCampaignForKind(
 			and(
 				eq(announcementCampaigns.type, "artifact_tour"),
 				eq(announcementCampaigns.releaseVersion, artifactType),
-				inArray(announcementCampaigns.status, ["published", "archived"]),
+				eq(announcementCampaigns.status, "published"),
 			),
 		)
 		.orderBy(desc(announcementCampaigns.revision))
@@ -147,12 +147,11 @@ function resolvePublishedTour(
 }
 
 /**
- * The tour that is current for a kind right now, independent of any user: a
- * published campaign's snapshot when one exists, the code default otherwise,
- * and `null` only when the kind's tour has been DELIBERATELY retired (its
- * latest campaign is archived, and archiving must not silently resurrect the
- * default — decisions.md ruling 4). A broken campaign table resolves to the
- * default, never to an error: the shipped kinds always have code copy.
+ * The tour that is current for a kind right now, independent of any user: the
+ * newest published campaign's snapshot when one is live, the code default
+ * otherwise. Every shipped kind always has one: the text is editable and the
+ * trigger is not (rulings 4 and 71), so archiving a published tour, or a broken
+ * campaign table, resolves to the code copy and never to "no tour".
  *
  * One function for the read and the write, so the key the panel was shown and
  * the key the seen write is compared with can never come from two places.
@@ -160,22 +159,15 @@ function resolvePublishedTour(
 async function resolveCurrentTour(
 	db: ArtifactToursDb,
 	artifactType: ShippedArtifactTourType,
-): Promise<ResolvedArtifactTour | null> {
-	let tour: ResolvedArtifactTour = defaultTour(artifactType);
-
+): Promise<ResolvedArtifactTour> {
 	try {
-		const campaign = await currentCampaignForKind(db, artifactType);
+		const campaign = await publishedCampaignForKind(db, artifactType);
 		if (campaign) {
-			if (campaign.status === "archived") {
-				// A deliberate retirement: the kind has no tour at all right now,
-				// and the code default must not silently reappear behind it.
-				return null;
-			}
 			const full = await getCampaignById(campaign.id, { db });
 			const resolved = full?.snapshot
 				? resolvePublishedTour(artifactType, full.snapshot)
 				: null;
-			if (resolved) tour = resolved;
+			if (resolved) return resolved;
 		}
 	} catch (error) {
 		console.warn(
@@ -183,16 +175,15 @@ async function resolveCurrentTour(
 			error,
 		);
 	}
-	return tour;
+	return defaultTour(artifactType);
 }
 
 /**
  * Resolves the tour for `params.artifactType` and this user's seen state
- * against it. Returns `null` when the kind's tour has been deliberately
- * retired (see `resolveCurrentTour`) or when the kind is not one whose tour
- * ships (ruling 69: not Slides, never File, and nothing a hand-typed path
- * segment can name); every other path — including a broken campaign table —
- * resolves to a tour.
+ * against it. Returns `null` only for a kind whose tour does not ship
+ * (ruling 69: not Slides, never File, and nothing a hand-typed path segment can
+ * name); every shipped kind resolves to a tour, whatever the campaign tables
+ * hold.
  */
 export async function getArtifactTour(params: {
 	userId: string;
@@ -205,7 +196,6 @@ export async function getArtifactTour(params: {
 
 	const db = database(params.options);
 	const tour = await resolveCurrentTour(db, params.artifactType);
-	if (!tour) return null;
 
 	const state = db
 		.select()
@@ -277,10 +267,10 @@ export type MarkArtifactTourSeenResult =
 	| { ok: false; reason: "unknown_type" }
 	/**
 	 * The user was shown something other than the tour that is current now (an
-	 * admin published while they were reading). `contentKey` is the current
-	 * key, or `null` when the kind's tour has been retired and there is none.
+	 * admin published or archived while they were reading). `contentKey` is the
+	 * key that is current, the one a fresh read would show.
 	 */
-	| { ok: false; reason: "content_changed"; contentKey: string | null };
+	| { ok: false; reason: "content_changed"; contentKey: string };
 
 /**
  * Records that this user finished or dismissed this kind's tour — once. The
@@ -310,11 +300,11 @@ export async function markArtifactTourSeen(
 	}
 	const db = database(params.options);
 	const tour = await resolveCurrentTour(db, params.artifactType);
-	if (!tour || tour.contentKey !== params.contentKey) {
+	if (tour.contentKey !== params.contentKey) {
 		return {
 			ok: false,
 			reason: "content_changed",
-			contentKey: tour?.contentKey ?? null,
+			contentKey: tour.contentKey,
 		};
 	}
 

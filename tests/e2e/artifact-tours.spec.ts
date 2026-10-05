@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { ARTIFACT_TOUR_DEFAULTS } from "../../src/lib/server/artifact-tour-defaults";
 import {
 	adminApi,
+	archiveTour,
 	backToList,
 	createTourUser,
 	finishTour,
@@ -10,7 +11,6 @@ import {
 	openItem,
 	panelShell,
 	publishTour,
-	removeTour,
 	reopenChat,
 	seedItem,
 	seedProducedFile,
@@ -346,7 +346,7 @@ test.describe("the first-open tours", () => {
 			await page.waitForTimeout(500);
 			await expect(page.getByRole("dialog")).toHaveCount(0);
 		} finally {
-			await removeTour(campaignId);
+			await archiveTour(api, campaignId);
 		}
 	});
 
@@ -577,7 +577,7 @@ test.describe("the first-open tours", () => {
 			await expect.poll(async () => (await tourRows(user.id)).length).toBe(1);
 			expect((await tourRows(user.id))[0].contentKey).toMatch(/^snapshot:/);
 		} finally {
-			await removeTour(campaignId);
+			await archiveTour(api, campaignId);
 		}
 	});
 });
