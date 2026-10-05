@@ -66,7 +66,7 @@ export const ARTIFACT_TOUR_DEFAULTS: Record<
 				},
 				body: {
 					en: "Type directly, tick off checklists, and add tables or tabs. Alfy's changes arrive highlighted, with Keep and Undo beside them.",
-					hu: "Írhatsz közvetlenül, kipipálhatod a listákat, és táblázatokat vagy füleket adhatsz hozzá. Alfy módosításai kiemelve érkeznek, mellettük a Megtartás és a Visszavonás.",
+					hu: "Írhatsz közvetlenül, kipipálhatod a listákat, és táblázatokat vagy füleket adhatsz hozzá. Alfy módosításai kiemelve érkeznek, mellettük a „Megtartom” és a „Visszavonom” gomb.",
 				},
 			},
 			{

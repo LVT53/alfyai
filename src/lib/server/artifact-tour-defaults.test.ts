@@ -144,7 +144,7 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 					},
 					body: {
 						en: "Type directly, tick off checklists, and add tables or tabs. Alfy's changes arrive highlighted, with Keep and Undo beside them.",
-						hu: "Írhatsz közvetlenül, kipipálhatod a listákat, és táblázatokat vagy füleket adhatsz hozzá. Alfy módosításai kiemelve érkeznek, mellettük a Megtartás és a Visszavonás.",
+						hu: "Írhatsz közvetlenül, kipipálhatod a listákat, és táblázatokat vagy füleket adhatsz hozzá. Alfy módosításai kiemelve érkeznek, mellettük a „Megtartom” és a „Visszavonom” gomb.",
 					},
 				},
 				{
@@ -271,6 +271,25 @@ describe("ARTIFACT_TOUR_DEFAULTS", () => {
 			const key = `artifacts.type.${kind}` as keyof typeof artifactsDict.en;
 			expect(artifactsDict.en[key]).toBeTruthy();
 			expect(artifactsDict.hu[key]).toBeTruthy();
+		}
+	});
+
+	// RC-T Minor 8(a): the Document tour sends the reader to the change pill's
+	// two buttons, so it must call them what they are called, in each language.
+	it("names the Document change pill's buttons by their real labels, in both languages", () => {
+		const body = ARTIFACT_TOUR_DEFAULTS.document.slides[1]?.body;
+		expect(body).toBeTruthy();
+		for (const language of ["en", "hu"] as const) {
+			for (const key of [
+				"artifacts.document.change.keep",
+				"artifacts.document.change.undo",
+			] as const) {
+				const label = artifactsDict[language][key];
+				expect(label, `${language} ${key}`).toBeTruthy();
+				expect(body?.[language], `${language} names "${label}"`).toContain(
+					label,
+				);
+			}
 		}
 	});
 
