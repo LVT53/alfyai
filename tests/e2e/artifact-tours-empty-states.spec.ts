@@ -3,6 +3,7 @@ import { ARTIFACT_TOUR_DEFAULTS } from "../../src/lib/server/artifact-tour-defau
 import {
 	adminApi,
 	archiveTour,
+	backToList,
 	createTourUser,
 	ITEM_TITLES,
 	markToursSeen,
@@ -60,6 +61,25 @@ async function expectBeneath(
 	expect(linkBox?.y ?? 0).toBeGreaterThanOrEqual(
 		(lineBox?.y ?? 0) + (lineBox?.height ?? 0) - 1,
 	);
+}
+
+/** Presses Tab, as a keyboard user does, until `target` has the focus; says so when it never gets it. */
+async function tabTo(page: Page, target: ReturnType<Page["getByTestId"]>) {
+	for (let presses = 0; presses < 40; presses++) {
+		if (
+			await target.evaluate((element) => element === document.activeElement)
+		) {
+			return;
+		}
+		await page.keyboard.press("Tab");
+	}
+	throw new Error("The link cannot be reached with Tab.");
+}
+
+/** From an open item, back to the chat's list and into the item named `title`. */
+async function backToListAndOpen(page: Page, title: string) {
+	await backToList(page);
+	await openItem(page, title);
 }
 
 test.describe("the empty states say what the tour says", () => {
@@ -151,6 +171,36 @@ test.describe("the empty states say what the tour says", () => {
 		expect(await tourRows(user.id)).toHaveLength(3); // the three seen at the start
 		// The empty state is still there, and so is its link.
 		await expect(page.getByTestId("canvas-empty-replay")).toBeVisible();
+	});
+
+	test("the link is reached with Tab and works with Enter, on a Canvas and on a Document", async ({
+		page,
+	}) => {
+		const requests = watchTourRequests(page);
+		const { user, chatId } = await openEmpty(page, "canvas");
+		const canvasLink = page.getByTestId("canvas-empty-replay");
+		await expect(canvasLink).toBeVisible({ timeout: 20_000 });
+		await tabTo(page, canvasLink);
+		await page.keyboard.press("Enter");
+		const card = tourCard(page);
+		await expect(card).toBeVisible({ timeout: 20_000 });
+		await expect(card).toHaveAttribute("data-replay", "true");
+		await card.getByTestId("artifact-tour-skip").click();
+		await expect(card).toHaveCount(0);
+
+		// The same on a Document, which lays its link ahead of the page in the tab order.
+		await seedItem(user, chatId, "document", { empty: true });
+		await reopenChat(page, chatId);
+		await expect(page.getByTestId("canvas-empty")).toBeVisible({
+			timeout: 20_000,
+		});
+		await backToListAndOpen(page, ITEM_TITLES.document);
+		const documentLink = page.getByTestId("document-empty-replay");
+		await expect(documentLink).toBeVisible({ timeout: 20_000 });
+		await tabTo(page, documentLink);
+		await page.keyboard.press("Enter");
+		await expect(tourCard(page)).toBeVisible({ timeout: 20_000 });
+		expect(requests.posts()).toHaveLength(0);
 	});
 
 	test("after an admin edits and publishes the tour the empty state shows the edited line, and the code copy's again once it is archived", async ({
