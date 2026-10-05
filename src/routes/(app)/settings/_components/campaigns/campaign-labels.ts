@@ -15,7 +15,7 @@ type Translate = (key: I18nKey) => string;
  * names a kind whose tour ships, the text itself when it does not (so a
  * mistake can be read, not hidden), nothing for an empty one.
  */
-export function tourKindWord(
+function tourKindWord(
 	releaseVersion: string | null | undefined,
 	t: Translate,
 ): string {
