@@ -3,6 +3,7 @@ import { APICallError, generateText } from "ai";
 import { getConfig } from "../config-store";
 import { normalizeAssistantOutput } from "./chat-turn/normalizer";
 import {
+	askWithThinkingRetry,
 	isHungarianText,
 	isPlausibleShortText,
 	resolveShortTextLanguage,
@@ -118,20 +119,28 @@ async function generateTitleWithAiSdk(
 			maxOutputTokens: TITLE_GEN_MAX_TOKENS,
 			maxRetries: DEFAULT_MODEL_MAX_RETRIES,
 		});
-		return normalizeAssistantOutput(result.text);
+		return result.text;
 	};
 
-	try {
-		return await tryCall(true);
-	} catch (error) {
-		if (APICallError.isInstance(error) && error.statusCode === 400) {
-			console.info(
-				"[TITLE_GENERATE] Retrying with strict OpenAI-compatible request body",
-			);
-			return await tryCall(false);
+	const askOnce = async (): Promise<string> => {
+		try {
+			return await tryCall(true);
+		} catch (error) {
+			if (APICallError.isInstance(error) && error.statusCode === 400) {
+				console.info(
+					"[TITLE_GENERATE] Retrying with strict OpenAI-compatible request body",
+				);
+				return await tryCall(false);
+			}
+			throw error;
 		}
-		throw error;
-	}
+	};
+
+	// The model sometimes opens a think block although thinking is off (see
+	// short-local-text.ts): a block it left empty costs nothing, one it left
+	// unclosed gets one more request, then the caller's own fallback title.
+	const answer = await askWithThinkingRetry(askOnce);
+	return answer === null ? "" : normalizeAssistantOutput(answer);
 }
 
 // Common misspellings dictionary for post-processing correction

@@ -19,12 +19,14 @@ vi.mock("./shared-normal-chat-model-run-helpers", () => ({
 }));
 
 import {
+	askWithThinkingRetry,
 	callShortLocalControlModel,
 	generateShortLocalText,
 	isHungarianText,
 	isPlausibleShortText,
 	isReasoningLeak,
 	resolveShortTextLanguage,
+	stripLeakedThinking,
 	unwrapJsonControlText,
 } from "./short-local-text";
 
@@ -74,6 +76,113 @@ describe("isReasoningLeak", () => {
 		]) {
 			expect(isReasoningLeak(text)).toBe(false);
 		}
+	});
+});
+
+// The server drops the closing `</think>` from the text it returns but keeps the
+// opener (observed on the real Flash-Next vLLM v0.31 through /tokenize and
+// logprobs: the model emits <think> \n\n </think> \n\n and the response text
+// reads "<think>\n\n\n\n..."). These are the real answers a title request got
+// back with `enable_thinking: false` on the wire, 17.5% of 416 requests.
+describe("stripLeakedThinking", () => {
+	it("leaves an answer with no think marker untouched", () => {
+		expect(stripLeakedThinking("Négyhetes kezdő futóedzésterv")).toEqual({
+			kind: "text",
+			text: "Négyhetes kezdő futóedzésterv",
+		});
+	});
+
+	it("keeps the answer after an empty block whose closer the server dropped (the real shape, 86% of the leaks)", () => {
+		for (const [raw, answer] of [
+			[
+				"<think>\n\n\n\nHavi százezer forint megtakarítási tippek",
+				"Havi százezer forint megtakarítási tippek",
+			],
+			[
+				"<think>\n\n\n\nSzja bevallás egy munkahely esetén",
+				"Szja bevallás egy munkahely esetén",
+			],
+			[
+				"<think>\n\n\n\nFast English Learning Daily",
+				"Fast English Learning Daily",
+			],
+		]) {
+			expect(stripLeakedThinking(raw)).toEqual({ kind: "text", text: answer });
+		}
+	});
+
+	it("strips a closed block, as other servers return it", () => {
+		expect(
+			stripLeakedThinking(
+				"<think>\nreasoning here\n</think>\n\nPython hibakeresés",
+			),
+		).toEqual({ kind: "text", text: "Python hibakeresés" });
+		expect(stripLeakedThinking("<think>\n\n</think>\n\nHeti étrend")).toEqual({
+			kind: "text",
+			text: "Heti étrend",
+		});
+	});
+
+	it("calls an opener with reasoning after it and no closer unclosed, whether it was cut off or the closer was dropped", () => {
+		// Cut off at the 120-token cap: no answer exists.
+		expect(
+			stripLeakedThinking(
+				'<think>\nThe user wants me to generate a concise conversation title (3-8 words) for a conversation about a Python "list index out of range" error.\n\nThe conversation is about debugging a Python list index error. Let me think of a concise title:\n\n- "Python list index out of range hiba" - 7 words\n\nI\'ll go with',
+			),
+		).toEqual({ kind: "unclosed" });
+		// Closed by the model but the closer dropped: reasoning and answer cannot
+		// be told apart any more, so it is not guessed at.
+		expect(
+			stripLeakedThinking(
+				'<think>\nThe user wants me to generate a concise conversation title (3-8 words) based on the conversation about laptop recommendations. Let me create a short title in Hungarian.\n\n"Laptop ajánlás egyetemre 300 ezer forintból" - that\'s 6 words, fits the criteria.\n\n\nLaptop ajánlás egyetemre 300 ezer forintból',
+			),
+		).toEqual({ kind: "unclosed" });
+	});
+
+	it("calls an opener in the middle of the text unclosed", () => {
+		expect(stripLeakedThinking("Heti étrend <think>\nlet me see")).toEqual({
+			kind: "unclosed",
+		});
+	});
+
+	it("is an empty answer, not an unclosed one, when nothing follows an empty opener", () => {
+		expect(stripLeakedThinking("<think>\n\n")).toEqual({
+			kind: "text",
+			text: "",
+		});
+	});
+});
+
+describe("askWithThinkingRetry", () => {
+	it("asks once when the first answer is usable", async () => {
+		const ask = vi.fn(async () => "<think>\n\n\n\nHeti étrend");
+		await expect(askWithThinkingRetry(ask)).resolves.toBe("Heti étrend");
+		expect(ask).toHaveBeenCalledTimes(1);
+	});
+
+	it("asks once more when the first answer is an unclosed block, and uses the second", async () => {
+		const ask = vi
+			.fn<() => Promise<string>>()
+			.mockResolvedValueOnce("<think>\nThe user wants me to generate a title")
+			.mockResolvedValueOnce("Heti étrend");
+		await expect(askWithThinkingRetry(ask)).resolves.toBe("Heti étrend");
+		expect(ask).toHaveBeenCalledTimes(2);
+	});
+
+	it("gives up after the one extra attempt, so the caller's own fallback applies", async () => {
+		const ask = vi.fn(
+			async () => "<think>\nThe user wants me to generate a title",
+		);
+		await expect(askWithThinkingRetry(ask)).resolves.toBeNull();
+		expect(ask).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not swallow a failed request", async () => {
+		const ask = vi.fn(async () => {
+			throw new Error("boom");
+		});
+		await expect(askWithThinkingRetry(ask)).rejects.toThrow("boom");
+		expect(ask).toHaveBeenCalledTimes(1);
 	});
 });
 
@@ -446,6 +555,34 @@ describe("generateShortLocalText", () => {
 
 		expect(out).toBeNull();
 		expect(sendJsonControlMessageMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps the answer when the model re-opens an empty think block (closer dropped by the server)", async () => {
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({ text: "<think>\n\n\n\nLimerick to Dublin fares" }),
+		);
+		const out = await generateShortLocalText({
+			prompt: "Summarize this turn",
+			feature: "rail_summary",
+			userId: "u1",
+			conversationId: "c1",
+		});
+		expect(out).toBe("Limerick to Dublin fares");
+	});
+
+	it("returns null when the model leaves a reasoning block unclosed", async () => {
+		sendJsonControlMessageMock.mockResolvedValue(
+			controlResult({
+				text: "<think>\nThe user wants a short headline for a reply about fares",
+			}),
+		);
+		const out = await generateShortLocalText({
+			prompt: "Summarize this turn",
+			feature: "rail_summary",
+			userId: "u1",
+			conversationId: "c1",
+		});
+		expect(out).toBeNull();
 	});
 
 	it("returns null when the model leaks its reasoning", async () => {

@@ -19,8 +19,9 @@ import type {
  * are thin.
  *
  * Two layers:
- *  - a pure, easily-tested cleanup/language core (`isReasoningLeak`,
- *    `isPlausibleShortText`, `resolveShortTextLanguage`, `isHungarianText`),
+ *  - a pure, easily-tested cleanup/language core (`stripLeakedThinking`,
+ *    `isReasoningLeak`, `isPlausibleShortText`, `resolveShortTextLanguage`,
+ *    `isHungarianText`),
  *  - a control-model call primitive (`callShortLocalControlModel`) that owns
  *    the concurrency cap, the hard-timeout signal, and the ADR-0047 cost
  *    accounting in ONE place, plus a plain-text convenience
@@ -32,6 +33,82 @@ import type {
  * deterministic fallback (e.g. the title path falls back to a truncated user
  * message). This module never fabricates.
  */
+
+// --- a stray think block -----------------------------------------------------
+//
+// A request that says `enable_thinking: false` reaches the chat template in the
+// form vLLM reads (`chat_template_kwargs`), and the rendered prompt then ends
+// with an empty `<think>\n\n</think>\n\n` (checked on the real server through
+// /tokenize). The model nevertheless opens another block as its first token in
+// about one free-text answer in six; the guided-JSON calls (status line, rail
+// summary, follow-ups, acknowledgment) cannot, their grammar forbids it. The
+// server also drops the closing `</think>` from the text it returns but keeps
+// the opener, so the app sees the model's answer behind an unbalanced marker:
+//
+//   - `<think>\n\n\n\nTitle`              an empty block, the answer is intact
+//                                          (86% of the leaks on the real model);
+//   - `<think>\nThe user wants me to...`    real reasoning that was cut off, or
+//                                          closed with the closer dropped: any
+//                                          answer after it is not separable.
+//
+// This is the one place that tells them apart, for every short free-text answer
+// a person reads.
+
+const THINK_OPEN_RE = /<think>/i;
+const CLOSED_THINK_BLOCK_RE = /<think>[\s\S]*?<\/think>/gi;
+
+export type LeakedThinkingCleanup =
+	| { kind: "text"; text: string }
+	| { kind: "unclosed" };
+
+/**
+ * Drop whatever think markers the model put in a short answer. Closed blocks
+ * go; an empty block whose closer the server dropped (the opener, then a blank
+ * line, then the answer) goes and the answer stays; an opener that has
+ * reasoning after it, or text before it, is `unclosed`: nothing in it can be
+ * trusted as the answer, so the caller retries or falls back by rule.
+ */
+export function stripLeakedThinking(raw: string): LeakedThinkingCleanup {
+	if (!THINK_OPEN_RE.test(raw)) return { kind: "text", text: raw };
+
+	let text = raw.replace(CLOSED_THINK_BLOCK_RE, "");
+	for (;;) {
+		const open = text.search(THINK_OPEN_RE);
+		if (open === -1) return { kind: "text", text: text.trim() };
+		if (text.slice(0, open).trim()) return { kind: "unclosed" };
+
+		const afterOpener = text.slice(open + "<think>".length);
+		const gap = afterOpener.match(/^\s*/)?.[0] ?? "";
+		const rest = afterOpener.slice(gap.length);
+		if (!rest) return { kind: "text", text: "" };
+		// The template's own empty block is `<think>\n\n</think>\n\n`, so what
+		// is left of it once the closer is gone is a blank line (or two) before
+		// the answer. Reasoning starts on the very next line.
+		if (!/\n[^\S\n]*\n/.test(gap)) return { kind: "unclosed" };
+		text = rest;
+	}
+}
+
+// One extra attempt when the answer comes back as an unclosed reasoning block:
+// the same request answers cleanly about four times in five, so a second ask
+// all but removes the fallback, and a third would only spend the model's time.
+export const THINKING_RETRY_MAX_ATTEMPTS = 2;
+
+/**
+ * Ask for a short free-text answer and return it with any think block
+ * stripped, asking once more when the first answer is an unclosed block. `null`
+ * after the last attempt: the caller's own deterministic fallback applies. A
+ * failed request is the caller's to handle; it is not retried here.
+ */
+export async function askWithThinkingRetry(
+	ask: () => Promise<string>,
+): Promise<string | null> {
+	for (let attempt = 1; attempt <= THINKING_RETRY_MAX_ATTEMPTS; attempt++) {
+		const cleaned = stripLeakedThinking(await ask());
+		if (cleaned.kind === "text") return cleaned.text;
+	}
+	return null;
+}
 
 // Thinking/chain-of-thought preambles that indicate the model leaked its
 // reasoning into the visible output (it did not respect `enable_thinking:
@@ -348,7 +425,9 @@ function cleanShortLocalText(
 	// The transport forces JSON output, so a schemaless short-text call comes back
 	// as `{"headline":"…"}` — unwrap to the underlying string before any cleanup,
 	// or the rail/title/ack surfaces would show literal JSON.
-	let text = unwrapJsonControlText(raw ?? "");
+	const stripped = stripLeakedThinking(raw ?? "");
+	if (stripped.kind === "unclosed") return null;
+	let text = unwrapJsonControlText(stripped.text);
 	if (cleanup.normalize) text = cleanup.normalize(text);
 	text = text.trim();
 	if (!text) return null;

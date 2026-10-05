@@ -354,6 +354,60 @@ describe("generateTitle", () => {
 		}
 	});
 
+	describe("a stray think block (the model re-opens one although thinking is off)", () => {
+		const HU_USER =
+			"Hogyan tudnék havi százezer forintot félretenni a fizetésemből?";
+		const HU_REPLY =
+			"Érdemes az 50-30-20 szabállyal kezdeni: a nettó jövedelem felét a fix költségekre szánd.";
+		const answerWith = (content: string) =>
+			new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		// The two shapes the real model returned (17.5% of 416 title requests): an
+		// empty block whose closer the server dropped, and cut-off reasoning.
+		const EMPTY_BLOCK =
+			"<think>\n\n\n\nHavi százezer forint megtakarítási tippek";
+		const CUT_OFF_REASONING =
+			"<think>\nThe user wants me to generate a concise conversation title (3-8 words) based on the conversation about saving 100,000 HUF monthly from a salary. The conversation is in Hungarian. I need to";
+
+		it("keeps the title the model wrote behind an empty block, with one request", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch.mockResolvedValueOnce(answerWith(EMPTY_BLOCK));
+
+			await expect(generateTitle(HU_USER, HU_REPLY, "hu")).resolves.toBe(
+				"Havi százezer forint megtakarítási tippek",
+			);
+			expect(mockFetch).toHaveBeenCalledTimes(1);
+		});
+
+		it("asks once more when the first answer is reasoning that was never closed, and uses the second", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch
+				.mockResolvedValueOnce(answerWith(CUT_OFF_REASONING))
+				.mockResolvedValueOnce(
+					answerWith("Havi százezer forint megtakarítása"),
+				);
+
+			await expect(generateTitle(HU_USER, HU_REPLY, "hu")).resolves.toBe(
+				"Havi százezer forint megtakarítása",
+			);
+			expect(mockFetch).toHaveBeenCalledTimes(2);
+		});
+
+		it("falls back to the user message when the second answer is unclosed too, after exactly two requests", async () => {
+			const mockFetch = vi.mocked(fetch);
+			mockFetch
+				.mockResolvedValueOnce(answerWith(CUT_OFF_REASONING))
+				.mockResolvedValueOnce(answerWith(CUT_OFF_REASONING));
+
+			await expect(generateTitle(HU_USER, HU_REPLY, "hu")).resolves.toBe(
+				HU_USER,
+			);
+			expect(mockFetch).toHaveBeenCalledTimes(2);
+		});
+	});
+
 	it("handles title generation service being unreachable (throws)", async () => {
 		const mockFetch = vi.mocked(fetch);
 		const mockResponse = new Response(
