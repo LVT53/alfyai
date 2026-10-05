@@ -74,9 +74,35 @@ async function servedSummary(
 	return ((await response.json()) as { tour: never }).tour;
 }
 
-async function removeDrafts(request: APIRequestContext, ids: string[]) {
-	for (const id of ids) {
-		await request.delete(`/api/admin/campaigns/${id}`).catch(() => undefined);
+/**
+ * Leaves the shared database as the run found it: a tour this test published is
+ * archived (the kind then serves its code copy again, so no later spec meets a
+ * tour nobody has seen) and its drafts are deleted. `names` are the campaigns'
+ * own names, which includes the copy the pane makes ("<name> copy").
+ */
+async function removeDrafts(
+	request: APIRequestContext,
+	ids: string[],
+	names: string[] = [],
+) {
+	const listed = await request.get("/api/admin/campaigns");
+	const { campaigns } = (await listed.json()) as {
+		campaigns: { id: string; name: string | null; status: string }[];
+	};
+	for (const campaign of campaigns) {
+		const ours =
+			ids.includes(campaign.id) ||
+			names.some((name) => campaign.name?.startsWith(name));
+		if (!ours) continue;
+		if (campaign.status === "published") {
+			await request
+				.post(`/api/admin/campaigns/${campaign.id}/archive`)
+				.catch(() => undefined);
+		} else if (campaign.status === "draft") {
+			await request
+				.delete(`/api/admin/campaigns/${campaign.id}`)
+				.catch(() => undefined);
+		}
 	}
 }
 
@@ -171,7 +197,7 @@ test.describe("the admin's tour editor", () => {
 			expect(back.source).toBe("default");
 			expect(back.summary).toEqual(ARTIFACT_TOUR_DEFAULTS.app.summary);
 		} finally {
-			await removeDrafts(page.request, made);
+			await removeDrafts(page.request, made, ["E2E bare line tour"]);
 		}
 	});
 
