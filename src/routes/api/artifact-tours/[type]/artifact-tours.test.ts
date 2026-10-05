@@ -5,7 +5,7 @@
 // list, ruling 69: a 404 for anything else, Slides and File included), the
 // family's answer shapes (ruling 49), and that the user is only ever the
 // session's (never a query parameter or a body field).
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ARTIFACT_TOUR_CONTENT_VERSION } from "$lib/server/artifact-tour-defaults";
 import {
@@ -25,6 +25,11 @@ vi.mock("$lib/server/db", () => ({
 
 const { GET } = await import("./+server");
 const { POST } = await import("./seen/+server");
+const { duplicateCampaignAsDraft, publishCampaign, updateCampaignDraft } =
+	await import("$lib/server/services/announcement-campaigns");
+const { seedArtifactTourDrafts } = await import(
+	"$lib/server/services/artifact-tours"
+);
 
 const USER = "user-reader";
 const OTHER = "user-other";
@@ -353,5 +358,157 @@ describe("POST /api/artifact-tours/[type]/seen", () => {
 			(value): value is string => typeof value === "string",
 		);
 		expect(strings.join(" ")).not.toMatch(/conv-incognito|artifact-1|other/);
+	});
+});
+
+// The whole path an admin's words travel: the seeded draft is edited, published,
+// and then is what the panel is served; a user who finished the old copy is
+// shown the new one once, and a write against the copy it replaced is refused.
+describe("a tour an admin published, through both routes", () => {
+	const ADMIN = "user-admin";
+
+	beforeEach(() => {
+		seedUser(memory, ADMIN);
+	});
+
+	const slidesWith = (summary: string, firstSlide: string) => [
+		{
+			layoutType: "summary",
+			sortOrder: 1,
+			title: { en: summary, hu: `${summary} (hu)` },
+			body: { en: "Second line.", hu: "Második sor." },
+		},
+		...[firstSlide, "Second slide", "Third slide"].map((title, index) => ({
+			layoutType: "standard",
+			sortOrder: index + 2,
+			title: { en: title, hu: `${title} (hu)` },
+			body: { en: `Body ${index + 1}.`, hu: `Törzs ${index + 1}.` },
+		})),
+	];
+
+	async function seededCanvasDraft(): Promise<string> {
+		await seedArtifactTourDrafts(ADMIN);
+		const draft = memory.db
+			.select()
+			.from(schema.announcementCampaigns)
+			.where(
+				and(
+					eq(schema.announcementCampaigns.type, "artifact_tour"),
+					eq(schema.announcementCampaigns.releaseVersion, "canvas"),
+				),
+			)
+			.get();
+		expect(draft?.status).toBe("draft");
+		return draft?.id ?? "";
+	}
+
+	async function currentCanvasTour() {
+		return (await (await GET(getEvent({ type: "canvas" }))).json()).tour;
+	}
+
+	it("serves the published words for that kind only, keyed by the snapshot", async () => {
+		const draftId = await seededCanvasDraft();
+		// A seeded draft is not published, so what is served is still the code copy.
+		expect((await currentCanvasTour()).source).toBe("default");
+		await updateCampaignDraft(draftId, {
+			slides: slidesWith("An edited empty-board line.", "Edited first slide"),
+		});
+		await publishCampaign(draftId, ADMIN);
+
+		const canvas = await currentCanvasTour();
+		expect(canvas.source).toBe("published");
+		expect(canvas.contentKey).toMatch(/^snapshot:/);
+		expect(canvas.summary).toEqual({
+			en: "An edited empty-board line.",
+			hu: "An edited empty-board line. (hu)",
+		});
+		expect(
+			canvas.slides.map((slide: { title: { en: string } }) => slide.title.en),
+		).toEqual(["Edited first slide", "Second slide", "Third slide"]);
+		// The others keep the words they shipped with.
+		for (const type of ["document", "app"]) {
+			const other = await (await GET(getEvent({ type }))).json();
+			expect(other.tour.source, type).toBe("default");
+		}
+	});
+
+	it("refuses a write against the copy a publish replaced, and records the new copy", async () => {
+		const before = await currentCanvasTour();
+		expect(before.contentKey).toBe(DEFAULT_KEY);
+		const draftId = await seededCanvasDraft();
+		await updateCampaignDraft(draftId, {
+			slides: slidesWith("Published summary.", "Published first slide"),
+		});
+		await publishCampaign(draftId, ADMIN);
+		const published = await currentCanvasTour();
+
+		// The user was reading the code copy when the admin published.
+		const stale = await POST(
+			postEvent({
+				type: "canvas",
+				body: {
+					contentKey: before.contentKey,
+					status: "completed",
+					lastSlide: 2,
+				},
+			}),
+		);
+		expect(stale.status).toBe(409);
+		expect(await stale.json()).toEqual({
+			ok: false,
+			reason: "content_changed",
+			contentKey: published.contentKey,
+		});
+		expect(stateRows()).toEqual([]);
+
+		const fresh = await POST(
+			postEvent({
+				type: "canvas",
+				body: {
+					contentKey: published.contentKey,
+					status: "completed",
+					lastSlide: 2,
+				},
+			}),
+		);
+		expect(await fresh.json()).toEqual({ ok: true, alreadyRecorded: false });
+		const after = await (await GET(getEvent({ type: "canvas" }))).json();
+		expect(after).toMatchObject({ seen: true, lastSlide: 2 });
+	});
+
+	it("shows a re-published tour once more, and the same publish never again", async () => {
+		const draftId = await seededCanvasDraft();
+		await updateCampaignDraft(draftId, {
+			slides: slidesWith("First publish.", "First slide"),
+		});
+		await publishCampaign(draftId, ADMIN);
+		const first = await currentCanvasTour();
+		await POST(
+			postEvent({
+				type: "canvas",
+				body: {
+					contentKey: first.contentKey,
+					status: "dismissed",
+					lastSlide: 1,
+				},
+			}),
+		);
+		// Opened again, any number of times: still seen, still on its slide.
+		for (let open = 0; open < 2; open += 1) {
+			const again = await (await GET(getEvent({ type: "canvas" }))).json();
+			expect(again).toMatchObject({ seen: true, lastSlide: 1 });
+		}
+
+		// The admin edits the words and publishes a new revision.
+		const revision = await duplicateCampaignAsDraft(draftId, ADMIN);
+		await updateCampaignDraft(revision.id, {
+			slides: slidesWith("Second publish.", "Reworded first slide"),
+		});
+		await publishCampaign(revision.id, ADMIN);
+
+		const second = await (await GET(getEvent({ type: "canvas" }))).json();
+		expect(second.tour.contentKey).not.toBe(first.contentKey);
+		expect(second.tour.summary.en).toBe("Second publish.");
+		expect(second).toMatchObject({ seen: false, lastSlide: 0 });
 	});
 });
