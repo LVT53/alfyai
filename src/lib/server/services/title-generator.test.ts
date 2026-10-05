@@ -138,7 +138,7 @@ describe("generateTitle", () => {
 		);
 	});
 
-	it("applies Qwen's default topP/topK sampling to the outbound title request", async () => {
+	it("applies the qwen family's whole sampling profile to the outbound title request", async () => {
 		vi.doMock("../env", async (importOriginal) => {
 			const { getDatabasePath } = await importOriginal<EnvModule>();
 			return {
@@ -182,12 +182,11 @@ describe("generateTitle", () => {
 		const body = JSON.parse(
 			typeof callArgs?.body === "string" ? callArgs.body : "{}",
 		);
+		// A title is read by a person, so it takes the whole family profile,
+		// temperature included (the flat 0.2 is only for a family with none).
+		expect(body.temperature).toBe(0.6);
 		expect(body.top_p).toBe(0.95);
 		expect(body.top_k).toBe(20);
-		// Title generation keeps its own deliberate low temperature (unaffected
-		// by the qwen family's 0.6 main-chat default) — only topP/topK, which
-		// were never sent by this path at all before, come from the adapter.
-		expect(body.temperature).toBe(0.2);
 	});
 
 	it("resolves an 'auto' title language to the user's uiLanguage when the message is ambiguous", async () => {

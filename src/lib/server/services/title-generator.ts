@@ -8,7 +8,7 @@ import {
 	resolveShortTextLanguage,
 } from "./chat-turn/short-local-text";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "./normal-chat-model/openai-compatible-provider";
-import { resolveOpenAICompatibleProviderAdapterProfile } from "./normal-chat-model/provider-compatibility";
+import { resolveModelCallSampling } from "./normal-chat-model/sampling";
 import {
 	DEFAULT_MODEL_MAX_RETRIES,
 	TITLE_GEN_MAX_TOKENS,
@@ -43,16 +43,14 @@ function createTitleGenProvider(
 					})
 				: undefined,
 		}),
-		// Same shared per-family adapter normal-chat-model/index.ts uses on the
-		// main chat path (AGENTS.md: apply qwen sampling defaults through the
-		// adapter, not a copied constant). Title generation never set topP/topK
-		// at all, leaving the checkpoint's own (temp 1.0-tuned) defaults for
-		// those two in effect even though TITLE_GEN_TEMPERATURE capped
-		// temperature. `top_k` reaches the wire via transformRequestBody above
-		// (see provider-compatibility.ts's applyDefaultSamplingTopK); topP is a
-		// supported call option, threaded through below.
-		samplingDefaults:
-			resolveOpenAICompatibleProviderAdapterProfile(provider).defaultSampling,
+		// A title is read by a person, so it takes the whole family profile
+		// through the one sampling route (normal-chat-model/sampling.ts), the
+		// chat turn's own; a family with no profile keeps the flat low
+		// TITLE_GEN_TEMPERATURE. top_k reaches the wire via the provider
+		// builder's transformRequestBody.
+		sampling: resolveModelCallSampling(provider, {
+			profilelessTemperature: TITLE_GEN_TEMPERATURE,
+		}),
 	};
 }
 
@@ -99,7 +97,7 @@ async function generateTitleWithAiSdk(
 	}
 
 	const tryCall = async (includeVllmControls: boolean): Promise<string> => {
-		const { openaiCompatible, samplingDefaults } = createTitleGenProvider(
+		const { openaiCompatible, sampling } = createTitleGenProvider(
 			config,
 			includeVllmControls,
 			overrideProvider,
@@ -115,8 +113,8 @@ async function generateTitleWithAiSdk(
 				role: "system" | "user" | "assistant";
 				content: string;
 			}>,
-			temperature: TITLE_GEN_TEMPERATURE,
-			topP: samplingDefaults?.topP,
+			temperature: sampling.temperature,
+			topP: sampling.topP,
 			maxOutputTokens: TITLE_GEN_MAX_TOKENS,
 			maxRetries: DEFAULT_MODEL_MAX_RETRIES,
 		});

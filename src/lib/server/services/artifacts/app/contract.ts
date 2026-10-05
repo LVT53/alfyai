@@ -223,18 +223,10 @@ export const APP_VIOLATION_RULE_IDS: readonly AppContractRuleId[] =
 	);
 
 /**
- * The prototype's measured sampling: Qwen3 thinking models want
- * temp 0.6 / top_p 0.95 / top_k 20 (`provider-compatibility.ts`'s qwen
- * family `defaultSampling`, already the provider's own default — this
- * feature adds no sampling parameter of its own; see `generate.ts`).
- * `maxOutputTokens` is this feature's one owned value: the prototype's
- * 2,486–3,607 completion tokens typical, one app near the ceiling.
+ * The App call's ceiling on completion tokens: the prototype's 2,486-3,607
+ * typical, one app near the ceiling. The feature's one owned value. Its
+ * sampling (temperature, top_p, top_k) is NOT declared here: the App call takes
+ * the provider family's profile through the one sampling route
+ * (`normal-chat-model/sampling.ts`), declared once in `provider-compatibility.ts`.
  */
-export const APP_SAMPLING_DEFAULTS = {
-	temperature: 0.6,
-	topP: 0.95,
-	topK: 20,
-	maxOutputTokens: 24_000,
-} as const;
-
-export const APP_MAX_OUTPUT_TOKENS = APP_SAMPLING_DEFAULTS.maxOutputTokens;
+export const APP_MAX_OUTPUT_TOKENS = 24_000;

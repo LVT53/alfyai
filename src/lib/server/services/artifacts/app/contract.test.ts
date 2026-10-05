@@ -7,7 +7,6 @@ import {
 	APP_CONTRACT_RULES,
 	APP_GLITCH_RULE_IDS,
 	APP_MAX_OUTPUT_TOKENS,
-	APP_SAMPLING_DEFAULTS,
 	APP_TOKENS,
 	APP_VIOLATION_RULE_IDS,
 } from "./contract";
@@ -170,14 +169,8 @@ describe("APP_CONTRACT_RULES", () => {
 	});
 });
 
-describe("APP_SAMPLING_DEFAULTS / APP_MAX_OUTPUT_TOKENS", () => {
-	it("matches the qwen family's measured defaults and the prototype's ceiling", () => {
-		expect(APP_SAMPLING_DEFAULTS).toEqual({
-			temperature: 0.6,
-			topP: 0.95,
-			topK: 20,
-			maxOutputTokens: 24_000,
-		});
-		expect(APP_MAX_OUTPUT_TOKENS).toBe(APP_SAMPLING_DEFAULTS.maxOutputTokens);
+describe("APP_MAX_OUTPUT_TOKENS", () => {
+	it("is the prototype's ceiling, the feature's one owned value (its sampling is the family profile's, declared in provider-compatibility.ts)", () => {
+		expect(APP_MAX_OUTPUT_TOKENS).toBe(24_000);
 	});
 });
