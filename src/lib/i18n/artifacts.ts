@@ -74,6 +74,24 @@ const artifactsDict = {
 			"{count} {count, plural, one {part} other {parts}} left alone",
 		"artifacts.panel.backA11y":
 			"Back to This chat ({count} {count, plural, one {item} other {items}})",
+		// First-open tours (Wave 4, TR-B/TR-C): the card's chrome, the panel list's
+		// replay row and the empty states' link. The tour's own words (titles,
+		// bodies, the summary line) are content — the code-owned copy or a
+		// published campaign — and never live here; the dictionary holds only the
+		// empty states' FALLBACK lines (`artifacts.*.emptyState`, below), which
+		// `empty-state.test.ts` keeps identical to the shipped summaries. `region`
+		// is also the replay row's label: one string, one meaning.
+		"artifacts.tour.region": "How this kind works",
+		"artifacts.tour.stepOf": "Step {n} of {m}",
+		"artifacts.tour.dots": "{count} step{count, plural, one {} other {s}}",
+		"artifacts.tour.next": "Next",
+		"artifacts.tour.back": "Back",
+		"artifacts.tour.done": "Got it",
+		"artifacts.tour.skip": "Skip",
+		"artifacts.tour.replayHint":
+			"You'll see this once. You can replay it any time.",
+		"artifacts.tour.replayOpened": "Replaying",
+		"artifacts.tour.replay": "Show it again",
 		// The shared card.
 		"artifacts.card.open": "Open",
 		"artifacts.card.openA11y": "Open {title}",
@@ -201,6 +219,8 @@ const artifactsDict = {
 			"Runs sandboxed · no internet · keeps your data",
 		"artifacts.app.generating": "Alfy is writing the app…",
 		"artifacts.app.generating.hint": "This takes a few seconds.",
+		"artifacts.app.emptyState":
+			"Nothing here yet. Ask Alfy to build a small tool.",
 		"artifacts.app.failed.emptyContent":
 			"Alfy did not manage to write the app this time.",
 		"artifacts.app.failed.noFence":
@@ -295,6 +315,8 @@ const artifactsDict = {
 		"artifacts.document.versions.summarySavedAsCopy": "Saved as a new document",
 		// The lazy editor's shell and toolbar (Slice 1, T7).
 		"artifacts.document.editor.placeholder": "Write anything, or ask Alfy to.",
+		"artifacts.document.emptyState":
+			"Empty document. Start writing, or ask Alfy to draft it.",
 		"artifacts.document.editor.failedToLoad": "The editor could not be loaded.",
 		"artifacts.document.toolbar.bold": "Bold",
 		"artifacts.document.toolbar.italic": "Italic",
@@ -892,6 +914,17 @@ const artifactsDict = {
 		// nouns after a numeral stay singular.
 		"artifacts.panel.leftAlone": "{count} részt nem érintett",
 		"artifacts.panel.backA11y": "Vissza: Ez a beszélgetés ({count} elem)",
+		"artifacts.tour.region": "Így működik ez a típus",
+		"artifacts.tour.stepOf": "{n}. lépés / {m}",
+		// A számnév után a főnév egyes számban marad: nincs többes szám.
+		"artifacts.tour.dots": "{count} lépés",
+		"artifacts.tour.next": "Tovább",
+		"artifacts.tour.back": "Vissza",
+		"artifacts.tour.done": "Értem",
+		"artifacts.tour.skip": "Kihagyás",
+		"artifacts.tour.replayHint": "Egyszer látod. Bármikor újranézheted.",
+		"artifacts.tour.replayOpened": "Újranézés",
+		"artifacts.tour.replay": "Újra megnézem",
 		"artifacts.card.open": "Megnyitás",
 		"artifacts.card.openA11y": "{title} megnyitása",
 		"artifacts.card.openInPanel": "Megnyitva a panelen",
@@ -990,6 +1023,8 @@ const artifactsDict = {
 			"Homokozóban fut · nincs internet · megőrzi az adataidat",
 		"artifacts.app.generating": "Alfy írja az alkalmazást…",
 		"artifacts.app.generating.hint": "Ez néhány másodpercet vesz igénybe.",
+		"artifacts.app.emptyState":
+			"Itt még nincs semmi. Kérd meg Alfyt, hogy építsen egy kis eszközt.",
 		"artifacts.app.failed.emptyContent":
 			"Alfynak most nem sikerült megírnia az alkalmazást.",
 		"artifacts.app.failed.noFence":
@@ -1071,6 +1106,8 @@ const artifactsDict = {
 		"artifacts.document.versions.summarySavedAsCopy":
 			"Mentve új dokumentumként",
 		"artifacts.document.editor.placeholder": "Írj bármit, vagy kérd meg Alfyt.",
+		"artifacts.document.emptyState":
+			"Üres dokumentum. Kezdj el írni, vagy kérd meg Alfyt, hogy megírja.",
 		"artifacts.document.editor.failedToLoad":
 			"A szerkesztőt nem sikerült betölteni.",
 		"artifacts.document.toolbar.bold": "Félkövér",

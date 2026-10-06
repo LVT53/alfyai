@@ -1,7 +1,13 @@
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
+import { ARTIFACT_TOUR_CONTENT_VERSION } from "../../src/lib/server/artifact-tour-defaults";
+import {
+	ARTIFACT_TOUR_SLIDE_COUNT,
+	SHIPPED_ARTIFACT_TOUR_TYPES,
+} from "../../src/lib/shared/artifacts/tours";
 
 const E2E_SESSION_SECRET =
 	process.env.SESSION_SECRET ||
@@ -52,6 +58,45 @@ function wipeUserData(dbPath: string) {
 			}
 		})();
 		db.pragma("foreign_keys = ON");
+	} finally {
+		db.close();
+	}
+}
+
+/**
+ * The shared e2e admin (the user nearly every spec signs in as) has already
+ * been through every first-open tour. Without this, each artifact spec would
+ * meet a card above its Document, App or Canvas the first time it opened one,
+ * and the card would move what those specs measure and take the focus they
+ * type into. The rows are what finishing a tour writes (`completed`, the last
+ * slide, the code copy's key), put in the table directly: the app has no route
+ * that resets or pre-answers a tour and gets none for tests.
+ *
+ * Tours are tested with users of their own (`artifact-tours.spec.ts`), who
+ * have seen nothing.
+ */
+function markSharedAdminToursSeen(dbPath: string) {
+	const db = new Database(dbPath);
+	try {
+		const admin = db
+			.prepare("SELECT id FROM users WHERE email = ?")
+			.get("admin@local") as { id: string } | undefined;
+		if (!admin) return;
+		const insert = db.prepare(
+			`INSERT OR IGNORE INTO artifact_tour_states
+				(id, user_id, artifact_type, content_key, status, slide_count, last_slide, completed_at)
+			VALUES (?, ?, ?, ?, 'completed', ?, ?, unixepoch())`,
+		);
+		for (const kind of SHIPPED_ARTIFACT_TOUR_TYPES) {
+			insert.run(
+				randomUUID(),
+				admin.id,
+				kind,
+				`default:${ARTIFACT_TOUR_CONTENT_VERSION}`,
+				ARTIFACT_TOUR_SLIDE_COUNT,
+				ARTIFACT_TOUR_SLIDE_COUNT - 1,
+			);
+		}
 	} finally {
 		db.close();
 	}
@@ -120,6 +165,15 @@ export default async function globalSetup() {
 	} catch (err) {
 		console.warn(
 			"[globalSetup] Seed admin failed:",
+			(err as Error).message?.slice(0, 200),
+		);
+	}
+
+	try {
+		markSharedAdminToursSeen(dbPath);
+	} catch (err) {
+		console.warn(
+			"[globalSetup] Marking the admin's tours seen failed:",
 			(err as Error).message?.slice(0, 200),
 		);
 	}

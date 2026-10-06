@@ -566,15 +566,26 @@ describe("nextSortDirection", () => {
 // (`type: "artifact"`, `metadata_json.artifactType`).
 
 describe("DOCUMENT_TYPE_FILTER_ORDER", () => {
-	it("matches the mockup's six chips — All · Documents · Canvas · Apps · Slides · Uploaded", () => {
+	// Ruling 69 (Slides is shelved): the mockup's six chips lose one. Production
+	// shows no filter for a kind it cannot make; the day Slides ships it is one
+	// entry back, between Apps and Files.
+	it("is All · Documents · Canvas · Apps · Files while no Slides can exist", () => {
 		expect(DOCUMENT_TYPE_FILTER_ORDER).toEqual([
 			"all",
 			"document",
 			"canvas",
 			"app",
-			"slides",
 			"uploaded",
 		]);
+	});
+
+	it("offers no Slides chip, though the filter type itself still knows the kind", () => {
+		expect(DOCUMENT_TYPE_FILTER_ORDER).not.toContain("slides");
+		// The data model is untouched (`?type=slides` is still a valid filter value
+		// on the server, and `documentTypeFilterFor` still buckets a Slides row):
+		// only the chip row hides, so bringing Slides back is one entry.
+		const slidesRow = doc({ id: "deck", name: "Deck", kind: "slides" });
+		expect(documentTypeFilterFor(slidesRow)).toBe("slides");
 	});
 });
 

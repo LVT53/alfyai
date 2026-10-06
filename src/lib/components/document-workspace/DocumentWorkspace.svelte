@@ -15,6 +15,13 @@ import {
 	MOTION_EASING,
 	reducedMotionAnimate,
 } from "$lib/utils/motion";
+import {
+	getArtifactTour,
+	keepArtifactToursFor,
+	markArtifactTourSeen,
+	refreshArtifactTour,
+} from "$lib/client/api/artifact-tours";
+import { ApiError } from "$lib/client/api/http";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
 import { hasOpenDialog } from "$lib/components/ui/DialogShell.svelte";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
@@ -23,6 +30,12 @@ import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
 import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import {
+	isShippedArtifactTourType,
+	type LocalizedText,
+	type ResolvedArtifactTour,
+	type ShippedArtifactTourType,
+} from "$lib/shared/artifacts/tours";
 import {
 	ARTIFACT_BODIES,
 	type ArtifactBodyLoader,
@@ -73,6 +86,7 @@ let {
 	availableDocuments = [],
 	activeDocumentId = null,
 	conversationId = null,
+	incognito = false,
 	alfyActivity = null,
 	list = null,
 	onToggleDocumentTask = undefined,
@@ -97,6 +111,12 @@ let {
 	activeDocumentId?: string | null;
 	/** The conversation this panel is showing, so artifact bodies can resolve an incognito conversation's own artifacts. Null outside a conversation. */
 	conversationId?: string | null;
+	/**
+	 * The chat this panel shows is incognito. An incognito chat promises no
+	 * writes and leaves no trace (ruling 33), so the first-open tours make no
+	 * request at all there: no GET, no seen write, no replay row.
+	 */
+	incognito?: boolean;
 	/** T8 live: the chat page's own view of the latest Alfy tool-call activity, forwarded to whichever body is open. Only the Document body reads it. */
 	alfyActivity?: DocumentAlfyActivity | null;
 	list?: WorkspaceList;
@@ -550,6 +570,170 @@ let previewRendererSurface: "desktop" | "mobile" = $state(
 );
 let shouldRenderMobilePreview = $derived(previewRendererSurface === "mobile");
 let shouldRenderDesktopPreview = $derived(previewRendererSurface === "desktop");
+
+// ---- First-open tours (Feature 2 · Slice 6; rulings 4, 32, 33, 69) ----
+//
+// The first time a user opens a Document, App or Canvas the panel shows a
+// three-slide card about that kind, above the item. Which kinds have a tour is
+// the shared list (`isShippedArtifactTourType`: File and Slides never ask), and
+// an incognito chat asks for none: no request at all, the seen state being a
+// write. The card and its illustrations are one lazy chunk, imported only once a
+// tour is about to show, so the chat shell never carries them.
+//
+// What the reader did is written when they finish ("Got it") or Skip, never when
+// the card renders: closing the panel mid-tour writes nothing and the card is
+// met again. A replay (the list row menu, a body's empty-state link) shows the
+// same card and records nothing.
+
+type ArtifactTourCard =
+	typeof import("$lib/components/artifacts/tour/ArtifactTour.svelte").default;
+type TourView = {
+	/** The open item the card is about (`activeBodyKey`): a card never outlives its item. */
+	itemKey: string;
+	kind: ShippedArtifactTourType;
+	tour: ResolvedArtifactTour;
+	replay: boolean;
+	Card: ArtifactTourCard;
+};
+
+/** The tour a kind of item has, or null: not a kind that ships one, or an incognito chat. */
+function tourKindOf(
+	kind: ArtifactKind | undefined,
+): ShippedArtifactTourType | null {
+	return !incognito && isShippedArtifactTourType(kind) ? kind : null;
+}
+
+/** The open item's tour kind, only while the panel is showing that item (not its list, not closed). */
+let tourItemKind = $derived(
+	shouldShowWorkspaceShell && !list?.open && activeDocument
+		? tourKindOf(activeDocument.kind)
+		: null,
+);
+let tourItemKey = $derived(tourItemKind ? activeBodyKey : null);
+let tourView = $state.raw<TourView | null>(null);
+/**
+ * The open item's tour summary, from the same answer that decides the card. It
+ * is kept whether or not the card shows (a reader who has seen the tour still
+ * meets an empty body, which says it) and handed to the body as
+ * `tourSummary`; never read for another item than the one it names.
+ */
+let tourSummary = $state.raw<{
+	itemKey: string;
+	summary: LocalizedText;
+} | null>(null);
+let bodyTourSummary = $derived(
+	tourSummary && tourSummary.itemKey === activeBodyKey
+		? tourSummary.summary
+		: null,
+);
+/** The item whose tour the list's menu asked to replay: read once, when that item becomes the open one. */
+let pendingTourReplayKey: string | null = null;
+
+async function presentTour(
+	kind: ShippedArtifactTourType,
+	itemKey: string,
+	replay: boolean,
+	isStale: () => boolean,
+): Promise<void> {
+	try {
+		// The page can change hands without being reloaded (login and logout are
+		// client-side navigations): the answers it holds are this reader's.
+		keepArtifactToursFor(currentUser?.id);
+		// A replay asks again (it shows the copy as it is now); an open takes the
+		// answer this page load already has, which is why a second item of a kind
+		// costs no request and shows its line from the first frame.
+		const answer = await (replay
+			? refreshArtifactTour(kind)
+			: getArtifactTour(kind));
+		if (isStale()) return;
+		tourSummary = { itemKey, summary: answer.tour.summary };
+		// A tour with no slides is nothing to show.
+		if (answer.tour.slides.length === 0) return;
+		if (answer.seen && !replay) return;
+		const { default: Card } = await import(
+			"$lib/components/artifacts/tour/ArtifactTour.svelte"
+		);
+		if (isStale()) return;
+		tourView = { itemKey, kind, tour: answer.tour, replay, Card };
+	} catch (error) {
+		// The tour is decoration: its absence must not read as breakage.
+		console.warn("[ARTIFACT_TOUR] The introduction could not be shown.", error);
+	}
+}
+
+$effect(() => {
+	const kind = tourItemKind;
+	const key = tourItemKey;
+	if (kind === null || key === null) return;
+	const replay = pendingTourReplayKey === key;
+	pendingTourReplayKey = null;
+	let stale = false;
+	untrack(() => void presentTour(kind, key, replay, () => stale));
+	return () => {
+		stale = true;
+		tourView = null;
+		tourSummary = null;
+	};
+});
+
+/** Writes what the reader did, and reads a 409 (the copy was replaced while they read) as "show the new one from its first slide". */
+async function recordTour(
+	view: TourView,
+	status: "completed" | "dismissed",
+	lastSlide: number,
+): Promise<void> {
+	try {
+		await markArtifactTourSeen(view.kind, {
+			contentKey: view.tour.contentKey,
+			status,
+			lastSlide,
+		});
+	} catch (error) {
+		if (error instanceof ApiError && error.status === 409) {
+			const key = view.itemKey;
+			if (tourItemKey === key) {
+				await presentTour(view.kind, key, false, () => tourItemKey !== key);
+			}
+			return;
+		}
+		console.warn(
+			"[ARTIFACT_TOUR] The introduction could not be recorded.",
+			error,
+		);
+	}
+}
+
+function handleTourSeen(lastSlide: number): void {
+	const view = tourView;
+	tourView = null;
+	if (view && !view.replay) void recordTour(view, "completed", lastSlide);
+}
+
+function handleTourDismiss(slide: number): void {
+	const view = tourView;
+	tourView = null;
+	if (view && !view.replay) void recordTour(view, "dismissed", slide);
+}
+
+/** A replay's only way out: nothing was recorded, so nothing is. */
+function handleTourClose(): void {
+	tourView = null;
+}
+
+/** Shows the open item's tour again, whether or not it was seen. Handed to bodies as `onReplayTour` (their empty states link to it). */
+function replayOpenItemTour(): void {
+	const kind = tourItemKind;
+	const key = tourItemKey;
+	if (kind === null || key === null) return;
+	void presentTour(kind, key, true, () => tourItemKey !== key);
+}
+
+/** The list row menu's "How this kind works": open the item, and show its tour once it is the open one. */
+function replayTourFromList(item: DocumentWorkspaceItem): void {
+	rowMenuOpenId = null;
+	pendingTourReplayKey = item.artifactId ?? item.id;
+	selectFromList(item);
+}
 
 // Persist workspace width when it changes
 $effect(() => {
@@ -1541,6 +1725,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				title={getDocumentTitle(menuItem)}
 				anchorTestId={`artifact-row-menu-${menuItem.id}`}
 				regenerable={canRegenerateItem(menuItem)}
+				onReplayTour={tourKindOf(menuItem.kind)
+					? () => replayTourFromList(menuItem)
+					: undefined}
 				initialStage="menu"
 				onConfirm={() => deleteFromList(menuItem)}
 				onClose={() => (rowMenuOpenId = null)}
@@ -1638,6 +1825,27 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			>
 				<History size={18} strokeWidth={2} aria-hidden="true" />
 			</button>
+		{/if}
+	{/snippet}
+
+	<!-- The first-open tour: in the content area above the item, inside the panel's own flow. -->
+	{#snippet tourCard()}
+		{#if tourView && tourView.itemKey === activeBodyKey}
+			<!-- One card per presentation. A card is on its way out for a quarter of a second after it is
+			     left, and an {#if} that turns true again in that time brings the SAME card back, with its
+			     finished state and its slide. A presentation wanted while one is leaving (the copy changed
+			     under the reader, a replay at once) is a new card, at its first slide. -->
+			{#key tourView}
+				{@const Card = tourView.Card}
+				<Card
+					tour={tourView.tour}
+					replay={tourView.replay}
+					animate
+					onSeen={handleTourSeen}
+					onDismiss={handleTourDismiss}
+					onClose={handleTourClose}
+				/>
+			{/key}
 		{/if}
 	{/snippet}
 
@@ -1909,6 +2117,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{/if}
 
 			<div class="workspace-body" data-testid="page-scroll-container-mobile">
+				{#if shouldRenderMobilePreview}
+					{@render tourCard()}
+				{/if}
 				{#if activeArtifactBodyLoader && shouldRenderMobilePreview}
 					{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
 					{#if ArtifactBody}
@@ -1928,6 +2139,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
+								onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
+								tourSummary={bodyTourSummary}
 								{currentUser}
 							/>
 						{/key}
@@ -2225,6 +2438,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{/if}
 
 	<div class="workspace-body" data-testid="page-scroll-container">
+		{#if shouldRenderDesktopPreview}
+			{@render tourCard()}
+		{/if}
 		{#if activeArtifactBodyLoader && shouldRenderDesktopPreview}
 			{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
 			{#if ArtifactBody}
@@ -2244,6 +2460,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
+						onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
+						tourSummary={bodyTourSummary}
 						{currentUser}
 					/>
 				{/key}

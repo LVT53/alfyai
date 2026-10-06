@@ -644,6 +644,20 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	db.insert(schema.artifactTourStates)
+		.values({
+			id: p("tour-state"),
+			userId,
+			artifactType: "canvas",
+			contentKey: "default:1",
+			status: "completed",
+			slideCount: 3,
+			lastSlide: 2,
+			completedAt: now,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
 	db.insert(schema.userConnections)
 		.values({
 			id: p("connection"),
@@ -732,6 +746,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"artifact_chunks",
 				"artifact_comments",
 				"artifact_links",
+				"artifact_tour_states",
 				"artifact_versions",
 				"artifacts",
 				"atlas_jobs",
@@ -1028,6 +1043,40 @@ describe("full account erasure leaves no person-linked survivor", () => {
 		expect(rows.filter((row) => row.artifactId === "erase-me-art")).toEqual([]);
 		// And no collateral damage: the other user's project keeps its file.
 		expect(rows.filter((row) => row.userId === "keep-me")).toHaveLength(1);
+	});
+
+	// Slice 6 (ruling 33): the seen state of a first-open tour is the USER's
+	// data — it follows them across devices, so it is in their export, and it
+	// leaves with them. Read back through the resolver the panel reads, not just
+	// counted: an account that comes back (the same id, or a person who signs
+	// up again) must be shown the tours again, not told it has seen them.
+	it("erases a user's seen tours with the account, spares another user's, and shows an erased user the tours again", async () => {
+		seedEveryUserScopedTable("erase-me");
+		seedEveryUserScopedTable("keep-me");
+		const { getArtifactTour } = await import(
+			"$lib/server/services/artifact-tours"
+		);
+		const seenBefore = async (userId: string) =>
+			(await getArtifactTour({ userId, artifactType: "canvas" }))?.seen;
+		// The seeded row is the one the resolver reads, so a "not seen" afterwards
+		// means the row went, not that the seed missed.
+		expect(await seenBefore("erase-me")).toBe(true);
+		expect(await seenBefore("keep-me")).toBe(true);
+
+		const { eraseUserAccountData } = await import("./index");
+		await eraseUserAccountData("erase-me");
+
+		const { db } = await import("$lib/server/db");
+		const rows = await db
+			.select({
+				id: schema.artifactTourStates.id,
+				userId: schema.artifactTourStates.userId,
+			})
+			.from(schema.artifactTourStates);
+		expect(rows.filter((row) => row.userId === "erase-me")).toEqual([]);
+		expect(rows.filter((row) => row.userId === "keep-me")).toHaveLength(1);
+		expect(await seenBefore("erase-me")).toBe(false);
+		expect(await seenBefore("keep-me")).toBe(true);
 	});
 
 	// F17. The quiesce stopped Atlas and file production but not extraction, so

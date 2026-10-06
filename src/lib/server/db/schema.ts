@@ -2429,6 +2429,48 @@ export const announcementCampaignEvents = sqliteTable(
 	}),
 );
 
+/**
+ * Slice 6 (first-open tours): one row per (user, kind, content) once that
+ * kind's tour is completed or dismissed. No `conversation_id` and no
+ * `artifact_id` on purpose — the row records that a KIND of thing was
+ * explained, never where or in which chat, so it can never become a trace of
+ * a conversation (decisions.md ruling 33). An incognito chat shows no tour at
+ * all, so no row is ever written from one. `content_key` is part of the
+ * unique index so publishing a new campaign snapshot re-shows the tour once
+ * (a new key) while an ordinary reopen does not.
+ */
+export const artifactTourStates = sqliteTable(
+	"artifact_tour_states",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		artifactType: text("artifact_type").notNull(),
+		contentKey: text("content_key").notNull(),
+		status: text("status").notNull(),
+		slideCount: integer("slide_count").notNull(),
+		lastSlide: integer("last_slide").notNull().default(0),
+		completedAt: integer("completed_at", { mode: "timestamp" }),
+		dismissedAt: integer("dismissed_at", { mode: "timestamp" }),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		userTypeContentUniqueIdx: uniqueIndex(
+			"artifact_tour_states_user_type_content_unique_idx",
+		).on(table.userId, table.artifactType, table.contentKey),
+		userTypeIdx: index("artifact_tour_states_user_type_idx").on(
+			table.userId,
+			table.artifactType,
+		),
+	}),
+);
+
 export const personalityProfiles = sqliteTable("personality_profiles", {
 	id: text("id").primaryKey(),
 	name: text("name").notNull().unique(),

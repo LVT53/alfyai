@@ -6,7 +6,7 @@ Published campaigns are immutable. Admins may create and preview draft campaigns
 
 Published campaigns are stored as snapshots separate from editable draft state. The snapshot carries the frozen slide content and asset references used for user display and later audit, so changes to drafts, crop tools, or admin configuration do not alter what was published.
 
-Only one campaign may auto-show in the app shell at a time. First-run onboarding takes precedence for users who have not completed or dismissed the current onboarding version. Release/update campaigns auto-show only after onboarding is no longer pending, and when multiple unseen release campaigns exist, only the latest published one auto-shows. The sidebar App Version Badge opens the latest published campaign in replay mode without resetting completion state or creating a popup queue.
+Only one campaign may auto-show in the app shell at a time. First-run onboarding takes precedence for users who have not completed or dismissed the current onboarding version. Release/update campaigns auto-show only after onboarding is no longer pending, and when multiple unseen release campaigns exist, only the latest published one auto-shows. The sidebar App Version Badge opens the latest published campaign in replay mode without resetting completion state or creating a popup queue. "Campaign" here means an announcement campaign, a first-run onboarding or a release update, whichever was published last: the first-open tour of a kind of item (`artifact_tour`, Feature 2) is never the badge's campaign and never counts as a replay; it shows in that kind's panel.
 
 The App Version Badge shows the Canonical App Version from package metadata rather than an admin-entered current-version setting. Release campaigns may link to that package version, but the deployed app version remains code/package metadata so the sidebar cannot drift away from the running build.
 
@@ -82,7 +82,7 @@ We chose reusable immutable campaigns because onboarding, release announcements,
 - A brand-new user does not see a release/update campaign immediately after onboarding in the same app-load flow.
 - A user who has completed onboarding and has unseen release campaigns sees only the latest unseen published release/update campaign.
 - A user never receives a queue of older release popups through auto-show.
-- Clicking the sidebar App Version Badge opens the latest published campaign in replay mode even if the user already dismissed it.
+- Clicking the sidebar App Version Badge opens the latest published announcement campaign (first-run onboarding or release update, never a tour) in replay mode even if the user already dismissed it.
 - The App Version Badge displays the package-metadata app version rather than an admin-typed current version.
 - The sidebar badge uses a compact major/minor display with full version available on hover or in metadata.
 - Replay mode does not reset completion or dismissal state.

@@ -30,7 +30,7 @@ let {
 	editable?: boolean;
 	attention: SlideMenuAttention;
 	focus?: SlideMenuItem;
-	onChangeKind: (kind: "setup" | "standard") => void;
+	onChangeKind: (kind: "setup" | "standard" | "summary") => void;
 	onChangeRole: (role: "feature" | "data_disclosure") => void;
 	onChangeSetupControls: (controls: string[]) => void;
 	onClose: () => void;
@@ -42,6 +42,19 @@ const SETUP_CONTROL_LABELS: Record<string, string> = {
 	model_default: "admin.campaigns.setupControl.modelDefault",
 	ai_style: "admin.campaigns.setupControl.aiStyle",
 };
+
+// A tour is one Summary slide (the empty-state line) and three Standard ones
+// (its steps). Summary means nothing to any other campaign and Setup nothing to
+// a tour, so each is offered only where it can be used — and never hidden from a
+// slide that already has it, so a state that cannot be published stays visible.
+let isTour = $derived(campaignType === "artifact_tour");
+let layoutOptions = $derived(
+	(["standard", "setup", "summary"] as const).filter(
+		(option) =>
+			option === kind ||
+			(option === "summary" ? isTour : option === "setup" ? !isTour : true),
+	),
+);
 
 // Setup controls are only legal on the setup slide of a first-run campaign —
 // the same rule the server enforces, stated here instead of only failing.
@@ -78,7 +91,7 @@ function toggleControl(control: string, checked: boolean) {
 				{/if}
 			</p>
 			<div class="pill-row">
-				{#each ['standard', 'setup'] as const as option (option)}
+				{#each layoutOptions as option (option)}
 					<button
 						type="button"
 						class="pref-pill"
@@ -88,13 +101,20 @@ function toggleControl(control: string, checked: boolean) {
 					>
 						{option === 'setup'
 							? $t('admin.campaigns.slideKind.setup')
-							: $t('admin.campaigns.slideKind.standard')}
+							: option === 'summary'
+								? $t('admin.campaigns.slideKind.summary')
+								: $t('admin.campaigns.slideKind.standard')}
 					</button>
 				{/each}
 			</div>
-			<p class="option-help">{$t('admin.campaigns.slideLayoutHelp')}</p>
+			{#if !isTour}
+				<p class="option-help">{$t('admin.campaigns.slideLayoutHelp')}</p>
+			{/if}
 		</section>
 
+		<!-- Purpose (data disclosure) and setup controls are first-run onboarding's:
+		     no tour slide uses either. -->
+		{#if !isTour}
 		<section class:focused={focus === 'purpose'}>
 			<p class="option-label">
 				{$t('admin.campaigns.slidePurpose')}
@@ -151,6 +171,7 @@ function toggleControl(control: string, checked: boolean) {
 				{/if}
 			</p>
 		</section>
+		{/if}
 	</div>
 
 	<div class="mt-6 flex justify-end">

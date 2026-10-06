@@ -18,7 +18,7 @@ vi.mock("$lib/server/services/announcement-campaigns", () => {
 		AnnouncementCampaignValidationError,
 		completeCampaignForUser: vi.fn(),
 		getEligibleCampaignForUser: vi.fn(),
-		getLatestPublishedCampaign: vi.fn(),
+		getLatestPublishedAnnouncement: vi.fn(),
 		recordCampaignEvent: vi.fn(),
 	};
 });
@@ -27,7 +27,7 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	completeCampaignForUser,
 	getEligibleCampaignForUser,
-	getLatestPublishedCampaign,
+	getLatestPublishedAnnouncement,
 	recordCampaignEvent,
 } from "$lib/server/services/announcement-campaigns";
 import { POST as COMPLETE } from "./[id]/complete/+server";
@@ -39,9 +39,8 @@ const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetEligibleCampaignForUser = getEligibleCampaignForUser as ReturnType<
 	typeof vi.fn
 >;
-const mockGetLatestPublishedCampaign = getLatestPublishedCampaign as ReturnType<
-	typeof vi.fn
->;
+const mockGetLatestPublishedAnnouncement =
+	getLatestPublishedAnnouncement as ReturnType<typeof vi.fn>;
 const mockRecordCampaignEvent = recordCampaignEvent as ReturnType<typeof vi.fn>;
 const mockCompleteCampaignForUser = completeCampaignForUser as ReturnType<
 	typeof vi.fn
@@ -85,7 +84,7 @@ describe("user announcement campaign routes", () => {
 	});
 
 	it("returns the latest published campaign for replay without checking completion state", async () => {
-		mockGetLatestPublishedCampaign.mockResolvedValue({
+		mockGetLatestPublishedAnnouncement.mockResolvedValue({
 			id: "campaign-2",
 			type: "release_update",
 		});
@@ -99,7 +98,20 @@ describe("user announcement campaign routes", () => {
 		expect(body).toEqual({
 			campaign: { id: "campaign-2", type: "release_update" },
 		});
-		expect(mockGetLatestPublishedCampaign).toHaveBeenCalledTimes(1);
+		expect(mockGetLatestPublishedAnnouncement).toHaveBeenCalledTimes(1);
+	});
+
+	it("asks the announcement reader for the badge, never a reader that takes any campaign", async () => {
+		mockGetLatestPublishedAnnouncement.mockResolvedValue(null);
+
+		await LATEST(makeEvent() as unknown as Parameters<typeof LATEST>[0]);
+
+		// A published first-open tour must not become the version badge's
+		// campaign (ruling 32): the reader the route calls knows the badge is for
+		// announcements (a first-run onboarding or a release note), so there is no
+		// argument here that could name a tour. The rule itself is the service's,
+		// held by announcement-campaigns.test.ts.
+		expect(mockGetLatestPublishedAnnouncement).toHaveBeenCalledWith();
 	});
 
 	it("records campaign events for the current user", async () => {

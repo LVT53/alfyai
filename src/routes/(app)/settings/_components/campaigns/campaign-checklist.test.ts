@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import settingsDict from "$lib/i18n/settings";
 import {
 	type ChecklistCampaign,
 	type ChecklistSlide,
@@ -344,6 +345,245 @@ describe("slide-level lookups", () => {
 		expect(slideMenuAttention(misplaced, "s1")).toMatchObject({
 			setupControls: true,
 			any: true,
+		});
+	});
+});
+
+describe("artifact_tour slide shape (Slice 6)", () => {
+	function tourSlides(
+		overrides: Partial<
+			Record<"summary" | "1" | "2" | "3", Partial<ChecklistSlide>>
+		> = {},
+	): ChecklistSlide[] {
+		return [
+			slide({
+				localId: "summary",
+				kind: "summary",
+				sortOrder: 1,
+				...overrides.summary,
+			}),
+			slide({
+				localId: "s1",
+				kind: "standard",
+				sortOrder: 2,
+				...overrides["1"],
+			}),
+			slide({
+				localId: "s2",
+				kind: "standard",
+				sortOrder: 3,
+				...overrides["2"],
+			}),
+			slide({
+				localId: "s3",
+				kind: "standard",
+				sortOrder: 4,
+				...overrides["3"],
+			}),
+		];
+	}
+
+	it("lets the client check a tour with one summary and three standard slides", () => {
+		const checklist = evaluateCampaignChecklist(
+			campaign({
+				type: "artifact_tour",
+				releaseVersion: "canvas",
+				slides: tourSlides(),
+			}),
+		);
+		expect(checklist.ready).toBe(true);
+		expect(
+			checklist.rules.find((rule) => rule.id === "tourShape")?.passed,
+		).toBe(true);
+	});
+
+	it("blocks publishing a tour whose summary slide is missing", () => {
+		const slides = tourSlides();
+		slides[0] = { ...slides[0], kind: "standard" };
+		const checklist = evaluateCampaignChecklist(
+			campaign({ type: "artifact_tour", releaseVersion: "canvas", slides }),
+		);
+		expect(checklist.ready).toBe(false);
+		expect(
+			checklist.failures.some((failure) => failure.ruleId === "tourShape"),
+		).toBe(true);
+	});
+
+	it("blocks a tour with the wrong slide count", () => {
+		const checklist = evaluateCampaignChecklist(
+			campaign({
+				type: "artifact_tour",
+				releaseVersion: "canvas",
+				slides: tourSlides().slice(0, 3),
+			}),
+		);
+		expect(checklist.ready).toBe(false);
+		expect(
+			checklist.failures.some((failure) => failure.ruleId === "tourShape"),
+		).toBe(true);
+	});
+
+	it("does not evaluate the tour shape rule for other campaign types", () => {
+		const checklist = evaluateCampaignChecklist(
+			campaign({ type: "release_update", slides: [slide()] }),
+		);
+		expect(checklist.rules.some((rule) => rule.id === "tourShape")).toBe(false);
+	});
+
+	it("lets the type gate and the layout gate both pass a well-shaped tour", () => {
+		// The type gate accepts artifact_tour, and the layout gate accepts a
+		// `summary` slide on it (the picker widening in SlideOptionsDialog.svelte
+		// mirrors this), so a well-shaped tour is never blocked by the two enum
+		// gates before it even reaches the shape rule.
+		const checklist = evaluateCampaignChecklist(
+			campaign({
+				type: "artifact_tour",
+				releaseVersion: "canvas",
+				slides: tourSlides(),
+			}),
+		);
+		expect(checklist.rules.find((rule) => rule.id === "type")?.passed).toBe(
+			true,
+		);
+		expect(checklist.rules.find((rule) => rule.id === "layout")?.passed).toBe(
+			true,
+		);
+	});
+
+	// RC-T I-2, the mirror of the server's rule: a tour's summary slide is the
+	// line an empty item shows, so its title is required and its body is not.
+	describe("a tour's summary slide is one bare line", () => {
+		const tour = (slides: ChecklistSlide[]) =>
+			evaluateCampaignChecklist(
+				campaign({
+					type: "artifact_tour",
+					releaseVersion: "canvas",
+					slides,
+				}),
+			);
+
+		it("lets a tour through whose summary slide has no body in either language", () => {
+			const checklist = tour(
+				tourSlides({ summary: { bodyEn: "", bodyHu: "" } }),
+			);
+			expect(checklist.ready).toBe(true);
+			expect(checklist.failures).toEqual([]);
+		});
+
+		it("still wants the summary title in both languages", () => {
+			const checklist = tour(
+				tourSlides({ summary: { titleHu: "", bodyEn: "", bodyHu: "" } }),
+			);
+			expect(checklist.ready).toBe(false);
+			expect(
+				checklist.failures.map((failure) => [
+					failure.slideLocalId,
+					failure.field,
+					failure.locale,
+				]),
+			).toEqual([["summary", "title", "hu"]]);
+		});
+
+		it("still wants a body on each step of the tour", () => {
+			const checklist = tour(tourSlides({ "2": { bodyHu: "" } }));
+			expect(checklist.ready).toBe(false);
+			expect(
+				checklist.failures.map((failure) => [
+					failure.slideLocalId,
+					failure.field,
+					failure.locale,
+				]),
+			).toEqual([["s2", "body", "hu"]]);
+		});
+
+		it("keeps asking a release note's summary-layout slide for its body", () => {
+			const checklist = evaluateCampaignChecklist(
+				campaign({
+					type: "release_update",
+					slides: [slide({ kind: "summary", bodyEn: "", bodyHu: "" })],
+				}),
+			);
+			expect(checklist.ready).toBe(false);
+			expect(
+				checklist.failures.map((failure) => [failure.field, failure.locale]),
+			).toEqual([
+				["body", "en"],
+				["body", "hu"],
+			]);
+		});
+	});
+
+	// Ruling 71: the mirror of the server's `tourKind` rule
+	// (announcement-campaigns.ts `validatePublishInput`). A tour is found by its
+	// release text, which must be a kind whose tour ships.
+	describe("the kind a tour introduces", () => {
+		const kindRule = (releaseVersion: string) =>
+			evaluateCampaignChecklist(
+				campaign({
+					type: "artifact_tour",
+					releaseVersion,
+					slides: tourSlides(),
+				}),
+			);
+
+		it("lets each kind that ships through, and names the rule among the passing ones", () => {
+			for (const kind of ["document", "app", "canvas"]) {
+				const checklist = kindRule(kind);
+				expect(checklist.ready).toBe(true);
+				expect(
+					checklist.rules.find((rule) => rule.id === "tourKind")?.passed,
+				).toBe(true);
+			}
+		});
+
+		it("blocks a tour whose release is not a kind that ships", () => {
+			for (const release of ["2.1.0", "slides", "file", "Canvas", "", "  "]) {
+				const checklist = kindRule(release);
+				expect(checklist.ready, `release "${release}"`).toBe(false);
+				expect(
+					checklist.failures.filter((failure) => failure.ruleId === "tourKind"),
+				).toEqual([
+					{
+						ruleId: "tourKind",
+						path: "tourKind",
+						messageKey: "admin.campaigns.validation.tourKindInvalid",
+					},
+				]);
+			}
+		});
+
+		it("fails only this rule when only the kind is wrong", () => {
+			const checklist = kindRule("2.1.0");
+			expect(
+				checklist.rules.filter((rule) => !rule.passed).map((rule) => rule.id),
+			).toEqual(["tourKind"]);
+		});
+
+		it("is not asked of any other campaign type", () => {
+			for (const type of ["release_update", "first_run_onboarding"]) {
+				const checklist = evaluateCampaignChecklist(
+					campaign({ type, releaseVersion: "2.1.0", slides: [slide()] }),
+				);
+				expect(checklist.rules.some((rule) => rule.id === "tourKind")).toBe(
+					false,
+				);
+			}
+		});
+
+		it("says what is wrong in both languages, in the list, the sentence and the passing label", () => {
+			const failing = summarizeFailures(kindRule("2.1.0"));
+			expect(failing.map((row) => row.ruleId)).toEqual(["tourKind"]);
+			const keys = [
+				failing[0]?.labelKey,
+				checklistRuleLabelKey("tourKind"),
+				"admin.campaigns.validation.tourKindInvalid",
+			] as string[];
+			for (const key of keys) {
+				for (const language of ["en", "hu"] as const) {
+					const dictionary = settingsDict[language] as Record<string, string>;
+					expect(dictionary[key], `${language} ${key}`).toBeTruthy();
+				}
+			}
 		});
 	});
 });

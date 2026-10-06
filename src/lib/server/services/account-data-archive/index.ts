@@ -9,6 +9,7 @@ import {
 	artifactComments,
 	artifactKv,
 	artifacts,
+	artifactTourStates,
 	artifactVersions,
 	chatGeneratedFiles,
 	conversations,
@@ -24,6 +25,10 @@ import {
 } from "$lib/server/db/schema";
 import { verifyPassword } from "$lib/server/services/auth";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import {
+	isShippedArtifactTourType,
+	type ShippedArtifactTourType,
+} from "$lib/shared/artifacts/tours";
 import { escapeHtml, renderArchiveEntryPage, renderArchivePage } from "./html";
 
 export type AccountDataArchiveResult =
@@ -111,6 +116,7 @@ export async function createAccountDataArchive(
 		generatedFileRows,
 		taskStateRows,
 		memoryEventRows,
+		artifactTourStateRows,
 		skillRows,
 		importJobRows,
 		usageRows,
@@ -127,6 +133,7 @@ export async function createAccountDataArchive(
 		listGeneratedFiles(database, userId),
 		listTaskStates(database, userId),
 		listMemoryBehaviorEvents(database, userId),
+		listArtifactTourStates(database, userId),
 		listUserSkills(database, userId),
 		listImportJobs(database, userId),
 		listUsageEvents(database, userId),
@@ -162,7 +169,11 @@ export async function createAccountDataArchive(
 		(row) => row.type === "skill_note",
 	);
 
-	await addProfileSection(archive, { user, rootDir });
+	await addProfileSection(archive, {
+		user,
+		rootDir,
+		tourStates: artifactTourStateRows,
+	});
 	addProjectsSection(archive, {
 		projectRows,
 		filesByProjectId: groupProjectFileNames(projectFileRows),
@@ -257,6 +268,7 @@ async function addProfileSection(
 	params: {
 		user: typeof users.$inferSelect;
 		rootDir: string;
+		tourStates: Array<typeof artifactTourStates.$inferSelect>;
 	},
 ) {
 	let avatarMarkup = "";
@@ -298,7 +310,9 @@ async function addProfileSection(
 		renderArchivePage({
 			title: "Profile",
 			subtitle: "Account facts and preferences included in this archive.",
-			body: `${avatarMarkup}${renderTable(profileRows)}`,
+			// The introductions the user has seen are a fact about the account, so
+			// they sit with it and not with what the app remembers.
+			body: `${avatarMarkup}${renderTable(profileRows)}${renderArtifactTourStates(params.tourStates)}`,
 		}),
 	);
 }
@@ -1187,6 +1201,14 @@ async function listMemoryBehaviorEvents(database: ArchiveDb, userId: string) {
 		.orderBy(asc(memoryEvents.observedAt));
 }
 
+async function listArtifactTourStates(database: ArchiveDb, userId: string) {
+	return database
+		.select()
+		.from(artifactTourStates)
+		.where(eq(artifactTourStates.userId, userId))
+		.orderBy(desc(artifactTourStates.updatedAt));
+}
+
 async function listUserSkills(database: ArchiveDb, userId: string) {
 	return database
 		.select()
@@ -1265,6 +1287,39 @@ function renderMemoryEvents(rows: Array<typeof memoryEvents.$inferSelect>) {
 			row.eventType,
 			memoryEventSummary(row),
 			formatDateTime(row.observedAt),
+		]),
+	)}</section>`;
+}
+
+/** Kind labels for the first-open tour, in the same words the app itself
+ *  uses (`artifacts.type.*`, Slice 0) — never "artifact" (ADR-0066). Keyed by
+ *  the kinds whose tour ships (ruling 69): a row for any other kind cannot be
+ *  written, and if one ever turned up it reads as the stored word, so the
+ *  archive never names a kind the product does not offer. */
+const ARTIFACT_TOUR_KIND_LABELS: Record<ShippedArtifactTourType, string> = {
+	document: "Document",
+	app: "App",
+	canvas: "Canvas",
+};
+
+/**
+ * Feature introductions the user has already seen. The row names only a
+ * kind and a completed/dismissed status — no conversation id, no artifact
+ * id, and the raw `content_key` is deliberately left off this page, since it
+ * identifies a campaign snapshot rather than anything the user wrote or read
+ * (decisions.md ruling 33).
+ */
+function renderArtifactTourStates(
+	rows: Array<typeof artifactTourStates.$inferSelect>,
+) {
+	if (rows.length === 0) return "";
+	return `<section><h2>Feature introductions seen</h2>${renderTable(
+		rows.map((row) => [
+			isShippedArtifactTourType(row.artifactType)
+				? ARTIFACT_TOUR_KIND_LABELS[row.artifactType]
+				: row.artifactType,
+			row.status,
+			formatDateTime(row.completedAt ?? row.dismissedAt),
 		]),
 	)}</section>`;
 }

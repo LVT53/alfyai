@@ -5,6 +5,12 @@ export type SlideRailItem = {
 	thumbnailUrl: string | null;
 	failing: boolean;
 	isSetup: boolean;
+	/** What stands where the slide's number does; "" for none. A tour's steps are 1, 2, 3 and its summary slide has no number. */
+	label?: string;
+	/** A word after the title, instead of the setup tag. */
+	tag?: string | null;
+	/** False for a slide that can have no picture (a tour's), so the rail holds no empty picture slot for it. */
+	picture?: boolean;
 };
 </script>
 
@@ -40,17 +46,21 @@ let {
 				data-testid="admin-campaign-slide-thumb"
 				onclick={() => onSelect(index)}
 			>
-				<span class="thumb">
-					{#if slide.thumbnailUrl}
-						<img src={slide.thumbnailUrl} alt="" loading="lazy" />
-					{:else}
-						<span class="thumb-empty"><ImageIcon size={16} strokeWidth={1.8} aria-hidden="true" /></span>
-					{/if}
-				</span>
+				{#if slide.picture !== false}
+					<span class="thumb">
+						{#if slide.thumbnailUrl}
+							<img src={slide.thumbnailUrl} alt="" loading="lazy" />
+						{:else}
+							<span class="thumb-empty"><ImageIcon size={16} strokeWidth={1.8} aria-hidden="true" /></span>
+						{/if}
+					</span>
+				{/if}
 				<span class="slide-item-row">
-					<span class="slide-index">{index + 1}</span>
+					{#if slide.label !== ''}
+						<span class="slide-index">{slide.label ?? index + 1}</span>
+					{/if}
 					<span class="slide-title">{slide.title}</span>
-					{#if slide.isSetup}
+					{#if slide.isSetup && !slide.tag}
 						<span class="setup-tag">{$t('admin.campaigns.slideKind.setup')}</span>
 					{/if}
 					{#if slide.failing}
@@ -59,6 +69,10 @@ let {
 						</span>
 					{/if}
 				</span>
+				<!-- Under the title, not beside it: the column is too narrow to share a line with a word. -->
+				{#if slide.tag}
+					<span class="setup-tag slide-tag">{slide.tag}</span>
+				{/if}
 			</button>
 		{/each}
 
@@ -197,6 +211,10 @@ let {
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-sm);
 		padding: 0 3px;
+	}
+
+	.slide-tag {
+		align-self: flex-start;
 	}
 
 	.slide-warning {
