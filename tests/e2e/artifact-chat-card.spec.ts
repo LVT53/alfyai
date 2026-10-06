@@ -539,6 +539,102 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			}
 		}
 	});
+
+	// Slice 5b · T4 (rulings 6, 7): what a turn made is listed in the message's
+	// Sources panel, named by its kind, and the row opens it. The owner reads
+	// Hungarian, so the language is part of what is checked: the row says
+	// "Dokumentum", the group says "Ebben a beszélgetésben készült".
+	test("a Document the turn made is listed in the message's Sources, and its row opens it", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		await db
+			.update(users)
+			.set({ uiLanguage: "hu" })
+			.where(eq(users.email, "admin@local"));
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a weekend");
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+			await openChatAndReload(page, conversationId);
+
+			await sendMessage(page, AI_SMOKE_CREATE_ARTIFACT_MARKER);
+			await expect(
+				page.getByText(AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			// The evidence is written after the turn ends and the page polls for it:
+			// the message gets its Sources toggle without a reload.
+			const sources = page.getByRole("button", { name: /^Források/ });
+			await expect(sources).toBeVisible({ timeout: 30_000 });
+			await expect(sources).toHaveAttribute("aria-expanded", "false");
+			await sources.click();
+			await expect(sources).toHaveAttribute("aria-expanded", "true");
+
+			await expect(
+				page.getByRole("heading", { name: "Ebben a beszélgetésben készült" }),
+			).toBeVisible();
+			// The chat card above is named the same, so the row is found in its group.
+			const made = page.getByRole("group", {
+				name: "Ebben a beszélgetésben készült",
+			});
+			const row = made.getByRole("button", {
+				name: new RegExp(`${AI_SMOKE_CREATE_ARTIFACT_TITLE}.*Dokumentum`),
+			});
+			await expect(row).toBeVisible();
+			await expect(row.getByText("Dokumentum", { exact: true })).toBeVisible();
+			// The Document's own icon, not the generic file one.
+			await expect(row.locator("svg.lucide-square-pen")).toBeVisible();
+			await expect(row.locator("svg.lucide-file-text")).toHaveCount(0);
+
+			// Nothing is open yet; the click opens exactly this Document.
+			await expect(
+				page.getByRole("complementary", { name: /, Dokumentum$/ }),
+			).toHaveCount(0);
+			await row.click();
+			const workspace = page.getByRole("complementary", {
+				name: new RegExp(`${AI_SMOKE_CREATE_ARTIFACT_TITLE}, Dokumentum$`),
+			});
+			await expect(workspace).toBeVisible({ timeout: 30_000 });
+			await expect(workspace.getByText("Book the museum tickets.")).toBeVisible(
+				{ timeout: 30_000 },
+			);
+
+			// It is still there after a reload: the group is persisted with the
+			// message, not a live-only state.
+			await page.reload({ waitUntil: "networkidle" });
+			const sourcesAfterReload = page.getByRole("button", {
+				name: /^Források/,
+			});
+			await sourcesAfterReload.click();
+			await expect(
+				page
+					.getByRole("group", { name: "Ebben a beszélgetésben készült" })
+					.getByRole("button", {
+						name: new RegExp(`${AI_SMOKE_CREATE_ARTIFACT_TITLE}.*Dokumentum`),
+					}),
+			).toBeVisible();
+		} finally {
+			await db
+				.update(users)
+				.set({ uiLanguage: "en" })
+				.where(eq(users.email, "admin@local"));
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
 });
 
 // Sanity: the scripted markdown really does contain the sentence the panel

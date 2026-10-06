@@ -17,11 +17,13 @@ import { runUserMemoryMaintenance } from "$lib/server/services/memory-maintenanc
 import {
 	buildAssistantEvidenceSummary,
 	countProjectFilesRead,
+	type TurnArtifactRef,
 } from "$lib/server/services/message-evidence";
 import {
 	updateMessageEvidence,
 	updateMessageWebCitationAudit,
 } from "$lib/server/services/messages";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	attachContinuityToTaskState,
 	getContextDebugState,
@@ -31,6 +33,8 @@ import {
 import { buildWebCitationAudit } from "$lib/server/services/web-citation-audit";
 import { extractCitedCanonicalWebUrls } from "$lib/server/services/web-grounding";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
+import { artifactCallOf } from "$lib/shared/artifacts/artifact-calls";
+import { isShippedArtifactTourType } from "$lib/shared/artifacts/tours";
 import { persistAssistantRailSummary } from "./rail-summary";
 import {
 	type PersistAssistantEvidenceParams,
@@ -244,6 +248,39 @@ export async function persistAssistantTurnState(
 	};
 }
 
+/**
+ * What the turn made or changed, read off its own finished create_artifact /
+ * edit_artifact calls — nothing is queried, so the row is a record of what the
+ * turn did even for an item deleted since (its open path then says so, as the
+ * chat card does, and Regenerate brings it back under the same id). One entry
+ * per item, in the order the turn first touched it. The kind is the one the
+ * tool wrote on a call that succeeded; only a kind that ships is named, so a
+ * produced file (ruling 18) and Slides (ruling 69) are never listed.
+ */
+function turnArtifactsFromToolCalls(
+	toolCalls: readonly ToolCallEntry[],
+): TurnArtifactRef[] {
+	const made = new Map<string, TurnArtifactRef>();
+	for (const call of toolCalls) {
+		const artifactCall = artifactCallOf(call);
+		if (!artifactCall) continue;
+		const { artifactKind, artifactTitle } = call.metadata ?? {};
+		if (!isShippedArtifactTourType(artifactKind)) continue;
+		const title =
+			(typeof artifactTitle === "string" ? artifactTitle.trim() : "") ||
+			(typeof artifactCall.input.title === "string"
+				? artifactCall.input.title.trim()
+				: "");
+		if (!title) continue;
+		made.set(artifactCall.artifactId, {
+			artifactId: artifactCall.artifactId,
+			artifactKind,
+			title,
+		});
+	}
+	return [...made.values()];
+}
+
 export async function persistAssistantEvidence(
 	params: PersistAssistantEvidenceParams,
 ): Promise<void> {
@@ -281,6 +318,7 @@ export async function persistAssistantEvidence(
 			currentAttachments,
 			citedCanonicalWebUrls,
 			projectFiles,
+			turnArtifacts: turnArtifactsFromToolCalls(doneToolCalls),
 		});
 		const webCitationAudit =
 			params.webCitationAudit === undefined

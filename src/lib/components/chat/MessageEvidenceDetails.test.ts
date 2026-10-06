@@ -6,7 +6,11 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { MessageEvidenceSummary } from "$lib/server/services/message-evidence";
+import type {
+	MessageEvidenceItem,
+	MessageEvidenceSummary,
+} from "$lib/server/services/message-evidence";
+import { uiLanguage } from "$lib/stores/settings";
 import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
 
 const {
@@ -948,5 +952,288 @@ describe("MessageEvidenceDetails", () => {
 		// And the next request opens it again (each increment is one open).
 		await rerender({ evidenceSummary, expandRequest: 2 });
 		expect(toggle()).toHaveAttribute("aria-expanded", "true");
+	});
+});
+
+// Rulings 6 and 7: what the turn made or changed is listed in the Sources panel
+// under its own heading, each row named by its kind (`artifacts.type.*`) and
+// opened through the same path a chat card uses.
+describe("MessageEvidenceDetails — what the turn made", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+	});
+
+	function made(
+		id: string,
+		title: string,
+		artifactKind: string | null,
+	): MessageEvidenceItem {
+		return {
+			id,
+			title,
+			sourceType: "artifact",
+			status: "reference",
+			artifactId: id,
+			description: null,
+			channels: ["tool"],
+			metadata: artifactKind ? { artifactKind } : undefined,
+		};
+	}
+
+	function madeSummary(
+		...items: MessageEvidenceItem[]
+	): MessageEvidenceSummary {
+		return buildSummary({
+			groups: [
+				{
+					sourceType: "artifact",
+					label: "Made in this chat",
+					reranked: false,
+					items,
+				},
+			],
+		});
+	}
+
+	async function openSources() {
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Sources|Források/ }),
+		);
+	}
+
+	it("renders a made item as a button that opens it through the page's open path", async () => {
+		const onOpenDocument = vi.fn();
+		render(MessageEvidenceDetails, {
+			evidenceSummary: madeSummary(made("doc-1", "Weekend plan", "document")),
+			onOpenDocument,
+		});
+		await openSources();
+
+		await fireEvent.click(screen.getByRole("button", { name: /Weekend plan/ }));
+
+		expect(onOpenDocument).toHaveBeenCalledTimes(1);
+		// kind is what sends the page's open path through the artifact read, so a
+		// deleted item shows the deleted state the chat card shows.
+		expect(onOpenDocument.mock.calls[0][0]).toMatchObject({
+			id: "artifact:doc-1",
+			source: "knowledge_artifact",
+			title: "Weekend plan",
+			artifactId: "doc-1",
+			kind: "document",
+		});
+	});
+
+	it("puts the rows under the Made in this chat heading and names each by its kind, in English", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: madeSummary(
+				made("doc-1", "Weekend plan", "document"),
+				made("app-1", "Budget tracker", "app"),
+				made("board-1", "Trip board", "canvas"),
+			),
+			onOpenDocument: vi.fn(),
+		});
+		await openSources();
+
+		expect(
+			screen.getByRole("heading", { name: "Made in this chat" }),
+		).toBeInTheDocument();
+		const rows = [
+			["Weekend plan", "Document"],
+			["Budget tracker", "App"],
+			["Trip board", "Canvas"],
+		];
+		for (const [title, kindWord] of rows) {
+			const row = screen
+				.getByText(title)
+				.closest(".evidence-row") as HTMLElement;
+			expect(within(row).getByText(kindWord)).toBeInTheDocument();
+		}
+	});
+
+	it("names each row by its kind, and the heading, in Hungarian", async () => {
+		uiLanguage.set("hu");
+		render(MessageEvidenceDetails, {
+			evidenceSummary: madeSummary(
+				made("doc-1", "Hétvégi terv", "document"),
+				made("app-1", "Költségvetés", "app"),
+				made("board-1", "Utazási tábla", "canvas"),
+			),
+			onOpenDocument: vi.fn(),
+		});
+		await openSources();
+
+		expect(
+			screen.getByRole("heading", { name: "Ebben a beszélgetésben készült" }),
+		).toBeInTheDocument();
+		const rows = [
+			["Hétvégi terv", "Dokumentum"],
+			["Költségvetés", "Alkalmazás"],
+			["Utazási tábla", "Tábla"],
+		];
+		for (const [title, kindWord] of rows) {
+			const row = screen
+				.getByText(title)
+				.closest(".evidence-row") as HTMLElement;
+			expect(within(row).getByText(kindWord)).toBeInTheDocument();
+		}
+	});
+
+	it("draws the kind's own icon, not the generic document icon", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: buildSummary({
+				groups: [
+					{
+						sourceType: "document",
+						label: "Documents",
+						reranked: false,
+						items: [
+							{
+								id: "e-1",
+								title: "Quarterly report",
+								sourceType: "document",
+								status: "selected",
+							},
+						],
+					},
+					{
+						sourceType: "artifact",
+						label: "Made in this chat",
+						reranked: false,
+						items: [
+							made("doc-1", "Weekend plan", "document"),
+							made("app-1", "Budget tracker", "app"),
+							made("board-1", "Trip board", "canvas"),
+						],
+					},
+				],
+			}),
+			onOpenDocument: vi.fn(),
+		});
+		await openSources();
+
+		const iconClass = (title: string) =>
+			(
+				screen
+					.getByText(title)
+					.closest(".evidence-row")
+					?.querySelector("svg.evidence-type-icon") as SVGElement | null
+			)?.getAttribute("class") ?? "";
+		const retrieved = iconClass("Quarterly report");
+		expect(retrieved).toContain("lucide-file-text");
+		expect(iconClass("Weekend plan")).toContain("lucide-square-pen");
+		expect(iconClass("Budget tracker")).toContain("lucide-app-window");
+		expect(iconClass("Trip board")).toContain("lucide-shapes");
+		for (const title of ["Weekend plan", "Budget tracker", "Trip board"]) {
+			expect(iconClass(title)).not.toContain("lucide-file-text");
+		}
+	});
+
+	it("keeps made items out of the citation buckets and the considered/used counts", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: buildSummary({
+				groups: [
+					{
+						sourceType: "web",
+						label: "Web Search",
+						reranked: false,
+						items: [
+							{
+								id: "w1",
+								title: "Museum hours",
+								url: "https://example.com/museum",
+								sourceType: "web",
+								status: "selected",
+							},
+						],
+					},
+					{
+						sourceType: "artifact",
+						label: "Made in this chat",
+						reranked: false,
+						items: [made("doc-1", "Weekend plan", "document")],
+					},
+				],
+			}),
+			onOpenDocument: vi.fn(),
+		});
+		await openSources();
+
+		expect(screen.getByText("· 1 considered, 1 used")).toBeInTheDocument();
+		expect(screen.getByText("Cited by the answer (1)")).toBeInTheDocument();
+		// "Also found" is for what the turn retrieved; what it made is not that.
+		expect(screen.queryByText(/Also found/)).toBeNull();
+		expect(
+			screen.getByRole("heading", { name: "Made in this chat" }),
+		).toBeInTheDocument();
+	});
+
+	it("says nothing was considered only when something was: a turn that only made an item has no considered/used line", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: madeSummary(made("doc-1", "Weekend plan", "document")),
+			onOpenDocument: vi.fn(),
+		});
+		await openSources();
+
+		expect(screen.queryByText(/considered/)).toBeNull();
+		expect(screen.queryByText(/Cited by the answer/)).toBeNull();
+		expect(screen.getByText("Weekend plan")).toBeInTheDocument();
+	});
+
+	it("shows no such heading for a stored summary that has no made group", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: buildSummary({
+				groups: [
+					{
+						sourceType: "document",
+						label: "Documents",
+						reranked: false,
+						items: [
+							{
+								id: "e-1",
+								title: "Quarterly report",
+								sourceType: "document",
+								status: "selected",
+								artifactId: "artifact-1",
+							},
+						],
+					},
+				],
+			}),
+			onOpenDocument: vi.fn(),
+		});
+		await openSources();
+
+		expect(screen.queryByText("Made in this chat")).toBeNull();
+		expect(screen.getByText("Quarterly report")).toBeInTheDocument();
+	});
+
+	it("draws a made row as plain text when the page gave no way to open it, and still names its kind", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: madeSummary(made("doc-1", "Weekend plan", "document")),
+		});
+		await openSources();
+
+		expect(screen.queryByRole("button", { name: /Weekend plan/ })).toBeNull();
+		const row = screen
+			.getByText("Weekend plan")
+			.closest(".evidence-row") as HTMLElement;
+		expect(within(row).getByText("Document")).toBeInTheDocument();
+	});
+
+	it("does not offer to open a made row that names no kind it can draw", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: madeSummary(
+				made("odd-1", "Something odd", null),
+				made("odd-2", "Another odd one", "toString"),
+			),
+			onOpenDocument: vi.fn(),
+		});
+		await openSources();
+
+		expect(screen.queryByRole("button", { name: /Something odd/ })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: /Another odd one/ }),
+		).toBeNull();
+		expect(screen.getByText("Something odd")).toBeInTheDocument();
 	});
 });

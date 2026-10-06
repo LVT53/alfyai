@@ -11,7 +11,10 @@ import {
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
-import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
+import {
+	createDocumentArtifact,
+	deleteArtifact,
+} from "../../src/lib/server/services/artifacts";
 import { createConversationFork } from "../../src/lib/server/services/conversation-forks";
 import { createConversation, login, workspacePanel } from "./helpers";
 
@@ -164,6 +167,110 @@ test.describe("Delete and Regenerate — a Document made by create_artifact", ()
 		await expect(
 			workspacePanel(page).getByText("Book the museum tickets."),
 		).toBeVisible({ timeout: 30_000 });
+	});
+});
+
+// Slice 5b · T4: the Sources panel's "Made in this chat" row opens through the
+// same path a chat card's Open does, so an item that is gone shows the deleted
+// state the card shows — it does not open an empty panel.
+test.describe("A Sources row of an item that was deleted", () => {
+	test("flips the card to deleted, says so, and opens nothing", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		const made = await createDocumentArtifact({
+			userId: uid,
+			conversationId,
+			title: CREATED_TITLE,
+			markdown: CREATED_BODY,
+			author: "alfy",
+			summary: "Alfy wrote the first draft",
+		});
+		// The message the turn left: the call that made the Document, and the
+		// evidence written after it (what the evidence step persists for it).
+		await db.insert(messages).values({
+			id: randomUUID(),
+			conversationId,
+			messageSequence: 900,
+			role: "assistant",
+			content: "Made the document.",
+			toolCalls: JSON.stringify([
+				{
+					type: "tool_call",
+					callId: "e2e-create-call",
+					name: "create_artifact",
+					input: {
+						artifactType: "document",
+						title: CREATED_TITLE,
+						body: CREATED_BODY,
+					},
+					status: "done",
+					outputSummary: `Created Document "${CREATED_TITLE}"`,
+					sourceType: "tool",
+					metadata: {
+						ok: true,
+						artifactId: made.id,
+						artifactKind: "document",
+						artifactTitle: CREATED_TITLE,
+					},
+				},
+			]),
+			metadataJson: JSON.stringify({
+				evidenceStatus: "ready",
+				evidenceSummary: {
+					structuredWebSearch: false,
+					groups: [
+						{
+							sourceType: "artifact",
+							label: "Made in this chat",
+							reranked: false,
+							items: [
+								{
+									id: made.id,
+									title: CREATED_TITLE,
+									sourceType: "artifact",
+									status: "reference",
+									artifactId: made.id,
+									description: null,
+									channels: ["tool"],
+									metadata: { artifactKind: "document" },
+								},
+							],
+						},
+					],
+				},
+			}),
+			createdAt: new Date(),
+		});
+		await openChatAndReload(page, conversationId);
+		await expect(page.getByTestId("artifact-card")).not.toHaveAttribute(
+			"data-state",
+			"deleted",
+		);
+		await page.getByRole("button", { name: /^Sources/ }).click();
+		const row = page
+			.getByRole("group", { name: "Made in this chat" })
+			.getByRole("button", { name: /Weekend plan/ });
+		await expect(row).toBeVisible();
+
+		// Deleted elsewhere (another tab, the library) after this page loaded.
+		const deleted = await deleteArtifact({
+			userId: uid,
+			artifactId: made.id,
+			conversationId,
+		});
+		expect(deleted.ok).toBe(true);
+
+		await row.click();
+
+		await expect(page.getByTestId("artifact-card")).toHaveAttribute(
+			"data-state",
+			"deleted",
+		);
+		await expect(workspacePanel(page)).toHaveCount(0);
+		await expect(page.getByTestId("workspace-main")).toBeHidden();
 	});
 });
 
