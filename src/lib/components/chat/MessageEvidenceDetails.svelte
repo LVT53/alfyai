@@ -74,7 +74,9 @@ let container = $state<HTMLDivElement | null>(null);
 //   selected  → "Cited by the answer" (the answer actually cited this source)
 //   reference → "Also found" (retrieved, informed context, but not cited)
 //   rejected  → "Set aside" (only surfaces in the zero-citation fallback)
-let everyItem = $derived(evidenceSummary.groups.flatMap((group) => group.items));
+let everyItem = $derived(
+	evidenceSummary.groups.flatMap((group) => group.items),
+);
 // What the turn made or changed is listed under its own heading, after the
 // sources: it is not something the answer cited or the turn found, so it is
 // neither in those buckets nor among what was "considered".
