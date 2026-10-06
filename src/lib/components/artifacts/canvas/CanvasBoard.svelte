@@ -294,6 +294,11 @@ $effect(() => {
 		hint: () => $t("artifacts.canvas.group.touchHint"),
 	});
 });
+// A finger types with a keyboard that shortens the pane or covers it: the camera pans, once, to bring the block being typed in back into view.
+$effect(() => {
+	if (!coarsePointer || !groupParts || !boardEl) return;
+	return groupParts.watchKeyboardReveal(boardEl, flow, isTextEntry);
+});
 /** Two or more blocks are picked and the box that stands for them is drawn: the blocks give up their own corners and toolbars. */
 let grouped = $derived(
 	groupParts !== null &&

@@ -14,7 +14,12 @@ import {
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
-import { waitForMotionToSettle, waitForStableBoundingBox } from "./helpers";
+import {
+	createConversation,
+	login,
+	waitForMotionToSettle,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // What every Canvas e2e spec needs: a board seeded straight into the database
 // (the convention artifacts-panel.spec.ts and artifact-app.spec.ts established,
@@ -240,4 +245,73 @@ export async function seedThread(
 		});
 	}
 	return created.id;
+}
+
+// ---- A phone, its on-screen keyboard and a board to look at on it ----------
+
+/** A phone's page. */
+export const PHONE = { width: 390, height: 844 };
+/** What an on-screen keyboard takes of a phone's height: the page is shorter by this when it is open (`interactive-widget=resizes-content`). */
+export const KEYBOARD = 336;
+
+/** Longer than the keyboard reveal takes to start (it waits for the page to hold still) and to glide: what a pan that is going to happen has done by then. */
+export const PAN_WAIT_MS = 600;
+
+/** Six notes in two columns: tall enough that a shorter pane changes the fit, legible when fitted to a phone. */
+export function sixNotes(): CanvasBody {
+	return {
+		version: 1,
+		nodes: Array.from({ length: 6 }, (_, index) => ({
+			id: `note-${index + 1}`,
+			type: "sticky" as const,
+			position: { x: (index % 2) * 240, y: Math.floor(index / 2) * 220 },
+			width: 200,
+			data: {
+				kind: "sticky" as const,
+				text: `Note ${index + 1}`,
+				tone: "yellow" as const,
+			},
+		})),
+		edges: [],
+		viewport: { x: 0, y: 0, zoom: 1 },
+		annotations: [],
+	};
+}
+
+export type Camera = { x: number; y: number; zoom: number };
+
+export function expectCamera(
+	actual: Camera,
+	expected: Camera,
+	message: string,
+) {
+	expect(actual.x, `${message}: x`).toBeCloseTo(expected.x, 1);
+	expect(actual.y, `${message}: y`).toBeCloseTo(expected.y, 1);
+	expect(actual.zoom, `${message}: zoom`).toBeCloseTo(expected.zoom, 3);
+}
+
+/** A block's box measured from the board's own top left corner: where the reader sees it, whatever the page around the board does. */
+export async function placeInPane(page: Page, id: string) {
+	const pane = await page.getByTestId("canvas-board").boundingBox();
+	if (!pane) throw new Error("no board");
+	const box = await nodeBox(page, id);
+	return { x: box.x - pane.x, y: box.y - pane.y };
+}
+
+export async function centreOf(page: Page, id: string) {
+	const box = await nodeBox(page, id);
+	return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+/** Signs in, seeds `body` on a conversation of its own and opens the panel on it (six notes unless told otherwise). */
+export async function openBoard(
+	page: Page,
+	title: string,
+	body: CanvasBody = sixNotes(),
+) {
+	await login(page);
+	const conversationId = await createConversation(page, title);
+	await seedCanvas(conversationId, body);
+	await openChatAndReload(page, conversationId);
+	await openCanvasPanel(page);
 }
