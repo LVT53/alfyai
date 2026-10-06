@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type Mock,
+	vi,
+} from "vitest";
 import type { ScreenRect } from "./floating";
 import {
 	REVEAL_MARGIN,
@@ -185,7 +193,7 @@ describe("watchKeyboardReveal", () => {
 	let outside: HTMLTextAreaElement;
 	let toolbar: HTMLElement;
 	let flow: RevealFlow;
-	let setViewport: ReturnType<typeof vi.fn>;
+	let setViewport: Mock<RevealFlow["setViewport"]>;
 	let paneRect: ScreenRect;
 	let blockRect: ScreenRect;
 	let fieldRect: ScreenRect;
@@ -254,7 +262,7 @@ describe("watchKeyboardReveal", () => {
 		place(block, () => blockRect);
 		place(field, () => fieldRect);
 		place(toolbar, () => toolbarRect);
-		setViewport = vi.fn();
+		setViewport = vi.fn<RevealFlow["setViewport"]>();
 		flow = { getViewport: () => ({ x: 10, y: 50, zoom: 0.74 }), setViewport };
 		view = null;
 		vi.stubGlobal(
