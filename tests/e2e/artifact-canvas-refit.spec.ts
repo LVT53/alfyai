@@ -1,13 +1,13 @@
 import { expect, type Page, test } from "@playwright/test";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import {
-	cameraOf,
 	nodeBox,
 	openCanvasPanel,
 	openChatAndReload,
 	seedCanvas,
+	settledCamera,
 } from "./artifact-canvas-helpers";
-import { createConversation, login, waitForMotionToSettle } from "./helpers";
+import { createConversation, login } from "./helpers";
 
 // A board follows its pane only until the reader touches it (TR-D3). TR-D1 made
 // a board fit itself again whenever its pane changes size, while the camera was
@@ -45,28 +45,6 @@ function sixNotes(): CanvasBody {
 }
 
 type Camera = { x: number; y: number; zoom: number };
-
-/** The camera once it has stopped moving: the same answer twice, a couple of frames apart. */
-async function settledCamera(page: Page): Promise<Camera> {
-	await waitForMotionToSettle(page);
-	let last = await cameraOf(page);
-	await expect
-		.poll(async () => {
-			await page.evaluate(
-				() =>
-					new Promise<void>((resolve) =>
-						requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-					),
-			);
-			const now = await cameraOf(page);
-			const still =
-				now.x === last.x && now.y === last.y && now.zoom === last.zoom;
-			last = now;
-			return still;
-		})
-		.toBe(true);
-	return last;
-}
 
 function expectCamera(actual: Camera, expected: Camera, message: string) {
 	expect(actual.x, `${message}: x`).toBeCloseTo(expected.x, 1);

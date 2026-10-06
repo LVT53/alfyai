@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { ARTIFACT_TOUR_DEFAULTS } from "../../src/lib/server/artifact-tour-defaults";
-import { cameraOf } from "./artifact-canvas-helpers";
+import { cameraOf, settledCamera } from "./artifact-canvas-helpers";
 import {
 	backToList,
 	bigBoard,
@@ -204,27 +204,6 @@ function sameCamera(
 	expect(a.x).toBeCloseTo(b.x, 1);
 	expect(a.y).toBeCloseTo(b.y, 1);
 	expect(a.zoom).toBeCloseTo(b.zoom, 3);
-}
-
-/** The camera once it has stopped moving: the same answer twice, a couple of frames apart. */
-async function settledCamera(page: Page) {
-	let last = await cameraOf(page);
-	await expect
-		.poll(async () => {
-			await page.evaluate(
-				() =>
-					new Promise<void>((resolve) =>
-						requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-					),
-			);
-			const now = await cameraOf(page);
-			const still =
-				now.x === last.x && now.y === last.y && now.zoom === last.zoom;
-			last = now;
-			return still;
-		})
-		.toBe(true);
-	return last;
 }
 
 /** Opens a chat with one item of `kind` for a reader who has seen no tour. */
