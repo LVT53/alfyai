@@ -253,6 +253,30 @@ test.describe("Knowledge page", () => {
 		await expect(filter).toHaveValue("nextcloud");
 	});
 
+	// Ruling 69: Slides is shelved, so the type chips are the kinds that can
+	// exist. Production offers no filter for something it cannot make.
+	test("offers a chip for each kind that can be made, and none for Slides", async ({
+		page,
+	}) => {
+		await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await page.getByRole("tab", { name: "Documents" }).click();
+
+		const chips = page.getByTestId("documents-filter-chips");
+		await expect(chips).toBeVisible();
+		await expect(chips.getByRole("button")).toHaveText([
+			/^\s*All/,
+			/^\s*Documents/,
+			/^\s*Canvas/,
+			/^\s*Apps/,
+			/^\s*Files/,
+		]);
+		await expect(page.getByTestId("documents-filter-chip-slides")).toHaveCount(
+			0,
+		);
+		await expect(chips.getByText(/Slides/)).toHaveCount(0);
+	});
+
 	// Slice 7 (Feature 2, ADR-0066): the artifact family (Document/App/Canvas/
 	// Slides) joins the Documents tab. Neither this spec nor any other seeded
 	// a document/generated-file/artifact row before this slice, so this is

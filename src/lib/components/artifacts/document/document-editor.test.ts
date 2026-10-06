@@ -59,6 +59,64 @@ function mountEditor(markdown: string) {
 	});
 }
 
+// The empty state's one question to the editor: is the page empty? It is asked
+// of EVERY transaction, not only of the ones that emit an update, because Alfy's
+// landing content and a restored version arrive silently (`preventUpdate`).
+describe("createDocumentEditor's onEmptyChange", () => {
+	function mountReporting(markdown: string) {
+		element = document.createElement("div");
+		document.body.appendChild(element);
+		const reports: boolean[] = [];
+		const editor = createDocumentEditor({
+			element,
+			markdown,
+			placeholder: "Write anything, or ask Alfy to.",
+			onEmptyChange: (empty) => reports.push(empty),
+		});
+		return { editor, reports };
+	}
+
+	it("says at creation whether the page is empty", () => {
+		expect(mountReporting("").reports).toEqual([true]);
+		expect(mountReporting("Hello.\n").reports).toEqual([false]);
+	});
+
+	it("says it again only when the answer changes", () => {
+		const { editor, reports } = mountReporting("");
+
+		editor.commands.insertContent("Fri");
+		editor.commands.insertContent("day");
+		expect(reports).toEqual([true, false]);
+
+		editor.commands.selectAll();
+		editor.commands.deleteSelection();
+		expect(reports).toEqual([true, false, true]);
+	});
+
+	it("hears a silent change too, such as content landing without an update", () => {
+		const { editor, reports } = mountReporting("");
+		const { schema } = editor.state;
+
+		editor.view.dispatch(
+			editor.state.tr
+				.replaceWith(
+					0,
+					editor.state.doc.content.size,
+					schema.nodes.paragraph.create(null, schema.text("Landed.")),
+				)
+				.setMeta("preventUpdate", true),
+		);
+
+		expect(reports).toEqual([true, false]);
+	});
+
+	it("is optional: an editor with no one listening still works", () => {
+		const editor = mountEditor("");
+		editor.commands.insertContent("Fine.");
+		expect(editor.isEmpty).toBe(false);
+	});
+});
+
 /**
  * Sets the whole document to a single code block with EXACTLY `text` as its
  * content, bypassing markdown parsing entirely — a markdown SOURCE string

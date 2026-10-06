@@ -173,14 +173,18 @@ export type DocumentKind =
  */
 export type DocumentTypeFilter = "all" | KnowledgeDocumentKindFilter;
 
-/** Chip order, matching the mockup's left-to-right reading order exactly:
- *  All · Documents · Canvas · Apps · Slides · Uploaded. */
+/** Chip order, the mockup's left-to-right reading order less Slides:
+ *  All · Documents · Canvas · Apps · Uploaded (shown as Files).
+ *
+ *  Ruling 69: Slides is shelved, so production shows no filter for a kind it
+ *  cannot make. Only the chip row hides: `DocumentTypeFilter`, the server's
+ *  kind filter and the summary line still know "slides", so bringing it back is
+ *  one entry here, between Apps and Uploaded, in the commit that ships Slides. */
 export const DOCUMENT_TYPE_FILTER_ORDER: readonly DocumentTypeFilter[] = [
 	"all",
 	"document",
 	"canvas",
 	"app",
-	"slides",
 	"uploaded",
 ];
 

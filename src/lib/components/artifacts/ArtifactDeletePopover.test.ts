@@ -5,6 +5,8 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/svelte";
+import userEvent from "@testing-library/user-event";
+import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
 import ArtifactDeletePopover from "./ArtifactDeletePopover.svelte";
@@ -15,6 +17,7 @@ function renderPopover(
 		title: string;
 		regenerable: boolean;
 		initialStage: "confirm" | "menu";
+		onReplayTour: () => void;
 		onConfirm: () => Promise<void>;
 		onClose: () => void;
 	}> = {},
@@ -44,6 +47,128 @@ describe("ArtifactDeletePopover", () => {
 		cleanup();
 		document.body.innerHTML = "";
 		uiLanguage.set("en");
+	});
+
+	// Ruling 32: the first-open tour's replay lives in the list row's menu.
+	describe("the row menu's tour replay", () => {
+		it("leads with 'How this kind works', above Delete, and closes after calling it", async () => {
+			const onReplayTour = vi.fn();
+			const { onClose } = renderPopover({ initialStage: "menu", onReplayTour });
+
+			const items = await screen.findAllByRole("menuitem");
+			expect(items.map((item) => item.textContent?.trim())).toEqual([
+				"How this kind works",
+				"Delete document",
+			]);
+			await fireEvent.click(items[0]);
+
+			expect(onReplayTour).toHaveBeenCalledTimes(1);
+			expect(onClose).toHaveBeenCalledTimes(1);
+		});
+
+		it("is not in the menu when the host cannot replay a tour (an incognito chat, a kind with no tour)", async () => {
+			renderPopover({ initialStage: "menu" });
+
+			const items = await screen.findAllByRole("menuitem");
+			expect(items.map((item) => item.textContent?.trim())).toEqual([
+				"Delete document",
+			]);
+		});
+
+		it("is said in Hungarian on a Hungarian UI", async () => {
+			uiLanguage.set("hu");
+			renderPopover({ initialStage: "menu", onReplayTour: vi.fn() });
+
+			expect(
+				await screen.findByRole("menuitem", { name: "Így működik ez a típus" }),
+			).toBeInTheDocument();
+		});
+
+		it("is never in the delete confirm that the header's trash button opens", async () => {
+			renderPopover({ onReplayTour: vi.fn() });
+
+			await screen.findByRole("dialog", { name: "Delete this document?" });
+			expect(screen.queryByRole("menuitem")).toBeNull();
+		});
+	});
+
+	// RC-T Minor 5: the row's menu says `role="menu"`, so it behaves as one: it
+	// opens on its first item, the arrows move between the items, Escape closes
+	// it and gives the focus back to what opened it.
+	describe("the row's menu is a menu", () => {
+		it("is named for the item it is about, and opens with focus on its first item", async () => {
+			renderPopover({ initialStage: "menu", onReplayTour: vi.fn() });
+
+			expect(
+				await screen.findByRole("menu", { name: "Weekend in Vienna" }),
+			).toBeInTheDocument();
+			const [first] = await screen.findAllByRole("menuitem");
+			await waitFor(() => expect(first).toHaveFocus());
+		});
+
+		it("moves between its items with the arrows, wrapping, and to the ends with Home and End", async () => {
+			const user = userEvent.setup();
+			renderPopover({ initialStage: "menu", onReplayTour: vi.fn() });
+			const [replay, remove] = await screen.findAllByRole("menuitem");
+			await waitFor(() => expect(replay).toHaveFocus());
+
+			await user.keyboard("{ArrowDown}");
+			expect(remove).toHaveFocus();
+			await user.keyboard("{ArrowDown}");
+			expect(replay).toHaveFocus();
+			await user.keyboard("{ArrowUp}");
+			expect(remove).toHaveFocus();
+			await user.keyboard("{Home}");
+			expect(replay).toHaveFocus();
+			await user.keyboard("{End}");
+			expect(remove).toHaveFocus();
+		});
+
+		it("is one item, with the arrows staying on it, when there is nothing to replay", async () => {
+			const user = userEvent.setup();
+			renderPopover({ initialStage: "menu" });
+			const [only] = await screen.findAllByRole("menuitem");
+			await waitFor(() => expect(only).toHaveFocus());
+
+			await user.keyboard("{ArrowDown}");
+			expect(only).toHaveFocus();
+			await user.keyboard("{ArrowUp}");
+			expect(only).toHaveFocus();
+		});
+
+		it("does not pull a reader who has already pressed an arrow back to the first item", async () => {
+			// The popover moves focus on a timer once its content is in; a reader (or a
+			// test) quick enough to press an arrow before it fires keeps their place.
+			vi.useFakeTimers();
+			try {
+				renderPopover({ initialStage: "menu", onReplayTour: vi.fn() });
+				await tick();
+				const [first, second] = screen.getAllByRole("menuitem");
+				expect(first).toHaveFocus();
+
+				await fireEvent.keyDown(first, { key: "ArrowDown" });
+				expect(second).toHaveFocus();
+				vi.runAllTimers();
+
+				expect(second).toHaveFocus();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("Escape closes it", async () => {
+			const user = userEvent.setup();
+			const { onClose } = renderPopover({
+				initialStage: "menu",
+				onReplayTour: vi.fn(),
+			});
+			const [first] = await screen.findAllByRole("menuitem");
+			await waitFor(() => expect(first).toHaveFocus());
+
+			await user.keyboard("{Escape}");
+
+			expect(onClose).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	it("asks by name, per kind, and says it cannot be undone", async () => {

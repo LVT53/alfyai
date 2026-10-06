@@ -3,6 +3,7 @@ import { untrack } from "svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
 import type { CampaignType } from "$lib/client/api/campaigns";
+import { tourLead } from "./campaign-labels";
 
 let {
 	mode,
@@ -32,7 +33,11 @@ let draftName = $state(untrack(() => name));
 let draftType = $state<CampaignType>(untrack(() => type));
 let draftRelease = $state(untrack(() => releaseVersion));
 
-let needsRelease = $derived(draftType === "release_update");
+// A tour is not a first-run or release campaign and cannot become one: its
+// kind (the release text) is the one the seed gave it and the server ignores a
+// change to either, so the dialog shows what it is and offers no other choice.
+let isTour = $derived(type === "artifact_tour");
+let needsRelease = $derived(!isTour && draftType === "release_update");
 
 function confirm() {
 	onConfirm({
@@ -65,21 +70,29 @@ function confirm() {
 
 		<div>
 			<p class="settings-label">{$t('admin.campaigns.type')}</p>
-			<div class="pill-row">
-				{#each ['first_run_onboarding', 'release_update'] as const as option (option)}
-					<button
-						type="button"
-						class="pref-pill"
-						class:pref-pill-active={draftType === option}
-						onclick={() => (draftType = option)}
-					>
-						{option === 'first_run_onboarding'
-							? $t('admin.campaigns.type.firstRun')
-							: $t('admin.campaigns.type.release')}
-					</button>
-				{/each}
-			</div>
-			<p class="dialog-help">{$t('admin.campaigns.typeHelp')}</p>
+			{#if isTour}
+				<div class="pill-row">
+					<span class="pref-pill pref-pill-active type-fixed" data-testid="campaign-dialog-type">
+						{tourLead(releaseVersion, $t).join(' · ')}
+					</span>
+				</div>
+			{:else}
+				<div class="pill-row">
+					{#each ['first_run_onboarding', 'release_update'] as const as option (option)}
+						<button
+							type="button"
+							class="pref-pill"
+							class:pref-pill-active={draftType === option}
+							onclick={() => (draftType = option)}
+						>
+							{option === 'first_run_onboarding'
+								? $t('admin.campaigns.type.firstRun')
+								: $t('admin.campaigns.type.release')}
+						</button>
+					{/each}
+				</div>
+				<p class="dialog-help">{$t('admin.campaigns.typeHelp')}</p>
+			{/if}
 		</div>
 
 		{#if needsRelease}
@@ -123,6 +136,12 @@ function confirm() {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.5rem;
+	}
+
+	/* Read-only: it looks like the chosen pill but is not a control, so it takes
+	   no pointer and so none of the pill's hover. */
+	.type-fixed {
+		pointer-events: none;
 	}
 
 	.dialog-help {

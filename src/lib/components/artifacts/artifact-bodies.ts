@@ -16,6 +16,7 @@ import type { Component } from "svelte";
 import type { DocumentAlfyActivity } from "$lib/components/artifacts/document/alfy-activity";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import type { LocalizedText } from "$lib/shared/artifacts/tours";
 
 export interface ArtifactBodyProps {
 	artifactId: string;
@@ -92,6 +93,22 @@ export interface ArtifactBodyProps {
 	 * review workflow (App, File) simply never calls it.
 	 */
 	onPendingReviewCountChange?: (count: number) => void;
+	/**
+	 * Shows this kind's first-open tour again (ruling 32: the replay lives in
+	 * the panel, so a body offers it as a quiet link in its empty state and
+	 * nowhere else). The panel supplies it only where a tour can show: absent
+	 * for a kind that has none, and in an incognito chat, which asks for none, so
+	 * a body renders the link exactly when it is given. Replaying records nothing.
+	 */
+	onReplayTour?: () => void;
+	/**
+	 * The kind's tour summary, for a body's empty-state line (`empty-state.ts`
+	 * turns it into the line in the reader's language). The panel keeps what its
+	 * one tour request per open answered, seen or not; `null`/absent when none
+	 * was asked (an incognito chat) or none came back, and the body then says
+	 * the dictionary's line, which is the same sentence.
+	 */
+	tourSummary?: LocalizedText | null;
 	/**
 	 * rd/review-2-5.md:272-275: the signed-in user's own id/name/profile
 	 * picture, for a "you" row (a comment, a version) to show the real avatar

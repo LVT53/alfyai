@@ -19,6 +19,7 @@
  */
 
 import { isAllowedActionDestination } from "$lib/campaign-action-destinations";
+import { isShippedArtifactTourType } from "$lib/shared/artifacts/tours";
 
 export {
 	ALLOWED_ACTION_DESTINATIONS,
@@ -28,9 +29,14 @@ export {
 export type ChecklistCampaignType =
 	| "first_run_onboarding"
 	| "release_update"
+	| "artifact_tour"
 	| (string & {});
 
-export type ChecklistSlideKind = "setup" | "standard" | (string & {});
+export type ChecklistSlideKind =
+	| "setup"
+	| "standard"
+	| "summary"
+	| (string & {});
 
 export type ChecklistLocale = "en" | "hu";
 
@@ -75,7 +81,9 @@ export type ChecklistRuleId =
 	| "actionLabels"
 	| "setupControls"
 	| "setupSlide"
-	| "dataDisclosure";
+	| "dataDisclosure"
+	| "tourShape"
+	| "tourKind";
 
 /** The three slide properties that live behind the slide's ⋯ menu. */
 export type SlideMenuItem = "layout" | "purpose" | "setupControls";
@@ -175,7 +183,8 @@ export function evaluateCampaignChecklist(
 	use("type");
 	if (
 		campaign.type !== "first_run_onboarding" &&
-		campaign.type !== "release_update"
+		campaign.type !== "release_update" &&
+		campaign.type !== "artifact_tour"
 	) {
 		fail({
 			ruleId: "type",
@@ -222,7 +231,11 @@ export function evaluateCampaignChecklist(
 		const prefix = slidePath(slide, index);
 		const base = { slideIndex: index, slideLocalId: slide.localId };
 
-		if (slide.kind !== "setup" && slide.kind !== "standard") {
+		if (
+			slide.kind !== "setup" &&
+			slide.kind !== "standard" &&
+			slide.kind !== "summary"
+		) {
 			fail({
 				...base,
 				ruleId: "layout",
@@ -263,6 +276,11 @@ export function evaluateCampaignChecklist(
 		}
 		seenSortOrders.add(sortOrder);
 
+		// A tour's summary slide is one bare line (the empty state's): its title
+		// is required and nothing draws a body, so none is asked for. The server
+		// holds the same rule (`validatePublishInput`).
+		const isTourSummary =
+			campaign.type === "artifact_tour" && slide.kind === "summary";
 		const localizedFields: Array<{
 			field: "title" | "body";
 			locale: ChecklistLocale;
@@ -270,8 +288,20 @@ export function evaluateCampaignChecklist(
 		}> = [
 			{ field: "title", locale: "en", value: slide.titleEn },
 			{ field: "title", locale: "hu", value: slide.titleHu },
-			{ field: "body", locale: "en", value: slide.bodyEn },
-			{ field: "body", locale: "hu", value: slide.bodyHu },
+			...(isTourSummary
+				? []
+				: [
+						{
+							field: "body" as const,
+							locale: "en" as const,
+							value: slide.bodyEn,
+						},
+						{
+							field: "body" as const,
+							locale: "hu" as const,
+							value: slide.bodyHu,
+						},
+					]),
 		];
 		for (const entry of localizedFields) {
 			if (isBlank(entry.value)) {
@@ -389,6 +419,37 @@ export function evaluateCampaignChecklist(
 		}
 	}
 
+	// The client mirror of the server's `artifact_tour` publish rule
+	// (announcement-campaigns.ts `validatePublishInput`): exactly one summary
+	// slide, first, then exactly three standard slides. Checked here so a
+	// malformed tour is caught before Publish is even clickable, not only
+	// after a round trip to the server.
+	if (campaign.type === "artifact_tour") {
+		use("tourShape");
+		const wellShaped =
+			campaign.slides.length === 4 &&
+			campaign.slides[0]?.kind === "summary" &&
+			campaign.slides.slice(1).every((slide) => slide.kind === "standard");
+		if (!wellShaped) {
+			fail({
+				ruleId: "tourShape",
+				path: "slides",
+				messageKey: `${VALIDATION}.tourShapeInvalid`,
+			});
+		}
+
+		// A tour is found by its release text, which must name a kind whose
+		// tour ships (ruling 71, the server's `tourKind` rule).
+		use("tourKind");
+		if (!isShippedArtifactTourType(campaign.releaseVersion.trim())) {
+			fail({
+				ruleId: "tourKind",
+				path: "tourKind",
+				messageKey: `${VALIDATION}.tourKindInvalid`,
+			});
+		}
+	}
+
 	const ruleList: ChecklistRule[] = applicable.map((id) => ({
 		id,
 		passed: (rules.get(id) ?? []).length === 0,
@@ -451,6 +512,8 @@ const RULE_LABEL: Record<ChecklistRuleId, string> = {
 	setupControls: "admin.campaigns.checklist.rule.setupControls",
 	setupSlide: "admin.campaigns.checklist.rule.setupSlide",
 	dataDisclosure: "admin.campaigns.checklist.rule.dataDisclosure",
+	tourShape: "admin.campaigns.checklist.rule.tourShape",
+	tourKind: "admin.campaigns.checklist.rule.tourKind",
 };
 
 /** What a failing row says; the localized ones name the missing language. */
@@ -469,6 +532,8 @@ const FAILURE_LABEL: Record<ChecklistRuleId, string> = {
 	setupControls: "admin.campaigns.checklist.fail.setupControls",
 	setupSlide: "admin.campaigns.checklist.fail.setupSlide",
 	dataDisclosure: "admin.campaigns.checklist.fail.dataDisclosure",
+	tourShape: "admin.campaigns.checklist.fail.tourShape",
+	tourKind: "admin.campaigns.checklist.fail.tourKind",
 };
 
 /** The rule label shown in the expanded checklist, per rule id. */

@@ -721,6 +721,11 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
   block's names in both languages live in the dictionary the chat loads (+463 B) and the chat's own Mermaid component now
   shares a chunk with the board's diagram block, as Chart.js's already did. A move of this baseline needs the same:
   measured on one machine against the commit before, the reason in the commit message.
+- **Moved again for the tours (Wave 4, TR-B, 2026-10-05), by a measured 1,682 B gzip (536,883 → 538,565):** the tours'
+  groundwork (`feat/artifacts-s6`: the admin campaign strings and types in the dictionary every route loads) used the
+  remaining headroom (+2,048 at its merge), and the tour's chrome strings plus the panel's trigger add the rest; the card
+  and its drawings are one lazy chunk (2.8 kB) the chat never loads until a tour shows. TR-C may move it by its own
+  measured growth the same way.
 
 ## 69. Slides is shelved; the tours come next
 
@@ -740,3 +745,31 @@ Slides.
 - Slice 5: tool guidance on the tools; the two `AGENTS.md` fixes; `EvidenceSourceType` widening with tests;
   artifacts as evidence rows, not new Info rows.
 - Slice 6: four types, code-owned structure with a campaign override and the `summary` layout.
+
+## 70. Internal model calls take their sampling through one route (Wave 4, orchestrator, 2026-10-05)
+
+*From SMP.* `normal-chat-model/sampling.ts` (`resolveModelCallSampling`) is the only way a model call gets its temperature
+and top_p; top_k stays the provider builder's body injection from the same family `defaultSampling`. A path whose text a
+person reads takes the whole profile; an explicit temperature stays only for a deterministic machine-read answer (memory
+judge, reconcile/merge, recuration, the three model-facing digests), each listed with its reason in the structural guard
+(`sampling.test.ts`). The owner's garble premise did not hold on `dev` or `main` (no path sent "no sampling"; the garble
+reproduces only without any); the follow-up defects found by the probe (titles falling back on a stray `<think>`, the
+English-only reasoning-leak check, English follow-ups in Hungarian chats) are SMP-2's, and titles' temperature is decided
+by its measurement.
+
+## 71. Tours: archiving falls back to the default, a closed tour starts over (Wave 4, orchestrator, 2026-10-05)
+
+- Archiving a published tour **falls back to the code-owned copy**; it never retires the kind (ruling 4: the text is
+  editable, the trigger is not; slice 6's failure table). TR-A's reading (archive = no tour) is corrected by TR-C.
+- A tour closed mid-way writes nothing and **starts again at slide one** next time (three slides; a client-side resume
+  would cost ~150 B on the chat route for little). Cost if wrong: that resume, later.
+- The list's replay row appears where a row already has its menu; the empty state's link (TR-C) is the host every item has.
+- An admin cannot publish an `artifact_tour` whose kind (`releaseVersion`) is not a shipped kind (TR-A's concern 2).
+
+## 72. The evidence slice builds what has a surface (Wave 4, orchestrator, 2026-10-05)
+
+`getArtifactSources` and the `artifacts.sources.*` strings (slice 5 T4) are not built: the approved redesign has no place
+in the panel that lists an item's sources, the turn's web sources already show in the message's Sources panel, and an
+unused export is a Fallow finding. The "Made in this chat" group (rulings 6, 7) is built. Cost if wrong: one read-model
+function and a panel row later.
+

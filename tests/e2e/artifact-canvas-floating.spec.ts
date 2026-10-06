@@ -211,12 +211,17 @@ test.describe("the layers that float over a board", () => {
 		await expect(zoom).toBeVisible();
 		const chip = await box(zoom);
 
-		// Drag the upper note so its lower right corner is under the control.
+		// Drag the upper note so its lower right corner is under the control. A drag
+		// ends about a step short of where the pointer went (the first step of the
+		// path only starts it), and the board is fitted to the pane it ended up in
+		// (the review bar's arrival shortens the pane, and the board follows), so
+		// the note starts higher and is a longer step short: aim well under the
+		// control, not at its edge.
 		const upper = await nodeBox(page, UPPER);
 		await dragBetween(
 			page,
 			{ x: upper.x + 6, y: upper.y + 6 },
-			{ x: chip.x - upper.width + 60, y: chip.y - upper.height + 20 },
+			{ x: chip.x - upper.width + 60, y: chip.y - upper.height + 40 },
 		);
 		const moved = await nodeBox(page, UPPER);
 		expect(meet(moved, chip), "the note is under where the control is").toBe(

@@ -4272,4 +4272,113 @@ describe("DocumentBody", () => {
 			);
 		});
 	});
+
+	// Slice 6 T6: a Document with nothing in it says what its tour says, and
+	// offers the tour again. The editor reports emptiness through
+	// `onEmptyChange` (document-editor.test.ts proves the real one does, for
+	// every transaction); the real keys are in tests/e2e/artifact-tours-empty-states.spec.ts.
+	describe("the empty state", () => {
+		const SUMMARY = {
+			en: "A blank page. Write, or ask Alfy.",
+			hu: "Üres lap. Írj, vagy kérd Alfyt.",
+		};
+
+		function reportEmpty(empty: boolean) {
+			(latestEditor().options.onEmptyChange as (empty: boolean) => void)(empty);
+		}
+
+		async function mountBody(extra: Record<string, unknown> = {}) {
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				...extra,
+			});
+			await waitFor(() => expect(mockCreateDocumentEditor).toHaveBeenCalled());
+		}
+
+		it("shows the tour's summary and a link beneath it while the page is empty", async () => {
+			const onReplayTour = vi.fn();
+			await mountBody({ tourSummary: SUMMARY, onReplayTour });
+			reportEmpty(true);
+
+			const line = await screen.findByTestId("document-empty");
+			expect(line).toHaveTextContent(SUMMARY.en);
+			const link = screen.getByTestId("document-empty-replay");
+			expect(link).toHaveTextContent("Show it again");
+			expect(
+				line.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+
+			await fireEvent.click(link);
+			expect(onReplayTour).toHaveBeenCalledTimes(1);
+		});
+
+		it("says the dictionary's line when there is no tour to say it, and still offers the replay if the panel does", async () => {
+			await mountBody({ tourSummary: null, onReplayTour: vi.fn() });
+			reportEmpty(true);
+
+			expect(await screen.findByTestId("document-empty")).toHaveTextContent(
+				"Empty document. Start writing, or ask Alfy to draft it.",
+			);
+			expect(screen.getByTestId("document-empty-replay")).toBeInTheDocument();
+		});
+
+		it("shows no link when the panel gives no replay (a kind with no tour, an incognito chat)", async () => {
+			await mountBody({ tourSummary: SUMMARY });
+			reportEmpty(true);
+
+			expect(await screen.findByTestId("document-empty")).toBeInTheDocument();
+			expect(screen.queryByTestId("document-empty-replay")).toBeNull();
+		});
+
+		it("goes when the page has words, and comes back when it has none again", async () => {
+			await mountBody({ tourSummary: SUMMARY, onReplayTour: vi.fn() });
+			reportEmpty(true);
+			expect(await screen.findByTestId("document-empty")).toBeInTheDocument();
+
+			reportEmpty(false);
+			await waitFor(() =>
+				expect(screen.queryByTestId("document-empty")).toBeNull(),
+			);
+			expect(screen.queryByTestId("document-empty-replay")).toBeNull();
+
+			reportEmpty(true);
+			expect(await screen.findByTestId("document-empty")).toBeInTheDocument();
+		});
+
+		it("is never shown over a page that has not loaded", async () => {
+			mockFetchArtifact.mockImplementation(() => new Promise(() => {}));
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				tourSummary: SUMMARY,
+				onReplayTour: vi.fn(),
+			});
+			await tick();
+
+			expect(screen.queryByTestId("document-empty")).toBeNull();
+		});
+
+		it("follows the language of the page", async () => {
+			const { uiLanguage } = await import("$lib/stores/settings");
+			uiLanguage.set("hu");
+			try {
+				await mountBody({ tourSummary: SUMMARY, onReplayTour: vi.fn() });
+				reportEmpty(true);
+
+				expect(await screen.findByTestId("document-empty")).toHaveTextContent(
+					SUMMARY.hu,
+				);
+				expect(screen.getByTestId("document-empty-replay")).toHaveTextContent(
+					"Újra megnézem",
+				);
+			} finally {
+				uiLanguage.set("en");
+			}
+		});
+	});
 });

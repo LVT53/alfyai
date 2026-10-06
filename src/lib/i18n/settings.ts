@@ -45,6 +45,7 @@ const settingsDict = {
 		"admin.campaigns.actionUrl": "Action URL",
 		"admin.campaigns.addSetupSlide": "Add setup slide",
 		"admin.campaigns.addStandardSlide": "Add standard slide",
+		"admin.campaigns.addSummarySlide": "Add summary slide",
 		"admin.campaigns.altEn": "English image alt text",
 		"admin.campaigns.altHu": "Hungarian image alt text",
 		"admin.campaigns.analytics": "Views / actions",
@@ -81,10 +82,16 @@ const settingsDict = {
 		"admin.campaigns.errors.publish": "Failed to publish campaign.",
 		"admin.campaigns.errors.save": "Failed to save campaign.",
 		"admin.campaigns.errors.seed": "Failed to seed first-run campaign.",
+		"admin.campaigns.errors.seedArtifactTours":
+			"Failed to seed the tour drafts.",
 		"admin.campaigns.history": "History",
 		"admin.campaigns.listLabel": "Campaign list",
 		"admin.campaigns.loading": "Loading campaigns…",
 		"admin.campaigns.loadingDetail": "Loading campaign…",
+		"admin.campaigns.messages.artifactToursExist":
+			"The tour drafts already exist.",
+		"admin.campaigns.messages.artifactToursSeeded":
+			"Created {created} tour draft{created, plural, one {} other {s}}.",
 		"admin.campaigns.messages.archived": "Campaign archived.",
 		"admin.campaigns.messages.created": "Campaign created.",
 		"admin.campaigns.messages.deleted": "Campaign draft deleted.",
@@ -109,6 +116,7 @@ const settingsDict = {
 		"admin.campaigns.publishedAt": "Published",
 		"admin.campaigns.releaseVersion": "Release",
 		"admin.campaigns.saveDraft": "Save draft",
+		"admin.campaigns.seedArtifactTours": "Seed tour drafts",
 		"admin.campaigns.seedFirstRun": "Seed first-run",
 		"admin.campaigns.seedFirstRunHelp":
 			"Creates the standard first-run onboarding campaign as a draft you can edit.",
@@ -119,6 +127,7 @@ const settingsDict = {
 		"admin.campaigns.slideKind": "Slide kind",
 		"admin.campaigns.slideKind.setup": "Setup",
 		"admin.campaigns.slideKind.standard": "Standard",
+		"admin.campaigns.slideKind.summary": "Summary",
 		"admin.campaigns.slideNumber": "Slide {number}",
 		"admin.campaigns.slides": "Slides",
 		"admin.campaigns.status.archived": "Archived",
@@ -127,11 +136,19 @@ const settingsDict = {
 		"admin.campaigns.title": "Campaigns",
 		"admin.campaigns.titleEn": "English title",
 		"admin.campaigns.titleHu": "Hungarian title",
+		"admin.campaigns.tour.emptyStateTag": "Empty state",
+		"admin.campaigns.tour.stepCount":
+			"{count} step{count, plural, one {} other {s}} + empty-state line",
+		"admin.campaigns.tour.stepNumber": "Step {number}",
+		"admin.campaigns.tour.summaryHint":
+			"The title is the line an empty Document, App or Canvas shows. Nothing else on this slide is shown.",
+		"admin.campaigns.tour.summarySlide": "Empty-state line",
 		"admin.campaigns.type": "Type",
 		"admin.campaigns.type.feature": "Feature",
 		"admin.campaigns.type.firstRun": "First-run",
 		"admin.campaigns.type.release": "Release",
 		"admin.campaigns.type.standard": "Standard",
+		"admin.campaigns.type.tour": "Tour",
 		"admin.campaigns.updatedAt": "Updated",
 		"admin.campaigns.uploadDesktop": "Upload desktop crop",
 		"admin.campaigns.uploadMobile": "Upload mobile crop",
@@ -162,13 +179,17 @@ const settingsDict = {
 		"admin.campaigns.validation.setupSlideRequired":
 			"First-run onboarding requires exactly one setup slide.",
 		"admin.campaigns.validation.slideLayoutInvalid":
-			"Slide layout must be setup or standard.",
+			"Slide layout must be setup, standard or summary.",
 		"admin.campaigns.validation.slideRequired":
 			"At least one slide is required.",
 		"admin.campaigns.validation.sortOrderInvalid":
 			"Slide order must use unique positive integers.",
+		"admin.campaigns.validation.tourKindInvalid":
+			"A tour must belong to a Document, App or Canvas, or no one will ever see it.",
+		"admin.campaigns.validation.tourShapeInvalid":
+			"A tour needs exactly one summary slide first, followed by exactly three standard slides.",
 		"admin.campaigns.validation.typeInvalid":
-			"Campaign type must be first-run onboarding or release update.",
+			"Campaign type must be first-run onboarding, release update or first-open tour.",
 		"admin.campaigns.versionShort": "v{version}",
 		"admin.capability.chat": "Chat",
 		"admin.capability.fileMessageParts": "Files",
@@ -979,6 +1000,10 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupControls": "Setup controls",
 		"admin.campaigns.checklist.fail.setupSlide": "Exactly one setup slide",
 		"admin.campaigns.checklist.fail.slides": "At least one slide",
+		"admin.campaigns.checklist.fail.tourKind":
+			"Tour kind: Document, App or Canvas",
+		"admin.campaigns.checklist.fail.tourShape":
+			"One summary slide, then three standard slides",
 		"admin.campaigns.checklist.fail.type": "Campaign type",
 		"admin.campaigns.checklist.failing":
 			"{count} check{count, plural, one {} other {s}} failing",
@@ -1002,6 +1027,10 @@ const settingsDict = {
 			"Setup controls are placed correctly",
 		"admin.campaigns.checklist.rule.setupSlide": "Exactly one setup slide",
 		"admin.campaigns.checklist.rule.slides": "At least one slide",
+		"admin.campaigns.checklist.rule.tourKind":
+			"Tour belongs to a Document, App or Canvas",
+		"admin.campaigns.checklist.rule.tourShape":
+			"One summary slide, then three standard slides",
 		"admin.campaigns.checklist.rule.type": "Campaign type",
 		"admin.campaigns.checklist.slideHasIssues": "This slide has failing checks",
 		"admin.campaigns.cropMetadata":
@@ -1969,6 +1998,7 @@ const settingsDict = {
 		"admin.campaigns.actionUrl": "Művelet URL",
 		"admin.campaigns.addSetupSlide": "Beállítási dia hozzáadása",
 		"admin.campaigns.addStandardSlide": "Általános dia hozzáadása",
+		"admin.campaigns.addSummarySlide": "Összegző dia hozzáadása",
 		"admin.campaigns.altEn": "Angol képhelyettesítő szöveg",
 		"admin.campaigns.altHu": "Magyar képhelyettesítő szöveg",
 		"admin.campaigns.analytics": "Megtekintés / művelet",
@@ -2006,10 +2036,16 @@ const settingsDict = {
 		"admin.campaigns.errors.save": "A kampány mentése sikertelen.",
 		"admin.campaigns.errors.seed":
 			"Az első indítási kampány létrehozása sikertelen.",
+		"admin.campaigns.errors.seedArtifactTours":
+			"A bemutató-piszkozatok létrehozása sikertelen.",
 		"admin.campaigns.history": "Előzmények",
 		"admin.campaigns.listLabel": "Kampánylista",
 		"admin.campaigns.loading": "Kampányok betöltése…",
 		"admin.campaigns.loadingDetail": "Kampány betöltése…",
+		"admin.campaigns.messages.artifactToursExist":
+			"A bemutató-piszkozatok már léteznek.",
+		"admin.campaigns.messages.artifactToursSeeded":
+			"{created} bemutató-piszkozat létrejött.",
 		"admin.campaigns.messages.archived": "Kampány archiválva.",
 		"admin.campaigns.messages.created": "Kampány létrehozva.",
 		"admin.campaigns.messages.deleted": "Kampánypiszkozat törölve.",
@@ -2035,15 +2071,17 @@ const settingsDict = {
 		"admin.campaigns.publishedAt": "Publikálva",
 		"admin.campaigns.releaseVersion": "Kiadás",
 		"admin.campaigns.saveDraft": "Piszkozat mentése",
+		"admin.campaigns.seedArtifactTours": "Bemutató-piszkozatok létrehozása",
 		"admin.campaigns.seedFirstRun": "Első indítás magkampány",
 		"admin.campaigns.seedFirstRunHelp":
-			"Létrehozza a szokásos első indítású bemutatókampányt szerkeszthető vázlatként.",
+			"Létrehozza a szokásos első indítási kampányt szerkeszthető piszkozatként.",
 		"admin.campaigns.selectCampaign": "Válassz kampányt a szerkesztéshez.",
 		"admin.campaigns.slideCount": "{count} dia",
 		"admin.campaigns.slideEditorLabel": "{number}. dia szerkesztője",
 		"admin.campaigns.slideKind": "Diatípus",
 		"admin.campaigns.slideKind.setup": "Beállítás",
 		"admin.campaigns.slideKind.standard": "Általános",
+		"admin.campaigns.slideKind.summary": "Összegzés",
 		"admin.campaigns.slideNumber": "{number}. dia",
 		"admin.campaigns.slides": "Diák",
 		"admin.campaigns.status.archived": "Archivált",
@@ -2052,11 +2090,18 @@ const settingsDict = {
 		"admin.campaigns.title": "Kampányok",
 		"admin.campaigns.titleEn": "Angol cím",
 		"admin.campaigns.titleHu": "Magyar cím",
+		"admin.campaigns.tour.emptyStateTag": "Üres állapot",
+		"admin.campaigns.tour.stepCount": "{count} lépés + üres állapot sora",
+		"admin.campaigns.tour.stepNumber": "{number}. lépés",
+		"admin.campaigns.tour.summaryHint":
+			"A cím az a sor, amit egy üres dokumentum, alkalmazás vagy tábla mutat. Ezen a dián más nem jelenik meg.",
+		"admin.campaigns.tour.summarySlide": "Üres állapot sora",
 		"admin.campaigns.type": "Típus",
 		"admin.campaigns.type.feature": "Funkció",
 		"admin.campaigns.type.firstRun": "Első indítás",
 		"admin.campaigns.type.release": "Kiadás",
 		"admin.campaigns.type.standard": "Általános",
+		"admin.campaigns.type.tour": "Bemutató",
 		"admin.campaigns.updatedAt": "Frissítve",
 		"admin.campaigns.uploadDesktop": "Asztali kivágás feltöltése",
 		"admin.campaigns.uploadMobile": "Mobil kivágás feltöltése",
@@ -2087,12 +2132,16 @@ const settingsDict = {
 		"admin.campaigns.validation.setupSlideRequired":
 			"Az első indítási kampányhoz pontosan egy beállítási dia szükséges.",
 		"admin.campaigns.validation.slideLayoutInvalid":
-			"A dia elrendezése csak beállítás vagy általános lehet.",
+			"A dia elrendezése beállítás, általános vagy összegzés lehet.",
 		"admin.campaigns.validation.slideRequired": "Legalább egy dia szükséges.",
 		"admin.campaigns.validation.sortOrderInvalid":
 			"A diasorrendnek egyedi pozitív egész számokat kell használnia.",
+		"admin.campaigns.validation.tourKindInvalid":
+			"A bemutatónak egy dokumentumhoz, alkalmazáshoz vagy táblához kell tartoznia, különben senki nem látja soha.",
+		"admin.campaigns.validation.tourShapeInvalid":
+			"A bemutatóhoz pontosan egy összegző dia szükséges elsőként, amit pontosan három általános dia követ.",
 		"admin.campaigns.validation.typeInvalid":
-			"A kampány típusa csak első indítási vagy kiadási kampány lehet.",
+			"A kampány típusa első indítási, kiadási vagy bemutató kampány lehet.",
 		"admin.campaigns.versionShort": "v{version}",
 		"admin.capability.chat": "Chat",
 		"admin.capability.fileMessageParts": "Fájlok",
@@ -2927,6 +2976,10 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupControls": "Beállítási vezérlők",
 		"admin.campaigns.checklist.fail.setupSlide": "Pontosan egy beállítási dia",
 		"admin.campaigns.checklist.fail.slides": "Legalább egy dia",
+		"admin.campaigns.checklist.fail.tourKind":
+			"A bemutató típusa: dokumentum, alkalmazás vagy tábla",
+		"admin.campaigns.checklist.fail.tourShape":
+			"Egy összegző, utána három általános dia",
 		"admin.campaigns.checklist.fail.type": "Kampány típusa",
 		"admin.campaigns.checklist.failing": "{count} ellenőrzés nem megy át",
 		"admin.campaigns.checklist.inSlideMenu": "a dia ⋯ menüjében",
@@ -2948,6 +3001,10 @@ const settingsDict = {
 			"A beállítási vezérlők jó helyen vannak",
 		"admin.campaigns.checklist.rule.setupSlide": "Pontosan egy beállítási dia",
 		"admin.campaigns.checklist.rule.slides": "Legalább egy dia",
+		"admin.campaigns.checklist.rule.tourKind":
+			"A bemutató dokumentumhoz, alkalmazáshoz vagy táblához tartozik",
+		"admin.campaigns.checklist.rule.tourShape":
+			"Egy összegző dia, utána három általános dia",
 		"admin.campaigns.checklist.rule.type": "Kampány típusa",
 		"admin.campaigns.checklist.slideHasIssues":
 			"Ezen a dián hibás ellenőrzések vannak",

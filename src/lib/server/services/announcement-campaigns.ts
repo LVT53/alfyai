@@ -11,14 +11,19 @@ import {
 	announcementCampaignUserStates,
 	campaignAssets,
 } from "$lib/server/db/schema";
+import {
+	isShippedArtifactTourType,
+	SHIPPED_ARTIFACT_TOUR_TYPES,
+} from "$lib/shared/artifacts/tours";
 
 type CampaignDb = typeof defaultDb;
 
 export type AnnouncementCampaignType =
 	| "first_run_onboarding"
-	| "release_update";
+	| "release_update"
+	| "artifact_tour";
 export type AnnouncementCampaignStatus = "draft" | "published" | "archived";
-export type AnnouncementCampaignSlideLayout = "setup" | "standard";
+export type AnnouncementCampaignSlideLayout = "setup" | "standard" | "summary";
 export type AnnouncementCampaignSlideRole = "feature" | "data_disclosure";
 export type CampaignCompletionReason = "completed" | "skipped";
 export type CampaignEventType =
@@ -87,10 +92,12 @@ type SnapshotSlideRow = typeof announcementCampaignSnapshotSlides.$inferSelect;
 const CAMPAIGN_TYPES = new Set<AnnouncementCampaignType>([
 	"first_run_onboarding",
 	"release_update",
+	"artifact_tour",
 ]);
 const LAYOUT_TYPES = new Set<AnnouncementCampaignSlideLayout>([
 	"setup",
 	"standard",
+	"summary",
 ]);
 const SEMANTIC_ROLES = new Set<AnnouncementCampaignSlideRole>([
 	"feature",
@@ -179,7 +186,13 @@ function defaultVersionFor(
 	type: AnnouncementCampaignType,
 	releaseVersion?: string | null,
 ): string {
-	if (type === "release_update") {
+	// `artifact_tour` shares `release_update`'s rule for a reason specific to
+	// tours: four drafts of one type need four distinct identities, one per
+	// kind, not four revisions of a single "v1" (slice-6 spec, "The identity
+	// rule for four drafts"). The seed sets `releaseVersion` to the kind
+	// ("document" | "app" | "canvas" | "slides"), giving
+	// `artifact_tour:<kind>:r1` instead of `artifact_tour:v1:r1..r4`.
+	if (type === "release_update" || type === "artifact_tour") {
 		return releaseVersion?.trim() || "unversioned";
 	}
 	return "v1";
@@ -193,7 +206,7 @@ function assertType(value: unknown): AnnouncementCampaignType {
 		return value as AnnouncementCampaignType;
 	}
 	throw new AnnouncementCampaignValidationError("Invalid campaign type.", {
-		type: "Campaign type must be first_run_onboarding or release_update.",
+		type: "Campaign type must be first_run_onboarding, release_update or artifact_tour.",
 	});
 }
 
@@ -592,7 +605,7 @@ function validatePublishCampaignBasics(
 	}
 	if (!CAMPAIGN_TYPES.has(campaign.type as AnnouncementCampaignType)) {
 		errors.type =
-			"Campaign type must be first_run_onboarding or release_update.";
+			"Campaign type must be first_run_onboarding, release_update or artifact_tour.";
 	}
 	if (
 		!trimString(campaign.campaignVersion) ||
@@ -731,7 +744,7 @@ function validatePublishInput(
 			addFieldError(
 				errors,
 				`${prefix}.layoutType`,
-				"Slide layout must be setup or standard.",
+				"Slide layout must be setup, standard or summary.",
 			);
 		}
 		if (
@@ -756,15 +769,27 @@ function validatePublishInput(
 		}
 		orderSet.add(slide.sortOrder);
 
+		// A tour's summary slide is one bare line: its title is what an empty
+		// Document, App or Canvas shows, and nothing draws a body under it
+		// (RC-T I-2), so asking for one made an admin write words no reader sees.
+		const isTourSummary =
+			campaignType === "artifact_tour" && slide.layoutType === "summary";
 		validateRequiredLocalizedFields(
 			prefix,
-			[
-				["title.en", slide.titleEn],
-				["title.hu", slide.titleHu],
-				["body.en", slide.bodyEn],
-				["body.hu", slide.bodyHu],
-			],
-			"Localized EN/HU title and body are required.",
+			isTourSummary
+				? [
+						["title.en", slide.titleEn],
+						["title.hu", slide.titleHu],
+					]
+				: [
+						["title.en", slide.titleEn],
+						["title.hu", slide.titleHu],
+						["body.en", slide.bodyEn],
+						["body.hu", slide.bodyHu],
+					],
+			isTourSummary
+				? "Localized EN/HU title is required."
+				: "Localized EN/HU title and body are required.",
 			errors,
 		);
 
@@ -808,11 +833,60 @@ function validatePublishInput(
 		}
 	}
 
+	// `slides` arrives pre-sorted by `sortOrder` (publishCampaign's own
+	// query), so index 0 is genuinely first — not merely "some summary slide
+	// exists somewhere". A tour is exactly one summary slide, then exactly
+	// three standard slides, in that order (slice-6 spec: "Concretely: four
+	// slides with sortOrder 1 (summary), 2, 3, 4").
+	if (campaign.type === "artifact_tour") {
+		const wellShaped =
+			slides.length === 4 &&
+			slides[0]?.layoutType === "summary" &&
+			slides.slice(1).every((slide) => slide.layoutType === "standard");
+		if (!wellShaped) {
+			errors.tourSlideShape =
+				"A tour campaign requires exactly one summary slide, placed first, and exactly three standard slides after it.";
+		}
+		// A tour's kind is its release text, and the resolver finds a tour by
+		// exactly that (`artifact-tours.ts`). Published under any other text it
+		// would reach nobody and say nothing, so it is refused here instead
+		// (ruling 71). Only a kind whose tour ships can be named: not Slides,
+		// which is shelved, and never File.
+		if (!isShippedArtifactTourType(campaign.releaseVersion)) {
+			const kinds = SHIPPED_ARTIFACT_TOUR_TYPES;
+			errors.tourKind = `A tour campaign's release must be the kind it introduces: ${kinds.slice(0, -1).join(", ")} or ${kinds[kinds.length - 1]}.`;
+		}
+	}
+
 	if (Object.keys(errors).length > 0) {
 		throw new AnnouncementCampaignValidationError(
 			"Campaign is not ready to publish.",
 			errors,
 		);
+	}
+}
+
+type CampaignTx = Parameters<Parameters<CampaignDb["transaction"]>[0]>[0];
+
+/**
+ * Takes a published campaign out of service: the campaign row and the snapshot
+ * it published are both marked archived. The one place that does it, for the
+ * admin's Archive and for a tour revision that replaces its predecessor.
+ */
+function archivePublishedRow(
+	tx: CampaignTx,
+	row: { id: string; publishedSnapshotId: string | null },
+	now: Date,
+) {
+	tx.update(announcementCampaigns)
+		.set({ status: "archived", archivedAt: now, updatedAt: now })
+		.where(eq(announcementCampaigns.id, row.id))
+		.run();
+	if (row.publishedSnapshotId) {
+		tx.update(announcementCampaignSnapshots)
+			.set({ archivedAt: now })
+			.where(eq(announcementCampaignSnapshots.id, row.publishedSnapshotId))
+			.run();
 	}
 }
 
@@ -928,6 +1002,28 @@ export async function publishCampaign(
 				.where(inArray(campaignAssets.id, assetIds))
 				.run();
 		}
+		// A kind has ONE live tour. The resolver reads the newest published
+		// revision, so an older one left published would be what archiving this
+		// one revealed, instead of the code copy (ruling 71). A release note is
+		// different: older ones stay published and the latest wins (RC-T Minor 1).
+		if (campaign.type === "artifact_tour" && campaign.releaseVersion !== null) {
+			const replaced = tx
+				.select({
+					id: announcementCampaigns.id,
+					publishedSnapshotId: announcementCampaigns.publishedSnapshotId,
+				})
+				.from(announcementCampaigns)
+				.where(
+					and(
+						eq(announcementCampaigns.type, "artifact_tour"),
+						eq(announcementCampaigns.releaseVersion, campaign.releaseVersion),
+						eq(announcementCampaigns.status, "published"),
+						ne(announcementCampaigns.id, campaignId),
+					),
+				)
+				.all();
+			for (const row of replaced) archivePublishedRow(tx, row, now);
+		}
 	});
 
 	const published = await getCampaignById(campaignId, { db });
@@ -961,20 +1057,7 @@ export async function archiveCampaign(
 		);
 	}
 	const now = new Date();
-	db.transaction((tx) => {
-		tx.update(announcementCampaigns)
-			.set({ status: "archived", archivedAt: now, updatedAt: now })
-			.where(eq(announcementCampaigns.id, campaignId))
-			.run();
-		if (campaign.publishedSnapshotId) {
-			tx.update(announcementCampaignSnapshots)
-				.set({ archivedAt: now })
-				.where(
-					eq(announcementCampaignSnapshots.id, campaign.publishedSnapshotId),
-				)
-				.run();
-		}
-	});
+	db.transaction((tx) => archivePublishedRow(tx, campaign, now));
 	const archived = await getCampaignById(campaignId, { db });
 	if (!archived) throw new Error("Failed to archive campaign.");
 	return archived;
@@ -1073,8 +1156,8 @@ async function getPublishedCampaignFromRow(campaign: DraftRow, db: CampaignDb) {
 	};
 }
 
-async function latestPublishedByType(
-	type: AnnouncementCampaignType,
+async function latestPublishedOfTypes(
+	types: readonly AnnouncementCampaignType[],
 	db: CampaignDb,
 ) {
 	const campaign = db
@@ -1082,7 +1165,7 @@ async function latestPublishedByType(
 		.from(announcementCampaigns)
 		.where(
 			and(
-				eq(announcementCampaigns.type, type),
+				inArray(announcementCampaigns.type, [...types]),
 				eq(announcementCampaigns.status, "published"),
 			),
 		)
@@ -1092,6 +1175,10 @@ async function latestPublishedByType(
 		)
 		.get();
 	return campaign ? getPublishedCampaignFromRow(campaign, db) : null;
+}
+
+function latestPublishedByType(type: AnnouncementCampaignType, db: CampaignDb) {
+	return latestPublishedOfTypes([type], db);
 }
 
 async function userHasFinishedSnapshot(
@@ -1134,20 +1221,29 @@ export async function getEligibleCampaignForUser(
 	return null;
 }
 
-export async function getLatestPublishedCampaign(
+/**
+ * The campaigns that announce something to the whole app: a first-run
+ * onboarding and a release note. A tour is not one: it is about one kind of
+ * item and shows in that kind's panel (decisions.md ruling 32).
+ */
+const ANNOUNCEMENT_CAMPAIGN_TYPES = [
+	"first_run_onboarding",
+	"release_update",
+] as const satisfies readonly AnnouncementCampaignType[];
+
+/**
+ * The newest published ANNOUNCEMENT campaign, for the sidebar version badge's
+ * replay (ADR-0012: the badge opens the latest published campaign). Without a
+ * type predicate a published `artifact_tour` newer than the last note became the
+ * badge's campaign, and a click opened a kind tour and recorded it as a replay
+ * of the release; with a release note as the only type, a newer first-run
+ * onboarding stopped being what the badge opened. The rule is here, once, so no
+ * caller has an argument to get wrong.
+ */
+export async function getLatestPublishedAnnouncement(
 	options: CampaignServiceOptions = {},
 ) {
-	const db = database(options);
-	const row = db
-		.select()
-		.from(announcementCampaigns)
-		.where(eq(announcementCampaigns.status, "published"))
-		.orderBy(
-			desc(announcementCampaigns.publishedAt),
-			desc(announcementCampaigns.revision),
-		)
-		.get();
-	return row ? getPublishedCampaignFromRow(row, db) : null;
+	return latestPublishedOfTypes(ANNOUNCEMENT_CAMPAIGN_TYPES, database(options));
 }
 
 function eventTypeForCompletion(

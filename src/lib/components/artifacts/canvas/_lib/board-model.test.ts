@@ -17,6 +17,7 @@ import {
 	bodyOfState,
 	DEFAULT_CAMERA,
 	hasStoredCamera,
+	sameCamera,
 	structuralJson,
 	toFlowEdges,
 	toFlowNodes,
@@ -296,6 +297,21 @@ describe("what counts as a change", () => {
 				viewport: { x: 0, y: 0, zoom: 1.5 },
 			}),
 		).toBe(true);
+	});
+});
+
+describe("whether the camera is still where a fit left it", () => {
+	const FIT = { x: 142.25, y: 61.5, zoom: 0.4375 };
+
+	it("is the same camera when nothing moved, and when only the last half pixel did", () => {
+		expect(sameCamera(FIT, { ...FIT })).toBe(true);
+		expect(sameCamera(FIT, { x: 142.5, y: 61.1, zoom: 0.4379 })).toBe(true);
+	});
+
+	it("is another camera once the reader has panned or zoomed, however little", () => {
+		expect(sameCamera(FIT, { ...FIT, x: FIT.x + 1 })).toBe(false);
+		expect(sameCamera(FIT, { ...FIT, y: FIT.y - 1 })).toBe(false);
+		expect(sameCamera(FIT, { ...FIT, zoom: FIT.zoom + 0.002 })).toBe(false);
 	});
 });
 

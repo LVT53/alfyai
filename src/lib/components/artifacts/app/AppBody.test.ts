@@ -1094,3 +1094,96 @@ describe("AppBody — i18n and naming", () => {
 		expect(huContainer.textContent ?? "").not.toMatch(/artifact/i);
 	});
 });
+
+// Slice 6 T6: an App with no source says what the App tour says, and offers
+// the tour again, where a blank frame would be. (The tools never save an empty
+// App, so this is rare; it is the one place an App body shows "nothing here".)
+describe("AppBody — an app with nothing in it", () => {
+	const SUMMARY = {
+		en: "No app yet. Ask Alfy for a small tool.",
+		hu: "Még nincs alkalmazás. Kérj Alfytól egy kis eszközt.",
+	};
+	const mount = (extra: Record<string, unknown> = {}) =>
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+			...extra,
+		});
+
+	it("says what the tour says, with a link beneath it, instead of a blank frame", async () => {
+		fetchArtifact.mockResolvedValue(baseDetail({ body: "" }));
+		const onReplayTour = vi.fn();
+		mount({ tourSummary: SUMMARY, onReplayTour });
+
+		const line = await screen.findByTestId("app-empty");
+		expect(line).toHaveTextContent(SUMMARY.en);
+		const link = screen.getByTestId("app-empty-replay");
+		expect(link).toHaveTextContent("Show it again");
+		expect(
+			line.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(document.querySelector("iframe")).toBeNull();
+
+		await fireEvent.click(link);
+		expect(onReplayTour).toHaveBeenCalledTimes(1);
+	});
+
+	it("says the dictionary's line when no tour answered", async () => {
+		fetchArtifact.mockResolvedValue(baseDetail({ body: "" }));
+		mount({ tourSummary: null, onReplayTour: vi.fn() });
+
+		expect(await screen.findByTestId("app-empty")).toHaveTextContent(
+			"Nothing here yet. Ask Alfy to build a small tool.",
+		);
+	});
+
+	it("shows no link when the panel gives no replay", async () => {
+		fetchArtifact.mockResolvedValue(baseDetail({ body: "" }));
+		mount({ tourSummary: SUMMARY });
+
+		expect(await screen.findByTestId("app-empty")).toBeInTheDocument();
+		expect(screen.queryByTestId("app-empty-replay")).toBeNull();
+	});
+
+	it("counts a body of whitespace as nothing", async () => {
+		fetchArtifact.mockResolvedValue(baseDetail({ body: "  \n\t " }));
+		mount({ tourSummary: SUMMARY });
+
+		expect(await screen.findByTestId("app-empty")).toBeInTheDocument();
+	});
+
+	it("shows the app, and no empty state, when it has a body", async () => {
+		mount({ tourSummary: SUMMARY, onReplayTour: vi.fn() });
+
+		await screen.findByRole("tab", { name: /Preview/ });
+		await waitFor(() =>
+			expect(document.querySelector("iframe")).not.toBeNull(),
+		);
+		expect(screen.queryByTestId("app-empty")).toBeNull();
+	});
+
+	it("is the Preview's, so the Code tab stays the code", async () => {
+		fetchArtifact.mockResolvedValue(baseDetail({ body: "" }));
+		mount({ tourSummary: SUMMARY });
+		await screen.findByTestId("app-empty");
+
+		await fireEvent.click(screen.getByRole("tab", { name: /Code/ }));
+
+		expect(screen.queryByTestId("app-empty")).toBeNull();
+	});
+
+	it("says it in Hungarian when the page is Hungarian", async () => {
+		uiLanguage.set("hu");
+		fetchArtifact.mockResolvedValue(baseDetail({ body: "" }));
+		mount({ tourSummary: SUMMARY, onReplayTour: vi.fn() });
+
+		expect(await screen.findByTestId("app-empty")).toHaveTextContent(
+			SUMMARY.hu,
+		);
+		expect(screen.getByTestId("app-empty-replay")).toHaveTextContent(
+			"Újra megnézem",
+		);
+	});
+});

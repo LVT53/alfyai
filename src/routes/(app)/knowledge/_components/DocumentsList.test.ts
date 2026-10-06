@@ -1581,9 +1581,11 @@ describe("DocumentsList", () => {
 			expect(
 				screen.getByTestId("documents-filter-chip-app").textContent?.trim(),
 			).toBe("Apps 2");
-			expect(
-				screen.getByTestId("documents-filter-chip-slides").textContent?.trim(),
-			).toBe("Slides 1");
+			// Ruling 69: Slides is shelved, so no chip stands for a kind nothing can
+			// make. A Slides count in the data (there is none in production) still
+			// counts toward All, as the sum above shows, but gets no chip.
+			expect(screen.queryByTestId("documents-filter-chip-slides")).toBeNull();
+			expect(screen.queryByText(/Slides/)).toBeNull();
 			// Ruling 60: "Uploaded" became "Files" — the chip still covers the
 			// same bucket, only its label changed.
 			expect(
@@ -1613,13 +1615,8 @@ describe("DocumentsList", () => {
 			expect(
 				screen.getByTestId("documents-filter-chip-all").querySelector("svg"),
 			).toBeNull();
-			for (const filter of [
-				"document",
-				"canvas",
-				"app",
-				"slides",
-				"uploaded",
-			]) {
+			// Every chip there is (ruling 69: no Slides chip while Slides is shelved).
+			for (const filter of ["document", "canvas", "app", "uploaded"]) {
 				expect(
 					screen
 						.getByTestId(`documents-filter-chip-${filter}`)

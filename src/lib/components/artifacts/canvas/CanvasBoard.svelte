@@ -97,6 +97,7 @@ import {
 	bodyOfState,
 	type FlowNode,
 	hasStoredCamera,
+	sameCamera,
 	structuralJson,
 	toFlowEdges,
 	toFlowNodes,
@@ -114,6 +115,7 @@ import { newId } from "./_lib/ids";
 import { visibleBoardRect } from "./_lib/pane-rect";
 import { withSelection } from "./_lib/selection";
 import type AnnotationLayer from "./AnnotationLayer.svelte";
+import EmptyState from "$lib/components/artifacts/EmptyState.svelte";
 import CanvasToolbar from "./CanvasToolbar.svelte";
 import type DrawTray from "./DrawTray.svelte";
 import ZoomChip from "./ZoomChip.svelte";
@@ -128,6 +130,8 @@ let {
 	onselect,
 	onask,
 	askBusy = false,
+	emptyLine,
+	onReplayTour,
 }: {
 	/** The board to draw. Read once, when the board mounts: to show a different one (a reload, a restore) the editor mounts a new board. */
 	body: CanvasBody;
@@ -147,6 +151,10 @@ let {
 	onask?: (request: { ids: string[]; centre: Pt }) => void;
 	/** Alfy is arranging: Ask waits. */
 	askBusy?: boolean;
+	/** What an empty board says (the Canvas tour's summary, `empty-state.ts`); the dictionary's own line when the host gives none. */
+	emptyLine?: string;
+	/** Shows the Canvas tour again: the empty state's link, there only when the panel supplies it. */
+	onReplayTour?: () => void;
 } = $props();
 
 const initial = untrack(() => body);
@@ -1032,6 +1040,37 @@ let fitViewOptions = $derived({
 	maxZoom: 1,
 } as const);
 
+// A board is fitted again when its pane changes size (a tour card arriving or
+// going, a window resize, a column of comments opening), but only while the camera
+// is exactly where the last fit left it: that is "the reader has not moved it".
+// Once they pan or zoom (or a save brought a camera of its own, which no fit
+// ever left) it is theirs and nothing here touches it; their own Fit button is a
+// fit again. A pane that changes size over a transition changes every frame, so
+// the board follows it, a frame at a time, instead of being cut after it.
+let fitted: Viewport | null = null;
+
+function fitBoard(duration: number): void {
+	void flow
+		.fitView({ ...fitViewOptions, duration })
+		.then(() => (fitted = { ...flow.getViewport() }));
+}
+
+$effect(() => {
+	void [boardWidth, boardHeight];
+	untrack(() => {
+		if (
+			fitted &&
+			boardWidth > 0 &&
+			boardHeight > 0 &&
+			!pictures &&
+			!held &&
+			sameCamera(flow.getViewport(), fitted)
+		) {
+			fitBoard(0);
+		}
+	});
+});
+
 let ariaLabelConfig = $derived({
 	"node.a11yDescription.default": $t("artifacts.canvas.a11y.node"),
 	"node.a11yDescription.keyboardDisabled": $t(
@@ -1129,9 +1168,12 @@ function minimapColor(node: {
 		onnodedragstop={handleNodeDragStop}
 		onbeforedelete={handleBeforeDelete}
 		ondelete={handleDelete}
-		onmoveend={(_, camera) => {
+		onmoveend={(event, camera) => {
 			restingZoom = camera.zoom;
 			oncamera?.(camera);
+			// The library's own first fit has no pointer or key behind it: it is the
+			// first camera a fit left.
+			if (fitOnOpen && !event && !fitted) fitted = { ...camera };
 		}}
 	>
 		<Background variant={BackgroundVariant.Dots} gap={18} size={1} />
@@ -1196,15 +1238,19 @@ function minimapColor(node: {
 				zoom={viewport.zoom}
 				onzoomin={() => zoomBy(ZOOM_STEP)}
 				onzoomout={() => zoomBy(1 / ZOOM_STEP)}
-				onfit={() => flow.fitView({ ...fitViewOptions, duration: prefersReducedMotion() ? 0 : 200 })}
+				onfit={() => fitBoard(prefersReducedMotion() ? 0 : 200)}
 			/>
 		</Panel>
 	</SvelteFlow>
 
 	{#if empty}
-		<p class="canvas-empty" data-testid="canvas-empty">
-			{$t("artifacts.canvas.emptyBoard")}
-		</p>
+		<div class="canvas-empty">
+			<EmptyState
+				line={emptyLine ?? $t("artifacts.canvas.emptyBoard")}
+				testId="canvas-empty"
+				{onReplayTour}
+			/>
+		</div>
 	{/if}
 
 	{#if limitNotice}
@@ -1329,6 +1375,7 @@ function minimapColor(node: {
 		text-align: center;
 	}
 
+	/* The empty state lets every click through to the board but its own link. */
 	.canvas-empty {
 		position: absolute;
 		inset: 0;
@@ -1336,10 +1383,7 @@ function minimapColor(node: {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		margin: 0;
 		padding: var(--space-lg);
-		color: var(--text-muted);
-		font-size: var(--text-base);
 		text-align: center;
 		pointer-events: none;
 	}

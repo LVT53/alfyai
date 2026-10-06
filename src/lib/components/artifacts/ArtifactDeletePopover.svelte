@@ -7,13 +7,23 @@
  * closes on Escape and returns focus to its trigger.
  *
  * Two entrances share it. The panel header's trash button opens it straight
- * on the confirm; a list row's overflow opens it as a one-item menu whose
+ * on the confirm; a list row's overflow opens it as a small menu whose
  * "Delete …" leads to that same confirm inside the same popover (no second
  * layer). The component does not delete anything itself: `onConfirm` does,
  * and this waits for it — working state on the button, a failed delete stays
  * open and says so, a finished one closes.
+ *
+ * The row menu also carries the first-open tour's replay (ruling 32: the
+ * replay lives in the panel's list menu, so the version badge stays for release
+ * notes): "How this kind works", a quiet row above Delete, present when the
+ * host passes `onReplayTour`.
+ *
+ * The menu says `role="menu"`, so it behaves as one: it opens with focus on its
+ * first item, ArrowDown and ArrowUp move between the items (wrapping), Home and
+ * End go to the ends, and Escape closes it and gives the focus back to the
+ * button that opened it (the shell does that last part).
  */
-import { Trash2 } from "@lucide/svelte";
+import { CircleQuestionMark, Trash2 } from "@lucide/svelte";
 import { untrack } from "svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
@@ -24,6 +34,7 @@ let {
 	title,
 	anchorTestId,
 	regenerable = false,
+	onReplayTour = undefined,
 	initialStage = "confirm",
 	onConfirm,
 	onClose,
@@ -39,6 +50,8 @@ let {
 	 * cannot be undone, which is then the whole truth.
 	 */
 	regenerable?: boolean;
+	/** Shows the kind's first-open tour again. Given, the menu leads with "How this kind works"; the popover closes itself after calling it. */
+	onReplayTour?: (() => void) | undefined;
 	initialStage?: "confirm" | "menu";
 	/** Does the delete. Resolves when the item is gone; rejects when it is not. */
 	onConfirm: () => Promise<void>;
@@ -49,6 +62,46 @@ let stage = $state<"confirm" | "menu">(untrack(() => initialStage));
 let busy = $state(false);
 let failed = $state(false);
 let cancelButton = $state<HTMLButtonElement | undefined>(undefined);
+let menu = $state<HTMLElement | undefined>(undefined);
+
+/** The menu's items, in the order they are read. */
+function menuItems(): HTMLElement[] {
+	return [...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+}
+
+// A menu opens on its first item. The popover's own focus (the close button,
+// which comes first) is asked to land there on desktop (`initialFocus`, on a
+// timer once the content is in); this is the same move for the phone's sheet,
+// whose focus leaves what already has it. Both can happen, so the timer keeps
+// focus where it already is inside the menu: a reader who has pressed an arrow
+// before it fires is not pulled back to the first item.
+$effect(() => {
+	if (stage === "menu" && menu) menuItems()[0]?.focus();
+});
+
+function menuFocus(): HTMLElement | undefined {
+	if (stage !== "menu") return undefined;
+	const active = document.activeElement;
+	return active instanceof HTMLElement && menu?.contains(active)
+		? active
+		: menuItems()[0];
+}
+
+function moveInMenu(event: KeyboardEvent): void {
+	if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+	const items = menuItems();
+	if (items.length === 0) return;
+	event.preventDefault();
+	const at = items.indexOf(document.activeElement as HTMLElement);
+	const step = event.key === "ArrowDown" ? 1 : -1;
+	const to =
+		event.key === "Home"
+			? 0
+			: event.key === "End"
+				? items.length - 1
+				: (at + step + items.length) % items.length;
+	items[to]?.focus();
+}
 
 let heading = $derived(
 	stage === "menu" ? title : $t(`artifacts.delete.title.${kind}` as I18nKey),
@@ -83,10 +136,35 @@ async function confirm(): Promise<void> {
 	popoverTestId="artifact-delete-popover"
 	closeLabel={$t('common.close')}
 	width={320}
+	initialFocus={menuFocus}
 	{onClose}
 >
 	{#if stage === 'menu'}
-		<ul class="artifact-delete-menu" role="menu">
+		<ul
+			class="artifact-delete-menu"
+			role="menu"
+			tabindex="-1"
+			aria-label={title}
+			bind:this={menu}
+			onkeydown={moveInMenu}
+		>
+			{#if onReplayTour}
+				<li role="none">
+					<button
+						type="button"
+						role="menuitem"
+						class="artifact-delete-menuitem artifact-delete-menuitem-quiet"
+						data-testid="artifact-replay-tour"
+						onclick={() => {
+							onReplayTour?.();
+							onClose();
+						}}
+					>
+						<CircleQuestionMark size={16} strokeWidth={2} aria-hidden="true" />
+						{$t('artifacts.tour.region')}
+					</button>
+				</li>
+			{/if}
 			<li role="none">
 				<button
 					type="button"
@@ -184,6 +262,12 @@ async function confirm(): Promise<void> {
 		font-weight: 600;
 		text-align: left;
 		cursor: pointer;
+	}
+
+	/* The replay is help, not a danger: the quiet row beside the red one. */
+	.artifact-delete-menuitem-quiet {
+		color: var(--text-secondary);
+		font-weight: 500;
 	}
 
 	.artifact-delete-menuitem:hover {
