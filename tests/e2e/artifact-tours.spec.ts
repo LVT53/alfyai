@@ -21,7 +21,7 @@ import {
 	waitForTourAnswer,
 	watchTourRequests,
 } from "./artifact-tours-helpers";
-import { ensureSidebarExpanded, login } from "./helpers";
+import { ensureSidebarExpanded, login, waitForMotionToSettle } from "./helpers";
 
 // The first-open tours, through a real browser with real clicks and keys
 // (Slice 6; rulings 4, 8, 32, 33, 69). Every flow here is something a person
@@ -45,6 +45,8 @@ async function openAndExpectTour(
 	await openItem(page, ITEM_TITLES[kind]);
 	const card = tourCard(page);
 	await expect(card).toBeVisible({ timeout: 20_000 });
+	// The card slides in; what the test measures next is where it will stay.
+	await waitForMotionToSettle(page);
 	await expect(card.getByTestId("artifact-tour-title")).toHaveText(
 		SLIDE_ONE[kind],
 	);
@@ -106,18 +108,22 @@ test.describe("the first-open tours", () => {
 		});
 		expect(row.contentKey).toMatch(/^(default|snapshot):/);
 
-		// The second open of the same kind: asked, answered "seen", and no card.
+		// The second open of the same kind in this page load: the page already
+		// knows the answer ("seen"), so it asks nothing and shows nothing.
+		const asked = requests.gets().length;
 		await backToList(page);
-		const answered = waitForTourAnswer(page, "document");
 		await openItem(page, ITEM_TITLES.document);
-		await answered;
 		await expect(editor).toBeVisible();
 		await page.waitForTimeout(400);
 		await expect(tourCard(page)).toHaveCount(0);
+		expect(requests.gets()).toHaveLength(asked);
 		expect(requests.posts()).toHaveLength(1);
 
-		// And not after a reload either: the state is the server's, not the tab's.
+		// And not after a reload either: the state is the server's, not the tab's,
+		// and a new page load asks for itself.
+		const answered = waitForTourAnswer(page, "document");
 		await page.reload({ waitUntil: "networkidle" });
+		await answered;
 		await page.waitForTimeout(400);
 		await expect(tourCard(page)).toHaveCount(0);
 	});
@@ -201,6 +207,7 @@ test.describe("the first-open tours", () => {
 		page,
 	}) => {
 		const user = await createTourUser();
+		const requests = watchTourRequests(page);
 		const chatId = await startChatAs(page, user);
 		await seedItem(user, chatId, "document");
 		await reopenChat(page, chatId);
@@ -221,12 +228,16 @@ test.describe("the first-open tours", () => {
 			lastSlide: 1,
 		});
 
+		// Skipped is seen: the page knows it, asks nothing, and shows nothing.
+		const asked = requests.gets().length;
 		await backToList(page);
-		const answered = waitForTourAnswer(page, "document");
 		await openItem(page, ITEM_TITLES.document);
-		await answered;
+		await expect(
+			panelShell(page).locator(".document-editor-host .ProseMirror"),
+		).toBeVisible();
 		await page.waitForTimeout(400);
 		await expect(tourCard(page)).toHaveCount(0);
+		expect(requests.gets()).toHaveLength(asked);
 	});
 
 	test("the tour can be finished with the keyboard alone, and Escape leaves it", async ({
@@ -567,11 +578,10 @@ test.describe("the first-open tours", () => {
 		try {
 			await card.getByTestId("artifact-tour-skip").click();
 			// Refused with a 409, nothing written; the new copy begins at slide one.
-			const again = tourCard(page);
+			// The old card is still on its way out for a moment: the new one is the
+			// card that says "Step 1 of 3".
+			const again = tourCard(page).filter({ hasText: "Step 1 of 3" });
 			await expect(again).toBeVisible({ timeout: 20_000 });
-			await expect(again.getByTestId("artifact-tour-step")).toHaveText(
-				"Step 1 of 3",
-			);
 			expect(requests.gets().length).toBeGreaterThanOrEqual(2);
 			expect(await tourRows(user.id)).toEqual([]);
 

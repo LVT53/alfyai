@@ -915,7 +915,7 @@ const artifactsDict = {
 		"artifacts.panel.leftAlone": "{count} részt nem érintett",
 		"artifacts.panel.backA11y": "Vissza: Ez a beszélgetés ({count} elem)",
 		"artifacts.tour.region": "Így működik ez a típus",
-		"artifacts.tour.stepOf": "{n}. lépés, összesen {m}",
+		"artifacts.tour.stepOf": "{n}. lépés / {m}",
 		// A számnév után a főnév egyes számban marad: nincs többes szám.
 		"artifacts.tour.dots": "{count} lépés",
 		"artifacts.tour.next": "Tovább",

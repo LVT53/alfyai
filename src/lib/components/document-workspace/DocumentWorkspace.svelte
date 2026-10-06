@@ -17,7 +17,9 @@ import {
 } from "$lib/utils/motion";
 import {
 	getArtifactTour,
+	keepArtifactToursFor,
 	markArtifactTourSeen,
+	refreshArtifactTour,
 } from "$lib/client/api/artifact-tours";
 import { ApiError } from "$lib/client/api/http";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
@@ -634,7 +636,15 @@ async function presentTour(
 	isStale: () => boolean,
 ): Promise<void> {
 	try {
-		const answer = await getArtifactTour(kind);
+		// The page can change hands without being reloaded (login and logout are
+		// client-side navigations): the answers it holds are this reader's.
+		keepArtifactToursFor(currentUser?.id);
+		// A replay asks again (it shows the copy as it is now); an open takes the
+		// answer this page load already has, which is why a second item of a kind
+		// costs no request and shows its line from the first frame.
+		const answer = await (replay
+			? refreshArtifactTour(kind)
+			: getArtifactTour(kind));
 		if (isStale()) return;
 		tourSummary = { itemKey, summary: answer.tour.summary };
 		// A tour with no slides is nothing to show.
@@ -1821,14 +1831,21 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	<!-- The first-open tour: in the content area above the item, inside the panel's own flow. -->
 	{#snippet tourCard()}
 		{#if tourView && tourView.itemKey === activeBodyKey}
-			{@const Card = tourView.Card}
-			<Card
-				tour={tourView.tour}
-				replay={tourView.replay}
-				onSeen={handleTourSeen}
-				onDismiss={handleTourDismiss}
-				onClose={handleTourClose}
-			/>
+			<!-- One card per presentation. A card is on its way out for a quarter of a second after it is
+			     left, and an {#if} that turns true again in that time brings the SAME card back, with its
+			     finished state and its slide. A presentation wanted while one is leaving (the copy changed
+			     under the reader, a replay at once) is a new card, at its first slide. -->
+			{#key tourView}
+				{@const Card = tourView.Card}
+				<Card
+					tour={tourView.tour}
+					replay={tourView.replay}
+					animate
+					onSeen={handleTourSeen}
+					onDismiss={handleTourDismiss}
+					onClose={handleTourClose}
+				/>
+			{/key}
 		{/if}
 	{/snippet}
 

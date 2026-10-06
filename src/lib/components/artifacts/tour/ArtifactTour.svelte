@@ -16,13 +16,22 @@
  *
  * It is a region, not a dialog: it traps no focus and makes nothing inert, so
  * the reader may keep working beside it. It takes focus when it shows (a screen
- * reader then announces "How this kind works, region, Step 1 of 3") unless the
- * reader is already typing somewhere, and gives focus back when it goes. Escape
+ * reader then announces "How this kind works, region") unless the reader is
+ * already typing somewhere, and gives focus back the moment they leave it. Escape
  * is Skip, but only while focus is inside the card: an Escape pressed in the
- * editor is the editor's. Arrow keys are not bound; the dots are a picture.
+ * editor is the editor's. Arrow keys are not bound; the dots are a picture. A
+ * live region of its own says the new step's position and title when Next or
+ * Back is pressed.
+ *
+ * `animate` is the host asking for motion: the card then enters and leaves as a
+ * height that grows and shrinks (a short transition, instant under
+ * prefers-reduced-motion), so what is below it moves with that instead of
+ * jumping a whole card's height in one frame. The panel asks; the admin's
+ * preview, which is a picture, does not.
  */
 import { onMount, tick, untrack } from "svelte";
 import type { Component } from "svelte";
+import { slide as slideHeight } from "svelte/transition";
 import { t } from "$lib/i18n";
 import type {
 	LocalizedText,
@@ -34,6 +43,7 @@ import {
 	MOTION_DURATION,
 	MOTION_EASING,
 	reducedMotionAnimate,
+	reducedMotionAware,
 } from "$lib/utils/motion";
 import TourArtApp from "./illustrations/TourArtApp.svelte";
 import TourArtCanvas from "./illustrations/TourArtCanvas.svelte";
@@ -43,6 +53,7 @@ let {
 	tour,
 	startSlide = 0,
 	replay = false,
+	animate = false,
 	onSeen,
 	onDismiss,
 	onClose = undefined,
@@ -52,6 +63,8 @@ let {
 	startSlide?: number;
 	/** The panel's replay: records nothing and leaves through `onClose`. */
 	replay?: boolean;
+	/** Enter and leave as a height that grows and shrinks (the host asks for it; see the header). */
+	animate?: boolean;
 	/** The reader finished the tour; `lastSlide` is the index of its last slide. */
 	onSeen: (lastSlide: number) => void;
 	/** The reader left before the end; `slide` is the index they were on. */
@@ -85,6 +98,21 @@ let slideElement = $state<HTMLElement | undefined>(undefined);
 let backButton = $state<HTMLButtonElement | undefined>(undefined);
 let primaryButton = $state<HTMLButtonElement | undefined>(undefined);
 let ended = false;
+/** What the live region says: empty until the reader moves, then the new step's position and title. */
+let announcement = $state("");
+/**
+ * The card's entrance and exit: its wrapper grows from nothing to the card's own
+ * height and back (`slide`, eased in and out so the first frame moves what is
+ * below by a few pixels and not by a fifth of the card), so the card inside is
+ * revealed, never re-laid out. Instant under prefers-reduced-motion. `slide` costs
+ * the chat shell nothing: only this lazy chunk imports it.
+ */
+const reveal = reducedMotionAware(slideHeight);
+/** Cubic, in and out. Not `svelte/easing`'s own: that module is in the chat shell, and the one function would ride into every chat's first load. */
+const easeInOut = (t: number) =>
+	t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+/** Gives focus back to where it was, once. Set when the card shows; called when the reader leaves and again (harmlessly) when the card is torn down. */
+let giveFocusBack = (): void => {};
 
 /** The copy in the reader's language; a language the copy lacks reads in English, never as a hole. */
 function localized(text: LocalizedText): string {
@@ -96,6 +124,9 @@ function localized(text: LocalizedText): string {
 function leave(report: () => void): void {
 	if (ended) return;
 	ended = true;
+	// Now, not when the exit has played: until then the card is still in the page,
+	// and focus would sit on a button that is on its way out.
+	giveFocusBack();
 	report();
 }
 
@@ -118,6 +149,9 @@ async function go(to: number): Promise<void> {
 	slide = next;
 	await tick();
 	if (handBackFocus) primaryButton?.focus();
+	if (current) {
+		announcement = `${$t("artifacts.tour.stepOf", { n: slide + 1, m: slideCount })}. ${localized(current.title)}`;
+	}
 	// The only motion there is: the words slide in a little. Under
 	// prefers-reduced-motion `reducedMotionAnimate` jumps straight to the end.
 	if (slideElement) {
@@ -165,7 +199,10 @@ onMount(() => {
 	const returnTo =
 		before instanceof HTMLElement && before !== document.body ? before : null;
 	if (taking) region?.focus({ preventScroll: true });
-	return () => {
+	let returned = false;
+	giveFocusBack = () => {
+		if (returned) return;
+		returned = true;
 		// Give focus back only if it is still on the card, or on nothing because the
 		// control that had it was removed with the card; never pull it off something
 		// the reader moved to themselves.
@@ -176,106 +213,127 @@ onMount(() => {
 			returnTo.focus({ preventScroll: true });
 		}
 	};
+	return () => giveFocusBack();
 });
 </script>
 
 {#if current}
-	<section
-		bind:this={region}
-		class="artifact-tour"
-		aria-label={$t('artifacts.tour.region')}
-		data-testid="artifact-tour"
-		data-kind={tour.artifactType}
-		data-replay={replay ? 'true' : 'false'}
-		tabindex="-1"
-		{@attach escapeIsSkip}
+	<!-- The wrapper is what grows and shrinks (the card inside keeps its own size and
+	     is revealed, so its words do not reflow while it arrives). Global: the panel
+	     removes the card, not this element's own block, and the exit must still play. -->
+	<div
+		class="tour-reveal"
+		transition:reveal|global={{
+			duration: animate ? MOTION_DURATION.emphasis : 0,
+			easing: easeInOut,
+		}}
 	>
-		<div class="tour-art" data-testid="artifact-tour-illustration" aria-hidden="true">
-			<Illustration />
-		</div>
-
-		<div class="tour-main">
-			<div class="tour-meta">
-				<div
-					class="tour-dots"
-					role="img"
-					aria-label={$t('artifacts.tour.dots', { count: slideCount })}
-				>
-					{#each slides as _, index (index)}
-						<i
-							class="tour-dot"
-							data-testid="artifact-tour-dot"
-							data-active={index === slide ? 'true' : 'false'}
-						></i>
-					{/each}
-				</div>
-				<p
-					class="tour-step"
-					data-testid="artifact-tour-step"
-					aria-live="polite"
-					aria-atomic="true"
-				>
-					{$t('artifacts.tour.stepOf', { n: slide + 1, m: slideCount })}
-				</p>
-				{#if replay}
-					<span class="tour-replaying" data-testid="artifact-tour-replaying">
-						{$t('artifacts.tour.replayOpened')}
-					</span>
-				{/if}
+		<section
+			bind:this={region}
+			class="artifact-tour"
+			aria-label={$t('artifacts.tour.region')}
+			data-testid="artifact-tour"
+			data-kind={tour.artifactType}
+			data-replay={replay ? 'true' : 'false'}
+			tabindex="-1"
+			{@attach escapeIsSkip}
+		>
+			<div class="tour-art" data-testid="artifact-tour-illustration" aria-hidden="true">
+				<Illustration />
 			</div>
 
-			<div class="tour-slide" bind:this={slideElement}>
-				<h3 class="tour-title" data-testid="artifact-tour-title">
-					{localized(current.title)}
-				</h3>
-				<p class="tour-body" data-testid="artifact-tour-body">
-					{localized(current.body)}
-				</p>
-			</div>
-
-			<div class="tour-footer">
-				{#if isLast && !replay}
-					<p class="tour-hint" data-testid="artifact-tour-hint">
-						{$t('artifacts.tour.replayHint')}
+			<div class="tour-main">
+				<div class="tour-meta">
+					<div
+						class="tour-dots"
+						role="img"
+						aria-label={$t('artifacts.tour.dots', { count: slideCount })}
+					>
+						{#each slides as _, index (index)}
+							<i
+								class="tour-dot"
+								data-testid="artifact-tour-dot"
+								data-active={index === slide ? 'true' : 'false'}
+							></i>
+						{/each}
+					</div>
+					<p class="tour-step" data-testid="artifact-tour-step">
+						{$t('artifacts.tour.stepOf', { n: slide + 1, m: slideCount })}
 					</p>
-				{/if}
-				<div class="tour-actions">
-					<button
-						type="button"
-						class="btn-secondary btn-sm"
-						data-testid="artifact-tour-skip"
-						onclick={skip}
+					<p
+						class="sr-only"
+						data-testid="artifact-tour-live"
+						aria-live="polite"
+						aria-atomic="true"
 					>
-						{$t('artifacts.tour.skip')}
-					</button>
-					{#if slide > 0}
-						<button
-							bind:this={backButton}
-							type="button"
-							class="btn-ghost btn-sm"
-							data-testid="artifact-tour-back"
-							onclick={() => go(slide - 1)}
-						>
-							{$t('artifacts.tour.back')}
-						</button>
+						{announcement}
+					</p>
+					{#if replay}
+						<span class="tour-replaying" data-testid="artifact-tour-replaying">
+							{$t('artifacts.tour.replayOpened')}
+						</span>
 					{/if}
-					<!-- One element for "Next" and "Got it": the keyboard keeps its place when the last slide arrives. -->
-					<button
-						bind:this={primaryButton}
-						type="button"
-						class="btn-primary btn-sm"
-						data-testid={isLast ? 'artifact-tour-done' : 'artifact-tour-next'}
-						onclick={isLast ? finish : () => go(slide + 1)}
-					>
-						{isLast ? $t('artifacts.tour.done') : $t('artifacts.tour.next')}
-					</button>
+				</div>
+
+				<div class="tour-slide" bind:this={slideElement}>
+					<h3 class="tour-title" data-testid="artifact-tour-title">
+						{localized(current.title)}
+					</h3>
+					<p class="tour-body" data-testid="artifact-tour-body">
+						{localized(current.body)}
+					</p>
+				</div>
+
+				<div class="tour-footer">
+					{#if isLast && !replay}
+						<p class="tour-hint" data-testid="artifact-tour-hint">
+							{$t('artifacts.tour.replayHint')}
+						</p>
+					{/if}
+					<div class="tour-actions">
+						<button
+							type="button"
+							class="btn-secondary btn-sm"
+							data-testid="artifact-tour-skip"
+							onclick={skip}
+						>
+							{$t('artifacts.tour.skip')}
+						</button>
+						{#if slide > 0}
+							<button
+								bind:this={backButton}
+								type="button"
+								class="btn-ghost btn-sm"
+								data-testid="artifact-tour-back"
+								onclick={() => go(slide - 1)}
+							>
+								{$t('artifacts.tour.back')}
+							</button>
+						{/if}
+						<!-- One element for "Next" and "Got it": the keyboard keeps its place when the last slide arrives. -->
+						<button
+							bind:this={primaryButton}
+							type="button"
+							class="btn-primary btn-sm"
+							data-testid={isLast ? 'artifact-tour-done' : 'artifact-tour-next'}
+							onclick={isLast ? finish : () => go(slide + 1)}
+						>
+							{isLast ? $t('artifacts.tour.done') : $t('artifacts.tour.next')}
+						</button>
+					</div>
 				</div>
 			</div>
-		</div>
-	</section>
+		</section>
+	</div>
 {/if}
 
 <style>
+	/* A flex item of the panel's content column: it takes the card's height, and
+	   that is the height the transition animates. */
+	.tour-reveal {
+		flex: 0 0 auto;
+	}
+
 	/* The card sits in the panel's content area, above the artifact, at its full
 	   width — not fixed, not sticky, and never taller than a part of the panel's
 	   own height: a long published slide scrolls inside the card instead of

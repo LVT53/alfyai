@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getArtifactTour, markArtifactTourSeen } from "./artifact-tours";
 import { ApiError } from "./http";
 
@@ -164,5 +164,216 @@ describe("markArtifactTourSeen", () => {
 			status: 400,
 			fieldErrors: { lastSlide: "invalid" },
 		});
+	});
+});
+
+// One answer per kind per page load (RC-T Minor 11): what the server said about
+// a kind is kept by the module, so a reader who opens a dozen Documents is asked
+// once, and the answer an item needs is in hand before it opens. Each test loads
+// a module of its own: the memory is the page's, and a new test is a new page.
+describe("the answer kept for a page load", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	async function pageLoad(
+		answers: Array<{ seen: boolean; tour?: typeof TOUR } | "fail">,
+	) {
+		const fetchStub = vi.fn();
+		for (const answer of answers) {
+			fetchStub.mockImplementationOnce(async () =>
+				answer === "fail"
+					? new Response("", { status: 500 })
+					: jsonResponse({
+							ok: true,
+							tour: answer.tour ?? TOUR,
+							seen: answer.seen,
+							lastSlide: 0,
+						}),
+			);
+		}
+		fetchStub.mockImplementation(async () =>
+			jsonResponse({ ok: true, alreadyRecorded: false }),
+		);
+		vi.stubGlobal("fetch", fetchStub);
+		vi.resetModules();
+		const module = await import("./artifact-tours");
+		return { ...module, fetchStub };
+	}
+
+	const reads = (fetchStub: ReturnType<typeof vi.fn>) =>
+		fetchStub.mock.calls.filter(
+			([, init]) => (init as RequestInit | undefined)?.method !== "POST",
+		);
+
+	it("asks for a kind once, and shares the answer while it is still on the wire", async () => {
+		const { getArtifactTour, fetchStub } = await pageLoad([{ seen: false }]);
+
+		const first = getArtifactTour("canvas");
+		const second = getArtifactTour("canvas");
+		const [one, two] = await Promise.all([first, second]);
+
+		expect(one).toEqual({ tour: TOUR, seen: false, lastSlide: 0 });
+		expect(two).toBe(one);
+		await getArtifactTour("canvas");
+		expect(reads(fetchStub)).toHaveLength(1);
+	});
+
+	it("keeps each kind apart", async () => {
+		const { getArtifactTour, fetchStub } = await pageLoad([
+			{ seen: false },
+			{ seen: true },
+		]);
+
+		await getArtifactTour("canvas");
+		await getArtifactTour("document");
+		await getArtifactTour("canvas");
+		await getArtifactTour("document");
+
+		expect(reads(fetchStub).map(([url]) => url)).toEqual([
+			"/api/artifact-tours/canvas",
+			"/api/artifact-tours/document",
+		]);
+	});
+
+	it("does not keep a failure: the next ask goes to the server again", async () => {
+		const { getArtifactTour, fetchStub } = await pageLoad([
+			"fail",
+			{ seen: false },
+		]);
+
+		await expect(getArtifactTour("document")).rejects.toMatchObject({
+			status: 500,
+		});
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: false,
+		});
+		expect(reads(fetchStub)).toHaveLength(2);
+	});
+
+	it("asks again for a replay, and keeps the copy it brought back", async () => {
+		const newer = { ...TOUR, contentKey: "snapshot:new" };
+		const { getArtifactTour, refreshArtifactTour, fetchStub } = await pageLoad([
+			{ seen: true },
+			{ seen: false, tour: newer },
+		]);
+
+		await getArtifactTour("canvas");
+		const refreshed = await refreshArtifactTour("canvas");
+
+		expect(refreshed.tour.contentKey).toBe("snapshot:new");
+		expect((await getArtifactTour("canvas")).tour.contentKey).toBe(
+			"snapshot:new",
+		);
+		expect(reads(fetchStub)).toHaveLength(2);
+	});
+
+	it("takes a finished tour as seen at once, before the server has answered", async () => {
+		const { getArtifactTour, markArtifactTourSeen, fetchStub } = await pageLoad(
+			[{ seen: false }],
+		);
+		await getArtifactTour("document");
+		fetchStub.mockImplementationOnce(() => new Promise(() => {}));
+
+		void markArtifactTourSeen("document", {
+			contentKey: TOUR.contentKey,
+			status: "completed",
+			lastSlide: 2,
+		});
+
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: true,
+			lastSlide: 2,
+		});
+	});
+
+	it("leaves a different copy unseen: only what was read is marked", async () => {
+		const { getArtifactTour, markArtifactTourSeen } = await pageLoad([
+			{ seen: false },
+		]);
+		await getArtifactTour("document");
+
+		await markArtifactTourSeen("document", {
+			contentKey: "default:0",
+			status: "dismissed",
+			lastSlide: 0,
+		});
+
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: false,
+		});
+	});
+
+	it("forgets the kind when the write is refused or fails, so the next ask is the server's", async () => {
+		const { getArtifactTour, markArtifactTourSeen, fetchStub } = await pageLoad(
+			[{ seen: false }],
+		);
+		await getArtifactTour("document");
+		fetchStub.mockImplementationOnce(async () =>
+			jsonResponse({ ok: false, reason: "content_changed" }, 409),
+		);
+
+		await expect(
+			markArtifactTourSeen("document", {
+				contentKey: TOUR.contentKey,
+				status: "completed",
+				lastSlide: 2,
+			}),
+		).rejects.toMatchObject({ status: 409 });
+
+		fetchStub.mockImplementationOnce(async () =>
+			jsonResponse({ ok: true, tour: TOUR, seen: false, lastSlide: 0 }),
+		);
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: false,
+		});
+		expect(reads(fetchStub)).toHaveLength(2);
+	});
+
+	it("drops what the last reader was told when the tab is another reader's", async () => {
+		// Login and logout are client-side navigations: the module outlives a reader.
+		const { getArtifactTour, keepArtifactToursFor, fetchStub } = await pageLoad(
+			[{ seen: true }, { seen: false }],
+		);
+		keepArtifactToursFor("reader-a");
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: true,
+		});
+
+		// The same reader again: what they were told stands.
+		keepArtifactToursFor("reader-a");
+		await getArtifactTour("document");
+		expect(reads(fetchStub)).toHaveLength(1);
+
+		// Someone else: their answer is the server's, not the last reader's.
+		keepArtifactToursFor("reader-b");
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: false,
+		});
+		expect(reads(fetchStub)).toHaveLength(2);
+
+		// A host that does not say who is reading starts clean too.
+		keepArtifactToursFor(null);
+		keepArtifactToursFor(undefined);
+		fetchStub.mockImplementationOnce(async () =>
+			jsonResponse({ ok: true, tour: TOUR, seen: true, lastSlide: 2 }),
+		);
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: true,
+		});
+	});
+
+	it("keeps nothing for a fetch it was handed", async () => {
+		const { getArtifactTour } = await pageLoad([]);
+		const handed = vi
+			.fn()
+			.mockImplementation(async () =>
+				jsonResponse({ ok: true, tour: TOUR, seen: false, lastSlide: 0 }),
+			);
+
+		await getArtifactTour("canvas", handed);
+		await getArtifactTour("canvas", handed);
+
+		expect(handed).toHaveBeenCalledTimes(2);
 	});
 });

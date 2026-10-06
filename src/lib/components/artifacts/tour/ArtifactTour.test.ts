@@ -74,7 +74,9 @@ function renderTour(
 		tour: ResolvedArtifactTour;
 		startSlide: number;
 		replay: boolean;
+		animate: boolean;
 	}> = {},
+	options: { intro?: boolean } = {},
 ) {
 	const onSeen = vi.fn();
 	const onDismiss = vi.fn();
@@ -82,6 +84,7 @@ function renderTour(
 	const user = userEvent.setup();
 	const result = render(ArtifactTour, {
 		props: { tour: makeTour(), onSeen, onDismiss, onClose, ...props },
+		...options,
 	});
 	return { ...result, user, onSeen, onDismiss, onClose };
 }
@@ -192,16 +195,40 @@ describe("ArtifactTour", () => {
 		expect(screen.getByText(hint)).toBeInTheDocument();
 	});
 
-	it("announces the step to assistive tech", async () => {
+	it("announces the new step's position and title, in a live region of its own, when Next or Back is pressed", async () => {
 		const { user } = renderTour();
 
-		const step = screen.getByTestId("artifact-tour-step");
-		expect(step).toHaveAttribute("aria-live", "polite");
-		expect(step).toHaveTextContent("Step 1 of 3");
+		const live = screen.getByTestId("artifact-tour-live");
+		expect(live).toHaveAttribute("aria-live", "polite");
+		expect(live).toHaveAttribute("aria-atomic", "true");
+		// Nothing is announced for the slide the card opens on: the card's own name is.
+		expect(live).toHaveTextContent("");
 		await user.click(screen.getByRole("button", { name: "Next" }));
 		// The same element changes its words, which is what a live region announces.
-		expect(screen.getByTestId("artifact-tour-step")).toBe(step);
+		expect(screen.getByTestId("artifact-tour-live")).toBe(live);
+		expect(live).toHaveTextContent("Step 2 of 3. Draw on it, and place things");
+		await user.click(screen.getByRole("button", { name: "Next" }));
+		expect(live).toHaveTextContent("Step 3 of 3. How to ask for one");
+		await user.click(screen.getByRole("button", { name: "Back" }));
+		expect(live).toHaveTextContent("Step 2 of 3. Draw on it, and place things");
+
+		// The visible step line is plain text, so nothing is read twice.
+		const step = screen.getByTestId("artifact-tour-step");
 		expect(step).toHaveTextContent("Step 2 of 3");
+		expect(step).not.toHaveAttribute("aria-live");
+	});
+
+	it("reads the step as '1. lépés / 3' in Hungarian, in the line and in the announcement", async () => {
+		uiLanguage.set("hu");
+		const { user } = renderTour();
+
+		expect(screen.getByTestId("artifact-tour-step")).toHaveTextContent(
+			"1. lépés / 3",
+		);
+		await user.click(screen.getByRole("button", { name: "Tovább" }));
+		expect(screen.getByTestId("artifact-tour-live")).toHaveTextContent(
+			"2. lépés / 3. Rajzolj rá, és helyezz el dolgokat",
+		);
 	});
 
 	it("is one region, traps no focus, and puts Skip first in tab order", async () => {
@@ -348,7 +375,7 @@ describe("ArtifactTour", () => {
 			await screen.findByRole("heading", { name: "Egy tábla, bármire" }),
 		).toBeInTheDocument();
 		expect(screen.getByText("Első szöveg.")).toBeInTheDocument();
-		expect(screen.getByText("1. lépés, összesen 3")).toBeInTheDocument();
+		expect(screen.getByText("1. lépés / 3")).toBeInTheDocument();
 		expect(
 			screen.getByRole("region", { name: "Így működik ez a típus" }),
 		).toBeInTheDocument();
@@ -434,6 +461,49 @@ describe("ArtifactTour", () => {
 		await reduced.user.click(screen.getByRole("button", { name: "Next" }));
 		expect(screen.getByText("Step 2 of 3")).toBeInTheDocument();
 		expect(animateSpy).not.toHaveBeenCalled();
+	});
+
+	it("slides in from nothing when the host asks for motion, and is simply there otherwise", async () => {
+		// The host (the panel) asks; the admin's preview does not.
+		renderTour({}, { intro: true });
+		expect(animateSpy).not.toHaveBeenCalled();
+		cleanup();
+
+		renderTour({ animate: true }, { intro: true });
+		expect(animateSpy).toHaveBeenCalled();
+		// The first frame of its entrance is a collapsed one: the card arrives as a
+		// height that grows, and the page below it moves with that, not in one frame.
+		const [keyframes] = animateSpy.mock.calls[0] as [Keyframe[]];
+		expect(keyframes[0]).toHaveProperty("height");
+		expect(keyframes[0]).toHaveProperty("overflow", "hidden");
+	});
+
+	it("does not slide under prefers-reduced-motion, whatever the host asks", () => {
+		stubMatchMedia(true);
+		renderTour({ animate: true }, { intro: true });
+
+		expect(animateSpy).not.toHaveBeenCalled();
+		expect(screen.getByTestId("artifact-tour")).toBeInTheDocument();
+	});
+
+	it("hands focus back the moment the reader leaves, not when the card has finished going", async () => {
+		const before = document.createElement("button");
+		before.textContent = "Before";
+		document.body.append(before);
+		before.focus();
+
+		const { user } = renderTour();
+		expect(document.activeElement).toBe(
+			screen.getByRole("region", { name: "How this kind works" }),
+		);
+		await user.click(screen.getByRole("button", { name: "Skip" }));
+
+		// A leaving card stays in the page until its exit has played; focus must
+		// not wait for that (it would sit on a button that is on its way out).
+		expect(screen.getByTestId("artifact-tour")).toBeInTheDocument();
+		expect(document.activeElement).toBe(before);
+
+		before.remove();
 	});
 
 	it("takes focus when it shows, and gives it back to where it was when it goes", async () => {

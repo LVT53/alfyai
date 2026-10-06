@@ -17,6 +17,11 @@
  * replay lives in the panel's list menu, so the version badge stays for release
  * notes): "How this kind works", a quiet row above Delete, present when the
  * host passes `onReplayTour`.
+ *
+ * The menu says `role="menu"`, so it behaves as one: it opens with focus on its
+ * first item, ArrowDown and ArrowUp move between the items (wrapping), Home and
+ * End go to the ends, and Escape closes it and gives the focus back to the
+ * button that opened it (the shell does that last part).
  */
 import { CircleQuestionMark, Trash2 } from "@lucide/svelte";
 import { untrack } from "svelte";
@@ -57,6 +62,46 @@ let stage = $state<"confirm" | "menu">(untrack(() => initialStage));
 let busy = $state(false);
 let failed = $state(false);
 let cancelButton = $state<HTMLButtonElement | undefined>(undefined);
+let menu = $state<HTMLElement | undefined>(undefined);
+
+/** The menu's items, in the order they are read. */
+function menuItems(): HTMLElement[] {
+	return [...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+}
+
+// A menu opens on its first item. The popover's own focus (the close button,
+// which comes first) is asked to land there on desktop (`initialFocus`, on a
+// timer once the content is in); this is the same move for the phone's sheet,
+// whose focus leaves what already has it. Both can happen, so the timer keeps
+// focus where it already is inside the menu: a reader who has pressed an arrow
+// before it fires is not pulled back to the first item.
+$effect(() => {
+	if (stage === "menu" && menu) menuItems()[0]?.focus();
+});
+
+function menuFocus(): HTMLElement | undefined {
+	if (stage !== "menu") return undefined;
+	const active = document.activeElement;
+	return active instanceof HTMLElement && menu?.contains(active)
+		? active
+		: menuItems()[0];
+}
+
+function moveInMenu(event: KeyboardEvent): void {
+	if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+	const items = menuItems();
+	if (items.length === 0) return;
+	event.preventDefault();
+	const at = items.indexOf(document.activeElement as HTMLElement);
+	const step = event.key === "ArrowDown" ? 1 : -1;
+	const to =
+		event.key === "Home"
+			? 0
+			: event.key === "End"
+				? items.length - 1
+				: (at + step + items.length) % items.length;
+	items[to]?.focus();
+}
 
 let heading = $derived(
 	stage === "menu" ? title : $t(`artifacts.delete.title.${kind}` as I18nKey),
@@ -91,10 +136,18 @@ async function confirm(): Promise<void> {
 	popoverTestId="artifact-delete-popover"
 	closeLabel={$t('common.close')}
 	width={320}
+	initialFocus={menuFocus}
 	{onClose}
 >
 	{#if stage === 'menu'}
-		<ul class="artifact-delete-menu" role="menu">
+		<ul
+			class="artifact-delete-menu"
+			role="menu"
+			tabindex="-1"
+			aria-label={title}
+			bind:this={menu}
+			onkeydown={moveInMenu}
+		>
 			{#if onReplayTour}
 				<li role="none">
 					<button

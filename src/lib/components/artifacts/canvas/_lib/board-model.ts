@@ -127,6 +127,15 @@ export function structuralJson(body: CanvasBody): string {
 	return boardJson({ ...body, viewport: DEFAULT_CAMERA });
 }
 
+/** True when two cameras are the same one, to the half pixel and the thousandth of a zoom: the camera is still where a fit left it. */
+export function sameCamera(a: Camera, b: Camera): boolean {
+	return (
+		Math.abs(a.x - b.x) < 0.5 &&
+		Math.abs(a.y - b.y) < 0.5 &&
+		Math.abs(a.zoom - b.zoom) < 0.001
+	);
+}
+
 /** True when the body's camera is anywhere but the default: the reader (or a save) put it there. */
 export function hasStoredCamera(body: CanvasBody): boolean {
 	const camera = body.viewport;
