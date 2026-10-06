@@ -14,7 +14,7 @@ import {
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
-import { waitForStableBoundingBox } from "./helpers";
+import { waitForMotionToSettle, waitForStableBoundingBox } from "./helpers";
 
 // What every Canvas e2e spec needs: a board seeded straight into the database
 // (the convention artifacts-panel.spec.ts and artifact-app.spec.ts established,
@@ -189,6 +189,30 @@ export async function cameraOf(
 		if (!match) return { x: 0, y: 0, zoom: 1 };
 		return { x: Number(match[1]), y: Number(match[2]), zoom: Number(match[3]) };
 	});
+}
+
+/** The camera once it has stopped moving (a fit, a glide, a transition): the same answer twice, a couple of frames apart. */
+export async function settledCamera(
+	page: Page,
+): Promise<{ x: number; y: number; zoom: number }> {
+	await waitForMotionToSettle(page);
+	let last = await cameraOf(page);
+	await expect
+		.poll(async () => {
+			await page.evaluate(
+				() =>
+					new Promise<void>((resolve) =>
+						requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+					),
+			);
+			const now = await cameraOf(page);
+			const still =
+				now.x === last.x && now.y === last.y && now.zoom === last.zoom;
+			last = now;
+			return still;
+		})
+		.toBe(true);
+	return last;
 }
 
 /** A thread on a board, written through the service the routes use (author, scope and anchor rules included). Returns its id. */
