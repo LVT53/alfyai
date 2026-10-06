@@ -1042,14 +1042,15 @@ let fitViewOptions = $derived({
 
 // A board is fitted again when its pane changes size (a tour card arriving or
 // going, a window resize, a bar that comes), but only until the reader touches it:
-// their first press, focus or key on the board is the camera becoming theirs, and
-// nothing here moves it after that (the on-screen keyboard that opens when they
-// tap a note to type shortens the pane, and a board that zoomed out from under
-// the note they are writing in is a board that moves under them). A camera that
-// has moved since the last fit (a pan, a zoom, a centring) is theirs too, and a
-// save that brought a camera of its own has no fit to keep. Their Fit button is a
-// fit again, and the reference again. A pane that changes size over a transition
-// changes every frame, so the board follows it, a frame at a time.
+// their first press on the board, or the focus entering it (a tap, a click, a
+// Tab), is the camera becoming theirs, and nothing here moves it after that. The
+// on-screen keyboard that opens when they tap a note to type shortens the pane,
+// and a board that zoomed out from under the note they are writing in is a board
+// that moves under them. A camera that has moved since the last fit (a pan, a
+// zoom, a centring) is theirs too, and a save that brought a camera of its own
+// has no fit to keep. Their Fit button is a fit again, and the reference again.
+// A pane that changes size over a transition changes every frame, so the board
+// follows it, a frame at a time.
 let fitted: Viewport | null = null;
 let touched = false;
 
