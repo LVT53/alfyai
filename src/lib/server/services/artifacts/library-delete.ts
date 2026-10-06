@@ -14,7 +14,11 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifacts } from "$lib/server/db/schema";
-import { deleteArtifactForUser } from "$lib/server/services/knowledge";
+import {
+	buildArtifactVisibilityCondition,
+	deleteArtifactForUser,
+	getArtifactOwnershipScope,
+} from "$lib/server/services/knowledge";
 import { deleteFilesOfDeletedBoard, FAMILY_ROW_TYPES } from "./record";
 
 /**
@@ -27,8 +31,12 @@ export async function deleteLibraryArtifact(
 	artifactId: string,
 ): ReturnType<typeof deleteArtifactForUser> {
 	// Read first: once the row is gone nothing says whose board it was or which chat
-	// it was made in. A guess, not an authority: whether this is the caller's to
-	// delete is the store's to say, and only a board it deleted has its files taken.
+	// it was made in. Only a row the store's own scope shows the caller, and still
+	// not the authority: whether it is the caller's to delete is the store's to say,
+	// and only a board the store really deleted has its files taken.
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		includeIncognito: true,
+	});
 	const [row] = await db
 		.select()
 		.from(artifacts)
@@ -36,6 +44,7 @@ export async function deleteLibraryArtifact(
 			and(
 				eq(artifacts.id, artifactId),
 				inArray(artifacts.type, FAMILY_ROW_TYPES),
+				buildArtifactVisibilityCondition({ userId, ownershipScope }),
 			),
 		)
 		.limit(1);
