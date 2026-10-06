@@ -732,6 +732,52 @@ describe("buildAssistantEvidenceSummary — what the turn made", () => {
 		]);
 	});
 
+	it("does not list the call that made an item as a tool output as well, but keeps one that made nothing", async () => {
+		const made: ToolCallEntry = {
+			callId: "call-made",
+			name: "create_artifact",
+			input: { artifactType: "document", title: "Weekend plan" },
+			status: "done",
+			outputSummary: 'Created Document "Weekend plan"',
+			sourceType: "tool",
+			metadata: {
+				ok: true,
+				artifactId: "doc-1",
+				artifactKind: "document",
+				artifactTitle: "Weekend plan",
+			},
+		};
+		const refused: ToolCallEntry = {
+			callId: "call-refused",
+			name: "create_artifact",
+			input: { artifactType: "slides", title: "Deck" },
+			status: "done",
+			outputSummary: "Slides items cannot be made yet.",
+			sourceType: "tool",
+			metadata: { ok: false },
+		};
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "plan the weekend",
+			taskState: null,
+			toolCalls: [made, refused],
+			turnArtifacts: [weekendPlan],
+		});
+
+		// The item's own row tells what the first call did; its raw tool row
+		// would say the same thing again, under a tool name. The refused call made
+		// nothing, so its row is the only trace of it and stays.
+		expect(summary?.groups.map((group) => group.sourceType)).toEqual([
+			"artifact",
+			"tool",
+		]);
+		expect(
+			summary?.groups
+				.find((group) => group.sourceType === "tool")
+				?.items.map((item) => item.description),
+		).toEqual(["Slides items cannot be made yet."]);
+	});
+
 	it("leaves a produced file where it is today: it is a tool output, never re-typed as an item the turn made", async () => {
 		const producedFile: ToolCallEntry = {
 			callId: "call-file",

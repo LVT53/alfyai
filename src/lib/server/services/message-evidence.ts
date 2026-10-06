@@ -8,6 +8,7 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
 import { clipText } from "$lib/server/utils/text";
+import { artifactCallOf } from "$lib/shared/artifacts/artifact-calls";
 import type { LegacyContextTraceSectionInput } from "./chat-turn/context-trace";
 import { resolveArtifactFamilyKeys } from "./evidence-family";
 import { getArtifactsForUser } from "./knowledge";
@@ -768,6 +769,16 @@ export async function buildAssistantEvidenceSummary(params: {
 }): Promise<MessageEvidenceSummary | null> {
 	const toolCalls = params.toolCalls ?? [];
 	const completedToolCalls = toolCalls.filter((tool) => tool.status === "done");
+	// A call that made or changed an item is told by the item's own row in the
+	// "Made in this chat" group; its raw tool row would say the same thing again,
+	// under a tool name. A call that made nothing keeps its row.
+	const madeIds = new Set(
+		(params.turnArtifacts ?? []).map((made) => made.artifactId),
+	);
+	const toolOutputCalls = completedToolCalls.filter((tool) => {
+		const made = artifactCallOf(tool);
+		return !made || !madeIds.has(made.artifactId);
+	});
 	const groups = [
 		...(await buildArtifactGroups({
 			userId: params.userId,
@@ -792,7 +803,7 @@ export async function buildAssistantEvidenceSummary(params: {
 			sourceType: "tool",
 			message: params.message,
 			taskState: params.taskState,
-			toolCalls: completedToolCalls,
+			toolCalls: toolOutputCalls,
 		}),
 	].filter(
 		(group): group is MessageEvidenceGroup =>

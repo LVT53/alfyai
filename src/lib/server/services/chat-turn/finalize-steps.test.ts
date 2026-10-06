@@ -355,12 +355,11 @@ describe("persistAssistantEvidence — what the turn made", () => {
 				metadata: { artifactKind: "document" },
 			}),
 		]);
-		// The Document is not also dressed up as a retrieved document.
+		// The Document is not also dressed up as a retrieved document, and the
+		// call that made it is not also a raw "create_artifact" tool row.
 		expect(
-			state?.evidenceSummary?.groups.some(
-				(candidate) => candidate.sourceType === "document",
-			),
-		).toBe(false);
+			state?.evidenceSummary?.groups.map((candidate) => candidate.sourceType),
+		).toEqual(["artifact"]);
 	});
 
 	it("lists an item once when the turn made it and then changed it", async () => {
