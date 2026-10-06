@@ -96,8 +96,8 @@ import { type BlockPicture, provideBoardContext } from "./_lib/board-context";
 import {
 	bodyOfState,
 	type FlowNode,
+	followsPane,
 	hasStoredCamera,
-	sameCamera,
 	structuralJson,
 	toFlowEdges,
 	toFlowNodes,
@@ -1041,13 +1041,17 @@ let fitViewOptions = $derived({
 } as const);
 
 // A board is fitted again when its pane changes size (a tour card arriving or
-// going, a window resize, a column of comments opening), but only while the camera
-// is exactly where the last fit left it: that is "the reader has not moved it".
-// Once they pan or zoom (or a save brought a camera of its own, which no fit
-// ever left) it is theirs and nothing here touches it; their own Fit button is a
-// fit again. A pane that changes size over a transition changes every frame, so
-// the board follows it, a frame at a time, instead of being cut after it.
+// going, a window resize, a bar that comes), but only until the reader touches it:
+// their first press, focus or key on the board is the camera becoming theirs, and
+// nothing here moves it after that (the on-screen keyboard that opens when they
+// tap a note to type shortens the pane, and a board that zoomed out from under
+// the note they are writing in is a board that moves under them). A camera that
+// has moved since the last fit (a pan, a zoom, a centring) is theirs too, and a
+// save that brought a camera of its own has no fit to keep. Their Fit button is a
+// fit again, and the reference again. A pane that changes size over a transition
+// changes every frame, so the board follows it, a frame at a time.
 let fitted: Viewport | null = null;
+let touched = false;
 
 function fitBoard(duration: number): void {
 	void flow
@@ -1059,12 +1063,11 @@ $effect(() => {
 	void [boardWidth, boardHeight];
 	untrack(() => {
 		if (
-			fitted &&
 			boardWidth > 0 &&
 			boardHeight > 0 &&
 			!pictures &&
 			!held &&
-			sameCamera(flow.getViewport(), fitted)
+			followsPane(flow.getViewport(), fitted, touched)
 		) {
 			fitBoard(0);
 		}
@@ -1110,6 +1113,8 @@ function minimapColor(node: {
 	bind:this={boardEl}
 	bind:clientWidth={boardWidth}
 	bind:clientHeight={boardHeight}
+	onpointerdowncapture={() => (touched = true)}
+	onfocusincapture={() => (touched = true)}
 	style:--canvas-board-width="{boardWidth}px"
 	style:--canvas-inv-zoom={1 / restingZoom}
 	data-testid="canvas-board"
@@ -1238,7 +1243,10 @@ function minimapColor(node: {
 				zoom={viewport.zoom}
 				onzoomin={() => zoomBy(ZOOM_STEP)}
 				onzoomout={() => zoomBy(1 / ZOOM_STEP)}
-				onfit={() => fitBoard(prefersReducedMotion() ? 0 : 200)}
+				onfit={() => {
+					touched = false;
+					fitBoard(prefersReducedMotion() ? 0 : 200);
+				}}
 			/>
 		</Panel>
 	</SvelteFlow>
