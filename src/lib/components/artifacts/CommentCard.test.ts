@@ -283,6 +283,31 @@ describe("CommentCard on a Canvas: what Alfy says about a board", () => {
 		expect(screen.getByText("Múzeum: már nincs ott semmi")).toBeInTheDocument();
 	});
 
+	// Ruling 67 for the `@Alfy` reply (RC-3 N8): a note the reader changed after the
+	// model read the board is left alone, and the card says so in their language.
+	it("says a note the reader changed after Alfy looked was left alone, in English and in Hungarian", () => {
+		const reply = alfy(
+			withSkippedOps("Moved the time.", [
+				{ target: "Museum, 14:00", reason: "stale" },
+			]),
+		);
+		uiLanguage.set("en");
+		const { unmount } = render(CommentCard, { comment: reply, kind: "canvas" });
+		expect(
+			screen.getByText(
+				"Museum, 14:00: you changed it after Alfy looked at the board, so Alfy left it alone",
+			),
+		).toBeInTheDocument();
+		unmount();
+		uiLanguage.set("hu");
+		render(CommentCard, { comment: reply, kind: "canvas" });
+		expect(
+			screen.getByText(
+				"Museum, 14:00: a tábla megtekintése után módosítottad, ezért Alfy nem nyúlt hozzá",
+			),
+		).toBeInTheDocument();
+	});
+
 	it("shows the plain code for a reason it has no words for, and just the reason when the op had no target", () => {
 		render(CommentCard, {
 			comment: alfy(

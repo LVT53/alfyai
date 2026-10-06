@@ -48,14 +48,19 @@ const {
 	createComment,
 	createDocumentArtifact,
 	deleteComment,
+	getArtifact,
 	getComment,
 	listComments,
+	listVersions,
 	parseArtifactAnchor,
 	resolveComment,
 	runAlfyCommentReply,
+	saveDocumentBody,
 } = await import("./index");
 const { ARTIFACT_COMMENT_BODY_MAX_CHARS } = await import("./limits");
-const { parseDocument } = await import("$lib/shared/artifact-document/blocks");
+const { parseDocument, serializeDocument } = await import(
+	"$lib/shared/artifact-document/blocks"
+);
 
 const OWNER = "user-owner";
 const STRANGER = "user-stranger";
@@ -711,6 +716,85 @@ describe("runAlfyCommentReply", () => {
 		expect(result.value.outcome).toBe("refused");
 		expect(result.value.reply.body).toBe(ALFY_REFUSED_MARKER);
 		expect(sendJsonControlMessageMock).not.toHaveBeenCalled();
+	});
+
+	// Ruling 67, checked for the Document's own `@Alfy` path (FU-1 for the board's):
+	// the block is read, the model answers some seconds later, and the patch carries
+	// the hash the block had when it was read, which the engine compares with the
+	// snapshot the read wrote AND with the block as it is when the patch lands. Hashes
+	// belong to blocks, not to version rows, so a reader's save written into their own
+	// newest version (ruling 47: their saves within ten minutes share one) is caught
+	// all the same.
+	it("leaves a block alone that the reader edited while the model was answering, even when that save is written into the version Alfy read", async () => {
+		const { artifact, block } = await createDocumentWithBlock(
+			"Book the flight to Vienna.",
+		);
+		const root = await comment(
+			artifact.id,
+			"@Alfy change Vienna to Budapest.",
+			{ anchor: textAnchorFor(block, "Vienna") },
+		);
+		const readerEdits = async (text: string) => {
+			const current = await getArtifact({
+				userId: OWNER,
+				artifactId: artifact.id,
+			});
+			const parsed = parseDocument(current?.body ?? "", { mint: false });
+			const saved = await saveDocumentBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: {
+					markdown: serializeDocument(
+						parsed.blocks.map((b) =>
+							b.id === block.id ? { ...b, markdown: text } : b,
+						),
+					),
+					tabs: [],
+				},
+				author: "user",
+				summary: "Edited",
+				coalesceUserEdits: true,
+			});
+			if (!saved.ok) throw new Error(saved.reason);
+		};
+		// The reader's own save is the newest version when Alfy reads ...
+		await readerEdits("Book the flight to Vienna on Friday.");
+		const versionsBefore = await listVersions({
+			userId: OWNER,
+			artifactId: artifact.id,
+		});
+		// ... and the next one, while the model is answering, is written into it.
+		sendJsonControlMessageMock.mockImplementationOnce(async () => {
+			await readerEdits("Book the flight to Vienna, my own words.");
+			return {
+				text: JSON.stringify({
+					note: "Changed the destination to Budapest.",
+					ops: [{ op: "replaceRange", find: "Vienna", text: "Budapest" }],
+				}),
+				rawResponse: {},
+				modelId: "model1",
+				modelDisplayName: "Test Model",
+			};
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.value.outcome).toBe("refused");
+		expect(result.value.applied).toBe(0);
+		expect(result.value.reply.body).toBe(ALFY_REFUSED_MARKER);
+		const after = await getArtifact({ userId: OWNER, artifactId: artifact.id });
+		expect(after?.body).toContain("my own words");
+		expect(after?.body).not.toContain("Budapest");
+		// Written into one version, and Alfy wrote none.
+		expect(
+			await listVersions({ userId: OWNER, artifactId: artifact.id }),
+		).toHaveLength(versionsBefore.length);
 	});
 
 	it("writes nothing once the request is already aborted", async () => {
