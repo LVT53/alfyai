@@ -136,6 +136,21 @@ export function sameCamera(a: Camera, b: Camera): boolean {
 	);
 }
 
+/**
+ * True when a pane that changed size should take the board with it: the camera
+ * is where the last fit left it, and the reader has not touched the board since.
+ * A pan or a zoom moves the camera, but a tap to type, a click or a key moves
+ * nothing, and is theirs all the same: the on-screen keyboard that opens next
+ * would otherwise zoom the board out from under the note they are writing in.
+ */
+export function followsPane(
+	camera: Camera,
+	fitted: Camera | null,
+	touched: boolean,
+): boolean {
+	return !touched && fitted !== null && sameCamera(camera, fitted);
+}
+
 /** True when the body's camera is anywhere but the default: the reader (or a save) put it there. */
 export function hasStoredCamera(body: CanvasBody): boolean {
 	const camera = body.viewport;

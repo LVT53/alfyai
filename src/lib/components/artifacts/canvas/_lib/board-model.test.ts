@@ -16,6 +16,7 @@ import { FRAME_DRAG_HANDLE } from "./block-meta";
 import {
 	bodyOfState,
 	DEFAULT_CAMERA,
+	followsPane,
 	hasStoredCamera,
 	sameCamera,
 	structuralJson,
@@ -312,6 +313,29 @@ describe("whether the camera is still where a fit left it", () => {
 		expect(sameCamera(FIT, { ...FIT, x: FIT.x + 1 })).toBe(false);
 		expect(sameCamera(FIT, { ...FIT, y: FIT.y - 1 })).toBe(false);
 		expect(sameCamera(FIT, { ...FIT, zoom: FIT.zoom + 0.002 })).toBe(false);
+	});
+});
+
+describe("whether a pane that changed size takes the board with it", () => {
+	const FIT = { x: 142.25, y: 61.5, zoom: 0.4375 };
+
+	it("does while the camera is where the last fit left it and nobody has touched the board", () => {
+		expect(followsPane({ ...FIT }, FIT, false)).toBe(true);
+	});
+
+	it("does not once the reader has touched the board, though the camera never moved (a tap to type, a click, a key)", () => {
+		expect(followsPane({ ...FIT }, FIT, true)).toBe(false);
+	});
+
+	it("does not once the camera has moved, touched or not (a pan, a zoom, a centring)", () => {
+		expect(followsPane({ ...FIT, x: FIT.x + 1 }, FIT, false)).toBe(false);
+		expect(followsPane({ ...FIT, zoom: FIT.zoom + 0.01 }, FIT, true)).toBe(
+			false,
+		);
+	});
+
+	it("does not when no fit was ever made (a board that was saved with a camera of its own)", () => {
+		expect(followsPane({ ...FIT }, null, false)).toBe(false);
 	});
 });
 
