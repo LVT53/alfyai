@@ -487,6 +487,13 @@ $effect(() => {
 								>
 									<Unlink size={15} strokeWidth={1.9} aria-hidden="true" />
 								</button>
+							{:else}
+								<!-- Keeps the way in on one line down the column, with or
+								     without an unlink beside it. -->
+								<span
+									class="files-action files-action--spacer"
+									aria-hidden="true"
+								></span>
 							{/if}
 						</span>
 					</div>
@@ -713,6 +720,11 @@ $effect(() => {
 		opacity: 0.5;
 	}
 
+	.files-action--spacer {
+		visibility: hidden;
+		pointer-events: none;
+	}
+
 	.files-empty {
 		margin: 0;
 		padding: 18px 12px;
@@ -783,6 +795,13 @@ $effect(() => {
 
 		.files-added {
 			grid-row: 4;
+		}
+
+		/* There is room under the name on a phone: the chat that made an item
+		   reads whole instead of being cut at the buttons. */
+		.files-origin {
+			white-space: normal;
+			overflow-wrap: anywhere;
 		}
 
 		/* A made item has no size line, so its facts close the gap. */
