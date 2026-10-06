@@ -948,4 +948,11 @@ UI (ruling 72 confirmed). The model server's downtime this afternoon was the own
   committed); the M2 gate run on `dev` = `9aed65c0` had finished everything but Playwright (check 0/17, 16,609 tests, build
   32/2, chunks OK +2,010/2,048, Fallow 124/4) — Playwright re-run on resume. The owner then asked for the Android keyboard fix
   (TR-D4). `dev` merged into `feat/artifacts` (`86a736b5`, TR-D3 joins it).
+- **M2 — THE TOURS ARE LIVE ON ai.dev (2026-10-06 ~22:50 UTC): `dev` = ai.dev = `9aed65c0`** (pushed; deploy OK with the
+  tours' migration `1777140000112`, health 200, `current -> releases/9aed65c0`): Slice 6 for Document, App and Canvas
+  (TR-A/B/C, RC-T's fixes TR-D1/TR-D2) and TR-D3. Release gates (dev-int): check 0/17, 16,609 tests, build 32/2, chunks OK
+  (chat +2,010 / 2,048), Fallow 124/4 (0 new), **Playwright 521 passed + 23 skipped, 0 failed**. Live
+  (`~/.cache/alfyai-artifacts/live-checks/verify-tours-m2.mjs`, harness user): **10/10** — three tours served with their
+  Hungarian lines, Slides/File/bogus 404, a stale key 409 (nothing written), the badge `release_update`, 401 without a
+  session. **Stopped for the owner's check.** Running meanwhile: TR-D4 (the owner's Android fix), W4-E (evidence rows).
 
