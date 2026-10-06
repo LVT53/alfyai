@@ -20,6 +20,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { selectInBatches } from "$lib/server/db/id-batches";
 import { artifacts, conversations, projects } from "$lib/server/db/schema";
+import { buildConversationContextScopeCondition } from "$lib/server/services/conversation-scope";
 import {
 	listProjectKnowledge,
 	listProjectLinks,
@@ -75,7 +76,10 @@ export async function listProjectBundle(params: {
 	});
 
 	// The chats the project holds, as a subquery: a project can have hundreds,
-	// and the membership is the project's own join, not a list to bind.
+	// and the membership is the project's own join, not a list to bind. An
+	// incognito chat is not among them (the same condition every cross-chat
+	// read takes, and the item's own ownership condition says it again): what
+	// it made is not part of the project's material while it is off the record.
 	const projectChatIds = db
 		.select({ id: conversations.id })
 		.from(conversations)
@@ -90,14 +94,21 @@ export async function listProjectBundle(params: {
 			and(
 				eq(conversations.userId, userId),
 				eq(conversations.projectId, projectId),
+				buildConversationContextScopeCondition(),
 			),
 		);
+
+	// The chat's title for the row's "from …" line, only ever from a chat in scope.
+	const chatInScope = and(
+		eq(conversations.id, artifacts.conversationId),
+		buildConversationContextScopeCondition(),
+	);
 
 	const [madeInChats, linked] = await Promise.all([
 		db
 			.select(bundleColumns)
 			.from(artifacts)
-			.leftJoin(conversations, eq(conversations.id, artifacts.conversationId))
+			.leftJoin(conversations, chatInScope)
 			.where(
 				and(
 					eq(artifacts.type, "artifact"),
@@ -109,7 +120,7 @@ export async function listProjectBundle(params: {
 			db
 				.select(bundleColumns)
 				.from(artifacts)
-				.leftJoin(conversations, eq(conversations.id, artifacts.conversationId))
+				.leftJoin(conversations, chatInScope)
 				.where(
 					and(
 						eq(artifacts.type, "artifact"),
