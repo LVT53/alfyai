@@ -44,12 +44,13 @@ export type PanelTransitionParams = {
 //
 // Backed by the same stack primitive src/lib/utils/focus-trap.ts hands to
 // every migrated trap, but kept as its OWN instance here rather than a
-// shared default: CampaignModal.svelte and CampaignCropModal.svelte import
-// these three functions directly to join this exact stack (neither is a
-// DialogShell, but both nest inside/beside one), so this module-level
-// singleton has to stay the one source of truth for "is a dialog topmost" —
-// moving it elsewhere would fork the stack and let a DialogShell and a
-// campaign dialog fight over focus again.
+// shared default: every dialog that is not a DialogShell but nests inside or
+// beside one (CampaignModal, CampaignCropModal, ImageLightbox,
+// ModelSelectionGuideModal, ModelForm, the artifact popovers and drawers)
+// imports these three functions directly to join this exact stack, so this
+// module-level singleton has to stay the one source of truth for "is a dialog
+// topmost" — moving it elsewhere would fork the stack and let a DialogShell
+// and one of those dialogs fight over focus again.
 const dialogStack = createFocusTrapStack();
 
 export function registerDialog(id: symbol): void {
@@ -67,7 +68,8 @@ export function isTopmostDialog(id: symbol): boolean {
 /**
  * Whether ANY dialog/popover/sheet on this shared stack is currently open —
  * for a host that owns its OWN window-level Escape handling (e.g.
- * `DocumentWorkspace.svelte`'s expanded-panel close) and needs to defer to
+ * `DocumentWorkspace.svelte`'s expanded-panel close, or the composer's "+"
+ * menu, which the model guide opens above) and needs to defer to
  * whichever layer is actually on top rather than fight over the same
  * keypress. A window keydown listener mounted before the stack's first
  * entry runs BEFORE it on the same event (registration order), so checking

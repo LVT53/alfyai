@@ -19,7 +19,7 @@
  * turn. No new store — props come from MessageArea.
  */
 import { t } from "$lib/i18n";
-import { focusTrap, getFocusableElements } from "$lib/utils/focus-trap";
+import { focusTrap } from "$lib/utils/focus-trap";
 import { viewportStore } from "$lib/utils/viewport.svelte";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { buildJumpRailTurns, type JumpRailTurn } from "./jump-rail";
@@ -153,38 +153,15 @@ function jumpFromMobile(id: string) {
 	closeMobileSheet();
 }
 
-// Escape-to-close, plus a Tab trap that (unlike DialogShell's) has to treat
-// the CONTAINER itself as a valid "at the start" position: focus goes to the
-// sheet div itself on open (see `focus` below), not to a focusable child, so
-// Shift+Tab pressed right away must also wrap to the last element or it would
-// escape the sheet. That is a real, deliberate difference from the shared
-// trapTabKey's rule (DialogShell always prefers a focusable child over its
-// container), so this passes its own `onTab` rather than the default.
-// getFocusableElements still comes from the shared utility, and mount/Escape/
-// cleanup wiring is the same focusTrap() every other migrated dialog uses.
+// Escape-to-close, plus the shared Tab trap. Focus goes to the sheet div itself
+// on open (see `focus` below), not to a focusable child, so Shift+Tab pressed
+// right away has to wrap to the last element or it would escape the sheet; the
+// shared `trapTabKey` treats the container as "before the first element" for
+// exactly that reason, so this needs no Tab rule of its own.
 const mobileSheetFocusTrap = focusTrap({
 	onEscape: (event) => {
 		event.preventDefault();
 		closeMobileSheet();
-	},
-	onTab: (event) => {
-		if (!mobileSheetRef) return;
-		const focusables = getFocusableElements(mobileSheetRef);
-		if (focusables.length === 0) return;
-		const first = focusables[0];
-		const last = focusables[focusables.length - 1];
-		const active = document.activeElement;
-		if (event.shiftKey) {
-			// Wrap backward from the first focusable (or the container itself).
-			if (active === first || active === mobileSheetRef) {
-				last.focus();
-				event.preventDefault();
-			}
-		} else if (active === last) {
-			// Wrap forward from the last focusable.
-			first.focus();
-			event.preventDefault();
-		}
 	},
 	// Focus-in on open: move focus INTO the dialog once the sheet mounts,
 	// synchronously (not the utility's default deferred timing) — paired with
