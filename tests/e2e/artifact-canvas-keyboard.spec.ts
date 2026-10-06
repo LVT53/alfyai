@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import {
+	type Camera,
 	centreOf,
 	expectCamera,
 	KEYBOARD,
@@ -66,6 +67,13 @@ async function keyboardOpens(page: Page, ...parts: Locator[]) {
 	await page.setViewportSize(SHORT);
 	await expect.poll(() => inView(page, ...parts)).toBe(true);
 	return settledCamera(page);
+}
+
+/** The camera went up and nowhere else: the same zoom, the same x. */
+function expectLifted(camera: Camera, from: Camera) {
+	expect(camera.zoom).toBeCloseTo(from.zoom, 3);
+	expect(camera.x).toBeCloseTo(from.x, 1);
+	expect(camera.y).toBeLessThan(from.y);
 }
 
 /** A part ends a small margin above the toolbar: the least distance, not a block flung to the top. */
@@ -137,9 +145,7 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 		expect(await inView(page, note)).toBe(true);
 
 		const typing = await keyboardOpens(page, note, field);
-		expect(typing.zoom).toBeCloseTo(fitted.zoom, 3);
-		expect(typing.x).toBeCloseTo(fitted.x, 1);
-		expect(typing.y).toBeLessThan(fitted.y);
+		expectLifted(typing, fitted);
 		await expectSmallMargin(page, note);
 
 		// What they type is where they can see it, and the board does not move for it.
@@ -164,8 +170,7 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 		const { field, note } = await openForTyping(page, "note-4");
 
 		const typing = await keyboardOpens(page, note, field);
-		expect(typing.zoom).toBeCloseTo(fitted.zoom, 3);
-		expect(typing.x).toBeCloseTo(fitted.x, 1);
+		expectLifted(typing, fitted);
 		await expectSmallMargin(page, note);
 	});
 
