@@ -4,8 +4,19 @@ import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
+	conversations,
 	projectKnowledgeLinks,
 } from "../../src/lib/server/db/schema";
+import {
+	createArtifact,
+	createDocumentArtifact,
+} from "../../src/lib/server/services/artifacts";
+import {
+	boardJson,
+	emptyCanvasBody,
+} from "../../src/lib/shared/artifacts/canvas-body";
+import { testUserId } from "./artifact-canvas-helpers";
+import { tapArea } from "./artifact-document-polish-helpers";
 import { ensureSidebarExpanded, login, waitForHydration } from "./helpers";
 
 /**
@@ -797,5 +808,285 @@ test.describe("Project files — phone", () => {
 				"a fact belongs below the file's name",
 			).toBeGreaterThanOrEqual((nameBox?.y ?? 0) + (nameBox?.height ?? 0) - 1);
 		}
+	});
+});
+
+// ── What the project's chats made (Feature 2 · Slice 5b, T5) ────────────────
+//
+// A project's bundle is its files and the Documents, Apps and Canvases its
+// chats made. The items are seeded through the artifacts service, as the
+// artifact specs do (`create_artifact` has no scriptable tool-call fixture),
+// into a chat that really belongs to the project; the dialog, the quiet line
+// and the panel are driven with real clicks.
+
+const APP_HTML =
+	'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cost splitter</title></head><body><h1>Cost splitter</h1></body></html>';
+
+/** A chat of the signed-in user's inside the project, with the title a row will quote. */
+async function seedProjectChat(
+	projectId: string | null,
+	title: string,
+): Promise<string> {
+	const id = randomUUID();
+	const now = new Date();
+	await db.insert(conversations).values({
+		id,
+		userId: await testUserId(),
+		title,
+		projectId,
+		createdAt: now,
+		updatedAt: now,
+	});
+	return id;
+}
+
+async function makeDocument(
+	conversationId: string,
+	title: string,
+): Promise<string> {
+	const document = await createDocumentArtifact({
+		userId: await testUserId(),
+		conversationId,
+		title,
+		markdown: `## ${title}\n\nSaturday: Naschmarkt, then the Albertina.`,
+		author: "alfy",
+		summary: "Seeded for E2E",
+	});
+	return document.id;
+}
+
+async function makeArtifact(
+	conversationId: string,
+	kind: "app" | "canvas",
+	title: string,
+): Promise<string> {
+	const result = await createArtifact({
+		userId: await testUserId(),
+		conversationId,
+		kind,
+		title,
+		body: kind === "app" ? APP_HTML : boardJson(emptyCanvasBody()),
+	});
+	if (!result.ok) throw new Error(`could not seed ${kind}: ${result.reason}`);
+	return result.artifact.id;
+}
+
+/** A project of the signed-in user's whose chat made a Document, an App and a Canvas, and which also holds one uploaded file. */
+async function seedBundleProject(page: Page) {
+	const tag = randomUUID().slice(0, 6);
+	const projectName = `Vienna trip ${tag}`;
+	const projectId = await createProject(page, projectName);
+	const chatTitle = `Saturday plan ${tag}`;
+	const chatId = await seedProjectChat(projectId, chatTitle);
+	const names = {
+		document: `Vienna notes ${tag}`,
+		app: `Cost splitter ${tag}`,
+		canvas: `Trip board ${tag}`,
+		file: `Hotel Motto booking ${tag}.txt`,
+	};
+	const ids = {
+		document: await makeDocument(chatId, names.document),
+		app: await makeArtifact(chatId, "app", names.app),
+		canvas: await makeArtifact(chatId, "canvas", names.canvas),
+		file: await uploadLibraryDocument(page, { name: names.file }),
+	};
+	await linkArtifacts(page, projectId, [ids.file]);
+	return { projectId, projectName, chatId, chatTitle, names, ids };
+}
+
+test.describe("Project bundle — what the chats made", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await login(page);
+	});
+
+	test("lists a Document, an App and a Canvas beside the file, each saying what it is and which chat made it", async ({
+		page,
+	}) => {
+		const { projectId, chatTitle, names } = await seedBundleProject(page);
+
+		const dialog = await openFilesDialog(page, projectId);
+
+		await expect(dialog.getByTestId("project-file-row")).toHaveCount(4);
+		for (const [kind, word] of [
+			["document", "Document"],
+			["app", "App"],
+			["canvas", "Canvas"],
+		] as const) {
+			const row = fileRow(dialog, names[kind]);
+			await expect(row.getByTestId("project-file-type")).toHaveText(word);
+			await expect(row.getByTestId("project-file-origin")).toContainText(
+				`from “${chatTitle}”`,
+			);
+			await expect(row).toHaveAttribute("data-artifact-kind", kind);
+		}
+		// The word "artifact" is the engineers'; nothing a person reads has it.
+		await expect(dialog).not.toContainText(/artifact/i);
+		// The file keeps being a file: its extension, its size, no kind.
+		const fileRowLocator = fileRow(dialog, names.file);
+		await expect(fileRowLocator.getByTestId("project-file-type")).toHaveText(
+			"TXT",
+		);
+		await expect(fileRowLocator).not.toHaveAttribute("data-artifact-kind");
+	});
+
+	test("opens a Document row in the panel, on the editor, not in the file viewer", async ({
+		page,
+	}) => {
+		const { projectId, names } = await seedBundleProject(page);
+		const dialog = await openFilesDialog(page, projectId);
+
+		await fileRow(dialog, names.document)
+			.getByRole("button", { name: `Open ${names.document}` })
+			.click();
+
+		await expect(
+			page.locator(".document-editor-host .ProseMirror"),
+		).toBeVisible({
+			timeout: 30_000,
+		});
+		await expect(
+			page.locator(".document-editor-host .ProseMirror"),
+		).toContainText("Naschmarkt");
+	});
+
+	test("opens a Canvas row on its board and an App row on its frame", async ({
+		page,
+	}) => {
+		const { projectId, names } = await seedBundleProject(page);
+		const dialog = await openFilesDialog(page, projectId);
+
+		await fileRow(dialog, names.canvas)
+			.getByRole("button", { name: `Open ${names.canvas}` })
+			.click();
+		await expect(page.getByTestId("canvas-board")).toBeVisible({
+			timeout: 30_000,
+		});
+		// Back out of the panel to the dialog behind it, the way a person does.
+		await page
+			.getByRole("button", { name: "Close document workspace" })
+			.last()
+			.click();
+		await expect(page.getByTestId("canvas-board")).toHaveCount(0);
+		await expect(dialog).toBeVisible();
+
+		await fileRow(dialog, names.app)
+			.getByRole("button", { name: `Open ${names.app}` })
+			.click();
+		await expect(page.locator("iframe.app-frame")).toBeVisible({
+			timeout: 30_000,
+		});
+	});
+
+	test("counts files and what the chats made together on the quiet line and the footer", async ({
+		page,
+	}) => {
+		const { projectId } = await seedBundleProject(page);
+
+		const dialog = await openFilesDialog(page, projectId);
+
+		await expect(dialog.getByTestId("project-files-footer")).toHaveText(
+			"4 items · removing one here keeps it in your library",
+		);
+		await dialog.getByRole("button", { name: "Done" }).click();
+		await expect(page.getByTestId("project-files-button")).toHaveText(
+			"4 items",
+		);
+	});
+
+	test("offers no unlink on an item that is here through its chat, and unlinking a linked one deletes nothing", async ({
+		page,
+	}) => {
+		const { projectId, names, ids } = await seedBundleProject(page);
+		// A Document from a chat outside the project, linked from the library.
+		const outsideChat = await seedProjectChat(null, "Packing chat");
+		const linkedName = `Packing list ${randomUUID().slice(0, 6)}`;
+		const linkedId = await makeDocument(outsideChat, linkedName);
+		await linkArtifacts(page, projectId, [linkedId]);
+
+		const dialog = await openFilesDialog(page, projectId);
+
+		await expect(dialog.getByTestId("project-file-row")).toHaveCount(5);
+		// Made in the project's own chat: there is no link to remove.
+		await expect(
+			fileRow(dialog, names.document).getByTestId("project-file-unlink"),
+		).toHaveCount(0);
+		await expect(
+			fileRow(dialog, names.document).getByTestId("project-file-preview"),
+		).toHaveCount(1);
+
+		await fileRow(dialog, linkedName)
+			.getByRole("button", { name: `Remove ${linkedName} from this project` })
+			.click();
+
+		await expect(fileRow(dialog, linkedName)).toHaveCount(0);
+		await expect(dialog.getByTestId("project-file-row")).toHaveCount(4);
+		// The link is gone and the Document is not: it is still in the chat that
+		// made it, and the chat's own item is untouched.
+		const [stillThere] = await db
+			.select({ id: artifacts.id })
+			.from(artifacts)
+			.where(eq(artifacts.id, linkedId));
+		expect(stillThere?.id).toBe(linkedId);
+		const [chatMade] = await db
+			.select({ id: artifacts.id })
+			.from(artifacts)
+			.where(eq(artifacts.id, ids.document));
+		expect(chatMade?.id).toBe(ids.document);
+	});
+});
+
+test.describe("Project bundle — phone", () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("stacks a made item's kind and chat under its name inside the sheet", async ({
+		page,
+	}) => {
+		const { projectId, names } = await seedBundleProject(page);
+
+		const dialog = await openFilesDialog(page, projectId);
+		await waitForSheetToSettle(page);
+
+		const widths = await page.evaluate(() => ({
+			scroll: document.documentElement.scrollWidth,
+			client: document.documentElement.clientWidth,
+		}));
+		expect(widths.scroll).toBeLessThanOrEqual(widths.client + 1);
+
+		const row = fileRow(dialog, names.document);
+		await expect(row).toBeVisible();
+		const nameBox = await row.getByTestId("project-file-name").boundingBox();
+		for (const fact of [
+			row.getByTestId("project-file-type"),
+			row.getByTestId("project-file-origin"),
+		]) {
+			const box = await fact.boundingBox();
+			expect(
+				Math.round(box?.x ?? 0),
+				"a fact belongs in the name's column, under it",
+			).toBe(Math.round(nameBox?.x ?? 0));
+			expect(box?.y ?? 0).toBeGreaterThanOrEqual(
+				(nameBox?.y ?? 0) + (nameBox?.height ?? 0) - 1,
+			);
+			expect(
+				Math.round((box?.x ?? 0) + (box?.width ?? 0)),
+				"nothing may sit past the right edge of a 390px screen",
+			).toBeLessThanOrEqual(390);
+		}
+		// The way in is a 44px target on a phone, as every control the panel's
+		// own rows offer is: the button is drawn small and its hit area is not.
+		const open = await tapArea(
+			row.getByRole("button", { name: `Open ${names.document}` }),
+		);
+		expect(open.height).toBeGreaterThanOrEqual(44);
+		expect(open.width).toBeGreaterThanOrEqual(44);
 	});
 });

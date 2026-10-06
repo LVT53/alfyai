@@ -180,6 +180,34 @@ describe("HomeProjects", () => {
 		);
 	});
 
+	it("counts items, not files, once the bundle holds something a chat made", () => {
+		render(HomeProjects, {
+			projects: [
+				project({ id: "mixed", fileCount: 3, hasMadeItems: true }),
+				project({ id: "one", fileCount: 1, hasMadeItems: true }),
+				project({ id: "files", fileCount: 3, hasMadeItems: false }),
+			],
+			formatRelative,
+		});
+
+		const labels = screen
+			.getAllByTestId("home-project-files")
+			.map((label) => label.textContent?.trim());
+		expect(labels).toEqual(["3 items", "1 item", "3 files"]);
+	});
+
+	it("says the same in Hungarian", () => {
+		uiLanguage.set("hu");
+		render(HomeProjects, {
+			projects: [project({ fileCount: 3, hasMadeItems: true })],
+			formatRelative,
+		});
+
+		expect(screen.getByTestId("home-project-files").textContent?.trim()).toBe(
+			"3 elem",
+		);
+	});
+
 	it("draws what it is handed, filtering nothing of its own", () => {
 		// Decision 9's rule is the server's: `listRecentlyActiveProjects` never
 		// returns a project with no chats. A card that quietly dropped one it did

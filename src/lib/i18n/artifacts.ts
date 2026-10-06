@@ -864,6 +864,20 @@ const artifactsDict = {
 			"This block is not part of this image.",
 		// After the Canvas review (RV-3, cluster B).
 		"artifacts.canvas.block.drawFailed": "This block could not be drawn.",
+		// A project's bundle (Slice 5b · T5): the Files dialog lists the
+		// Documents, Apps and Canvases its chats made beside its files. A row
+		// says which chat made it; its time is the Added column's, so it is not
+		// said twice. The counts read "items" once any of them is not a file.
+		"artifacts.bundle.fromChat": "from “{title}”",
+		"artifacts.bundle.openA11y": "Open {name}",
+		"artifacts.bundle.description":
+			"Every chat in this project knows its files exist and reads them when they're needed. What its chats made is listed here too.",
+		"artifacts.bundle.itemsLabel": "{count} items",
+		"artifacts.bundle.itemsLabelOne": "1 item",
+		"artifacts.bundle.footer":
+			"{count} items · removing one here keeps it in your library",
+		"artifacts.bundle.footerOne":
+			"1 item · removing it here keeps it in your library",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1542,6 +1556,21 @@ const artifactsDict = {
 		// A Canvas-áttekintés után (RV-3, B csoport).
 		"artifacts.canvas.block.drawFailed":
 			"Ezt a blokkot nem sikerült megrajzolni.",
+		// A projekt csomagja (5b szelet · T5): a Fájlok ablak a fájlok mellett
+		// felsorolja azt is, amit a projekt beszélgetései készítettek. A sor
+		// megmondja, melyik beszélgetés készítette; az idejét a „Hozzáadva”
+		// oszlop mutatja, ezért nem szerepel kétszer. A számlálók „elem”-et
+		// mondanak, amint van köztük nem fájl.
+		"artifacts.bundle.fromChat": "„{title}” beszélgetésből",
+		"artifacts.bundle.openA11y": "{name} megnyitása",
+		"artifacts.bundle.description":
+			"A projekt minden csevegése tud a fájlokról, és akkor olvassa el őket, amikor szükség van rájuk. Itt látszik az is, amit a csevegései készítettek.",
+		"artifacts.bundle.itemsLabel": "{count} elem",
+		"artifacts.bundle.itemsLabelOne": "1 elem",
+		"artifacts.bundle.footer":
+			"{count} elem · az eltávolítás nem törli a könyvtárból",
+		"artifacts.bundle.footerOne":
+			"1 elem · az eltávolítás nem törli a könyvtárból",
 	},
 } as const;
 

@@ -42,7 +42,18 @@ function statsLabel(project: HomeProjectCard): string {
 	});
 }
 
-function filesLabel(count: number): string {
+function filesLabel(project: HomeProjectCard): string {
+	const count = project.fileCount;
+	// "Items" once anything in the bundle was made by a chat: "3 files" would
+	// be a claim about three PDFs.
+	if (project.hasMadeItems) {
+		return $t(
+			count === 1
+				? "artifacts.bundle.itemsLabelOne"
+				: "artifacts.bundle.itemsLabel",
+			{ count },
+		);
+	}
 	return $t(count === 1 ? "projects.filesLabelOne" : "projects.filesLabel", {
 		count,
 	});
@@ -101,7 +112,7 @@ function filesLabel(count: number): string {
 							{#if project.fileCount > 0}
 								<span class="home-project-indicator" data-testid="home-project-files">
 									<Paperclip size={11} strokeWidth={1.9} aria-hidden="true" />
-									{filesLabel(project.fileCount)}
+									{filesLabel(project)}
 								</span>
 							{/if}
 						</span>

@@ -8,6 +8,7 @@ import {
 	projects,
 	users,
 } from "../../src/lib/server/db/schema";
+import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
 import { login, waitForHydration } from "./helpers";
 
 /**
@@ -255,6 +256,62 @@ test.describe("home projects row", () => {
 		await expect(cards.nth(2)).toContainText(oldestName);
 		await expect(cards.nth(2).getByTestId("home-project-stats")).toHaveText(
 			"1 chat · active yesterday",
+		);
+	});
+
+	test("counts what the project's chats made beside its files, as items", async ({
+		page,
+	}) => {
+		const userId = await adminUserId();
+		await clearProjectFixtures(userId);
+
+		// A file and a Document a chat of the project made: the card counts the
+		// bundle, and "2 files" would be a claim about two uploads.
+		const mixed = await createProject(page, nameOf("Vienna trip"));
+		const chatId = await seedChat({
+			projectId: mixed,
+			title: "Saturday plan",
+			updatedAt: hoursAgo(1),
+		});
+		await createDocumentArtifact({
+			userId,
+			conversationId: chatId,
+			title: "Vienna notes",
+			markdown: "## Vienna notes\n\nNaschmarkt on Saturday.",
+			author: "alfy",
+			summary: "Seeded for E2E",
+		});
+		await linkArtifacts(page, mixed, [
+			await uploadLibraryDocument(
+				page,
+				`Hotel booking ${randomUUID().slice(0, 6)}.txt`,
+			),
+		]);
+
+		// Files only: the word stays "file".
+		const filesOnly = await createProject(page, nameOf("Garden plans"));
+		await seedChat({
+			projectId: filesOnly,
+			title: "Where the beds go",
+			updatedAt: hoursAgo(3),
+		});
+		await linkArtifacts(page, filesOnly, [
+			await uploadLibraryDocument(
+				page,
+				`Seed list ${randomUUID().slice(0, 6)}.txt`,
+			),
+		]);
+
+		await gotoHome(page);
+
+		const cards = page.getByTestId("home-project-card");
+		await expect(cards).toHaveCount(2);
+		await expect(cards.nth(0)).toHaveAttribute("href", `/projects/${mixed}`);
+		await expect(cards.nth(0).getByTestId("home-project-files")).toHaveText(
+			"2 items",
+		);
+		await expect(cards.nth(1).getByTestId("home-project-files")).toHaveText(
+			"1 file",
 		);
 	});
 

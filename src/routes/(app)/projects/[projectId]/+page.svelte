@@ -195,6 +195,7 @@ $effect(() => {
 		kind: "project",
 		project: { id: data.project.id, name: data.project.name },
 		fileCount: projectFiles?.length,
+		hasMadeItems: projectFiles?.some((file) => file.artifactKind !== undefined),
 		chatCount: data.chatCount,
 		lastActivityAt: data.lastActivityAt,
 	}}
