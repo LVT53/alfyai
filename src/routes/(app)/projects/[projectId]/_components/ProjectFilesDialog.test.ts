@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ARTIFACT_BODIES } from "$lib/components/artifacts/artifact-bodies";
 import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
+import { uiLanguage } from "$lib/stores/settings";
 import ProjectFilesDialog from "./ProjectFilesDialog.svelte";
 
 // The dialog's two browser calls are not what these tests are about; the list
@@ -27,6 +29,26 @@ function projectFile(
 		sizeBytes: 1024,
 		linkedAt: 1_760_000_000,
 		summary: null,
+		...overrides,
+	};
+}
+
+/** A Document, App or Canvas one of the project's chats made, as the bundle lists it. */
+function madeItem(
+	overrides: Partial<ProjectKnowledgeItem> = {},
+): ProjectKnowledgeItem {
+	return {
+		artifactId: "doc-1",
+		name: "Vienna notes",
+		mimeType: null,
+		type: "artifact",
+		sizeBytes: null,
+		linkedAt: 1_760_000_000,
+		summary: null,
+		artifactKind: "document",
+		sourceConversationId: "chat-1",
+		sourceConversationTitle: "Saturday plan",
+		linked: false,
 		...overrides,
 	};
 }
@@ -217,5 +239,154 @@ describe("ProjectFilesDialog search box", () => {
 			"Search files in this project",
 		);
 		expect(search()).toHaveAccessibleName("Search files in this project");
+	});
+});
+
+// A project's bundle holds what its chats made beside its files (Slice 5b, T5).
+// A made item is not a file: it says what it is and which chat made it, and its
+// way in opens the panel on its own body.
+describe("ProjectFilesDialog: what the chats made", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+		ARTIFACT_BODIES.document = () =>
+			import(
+				"$lib/components/document-workspace/__fixtures__/FakeArtifactBody.svelte"
+			);
+	});
+
+	afterEach(() => {
+		delete ARTIFACT_BODIES.document;
+		uiLanguage.set("en");
+	});
+
+	it("words an item by its kind and the file by its extension", () => {
+		open([
+			projectFile(),
+			madeItem(),
+			madeItem({
+				artifactId: "app-1",
+				name: "Cost splitter",
+				artifactKind: "app",
+			}),
+			madeItem({
+				artifactId: "board-1",
+				name: "Trip board",
+				artifactKind: "canvas",
+			}),
+		]);
+
+		const pill = (name: string) =>
+			within(
+				screen
+					.getAllByTestId("project-file-row")
+					.find((row) => row.textContent?.includes(name)) as HTMLElement,
+			).getByTestId("project-file-type");
+		expect(pill("Wien itinerary.pdf")).toHaveTextContent("PDF");
+		expect(pill("Vienna notes")).toHaveTextContent("Document");
+		expect(pill("Cost splitter")).toHaveTextContent("App");
+		expect(pill("Trip board")).toHaveTextContent("Canvas");
+	});
+
+	it("says which chat made an item, and says nothing of the kind about a file", () => {
+		open([projectFile(), madeItem()]);
+
+		const origins = screen.getAllByTestId("project-file-origin");
+		expect(origins).toHaveLength(1);
+		expect(origins[0]).toHaveTextContent("from “Saturday plan”");
+	});
+
+	it("never prints the engineers' word for what a chat made", () => {
+		open([madeItem()]);
+
+		expect(screen.getByTestId("project-file-row").textContent).not.toMatch(
+			/artifact/i,
+		);
+		expect(
+			screen.getByRole("button", { name: "Open Vienna notes" }),
+		).toBeInTheDocument();
+	});
+
+	it("reads in Hungarian too", () => {
+		uiLanguage.set("hu");
+		open([
+			madeItem(),
+			madeItem({
+				artifactId: "board-1",
+				name: "Útiterv",
+				artifactKind: "canvas",
+			}),
+			madeItem({ artifactId: "app-1", name: "Költségek", artifactKind: "app" }),
+		]);
+
+		const types = screen
+			.getAllByTestId("project-file-type")
+			.map((pill) => pill.textContent?.trim());
+		expect(types).toEqual(["Dokumentum", "Tábla", "Alkalmazás"]);
+		expect(screen.getAllByTestId("project-file-origin")[0]).toHaveTextContent(
+			"„Saturday plan” beszélgetésből",
+		);
+		expect(
+			screen.getByRole("button", { name: "Vienna notes megnyitása" }),
+		).toBeInTheDocument();
+	});
+
+	it("opens a made item in the panel on its own kind, not in the file viewer", async () => {
+		open([madeItem()]);
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open Vienna notes" }),
+		);
+
+		const shell = await screen.findByRole("complementary", {
+			name: "Vienna notes, Document",
+		});
+		const body = await within(shell).findByTestId("fake-artifact-body");
+		expect(body.dataset.kind).toBe("document");
+		expect(body.dataset.artifactId).toBe("doc-1");
+		expect(screen.getAllByRole("dialog")).toHaveLength(1);
+	});
+
+	it("offers no unlink on an item that is here only through its chat, and one on a linked item", () => {
+		open([
+			madeItem({ linked: false }),
+			madeItem({ artifactId: "doc-2", name: "Packing list", linked: true }),
+			projectFile(),
+		]);
+
+		const unlinks = screen
+			.getAllByTestId("project-file-unlink")
+			.map((button) => button.getAttribute("aria-label"));
+		expect(unlinks).toEqual([
+			"Remove Packing list from this project",
+			"Remove Wien itinerary.pdf from this project",
+		]);
+	});
+
+	it("counts items once anything was made by a chat, and files while nothing was", async () => {
+		const { rerender } = open([projectFile(), madeItem()]);
+		expect(footerCount()).toBe(
+			"2 items · removing one here keeps it in your library",
+		);
+
+		await rerender({ files: [madeItem()] });
+		expect(footerCount()).toBe(
+			"1 item · removing one here keeps it in your library",
+		);
+
+		await rerender({ files: [projectFile()] });
+		expect(footerCount()).toBe(
+			"1 file · removing it here keeps it in your library",
+		);
+	});
+
+	it("finds an item by its title in the search box", async () => {
+		open([projectFile(), madeItem()]);
+
+		await fireEvent.input(search(), { target: { value: "vienna" } });
+
+		expect(screen.getAllByTestId("project-file-row")).toHaveLength(1);
+		expect(screen.getByTestId("project-file-name")).toHaveTextContent(
+			"Vienna notes",
+		);
 	});
 });

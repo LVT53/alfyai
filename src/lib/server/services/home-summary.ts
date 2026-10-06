@@ -19,7 +19,7 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import { config } from "$lib/server/env";
-import { listProjectKnowledge } from "$lib/server/services/knowledge/project-knowledge";
+import { listProjectBundle } from "$lib/server/services/artifacts";
 import { isUserMemoryEnabled } from "$lib/server/services/memory-controls";
 import { getMemoryProfileReadModel } from "$lib/server/services/memory-profile/read-model";
 import { listRecentlyActiveProjects } from "$lib/server/services/projects";
@@ -72,7 +72,7 @@ export interface HomeRunningJob {
  *
  * Every field is already stored: `listRecentlyActiveProjects` supplies the name,
  * colour, chat count, last activity and whether the project has instructions,
- * and `listProjectKnowledge` supplies the file count. Nothing here is derived
+ * and `listProjectBundle` supplies the item count. Nothing here is derived
  * for the card's sake — in particular it does NOT carry the instruction text,
  * only whether there is any.
  */
@@ -84,7 +84,13 @@ export interface HomeProjectCard {
 	/** Unix seconds. */
 	lastActivityAt: number;
 	hasInstructions: boolean;
+	/** How many items the project's bundle holds: its files and what its chats made. */
 	fileCount: number;
+	/**
+	 * Whether any of them is a Document, an App or a Canvas. The count is worded
+	 * "items" then, because "3 files" would be a claim about three PDFs.
+	 */
+	hasMadeItems?: boolean;
 }
 
 export interface HomeSummary {
@@ -616,10 +622,11 @@ async function readRunning(
  * project with no chats gets no card" is one rule in one place, and a home
  * screen that re-checked it would be the second place it could go wrong.
  *
- * The file counts come from `listProjectKnowledge` per project, in parallel with
- * each other and read-only on both sides (the Files modal's own list is the same
+ * The counts come from `listProjectBundle` per project, in parallel with each
+ * other and read-only on both sides (the Files modal's own list is the same
  * read), so a card can never claim a count the modal would disagree with. Only
- * the length is used; the items themselves are the modal's business.
+ * the length is used, and whether anything in it was made by a chat; the items
+ * themselves are the modal's business.
  */
 async function readProjects(userId: string): Promise<HomeProjectCard[]> {
 	const projects = await listRecentlyActiveProjects({
@@ -629,16 +636,22 @@ async function readProjects(userId: string): Promise<HomeProjectCard[]> {
 	if (projects.length === 0) return [];
 
 	return Promise.all(
-		projects.map(async (project) => ({
-			id: project.id,
-			name: project.name,
-			color: project.color,
-			chatCount: project.chatCount,
-			lastActivityAt: project.lastActivityAt,
-			hasInstructions: project.hasInstructions,
-			fileCount: (await listProjectKnowledge({ userId, projectId: project.id }))
-				.length,
-		})),
+		projects.map(async (project) => {
+			const bundle = await listProjectBundle({
+				userId,
+				projectId: project.id,
+			});
+			return {
+				id: project.id,
+				name: project.name,
+				color: project.color,
+				chatCount: project.chatCount,
+				lastActivityAt: project.lastActivityAt,
+				hasInstructions: project.hasInstructions,
+				fileCount: bundle.length,
+				hasMadeItems: bundle.some((item) => item.artifactKind !== undefined),
+			};
+		}),
 	);
 }
 

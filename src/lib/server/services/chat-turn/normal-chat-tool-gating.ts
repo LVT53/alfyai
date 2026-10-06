@@ -5,15 +5,11 @@ type NormalChatToolSet = ReturnType<typeof createNormalChatTools>["tools"];
 // File-production tools are registered on every turn. They used to be gated
 // by a message-pattern match, which made the tool set (and therefore the
 // cached prompt prefix) change from turn to turn; the description now
-// carries the "only when the user asks for a downloadable file" rule.
+// carries the "only when the user asks for a downloadable file" rule, and
+// the turn guidance holds only the catalogue (ruling 5). So nothing below
+// ever looks at the message: the set varies by conversation state (memory,
+// skills, incognito), never by what was just said.
 // `forceProduceFileTool` is kept for callers that force tool choice.
-export function shouldExposeFileProductionTools(_params: {
-	message: string;
-	forceProduceFileTool?: boolean;
-}): boolean {
-	return true;
-}
-
 export function selectNormalChatToolsForRequest(
 	tools: NormalChatToolSet,
 	params: {

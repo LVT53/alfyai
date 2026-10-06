@@ -501,11 +501,6 @@ describe("runStreamingNormalChatSendModel", () => {
 			createTurnId: () => "normal-chat-turn-1",
 		});
 
-		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
-			expect.objectContaining({
-				fileProductionToolsAvailable: true,
-			}),
-		);
 		expect(mocks.createNormalChatTools).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -662,11 +657,6 @@ describe("runStreamingNormalChatSendModel", () => {
 			modelId: "model1",
 		});
 
-		expect(mocks.prepareOutboundChatContext).toHaveBeenCalledWith(
-			expect.objectContaining({
-				fileProductionToolsAvailable: true,
-			}),
-		);
 		expect(mocks.runStreamingNormalChatModelRun).toHaveBeenCalledWith(
 			expect.objectContaining({
 				tools: {

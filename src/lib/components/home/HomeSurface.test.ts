@@ -128,3 +128,71 @@ describe("HomeSurface in home mode", () => {
 		expect(container.querySelector("[data-testid='project-stats']")).toBeNull();
 	});
 });
+
+// The files half of the project page's quiet line counts the project's bundle:
+// its files and what its chats made. Once anything in it was made by a chat the
+// word is "items" — "3 files" would be a claim about three uploads — and a
+// bundle of only files keeps the word it always had.
+describe("HomeSurface in project mode: the files half of the quiet line", () => {
+	function renderProject(options: {
+		fileCount?: number;
+		hasMadeItems?: boolean;
+	}) {
+		return render(HomeSurface, {
+			mode: {
+				kind: "project",
+				project: { id: "project-1", name: "Vienna trip" },
+				chatCount: 1,
+				lastActivityAt: null,
+				...options,
+			},
+			recent: [],
+		});
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		gotoMock.mockResolvedValue(undefined);
+	});
+
+	afterEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("counts files while the bundle holds only files", () => {
+		renderProject({ fileCount: 3, hasMadeItems: false });
+		expect(screen.getByTestId("project-files-button")).toHaveTextContent(
+			"3 files",
+		);
+	});
+
+	it("counts items once a chat made something in it", () => {
+		renderProject({ fileCount: 3, hasMadeItems: true });
+		expect(screen.getByTestId("project-files-button")).toHaveTextContent(
+			"3 items",
+		);
+	});
+
+	it("says a single made item in the singular", () => {
+		renderProject({ fileCount: 1, hasMadeItems: true });
+		expect(screen.getByTestId("project-files-button")).toHaveTextContent(
+			"1 item",
+		);
+	});
+
+	it("says it in Hungarian too", () => {
+		uiLanguage.set("hu");
+		renderProject({ fileCount: 4, hasMadeItems: true });
+		expect(screen.getByTestId("project-files-button")).toHaveTextContent(
+			"4 elem",
+		);
+	});
+
+	it("offers to add files while the bundle is empty", () => {
+		renderProject({ fileCount: 0 });
+		expect(screen.getByTestId("project-files-button")).toHaveTextContent(
+			get(t)("projects.addFiles"),
+		);
+	});
+});

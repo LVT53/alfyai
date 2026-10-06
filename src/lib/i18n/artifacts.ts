@@ -886,6 +886,15 @@ const artifactsDict = {
 			"This block is not part of this image.",
 		// After the Canvas review (RV-3, cluster B).
 		"artifacts.canvas.block.drawFailed": "This block could not be drawn.",
+		// A project's bundle (Slice 5b · T5): the Files dialog lists the
+		// Documents, Apps and Canvases its chats made beside its files. A row
+		// says which chat made it; its time is the Added column's, so it is not
+		// said twice. Once any of them is not a file the counts read "items", and
+		// the dialog's footer adds the note to that count.
+		"artifacts.bundle.fromChat": "from “{title}”",
+		"artifacts.bundle.items":
+			"{count} {count, plural, one {item} other {items}}",
+		"artifacts.bundle.footerNote": "removing one here keeps it in your library",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1579,6 +1588,15 @@ const artifactsDict = {
 		// A Canvas-áttekintés után (RV-3, B csoport).
 		"artifacts.canvas.block.drawFailed":
 			"Ezt a blokkot nem sikerült megrajzolni.",
+		// A projekt csomagja (5b szelet · T5): a Fájlok ablak a fájlok mellett
+		// felsorolja azt is, amit a projekt beszélgetései készítettek. A sor
+		// megmondja, melyik beszélgetés készítette; az idejét a „Hozzáadva”
+		// oszlop mutatja, ezért nem szerepel kétszer. Amint van köztük nem fájl,
+		// a számlálók „elem”-et mondanak, az ablak lábléce pedig ehhez fűzi a
+		// megjegyzést.
+		"artifacts.bundle.fromChat": "„{title}” beszélgetésből",
+		"artifacts.bundle.items": "{count} elem",
+		"artifacts.bundle.footerNote": "az eltávolítás nem törli a könyvtárból",
 	},
 } as const;
 

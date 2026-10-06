@@ -447,7 +447,6 @@ export function buildOutboundSystemPrompt(params: {
 	// the control-model path — keeps compiling and rendering nothing.
 	instructions?: ResolvedTurnInstructions | null;
 	forceWebSearch?: boolean;
-	fileProductionToolsAvailable?: boolean;
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	// When true, omits every turn-scoped guidance addition below (temporal
 	// anchor, response-language guard, reasoning-depth contract) — used by
@@ -1876,7 +1875,6 @@ type PrepareOutboundChatContextParams = {
 	// keeps prompt assembly free of DB reads.
 	instructions?: ResolvedTurnInstructions | null;
 	forceWebSearch?: boolean;
-	fileProductionToolsAvailable?: boolean;
 	skipDefaultRuntimeGuidance?: boolean;
 	systemPromptOverride?: string;
 	modelId?: ModelId | string;
@@ -1963,7 +1961,6 @@ function buildPreparationSystemPrompt(
 			personalityPrompt: params.personalityPrompt,
 			instructions: params.instructions,
 			forceWebSearch: params.forceWebSearch,
-			fileProductionToolsAvailable: params.fileProductionToolsAvailable,
 			reasoningDepthEffort: params.reasoningDepthEffort,
 			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
 			hasActiveConnections: Boolean(

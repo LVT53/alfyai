@@ -50,10 +50,12 @@ export {
 	listProjectKnowledge,
 	listProjectKnowledgeArtifactIds,
 	listProjectKnowledgeContentTargets,
+	listProjectLinks,
 	listProjectLinksForArtifacts,
 	ProjectKnowledgeError,
 	resolveConversationProjectFiles,
 	resolveProjectFileMentions,
+	sortProjectKnowledgeItems,
 	unlinkProjectKnowledge,
 } from "./knowledge/project-knowledge";
 export type {

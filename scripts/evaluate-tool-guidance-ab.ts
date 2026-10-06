@@ -388,7 +388,6 @@ function buildSystemPromptForFixture(fixture: ToolGuidanceFixture): string {
 	return buildOutboundSystemPrompt({
 		basePrompt,
 		inputValue: latestMessage.content,
-		fileProductionToolsAvailable: true,
 	});
 }
 

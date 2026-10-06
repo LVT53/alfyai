@@ -14,15 +14,20 @@ vi.mock("$lib/server/services/knowledge", async (importOriginal) => {
 	return {
 		...actual,
 		linkProjectKnowledge: vi.fn(),
-		listProjectKnowledge: vi.fn(),
 		unlinkProjectKnowledge: vi.fn(),
 	};
 });
 
+// The list the browser reads is the bundle — files and what the project's chats
+// made — which the artifacts service builds; the route only carries it.
+vi.mock("$lib/server/services/artifacts", () => ({
+	listProjectBundle: vi.fn(),
+}));
+
 import { requireAuth } from "$lib/server/auth/hooks";
+import { listProjectBundle } from "$lib/server/services/artifacts";
 import {
 	linkProjectKnowledge,
-	listProjectKnowledge,
 	ProjectKnowledgeError,
 	unlinkProjectKnowledge,
 } from "$lib/server/services/knowledge";
@@ -33,9 +38,7 @@ import { DELETE } from "./[artifactId]/+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
 const mockGetProject = getProject as ReturnType<typeof vi.fn>;
-const mockListProjectKnowledge = listProjectKnowledge as ReturnType<
-	typeof vi.fn
->;
+const mockListProjectBundle = listProjectBundle as ReturnType<typeof vi.fn>;
 const mockLinkProjectKnowledge = linkProjectKnowledge as ReturnType<
 	typeof vi.fn
 >;
@@ -51,6 +54,20 @@ const FILE_ROW = {
 	sizeBytes: 240_000,
 	linkedAt: 1_800_000_000,
 	summary: "Two tickets, Budapest to Vienna.",
+};
+
+const DOCUMENT_ROW = {
+	artifactId: "artifact-plan",
+	name: "Saturday plan",
+	mimeType: null,
+	type: "artifact" as const,
+	sizeBytes: null,
+	linkedAt: 1_800_000_100,
+	summary: null,
+	artifactKind: "document" as const,
+	sourceConversationId: "chat-plan",
+	sourceConversationTitle: "Saturday plan",
+	linked: false,
 };
 
 function buildEvent(params: Record<string, string>, body?: unknown) {
@@ -95,16 +112,16 @@ describe("GET /api/projects/[id]/knowledge", () => {
 			id: "trip-project",
 			name: "Vienna trip",
 		});
-		mockListProjectKnowledge.mockResolvedValue([FILE_ROW]);
+		mockListProjectBundle.mockResolvedValue([FILE_ROW, DOCUMENT_ROW]);
 	});
 
-	it("returns the project's linked files", async () => {
+	it("returns the project's bundle: its linked files and what its chats made", async () => {
 		const response = await GET(makeEvent({ id: "trip-project" }));
 		const data = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(data.files).toEqual([FILE_ROW]);
-		expect(mockListProjectKnowledge).toHaveBeenCalledWith({
+		expect(data.files).toEqual([FILE_ROW, DOCUMENT_ROW]);
+		expect(mockListProjectBundle).toHaveBeenCalledWith({
 			userId: "owner-user",
 			projectId: "trip-project",
 		});
@@ -128,7 +145,7 @@ describe("GET /api/projects/[id]/knowledge", () => {
 
 		expect(response.status).toBe(404);
 		expect(data.error).toBeTruthy();
-		expect(mockListProjectKnowledge).not.toHaveBeenCalled();
+		expect(mockListProjectBundle).not.toHaveBeenCalled();
 	});
 });
 
@@ -141,9 +158,10 @@ describe("POST /api/projects/[id]/knowledge", () => {
 			name: "Vienna trip",
 		});
 		mockLinkProjectKnowledge.mockResolvedValue([FILE_ROW]);
+		mockListProjectBundle.mockResolvedValue([FILE_ROW, DOCUMENT_ROW]);
 	});
 
-	it("links the given documents and answers with the project's files", async () => {
+	it("links the given documents and answers with the project's bundle", async () => {
 		const response = await POST(
 			makeEvent({ id: "trip-project" }, { artifactIds: ["artifact-railjet"] }),
 		);
@@ -155,7 +173,12 @@ describe("POST /api/projects/[id]/knowledge", () => {
 			projectId: "trip-project",
 			artifactIds: ["artifact-railjet"],
 		});
-		expect(data.files).toEqual([FILE_ROW]);
+		// What the server holds after the link, not what the link call returned.
+		expect(mockListProjectBundle).toHaveBeenCalledWith({
+			userId: "owner-user",
+			projectId: "trip-project",
+		});
+		expect(data.files).toEqual([FILE_ROW, DOCUMENT_ROW]);
 	});
 
 	it("rejects an empty document list before touching the service", async () => {

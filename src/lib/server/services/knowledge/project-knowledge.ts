@@ -12,6 +12,7 @@ import {
 	getConversationProjectId,
 	getProject,
 } from "$lib/server/services/projects";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	getLogicalDocumentForArtifact,
 	safeStem,
@@ -53,6 +54,24 @@ export interface ProjectKnowledgeItem {
 	/** Unix seconds, when the link was added — this is the "Added" column. */
 	linkedAt: number;
 	summary: string | null;
+	/**
+	 * Set on a Document, an App or a Canvas (the artifact family, never a file or
+	 * Slides) and on nothing else: the kind the row's own metadata names, which
+	 * the UI turns into its word. A bundle row is a file unless this says it is
+	 * one of these.
+	 */
+	artifactKind?: ArtifactKind;
+	/** The chat that made it, when it has one. Family rows only. */
+	sourceConversationId?: string | null;
+	/** That chat's title, for the row's "from “…”" line. Family rows only. */
+	sourceConversationTitle?: string | null;
+	/**
+	 * Whether a project link row puts this in the bundle. Family rows only: a
+	 * Document made in one of the project's chats is in the bundle through that
+	 * chat and has no link to remove, so the row offers no unlink. Absent on a
+	 * file, which is in the bundle through its link and nothing else.
+	 */
+	linked?: boolean;
 }
 
 export class ProjectKnowledgeError extends Error {
@@ -291,9 +310,10 @@ async function resolveProjectDocuments(
  * One order, shared by the Files modal, the prompt section and the read
  * targets, so the list is stable turn over turn and the model's prefix cache
  * keeps matching. Generic over the three fields it reads: the read targets are
- * the same list in a different shape.
+ * the same list in a different shape. Exported for the bundle, which merges
+ * what the project's chats made into the files and must not order them twice.
  */
-function sortItems<
+export function sortProjectKnowledgeItems<
 	T extends { name: string; linkedAt: number; artifactId: string },
 >(items: T[]): T[] {
 	return items.sort(
@@ -304,6 +324,20 @@ function sortItems<
 	);
 }
 
+/**
+ * The project's FILES: the library documents it is linked to, and nothing the
+ * artifact family made.
+ *
+ * This is the list a turn reads — the prompt section and the file-name
+ * mentions — so it stays to what can be served as context. A Document, an App
+ * or a Canvas is a row of the same table, and a link can name one, but the
+ * mention path hands its candidates to the linked-source check, which refuses
+ * anything that is not prompt-ready with a 409 that fails the turn: a family
+ * row is never prompt-ready as a linked source (it has no normalized sibling),
+ * so listing one here would turn "the user said its name" into a failed
+ * message. The bundle the person sees — files and what the chats made — is
+ * `listProjectBundle` in the artifacts service, which builds on this list.
+ */
 export async function listProjectKnowledge(params: {
 	userId: string;
 	projectId: string;
@@ -313,17 +347,40 @@ export async function listProjectKnowledge(params: {
 		params.projectId,
 	);
 
-	return sortItems(
-		resolved.map((document) => ({
-			artifactId: document.displayId,
-			name: document.display.name,
-			mimeType: document.display.mimeType,
-			type: document.display.type as ArtifactType,
-			sizeBytes: document.display.sizeBytes,
-			linkedAt: document.linkedAt,
-			summary: document.summary,
-		})),
+	return sortProjectKnowledgeItems(
+		resolved
+			.filter((document) => document.display.type !== "artifact")
+			.map((document) => ({
+				artifactId: document.displayId,
+				name: document.display.name,
+				mimeType: document.display.mimeType,
+				type: document.display.type as ArtifactType,
+				sizeBytes: document.display.sizeBytes,
+				linkedAt: document.linkedAt,
+				summary: document.summary,
+			})),
 	);
+}
+
+/**
+ * The project's link rows as they are: the id each names and when it was
+ * linked, whatever it names. Only the caller's own links, through the same
+ * project join every read here uses.
+ *
+ * It exists for the bundle, which has to tell an item the person put there
+ * (a link) from one that is there because its chat is in the project, and
+ * which dates a linked item by its link. It does not check what a link names
+ * — that is the reader's scope, applied where the row is read.
+ */
+export async function listProjectLinks(params: {
+	userId: string;
+	projectId: string;
+}): Promise<{ artifactId: string; linkedAt: number }[]> {
+	const rows = await readOwnedLinkRows(params.userId, params.projectId);
+	return rows.map((row) => ({
+		artifactId: row.artifactId,
+		linkedAt: Math.floor(row.createdAt.getTime() / 1000),
+	}));
 }
 
 /**
@@ -459,7 +516,7 @@ export async function listProjectKnowledgeContentTargets(params: {
 		updatedAt: document.display.updatedAt,
 	}));
 
-	return sortItems(targets);
+	return sortProjectKnowledgeItems(targets);
 }
 
 /**
