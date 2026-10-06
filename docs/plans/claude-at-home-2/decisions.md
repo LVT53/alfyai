@@ -726,6 +726,11 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
   remaining headroom (+2,048 at its merge), and the tour's chrome strings plus the panel's trigger add the rest; the card
   and its drawings are one lazy chunk (2.8 kB) the chat never loads until a tour shows. TR-C may move it by its own
   measured growth the same way.
+- **Moved for the final round's merges (orchestrator, 2026-10-06), by a measured 462 B gzip (539,608 → 540,070):** FU-2's
+  focus traps (`ImageLightbox`, `ModelSelectionGuideModal`, `ModelForm`; its agent measured +175 B) and W4-B's project-bundle
+  rows and strings (~+210 B) were each measured on their own base and merged into `feat/artifacts` together; on this Mac
+  `dev` `9aed65c0` builds the chat route at 541,618 B (+2,010) and `feat/artifacts` `86a736b5` at 542,080 B, so the move is
+  exactly that difference and the route again reads +2,010.
 
 ## 69. Slides is shelved; the tours come next
 
