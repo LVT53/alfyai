@@ -11,6 +11,7 @@
  * create_artifact / edit_artifact calls; those tests make the items with the
  * real tools, so the metadata the group reads is the metadata the tools write.
  */
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInMemoryDatabase,
@@ -508,6 +509,44 @@ describe("persistAssistantEvidence — what the turn made", () => {
 		expect(madeGroup(await stored())?.items).toEqual([
 			expect.objectContaining({ artifactId: madeId, title: "Weekend plan" }),
 		]);
+	});
+
+	it("still reads a summary stored before the group existed", async () => {
+		// Evidence is JSON in the message's metadata: every message written before
+		// this group was added has the four older source types only.
+		const legacySummary = {
+			structuredWebSearch: true,
+			groups: [
+				{
+					sourceType: "web",
+					label: "Web Search",
+					reranked: false,
+					items: [
+						{
+							id: "w1",
+							title: "Museum hours",
+							url: "https://example.com/museum",
+							sourceType: "web",
+							status: "selected",
+						},
+					],
+				},
+			],
+		};
+		memory.db
+			.update(schema.messages)
+			.set({
+				metadataJson: JSON.stringify({
+					evidenceStatus: "ready",
+					evidenceSummary: legacySummary,
+				}),
+			})
+			.where(eq(schema.messages.id, ASSISTANT_MESSAGE))
+			.run();
+
+		const state = await stored();
+		expect(state?.status).toBe("ready");
+		expect(state?.evidenceSummary).toEqual(legacySummary);
 	});
 
 	it("keeps an incognito turn's rows on its own message and puts nothing on another chat", async () => {

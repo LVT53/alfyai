@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ContextDebugState } from "./knowledge/context-types";
-import type { MessageEvidenceSummary } from "./message-evidence";
 import {
 	buildAssistantEvidenceSummary,
 	countProjectFilesRead,
@@ -804,31 +803,6 @@ describe("buildAssistantEvidenceSummary — what the turn made", () => {
 
 		expect(withNothingMade).toEqual(without);
 		expect(without?.groups.map((group) => group.sourceType)).toEqual(["tool"]);
-	});
-
-	it("still reads a stored summary that has no such group", () => {
-		// Evidence is JSON in the message's metadata: every summary written
-		// before this group existed has the older four source types only.
-		const stored: MessageEvidenceSummary = {
-			structuredWebSearch: true,
-			groups: [
-				{
-					sourceType: "web",
-					label: "Web Search",
-					reranked: false,
-					items: [
-						{
-							id: "w1",
-							title: "Museum hours",
-							url: "https://example.com/museum",
-							sourceType: "web",
-							status: "selected",
-						},
-					],
-				},
-			],
-		};
-		expect(JSON.parse(JSON.stringify(stored))).toEqual(stored);
 	});
 });
 
