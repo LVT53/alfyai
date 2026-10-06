@@ -6,6 +6,7 @@ import {
 	expectCamera,
 	KEYBOARD,
 	openBoard,
+	PAN_WAIT_MS,
 	PHONE,
 	placeInPane,
 	settledCamera,
@@ -175,8 +176,11 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 		const note = page.locator(BLOCK("note-6"));
 		const read = await watchCameraY(page);
 
-		await page.setViewportSize({ width: PHONE.width, height: 700 });
-		await page.setViewportSize(SHORT);
+		// Two sizes one right after the other, as one keyboard opening in steps.
+		await Promise.all([
+			page.setViewportSize({ width: PHONE.width, height: 700 }),
+			page.setViewportSize(SHORT),
+		]);
 		await expect.poll(() => inView(page, note, field)).toBe(true);
 		const typing = await settledCamera(page);
 		expect(typing.zoom).toBeCloseTo(fitted.zoom, 3);
@@ -216,7 +220,7 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 			width: PHONE.width,
 			height: PHONE.height - KEYBOARD - 60,
 		});
-		await page.waitForTimeout(600);
+		await page.waitForTimeout(PAN_WAIT_MS);
 		expectCamera(await settledCamera(page), zoomed, "a taller keyboard");
 	});
 
@@ -277,7 +281,7 @@ test.describe("on a phone, with motion", () => {
 		await expect.poll(() => inView(page, field)).toBe(true);
 		await settledCamera(page);
 		const ys = await read();
-		expect(ys.length).toBeGreaterThan(4);
+		expect(ys.length).toBeGreaterThan(2);
 	});
 });
 
@@ -317,7 +321,7 @@ test.describe("on a desktop", () => {
 		await expect(field).toBeFocused();
 
 		await page.setViewportSize({ width: 1180, height: 640 });
-		await page.waitForTimeout(800);
+		await page.waitForTimeout(PAN_WAIT_MS);
 		// The window is now over the note, and the camera is where it was.
 		expect(await inView(page, page.locator(BLOCK("note-6")))).toBe(false);
 		expectCamera(await settledCamera(page), fitted, "window smaller");

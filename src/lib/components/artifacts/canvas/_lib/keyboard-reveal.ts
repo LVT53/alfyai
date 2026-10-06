@@ -20,10 +20,10 @@ import { prefersReducedMotion } from "$lib/utils/motion";
 import type { ScreenRect } from "./floating";
 
 /** How far the camera moves, in the screen's own pixels (the camera's own unit). */
-export type Pan = { x: number; y: number };
+type Pan = { x: number; y: number };
 
 /** The camera, as the flow library keeps it. */
-export type RevealCamera = { x: number; y: number; zoom: number };
+type RevealCamera = { x: number; y: number; zoom: number };
 
 /** The two members of the flow library's helpers this needs. */
 export type RevealFlow = {
@@ -32,7 +32,7 @@ export type RevealFlow = {
 };
 
 /** The part of the page the reader sees, as the visual viewport reports it. */
-export type VisibleView = {
+type VisibleView = {
 	offsetLeft: number;
 	offsetTop: number;
 	width: number;
