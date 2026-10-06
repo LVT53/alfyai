@@ -5,10 +5,7 @@ import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
 import type { ModelConfig } from "$lib/server/env";
 import { resolveArtifactCatalogueBlock } from "$lib/server/services/artifacts";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
-import {
-	selectNormalChatToolsForRequest,
-	shouldExposeFileProductionTools,
-} from "$lib/server/services/chat-turn/normal-chat-tool-gating";
+import { selectNormalChatToolsForRequest } from "$lib/server/services/chat-turn/normal-chat-tool-gating";
 import { resolveReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
 import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
@@ -437,12 +434,6 @@ export async function prepareOutboundContext(
 		personalityPrompt: params.personalityPrompt,
 		instructions,
 		forceWebSearch: params.forceWebSearch,
-		fileProductionToolsAvailable:
-			!params.disableTools &&
-			shouldExposeFileProductionTools({
-				message: params.message,
-				forceProduceFileTool: params.forceProduceFileTool,
-			}),
 		modelId: runtime.modelId,
 		contextLimits: runtime.baseContextLimits,
 		// Without a sender the automatic compression stage reports

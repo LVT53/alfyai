@@ -2906,11 +2906,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		),
 		// The offer is registered for the whole conversation, never gated per
 		// turn: it renders inside the cached prompt prefix, and a turn-varying
-		// tool set is the failure shouldExposeFileProductionTools() exists to
-		// prevent (see normal-chat-tool-gating.ts). What *is* gated is the
-		// offer itself — absent in incognito (the catalogue gate), once per
-		// turn (a closure counter below), and with the project scope only when
-		// the conversation is really in a project.
+		// tool set is the failure normal-chat-tool-gating.ts's header note
+		// describes. What *is* gated is the offer itself — absent in incognito
+		// (the catalogue gate), once per turn (a closure counter below), and
+		// with the project scope only when the conversation is really in a
+		// project.
 		suggest_instruction: asExecutableTool(
 			tool({
 				description: i18n.suggest_instruction.description,

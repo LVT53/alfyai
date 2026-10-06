@@ -648,7 +648,6 @@ describe("prepareOutboundChatContext", () => {
 				basePrompt: "Base system prompt",
 				inputValue,
 				modelDisplayName: "Provider Model",
-				fileProductionToolsAvailable: true,
 			});
 		}
 
@@ -672,14 +671,12 @@ describe("prepareOutboundChatContext", () => {
 				inputValue:
 					"Is this still true today? Back it with a source and verify official policy.",
 				modelDisplayName: "Provider Model",
-				fileProductionToolsAvailable: true,
 			});
 			const hu = buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
 				inputValue:
 					"Ez ma is igaz még? Támaszd alá egy forrással, és ellenőrizd a hivatalos szabályzatot.",
 				modelDisplayName: "Provider Model",
-				fileProductionToolsAvailable: true,
 			});
 
 			expect(en).toBe(hu);
@@ -757,7 +754,6 @@ describe("prepareOutboundChatContext", () => {
 					basePrompt: "Base system prompt",
 					inputValue,
 					modelDisplayName: "Provider Model",
-					fileProductionToolsAvailable: true,
 					hasActiveConnections: true,
 					personalityPrompt: "Be extremely concise and upbeat.",
 					instructions: { personal: "Use metric units.", project: null },
@@ -812,7 +808,6 @@ describe("prepareOutboundChatContext", () => {
 				basePrompt: "Base system prompt",
 				inputValue: "What's the weather like tomorrow?",
 				modelDisplayName: "Provider Model",
-				fileProductionToolsAvailable: true,
 				personalityPrompt,
 				instructions,
 			});
