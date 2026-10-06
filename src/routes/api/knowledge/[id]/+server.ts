@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
+import { deleteLibraryArtifact } from "$lib/server/services/artifacts";
 import {
-	deleteArtifactForUser,
 	getArtifactForUser,
 	listArtifactLinksForUser,
 } from "$lib/server/services/knowledge";
@@ -23,7 +23,9 @@ export const DELETE: RequestHandler = async (event) => {
 	requireAuth(event);
 	const user = event.locals.user;
 	try {
-		const result = await deleteArtifactForUser(user.id, event.params.id);
+		// The library's own delete, then what a deleted board leaves outside the
+		// database (its poster files): the same files the panel's Delete takes.
+		const result = await deleteLibraryArtifact(user.id, event.params.id);
 		// Nothing was deleted — either no such id, or not this user's to delete.
 		//
 		// This used to answer 200 with `deletedArtifactIds: [params.id]`,

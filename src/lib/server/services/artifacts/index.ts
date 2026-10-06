@@ -67,6 +67,9 @@ export {
 export { hashArtifactBody } from "./hash";
 export { keepMessageAsDocument } from "./keep-message";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
+// Knowledge -> Documents' Delete: the library's own delete, then what a deleted
+// board leaves outside the database (the panel's Delete takes the same).
+export { deleteLibraryArtifact } from "./library-delete";
 export {
 	applyArtifactOps,
 	OPS_BRANCHES,
