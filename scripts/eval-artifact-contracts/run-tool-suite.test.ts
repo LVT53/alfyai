@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	copyFileSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,6 +67,28 @@ function boardAnswer(): string {
 }
 
 const dirs: string[] = [];
+
+/**
+ * A scratch fixtures root that holds the suite's hand-written known-bad answers,
+ * as the real one does: a run refuses to count a suite whose known-bad case has no
+ * answer to score (ruling 59), so a scratch root with none would never reach the
+ * cases a test is about.
+ */
+function scratchFixturesRoot(): string {
+	const root = mkdtempSync(join(tmpdir(), "canvas-fixtures-"));
+	dirs.push(root);
+	const responses = join(root, "canvas", "responses");
+	mkdirSync(responses, { recursive: true });
+	for (const evalCase of EVAL_CASES.canvas ?? []) {
+		if (!evalCase.knownBad) continue;
+		copyFileSync(
+			join(REAL_FIXTURES, "canvas", "responses", `${evalCase.id}.json`),
+			join(responses, `${evalCase.id}.json`),
+		);
+	}
+	return root;
+}
+
 afterEach(() => {
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
@@ -176,8 +204,7 @@ describe("run-tool-suite: a live run through the tools", () => {
 	});
 
 	it("records each real answer under fixtures/<suite>/responses, and only real ones", async () => {
-		const root = mkdtempSync(join(tmpdir(), "canvas-fixtures-"));
-		dirs.push(root);
+		const root = scratchFixturesRoot();
 		const send = vi.fn(async () => ({ text: boardAnswer() }));
 		const { captured } = await runToolSuite(
 			{

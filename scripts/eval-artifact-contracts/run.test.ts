@@ -195,6 +195,120 @@ describe("runSuite — the known-bad-first gate", () => {
 	});
 });
 
+// Ruling 59: a known-bad case exists to prove the scorer CAN fail, so it must not
+// depend on the model misbehaving. Its answer is hand-written, committed, and
+// served from disk in a live run exactly as in a replay; the model is never asked.
+// (RV-2B: the verification suite's known-bad asked the model to break its contract,
+// the model kept it, and the live gate rightly refused every score in that run.)
+describe("runSuite — a known-bad case is a recorded answer, never a model call (ruling 59)", () => {
+	const KNOWN_BAD_ANSWER = "a hand-written bad answer";
+
+	function liveKnownBadDeps(overrides: Partial<RunDeps> = {}) {
+		const prompts: string[] = [];
+		const send = vi.fn(async ({ prompt }: { prompt: string }) => {
+			prompts.push(prompt);
+			return { text: "a real model answer" };
+		});
+		const scored: Array<[string, string]> = [];
+		const deps = baseDeps({
+			cases: {
+				[FAKE_SUITE]: [
+					fakeCase({
+						id: "known-bad-1",
+						knownBad: true,
+						prompt: "KNOWN-BAD PROMPT",
+					}),
+					fakeCase({ id: "regular-1", prompt: "REGULAR PROMPT" }),
+				],
+			},
+			client: fakeClient(send),
+			loadCommittedResponse: (_suite, caseId) =>
+				caseId === "known-bad-1" ? { response: KNOWN_BAD_ANSWER } : null,
+			score: (evalCase, attempt) => {
+				scored.push([evalCase.id, attempt.response]);
+				return evalCase.knownBad
+					? { verdict: "bad", reasons: ["seeded failure"] }
+					: { verdict: "good", reasons: ["fine"] };
+			},
+			...overrides,
+		});
+		return { deps, prompts, send, scored };
+	}
+
+	it("serves the known-bad answer from disk in a live run and sends only the real cases to the model", async () => {
+		const { deps, prompts, scored } = liveKnownBadDeps();
+
+		const report = await runSuite(
+			FAKE_SUITE,
+			{ replay: false, limit: null, only: null },
+			deps,
+		);
+
+		expect(prompts).toEqual(["REGULAR PROMPT"]);
+		expect(scored).toEqual([
+			["known-bad-1", KNOWN_BAD_ANSWER],
+			["regular-1", "a real model answer"],
+		]);
+		expect(report.knownBadFailedAsExpected).toBe(true);
+		expect(report.results.map((result) => result.caseId)).toEqual([
+			"regular-1",
+		]);
+	});
+
+	it("still refuses to count a live run in which the scorer passes a known-bad answer", async () => {
+		const { deps, send } = liveKnownBadDeps({
+			score: () => ({ verdict: "good", reasons: [] }),
+		});
+
+		const report = await runSuite(
+			FAKE_SUITE,
+			{ replay: false, limit: null, only: null },
+			deps,
+		);
+
+		expect(report.knownBadFailedAsExpected).toBe(false);
+		expect(report.knownBadFailures).toEqual(["known-bad-1"]);
+		expect(report.results).toEqual([]);
+		expect(send).not.toHaveBeenCalled();
+	});
+
+	// A known-bad case with no answer on disk scores "bad" through the call-failed
+	// path, which would read as "the scorer failed it as declared" without the
+	// scorer ever having seen an answer: the gate would pass on a missing file.
+	it.each([
+		["live", false],
+		["replayed", true],
+	])("refuses to trust a %s suite whose known-bad case has no hand-written answer", async (_label, replay) => {
+		const { deps, send } = liveKnownBadDeps({
+			loadCommittedResponse: () => null,
+		});
+
+		const report = await runSuite(
+			FAKE_SUITE,
+			{ replay, limit: null, only: null },
+			deps,
+		);
+
+		expect(report.knownBadFailedAsExpected).toBe(false);
+		expect(report.knownBadFailures).toEqual(["known-bad-1"]);
+		expect(report.results).toEqual([]);
+		expect(send).not.toHaveBeenCalled();
+	});
+
+	it("does not retry a missing known-bad answer as if it were a flaky call", async () => {
+		const load = vi.fn(() => null);
+		const { deps } = liveKnownBadDeps({ loadCommittedResponse: load });
+
+		await runSuite(
+			FAKE_SUITE,
+			{ replay: false, limit: null, only: null },
+			deps,
+		);
+
+		expect(load).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe("runSuite — replay", () => {
 	it("replays committed responses without constructing a model client", async () => {
 		const deps = baseDeps({
@@ -573,6 +687,36 @@ describe("recordSuiteResponses", () => {
 				}),
 				evaluation: null,
 			},
+		]);
+	});
+
+	// Ruling 59: recording must never reach a known-bad case. Its answer is
+	// hand-written, and asking the model for it overwrote that answer with whatever
+	// the model happened to say (the app suite's known-bad file was once left with
+	// the real app the model wrote instead of the bare word).
+	it("never records a known-bad case: its hand-written answer is not the model's to overwrite", async () => {
+		const send = vi.fn(async ({ prompt }: { prompt: string }) => ({
+			text: `echo: ${prompt}`,
+		}));
+		const attempts = await recordSuiteResponses(
+			FAKE_SUITE,
+			{ limit: null, only: null },
+			{
+				cases: {
+					[FAKE_SUITE]: [
+						fakeCase({ id: "known-bad-1", knownBad: true, prompt: "bad" }),
+						fakeCase({ id: "regular-1", prompt: "hi" }),
+					],
+				},
+				client: fakeClient(send),
+				defaultThinking: "off",
+				evaluate: async () => null,
+			},
+		);
+
+		expect(send).toHaveBeenCalledTimes(1);
+		expect(attempts.map(({ attempt }) => attempt.caseId)).toEqual([
+			"regular-1",
 		]);
 	});
 
