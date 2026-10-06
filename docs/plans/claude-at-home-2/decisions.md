@@ -773,3 +773,12 @@ in the panel that lists an item's sources, the turn's web sources already show i
 unused export is a Fallow finding. The "Made in this chat" group (rulings 6, 7) is built. Cost if wrong: one read-model
 function and a panel row later.
 
+## 73. A project's bundle is its own list; the prompt's project files stay files (Wave 4, orchestrator, 2026-10-06)
+
+*From W4-B.* `listProjectBundle` (artifacts service) lists what a person sees in a project — its files plus the
+Documents, Apps and Canvases its chats made (membership by the chat's project at read time, never stored) or linked
+from the library — and feeds the Files dialog, the project page and the home cards. `listProjectKnowledge` stays
+files-only, because it feeds the prompt and the project-file mention path, where a family row (never prompt-ready)
+would refuse the turn, and because knowledge importing artifacts would be a cycle. Slice 5 T5's "listProjectKnowledge
+includes artifacts" is read through this ruling.
+
