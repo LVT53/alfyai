@@ -272,9 +272,7 @@ const quietLineFilesLabel = $derived(
 	quietLineFilesCount > 0
 		? $t(
 				quietLineHasMadeItems
-					? quietLineFilesCount === 1
-						? "artifacts.bundle.itemsLabelOne"
-						: "artifacts.bundle.itemsLabel"
+					? "artifacts.bundle.items"
 					: quietLineFilesCount === 1
 						? "projects.filesLabelOne"
 						: "projects.filesLabel",

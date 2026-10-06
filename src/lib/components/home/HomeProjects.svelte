@@ -46,14 +46,7 @@ function filesLabel(project: HomeProjectCard): string {
 	const count = project.fileCount;
 	// "Items" once anything in the bundle was made by a chat: "3 files" would
 	// be a claim about three PDFs.
-	if (project.hasMadeItems) {
-		return $t(
-			count === 1
-				? "artifacts.bundle.itemsLabelOne"
-				: "artifacts.bundle.itemsLabel",
-			{ count },
-		);
-	}
+	if (project.hasMadeItems) return $t("artifacts.bundle.items", { count });
 	return $t(count === 1 ? "projects.filesLabelOne" : "projects.filesLabel", {
 		count,
 	});

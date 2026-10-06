@@ -125,18 +125,10 @@ const footerLabel = $derived(
 	files === null
 		? ""
 		: hasMadeItems
-			? files.length === 1
-				? $t("artifacts.bundle.footerOne")
-				: $t("artifacts.bundle.footer", { count: files.length })
+			? `${$t("artifacts.bundle.items", { count: files.length })} · ${$t("artifacts.bundle.footerNote")}`
 			: files.length === 1
 				? $t("projects.filesFooterOne")
 				: $t("projects.filesFooter", { count: files.length }),
-);
-
-const descriptionLabel = $derived(
-	hasMadeItems
-		? $t("artifacts.bundle.description")
-		: $t("projects.filesDescription"),
 );
 
 function isBusy(artifactId: string): boolean {
@@ -323,7 +315,7 @@ $effect(() => {
 			>
 			<ScopeToken scope={{ kind: "project", name: projectName }} />
 		</div>
-		<p class="files-dialog-description">{descriptionLabel}</p>
+		<p class="files-dialog-description">{$t("projects.filesDescription")}</p>
 
 		<div class="files-toolbar" data-testid="project-files-toolbar">
 			<div class="files-search">
@@ -410,7 +402,7 @@ $effect(() => {
 						? ARTIFACT_KIND_ICONS[file.artifactKind]
 						: null}
 					{@const openLabel = file.artifactKind
-						? $t("artifacts.bundle.openA11y", { name: file.name })
+						? $t("artifacts.card.openA11y", { title: file.name })
 						: $t("projects.filesPreviewA11y", { name: file.name })}
 					<div
 						class="files-row"

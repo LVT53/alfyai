@@ -867,17 +867,12 @@ const artifactsDict = {
 		// A project's bundle (Slice 5b · T5): the Files dialog lists the
 		// Documents, Apps and Canvases its chats made beside its files. A row
 		// says which chat made it; its time is the Added column's, so it is not
-		// said twice. The counts read "items" once any of them is not a file.
+		// said twice. Once any of them is not a file the counts read "items", and
+		// the dialog's footer adds the note to that count.
 		"artifacts.bundle.fromChat": "from “{title}”",
-		"artifacts.bundle.openA11y": "Open {name}",
-		"artifacts.bundle.description":
-			"Every chat in this project knows its files exist and reads them when they're needed. What its chats made is listed here too.",
-		"artifacts.bundle.itemsLabel": "{count} items",
-		"artifacts.bundle.itemsLabelOne": "1 item",
-		"artifacts.bundle.footer":
-			"{count} items · removing one here keeps it in your library",
-		"artifacts.bundle.footerOne":
-			"1 item · removing it here keeps it in your library",
+		"artifacts.bundle.items":
+			"{count} {count, plural, one {item} other {items}}",
+		"artifacts.bundle.footerNote": "removing one here keeps it in your library",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1559,18 +1554,12 @@ const artifactsDict = {
 		// A projekt csomagja (5b szelet · T5): a Fájlok ablak a fájlok mellett
 		// felsorolja azt is, amit a projekt beszélgetései készítettek. A sor
 		// megmondja, melyik beszélgetés készítette; az idejét a „Hozzáadva”
-		// oszlop mutatja, ezért nem szerepel kétszer. A számlálók „elem”-et
-		// mondanak, amint van köztük nem fájl.
+		// oszlop mutatja, ezért nem szerepel kétszer. Amint van köztük nem fájl,
+		// a számlálók „elem”-et mondanak, az ablak lábléce pedig ehhez fűzi a
+		// megjegyzést.
 		"artifacts.bundle.fromChat": "„{title}” beszélgetésből",
-		"artifacts.bundle.openA11y": "{name} megnyitása",
-		"artifacts.bundle.description":
-			"A projekt minden csevegése tud a fájlokról, és akkor olvassa el őket, amikor szükség van rájuk. Itt látszik az is, amit a csevegései készítettek.",
-		"artifacts.bundle.itemsLabel": "{count} elem",
-		"artifacts.bundle.itemsLabelOne": "1 elem",
-		"artifacts.bundle.footer":
-			"{count} elem · az eltávolítás nem törli a könyvtárból",
-		"artifacts.bundle.footerOne":
-			"1 elem · az eltávolítás nem törli a könyvtárból",
+		"artifacts.bundle.items": "{count} elem",
+		"artifacts.bundle.footerNote": "az eltávolítás nem törli a könyvtárból",
 	},
 } as const;
 

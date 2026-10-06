@@ -370,7 +370,7 @@ describe("ProjectFilesDialog: what the chats made", () => {
 
 		await rerender({ files: [madeItem()] });
 		expect(footerCount()).toBe(
-			"1 item · removing it here keeps it in your library",
+			"1 item · removing one here keeps it in your library",
 		);
 
 		await rerender({ files: [projectFile()] });
