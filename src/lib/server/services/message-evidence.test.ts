@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ContextDebugState } from "./knowledge/context-types";
+import type { MessageEvidenceSummary } from "./message-evidence";
 import {
 	buildAssistantEvidenceSummary,
 	countProjectFilesRead,
@@ -550,6 +551,238 @@ describe("buildAssistantEvidenceSummary", () => {
 			(item) => item.artifactId === "artifact-library",
 		);
 		expect(libraryItem?.metadata).toBeUndefined();
+	});
+});
+
+// Rulings 6 and 7: what a turn made or changed is evidence of the turn, in one
+// group of its own — never among the documents the turn retrieved, because the
+// thing did not exist before the turn began. The word the reader sees on a row
+// is the kind's own (`artifacts.type.*`), so the item carries its kind in
+// metadata and nothing of its body.
+describe("buildAssistantEvidenceSummary — what the turn made", () => {
+	const weekendPlan = {
+		artifactId: "doc-1",
+		artifactKind: "document",
+		title: "Weekend plan",
+	} as const;
+	const tripBoard = {
+		artifactId: "board-1",
+		artifactKind: "canvas",
+		title: "Trip board",
+	} as const;
+
+	it("puts everything the turn made in one group labelled Made in this chat", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "plan the weekend",
+			taskState: null,
+			turnArtifacts: [weekendPlan, tripBoard],
+		});
+
+		expect(summary?.groups).toHaveLength(1);
+		expect(summary?.groups[0]).toMatchObject({
+			sourceType: "artifact",
+			label: "Made in this chat",
+			reranked: false,
+		});
+		expect(summary?.groups[0].items.map((item) => item.title)).toEqual([
+			"Weekend plan",
+			"Trip board",
+		]);
+		expect(summary?.structuredWebSearch).toBe(false);
+	});
+
+	it("gives each item sourceType artifact and status reference, so the answer is never said to have cited it", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "plan the weekend",
+			taskState: null,
+			turnArtifacts: [weekendPlan],
+		});
+
+		expect(summary?.groups[0].items).toEqual([
+			{
+				id: "doc-1",
+				title: "Weekend plan",
+				sourceType: "artifact",
+				status: "reference",
+				artifactId: "doc-1",
+				description: null,
+				channels: ["tool"],
+				metadata: { artifactKind: "document" },
+			},
+		]);
+	});
+
+	it("carries the kind in metadata and nothing of the body", async () => {
+		const withBody = {
+			...weekendPlan,
+			body: "SECRET BODY: book the museum tickets",
+		};
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "plan the weekend",
+			taskState: null,
+			turnArtifacts: [withBody],
+		});
+
+		expect(JSON.stringify(summary)).not.toContain("SECRET BODY");
+		expect(Object.keys(summary?.groups[0].items[0].metadata ?? {})).toEqual([
+			"artifactKind",
+		]);
+	});
+
+	it("omits the group for a turn that made nothing", async () => {
+		const argsOmitted = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "hello",
+			taskState: null,
+		});
+		const argsEmpty = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "hello",
+			taskState: null,
+			turnArtifacts: [],
+		});
+		expect(argsOmitted).toBeNull();
+		expect(argsEmpty).toBeNull();
+
+		const alongsideOthers = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "hello",
+			taskState: null,
+			contextStatus: {
+				taskStateApplied: true,
+				recentTurnCount: 0,
+				layersUsed: [],
+			} as never,
+			turnArtifacts: [],
+		});
+		expect(
+			alongsideOthers?.groups.some((group) => group.sourceType === "artifact"),
+		).toBe(false);
+	});
+
+	it("keeps a made item out of the document group", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "summarise the notes into a plan",
+			taskState: null,
+			currentAttachments: [
+				{ id: "att-1", name: "notes.pdf", summary: null } as never,
+			],
+			turnArtifacts: [weekendPlan],
+		});
+
+		const documentGroup = summary?.groups.find(
+			(group) => group.sourceType === "document",
+		);
+		expect(documentGroup?.items.map((item) => item.id)).toEqual(["att-1"]);
+		const madeGroup = summary?.groups.find(
+			(group) => group.sourceType === "artifact",
+		);
+		expect(madeGroup?.items.map((item) => item.id)).toEqual(["doc-1"]);
+	});
+
+	it("orders the group after documents and before tool outputs", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "plan the weekend",
+			taskState: null,
+			contextStatus: {
+				taskStateApplied: true,
+				recentTurnCount: 0,
+				layersUsed: [],
+			} as never,
+			currentAttachments: [
+				{ id: "att-1", name: "notes.pdf", summary: null } as never,
+			],
+			toolCalls: [
+				{
+					name: "web_search",
+					input: { query: "museum opening hours" },
+					status: "done",
+					sourceType: "web",
+					candidates: [
+						{
+							id: "w1",
+							title: "Museum hours",
+							url: "https://example.com/museum",
+							sourceType: "web",
+						},
+					],
+				},
+				{
+					name: "read_generated_file",
+					input: { filename: "notes.pdf" },
+					status: "done",
+					sourceType: "tool",
+					outputSummary: "Found notes.pdf",
+				},
+			],
+			turnArtifacts: [weekendPlan],
+		});
+
+		expect(summary?.groups.map((group) => group.sourceType)).toEqual([
+			"web",
+			"document",
+			"artifact",
+			"tool",
+			"memory",
+		]);
+	});
+
+	it("leaves a produced file where it is today: it is a tool output, never re-typed as an item the turn made", async () => {
+		const producedFile: ToolCallEntry = {
+			callId: "call-file",
+			name: "produce_file",
+			input: { filename: "Itinerary.pdf" },
+			status: "done",
+			outputSummary: "Produced Itinerary.pdf",
+			sourceType: "tool",
+			metadata: { ok: true },
+		};
+		const without = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "make me a PDF",
+			taskState: null,
+			toolCalls: [producedFile],
+		});
+		const withNothingMade = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "make me a PDF",
+			taskState: null,
+			toolCalls: [producedFile],
+			turnArtifacts: [],
+		});
+
+		expect(withNothingMade).toEqual(without);
+		expect(without?.groups.map((group) => group.sourceType)).toEqual(["tool"]);
+	});
+
+	it("still reads a stored summary that has no such group", () => {
+		// Evidence is JSON in the message's metadata: every summary written
+		// before this group existed has the older four source types only.
+		const stored: MessageEvidenceSummary = {
+			structuredWebSearch: true,
+			groups: [
+				{
+					sourceType: "web",
+					label: "Web Search",
+					reranked: false,
+					items: [
+						{
+							id: "w1",
+							title: "Museum hours",
+							url: "https://example.com/museum",
+							sourceType: "web",
+							status: "selected",
+						},
+					],
+				},
+			],
+		};
+		expect(JSON.parse(JSON.stringify(stored))).toEqual(stored);
 	});
 });
 

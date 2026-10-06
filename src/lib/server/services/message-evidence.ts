@@ -1,3 +1,4 @@
+import type { ArtifactKind } from "$lib/server/services/artifacts/types";
 import type {
 	ContextDebugState,
 	ConversationContextStatus,
@@ -13,9 +14,13 @@ import { getArtifactsForUser } from "./knowledge";
 import { canUseTeiReranker, rerankItems } from "./tei-reranker";
 import { canonicalizeGroundedWebUrl } from "./web-grounding";
 
+// The data-model labels a group is keyed by. The panel does not print them (it
+// groups by citation status and names a row by its own type word); what a person
+// reads for the "artifact" group is `artifacts.evidence.madeInThisChat`.
 const GROUP_LABELS: Record<EvidenceSourceType, string> = {
 	web: "Web Search",
 	document: "Retrieved Documents",
+	artifact: "Made in this chat",
 	memory: "Memory",
 	tool: "Tool Outputs",
 };
@@ -23,8 +28,9 @@ const GROUP_LABELS: Record<EvidenceSourceType, string> = {
 const GROUP_ORDER: Record<EvidenceSourceType, number> = {
 	web: 0,
 	document: 1,
-	tool: 2,
-	memory: 3,
+	artifact: 2,
+	tool: 3,
+	memory: 4,
 };
 
 const MAX_SELECTED_MEMORY_TOOL_CANDIDATES = 3;
@@ -698,6 +704,44 @@ async function buildRerankedToolGroup(params: {
 	};
 }
 
+/**
+ * An item a turn made or changed, as the evidence names it: which item, which
+ * kind (the row's own word, `artifacts.type.*`) and what it was called. Never
+ * the body — the row opens the item, it does not carry it.
+ */
+export interface TurnArtifactRef {
+	artifactId: string;
+	artifactKind: ArtifactKind;
+	title: string;
+}
+
+/**
+ * The turn's "Made in this chat" group: one group, only when the turn made or
+ * changed something. Its items are `reference` rows, which is what keeps the
+ * panel from saying the answer cited a thing the turn itself made; a row's kind
+ * rides in metadata, where the panel reads the word and icon it draws.
+ */
+function buildTurnArtifactsGroup(
+	turnArtifacts: readonly TurnArtifactRef[] | undefined,
+): MessageEvidenceGroup | null {
+	if (!turnArtifacts || turnArtifacts.length === 0) return null;
+	return {
+		sourceType: "artifact",
+		label: GROUP_LABELS.artifact,
+		reranked: false,
+		items: turnArtifacts.map((made) => ({
+			id: made.artifactId,
+			title: made.title,
+			sourceType: "artifact" as const,
+			status: "reference" as const,
+			artifactId: made.artifactId,
+			description: null,
+			channels: ["tool" as const],
+			metadata: { artifactKind: made.artifactKind },
+		})),
+	};
+}
+
 export async function buildAssistantEvidenceSummary(params: {
 	userId?: string;
 	message: string;
@@ -717,6 +761,10 @@ export async function buildAssistantEvidenceSummary(params: {
 	// Sources token) and to count them (the Info popover's row); a turn outside
 	// a project is unchanged.
 	projectFiles?: ProjectFilesEvidenceContext | null;
+	// What this turn made or changed, derived from its own finished
+	// create_artifact / edit_artifact calls (finalize-steps.ts). Becomes the
+	// turn's one "Made in this chat" group; nothing is read to build it.
+	turnArtifacts?: readonly TurnArtifactRef[];
 }): Promise<MessageEvidenceSummary | null> {
 	const toolCalls = params.toolCalls ?? [];
 	const completedToolCalls = toolCalls.filter((tool) => tool.status === "done");
@@ -727,6 +775,7 @@ export async function buildAssistantEvidenceSummary(params: {
 			currentAttachments: params.currentAttachments,
 			projectFiles: params.projectFiles,
 		})),
+		buildTurnArtifactsGroup(params.turnArtifacts),
 		buildMemoryGroup({
 			contextStatus: params.contextStatus,
 			contextTraceSections: params.contextTraceSections,
@@ -768,7 +817,12 @@ export async function buildAssistantEvidenceSummary(params: {
 // (architecture-deepening T1); these types carry no behavior change, only
 // a new home next to the message-evidence service that owns them.
 
-export type EvidenceSourceType = "web" | "document" | "memory" | "tool";
+export type EvidenceSourceType =
+	| "web"
+	| "document"
+	| "artifact"
+	| "memory"
+	| "tool";
 
 /**
  * Workspaces Slice E — the conversation's project, for evidence purposes: the
