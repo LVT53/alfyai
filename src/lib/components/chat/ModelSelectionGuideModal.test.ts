@@ -1,6 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelProvider } from "$lib/client/api/models";
+import {
+	deregisterDialog,
+	hasOpenDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
 import { uiLanguage } from "$lib/stores/settings";
 import ModelSelectionGuideModal from "./ModelSelectionGuideModal.svelte";
 
@@ -124,6 +129,189 @@ describe("ModelSelectionGuideModal", () => {
 		const backdrop = document.body.querySelector(".model-guide-backdrop");
 		expect(backdrop).toBeTruthy();
 		await fireEvent.mouseDown(backdrop as HTMLElement);
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The guide as a modal dialog. It is opened from the "+" menu's Model row and
+// from the phone picker, so it has to take the keyboard, hand it back, and
+// leave the layers under it alone.
+// ---------------------------------------------------------------------------
+
+// Presses a key the way the browser delivers it to whatever holds focus, and
+// hands back the event so a test can ask whether its default was cancelled.
+function pressKey(key: string, options: { shiftKey?: boolean } = {}) {
+	const event = new KeyboardEvent("keydown", {
+		key,
+		shiftKey: options.shiftKey ?? false,
+		bubbles: true,
+		cancelable: true,
+	});
+	(document.activeElement ?? document.body).dispatchEvent(event);
+	return event;
+}
+
+function renderGuide(onClose = vi.fn()) {
+	uiLanguage.set("en");
+	const view = render(ModelSelectionGuideModal, {
+		providers: providers(),
+		onClose,
+	});
+	return { ...view, onClose };
+}
+
+describe("ModelSelectionGuideModal where it lives", () => {
+	afterEach(() => {
+		document.body.innerHTML = "";
+	});
+
+	it("moves its backdrop to the body, so its fixed position means the viewport, and takes it away again", () => {
+		const host = document.createElement("div");
+		document.body.append(host);
+		const { unmount } = render(
+			ModelSelectionGuideModal,
+			{ providers: providers(), onClose: vi.fn() },
+			{ target: host },
+		);
+
+		const backdrop = document.querySelector(".model-guide-backdrop");
+		expect(backdrop?.parentElement).toBe(document.body);
+
+		unmount();
+
+		expect(document.querySelector(".model-guide-backdrop")).toBeNull();
+	});
+
+	it("closes on Escape", () => {
+		const { onClose } = renderGuide();
+
+		pressKey("Escape");
+
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("ModelSelectionGuideModal as a modal dialog", () => {
+	afterEach(() => {
+		document.body.innerHTML = "";
+	});
+
+	it("takes focus on the dialog itself when it opens", async () => {
+		renderGuide();
+
+		await waitFor(() =>
+			expect(screen.getByRole("dialog", { name: "Model guide" })).toHaveFocus(),
+		);
+	});
+
+	it("wraps Tab from the last control to the first, and Shift+Tab back", async () => {
+		renderGuide();
+		const dialog = screen.getByRole("dialog", { name: "Model guide" });
+		await waitFor(() => expect(dialog).toHaveFocus());
+		const close = screen.getByRole("button", { name: "Close" });
+		const policy = screen.getByRole("link", {
+			name: "Provider privacy policy",
+		});
+
+		policy.focus();
+		const forward = pressKey("Tab");
+		expect(forward.defaultPrevented).toBe(true);
+		expect(close).toHaveFocus();
+
+		const backward = pressKey("Tab", { shiftKey: true });
+		expect(backward.defaultPrevented).toBe(true);
+		expect(policy).toHaveFocus();
+	});
+
+	it("wraps Shift+Tab pressed on the dialog itself, where focus starts, to the last control", async () => {
+		renderGuide();
+		const dialog = screen.getByRole("dialog", { name: "Model guide" });
+		await waitFor(() => expect(dialog).toHaveFocus());
+
+		const event = pressKey("Tab", { shiftKey: true });
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(
+			screen.getByRole("link", { name: "Provider privacy policy" }),
+		).toHaveFocus();
+	});
+
+	it("pulls focus that has left the dialog back to its first control", async () => {
+		renderGuide();
+		await waitFor(() =>
+			expect(screen.getByRole("dialog", { name: "Model guide" })).toHaveFocus(),
+		);
+		const outside = document.createElement("button");
+		document.body.append(outside);
+		outside.focus();
+
+		const event = pressKey("Tab");
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+	});
+
+	it("cancels the Escape key it closes on", () => {
+		const { onClose } = renderGuide();
+
+		const event = pressKey("Escape");
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it("gives focus back to whatever had it when it opened, without scrolling the page", async () => {
+		const opener = document.createElement("button");
+		document.body.append(opener);
+		opener.focus();
+		const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+
+		const { unmount } = renderGuide();
+		await waitFor(() =>
+			expect(screen.getByRole("dialog", { name: "Model guide" })).toHaveFocus(),
+		);
+		expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+
+		unmount();
+
+		expect(opener).toHaveFocus();
+		expect(focusSpy).toHaveBeenLastCalledWith({ preventScroll: true });
+		focusSpy.mockRestore();
+	});
+
+	it("sits on the open-dialog stack while it is mounted", () => {
+		expect(hasOpenDialog()).toBe(false);
+		const { unmount } = renderGuide();
+		expect(hasOpenDialog()).toBe(true);
+
+		unmount();
+
+		expect(hasOpenDialog()).toBe(false);
+	});
+
+	it("leaves Escape and Tab to a dialog opened on top of it, and answers again once that dialog closes", async () => {
+		const { onClose } = renderGuide();
+		await waitFor(() =>
+			expect(screen.getByRole("dialog", { name: "Model guide" })).toHaveFocus(),
+		);
+		const policy = screen.getByRole("link", {
+			name: "Provider privacy policy",
+		});
+		policy.focus();
+		const topmost = Symbol("dialog-on-top");
+
+		registerDialog(topmost);
+		try {
+			expect(pressKey("Escape").defaultPrevented).toBe(false);
+			expect(pressKey("Tab").defaultPrevented).toBe(false);
+			expect(onClose).not.toHaveBeenCalled();
+			expect(policy).toHaveFocus();
+		} finally {
+			deregisterDialog(topmost);
+		}
+
+		pressKey("Escape");
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 });

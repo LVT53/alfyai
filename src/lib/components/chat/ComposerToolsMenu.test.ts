@@ -429,3 +429,48 @@ describe("ComposerToolsMenu conversation rows", () => {
 		expect(menu.contains(screen.getByTestId("composer-menu-style"))).toBe(true);
 	});
 });
+
+// The model guide opens above the menu from the Model row's "?". Both listen
+// for Escape on the window, so one press used to close the guide AND the menu
+// it was opened from — and take the "?" the guide hands focus back to with it.
+describe("ComposerToolsMenu with the model guide open above it", () => {
+	function pressEscape() {
+		const event = new KeyboardEvent("keydown", {
+			key: "Escape",
+			bubbles: true,
+			cancelable: true,
+		});
+		(document.activeElement ?? document.body).dispatchEvent(event);
+		return event;
+	}
+
+	it("leaves the first Escape to the guide, and closes itself on the next one", async () => {
+		stubPhone(false);
+		const props = baseProps({
+			triggerElement: stubTrigger(),
+			personalityProfiles: [
+				{ id: "p1", name: "Concise", description: "Short answers" },
+			],
+			onPersonalityChange: vi.fn(),
+		});
+		render(ComposerToolsMenu, props);
+		const guideButton = await screen.findByRole("button", {
+			name: "Open model guide",
+		});
+		await waitFor(() => expect(guideButton).toBeEnabled());
+		await fireEvent.click(guideButton);
+		await screen.findByRole("dialog", { name: "Model guide" });
+
+		pressEscape();
+
+		await waitFor(() =>
+			expect(screen.queryByRole("dialog", { name: "Model guide" })).toBeNull(),
+		);
+		expect(props.onClose).not.toHaveBeenCalled();
+		expect(screen.getByTestId("composer-tools-menu")).toBeInTheDocument();
+
+		pressEscape();
+
+		expect(props.onClose).toHaveBeenCalledTimes(1);
+	});
+});
