@@ -26,6 +26,11 @@ type WorkspaceRenderOptions = {
 	activeDocumentId?: string | null;
 	conversationId?: string | null;
 	incognito?: boolean;
+	currentUser?: {
+		id: string;
+		displayName: string;
+		profilePicture: string | null;
+	} | null;
 	list?: WorkspaceList;
 	onSelectDocument?: SelectDocumentCallback;
 	onOpenDocument?: OpenDocumentCallback;
