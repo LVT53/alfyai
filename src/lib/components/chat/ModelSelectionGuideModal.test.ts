@@ -169,11 +169,10 @@ describe("ModelSelectionGuideModal where it lives", () => {
 	it("moves its backdrop to the body, so its fixed position means the viewport, and takes it away again", () => {
 		const host = document.createElement("div");
 		document.body.append(host);
-		const { unmount } = render(
-			ModelSelectionGuideModal,
-			{ providers: providers(), onClose: vi.fn() },
-			{ target: host },
-		);
+		const { unmount } = render(ModelSelectionGuideModal, {
+			props: { providers: providers(), onClose: vi.fn() },
+			target: host,
+		});
 
 		const backdrop = document.querySelector(".model-guide-backdrop");
 		expect(backdrop?.parentElement).toBe(document.body);
