@@ -7,6 +7,7 @@ import {
 	registerDialog,
 } from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import { focusTrap } from "$lib/utils/focus-trap";
 import type {
 	Provider,
 	ProviderModel,
@@ -33,19 +34,31 @@ type ProviderModelUpdateWithAliases = ProviderModelUpdate & {
 
 // The icon crop opens above this form, and a window-level Escape handler can
 // not tell which of the two the key was meant for. The shared open-dialog stack
-// can: this form joins it, and only the topmost layer answers Escape.
+// can: this form joins it, and only the topmost layer answers Escape and Tab.
 const dialogId = Symbol("model-form");
+let dialogRef = $state<HTMLDivElement | null>(null);
 
 $effect(() => {
 	registerDialog(dialogId);
 	return () => deregisterDialog(dialogId);
 });
 
-function handleKeydown(e: KeyboardEvent) {
-	if (e.key === "Escape" && isTopmostDialog(dialogId)) {
+// Tab/Shift+Tab wrapping, the pull-back of stray focus and the topmost-only gate
+// are the shared utility's (src/lib/utils/focus-trap.ts). What belongs to this
+// dialog: Escape closes it, the dialog itself (not a field) takes the first
+// focus on a long form, and neither that focus nor its return to the button
+// that opened it may scroll the page behind it, nor the group the "Price
+// windows" button has just scrolled into view.
+const formFocusTrap = focusTrap({
+	isTopmost: () => isTopmostDialog(dialogId),
+	onEscape: (event) => {
+		event.preventDefault();
 		onClose?.();
-	}
-}
+	},
+	focus: { target: () => dialogRef },
+	restoreFocusOnCleanup: true,
+	preventScroll: true,
+});
 
 let {
 	providerId,
@@ -516,9 +529,15 @@ async function handleSavePriceWindows() {
 }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-label={isCreate ? $t('admin.addModel') : $t('admin.editModel')}>
+<div
+	bind:this={dialogRef}
+	{@attach formFocusTrap}
+	class="modal-overlay"
+	role="dialog"
+	aria-modal="true"
+	aria-label={isCreate ? $t('admin.addModel') : $t('admin.editModel')}
+	tabindex="-1"
+>
 	<div class="modal-card">
 		<div class="modal-header">
 			<h2 class="modal-title">{isCreate ? $t('admin.addModel') : $t('admin.editModel')}</h2>
@@ -1069,6 +1088,11 @@ async function handleSavePriceWindows() {
 		justify-content: center;
 		background: rgba(0, 0, 0, 0.45);
 		backdrop-filter: blur(4px);
+	}
+	/* The dialog takes the first focus itself; a ring around the whole window
+	   would say nothing, and the controls inside carry their own. */
+	.modal-overlay:focus {
+		outline: none;
 	}
 	.modal-card {
 		background: var(--surface-overlay);

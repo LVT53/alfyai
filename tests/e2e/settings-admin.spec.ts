@@ -413,6 +413,38 @@ test.describe("Admin model form dialog", () => {
 		await page.keyboard.press("Escape");
 		await expect(form).toBeHidden();
 	});
+
+	test("takes focus, keeps Tab and Shift+Tab inside, and gives focus back to the button that opened it", async ({
+		page,
+	}) => {
+		const edit = page.getByRole("button", { name: `Edit ${modelName}` });
+		await edit.focus();
+		await page.keyboard.press("Enter");
+		const form = page.getByRole("dialog", { name: "Edit Model" });
+		await expect(form).toBeVisible();
+		await expect(form).toBeFocused();
+
+		const close = form.getByRole("button", { name: "Close" });
+		const cancel = form.getByRole("button", { name: "Cancel" });
+
+		// Shift+Tab from the dialog itself wraps to its last control, Tab from
+		// the last wraps to the first, and Tab from there moves on inside.
+		await page.keyboard.press("Shift+Tab");
+		await expect(cancel).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(close).toBeFocused();
+		await page.keyboard.press("Shift+Tab");
+		await expect(cancel).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(close).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(form.locator(":focus")).toHaveCount(1);
+		await expect(close).not.toBeFocused();
+
+		await page.keyboard.press("Escape");
+		await expect(form).toBeHidden();
+		await expect(edit).toBeFocused();
+	});
 });
 
 // Phone-width guard for the same `.sys-grow` fix. With `.sys-grow` a real

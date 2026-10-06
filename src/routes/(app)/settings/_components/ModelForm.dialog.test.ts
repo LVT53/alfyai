@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	deregisterDialog,
 	hasOpenDialog,
@@ -121,5 +121,105 @@ describe("ModelForm among other dialogs", () => {
 
 		pressKey("Escape");
 		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("ModelForm as a modal dialog", () => {
+	afterEach(() => {
+		document.body.innerHTML = "";
+	});
+
+	const dialog = () => screen.getByRole("dialog", { name: "Edit Model" });
+
+	it("takes focus on the dialog itself when it opens", async () => {
+		renderForm();
+
+		await waitFor(() => expect(dialog()).toHaveFocus());
+	});
+
+	it("wraps Tab from the last control to the first, and Shift+Tab back", async () => {
+		renderForm();
+		await waitFor(() => expect(dialog()).toHaveFocus());
+		const close = screen.getByRole("button", { name: "Close" });
+		const cancel = screen.getByRole("button", { name: "Cancel" });
+
+		cancel.focus();
+		const forward = pressKey("Tab");
+		expect(forward.defaultPrevented).toBe(true);
+		expect(close).toHaveFocus();
+
+		const backward = pressKey("Tab", { shiftKey: true });
+		expect(backward.defaultPrevented).toBe(true);
+		expect(cancel).toHaveFocus();
+	});
+
+	it("wraps Shift+Tab pressed on the dialog itself, where focus starts, to the last control", async () => {
+		renderForm();
+		await waitFor(() => expect(dialog()).toHaveFocus());
+
+		const event = pressKey("Tab", { shiftKey: true });
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+	});
+
+	it("pulls focus that has left the dialog back to its first control", async () => {
+		renderForm();
+		await waitFor(() => expect(dialog()).toHaveFocus());
+		const outside = document.createElement("button");
+		document.body.append(outside);
+		outside.focus();
+
+		const event = pressKey("Tab");
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+	});
+
+	it("cancels the Escape key it closes on", () => {
+		const onClose = renderForm();
+
+		const event = pressKey("Escape");
+
+		expect(event.defaultPrevented).toBe(true);
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it("gives focus back to whatever had it when it opened, without scrolling the page behind", async () => {
+		const opener = document.createElement("button");
+		document.body.append(opener);
+		opener.focus();
+		const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+
+		const { unmount } = render(ModelForm, {
+			providerId: "provider-1",
+			model: modelFixture(),
+			onClose: vi.fn(),
+		});
+		await waitFor(() => expect(dialog()).toHaveFocus());
+		expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+
+		unmount();
+
+		expect(opener).toHaveFocus();
+		expect(focusSpy).toHaveBeenLastCalledWith({ preventScroll: true });
+		focusSpy.mockRestore();
+	});
+
+	it("leaves Tab to a dialog opened on top of it", async () => {
+		renderForm();
+		await waitFor(() => expect(dialog()).toHaveFocus());
+		const cancel = screen.getByRole("button", { name: "Cancel" });
+		cancel.focus();
+		const topmost = Symbol("dialog-on-top");
+
+		registerDialog(topmost);
+		try {
+			const event = pressKey("Tab");
+			expect(event.defaultPrevented).toBe(false);
+			expect(cancel).toHaveFocus();
+		} finally {
+			deregisterDialog(topmost);
+		}
 	});
 });
