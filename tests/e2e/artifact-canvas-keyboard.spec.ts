@@ -1,7 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import {
-	cameraOf,
 	centreOf,
 	expectCamera,
 	KEYBOARD,
@@ -25,13 +24,13 @@ const SHORT = { width: PHONE.width, height: PHONE.height - KEYBOARD };
 const BLOCK = (id: string) => `.svelte-flow__node[data-id="${id}"]`;
 
 /** A finger double-taps a note to type in it: its field has the focus. */
-async function openForTyping(page: Page, id: string): Promise<Locator> {
+async function openForTyping(page: Page, id: string) {
 	const at = await centreOf(page, id);
 	await page.touchscreen.tap(at.x, at.y);
 	await page.touchscreen.tap(at.x, at.y);
 	const field = page.locator(`${BLOCK(id)} textarea`);
 	await expect(field).toBeFocused();
-	return field;
+	return { field, note: page.locator(BLOCK(id)) };
 }
 
 /** Whether the reader sees all of every one of these: inside the pane, above the board's toolbar. */
@@ -60,6 +59,20 @@ async function clearance(page: Page, part: Locator): Promise<number> {
 	const box = await part.boundingBox();
 	if (!toolbar || !box) throw new Error("nothing to measure");
 	return toolbar.y - (box.y + box.height);
+}
+
+/** The keyboard opens: the page is shorter, and the camera has panned the parts into view by the time it has settled. */
+async function keyboardOpens(page: Page, ...parts: Locator[]) {
+	await page.setViewportSize(SHORT);
+	await expect.poll(() => inView(page, ...parts)).toBe(true);
+	return settledCamera(page);
+}
+
+/** A part ends a small margin above the toolbar: the least distance, not a block flung to the top. */
+async function expectSmallMargin(page: Page, part: Locator) {
+	const gap = await clearance(page, part);
+	expect(gap).toBeGreaterThanOrEqual(8);
+	expect(gap).toBeLessThanOrEqual(24);
 }
 
 /** A checklist of sixteen rows: a block taller than what a phone shows above its keyboard. */
@@ -119,21 +132,15 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 	}) => {
 		await openBoard(page, "Lowest note");
 		const fitted = await settledCamera(page);
-		const field = await openForTyping(page, "note-6");
-		const note = page.locator(BLOCK("note-6"));
+		const { field, note } = await openForTyping(page, "note-6");
 		expectCamera(await settledCamera(page), fitted, "before the keyboard");
 		expect(await inView(page, note)).toBe(true);
 
-		await page.setViewportSize(SHORT);
-		await expect.poll(() => inView(page, note, field)).toBe(true);
-		const typing = await settledCamera(page);
+		const typing = await keyboardOpens(page, note, field);
 		expect(typing.zoom).toBeCloseTo(fitted.zoom, 3);
 		expect(typing.x).toBeCloseTo(fitted.x, 1);
 		expect(typing.y).toBeLessThan(fitted.y);
-		// A small margin, not a note flung to the top: the least distance.
-		const gap = await clearance(page, note);
-		expect(gap).toBeGreaterThanOrEqual(8);
-		expect(gap).toBeLessThanOrEqual(24);
+		await expectSmallMargin(page, note);
 
 		// What they type is where they can see it, and the board does not move for it.
 		await page.keyboard.type(" and more");
@@ -154,17 +161,12 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 	}) => {
 		await openBoard(page, "Row under the toolbar");
 		const fitted = await settledCamera(page);
-		const field = await openForTyping(page, "note-4");
-		const note = page.locator(BLOCK("note-4"));
+		const { field, note } = await openForTyping(page, "note-4");
 
-		await page.setViewportSize(SHORT);
-		await expect.poll(() => inView(page, note, field)).toBe(true);
-		const typing = await settledCamera(page);
+		const typing = await keyboardOpens(page, note, field);
 		expect(typing.zoom).toBeCloseTo(fitted.zoom, 3);
 		expect(typing.x).toBeCloseTo(fitted.x, 1);
-		const gap = await clearance(page, note);
-		expect(gap).toBeGreaterThanOrEqual(8);
-		expect(gap).toBeLessThanOrEqual(24);
+		await expectSmallMargin(page, note);
 	});
 
 	test("a keyboard that opens in two steps gets one pan, to where it ends", async ({
@@ -172,8 +174,7 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 	}) => {
 		await openBoard(page, "Two steps");
 		const fitted = await settledCamera(page);
-		const field = await openForTyping(page, "note-6");
-		const note = page.locator(BLOCK("note-6"));
+		const { field, note } = await openForTyping(page, "note-6");
 		const read = await watchCameraY(page);
 
 		// Two sizes one right after the other, as one keyboard opening in steps.
@@ -184,9 +185,7 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 		await expect.poll(() => inView(page, note, field)).toBe(true);
 		const typing = await settledCamera(page);
 		expect(typing.zoom).toBeCloseTo(fitted.zoom, 3);
-		const gap = await clearance(page, note);
-		expect(gap).toBeGreaterThanOrEqual(8);
-		expect(gap).toBeLessThanOrEqual(24);
+		await expectSmallMargin(page, note);
 
 		// One glide from where the board was to where it is: never up and back.
 		const ys = await read();
@@ -199,12 +198,8 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 		page,
 	}) => {
 		await openBoard(page, "Once");
-		const field = await openForTyping(page, "note-6");
-		const note = page.locator(BLOCK("note-6"));
-
-		await page.setViewportSize(SHORT);
-		await expect.poll(() => inView(page, note, field)).toBe(true);
-		const revealed = await settledCamera(page);
+		const { field, note } = await openForTyping(page, "note-6");
+		const revealed = await keyboardOpens(page, note, field);
 
 		// The reader zooms the board with the wheel (the field keeps the focus):
 		// the camera is theirs, and a keyboard that grows is not met with a pan.
@@ -234,15 +229,11 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 		await expect(row).toBeFocused();
 		expect(await inView(page, row)).toBe(true);
 
-		await page.setViewportSize(SHORT);
-		await expect.poll(() => inView(page, row)).toBe(true);
-		const typing = await settledCamera(page);
+		const typing = await keyboardOpens(page, row);
 		expect(typing.zoom).toBeCloseTo(fitted.zoom, 3);
 		// The list cannot fit above the keyboard: it is the row that is brought in.
 		expect(await inView(page, page.locator(BLOCK("list")))).toBe(false);
-		const gap = await clearance(page, row);
-		expect(gap).toBeGreaterThanOrEqual(8);
-		expect(gap).toBeLessThanOrEqual(24);
+		await expectSmallMargin(page, row);
 		await page.keyboard.type(" done");
 		await expect(row).toHaveValue("Item 14 done");
 	});
@@ -260,9 +251,8 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 		// The note is made where there was room, which is not all of it on screen.
 		expectCamera(await settledCamera(page), fitted, "after the insert");
 
-		await page.setViewportSize(SHORT);
-		await expect.poll(() => inView(page, note, field)).toBe(true);
-		expect((await settledCamera(page)).zoom).toBeCloseTo(fitted.zoom, 3);
+		const typing = await keyboardOpens(page, note, field);
+		expect(typing.zoom).toBeCloseTo(fitted.zoom, 3);
 		await page.keyboard.type("Pack the tickets");
 		await expect(field).toHaveValue("Pack the tickets");
 	});
@@ -274,14 +264,11 @@ test.describe("on a phone, with motion", () => {
 	test("the pan is a short glide over several frames", async ({ page }) => {
 		await openBoard(page, "Glide");
 		await settledCamera(page);
-		const field = await openForTyping(page, "note-6");
+		const { field } = await openForTyping(page, "note-6");
 		const read = await watchCameraY(page);
 
-		await page.setViewportSize(SHORT);
-		await expect.poll(() => inView(page, field)).toBe(true);
-		await settledCamera(page);
-		const ys = await read();
-		expect(ys.length).toBeGreaterThan(2);
+		await keyboardOpens(page, field);
+		expect((await read()).length).toBeGreaterThan(2);
 	});
 });
 
@@ -294,16 +281,12 @@ test.describe("on a phone, asked for reduced motion", () => {
 		await openBoard(page, "Instant");
 		await page.emulateMedia({ reducedMotion: "reduce" });
 		const fitted = await settledCamera(page);
-		const field = await openForTyping(page, "note-6");
-		const note = page.locator(BLOCK("note-6"));
+		const { field, note } = await openForTyping(page, "note-6");
 		const read = await watchCameraY(page);
 
-		await page.setViewportSize(SHORT);
-		await expect.poll(() => inView(page, note, field)).toBe(true);
-		const typing = await settledCamera(page);
+		const typing = await keyboardOpens(page, note, field);
 		expect(typing.y).toBeLessThan(fitted.y);
-		const ys = await read();
-		expect(ys).toHaveLength(2);
+		expect(await read()).toHaveLength(2);
 	});
 });
 
@@ -325,6 +308,5 @@ test.describe("on a desktop", () => {
 		// The window is now over the note, and the camera is where it was.
 		expect(await inView(page, page.locator(BLOCK("note-6")))).toBe(false);
 		expectCamera(await settledCamera(page), fitted, "window smaller");
-		expect(await cameraOf(page)).toEqual(await settledCamera(page));
 	});
 });

@@ -184,9 +184,8 @@ describe("watchKeyboardReveal", () => {
 	let field: HTMLTextAreaElement;
 	let outside: HTMLTextAreaElement;
 	let toolbar: HTMLElement;
-	let flow: RevealFlow & {
-		setViewport: ReturnType<typeof vi.fn>;
-	};
+	let flow: RevealFlow;
+	let setViewport: ReturnType<typeof vi.fn>;
 	let paneRect: ScreenRect;
 	let blockRect: ScreenRect;
 	let fieldRect: ScreenRect;
@@ -255,10 +254,8 @@ describe("watchKeyboardReveal", () => {
 		place(block, () => blockRect);
 		place(field, () => fieldRect);
 		place(toolbar, () => toolbarRect);
-		flow = {
-			getViewport: () => ({ x: 10, y: 50, zoom: 0.74 }),
-			setViewport: vi.fn(),
-		};
+		setViewport = vi.fn();
+		flow = { getViewport: () => ({ x: 10, y: 50, zoom: 0.74 }), setViewport };
 		view = null;
 		vi.stubGlobal(
 			"ResizeObserver",
@@ -288,11 +285,11 @@ describe("watchKeyboardReveal", () => {
 	it("pans a block the keyboard covers into view, by the least distance, with the zoom it has", () => {
 		focusIn(field);
 		vi.advanceTimersByTime(REVEAL_SETTLE_MS + 1);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 
 		paneIs(508);
-		expect(flow.setViewport).toHaveBeenCalledTimes(1);
-		const [camera, options] = flow.setViewport.mock.calls[0];
+		expect(setViewport).toHaveBeenCalledTimes(1);
+		const [camera, options] = setViewport.mock.calls[0];
 		// The toolbar's top is 452: the block's bottom goes to 452 - margin.
 		expect(camera).toEqual({
 			x: 10,
@@ -308,7 +305,7 @@ describe("watchKeyboardReveal", () => {
 		toolbarRect = rect(10, 452, 380, 496);
 		focusIn(field);
 		vi.advanceTimersByTime(REVEAL_SETTLE_MS * 3);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 	});
 
 	it("waits for the keyboard before panning a block that was out of view when it took the focus", () => {
@@ -317,11 +314,11 @@ describe("watchKeyboardReveal", () => {
 		fieldRect = rect(-140, 446, -4, 481);
 		focusIn(field);
 		vi.advanceTimersByTime(REVEAL_SETTLE_MS * 3);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 
 		paneIs(508);
-		expect(flow.setViewport).toHaveBeenCalledTimes(1);
-		const [camera] = flow.setViewport.mock.calls[0];
+		expect(setViewport).toHaveBeenCalledTimes(1);
+		const [camera] = setViewport.mock.calls[0];
 		expect(camera.x).toBe(10 + (REVEAL_MARGIN + 146));
 		expect(camera.y).toBe(50 + (452 - REVEAL_MARGIN - 487));
 	});
@@ -331,7 +328,7 @@ describe("watchKeyboardReveal", () => {
 		fieldRect = rect(205, 205, 345, 245);
 		focusIn(field);
 		paneIs(508);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 	});
 
 	it("waits for a keyboard that opens in steps and pans once, to where it ends", () => {
@@ -344,10 +341,10 @@ describe("watchKeyboardReveal", () => {
 		toolbarRect = rect(10, 452, 380, 496);
 		resized();
 		vi.advanceTimersByTime(REVEAL_SETTLE_MS / 2);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 		vi.advanceTimersByTime(REVEAL_SETTLE_MS);
-		expect(flow.setViewport).toHaveBeenCalledTimes(1);
-		expect(flow.setViewport.mock.calls[0][0].y).toBe(
+		expect(setViewport).toHaveBeenCalledTimes(1);
+		expect(setViewport.mock.calls[0][0].y).toBe(
 			50 + (452 - REVEAL_MARGIN - 650),
 		);
 	});
@@ -355,45 +352,45 @@ describe("watchKeyboardReveal", () => {
 	it("pans once per focus: a taller keyboard after it is left alone", () => {
 		focusIn(field);
 		paneIs(508);
-		expect(flow.setViewport).toHaveBeenCalledTimes(1);
+		expect(setViewport).toHaveBeenCalledTimes(1);
 		blockRect = rect(200, 380, 350, 430);
 		paneIs(420);
-		expect(flow.setViewport).toHaveBeenCalledTimes(1);
+		expect(setViewport).toHaveBeenCalledTimes(1);
 	});
 
 	it("takes the next opening of the keyboard on the same field as a new one", () => {
 		focusIn(field);
 		paneIs(508);
-		expect(flow.setViewport).toHaveBeenCalledTimes(1);
+		expect(setViewport).toHaveBeenCalledTimes(1);
 		paneIs(844);
-		expect(flow.setViewport).toHaveBeenCalledTimes(1);
+		expect(setViewport).toHaveBeenCalledTimes(1);
 		blockRect = rect(200, 600, 350, 650);
 		paneIs(508);
-		expect(flow.setViewport).toHaveBeenCalledTimes(2);
+		expect(setViewport).toHaveBeenCalledTimes(2);
 	});
 
 	it("does not pan when the keyboard closes", () => {
 		focusIn(field);
 		paneIs(508);
-		flow.setViewport.mockClear();
+		setViewport.mockClear();
 		paneIs(844);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 	});
 
 	it("stops watching a field that has lost the focus", () => {
 		focusIn(field);
 		focusOut(field);
 		paneIs(508);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 	});
 
 	it("takes a field that is not in a block, or is not a text field, for none of its business", () => {
 		focusIn(outside);
 		paneIs(508);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 		focusIn(block);
 		paneIs(509);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 	});
 
 	it("moves with no glide when the reader asked for reduced motion", () => {
@@ -404,7 +401,7 @@ describe("watchKeyboardReveal", () => {
 		);
 		focusIn(field);
 		paneIs(508);
-		expect(flow.setViewport.mock.calls[0][1]).toEqual({ duration: 0 });
+		expect(setViewport.mock.calls[0][1]).toEqual({ duration: 0 });
 	});
 
 	it("reads a focus that was there before it was watching", () => {
@@ -412,7 +409,7 @@ describe("watchKeyboardReveal", () => {
 		field.focus();
 		stop = watchKeyboardReveal(root, flow, isField);
 		paneIs(508);
-		expect(flow.setViewport).toHaveBeenCalledTimes(1);
+		expect(setViewport).toHaveBeenCalledTimes(1);
 	});
 
 	it("looks at the visual viewport too, which an overlaid keyboard shrinks and the page does not", () => {
@@ -426,14 +423,14 @@ describe("watchKeyboardReveal", () => {
 		stop = watchKeyboardReveal(root, flow, isField);
 		focusIn(field);
 		vi.advanceTimersByTime(REVEAL_SETTLE_MS + 1);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 
 		view.height = 408;
 		view.dispatchEvent(new Event("resize"));
 		vi.advanceTimersByTime(REVEAL_SETTLE_MS + 1);
-		expect(flow.setViewport).toHaveBeenCalledTimes(1);
+		expect(setViewport).toHaveBeenCalledTimes(1);
 		// The room ends at 408; the bar is under the keyboard, so the block's foot goes to 408 - margin.
-		expect(flow.setViewport.mock.calls[0][0].y).toBe(
+		expect(setViewport.mock.calls[0][0].y).toBe(
 			50 + (408 - REVEAL_MARGIN - 650),
 		);
 	});
@@ -442,6 +439,6 @@ describe("watchKeyboardReveal", () => {
 		stop();
 		focusIn(field);
 		paneIs(508);
-		expect(flow.setViewport).not.toHaveBeenCalled();
+		expect(setViewport).not.toHaveBeenCalled();
 	});
 });
