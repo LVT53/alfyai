@@ -895,6 +895,10 @@ const artifactsDict = {
 		"artifacts.bundle.items":
 			"{count} {count, plural, one {item} other {items}}",
 		"artifacts.bundle.footerNote": "removing one here keeps it in your library",
+		// The message's Sources panel (Slice 5b · T4): what the turn made or
+		// changed, under its own heading beside what it found. Each row is named
+		// by its kind through artifacts.type.*, never by this string.
+		"artifacts.evidence.madeInThisChat": "Made in this chat",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1597,6 +1601,10 @@ const artifactsDict = {
 		"artifacts.bundle.fromChat": "„{title}” beszélgetésből",
 		"artifacts.bundle.items": "{count} elem",
 		"artifacts.bundle.footerNote": "az eltávolítás nem törli a könyvtárból",
+		// Az üzenet Források panelje (5b szelet · T4): amit a kör készített vagy
+		// módosított, a talált források mellett, saját fejléc alatt. Minden sor a
+		// saját fajtájának nevét viseli (artifacts.type.*), nem ezt a szöveget.
+		"artifacts.evidence.madeInThisChat": "Ebben a beszélgetésben készült",
 	},
 } as const;
 

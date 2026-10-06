@@ -322,9 +322,7 @@ describe("persistAssistantEvidence — what the turn made", () => {
 		return getMessageEvidenceState(conversationId, messageId);
 	}
 
-	function madeGroup(
-		state: Awaited<ReturnType<typeof stored>>,
-	): { items: Array<Record<string, unknown>> } | undefined {
+	function madeGroup(state: Awaited<ReturnType<typeof stored>>) {
 		return state?.evidenceSummary?.groups.find(
 			(group) => group.sourceType === "artifact",
 		);

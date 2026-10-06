@@ -31,7 +31,15 @@ export type ResponseActivityKind =
 	// below, whose members are all internal/cognitive by construction.
 	| "thought_step";
 export type ResponseActivityStatus = "running" | "done" | "error";
-export type ResponseActivitySourceType = "web" | "document" | "memory" | "tool";
+// The values of `EvidenceSourceType` (a tool call's source type, which an
+// activity row mirrors). "artifact" is only ever the evidence panel's group for
+// what a turn made — no tool retrieves one, and the stream carries none.
+export type ResponseActivitySourceType =
+	| "web"
+	| "document"
+	| "memory"
+	| "tool"
+	| "artifact";
 const NORMAL_CHAT_CONTEXT_PREPARATION_ACTIVITY_CLASSES = [
 	"planning",
 	"context-retrieval",

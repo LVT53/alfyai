@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { Component } from "svelte";
 import { cubicOut } from "svelte/easing";
 import { fly } from "svelte/transition";
 import { preserveScrollOnToggle } from "$lib/actions/preserve-scroll";
@@ -16,7 +17,8 @@ import {
 	Quote,
 	ChevronDown,
 } from "@lucide/svelte";
-import { t } from "$lib/i18n";
+import { t, type I18nKey } from "$lib/i18n";
+import { ARTIFACT_KIND_ICONS } from "$lib/components/artifacts/kind-icons";
 import {
 	fetchMemoryProfile,
 	submitKnowledgeMemoryAction,
@@ -28,6 +30,8 @@ import type {
 	MessageEvidenceItem,
 	MessageEvidenceSummary,
 } from "$lib/server/services/message-evidence";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import { isShippedArtifactTourType } from "$lib/shared/artifacts/tours";
 import type { InstructionScope } from "$lib/shared/instructions";
 import ScopeToken from "$lib/components/instructions/ScopeToken.svelte";
 
@@ -70,7 +74,16 @@ let container = $state<HTMLDivElement | null>(null);
 //   selected  → "Cited by the answer" (the answer actually cited this source)
 //   reference → "Also found" (retrieved, informed context, but not cited)
 //   rejected  → "Set aside" (only surfaces in the zero-citation fallback)
-let allItems = $derived(evidenceSummary.groups.flatMap((group) => group.items));
+let everyItem = $derived(evidenceSummary.groups.flatMap((group) => group.items));
+// What the turn made or changed is listed under its own heading, after the
+// sources: it is not something the answer cited or the turn found, so it is
+// neither in those buckets nor among what was "considered".
+let madeItems = $derived(
+	everyItem.filter((item) => item.sourceType === "artifact"),
+);
+let allItems = $derived(
+	everyItem.filter((item) => item.sourceType !== "artifact"),
+);
 let citedItems = $derived(
 	allItems.filter((item) => item.status === "selected"),
 );
@@ -159,7 +172,11 @@ const citedTitleSlot = 0;
 const citedRowSlotStart = 1;
 let alsoFoundTitleSlot = $derived(citedRows.length + 1);
 let alsoFoundRowSlotStart = $derived(alsoFoundTitleSlot + 1);
-let asideTitleSlot = $derived(alsoFoundTitleSlot + 1 + alsoFoundRows.length);
+let madeTitleSlot = $derived(alsoFoundTitleSlot + 1 + alsoFoundRows.length);
+let madeRowSlotStart = $derived(madeTitleSlot + 1);
+let asideTitleSlot = $derived(
+	madeItems.length > 0 ? madeRowSlotStart + madeItems.length : madeTitleSlot,
+);
 let asideRowSlotStart = $derived(asideTitleSlot + 1);
 
 async function toggle() {
@@ -180,7 +197,7 @@ $effect(() => {
 });
 
 // Map each EvidenceSourceType to its Lucide type icon.
-function typeIconFor(sourceType: EvidenceSourceType): typeof FileText {
+function typeIconFor(sourceType: EvidenceSourceType): Component {
 	switch (sourceType) {
 		case "document":
 			return FileText;
@@ -190,9 +207,29 @@ function typeIconFor(sourceType: EvidenceSourceType): typeof FileText {
 			return Quote;
 		case "tool":
 			return Paperclip;
+		// A made row draws its own kind's icon (`iconFor`); this is the one for
+		// a row that names no kind it can draw.
+		case "artifact":
+			return ARTIFACT_KIND_ICONS.document;
 		default:
 			return FileText;
 	}
+}
+
+/**
+ * The kind a made row names, in its metadata. Only a kind that ships is drawn
+ * (ruling 69): a stamp that names none — or a name that is no kind at all —
+ * leaves a plain row, since there is nothing to open it as or to call it.
+ */
+function artifactKindOf(item: MessageEvidenceItem): ArtifactKind | null {
+	if (item.sourceType !== "artifact") return null;
+	const kind = item.metadata?.artifactKind;
+	return isShippedArtifactTourType(kind) ? kind : null;
+}
+
+function iconFor(item: MessageEvidenceItem): Component {
+	const kind = artifactKindOf(item);
+	return kind ? ARTIFACT_KIND_ICONS[kind] : typeIconFor(item.sourceType);
 }
 
 // Privacy proxy (ADR 0043, Slice 12/15): route web favicons through our own
@@ -319,7 +356,7 @@ function itemDetail(item: MessageEvidenceItem): string | undefined {
 
 function isDocument(item: MessageEvidenceItem): boolean {
 	return (
-		item.sourceType === "document" &&
+		(item.sourceType === "document" || artifactKindOf(item) !== null) &&
 		Boolean(item.artifactId) &&
 		Boolean(onOpenDocument)
 	);
@@ -347,6 +384,7 @@ function projectScopeOf(item: MessageEvidenceItem): InstructionScope | null {
 
 function openDocument(item: MessageEvidenceItem) {
 	if (!onOpenDocument || !item.artifactId) return;
+	const kind = artifactKindOf(item);
 	const document: DocumentWorkspaceItem = {
 		id: `artifact:${item.artifactId}`,
 		source: "knowledge_artifact",
@@ -354,6 +392,10 @@ function openDocument(item: MessageEvidenceItem) {
 		title: item.title,
 		mimeType: null,
 		artifactId: item.artifactId,
+		// The kind is what sends the page's open path through the artifact read
+		// first, as a chat card's Open does: an item that is gone shows the
+		// deleted state there instead of an empty panel.
+		...(kind ? { kind } : {}),
 	};
 	onOpenDocument(document);
 }
@@ -369,7 +411,7 @@ function openDocument(item: MessageEvidenceItem) {
 		<span class="evidence-toggle-copy">
 			<Book size={14} strokeWidth={2} class="evidence-book" aria-hidden="true" />
 			<span class="evidence-label">{$t('messageEvidenceDetails.sourcesLabel')}</span>
-			{#if expanded}
+			{#if expanded && consideredCount > 0}
 				<span class="evidence-summary-line" transition:wipeReveal={{ duration: 260 }}>
 					{$t('messageEvidenceDetails.consideredUsedFormat', {
 						considered: consideredCount,
@@ -425,6 +467,22 @@ function openDocument(item: MessageEvidenceItem) {
 					</div>
 				</section>
 			{/if}
+			{#if madeItems.length > 0}
+				{@const madeLabel = $t('artifacts.evidence.madeInThisChat')}
+				<section
+					class="evidence-group evidence-group--made"
+					style={`animation-delay: ${slotDelay(madeTitleSlot)}`}
+				>
+					<h4 class="evidence-group-title" style={`animation-delay: ${slotDelay(madeTitleSlot)}`}>
+						{madeLabel}
+					</h4>
+					<div class="evidence-list" role="group" aria-label={madeLabel}>
+						{#each madeItems as item, rowIndex (`made-${item.id}-${rowIndex}`)}
+							{@render renderItem(item, madeRowSlotStart + rowIndex)}
+						{/each}
+					</div>
+				</section>
+			{/if}
 			{#if setAsideRows.length > 0}
 				<section
 					class="evidence-group evidence-group--aside"
@@ -449,8 +507,9 @@ function openDocument(item: MessageEvidenceItem) {
 </div>
 
 {#snippet renderItem(item: MessageEvidenceItem, slot: number)}
-	{@const TypeIcon = typeIconFor(item.sourceType)}
+	{@const TypeIcon = iconFor(item)}
 	{@const clickableDoc = isDocument(item)}
+	{@const madeKind = artifactKindOf(item)}
 	{@const projectScope = projectScopeOf(item)}
 	<div
 		class={`evidence-row${clickableDoc ? ' evidence-row--clickable' : ''}${item.status === 'rejected' ? ' evidence-row--aside' : ''}`}
@@ -459,12 +518,15 @@ function openDocument(item: MessageEvidenceItem) {
 		{#if clickableDoc}
 			<button
 				type="button"
-				class="evidence-row-button"
-				title={$t('messageEvidenceDetails.openDocument')}
+				class={`evidence-row-button${madeKind ? ' evidence-row-button--made' : ''}`}
+				title={madeKind
+					? $t('artifacts.card.openA11y', { title: item.title })
+					: $t('messageEvidenceDetails.openDocument')}
 				onclick={() => openDocument(item)}
 			>
 				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
 				<span class="evidence-title">{item.title}</span>
+				{#if madeKind}<span class="evidence-kind">{$t(`artifacts.type.${madeKind}` as I18nKey)}</span>{/if}
 				{#if projectScope}<ScopeToken scope={projectScope} />{/if}
 				<ExternalLink size={12} strokeWidth={1.8} class="evidence-open-icon" aria-hidden="true" />
 			</button>
@@ -575,6 +637,7 @@ function openDocument(item: MessageEvidenceItem) {
 			<div class="evidence-row-plain">
 				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
 				<span class="evidence-title">{item.title}</span>
+				{#if madeKind}<span class="evidence-kind">{$t(`artifacts.type.${madeKind}` as I18nKey)}</span>{/if}
 				{#if projectScope}<ScopeToken scope={projectScope} />{/if}
 			</div>
 		{/if}
@@ -703,12 +766,14 @@ function openDocument(item: MessageEvidenceItem) {
 		padding-left: 0.6rem;
 	}
 
-	.evidence-group--reference {
+	.evidence-group--reference,
+	.evidence-group--made {
 		border-left: 2px solid color-mix(in srgb, var(--border-default) 70%, transparent);
 		padding-left: 0.6rem;
 	}
 
-	.evidence-group--reference .evidence-group-title {
+	.evidence-group--reference .evidence-group-title,
+	.evidence-group--made .evidence-group-title {
 		color: var(--text-muted);
 	}
 
@@ -834,6 +899,20 @@ function openDocument(item: MessageEvidenceItem) {
 
 	.evidence-row-link:hover .evidence-title--web {
 		text-decoration-color: var(--accent);
+	}
+
+	/* The kind's own word, after a made row's title (Document / Dokumentum). */
+	.evidence-kind {
+		flex-shrink: 0;
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		white-space: nowrap;
+	}
+
+	@media (hover: none) and (pointer: coarse) {
+		.evidence-row-button--made {
+			min-height: 44px;
+		}
 	}
 
 	.evidence-open-icon {
