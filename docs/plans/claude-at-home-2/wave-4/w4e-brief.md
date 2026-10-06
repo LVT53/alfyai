@@ -41,5 +41,6 @@ Then the full gates once (Wave 3 rules' list, every artifact suite, plus `tests/
 it runs offline). Screenshots you look at yourself: the Sources panel with the new group, HU at 1440×900 and 390×844,
 light and dark.
 
-**Runs beside you:** named by the orchestrator at dispatch; you share at most `src/lib/i18n/artifacts.ts` (append your
-keys in your own block) and the containment suite (append one `describe`).
+**Runs beside you:** FU-1 (the board's `@Alfy` stale guard, the posters on every Delete) and W4-B (the project bundle).
+You share at most `src/lib/i18n/artifacts.ts` with W4-B (append your keys in your own block) and the containment suite
+with FU-1 (append one `describe`).
