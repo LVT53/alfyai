@@ -42,6 +42,16 @@ export type OpsEnvelopeInput = {
 	 */
 	readVersionId?: string;
 	/**
+	 * The body the author READ, when the caller still holds it (the `@Alfy`
+	 * comment reply keeps the text it showed the model). Judged exactly as the
+	 * body of `readVersionId` is, and in its place. A version id names a row, and
+	 * the reader's own saves within ten minutes are written INTO the newest
+	 * version of theirs (ruling 47): when that is the version the author read,
+	 * its id is unchanged and its body is not, so only the body read can say what
+	 * the reader changed since. In-process only: the route never sets it.
+	 */
+	readBody?: string;
+	/**
 	 * Who the change is written as. `alfy` (the default) is the model's edit tool
 	 * and the `@Alfy` comment reply, calling this in-process: the diff's own
 	 * summary, and the change waits for the reader's Keep or Undo (ruling 63).
@@ -217,12 +227,14 @@ export async function applyArtifactOps(
 			detail: `A ${artifact.kind} cannot be changed with ops.`,
 		};
 	}
-	// The version the author last read, unless it is the current one (then nothing
-	// can have changed since) or is not this artifact's (then there is no read).
+	// What the author last read: the body they hold, else the body of the version
+	// they name, unless that is the current one (then nothing can have changed
+	// since) or is not this artifact's (then there is no read).
 	const readStored =
-		input.readVersionId && input.readVersionId !== newest.id
+		input.readBody ??
+		(input.readVersionId && input.readVersionId !== newest.id
 			? await getVersionBody({ ...scope, versionId: input.readVersionId })
-			: null;
+			: null);
 	const outcome = branch({
 		stored: artifact.body,
 		diff: envelope.diff,

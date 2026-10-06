@@ -12,6 +12,7 @@ import type { Anchor } from "$lib/shared/artifacts/anchor";
 import { boardOpsArraySchema } from "$lib/shared/artifacts/board-ops";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
+import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { seedConversation, seedUser } from "./artifacts.test-helpers";
 
 // Comments on a Canvas: what intake accepts (a board places node and point
@@ -46,6 +47,7 @@ const {
 	listComments,
 	listVersions,
 	runAlfyCommentReply,
+	updateArtifactBody,
 } = await import("./index");
 const { EDIT_ARTIFACT_CANVAS_EXAMPLE, editArtifactRuleClause } = await import(
 	"../normal-chat-tools/artifact-tools/kind-prose"
@@ -352,6 +354,208 @@ describe("@Alfy on a board: a change", () => {
 		]);
 		// Alfy's own words are not lost to the marker.
 		expect(root.replies[0].body).toContain("Changed the time and the title.");
+	});
+});
+
+// Ruling 67 for the comment path (RC-3 N8): the model reads the board, answers some
+// seconds later, and the ops land on whatever the board is by then. A block the
+// reader changed in between is theirs: the op on it is refused `stale`, the rest
+// of the batch lands, and the reply names what was left alone. The reader's save
+// happens INSIDE the model call, which is exactly where the seconds are.
+describe("@Alfy on a board: the reader's newer words", () => {
+	const READER_WORDS = "Museum, 16:00 (my change)";
+	const CHANGE_LUNCH = {
+		op: "update_node",
+		id: "note-1",
+		data: { text: "Lunch at 12:30" },
+	};
+
+	/** The sample board, with one note saying something else. */
+	function boardWhere(id: string, text: string): string {
+		const board = sampleBoard();
+		board.nodes = board.nodes.map((node) =>
+			node.id === id
+				? ({ ...node, data: { ...node.data, text } } as typeof node)
+				: node,
+		);
+		return boardJson(board);
+	}
+
+	/** The reader's own save: what the panel's autosave writes (it coalesces, ruling 47). */
+	async function readerSaves(boardId: string, body: string) {
+		const saved = await updateArtifactBody({
+			userId: OWNER,
+			artifactId: boardId,
+			body,
+			author: "user",
+			summary: VERSION_SUMMARY.edited,
+			coalesceUserEdits: true,
+		});
+		if (!saved.ok) throw new Error(saved.reason);
+	}
+
+	/** The model's answer arrives only after the reader has saved: the seconds between the read and the apply. */
+	function modelSaysAfter(readerSave: () => Promise<void>, payload: unknown) {
+		sendJsonControlMessageMock.mockImplementationOnce(async () => {
+			await readerSave();
+			return {
+				text: JSON.stringify(payload),
+				rawResponse: {},
+				modelId: "model1",
+				modelDisplayName: "Test Model",
+			};
+		});
+	}
+
+	async function repliesOf(boardId: string) {
+		const [root] = await listComments({ userId: OWNER, artifactId: boardId });
+		return root.replies;
+	}
+
+	it("leaves a note alone that the reader changed while the model was answering, applies the rest, and names what it left alone", async () => {
+		const { boardId, thread } = await askAbout(NODE_ANCHOR);
+		modelSaysAfter(
+			() => readerSaves(boardId, boardWhere("note-museum", READER_WORDS)),
+			{
+				note: "Changed the time and the lunch.",
+				ops: [CHANGE_MUSEUM, CHANGE_LUNCH],
+			},
+		);
+
+		const result = await run(boardId, thread.id);
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.value).toMatchObject({
+			outcome: "applied",
+			applied: 1,
+			refused: 1,
+		});
+		// The reader's words stand; the op on the note they did not touch landed.
+		expect((await storedNode(boardId, "note-museum"))?.data.text).toBe(
+			READER_WORDS,
+		);
+		expect((await storedNode(boardId, "note-1"))?.data.text).toBe(
+			"Lunch at 12:30",
+		);
+		// The reply says it, as the card puts it in the reader's language (`stale`
+		// has its own words in both): the block as Alfy had read it, and why.
+		const [reply] = await repliesOf(boardId);
+		expect(splitSkippedOps(reply.body)).toEqual({
+			text: "Changed the time and the lunch.",
+			skipped: [{ target: "Museum, 14:00", reason: "stale" }],
+		});
+	});
+
+	it("holds when the reader's save is written INTO the version the model read (their saves within ten minutes share one version)", async () => {
+		const { boardId, thread } = await askAbout(NODE_ANCHOR);
+		// The reader's own save is the newest version when Alfy reads, so the save that
+		// comes while the model is answering is coalesced into that very version: the
+		// same row, newer words. A version id alone cannot tell the two bodies apart.
+		await readerSaves(boardId, boardWhere("note-museum", "Museum, 15:00"));
+		expect(
+			await listVersions({ userId: OWNER, artifactId: boardId }),
+		).toHaveLength(2);
+		modelSaysAfter(
+			() => readerSaves(boardId, boardWhere("note-museum", READER_WORDS)),
+			{
+				note: "Changed the time and the lunch.",
+				ops: [CHANGE_MUSEUM, CHANGE_LUNCH],
+			},
+		);
+
+		const result = await run(boardId, thread.id);
+
+		// create, the reader's version (written into twice), Alfy's: three.
+		expect(
+			await listVersions({ userId: OWNER, artifactId: boardId }),
+		).toHaveLength(3);
+		expect(result.ok && result.value).toMatchObject({
+			outcome: "applied",
+			applied: 1,
+			refused: 1,
+		});
+		expect((await storedNode(boardId, "note-museum"))?.data.text).toBe(
+			READER_WORDS,
+		);
+		const [reply] = await repliesOf(boardId);
+		expect(splitSkippedOps(reply.body).skipped).toEqual([
+			{ target: "Museum, 15:00", reason: "stale" },
+		]);
+	});
+
+	it("when every op is stale, reads the board again with the model, who then sees the reader's words and can answer without overwriting them", async () => {
+		const { boardId, thread } = await askAbout(NODE_ANCHOR);
+		modelSaysAfter(
+			() => readerSaves(boardId, boardWhere("note-museum", READER_WORDS)),
+			{ note: "Done, 15:30.", ops: [CHANGE_MUSEUM] },
+		);
+		modelSays({ note: "I kept your time, 16:00." });
+
+		const result = await run(boardId, thread.id);
+
+		expect(sendJsonControlMessageMock).toHaveBeenCalledTimes(2);
+		const [correction, , options] = sendJsonControlMessageMock.mock.calls[1];
+		// What the model is told is the tool's own refusal: which note, and that the reader's change stands.
+		expect(correction).toContain('The reader changed "note-museum"');
+		// And the board it is shown now is the reader's.
+		expect(options.systemPrompt).toContain(READER_WORDS);
+		expect(result.ok && result.value.outcome).toBe("answered");
+		expect((await storedNode(boardId, "note-museum"))?.data.text).toBe(
+			READER_WORDS,
+		);
+		expect(
+			await listVersions({ userId: OWNER, artifactId: boardId }),
+		).toHaveLength(2);
+	});
+
+	it("takes an op on the note once the model has seen the reader's words: stale is about what it had not read", async () => {
+		const { boardId, thread } = await askAbout(NODE_ANCHOR);
+		modelSaysAfter(
+			() => readerSaves(boardId, boardWhere("note-museum", READER_WORDS)),
+			{ note: "Done, 15:30.", ops: [CHANGE_MUSEUM] },
+		);
+		modelSays({
+			note: "Made it 16:30.",
+			ops: [
+				{
+					op: "update_node",
+					id: "note-museum",
+					data: { text: "Museum, 16:30" },
+				},
+			],
+		});
+
+		const result = await run(boardId, thread.id);
+
+		expect(result.ok && result.value.outcome).toBe("applied");
+		expect((await storedNode(boardId, "note-museum"))?.data.text).toBe(
+			"Museum, 16:30",
+		);
+	});
+
+	it("is not held up by a change the reader made to another block", async () => {
+		const { boardId, thread } = await askAbout(NODE_ANCHOR);
+		modelSaysAfter(
+			() => readerSaves(boardId, boardWhere("note-1", "Lunch, my words")),
+			{ note: "Moved the time to 15:30.", ops: [CHANGE_MUSEUM] },
+		);
+
+		const result = await run(boardId, thread.id);
+
+		expect(result.ok && result.value).toMatchObject({
+			outcome: "applied",
+			applied: 1,
+			refused: 0,
+		});
+		expect((await storedNode(boardId, "note-museum"))?.data.text).toBe(
+			"Museum, 15:30",
+		);
+		expect((await storedNode(boardId, "note-1"))?.data.text).toBe(
+			"Lunch, my words",
+		);
+		const [reply] = await repliesOf(boardId);
+		expect(splitSkippedOps(reply.body).skipped).toEqual([]);
 	});
 });
 

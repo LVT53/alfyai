@@ -2520,3 +2520,72 @@ describe("a first-open tour's seen state, beside an incognito conversation", () 
 		}
 	});
 });
+
+// FU-1: a board's poster files go with it from Knowledge -> Documents' Delete as
+// they do from the panel's, and only from the board's own chat. The library's
+// delete reaches an incognito chat's board (a delete must always be possible, and
+// the library never lists it), so what it takes must be exactly that chat's files
+// named for that board: not a same-named file in another chat of the same user,
+// not another board's, and nothing at all when the caller is not the owner.
+const { deleteLibraryArtifact } = await import(
+	"$lib/server/services/artifacts"
+);
+const { posterFileName } = await import("$lib/shared/artifacts/poster-file");
+
+describe("a board deleted from Knowledge -> Documents, with its poster files", () => {
+	const fileRow = (
+		id: string,
+		filename: string,
+		conversationId: string,
+		userId = USER,
+	) => ({
+		id,
+		conversationId,
+		assistantMessageId: null,
+		userId,
+		filename,
+		mimeType: "image/png",
+		sizeBytes: 100,
+		storagePath: `${conversationId}/${id}.png`,
+		createdAt: NOW,
+	});
+	const fileIds = () =>
+		memory.db
+			.select()
+			.from(schema.chatGeneratedFiles)
+			.all()
+			.map((row) => row.id)
+			.sort();
+
+	beforeEach(() => {
+		seedUser(STRANGER);
+	});
+
+	it("takes an incognito chat's own posters and no other chat's, and a stranger's delete takes nothing", async () => {
+		const { boardId } = await seedBoard(INCOGNITO);
+		const other = await seedBoard(NORMAL, "Another board");
+		memory.db
+			.insert(schema.chatGeneratedFiles)
+			.values([
+				fileRow("own-poster", posterFileName(boardId, "app-1"), INCOGNITO),
+				// The same name in another chat of the same user: not this board's chat.
+				fileRow("same-name", posterFileName(boardId, "app-2"), NORMAL),
+				// Another board's poster, in the normal chat.
+				fileRow("other-poster", posterFileName(other.boardId, "app-1"), NORMAL),
+			])
+			.run();
+
+		// Not the owner's to delete: the library answers null and takes nothing.
+		await expect(deleteLibraryArtifact(STRANGER, boardId)).resolves.toBeNull();
+		expect(fileIds()).toEqual(["other-poster", "own-poster", "same-name"]);
+		expect(boardRows(boardId).body).toBeDefined();
+
+		await expect(deleteLibraryArtifact(USER, boardId)).resolves.toMatchObject({
+			deletedArtifactIds: [boardId],
+		});
+
+		expect(boardRows(boardId).body).toBeUndefined();
+		expect(fileIds()).toEqual(["other-poster", "same-name"]);
+		expect(boardRows(other.boardId).body).toBeDefined();
+	});
+});
