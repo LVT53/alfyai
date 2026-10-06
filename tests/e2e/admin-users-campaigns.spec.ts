@@ -165,10 +165,16 @@ test.describe("Admin Campaigns screen", () => {
 		await page.getByRole("button", { name: "New campaign" }).click();
 		await page.locator("#campaign-dialog-name").fill("E2E crop focus");
 		await page.getByRole("button", { name: "Create campaign" }).click();
-		await page.getByRole("button", { name: "Add slide" }).click();
 		// The New campaign dialog returns focus to its opener as it finishes
-		// fading out; let it, so that cannot take focus from the crop dialog.
+		// fading out, which is a moment after its last click. Let it finish
+		// before anything is focused on purpose: a click on "Add slide" inside
+		// that moment gets its focus taken back by the opener, and this test
+		// asserts that focus returns to "Add slide" once the crop closes.
 		await expect(page.getByRole("dialog")).toHaveCount(0);
+		await page.getByRole("button", { name: "Add slide" }).click();
+		await expect(
+			page.locator('[data-testid="admin-campaign-slide-thumb"]'),
+		).toHaveCount(1);
 
 		await page
 			.locator('input[type="file"][accept="image/*"]')
