@@ -731,6 +731,9 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
   rows and strings (~+210 B) were each measured on their own base and merged into `feat/artifacts` together; on this Mac
   `dev` `9aed65c0` builds the chat route at 541,618 B (+2,010) and `feat/artifacts` `86a736b5` at 542,080 B, so the move is
   exactly that difference and the route again reads +2,010.
+- **And for W4-E (orchestrator, 2026-10-07), by a measured 415 B gzip (540,070 → 540,485):** the "Made in this chat" group in
+  the message's Sources panel (its row, the kind's icon and word, one string in each language); `feat/artifacts` builds the
+  chat route at 542,080 B before the merge and 542,495 B after it on this Mac (its agent measured +409 B on its own base).
 
 ## 69. Slides is shelved; the tours come next
 
