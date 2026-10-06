@@ -5,7 +5,8 @@ Rulings 6 and 7: an artifact a turn made or changed appears as an evidence row i
 This touches the evidence/sources surface, so an Opus reviewer will read your diff: keep it small and explicit.
 
 - Worktree `/Users/lvt53/Nextcloud/Documents/DOYUN-FOLDER/Dev/alfyai/.claude/worktrees/art-w4e`, branch
-  `feat/artifacts-s5b-evidence` (from `feat/artifacts`), e2e port **5430**, label `w4e`.
+  `feat/artifacts-s5b-evidence` (from `feat/artifacts` `86a736b5`: the tours, FU-2, W4-B and TR-D3 are in), e2e port **5430**,
+  label `w4e`.
 - Report: `/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/5c073247-a423-47a9-b825-91f05ce97740/scratchpad/w4/w4e-report.md`;
   screenshots `…/scratchpad/w4/shots/w4e/`.
 - Read first: `docs/plans/claude-at-home-2/wave-4/common.md` (+ the Wave 3 rules it points to); rulings 6, 7, 18, 20, 22,
@@ -41,6 +42,9 @@ Then the full gates once (Wave 3 rules' list, every artifact suite, plus `tests/
 it runs offline). Screenshots you look at yourself: the Sources panel with the new group, HU at 1440×900 and 390×844,
 light and dark.
 
-**Runs beside you:** FU-1 (the board's `@Alfy` stale guard, the posters on every Delete) and W4-B (the project bundle).
-You share at most `src/lib/i18n/artifacts.ts` with W4-B (append your keys in your own block) and the containment suite
-with FU-1 (append one `describe`).
+**The chat route on your base is over its budget** by FU-2's and W4-B's merged strings (~350 B): the orchestrator re-baselines
+that on `feat/artifacts` separately. Report your own chat-route growth measured against your base; do not move
+`--chat-baseline`.
+
+**Runs beside you:** TR-D4 (the board keeps a block being typed in visible over a phone keyboard; `canvas/**`). You share at
+most the containment suite with nobody now (FU-1 is done); `src/lib/i18n/artifacts.ts` is yours alone this round.
