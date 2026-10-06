@@ -331,6 +331,122 @@ test.describe("Admin provider table layout", () => {
 	});
 });
 
+// The model form is a modal dialog that other dialogs open above: choosing an
+// icon file opens the crop dialog on top of it. Everything here is driven by
+// real keys and real clicks, and the provider is seeded straight into SQLite
+// for the reason the layout block above gives (creating one through the admin
+// API would dial out to validate the connection).
+const PIXEL_PNG = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+	"base64",
+);
+
+test.describe("Admin model form dialog", () => {
+	const providerId = randomUUID();
+	const modelId = randomUUID();
+	const modelName = "Form Probe Model";
+
+	test.beforeEach(async ({ page }) => {
+		const now = new Date();
+		await db.insert(providers).values({
+			id: providerId,
+			name: `form_probe_${providerId.slice(0, 8)}`,
+			displayName: "Form Probe Provider",
+			baseUrl: "https://form-probe.example.com/v1",
+			apiKeyEncrypted: "probe-encrypted",
+			apiKeyIv: "probe-iv",
+			sortOrder: 999,
+			enabled: 1,
+			createdAt: now,
+			updatedAt: now,
+		});
+		await db.insert(providerModels).values({
+			id: modelId,
+			providerId,
+			name: "form-probe-1",
+			displayName: modelName,
+			enabled: 1,
+			sortOrder: 0,
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		await login(page);
+		await openAdministrationTab(page, "models");
+		await page.getByTestId(`provider-models-${providerId}`).click();
+	});
+
+	test.afterEach(async () => {
+		await db.delete(providers).where(eq(providers.id, providerId));
+	});
+
+	test("one Escape in the icon crop closes the crop and leaves the form and its unsaved edit", async ({
+		page,
+	}) => {
+		await page.getByRole("button", { name: `Edit ${modelName}` }).click();
+		const form = page.getByRole("dialog", { name: "Edit Model" });
+		await expect(form).toBeVisible();
+
+		const displayName = form.locator("#model-form-display-name");
+		await displayName.fill("Renamed, not saved yet");
+
+		// Picking an icon file opens the crop dialog above the form.
+		const [chooser] = await Promise.all([
+			page.waitForEvent("filechooser"),
+			form.locator("#model-form-icon").click(),
+		]);
+		await chooser.setFiles({
+			name: "icon.png",
+			mimeType: "image/png",
+			buffer: PIXEL_PNG,
+		});
+		const crop = page.getByRole("dialog", { name: "Crop model icon" });
+		await expect(crop).toBeVisible();
+
+		// The first Escape belongs to the crop, the dialog on top ...
+		await page.keyboard.press("Escape");
+		await expect(crop).toBeHidden();
+		await expect(form).toBeVisible();
+		await expect(displayName).toHaveValue("Renamed, not saved yet");
+
+		// ... and only the next one reaches the form.
+		await page.keyboard.press("Escape");
+		await expect(form).toBeHidden();
+	});
+
+	test("takes focus, keeps Tab and Shift+Tab inside, and gives focus back to the button that opened it", async ({
+		page,
+	}) => {
+		const edit = page.getByRole("button", { name: `Edit ${modelName}` });
+		await edit.focus();
+		await page.keyboard.press("Enter");
+		const form = page.getByRole("dialog", { name: "Edit Model" });
+		await expect(form).toBeVisible();
+		await expect(form).toBeFocused();
+
+		const close = form.getByRole("button", { name: "Close" });
+		const cancel = form.getByRole("button", { name: "Cancel" });
+
+		// Shift+Tab from the dialog itself wraps to its last control, Tab from
+		// the last wraps to the first, and Tab from there moves on inside.
+		await page.keyboard.press("Shift+Tab");
+		await expect(cancel).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(close).toBeFocused();
+		await page.keyboard.press("Shift+Tab");
+		await expect(cancel).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(close).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(form.locator(":focus")).toHaveCount(1);
+		await expect(close).not.toBeFocused();
+
+		await page.keyboard.press("Escape");
+		await expect(form).toBeHidden();
+		await expect(edit).toBeFocused();
+	});
+});
+
 // Phone-width guard for the same `.sys-grow` fix. With `.sys-grow` a real
 // utility, the save bar's detail span pushes Discard/Save to the bar's right
 // edge. Below 900px the System shell stacks, and if the main column is sized
@@ -445,14 +561,28 @@ test.describe("Admin user management", () => {
 			page.getByRole("button", { name: "Create User" }).last().click(),
 		]);
 
-		await expect(page.getByText(uniqueEmail)).toBeVisible();
+		// The new account's address is on the screen in three places by the time the
+		// list has reloaded (its table row, the detail panel, and the panel's
+		// "Created …" notice), and which of them is there yet is a matter of timing:
+		// the row is the one this step is about.
+		await expect(page.getByRole("cell", { name: uniqueEmail })).toBeVisible();
+
+		// A confirmation that has just been answered fades out while the next
+		// one fades in, and the one leaving stays in the DOM (inert, so it takes no
+		// click) for the length of its fade: two `confirm-delete` buttons, and two
+		// "Promote to Admin" buttons, exist at once. So every control here is named
+		// through the surface it belongs to, never by its test id or label alone.
+		const detail = page.getByTestId("admin-user-detail");
+		const promoteDialog = page.getByRole("dialog", { name: /an admin\?$/ });
+		const deleteDialog = page.getByRole("dialog", { name: "Delete User" });
+
 		await expect(
-			page.getByRole("button", { name: "Promote to Admin" }),
+			detail.getByRole("button", { name: "Promote to Admin" }),
 		).toBeVisible();
 
 		// Promotion is a privilege escalation, so it confirms first.
-		await page.getByRole("button", { name: "Promote to Admin" }).click();
-		await expect(page.getByText(/an admin\?$/)).toBeVisible();
+		await detail.getByRole("button", { name: "Promote to Admin" }).click();
+		await expect(promoteDialog).toBeVisible();
 		await Promise.all([
 			page.waitForResponse(
 				(response) =>
@@ -460,11 +590,11 @@ test.describe("Admin user management", () => {
 					response.request().method() === "PATCH" &&
 					response.status() === 200,
 			),
-			page.getByTestId("confirm-delete").click(),
+			promoteDialog.getByTestId("confirm-delete").click(),
 		]);
 
 		await expect(
-			page.getByRole("button", { name: "Demote to User" }),
+			detail.getByRole("button", { name: "Demote to User" }),
 		).toBeVisible();
 
 		await Promise.all([
@@ -474,14 +604,14 @@ test.describe("Admin user management", () => {
 					response.request().method() === "PATCH" &&
 					response.status() === 200,
 			),
-			page.getByRole("button", { name: "Demote to User" }).click(),
+			detail.getByRole("button", { name: "Demote to User" }).click(),
 		]);
 
 		await expect(
-			page.getByRole("button", { name: "Promote to Admin" }),
+			detail.getByRole("button", { name: "Promote to Admin" }),
 		).toBeVisible();
 
-		await page.getByRole("button", { name: "Delete User" }).click();
+		await detail.getByRole("button", { name: "Delete User" }).click();
 
 		await Promise.all([
 			page.waitForResponse(
@@ -490,7 +620,7 @@ test.describe("Admin user management", () => {
 					response.request().method() === "DELETE" &&
 					response.status() === 200,
 			),
-			page.getByTestId("confirm-delete").click(),
+			deleteDialog.getByTestId("confirm-delete").click(),
 		]);
 
 		// The address appears in both the table row and the detail panel while

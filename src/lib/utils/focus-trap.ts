@@ -158,9 +158,13 @@ export interface FocusTrapOptions {
 	selector?: string;
 	/**
 	 * When provided, Tab and Escape are ignored unless this returns true — the
-	 * topmost-only gate. Leave unset for a trap that should always be active
-	 * while its container is mounted (every migrated trap except DialogShell
-	 * today).
+	 * topmost-only gate. A dialog that joins DialogShell's open-dialog stack
+	 * (`registerDialog`) passes `() => isTopmostDialog(id)`: DialogShell itself,
+	 * the campaign modals, the artifact popovers and drawers, the image
+	 * lightbox, the model guide and the model form. A trap that is not on that
+	 * stack leaves it unset and is active for as long as its container is
+	 * mounted (today the memory modal and its popovers, the linked-document
+	 * picker and the conversation jump rail's phone sheet).
 	 */
 	isTopmost?: () => boolean;
 	/** Called for an Escape keydown that passes the topmost gate. */
@@ -184,17 +188,6 @@ export interface FocusTrapOptions {
 	 * predates this option expects.
 	 */
 	preventScroll?: boolean;
-	/**
-	 * Overrides the default Tab/Shift+Tab handling (`trapTabKey`) for a trap
-	 * whose wrap rule genuinely differs from DialogShell's. The one case
-	 * today: ConversationJumpRail's mobile sheet focuses its own container
-	 * (not a child) on open, so it also has to treat Shift+Tab pressed while
-	 * the container itself is focused as "wrap to the last focusable
-	 * element" — a state DialogShell's algorithm never has to consider,
-	 * because it always prefers a focusable child over the container. Leave
-	 * this unset to get the shared `trapTabKey` behavior.
-	 */
-	onTab?: (event: KeyboardEvent, node: HTMLElement) => void;
 }
 
 /**
@@ -247,11 +240,7 @@ export function focusTrap(
 				return;
 			}
 			if (event.key === "Tab") {
-				if (options.onTab) {
-					options.onTab(event, node);
-				} else {
-					trapTabKey(node, event, { selector: options.selector });
-				}
+				trapTabKey(node, event, { selector: options.selector });
 			}
 		}
 		window.addEventListener("keydown", onKeydown);

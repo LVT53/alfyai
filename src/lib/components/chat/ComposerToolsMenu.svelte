@@ -68,6 +68,7 @@ import {
 	type MenuPlacement,
 	type PlacementRect,
 } from "./composer-placement";
+import { hasOpenDialog } from "$lib/components/ui/DialogShell.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import { maxFileUploadSizeMb } from "$lib/stores/upload-limits";
 import {
@@ -445,7 +446,11 @@ onMount(() => {
 	};
 
 	const handleKeyDown = (event: KeyboardEvent) => {
-		if (event.key === "Escape" && !activeDropdown) {
+		// A dialog opened from this menu (the model guide) is the layer on top
+		// and takes the key. Asked of the open-dialog stack, not of
+		// `defaultPrevented`: this listener is registered before the dialog's,
+		// so it runs first and sees nothing prevented yet.
+		if (event.key === "Escape" && !activeDropdown && !hasOpenDialog()) {
 			onClose?.();
 		}
 	};

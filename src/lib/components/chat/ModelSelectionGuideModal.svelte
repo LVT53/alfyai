@@ -4,11 +4,17 @@ import { ExternalLink, X } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import { uiLanguage } from "$lib/stores/settings";
 import type { ModelProvider, ProviderModel } from "$lib/client/api/models";
+import {
+	deregisterDialog,
+	isTopmostDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import {
 	regionCodeToFlag,
 	regionDisplayName,
 } from "$lib/services/processing-region";
+import { focusTrap } from "$lib/utils/focus-trap";
 
 let {
 	providers = [],
@@ -19,6 +25,7 @@ let {
 } = $props();
 
 let backdropRef = $state<HTMLDivElement | undefined>(undefined);
+let dialogRef = $state<HTMLDivElement | undefined>(undefined);
 
 onMount(() => {
 	if (backdropRef && backdropRef.parentNode !== document.body) {
@@ -30,9 +37,30 @@ onMount(() => {
 	};
 });
 
-function handleKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") onClose?.();
-}
+// It opens above the "+" menu's Model row and the phone model picker, so Escape
+// has to belong to whichever layer is on top: this dialog joins the DialogShell
+// open-dialog stack, and the menu defers to it while it is open.
+const dialogId = Symbol("model-guide");
+
+$effect(() => {
+	registerDialog(dialogId);
+	return () => deregisterDialog(dialogId);
+});
+
+// Tab/Shift+Tab wrapping, the pull-back of stray focus and the topmost-only gate
+// are the shared utility's (src/lib/utils/focus-trap.ts). The dialog itself
+// takes the first focus (it is a long list read from the top), and neither that
+// focus nor its return to the "?" that opened it may scroll the page behind it.
+const guideFocusTrap = focusTrap({
+	isTopmost: () => isTopmostDialog(dialogId),
+	onEscape: (event) => {
+		event.preventDefault();
+		onClose?.();
+	},
+	focus: { target: () => dialogRef },
+	restoreFocusOnCleanup: true,
+	preventScroll: true,
+});
 
 function handleBackdropPointer(event: MouseEvent | TouchEvent) {
 	event.stopPropagation();
@@ -130,8 +158,6 @@ function regionTitle(provider: ModelProvider): string {
 }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 <div
 	bind:this={backdropRef}
 	class="model-guide-backdrop"
@@ -141,6 +167,8 @@ function regionTitle(provider: ModelProvider): string {
 	ontouchstart={handleBackdropPointer}
 >
 	<div
+		bind:this={dialogRef}
+		{@attach guideFocusTrap}
 		class="model-guide-modal"
 		role="dialog"
 		aria-modal="true"
@@ -289,6 +317,12 @@ function regionTitle(provider: ModelProvider): string {
 		background: var(--surface-page);
 		box-shadow: var(--shadow-lg, 0 16px 48px rgba(0, 0, 0, 0.18));
 		color: var(--text-primary);
+	}
+
+	/* The dialog takes the first focus itself; the controls inside carry their own
+	   focus styles, and a ring around the panel would only be noise. */
+	.model-guide-modal:focus {
+		outline: none;
 	}
 
 	.model-guide-header {
