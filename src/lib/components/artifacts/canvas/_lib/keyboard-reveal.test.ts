@@ -241,6 +241,7 @@ describe("revealForm", () => {
 	let buttons: HTMLElement;
 	let paneRect: ScreenRect;
 	let nodeRect: ScreenRect;
+	let formRect: ScreenRect | null;
 	let buttonsRect: ScreenRect;
 	let paletteRect: ScreenRect;
 	let overviewRect: ScreenRect | null;
@@ -274,6 +275,7 @@ describe("revealForm", () => {
 		paletteRect = rect(750, 843, 1180, 888);
 		overviewRect = rect(1290, 758, 1424, 846);
 		nodeRect = rect(560, 550, 990, 880);
+		formRect = null;
 		buttonsRect = rect(840, 840, 990, 870);
 		place(root, () => paneRect);
 		place(root.querySelector(".canvas-toolbar") as Element, () => paletteRect);
@@ -282,6 +284,8 @@ describe("revealForm", () => {
 			() => overviewRect,
 		);
 		place(node, () => nodeRect);
+		// A form fills its block unless it lies over the block's content.
+		place(form, () => formRect ?? nodeRect);
 		place(buttons, () => buttonsRect);
 	});
 
@@ -319,6 +323,15 @@ describe("revealForm", () => {
 		buttonsRect = rect(840, 1400, 990, 1430);
 		const pan = revealForm(form);
 		expect(pan?.y).toBe(paletteRect.top - M - buttonsRect.bottom);
+	});
+
+	it("clears the form, not only the block, when the form lies over the block's content and reaches past it", () => {
+		// A small block with its form over the top of it, taller than the block.
+		nodeRect = rect(560, 700, 990, 780);
+		formRect = rect(560, 700, 990, 860);
+		buttonsRect = rect(840, 820, 990, 850);
+		const pan = revealForm(form);
+		expect(pan?.y).toBe(paletteRect.top - M - formRect.bottom);
 	});
 
 	it("glides for no time when the reader asked for reduced motion", () => {

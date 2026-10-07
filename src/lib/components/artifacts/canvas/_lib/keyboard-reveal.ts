@@ -143,8 +143,17 @@ export function revealForm(
 			return element ? [element.getBoundingClientRect()] : [];
 		},
 	);
+	// The block and its form: a form that lies over the block's content (an App's, a map's)
+	// may reach past the block's own box.
+	const own = form.getBoundingClientRect();
+	const box = (form.closest(NODE) ?? form).getBoundingClientRect();
 	const pan = revealPan(
-		(form.closest(NODE) ?? form).getBoundingClientRect(),
+		{
+			left: Math.min(own.left, box.left),
+			top: Math.min(own.top, box.top),
+			right: Math.max(own.right, box.right),
+			bottom: Math.max(own.bottom, box.bottom),
+		},
 		(form.querySelector(".edit__actions") ?? form).getBoundingClientRect(),
 		visibleRoom(root.getBoundingClientRect(), window.visualViewport ?? null),
 		standing,

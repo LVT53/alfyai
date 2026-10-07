@@ -187,7 +187,9 @@ async function expectFormReachable(page: Page, where: string) {
 		["the zoom control", page.getByTestId("canvas-zoom")],
 		["the overview", page.locator(".svelte-flow__minimap")],
 	] as const) {
-		if (!(await layer.count())) continue;
+		// The zoom control steps aside from a selected block by itself (it is hidden,
+		// and keeps its place in the layout): only what is drawn can be over the form.
+		if (!(await layer.first().isVisible())) continue;
 		const rect = await rectOf(layer);
 		if (rect) {
 			expect(meet(form, rect), `the form is under ${name} ${where}`).toBe(
@@ -207,69 +209,84 @@ async function openBoardWithId(page: Page, title: string, body: CanvasBody) {
 	return boardId;
 }
 
-test.beforeEach(async ({ page }) => {
-	await page.setViewportSize({ width: 1440, height: 900 });
-});
+/** The windows the form is drawn in the block in: a desktop's, and a narrower one with the panel docked beside the chat. */
+const WINDOWS = [
+	// `rightX`: where a chart 360 wide has its right edge in the pane's last 100 px.
+	{ width: 1440, height: 900, rightX: 540 },
+	{ width: 1100, height: 800, rightX: 300 },
+];
 
-for (const kind of ["mermaid", "chart"] as const) {
-	test(`${kind}: a form that opens low on the board is brought into view, whole and clear of the palette, and Save can be pressed`, async ({
-		page,
-	}) => {
-		const boardId = await openBoardWithId(
-			page,
-			`Reveal ${kind}`,
-			board(kind, { x: 60, y: 420 }),
-		);
-		await openForm(page, kind);
-		await settledCamera(page);
-		await expectFormReachable(page, "after the form opened low on the board");
+for (const window of WINDOWS) {
+	test.describe(`${window.width}x${window.height}`, () => {
+		test.beforeEach(async ({ page }) => {
+			await page.setViewportSize(window);
+		});
 
-		// The title is typed into, and a real click on Save keeps it.
-		await page.getByTestId("canvas-edit-title").fill("Reptér és szálloda");
-		const save = await page.getByTestId("canvas-edit-save").boundingBox();
-		if (!save) throw new Error("no Save");
-		await page.mouse.click(save.x + save.width / 2, save.y + save.height / 2);
-		await expect(page.getByTestId("canvas-edit-form")).toHaveCount(0);
-		await savedStatus(page);
-		const stored = (await storedBoard(boardId)).nodes.find(
-			(node) => node.id === "target",
-		);
-		expect((stored?.data as { label?: string }).label).toBe(
-			"Reptér és szálloda",
-		);
+		defineTests(window.rightX);
 	});
 }
 
-test("a form at the right edge, low on the board, is not left under the overview or the zoom control", async ({
-	page,
-}) => {
-	// The chart's right edge is within the pane's last 100 px: its Save (the form's
-	// bottom right) lands where the overview and the zoom control are.
-	await openBoardWithId(
-		page,
-		"Reveal right",
-		board("chart", { x: 540, y: 420 }, 360),
-	);
-	await openForm(page, "chart");
-	await settledCamera(page);
-	await expectFormReachable(page, "after the form opened at the right edge");
-});
+function defineTests(rightX: number) {
+	for (const kind of ["mermaid", "chart"] as const) {
+		test(`${kind}: a form that opens low on the board is brought into view, whole and clear of the palette, and Save can be pressed`, async ({
+			page,
+		}) => {
+			const boardId = await openBoardWithId(
+				page,
+				`Reveal ${kind}`,
+				board(kind, { x: 60, y: 420 }),
+			);
+			await openForm(page, kind);
+			await settledCamera(page);
+			await expectFormReachable(page, "after the form opened low on the board");
 
-test("a form that opens where it can be used does not move the board", async ({
-	page,
-}) => {
-	await openBoardWithId(
+			// The title is typed into, and a real click on Save keeps it.
+			await page.getByTestId("canvas-edit-title").fill("Reptér és szálloda");
+			const save = await page.getByTestId("canvas-edit-save").boundingBox();
+			if (!save) throw new Error("no Save");
+			await page.mouse.click(save.x + save.width / 2, save.y + save.height / 2);
+			await expect(page.getByTestId("canvas-edit-form")).toHaveCount(0);
+			await savedStatus(page);
+			const stored = (await storedBoard(boardId)).nodes.find(
+				(node) => node.id === "target",
+			);
+			expect((stored?.data as { label?: string }).label).toBe(
+				"Reptér és szálloda",
+			);
+		});
+	}
+
+	test("a form at the right edge, low on the board, is not left under the overview or the zoom control", async ({
 		page,
-		"Reveal none",
-		board("chart", { x: 60, y: 80 }, 360),
-	);
-	const before = await settledCamera(page);
-	await openForm(page, "chart");
-	await page.waitForTimeout(600);
-	expectCamera(
-		await cameraOf(page),
-		before,
-		"the camera is the reader's: nothing moves it when the form already fits",
-	);
-	await expectFormReachable(page, "with the form near the top");
-});
+	}) => {
+		// The chart's right edge is within the pane's last 100 px: its Save (the form's
+		// bottom right) lands where the overview and the zoom control are.
+		await openBoardWithId(
+			page,
+			"Reveal right",
+			board("chart", { x: rightX, y: 420 }, 360),
+		);
+		await openForm(page, "chart");
+		await settledCamera(page);
+		await expectFormReachable(page, "after the form opened at the right edge");
+	});
+
+	test("a form that opens where it can be used does not move the board", async ({
+		page,
+	}) => {
+		await openBoardWithId(
+			page,
+			"Reveal none",
+			board("chart", { x: 60, y: 80 }, 360),
+		);
+		const before = await settledCamera(page);
+		await openForm(page, "chart");
+		await page.waitForTimeout(600);
+		expectCamera(
+			await cameraOf(page),
+			before,
+			"the camera is the reader's: nothing moves it when the form already fits",
+		);
+		await expectFormReachable(page, "with the form near the top");
+	});
+}
