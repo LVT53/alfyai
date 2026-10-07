@@ -703,7 +703,9 @@ test.describe("the in-chat artifact card's meta line", () => {
 				// The panel docks beside the chat when the card is opened.
 				await page.getByTestId("artifact-card-head").click();
 				await expect(
-					page.getByRole("complementary", { name: /Weekend plan, Dokumentum$/ }),
+					page.getByRole("complementary", {
+						name: /Weekend plan, Dokumentum$/,
+					}),
 				).toBeVisible({ timeout: 30_000 });
 				const unit = page
 					.getByTestId("artifact-card-head")
@@ -724,7 +726,7 @@ test.describe("the in-chat artifact card's meta line", () => {
 						),
 					).size;
 				});
-				expect(lines, "the lines \"· 1 fül\" is drawn on").toBe(1);
+				expect(lines, 'the lines "· 1 fül" is drawn on').toBe(1);
 
 				// And the line stays in its own column: the open label beside it is
 				// never drawn over, however narrow the panel leaves the card.
@@ -742,13 +744,17 @@ test.describe("the in-chat artifact card's meta line", () => {
 					);
 					// Where the label's own words start (its box has room before them).
 					const words = Array.from(label.childNodes).find(
-						(node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+						(node) =>
+							node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
 					) as Text;
 					const wordsRange = document.createRange();
 					wordsRange.selectNodeContents(words);
 					return textRight - wordsRange.getBoundingClientRect().left;
 				});
-				expect(overlap, "px of the meta line under the open label").toBeLessThanOrEqual(0);
+				expect(
+					overlap,
+					"px of the meta line under the open label",
+				).toBeLessThanOrEqual(0);
 			} finally {
 				await db
 					.update(users)

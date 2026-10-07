@@ -1289,7 +1289,9 @@ describe("MessageEvidenceDetails — what the turn made", () => {
 		await openSources();
 
 		expect(
-			screen.getByRole("heading", { name: "Az eredeti beszélgetésben készült" }),
+			screen.getByRole("heading", {
+				name: "Az eredeti beszélgetésben készült",
+			}),
 		).toBeInTheDocument();
 		expect(screen.queryByText("Ebben a beszélgetésben készült")).toBeNull();
 	});
@@ -1323,9 +1325,7 @@ describe("MessageEvidenceDetails — what the turn made", () => {
 			});
 			await openSources();
 
-			expect(
-				screen.queryByRole("button", { name: /Weekend plan/ }),
-			).toBeNull();
+			expect(screen.queryByRole("button", { name: /Weekend plan/ })).toBeNull();
 			const gone = screen
 				.getByText("Weekend plan")
 				.closest(".evidence-row") as HTMLElement;
@@ -1399,9 +1399,7 @@ describe("MessageEvidenceDetails — what the turn made", () => {
 			});
 			await openSources();
 
-			expect(
-				screen.queryByRole("button", { name: /Weekend plan/ }),
-			).toBeNull();
+			expect(screen.queryByRole("button", { name: /Weekend plan/ })).toBeNull();
 			const row = screen
 				.getByText("Weekend plan")
 				.closest(".evidence-row") as HTMLElement;

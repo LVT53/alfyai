@@ -464,8 +464,14 @@ test.describe("A fork's copied Sources", () => {
 		});
 
 		await openChatAndReload(page, fork.conversation.id);
-		await page.getByRole("button", { name: /^Sources/ }).first().click();
-		await page.getByRole("button", { name: /^Sources/ }).last().click();
+		await page
+			.getByRole("button", { name: /^Sources/ })
+			.first()
+			.click();
+		await page
+			.getByRole("button", { name: /^Sources/ })
+			.last()
+			.click();
 
 		await expect(
 			page.getByRole("group", { name: "Made in the original chat" }),
