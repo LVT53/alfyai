@@ -44,12 +44,17 @@ let {
 let plotRatio = $derived(chartAspectRatio(data.code));
 </script>
 
-{#if editing}
-	<BlockEditForm {id} kind="chart" {data} {onclose} />
-{:else}
+{#snippet plot()}
 	<div class="chart" data-testid="canvas-chart" style:--plot-ratio={plotRatio}>
 		<Chart code={data.code} />
 	</div>
+{/snippet}
+
+{#if editing}
+	<!-- The form takes the plot's place, except on a phone, where it is a sheet and the plot stays. -->
+	<BlockEditForm {id} kind="chart" {data} {onclose}>{@render plot()}</BlockEditForm>
+{:else}
+	{@render plot()}
 {/if}
 
 <style>

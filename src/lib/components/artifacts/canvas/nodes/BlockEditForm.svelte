@@ -10,10 +10,23 @@
  * The block's own schema judges a source (`block-edit.ts`): one it would refuse cannot
  * be saved, and says why. The form is the content module's, loaded with the block, and
  * imports neither the shell nor the flow library (`lazy-nodes.ts`).
+ *
+ * On a phone (CV-B2) the same form is the app's bottom sheet, like the board's other
+ * phone surfaces, and not a form in the block: in the block it is drawn at the board's
+ * zoom (a few pixels tall on a zoomed-out board), and a block low in the pane left its
+ * Save and Cancel below the fold, behind the board's own toolbar. The sheet is at its
+ * own size, its buttons are pinned in its footer, and what the block draws stays where
+ * it is behind it (`children`).
  */
+import type { Snippet } from "svelte";
 import type { Attachment } from "svelte/attachments";
+import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import { LABEL_MAX_CHARS } from "$lib/shared/artifacts/canvas-limits";
+import {
+	isPhoneViewport,
+	watchPhoneViewport,
+} from "$lib/utils/viewport.svelte";
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import {
 	type EditedKind,
@@ -30,6 +43,7 @@ let {
 	data,
 	onclose,
 	overlay = false,
+	children,
 }: {
 	id: string;
 	kind: EditedKind;
@@ -38,6 +52,8 @@ let {
 	onclose: () => void;
 	/** Lies over the top of the block's content, which stays drawn beneath (a block whose content has a state of its own: a running App, a map). Without it the form takes the content's place. */
 	overlay?: boolean;
+	/** What the block draws. On a phone the form is a sheet over the page, and this stays where it is; where the form is in the block and takes its place, it is not drawn. */
+	children?: Snippet;
 } = $props();
 
 const board = useBoardContext();
@@ -68,6 +84,12 @@ let sourceLabel = $derived(
 
 let form = $state<HTMLFormElement | null>(null);
 
+// A phone gets a sheet; a window that is wide (or becomes so) gets the form in the block.
+let phone = $state(isPhoneViewport());
+$effect(() => watchPhoneViewport((now) => (phone = now)));
+// The sheet's Save is outside the form, which it submits by this id.
+const formId = $props.id();
+
 // The title takes the focus when the form shows. The block is on the board and drawn by
 // then (the form opens from a press on it), so there is no waiting for it to appear, and
 // this module imports nothing the editor shares with it but what it must: a shared module
@@ -76,9 +98,13 @@ const focusFirst: Attachment<HTMLInputElement> = (element) => {
 	element.focus();
 };
 
-/** The block's wrapper (the library's own, which takes focus), found before the form goes. */
+/** The block's wrapper (the library's own, which takes focus), found before the form goes: from the form in the block, or from the page when the form is a sheet. */
 function leave(): void {
-	const owner = form?.closest<HTMLElement>(".svelte-flow__node");
+	const owner =
+		form?.closest<HTMLElement>(".svelte-flow__node") ??
+		[...document.querySelectorAll<HTMLElement>(".svelte-flow__node")].find(
+			(node) => node.dataset.id === id,
+		);
 	onclose();
 	owner?.focus();
 }
@@ -113,74 +139,105 @@ const ownKeys: Attachment<HTMLFormElement> = (element) => {
 };
 </script>
 
-<form
-	bind:this={form}
-	class="edit canvas-edit-form nodrag nopan nowheel"
-	class:edit--fill={sourceKind !== null && !overlay}
-	class:edit--overlay={overlay}
-	aria-label={$t("common.edit")}
-	data-testid="canvas-edit-form"
-	data-export-skip
-	onsubmit={(event) => {
-		event.preventDefault();
-		save();
-	}}
-	{@attach ownKeys}
->
-	<label class="edit__field">
-		<span class="edit__label">{$t("artifacts.canvas.edit.title")}</span>
-		<input
-			{@attach focusFirst}
-			type="text"
-			class="edit__input"
-			bind:value={title}
-			maxlength={LABEL_MAX_CHARS}
-			data-testid="canvas-edit-title"
-		/>
-	</label>
-	{#if sourceKind}
-		<label class="edit__field edit__field--grow">
-			<span class="edit__label">{sourceLabel}</span>
-			<textarea
-				class="edit__source"
-				bind:value={source}
-				spellcheck="false"
-				autocapitalize="off"
-				aria-invalid={problem ? "true" : undefined}
-				aria-describedby={problem ? `edit-problem-${id}` : undefined}
-				data-testid="canvas-edit-source"
-			></textarea>
+{#snippet actions()}
+	<button
+		type="button"
+		class={phone ? "btn-secondary" : "edit__button"}
+		data-testid="canvas-edit-cancel"
+		onclick={leave}
+	>
+		{$t("common.cancel")}
+	</button>
+	<button
+		type="submit"
+		form={formId}
+		class={phone ? "btn-primary" : "edit__button edit__button--primary"}
+		disabled={Boolean(problem)}
+		data-testid="canvas-edit-save"
+	>
+		{$t("common.save")}
+	</button>
+{/snippet}
+
+{#snippet formView()}
+	<form
+		bind:this={form}
+		id={formId}
+		class="edit canvas-edit-form nodrag nopan nowheel"
+		class:edit--fill={sourceKind !== null && !overlay && !phone}
+		class:edit--overlay={overlay && !phone}
+		class:edit--sheet={phone}
+		aria-label={$t("common.edit")}
+		data-testid="canvas-edit-form"
+		data-export-skip
+		onsubmit={(event) => {
+			event.preventDefault();
+			save();
+		}}
+		{@attach ownKeys}
+	>
+		<label class="edit__field">
+			<span class="edit__label">{$t("artifacts.canvas.edit.title")}</span>
+			<!-- On a phone the field is not focused for the reader: the keyboard it opens would cover the sheet. -->
+			<input
+				{@attach phone ? undefined : focusFirst}
+				type="text"
+				class="edit__input"
+				bind:value={title}
+				maxlength={LABEL_MAX_CHARS}
+				enterkeyhint="done"
+				data-testid="canvas-edit-title"
+			/>
 		</label>
-	{/if}
-	{#if problem}
-		<p
-			id="edit-problem-{id}"
-			class="edit__problem"
-			role="alert"
-			data-testid="canvas-edit-error"
-		>
-			{problemText}
-		</p>
-	{/if}
-	<div class="edit__actions">
-		<button
-			type="button"
-			class="edit__button"
-			data-testid="canvas-edit-cancel"
-			onclick={leave}
-		>
-			{$t("common.cancel")}
-		</button>
-		<button
-			type="submit"
-			class="edit__button edit__button--primary"
-			disabled={Boolean(problem)}
-			data-testid="canvas-edit-save"
-		>
-			{$t("common.save")}
-		</button>
-	</div>
-</form>
+		{#if sourceKind}
+			<label class="edit__field edit__field--grow">
+				<span class="edit__label">{sourceLabel}</span>
+				<textarea
+					class="edit__source"
+					bind:value={source}
+					spellcheck="false"
+					autocapitalize="off"
+					aria-invalid={problem ? "true" : undefined}
+					aria-describedby={problem ? `edit-problem-${id}` : undefined}
+					data-testid="canvas-edit-source"
+				></textarea>
+			</label>
+		{/if}
+		{#if problem}
+			<p
+				id="edit-problem-{id}"
+				class="edit__problem"
+				role="alert"
+				data-testid="canvas-edit-error"
+			>
+				{problemText}
+			</p>
+		{/if}
+		{#if !phone}
+			<div class="edit__actions">
+				{@render actions()}
+			</div>
+		{/if}
+	</form>
+{/snippet}
+
+{#if phone}
+	{@render children?.()}
+	<!-- z-[150]: the phone shell's own backdrop is at 95, as for the panel's other sheets (AnchoredPopover). -->
+	<DialogShell
+		title={$t("common.edit")}
+		phonePresentation="sheet"
+		zIndexClass="z-[150]"
+		onClose={leave}
+	>
+		{@render formView()}
+		{#snippet footer()}
+			{@render actions()}
+		{/snippet}
+	</DialogShell>
+{:else}
+	{@render formView()}
+{/if}
 
 <style>
 	/* A block that is being changed grows (a chart's form is taller than its plot) and may
@@ -314,5 +371,26 @@ const ownKeys: Attachment<HTMLFormElement> = (element) => {
 			min-width: 76px;
 			height: 44px;
 		}
+	}
+
+	/* On a phone the form is in the sheet, whose body has its own padding, at its own size:
+	   16 px fields (a smaller one makes a phone zoom the page in on it), and a source tall
+	   enough to read. Its buttons are the sheet's footer. */
+	.edit--sheet {
+		padding: 0;
+		font-size: var(--text-sm);
+	}
+
+	.edit--sheet .edit__input,
+	.edit--sheet .edit__source {
+		font-size: 1rem;
+	}
+
+	.edit--sheet .edit__input {
+		min-height: 44px;
+	}
+
+	.edit--sheet .edit__source {
+		min-height: 180px;
 	}
 </style>

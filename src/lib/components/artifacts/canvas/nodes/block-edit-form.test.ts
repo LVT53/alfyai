@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
 import { uiLanguage } from "$lib/stores/settings";
 import type { EditedKind } from "../_lib/block-edit";
@@ -252,5 +258,144 @@ describe("in Hungarian", () => {
 		expect(screen.getByTestId("canvas-edit-error")).toHaveTextContent(
 			"Ez nem maradhat üresen.",
 		);
+	});
+});
+
+// CV-B2: on a phone the form is the app's bottom sheet, like the board's other phone
+// surfaces. In the block it was drawn at the board's zoom (a few pixels tall on a
+// zoomed-out board), and a block low in the pane left its buttons below the fold. The
+// sheet is at its own size, whatever the board does, and its buttons are pinned.
+describe("on a phone", () => {
+	const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
+
+	function setWidth(value: number) {
+		Object.defineProperty(window, "innerWidth", {
+			value,
+			configurable: true,
+			writable: true,
+		});
+	}
+
+	beforeEach(() => setWidth(390));
+	afterEach(() => {
+		if (width) Object.defineProperty(window, "innerWidth", width);
+		else setWidth(1024);
+	});
+
+	it("is a sheet over the page, and nothing of the form is left in the block", async () => {
+		const { container } = mount("chart", chart({ label: "Sales" }));
+		const dialog = await screen.findByRole("dialog", { name: "Edit" });
+		expect(dialog.closest("[data-presentation]")).toHaveAttribute(
+			"data-presentation",
+			"sheet",
+		);
+		expect(within(dialog).getByTestId("canvas-edit-form")).toBeInTheDocument();
+		expect(within(dialog).getByTestId("canvas-edit-title")).toHaveValue(
+			"Sales",
+		);
+		expect(container.querySelector("form")).toBeNull();
+		expect(screen.getAllByRole("form", { name: "Edit" })).toHaveLength(1);
+	});
+
+	it("pins Save and Cancel in the sheet's footer, Cancel first, outside what scrolls", async () => {
+		mount("chart", chart());
+		const footer = await screen.findByTestId("dialog-shell-footer");
+		const buttons = within(footer).getAllByRole("button");
+		expect(buttons.map((button) => button.textContent?.trim())).toEqual([
+			"Cancel",
+			"Save",
+		]);
+		expect(footer.contains(screen.getByTestId("canvas-edit-source"))).toBe(
+			false,
+		);
+		expect(screen.getByTestId("canvas-edit-save")).toBe(buttons[1]);
+		expect(screen.getByTestId("canvas-edit-cancel")).toBe(buttons[0]);
+	});
+
+	it("saves with the footer's Save as ONE write, though the button is outside the form, and Enter in the title saves too", async () => {
+		mount("chart", chart());
+		await fireEvent.input(await screen.findByTestId("canvas-edit-title"), {
+			target: { value: "Visits" },
+		});
+		await fireEvent.click(screen.getByTestId("canvas-edit-save"));
+		expect(updateData).toHaveBeenCalledTimes(1);
+		expect(updateData).toHaveBeenCalledWith("block-1", { label: "Visits" });
+		expect(onclose).toHaveBeenCalledTimes(1);
+
+		updateData.mockClear();
+		await fireEvent.input(screen.getByTestId("canvas-edit-title"), {
+			target: { value: "Visits 2" },
+		});
+		await fireEvent.submit(screen.getByTestId("canvas-edit-form"));
+		expect(updateData).toHaveBeenCalledWith("block-1", { label: "Visits 2" });
+	});
+
+	it("does not save a source its block would refuse, and says why in the sheet", async () => {
+		mount("chart", chart());
+		await fireEvent.input(await screen.findByTestId("canvas-edit-source"), {
+			target: { value: "{ not a chart" },
+		});
+		expect(screen.getByTestId("canvas-edit-error")).toHaveTextContent(
+			"This is not a chart yet",
+		);
+		expect(screen.getByTestId("canvas-edit-save")).toBeDisabled();
+		await fireEvent.click(screen.getByTestId("canvas-edit-save"));
+		expect(updateData).not.toHaveBeenCalled();
+	});
+
+	it("writes nothing on Cancel, on Escape and on a tap on the page behind it", async () => {
+		mount("chart", chart());
+		await fireEvent.input(await screen.findByTestId("canvas-edit-title"), {
+			target: { value: "Changed" },
+		});
+		await fireEvent.click(screen.getByTestId("canvas-edit-cancel"));
+		expect(onclose).toHaveBeenCalledTimes(1);
+		await fireEvent.keyDown(screen.getByTestId("canvas-edit-title"), {
+			key: "Escape",
+		});
+		expect(onclose).toHaveBeenCalledTimes(2);
+		// The sheet's scrim is the button that closes the dialog when the page behind it is tapped.
+		const scrim = document.querySelector(".dialog-sheet__scrim");
+		expect(scrim).not.toBeNull();
+		await fireEvent.click(scrim as Element);
+		expect(onclose).toHaveBeenCalledTimes(3);
+		expect(updateData).not.toHaveBeenCalled();
+	});
+
+	it("does not take the focus into the title: the keyboard it opens would cover the sheet", async () => {
+		mount("chart", chart());
+		const title = await screen.findByTestId("canvas-edit-title");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(title).not.toHaveFocus();
+	});
+
+	it("gives the page back its form where the window is wide: the draft is kept", async () => {
+		const { container } = mount("chart", chart());
+		await fireEvent.input(await screen.findByTestId("canvas-edit-title"), {
+			target: { value: "Half typed" },
+		});
+		setWidth(1280);
+		window.dispatchEvent(new Event("resize"));
+		await waitFor(() => expect(container.querySelector("form")).not.toBeNull());
+		// (The sheet slides away on its own motion, which jsdom does not run: the e2e spec
+		// watches it go.)
+		expect(within(container).getByTestId("canvas-edit-title")).toHaveValue(
+			"Half typed",
+		);
+	});
+
+	it("says it in Hungarian in Hungarian", async () => {
+		uiLanguage.set("hu");
+		mount("chart", chart());
+		expect(
+			await screen.findByRole("dialog", { name: "Szerkesztés" }),
+		).toBeInTheDocument();
+		const footer = screen.getByTestId("dialog-shell-footer");
+		expect(
+			within(footer).getByRole("button", { name: "Mentés" }),
+		).toBeInTheDocument();
+		expect(
+			within(footer).getByRole("button", { name: "Mégse" }),
+		).toBeInTheDocument();
 	});
 });
