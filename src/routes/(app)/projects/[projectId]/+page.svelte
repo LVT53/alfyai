@@ -230,4 +230,5 @@ $effect(() => {
 	filesFailed={projectFilesFailed}
 	onRefresh={() => refreshProjectFiles(data.project.id)}
 	onClose={() => (filesDialogOpen = false)}
+	currentUser={data.user}
 />

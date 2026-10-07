@@ -1,3 +1,4 @@
+import { forgetArtifactTours } from "$lib/client/api/artifact-tours";
 import { clearConversationSessionState } from "$lib/client/conversation-session";
 import { initAvatar } from "$lib/stores/avatar";
 import { clearConversationStore } from "$lib/stores/conversations";
@@ -15,4 +16,6 @@ export function clearClientAccountState(): void {
 	}
 	initAvatar(null);
 	clearConversationSessionState();
+	// What the tours told this page is the signed-out account's.
+	forgetArtifactTours();
 }

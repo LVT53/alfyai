@@ -6,13 +6,26 @@ import {
 	createArtifact,
 	createDocumentArtifact,
 } from "../../src/lib/server/services/artifacts";
+import { createProject } from "../../src/lib/server/services/projects";
 import {
 	boardJson,
 	emptyCanvasBody,
 } from "../../src/lib/shared/artifacts/canvas-body";
 import { testUserId } from "./artifact-canvas-helpers";
-import { panelShell } from "./artifact-tours-helpers";
-import { login, waitForHydration } from "./helpers";
+import {
+	createTourUser,
+	finishTour,
+	panelShell,
+	tourCard,
+	tourRows,
+	watchTourRequests,
+} from "./artifact-tours-helpers";
+import {
+	ensureSidebarExpanded,
+	login,
+	logout,
+	waitForHydration,
+} from "./helpers";
 
 /**
  * The expanded panel over a project's Files dialog (final review RV-F, I-2).
@@ -31,14 +44,6 @@ import { login, waitForHydration } from "./helpers";
 
 const APP_HTML =
 	'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cost splitter</title></head><body><h1>Cost splitter</h1></body></html>';
-
-async function createProject(page: Page, name: string): Promise<string> {
-	const response = await page.request.post("/api/projects", {
-		data: { name },
-	});
-	expect(response.ok(), "creating a project must succeed").toBe(true);
-	return ((await response.json()) as { id: string }).id;
-}
 
 /** A chat of the user's inside the project, with the title a row will quote. */
 async function seedProjectChat(
@@ -60,9 +65,10 @@ async function seedProjectChat(
 }
 
 /** A project whose chat made a Document, an App and a Canvas, and nothing else: no file, no link. */
-async function seedMadeProject(page: Page, userId: string) {
+async function seedMadeProject(userId: string) {
 	const tag = randomUUID().slice(0, 6);
-	const projectId = await createProject(page, `Vienna trip ${tag}`);
+	const projectName = `Vienna trip ${tag}`;
+	const { id: projectId } = await createProject(userId, projectName);
 	const chatId = await seedProjectChat(
 		userId,
 		projectId,
@@ -94,7 +100,7 @@ async function seedMadeProject(page: Page, userId: string) {
 		});
 		if (!result.ok) throw new Error(`could not seed ${kind}: ${result.reason}`);
 	}
-	return { projectId, names, ids: { document: document.id } };
+	return { projectId, projectName, names, ids: { document: document.id } };
 }
 
 async function openProjectPage(page: Page, projectId: string) {
@@ -107,12 +113,17 @@ async function openProjectPage(page: Page, projectId: string) {
 	await waitForHydration(page);
 }
 
-async function openFilesDialog(page: Page, projectId: string) {
-	await openProjectPage(page, projectId);
+/** The Files dialog of the project page the tab is on. */
+async function openFilesDialogHere(page: Page) {
 	await page.getByTestId("project-files-button").click();
 	const dialog = page.getByRole("dialog", { name: "Files" });
 	await expect(dialog).toBeVisible({ timeout: 10_000 });
 	return dialog;
+}
+
+async function openFilesDialog(page: Page, projectId: string) {
+	await openProjectPage(page, projectId);
+	return openFilesDialogHere(page);
 }
 
 function openButton(dialog: Locator, name: string): Locator {
@@ -155,10 +166,7 @@ test.describe("The panel over a project's Files dialog", () => {
 	test("Tab and Shift+Tab stay inside a Document's panel, from the editor", async ({
 		page,
 	}) => {
-		const { projectId, names } = await seedMadeProject(
-			page,
-			await testUserId(),
-		);
+		const { projectId, names } = await seedMadeProject(await testUserId());
 		const dialog = await openFilesDialog(page, projectId);
 		await openButton(dialog, names.document).click();
 		const editor = page.locator(".document-editor-host .ProseMirror");
@@ -173,10 +181,7 @@ test.describe("The panel over a project's Files dialog", () => {
 	test("Tab and Shift+Tab stay inside a Canvas's panel, from the board's controls", async ({
 		page,
 	}) => {
-		const { projectId, names } = await seedMadeProject(
-			page,
-			await testUserId(),
-		);
+		const { projectId, names } = await seedMadeProject(await testUserId());
 		const dialog = await openFilesDialog(page, projectId);
 		await openButton(dialog, names.canvas).click();
 		await expect(page.getByTestId("canvas-board")).toBeVisible({
@@ -191,10 +196,7 @@ test.describe("The panel over a project's Files dialog", () => {
 	test("one Escape closes the panel and not the dialog under it, and gives focus back to the row", async ({
 		page,
 	}) => {
-		const { projectId, names } = await seedMadeProject(
-			page,
-			await testUserId(),
-		);
+		const { projectId, names } = await seedMadeProject(await testUserId());
 		const dialog = await openFilesDialog(page, projectId);
 		const open = openButton(dialog, names.document);
 		await open.click();
@@ -222,10 +224,7 @@ test.describe("The panel over a project's Files dialog", () => {
 	test("Escape from a Canvas's controls closes the panel and not the dialog under it", async ({
 		page,
 	}) => {
-		const { projectId, names } = await seedMadeProject(
-			page,
-			await testUserId(),
-		);
+		const { projectId, names } = await seedMadeProject(await testUserId());
 		const dialog = await openFilesDialog(page, projectId);
 		const open = openButton(dialog, names.canvas);
 		await open.click();
@@ -246,10 +245,7 @@ test.describe("The panel over a project's Files dialog", () => {
 	test("the layers close one at a time, the topmost first: the Download popover, the panel, the dialog", async ({
 		page,
 	}) => {
-		const { projectId, names } = await seedMadeProject(
-			page,
-			await testUserId(),
-		);
+		const { projectId, names } = await seedMadeProject(await testUserId());
 		const dialog = await openFilesDialog(page, projectId);
 		const open = openButton(dialog, names.document);
 		await open.click();
@@ -290,10 +286,7 @@ test.describe("The panel over a project's Files dialog — phone", () => {
 	test("a tap opens the item over the sheet, Tab stays in the phone panel and one Escape closes only it", async ({
 		page,
 	}) => {
-		const { projectId, names } = await seedMadeProject(
-			page,
-			await testUserId(),
-		);
+		const { projectId, names } = await seedMadeProject(await testUserId());
 		const dialog = await openFilesDialog(page, projectId);
 		const open = openButton(dialog, names.document);
 		await open.tap();
@@ -310,5 +303,103 @@ test.describe("The panel over a project's Files dialog — phone", () => {
 		await expect(panel).toHaveCount(0);
 		await expect(dialog).toBeVisible();
 		await expect(open).toBeFocused();
+	});
+});
+
+/**
+ * The first-open tours' reader (RV-F, I-3). What the server said about a kind's
+ * tour is kept for the life of the page, and signing out and in are
+ * client-side navigations, so one tab outlives its readers: the panel has to
+ * say whose answers it holds wherever it is hosted, and the sign-out has to
+ * drop them. The project's Files dialog is the host that named no one.
+ */
+test.describe("The tours' reader, where the panel sits over the Files dialog", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+	});
+
+	test("an in-tab sign-out and sign-in gives the next reader their own first tour", async ({
+		page,
+	}) => {
+		const reader = await createTourUser();
+		const nextReader = await createTourUser();
+		const readers = {
+			first: await seedMadeProject(reader.id),
+			next: await seedMadeProject(nextReader.id),
+		};
+
+		// The first reader opens their first Canvas from the Files dialog and
+		// finishes its tour: the page now holds "seen" for Canvas.
+		await login(page, reader.email, reader.password);
+		const dialog = await openFilesDialog(page, readers.first.projectId);
+		await openButton(dialog, readers.first.names.canvas).click();
+		await finishTour(page);
+		await expect
+			.poll(async () => (await tourRows(reader.id)).map((row) => row.status))
+			.toEqual(["completed"]);
+		await page.keyboard.press("Escape");
+		await expect(panelShell(page)).toHaveCount(0);
+		await page.keyboard.press("Escape");
+		await expect(dialog).toHaveCount(0);
+
+		// They sign out through the sidebar and the next reader signs in through
+		// the form, on the same tab: no reload, so the page's memory is the same.
+		await logout(page);
+		await page.fill('input[name="email"]', nextReader.email);
+		await page.fill('input[type="password"]', nextReader.password);
+		await page.click('button[type="submit"]');
+		await expect(page).toHaveURL("/", { timeout: 15_000 });
+		await expect(page.getByTestId("message-input")).toBeVisible();
+
+		// They go in-app to their own project and open their first Canvas ever.
+		const requests = watchTourRequests(page);
+		await ensureSidebarExpanded(page);
+		const row = page
+			.getByTestId("project-drop-target")
+			.filter({ hasText: readers.next.projectName });
+		await row.hover();
+		await row
+			.getByRole("button", { name: `Open ${readers.next.projectName}` })
+			.click();
+		await expect(page).toHaveURL(
+			new RegExp(`/projects/${readers.next.projectId}$`),
+		);
+		const nextDialog = await openFilesDialogHere(page);
+		await openButton(nextDialog, readers.next.names.canvas).click();
+
+		// Their own tour, from their own answer: not the first reader's "seen".
+		await expect(tourCard(page).last()).toBeVisible({ timeout: 20_000 });
+		expect(requests.gets().map((entry) => entry.url)).toEqual([
+			"/api/artifact-tours/canvas",
+		]);
+		expect(await tourRows(nextReader.id)).toHaveLength(0);
+	});
+
+	test("the first-open card is the innermost layer: one Escape skips it, the next closes the panel, the next the dialog", async ({
+		page,
+	}) => {
+		const reader = await createTourUser();
+		const seeded = await seedMadeProject(reader.id);
+		await login(page, reader.email, reader.password);
+		const dialog = await openFilesDialog(page, seeded.projectId);
+		await openButton(dialog, seeded.names.canvas).click();
+		const card = tourCard(page).last();
+		await expect(card).toBeVisible({ timeout: 20_000 });
+		const panel = panelShell(page);
+
+		await page.keyboard.press("Escape");
+		await expect(card).toHaveCount(0);
+		await expect(panel).toHaveCount(1);
+		await expect(dialog).toBeVisible();
+		await expect
+			.poll(async () => (await tourRows(reader.id)).map((row) => row.status))
+			.toEqual(["dismissed"]);
+
+		await page.keyboard.press("Escape");
+		await expect(panel).toHaveCount(0);
+		await expect(dialog).toBeVisible();
+
+		await page.keyboard.press("Escape");
+		await expect(dialog).toHaveCount(0);
 	});
 });

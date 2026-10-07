@@ -50,6 +50,12 @@ export function keepArtifactToursFor(userId: string | null | undefined): void {
 	kept.clear();
 }
 
+/** Forgets everything this page load was told and whose it was: the account the tab was signed in to is gone (`clearClientAccountState`), so what its reader had seen is no one's. A host that names no reader cannot tell the next account from this one, which is why this is not left to `keepArtifactToursFor`. */
+export function forgetArtifactTours(): void {
+	kept.clear();
+	keptFor = undefined;
+}
+
 /** One round trip to the route. `ok` is the wire shape's success marker (ruling 49), not part of what a caller wants, so it is read here and left behind — as `fetchArtifact` does. */
 async function ask(
 	artifactType: ShippedArtifactTourType,

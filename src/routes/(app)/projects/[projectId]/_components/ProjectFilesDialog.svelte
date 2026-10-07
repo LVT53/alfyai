@@ -80,6 +80,16 @@ interface Props {
 	/** The route re-reads the project's files and updates its own state. */
 	onRefresh: () => Promise<void>;
 	onClose: () => void;
+	/**
+	 * Who is reading, named to the panel the items open in: the first-open tours
+	 * keep what they were told for the life of the page, and it has to be this
+	 * reader's. Also what puts their own picture on a comment they write there.
+	 */
+	currentUser?: {
+		id: string;
+		displayName: string;
+		profilePicture: string | null;
+	} | null;
 }
 
 let {
@@ -90,6 +100,7 @@ let {
 	filesFailed,
 	onRefresh,
 	onClose,
+	currentUser = null,
 }: Props = $props();
 
 let searchQuery = $state("");
@@ -532,6 +543,7 @@ $effect(() => {
 		onSelectDocument={(documentId) => (activeWorkspaceDocumentId = documentId)}
 		onCloseDocument={closeWorkspaceDocument}
 		onCloseWorkspace={closeWorkspace}
+		{currentUser}
 	/>
 {/if}
 

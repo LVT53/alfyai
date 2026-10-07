@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { keepArtifactToursFor } from "$lib/client/api/artifact-tours";
 import { ARTIFACT_BODIES } from "$lib/components/artifacts/artifact-bodies";
 import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import { uiLanguage } from "$lib/stores/settings";
@@ -11,6 +12,17 @@ vi.mock("$lib/client/api/projects", () => ({
 	linkProjectFiles: vi.fn(async () => []),
 	unlinkProjectFile: vi.fn(async () => true),
 }));
+
+// The panel asks which reader the tours' kept answers are for before it asks
+// for a tour: a spy on that one call, everything else the real module.
+vi.mock("$lib/client/api/artifact-tours", async (importOriginal) => {
+	const original =
+		await importOriginal<typeof import("$lib/client/api/artifact-tours")>();
+	return {
+		...original,
+		keepArtifactToursFor: vi.fn(original.keepArtifactToursFor),
+	};
+});
 
 vi.mock("$lib/client/api/knowledge", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/client/api/knowledge")>()),
@@ -55,7 +67,15 @@ function madeItem(
 
 function open(
 	files: ProjectKnowledgeItem[] | null,
-	options: { filesFailed?: boolean; onRefresh?: () => Promise<void> } = {},
+	options: {
+		filesFailed?: boolean;
+		onRefresh?: () => Promise<void>;
+		currentUser?: {
+			id: string;
+			displayName: string;
+			profilePicture: string | null;
+		} | null;
+	} = {},
 ) {
 	return render(ProjectFilesDialog, {
 		props: {
@@ -66,6 +86,7 @@ function open(
 			filesFailed: options.filesFailed ?? false,
 			onRefresh: options.onRefresh ?? (async () => undefined),
 			onClose: () => undefined,
+			currentUser: options.currentUser ?? null,
 		},
 	});
 }
@@ -344,6 +365,27 @@ describe("ProjectFilesDialog: what the chats made", () => {
 		expect(body.dataset.kind).toBe("document");
 		expect(body.dataset.artifactId).toBe("doc-1");
 		expect(screen.getAllByRole("dialog")).toHaveLength(1);
+	});
+
+	it("names the reader to the panel it opens an item in, so the tours' answers are theirs", async () => {
+		open([madeItem()], {
+			currentUser: {
+				id: "reader-1",
+				displayName: "Reader",
+				profilePicture: null,
+			},
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open Vienna notes" }),
+		);
+		await screen.findByRole("complementary", {
+			name: "Vienna notes, Document",
+		});
+
+		await vi.waitFor(() =>
+			expect(keepArtifactToursFor).toHaveBeenCalledWith("reader-1"),
+		);
 	});
 
 	it("offers no unlink on an item that is here only through its chat, and one on a linked item", () => {
