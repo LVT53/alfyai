@@ -62,13 +62,14 @@ describe("the block data schemas (ruling 64)", () => {
 		expect(isBlockKind("toString")).toBe(false);
 	});
 
-	it("lets the model create the five note-shaped kinds and no other", () => {
+	it("lets the model create the five note-shaped kinds and a diagram (ruling 74), and no other", () => {
 		expect([...MODEL_CREATABLE_KINDS]).toEqual([
 			"frame",
 			"sticky",
 			"text",
 			"checklist",
 			"chart",
+			"mermaid",
 		]);
 		for (const kind of MODEL_CREATABLE_KINDS)
 			expect(isBlockKind(kind)).toBe(true);

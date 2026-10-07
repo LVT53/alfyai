@@ -328,7 +328,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
           },
           "body": {
             "type": "string",
-            "description": "Documents: Markdown. Apps: the HTML document. Canvas: the board as JSON, e.g. {\"nodes\":[{\"id\":\"sat\",\"type\":\"frame\",\"position\":{\"x\":40,\"y\":40},\"data\":{\"kind\":\"frame\",\"label\":\"Saturday\",\"width\":300,\"height\":240}},{\"id\":\"museum\",\"type\":\"sticky\",\"parentId\":\"sat\",\"position\":{\"x\":20,\"y\":60},\"data\":{\"kind\":\"sticky\",\"text\":\"Museum, 10:00\",\"tone\":\"yellow\"}},{\"id\":\"lunch\",\"type\":\"sticky\",\"parentId\":\"sat\",\"position\":{\"x\":20,\"y\":150},\"data\":{\"kind\":\"sticky\",\"text\":\"Lunch at the market\",\"tone\":\"mint\"}}],\"edges\":[{\"id\":\"e1\",\"source\":\"museum\",\"target\":\"lunch\"}]} — or {} for an empty board. Edges go in \"edges\", never in \"nodes\". Sizes: a block you add is 190 wide (a checklist 340, a chart 360, a frame the size you give it); a note is 64 tall for up to two lines (about 18 characters a line), plus 18 for each further line; a checklist is 74 plus 26 an item; a chart is 228 tall (397 for a pie, doughnut, radar or polar chart). Leave 10 or more between blocks, and make each frame big enough for its blocks."
+            "description": "Documents: Markdown. Apps: the HTML document. Canvas: the board as JSON, e.g. {\"nodes\":[{\"id\":\"sat\",\"type\":\"frame\",\"position\":{\"x\":40,\"y\":40},\"data\":{\"kind\":\"frame\",\"label\":\"Saturday\",\"width\":300,\"height\":240}},{\"id\":\"museum\",\"type\":\"sticky\",\"parentId\":\"sat\",\"position\":{\"x\":20,\"y\":60},\"data\":{\"kind\":\"sticky\",\"text\":\"Museum, 10:00\",\"tone\":\"yellow\"}},{\"id\":\"lunch\",\"type\":\"sticky\",\"parentId\":\"sat\",\"position\":{\"x\":20,\"y\":150},\"data\":{\"kind\":\"sticky\",\"text\":\"Lunch at the market\",\"tone\":\"mint\"}}],\"edges\":[{\"id\":\"e1\",\"source\":\"museum\",\"target\":\"lunch\"}]} — or {} for an empty board. Edges go in \"edges\", never in \"nodes\". Sizes: a block you add is 190 wide (a checklist 340, a chart 360, a diagram 480, a frame the size you give it); a note is 64 tall for up to two lines (about 18 characters a line), plus 18 for each further line; a checklist is 74 plus 26 an item; a chart is 228 tall (397 for a pie, doughnut, radar or polar chart). Leave 10 or more between blocks, and make each frame big enough for its blocks; or leave a block's position out and it is placed in its parentId frame's next free place (the frame grows to fit)."
           }
         },
         "required": [
@@ -368,7 +368,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "edit_artifact",
-      "description": "Change a Document, App or Canvas item you already made, addressed by the id from create_artifact or read_artifact. Do not use it before reading the item first — call read_artifact and use the baseHash it just gave you; a refusal usually means the user edited that part since you last read it, so tell them rather than retrying the same patch. Documents: send patches, one op per block, each with the baseHash you read. Canvas: send ops, one per change to the board, addressing nodes and edges by the ids read_artifact gave (there is no baseHash) — at most 40 ops and 24 new nodes. A frame goes earlier in the list than what goes inside it. Sizes: a block you add is 190 wide (a checklist 340, a chart 360, a frame the size you give it); a note is 64 tall for up to two lines (about 18 characters a line), plus 18 for each further line; a checklist is 74 plus 26 an item; a chart is 228 tall (397 for a pie, doughnut, radar or polar chart). Keep blocks apart and inside their frame (update_node can enlarge a frame). A block's kind cannot change: remove it and add a new one. Apps are not edited here — make a new App with the changes instead. Example: {\"artifactId\":\"a1\",\"patches\":[{\"op\":\"replaceBlock\",\"blockId\":\"b3\",\"baseHash\":\"9f2c1a04\",\"text\":\"New text for this block.\"}]}. Canvas example: {\"artifactId\":\"a2\",\"ops\":[{\"op\":\"add_frame\",\"id\":\"sun\",\"label\":\"Sunday\",\"position\":{\"x\":40,\"y\":480},\"size\":{\"width\":360,\"height\":260}},{\"op\":\"add_node\",\"node\":{\"id\":\"brunch\",\"type\":\"sticky\",\"parentId\":\"sun\",\"position\":{\"x\":20,\"y\":60},\"data\":{\"kind\":\"sticky\",\"text\":\"Brunch, 10:30\",\"tone\":\"yellow\"}}},{\"op\":\"add_edge\",\"edge\":{\"id\":\"e2\",\"source\":\"brunch\",\"target\":\"note-museum\"}},{\"op\":\"move\",\"id\":\"note-museum\",\"to\":{\"x\":500,\"y\":140}}],\"summary\":\"Planned Sunday\"}. A batch applies partially: whatever it can, it does, and each refused op comes back with its own reason, so tell the user what changed and what did not rather than assuming the whole thing landed. Never make a new item to work around a refused edit — tell the user instead.",
+      "description": "Change a Document, App or Canvas item you already made, addressed by the id from create_artifact or read_artifact. Do not use it before reading the item first — call read_artifact and use the baseHash it just gave you; a refusal usually means the user edited that part since you last read it, so tell them rather than retrying the same patch. Documents: send patches, one op per block, each with the baseHash you read. Canvas: send ops, one per change to the board, addressing nodes and edges by the ids read_artifact gave (there is no baseHash) — at most 40 ops and 24 new nodes. A frame goes earlier in the list than what goes inside it. Sizes: a block you add is 190 wide (a checklist 340, a chart 360, a diagram 480, a frame the size you give it); a note is 64 tall for up to two lines (about 18 characters a line), plus 18 for each further line; a checklist is 74 plus 26 an item; a chart is 228 tall (397 for a pie, doughnut, radar or polar chart). Leave position out and the block is placed for you (beside near, else in its parentId frame, else on free ground); a position you give is kept if free, else moved. A block's kind cannot change: remove it and add a new one. Apps are not edited here — make a new App with the changes instead. Example: {\"artifactId\":\"a1\",\"patches\":[{\"op\":\"replaceBlock\",\"blockId\":\"b3\",\"baseHash\":\"9f2c1a04\",\"text\":\"New text for this block.\"}]}. Canvas example: {\"artifactId\":\"a2\",\"ops\":[{\"op\":\"add_frame\",\"id\":\"sun\",\"label\":\"Sunday\",\"position\":{\"x\":40,\"y\":480},\"size\":{\"width\":360,\"height\":260}},{\"op\":\"add_node\",\"node\":{\"id\":\"brunch\",\"type\":\"sticky\",\"parentId\":\"sun\",\"position\":{\"x\":20,\"y\":60},\"data\":{\"kind\":\"sticky\",\"text\":\"Brunch, 10:30\",\"tone\":\"yellow\"}}},{\"op\":\"add_edge\",\"edge\":{\"id\":\"e2\",\"source\":\"brunch\",\"target\":\"note-museum\"}},{\"op\":\"move\",\"id\":\"note-museum\",\"to\":{\"x\":500,\"y\":140}}],\"summary\":\"Planned Sunday\"}. A batch applies partially: whatever it can, it does, and each refused op comes back with its own reason, so tell the user what changed and what did not rather than assuming the whole thing landed. Never make a new item to work around a refused edit — tell the user instead.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -592,6 +592,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                       "description": "The frame's title."
                     },
                     "position": {
+                      "description": "The frame's top-left corner, in board coordinates. Leave it out and the frame is placed on free ground.",
                       "type": "object",
                       "properties": {
                         "x": {
@@ -604,8 +605,12 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                       "required": [
                         "x",
                         "y"
-                      ],
-                      "description": "The frame's top-left corner, in board coordinates."
+                      ]
+                    },
+                    "near": {
+                      "description": "The id of a block to put this one beside: to its right, else under it, in its frame if it has one. Leave position out when you use it.",
+                      "type": "string",
+                      "maxLength": 128
                     },
                     "size": {
                       "type": "object",
@@ -630,7 +635,6 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                     "op",
                     "id",
                     "label",
-                    "position",
                     "size"
                   ]
                 },
@@ -651,7 +655,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                         },
                         "type": {
                           "type": "string",
-                          "description": "The block kind: one of frame, sticky, text, checklist, chart. It must equal data.kind."
+                          "description": "The block kind: one of frame, sticky, text, checklist, chart, mermaid. It must equal data.kind."
                         },
                         "parentId": {
                           "description": "The id of a frame: the node then sits inside it and position is relative to the frame's top-left corner.",
@@ -659,6 +663,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                           "maxLength": 128
                         },
                         "position": {
+                          "description": "Board coordinates, or relative to the frame's top-left corner when parentId is set. Leave it out and the block is placed for you: beside near, else in the next free place of its parentId frame (the frame grows to fit), else on free ground.",
                           "type": "object",
                           "properties": {
                             "x": {
@@ -671,8 +676,12 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                           "required": [
                             "x",
                             "y"
-                          ],
-                          "description": "Board coordinates, or relative to the frame's top-left corner when parentId is set."
+                          ]
+                        },
+                        "near": {
+                          "description": "The id of a block to put this one beside: to its right, else under it, in its frame if it has one. Leave position out when you use it.",
+                          "type": "string",
+                          "maxLength": 128
                         },
                         "data": {
                           "oneOf": [
@@ -813,6 +822,32 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                                 "kind",
                                 "code"
                               ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "mermaid"
+                                },
+                                "label": {
+                                  "type": "string",
+                                  "maxLength": 500
+                                },
+                                "subtitle": {
+                                  "type": "string",
+                                  "maxLength": 500
+                                },
+                                "code": {
+                                  "type": "string",
+                                  "maxLength": 50000,
+                                  "description": "Mermaid source as in a chat reply's ```mermaid fence, without the fence: a flowchart, sequence, state, class, ER, gantt or pie diagram. Quote a label that has ( ) : or \" in it."
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "code"
+                              ]
                             }
                           ]
                         }
@@ -820,7 +855,6 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                       "required": [
                         "id",
                         "type",
-                        "position",
                         "data"
                       ]
                     }

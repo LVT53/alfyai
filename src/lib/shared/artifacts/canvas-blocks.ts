@@ -9,7 +9,7 @@
  * does not read (they are stripped, never fatal: a board that is a version
  * behind still opens) and strict about the fields it does read. What the MODEL
  * writes goes through `modelCreatableBlockDataSchema`, the strict variants of
- * the five note-shaped kinds: a misspelt field is refused by name instead of
+ * the six kinds it may add: a misspelt field is refused by name instead of
  * being stripped into an op that "worked" and changed nothing.
  */
 import { z } from "zod";
@@ -23,6 +23,7 @@ import {
 	SOURCES_MAX,
 	TEXT_MAX_CHARS,
 } from "./canvas-limits";
+import { estimatedDiagramHeight } from "./mermaid-size";
 import type { ArtifactSource } from "./sources";
 
 // ── Limits ───────────────────────────────────────────────────────────────
@@ -186,10 +187,10 @@ function estimatedNodeWidth(node: SizedNode): number {
 
 /**
  * The height a block is drawn at: the one it stores, a frame's own, or an
- * estimate from its words (a note, a text), its items (a checklist) or its plot
- * (a chart). The kinds whose height the app decides (a map, a file, an App,
- * photos, a web search, a diagram: it is as tall as what Mermaid draws) are left
- * at `DEFAULT_NODE_HEIGHT`.
+ * estimate from its words (a note, a text), its items (a checklist), its plot
+ * (a chart) or its layout (a diagram: `mermaid-size.ts` reads the source the way
+ * Mermaid lays it out). The kinds whose height the app decides (a map, a file, an
+ * App, photos, a web search) are left at `DEFAULT_NODE_HEIGHT`.
  */
 export function estimatedNodeHeight(node: SizedNode): number {
 	if (node.height !== undefined) return node.height;
@@ -215,6 +216,8 @@ export function estimatedNodeHeight(node: SizedNode): number {
 				CHART_CHROME_HEIGHT +
 					Math.max(0, width - CHART_SIDE_INSET) / chartAspectRatio(data.code),
 			);
+		case "mermaid":
+			return estimatedDiagramHeight(data.code, width);
 		default:
 			return DEFAULT_NODE_HEIGHT;
 	}
@@ -253,7 +256,7 @@ const posterRefSchema = z.object({
 
 export type PosterRef = z.infer<typeof posterRefSchema>;
 
-// ── The five note-shaped kinds ───────────────────────────────────────────
+// ── The six kinds Alfy may write: five note-shaped, and a diagram ────────
 
 const frameDataSchema = z.object({
 	kind: z.literal("frame"),
@@ -286,7 +289,13 @@ const mermaidDataSchema = z.object({
 	label: labelSchema.optional(),
 	subtitle: labelSchema.optional(),
 	/** The chat's diagram fence body: Mermaid source, passed to `Mermaid.svelte` exactly as the chat does. */
-	code: z.string().min(1).max(MERMAID_CODE_MAX_CHARS),
+	code: z
+		.string()
+		.min(1)
+		.max(MERMAID_CODE_MAX_CHARS)
+		.describe(
+			"Mermaid source as in a chat reply's ```mermaid fence, without the fence: a flowchart, sequence, state, class, ER, gantt or pie diagram. Quote a label that has ( ) : or \" in it.",
+		),
 });
 
 const checklistDataSchema = z.object({
@@ -521,14 +530,15 @@ export function isBlockKind(value: unknown): value is BlockKind {
 }
 
 /**
- * What the model may add to a board (ruling 64): the five kinds that carry
- * only what it can write. The others carry app-owned references (a file, an
- * App, a route, a photo, a fetched page) it cannot mint, or what the chat drew (a
- * diagram), so the user places those, and an `add_node` of one is refused
- * `unknown_kind`. Strict variants of
- * the stored schemas: what the model writes must not carry a field the block
- * does not read, or a misspelt one would be stripped into an op that "worked"
- * and changed nothing.
+ * What the model may add to a board (ruling 64, amended by ruling 74): the six
+ * kinds that carry only what it can write — the five note-shaped ones, and a
+ * diagram, whose Mermaid source it writes exactly as it does in a chat reply
+ * and which the board draws with the chat's own component. The others carry
+ * app-owned references (a file, an App, a route, a photo, a fetched page) it
+ * cannot mint, so the user places those, and an `add_node` of one is refused
+ * `unknown_kind`. Strict variants of the stored schemas: what the model writes
+ * must not carry a field the block does not read, or a misspelt one would be
+ * stripped into an op that "worked" and changed nothing.
  */
 export const MODEL_CREATABLE_DATA_SCHEMAS = {
 	frame: frameDataSchema.strict(),
@@ -536,6 +546,7 @@ export const MODEL_CREATABLE_DATA_SCHEMAS = {
 	text: textDataSchema.strict(),
 	checklist: checklistDataSchema.strict(),
 	chart: chartDataSchema.strict(),
+	mermaid: mermaidDataSchema.strict(),
 } as const;
 
 export type ModelCreatableKind = keyof typeof MODEL_CREATABLE_DATA_SCHEMAS;
@@ -555,20 +566,19 @@ export function isModelCreatableKind(
 
 /**
  * What the model may change on a block that is already on the board (ruling 67).
- * The five note-shaped kinds are the model's own words, so every field of them
+ * The six kinds the model may add are its own words, so every field of them
  * (but `kind`). The other five carry what the app vouches for — the search a web
  * block claims to be, the photos, the file, the App a block shows, a map's route,
  * and any block's poster — and those are set only by the app (the Insert menu,
  * Refresh, the poster capture): a turn that could rewrite them could plant its
  * own links, dressed as the app's search result with a fresh "Updated" line, and
  * every source's favicon would then contact whatever host it names on each open.
- * On them the model may change the descriptive part only. So it may on a diagram
- * (a Mermaid block the reader inserted from what the chat drew): it may name it,
- * and the drawing itself stays the chat's.
+ * On them the model may change the descriptive part only. (A diagram is not one
+ * of the five: ruling 74 made it the model's own words, so every field of it is
+ * the model's to change, its source included.)
  */
 const APP_OWNED_UPDATABLE_FIELDS = {
 	map: ["label", "route", "meta"],
-	mermaid: ["label", "subtitle"],
 	file: [],
 	app: ["title"],
 	photo: [],
@@ -584,14 +594,45 @@ export function modelUpdatableFields(kind: BlockKind): readonly string[] {
 	return APP_OWNED_UPDATABLE_FIELDS[kind];
 }
 
-/** The advertised and the executed `data` of an `add_node`: one union of the five. */
+/** The advertised and the executed `data` of an `add_node`: one union of the six. */
 export const modelCreatableBlockDataSchema = z.discriminatedUnion("kind", [
 	MODEL_CREATABLE_DATA_SCHEMAS.frame,
 	MODEL_CREATABLE_DATA_SCHEMAS.sticky,
 	MODEL_CREATABLE_DATA_SCHEMAS.text,
 	MODEL_CREATABLE_DATA_SCHEMAS.checklist,
 	MODEL_CREATABLE_DATA_SCHEMAS.chart,
+	MODEL_CREATABLE_DATA_SCHEMAS.mermaid,
 ]);
+
+/**
+ * What a diagram's source may not carry when the MODEL writes it (ruling 74, on
+ * the reasoning of ruling 67). The board draws it with the chat's own component
+ * under the chat's own security settings (`securityLevel: "strict"`, labels as
+ * SVG text, the SVG through the app's sanitizer), and what the chat draws from a
+ * reply is by nature the model's words. But a board keeps them, and draws them
+ * again on every open, so what asks the reader's browser to fetch an address, or
+ * hands them a link inside the picture, is not written onto one: an image or icon
+ * shape (Mermaid fetches the picture while it draws, before any sanitizer
+ * runs), a `click` line (it makes a box a link), a `%%{ … }%%` directive (it
+ * reconfigures the renderer the app has configured), a web address. What the
+ * reader inserts from the chat is the chat's own and is not judged here.
+ */
+const MERMAID_SOURCE_REFUSALS: ReadonlyArray<readonly [RegExp, string]> = [
+	[/@\{[^}]*\b(?:img|icon)\b/i, "an image or icon shape"],
+	[/^\s*click\s/im, "a click line"],
+	[/%%\s*\{/, "a %%{ … }%% directive"],
+	[/\bhttps?:\/\//i, "a web address"],
+];
+
+/** What is wrong with a diagram source the model wrote, in a sentence it can act on, or null. */
+export function mermaidSourceProblem(code: string): string | null {
+	for (const [pattern, what] of MERMAID_SOURCE_REFUSALS) {
+		if (pattern.test(code)) {
+			return `a diagram's source may not contain ${what}: the board draws boxes, arrows and words, and anything that loads or links an address would reach whoever opens it. Write the diagram without it.`;
+		}
+	}
+	return null;
+}
 
 // ── The ids of a block's own entries (RV-3 C1) ───────────────────────────
 

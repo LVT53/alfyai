@@ -342,22 +342,67 @@ describe("parseCanvasCreateBody — the board a create_artifact call carries", (
 			expect(error).toContain('"edges"');
 		});
 
-		it("a node that is not an object, and one missing its position", () => {
+		it("a node that is not an object, one missing its data, and a position or a near that is not what it is", () => {
 			expect(refusal(body(["sticky"]))).toMatch(/nodes\[0\]/);
 			const error = refusal(
+				body([{ id: "n1", type: "sticky", position: { x: 1, y: 2 } }]),
+			);
+			expect(error).toContain('nodes[0] "n1"');
+			expect(error).toMatch(/data/);
+			const slipped = refusal(
 				body([
 					{
-						id: "n1",
+						id: "n2",
 						type: "sticky",
+						position: { x: "left", y: 2 },
+						near: 7,
 						data: { kind: "sticky", text: "t", tone: "plain" },
 					},
 				]),
 			);
-			expect(error).toContain('nodes[0] "n1"');
-			expect(error).toMatch(/position/);
+			expect(slipped).toMatch(/position/);
+			expect(slipped).toMatch(/near/);
 		});
 
-		it("a block the model may not make, naming the five it may", () => {
+		it("a block that names no place is placed, in its frame's next free place, and next to the block it names", () => {
+			const made = parseCanvasCreateBody(
+				body([
+					{
+						id: "f",
+						type: "frame",
+						position: { x: 40, y: 40 },
+						data: { kind: "frame", label: "Day", width: 460, height: 260 },
+					},
+					{
+						id: "a",
+						type: "sticky",
+						parentId: "f",
+						data: { kind: "sticky", text: "First", tone: "plain" },
+					},
+					{
+						id: "b",
+						type: "sticky",
+						parentId: "f",
+						data: { kind: "sticky", text: "Second", tone: "plain" },
+					},
+					{
+						id: "c",
+						type: "sticky",
+						near: "a",
+						data: { kind: "sticky", text: "Beside the first", tone: "plain" },
+					},
+				]),
+			);
+			expect(made.ok).toBe(true);
+			if (!made.ok) return;
+			const at = (id: string) => made.body.nodes.find((n) => n.id === id);
+			expect(at("a")?.position).toEqual({ x: 20, y: 56 });
+			expect(at("b")?.position).toEqual({ x: 234, y: 56 });
+			expect(at("c")?.parentId).toBe("f");
+			expect(at("c")?.position).toEqual({ x: 20, y: 144 });
+		});
+
+		it("a block the model may not make, naming the six it may", () => {
 			const error = refusal(
 				body([
 					sticky("ok"),
@@ -370,7 +415,14 @@ describe("parseCanvasCreateBody — the board a create_artifact call carries", (
 				]),
 			);
 			expect(error).toContain('nodes[1] "m1"');
-			for (const kind of ["frame", "sticky", "text", "checklist", "chart"]) {
+			for (const kind of [
+				"frame",
+				"sticky",
+				"text",
+				"checklist",
+				"chart",
+				"mermaid",
+			]) {
 				expect(error).toContain(kind);
 			}
 		});

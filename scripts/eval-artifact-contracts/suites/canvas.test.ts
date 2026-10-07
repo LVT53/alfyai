@@ -661,25 +661,23 @@ describe("scoring — the rubric on the board an edit leaves", () => {
 		).toMatch(/request: no new frame is labelled for Sunday/);
 	});
 
-	it("fails a Sunday frame that sits on the Saturday one, and notes that overflow their frame", () => {
+	it("does not fail a Sunday frame laid on the Saturday one, nor notes that overflow their frame: the app moves the one and grows the other (ruling 74), and the board it leaves is what is judged", () => {
 		const onSaturday = HONEST_EDITS["canvas-add-sunday"].map((op) =>
 			(op as { op: string }).op === "add_frame"
 				? { ...(op as object), position: { x: 60, y: 60 } }
 				: op,
 		);
-		expect(
-			score("canvas-add-sunday", editAnswer(onSaturday)).reasons.join(" "),
-		).toMatch(
-			/overlap: .*frame "sun" covers frame "sat"|overlap: .*"sat".*"sun"/,
-		);
+		expect(score("canvas-add-sunday", editAnswer(onSaturday)).reasons).toEqual([
+			expect.stringMatching(/^ok:/),
+		]);
 		const small = HONEST_EDITS["canvas-add-sunday"].map((op) =>
 			(op as { op: string }).op === "add_frame"
 				? { ...(op as object), size: { width: 300, height: 150 } }
 				: op,
 		);
-		expect(
-			score("canvas-add-sunday", editAnswer(small)).reasons.join(" "),
-		).toMatch(/frames: .*sticks out of frame "sun"/);
+		expect(score("canvas-add-sunday", editAnswer(small)).reasons).toEqual([
+			expect.stringMatching(/^ok:/),
+		]);
 	});
 
 	it("fails a note with no words", () => {
@@ -801,6 +799,8 @@ describe("scoring — a board made through create_artifact", () => {
 		expect(flat.reasons.join(" ")).toMatch(/request: the board has no frame/);
 		expect(flat.reasons.join(" ")).toMatch(/request: 1 block\(s\) with words/);
 
+		// A note the body lays on another is moved clear of it by the app (ruling 74),
+		// so it is not a miss.
 		const piled = HONEST_CREATES["canvas-create-vienna-en"] as {
 			nodes: Array<{ id: string; position: object }>;
 		};
@@ -811,10 +811,8 @@ describe("scoring — a board made through create_artifact", () => {
 			),
 		};
 		expect(
-			score("canvas-create-vienna-en", createAnswer(overlapped)).reasons.join(
-				" ",
-			),
-		).toMatch(/overlap:/);
+			score("canvas-create-vienna-en", createAnswer(overlapped)).reasons,
+		).toEqual([expect.stringMatching(/^ok:/)]);
 
 		const wrongLanguage = score(
 			"canvas-create-vienna-hu",

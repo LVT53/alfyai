@@ -23,7 +23,7 @@ import {
 	boardOpsArraySchema,
 	validateBoardDiff,
 } from "$lib/shared/artifacts/board-ops";
-import type { CanvasBody } from "$lib/shared/artifacts/canvas";
+import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import {
 	defaultNodeWidth,
 	estimatedNodeSize,
@@ -253,7 +253,7 @@ describe("create_artifact.canvas", () => {
 		).toHaveLength(0);
 	});
 
-	it("refuses a block the model may not make, names the five it may, and writes nothing", async () => {
+	it("refuses a block the model may not make, names the six it may, and writes nothing", async () => {
 		const result = await createBoard(
 			JSON.stringify({
 				nodes: [
@@ -268,7 +268,14 @@ describe("create_artifact.canvas", () => {
 		);
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
-		for (const kind of ["frame", "sticky", "text", "checklist", "chart"]) {
+		for (const kind of [
+			"frame",
+			"sticky",
+			"text",
+			"checklist",
+			"chart",
+			"mermaid",
+		]) {
 			expect(result.reason).toContain(kind);
 		}
 		expect(result.reason).toContain('nodes[0] "m1"');
@@ -325,6 +332,30 @@ describe("read_artifact.canvas", () => {
 			expect(ids).toContain(id);
 		}
 		expect(read_?.body).toBeUndefined();
+	});
+
+	it("'blocks' shows a diagram's source, which an edit of it is made from, and names a diagram by its kind when it has no name", async () => {
+		const board = sampleBoard();
+		board.nodes.push({
+			id: "diagram-2",
+			type: "mermaid",
+			position: { x: 700, y: 1000 },
+			data: { kind: "mermaid", code: "sequenceDiagram\n  A->>B: Hi" },
+		});
+		const artifactId = await seedBoard(board);
+		const blocks = (await read(artifactId, "blocks"))?.blocks ?? [];
+		expect(blocks.find((block) => block.id === "diagram-1")).toMatchObject({
+			kind: "mermaid",
+			label: "Release flow",
+			code: "flowchart TD\n  A --> B",
+		});
+		expect(blocks.find((block) => block.id === "diagram-2")).toMatchObject({
+			label: "sequenceDiagram",
+			code: "sequenceDiagram\n  A->>B: Hi",
+		});
+		expect(
+			blocks.find((block) => block.id === "diagram-1")?.height,
+		).toBeGreaterThan(84);
 	});
 
 	it("'full' also returns the canonical board JSON", async () => {
@@ -648,6 +679,165 @@ describe("edit_artifact.canvas", () => {
 		});
 	});
 
+	describe("a diagram, and where what is added goes (ruling 74)", () => {
+		const flow = (extra: Record<string, unknown> = {}) => ({
+			op: "add_node",
+			node: {
+				id: "flow",
+				type: "mermaid",
+				data: {
+					kind: "mermaid",
+					code: "flowchart TD\n  A[Idea] --> B[Draft] --> C[Publish]",
+				},
+				...extra,
+			},
+		});
+
+		it("adds a diagram, which is drawn by the chat's own component from the very source it wrote, and puts it on free ground", async () => {
+			const artifactId = await seedBoard();
+			const result = await runEdit(artifactId, { ops: [flow()] });
+			expect(result.modelPayload).toMatchObject({
+				success: true,
+				applied: 1,
+				refused: [],
+			});
+			const board = await storedBoard(artifactId);
+			const added = board.nodes.find((node) => node.id === "flow");
+			expect(added).toMatchObject({
+				type: "mermaid",
+				width: 480,
+				data: {
+					kind: "mermaid",
+					code: "flowchart TD\n  A[Idea] --> B[Draft] --> C[Publish]",
+				},
+			});
+			if (!added) throw new Error("the diagram was not added");
+			const tall = estimatedNodeSize(added);
+			// It covers none of what was there: the sample board is full.
+			for (const other of board.nodes.filter(
+				(n) => n.id !== "flow" && !n.parentId,
+			)) {
+				const rect = { ...other.position, ...estimatedNodeSize(other) };
+				const across =
+					Math.min(added.position.x + tall.width, rect.x + rect.width) -
+					Math.max(added.position.x, rect.x);
+				const down =
+					Math.min(added.position.y + tall.height, rect.y + rect.height) -
+					Math.max(added.position.y, rect.y);
+				expect(across > 1 && down > 1, other.id).toBe(false);
+			}
+		});
+
+		it("changes a diagram's source with update_node, and refuses one that would load an address", async () => {
+			const artifactId = await seedBoard();
+			const result = await runEdit(artifactId, {
+				ops: [
+					{
+						op: "update_node",
+						id: "diagram-1",
+						data: { code: "flowchart LR\n  X --> Y --> Z" },
+					},
+					{
+						op: "update_node",
+						id: "diagram-1",
+						data: {
+							code: 'flowchart TD\n  A@{ img: "https://x.test/p.png", w: 60, h: 60 }',
+						},
+					},
+				],
+			});
+			expect(result.modelPayload).toMatchObject({ success: true, applied: 1 });
+			if (!result.modelPayload.success) return;
+			expect(result.modelPayload.refused).toEqual([
+				expect.objectContaining({ reason: "invalid_data", opIndex: 1 }),
+			]);
+			expect(result.modelPayload.refused[0].detail).toContain(
+				"an image or icon shape",
+			);
+			const board = await storedBoard(artifactId);
+			expect(board.nodes.find((n) => n.id === "diagram-1")?.data).toMatchObject(
+				{
+					code: "flowchart LR\n  X --> Y --> Z",
+				},
+			);
+		});
+
+		it("puts a note next to the one it names, in its frame, and says where an id it does not have should have been", async () => {
+			const artifactId = await seedBoard();
+			const result = await runEdit(artifactId, {
+				ops: [
+					{
+						op: "add_node",
+						node: {
+							id: "beside",
+							type: "sticky",
+							near: "note-1",
+							data: { kind: "sticky", text: "Next to lunch", tone: "mint" },
+						},
+					},
+					{
+						op: "add_node",
+						node: {
+							id: "lost",
+							type: "sticky",
+							near: "no-such-note",
+							data: { kind: "sticky", text: "Nowhere", tone: "plain" },
+						},
+					},
+				],
+			});
+			expect(result.modelPayload).toMatchObject({ success: true, applied: 1 });
+			if (!result.modelPayload.success) return;
+			expect(result.modelPayload.refused[0]).toMatchObject({
+				reason: "unknown_id",
+				target: "no-such-note",
+			});
+			expect(result.modelPayload.refused[0].detail).toContain("note-1");
+			const board = await storedBoard(artifactId);
+			const beside = board.nodes.find((n) => n.id === "beside");
+			expect(beside?.parentId).toBe("frame-a");
+			expect(board.nodes.some((n) => n.id === "lost")).toBe(false);
+		});
+
+		it("grows a frame for the diagram it was asked to hold when the ground below is free, so the diagram is inside it", async () => {
+			const board = sampleBoard();
+			board.nodes = board.nodes.filter(
+				(n) => n.id === "frame-a" || n.id === "note-1",
+			);
+			board.edges = [];
+			const artifactId = await seedBoard(board);
+			const result = await runEdit(artifactId, {
+				ops: [flow({ parentId: "frame-a" })],
+			});
+			expect(result.modelPayload).toMatchObject({ success: true, applied: 1 });
+			const stored = await storedBoard(artifactId);
+			const frame = stored.nodes.find((n) => n.id === "frame-a");
+			const added = stored.nodes.find((n) => n.id === "flow");
+			expect(added?.parentId).toBe("frame-a");
+			const size = estimatedNodeSize(added as CanvasNode);
+			expect((added?.position.x ?? 0) + size.width).toBeLessThanOrEqual(
+				frame?.width ?? 0,
+			);
+			expect((added?.position.y ?? 0) + size.height).toBeLessThanOrEqual(
+				frame?.height ?? 0,
+			);
+			expect(frame?.width).toBeGreaterThan(360);
+		});
+
+		it("leaves the frame as it is, and the diagram beside it, when what is below is in the way", async () => {
+			const artifactId = await seedBoard();
+			const result = await runEdit(artifactId, {
+				ops: [flow({ parentId: "frame-a" })],
+			});
+			expect(result.modelPayload).toMatchObject({ success: true, applied: 1 });
+			const stored = await storedBoard(artifactId);
+			expect(
+				stored.nodes.find((n) => n.id === "flow")?.parentId,
+			).toBeUndefined();
+			expect(stored.nodes.find((n) => n.id === "frame-a")?.height).toBe(300);
+		});
+	});
+
 	it("reads the newest version itself: the model never quotes a version, and a user's save before the edit is not overwritten", async () => {
 		const artifactId = await seedBoard();
 		// The user saves through the body route's seam after the model's read.
@@ -793,6 +983,40 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 		expect(hu).toContain(`a diagram ${chartWidth}`);
 		expect(hu).toContain(`egy diagram ${flat} magas`);
 		expect(hu).toContain(`${round}`);
+	});
+
+	// Ruling 74: a diagram is a block Alfy may add, and a block it adds is placed.
+	it("says, in both languages, how wide a diagram is, and that a position left out is placed for it, from the numbers the board is drawn with", () => {
+		const width = defaultNodeWidth("mermaid");
+		for (const text of [
+			editArtifactRuleClause(kinds, "en"),
+			createArtifactBodyFormat(kinds),
+		]) {
+			expect(text).toContain(`a diagram ${width}`);
+		}
+		const en = editArtifactRuleClause(kinds, "en");
+		expect(en).toMatch(/Leave position out and the block is placed for you/);
+		expect(en).toMatch(/near/);
+		expect(en).toMatch(/kept if free, else moved/);
+		const hu = editArtifactRuleClause(kinds, "hu");
+		expect(hu).toContain(`az ábra ${width}`);
+		expect(hu).toMatch(/A pozíciót hagyd el/);
+		expect(hu).toMatch(/near/);
+		expect(hu).toMatch(/megmarad, ha szabad/);
+	});
+
+	it("advertises, in the one schema the handler parses, a position that may be left out and a near beside it, on a frame as on a block", () => {
+		const advertised = JSON.stringify(
+			z.toJSONSchema(buildEditArtifactModelInputSchema(kinds)),
+		);
+		expect(advertised).toContain('"near"');
+		expect(advertised).toContain(
+			"Leave it out and the block is placed for you",
+		);
+		expect(advertised).toContain(
+			"Leave it out and the frame is placed on free ground",
+		);
+		expect(advertised).toContain("```mermaid fence");
 	});
 
 	it("parses the edit example, whole, through the advertised schema — and its ops through the validator against a real board with zero refusals", () => {

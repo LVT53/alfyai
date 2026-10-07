@@ -5616,12 +5616,29 @@ describe("tool description hygiene", () => {
 	// tall with a block under it on its axis, and a checklist's items were cut off
 	// at about 16 characters.
 	//
+	// CV-A (ruling 74, the owner's Canvas round): Alfy may add a diagram, and what
+	// it adds is put where a person would put it. The kinds it may add are named in
+	// the `type` field's own description (a schema description, not counted here),
+	// so the cost in this ceiling is two clauses of the Canvas rule: a diagram is
+	// 480 wide (one more figure in the size sentence), and "leave position out and
+	// the block is placed for you (beside near, else in its parentId frame, else
+	// on free ground); a position you give is kept if free, else moved", which
+	// replaced "Keep blocks apart and inside their frame (update_node can enlarge a
+	// frame)", since the app now does that. What the placement rule says in full
+	// (the frame grows to fit; a block goes to the right of the one it names, else
+	// under it) is in the `position` and `near` descriptions, schema text this
+	// ceiling does not count. A per-step height for a diagram was left out on
+	// purpose (the app places by it; the model need not). Re-measured: 5,110 en /
+	// 8,256 hu (26 en / 33 hu spent; edit_artifact hu is 817, from 784). The
+	// ceilings below are those measurements plus the SAME margin as before
+	// (26 en / 27 hu, per tool 2): 5,136 en / 8,283 hu, and 819 per tool.
+	//
 	// NOTE for whoever edits a description next: en is 26 tokens under its
 	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent.
-	const PER_TOOL_TOKEN_CEILING = 786;
-	const CATALOGUE_TOKEN_CEILING = { en: 5110, hu: 8250 } as const;
+	const PER_TOOL_TOKEN_CEILING = 819;
+	const CATALOGUE_TOKEN_CEILING = { en: 5136, hu: 8283 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);

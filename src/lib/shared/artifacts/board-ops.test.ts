@@ -298,16 +298,8 @@ describe("validateBoardDiff — duplicates", () => {
 describe("validateBoardDiff — what a block may be (ruling 64)", () => {
 	const mapData = sampleBoard().nodes.find((n) => n.id === "map-1")?.data;
 
-	it("refuses an add_node of a kind the model cannot mint, as unknown_kind naming the five it may add", () => {
-		for (const type of [
-			"map",
-			"file",
-			"app",
-			"photo",
-			"liveweb",
-			"mermaid",
-			"banana",
-		]) {
+	it("refuses an add_node of a kind the model cannot mint, as unknown_kind naming the six it may add", () => {
+		for (const type of ["map", "file", "app", "photo", "liveweb", "banana"]) {
 			const { accepted, refused } = validateBoardDiff(
 				unchecked({
 					op: "add_node",
@@ -328,7 +320,7 @@ describe("validateBoardDiff — what a block may be (ruling 64)", () => {
 				reason: "unknown_kind",
 			});
 			expect(refused[0].detail).toContain(
-				"frame, sticky, text, checklist, chart",
+				"frame, sticky, text, checklist, chart, mermaid",
 			);
 		}
 	});
@@ -518,8 +510,45 @@ describe("validateBoardDiff — what a block may be (ruling 64)", () => {
 	});
 });
 
-describe("validateBoardDiff — a diagram the reader inserted from the chat (ruling 64, ruling 67)", () => {
-	it("lets the model name it, and never rewrite what the chat drew", () => {
+describe("validateBoardDiff — a diagram Alfy may add and rewrite (ruling 74, amending ruling 64)", () => {
+	const addDiagram = (code: string, extra: Record<string, unknown> = {}) =>
+		unchecked({
+			op: "add_node",
+			node: {
+				id: "flow",
+				type: "mermaid",
+				position: { x: 700, y: 40 },
+				data: { kind: "mermaid", code, ...extra },
+			},
+		});
+
+	it("lets the model add one, with the source it writes in a chat reply, stored the width the board draws it at", () => {
+		const code = "flowchart TD\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Go]";
+		const { accepted, refused } = validateBoardDiff(
+			addDiagram(code, { label: "The flow" }),
+			sampleBoard(),
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(1);
+		const landed = land(sampleBoard(), accepted[0]);
+		const stored = node(landed.doc, "flow");
+		expect(stored.type).toBe("mermaid");
+		expect(stored.width).toBe(defaultNodeWidth("mermaid"));
+		expect(stored.data).toEqual({ kind: "mermaid", label: "The flow", code });
+	});
+
+	it("refuses the fields a diagram does not have, naming the ones it does", () => {
+		const { refused } = validateBoardDiff(
+			addDiagram("flowchart TD\n  A --> B", { source: "x" }),
+			sampleBoard(),
+		);
+		expect(refused[0].reason).toBe("invalid_data");
+		expect(refused[0].detail).toContain(
+			"Fields of mermaid: kind, label, subtitle, code",
+		);
+	});
+
+	it("lets the model change a diagram's name and its source, never its kind", () => {
 		const { accepted, refused } = validateBoardDiff(
 			unchecked(
 				{
@@ -534,13 +563,14 @@ describe("validateBoardDiff — a diagram the reader inserted from the chat (rul
 					data: { code: "flowchart TD\n  X --> Y" },
 				},
 				{ op: "update_node", id: "diagram-1", data: { code: "" } },
+				{ op: "update_node", id: "diagram-1", data: { kind: "chart" } },
 			),
 			sampleBoard(),
 		);
-		expect(accepted).toHaveLength(2);
+		expect(accepted).toHaveLength(3);
 		expect(refused.map((r) => [r.index, r.reason])).toEqual([
-			[2, "invalid_data"],
 			[3, "invalid_data"],
+			[4, "kind_mismatch"],
 		]);
 	});
 
@@ -554,6 +584,331 @@ describe("validateBoardDiff — a diagram the reader inserted from the chat (rul
 		);
 		expect(refused).toEqual([]);
 		expect(accepted).toHaveLength(2);
+	});
+
+	it.each([
+		[
+			"an image shape, which Mermaid fetches while it draws",
+			'flowchart TD\n  A@{ img: "https://x.test/p.png", label: "p", pos: "t", w: 60, h: 60 }\n  A --> B',
+			"an image or icon shape",
+		],
+		[
+			"an icon shape",
+			'flowchart TD\n  A@{ icon: "fa:user", form: "square" }',
+			"an image or icon shape",
+		],
+		[
+			"a click line, which makes a box a link",
+			'flowchart TD\n  A --> B\n  click B href "https://x.test"',
+			"a click line",
+		],
+		[
+			"a configuration directive",
+			'%%{init: {"securityLevel":"loose"}}%%\nflowchart TD\n  A --> B',
+			"a %%{ … }%% directive",
+		],
+		[
+			"a web address in a label",
+			"sequenceDiagram\n  A->>B: GET https://x.test/users",
+			"a web address",
+		],
+	])("refuses a source with %s, adding and updating alike", (_what, code, named) => {
+		const added = validateBoardDiff(addDiagram(code), sampleBoard());
+		expect(added.accepted).toEqual([]);
+		expect(added.refused[0].reason).toBe("invalid_data");
+		expect(added.refused[0].detail).toContain(named);
+		const updated = validateBoardDiff(
+			unchecked({ op: "update_node", id: "diagram-1", data: { code } }),
+			sampleBoard(),
+		);
+		expect(updated.accepted).toEqual([]);
+		expect(updated.refused[0].detail).toContain(named);
+	});
+
+	it("lets the usual Mermaid syntax through: shapes, arrow labels, subgraphs, notes, quoted words, a comment", () => {
+		for (const code of [
+			'flowchart LR\n  A[("DB")] -->|"query (fast)"| B{{Hex}}\n  subgraph S[Group]\n    C((Dot))\n  end\n  B --> C',
+			"sequenceDiagram\n  participant A as Alice\n  A->>B: Hello\n  Note right of B: thinks\n  B-->>A: Hi",
+			"%% a comment, not a directive\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> [*]: stop",
+			'pie title Pets\n  "Dogs" : 386\n  "Cats" : 85',
+			"flowchart TD\n  A@{ shape: cylinder }\n  A --> B",
+		]) {
+			const { refused } = validateBoardDiff(addDiagram(code), sampleBoard());
+			expect(refused, code).toEqual([]);
+		}
+	});
+});
+
+describe("validateBoardDiff — where a block goes when Alfy adds it (ruling 74)", () => {
+	/** The tidy board of the eval: a Saturday frame full of four notes, a title and a checklist to its right. */
+	function vienna(): CanvasBody {
+		const body = sampleBoard();
+		body.nodes = [
+			{
+				id: "sat",
+				type: "frame",
+				position: { x: 40, y: 40 },
+				width: 460,
+				height: 360,
+				data: { kind: "frame", label: "Saturday", width: 460, height: 360 },
+			},
+			...(
+				[
+					["breakfast", 20, 56],
+					["museum", 230, 56],
+					["lunch", 20, 152],
+					["walk", 230, 152],
+				] as const
+			).map(([id, x, y]) => ({
+				id,
+				type: "sticky" as const,
+				parentId: "sat",
+				position: { x, y },
+				width: 190,
+				data: {
+					kind: "sticky" as const,
+					text: `${id} 9:00, a longer line of words`,
+					tone: "yellow" as const,
+				},
+			})),
+			{
+				id: "title",
+				type: "text",
+				position: { x: 560, y: 40 },
+				data: { kind: "text", text: "Weekend in Vienna" },
+			},
+		];
+		body.edges = [];
+		body.viewport = { x: 0, y: 0, zoom: 1 };
+		return body;
+	}
+
+	const note = (id: string, extra: Record<string, unknown> = {}) =>
+		({
+			op: "add_node",
+			node: {
+				id,
+				type: "sticky",
+				data: { kind: "sticky", text: "A new note", tone: "plain" },
+				...extra,
+			},
+		}) as BoardOp;
+
+	it("keeps the place it was given when that place is free, and says nothing about it", () => {
+		const run = land(vienna(), note("n", { position: { x: 700, y: 400 } }));
+		expect(run.refused).toEqual([]);
+		expect(node(run.doc, "n").position).toEqual({ x: 700, y: 400 });
+		expect(run.accepted[0]).toMatchObject({
+			op: "add_node",
+			node: { id: "n", position: { x: 700, y: 400 } },
+		});
+	});
+
+	it("moves a note laid on another to free ground, a gap from it, and the op that lands says where", () => {
+		const run = land(
+			vienna(),
+			note("n", { parentId: "sat", position: { x: 230, y: 152 } }),
+		);
+		expect(run.refused).toEqual([]);
+		const placed = node(run.doc, "n");
+		expect(placed.parentId).toBe("sat");
+		expect(placed.position).not.toEqual({ x: 230, y: 152 });
+		expect(run.accepted[0]).toMatchObject({
+			node: { id: "n", position: placed.position },
+		});
+	});
+
+	it("puts a note next to the one it names, in that note's frame, on free ground", () => {
+		const run = land(vienna(), note("sacher", { near: "museum" }));
+		expect(run.refused).toEqual([]);
+		const placed = node(run.doc, "sacher");
+		expect(placed.parentId).toBe("sat");
+		expect(placed.position).toEqual({ x: 230, y: 240 });
+		// The op that lands names the place and the frame, and no longer a `near`.
+		expect(run.accepted[0]).toEqual({
+			op: "add_node",
+			node: {
+				id: "sacher",
+				type: "sticky",
+				parentId: "sat",
+				position: { x: 230, y: 240 },
+				data: { kind: "sticky", text: "A new note", tone: "plain" },
+			},
+		});
+	});
+
+	it("fills a frame it names in reading order, with no place given for any of them", () => {
+		const run = land(
+			{ ...vienna(), nodes: vienna().nodes.slice(0, 1) },
+			note("a", { parentId: "sat" }),
+			note("b", { parentId: "sat" }),
+			note("c", { parentId: "sat" }),
+		);
+		expect(
+			["a", "b", "c"].map((id) => [
+				node(run.doc, id).position.x,
+				node(run.doc, id).position.y,
+			]),
+		).toEqual([
+			[20, 56],
+			[234, 56],
+			[20, 144],
+		]);
+	});
+
+	it("grows the frame for a chart it has no room for, so the chart is inside it and covers nothing", () => {
+		const run = land(vienna(), {
+			op: "add_node",
+			node: {
+				id: "costs",
+				type: "chart",
+				parentId: "sat",
+				data: {
+					kind: "chart",
+					code: '{"type":"bar","data":{"labels":["A"],"datasets":[{"data":[1]}]}}',
+				},
+			},
+		} as BoardOp);
+		expect(run.refused).toEqual([]);
+		const chart = node(run.doc, "costs");
+		const frame = node(run.doc, "sat");
+		expect(chart.parentId).toBe("sat");
+		expect(chart.position).toEqual({ x: 20, y: 240 });
+		expect(frame.height).toBe(488);
+		expect(frame.data).toMatchObject({
+			kind: "frame",
+			width: 460,
+			height: 488,
+		});
+		expect(chart.position.y + 228).toBeLessThanOrEqual(frame.height ?? 0);
+	});
+
+	it("places a diagram, which is wider than the frame, by growing the frame sideways too", () => {
+		const run = land(vienna(), {
+			op: "add_node",
+			node: {
+				id: "flow",
+				type: "mermaid",
+				parentId: "sat",
+				data: {
+					kind: "mermaid",
+					code: "flowchart TD\n  A[One] --> B[Two]",
+				},
+			},
+		} as BoardOp);
+		expect(run.refused).toEqual([]);
+		expect(node(run.doc, "sat").width).toBe(520);
+		expect(node(run.doc, "flow").width).toBe(480);
+	});
+
+	it("leaves a diagram beside the frame when the frame cannot grow into free ground", () => {
+		const body = vienna();
+		body.nodes.push({
+			id: "wall",
+			type: "text",
+			position: { x: 40, y: 420 },
+			data: { kind: "text", text: "A wall of words below the frame" },
+		});
+		const run = land(body, {
+			op: "add_node",
+			node: {
+				id: "flow",
+				type: "mermaid",
+				parentId: "sat",
+				data: {
+					kind: "mermaid",
+					code: "flowchart TD\n  A[One] --> B[Two] --> C[Three] --> D[Four]",
+				},
+			},
+		} as BoardOp);
+		expect(run.refused).toEqual([]);
+		expect(node(run.doc, "flow").parentId).toBeUndefined();
+		expect(node(run.doc, "sat").width).toBe(460);
+		expect(node(run.doc, "sat").height).toBe(360);
+	});
+
+	it("places a frame it is given no place for, and moves one that lands on another", () => {
+		const given = land(vienna(), {
+			op: "add_frame",
+			id: "sun",
+			label: "Sunday",
+			size: { width: 300, height: 200 },
+		});
+		expect(node(given.doc, "sun").position.x).toBeGreaterThanOrEqual(0);
+		const covered = land(vienna(), {
+			op: "add_frame",
+			id: "sun",
+			label: "Sunday",
+			position: { x: 100, y: 100 },
+			size: { width: 300, height: 200 },
+		});
+		const sun = node(covered.doc, "sun");
+		const at = { ...sun.position, width: 300, height: 200 };
+		const sat = { x: 40, y: 40, width: 460, height: 360 };
+		const across =
+			Math.min(at.x + at.width, sat.x + sat.width) - Math.max(at.x, sat.x);
+		const down =
+			Math.min(at.y + at.height, sat.y + sat.height) - Math.max(at.y, sat.y);
+		expect(across > 1 && down > 1).toBe(false);
+	});
+
+	it("refuses a near that names nothing, with the ids that exist, and the rest of the batch still lands", () => {
+		const { accepted, refused } = validateBoardDiff(
+			unchecked(
+				note("ok", { position: { x: 700, y: 400 } }),
+				note("bad", { near: "nope" }),
+			),
+			vienna(),
+		);
+		expect(accepted).toHaveLength(1);
+		expect(refused[0]).toMatchObject({
+			index: 1,
+			reason: "unknown_id",
+			id: "nope",
+		});
+		expect(refused[0].detail).toContain("museum");
+	});
+
+	it("lets a block be put next to one created earlier in the same change", () => {
+		const run = land(
+			vienna(),
+			note("first", { position: { x: 700, y: 400 } }),
+			note("second", { near: "first" }),
+		);
+		expect(run.refused).toEqual([]);
+		expect(node(run.doc, "second").position).toEqual({ x: 914, y: 400 });
+	});
+
+	it("gives the same board whether the model said where or the judge settled it: the op that landed is the op that is applied", () => {
+		const run = land(
+			vienna(),
+			note("a", { near: "museum" }),
+			note("b", { parentId: "sat" }),
+			{
+				op: "add_frame",
+				id: "sun",
+				label: "Sunday",
+				size: { width: 300, height: 200 },
+			},
+		);
+		let stepwise = vienna();
+		for (const op of run.accepted) stepwise = applyOp(stepwise, op);
+		expect(boardJson(stepwise)).toBe(boardJson(run.doc));
+		for (const op of run.accepted) {
+			if (op.op === "add_node") {
+				expect(op.node.position).toBeDefined();
+				expect("near" in op.node).toBe(false);
+			}
+			if (op.op === "add_frame") expect(op.position).toBeDefined();
+		}
+	});
+
+	it("stays inside the body cap and the node cap: a block that does not fit is refused as before", () => {
+		const { refused } = validateBoardDiff(
+			unchecked(note("n", { near: "n0" })),
+			fillBoard(MAX_NODES_PER_BOARD),
+		);
+		expect(refused[0]).toMatchObject({ reason: "limit_exceeded" });
 	});
 });
 
@@ -582,7 +937,8 @@ describe("validateBoardDiff — frames", () => {
 		expect(refused.map((r) => [r.index, r.reason])).toEqual([
 			[0, "missing_parent"],
 		]);
-		expect(accepted).toEqual([addFrame("frame-late")]);
+		expect(accepted).toHaveLength(1);
+		expect(accepted[0]).toMatchObject({ op: "add_frame", id: "frame-late" });
 	});
 
 	it("refuses a parent that is not a frame, or not there", () => {
@@ -933,8 +1289,10 @@ describe("applyOp — one accepted op, purely", () => {
 			{ op: "remove_node", id: "text-1" },
 		];
 		const run = land(sampleBoard(), ...ops);
+		// The accepted ops are the ones that were applied, with the places the
+		// judge settled for what it added: applied one by one they leave the same board.
 		let stepwise = sampleBoard();
-		for (const op of ops) stepwise = applyOp(stepwise, op);
+		for (const op of run.accepted) stepwise = applyOp(stepwise, op);
 		expect(boardJson(run.doc)).toBe(boardJson(stepwise));
 		expect(run.refused).toEqual([]);
 	});
@@ -1006,12 +1364,19 @@ describe("what the model is shown is what the validator parses (ruling 62)", () 
 		expect(missing.error?.issues[0].path).toEqual([0, "to"]);
 	});
 
-	it("advertises the five kinds the model may add — and not the five it may not — in the one schema it validates with", () => {
+	it("advertises the six kinds the model may add — and not the five it may not — in the one schema it validates with", () => {
 		const advertised = JSON.stringify(z.toJSONSchema(boardOpsArraySchema));
-		for (const kind of ["frame", "sticky", "text", "checklist", "chart"]) {
+		for (const kind of [
+			"frame",
+			"sticky",
+			"text",
+			"checklist",
+			"chart",
+			"mermaid",
+		]) {
 			expect(advertised).toContain(`"const":"${kind}"`);
 		}
-		for (const kind of ["map", "file", "app", "photo", "liveweb", "mermaid"]) {
+		for (const kind of ["map", "file", "app", "photo", "liveweb"]) {
 			expect(advertised).not.toContain(`"const":"${kind}"`);
 		}
 		for (const name of BOARD_OP_NAMES)

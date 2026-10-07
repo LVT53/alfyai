@@ -155,7 +155,7 @@ export interface ArtifactRefusal {
 	opIndex?: number;
 	/**
 	 * Canvas: what would have worked, in the model's own language — the ids that
-	 * exist, the five blocks it may add, the fields of the kind (ruling 62).
+	 * exist, the six blocks it may add, the fields of the kind (ruling 62).
 	 * Document refusals carry a reason code only.
 	 */
 	detail?: string;
