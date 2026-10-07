@@ -243,6 +243,37 @@ describe("sanitizeMermaidSource: front matter may carry a title and nothing else
 		}
 	});
 
+	it("reads front matter the way Mermaid's own pattern does: a byte order mark, any line break, any space after the dashes", () => {
+		// Measured: each of these made Mermaid read a `config:` that the first version of
+		// this check, which only knew spaces, tabs and \n, let through.
+		for (const [what, source] of [
+			[
+				"a byte order mark",
+				"\ufeff---\nconfig:\n  htmlLabels: true\n\ufeff---\nflowchart LR\n  A --> B",
+			],
+			[
+				"lone carriage returns",
+				"---\rconfig:\r  htmlLabels: true\r---\rflowchart LR\r  A --> B",
+			],
+			[
+				"a no-break space after the dashes",
+				"---\u00a0\nconfig:\n  htmlLabels: true\n---\u00a0\nflowchart LR\n  A --> B",
+			],
+			[
+				"indented dashes",
+				"  ---\n  config:\n    htmlLabels: true\n  ---\nflowchart LR\n  A --> B",
+			],
+			[
+				"blank lines in front",
+				"\n\n---\nconfig:\n  htmlLabels: true\n---\nflowchart LR\n  A --> B",
+			],
+		] as const) {
+			const result = sanitizeMermaidSource(source);
+			expect(result.source, what).not.toMatch(/htmlLabels|config/);
+			expect(result.removed, what).toEqual(["config"]);
+		}
+	});
+
 	it("also reads a block that only appears once a directive in front of it is gone", () => {
 		// Mermaid reads front matter first, so `%%{x}%%---` is not one to it; the source this
 		// leaves would be, so the cleaning must not stop at the first thing it removed.
@@ -448,6 +479,9 @@ describe("sanitizeMermaidSource: a click or link line makes a box a link", () =>
 			`properties A: {"icon": "${HOST}/p.png", "class": "service"}`,
 			`PROPERTIES A: {"icon": "${HOST}/p.png"}`,
 			`properties A: {"icon": "@clock"}`,
+			// An actor's name may have a space or a quote in it.
+			`properties Alice Smith: {"icon": "${HOST}/p.png"}`,
+			`properties "Alice": {"icon": "${HOST}/p.png"}`,
 		]) {
 			const result = sanitizeMermaidSource(
 				`sequenceDiagram\n  participant A\n  ${line}\n  A->>A: hi`,
@@ -475,6 +509,7 @@ describe("sanitizeMermaidSource: a click or link line makes a box a link", () =>
 			"sequenceDiagram\n  A->>B: link to docs: see below",
 			"sequenceDiagram\n  A->>B: properties of the account: see below",
 			"flowchart LR\n  properties --> B",
+			"stateDiagram-v2\n  properties --> B : changed",
 		]) {
 			expect(sanitizeMermaidSource(source), source).toEqual({
 				source,

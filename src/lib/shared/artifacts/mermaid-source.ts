@@ -125,8 +125,10 @@ function removeDirectives(text: string, found: Set<Hazard>): string {
 
 // ---- Front matter -----------------------------------------------------------
 
-const FRONT_MATTER =
-	/^[ \t\r\n]*---[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*---[ \t]*(?:\r?\n|$)/;
+const LINE_BREAK = String.raw`(?:\r\n|\n|\r)`;
+const FRONT_MATTER = new RegExp(
+	String.raw`^\s*---[^\S\n\r]*${LINE_BREAK}([\s\S]*?)${LINE_BREAK}[^\S\n\r]*---[^\S\n\r]*(?:${LINE_BREAK}|$)`,
+);
 
 /** A title that is one plain line: no YAML that could mean more than it says (anchors, aliases, tags, block scalars, flow collections, escapes). */
 const PLAIN_TITLE =
@@ -142,7 +144,7 @@ function cleanFrontMatter(text: string, found: Set<Hazard>): string {
 	if (!match) return text;
 	let title: string | null = null;
 	let more = false;
-	for (const line of match[1].split(/\r?\n/)) {
+	for (const line of match[1].split(/\r\n|\n|\r/)) {
 		const trimmed = line.trim();
 		if (trimmed === "" || trimmed.startsWith("#")) continue;
 		if (title === null && PLAIN_TITLE.test(trimmed)) {
@@ -178,27 +180,26 @@ const SHAPE_KEYS = new Set([
 	"view",
 ]);
 
-const PAIR = String.raw`"?[A-Za-z]+"?[ \t]*:[ \t]*(?:"[^"\\\n]*"|'[^'\\\n]*'|[A-Za-z0-9_. -]+?)`;
+const PAIR = String.raw`(?:"[A-Za-z]+"|[A-Za-z]+)[ \t]*:[ \t]*(?:"[^"\\\n]*"|'[^'\\\n]*'|[A-Za-z0-9_. -]+?)`;
 /** One line, `key: value` pairs, keys bare or quoted, values quoted (no escapes) or plain words: nothing YAML can read twice. */
 const CANONICAL_BLOCK = new RegExp(
 	String.raw`^[ \t]*(?:${PAIR}(?:[ \t]*,[ \t]*${PAIR})*[ \t]*,?[ \t]*)?$`,
 );
 const EACH_PAIR =
-	/"?([A-Za-z]+)"?[ \t]*:[ \t]*("[^"\\\n]*"|'[^'\\\n]*'|[A-Za-z0-9_. -]+?)(?=[ \t]*(?:,|$))/g;
+	/(?:"([A-Za-z]+)"|([A-Za-z]+))[ \t]*:[ \t]*("[^"\\\n]*"|'[^'\\\n]*'|[A-Za-z0-9_. -]+?)(?=[ \t]*(?:,|$))/g;
 const MAX_BLOCK = 300;
 
 /** Whether this block says nothing but the words of a shape, a label or a motion. */
 function harmlessBlock(body: string): boolean {
 	if (body.length > MAX_BLOCK || !CANONICAL_BLOCK.test(body)) return false;
-	for (const [, key, value] of body.matchAll(EACH_PAIR)) {
-		if (!SHAPE_KEYS.has(key.toLowerCase())) return false;
+	for (const [, quoted, plain, value] of body.matchAll(EACH_PAIR)) {
+		const key = (quoted ?? plain).toLowerCase();
+		if (!SHAPE_KEYS.has(key)) return false;
 		const word = value
 			.replace(/^["']|["']$/g, "")
 			.trim()
 			.toLowerCase();
-		if (key.toLowerCase() === "shape" && /^(?:icon|img|image)/.test(word)) {
-			return false;
-		}
+		if (key === "shape" && /^(?:icon|img|image)/.test(word)) return false;
 	}
 	return true;
 }
@@ -259,7 +260,7 @@ const LINK_STATEMENT = new RegExp(
 
 /** A sequence diagram's `properties A: {"icon": "…"}`: the actor is drawn with that picture, which the browser asks for as the diagram is measured. */
 const PROPERTIES_STATEMENT = new RegExp(
-	String.raw`${STATEMENT_START}(properties[ \t]+[^\s:;"']+[ \t]*:[^\n\r;]*)`,
+	String.raw`${STATEMENT_START}(properties[ \t]+[^\s:;<>=-][^:;\n\r]*:[^\n\r;]*)`,
 	"gimd",
 );
 
