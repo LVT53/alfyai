@@ -90,7 +90,7 @@ import {
 } from "./_lib/board";
 import { DEFAULT_INK, isDrawingTool, type Tool } from "./_lib/tools";
 import type { BoardLayerApi } from "./_lib/board-layers";
-import { placeToolbar, type ScreenRect, TOOLBAR_OFFSET } from "./_lib/floating";
+import type { ScreenRect } from "./_lib/floating";
 import { type BoardHistory, createBoardHistory } from "./_lib/board-history";
 import { type BlockPicture, provideBoardContext } from "./_lib/board-context";
 import {
@@ -994,12 +994,17 @@ let changePillBox = $state.raw<ScreenRect | null>(null);
 // The picked block's own small toolbar is hung by the library, centred above the block; the
 // pane keeps it from being cut off at its top or its sides (`placeToolbar`, CV-B2). The
 // block's shell is told how far to move it from where the library puts it, and the
-// selection's pill, which hangs under the block, is told where it ended up.
+// selection's pill, which hangs under the block, is told where it ended up. The geometry
+// is a lazy part (`_lib/floating.ts`, which the layers that float over the board share):
+// it is asked for when the board mounts, long before anything is picked, and until it is
+// here the library's own place stands.
+let floating = $state.raw<typeof import("./_lib/floating") | null>(null);
+$effect(() => {
+	void import("./_lib/floating").then((module) => (floating = module));
+});
 let toolbarSize = $state.raw({ width: 0, height: 0 });
-/** Before the toolbar is measured: four tones, Edit and Delete. */
-const TOOLBAR_GUESS = { width: 200, height: 38 };
 let toolbarPlaced = $derived.by(() => {
-	if (readonly || grouped || pickedCount !== 1) return null;
+	if (!floating || readonly || grouped || pickedCount !== 1) return null;
 	const node = nodes.find((candidate) => candidate.selected);
 	if (!node) return null;
 	const box = nodeRect(node, nodes, node.measured);
@@ -1010,8 +1015,8 @@ let toolbarPlaced = $derived.by(() => {
 		right: (box.x + box.width) * zoom + x,
 		bottom: (box.y + box.height) * zoom + y,
 	};
-	const size = toolbarSize.width > 0 ? toolbarSize : TOOLBAR_GUESS;
-	const { rect } = placeToolbar(
+	const size = toolbarSize;
+	const { rect } = floating.placeToolbar(
 		block,
 		{ width: boardWidth, height: boardHeight },
 		size,
@@ -1021,7 +1026,7 @@ let toolbarPlaced = $derived.by(() => {
 		rect,
 		// The library hangs it centred over the block, `TOOLBAR_OFFSET` above it.
 		dx: rect.left - ((block.left + block.right) / 2 - size.width / 2),
-		dy: rect.top - (block.top - TOOLBAR_OFFSET - size.height),
+		dy: rect.top - (block.top - floating.TOOLBAR_OFFSET - size.height),
 	};
 });
 let layerApi = $derived<BoardLayerApi>({

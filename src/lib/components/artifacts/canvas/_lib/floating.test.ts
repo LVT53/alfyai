@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
 	BOARD_TOOLBAR_CLEARANCE,
@@ -154,5 +157,21 @@ describe("placeToolbar: before the pane is measured", () => {
 		expect(placed.side).toBe("above");
 		expect(placed.rect.left).toBe(80 - 100);
 		expect(placed.rect.top).toBe(5 - TOOLBAR_OFFSET - 38);
+	});
+});
+
+describe("the toolbar's gap", () => {
+	it("is the number the shell tells the library to hang the toolbar at, which it cannot import: the library's place is what the board moves it from", () => {
+		const shell = readFileSync(
+			path.join(
+				path.dirname(fileURLToPath(import.meta.url)),
+				"..",
+				"NodeShell.svelte",
+			),
+			"utf8",
+		);
+		expect(shell).toMatch(
+			new RegExp(`<NodeToolbar[^>]*offset=\\{${TOOLBAR_OFFSET}\\}`),
+		);
 	});
 });

@@ -46,11 +46,11 @@ test.describe("the wheel over a note being typed in", () => {
 			),
 		).toBe("TEXTAREA");
 		await page.mouse.move(over.x, over.y);
-		await page.mouse.wheel(40, 90);
+		await page.mouse.wheel(-40, -30);
 		const moved = await settledCamera(page);
 		expectCamera(
 			moved,
-			{ ...start, x: start.x - 40, y: start.y - 90 },
+			{ ...start, x: start.x + 40, y: start.y + 30 },
 			"a scroll over the field",
 		);
 		// The reader is still typing where they were.
@@ -58,7 +58,14 @@ test.describe("the wheel over a note being typed in", () => {
 		await page.keyboard.type("!");
 		await expect(field).toHaveValue("Note 2!");
 
-		// A pinch over it zooms the board about the pointer (and not the page).
+		// A pinch over it zooms the board about the pointer (and not the page). The words
+		// moved with the board, so the pointer goes back onto them first.
+		const movedTo = await field.boundingBox();
+		if (!movedTo) throw new Error("no field");
+		await page.mouse.move(
+			movedTo.x + movedTo.width / 2,
+			movedTo.y + movedTo.height / 2,
+		);
 		await page.keyboard.down("Control");
 		await page.mouse.wheel(0, -8);
 		await page.keyboard.up("Control");
@@ -310,22 +317,24 @@ const overlap = (a: Box, b: Box) =>
 	a.y < b.y + b.height &&
 	a.y + a.height > b.y;
 
-/** The whole of `part` is inside the pane, a few pixels clear of its edge. */
+/** The whole of `part` is inside the pane, a few pixels clear of its edge (once the board has placed it: that is a frame or two after it is drawn). */
 async function expectInPane(
 	page: import("@playwright/test").Page,
 	part: import("@playwright/test").Locator,
 	what: string,
 ) {
-	const pane = await boxOf(page.locator(".svelte-flow").first());
-	const box = await boxOf(part);
-	expect(box.x, `${what}: left`).toBeGreaterThanOrEqual(pane.x + 7);
-	expect(box.y, `${what}: top`).toBeGreaterThanOrEqual(pane.y + 7);
-	expect(box.x + box.width, `${what}: right`).toBeLessThanOrEqual(
-		pane.x + pane.width - 7,
-	);
-	expect(box.y + box.height, `${what}: bottom`).toBeLessThanOrEqual(
-		pane.y + pane.height - 7,
-	);
+	await expect(async () => {
+		const pane = await boxOf(page.locator(".svelte-flow").first());
+		const box = await boxOf(part);
+		expect(box.x, `${what}: left`).toBeGreaterThanOrEqual(pane.x + 7);
+		expect(box.y, `${what}: top`).toBeGreaterThanOrEqual(pane.y + 7);
+		expect(box.x + box.width, `${what}: right`).toBeLessThanOrEqual(
+			pane.x + pane.width - 7,
+		);
+		expect(box.y + box.height, `${what}: bottom`).toBeLessThanOrEqual(
+			pane.y + pane.height - 7,
+		);
+	}).toPass({ timeout: 5000 });
 }
 
 test.describe("the toolbar of a selected block stays in the pane", () => {

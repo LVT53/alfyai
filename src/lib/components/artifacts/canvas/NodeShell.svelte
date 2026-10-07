@@ -33,7 +33,6 @@ import type { Attachment } from "svelte/attachments";
 import { t, type I18nKey } from "$lib/i18n";
 import { type BlockChrome, metaFor } from "./_lib/block-meta";
 import { useBoardContext } from "./_lib/board-context";
-import { measuredBy, TOOLBAR_OFFSET } from "./_lib/floating";
 import NodeNotice from "./nodes/NodeNotice.svelte";
 
 let {
@@ -160,6 +159,20 @@ const wrapperBehaviour: Attachment<HTMLElement> = (element) => {
 };
 
 /**
+ * Tells the board how big the toolbar is on the screen, so it can be kept in the pane
+ * (`board.toolbarShift`): read when it is drawn and again when the buttons it holds change
+ * (the block's form arrives with its chunk). `offsetWidth`, not a bounding box: the toolbar
+ * is not scaled by the camera.
+ */
+const measureToolbar: Attachment<HTMLElement> = (element) => {
+	void [edit, open];
+	board.measureToolbar?.({
+		width: element.offsetWidth,
+		height: element.offsetHeight,
+	});
+};
+
+/**
  * What a resize control may bring the block down to: its kind's smallest, and for
  * a frame no smaller than what is inside it on the side the control moves. Read in
  * the markup, so a control is handed the current floor when the next drag starts.
@@ -275,10 +288,10 @@ function reportBroken(error: unknown): void {
 				class="canvas-resize"
 			/>
 		{/each}
-		<!-- The library hangs it centred above the block; the board moves it (`toolbarShift`) when that would leave the pane. -->
+		<!-- The library hangs it centred above the block, 12 px clear of it (`TOOLBAR_OFFSET` in floating.ts, which a test holds to this number); the board moves it (`toolbarShift`) when that would leave the pane. -->
 		<NodeToolbar
 			position={Position.Top}
-			offset={TOOLBAR_OFFSET}
+			offset={12}
 			class="svelte-flow__node-toolbar{chrome === 'frame' ? ' canvas-toolbar--frame' : ''}"
 			style={board.toolbarShift
 				? `translate: ${board.toolbarShift.dx}px ${board.toolbarShift.dy}px`
@@ -289,7 +302,7 @@ function reportBroken(error: unknown): void {
 				role="toolbar"
 				aria-label={kindLabel}
 				data-testid="canvas-node-toolbar"
-				{@attach measuredBy((size) => board.measureToolbar?.(size))}
+				{@attach measureToolbar}
 			>
 				{@render toolbar?.()}
 				{#if open}
