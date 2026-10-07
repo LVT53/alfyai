@@ -432,3 +432,220 @@ describe("watchWheel: the events over the pane", () => {
 		).not.toThrow();
 	});
 });
+
+/**
+ * A pinch as Safari reports it on a laptop's trackpad: not a Control + wheel but a
+ * gesture event, which carries the scale of the whole gesture so far (1 at its start)
+ * and where the pointer is. jsdom has no GestureEvent, so it is a plain event with the
+ * members Safari's has.
+ */
+function gestureEvent(
+	type: "gesturestart" | "gesturechange" | "gestureend",
+	scale: number,
+	at: { x: number; y: number } | null = { x: 200, y: 120 },
+) {
+	return Object.assign(
+		new Event(type, { bubbles: true, cancelable: true }),
+		{ scale, rotation: 0 },
+		at ? { clientX: at.x, clientY: at.y } : {},
+	);
+}
+
+/** A finger on a screen: the touch events a touch pinch comes with. */
+function touchEvent(type: "touchstart" | "touchend", touches: number) {
+	return Object.assign(new Event(type, { bubbles: true, cancelable: true }), {
+		touches: Array.from({ length: touches }, () => ({})),
+	});
+}
+
+describe("watchWheel: Safari's pinch is a gesture event, not a wheel", () => {
+	function pinched() {
+		const parts = scene();
+		const set = vi.fn();
+		let camera: WheelCamera = { ...AT };
+		const flow: WheelFlow = {
+			getViewport: () => camera,
+			setViewport: (next) => {
+				camera = next;
+				set(next);
+			},
+		};
+		const stop = watchWheel(parts.board, flow, RANGE.min, RANGE.max);
+		return { ...parts, set, stop, camera: () => camera };
+	}
+
+	it("zooms about the pointer by what the fingers did, and cancels the page's own zoom the whole way", () => {
+		const { child, set, camera } = pinched();
+		const start = gestureEvent("gesturestart", 1);
+		child.dispatchEvent(start);
+		expect(start.defaultPrevented).toBe(true);
+		expect(set).not.toHaveBeenCalled();
+
+		const first = gestureEvent("gesturechange", 1.25);
+		child.dispatchEvent(first);
+		expect(first.defaultPrevented).toBe(true);
+		expect(camera().zoom).toBeCloseTo(1.25, 9);
+		// The board point under the pointer stays under it.
+		const before = under(AT, 200, 120);
+		const after = under(camera(), 200, 120);
+		expect(after.x).toBeCloseTo(before.x, 9);
+		expect(after.y).toBeCloseTo(before.y, 9);
+
+		const end = gestureEvent("gestureend", 1.25);
+		child.dispatchEvent(end);
+		expect(end.defaultPrevented).toBe(true);
+	});
+
+	it("takes a scale as the whole gesture so far: many small events zoom as far as one big one", () => {
+		const { child, camera } = pinched();
+		child.dispatchEvent(gestureEvent("gesturestart", 1));
+		for (const scale of [1.1, 1.3, 1.6, 1.9]) {
+			child.dispatchEvent(gestureEvent("gesturechange", scale));
+		}
+		expect(camera().zoom).toBeCloseTo(1.9, 9);
+		// Fingers back together, to where they began: the zoom is where it was.
+		child.dispatchEvent(gestureEvent("gesturechange", 1));
+		expect(camera().zoom).toBeCloseTo(1, 9);
+	});
+
+	it("starts from a scale of 1 again with every gesture", () => {
+		const { child, camera } = pinched();
+		child.dispatchEvent(gestureEvent("gesturestart", 1));
+		child.dispatchEvent(gestureEvent("gesturechange", 1.5));
+		child.dispatchEvent(gestureEvent("gestureend", 1.5));
+		child.dispatchEvent(gestureEvent("gesturestart", 1));
+		child.dispatchEvent(gestureEvent("gesturechange", 1.2));
+		expect(camera().zoom).toBeCloseTo(1.8, 9);
+	});
+
+	it("stops at the zoom's limits, and a gesture that moves nothing there moves no camera", () => {
+		const { child, set, camera } = pinched();
+		child.dispatchEvent(gestureEvent("gesturestart", 1));
+		child.dispatchEvent(gestureEvent("gesturechange", 20));
+		expect(camera().zoom).toBe(RANGE.max);
+		const moves = set.mock.calls.length;
+		child.dispatchEvent(gestureEvent("gesturechange", 21));
+		expect(set).toHaveBeenCalledTimes(moves);
+		child.dispatchEvent(gestureEvent("gesturechange", 0.01));
+		expect(camera().zoom).toBe(RANGE.min);
+	});
+
+	it("measures the pointer from the pane's corner", () => {
+		const { pane, child, camera } = pinched();
+		pane.getBoundingClientRect = () =>
+			({ left: 150, top: 100, right: 650, bottom: 500 }) as DOMRect;
+		child.dispatchEvent(gestureEvent("gesturestart", 1));
+		child.dispatchEvent(gestureEvent("gesturechange", 1.5));
+		const before = under(AT, 50, 20);
+		const after = under(camera(), 50, 20);
+		expect(after.x).toBeCloseTo(before.x, 9);
+		expect(after.y).toBeCloseTo(before.y, 9);
+	});
+
+	it("falls back to where the pointer last was when the event does not say, and to the pane's middle with none", () => {
+		const { board, pane, child, camera } = pinched();
+		pane.getBoundingClientRect = () =>
+			({
+				left: 0,
+				top: 0,
+				right: 400,
+				bottom: 300,
+				width: 400,
+				height: 300,
+			}) as DOMRect;
+		child.dispatchEvent(gestureEvent("gesturestart", 1, null));
+		child.dispatchEvent(gestureEvent("gesturechange", 1.5, null));
+		// Nowhere known: the middle of the pane (200, 150).
+		let before = under(AT, 200, 150);
+		let after = under(camera(), 200, 150);
+		expect(after.x).toBeCloseTo(before.x, 9);
+		expect(after.y).toBeCloseTo(before.y, 9);
+
+		board.dispatchEvent(
+			Object.assign(new Event("pointermove", { bubbles: true }), {
+				clientX: 60,
+				clientY: 40,
+				pointerType: "mouse",
+			}),
+		);
+		child.dispatchEvent(gestureEvent("gestureend", 1.5, null));
+		child.dispatchEvent(gestureEvent("gesturestart", 1, null));
+		const held = camera();
+		child.dispatchEvent(gestureEvent("gesturechange", 1.2, null));
+		before = under(held, 60, 40);
+		after = under(camera(), 60, 40);
+		expect(after.x).toBeCloseTo(before.x, 9);
+		expect(after.y).toBeCloseTo(before.y, 9);
+	});
+
+	it("leaves a nowheel block's camera alone and cancels only the page's zoom", () => {
+		const { block, child, set } = pinched();
+		block.classList.add("nowheel");
+		child.dispatchEvent(gestureEvent("gesturestart", 1));
+		const change = gestureEvent("gesturechange", 1.5);
+		child.dispatchEvent(change);
+		expect(change.defaultPrevented).toBe(true);
+		expect(set).not.toHaveBeenCalled();
+	});
+
+	it("cancels the page's zoom over the board's chrome and leaves the camera alone there", () => {
+		const { board, set } = pinched();
+		const toolbar = document.createElement("div");
+		board.append(toolbar);
+		for (const [type, scale] of [
+			["gesturestart", 1],
+			["gesturechange", 1.4],
+			["gestureend", 1.4],
+		] as const) {
+			const event = gestureEvent(type, scale);
+			toolbar.dispatchEvent(event);
+			expect(event.defaultPrevented).toBe(true);
+		}
+		expect(set).not.toHaveBeenCalled();
+	});
+
+	it("leaves a finger's pinch to the library: while a touch is down, a gesture is neither zoomed nor cancelled", () => {
+		const { child, set } = pinched();
+		child.dispatchEvent(touchEvent("touchstart", 2));
+		const start = gestureEvent("gesturestart", 1);
+		child.dispatchEvent(start);
+		const change = gestureEvent("gesturechange", 1.5);
+		child.dispatchEvent(change);
+		expect(start.defaultPrevented).toBe(false);
+		expect(change.defaultPrevented).toBe(false);
+		expect(set).not.toHaveBeenCalled();
+
+		// The fingers lift: the trackpad is the board's again.
+		child.dispatchEvent(touchEvent("touchend", 0));
+		child.dispatchEvent(gestureEvent("gesturestart", 1));
+		const trackpad = gestureEvent("gesturechange", 1.5);
+		child.dispatchEvent(trackpad);
+		expect(trackpad.defaultPrevented).toBe(true);
+		expect(set).toHaveBeenCalledTimes(1);
+	});
+
+	it("is a mouse moving that tells the board no finger is down any more, whatever was missed", () => {
+		const { board, child, set } = pinched();
+		child.dispatchEvent(touchEvent("touchstart", 1));
+		board.dispatchEvent(
+			Object.assign(new Event("pointermove", { bubbles: true }), {
+				clientX: 5,
+				clientY: 5,
+				pointerType: "mouse",
+			}),
+		);
+		child.dispatchEvent(gestureEvent("gesturestart", 1));
+		child.dispatchEvent(gestureEvent("gesturechange", 1.5));
+		expect(set).toHaveBeenCalledTimes(1);
+	});
+
+	it("takes nothing once it is let go", () => {
+		const { child, set, stop } = pinched();
+		stop();
+		const start = gestureEvent("gesturestart", 1);
+		child.dispatchEvent(start);
+		child.dispatchEvent(gestureEvent("gesturechange", 1.5));
+		expect(start.defaultPrevented).toBe(false);
+		expect(set).not.toHaveBeenCalled();
+	});
+});

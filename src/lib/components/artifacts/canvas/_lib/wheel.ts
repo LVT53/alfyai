@@ -16,9 +16,16 @@
  * library's zoom element) and moves the camera itself; the library never sees them.
  * Space and a drag, the Hand tool, the middle button and a finger are the library's
  * own and are not here. What a block keeps for itself is left alone: the library's
- * `nowheel` (a map that zooms, an App, a text field being typed in), and any element
+ * `nowheel` (a map that zooms, an App, an edit form), and any element
  * that scrolls the way the wheel goes (the browser scrolls it; `overscroll-behavior` on
  * the board keeps the rest of the gesture from carrying on out of it).
+ *
+ * Safari reports a trackpad's pinch as a gesture (`gesturestart`, `gesturechange`,
+ * `gestureend`, with a `scale`), not as a Control + wheel, so a pinch there zoomed
+ * nothing and zoomed the page instead (CV-B2). The board takes those too: the same zoom,
+ * about the pointer, by what the fingers did, and the page's own zoom is cancelled over
+ * the whole board. A finger on a screen pinches through touch events (iOS Safari
+ * reports gestures for those as well), which are the library's and are left alone.
  *
  * Loaded when the board mounts, in its own chunk, so the editor's first paint carries
  * only the line that asks for it. It imports nothing from the editor and no flow
@@ -78,6 +85,23 @@ function between(value: number, least: number, most: number): number {
 	return Math.min(most, Math.max(least, value));
 }
 
+/**
+ * The camera after zooming by `ratio` about the point (`x`, `y`) of the pane: the board
+ * point under it stays under it. Null when that moves nothing (the zoom is at its limit).
+ */
+function zoomAbout(
+	camera: WheelCamera,
+	ratio: number,
+	x: number,
+	y: number,
+	range: ZoomRange,
+): WheelCamera | null {
+	const zoom = between(camera.zoom * ratio, range.min, range.max);
+	const by = zoom / camera.zoom;
+	if (!(by > 0) || by === 1) return null;
+	return { zoom, x: x - (x - camera.x) * by, y: y - (y - camera.y) * by };
+}
+
 /** Where the camera goes for one wheel event; null when the event moves nothing (a zoom at its limit, a delta of 0). */
 export function nextCamera(
 	input: WheelInput,
@@ -88,20 +112,15 @@ export function nextCamera(
 	const dy = pixels(input.deltaY, input.deltaMode);
 	if (input.ctrlKey || input.metaKey) {
 		const along = dy || dx;
+		if (!along) return null;
 		const step = between(along, -MAX_ZOOM_PX, MAX_ZOOM_PX);
-		const zoom = between(
-			camera.zoom * 2 ** (-step * OCTAVES_PER_PX),
-			range.min,
-			range.max,
+		return zoomAbout(
+			camera,
+			2 ** (-step * OCTAVES_PER_PX),
+			input.x,
+			input.y,
+			range,
 		);
-		const ratio = zoom / camera.zoom;
-		if (!along || ratio === 1) return null;
-		// The board point under the pointer stays under it.
-		return {
-			zoom,
-			x: input.x - (input.x - camera.x) * ratio,
-			y: input.y - (input.y - camera.y) * ratio,
-		};
 	}
 	// Shift turns a vertical scroll across; a system that did it already sent deltaX.
 	const across = input.shiftKey && Math.abs(dy) > Math.abs(dx);
@@ -191,6 +210,74 @@ function handleWheel(
 	if (next) void flow.setViewport(next);
 }
 
+/** What Safari reports of a trackpad's pinch: a GestureEvent, which lib.dom does not describe. */
+type PinchEvent = Event & { scale: number; clientX?: number; clientY?: number };
+
+/**
+ * Safari's pinch over the board. `scale` is how far the fingers have spread since the
+ * gesture began (1 at its start), so one event zooms by its change since the last,
+ * about the pointer: the board follows the fingers one to one. The page's own zoom is
+ * cancelled wherever the gesture is over the board; the camera moves only over the pane
+ * and not over a block that keeps its wheel (a map, an App, an edit form). A touch that
+ * is down means the fingers are on a screen, whose pinch is the library's own.
+ */
+function watchGestures(
+	board: HTMLElement,
+	pane: Element,
+	flow: WheelFlow,
+	range: ZoomRange,
+): () => void {
+	let scale = 1;
+	let touching = false;
+	let pointer: { x: number; y: number } | null = null;
+	const touch = (event: Event) => {
+		touching = ((event as TouchEvent).touches?.length ?? 0) > 0;
+	};
+	// Where the pointer is for a gesture that does not say; a mouse moving is no finger down, whatever touch event was missed.
+	const move = (event: Event) => {
+		const { clientX, clientY, pointerType } = event as PointerEvent;
+		pointer = { x: clientX, y: clientY };
+		if (pointerType !== "touch") touching = false;
+	};
+	const gesture = (event: Event) => {
+		if (touching) return;
+		event.preventDefault();
+		if (event.type === "gesturestart") scale = 1;
+		if (event.type !== "gesturechange") return;
+		const target = event.target instanceof Element ? event.target : null;
+		const { scale: now, clientX, clientY } = event as PinchEvent;
+		const ratio = now / scale;
+		scale = now;
+		if (
+			!target ||
+			!pane.contains(target) ||
+			wheelKeeper({ target, deltaX: 0, deltaY: 0, deltaMode: 0 }, pane, true)
+		) {
+			return;
+		}
+		const box = pane.getBoundingClientRect();
+		const x = (clientX ?? pointer?.x ?? box.left + box.width / 2) - box.left;
+		const y = (clientY ?? pointer?.y ?? box.top + box.height / 2) - box.top;
+		const next = zoomAbout(flow.getViewport(), ratio, x, y, range);
+		if (next) void flow.setViewport(next);
+	};
+	const touches = ["touchstart", "touchend", "touchcancel"];
+	const gestures = ["gesturestart", "gesturechange", "gestureend"];
+	for (const type of touches) {
+		board.addEventListener(type, touch, { capture: true, passive: true });
+	}
+	board.addEventListener("pointermove", move, { capture: true, passive: true });
+	// Not passive: the page's own zoom is what this cancels.
+	for (const type of gestures) {
+		board.addEventListener(type, gesture, { capture: true, passive: false });
+	}
+	return () => {
+		for (const type of touches) board.removeEventListener(type, touch, true);
+		board.removeEventListener("pointermove", move, true);
+		for (const type of gestures) board.removeEventListener(type, gesture, true);
+	};
+}
+
 /** A pinch over the board's own chrome (the toolbar, the zoom, the overview) is not the page's to zoom either. */
 function keepPageZoom(event: Event): void {
 	const { ctrlKey, metaKey } = event as WheelEvent;
@@ -221,7 +308,9 @@ export function watchWheel(
 	// Not passive: the page's own handling of the event is what this cancels.
 	pane.addEventListener("wheel", listen, { capture: true, passive: false });
 	board.addEventListener("wheel", keepPageZoom, { passive: false });
+	const stopGestures = watchGestures(board, pane, flow, range);
 	return () => {
+		stopGestures();
 		pane.removeEventListener("wheel", listen, { capture: true });
 		board.removeEventListener("wheel", keepPageZoom);
 		board.style.overscrollBehavior = before;

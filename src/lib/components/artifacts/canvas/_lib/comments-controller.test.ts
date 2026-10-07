@@ -446,6 +446,7 @@ describe("what the pins and the catcher are given", () => {
 		size: { width: 800, height: 600 },
 		readonly: false,
 		changePillBox: null,
+		toolbarBox: null,
 		setChangePillBox: vi.fn(),
 	};
 

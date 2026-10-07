@@ -28,6 +28,10 @@ export interface CanvasBoardContext {
 	readonly dropTargetId: string | null;
 	/** Several blocks are picked and one box stands for them: a picked block shows no corners, anchors or toolbar of its own. */
 	readonly grouped?: boolean;
+	/** How far the picked block's toolbar is moved, on the screen, from where the library hangs it (centred over the block, a gap above it), so it stays in the pane (`placeToolbar`). Null when it needs no moving, or before anything is known. */
+	readonly toolbarShift?: { dx: number; dy: number } | null;
+	/** The toolbar says how big it is on the screen, so the board can place it. */
+	measureToolbar?(size: { width: number; height: number }): void;
 	/** Set only while a picture of the board is being taken: what stands in for this block's live content, or null (the live board). */
 	picture?(id: string): BlockPicture | null;
 	/** True while this block's last still image could not be made: its meta line says so. */

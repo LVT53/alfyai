@@ -1,5 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { uiLanguage } from "$lib/stores/settings";
 import type { CanvasBoardContext } from "../_lib/board-context";
 import WithChat from "../_test/WithChat.svelte";
@@ -211,5 +217,46 @@ describe("a photo block", () => {
 		mount({ ...entry, data: { ...entry.data, label: "Sunset at the lake" } });
 		await screen.findByTestId("canvas-photo");
 		expect(screen.getByText("Sunset at the lake")).toBeInTheDocument();
+	});
+});
+
+// On a phone the form is the app's sheet (CV-B2): every kind opens it from the toolbar's
+// Edit, and the block keeps drawing what it had behind the sheet, even a chart and a
+// diagram, whose form takes their place anywhere else.
+describe.each(CASES)("a $kind block on a phone", (entry) => {
+	const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
+
+	beforeEach(() => {
+		Object.defineProperty(window, "innerWidth", {
+			value: 390,
+			configurable: true,
+			writable: true,
+		});
+	});
+	afterEach(() => {
+		if (width) Object.defineProperty(window, "innerWidth", width);
+	});
+
+	it("opens its form as a sheet, the block keeps its content, and Save writes one change", async () => {
+		mount(entry);
+		await screen.findByTestId(entry.content);
+		await fireEvent.click(screen.getByTestId("canvas-node-edit"));
+
+		const dialog = await screen.findByRole("dialog", { name: "Edit" });
+		expect(within(dialog).getByTestId("canvas-edit-form")).toBeInTheDocument();
+		expect(screen.getAllByTestId(entry.content)).toHaveLength(1);
+		expect(within(dialog).queryByTestId("canvas-edit-source") !== null).toBe(
+			entry.replaces,
+		);
+
+		await fireEvent.input(within(dialog).getByTestId("canvas-edit-title"), {
+			target: { value: "Weekend plan" },
+		});
+		await fireEvent.click(within(dialog).getByTestId("canvas-edit-save"));
+		expect(flowSpies.updateNodeData).toHaveBeenCalledTimes(1);
+		expect(flowSpies.updateNodeData).toHaveBeenCalledWith(
+			`${entry.kind}-node`,
+			entry.patch,
+		);
 	});
 });

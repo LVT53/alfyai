@@ -41,12 +41,17 @@ let {
 } = $props();
 </script>
 
-{#if editing}
-	<BlockEditForm {id} kind="mermaid" {data} {onclose} />
-{:else}
+{#snippet drawing()}
 	<div class="diagram" data-testid="canvas-mermaid">
 		<Mermaid code={data.code} />
 	</div>
+{/snippet}
+
+{#if editing}
+	<!-- The form takes the drawing's place, except on a phone, where it is a sheet and the drawing stays. -->
+	<BlockEditForm {id} kind="mermaid" {data} {onclose}>{@render drawing()}</BlockEditForm>
+{:else}
+	{@render drawing()}
 {/if}
 
 <style>

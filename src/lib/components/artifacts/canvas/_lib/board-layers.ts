@@ -29,4 +29,6 @@ export type BoardLayerApi = {
 	changePillBox: ScreenRect | null;
 	/** The change layer says where its pill is, or that it has none. */
 	setChangePillBox: (box: ScreenRect | null) => void;
+	/** Where the toolbar of the one picked block is on the screen (the pane's pixels): the selection's pill hangs clear of it when it is below the block. Null when no block has one. */
+	toolbarBox: ScreenRect | null;
 };

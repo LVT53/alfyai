@@ -9,6 +9,10 @@
  * Plain text, never HTML: what is typed is stored as typed, and rendered as
  * text. `maxlength` is the same number the body's schema enforces on save,
  * because a block past it would be dropped, not clipped.
+ *
+ * The textarea is exactly as tall as its words and never scrolls, so it has no use
+ * for the wheel: it does not carry `nowheel`, and a two-finger scroll or a pinch with
+ * the pointer on the words being typed in moves the board like it does anywhere else.
  */
 import { useBoardContext } from "../_lib/board-context";
 import { focusWhenShown } from "../_lib/focus";
@@ -77,7 +81,7 @@ function handleKeydown(event: KeyboardEvent): void {
 	{#if editing && !readonly}
 		<textarea
 			bind:this={field}
-			class="text-field__input nodrag nowheel nopan"
+			class="text-field__input nodrag nopan"
 			{value}
 			{maxlength}
 			placeholder={placeholder}

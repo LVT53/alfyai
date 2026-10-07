@@ -6,13 +6,13 @@ import type { LazyShell } from "../_lib/lazy-nodes";
 
 type FileData = Extract<CanvasBlockData, { kind: "file" }>;
 
-/** How a file block dresses the shell `LazyNode` draws: named after the file, and Enter opens it where the panel can. */
+/** How a file block dresses the shell `LazyNode` draws: named after the file, and the shell opens it (a double-click, Enter, its Open button) where the panel can. */
 export function fileShell(data: FileData, chat: CanvasChatContext): LazyShell {
 	const item = fileBlockWorkspaceItem(data);
 	const open = chat.openItem;
 	return {
 		summary: data.name,
-		activate: open && item ? () => open(item) : undefined,
+		open: open && item ? () => open(item) : undefined,
 	};
 }
 </script>
@@ -21,16 +21,18 @@ export function fileShell(data: FileData, chat: CanvasChatContext): LazyShell {
 /**
  * A file block's content: one compact row — the file's icon, its name, its type
  * and its size. It is a pointer to a file the chat already holds (a produced file,
- * or one the reader attached), never a copy and never a renderer: a click opens the
- * file in the panel's own viewer (the callback the editor was given), so no heavy
- * preview is ever drawn on the board. Where the panel cannot open a file (a board
- * opened outside a chat) it is a plain row.
+ * or one the reader attached), never a copy and never a renderer: the file opens in
+ * the panel's own viewer (the callback the editor was given), so no heavy preview
+ * is ever drawn on the board. Where the panel cannot open a file (a board opened
+ * outside a chat) it is a plain row.
  *
- * The row is a real button but does not opt out of the board's drag: a click opens
- * the file and a drag moves the block, and the flow tells the two apart. The shell
- * around it is `LazyNode`'s, and this module never imports it (see
- * `lazy-nodes.ts`).
+ * A click picks the block, as it does for every block, so it can be moved, resized
+ * and deleted; what opens the file is a double-click anywhere on the block, Enter
+ * while it has focus, or the Open button of its toolbar, all of which the shell
+ * around it provides (`LazyNode`'s, which this module never imports: see
+ * `lazy-nodes.ts`). The row says so in its tooltip.
  */
+import { ExternalLink } from "@lucide/svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
 import { getCategory } from "$lib/shared/file-types";
@@ -49,35 +51,23 @@ let meta = $derived(
 );
 let item = $derived(fileBlockWorkspaceItem(data));
 let canOpen = $derived(Boolean(chat.openItem) && item !== null);
-
-function open(): void {
-	if (item) chat.openItem?.(item);
-}
 </script>
 
-{#snippet row()}
+<div
+	class="file"
+	data-testid="canvas-file"
+	title={canOpen ? $t("artifacts.canvas.file.hint") : undefined}
+>
 	<span class="file__icon"><FileTypeIcon {category} size={18} /></span>
 	<span class="file__text">
 		<span class="file__name" title={data.name}>{data.name}</span>
 		{#if meta}<span class="file__meta">{meta}</span>{/if}
 	</span>
-{/snippet}
-
-{#if canOpen}
-	<button
-		type="button"
-		class="file file--button"
-		data-testid="canvas-file"
-		aria-label={$t("artifacts.canvas.file.open", { name: data.name })}
-		onclick={open}
-	>
-		{@render row()}
-	</button>
-{:else}
-	<div class="file" data-testid="canvas-file">
-		{@render row()}
-	</div>
-{/if}
+	<!-- A small mark that the file opens (a double-click, Enter, the toolbar's button); the tooltip on the row says how. -->
+	{#if canOpen}
+		<span class="file__open" aria-hidden="true"><ExternalLink size={14} strokeWidth={2} /></span>
+	{/if}
+</div>
 
 <style>
 	.file {
@@ -97,23 +87,16 @@ function open(): void {
 		text-align: left;
 	}
 
-	.file--button {
-		cursor: pointer;
-	}
-
-	.file--button:hover {
-		background: var(--surface-elevated);
-	}
-
-	.file--button:focus-visible {
-		outline: 2px solid var(--focus-ring);
-		outline-offset: 2px;
-	}
-
 	.file__icon {
 		display: inline-flex;
 		flex: none;
 		color: var(--icon-muted, var(--text-muted));
+	}
+
+	.file__open {
+		display: inline-flex;
+		flex: none;
+		color: var(--text-muted);
 	}
 
 	.file__text {

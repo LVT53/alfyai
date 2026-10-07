@@ -86,6 +86,7 @@ $effect(() => {
 		meta={showPosterFailed ? $t("artifacts.canvas.posterFailed") : shell.meta}
 		summary={shell.summary}
 		activate={shell.activate ?? (canEdit ? edit : undefined)}
+		open={shell.open}
 		edit={canEdit ? edit : undefined}
 	>
 		{#if loaded}

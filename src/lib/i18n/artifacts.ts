@@ -897,6 +897,9 @@ const artifactsDict = {
 			"This is longer than a board can keep.",
 		"artifacts.canvas.edit.error.notChart":
 			'This is not a chart yet: it needs a "type" and some "data".',
+		// Opening what a block points at (CV-B2): a File block is picked by a click,
+		// like every other block, and opened by a double-click, Enter or its Open button.
+		"artifacts.canvas.file.hint": "Double-click to open",
 		// A project's bundle (Slice 5b · T5): the Files dialog lists the
 		// Documents, Apps and Canvases its chats made beside its files. A row
 		// says which chat made it; its time is the Added column's, so it is not
@@ -1615,6 +1618,10 @@ const artifactsDict = {
 			"Ez hosszabb, mint amit egy tábla meg tud tartani.",
 		"artifacts.canvas.edit.error.notChart":
 			'Ez még nem diagram: kell hozzá egy "type" és némi "data".',
+		// Amire egy blokk mutat, annak megnyitása (CV-B2): a fájlblokkot kattintás
+		// jelöli ki, mint bármelyik másikat, dupla kattintás, Enter vagy a Megnyitás
+		// gomb nyitja meg.
+		"artifacts.canvas.file.hint": "Dupla kattintással megnyílik",
 		// A projekt csomagja (5b szelet · T5): a Fájlok ablak a fájlok mellett
 		// felsorolja azt is, amit a projekt beszélgetései készítettek. A sor
 		// megmondja, melyik beszélgetés készítette; az idejét a „Hozzáadva”

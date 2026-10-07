@@ -440,7 +440,7 @@ test.describe("blocks from this chat", () => {
 		).toBeVisible();
 	});
 
-	test("opens the file in the panel's viewer when its block is clicked", async ({
+	test("opens the file in the panel's viewer when its block is double-clicked", async ({
 		page,
 	}) => {
 		const seeded = await seedChat(page);
@@ -457,9 +457,8 @@ test.describe("blocks from this chat", () => {
 					.includes(`/api/chat/files/${seeded.chatFileId}/preview`) &&
 				response.status() === 200,
 		);
-		await page
-			.getByRole("button", { name: new RegExp(`Open ${TRIP_NOTES}`) })
-			.click();
+		// A click only picks a block; a double-click is what opens it.
+		await page.getByTestId("canvas-file").dblclick();
 
 		// The panel shows the file, in its own shared viewer; the board is left.
 		await preview;
