@@ -43,6 +43,7 @@ let {
 	onOpenDocument = undefined,
 	expandRequest = 0,
 	deletedArtifacts = undefined,
+	madeInOriginalChat = false,
 }: {
 	evidenceSummary: MessageEvidenceSummary;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
@@ -50,6 +51,10 @@ let {
 	// chat's cards read, so a made row says what its card says. Absent, no row is
 	// ever marked.
 	deletedArtifacts?: DeletedArtifacts | undefined;
+	// A fork's copied message: its Sources were copied with it as they were, so
+	// what the turn made was made in the ORIGINAL chat, and the heading says so in
+	// the card's own words instead of "Made in this chat".
+	madeInOriginalChat?: boolean;
 	// Workspaces Slice E — an external request to open the panel, from the Info
 	// popover's "Project files" row. A counter rather than a boolean so two
 	// requests in a row are two opens, and so a request can never pin the panel
@@ -500,7 +505,7 @@ function openDocument(item: MessageEvidenceItem) {
 				</section>
 			{/if}
 			{#if madeItems.length > 0}
-				{@const madeLabel = $t('artifacts.evidence.madeInThisChat')}
+				{@const madeLabel = $t(madeInOriginalChat ? 'artifacts.madeInOriginalChat' : 'artifacts.evidence.madeInThisChat')}
 				<section
 					class="evidence-group evidence-group--made"
 					style={`animation-delay: ${slotDelay(madeTitleSlot)}`}

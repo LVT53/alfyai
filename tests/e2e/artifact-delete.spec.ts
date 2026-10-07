@@ -183,11 +183,15 @@ test.describe("Delete and Regenerate — a Document made by create_artifact", ()
  * through the fake provider (the reason is at the top of this file); the real
  * turn's own row is checked in artifact-chat-card.spec.ts.
  */
-async function seedMadeDocumentTurn(conversationId: string, uid: string) {
+async function seedMadeDocumentTurn(
+	conversationId: string,
+	uid: string,
+	{ sequence = 900, title = CREATED_TITLE } = {},
+) {
 	const made = await createDocumentArtifact({
 		userId: uid,
 		conversationId,
-		title: CREATED_TITLE,
+		title,
 		markdown: CREATED_BODY,
 		author: "alfy",
 		summary: "Alfy wrote the first draft",
@@ -196,7 +200,7 @@ async function seedMadeDocumentTurn(conversationId: string, uid: string) {
 	await db.insert(messages).values({
 		id: messageId,
 		conversationId,
-		messageSequence: 900,
+		messageSequence: sequence,
 		role: "assistant",
 		content: "Made the document.",
 		toolCalls: JSON.stringify([
@@ -206,17 +210,17 @@ async function seedMadeDocumentTurn(conversationId: string, uid: string) {
 				name: "create_artifact",
 				input: {
 					artifactType: "document",
-					title: CREATED_TITLE,
+					title,
 					body: CREATED_BODY,
 				},
 				status: "done",
-				outputSummary: `Created Document "${CREATED_TITLE}"`,
+				outputSummary: `Created Document "${title}"`,
 				sourceType: "tool",
 				metadata: {
 					ok: true,
 					artifactId: made.id,
 					artifactKind: "document",
-					artifactTitle: CREATED_TITLE,
+					artifactTitle: title,
 				},
 			},
 		]),
@@ -232,7 +236,7 @@ async function seedMadeDocumentTurn(conversationId: string, uid: string) {
 						items: [
 							{
 								id: made.id,
-								title: CREATED_TITLE,
+								title,
 								sourceType: "artifact",
 								status: "reference",
 								artifactId: made.id,
@@ -362,6 +366,113 @@ test.describe("A Sources row of an item that was deleted", () => {
 			group.getByRole("button", { name: /Weekend plan/ }),
 		).toBeVisible();
 		await expect(group).not.toContainText("was deleted");
+	});
+});
+
+// M-2 of the final review: a fork copies the parent's messages, and with each
+// assistant message its Sources as they were. What the parent's turn made was
+// made in the ORIGINAL chat, so the copied group must not say "Made in this
+// chat" — it says what the fork's own card says for an item out of reach.
+test.describe("A fork's copied Sources", () => {
+	test("say the item was made in the original chat, and the row still opens the parent's Document", async ({
+		page,
+	}) => {
+		await login(page);
+		const parentId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		const { messageId } = await seedMadeDocumentTurn(parentId, uid);
+		const fork = await createConversationFork({
+			userId: uid,
+			sourceConversationId: parentId,
+			sourceMessageId: messageId,
+		});
+		expect(fork.conversation.memoryIncognito).toBeFalsy();
+
+		await openChatAndReload(page, fork.conversation.id);
+		await page.getByRole("button", { name: /^Sources/ }).click();
+
+		const group = page.getByRole("group", {
+			name: "Made in the original chat",
+		});
+		await expect(group).toContainText(CREATED_TITLE);
+		await expect(
+			page.getByRole("heading", { name: "Made in the original chat" }),
+		).toBeVisible();
+		await expect(page.getByText("Made in this chat")).toHaveCount(0);
+
+		// The parent's Document is there and this chat may read it: the row opens it.
+		await group.getByRole("button", { name: /Weekend plan/ }).click();
+		await expect(
+			workspacePanel(page).getByText("Book the museum tickets."),
+		).toBeVisible({ timeout: 30_000 });
+	});
+
+	test("of an incognito chat say so too, and the row is plain: the parent's Document is out of reach", async ({
+		page,
+	}) => {
+		await login(page);
+		const parentId = await createConversation(page, "Incognito plan");
+		await db
+			.update(conversations)
+			.set({ memoryIncognito: true })
+			.where(eq(conversations.id, parentId));
+		const uid = await testUserId();
+		const { messageId } = await seedMadeDocumentTurn(parentId, uid);
+		const fork = await createConversationFork({
+			userId: uid,
+			sourceConversationId: parentId,
+			sourceMessageId: messageId,
+		});
+		expect(fork.conversation.memoryIncognito).toBe(true);
+
+		await openChatAndReload(page, fork.conversation.id);
+		await expect(page.getByTestId("artifact-card")).toHaveAttribute(
+			"data-state",
+			"unreachable",
+		);
+		await page.getByRole("button", { name: /^Sources/ }).click();
+
+		const group = page.getByRole("group", {
+			name: "Made in the original chat",
+		});
+		await expect(group).toContainText(CREATED_TITLE);
+		await expect(page.getByText("Made in this chat")).toHaveCount(0);
+		// Nothing to open, and nothing called deleted: the Document exists.
+		await expect(group.getByRole("button")).toHaveCount(0);
+		await expect(group.getByText("Document", { exact: true })).toBeVisible();
+		await expect(page.getByText(/was deleted/)).toHaveCount(0);
+		await group.getByText(CREATED_TITLE).click();
+		await expect(workspacePanel(page)).toHaveCount(0);
+	});
+
+	test("leave the wording alone for what the fork itself makes", async ({
+		page,
+	}) => {
+		await login(page);
+		const parentId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		const { messageId } = await seedMadeDocumentTurn(parentId, uid);
+		const fork = await createConversationFork({
+			userId: uid,
+			sourceConversationId: parentId,
+			sourceMessageId: messageId,
+		});
+		// A turn of the fork's own, later than the copy: its Sources are its own.
+		await seedMadeDocumentTurn(fork.conversation.id, uid, {
+			sequence: 9000,
+			title: "Fork's own plan",
+		});
+
+		await openChatAndReload(page, fork.conversation.id);
+		await page.getByRole("button", { name: /^Sources/ }).first().click();
+		await page.getByRole("button", { name: /^Sources/ }).last().click();
+
+		await expect(
+			page.getByRole("group", { name: "Made in the original chat" }),
+		).toHaveCount(1);
+		const own = page.getByRole("group", { name: "Made in this chat" });
+		await expect(own).toHaveCount(1);
+		await expect(own).toContainText("Fork's own plan");
 	});
 });
 

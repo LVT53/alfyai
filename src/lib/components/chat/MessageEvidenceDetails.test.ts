@@ -1256,6 +1256,44 @@ describe("MessageEvidenceDetails — what the turn made", () => {
 		}
 	});
 
+	// M-2 of the final review: a fork copies the parent's messages with their
+	// Sources as they were, so what the parent's turn made was made in the
+	// ORIGINAL chat. The heading says so in the card's own words.
+	it("calls the group 'Made in the original chat' in a fork's copied Sources, and the rows still open", async () => {
+		const onOpenDocument = vi.fn();
+		render(MessageEvidenceDetails, {
+			evidenceSummary: madeSummary(made("doc-1", "Weekend plan", "document")),
+			onOpenDocument,
+			madeInOriginalChat: true,
+		});
+		await openSources();
+
+		expect(
+			screen.getByRole("heading", { name: "Made in the original chat" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("group", { name: "Made in the original chat" }),
+		).toBeInTheDocument();
+		expect(screen.queryByText("Made in this chat")).toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: /Weekend plan/ }));
+		expect(onOpenDocument).toHaveBeenCalledTimes(1);
+	});
+
+	it("says it in Hungarian with the card's own words too", async () => {
+		uiLanguage.set("hu");
+		render(MessageEvidenceDetails, {
+			evidenceSummary: madeSummary(made("doc-1", "Hétvégi terv", "document")),
+			onOpenDocument: vi.fn(),
+			madeInOriginalChat: true,
+		});
+		await openSources();
+
+		expect(
+			screen.getByRole("heading", { name: "Az eredeti beszélgetésben készült" }),
+		).toBeInTheDocument();
+		expect(screen.queryByText("Ebben a beszélgetésben készült")).toBeNull();
+	});
+
 	// M-1 of the final review: the chat's cards say an item was deleted, and the
 	// Sources row of the same item kept looking like a link. It reads the state
 	// the cards read (`DeletedArtifacts`) and says it in the card's own words.

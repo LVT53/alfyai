@@ -1213,6 +1213,7 @@ function sendFollowUp(question: string) {
 					onOpenDocument={onOpenDocument}
 					expandRequest={sourcesExpandRequest}
 					{deletedArtifacts}
+					madeInOriginalChat={Boolean(message.forkEvidenceSnapshot)}
 				/>
 			{:else if showEvidencePending}
 				<div class="evidence-pending">{$t('messageBubble.evidenceLoading')}</div>
