@@ -264,32 +264,44 @@ describe("sanitizeMermaidSource: an image or icon shape is fetched by Mermaid wh
 		[
 			"an image shape",
 			`A@{ img: "${HOST}/p.png", label: "Docs", pos: "b", w: 60, h: 60, constraint: "on" } --> B`,
+			'A@{ label: "Docs" } --> B',
 		],
 		[
 			"a single-quoted address",
 			`A@{ img: '${HOST}/p.png', label: 'Docs' } --> B`,
+			"A@{ label: 'Docs' } --> B",
 		],
-		["an unquoted address", `A@{ img: ${HOST}/p.png } --> B`],
+		["an unquoted address", `A@{ img: ${HOST}/p.png } --> B`, "A --> B"],
 		[
 			"a key spelt with a YAML escape",
 			`A@{ "i\\u006dg": "${HOST}/p.png", label: "Docs" } --> B`,
+			'A@{ label: "Docs" } --> B',
 		],
-		["a complex key", `A@{ ? img : "${HOST}/p.png" } --> B`],
+		["a complex key", `A@{ ? img : "${HOST}/p.png" } --> B`, "A --> B"],
 		[
 			"an icon shape",
 			`A@{ icon: "fa:user", form: "square", label: "Docs" } --> B`,
+			'A@{ label: "Docs" } --> B',
 		],
-		["the icon shape by name", `A@{ shape: icon, label: "Docs" } --> B`],
+		[
+			"the icon shape by name",
+			`A@{ shape: icon, label: "Docs" } --> B`,
+			'A@{ label: "Docs" } --> B',
+		],
 		[
 			"a block that runs over lines",
-			`A@{\n  img: "${HOST}/p.png",\n  label: "Docs"\n} --> B`,
+			`A@{\n    img: "${HOST}/p.png",\n    label: "Docs"\n  } --> B`,
+			'A@{ label: "Docs" } --> B',
 		],
-	])("takes out %s and keeps the node and its edge", async (_what, line) => {
+		[
+			"a caption that is itself hidden behind an escape",
+			`A@{ img: "${HOST}/p.png", "l\\u0061bel": "Docs" } --> B`,
+			"A --> B",
+		],
+	])("takes out %s, keeps the node and its edge, and the caption when it is plain", async (_what, line, kept) => {
 		const result = sanitizeMermaidSource(`flowchart LR\n  ${line}`);
-		expect(result.source).not.toContain(HOST);
-		expect(result.source).not.toMatch(/img|icon|@\{/i);
-		expect(result.source).toMatch(/A\s*--> B/);
-		expect(result.removed.length).toBeGreaterThan(0);
+		expect(result.source).toBe(`flowchart LR\n  ${kept}`);
+		expect(result.removed).toHaveLength(1);
 		expect(await parses(result.source)).toBe(true);
 	});
 

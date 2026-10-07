@@ -112,8 +112,85 @@ describe("Mermaid", () => {
 			securityLevel: "strict",
 			htmlLabels: false,
 			flowchart: { htmlLabels: false },
+			// Mermaid's own list of what a directive may not set (its six defaults, which
+			// naming the list replaces) and what a directive could use to bring HTML
+			// labels, CSS or an address in; a second wall behind the source sanitizer.
+			secure: [
+				"secure",
+				"securityLevel",
+				"startOnLoad",
+				"maxTextSize",
+				"suppressErrorRendering",
+				"maxEdges",
+				"htmlLabels",
+				"themeCSS",
+				"themeVariables",
+				"fontFamily",
+				"altFontFamily",
+				"ticketBaseUrl",
+			],
 			theme: "dark",
 		});
+	});
+
+	// FX-E: what Mermaid is handed is the source with what asks for an address or a
+	// link taken out (`mermaid-source.ts`), never the one the reply wrote.
+	it("hands Mermaid the source the sanitizer left, and says what it took out", async () => {
+		renderMermaid.mockResolvedValue({ svg: SVG });
+		const { container } = render(Mermaid, {
+			props: {
+				code: [
+					'%%{init: {"htmlLabels": true}}%%',
+					"flowchart LR",
+					'  A@{ img: "https://x.test/p.png", label: "Docs" } --> B[Done]',
+					'  click A href "https://x.test/docs"',
+				].join("\n"),
+			},
+		});
+		await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(1));
+		const handed = renderMermaid.mock.calls[0][1] as string;
+		expect(handed).toBe("flowchart LR\n  A --> B[Done]");
+		await waitFor(() =>
+			expect(container.querySelector(".markdown-mermaid")).toBeTruthy(),
+		);
+		expect(
+			container
+				.querySelector(".markdown-mermaid")
+				?.getAttribute("data-removed"),
+		).toBe("directive image-shape click");
+	});
+
+	it("hands Mermaid an ordinary source exactly as written, and says nothing was taken out", async () => {
+		renderMermaid.mockResolvedValue({ svg: SVG });
+		const code = "flowchart TD\n  A[Start] --> B{Choice}\n  style A fill:#f9f";
+		const { container } = render(Mermaid, { props: { code } });
+		await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(1));
+		expect(renderMermaid.mock.calls[0][1]).toBe(code);
+		await waitFor(() =>
+			expect(container.querySelector(".markdown-mermaid")).toBeTruthy(),
+		);
+		expect(
+			container
+				.querySelector(".markdown-mermaid")
+				?.hasAttribute("data-removed"),
+		).toBe(false);
+	});
+
+	it("draws what Mermaid returns without a link, a picture from elsewhere or an address in its CSS", async () => {
+		renderMermaid.mockResolvedValue({
+			svg: '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><style>.a{fill:url(https://x.test/a.svg#a)}</style><a xlink:href="https://x.test/docs"><g><rect fill="url(https://x.test/p.svg#a)" width="4" height="4"/><text>Docs</text></g></a><image href="https://x.test/p.png" width="4" height="4"/></svg>',
+		});
+		const { container } = render(Mermaid, {
+			props: { code: "graph TD\nA-->B" },
+		});
+		await waitFor(() => {
+			expect(container.querySelector(".markdown-mermaid svg")).toBeTruthy();
+		});
+		const host = container.querySelector(".markdown-mermaid") as HTMLElement;
+		expect(host.querySelector("a")).toBeNull();
+		expect(host.innerHTML).not.toContain("x.test");
+		expect(host.textContent).toContain("Docs");
+		expect(host.querySelector("rect")).toBeTruthy();
 	});
 
 	it("draws again in the other theme when the reader switches", async () => {

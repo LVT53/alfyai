@@ -200,14 +200,19 @@ function harmlessBlock(body: string): boolean {
 	return true;
 }
 
+/** A label this module can read whole: a quoted string with no escape in it, as a key written plainly. */
+const PLAIN_LABEL =
+	/(?:^|[\s,{])"?label"?[ \t]*:[ \t]*("[^"\\\n]*"|'[^'\\\n]*')/;
+
 /**
  * A node's `@{ … }` block is YAML, and the block that names an image makes Mermaid
  * decode the picture itself while it draws (twice, before any sanitizer), so a
- * block is kept only when it is one this module can read all of; any other goes,
- * to its first `}`, whatever it was trying to say.
+ * block is kept only when it is one this module can read all of. Any other goes, to
+ * its first `}`, whatever it was trying to say, but for a label it says plainly: a
+ * box that was to hold a picture and a caption keeps the caption.
  */
 function removeShapeBlocks(text: string, found: Set<Hazard>): string {
-	const spans: Array<[number, number]> = [];
+	let out = "";
 	let at = 0;
 	for (;;) {
 		const open = text.indexOf("@{", at);
@@ -215,14 +220,19 @@ function removeShapeBlocks(text: string, found: Set<Hazard>): string {
 		const close = text.indexOf("}", open + 2);
 		const end = close < 0 ? lineEndOf(text, open) : close + 1;
 		const block = text.slice(open, end);
+		out += text.slice(at, open);
 		at = end;
-		if (close >= 0 && harmlessBlock(text.slice(open + 2, close))) continue;
-		spans.push([open, end]);
+		if (close >= 0 && harmlessBlock(text.slice(open + 2, close))) {
+			out += block;
+			continue;
+		}
 		found.add(
 			/img|icon|image|\\[uxU]/i.test(block) ? "image-shape" : "shape-block",
 		);
+		const label = PLAIN_LABEL.exec(block.slice(2))?.[1];
+		if (label !== undefined) out += `@{ label: ${label} }`;
 	}
-	return removeSpans(text, spans);
+	return out + text.slice(at);
 }
 
 // ---- Click and link lines ---------------------------------------------------

@@ -4,11 +4,15 @@
 // effect (never at module top-level / never during SSR) — it must not block
 // first paint of an answer. mermaid renders source → an SVG string, which we
 // pass through OUR DOMPurify SVG gate (sanitizeHtml { svg: true }) before {@html}
-// injection. A parse error (or any render failure) is caught and degrades to the
-// raw source + an error note — it never crashes the message. Server-side and
-// pre-render we show a lightweight placeholder. The diagram is drawn in the
-// reader's theme: Mermaid's default theme inks its lines, arrows and labels dark,
-// which a dark page swallows, so a dark page gets Mermaid's dark theme.
+// injection. What Mermaid is given is the source with what asks for an address or
+// a link taken out of it (shared/artifacts/mermaid-source.ts): Mermaid fetches an
+// image shape's picture while it draws, before any gate runs, and a directive, a
+// front-matter config or a CSS url() in a style can too. A parse error (or any
+// render failure) is caught and degrades to the raw source + an error note — it
+// never crashes the message. Server-side and pre-render we show a lightweight
+// placeholder. The diagram is drawn in the reader's theme: Mermaid's default theme
+// inks its lines, arrows and labels dark, which a dark page swallows, so a dark
+// page gets Mermaid's dark theme.
 import { onMount } from "svelte";
 import { t } from "$lib/i18n";
 import { isDark } from "$lib/stores/theme";
@@ -19,6 +23,8 @@ let { code = "" }: { code?: string } = $props();
 const uid = $props.id();
 
 let svgHtml = $state("");
+// What the source sanitizer took out of the source, for a test or a reader's tool to see.
+let removedKinds = $state("");
 let errored = $state(false);
 let mounted = $state(false);
 
@@ -29,13 +35,22 @@ type MermaidModule = {
 	initialize: (config: Record<string, unknown>) => void;
 	render: (id: string, text: string) => Promise<{ svg: string }>;
 };
-let mermaidPromise: Promise<MermaidModule> | null = null;
+type Loaded = {
+	mermaid: MermaidModule;
+	sanitize: (source: string) => { source: string; removed: string[] };
+};
+let loadedPromise: Promise<Loaded> | null = null;
 
-async function loadMermaid(): Promise<MermaidModule> {
-	mermaidPromise ??= import("mermaid").then(
-		(module) => module.default as unknown as MermaidModule,
-	);
-	return mermaidPromise;
+// The sanitizer comes with Mermaid, in one lazy load: a page with no diagram has neither.
+async function loadMermaid(): Promise<Loaded> {
+	loadedPromise ??= Promise.all([
+		import("mermaid"),
+		import("$lib/shared/artifacts/mermaid-source"),
+	]).then(([module, source]) => ({
+		mermaid: module.default as unknown as MermaidModule,
+		sanitize: source.sanitizeMermaidSource,
+	}));
+	return loadedPromise;
 }
 
 // Mermaid builds its site config from its defaults plus what `initialize` is
@@ -50,6 +65,24 @@ function mermaidConfig(dark: boolean): Record<string, unknown> {
 		securityLevel: "strict",
 		htmlLabels: false,
 		flowchart: { htmlLabels: false },
+		// What a directive in a source may not set. Naming the list replaces Mermaid's
+		// own (the first six), so those stay; the rest are what could bring HTML
+		// labels, CSS or an address in. The source sanitizer takes directives out
+		// first, so this is the wall behind it.
+		secure: [
+			"secure",
+			"securityLevel",
+			"startOnLoad",
+			"maxTextSize",
+			"suppressErrorRendering",
+			"maxEdges",
+			"htmlLabels",
+			"themeCSS",
+			"themeVariables",
+			"fontFamily",
+			"altFontFamily",
+			"ticketBaseUrl",
+		],
 		theme: dark ? "dark" : "default",
 	};
 }
@@ -67,10 +100,12 @@ async function renderDiagram(source: string, dark: boolean) {
 	// A CSS id must not start with a digit; $props.id() can, so prefix it.
 	const renderId = `mermaid-${uid}`.replace(/[^a-zA-Z0-9_-]/g, "-");
 	try {
-		const mermaid = await loadMermaid();
+		const { mermaid, sanitize } = await loadMermaid();
+		const { source: safe, removed } = sanitize(trimmed);
 		mermaid.initialize(mermaidConfig(dark));
-		const { svg } = await mermaid.render(renderId, trimmed);
+		const { svg } = await mermaid.render(renderId, safe);
 		if (token !== renderToken) return; // a newer render superseded this one
+		removedKinds = removed.join(" ");
 		// Gate the mermaid SVG through our own sanitizer before injecting it.
 		svgHtml = sanitizeHtml(svg, {
 			svg: true,
@@ -106,7 +141,7 @@ $effect(() => {
   <div class="markdown-diagram-error" role="note">{$t('diagram.mermaidError')}</div>
   <pre class="markdown-diagram-source"><code>{code}</code></pre>
 {:else if svgHtml}
-  <div class="markdown-mermaid">{@html svgHtml}</div>
+  <div class="markdown-mermaid" data-removed={removedKinds || undefined}>{@html svgHtml}</div>
 {:else}
   <!-- SSR / pre-render placeholder: show the source so there is never a blank gap. -->
   <pre class="markdown-diagram-source markdown-mermaid-placeholder" aria-label={$t('diagram.loading')}><code>{code}</code></pre>
