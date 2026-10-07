@@ -178,6 +178,28 @@ test.describe("The panel over a project's Files dialog", () => {
 		await pressInsidePanel(page, panel, dialog, "Shift+Tab", 8);
 	});
 
+	// RV-F, M-11: "This chat", a button back to a list the dialog does not have.
+	test("opens an item with no breadcrumb back to a chat's list", async ({
+		page,
+	}) => {
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		await openButton(dialog, names.document).click();
+		const panel = panelShell(page);
+		await expect(panel.getByTestId("artifact-panel-title")).toHaveText(
+			names.document,
+		);
+
+		await expect(panel.getByRole("button", { name: /this chat/i })).toHaveCount(
+			0,
+		);
+		// What the header does have is where it always was.
+		await expect(panel.getByTestId("artifact-download-button")).toBeVisible();
+		await expect(
+			panel.getByRole("button", { name: "Close document workspace" }),
+		).toBeVisible();
+	});
+
 	test("Tab and Shift+Tab stay inside a Canvas's panel, from the board's controls", async ({
 		page,
 	}) => {

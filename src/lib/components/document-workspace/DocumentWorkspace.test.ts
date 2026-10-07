@@ -2080,11 +2080,15 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 
 	it("the breadcrumb returns to the list without closing the whole panel", async () => {
 		withDocumentLoader();
+		const plan = makeWorkspaceDocument({
+			id: "doc-1",
+			kind: "document",
+			title: "Plan",
+		});
 		const { onListOpenChange, onCloseWorkspace } = renderWorkspace({
-			documents: [
-				makeWorkspaceDocument({ id: "doc-1", kind: "document", title: "Plan" }),
-			],
+			documents: [plan],
 			activeDocumentId: "doc-1",
+			list: { open: false, items: [plan] },
 		});
 
 		await screen.findByTestId("fake-artifact-body");
@@ -2092,11 +2096,38 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			name: WORKSPACE_LANDMARK,
 		})[0];
 		await fireEvent.click(
-			within(shell).getByRole("button", { name: "This chat" }),
+			within(shell).getByRole("button", { name: /This chat/ }),
 		);
 
 		expect(onListOpenChange).toHaveBeenCalledWith(true);
 		expect(onCloseWorkspace).not.toHaveBeenCalled();
+	});
+
+	// RV-F, M-11: a host with no list (the Knowledge page, a project's Files
+	// dialog) has nothing for "This chat" to go back to: it was a button that did
+	// nothing, under a heading naming a chat the reader may not be in.
+	it("draws no breadcrumb in a host that has no list to go back to", async () => {
+		withDocumentLoader();
+		renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({ id: "doc-1", kind: "document", title: "Plan" }),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		await screen.findByTestId("fake-artifact-body");
+
+		const shells = screen.getAllByRole("complementary", {
+			name: WORKSPACE_LANDMARK,
+		});
+		for (const shell of shells) {
+			expect(
+				within(shell).queryByRole("button", { name: /This chat/ }),
+			).not.toBeInTheDocument();
+		}
+		expect(
+			screen.queryByRole("button", { name: /This chat/ }),
+		).not.toBeInTheDocument();
 	});
 
 	it("closes the workspace from the header's Close action", async () => {

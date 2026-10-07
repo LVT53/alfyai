@@ -2058,7 +2058,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						})
 					: null}
 					itemCount={list?.items.length ?? null}
-					onBack={handleBackToList}
+					onBack={list ? handleBackToList : undefined}
 					actions={artifactHeaderActionsSnippet}
 				/>
 			{:else}
@@ -2372,7 +2372,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						})
 					: null}
 				itemCount={list?.items.length ?? null}
-				onBack={handleBackToList}
+				onBack={list ? handleBackToList : undefined}
 				actions={artifactHeaderActionsSnippet}
 			/>
 		{:else}
