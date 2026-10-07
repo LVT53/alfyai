@@ -38,25 +38,34 @@ type MermaidModule = {
 type Loaded = {
 	mermaid: MermaidModule;
 	sanitize: (source: string) => { source: string; removed: string[] };
+	secure: string[];
 };
 let loadedPromise: Promise<Loaded> | null = null;
 
-// The sanitizer comes with Mermaid, in one lazy load: a page with no diagram has neither.
+// The sanitizer comes with Mermaid, in one lazy load (both requests start at once):
+// a page with no diagram has neither.
 async function loadMermaid(): Promise<Loaded> {
-	loadedPromise ??= Promise.all([
-		import("mermaid"),
-		import("$lib/shared/artifacts/mermaid-source"),
-	]).then(([module, source]) => ({
-		mermaid: module.default as unknown as MermaidModule,
-		sanitize: source.sanitizeMermaidSource,
-	}));
+	loadedPromise ??= (async () => {
+		const loading = import("mermaid");
+		const { sanitizeMermaidSource, MERMAID_SECURE_KEYS } = await import(
+			"$lib/shared/artifacts/mermaid-source"
+		);
+		return {
+			mermaid: (await loading).default as unknown as MermaidModule,
+			sanitize: sanitizeMermaidSource,
+			secure: MERMAID_SECURE_KEYS,
+		};
+	})();
 	return loadedPromise;
 }
 
 // Mermaid builds its site config from its defaults plus what `initialize` is
 // given, so every call says the whole posture and not only the theme: a call that
 // named the theme alone would quietly give back the labels this gate is built for.
-function mermaidConfig(dark: boolean): Record<string, unknown> {
+function mermaidConfig(
+	dark: boolean,
+	secure: string[],
+): Record<string, unknown> {
 	return {
 		startOnLoad: false,
 		// Strictest posture: mermaid's own DOMPurify pass runs too, and we
@@ -65,24 +74,9 @@ function mermaidConfig(dark: boolean): Record<string, unknown> {
 		securityLevel: "strict",
 		htmlLabels: false,
 		flowchart: { htmlLabels: false },
-		// What a directive in a source may not set. Naming the list replaces Mermaid's
-		// own (the first six), so those stay; the rest are what could bring HTML
-		// labels, CSS or an address in. The source sanitizer takes directives out
-		// first, so this is the wall behind it.
-		secure: [
-			"secure",
-			"securityLevel",
-			"startOnLoad",
-			"maxTextSize",
-			"suppressErrorRendering",
-			"maxEdges",
-			"htmlLabels",
-			"themeCSS",
-			"themeVariables",
-			"fontFamily",
-			"altFontFamily",
-			"ticketBaseUrl",
-		],
+		// What a directive in a source may not set (the source sanitizer takes
+		// directives out first, so this is the wall behind it).
+		secure,
 		theme: dark ? "dark" : "default",
 	};
 }
@@ -100,9 +94,9 @@ async function renderDiagram(source: string, dark: boolean) {
 	// A CSS id must not start with a digit; $props.id() can, so prefix it.
 	const renderId = `mermaid-${uid}`.replace(/[^a-zA-Z0-9_-]/g, "-");
 	try {
-		const { mermaid, sanitize } = await loadMermaid();
+		const { mermaid, sanitize, secure } = await loadMermaid();
 		const { source: safe, removed } = sanitize(trimmed);
-		mermaid.initialize(mermaidConfig(dark));
+		mermaid.initialize(mermaidConfig(dark, secure));
 		const { svg } = await mermaid.render(renderId, safe);
 		if (token !== renderToken) return; // a newer render superseded this one
 		removedKinds = removed.join(" ");

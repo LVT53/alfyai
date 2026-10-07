@@ -336,6 +336,28 @@ function breakCssAddresses(text: string, found: Set<Hazard>): string {
 	return out + text.slice(at);
 }
 
+/**
+ * What a directive in a source may not set, as Mermaid's own `secure` list (it
+ * replaces Mermaid's default, so the six it starts with are here): the keys that
+ * could bring HTML labels, CSS or an address in. The wall behind the sanitizer,
+ * which takes directives out first; handed to `mermaid.initialize` by the one
+ * component that calls it.
+ */
+export const MERMAID_SECURE_KEYS = [
+	"secure",
+	"securityLevel",
+	"startOnLoad",
+	"maxTextSize",
+	"suppressErrorRendering",
+	"maxEdges",
+	"htmlLabels",
+	"themeCSS",
+	"themeVariables",
+	"fontFamily",
+	"altFontFamily",
+	"ticketBaseUrl",
+];
+
 // ---- The sanitizer ----------------------------------------------------------
 
 /**
