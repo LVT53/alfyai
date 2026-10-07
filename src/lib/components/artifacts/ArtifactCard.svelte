@@ -299,21 +299,6 @@ $effect(() => {
 function handleOpen(): void {
 	if (view.openTargetId) onOpen?.(view.openTargetId);
 }
-
-/**
- * The head's second line is one string ("Dokumentum · 1 fül"), and the column
- * it sits in can be squeezed to a few dozen pixels by the open label beside it
- * (the panel docked next to the chat), so it wraps wherever the text allows —
- * and used to break a number from its unit ("1" / "fül"). A no-break space
- * after the separator and between a number and the word after it makes each
- * fact ("· 1 fül") one piece that wraps whole, led by its dot like the version
- * beside it ("· v1"), and leaves the line free to wrap between its facts.
- * (`white-space: nowrap` on the whole line would hold a fact together too, but
- * spills into the open label once the column is narrower than the line.)
- */
-function keepFactsWhole(text: string): string {
-	return text.replace(/([\d·]) (?=[\p{L}\d])/gu, "$1\u00a0");
-}
 </script>
 
 {#if chrome === 'body' && view.kind === 'file'}
@@ -493,15 +478,20 @@ function keepFactsWhole(text: string): string {
 				<span class="artifact-card-headtext">
 					<span class="artifact-card-title">{view.title}</span>
 					<span class="artifact-card-sub">
-						{#if view.creating}
-							<span class="artifact-card-sub-writing">{$t('artifacts.card.creatingSubtitle')}</span>
-						{:else}
-							<span>{keepFactsWhole(subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey))}</span>
-						{/if}
-						{#if view.versionNumber}
-							<span class="artifact-card-sep" aria-hidden="true">·</span>
-							<span>{$t('artifacts.card.version', { n: view.versionNumber })}</span>
-						{/if}
+						<!-- The facts are ONE line (kind · facts · version) that ends in an
+						     ellipsis before it wraps; the review pills beside it drop to a
+						     row of their own when they do not fit. -->
+						<span class="artifact-card-facts">
+							{#if view.creating}
+								<span class="artifact-card-sub-writing">{$t('artifacts.card.creatingSubtitle')}</span>
+							{:else}
+								{subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey)}
+							{/if}
+							{#if view.versionNumber}
+								<span class="artifact-card-sep" aria-hidden="true">·</span>
+								{$t('artifacts.card.version', { n: view.versionNumber })}
+							{/if}
+						</span>
 						{#if view.pendingReviewCount}
 							<span class="pill artifact-card-pending">
 								<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
@@ -600,6 +590,9 @@ function keepFactsWhole(text: string): string {
 	   `.artifact-card`) so chrome="body" — a host that draws its own box
 	   already (ToolActivityRow's `.act-body`) — is untouched. */
 	.artifact-card-full {
+		/* The card answers to ITS OWN width (see the @container block below): the
+		   chat column beside a docked panel is narrow whatever the window is. */
+		container: artifact-card / inline-size;
 		gap: 0;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-lg, 12px);
@@ -774,6 +767,20 @@ function keepFactsWhole(text: string): string {
 		font-size: 0.78rem;
 	}
 
+	/* "Dokumentum · 1 fül · v1" is ONE line: it ends in an ellipsis before it
+	   wraps, however narrow the column is (a number never parts from its unit,
+	   because nothing in it can break). The review pills beside it are flex
+	   items of the wrapping `.artifact-card-sub`, so they drop under it when
+	   they do not fit. */
+	.artifact-card-facts {
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
 	.artifact-card-sep {
 		opacity: 0.6;
 	}
@@ -850,6 +857,37 @@ function keepFactsWhole(text: string): string {
 
 	.artifact-card-head:hover:not(:disabled) .artifact-card-cta {
 		background: var(--accent-tint);
+	}
+
+	/* A narrow card puts its action on a row of its own, under the text. The
+	   chat column a docked panel leaves is 250-370 px wide (a phone's is about as
+	   wide), and the action beside the text took 100-165 px of it: Hungarian
+	   "Megnyitva a panelen" alone is a 164 px box, which left the title and the
+	   facts a column of 5 px at a 1100 px window and drew the label over them.
+	   Beside the text the action needs a card of about 26rem (the facts line is
+	   ~150 px, the head's own spacing ~250 px, the longest action 164 px), so
+	   that is where it steps down; the card's width decides, never the window's:
+	   an undocked card in the same window is a wide one. */
+	@container artifact-card (max-width: 26rem) {
+		.artifact-card-head {
+			grid-template-columns: 36px minmax(0, 1fr);
+			row-gap: 0.125rem;
+		}
+
+		.artifact-card-cta,
+		.artifact-card-regenerate {
+			grid-column: 2;
+			justify-self: start;
+		}
+
+		/* Its words stand under the title's; a hover's tint reaches 0.5rem left of them. */
+		.artifact-card-cta {
+			margin-left: -0.5rem;
+		}
+
+		.artifact-card-regenerate {
+			margin-top: 0.375rem;
+		}
 	}
 
 	/* Aligns under the head's text column (14px head padding + 36px icon +
