@@ -381,14 +381,20 @@ test.describe("A fork's copied Sources", () => {
 		const parentId = await createConversation(page, "Plan a weekend");
 		const uid = await testUserId();
 		const { messageId } = await seedMadeDocumentTurn(parentId, uid);
-		const fork = await createConversationFork({
-			userId: uid,
-			sourceConversationId: parentId,
-			sourceMessageId: messageId,
-		});
-		expect(fork.conversation.memoryIncognito).toBeFalsy();
 
-		await openChatAndReload(page, fork.conversation.id);
+		// The reader forks from the message that made it, with their own clicks.
+		await openChatAndReload(page, parentId);
+		await page.locator(`[data-message-id="${messageId}"]`).hover();
+		const fork = page.locator(`#fork-button-${messageId}`);
+		await expect(fork).toHaveAccessibleName("Fork from here");
+		await fork.click();
+		await page.waitForURL(
+			(url) => {
+				const id = url.pathname.match(/^\/chat\/([^/]+)$/)?.[1];
+				return Boolean(id && id !== parentId);
+			},
+			{ timeout: 15_000 },
+		);
 		await page.getByRole("button", { name: /^Sources/ }).click();
 
 		const group = page.getByRole("group", {
