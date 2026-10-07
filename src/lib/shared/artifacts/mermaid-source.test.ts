@@ -641,6 +641,7 @@ describe("sanitizeMermaidSource: it always finishes, and finishing is a fixed po
 		`%%{x}%%---\nconfig:\n  a: b\n---\nflowchart LR`,
 		"%%{ %%{ %%{ }%% }%% }%%",
 		"@{ @{ @{ }",
+		'@{label:"\r"}',
 		`u\\\nrl(${HOST})`,
 	];
 

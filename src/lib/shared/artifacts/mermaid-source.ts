@@ -239,7 +239,7 @@ function harmlessBlock(body: string): boolean {
 
 /** A label this module can read whole: a quoted string with no escape in it, as a key written plainly. */
 const PLAIN_LABEL =
-	/(?:^|[\s,{])"?label"?[ \t]*:[ \t]*("[^"\\\n]*"|'[^'\\\n]*')/;
+	/(?:^|[\s,{])"?label"?[ \t]*:[ \t]*("[^"\\\n\r]*"|'[^'\\\n\r]*')/;
 
 /**
  * A node's `@{ … }` block is YAML, and the block that names an image makes Mermaid
