@@ -38,6 +38,7 @@ import {
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
+import { createKnownBoards } from "./artifact-tools/canvas-model";
 import {
 	advertisedArtifactKinds,
 	buildCreateArtifactInputSchema,
@@ -703,6 +704,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// Every create_artifact call this turn, whatever kind — see
 	// MAX_CREATE_ARTIFACT_CALLS_PER_TURN (artifact-tools/create.ts).
 	let totalCreateArtifactCalls = 0;
+	// The words of each board this turn has read, for an edit to be judged
+	// against (ruling 67): in memory, and gone with the turn. Never on a record.
+	const knownBoards = createKnownBoards();
 	// At most one instruction offer per turn (Slice F). The offer is a row the
 	// user has to answer; a second row about the same sentence is a second
 	// decision, so a repeated call is refused rather than recorded.
@@ -1806,6 +1810,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								conversationId: ctx.conversationId,
 								artifactId: input.artifactId,
 								detail: input.detail,
+								turnContext: { knownBoards },
 								abortSignal,
 							});
 							return {
@@ -1886,8 +1891,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								ops: safeInput.ops,
 								summary: safeInput.summary,
 								// What this turn has already done: a board edit is judged
-								// against the version the model last read (ruling 67).
-								turnContext: { sources: recorder.getEntries() },
+								// against what the model last read of it (ruling 67).
+								turnContext: {
+									sources: recorder.getEntries(),
+									knownBoards,
+								},
 								abortSignal,
 							});
 							return {
