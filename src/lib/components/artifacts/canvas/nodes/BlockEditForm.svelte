@@ -115,7 +115,7 @@ const ownKeys: Attachment<HTMLFormElement> = (element) => {
 
 <form
 	bind:this={form}
-	class="edit nodrag nopan nowheel"
+	class="edit canvas-edit-form nodrag nopan nowheel"
 	class:edit--fill={sourceKind !== null && !overlay}
 	class:edit--overlay={overlay}
 	aria-label={$t("common.edit")}
@@ -183,6 +183,14 @@ const ownKeys: Attachment<HTMLFormElement> = (element) => {
 </form>
 
 <style>
+	/* A block that is being changed grows (a chart's form is taller than its plot) and may
+	   reach what is beside it. Its buttons are pressed with a pointer, so while its form is
+	   open the block is above its neighbours: the library draws the blocks in their listed
+	   order, and one listed before another would have its Save under it. */
+	:global(.svelte-flow__node:has(.canvas-edit-form)) {
+		z-index: 12 !important;
+	}
+
 	.edit {
 		display: flex;
 		flex-direction: column;

@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
@@ -146,6 +149,23 @@ describe("the form of a chart", () => {
 			metaKey: true,
 		});
 		expect(updateData).toHaveBeenCalledWith("block-1", { label: "Changed" });
+	});
+
+	it("carries the class that lifts its block above the ones beside it, and the rule that does", () => {
+		mount("chart", chart());
+		expect(screen.getByTestId("canvas-edit-form").className).toContain(
+			"canvas-edit-form",
+		);
+		const source = readFileSync(
+			path.join(
+				path.dirname(fileURLToPath(import.meta.url)),
+				"BlockEditForm.svelte",
+			),
+			"utf8",
+		);
+		expect(source).toMatch(
+			/:global\(\.svelte-flow__node:has\(\.canvas-edit-form\)\)\s*\{[^}]*z-index:\s*12\s*!important/,
+		);
 	});
 
 	it("keeps Escape and Ctrl+Enter to itself: the panel around the board does not hear them", async () => {

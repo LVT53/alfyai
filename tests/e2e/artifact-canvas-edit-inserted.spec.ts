@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
 	bareSpot,
+	CHAT_CHART,
 	CHAT_DIAGRAM,
 	centre,
 	click,
@@ -248,6 +249,59 @@ test.describe("everything inserted can be changed afterwards", () => {
 		);
 		await expect(form).toHaveCount(0);
 		expect((await storedData(boardId, id))?.code).toBe(before?.code);
+	});
+
+	test("a form that grows over the block beside it is above it: Save and Cancel are pressed where they are drawn", async ({
+		page,
+	}) => {
+		const { conversationId, boardId } = await seedChat(page, {
+			body: () => ({
+				version: 1,
+				nodes: [
+					{
+						id: "plot",
+						type: "chart",
+						position: { x: 0, y: 0 },
+						width: 360,
+						data: {
+							kind: "chart",
+							label: "Sales",
+							code: JSON.stringify(CHAT_CHART),
+						},
+					},
+					// Listed after the chart and right under it: the form grows into it.
+					{
+						id: "below",
+						type: "checklist",
+						position: { x: 0, y: 290 },
+						width: 340,
+						data: { kind: "checklist", items: [] },
+					},
+				],
+				edges: [],
+				viewport: { x: 40, y: 90, zoom: 1 },
+				annotations: [],
+			}),
+		});
+		await openTheBoard(page, conversationId);
+		await select(page, "plot");
+		await pressEdit(page);
+		const form = page.getByTestId(FORM);
+		await expect(form).toBeVisible();
+		await typeOver(page, form.getByTestId("canvas-edit-title"), "Takings");
+		const save = form.getByTestId("canvas-edit-save");
+		// Pressed with a real click at its centre: whatever is on top there takes it.
+		await click(page, "mouse", centre((await save.boundingBox()) as never));
+		await expect(form).toHaveCount(0);
+		await expect
+			.poll(async () => (await storedData(boardId, "plot"))?.label)
+			.toBe("Takings");
+
+		await select(page, "plot");
+		await pressEdit(page);
+		const cancel = form.getByTestId("canvas-edit-cancel");
+		await click(page, "mouse", centre((await cancel.boundingBox()) as never));
+		await expect(form).toHaveCount(0);
 	});
 
 	test("a chart the chat drew: the board holds the chat's source, and it can be changed", async ({
