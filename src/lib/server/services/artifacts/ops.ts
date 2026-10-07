@@ -43,8 +43,9 @@ export type OpsEnvelopeInput = {
 	readVersionId?: string;
 	/**
 	 * The body the author READ, when the caller still holds it (the `@Alfy`
-	 * comment reply keeps the text it showed the model). Judged exactly as the
-	 * body of `readVersionId` is, and in its place. A version id names a row, and
+	 * comment reply keeps the text it showed the model, and so does the edit
+	 * tool's turn: `KnownBoards`). Judged exactly as the body of `readVersionId`
+	 * is, and in its place. A version id names a row, and
 	 * the reader's own saves within ten minutes are written INTO the newest
 	 * version of theirs (ruling 47): when that is the version the author read,
 	 * its id is unchanged and its body is not, so only the body read can say what
