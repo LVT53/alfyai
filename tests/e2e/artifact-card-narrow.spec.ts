@@ -828,6 +828,14 @@ test.describe("the in-chat artifact card at a docked panel's narrow chat column"
 
 			await expectEveryCardOnItsOwnRow(page, `at ${width} px`);
 
+			// What a screen reader says is what the card shows, in the order it
+			// shows it: the title, the kind and facts, the pill, then the action.
+			await expect(
+				card(page, TITLES.pending).getByTestId("artifact-card-head"),
+			).toHaveAccessibleName(
+				/Packing list.*Dokumentum · 1 fül.*v2.*1 módosítás vár rád.*Átnézés/,
+			);
+
 			// What a hover paints on the head and on the action's words (shots only).
 			if (process.env.FXD_SHOTS && width === 1100) {
 				const pending = card(page, TITLES.pending);
