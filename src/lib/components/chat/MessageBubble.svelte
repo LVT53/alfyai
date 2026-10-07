@@ -1212,6 +1212,7 @@ function sendFollowUp(question: string) {
 					evidenceSummary={message.evidenceSummary}
 					onOpenDocument={onOpenDocument}
 					expandRequest={sourcesExpandRequest}
+					{deletedArtifacts}
 				/>
 			{:else if showEvidencePending}
 				<div class="evidence-pending">{$t('messageBubble.evidenceLoading')}</div>

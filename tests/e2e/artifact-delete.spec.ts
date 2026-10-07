@@ -16,7 +16,12 @@ import {
 	deleteArtifact,
 } from "../../src/lib/server/services/artifacts";
 import { createConversationFork } from "../../src/lib/server/services/conversation-forks";
-import { createConversation, login, workspacePanel } from "./helpers";
+import {
+	createConversation,
+	login,
+	waitForHydration,
+	workspacePanel,
+} from "./helpers";
 
 // Polish G2-A: Delete for what is open in the panel and for each list row,
 // what a chat card or file row says once its item is gone, and Regenerate.
@@ -170,9 +175,86 @@ test.describe("Delete and Regenerate — a Document made by create_artifact", ()
 	});
 });
 
+/**
+ * A turn that made the Document, as the app leaves it: the artifact through the
+ * creator the tool's handler uses, and an assistant message carrying the call
+ * that made it and the evidence the evidence step wrote after it ("Made in this
+ * chat"). Sources rows are read from this, so it is seeded rather than driven
+ * through the fake provider (the reason is at the top of this file); the real
+ * turn's own row is checked in artifact-chat-card.spec.ts.
+ */
+async function seedMadeDocumentTurn(conversationId: string, uid: string) {
+	const made = await createDocumentArtifact({
+		userId: uid,
+		conversationId,
+		title: CREATED_TITLE,
+		markdown: CREATED_BODY,
+		author: "alfy",
+		summary: "Alfy wrote the first draft",
+	});
+	const messageId = randomUUID();
+	await db.insert(messages).values({
+		id: messageId,
+		conversationId,
+		messageSequence: 900,
+		role: "assistant",
+		content: "Made the document.",
+		toolCalls: JSON.stringify([
+			{
+				type: "tool_call",
+				callId: "e2e-create-call",
+				name: "create_artifact",
+				input: {
+					artifactType: "document",
+					title: CREATED_TITLE,
+					body: CREATED_BODY,
+				},
+				status: "done",
+				outputSummary: `Created Document "${CREATED_TITLE}"`,
+				sourceType: "tool",
+				metadata: {
+					ok: true,
+					artifactId: made.id,
+					artifactKind: "document",
+					artifactTitle: CREATED_TITLE,
+				},
+			},
+		]),
+		metadataJson: JSON.stringify({
+			evidenceStatus: "ready",
+			evidenceSummary: {
+				structuredWebSearch: false,
+				groups: [
+					{
+						sourceType: "artifact",
+						label: "Made in this chat",
+						reranked: false,
+						items: [
+							{
+								id: made.id,
+								title: CREATED_TITLE,
+								sourceType: "artifact",
+								status: "reference",
+								artifactId: made.id,
+								description: null,
+								channels: ["tool"],
+								metadata: { artifactKind: "document" },
+							},
+						],
+					},
+				],
+			},
+		}),
+		createdAt: new Date(),
+	});
+	return { made, messageId };
+}
+
 // Slice 5b · T4: the Sources panel's "Made in this chat" row opens through the
 // same path a chat card's Open does, so an item that is gone shows the deleted
-// state the card shows — it does not open an empty panel.
+// state the card shows — it does not open an empty panel. M-1 of the final
+// review: and the row itself says so, with the card's own words, instead of
+// staying a live-looking link beside a card that says "deleted".
 test.describe("A Sources row of an item that was deleted", () => {
 	test("flips the card to deleted, says so, and opens nothing", async ({
 		page,
@@ -180,79 +262,15 @@ test.describe("A Sources row of an item that was deleted", () => {
 		await login(page);
 		const conversationId = await createConversation(page, "Plan a weekend");
 		const uid = await testUserId();
-		const made = await createDocumentArtifact({
-			userId: uid,
-			conversationId,
-			title: CREATED_TITLE,
-			markdown: CREATED_BODY,
-			author: "alfy",
-			summary: "Alfy wrote the first draft",
-		});
-		// The message the turn left: the call that made the Document, and the
-		// evidence written after it (what the evidence step persists for it).
-		await db.insert(messages).values({
-			id: randomUUID(),
-			conversationId,
-			messageSequence: 900,
-			role: "assistant",
-			content: "Made the document.",
-			toolCalls: JSON.stringify([
-				{
-					type: "tool_call",
-					callId: "e2e-create-call",
-					name: "create_artifact",
-					input: {
-						artifactType: "document",
-						title: CREATED_TITLE,
-						body: CREATED_BODY,
-					},
-					status: "done",
-					outputSummary: `Created Document "${CREATED_TITLE}"`,
-					sourceType: "tool",
-					metadata: {
-						ok: true,
-						artifactId: made.id,
-						artifactKind: "document",
-						artifactTitle: CREATED_TITLE,
-					},
-				},
-			]),
-			metadataJson: JSON.stringify({
-				evidenceStatus: "ready",
-				evidenceSummary: {
-					structuredWebSearch: false,
-					groups: [
-						{
-							sourceType: "artifact",
-							label: "Made in this chat",
-							reranked: false,
-							items: [
-								{
-									id: made.id,
-									title: CREATED_TITLE,
-									sourceType: "artifact",
-									status: "reference",
-									artifactId: made.id,
-									description: null,
-									channels: ["tool"],
-									metadata: { artifactKind: "document" },
-								},
-							],
-						},
-					],
-				},
-			}),
-			createdAt: new Date(),
-		});
+		const { made } = await seedMadeDocumentTurn(conversationId, uid);
 		await openChatAndReload(page, conversationId);
 		await expect(page.getByTestId("artifact-card")).not.toHaveAttribute(
 			"data-state",
 			"deleted",
 		);
 		await page.getByRole("button", { name: /^Sources/ }).click();
-		const row = page
-			.getByRole("group", { name: "Made in this chat" })
-			.getByRole("button", { name: /Weekend plan/ });
+		const group = page.getByRole("group", { name: "Made in this chat" });
+		const row = group.getByRole("button", { name: /Weekend plan/ });
 		await expect(row).toBeVisible();
 
 		// Deleted elsewhere (another tab, the library) after this page loaded.
@@ -271,6 +289,79 @@ test.describe("A Sources row of an item that was deleted", () => {
 		);
 		await expect(workspacePanel(page)).toHaveCount(0);
 		await expect(page.getByTestId("workspace-main")).toBeHidden();
+		// The row followed the card: it says what the card says, and is no link.
+		await expect(group).toContainText("This document was deleted");
+		await expect(group.getByRole("button")).toHaveCount(0);
+	});
+
+	test("says so when it was deleted from the library, and does not pretend to open", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		await seedMadeDocumentTurn(conversationId, uid);
+
+		// The reader's own clicks in the library: the row's Delete, then the
+		// confirmation.
+		await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await page.getByRole("tab", { name: "Documents" }).click();
+		const libraryRow = page.locator("tbody tr", { hasText: CREATED_TITLE });
+		await expect(libraryRow).toBeVisible();
+		await libraryRow.getByRole("button", { name: /delete/i }).click();
+		await page.getByTestId("confirm-delete").click();
+		await expect(libraryRow).toHaveCount(0);
+
+		// Back in the chat the card says the Document is gone — and the Sources
+		// row says the same, in the same words, rather than offering to open it.
+		await openChatAndReload(page, conversationId);
+		await expect(page.getByTestId("artifact-card")).toHaveAttribute(
+			"data-state",
+			"deleted",
+		);
+		await page.getByRole("button", { name: /^Sources/ }).click();
+		const group = page.getByRole("group", { name: "Made in this chat" });
+		await expect(group).toContainText(CREATED_TITLE);
+		await expect(group).toContainText("This document was deleted");
+		await expect(group.getByRole("button")).toHaveCount(0);
+		await expect(group.getByText("Document", { exact: true })).toHaveCount(0);
+
+		// Nothing to open: a click on the row does nothing at all.
+		await group.getByText(CREATED_TITLE).click();
+		await expect(workspacePanel(page)).toHaveCount(0);
+		await expect(page.getByTestId("workspace-main")).toBeHidden();
+	});
+
+	test("goes back to a live row when Regenerate makes the item again under the same id", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		const { made } = await seedMadeDocumentTurn(conversationId, uid);
+		const deleted = await deleteArtifact({
+			userId: uid,
+			artifactId: made.id,
+			conversationId,
+		});
+		expect(deleted.ok).toBe(true);
+		await openChatAndReload(page, conversationId);
+		await page.getByRole("button", { name: /^Sources/ }).click();
+		const group = page.getByRole("group", { name: "Made in this chat" });
+		await expect(group).toContainText("This document was deleted");
+
+		await page.getByTestId("artifact-card-regenerate").click();
+
+		await expect(page.getByTestId("artifact-card")).not.toHaveAttribute(
+			"data-state",
+			"deleted",
+			{ timeout: 30_000 },
+		);
+		await expect(
+			group.getByRole("button", { name: /Weekend plan/ }),
+		).toBeVisible();
+		await expect(group).not.toContainText("was deleted");
 	});
 });
 

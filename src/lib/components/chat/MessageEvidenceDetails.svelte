@@ -18,6 +18,7 @@ import {
 	ChevronDown,
 } from "@lucide/svelte";
 import { t, type I18nKey } from "$lib/i18n";
+import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import { ARTIFACT_KIND_ICONS } from "$lib/components/artifacts/kind-icons";
 import {
 	fetchMemoryProfile,
@@ -41,9 +42,14 @@ let {
 	evidenceSummary,
 	onOpenDocument = undefined,
 	expandRequest = 0,
+	deletedArtifacts = undefined,
 }: {
 	evidenceSummary: MessageEvidenceSummary;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
+	// Which of this chat's items are gone or out of its reach — the same value the
+	// chat's cards read, so a made row says what its card says. Absent, no row is
+	// ever marked.
+	deletedArtifacts?: DeletedArtifacts | undefined;
 	// Workspaces Slice E — an external request to open the panel, from the Info
 	// popover's "Project files" row. A counter rather than a boolean so two
 	// requests in a row are two opens, and so a request can never pin the panel
@@ -358,11 +364,33 @@ function itemDetail(item: MessageEvidenceItem): string | undefined {
 	return detail?.trim() ? detail.trim() : undefined;
 }
 
+/**
+ * What a made row's item has become since the turn made it, read from the state
+ * the chat's cards read: gone ("deleted"), or still there but out of this
+ * chat's reach (made in another chat — the parent of a forked incognito chat:
+ * "unreachable", which wins over deleted, as on the card). Either way there is
+ * nothing to open, so the row is not a link, and a click cannot pretend to.
+ */
+function madeStateOf(
+	item: MessageEvidenceItem,
+): "deleted" | "unreachable" | null {
+	if (!deletedArtifacts || !item.artifactId || !artifactKindOf(item)) {
+		return null;
+	}
+	if (deletedArtifacts.unreachableIds.includes(item.artifactId)) {
+		return "unreachable";
+	}
+	return deletedArtifacts.deletedIds.includes(item.artifactId)
+		? "deleted"
+		: null;
+}
+
 function isDocument(item: MessageEvidenceItem): boolean {
 	return (
 		(item.sourceType === "document" || artifactKindOf(item) !== null) &&
 		Boolean(item.artifactId) &&
-		Boolean(onOpenDocument)
+		Boolean(onOpenDocument) &&
+		madeStateOf(item) === null
 	);
 }
 
@@ -514,6 +542,7 @@ function openDocument(item: MessageEvidenceItem) {
 	{@const TypeIcon = iconFor(item)}
 	{@const clickableDoc = isDocument(item)}
 	{@const madeKind = artifactKindOf(item)}
+	{@const madeState = madeStateOf(item)}
 	{@const projectScope = projectScopeOf(item)}
 	<div
 		class={`evidence-row${clickableDoc ? ' evidence-row--clickable' : ''}${item.status === 'rejected' ? ' evidence-row--aside' : ''}`}
@@ -638,10 +667,10 @@ function openDocument(item: MessageEvidenceItem) {
 				{/if}
 			{/if}
 		{:else}
-			<div class="evidence-row-plain">
+			<div class={`evidence-row-plain${madeState ? ' evidence-row-plain--gone' : ''}`}>
 				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
 				<span class="evidence-title">{item.title}</span>
-				{#if madeKind}<span class="evidence-kind">{$t(`artifacts.type.${madeKind}` as I18nKey)}</span>{/if}
+				{#if madeKind}<span class="evidence-kind">{$t((madeState === 'deleted' ? `artifacts.deleted.${madeKind}` : `artifacts.type.${madeKind}`) as I18nKey)}</span>{/if}
 				{#if projectScope}<ScopeToken scope={projectScope} />{/if}
 			</div>
 		{/if}
@@ -911,6 +940,13 @@ function openDocument(item: MessageEvidenceItem) {
 		font-size: var(--text-xs);
 		color: var(--text-muted);
 		white-space: nowrap;
+	}
+
+	/* A made row whose item is gone, or is out of this chat's reach: quiet, like
+	   the card's deleted state — a record of something that was there, never a
+	   link. */
+	.evidence-row-plain--gone .evidence-title {
+		color: var(--text-muted);
 	}
 
 	@media (hover: none) and (pointer: coarse) {
