@@ -121,8 +121,10 @@ core:
   one is let through.
 
 ```bash
-# Live, through the tunnel on the runner's own port, one command:
-ssh -N -o ExitOnForwardFailure=yes -L 30020:192.168.1.96:30000 alfyroot & T=$!; sleep 2; \
+# Live, through the tunnel on the runner's own port, one command (see "Running it" for
+# why the tunnel carries -o ControlMaster=no -o ControlPath=none):
+ssh -N -o ControlMaster=no -o ControlPath=none -o ExitOnForwardFailure=yes \
+  -L 30020:192.168.1.96:30000 alfyroot & T=$!; sleep 3; \
   EVAL_ARTIFACTS_BASE_URL=http://127.0.0.1:30020/v1 EVAL_ARTIFACTS_MODEL=qwen3-6-27b \
   npx tsx scripts/eval-artifact-contracts/run-tool-suite.ts --suite canvas; kill $T
 #   --repeat 3            three sequential runs, to estimate a rate
@@ -195,7 +197,10 @@ Per `decisions.md` ruling 44, each type slice writes:
 | `slides` | Slice 4 |
 
 **No type slice edits `run.ts`, `config.ts` or `client.ts`.** Slice 5b's own
-task (T9) is the all-suite real run and this README's final numbers.
+task (T9) is the all-suite real run and this README's numbers (below); it is the one
+task that edited the core after Slice 5a, to make ruling 59 the runner's own rule
+(a known-bad answer is served from disk for every suite, never sent, never
+re-recorded) rather than something only the canvas tool runner did.
 
 ## Running it
 
@@ -246,8 +251,17 @@ after a prompt or contract change, before committing them for `--replay`.
   command, on the runner's own local port:
 
   ```bash
-  ssh -N -o ExitOnForwardFailure=yes -L 30000:192.168.1.96:30000 alfyroot & T=$!; sleep 2; EVAL_ARTIFACTS_BASE_URL=http://127.0.0.1:30000/v1 EVAL_ARTIFACTS_MODEL=qwen3-6-27b npm run eval:artifacts -- --suite <suite>; kill $T
+  ssh -N -o ControlMaster=no -o ControlPath=none -o ExitOnForwardFailure=yes -L 30000:192.168.1.96:30000 alfyroot & T=$!; sleep 3; EVAL_ARTIFACTS_BASE_URL=http://127.0.0.1:30000/v1 EVAL_ARTIFACTS_MODEL=qwen3-6-27b npm run eval:artifacts -- --suite <suite>; kill $T
   ```
+
+  The two `-o` options are not decoration. A machine whose ssh config says
+  `ControlMaster auto` with a `ControlPersist` time (the owner's does, for this
+  host: 600 seconds) turns the first `ssh -N -L ...` into a background control
+  master that outlives the command: `$!` is the already-exited foreground client,
+  `kill $T` kills nothing, and the forward stays open for ten minutes after the run
+  (and any other session to the host would multiplex over it). With
+  `ControlPath=none` the tunnel is its own connection and dies with `kill $T`.
+  Check `pgrep -fl 'ssh -N'` is empty afterwards.
 
   Runs stay sequential — the model is shared — and recorded responses under
   `fixtures/<suite>/responses/` come from `qwen3-6-27b` only.
@@ -270,10 +284,16 @@ after a prompt or contract change, before committing them for `--replay`.
 ## Re-recording a suite
 
 `EVAL_ARTIFACTS_SKIP_EVAL=1 npx tsx scripts/eval-artifact-contracts/run.ts --suite <suite>`
-calls the configured model for every case in the suite (skipping the
+calls the configured model for every real case in the suite (skipping the
 known-bad gate entirely — nothing is being trusted yet) and overwrites
-`fixtures/<suite>/responses/*.json`. Review the diff before committing:
-a contract or prompt change is exactly when responses are expected to move.
+`fixtures/<suite>/responses/*.json`, except the suite's known-bad answers: they are
+hand-written, never asked of the model and never overwritten (ruling 59). The app's
+recording pass also runs the browser step and writes `fixtures/app/evaluations/`.
+Review the diff before committing: a contract or prompt change is exactly when
+responses are expected to move. To record and keep every pass of a rate, run the
+record, then `run.ts --replay --suite <suite> --out <dir>` to score it, and copy
+`fixtures/<suite>/responses/` aside before the next pass; the canvas tool runner
+does the same in one command (`--write-responses`, `--repeat`, `--responses-out`).
 
 ## The key rule, in one place
 
@@ -296,4 +316,8 @@ screenshots, named in slice-5.md), is that suite's own addition, not part of
 this core. Nothing here is a dependency of `npm test` or `npm run build`; CI
 runs `config.test.ts`, `client.test.ts` (pure — no real disk/network
 access), `scoring.test.ts` and `run.test.ts` (the fake suite described
-above), plus `--replay --suite all` once suites exist.
+above) as part of the unit tests, and the `Artifact contract replay` step of
+`.github/workflows/ci.yml` runs `npm run eval:artifacts:replay` (`--replay --suite
+all`: every committed answer re-scored, no model, no key, no browser). The live
+runners never run in CI: `wiring.test.ts` fails if the workflow names one, an
+`EVAL_ARTIFACTS_` variable, or if a `test*` script reaches a runner.
