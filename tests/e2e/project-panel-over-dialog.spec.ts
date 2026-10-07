@@ -555,6 +555,36 @@ test.describe("A press outside the panel over a project's Files dialog", () => {
 		});
 	}
 
+	test("hands focus back to the row that opened the panel, not to the scrim that was pressed (RC-F MIN-4)", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		const row = openButton(dialog, names.document);
+		await row.click();
+		const panel = panelShell(page);
+		await expect(panel.getByTestId("artifact-panel-title")).toBeVisible({
+			timeout: 30_000,
+		});
+
+		await pressRing(page, panel);
+		await expect(panel).toHaveCount(0);
+
+		// Chrome focuses a button that is pressed: the scrim is one, and a person
+		// who pressed beside the panel to put it away is where they were before it.
+		await expect(
+			row,
+			"focus is on the row that opened the panel",
+		).toBeFocused();
+		await expect(dialog).toHaveCount(1);
+
+		// And Escape, now that the dialog is on top again, closes the dialog as its own.
+		await page.keyboard.press("Escape");
+		await expect(dialog).toHaveCount(0);
+	});
+
 	test("with the Download popover open, closes the popover only; the next closes the panel, the next the dialog", async ({
 		page,
 	}) => {

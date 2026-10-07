@@ -31,7 +31,7 @@ export type SelectionPillPlacement = {
 	/** The point the pill hangs from, in board space: its centre line, and the edge of the box it is on. */
 	x: number;
 	y: number;
-	/** Below the block, how much further than its usual gap the pill hangs, on the screen: the block's own toolbar is under it, and the pill stands under that (CV-B2). Left out when it is none. */
+	/** How much further than its usual gap the pill hangs from the block, on the screen. Below the block: the block's own toolbar is under it, and the pill stands under that (CV-B2). Above it: the toolbar is taller than the usual clearance reckons with (a phone's, 52 px), and the pill stands over it. Left out when it is none. */
 	lift?: number;
 };
 
@@ -64,6 +64,12 @@ export function selectionPillPlacement(
 		toolbar !== null && toolbar.top >= screenBottom
 			? Math.max(0, toolbar.bottom + AVOID_GAP - screenBottom - GAP)
 			: 0;
+	// Above the block the toolbar is above it, and ABOVE_CLEARANCE is the room a toolbar
+	// of a pointer's size takes: a taller one (a phone's) is cleared by its own height.
+	const rise =
+		toolbar !== null && toolbar.bottom <= screenTop
+			? Math.max(0, screenTop - toolbar.top + AVOID_GAP - ABOVE_CLEARANCE)
+			: 0;
 	const noRoom =
 		known &&
 		screenBottom + GAP + lift + size.height >
@@ -83,7 +89,7 @@ export function selectionPillPlacement(
 		const top =
 			side === "below"
 				? screenBottom + GAP + lift
-				: screenTop - ABOVE_CLEARANCE - size.height;
+				: screenTop - ABOVE_CLEARANCE - rise - size.height;
 		return {
 			left: centreX - size.width / 2,
 			top,
@@ -99,6 +105,7 @@ export function selectionPillPlacement(
 		x: (centreX - camera.x) / camera.zoom,
 		y: side === "below" ? box.y + box.height : box.y,
 		...(side === "below" && lift > 0 ? { lift } : {}),
+		...(side === "above" && rise > 0 ? { lift: rise } : {}),
 	});
 
 	// The middle of the block first, then on its other side, then slid to either

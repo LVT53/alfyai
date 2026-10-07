@@ -40,6 +40,8 @@ export interface CanvasBoardContext {
 	updateData?(id: string, patch: Record<string, unknown>): void;
 	/** Runs the reader's own Undo or Redo (ruling 16): a field that has nothing of its own to undo hands the chord here (`handsHistoryToBoard`). */
 	history?(action: "undo" | "redo"): void;
+	/** Moves the camera by `pan` screen pixels over `ms` milliseconds, once: a form that opened out of reach brings itself into view (`revealForm`). A block loaded on demand cannot import the flow library, so it reaches the camera here. */
+	panBy?(pan: { x: number; y: number }, ms: number): void;
 	/** The smallest a block may be made by the resize control at this position, as sizes: a frame may not be pulled in past what is inside it. Absent (or null) for a block that holds nothing. */
 	resizeFloor?(
 		id: string,

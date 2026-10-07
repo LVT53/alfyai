@@ -227,7 +227,7 @@ function handleKeydown(event: KeyboardEvent): void {
 	}
 
 	.anchor[data-side='above'] {
-		transform: scale(var(--inv)) translate(-50%, calc(-100% - 60px));
+		transform: scale(var(--inv)) translate(-50%, calc(-100% - 60px - var(--lift, 0px)));
 	}
 
 	.pill {

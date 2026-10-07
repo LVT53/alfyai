@@ -13,6 +13,7 @@ import {
 	REVEAL_PAN_MS,
 	REVEAL_SETTLE_MS,
 	type RevealFlow,
+	revealForm,
 	revealPan,
 	visibleRoom,
 	watchKeyboardReveal,
@@ -183,6 +184,169 @@ describe("revealPan", () => {
 		const wide = rect(-100, 200, 600, 260);
 		const pan = revealPan(wide, rect(-90, 210, 380, 250), ROOM, null);
 		expect(pan).toEqual({ x: M + 90, y: 0 });
+	});
+});
+
+describe("revealPan with several things standing in the pane's foot", () => {
+	const field = rect(30, 300, 350, 330);
+	// The toolbar in the middle of the foot and the overview at its right end.
+	const palette = rect(10, 450, 250, 490);
+	const overview = rect(270, 380, 380, 450);
+	const bars = [palette, overview];
+
+	it("is the single toolbar's answer for a list of one", () => {
+		const block = rect(20, 380, 200, 470);
+		expect(revealPan(block, field, ROOM, [palette])).toEqual(
+			revealPan(block, field, ROOM, palette),
+		);
+		expect(revealPan(block, field, ROOM, [])).toEqual(
+			revealPan(block, field, ROOM, null),
+		);
+	});
+
+	it("clears the one that stands under the block's columns, and only that one", () => {
+		// Over the palette's columns: above the palette's top, as for the toolbar alone.
+		const left = rect(20, 380, 200, 470);
+		expect(revealPan(left, field, ROOM, bars)).toEqual({
+			x: 0,
+			y: palette.top - M - left.bottom,
+		});
+		// Over the overview's columns: above the overview, which stands higher.
+		const right = rect(280, 300, 370, 440);
+		expect(revealPan(right, field, ROOM, bars)).toEqual({
+			x: 0,
+			y: overview.top - M - right.bottom,
+		});
+	});
+
+	it("is not held up by a bar the block is not over", () => {
+		// Beside the overview and clear of the palette's top: in view, nothing to do.
+		const beside = rect(20, 300, 200, 420);
+		expect(revealPan(beside, field, ROOM, bars)).toEqual({ x: 0, y: 0 });
+	});
+
+	it("clears both when the block is over both", () => {
+		const across = rect(100, 380, 340, 470);
+		expect(revealPan(across, field, ROOM, bars)).toEqual({
+			x: 0,
+			y: overview.top - M - across.bottom,
+		});
+	});
+});
+
+describe("revealForm", () => {
+	let root: HTMLElement;
+	let node: HTMLElement;
+	let form: HTMLElement;
+	let buttons: HTMLElement;
+	let paneRect: ScreenRect;
+	let nodeRect: ScreenRect;
+	let formRect: ScreenRect | null;
+	let buttonsRect: ScreenRect;
+	let paletteRect: ScreenRect;
+	let overviewRect: ScreenRect | null;
+
+	function place(element: Element, where: () => ScreenRect | null) {
+		element.getBoundingClientRect = () => {
+			const r = where() ?? rect(0, 0, 0, 0);
+			return {
+				...r,
+				x: r.left,
+				y: r.top,
+				width: r.right - r.left,
+				height: r.bottom - r.top,
+				toJSON: () => r,
+			};
+		};
+	}
+
+	beforeEach(() => {
+		root = document.createElement("div");
+		root.className = "canvas-board";
+		root.innerHTML = `
+			<div class="canvas-toolbar"></div>
+			<div class="svelte-flow__minimap"></div>
+			<div class="svelte-flow__node"><form><div class="edit__actions"></div></form></div>`;
+		document.body.append(root);
+		node = root.querySelector(".svelte-flow__node") as HTMLElement;
+		form = root.querySelector("form") as HTMLElement;
+		buttons = root.querySelector(".edit__actions") as HTMLElement;
+		paneRect = rect(500, 120, 1440, 900);
+		paletteRect = rect(750, 843, 1180, 888);
+		overviewRect = rect(1290, 758, 1424, 846);
+		nodeRect = rect(560, 550, 990, 880);
+		formRect = null;
+		buttonsRect = rect(840, 840, 990, 870);
+		place(root, () => paneRect);
+		place(root.querySelector(".canvas-toolbar") as Element, () => paletteRect);
+		place(
+			root.querySelector(".svelte-flow__minimap") as Element,
+			() => overviewRect,
+		);
+		place(node, () => nodeRect);
+		// A form fills its block unless it lies over the block's content.
+		place(form, () => formRect ?? nodeRect);
+		place(buttons, () => buttonsRect);
+	});
+
+	afterEach(() => {
+		root.remove();
+		vi.unstubAllGlobals();
+	});
+
+	it("pans a block that runs under the toolbar up until it clears it, with the margin, and glides", () => {
+		const pan = revealForm(form);
+		expect(pan).toEqual({
+			x: 0,
+			y: paletteRect.top - M - nodeRect.bottom,
+			ms: REVEAL_PAN_MS,
+		});
+	});
+
+	it("says nothing about a form that is where it can be used", () => {
+		nodeRect = rect(560, 200, 990, 520);
+		buttonsRect = rect(840, 480, 990, 510);
+		expect(revealForm(form)).toBeNull();
+	});
+
+	it("keeps the form clear of the overview where it stands under its columns", () => {
+		nodeRect = rect(1000, 500, 1420, 860);
+		buttonsRect = rect(1270, 830, 1420, 860);
+		const pan = revealForm(form);
+		expect(pan?.y).toBe(
+			overviewRect ? overviewRect.top - M - nodeRect.bottom : 0,
+		);
+	});
+
+	it("takes the form's buttons into view when the block is taller than the room that is left", () => {
+		nodeRect = rect(560, 300, 990, 1500);
+		buttonsRect = rect(840, 1400, 990, 1430);
+		const pan = revealForm(form);
+		expect(pan?.y).toBe(paletteRect.top - M - buttonsRect.bottom);
+	});
+
+	it("clears the form, not only the block, when the form lies over the block's content and reaches past it", () => {
+		// A small block with its form over the top of it, taller than the block.
+		nodeRect = rect(560, 700, 990, 780);
+		formRect = rect(560, 700, 990, 860);
+		buttonsRect = rect(840, 820, 990, 850);
+		const pan = revealForm(form);
+		expect(pan?.y).toBe(paletteRect.top - M - formRect.bottom);
+	});
+
+	it("glides for no time when the reader asked for reduced motion", () => {
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			matches: query.includes("prefers-reduced-motion"),
+			media: query,
+			addEventListener() {},
+			removeEventListener() {},
+		}));
+		expect(revealForm(form)?.ms).toBe(0);
+	});
+
+	it("is nothing outside a board", () => {
+		const loose = document.createElement("form");
+		expect(revealForm(loose)).toBeNull();
 	});
 });
 

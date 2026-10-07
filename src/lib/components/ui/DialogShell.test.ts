@@ -420,6 +420,20 @@ describe("DialogShell scrim", () => {
 
 		expect(onClose).not.toHaveBeenCalled();
 	});
+
+	// A button takes the focus when it is pressed. The scrim is one so a keyboard can
+	// reach it, but the layer that closed on the same press (the document panel) has
+	// just handed the focus back to what opened it, and a press on the backdrop is not
+	// a reason to take it away (RC-F MIN-4).
+	it("does not take the focus when it is pressed", async () => {
+		const { scrim } = await openDialog();
+
+		const notPrevented = await fireEvent.mouseDown(scrim);
+
+		expect(notPrevented, "the press's default (the focus) was cancelled").toBe(
+			false,
+		);
+	});
 });
 
 describe("DialogShell as the modal layer", () => {

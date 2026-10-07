@@ -309,6 +309,14 @@ function notePress() {
 	layerAboveAtPress = !isTopmostDialog(dialogId);
 }
 
+// The scrim is a button so a keyboard can reach it, but a press on it is not a reason to
+// move the focus there: a layer that closed on this press (the document panel) has just
+// handed the focus back to what opened it, and the dialog about to close or stay has its
+// own.
+function keepFocus(event: MouseEvent) {
+	event.preventDefault();
+}
+
 function closeFromScrim(event: MouseEvent) {
 	const layerAbove =
 		event.detail > 0 ? layerAboveAtPress : !isTopmostDialog(dialogId);
@@ -337,6 +345,7 @@ function closeFromScrim(event: MouseEvent) {
       : 'absolute inset-0 bg-surface-page opacity-80 backdrop-blur-sm'}
     aria-label={$t('common.close')}
     onpointerdowncapture={notePress}
+    onmousedown={keepFocus}
     onclick={closeFromScrim}
   ></button>
 

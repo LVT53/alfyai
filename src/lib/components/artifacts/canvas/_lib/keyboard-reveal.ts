@@ -9,8 +9,10 @@
  * by the least distance, never zoomed, ONCE per opening of the keyboard, after which
  * the camera is the reader's again. Nothing happens when the block is in view, when
  * the keyboard goes, when a field takes the focus with the pane and the viewport as
- * they were, or on a device that has no use for it (the board loads this only where
- * the pointer is coarse, with `group-parts.ts`).
+ * they were, or on a device that has no use for it (the board loads the watcher only
+ * where the pointer is coarse, with `group-parts.ts`). The same arithmetic brings a
+ * block's edit form into view when it opens (`revealForm`, loaded by the form itself,
+ * on any pointer, only when a form opens).
  *
  * Loaded on demand and imports nothing the editor shares (a lazy part that did would
  * split that module out of the editor's chunk) and no flow library: it is handed the
@@ -81,40 +83,84 @@ function axisPan(
 	return start < from ? from + margin - start : to - margin - end;
 }
 
+/** What stands over the pane and must not stand over a block brought into view: one rectangle, or several. */
+type Obstacles = ScreenRect | readonly ScreenRect[] | null;
+
 /**
  * The pan, in screen pixels, that brings `block` fully into `room`, clear of the
- * `toolbar` standing in it, with `margin` to spare: the least distance, along each
- * axis. A block too big for the room it has left (above the toolbar, with its margin)
- * is not tried: the `field` the reader types in is brought in instead. There is no
- * zoom in it: a pan is all it can say.
+ * `toolbar` standing in it (or of every one of them: the toolbar and the overview
+ * stand in the pane's foot, side by side), with `margin` to spare: the least
+ * distance, along each axis. A block too big for the room it has left (above the
+ * toolbar, with its margin) is not tried: the `field` the reader types in is
+ * brought in instead. There is no zoom in it: a pan is all it can say.
  */
 export function revealPan(
 	block: ScreenRect,
 	field: ScreenRect,
 	room: ScreenRect,
-	toolbar: ScreenRect | null,
+	toolbar: Obstacles,
 	margin = REVEAL_MARGIN,
 ): Pan {
-	const floor = toolbar ? Math.min(room.bottom, toolbar.top) : room.bottom;
+	const bars = toolbar === null ? [] : "left" in toolbar ? [toolbar] : toolbar;
+	const floor = Math.min(room.bottom, ...bars.map((bar) => bar.top));
 	const target =
 		block.right - block.left + 2 * margin > room.right - room.left ||
 		block.bottom - block.top + 2 * margin > floor - room.top
 			? field
 			: block;
 	const x = axisPan(target.left, target.right, room.left, room.right, margin);
-	// The toolbar is in the way of what is above it, once the block has panned along.
-	const under =
-		toolbar !== null &&
-		target.left + x < toolbar.right &&
-		target.right + x > toolbar.left;
-	const y = axisPan(
-		target.top,
-		target.bottom,
-		room.top,
-		under ? floor : room.bottom,
-		margin,
+	// A bar is in the way of what is above it, once the block has panned along.
+	const ceiling = Math.min(
+		room.bottom,
+		...bars
+			.filter(
+				(bar) => target.left + x < bar.right && target.right + x > bar.left,
+			)
+			.map((bar) => bar.top),
 	);
+	const y = axisPan(target.top, target.bottom, room.top, ceiling, margin);
 	return { x, y };
+}
+
+/**
+ * Where a block's edit form, drawn in the block at the board's zoom, has to be when
+ * it opens (RC-F IMP-3): a block low on the board put its buttons below the pane,
+ * with the board's toolbar over the rest of the form. The block comes whole into the
+ * room the pane leaves, clear of the toolbar and of the overview (the zoom control
+ * steps aside from a selected block by itself), or just the form's buttons when the
+ * block is taller than that room. Nothing when it is where it can be used, so a form
+ * that opens in view moves nothing. The camera is the reader's: this says how far to
+ * pan, and for how long, once.
+ */
+export function revealForm(
+	form: HTMLElement,
+): { x: number; y: number; ms: number } | null {
+	const root = form.closest<HTMLElement>(".canvas-board");
+	if (!root) return null;
+	const standing = [".canvas-toolbar", ".svelte-flow__minimap"].flatMap(
+		(selector) => {
+			const element = root.querySelector(selector);
+			return element ? [element.getBoundingClientRect()] : [];
+		},
+	);
+	// The block and its form: a form that lies over the block's content (an App's, a map's)
+	// may reach past the block's own box.
+	const own = form.getBoundingClientRect();
+	const box = (form.closest(NODE) ?? form).getBoundingClientRect();
+	const pan = revealPan(
+		{
+			left: Math.min(own.left, box.left),
+			top: Math.min(own.top, box.top),
+			right: Math.max(own.right, box.right),
+			bottom: Math.max(own.bottom, box.bottom),
+		},
+		(form.querySelector(".edit__actions") ?? form).getBoundingClientRect(),
+		visibleRoom(root.getBoundingClientRect(), window.visualViewport ?? null),
+		standing,
+	);
+	return pan.x || pan.y
+		? { ...pan, ms: prefersReducedMotion() ? 0 : REVEAL_PAN_MS }
+		: null;
 }
 
 /**

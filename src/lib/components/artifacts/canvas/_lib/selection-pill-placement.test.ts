@@ -202,3 +202,60 @@ describe("where the selection's pill sits when the block's own toolbar is below 
 		expect(placement.lift).toBeUndefined();
 	});
 });
+
+// RC-F MIN-1 (RV-F M-5): above a block the pill stood a fixed 60 px over the block's top,
+// which clears a toolbar of a pointer's size (36 px and its 12 px offset) and not a
+// phone's (its buttons are 44 px: the bar is 52 tall), so on a phone the two overlapped.
+describe("where the selection's pill sits above a block whose toolbar is above it", () => {
+	// A phone: the pill and the toolbar are 52 tall; the block's top is at 379 and the
+	// toolbar hangs 12 above it. The block is low in the pane, so the pill goes above.
+	const SIZE = { width: 240, height: 52 };
+	const pane = { width: 390, height: 508 };
+	const block = { x: 80, y: 379, width: 150, height: 47 };
+	const toolbarAbove = { left: 100, top: 315, right: 200, bottom: 367 };
+
+	it("stands clear of the toolbar, a gap above it, as tall as it is: it says how much higher than its usual 60 px", () => {
+		const placement = selectionPillPlacement(block, CAMERA, pane, {
+			size: SIZE,
+			toolbar: toolbarAbove,
+		});
+		// 379 (the block's top) - 315 (the toolbar's top) + 6 (the gap to other layers) - 60.
+		expect(placement).toEqual({ side: "above", x: 155, y: 379, lift: 10 });
+		// The pill's bottom is then 379 - 60 - 10 = 309: 6 px over the toolbar's top.
+		expect(block.y - 60 - (placement.lift ?? 0)).toBe(toolbarAbove.top - 6);
+	});
+
+	it("reads the toolbar and the block through the same camera: the lift is in screen pixels", () => {
+		const placement = selectionPillPlacement(
+			{ x: 160, y: 758, width: 300, height: 94 },
+			{ x: 0, y: 0, zoom: 0.5 },
+			pane,
+			{ size: SIZE, toolbar: toolbarAbove },
+		);
+		expect(placement.side).toBe("above");
+		expect(placement.lift).toBe(379 - 315 + 6 - 60);
+	});
+
+	it("keeps the usual 60 px for a toolbar that is no taller than a pointer's", () => {
+		const small = { left: 100, top: 331, right: 200, bottom: 367 };
+		const withSmall = selectionPillPlacement(block, CAMERA, pane, {
+			size: SIZE,
+			toolbar: small,
+		});
+		const without = selectionPillPlacement(block, CAMERA, pane, {
+			size: SIZE,
+		});
+		expect(withSmall).toEqual(without);
+		expect(without.lift).toBeUndefined();
+	});
+
+	it("does not rise for a toolbar that hangs below the block", () => {
+		const below = { left: 100, top: 438, right: 200, bottom: 490 };
+		const withBelow = selectionPillPlacement(block, CAMERA, pane, {
+			size: SIZE,
+			toolbar: below,
+		});
+		expect(withBelow.side).toBe("above");
+		expect(withBelow.lift).toBeUndefined();
+	});
+});
