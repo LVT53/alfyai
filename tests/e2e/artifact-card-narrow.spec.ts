@@ -632,14 +632,18 @@ async function shootBothSchemes(page: Page, name: string): Promise<void> {
  * all of it is inside the card, and nothing is drawn over anything else. A card
  * with an action also draws that inside the card and over none of the text.
  */
-function expectTheCardReads(geometry: CardGeometry, where: string): void {
+function expectTheCardReads(
+	geometry: CardGeometry,
+	where: string,
+	minColumn = 150,
+): void {
 	const column = geometry.textColumn as Box;
 	expect
 		.soft(
 			column.width,
 			`${where}: the title and the meta line keep a column of their own`,
 		)
-		.toBeGreaterThanOrEqual(150);
+		.toBeGreaterThanOrEqual(minColumn);
 	for (const box of geometry.metaVisible) {
 		expect
 			.soft(box.right, `${where}: the text is cut off at the right`)
@@ -647,8 +651,8 @@ function expectTheCardReads(geometry: CardGeometry, where: string): void {
 	}
 	for (const pill of geometry.pills) {
 		expect
-			.soft(pill.right, `${where}: a pill's right edge`)
-			.toBeLessThanOrEqual(geometry.card.right + 0.5);
+			.soft(pill.right, `${where}: a pill runs past the text column`)
+			.toBeLessThanOrEqual(column.right + 0.5);
 	}
 
 	const action = geometry.action;
@@ -699,11 +703,12 @@ function lowestText(geometry: CardGeometry): number {
 function expectTheActionOnItsOwnRow(
 	geometry: CardGeometry,
 	where: string,
+	minColumn = 150,
 ): void {
 	expect
 		.soft(geometry.action, `${where}: the card has an action`)
 		.not.toBeNull();
-	expectTheCardReads(geometry, where);
+	expectTheCardReads(geometry, where, minColumn);
 	expect
 		.soft(
 			(geometry.action as Box).top,
@@ -771,6 +776,7 @@ const LIVE_CARDS = [
 async function expectEveryCardOnItsOwnRow(
 	page: Page,
 	label: string,
+	minColumn = 150,
 ): Promise<void> {
 	// Live cards: the reviewed Document (open in the panel), the one with a
 	// change to review, the board, the App.
@@ -779,15 +785,17 @@ async function expectEveryCardOnItsOwnRow(
 		report(title, label, geometry);
 		const where = `"${title}" ${label} (card ${Math.round(geometry.card.width)} px wide)`;
 		expectOneLine(geometry, where);
-		expectTheActionOnItsOwnRow(geometry, where);
+		expectTheActionOnItsOwnRow(geometry, where, minColumn);
 	}
 
 	// Deleted, with Regenerate: it sits under the sentence, over nothing.
 	const gone = await readGeometry(card(page, TITLES.deleted));
 	report(TITLES.deleted, label, gone);
 	const goneWhere = `the deleted card ${label} (card ${Math.round(gone.card.width)} px wide)`;
-	expectOneLine(gone, goneWhere);
-	expectTheActionOnItsOwnRow(gone, goneWhere);
+	// A sentence, not a facts line: it fits one line in the columns a laptop's
+	// panel leaves, and wraps (never cuts) in a tablet's.
+	if (minColumn >= 150) expectOneLine(gone, goneWhere);
+	expectTheActionOnItsOwnRow(gone, goneWhere, minColumn);
 
 	// Deleted, and Regenerate said it cannot, and out of this chat's reach: a
 	// sentence or two and no action; they may wrap, never run off the card.
@@ -796,7 +804,7 @@ async function expectEveryCardOnItsOwnRow(
 		report(title, label, geometry);
 		const where = `"${title}" ${label} (card ${Math.round(geometry.card.width)} px wide)`;
 		expect.soft(geometry.action, `${where}: no action`).toBeNull();
-		expectTheCardReads(geometry, where);
+		expectTheCardReads(geometry, where, minColumn);
 	}
 }
 
@@ -874,6 +882,50 @@ test.describe("the in-chat artifact card at a docked panel's narrow chat column"
 
 		await expectEveryCardOnItsOwnRow(page, "at 390 px");
 		expect.soft(await fileRowFits(page), "the File row at 390 px").toEqual([]);
+	});
+
+	// A tablet (800 px) docks the panel too, and leaves the chat ~190 px for its
+	// cards: narrower than their facts line and than a review pill. The line ends
+	// in an ellipsis before it wraps, and the pill's words wrap inside the card
+	// rather than run past its edge.
+	test("a tablet's docked column cuts the facts line with an ellipsis and keeps the pills inside the card (800 px, Hungarian)", async ({
+		page,
+	}) => {
+		await useHungarian();
+		await page.setViewportSize({ width: 800, height: 1100 });
+		await login(page);
+		const conversationId = await seedChat(page);
+		await openChatAndReload(page, conversationId);
+		await dockThePanel(page, HUNGARIAN);
+		await waitForTheCardsToSettle(page, HUNGARIAN);
+		await shootBothSchemes(page, "docked-800-hu");
+		if (process.env.FXD_SHOTS) {
+			for (const [title, name] of [
+				[TITLES.reviewed, "reviewed"],
+				[TITLES.pending, "pending"],
+				[TITLES.deleted, "deleted"],
+			] as const) {
+				await card(page, title).screenshot({
+					path: `${process.env.FXD_SHOTS}/card-${name}-800-hu-light.png`,
+				});
+			}
+		}
+
+		await expectEveryCardOnItsOwnRow(page, "at 800 px", 100);
+
+		const pending = card(page, TITLES.pending);
+		const facts = pending.locator(".artifact-card-facts");
+		const where = `"${TITLES.pending}" at 800 px`;
+		expect(
+			await facts.evaluate((element) => getComputedStyle(element).textOverflow),
+			`${where}: what the line does when it does not fit`,
+		).toBe("ellipsis");
+		expect(
+			await facts.evaluate(
+				(element) => element.scrollWidth > element.clientWidth,
+			),
+			`${where}: the line is cut short, not wrapped`,
+		).toBe(true);
 	});
 
 	test("English reads the same at the narrowest column (1100 px, panel docked)", async ({

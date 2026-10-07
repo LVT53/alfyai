@@ -792,19 +792,25 @@ function handleOpen(): void {
 		color: var(--accent-text);
 	}
 
+	/* The three review pills ("N módosítás vár rád", "N részt nem érintett",
+	   "Átnézve") are one line wherever they fit, which is almost everywhere; in a
+	   column narrower than the pill (a tablet with the panel docked leaves the
+	   chat 180-250 px) their words wrap inside it rather than run past the card's
+	   edge, where they would be cut off. */
 	.artifact-card-pending {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
-		height: 20px;
-		padding: 0 0.44rem;
+		min-height: 20px;
+		max-width: 100%;
+		padding: 0.125rem 0.44rem;
 		border-radius: var(--radius-full);
 		background: var(--accent-tint);
 		color: var(--accent-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
-		white-space: nowrap;
+		white-space: normal;
 	}
 
 	/* Same shape as `.artifact-card-pending`, warning-toned to match
@@ -814,15 +820,16 @@ function handleOpen(): void {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
-		height: 20px;
-		padding: 0 0.44rem;
+		min-height: 20px;
+		max-width: 100%;
+		padding: 0.125rem 0.44rem;
 		border-radius: var(--radius-full);
 		background: var(--warning-tint);
 		color: var(--warning-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
-		white-space: nowrap;
+		white-space: normal;
 	}
 
 	/* Same shape as `.artifact-card-pending`, success-toned — "the card reads
@@ -831,15 +838,16 @@ function handleOpen(): void {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
-		height: 20px;
-		padding: 0 0.44rem;
+		min-height: 20px;
+		max-width: 100%;
+		padding: 0.125rem 0.44rem;
 		border-radius: var(--radius-full);
 		background: var(--success-tint);
 		color: var(--success-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
-		white-space: nowrap;
+		white-space: normal;
 	}
 
 	.artifact-card-cta {
@@ -860,14 +868,14 @@ function handleOpen(): void {
 	}
 
 	/* A narrow card puts its action on a row of its own, under the text. The
-	   chat column a docked panel leaves is 250-370 px wide (a phone's is about as
+	   chat column a docked panel leaves is 180-370 px wide (a phone's is about as
 	   wide), and the action beside the text took 100-165 px of it: Hungarian
 	   "Megnyitva a panelen" alone is a 164 px box, which left the title and the
 	   facts a column of 5 px at a 1100 px window and drew the label over them.
-	   Beside the text the action needs a card of about 26rem (the facts line is
-	   ~150 px, the head's own spacing ~250 px, the longest action 164 px), so
-	   that is where it steps down; the card's width decides, never the window's:
-	   an undocked card in the same window is a wide one. */
+	   Beside the text the action needs a card of about 400 px (the icon and the
+	   head's spacing take 88, the facts line ~150, the longest action 164), so it
+	   steps down below 26rem. The card's width decides, never the window's: an
+	   undocked card in the same window is a wide one. */
 	@container artifact-card (max-width: 26rem) {
 		.artifact-card-head {
 			grid-template-columns: 36px minmax(0, 1fr);
@@ -880,13 +888,20 @@ function handleOpen(): void {
 			justify-self: start;
 		}
 
-		/* Its words stand under the title's; a hover's tint reaches 0.5rem left of them. */
+		/* Its words stand under the title's; a hover's tint reaches 0.5rem left of
+		   them. In a column narrower than the label (a tablet with the panel docked
+		   leaves ~110 px) the words wrap rather than run past the card's edge. */
 		.artifact-card-cta {
 			margin-left: -0.5rem;
+			white-space: normal;
+			text-align: left;
 		}
 
+		/* One word, so it cannot wrap: its own spacing gives way instead. */
 		.artifact-card-regenerate {
+			gap: 0.25rem;
 			margin-top: 0.375rem;
+			padding: 0 0.5rem;
 		}
 	}
 
