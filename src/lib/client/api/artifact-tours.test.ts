@@ -363,6 +363,40 @@ describe("the answer kept for a page load", () => {
 		});
 	});
 
+	it("forgets what it was told, and whose it was, when the account is cleared", async () => {
+		// Signing out and in are client-side navigations, and a host that names no
+		// reader (every reader is "no one") cannot tell one account from the next.
+		const {
+			getArtifactTour,
+			keepArtifactToursFor,
+			forgetArtifactTours,
+			fetchStub,
+		} = await pageLoad([{ seen: true }, { seen: false }, { seen: false }]);
+		keepArtifactToursFor(undefined);
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: true,
+		});
+		keepArtifactToursFor(undefined);
+		await getArtifactTour("document");
+		expect(reads(fetchStub)).toHaveLength(1);
+
+		forgetArtifactTours();
+
+		keepArtifactToursFor(undefined);
+		await expect(getArtifactTour("document")).resolves.toMatchObject({
+			seen: false,
+		});
+		expect(reads(fetchStub)).toHaveLength(2);
+
+		// A named reader is forgotten too: the same id signing in again is asked.
+		keepArtifactToursFor("reader-a");
+		await getArtifactTour("document");
+		forgetArtifactTours();
+		keepArtifactToursFor("reader-a");
+		await getArtifactTour("document");
+		expect(reads(fetchStub)).toHaveLength(4);
+	});
+
 	it("keeps nothing for a fetch it was handed", async () => {
 		const { getArtifactTour } = await pageLoad([]);
 		const handed = vi

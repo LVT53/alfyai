@@ -81,6 +81,23 @@ describe("ArtifactPanelHeader", () => {
 		expect(onBack).toHaveBeenCalledOnce();
 	});
 
+	it("draws no breadcrumb where there is nowhere to go back to", () => {
+		render(ArtifactPanelHeader, {
+			kind: "document",
+			title: "Vienna trip plan",
+			actions: actionsWith("<button>Close</button>"),
+		});
+
+		expect(
+			screen.queryByRole("button", { name: /this chat/i }),
+		).not.toBeInTheDocument();
+		// The rest of the header stands, actions still on the right.
+		expect(
+			screen.getByRole("heading", { name: "Vienna trip plan" }),
+		).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+	});
+
 	it("falls back to the plain eyebrow label when no item count is given", () => {
 		render(ArtifactPanelHeader, {
 			kind: "document",

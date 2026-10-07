@@ -80,6 +80,16 @@ interface Props {
 	/** The route re-reads the project's files and updates its own state. */
 	onRefresh: () => Promise<void>;
 	onClose: () => void;
+	/**
+	 * Who is reading, named to the panel the items open in: the first-open tours
+	 * keep what they were told for the life of the page, and it has to be this
+	 * reader's. Also what puts their own picture on a comment they write there.
+	 */
+	currentUser?: {
+		id: string;
+		displayName: string;
+		profilePicture: string | null;
+	} | null;
 }
 
 let {
@@ -90,6 +100,7 @@ let {
 	filesFailed,
 	onRefresh,
 	onClose,
+	currentUser = null,
 }: Props = $props();
 
 let searchQuery = $state("");
@@ -119,17 +130,29 @@ const hasMadeItems = $derived(
 	(files ?? []).some((file) => file.artifactKind !== undefined),
 );
 
-// Nothing is counted before the first read lands: "0 files" there would be the
-// same untruth as "No files yet.".
-const footerLabel = $derived(
-	files === null
-		? ""
-		: hasMadeItems
-			? `${$t("artifacts.bundle.items", { count: files.length })} · ${$t("artifacts.bundle.footerNote")}`
-			: files.length === 1
-				? $t("projects.filesFooterOne")
-				: $t("projects.filesFooter", { count: files.length }),
-);
+// A row offers removal when it has an unlink: every row but a made item that is
+// here only through its chat, which has no link to remove.
+function isRemovable(file: ProjectKnowledgeItem): boolean {
+	return file.linked !== false;
+}
+
+// The footer's note is about that unlink, so a list with none promises nothing.
+const hasRemovableRows = $derived((files ?? []).some(isRemovable));
+
+const footerLabel = $derived.by(() => {
+	// Nothing is counted before the first read lands: "0 files" there would be the
+	// same untruth as "No files yet.". A list with nothing on it says so itself.
+	if (files === null || files.length === 0) return "";
+	if (hasMadeItems) {
+		const count = $t("artifacts.bundle.items", { count: files.length });
+		return hasRemovableRows
+			? `${count} · ${$t("artifacts.bundle.footerNote")}`
+			: count;
+	}
+	return files.length === 1
+		? $t("projects.filesFooterOne")
+		: $t("projects.filesFooter", { count: files.length });
+});
 
 function isBusy(artifactId: string): boolean {
 	return busyArtifactIds.includes(artifactId);
@@ -465,7 +488,7 @@ $effect(() => {
 									<Eye size={15} strokeWidth={1.9} aria-hidden="true" />
 								{/if}
 							</button>
-							{#if file.linked !== false}
+							{#if isRemovable(file)}
 								<button
 									type="button"
 									class="files-action"
@@ -516,9 +539,15 @@ $effect(() => {
 		onClose={() => (addFromLibraryOpen = false)}
 	/>
 
+	<!-- Above the dialog, so `overDialog`: while the panel is open it is a layer
+	     of the dialog stack, and the dialog's own Tab trap and Escape stand down
+	     for as long as it is there. After the dialog in the template on purpose:
+	     the stack is ordered by when a layer registers, and the dialog has to be
+	     the one underneath. -->
 	<DocumentWorkspace
 		open={workspaceOpen}
 		presentation="expanded"
+		overDialog
 		returnToDockedOnExpandedClose={false}
 		showPresentationToggle={false}
 		documents={workspaceDocuments}
@@ -526,6 +555,7 @@ $effect(() => {
 		onSelectDocument={(documentId) => (activeWorkspaceDocumentId = documentId)}
 		onCloseDocument={closeWorkspaceDocument}
 		onCloseWorkspace={closeWorkspace}
+		{currentUser}
 	/>
 {/if}
 

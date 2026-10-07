@@ -1,5 +1,12 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { keepArtifactToursFor } from "$lib/client/api/artifact-tours";
 import { ARTIFACT_BODIES } from "$lib/components/artifacts/artifact-bodies";
 import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import { uiLanguage } from "$lib/stores/settings";
@@ -11,6 +18,17 @@ vi.mock("$lib/client/api/projects", () => ({
 	linkProjectFiles: vi.fn(async () => []),
 	unlinkProjectFile: vi.fn(async () => true),
 }));
+
+// The panel asks which reader the tours' kept answers are for before it asks
+// for a tour: a spy on that one call, everything else the real module.
+vi.mock("$lib/client/api/artifact-tours", async (importOriginal) => {
+	const original =
+		await importOriginal<typeof import("$lib/client/api/artifact-tours")>();
+	return {
+		...original,
+		keepArtifactToursFor: vi.fn(original.keepArtifactToursFor),
+	};
+});
 
 vi.mock("$lib/client/api/knowledge", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/client/api/knowledge")>()),
@@ -55,7 +73,16 @@ function madeItem(
 
 function open(
 	files: ProjectKnowledgeItem[] | null,
-	options: { filesFailed?: boolean; onRefresh?: () => Promise<void> } = {},
+	options: {
+		filesFailed?: boolean;
+		onRefresh?: () => Promise<void>;
+		onClose?: () => void;
+		currentUser?: {
+			id: string;
+			displayName: string;
+			profilePicture: string | null;
+		} | null;
+	} = {},
 ) {
 	return render(ProjectFilesDialog, {
 		props: {
@@ -65,7 +92,8 @@ function open(
 			files,
 			filesFailed: options.filesFailed ?? false,
 			onRefresh: options.onRefresh ?? (async () => undefined),
-			onClose: () => undefined,
+			onClose: options.onClose ?? (() => undefined),
+			currentUser: options.currentUser ?? null,
 		},
 	});
 }
@@ -346,6 +374,53 @@ describe("ProjectFilesDialog: what the chats made", () => {
 		expect(screen.getAllByRole("dialog")).toHaveLength(1);
 	});
 
+	it("names the reader to the panel it opens an item in, so the tours' answers are theirs", async () => {
+		open([madeItem()], {
+			currentUser: {
+				id: "reader-1",
+				displayName: "Reader",
+				profilePicture: null,
+			},
+		});
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open Vienna notes" }),
+		);
+		await screen.findByRole("complementary", {
+			name: "Vienna notes, Document",
+		});
+
+		await vi.waitFor(() =>
+			expect(keepArtifactToursFor).toHaveBeenCalledWith("reader-1"),
+		);
+	});
+
+	// The panel sits above the dialog. It is a layer of the dialog stack while it
+	// is open (RV-F, I-2), so one Escape closes it and the dialog answers the next.
+	it("closes the panel on one Escape and leaves the dialog, which answers the next", async () => {
+		const onClose = vi.fn();
+		open([madeItem()], { onClose });
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open Vienna notes" }),
+		);
+		await screen.findByRole("complementary", {
+			name: "Vienna notes, Document",
+		});
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+
+		expect(onClose).not.toHaveBeenCalled();
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("complementary", { name: "Vienna notes, Document" }),
+			).not.toBeInTheDocument(),
+		);
+		expect(screen.getByRole("dialog", { name: "Files" })).toBeInTheDocument();
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
 	it("offers no unlink on an item that is here only through its chat, and one on a linked item", () => {
 		open([
 			madeItem({ linked: false }),
@@ -368,7 +443,7 @@ describe("ProjectFilesDialog: what the chats made", () => {
 			"2 items · removing one here keeps it in your library",
 		);
 
-		await rerender({ files: [madeItem()] });
+		await rerender({ files: [madeItem({ linked: true })] });
 		expect(footerCount()).toBe(
 			"1 item · removing one here keeps it in your library",
 		);
@@ -377,6 +452,48 @@ describe("ProjectFilesDialog: what the chats made", () => {
 		expect(footerCount()).toBe(
 			"1 file · removing it here keeps it in your library",
 		);
+	});
+
+	// The footer's note is about the unlink on a row. A made item that is here
+	// only through its chat has none, so a list of nothing else has nothing to
+	// promise (RV-F, M-6): it counts and stops.
+	it("promises removal only while a row on the list offers it", async () => {
+		const { rerender } = open([
+			madeItem(),
+			madeItem({ artifactId: "app-1", name: "Cost splitter" }),
+			madeItem({ artifactId: "board-1", name: "Trip board" }),
+		]);
+		expect(screen.queryAllByTestId("project-file-unlink")).toHaveLength(0);
+		expect(footerCount()).toBe("3 items");
+
+		await rerender({
+			files: [madeItem(), madeItem({ artifactId: "doc-2", linked: true })],
+		});
+		expect(screen.getAllByTestId("project-file-unlink")).toHaveLength(1);
+		expect(footerCount()).toBe(
+			"2 items · removing one here keeps it in your library",
+		);
+
+		await rerender({ files: [madeItem()] });
+		expect(footerCount()).toBe("1 item");
+	});
+
+	it("reads the same in Hungarian: the note goes with the row that could be removed", async () => {
+		uiLanguage.set("hu");
+		const { rerender } = open([madeItem(), madeItem({ artifactId: "app-1" })]);
+		expect(footerCount()).toBe("2 elem");
+
+		await rerender({
+			files: [madeItem(), madeItem({ artifactId: "doc-2", linked: true })],
+		});
+		expect(footerCount()).toBe(
+			"2 elem · az eltávolítás nem törli a könyvtárból",
+		);
+	});
+
+	it("says nothing of removal about a list with nothing on it", () => {
+		open([]);
+		expect(footerCount()).toBe("");
 	});
 
 	it("finds an item by its title in the search box", async () => {
