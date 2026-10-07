@@ -42,7 +42,9 @@ async function ground(page: Page): Promise<Point> {
 		point,
 	);
 	if (!String(element).includes("svelte-flow__pane")) {
-		throw new Error(`the pane's top right corner is not empty ground: ${element}`);
+		throw new Error(
+			`the pane's top right corner is not empty ground: ${element}`,
+		);
 	}
 	return point;
 }
@@ -88,7 +90,11 @@ async function notchAndShift(page: Page) {
 	// A system that already turned it (the event says deltaX): the same, not twice.
 	await wheel(page, at, { x: 40 }, ["Shift"]);
 	const already = await settledCamera(page);
-	expectCamera(already, { ...across, x: across.x - 40 }, "Shift, already across");
+	expectCamera(
+		already,
+		{ ...across, x: across.x - 40 },
+		"Shift, already across",
+	);
 }
 
 /** Control and Command with the wheel zoom, a notch of it by one bounded step, about the pointer. */
@@ -130,16 +136,28 @@ test.describe("a laptop's touchpad and a mouse wheel on a board", () => {
 
 		await wheel(page, at, { x: 60, y: 90 });
 		const moved = await settledCamera(page);
-		expectCamera(moved, { ...start, x: start.x - 60, y: start.y - 90 }, "down and right");
+		expectCamera(
+			moved,
+			{ ...start, x: start.x - 60, y: start.y - 90 },
+			"down and right",
+		);
 
 		await wheel(page, at, { x: -25, y: -40 });
 		const back = await settledCamera(page);
-		expectCamera(back, { ...moved, x: moved.x + 25, y: moved.y + 40 }, "up and left");
+		expectCamera(
+			back,
+			{ ...moved, x: moved.x + 25, y: moved.y + 40 },
+			"up and left",
+		);
 
 		// A touchpad's gesture is many small events: they add up, none of them zooms.
 		for (let step = 0; step < 6; step++) await wheel(page, at, { x: 2, y: 3 });
 		const small = await settledCamera(page);
-		expectCamera(small, { ...back, x: back.x - 12, y: back.y - 18 }, "small steps");
+		expectCamera(
+			small,
+			{ ...back, x: back.x - 12, y: back.y - 18 },
+			"small steps",
+		);
 
 		// Over a block it is the same: the block does not keep the wheel for itself.
 		const over = await centreOf(page, "note-2");
@@ -179,7 +197,8 @@ test.describe("a laptop's touchpad and a mouse wheel on a board", () => {
 		expect(apart.y).toBeCloseTo(start.y, 1);
 
 		// Smooth: ten small events of a pinch zoom as far as one ten times as big, not in coarse steps.
-		for (let step = 0; step < 10; step++) await wheel(page, at, { y: -1 }, ["Control"]);
+		for (let step = 0; step < 10; step++)
+			await wheel(page, at, { y: -1 }, ["Control"]);
 		const small = await settledCamera(page);
 		await wheel(page, at, { y: 10 }, ["Control"]);
 		const undone = await settledCamera(page);
@@ -270,8 +289,9 @@ test.describe("a laptop's touchpad and a mouse wheel on a board", () => {
 		// from reaching anyone after it, so a listener further up never hears it.)
 		await page.evaluate(() => {
 			const seen: boolean[] = [];
-			(window as unknown as { __wheelsCancelled: boolean[] }).__wheelsCancelled =
-				seen;
+			(
+				window as unknown as { __wheelsCancelled: boolean[] }
+			).__wheelsCancelled = seen;
 			window.addEventListener(
 				"wheel",
 				(event) => setTimeout(() => seen.push(event.defaultPrevented), 0),
@@ -335,7 +355,11 @@ test.describe("a laptop's touchpad and a mouse wheel on a board", () => {
 		await page.mouse.up();
 		await page.keyboard.up("Space");
 		const dragged = await settledCamera(page);
-		expectCamera(dragged, { ...start, x: start.x - 70, y: start.y + 35 }, "Space and a drag");
+		expectCamera(
+			dragged,
+			{ ...start, x: start.x - 70, y: start.y + 35 },
+			"Space and a drag",
+		);
 
 		// The Hand tool: a plain drag pans, and the wheel still pans beside it.
 		await page.getByTestId("canvas-tool-pan").click();
@@ -344,7 +368,11 @@ test.describe("a laptop's touchpad and a mouse wheel on a board", () => {
 		await page.mouse.move(at.x + 40, at.y - 20, { steps: 8 });
 		await page.mouse.up();
 		const hand = await settledCamera(page);
-		expectCamera(hand, { ...dragged, x: dragged.x + 40, y: dragged.y - 20 }, "the Hand tool");
+		expectCamera(
+			hand,
+			{ ...dragged, x: dragged.x + 40, y: dragged.y - 20 },
+			"the Hand tool",
+		);
 		await wheel(page, at, { y: 30 });
 		expectCamera(
 			await settledCamera(page),

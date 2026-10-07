@@ -70,15 +70,15 @@ describe("nextCamera: a scroll pans", () => {
 
 describe("nextCamera: Shift turns a scroll across", () => {
 	it("turns a vertical notch into a horizontal pan", () => {
-		expect(nextCamera(wheel({ deltaY: 80, shiftKey: true }), AT, RANGE)).toEqual(
-			{ x: -40, y: -30, zoom: 1 },
-		);
+		expect(
+			nextCamera(wheel({ deltaY: 80, shiftKey: true }), AT, RANGE),
+		).toEqual({ x: -40, y: -30, zoom: 1 });
 	});
 
 	it("does not turn it twice when the system already did (the event says deltaX)", () => {
-		expect(nextCamera(wheel({ deltaX: 80, shiftKey: true }), AT, RANGE)).toEqual(
-			{ x: -40, y: -30, zoom: 1 },
-		);
+		expect(
+			nextCamera(wheel({ deltaX: 80, shiftKey: true }), AT, RANGE),
+		).toEqual({ x: -40, y: -30, zoom: 1 });
 	});
 
 	it("keeps the dominant direction of a diagonal gesture", () => {
@@ -155,11 +155,19 @@ describe("nextCamera: a pinch and Control or Command with the wheel zoom", () =>
 	it("stops at the limits and says nothing moved there", () => {
 		const closest = { x: 5, y: 6, zoom: 2 };
 		const farthest = { x: 5, y: 6, zoom: 0.2 };
-		expect(nextCamera(wheel({ deltaY: -9, ctrlKey: true }), closest, RANGE)).toBeNull();
-		expect(nextCamera(wheel({ deltaY: 9, ctrlKey: true }), farthest, RANGE)).toBeNull();
+		expect(
+			nextCamera(wheel({ deltaY: -9, ctrlKey: true }), closest, RANGE),
+		).toBeNull();
+		expect(
+			nextCamera(wheel({ deltaY: 9, ctrlKey: true }), farthest, RANGE),
+		).toBeNull();
 		// A step that would pass the limit ends on it, about the pointer.
 		const nearly = { x: 0, y: 0, zoom: 1.95 };
-		const last = nextCamera(wheel({ deltaY: -100, ctrlKey: true }), nearly, RANGE);
+		const last = nextCamera(
+			wheel({ deltaY: -100, ctrlKey: true }),
+			nearly,
+			RANGE,
+		);
 		expect(last?.zoom).toBe(2);
 	});
 
@@ -225,7 +233,9 @@ describe("wheelKeeper: what keeps the wheel for itself", () => {
 	it("is a block that says so (the library's nowheel), pinch included", () => {
 		const { pane, block, child } = scene();
 		block.classList.add("nowheel");
-		expect(wheelKeeper({ target: child, ...down }, pane, false)).toBe("nowheel");
+		expect(wheelKeeper({ target: child, ...down }, pane, false)).toBe(
+			"nowheel",
+		);
 		expect(wheelKeeper({ target: child, ...down }, pane, true)).toBe("nowheel");
 	});
 
@@ -238,10 +248,16 @@ describe("wheelKeeper: what keeps the wheel for itself", () => {
 	it("is an element that scrolls the way the wheel goes", () => {
 		const { pane, block, child } = scene();
 		scrolls(block, { height: 300 });
-		expect(wheelKeeper({ target: child, ...down }, pane, false)).toBe("scrolls");
+		expect(wheelKeeper({ target: child, ...down }, pane, false)).toBe(
+			"scrolls",
+		);
 		// The wheel going sideways is not what this one scrolls to.
 		expect(
-			wheelKeeper({ target: child, deltaX: 40, deltaY: 0, deltaMode: 0 }, pane, false),
+			wheelKeeper(
+				{ target: child, deltaX: 40, deltaY: 0, deltaMode: 0 },
+				pane,
+				false,
+			),
 		).toBeNull();
 	});
 
@@ -249,7 +265,11 @@ describe("wheelKeeper: what keeps the wheel for itself", () => {
 		const { pane, block, child } = scene();
 		scrolls(block, { width: 200 });
 		expect(
-			wheelKeeper({ target: child, deltaX: 40, deltaY: 5, deltaMode: 0 }, pane, false),
+			wheelKeeper(
+				{ target: child, deltaX: 40, deltaY: 5, deltaMode: 0 },
+				pane,
+				false,
+			),
 		).toBe("scrolls");
 	});
 
