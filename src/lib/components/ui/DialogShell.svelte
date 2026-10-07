@@ -281,8 +281,8 @@ onMount(() => {
 	// Ref-count the body-scroll lock against the open-dialog stack: only the
 	// FIRST dialog locks the page. A nested dialog registers while the page is
 	// already locked, so re-setting overflow here would be redundant — and,
-	// paired with the "last out unlocks" check in onDestroy, this stops a nested
-	// dialog's close from clearing the lock while its parent is still open.
+	// paired with the "last out unlocks" check in `deregisterDialog`, this stops
+	// a nested dialog's close from clearing the lock while its parent is still open.
 	if (dialogStack.size() === 1) {
 		lockPageScroll();
 	}
@@ -303,17 +303,17 @@ onDestroy(() => {
 // the dialog's. Recorded in the capture phase, before any layer's own handler
 // can react to the press. A click with no press behind it (a key on the
 // focused scrim) is judged as the dialog is.
-let coveredAtPress = false;
+let layerAboveAtPress = false;
 
 function notePress() {
-	coveredAtPress = !isTopmostDialog(dialogId);
+	layerAboveAtPress = !isTopmostDialog(dialogId);
 }
 
 function closeFromScrim(event: MouseEvent) {
-	const covered =
-		event.detail > 0 ? coveredAtPress : !isTopmostDialog(dialogId);
-	coveredAtPress = false;
-	if (!covered) onClose?.();
+	const layerAbove =
+		event.detail > 0 ? layerAboveAtPress : !isTopmostDialog(dialogId);
+	layerAboveAtPress = false;
+	if (!layerAbove) onClose?.();
 }
 </script>
 
