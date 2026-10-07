@@ -508,8 +508,9 @@ function card(page: Page, title: string): Locator {
 	return page.getByTestId("artifact-card").filter({ hasText: title });
 }
 
-/** One line of numbers per card, for the run's log (what was measured, not only what failed). */
+/** One line of numbers per card, for the run's log when the shots are taken (every failed claim carries its own numbers). */
 function report(title: string, label: string, geometry: CardGeometry): void {
+	if (!process.env.FXD_SHOTS) return;
 	const px = (box: Box | null) =>
 		box
 			? `${Math.round(box.left)}..${Math.round(box.right)} x ${Math.round(box.top)}..${Math.round(box.bottom)}`
@@ -858,6 +859,7 @@ test.describe("the in-chat artifact card at a docked panel's narrow chat column"
 	test("English reads the same at the narrowest column (1100 px, panel docked)", async ({
 		page,
 	}) => {
+		await useEnglish();
 		await page.setViewportSize({ width: 1100, height: 800 });
 		await login(page);
 		const conversationId = await seedChat(page);
