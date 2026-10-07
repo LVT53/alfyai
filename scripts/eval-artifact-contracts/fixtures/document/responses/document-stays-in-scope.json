@@ -1,4 +1,9 @@
 {
 	"response": "[{\"op\":\"replaceRange\",\"blockId\":\"p1\",\"baseHash\":\"a73237ed\",\"find\":\"morning\",\"text\":\"afternoon\"}]",
-	"durationMs": 430
+	"durationMs": 280,
+	"usage": {
+		"promptTokens": 262,
+		"completionTokens": 36,
+		"totalTokens": 298
+	}
 }

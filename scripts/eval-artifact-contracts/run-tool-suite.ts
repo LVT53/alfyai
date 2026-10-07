@@ -10,9 +10,9 @@ import { dirname, join, resolve } from "node:path";
 // breaker, the report — and hands it a client built on `tool-path.ts`:
 //
 //   - a real case is sent through the tools as its suite asks (`requestFor`)
-//   - a known-bad case is never sent: the committed answer is served from disk
-//     (ruling 59), so a live run cannot pass its gate because a model happened
-//     to misbehave
+//   - a known-bad case is never sent: `runSuite` serves its hand-written answer
+//     from disk (ruling 59) for every suite, so a live run cannot pass its gate
+//     because a model happened to misbehave
 //
 // `--replay` needs no runner of its own: `run.ts --suite <name> --replay`
 // re-scores the committed responses with no model and no key.
@@ -107,18 +107,12 @@ export async function runToolSuite(
 					`run-tool-suite: no ${options.suite} case has this prompt; cases are told apart by their prompt`,
 				);
 			}
+			// `runSuite` serves a known-bad case's hand-written answer from disk and
+			// never calls this client for one (ruling 59): reaching it is a bug.
 			if (evalCase.knownBad) {
-				const committed = loadCommittedResponseFromDisk(
-					deps.fixturesRoot,
-					options.suite,
-					evalCase.id,
+				throw new Error(
+					`run-tool-suite: known-bad case ${evalCase.id} reached the model client; its answer is served from disk, never sent (ruling 59)`,
 				);
-				if (!committed) {
-					throw new Error(
-						`known-bad case ${evalCase.id} has no committed answer under fixtures/${options.suite}/responses/`,
-					);
-				}
-				return { text: committed.response };
 			}
 			const spec = toolSuite.requestFor(evalCase);
 			if (options.thinking) spec.thinking = options.thinking;

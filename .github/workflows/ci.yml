@@ -36,3 +36,11 @@ jobs:
 
       - name: Unit tests
         run: npm run test:ci
+
+      # The artifact-contract gate, in its replay form only: it re-scores the
+      # committed model answers with no model, no key and no browser. The live
+      # harness (eval:artifacts, eval:artifacts:tools) talks to the production
+      # model and never runs here. `svelte-kit sync` writes the `$lib` alias the
+      # script resolves through.
+      - name: Artifact contract replay
+        run: npx svelte-kit sync && npm run eval:artifacts:replay
