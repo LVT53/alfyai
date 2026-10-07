@@ -182,8 +182,16 @@ const WOBBLE_PX = 4;
 /** A panel narrower than this gets the compact toolbar and no minimap. */
 const COMPACT_BELOW = 480;
 const MINIMAP_ABOVE = 720;
-/** The toolbar and the zoom no longer fit side by side below this (a column of comments beside the board narrows it): the zoom goes above the toolbar. */
-const STACK_ZOOM_BELOW = 680;
+/**
+ * The toolbar and the zoom no longer fit side by side below this: the zoom goes above
+ * the toolbar. The toolbar is centred and 517 px wide in Hungarian, its widest (two
+ * of its buttons carry words), and the zoom (140 px and its 12 px margin) stands at
+ * the pane's right edge: they meet below 517 + 2 × 152 = 821 px, and this leaves
+ * the toolbar a few pixels clear of the zoom at the narrowest board above it. A
+ * column of comments beside the board narrows the pane, and so does a docked panel
+ * in a window of 1100 px (713 px). `artifact-canvas-floats-narrow.spec.ts` sweeps it.
+ */
+const STACK_ZOOM_BELOW = 830;
 
 let boardEl = $state<HTMLElement | null>(null);
 let boardWidth = $state(0);
@@ -1312,7 +1320,7 @@ function minimapColor(node: {
 				zoomable
 				nodeColor={minimapColor}
 				class="canvas-minimap"
-				style="margin-bottom: 52px;"
+				style="margin-bottom: {stackedZoom ? 108 : 52}px;"
 			/>
 		{/if}
 		<Panel
