@@ -206,12 +206,15 @@ test.describe("on a phone, when the keyboard opens over the note being typed in"
 		const { field, note } = await openForTyping(page, "note-6");
 		const revealed = await keyboardOpens(page, note, field);
 
-		// The reader zooms the board with the wheel (the field keeps the focus):
-		// the camera is theirs, and a keyboard that grows is not met with a pan.
+		// The reader pinches the board (Control and the wheel, which is what a
+		// touchpad's pinch is; the field keeps the focus): the camera is theirs, and a
+		// keyboard that grows is not met with a pan.
 		const pane = await page.getByTestId("canvas-board").boundingBox();
 		if (!pane) throw new Error("no board");
 		await page.mouse.move(pane.x + 40, pane.y + 60);
+		await page.keyboard.down("Control");
 		await page.mouse.wheel(0, -120);
+		await page.keyboard.up("Control");
 		const zoomed = await settledCamera(page);
 		expect(zoomed.zoom).not.toBeCloseTo(revealed.zoom, 2);
 		await expect(field).toBeFocused();

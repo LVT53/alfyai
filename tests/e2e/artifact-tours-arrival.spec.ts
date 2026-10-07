@@ -362,7 +362,7 @@ test.describe("the tour card arrives without moving what is being read", () => {
 		await expectEveryNote(page, "the board is fitted first");
 		const fitted = await cameraOf(page);
 
-		// The reader pans with the middle button and zooms with the wheel.
+		// The reader pans with the middle button and zooms with a pinch (Control and the wheel).
 		const pane = await page.getByTestId("canvas-board").boundingBox();
 		const x = (pane?.x ?? 0) + (pane?.width ?? 0) / 2;
 		const y = (pane?.y ?? 0) + (pane?.height ?? 0) / 2;
@@ -370,7 +370,9 @@ test.describe("the tour card arrives without moving what is being read", () => {
 		await page.mouse.down({ button: "middle" });
 		await page.mouse.move(x - 70, y - 50, { steps: 8 });
 		await page.mouse.up({ button: "middle" });
+		await page.keyboard.down("Control");
 		await page.mouse.wheel(0, -240);
+		await page.keyboard.up("Control");
 		const moved = await settledCamera(page);
 		expect(moved.x).not.toBeCloseTo(fitted.x, 0);
 		expect(moved.zoom).not.toBeCloseTo(fitted.zoom, 2);
