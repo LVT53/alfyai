@@ -790,3 +790,18 @@ files-only, because it feeds the prompt and the project-file mention path, where
 would refuse the turn, and because knowledge importing artifacts would be a cycle. Slice 5 T5's "listProjectKnowledge
 includes artifacts" is read through this ruling.
 
+## 74. Alfy may draw the chat's diagrams on a board (Wave 4, orchestrator on the owner's request, 2026-10-07)
+
+*The owner:* "Are you sure you fixed Canvas so that the model can actually render the same charts from chat?" A live probe on
+ai.dev showed Alfy's Chart.js charts land (bar, radar, pie, line) but a requested flowchart became three sticky notes,
+because ruling 64 kept diagrams to the reader's Insert. **Ruling 64 is amended:** a `diagram` block joins the kinds Alfy may
+add — the Mermaid source it writes in a chat reply, drawn by the chat's own component under the chat's security settings —
+and `update_node` may change a diagram's source. Maps, files, Apps, photos and web blocks stay the reader's (they carry
+references the model cannot mint). Built by CV-A, with the placement work the owner asked for beside it.
+
+## 75. A request for content in another language keeps the conversation's language (owner, 2026-10-07)
+
+RV-F M-8, the owner: "Írj egy e-mailt angolul a kollégámnak…" keeps the reply, the chips and the status line in the
+conversation's language; only the requested content is written in the other one. Only a request for the *reply* in a
+language ("válaszolj angolul", "answer in English") flips the turn (CHP's rule, narrowed). Built by LANG-2.
+

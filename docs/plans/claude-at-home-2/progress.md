@@ -961,4 +961,9 @@ UI (ruling 72 confirmed). The model server's downtime this afternoon was the own
   Hungarian lines, Slides/File/bogus 404, a stale key 409 (nothing written), the badge `release_update`, 401 without a
   session. **Stopped for the owner's check.** Running meanwhile: TR-D4 (the owner's Android fix), W4-E (evidence rows).
 - `feat/artifacts`: the chat-route baseline moved 539,608 → 540,070 by the measured 462 B FU-2 + W4-B added together (ruling 68 note); FU-1 merged.
+- **Owner, 2026-10-07:** charts on a board ("the model can actually render the same charts from chat?" → the live probe
+  `probe-charts.mjs`: bar/radar/pie/line land, a flowchart became three stickies → ruling 74); "where AlfyAI places new
+  blocks"; "touchpad friendliness for laptops"; "I can't edit pieces that were already added, in any way or shape … all
+  Insert options"; M-8 → ruling 75. Briefs: `wave-4/cv-brief.md` — **CV-A** (diagrams + placement, after FX-A), **CV-B**
+  (editing what was inserted: reproduce every Insert option first), **CV-C** (touchpad), **LANG-2** (content language).
 
