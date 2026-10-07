@@ -5,6 +5,10 @@ import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
 	artifactVersions,
+	chatGeneratedFiles,
+	conversations,
+	fileProductionJobFiles,
+	fileProductionJobs,
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
@@ -83,7 +87,13 @@ let nextSequence = 900;
 /** The message a create_artifact call leaves: the call's own record names the item the card is for. */
 async function seedCallMessage(
 	conversationId: string,
-	made: { id: string; kind: "document" | "app" | "canvas"; title: string },
+	made: {
+		id: string;
+		kind: "document" | "app" | "canvas";
+		title: string;
+		/** What the call kept of its arguments (the default is a whole request). */
+		input?: Record<string, unknown>;
+	},
 ): Promise<void> {
 	nextSequence += 1;
 	await db.insert(messages).values({
@@ -97,7 +107,7 @@ async function seedCallMessage(
 				type: "tool_call",
 				callId: `e2e-narrow-${nextSequence}`,
 				name: "create_artifact",
-				input: {
+				input: made.input ?? {
 					artifactType: made.kind,
 					title: made.title,
 					body: `# ${made.title}`,
@@ -158,6 +168,9 @@ const TITLES = {
 	canvas: "Weekend board",
 	app: "Budget app",
 	deleted: "Old itinerary",
+	unavailable: "Lost itinerary",
+	unreachable: "Trip notes",
+	file: "Trip summary",
 } as const;
 
 /**
@@ -166,8 +179,28 @@ const TITLES = {
  * review, a board, an App, and a Document that was deleted.
  */
 async function seedChat(page: Page): Promise<string> {
-	const conversationId = await createConversation(page, "Plan a weekend");
 	const userId = await testUserId();
+	// An item of an incognito chat of the same reader: it exists, and the chat
+	// below cannot reach it (incognito hides a chat's work from the reader's
+	// OTHER chats), so its card says where it was made.
+	const otherConversationId = await createConversation(page, "Plan a trip");
+	await db
+		.update(conversations)
+		.set({ memoryIncognito: true })
+		.where(eq(conversations.id, otherConversationId));
+	const foreign = await createDocumentArtifact({
+		userId,
+		conversationId: otherConversationId,
+		title: TITLES.unreachable,
+		markdown: "# Trip notes\n\nPack light.",
+		author: "alfy",
+		summary: "Alfy wrote the first draft",
+	});
+	await page.goto("/");
+	await page
+		.getByTestId("message-input")
+		.waitFor({ state: "visible", timeout: 60_000 });
+	const conversationId = await createConversation(page, "Plan a weekend");
 
 	const reviewed = await createDocumentArtifact({
 		userId,
@@ -282,6 +315,97 @@ async function seedChat(page: Page): Promise<string> {
 		kind: "document",
 		title: TITLES.deleted,
 	});
+
+	// Deleted, and the call kept no usable request: Regenerate will say it cannot.
+	await seedCallMessage(conversationId, {
+		id: randomUUID(),
+		kind: "document",
+		title: TITLES.unavailable,
+		input: { artifactType: "document" },
+	});
+
+	// Made in another chat: the item exists, out of this chat's reach.
+	await seedCallMessage(conversationId, {
+		id: foreign.id,
+		kind: "document",
+		title: TITLES.unreachable,
+	});
+
+	// A produced file: what the pipeline leaves (the chat file, the artifact that
+	// stands for it and the succeeded job that made it), whose row is the File
+	// kind's `chrome="body"` card under the message.
+	nextSequence += 1;
+	const fileMessageId = randomUUID();
+	const chatFileId = randomUUID();
+	const jobId = randomUUID();
+	const now = new Date(Date.now() + nextSequence);
+	await db.insert(messages).values({
+		id: fileMessageId,
+		conversationId,
+		role: "assistant",
+		content: "Here is the trip summary.",
+		messageSequence: nextSequence,
+		createdAt: now,
+	});
+	await db.insert(chatGeneratedFiles).values({
+		id: chatFileId,
+		conversationId,
+		assistantMessageId: fileMessageId,
+		userId,
+		filename: "Trip summary.md",
+		mimeType: "text/markdown",
+		sizeBytes: 20,
+		storagePath: `${conversationId}/${chatFileId}.md`,
+		createdAt: now,
+	});
+	await db.insert(artifacts).values({
+		id: randomUUID(),
+		userId,
+		conversationId,
+		type: "generated_output",
+		retrievalClass: "durable",
+		name: "Trip summary.md",
+		mimeType: "text/markdown",
+		contentText: "Generated file: Trip summary.md",
+		metadataJson: JSON.stringify({
+			generatedFile: true,
+			originalChatFileId: chatFileId,
+			generatedFilename: "Trip summary.md",
+			documentLabel: "Trip summary.md",
+			versionNumber: 1,
+		}),
+		createdAt: now,
+		updatedAt: now,
+	});
+	await db.insert(fileProductionJobs).values({
+		id: jobId,
+		conversationId,
+		assistantMessageId: fileMessageId,
+		userId,
+		title: TITLES.file,
+		status: "succeeded",
+		origin: "produce_file",
+		requestJson: JSON.stringify({
+			sourceMode: "inline_text",
+			outputs: [],
+			documentIntent: null,
+			templateHint: null,
+			program: null,
+			documentSource: null,
+			inlineText: null,
+		}),
+		sourceMode: "inline_text",
+		createdAt: now,
+		updatedAt: now,
+		completedAt: now,
+	});
+	await db.insert(fileProductionJobFiles).values({
+		id: randomUUID(),
+		jobId,
+		chatGeneratedFileId: chatFileId,
+		sortOrder: 0,
+		createdAt: now,
+	});
 	return conversationId;
 }
 
@@ -385,13 +509,13 @@ function card(page: Page, title: string): Locator {
 }
 
 /** One line of numbers per card, for the run's log (what was measured, not only what failed). */
-function report(title: string, width: number, geometry: CardGeometry): void {
+function report(title: string, label: string, geometry: CardGeometry): void {
 	const px = (box: Box | null) =>
 		box
 			? `${Math.round(box.left)}..${Math.round(box.right)} x ${Math.round(box.top)}..${Math.round(box.bottom)}`
 			: "none";
 	console.log(
-		`[card-narrow] ${width} px · ${title}: card ${Math.round(geometry.card.width)} px, title ${px(geometry.title)}, meta lines ${lineCount(geometry)}, meta ${geometry.metaBoxes.map(px).join(" | ")}, pills ${geometry.pills.map(px).join(" | ") || "none"}, action ${px(geometry.action)}`,
+		`[card-narrow] ${label} · ${title}: card ${Math.round(geometry.card.width)} px, title ${px(geometry.title)}, meta lines ${lineCount(geometry)}, meta ${geometry.metaBoxes.map(px).join(" | ")}, pills ${geometry.pills.map(px).join(" | ") || "none"}, action ${px(geometry.action)}`,
 	);
 }
 
@@ -419,26 +543,50 @@ async function useEnglish(): Promise<void> {
 }
 
 /** What the specs read off the page in each language. */
-type Words = { document: string; threeBlocks: string };
-const HUNGARIAN: Words = { document: "Dokumentum", threeBlocks: "3 blokk" };
-const ENGLISH: Words = { document: "Document", threeBlocks: "3 blocks" };
+type Words = {
+	document: string;
+	threeBlocks: string;
+	/** The sentence a card says when Regenerate was tried and cannot work. */
+	cannotRegenerate: RegExp;
+};
+const HUNGARIAN: Words = {
+	document: "Dokumentum",
+	threeBlocks: "3 blokk",
+	cannotRegenerate: /Nem generálható újra/,
+};
+const ENGLISH: Words = {
+	document: "Document",
+	threeBlocks: "3 blocks",
+	cannotRegenerate: /It can't be regenerated/,
+};
 
 /**
  * What a settled chat shows. The pills arrive after the cards: the persisted
  * count of the pending Document with the conversation detail, and the reviewed
  * Document's "Átnézve" only once the panel has opened it (the open body reports
- * its review state), so a card measured earlier is measured twice.
+ * its review state), so a card measured earlier is measured twice. The one
+ * Regenerate that cannot work is pressed with a real click, so its card says why.
  */
 async function waitForTheCardsToSettle(
 	page: Page,
 	words: Words,
+	options: { panelOpen: boolean } = { panelOpen: true },
 ): Promise<void> {
-	await expect(card(page, TITLES.reviewed).locator(".pill")).toHaveCount(1);
+	if (options.panelOpen) {
+		await expect(card(page, TITLES.reviewed).locator(".pill")).toHaveCount(1);
+	}
 	await expect(card(page, TITLES.pending).locator(".pill")).toHaveCount(1);
 	await expect(card(page, TITLES.canvas)).toContainText(words.threeBlocks);
 	await expect(
 		card(page, TITLES.deleted).getByTestId("artifact-card-regenerate"),
 	).toBeVisible();
+	await expect(card(page, TITLES.unreachable)).toHaveAttribute(
+		"data-state",
+		"unreachable",
+	);
+	const lost = card(page, TITLES.unavailable);
+	await lost.getByTestId("artifact-card-regenerate").click();
+	await expect(lost).toContainText(words.cannotRegenerate);
 	await waitForStableBoundingBox(card(page, TITLES.reviewed));
 }
 
@@ -458,7 +606,7 @@ async function shootBothSchemes(page: Page, name: string): Promise<void> {
 	const dir = process.env.FXD_SHOTS;
 	if (!dir) return;
 	const size = page.viewportSize() ?? { width: 1280, height: 800 };
-	await page.setViewportSize({ width: size.width, height: 2300 });
+	await page.setViewportSize({ width: size.width, height: 3000 });
 	for (const scheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme: scheme });
 		await page.waitForTimeout(250);
@@ -468,28 +616,32 @@ async function shootBothSchemes(page: Page, name: string): Promise<void> {
 	await page.setViewportSize(size);
 }
 
-/** What every card must satisfy when its action has a row of its own. */
-function expectTheActionOnItsOwnRow(
-	geometry: CardGeometry,
-	where: string,
-): void {
-	expect
-		.soft(geometry.action, `${where}: the card has an action`)
-		.not.toBeNull();
-	const action = geometry.action as Box;
-	const title = geometry.title as Box;
+/**
+ * What every card must satisfy wherever its action is: its text keeps a column,
+ * all of it is inside the card, and nothing is drawn over anything else. A card
+ * with an action also draws that inside the card and over none of the text.
+ */
+function expectTheCardReads(geometry: CardGeometry, where: string): void {
 	const column = geometry.textColumn as Box;
-
-	expect
-		.soft(lineCount(geometry), `${where}: the lines the meta text is drawn on`)
-		.toBe(1);
 	expect
 		.soft(
 			column.width,
 			`${where}: the title and the meta line keep a column of their own`,
 		)
 		.toBeGreaterThanOrEqual(150);
+	for (const box of geometry.metaVisible) {
+		expect
+			.soft(box.right, `${where}: the text is cut off at the right`)
+			.toBeLessThanOrEqual(column.right + 0.5);
+	}
+	for (const pill of geometry.pills) {
+		expect
+			.soft(pill.right, `${where}: a pill's right edge`)
+			.toBeLessThanOrEqual(geometry.card.right + 0.5);
+	}
 
+	const action = geometry.action;
+	if (!action) return;
 	for (const thing of thingsBesideTheAction(geometry)) {
 		expect
 			.soft(
@@ -498,32 +650,93 @@ function expectTheActionOnItsOwnRow(
 			)
 			.toBe(false);
 	}
-
-	// Narrow: the action is a row of its own, under the text.
-	const lowestText = Math.max(
-		title.bottom,
-		...geometry.metaVisible.map((box) => box.bottom),
-		...geometry.pills.map((box) => box.bottom),
-	);
-	expect
-		.soft(
-			action.top,
-			`${where}: the action sits under the title and the meta line`,
-		)
-		.toBeGreaterThanOrEqual(lowestText - 0.5);
-
-	// And all of it is inside the card.
 	expect
 		.soft(action.right, `${where}: the action's right edge`)
 		.toBeLessThanOrEqual(geometry.card.right + 0.5);
 	expect
 		.soft(action.left, `${where}: the action's left edge`)
 		.toBeGreaterThanOrEqual(geometry.card.left - 0.5);
-	for (const pill of geometry.pills) {
+}
+
+/** The meta text of a card is one line (a live card's kind, facts and version). */
+function expectOneLine(geometry: CardGeometry, where: string): void {
+	expect
+		.soft(lineCount(geometry), `${where}: the lines the meta text is drawn on`)
+		.toBe(1);
+}
+
+/** The lowest edge of what the card says (title, meta line, pills). */
+function lowestText(geometry: CardGeometry): number {
+	return Math.max(
+		(geometry.title as Box).bottom,
+		...geometry.metaVisible.map((box) => box.bottom),
+		...geometry.pills.map((box) => box.bottom),
+	);
+}
+
+/** A narrow card: the action is a row of its own, under the text. */
+function expectTheActionOnItsOwnRow(
+	geometry: CardGeometry,
+	where: string,
+): void {
+	expect
+		.soft(geometry.action, `${where}: the card has an action`)
+		.not.toBeNull();
+	expectTheCardReads(geometry, where);
+	expect
+		.soft(
+			(geometry.action as Box).top,
+			`${where}: the action sits under the title and the meta line`,
+		)
+		.toBeGreaterThanOrEqual(lowestText(geometry) - 0.5);
+}
+
+/** A wide card: the action stays where it always was, beside the text. */
+function expectTheActionBesideTheText(
+	geometry: CardGeometry,
+	where: string,
+): void {
+	expect
+		.soft(geometry.action, `${where}: the card has an action`)
+		.not.toBeNull();
+	expectTheCardReads(geometry, where);
+	const action = geometry.action as Box;
+	expect
+		.soft(
+			action.top,
+			`${where}: the action is on the row of the title, not under it`,
+		)
+		.toBeLessThan(lowestText(geometry));
+	for (const thing of thingsBesideTheAction(geometry)) {
 		expect
-			.soft(pill.right, `${where}: a pill's right edge`)
-			.toBeLessThanOrEqual(geometry.card.right + 0.5);
+			.soft(
+				action.left,
+				`${where}: the action is to the right of everything the card says`,
+			)
+			.toBeGreaterThanOrEqual(thing.right - 0.5);
 	}
+}
+
+/** Everything the File row draws stays inside the grey box that holds it (a row's own box bleeds a little for its hover). */
+async function fileRowFits(page: Page): Promise<string[]> {
+	return page
+		.getByTestId("file-production-card")
+		.first()
+		.evaluate((root) => {
+			const holder = root.closest("[data-testid=tool-activity-body]") ?? root;
+			const box = holder.getBoundingClientRect();
+			const out: string[] = [];
+			for (const el of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+				const rect = el.getBoundingClientRect();
+				if (rect.width === 0 || rect.height === 0) continue;
+				if (rect.right > box.right + 1 || rect.left < box.left - 1) {
+					out.push(
+						`${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]} ${Math.round(rect.left)}..${Math.round(rect.right)} outside ${Math.round(box.left)}..${Math.round(box.right)}`,
+					);
+				}
+			}
+			return out;
+		});
 }
 
 const LIVE_CARDS = [
@@ -532,6 +745,39 @@ const LIVE_CARDS = [
 	TITLES.canvas,
 	TITLES.app,
 ] as const;
+
+/** Every state of a card, measured the way its layout promises (narrow: the action under the text). */
+async function expectEveryCardOnItsOwnRow(
+	page: Page,
+	label: string,
+): Promise<void> {
+	// Live cards: the reviewed Document (open in the panel), the one with a
+	// change to review, the board, the App.
+	for (const title of LIVE_CARDS) {
+		const geometry = await readGeometry(card(page, title));
+		report(title, label, geometry);
+		const where = `"${title}" ${label} (card ${Math.round(geometry.card.width)} px wide)`;
+		expectOneLine(geometry, where);
+		expectTheActionOnItsOwnRow(geometry, where);
+	}
+
+	// Deleted, with Regenerate: it sits under the sentence, over nothing.
+	const gone = await readGeometry(card(page, TITLES.deleted));
+	report(TITLES.deleted, label, gone);
+	const goneWhere = `the deleted card ${label} (card ${Math.round(gone.card.width)} px wide)`;
+	expectOneLine(gone, goneWhere);
+	expectTheActionOnItsOwnRow(gone, goneWhere);
+
+	// Deleted, and Regenerate said it cannot, and out of this chat's reach: a
+	// sentence or two and no action; they may wrap, never run off the card.
+	for (const title of [TITLES.unavailable, TITLES.unreachable]) {
+		const geometry = await readGeometry(card(page, title));
+		report(title, label, geometry);
+		const where = `"${title}" ${label} (card ${Math.round(geometry.card.width)} px wide)`;
+		expect.soft(geometry.action, `${where}: no action`).toBeNull();
+		expectTheCardReads(geometry, where);
+	}
+}
 
 test.describe("the in-chat artifact card at a docked panel's narrow chat column", () => {
 	test.afterEach(async () => {
@@ -551,26 +797,63 @@ test.describe("the in-chat artifact card at a docked panel's narrow chat column"
 			await waitForTheCardsToSettle(page, HUNGARIAN);
 			await shootBothSchemes(page, `docked-${width}-hu`);
 
-			// Live cards: the reviewed Document (open in the panel), the one with a
-			// change to review, the board, the App.
-			for (const title of LIVE_CARDS) {
-				const geometry = await readGeometry(card(page, title));
-				report(title, width, geometry);
-				expectTheActionOnItsOwnRow(
-					geometry,
-					`"${title}" at ${width} px (card ${Math.round(geometry.card.width)} px wide)`,
-				);
+			await expectEveryCardOnItsOwnRow(page, `at ${width} px`);
+
+			// What a hover paints on the head and on the action's words (shots only).
+			if (process.env.FXD_SHOTS && width === 1100) {
+				const pending = card(page, TITLES.pending);
+				await pending.getByTestId("artifact-card-head").hover();
+				await pending.screenshot({
+					path: `${process.env.FXD_SHOTS}/hover-pending-1100-hu-light.png`,
+				});
 			}
 
-			// The deleted card: its Regenerate sits under the sentence, over nothing.
-			const gone = await readGeometry(card(page, TITLES.deleted));
-			report(TITLES.deleted, width, gone);
-			expectTheActionOnItsOwnRow(
-				gone,
-				`the deleted card at ${width} px (card ${Math.round(gone.card.width)} px wide)`,
-			);
+			// The File kind's row (`chrome="body"`) is its own layout: it must still
+			// read in the same narrow column.
+			expect
+				.soft(await fileRowFits(page), `the File row at ${width} px`)
+				.toEqual([]);
 		});
 	}
+
+	test("a card in a wide column keeps its action beside the text (1440 px, panel closed, Hungarian)", async ({
+		page,
+	}) => {
+		await useHungarian();
+		await page.setViewportSize({ width: 1440, height: 800 });
+		await login(page);
+		const conversationId = await seedChat(page);
+		await openChatAndReload(page, conversationId);
+		await waitForTheCardsToSettle(page, HUNGARIAN, { panelOpen: false });
+		await shootBothSchemes(page, "wide-1440-hu");
+
+		for (const title of [TITLES.pending, TITLES.canvas, TITLES.app]) {
+			const geometry = await readGeometry(card(page, title));
+			const where = `"${title}" at 1440 px, panel closed (card ${Math.round(geometry.card.width)} px wide)`;
+			expectOneLine(geometry, where);
+			expectTheActionBesideTheText(geometry, where);
+		}
+		const gone = await readGeometry(card(page, TITLES.deleted));
+		expectTheActionBesideTheText(
+			gone,
+			`the deleted card at 1440 px, panel closed (card ${Math.round(gone.card.width)} px wide)`,
+		);
+	});
+
+	test("a phone's card is a narrow card too: its action has a row of its own and nothing is drawn over it (390 px, Hungarian)", async ({
+		page,
+	}) => {
+		await useHungarian();
+		await page.setViewportSize({ width: 390, height: 844 });
+		await login(page);
+		const conversationId = await seedChat(page);
+		await openChatAndReload(page, conversationId);
+		await waitForTheCardsToSettle(page, HUNGARIAN, { panelOpen: false });
+		await shootBothSchemes(page, "phone-390-hu");
+
+		await expectEveryCardOnItsOwnRow(page, "at 390 px");
+		expect.soft(await fileRowFits(page), "the File row at 390 px").toEqual([]);
+	});
 
 	test("English reads the same at the narrowest column (1100 px, panel docked)", async ({
 		page,
@@ -583,12 +866,6 @@ test.describe("the in-chat artifact card at a docked panel's narrow chat column"
 		await waitForTheCardsToSettle(page, ENGLISH);
 		await shootBothSchemes(page, "docked-1100-en");
 
-		for (const title of [...LIVE_CARDS, TITLES.deleted]) {
-			const geometry = await readGeometry(card(page, title));
-			expectTheActionOnItsOwnRow(
-				geometry,
-				`"${title}" at 1100 px in English (card ${Math.round(geometry.card.width)} px wide)`,
-			);
-		}
+		await expectEveryCardOnItsOwnRow(page, "at 1100 px in English");
 	});
 });
