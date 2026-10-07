@@ -3,10 +3,13 @@
 // tools' Canvas handlers (create.ts, read.ts, edit.ts) are thin over this: it is
 // pure — no database, no abort signal — so the eval harness (`scripts/eval-
 // artifact-contracts/suites/canvas.ts`) reads the same payload and refuses with
-// the same words the app does, rather than a copy of them.
+// the same words the app does, rather than a copy of them. (`createKnownBoards`
+// holds memory for one turn, never module state: whoever makes the tools makes it.)
 //
-// Three things live here:
+// Four things live here:
 //   - `canvasReadBlocks`: read_artifact's `blocks` for a board;
+//   - `createKnownBoards` and `lastKnownBoardVersion`: what a turn knows of the
+//     boards it read, which an edit is judged against (ruling 67);
 //   - `parseCanvasCreateBody`: what a create_artifact body becomes, judged by the
 //     board's own vocabulary (`board-ops.ts`) so a made board and an edited one
 //     accept exactly the same nodes — one validator, never a twin;
@@ -133,6 +136,55 @@ export function canvasReadBlocks(body: CanvasBody): Record<string, unknown>[] {
 }
 
 /**
+ * The most boards one turn keeps the words of. Past it the oldest is forgotten
+ * and an edit of that board is judged against the version the model read instead
+ * (`lastKnownBoardVersion`): the same protection, except against a save of the
+ * reader's that coalesced into that version. A turn that works on more boards
+ * than this is not what the store is for, and a body is at most 2 MiB
+ * (`ARTIFACT_BODY_MAX_BYTES`), so the bound is also the memory a turn can hold.
+ */
+export const MAX_KNOWN_BOARDS_PER_TURN = 8;
+
+/**
+ * What one turn knows of each board it has read, in the words themselves
+ * (ruling 67 × ruling 47): the stored body `read_artifact` showed, moved forward
+ * by each of the model's own edits that landed directly on top of it. A version
+ * id cannot say what the model saw. The reader's own saves within ten minutes
+ * are written INTO their newest version, so the version the model read can hold
+ * newer words under the same id, and only the body it read can say what the
+ * reader changed since.
+ *
+ * In memory and for the turn: the tool factory makes one per turn and it goes
+ * with the turn. Never persisted. A body is the reader's whole board, and the
+ * tool call's record is what later turns replay.
+ */
+export interface KnownBoards {
+	/** The stored body of the board as the model last knew it, or `undefined`. */
+	get(artifactId: string): string | undefined;
+	/** The model was shown, or has itself made, this body of the board. */
+	remember(artifactId: string, body: string): void;
+}
+
+export function createKnownBoards(
+	max: number = MAX_KNOWN_BOARDS_PER_TURN,
+): KnownBoards {
+	// A Map iterates in insertion order, so the first key is the board whose
+	// words were taken in longest ago: a board read again moves to the end.
+	const bodies = new Map<string, string>();
+	return {
+		get: (artifactId) => bodies.get(artifactId),
+		remember(artifactId, body) {
+			bodies.delete(artifactId);
+			bodies.set(artifactId, body);
+			for (const oldest of bodies.keys()) {
+				if (bodies.size <= max) break;
+				bodies.delete(oldest);
+			}
+		},
+	};
+}
+
+/**
  * The version of a board the model last SAW in this turn, from the turn's own
  * tool calls (the recorder's entries; ruling 67): what its last successful
  * `read_artifact` of the board reported, moved forward by each of its own edits
@@ -141,6 +193,11 @@ export function canvasReadBlocks(body: CanvasBody): Record<string, unknown>[] {
  * version it never read (the reader saved in between) does not move it: what the
  * reader changed is still unseen. `undefined` when the turn has not read the
  * board, and then an edit is judged against the board as it is.
+ *
+ * This is the FALLBACK: a version id names a row, and the reader's saves within
+ * ten minutes (ruling 47) are written into it, so the words the model read are
+ * `KnownBoards`' to say, and this answers only for a board the turn no longer
+ * holds the words of.
  */
 export function lastKnownBoardVersion(
 	entries: readonly ToolCallEntry[],
