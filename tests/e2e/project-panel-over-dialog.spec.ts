@@ -723,3 +723,91 @@ test.describe("The panel as the modal layer over the Files sheet — phone", () 
 		await expect.poll(() => modalLayers(page)).toEqual(["Files"]);
 	});
 });
+
+/**
+ * The page's scroll lock (FX-B2, 3). The Files dialog locks the page while it is
+ * open and releases it when the last layer on the dialog stack is gone. With the
+ * panel open over it, a browser Back takes the whole page away under both: the
+ * dialog was torn down first, found the panel still on the stack and left the
+ * lock, and nothing released it after the panel had gone too.
+ */
+const pageScrollLock = (page: Page) =>
+	page.evaluate(() => document.body.style.overflow);
+
+test.describe("The page's scroll lock under a project's Files dialog", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+	});
+
+	test("is held while a layer is open and released when the last one closes", async ({
+		page,
+	}) => {
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		await openProjectPage(page, projectId);
+		expect(await pageScrollLock(page)).toBe("");
+
+		const dialog = await openFilesDialogHere(page);
+		expect(await pageScrollLock(page)).toBe("hidden");
+
+		await openButton(dialog, names.document).click();
+		const panel = panelShell(page);
+		await expect(panel.getByTestId("artifact-panel-title")).toBeVisible({
+			timeout: 30_000,
+		});
+		expect(await pageScrollLock(page)).toBe("hidden");
+
+		await page.keyboard.press("Escape");
+		await expect(panel).toHaveCount(0);
+		await expect(dialog).toBeVisible();
+		expect(await pageScrollLock(page)).toBe("hidden");
+
+		await page.keyboard.press("Escape");
+		await expect(dialog).toHaveCount(0);
+		await expect.poll(() => pageScrollLock(page)).toBe("");
+	});
+
+	test("is released when browser Back takes the page away under the dialog and the panel", async ({
+		page,
+	}) => {
+		const { projectId, projectName, names } = await seedMadeProject(
+			await testUserId(),
+		);
+		await login(page);
+		// In through the app, so that Back is the app's own navigation and the
+		// tab keeps the page it has (a reload would start a page with no lock).
+		await ensureSidebarExpanded(page);
+		const row = page
+			.getByTestId("project-drop-target")
+			.filter({ hasText: projectName });
+		await row.hover();
+		await row.getByRole("button", { name: `Open ${projectName}` }).click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`));
+		await waitForHydration(page);
+		const dialog = await openFilesDialogHere(page);
+		await openButton(dialog, names.document).click();
+		await expect(
+			panelShell(page).getByTestId("artifact-panel-title"),
+		).toBeVisible({ timeout: 30_000 });
+		expect(await pageScrollLock(page)).toBe("hidden");
+		// A mark on the page the tab holds: Back must not be a reload, which
+		// would start a page with no lock whatever the dialog did.
+		await page.evaluate(() => {
+			(window as unknown as { __sameDocument: boolean }).__sameDocument = true;
+		});
+
+		await page.goBack();
+
+		await expect(page).toHaveURL("/");
+		await expect(page.getByTestId("message-input")).toBeVisible();
+		await expect(dialog).toHaveCount(0);
+		expect(
+			await page.evaluate(
+				() =>
+					(window as unknown as { __sameDocument?: boolean }).__sameDocument,
+			),
+			"Back was the app's own navigation, not a reload",
+		).toBe(true);
+		await expect.poll(() => pageScrollLock(page)).toBe("");
+	});
+});

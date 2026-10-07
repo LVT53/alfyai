@@ -283,6 +283,52 @@ describe("DialogShell body-scroll lock", () => {
 		await tick();
 		expect(document.body.style.overflow).toBe("");
 	});
+
+	// The page's lock belongs to the stack, not to the dialog that took it: a
+	// layer that is not a DialogShell (the document panel over a project's Files
+	// dialog) can be the last one out, as it is when the whole page goes away
+	// under both, a browser Back with them open.
+	it("keeps the page locked while a layer over the dialog stays open after the dialog is gone, and releases it when that layer leaves", async () => {
+		const dialog = render(DialogShell, {
+			props: { title: "Dialog", onClose: vi.fn(), children: inertChildren },
+		});
+		await tick();
+		const layerOver = Symbol("a layer that is not a DialogShell");
+		registerDialog(layerOver);
+
+		dialog.unmount();
+		await tick();
+		expect(document.body.style.overflow).toBe("hidden");
+
+		deregisterDialog(layerOver);
+		expect(document.body.style.overflow).toBe("");
+	});
+
+	it("releases the lock when the layer over the dialog leaves first and the dialog last", async () => {
+		const dialog = render(DialogShell, {
+			props: { title: "Dialog", onClose: vi.fn(), children: inertChildren },
+		});
+		await tick();
+		const layerOver = Symbol("a layer that is not a DialogShell");
+		registerDialog(layerOver);
+
+		deregisterDialog(layerOver);
+		expect(document.body.style.overflow).toBe("hidden");
+
+		dialog.unmount();
+		await tick();
+		expect(document.body.style.overflow).toBe("");
+	});
+
+	it("leaves a page that no dialog locked alone when the stack empties", () => {
+		document.body.style.overflow = "scroll";
+		const layer = Symbol("a layer that took no lock");
+		registerDialog(layer);
+
+		deregisterDialog(layer);
+
+		expect(document.body.style.overflow).toBe("scroll");
+	});
 });
 
 describe("DialogShell scrim", () => {

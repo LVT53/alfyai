@@ -53,12 +53,30 @@ export type PanelTransitionParams = {
 // and one of those dialogs fight over focus again.
 const dialogStack = createFocusTrapStack();
 
+// The page's scroll lock belongs to the stack, not to the dialog that took it.
+// The first DialogShell on an empty stack locks the page; it is released when
+// the stack is empty again, whichever layer is the last one out. A layer that
+// is not a DialogShell can outlive the dialog it sits over (the document panel
+// over a project's Files dialog, when the whole page goes away under both: a
+// browser Back with them open), and releasing only in the dialog's own teardown
+// left the page locked for good.
+let pageScrollLocked = false;
+
+function lockPageScroll(): void {
+	document.body.style.overflow = "hidden";
+	pageScrollLocked = true;
+}
+
 export function registerDialog(id: symbol): void {
 	dialogStack.register(id);
 }
 
 export function deregisterDialog(id: symbol): void {
 	dialogStack.deregister(id);
+	if (pageScrollLocked && dialogStack.size() === 0) {
+		document.body.style.overflow = "";
+		pageScrollLocked = false;
+	}
 }
 
 export function isTopmostDialog(id: symbol): boolean {
@@ -266,18 +284,16 @@ onMount(() => {
 	// paired with the "last out unlocks" check in onDestroy, this stops a nested
 	// dialog's close from clearing the lock while its parent is still open.
 	if (dialogStack.size() === 1) {
-		document.body.style.overflow = "hidden";
+		lockPageScroll();
 	}
 });
 
 onDestroy(() => {
 	stopWatchingViewport?.();
+	// Deregistering releases the page lock once the LAST layer is gone. A nested
+	// dialog closing while its parent is still open must leave the page locked
+	// behind the parent, and so must this one while a layer over it stays open.
 	deregisterDialog(dialogId);
-	// Release the lock only once the LAST dialog closes. A nested dialog closing
-	// while its parent is still open must leave the page locked behind the parent.
-	if (dialogStack.size() === 0) {
-		document.body.style.overflow = "";
-	}
 });
 
 // A press on the scrim closes the dialog only if the dialog was the topmost
