@@ -9,8 +9,8 @@ import type {
 	CanvasBody,
 	CanvasNode,
 } from "../../src/lib/shared/artifacts/canvas";
-import { estimatedNodeSize } from "../../src/lib/shared/artifacts/canvas-blocks";
 import { normalizeCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
+import { plannedNodeSize } from "../../src/lib/shared/artifacts/node-size";
 import {
 	cameraOf,
 	openCanvasPanel,
@@ -230,7 +230,7 @@ test.describe("what Alfy adds to a board is drawn, where a person would put it (
 
 		// The height the board was told is the height it is drawn at, never short.
 		const asDrawn = drawn.find((entry) => entry.id === "flow");
-		const told = estimatedNodeSize(flow).height;
+		const told = plannedNodeSize(flow).height;
 		expect(asDrawn?.box.height ?? 0).toBeGreaterThan(300);
 		expect(told).toBeGreaterThanOrEqual((asDrawn?.box.height ?? 0) - SLACK);
 		expect(told).toBeLessThanOrEqual((asDrawn?.box.height ?? 0) * 1.35 + 10);

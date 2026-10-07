@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-	DIAGRAM_FALLBACK_HEIGHT,
-	estimatedDiagramHeight,
-} from "./mermaid-size";
+import { DIAGRAM_RESERVED_HEIGHT } from "./canvas-blocks";
+import { estimatedDiagramHeight } from "./mermaid-size";
 
 /**
  * What the board drew, measured in headless Chromium on 2026-10-07 (Mermaid
@@ -366,11 +364,11 @@ describe("estimatedDiagramHeight — how the layout is read", () => {
 	it("reserves what the Insert menu does for a source it does not know how to read, and never less than it can draw", () => {
 		expect(
 			estimatedDiagramHeight("quadrantChart\n  title X", BLOCK_WIDTH),
-		).toBeGreaterThanOrEqual(DIAGRAM_FALLBACK_HEIGHT);
+		).toBeGreaterThanOrEqual(DIAGRAM_RESERVED_HEIGHT);
 		expect(estimatedDiagramHeight("", BLOCK_WIDTH)).toBeGreaterThanOrEqual(80);
 		expect(
 			estimatedDiagramHeight("flowchart TD", BLOCK_WIDTH),
-		).toBeGreaterThanOrEqual(DIAGRAM_FALLBACK_HEIGHT);
+		).toBeGreaterThanOrEqual(DIAGRAM_RESERVED_HEIGHT);
 	});
 
 	it("stays finite on a source of every shape a model could send", () => {

@@ -36,13 +36,11 @@ import type {
 	CanvasNode,
 } from "$lib/shared/artifacts/canvas";
 import {
-	estimatedNodeSize,
-	MODEL_CREATABLE_DATA_SCHEMAS,
-} from "$lib/shared/artifacts/canvas-blocks";
-import {
 	emptyCanvasBody,
 	parentsFirst,
 } from "$lib/shared/artifacts/canvas-body";
+import { MODEL_CREATABLE_DATA_SCHEMAS } from "$lib/shared/artifacts/canvas-model-blocks";
+import { plannedNodeSize } from "$lib/shared/artifacts/node-size";
 import type { OpRefusal } from "$lib/shared/artifacts/ops";
 import { describeJsonSlip } from "./tool-args";
 
@@ -108,7 +106,7 @@ function readNodeBlock(node: CanvasNode): Record<string, unknown> {
 		// width and the height its words, items or plot take (a note is as tall as
 		// its words, RV-3 C2; a chart and a checklist have widths of their own, RC-3
 		// N1), so what a model arranges by is what the reader sees.
-		...estimatedNodeSize(node),
+		...plannedNodeSize(node),
 		...(node.parentId === undefined ? {} : { parentId: node.parentId }),
 		...(data.kind === "sticky" ? { tone: data.tone } : {}),
 		// A diagram's source is what an edit of it is made from, and a diagram is short.

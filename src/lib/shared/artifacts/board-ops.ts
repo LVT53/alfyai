@@ -19,23 +19,26 @@
 import { z } from "zod";
 import { diffBoards } from "./board-diff";
 import { FRAME_INSET, placeBlock } from "./board-placement";
+import type { BoardRefusalReason } from "./board-refusals";
 import { type CanvasBody, type CanvasNode, type Pt, ptSchema } from "./canvas";
 import {
 	BLOCK_DATA_SCHEMAS,
 	type BlockKind,
 	type CanvasBlockData,
 	defaultNodeWidth,
-	estimatedNodeSize,
+	repeatedEntryIds,
+} from "./canvas-blocks";
+import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
+import {
 	isModelCreatableKind,
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	MODEL_CREATABLE_KINDS,
 	mermaidSourceProblem,
 	modelCreatableBlockDataSchema,
 	modelUpdatableFields,
-	repeatedEntryIds,
 	storedBlockData,
-} from "./canvas-blocks";
-import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
+} from "./canvas-model-blocks";
+import { plannedNodeSize } from "./node-size";
 import type { OpRefusal, OpsJudgeContext, OpsVocabulary } from "./ops";
 
 /** A batch is one transaction; 40 ops is already a whole board. */
@@ -199,51 +202,15 @@ export const BOARD_OPS_EXAMPLE: BoardOp[] = [
 
 // ── Refusals ─────────────────────────────────────────────────────────────
 
-export const BOARD_REFUSAL_REASONS = [
-	"unknown_id",
-	"duplicate_id",
-	"unknown_kind",
-	"kind_mismatch",
-	"missing_parent",
-	"self_parent",
-	"cycle",
-	"invalid_data",
-	"limit_exceeded",
-	"stale",
-] as const;
+// Declared in `board-refusals.ts` (the editor reads them without the vocabulary);
+// the server and the tests reach them through here, as before.
+export {
+	BOARD_REFUSAL_REASONS,
+	type BoardRefusalReason,
+	refusalLabelKey,
+} from "./board-refusals";
 
-export type BoardRefusalReason = (typeof BOARD_REFUSAL_REASONS)[number];
 export type BoardRefusal = OpRefusal<BoardRefusalReason>;
-
-/** Every refusal reason has a message key; the switch is exhaustive so a new reason cannot ship without one. */
-export function refusalLabelKey(reason: BoardRefusalReason): string {
-	switch (reason) {
-		case "unknown_id":
-			return "artifacts.canvas.refusal.unknown_id";
-		case "duplicate_id":
-			return "artifacts.canvas.refusal.duplicate_id";
-		case "unknown_kind":
-			return "artifacts.canvas.refusal.unknown_kind";
-		case "kind_mismatch":
-			return "artifacts.canvas.refusal.kind_mismatch";
-		case "missing_parent":
-			return "artifacts.canvas.refusal.missing_parent";
-		case "self_parent":
-			return "artifacts.canvas.refusal.self_parent";
-		case "cycle":
-			return "artifacts.canvas.refusal.cycle";
-		case "invalid_data":
-			return "artifacts.canvas.refusal.invalid_data";
-		case "limit_exceeded":
-			return "artifacts.canvas.refusal.limit_exceeded";
-		case "stale":
-			return "artifacts.canvas.refusal.stale";
-		default: {
-			const unreachable: never = reason;
-			return unreachable;
-		}
-	}
-}
 
 // ── Applying one op ──────────────────────────────────────────────────────
 
@@ -377,8 +344,8 @@ function growFramesAround(
 	for (let depth = 0; depth < 8 && child.parentId !== undefined; depth += 1) {
 		const frame = result.find((node) => node.id === child.parentId);
 		if (!frame || frame.data.kind !== "frame") break;
-		const { width: childWidth, height: childHeight } = estimatedNodeSize(child);
-		const inside = estimatedNodeSize(frame);
+		const { width: childWidth, height: childHeight } = plannedNodeSize(child);
+		const inside = plannedNodeSize(frame);
 		const right = child.position.x + childWidth;
 		const bottom = child.position.y + childHeight;
 		const width =
@@ -673,7 +640,7 @@ function stepAddNode(
 	const size =
 		block.kind === "frame"
 			? { width: block.width, height: block.height }
-			: estimatedNodeSize({
+			: plannedNodeSize({
 					type: spec.type,
 					width: defaultNodeWidth(spec.type),
 					data: block,
@@ -995,7 +962,7 @@ function sizeIn(
 	id: string,
 ): { width: number; height: number } | null {
 	const found = body.nodes.find((node) => node.id === id);
-	return found ? estimatedNodeSize(found) : null;
+	return found ? plannedNodeSize(found) : null;
 }
 
 /**

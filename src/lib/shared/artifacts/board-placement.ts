@@ -25,7 +25,7 @@
  * board's, or its frame's), whole numbers.
  */
 import type { CanvasBody, CanvasNode, Pt } from "./canvas";
-import { estimatedNodeSize } from "./canvas-blocks";
+import { plannedNodeSize } from "./node-size";
 
 interface Box {
 	x: number;
@@ -60,7 +60,7 @@ export interface PlacementRequest {
 	id: string;
 	/** A frame is placed on its own level and never made a child of another by where its middle is. */
 	asFrame?: boolean;
-	/** The size the board will draw it at (`estimatedNodeSize`). */
+	/** The size the board will draw it at (`plannedNodeSize`). */
 	size: { width: number; height: number };
 	/** The model's own place, in its container's space. */
 	position?: Pt;
@@ -96,7 +96,7 @@ function overlaps(a: Box, b: Box): boolean {
 }
 
 function boxOf(node: CanvasNode): Box {
-	return { x: node.position.x, y: node.position.y, ...estimatedNodeSize(node) };
+	return { x: node.position.x, y: node.position.y, ...plannedNodeSize(node) };
 }
 
 function findNode(body: CanvasBody, id: string): CanvasNode | undefined {
@@ -138,7 +138,7 @@ function containerOf(
 		siblings: body.nodes
 			.filter((node) => node.parentId === frame?.id && node.id !== exceptId)
 			.map(boxOf),
-		bounds: frame ? { x: 0, y: 0, ...estimatedNodeSize(frame) } : null,
+		bounds: frame ? { x: 0, y: 0, ...plannedNodeSize(frame) } : null,
 	};
 }
 
@@ -325,7 +325,7 @@ function frameHoldingMiddle(
 	for (const node of body.nodes) {
 		if (node.type !== "frame" || node.id === id) continue;
 		const origin = absoluteOrigin(body, node);
-		const frameSize = estimatedNodeSize(node);
+		const frameSize = plannedNodeSize(node);
 		if (
 			middle.x >= origin.x &&
 			middle.x <= origin.x + frameSize.width &&
@@ -354,7 +354,7 @@ function canBecome(
 	width: number,
 	height: number,
 ): boolean {
-	const was = estimatedNodeSize(frame);
+	const was = plannedNodeSize(frame);
 	const beside = containerOf(body, frame.parentId, frame.id);
 	const claimed: Box[] = [];
 	if (width > was.width) {

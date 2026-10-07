@@ -8,13 +8,15 @@ import {
 	estimatedNodeHeight,
 	estimatedNodeSize,
 	isBlockKind,
-	MODEL_CREATABLE_KINDS,
-	modelCreatableBlockDataSchema,
 	NODE_WIDTH,
 	repeatedEntryIds,
 	withUniqueEntryIds,
 } from "./canvas-blocks";
 import { sampleBoard } from "./canvas-fixtures.test-helpers";
+import {
+	MODEL_CREATABLE_KINDS,
+	modelCreatableBlockDataSchema,
+} from "./canvas-model-blocks";
 
 describe("the block data schemas (ruling 64)", () => {
 	it("has exactly one schema per kind, and the kind list is derived from them", () => {

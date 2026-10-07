@@ -30,6 +30,7 @@ import {
 } from "$lib/shared/artifacts/canvas-blocks";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
+import { plannedNodeSize } from "$lib/shared/artifacts/node-size";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { createKnownBoards, parseCanvasCreateBody } from "./canvas-model";
 import { CREATE_ARTIFACT_HANDLERS, runCreateArtifactTool } from "./create";
@@ -712,12 +713,12 @@ describe("edit_artifact.canvas", () => {
 				},
 			});
 			if (!added) throw new Error("the diagram was not added");
-			const tall = estimatedNodeSize(added);
+			const tall = plannedNodeSize(added);
 			// It covers none of what was there: the sample board is full.
 			for (const other of board.nodes.filter(
 				(n) => n.id !== "flow" && !n.parentId,
 			)) {
-				const rect = { ...other.position, ...estimatedNodeSize(other) };
+				const rect = { ...other.position, ...plannedNodeSize(other) };
 				const across =
 					Math.min(added.position.x + tall.width, rect.x + rect.width) -
 					Math.max(added.position.x, rect.x);
@@ -851,7 +852,7 @@ describe("edit_artifact.canvas", () => {
 			const frame = stored.nodes.find((n) => n.id === "frame-a");
 			const added = stored.nodes.find((n) => n.id === "flow");
 			expect(added?.parentId).toBe("frame-a");
-			const size = estimatedNodeSize(added as CanvasNode);
+			const size = plannedNodeSize(added as CanvasNode);
 			expect((added?.position.x ?? 0) + size.width).toBeLessThanOrEqual(
 				frame?.width ?? 0,
 			);

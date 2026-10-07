@@ -26,8 +26,10 @@
  * kind it does not know) gets what the Insert menu reserves.
  */
 
-/** What is reserved for a diagram when its source says too little to read a size from. */
-export const DIAGRAM_FALLBACK_HEIGHT = 420;
+import { DIAGRAM_RESERVED_HEIGHT } from "./canvas-blocks";
+
+/** What is reserved for a diagram when its source says too little to read a size from: what the editor reserves for one it has not measured. */
+const DIAGRAM_FALLBACK_HEIGHT = DIAGRAM_RESERVED_HEIGHT;
 const DIAGRAM_MIN_HEIGHT = 120;
 const DIAGRAM_MAX_HEIGHT = 3000;
 /** Across, the block's own padding and the picture's margin: what the picture is drawn inside of. */

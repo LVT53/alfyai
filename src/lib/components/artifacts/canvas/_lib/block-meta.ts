@@ -26,6 +26,7 @@ import {
 import type { Component } from "svelte";
 import {
 	type BlockKind,
+	DIAGRAM_RESERVED_HEIGHT,
 	defaultNodeWidth,
 } from "$lib/shared/artifacts/canvas-blocks";
 
@@ -159,7 +160,10 @@ export const BLOCK_META = {
 		// draws is as tall as it is (a Gantt chart 100, a flowchart or a pie 350 to
 		// 450 at this width), so this is only what placement leaves room for, and
 		// room that is left over is better than a diagram laid over its neighbour.
-		size: { width: defaultNodeWidth("mermaid"), height: 420 },
+		size: {
+			width: defaultNodeWidth("mermaid"),
+			height: DIAGRAM_RESERVED_HEIGHT,
+		},
 		minSize: { width: 240, height: 140 },
 		fixedHeight: false,
 		section: "chat",
