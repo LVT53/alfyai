@@ -1,17 +1,22 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import type {
 	CanvasBody,
 	CanvasNode,
 } from "../../src/lib/shared/artifacts/canvas";
 import {
+	boxesMeet,
 	cameraOf,
 	expectCamera,
+	isTopmostAtCentre,
 	openCanvasPanel,
 	openChatAndReload,
 	savedStatus,
+	screenBoxOf,
 	seedCanvas,
 	settledCamera,
 	storedBoard,
+	TRIP_COSTS,
+	TRIP_FLOWCHART,
 } from "./artifact-canvas-helpers";
 import { createConversation, login } from "./helpers";
 
@@ -28,22 +33,6 @@ import { createConversation, login } from "./helpers";
  * Real input throughout: a click on the block, a click on its toolbar's Edit, the
  * keys of the title, and a click on Save.
  */
-
-const FLOWCHART = [
-	"flowchart TD",
-	"  A[Airport] --> B[Bus or S-Bahn]",
-	"  B --> C[Wien Mitte]",
-	"  C --> D[U3 metro]",
-	"  D --> E[Hotel]",
-].join("\n");
-
-const COSTS = JSON.stringify({
-	type: "bar",
-	data: {
-		labels: ["Museum", "Lunch", "Dinner"],
-		datasets: [{ label: "EUR", data: [40, 30, 60] }],
-	},
-});
 
 function note(id: string, x: number, y: number): CanvasNode {
 	return {
@@ -71,14 +60,18 @@ function board(
 					type: "mermaid",
 					position: at,
 					width,
-					data: { kind: "mermaid", label: "Airport to hotel", code: FLOWCHART },
+					data: {
+						kind: "mermaid",
+						label: "Airport to hotel",
+						code: TRIP_FLOWCHART,
+					},
 				}
 			: {
 					id: "target",
 					type: "chart",
 					position: at,
 					width,
-					data: { kind: "chart", label: "Costs", code: COSTS },
+					data: { kind: "chart", label: "Costs", code: TRIP_COSTS },
 				};
 	return {
 		version: 1,
@@ -87,38 +80,6 @@ function board(
 		viewport: { x: 16, y: 16, zoom: 1 },
 		annotations: [],
 	};
-}
-
-type Rect = { left: number; top: number; right: number; bottom: number };
-
-async function rectOf(locator: Locator): Promise<Rect | null> {
-	const box = await locator.boundingBox();
-	if (!box) return null;
-	return {
-		left: box.x,
-		top: box.y,
-		right: box.x + box.width,
-		bottom: box.y + box.height,
-	};
-}
-
-function meet(a: Rect, b: Rect): boolean {
-	return (
-		a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
-	);
-}
-
-async function topmostAtCentre(page: Page, locator: Locator): Promise<boolean> {
-	const handle = await locator.elementHandle();
-	if (!handle) return false;
-	return page.evaluate((element) => {
-		const box = element.getBoundingClientRect();
-		const hit = document.elementFromPoint(
-			box.left + box.width / 2,
-			box.top + box.height / 2,
-		);
-		return hit !== null && (hit === element || element.contains(hit));
-	}, handle);
 }
 
 /** Waits for what the block draws (the diagram, the plot), selects it with a click on its head and presses its toolbar's Edit. */
@@ -148,7 +109,7 @@ async function openForm(page: Page, kind: "mermaid" | "chart") {
 
 /** What the reader needs to be able to reach: the form's buttons, whole, and not under anything the board floats over it. */
 async function expectFormReachable(page: Page, where: string) {
-	const pane = await rectOf(page.getByTestId("canvas-board"));
+	const pane = await screenBoxOf(page.getByTestId("canvas-board"));
 	const save = page.getByTestId("canvas-edit-save");
 	const cancel = page.getByTestId("canvas-edit-cancel");
 	if (!pane) throw new Error("no board");
@@ -156,7 +117,7 @@ async function expectFormReachable(page: Page, where: string) {
 		["Save", save],
 		["Cancel", cancel],
 	] as const) {
-		const rect = await rectOf(button);
+		const rect = await screenBoxOf(button);
 		if (!rect) throw new Error(`no ${name} button ${where}`);
 		expect(
 			rect.top,
@@ -175,12 +136,12 @@ async function expectFormReachable(page: Page, where: string) {
 			`${name} is right of the pane ${where}`,
 		).toBeLessThanOrEqual(pane.right);
 		expect(
-			await topmostAtCentre(page, button),
+			await isTopmostAtCentre(page, button),
 			`something is over ${name} ${where}`,
 		).toBe(true);
 	}
 	// The whole form clear of the palette, the zoom control and the overview.
-	const form = await rectOf(page.getByTestId("canvas-edit-form"));
+	const form = await screenBoxOf(page.getByTestId("canvas-edit-form"));
 	if (!form) throw new Error("no form");
 	for (const [name, layer] of [
 		["the palette", page.getByTestId("canvas-toolbar")],
@@ -190,9 +151,9 @@ async function expectFormReachable(page: Page, where: string) {
 		// The zoom control steps aside from a selected block by itself (it is hidden,
 		// and keeps its place in the layout): only what is drawn can be over the form.
 		if (!(await layer.first().isVisible())) continue;
-		const rect = await rectOf(layer);
+		const rect = await screenBoxOf(layer);
 		if (rect) {
-			expect(meet(form, rect), `the form is under ${name} ${where}`).toBe(
+			expect(boxesMeet(form, rect), `the form is under ${name} ${where}`).toBe(
 				false,
 			);
 		}

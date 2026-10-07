@@ -74,16 +74,8 @@ function expandedShell(page: Page): Locator {
 	return page.locator(".workspace-shell-expanded:visible");
 }
 
-/**
- * What one press on each layer does, in the order the layers stand: the popover,
- * then the panel. `leaves` is what a press outside an expanded panel does on this
- * page: it closes the panel on Knowledge, and docks it in the chat.
- */
-async function expectOnePressOneLayer(
-	page: Page,
-	popover: Locator,
-	leaves: "closed" | "docked",
-) {
+/** A real press inside a popover keeps the popover and the panel; Escape then closes the popover only. */
+async function expectPressInsideKeeps(page: Page, popover: Locator) {
 	await expect(expandedShell(page)).toHaveCount(1);
 	// A press inside the popover is the popover's own.
 	await pressInside(page, popover);
@@ -94,10 +86,24 @@ async function expectOnePressOneLayer(
 		"the press closed (or docked) the panel",
 	).toHaveCount(1);
 
-	// Escape closes the popover only, and hands focus back to what opened it.
+	// Escape closes the popover only.
 	await page.keyboard.press("Escape");
 	await expect(popover).toHaveCount(0);
 	await expect(expandedShell(page)).toHaveCount(1);
+}
+
+/**
+ * What one press on each layer does, in the order the layers stand: the popover,
+ * then the panel. `leaves` is what a press outside an expanded panel does on this
+ * page: it closes the panel on Knowledge, and docks it in the chat.
+ */
+async function expectOnePressOneLayer(
+	page: Page,
+	popover: Locator,
+	leaves: "closed" | "docked",
+) {
+	await expectPressInsideKeeps(page, popover);
+	// Escape hands focus back to what opened the popover.
 	await expect(
 		page.locator('[data-testid="artifact-download-button"]:visible'),
 	).toBeFocused();
@@ -106,6 +112,22 @@ async function expectOnePressOneLayer(
 	await page.mouse.click(1424, 500);
 	await expect(expandedShell(page)).toHaveCount(0);
 	await expect(panelTitle(page)).toHaveCount(leaves === "closed" ? 0 : 1);
+}
+
+/** The Document the chat made, opened from the chat's list and expanded to the whole window. */
+async function openExpandedInChat(page: Page) {
+	const { conversationId } = await seedDocument();
+	await login(page);
+	await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
+	await page.getByTestId("artifact-count-button").click();
+	await page
+		.getByTestId("artifact-panel-list")
+		.getByTestId("artifact-row")
+		.filter({ hasText: TITLE })
+		.click();
+	await expect(panelTitle(page)).toHaveCount(1, { timeout: 30_000 });
+	await page.locator(".workspace-expand-button:visible").first().click();
+	await page.waitForTimeout(900);
 }
 
 test.describe("the expanded panel's own popovers", () => {
@@ -132,18 +154,7 @@ test.describe("the expanded panel's own popovers", () => {
 	test("in the chat's expanded panel, a press inside the Download popover keeps the popover and the panel; one press closes one layer", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedDocument();
-		await login(page);
-		await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
-		await page.getByTestId("artifact-count-button").click();
-		await page
-			.getByTestId("artifact-panel-list")
-			.getByTestId("artifact-row")
-			.filter({ hasText: TITLE })
-			.click();
-		await expect(panelTitle(page)).toHaveCount(1, { timeout: 30_000 });
-		await page.locator(".workspace-expand-button:visible").first().click();
-		await page.waitForTimeout(900);
+		await openExpandedInChat(page);
 
 		const popover = await openDownload(page);
 		await expectOnePressOneLayer(page, popover, "docked");
@@ -152,32 +163,11 @@ test.describe("the expanded panel's own popovers", () => {
 	test("in the chat's expanded panel, a press inside the Versions popover keeps the popover and the panel", async ({
 		page,
 	}) => {
-		const { conversationId } = await seedDocument();
-		await login(page);
-		await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
-		await page.getByTestId("artifact-count-button").click();
-		await page
-			.getByTestId("artifact-panel-list")
-			.getByTestId("artifact-row")
-			.filter({ hasText: TITLE })
-			.click();
-		await expect(panelTitle(page)).toHaveCount(1, { timeout: 30_000 });
-		await page.locator(".workspace-expand-button:visible").first().click();
-		await page.waitForTimeout(900);
+		await openExpandedInChat(page);
 
 		await page.locator('[data-testid="artifact-version-pill"]:visible').click();
 		const popover = page.getByTestId("document-versions-popover");
 		await expect(popover).toBeVisible();
-		await expect(expandedShell(page)).toHaveCount(1);
-		await pressInside(page, popover);
-		await page.waitForTimeout(400);
-		await expect(popover, "the press closed the popover").toBeVisible();
-		await expect(
-			expandedShell(page),
-			"the press closed (or docked) the panel",
-		).toHaveCount(1);
-		await page.keyboard.press("Escape");
-		await expect(popover).toHaveCount(0);
-		await expect(expandedShell(page)).toHaveCount(1);
+		await expectPressInsideKeeps(page, popover);
 	});
 });

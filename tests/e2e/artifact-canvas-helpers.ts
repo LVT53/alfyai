@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
@@ -314,4 +314,67 @@ export async function openBoard(
 	await seedCanvas(conversationId, body);
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);
+}
+
+// ---- What the board's own layers cover, asked of the browser ---------------
+
+/** A flowchart of five boxes in a column: Mermaid draws it a moment after its block is measured, and it is taller than the block was. */
+export const TRIP_FLOWCHART = [
+	"flowchart TD",
+	"  A[Airport] --> B[Bus or S-Bahn]",
+	"  B --> C[Wien Mitte]",
+	"  C --> D[U3 metro]",
+	"  D --> E[Hotel]",
+].join("\n");
+
+/** A bar chart's config, the way the chat's chart fence writes it. */
+export const TRIP_COSTS = JSON.stringify({
+	type: "bar",
+	data: {
+		labels: ["Museum", "Lunch", "Dinner"],
+		datasets: [{ label: "EUR", data: [40, 30, 60] }],
+	},
+});
+
+/** A rectangle on the screen. */
+export type ScreenBox = {
+	left: number;
+	top: number;
+	right: number;
+	bottom: number;
+};
+
+export async function screenBoxOf(locator: Locator): Promise<ScreenBox | null> {
+	const box = await locator.boundingBox();
+	if (!box) return null;
+	return {
+		left: box.x,
+		top: box.y,
+		right: box.x + box.width,
+		bottom: box.y + box.height,
+	};
+}
+
+/** Whether two boxes share any of the screen. */
+export function boxesMeet(a: ScreenBox, b: ScreenBox): boolean {
+	return (
+		a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+	);
+}
+
+/** What the browser puts under the middle of an element: the element itself, or a part of it, when nothing covers it. */
+export async function isTopmostAtCentre(
+	page: Page,
+	locator: Locator,
+): Promise<boolean> {
+	const handle = await locator.elementHandle();
+	if (!handle) return false;
+	return page.evaluate((element) => {
+		const box = element.getBoundingClientRect();
+		const hit = document.elementFromPoint(
+			box.left + box.width / 2,
+			box.top + box.height / 2,
+		);
+		return hit !== null && (hit === element || element.contains(hit));
+	}, handle);
 }

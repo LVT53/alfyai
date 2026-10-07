@@ -5,6 +5,8 @@ import {
 	expectCamera,
 	openBoard,
 	settledCamera,
+	TRIP_COSTS,
+	TRIP_FLOWCHART,
 } from "./artifact-canvas-helpers";
 
 /**
@@ -22,22 +24,6 @@ import {
  * Everything is the reader's own input or none at all: the board is opened and
  * left alone, then (the control) typed into.
  */
-
-const FLOWCHART = [
-	"flowchart TD",
-	"  A[Airport] --> B[Bus or S-Bahn]",
-	"  B --> C[Wien Mitte]",
-	"  C --> D[U3 metro]",
-	"  D --> E[Hotel]",
-].join("\n");
-
-const COSTS = JSON.stringify({
-	type: "bar",
-	data: {
-		labels: ["Museum", "Lunch", "Dinner"],
-		datasets: [{ label: "EUR", data: [40, 30, 60] }],
-	},
-});
 
 /** A board written the way Alfy writes it: every block has a width, only the frames a height. A tail note, when asked for, is the lowest block, so its growth is what changes the room the blocks take. */
 function tripBoard(withTail = false): CanvasBody {
@@ -93,14 +79,18 @@ function tripBoard(withTail = false): CanvasBody {
 				type: "chart",
 				position: { x: 620, y: 40 },
 				width: 360,
-				data: { kind: "chart", label: "Costs", code: COSTS },
+				data: { kind: "chart", label: "Costs", code: TRIP_COSTS },
 			},
 			{
 				id: "flow",
 				type: "mermaid",
 				position: { x: 40, y: 330 },
 				width: 480,
-				data: { kind: "mermaid", label: "Airport to hotel", code: FLOWCHART },
+				data: {
+					kind: "mermaid",
+					label: "Airport to hotel",
+					code: TRIP_FLOWCHART,
+				},
 			},
 			...(withTail
 				? [

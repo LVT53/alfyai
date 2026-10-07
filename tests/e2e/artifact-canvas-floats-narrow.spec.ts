@@ -1,8 +1,14 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
-import { openBoard, sixNotes } from "./artifact-canvas-helpers";
+import {
+	boxesMeet,
+	isTopmostAtCentre,
+	openBoard,
+	screenBoxOf,
+	sixNotes,
+} from "./artifact-canvas-helpers";
 
 /**
  * The layers that float over the board stay off each other at the widths a docked
@@ -24,39 +30,6 @@ async function setLanguage(language: "en" | "hu") {
 		.update(users)
 		.set({ uiLanguage: language })
 		.where(eq(users.email, "admin@local"));
-}
-
-type Rect = { left: number; top: number; right: number; bottom: number };
-
-async function rectOf(locator: Locator): Promise<Rect | null> {
-	const box = await locator.boundingBox();
-	if (!box) return null;
-	return {
-		left: box.x,
-		top: box.y,
-		right: box.x + box.width,
-		bottom: box.y + box.height,
-	};
-}
-
-function meet(a: Rect, b: Rect): boolean {
-	return (
-		a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
-	);
-}
-
-/** What the browser puts under the middle of an element: the element itself, or a part of it, when nothing covers it. */
-async function topmostAtCentre(page: Page, locator: Locator): Promise<boolean> {
-	const handle = await locator.elementHandle();
-	if (!handle) return false;
-	return page.evaluate((element) => {
-		const box = element.getBoundingClientRect();
-		const hit = document.elementFromPoint(
-			box.left + box.width / 2,
-			box.top + box.height / 2,
-		);
-		return hit !== null && (hit === element || element.contains(hit));
-	}, handle);
 }
 
 const WIDTHS = [1000, 1100, 1200, 1280, 1366, 1440, 1600];
@@ -93,9 +66,9 @@ for (const language of ["hu", "en"] as const) {
 				const pane = (await page.getByTestId("canvas-board").boundingBox())
 					?.width;
 				const rects = {
-					palette: await rectOf(palette),
-					zoom: await rectOf(zoom),
-					minimap: (await minimap.count()) ? await rectOf(minimap) : null,
+					palette: await screenBoxOf(palette),
+					zoom: await screenBoxOf(zoom),
+					minimap: (await minimap.count()) ? await screenBoxOf(minimap) : null,
 				};
 				seen.push(
 					`${width}: pane ${Math.round(pane ?? 0)}, palette ${Math.round((rects.palette?.right ?? 0) - (rects.palette?.left ?? 0))} wide`,
@@ -104,22 +77,22 @@ for (const language of ["hu", "en"] as const) {
 				if (!rects.palette || !rects.zoom)
 					throw new Error(`no layers ${where}`);
 				expect(
-					meet(rects.palette, rects.zoom),
+					boxesMeet(rects.palette, rects.zoom),
 					`the palette meets the zoom control ${where}`,
 				).toBe(false);
 				if (rects.minimap) {
 					expect(
-						meet(rects.minimap, rects.zoom),
+						boxesMeet(rects.minimap, rects.zoom),
 						`the overview meets the zoom control ${where}`,
 					).toBe(false);
 					expect(
-						meet(rects.minimap, rects.palette),
+						boxesMeet(rects.minimap, rects.palette),
 						`the overview meets the palette ${where}`,
 					).toBe(false);
 				}
 				for (const id of ["canvas-zoom-out", "canvas-zoom-in", "canvas-fit"]) {
 					expect(
-						await topmostAtCentre(page, page.getByTestId(id)),
+						await isTopmostAtCentre(page, page.getByTestId(id)),
 						`${id} is covered ${where}`,
 					).toBe(true);
 				}
