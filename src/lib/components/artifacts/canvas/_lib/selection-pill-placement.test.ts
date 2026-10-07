@@ -143,3 +143,62 @@ describe("where the selection's pill is kept in the pane", () => {
 		});
 	});
 });
+
+// CV-B2: a block with no room above it for its own toolbar has the toolbar below it, and
+// the pill, which hangs under the block, stands under the toolbar instead of on it.
+describe("where the selection's pill sits when the block's own toolbar is below the block", () => {
+	const SIZE = { width: 240, height: 38 };
+	const block = { x: 100, y: 14, width: 200, height: 100 };
+	// The block's bottom is at 114; its toolbar hangs 12 below that, 38 tall.
+	const toolbarBelow = { left: 100, top: 126, right: 300, bottom: 164 };
+
+	it("hangs under the toolbar, which is under the block, and says how much further than its usual gap", () => {
+		const placement = selectionPillPlacement(block, CAMERA, PANE, {
+			size: SIZE,
+			toolbar: toolbarBelow,
+		});
+		// 164 + 6 (the gap to other layers) - 114 (the block's bottom) - 14 (the usual gap).
+		expect(placement).toEqual({ side: "below", x: 200, y: 114, lift: 42 });
+	});
+
+	it("reads the toolbar and the block through the same camera: the lift is in screen pixels", () => {
+		const placement = selectionPillPlacement(
+			{ x: 100, y: 14, width: 200, height: 100 },
+			{ x: 0, y: 0, zoom: 0.5 },
+			PANE,
+			{
+				size: SIZE,
+				// The block's bottom is at 57 on screen now; its toolbar 12 below it.
+				toolbar: { left: 50, top: 69, right: 150, bottom: 107 },
+			},
+		);
+		expect(placement.lift).toBe(107 + 6 - 57 - 14);
+	});
+
+	it("is where it always was when the toolbar is above the block, or there is none", () => {
+		const toolbarAbove = { left: 100, top: 64, right: 300, bottom: 102 };
+		const room = { x: 100, y: 100, width: 200, height: 100 };
+		expect(
+			selectionPillPlacement(room, CAMERA, PANE, {
+				size: SIZE,
+				toolbar: toolbarAbove,
+			}),
+		).toEqual({ side: "below", x: 200, y: 200 });
+		expect(selectionPillPlacement(room, CAMERA, PANE, { size: SIZE })).toEqual({
+			side: "below",
+			x: 200,
+			y: 200,
+		});
+	});
+
+	it("goes above the block when there is not room under its toolbar either", () => {
+		// A block low in the pane with a toolbar below it (above was cut off, or taken).
+		const low = { x: 100, y: 350, width: 200, height: 100 };
+		const placement = selectionPillPlacement(low, CAMERA, PANE, {
+			size: SIZE,
+			toolbar: { left: 100, top: 462, right: 300, bottom: 500 },
+		});
+		expect(placement.side).toBe("above");
+		expect(placement.lift).toBeUndefined();
+	});
+});

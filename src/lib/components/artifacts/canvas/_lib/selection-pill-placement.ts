@@ -31,6 +31,8 @@ export type SelectionPillPlacement = {
 	/** The point the pill hangs from, in board space: its centre line, and the edge of the box it is on. */
 	x: number;
 	y: number;
+	/** Below the block, how much further than its usual gap the pill hangs, on the screen: the block's own toolbar is under it, and the pill stands under that (CV-B2). Left out when it is none. */
+	lift?: number;
 };
 
 type Camera = { x: number; y: number; zoom: number };
@@ -45,6 +47,8 @@ export function selectionPillPlacement(
 		size?: Size;
 		/** Where the change pill is on the screen: this pill keeps off it. */
 		avoid?: ScreenRect | null;
+		/** Where the picked block's own toolbar is on the screen. Below the block (it had no room above), the pill hangs under it; above it, as ever, the pill clears it. */
+		toolbar?: ScreenRect | null;
 	} = {},
 ): SelectionPillPlacement {
 	const size = options.size ?? DEFAULT_SIZE;
@@ -54,9 +58,16 @@ export function selectionPillPlacement(
 	const screenTop = box.y * camera.zoom + camera.y;
 	const screenBottom = (box.y + box.height) * camera.zoom + camera.y;
 	const known = pane.width > 0 && pane.height > 0;
+	// The block's toolbar hangs below it: the pill stands under the toolbar, not on it.
+	const toolbar = options.toolbar ?? null;
+	const lift =
+		toolbar !== null && toolbar.top >= screenBottom
+			? Math.max(0, toolbar.bottom + AVOID_GAP - screenBottom - GAP)
+			: 0;
 	const noRoom =
 		known &&
-		screenBottom + GAP + size.height > pane.height - BOARD_TOOLBAR_CLEARANCE;
+		screenBottom + GAP + lift + size.height >
+			pane.height - BOARD_TOOLBAR_CLEARANCE;
 	const preferred = noRoom ? "above" : "below";
 	const sides = [preferred, preferred === "below" ? "above" : "below"] as const;
 
@@ -71,7 +82,7 @@ export function selectionPillPlacement(
 	const rectOf = (side: "below" | "above", centreX: number): ScreenRect => {
 		const top =
 			side === "below"
-				? screenBottom + GAP
+				? screenBottom + GAP + lift
 				: screenTop - ABOVE_CLEARANCE - size.height;
 		return {
 			left: centreX - size.width / 2,
@@ -87,6 +98,7 @@ export function selectionPillPlacement(
 		side,
 		x: (centreX - camera.x) / camera.zoom,
 		y: side === "below" ? box.y + box.height : box.y,
+		...(side === "below" && lift > 0 ? { lift } : {}),
 	});
 
 	// The middle of the block first, then on its other side, then slid to either

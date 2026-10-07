@@ -38,6 +38,7 @@ let {
 	viewport,
 	size,
 	avoid = null,
+	toolbar = null,
 	tool,
 	readonly,
 	hidden,
@@ -52,6 +53,8 @@ let {
 	size: { width: number; height: number };
 	/** Where the change pill is on the screen: this pill keeps off it. */
 	avoid?: ScreenRect | null;
+	/** Where the picked block's own toolbar is on the screen: the pill hangs under it when it is below the block. */
+	toolbar?: ScreenRect | null;
 	tool: Tool;
 	/** The board cannot change now: there is nothing to comment on or ask. */
 	readonly: boolean;
@@ -101,6 +104,7 @@ let placement = $derived(
 	box
 		? selectionPillPlacement(box, viewport, size, {
 				avoid,
+				toolbar,
 				size:
 					measuredPill.width > 0 && measuredPill.height > 0
 						? measuredPill
@@ -162,6 +166,7 @@ function handleKeydown(event: KeyboardEvent): void {
 			data-side={placement.side}
 			style:left="{placement.x}px"
 			style:top="{placement.y}px"
+			style:--lift="{placement.lift ?? 0}px"
 		>
 			<div
 				class="pill"
@@ -211,12 +216,13 @@ function handleKeydown(event: KeyboardEvent): void {
 
 	/* Hung from the block's edge and the size of a button whatever the zoom: scaled
 	   by 1 / zoom from that point, centred, and stood off the block. Above, it also
-	   clears the block's own toolbar. */
+	   clears the block's own toolbar; below a block whose toolbar hangs there too
+	   (no room above it), it stands under the toolbar by `--lift`. */
 	.anchor {
 		position: absolute;
 		pointer-events: auto;
 		transform-origin: 0 0;
-		transform: scale(var(--inv)) translate(-50%, 14px);
+		transform: scale(var(--inv)) translate(-50%, calc(14px + var(--lift, 0px)));
 		white-space: nowrap;
 	}
 

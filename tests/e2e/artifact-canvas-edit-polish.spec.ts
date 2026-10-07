@@ -13,7 +13,9 @@ import {
 import {
 	centreOf,
 	expectCamera,
+	nodeCount,
 	openBoard,
+	PHONE,
 	settledCamera,
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
@@ -236,5 +238,240 @@ test.describe("a File block is picked like every other block", () => {
 			"Dupla kattintással megnyílik",
 		);
 		await setUiLanguage("en");
+	});
+});
+
+// ---- The toolbar of a block near the top of the pane ------------------------------
+
+type Box = { x: number; y: number; width: number; height: number };
+
+function nearTheTop(): CanvasBody {
+	return {
+		version: 1,
+		nodes: [
+			{
+				id: "high",
+				type: "sticky",
+				position: { x: 0, y: 0 },
+				width: 160,
+				data: { kind: "sticky", text: "Right at the top", tone: "yellow" },
+			},
+			{
+				id: "low",
+				type: "sticky",
+				position: { x: 300, y: 220 },
+				width: 200,
+				data: { kind: "sticky", text: "Further down", tone: "mint" },
+			},
+			{
+				id: "plans",
+				type: "frame",
+				position: { x: 540, y: 0 },
+				width: 300,
+				height: 220,
+				data: { kind: "frame", label: "Plans", width: 300, height: 220 },
+			},
+		],
+		edges: [],
+		// A camera of its own, so the board is not fitted: the first block's top is 14 px
+		// below the pane's top, with no room for a toolbar above it.
+		viewport: { x: 12, y: 14, zoom: 1 },
+		annotations: [],
+	};
+}
+
+/** One frame much taller than the pane, whose top is out of view. */
+function tallFrame(): CanvasBody {
+	return {
+		version: 1,
+		nodes: [
+			{
+				id: "page",
+				type: "frame",
+				position: { x: 100, y: -400 },
+				width: 600,
+				height: 2400,
+				data: { kind: "frame", label: "Page", width: 600, height: 2400 },
+			},
+		],
+		edges: [],
+		viewport: { x: 12, y: 14, zoom: 1 },
+		annotations: [],
+	};
+}
+
+const boxOf = async (locator: import("@playwright/test").Locator) =>
+	(await locator.boundingBox()) as Box;
+
+/** Whether two boxes share any area. */
+const overlap = (a: Box, b: Box) =>
+	a.x < b.x + b.width &&
+	a.x + a.width > b.x &&
+	a.y < b.y + b.height &&
+	a.y + a.height > b.y;
+
+/** The whole of `part` is inside the pane, a few pixels clear of its edge. */
+async function expectInPane(
+	page: import("@playwright/test").Page,
+	part: import("@playwright/test").Locator,
+	what: string,
+) {
+	const pane = await boxOf(page.locator(".svelte-flow").first());
+	const box = await boxOf(part);
+	expect(box.x, `${what}: left`).toBeGreaterThanOrEqual(pane.x + 7);
+	expect(box.y, `${what}: top`).toBeGreaterThanOrEqual(pane.y + 7);
+	expect(box.x + box.width, `${what}: right`).toBeLessThanOrEqual(
+		pane.x + pane.width - 7,
+	);
+	expect(box.y + box.height, `${what}: bottom`).toBeLessThanOrEqual(
+		pane.y + pane.height - 7,
+	);
+}
+
+test.describe("the toolbar of a selected block stays in the pane", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+	});
+
+	test("goes below a block that has no room above it, slides in from the edge, and its buttons work", async ({
+		page,
+	}) => {
+		await openBoard(page, "Toolbar at the top", nearTheTop());
+		const block = page.locator('.svelte-flow__node[data-id="high"]');
+		await click(page, "mouse", centre(await boxOf(block)));
+		await expect(nodeOf(page, "high")).toHaveAttribute("data-selected", "true");
+		const toolbar = page.getByTestId("canvas-node-toolbar");
+		await expect(toolbar).toBeVisible();
+
+		await expectInPane(page, toolbar, "the toolbar");
+		const bar = await boxOf(toolbar);
+		const at = await boxOf(block);
+		// Below the block, not over it.
+		expect(bar.y).toBeGreaterThanOrEqual(at.y + at.height);
+
+		// Its buttons are pressed with a real click: Edit opens the note's words.
+		await click(
+			page,
+			"mouse",
+			centre(await boxOf(page.getByTestId("canvas-node-edit"))),
+		);
+		const field = page.locator("textarea.text-field__input");
+		await expect(field).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(field).toHaveCount(0);
+
+		// And Delete deletes it.
+		await click(
+			page,
+			"mouse",
+			centre(await boxOf(page.getByTestId("canvas-node-delete"))),
+		);
+		await expect.poll(() => nodeCount(page)).toBe(2);
+	});
+
+	test("stays above a block that has room for it", async ({ page }) => {
+		await openBoard(page, "Toolbar with room", nearTheTop());
+		const block = page.locator('.svelte-flow__node[data-id="low"]');
+		await click(page, "mouse", centre(await boxOf(block)));
+		const toolbar = page.getByTestId("canvas-node-toolbar");
+		await expect(toolbar).toBeVisible();
+		const bar = await boxOf(toolbar);
+		const at = await boxOf(block);
+		expect(bar.y + bar.height).toBeLessThanOrEqual(at.y);
+		await expectInPane(page, toolbar, "the toolbar");
+	});
+
+	test("keeps off the selection's pill, which hangs under it when the toolbar is below the block", async ({
+		page,
+	}) => {
+		await openBoard(page, "Toolbar and pill", nearTheTop());
+		const block = page.locator('.svelte-flow__node[data-id="high"]');
+		await click(page, "mouse", centre(await boxOf(block)));
+		const toolbar = page.getByTestId("canvas-node-toolbar");
+		const pill = page.getByTestId("canvas-selection-pill");
+		await expect(toolbar).toBeVisible();
+		await expect(pill).toBeVisible();
+		await page.waitForTimeout(400);
+
+		await expectInPane(page, pill, "the pill");
+		const bar = await boxOf(toolbar);
+		const hung = await boxOf(pill);
+		expect(overlap(bar, hung), "the pill is not over the toolbar").toBe(false);
+		// Both reachable: a real click on the pill's Comment button lands on it.
+		await expect(page.getByTestId("canvas-selection-comment")).toBeVisible();
+		const comment = await boxOf(page.getByTestId("canvas-selection-comment"));
+		expect(
+			await page.evaluate(
+				({ x, y }) =>
+					document
+						.elementFromPoint(x, y)
+						?.closest("[data-testid='canvas-selection-pill']") !== null,
+				{ x: comment.x + comment.width / 2, y: comment.y + comment.height / 2 },
+			),
+		).toBe(true);
+	});
+
+	test("is below a frame that sits at the top of the pane, and pressable there", async ({
+		page,
+	}) => {
+		await openBoard(page, "Frame toolbar at the top", nearTheTop());
+		const block = page.locator('.svelte-flow__node[data-id="plans"]');
+		const at = await boxOf(block);
+		// A frame is picked by its ground.
+		await click(page, "mouse", {
+			x: at.x + at.width / 2,
+			y: at.y + at.height * 0.6,
+		});
+		await expect(nodeOf(page, "plans")).toHaveAttribute(
+			"data-selected",
+			"true",
+		);
+		const toolbar = page.getByTestId("canvas-node-toolbar");
+		await expect(toolbar).toBeVisible();
+		await expectInPane(page, toolbar, "the toolbar");
+		await click(
+			page,
+			"mouse",
+			centre(await boxOf(page.getByTestId("canvas-node-delete"))),
+		);
+		await expect.poll(() => nodeCount(page)).toBe(2);
+	});
+
+	test("is kept in the pane over a block taller than the pane, whose top is out of view", async ({
+		page,
+	}) => {
+		await openBoard(page, "Toolbar over a tall block", tallFrame());
+		const block = page.locator('.svelte-flow__node[data-id="page"]');
+		const at = await boxOf(block);
+		expect(at.y).toBeLessThan(0);
+		await click(page, "mouse", { x: at.x + at.width / 2, y: at.y + 700 });
+		await expect(nodeOf(page, "page")).toHaveAttribute("data-selected", "true");
+		const toolbar = page.getByTestId("canvas-node-toolbar");
+		await expect(toolbar).toBeVisible();
+		await expectInPane(page, toolbar, "the toolbar");
+	});
+});
+
+test.describe("on a phone, the toolbar of a block at the top is in the pane too", () => {
+	test.use({ hasTouch: true, viewport: PHONE });
+
+	test("a tap picks the note and its toolbar is below it, whole, with buttons a finger can press", async ({
+		page,
+	}) => {
+		await openBoard(page, "Phone toolbar at the top", nearTheTop());
+		const block = page.locator('.svelte-flow__node[data-id="high"]');
+		const at = centre(await boxOf(block));
+		await page.touchscreen.tap(at.x, at.y);
+		await expect(nodeOf(page, "high")).toHaveAttribute("data-selected", "true");
+		const toolbar = page.getByTestId("canvas-node-toolbar");
+		await expect(toolbar).toBeVisible();
+		await expectInPane(page, toolbar, "the toolbar");
+		const bar = await boxOf(toolbar);
+		const note = await boxOf(block);
+		expect(bar.y).toBeGreaterThanOrEqual(note.y + note.height);
+		const del = await boxOf(page.getByTestId("canvas-node-delete"));
+		expect(del.width).toBeGreaterThanOrEqual(44);
+		await page.touchscreen.tap(del.x + del.width / 2, del.y + del.height / 2);
+		await expect.poll(() => nodeCount(page)).toBe(2);
 	});
 });

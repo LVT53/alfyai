@@ -325,6 +325,8 @@ export function selectionPillProps(
 		size: api.size,
 		// Where the change pill is: this one keeps off it (RC-3 N3).
 		avoid: api.changePillBox,
+		// Where the picked block's own toolbar is: below the block, this one hangs under it (CV-B2).
+		toolbar: api.toolbarBox,
 		tool: api.tool,
 		readonly: api.readonly,
 		// The composer the pill opened is open: the pill has done its part.

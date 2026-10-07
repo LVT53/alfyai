@@ -89,7 +89,7 @@ function between(value: number, least: number, most: number): number {
  * The camera after zooming by `ratio` about the point (`x`, `y`) of the pane: the board
  * point under it stays under it. Null when that moves nothing (the zoom is at its limit).
  */
-export function zoomAbout(
+function zoomAbout(
 	camera: WheelCamera,
 	ratio: number,
 	x: number,

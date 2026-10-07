@@ -33,6 +33,7 @@ import type { Attachment } from "svelte/attachments";
 import { t, type I18nKey } from "$lib/i18n";
 import { type BlockChrome, metaFor } from "./_lib/block-meta";
 import { useBoardContext } from "./_lib/board-context";
+import { measuredBy, TOOLBAR_OFFSET } from "./_lib/floating";
 import NodeNotice from "./nodes/NodeNotice.svelte";
 
 let {
@@ -274,12 +275,22 @@ function reportBroken(error: unknown): void {
 				class="canvas-resize"
 			/>
 		{/each}
+		<!-- The library hangs it centred above the block; the board moves it (`toolbarShift`) when that would leave the pane. -->
 		<NodeToolbar
 			position={Position.Top}
-			offset={12}
+			offset={TOOLBAR_OFFSET}
 			class="svelte-flow__node-toolbar{chrome === 'frame' ? ' canvas-toolbar--frame' : ''}"
+			style={board.toolbarShift
+				? `translate: ${board.toolbarShift.dx}px ${board.toolbarShift.dy}px`
+				: undefined}
 		>
-			<div class="canvas-node-toolbar" role="toolbar" aria-label={kindLabel} data-testid="canvas-node-toolbar">
+			<div
+				class="canvas-node-toolbar"
+				role="toolbar"
+				aria-label={kindLabel}
+				data-testid="canvas-node-toolbar"
+				{@attach measuredBy((size) => board.measureToolbar?.(size))}
+			>
 				{@render toolbar?.()}
 				{#if open}
 					<button
