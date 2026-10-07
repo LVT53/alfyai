@@ -1107,19 +1107,24 @@ let fitViewOptions = $derived({
 	maxZoom: 1,
 } as const);
 
-// A board is fitted again when its pane changes size (a tour card arriving or
-// going, a window resize, a bar that comes), but only until the reader touches it:
-// their first press on the board, or the focus entering it (a tap, a click, a
-// Tab), is the camera becoming theirs, and nothing here moves it after that. The
-// on-screen keyboard that opens when they tap a note to type shortens the pane,
-// and a board that zoomed out from under the note they are writing in is a board
-// that moves under them. A camera that has moved since the last fit (a pan, a
-// zoom, a centring) is theirs too, and a save that brought a camera of its own
-// has no fit to keep. Their Fit button is a fit again, and the reference again.
-// A pane that changes size over a transition changes every frame, so the board
-// follows it, a frame at a time.
-let fitted: Viewport | null = null;
+// A board is fitted again when what the fit takes in changes, but only until the
+// reader touches it: a pane that changes size (a tour card arriving or going, a
+// window resize, a bar that comes) and a block that draws its real size after the
+// board was fitted (a diagram: Mermaid lays it out a moment after the block was
+// measured empty, and the block then grows downwards, out of the pane). Their first
+// press on the board, or the focus entering it (a tap, a click, a Tab), is the
+// camera becoming theirs, and nothing here moves it after that. The on-screen
+// keyboard that opens when they tap a note to type shortens the pane, and a board
+// that zoomed out from under the note they are writing in is a board that moves
+// under them. A camera that has moved since the last fit (a pan, a zoom, a
+// centring) is theirs too, and a save that brought a camera of its own has no fit
+// to keep. Their Fit button is a fit again, and the reference again. A pane that
+// changes size over a transition changes every frame, so the board follows it, a
+// frame at a time. `fitKey` is what the last fit was told (the pane and the room
+// the blocks take), so the nodes the fit itself replaces are not a reason to fit.
+let fitted = $state.raw<Viewport | null>(null);
 let touched = false;
+let fitKey = "";
 
 function fitBoard(duration: number): void {
 	void flow
@@ -1128,7 +1133,7 @@ function fitBoard(duration: number): void {
 }
 
 $effect(() => {
-	void [boardWidth, boardHeight];
+	void [boardWidth, boardHeight, nodes, held, pictures, fitted];
 	untrack(() => {
 		if (
 			boardWidth > 0 &&
@@ -1137,6 +1142,13 @@ $effect(() => {
 			!held &&
 			followsPane(flow.getViewport(), fitted, touched)
 		) {
+			const key = [
+				boardWidth,
+				boardHeight,
+				...Object.values(flow.getNodesBounds(nodes)),
+			].join();
+			if (key === fitKey) return;
+			fitKey = key;
 			fitBoard(0);
 		}
 	});
