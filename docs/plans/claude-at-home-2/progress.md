@@ -975,4 +975,8 @@ UI (ruling 72 confirmed). The model server's downtime this afternoon was the own
   blocks"; "touchpad friendliness for laptops"; "I can't edit pieces that were already added, in any way or shape … all
   Insert options"; M-8 → ruling 75. Briefs: `wave-4/cv-brief.md` — **CV-A** (diagrams + placement, after FX-A), **CV-B**
   (editing what was inserted: reproduce every Insert option first), **CV-C** (touchpad), **LANG-2** (content language).
+- **Gate pre-run on `feat/artifacts` = `7b969fd2` (everything of Wave 4 but FX-F, dev-int):** check 0/17, biome clean,
+  migrations OK, **17,386 tests**, build 32/2, chunks OK (editor closure 70.7 kB gzip; chat +1,806 / 2,048), Fallow 124/4
+  (0 new), **Playwright 667 passed + 23 skipped, 0 failed** (every artifact suite, knowledge, streaming, follow-up chips,
+  admin campaigns, the project specs, the panel over the dialog, forks, settings-admin).
 
