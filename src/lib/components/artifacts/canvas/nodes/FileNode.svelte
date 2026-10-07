@@ -32,6 +32,7 @@ export function fileShell(data: FileData, chat: CanvasChatContext): LazyShell {
  * around it provides (`LazyNode`'s, which this module never imports: see
  * `lazy-nodes.ts`). The row says so in its tooltip.
  */
+import { ExternalLink } from "@lucide/svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
 import { getCategory } from "$lib/shared/file-types";
@@ -62,6 +63,10 @@ let canOpen = $derived(Boolean(chat.openItem) && item !== null);
 		<span class="file__name" title={data.name}>{data.name}</span>
 		{#if meta}<span class="file__meta">{meta}</span>{/if}
 	</span>
+	<!-- A small mark that the file opens (a double-click, Enter, the toolbar's button); the tooltip on the row says how. -->
+	{#if canOpen}
+		<span class="file__open" aria-hidden="true"><ExternalLink size={14} strokeWidth={2} /></span>
+	{/if}
 </div>
 
 <style>
@@ -86,6 +91,12 @@ let canOpen = $derived(Boolean(chat.openItem) && item !== null);
 		display: inline-flex;
 		flex: none;
 		color: var(--icon-muted, var(--text-muted));
+	}
+
+	.file__open {
+		display: inline-flex;
+		flex: none;
+		color: var(--text-muted);
 	}
 
 	.file__text {

@@ -193,6 +193,24 @@ describe("a file block", () => {
 		expect(row.className).not.toContain("nodrag");
 	});
 
+	it("ends the row with a small mark that it opens, where it can", async () => {
+		const { unmount } = mount(
+			"file",
+			fileData(),
+			chatContext({ openItem: vi.fn() }),
+		);
+		const row = await screen.findByTestId("canvas-file");
+		const mark = row.querySelector(".file__open");
+		expect(mark).not.toBeNull();
+		expect(mark?.getAttribute("aria-hidden")).toBe("true");
+		expect(mark?.querySelector("svg")).not.toBeNull();
+		unmount();
+		mount("file", fileData(), chatContext({ openItem: undefined }));
+		expect(
+			(await screen.findByTestId("canvas-file")).querySelector(".file__open"),
+		).toBeNull();
+	});
+
 	it("says in a tooltip on the row that a double-click opens it", async () => {
 		mount("file", fileData(), chatContext({ openItem: vi.fn() }));
 		const row = await screen.findByTestId("canvas-file");
