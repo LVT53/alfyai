@@ -144,6 +144,8 @@ was wrong with any call and the board the conversation left passes the rubric.
 | v1 (as first registered) | 30 | 18 | 3/5 | 3/5 / 3/5 | 5/5 | 2/5 / 2/5 |
 | final (note size, arrows are not blocks) | 30 | **24** | 3/5 | 5/5 / 5/5 | 5/5 | 3/5 / 3/5 |
 | after RV-3 (the geometry the reader sees) | 18 | **15** | 3/3 | 2/3 / 1/3 | 3/3 | 3/3 / 3/3 |
+| T9, 2026-10-07, vLLM 0.31 + FP8 KV, thinking off | 18 | **17** | 3/3 | 3/3 / 3/3 | 3/3 | 2/3 / 3/3 |
+| T9, same day, thinking on (the chat turn's default) | 18 | **15** | 3/3 | 3/3 / 3/3 | 3/3 | 2/3 / 1/3 |
 
 The last row is a different measurement, not a better model: the review of the Canvas (RV-3,
 C2) found that the rubric measured every note as 84 tall while the panel draws a note as tall as
@@ -176,6 +178,98 @@ structured ops did not beat the JSON string: an array of ops that the tool-call 
 read (a brace short after a nested checklist) arrives as text, which the tool now says
 (`tool-args.ts`); it was mended in the next step in 4 of 6 answers, and an arrow filed with the
 blocks in 6 of 6.
+
+## What the all-suite run measured (Slice 5b · T9, 2026-10-07)
+
+Every suite on the real model, recorded, and re-scored with `--replay`. `qwen3-6-27b`
+(the box's production Flash-Next, vLLM v0.31 with FP8 KV), through a tunnel on one local
+port, strictly sequential, one retry at most. Sampling is the app's own: temperature 0.6,
+top_p 0.95, top_k 20, and `sampling.test.ts` reads what both request builders put on the
+wire against `resolveModelCallSampling` and the family profile, so the harness cannot
+drift from the product (a mutated temperature fails both wire tests). Thinking is off,
+the suites' own policy (see below for what that leaves out). Every known-bad answer was
+served from disk and never sent (ruling 59), and in every pass every known-bad answer
+failed as declared (the gate would have refused to count the pass otherwise). A pass is a
+full run of every real case; three passes of each suite, so a rate is over three samples
+and nothing here is a pass mark.
+
+| Suite | Real cases (+ known-bad) | Passes | Answers | Good | Acceptable | Bad | Known-bad refused | Committed responses |
+|---|---|---|---|---|---|---|---|---|
+| `document` | 7 (+1) | 3 | 21 | **21** | 0 | 0 | 1 of 1, every pass | pass 1 |
+| `app` | 10 (+1) | 3 | 30 | **27** | 3 | 0 | 1 of 1, every pass | pass 1 |
+| `verification` | 4 (+1) | 3 | 12 | **10** | 2 | 0 | 1 of 1, every pass | pass 1 |
+| `canvas` | 6 (+4) | 3 | 18 | **17** | 0 | 1 | 4 of 4, every pass | pass 2 |
+
+The records this run replaces were single passes made before the server moved to vLLM
+v0.31 with FP8 KV (2026-10-04): `document` 7 of 7 good, `app` 10 of 10 and `verification`
+4 of 4 (all 2026-09-26), `canvas` 6 of 6 (2026-09-30). The harness's own sampling did not
+change in between: it was already 0.6 / 0.95 / 20.
+
+**What is not good, and why** (every fixture below is as it was; none was changed):
+
+- `app`: no answer was broken, and every pass had exactly one `works-with-glitches`, a
+  different app each time. Pass 1, `app-09` (the cooking unit converter): an uncaught
+  `Cannot read properties of undefined (reading 'addEventListener')`. Pass 2, `app-03`
+  (the Hungarian loan calculator): the browser pass's smoke step found no enabled button.
+  Pass 3, `app-04` (the English-Hungarian cards): clicking the four category buttons
+  changed nothing in the DOM. The P1 baseline, which the suite is held to, is 10 of 10
+  `works`; no pass reached it, and no pass had a `broken`, which is the line that fails
+  the suite. Completion tokens 2,516-4,979 per app, 11.7-23.8 s.
+- `verification`: in pass 1 the verifier named both bugs in `verification-wrong-unit`
+  (the plural gloss "békák" for "frog") and `verification-wrong-key` (Bucharest is not on
+  the Danube) but left each finding unsettled (`settled: false`), the first also under the
+  wrong class (`mislabelled_aggregate`), which the scorer reads as acceptable: noticed,
+  not confirmed. Passes 2 and 3 settled all three seeded bugs and stayed silent on the
+  clean fixture. This harness has no tool loop, so the verifier runs without
+  `research_web`.
+- `canvas`: pass 1, `canvas-create-vienna-en`: `overlap: sticky "sun-heuriger" covers
+  sticky "sun-concert"` (the model's own layout arithmetic on a board made from nothing).
+  Per case over the three passes: arrange Saturday 3/3, add Sunday 3/3 (en) and 3/3 (hu),
+  remove and connect 3/3, create Vienna 2/3 (en) and 3/3 (hu). Completion tokens 395-1,495
+  per case (all its steps), 3.0-9.2 s.
+- `document`: nothing failed in 21 answers (completion tokens 2-125, 0.2-0.7 s).
+
+Against each suite's bar (`slice-5.md` §The eval harness): `document` meets it in every
+pass. `verification` meets it in two of three passes and `canvas`, whose bar is every
+fixture clean on a pass, in two of three; `app` has no `broken` answer but no pass of
+10 of 10 `works`. ADR-0066 reads a suite below its bar as a change to the design rather
+than to the bar, which is the owner's call; nothing here moved a bar.
+
+**Which run is committed.** The committed `fixtures/*/responses/` (and `fixtures/app/
+evaluations/`) are one pass of the run: the first, except `canvas`, whose first pass held
+the one bad answer and whose second is the first without one. The replay gate reads a
+recorded bad answer as a failure of the gate, not as a measurement of the model, so a
+committed bad answer would turn CI red on yesterday's model rather than on today's
+scorer. The rates above are over all three passes; the raw runs are not committed.
+
+**What this does not measure, and what each measurement stands in for.**
+
+- *Thinking.* The chat turn runs with thinking on unless the reader chose Quick
+  (ADR-0061); App generation is the one call the product forces off. Every suite here
+  ran thinking off. Canvas was also run with thinking on (`--thinking on`, three passes,
+  the tool path's `auto` choice): 15 of 18 good, all twelve edit answers good, and the
+  creates 2/3 (en) and 1/3 (hu) clean: two overlaps and one board with notes sticking out
+  of their frames (`canvas-create-vienna-en`, pass 1: `text "intro" covers frame "fri"`;
+  `canvas-create-vienna-hu`, pass 1: `frame "frame-szombat" covers frame "frame-hasznos"`
+  and pass 3: notes at y 240 and 480 sticking out of their frames). Thinking on took
+  2,695 completion tokens for the arrange case in the first pass against 480-690 with it
+  off, and 23-60 s for a create against 6-9 s. It did not make the creates better.
+  `document` was not run with thinking on.
+- *The `document` suite is not the real tool.* Its prompt is hand-written text that asks
+  for a bare JSON array of three of the five ops, and its answer is scored by the real
+  patch engine; it does not send the tool catalogue or read the `edit_artifact` call.
+  Ruling 62 asks every suite to go through the real tool description and schema. The
+  harness's tool path (`tool-path.ts`, `run-tool-suite.ts`) can carry it, but the suite
+  has no tool-path registration and its scorer reads a text array rather than a call, so
+  it was run as it is. `canvas` is the only suite that goes through the tools.
+- *System and user are one message.* `generateApp` and `verifyApp` send their contract as
+  the system message and the request as the user message; the `app` and `verification`
+  cases send both as one user message (`client.ts` has no system role). Qwen's template
+  treats the two differently.
+- *One answer, not the product's whole path.* `verification` does not run the classifier,
+  `research_web`, the repair or the re-verification; `app` does not run the product's
+  retry on a contract violation. Each is the model's one answer, scored by the
+  product's own parser and audit.
 
 ## What each type slice adds (ruling 44)
 

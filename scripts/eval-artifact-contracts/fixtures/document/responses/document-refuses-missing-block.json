@@ -1,4 +1,9 @@
 {
 	"response": "[]",
-	"durationMs": 244
+	"durationMs": 202,
+	"usage": {
+		"promptTokens": 244,
+		"completionTokens": 2,
+		"totalTokens": 246
+	}
 }

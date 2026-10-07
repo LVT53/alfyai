@@ -1,4 +1,9 @@
 {
 	"response": "[{\"op\":\"replaceRange\",\"blockId\":\"p1\",\"baseHash\":\"7a0213eb\",\"find\":\"Vienna\",\"text\":\"Budapest\"}]",
-	"durationMs": 463
+	"durationMs": 360,
+	"usage": {
+		"promptTokens": 221,
+		"completionTokens": 36,
+		"totalTokens": 257
+	}
 }

@@ -12,12 +12,12 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 179,
-				"textSample": "Memory Match Flip two cards to find a pair. Clear all 8 pairs to win. 0 MOVES 0/8 FOUND — BEST ✦ 🌊 ✦ ⭐ ✦ 🔥 ✦ 🍄 ✦ 🍁 ✦ 🌸 ✦ 🌙 ✦ 🌸 ✦ ⚡ ✦ 🍁 ✦ 🌙 ✦ 🌊 ✦ ⭐ ✦ 🔥 ✦ 🍄 ✦ ⚡ New game",
+				"textLength": 205,
+				"textSample": "Memory Match Flip two cards to find a matching pair. Clear all 8 pairs in as few moves as you can. MOVES 0 PAIRS 0 / 8 New game ♦ ♦ ♪ ♥ ♣ ☀ ♣ ☾ ★ ✿ ✿ ☀ ★ ♪ ☾ ♥ New game started. 8 pairs shuffled and ready.",
 				"controlCount": 18,
 				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
+				"storageSets": 2,
+				"storageKeys": ["memory-match"]
 			},
 			{
 				"label": "dark-1280",
@@ -30,12 +30,12 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 179,
-				"textSample": "Memory Match Flip two cards to find a pair. Clear all 8 pairs to win. 0 MOVES 0/8 FOUND — BEST ✦ 🔥 ✦ 🌙 ✦ 🌊 ✦ 🍁 ✦ ⭐ ✦ ⚡ ✦ 🌸 ✦ 🍄 ✦ 🍁 ✦ 🌸 ✦ 🔥 ✦ ⭐ ✦ 🌊 ✦ ⚡ ✦ 🌙 ✦ 🍄 New game",
+				"textLength": 205,
+				"textSample": "Memory Match Flip two cards to find a matching pair. Clear all 8 pairs in as few moves as you can. MOVES 0 PAIRS 0 / 8 New game ♦ ★ ☾ ☀ ✿ ♪ ☾ ♥ ☀ ★ ♣ ♦ ♥ ✿ ♪ ♣ New game started. 8 pairs shuffled and ready.",
 				"controlCount": 18,
 				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
+				"storageSets": 1,
+				"storageKeys": ["memory-match"]
 			},
 			{
 				"label": "light-390",
@@ -48,12 +48,12 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 179,
-				"textSample": "Memory Match Flip two cards to find a pair. Clear all 8 pairs to win. 0 MOVES 0/8 FOUND — BEST ✦ 🔥 ✦ ⭐ ✦ 🍄 ✦ 🍄 ✦ 🌸 ✦ 🌸 ✦ 🍁 ✦ 🌊 ✦ 🌙 ✦ ⚡ ✦ 🍁 ✦ 🌙 ✦ 🌊 ✦ ⚡ ✦ ⭐ ✦ 🔥 New game",
+				"textLength": 205,
+				"textSample": "Memory Match Flip two cards to find a matching pair. Clear all 8 pairs in as few moves as you can. MOVES 0 PAIRS 0 / 8 New game ☾ ★ ✿ ♥ ♪ ☀ ♪ ♣ ★ ♣ ☾ ✿ ♦ ♥ ♦ ☀ New game started. 8 pairs shuffled and ready.",
 				"controlCount": 18,
 				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
+				"storageSets": 1,
+				"storageKeys": ["memory-match"]
 			},
 			{
 				"label": "dark-390",
@@ -66,28 +66,28 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 179,
-				"textSample": "Memory Match Flip two cards to find a pair. Clear all 8 pairs to win. 0 MOVES 0/8 FOUND — BEST ✦ 🌸 ✦ 🌊 ✦ ⚡ ✦ 🔥 ✦ 🔥 ✦ 🌊 ✦ ⭐ ✦ ⚡ ✦ 🍁 ✦ ⭐ ✦ 🍄 ✦ 🌸 ✦ 🌙 ✦ 🍄 ✦ 🌙 ✦ 🍁 New game",
+				"textLength": 205,
+				"textSample": "Memory Match Flip two cards to find a matching pair. Clear all 8 pairs in as few moves as you can. MOVES 0 PAIRS 0 / 8 New game ♪ ☾ ♪ ☾ ♦ ★ ♣ ☀ ♥ ✿ ★ ♣ ☀ ♦ ♥ ✿ New game started. 8 pairs shuffled and ready.",
 				"controlCount": 18,
 				"storageGets": 1,
-				"storageSets": 0,
-				"storageKeys": []
+				"storageSets": 1,
+				"storageKeys": ["memory-match"]
 			}
 		],
 		"interaction": {
 			"inputSelector": null,
 			"inputValue": null,
-			"buttonText": "✦ 🌊",
-			"clickedButtons": ["✦ 🌊"],
-			"domChangedAfter": "✦ 🌊",
+			"buttonText": "♪",
+			"clickedButtons": ["New game", "♪"],
+			"domChangedAfter": "♪",
 			"clicked": true,
 			"domChanged": true,
-			"textBefore": 179,
-			"textAfter": 179,
+			"textBefore": 205,
+			"textAfter": 205,
 			"htmlChanged": true,
-			"storageSetsBefore": 0,
-			"storageSetsAfter": 0,
-			"storageKeys": [],
+			"storageSetsBefore": 1,
+			"storageSetsAfter": 2,
+			"storageKeys": ["memory-match"],
 			"dialogs": [],
 			"note": null
 		},
@@ -95,7 +95,7 @@
 		"pageErrors": [],
 		"blockedRequests": [],
 		"storageGets": 1,
-		"storageSets": 0,
-		"storageKeys": []
+		"storageSets": 2,
+		"storageKeys": ["memory-match"]
 	}
 }
