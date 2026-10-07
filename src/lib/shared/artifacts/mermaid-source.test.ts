@@ -667,6 +667,38 @@ describe("sanitizeMermaidSource: it always finishes, and finishing is a fixed po
 	});
 });
 
+describe("sanitizeMermaidSource: no source is built to make it slow", () => {
+	// A model's diagram is the model's own words, so a pattern that can be made to take
+	// seconds is a way to freeze a reader's tab. Measured on the first version: a block
+	// whose pairs can be split two ways took 2^n steps, a long run of spaces in a title
+	// n squared, and a line of many statements n squared in the line's length.
+	it.each([
+		[
+			"a block whose pairs can be split two ways",
+			`A@{ a: b${", a: b".repeat(24)} :}`,
+		],
+		[
+			"a title with a long run of spaces",
+			`---\ntitle: a${" ".repeat(40_000)}x\nconfig: y\n---\nflowchart LR`,
+		],
+		[
+			"statements one after another on one line",
+			";click a href x".repeat(3_000),
+		],
+		["directives one after another on one line", "%%{a}%% ".repeat(5_000)],
+		[
+			"properties statements one after another",
+			"end properties a ".repeat(3_000),
+		],
+		["a long run of letters", `${"a".repeat(51_000)}(`],
+		["a long run of CSS escapes", `${"\\75 ".repeat(12_000)}(`],
+	])("takes a moment, not a while, for %s", (_what, source) => {
+		const started = performance.now();
+		sanitizeMermaidSource(source);
+		expect(performance.now() - started).toBeLessThan(100);
+	});
+});
+
 describe("mermaidSourceProblem: the door a model writes a diagram through", () => {
 	it("passes an ordinary diagram", () => {
 		for (const source of Object.values(ORDINARY)) {

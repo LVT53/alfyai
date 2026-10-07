@@ -47,36 +47,31 @@ const MAX_PASSES = 6;
 
 // ---- Taking spans out of a text ----------------------------------------
 
-function lineStartOf(text: string, index: number): number {
-	let at = index;
-	while (at > 0 && text[at - 1] !== "\n" && text[at - 1] !== "\r") at -= 1;
-	return at;
-}
-
 function lineEndOf(text: string, index: number): number {
 	let at = index;
 	while (at < text.length && text[at] !== "\n" && text[at] !== "\r") at += 1;
 	return at;
 }
 
-function blank(text: string, from: number, to: number): boolean {
-	for (let at = from; at < to; at += 1) {
-		if (text[at] !== " " && text[at] !== "\t") return false;
-	}
-	return true;
-}
-
-/** A span that is alone on its lines goes with them; one in the middle of a line leaves the rest of it. */
+/**
+ * A span that is alone on its lines goes with them; one in the middle of a line
+ * leaves the rest of it. Only the blanks beside the span are walked, never the
+ * line, so a line of many spans is not quadratic.
+ */
 function widen(text: string, start: number, end: number): [number, number] {
-	const lineStart = lineStartOf(text, start);
-	const lineEnd = lineEndOf(text, end);
-	if (!blank(text, lineStart, start) || !blank(text, end, lineEnd)) {
-		return [start, end];
+	let from = start;
+	while (from > 0 && (text[from - 1] === " " || text[from - 1] === "\t")) {
+		from -= 1;
 	}
-	let to = lineEnd;
+	const lineStart =
+		from === 0 || text[from - 1] === "\n" || text[from - 1] === "\r";
+	let to = end;
+	while (to < text.length && (text[to] === " " || text[to] === "\t")) to += 1;
+	const lineEnd = to >= text.length || text[to] === "\n" || text[to] === "\r";
+	if (!lineStart || !lineEnd) return [start, end];
 	if (text[to] === "\r") to += 1;
 	if (text[to] === "\n") to += 1;
-	return [lineStart, to];
+	return [from, to];
 }
 
 /** `text` without these spans, in one pass; the last line goes with the line break before it, so nothing dangles. */
@@ -147,7 +142,7 @@ function cleanFrontMatter(text: string, found: Set<Hazard>): string {
 	for (const line of match[1].split(/\r\n|\n|\r/)) {
 		const trimmed = line.trim();
 		if (trimmed === "" || trimmed.startsWith("#")) continue;
-		if (title === null && PLAIN_TITLE.test(trimmed)) {
+		if (title === null && trimmed.length <= 200 && PLAIN_TITLE.test(trimmed)) {
 			title = trimmed;
 			continue;
 		}
@@ -180,26 +175,64 @@ const SHAPE_KEYS = new Set([
 	"view",
 ]);
 
-const PAIR = String.raw`(?:"[A-Za-z]+"|[A-Za-z]+)[ \t]*:[ \t]*(?:"[^"\\\n]*"|'[^'\\\n]*'|[A-Za-z0-9_. -]+?)`;
-/** One line, `key: value` pairs, keys bare or quoted, values quoted (no escapes) or plain words: nothing YAML can read twice. */
-const CANONICAL_BLOCK = new RegExp(
-	String.raw`^[ \t]*(?:${PAIR}(?:[ \t]*,[ \t]*${PAIR})*[ \t]*,?[ \t]*)?$`,
-);
-const EACH_PAIR =
-	/(?:"([A-Za-z]+)"|([A-Za-z]+))[ \t]*:[ \t]*("[^"\\\n]*"|'[^'\\\n]*'|[A-Za-z0-9_. -]+?)(?=[ \t]*(?:,|$))/g;
 const MAX_BLOCK = 300;
+const BARE_WORDS = /^[A-Za-z0-9_.-]+(?: +[A-Za-z0-9_.-]+)*$/;
+const KEY = /^(?:"([A-Za-z]+)"|([A-Za-z]+))/;
+
+/**
+ * The `key: value` pairs of a block that is one line of them, keys bare or quoted,
+ * values quoted (no escape in them) or plain words, or null for anything else:
+ * nothing YAML could read two ways. Read left to right in one pass; the first
+ * version asked two patterns that could split a long list of pairs 2^n ways.
+ */
+function readBlock(body: string): Array<[string, string]> | null {
+	if (body.length > MAX_BLOCK) return null;
+	const pairs: Array<[string, string]> = [];
+	let at = 0;
+	const skipBlanks = () => {
+		while (body[at] === " " || body[at] === "\t") at += 1;
+	};
+	skipBlanks();
+	while (at < body.length) {
+		const key = KEY.exec(body.slice(at));
+		if (!key) return null;
+		at += key[0].length;
+		skipBlanks();
+		if (body[at] !== ":") return null;
+		at += 1;
+		skipBlanks();
+		let value: string;
+		const quote = body[at];
+		if (quote === '"' || quote === "'") {
+			const close = body.indexOf(quote, at + 1);
+			if (close < 0) return null;
+			value = body.slice(at + 1, close);
+			if (/[\\\n\r]/.test(value)) return null;
+			at = close + 1;
+		} else {
+			const comma = body.indexOf(",", at);
+			const stop = comma < 0 ? body.length : comma;
+			value = body.slice(at, stop).trim();
+			if (!BARE_WORDS.test(value)) return null;
+			at = stop;
+		}
+		pairs.push([(key[1] ?? key[2]).toLowerCase(), value]);
+		skipBlanks();
+		if (at >= body.length) break;
+		if (body[at] !== ",") return null;
+		at += 1;
+		skipBlanks();
+	}
+	return pairs;
+}
 
 /** Whether this block says nothing but the words of a shape, a label or a motion. */
 function harmlessBlock(body: string): boolean {
-	if (body.length > MAX_BLOCK || !CANONICAL_BLOCK.test(body)) return false;
-	for (const [, quoted, plain, value] of body.matchAll(EACH_PAIR)) {
-		const key = (quoted ?? plain).toLowerCase();
+	const pairs = readBlock(body);
+	if (pairs === null) return false;
+	for (const [key, value] of pairs) {
 		if (!SHAPE_KEYS.has(key)) return false;
-		const word = value
-			.replace(/^["']|["']$/g, "")
-			.trim()
-			.toLowerCase();
-		if (key === "shape" && /^(?:icon|img|image)/.test(word)) return false;
+		if (key === "shape" && /^(?:icon|img|image)/i.test(value)) return false;
 	}
 	return true;
 }
@@ -258,11 +291,40 @@ const LINK_STATEMENT = new RegExp(
 	"gimd",
 );
 
-/** A sequence diagram's `properties A: {"icon": "…"}`: the actor is drawn with that picture, which the browser asks for as the diagram is measured. */
-const PROPERTIES_STATEMENT = new RegExp(
-	String.raw`${STATEMENT_START}(properties[ \t]+[^\s:;<>=-][^:;\n\r]*:[^\n\r;]*)`,
+/** The head of a sequence diagram's `properties A: {"icon": "…"}`: the actor is drawn with that picture, which the browser asks for as the diagram is measured. */
+const PROPERTIES_HEAD = new RegExp(
+	String.raw`${STATEMENT_START}(properties[ \t]+[^\s:;<>=-])`,
 	"gimd",
 );
+
+/**
+ * A properties statement runs to a `;` or a line break and is one when a colon
+ * follows the actor's name, however long or spaced that name is (the first version
+ * bounded it, which a long name would have stepped around). Each statement's
+ * extent is walked once and the starts inside it skipped, so a source of many
+ * `properties` words is read in one pass.
+ */
+function removeProperties(text: string, found: Set<Hazard>): string {
+	const spans: Array<[number, number]> = [];
+	let walkedTo = 0;
+	for (const match of text.matchAll(PROPERTIES_HEAD)) {
+		const [start] = (
+			match as RegExpMatchArray & { indices: Array<[number, number]> }
+		).indices[1];
+		if (start < walkedTo) continue;
+		let end = start;
+		let colon = false;
+		while (end < text.length && !";\n\r".includes(text[end])) {
+			if (text[end] === ":") colon = true;
+			end += 1;
+		}
+		walkedTo = end;
+		if (colon) spans.push([start, end]);
+	}
+	if (spans.length === 0) return text;
+	found.add("properties");
+	return removeSpans(text, spans);
+}
 
 function removeStatements(
 	text: string,
@@ -286,7 +348,7 @@ function removeStatements(
 
 /** A CSS identifier, escapes included (`\75rl` is `url`): the name of a function or at-rule. */
 const CSS_NAME =
-	/(?:[\w-]|[\u0080-￿]|\\(?:[0-9A-Fa-f]{1,6}[ \t\n\r\f]?|[^\n\r\f0-9A-Fa-f]))+/g;
+	/(?:[\w-]|[\u0080-\uFFFF]|\\(?:[0-9A-Fa-f]{1,6}[ \t\n\r\f]?|[^\n\r\f0-9A-Fa-f]))+/g;
 
 /** The name as the CSS parser reads it: escapes undone, case folded. */
 function cssName(raw: string): string {
@@ -378,7 +440,7 @@ export function sanitizeMermaidSource(source: string): {
 		next = removeShapeBlocks(next, found);
 		next = removeStatements(next, CLICK_STATEMENT, "click", found);
 		next = removeStatements(next, LINK_STATEMENT, "link", found);
-		next = removeStatements(next, PROPERTIES_STATEMENT, "properties", found);
+		next = removeProperties(next, found);
 		next = breakCssAddresses(next, found);
 		if (next === text) return { source: text, removed: [...found] };
 		text = next;
