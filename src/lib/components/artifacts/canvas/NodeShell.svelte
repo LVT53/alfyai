@@ -265,7 +265,11 @@ function reportBroken(error: unknown): void {
 				class="canvas-resize"
 			/>
 		{/each}
-		<NodeToolbar position={Position.Top} offset={12}>
+		<NodeToolbar
+			position={Position.Top}
+			offset={12}
+			class="svelte-flow__node-toolbar{chrome === 'frame' ? ' canvas-toolbar--frame' : ''}"
+		>
 			<div class="canvas-node-toolbar" role="toolbar" aria-label={kindLabel} data-testid="canvas-node-toolbar">
 				{@render toolbar?.()}
 				<button
@@ -532,6 +536,14 @@ function reportBroken(error: unknown): void {
 		font-family: var(--font-sans);
 		font-size: var(--text-xs);
 		white-space: nowrap;
+	}
+
+	/* A frame sits behind what it groups (z -1) and the library lifts a toolbar to its
+	   block's layer plus one, which for a frame is 0: under the board's pane, so the
+	   buttons were drawn and could not be pressed. Every other block's is 6. (A class
+	   passed to the toolbar replaces the library's own, so the frame's is given both.) */
+	:global(.svelte-flow__node-toolbar.canvas-toolbar--frame) {
+		z-index: 6 !important;
 	}
 
 	:global(.canvas-node-toolbar__button) {

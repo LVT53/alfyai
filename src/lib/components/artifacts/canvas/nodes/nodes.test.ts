@@ -253,6 +253,18 @@ describe("a sticky note", () => {
 		expect(field).toHaveFocus();
 	});
 
+	it("has the whole note, however tall it was made, to double-click on", () => {
+		const style = readFileSync(
+			path.join(
+				path.dirname(fileURLToPath(import.meta.url)),
+				"StickyNode.svelte",
+			),
+			"utf8",
+		);
+		// What a double-click edits is the paper, not just the lines of words on it.
+		expect(style).toMatch(/\.sticky\s*\{[^}]*height:\s*100%/);
+	});
+
 	it("opens for editing on Enter while the node itself has focus, and not on Enter from elsewhere", async () => {
 		mount(StickyNode, stickyProps());
 		const wrapper = screen.getByTestId("node-wrapper");
@@ -333,6 +345,17 @@ describe("a text block", () => {
 		expect(screen.getByText("Write something…")).toBeInTheDocument();
 	});
 
+	it("has the whole block, however tall it was made, to double-click on", () => {
+		const style = readFileSync(
+			path.join(
+				path.dirname(fileURLToPath(import.meta.url)),
+				"TextNode.svelte",
+			),
+			"utf8",
+		);
+		expect(style).toMatch(/\.text-block\s*\{[^}]*height:\s*100%/);
+	});
+
 	it("edits in place with the same limit as a note", async () => {
 		mount(TextNode, props());
 		await fireEvent.dblClick(screen.getByTestId("canvas-text"));
@@ -358,6 +381,23 @@ describe("a frame", () => {
 		const chip = screen.getByTestId("canvas-frame-label");
 		expect(chip).toHaveTextContent("Saturday");
 		expect(chip.closest(".canvas-node__chip")).not.toBeNull();
+	});
+
+	it("lifts its toolbar above the board's pane, so every button of it can be pressed", () => {
+		// The library lifts a toolbar to its block's layer plus one, which for a frame (behind
+		// everything) is 0, under the pane: the layer the toolbar gets is the frame's own class.
+		const shell = readFileSync(
+			path.join(
+				path.dirname(fileURLToPath(import.meta.url)),
+				"..",
+				"NodeShell.svelte",
+			),
+			"utf8",
+		);
+		expect(shell).toContain("' canvas-toolbar--frame'");
+		expect(shell).toMatch(
+			/\.svelte-flow__node-toolbar\.canvas-toolbar--frame\)\s*\{[^}]*z-index:\s*6\s*!important/,
+		);
 	});
 
 	it("renames in place, within the label limit, on a double-click", async () => {
