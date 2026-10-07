@@ -19,7 +19,8 @@ import { login } from "./helpers";
 // follows it, so on a touchpad a click on a File block did nothing, a click on a
 // frame's ground did not pick the frame, and a click could nudge a note by a few
 // pixels (an undo step of its own). The board tells the library how far a pointer
-// may wander and still be pressing. A real drag must still move a block.
+// may wander and still be pressing. A real drag must still move a block. (A File
+// block is picked by a click now and opened by a double click: CV-B2.)
 
 /** What the cursor does between the press and the release, in pixels from where it went down. */
 const WANDERS: Record<string, Pt[]> = {
@@ -77,12 +78,16 @@ async function press(
 	page: import("@playwright/test").Page,
 	at: Pt,
 	wander: Pt[],
+	count = 1,
 ) {
 	await page.mouse.move(at.x, at.y);
-	await page.mouse.down();
-	for (const step of wander)
-		await page.mouse.move(at.x + step.x, at.y + step.y);
-	await page.mouse.up();
+	for (let press = 1; press <= count; press++) {
+		await page.mouse.down({ clickCount: press });
+		for (const step of wander)
+			await page.mouse.move(at.x + step.x, at.y + step.y);
+		await page.mouse.up({ clickCount: press });
+		if (press < count) await page.waitForTimeout(40);
+	}
 }
 
 test.describe("a touchpad's click is a click", () => {
@@ -93,7 +98,7 @@ test.describe("a touchpad's click is a click", () => {
 	});
 
 	for (const [name, wander] of Object.entries(WANDERS)) {
-		test(`a click that wanders ${name}: selects a note without moving it, picks a frame by its ground, opens a file`, async ({
+		test(`a click that wanders ${name}: selects a note without moving it, picks a frame by its ground, picks a file and a double click opens it`, async ({
 			page,
 		}) => {
 			const { conversationId } = await seedChat(page, { body: board });
@@ -139,7 +144,9 @@ test.describe("a touchpad's click is a click", () => {
 				"true",
 			);
 
-			// The file opens in the panel's own viewer, in place of the board.
+			// A file is picked by a click like every block (it used to open on one, and a
+			// click that wandered did nothing at all), and a double click opens it in the
+			// panel's own viewer, in place of the board.
 			await press(page, away, wander);
 			const trip = (await wrapperOf(page, "trip").boundingBox()) as {
 				x: number;
@@ -148,6 +155,12 @@ test.describe("a touchpad's click is a click", () => {
 				height: number;
 			};
 			await press(page, centre(trip), wander);
+			await expect(nodeOf(page, "trip")).toHaveAttribute(
+				"data-selected",
+				"true",
+			);
+			await expect(page.getByTestId("canvas-board")).toBeVisible();
+			await press(page, centre(trip), wander, 2);
 			await expect(page.getByTestId("canvas-board")).toHaveCount(0);
 		});
 	}

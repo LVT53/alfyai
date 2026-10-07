@@ -1,11 +1,23 @@
 import { expect, test } from "@playwright/test";
-import { click } from "./artifact-canvas-edit-helpers";
+import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
+import {
+	bareSpot,
+	centre,
+	click,
+	nodeOf,
+	openTheBoard,
+	type Style,
+	seedChat,
+	wrapperOf,
+} from "./artifact-canvas-edit-helpers";
 import {
 	centreOf,
 	expectCamera,
 	openBoard,
 	settledCamera,
 } from "./artifact-canvas-helpers";
+import { setUiLanguage } from "./artifact-document-polish-helpers";
+import { login } from "./helpers";
 
 // The loose ends of CV-B (Feature 2 · Canvas, CV-B2). Every flow here is real input:
 // a mouse, a finger, the keyboard and the wheel as a laptop's touchpad sends it.
@@ -96,5 +108,133 @@ test.describe("Safari's pinch", () => {
 		});
 		expect(point(zoomed).x).toBeCloseTo(point(start).x, 1);
 		expect(point(zoomed).y).toBeCloseTo(point(start).y, 1);
+	});
+});
+
+// ---- A File block: a click selects it, a double click or Enter opens it ----------
+
+function fileBoard(chatFileId: string): CanvasBody {
+	return {
+		version: 1,
+		nodes: [
+			{
+				id: "note",
+				type: "sticky",
+				position: { x: 0, y: 0 },
+				width: 200,
+				data: { kind: "sticky", text: "Hello", tone: "yellow" },
+			},
+			{
+				id: "trip",
+				type: "file",
+				position: { x: 0, y: 260 },
+				width: 280,
+				data: {
+					kind: "file",
+					fileId: chatFileId,
+					name: "Vienna trip notes.md",
+					mime: "text/markdown",
+					bytes: 38,
+					label: "MD",
+				},
+			},
+		],
+		edges: [],
+		viewport: { x: 0, y: 0, zoom: 1 },
+		annotations: [],
+	};
+}
+
+test.describe("a File block is picked like every other block", () => {
+	test.beforeEach(async ({ page }) => {
+		await setUiLanguage("en");
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+	});
+
+	for (const style of ["mouse", "touchpad"] as Style[]) {
+		test(`a click with a ${style} selects it and shows its toolbar; a double click opens it in the panel`, async ({
+			page,
+		}) => {
+			const { conversationId } = await seedChat(page, { body: fileBoard });
+			await openTheBoard(page, conversationId);
+			const board = page.getByTestId("canvas-board");
+			const trip = centre(
+				(await wrapperOf(page, "trip").boundingBox()) as never,
+			);
+
+			// A click is a pick: the block is selected, wears its toolbar, and nothing opens.
+			await click(page, style, trip);
+			await expect(nodeOf(page, "trip")).toHaveAttribute(
+				"data-selected",
+				"true",
+			);
+			await expect(page.getByTestId("canvas-node-toolbar")).toBeVisible();
+			await expect(page.getByTestId("canvas-node-open")).toBeVisible();
+			await expect(board).toBeVisible();
+			await page.waitForTimeout(400);
+			await expect(board).toBeVisible();
+
+			// Another block takes the selection from it, as with any block.
+			await click(
+				page,
+				style,
+				centre((await wrapperOf(page, "note").boundingBox()) as never),
+			);
+			await expect(nodeOf(page, "trip")).toHaveAttribute(
+				"data-selected",
+				"false",
+			);
+			await expect(board).toBeVisible();
+
+			// A double click opens the file in the panel's own viewer, in place of the board.
+			await click(page, "mouse", await bareSpot(page));
+			await click(page, style, trip, 2);
+			await expect(board).toHaveCount(0);
+		});
+	}
+
+	test("Enter opens it while the block has the focus", async ({ page }) => {
+		const { conversationId } = await seedChat(page, { body: fileBoard });
+		await openTheBoard(page, conversationId);
+		const trip = centre((await wrapperOf(page, "trip").boundingBox()) as never);
+
+		await click(page, "mouse", trip);
+		await expect(nodeOf(page, "trip")).toHaveAttribute("data-selected", "true");
+		await expect(wrapperOf(page, "trip")).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect(page.getByTestId("canvas-board")).toHaveCount(0);
+	});
+
+	test("the Open button of its toolbar opens it with one click, and says which file", async ({
+		page,
+	}) => {
+		const { conversationId } = await seedChat(page, { body: fileBoard });
+		await openTheBoard(page, conversationId);
+		const trip = centre((await wrapperOf(page, "trip").boundingBox()) as never);
+
+		await click(page, "mouse", trip);
+		const open = page.getByTestId("canvas-node-open");
+		await expect(open).toBeVisible();
+		await expect(open).toHaveAccessibleName("Open Vienna trip notes.md");
+		await click(page, "mouse", centre((await open.boundingBox()) as never));
+		await expect(page.getByTestId("canvas-board")).toHaveCount(0);
+	});
+
+	test("says how it opens, in English and in Hungarian", async ({ page }) => {
+		const { conversationId } = await seedChat(page, { body: fileBoard });
+		await openTheBoard(page, conversationId);
+		await expect(page.getByTestId("canvas-file")).toHaveAttribute(
+			"title",
+			"Double-click to open",
+		);
+		await setUiLanguage("hu");
+		await page.reload({ waitUntil: "networkidle" });
+		await openTheBoard(page, conversationId);
+		await expect(page.getByTestId("canvas-file")).toHaveAttribute(
+			"title",
+			"Dupla kattintással megnyílik",
+		);
+		await setUiLanguage("en");
 	});
 });

@@ -19,7 +19,7 @@
  * from a block's bottom to another's top; the board connects in loose mode, so
  * a reader can still start from any side.
  */
-import { Pencil, Trash2 } from "@lucide/svelte";
+import { ExternalLink, Pencil, Trash2 } from "@lucide/svelte";
 import {
 	Handle,
 	NodeResizeControl,
@@ -47,6 +47,7 @@ let {
 	tone,
 	dropTarget = false,
 	activate,
+	open,
 	edit,
 	header,
 	toolbar,
@@ -71,6 +72,8 @@ let {
 	dropTarget?: boolean;
 	/** Enter or F2 while the block itself has focus (a text block opens for editing). */
 	activate?: () => void;
+	/** Opens what the block points at (a file, in the panel's viewer): a double-click anywhere on the block, Enter or F2 while it has focus (the board being read-only does not stop it: nothing is changed), and the toolbar's Open button. A click only picks the block, as it does for every block. */
+	open?: () => void;
 	/** Opens the block for changing (its words, its name, its source): the toolbar's Edit button. A block with nothing of its own to change gives none, and has no button. */
 	edit?: () => void;
 	/** Replaces a card's default header, and is a frame's label chip. */
@@ -142,10 +145,11 @@ const wrapperBehaviour: Attachment<HTMLElement> = (element) => {
 		attributeFilter: ["aria-label", "aria-roledescription"],
 	});
 	const onKeydown = (event: KeyboardEvent) => {
-		if (event.target !== wrapper || !activate || !editable) return;
+		const act = open ?? (editable ? activate : undefined);
+		if (event.target !== wrapper || !act) return;
 		if (event.key !== "Enter" && event.key !== "F2") return;
 		event.preventDefault();
-		activate();
+		act();
 	};
 	wrapper.addEventListener("keydown", onKeydown);
 	return () => {
@@ -188,7 +192,9 @@ function reportBroken(error: unknown): void {
 	data-missing={blockMeta.kind === "missing" ? "true" : undefined}
 	{@attach wrapperBehaviour}
 >
-	<div class="canvas-node__box" data-tone={tone}>
+	<!-- A double-click opens what the block points at; Enter does it from the keyboard (`wrapperBehaviour`). -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="canvas-node__box" data-tone={tone} ondblclick={open}>
 		{#if chrome === "card"}
 			<div class="canvas-node__head">
 				{#if header}
@@ -275,6 +281,18 @@ function reportBroken(error: unknown): void {
 		>
 			<div class="canvas-node-toolbar" role="toolbar" aria-label={kindLabel} data-testid="canvas-node-toolbar">
 				{@render toolbar?.()}
+				{#if open}
+					<button
+						type="button"
+						class="canvas-node-toolbar__button"
+						aria-label={$t("artifacts.canvas.file.open", { name: summary })}
+						title={$t("artifacts.canvas.file.open", { name: summary })}
+						data-testid="canvas-node-open"
+						onclick={open}
+					>
+						<ExternalLink size={15} strokeWidth={2} aria-hidden="true" />
+					</button>
+				{/if}
 				{#if edit}
 					<button
 						type="button"
