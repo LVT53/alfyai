@@ -53,6 +53,8 @@ type CardGeometry = {
 	title: Box | null;
 	/** The column the title and the meta line share (the title's own box is only as wide as its words). */
 	textColumn: Box | null;
+	/** How tall the facts line is, in lines of its own text (1 is one line). */
+	factsLines: number | null;
 	/** Every box the head's meta text is drawn in (the pills left out), before any clipping. */
 	metaBoxes: Box[];
 	/** The same, cut to what is not clipped away (the card's own edge, or the line's ellipsis box). */
@@ -474,7 +476,15 @@ async function readGeometry(card: Locator): Promise<CardGeometry> {
 		}
 		const title = one(".artifact-card-title");
 		const textColumn = one(".artifact-card-headtext");
+		const facts = one(".artifact-card-facts");
 		return {
+			// The height of the line in units of its own font: a second line would
+			// double it.
+			factsLines: facts
+				? facts.getBoundingClientRect().height /
+					Number.parseFloat(getComputedStyle(facts).fontSize) /
+					1.2
+				: null,
 			card: toBox(cardBox),
 			title: title ? toBox(title.getBoundingClientRect()) : null,
 			textColumn: textColumn ? toBox(textColumn.getBoundingClientRect()) : null,
@@ -664,6 +674,16 @@ function expectOneLine(geometry: CardGeometry, where: string): void {
 	expect
 		.soft(lineCount(geometry), `${where}: the lines the meta text is drawn on`)
 		.toBe(1);
+	// The brief's own measure: the line's height is one line's (a line of 12.5 px
+	// text is ~15 px; a second line would make it 30).
+	if (geometry.factsLines !== null) {
+		expect
+			.soft(
+				geometry.factsLines,
+				`${where}: the facts line's height in lines of its own text`,
+			)
+			.toBeLessThan(1.5);
+	}
 }
 
 /** The lowest edge of what the card says (title, meta line, pills). */
