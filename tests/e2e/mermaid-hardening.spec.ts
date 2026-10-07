@@ -4,6 +4,7 @@ import { db } from "../../src/lib/server/db";
 import { messages } from "../../src/lib/server/db/schema";
 import type { CanvasNode } from "../../src/lib/shared/artifacts/canvas";
 import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
+import { sanitizeHtml } from "../../src/lib/utils/html-sanitizer";
 import {
 	bareSpot,
 	centre,
@@ -533,5 +534,141 @@ test.describe("a board's diagram block draws through the same gate, whoever wrot
 			})
 			.toContain("board-click");
 		await expect(wrapperOf(page, id)).toBeVisible();
+	});
+});
+
+// The second gate is judged by the browser and not by a pattern: SVG that asks for an
+// address in every way measured (CSS in a <style> or an attribute, escapes, an unclosed
+// url(, image-set(, @import, a picture, a filter, a link) is drawn by Chromium as it
+// stands and through `sanitizeHtml`, and what each asks the stand-in host for is counted.
+test.describe("what the SVG gate returns is something a browser draws without calling anywhere", () => {
+	const wrap = (inner: string) =>
+		`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="100"><rect id="r" x="10" y="10" width="100" height="50"/>${inner}</svg>`;
+	const at = (path: string) => `https://${HOST}/${path}`;
+	const SNIPPETS: Array<[string, string]> = [
+		[
+			"a url() in a style sheet",
+			wrap(`<style>#r{fill:url(${at("g1.svg")}#a)}</style>`),
+		],
+		[
+			"a url() spelt with a CSS escape",
+			wrap(`<style>#r{fill:\\75rl(${at("g2.svg")}#a)}</style>`),
+		],
+		[
+			"a url() spelt with letter escapes",
+			wrap(`<style>#r{fill:\\u\\r\\l(${at("g3.svg")}#a)}</style>`),
+		],
+		[
+			"a url() that is never closed",
+			wrap(`<style>#r{fill:url(${at("g4.svg")}#a</style>`),
+		],
+		["an @import", wrap(`<style>@import url(${at("g5.css")});</style>`)],
+		[
+			"an @import spelt with an escape",
+			wrap(`<style>@\\69mport "${at("g6.css")}";</style>`),
+		],
+		["a cursor", wrap(`<style>#r{cursor:url(${at("g7.png")}),auto}</style>`)],
+		[
+			"a cursor by image-set()",
+			wrap(`<style>#r{cursor:image-set("${at("g8.png")}" 1x),auto}</style>`),
+		],
+		["a mask", wrap(`<style>#r{mask:url(${at("g9.svg")}#m)}</style>`)],
+		[
+			"a url() in a style attribute",
+			wrap(
+				`<rect x="1" y="1" width="9" height="9" style="fill:url(${at("h1.svg")}#a)"/>`,
+			),
+		],
+		[
+			"a url() in a fill attribute, escaped",
+			wrap(
+				`<rect x="1" y="1" width="9" height="9" fill="\\75rl(${at("h2.svg")}#a)"/>`,
+			),
+		],
+		[
+			"a marker",
+			wrap(
+				`<path d="M0,0L9,9" stroke="#000" marker-end="url(${at("h3.svg")}#m)"/>`,
+			),
+		],
+		["an image", wrap(`<image href="${at("i1.png")}" width="9" height="9"/>`)],
+		[
+			"an image by xlink:href",
+			wrap(`<image xlink:href="${at("i2.png")}" width="9" height="9"/>`),
+		],
+		[
+			"a filter that loads an image",
+			wrap(
+				`<filter id="f"><feImage href="${at("i3.png")}"/></filter><rect filter="url(#f)" width="9" height="9"/>`,
+			),
+		],
+		[
+			"a picture in a foreign object",
+			wrap(
+				`<foreignObject width="50" height="50"><img xmlns="http://www.w3.org/1999/xhtml" src="${at("i4.png")}"/></foreignObject>`,
+			),
+		],
+		[
+			"a script and a handler",
+			wrap(
+				`<script>new Image().src="${at("j1.png")}"</script><rect width="9" height="9" onload="new Image().src='${at("j2.png")}'"/>`,
+			),
+		],
+	];
+
+	/** What a browser asks the stand-in host for when it draws this SVG (with the pointer over the first shape: a cursor is fetched only then). */
+	async function requestedBy(page: Page, svg: string): Promise<string[]> {
+		const calls: string[] = [];
+		await page.route(new RegExp(`^https?://[^/]*${HOST}/`), async (route) => {
+			calls.push(route.request().url());
+			await route.fulfill({
+				status: 200,
+				contentType: /svg/.test(route.request().url())
+					? "image/svg+xml"
+					: /css/.test(route.request().url())
+						? "text/css"
+						: "image/png",
+				body: /svg/.test(route.request().url())
+					? "<svg xmlns='http://www.w3.org/2000/svg'/>"
+					: /css/.test(route.request().url())
+						? ""
+						: PIXEL,
+			});
+		});
+		await page.setContent(`<!doctype html><html><body>${svg}</body></html>`);
+		await page
+			.locator("rect")
+			.first()
+			.hover({ timeout: 2_000 })
+			.catch(() => undefined);
+		await page.waitForTimeout(400);
+		await page.unroute(new RegExp(`^https?://[^/]*${HOST}/`));
+		return calls;
+	}
+
+	test("each way of asking for an address is a call as it stands and none once it has been through the gate", async ({
+		page,
+	}) => {
+		const asked: string[] = [];
+		const unseen: string[] = [];
+		for (const [what, svg] of SNIPPETS) {
+			const raw = await requestedBy(page, svg);
+			const gated = await requestedBy(
+				page,
+				sanitizeHtml(svg, {
+					svg: true,
+					allowStyleTags: true,
+					allowStyleAttributes: true,
+				}),
+			);
+			if (raw.length === 0) unseen.push(what);
+			if (gated.length > 0) asked.push(`${what}: ${gated.join(", ")}`);
+		}
+		expect(asked, "asked for an address through the gate").toEqual([]);
+		// The check has teeth: almost every snippet does call out when it is not gated.
+		expect(
+			unseen.length,
+			`not a call even raw: ${unseen.join("; ")}`,
+		).toBeLessThanOrEqual(2);
 	});
 });

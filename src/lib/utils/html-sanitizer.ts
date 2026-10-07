@@ -22,24 +22,49 @@ function scrubCssExternalReferences(css: string): string {
 	// A browser reads CSS with its escapes undone (`\75rl(` is `url(`), so that is the
 	// text scrubbed; text with nothing in it to scrub comes back as it was written.
 	const reading = css.includes("\\") ? decodeCssEscapes(css) : css;
+	if (!/url\(|@import|image-set\(|src\(/i.test(reading)) return css;
 	// Drop @import rules (both `@import "..."` and `@import url(...)` forms).
 	let out = reading.replace(/@import\b[^;]*;?/gi, "");
 	// Neutralize external url(...) references, handling quoted and bare targets.
-	out = out.replace(
-		/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)/gi,
-		(match, doubleQuoted, singleQuoted, bare) => {
-			const target = String(doubleQuoted ?? singleQuoted ?? bare ?? "").trim();
-			if (target.startsWith("#")) return match; // internal fragment ref — keep
-			if (/^data:/i.test(target)) return match; // inline data URI — keep
-			return "none"; // external / networked reference — drop
-		},
+	out = replaceCalls(out, /url\(/gi, (target) =>
+		target.startsWith("#") || /^data:/i.test(target) ? null : "none",
 	);
 	// image-set() and src() take an address as a string, with no url() in it to catch.
-	out = out.replace(
-		/(?:-webkit-)?image-set\([^)]*\)|\bsrc\(\s*(?:"[^"]*"|'[^']*')[^)]*\)/gi,
-		"none",
+	out = replaceCalls(
+		out,
+		/(?:-webkit-)?image-set\(|\bsrc\(\s*(?=["'])/gi,
+		() => "none",
 	);
 	return out === reading ? css : out;
+}
+
+/**
+ * Each call whose opening `head` matches, up to its first closing bracket, as
+ * `decide` says: its replacement, or null to keep it. One pass over the text, so a
+ * source of thousands of unclosed calls is not quadratic (the first version used a
+ * lazy pattern that was). A call with no bracket to close it still counts: CSS ends
+ * an open `url(` at the end of the value, and what is left would be its address.
+ */
+function replaceCalls(
+	text: string,
+	head: RegExp,
+	decide: (target: string) => string | null,
+): string {
+	let out = "";
+	let at = 0;
+	for (const match of text.matchAll(head)) {
+		if (match.index < at) continue;
+		const open = match.index + match[0].length;
+		const close = text.indexOf(")", open);
+		const end = close < 0 ? text.length : close;
+		const replacement = decide(
+			text.slice(open, end).trim().replace(/^["']/, ""),
+		);
+		if (replacement === null) continue;
+		out += text.slice(at, match.index) + replacement;
+		at = close < 0 ? text.length : close + 1;
+	}
+	return out + text.slice(at);
 }
 
 /** A reference a diagram may keep: to something inside the picture, or a picture held in the attribute itself. */

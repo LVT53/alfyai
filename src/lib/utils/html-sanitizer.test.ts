@@ -329,6 +329,80 @@ describe("sanitizeHtml SVG: no link and no address in what a diagram draws (FX-E
 	});
 });
 
+describe("sanitizeHtml SVG: no value is built to make the gate slow (FX-E)", () => {
+	// The gate reads the CSS a diagram produces, which a model's source reaches. A pattern
+	// that can be made to take seconds is a way to freeze a reader's tab: the old url()
+	// pattern took n squared steps in a run of spaces after `url(` (more than twenty
+	// seconds at 40,000), and each `url(` or `image-set(` with no bracket to close it read
+	// to the end of the text.
+	const opts = {
+		svg: true,
+		allowStyleTags: true,
+		allowStyleAttributes: true,
+	} as const;
+	const wrap = (inner: string) =>
+		`<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+
+	it.each([
+		[
+			"a url( and a long run of spaces",
+			`<style>.a{fill:url(${" ".repeat(12_000)}x}</style>`,
+		],
+		[
+			"many url( and no closing bracket",
+			`<style>.a{fill:${"url(".repeat(12_000)}}</style>`,
+		],
+		[
+			"many image-set( and no closing bracket",
+			`<style>.a{cursor:${"image-set(".repeat(5_000)}}</style>`,
+		],
+		[
+			'many src(" and no closing bracket',
+			`<style>.a{fill:${'src("'.repeat(8_000)}}</style>`,
+		],
+		[
+			"a very long attribute of url(",
+			`<rect fill="${"url(".repeat(12_000)}" width="1" height="1"/>`,
+		],
+		["many @import", `<style>${"@import ".repeat(6_000)}</style>`],
+	])("takes a moment for %s", (_what, inner) => {
+		const started = performance.now();
+		sanitizeHtml(wrap(inner), opts);
+		expect(performance.now() - started).toBeLessThan(150);
+	});
+
+	it("still neutralizes each of many addresses in one value", () => {
+		const out = sanitizeHtml(
+			wrap(
+				`<style>${".a{fill:url(https://x.test/a.svg#a)}".repeat(200)}</style><rect style="fill:url(//x.test/b);stroke:image-set('//x.test/c.png' 1x)" width="1" height="1"/>`,
+			),
+			opts,
+		);
+		expect(out).not.toContain("x.test");
+	});
+
+	it("neutralizes a url( that nothing closes: CSS ends it at the end of the value, and what is left is its address", () => {
+		const out = sanitizeHtml(
+			wrap(
+				'<rect style="fill:url(https://x.test/a.svg" width="1" height="1"/><rect fill="url(//x.test/b.svg" width="1" height="1"/><style>.a{fill:url(\'https://x.test/c.svg</style>',
+			),
+			opts,
+		);
+		expect(out).not.toContain("x.test");
+	});
+
+	it("keeps an internal reference and a data URI with a closing bracket of its own", () => {
+		const out = sanitizeHtml(
+			wrap(
+				"<style>.a{fill:url(#grad)}.b{background:url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'><g transform='translate(1 2)'/></svg>\")}</style>",
+			),
+			opts,
+		);
+		expect(out).toContain("url(#grad)");
+		expect(out).toContain("data:image/svg+xml");
+	});
+});
+
 describe("html utilities", () => {
 	it("escapes HTML-sensitive characters with the default apostrophe entity", () => {
 		expect(escapeHtml(`Tom & "Jerry" <'tag'>`)).toBe(
