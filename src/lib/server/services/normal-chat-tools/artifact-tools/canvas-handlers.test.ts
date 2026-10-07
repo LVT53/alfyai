@@ -762,6 +762,43 @@ describe("edit_artifact.canvas", () => {
 			);
 		});
 
+		it("tells the model where the app put what it added, and says nothing of a block that went where it was told", async () => {
+			const artifactId = await seedBoard();
+			const result = await runEdit(artifactId, {
+				ops: [
+					{
+						op: "add_node",
+						node: {
+							id: "beside",
+							type: "sticky",
+							near: "note-1",
+							data: { kind: "sticky", text: "Next to lunch", tone: "mint" },
+						},
+					},
+					{
+						op: "add_node",
+						node: {
+							id: "told",
+							type: "sticky",
+							position: { x: 900, y: 1500 },
+							data: { kind: "sticky", text: "Where I said", tone: "plain" },
+						},
+					},
+				],
+			});
+			expect(result.modelPayload).toMatchObject({ success: true, applied: 2 });
+			if (!result.modelPayload.success) return;
+			const placed = result.modelPayload.placed ?? [];
+			expect(placed.map((entry) => entry.id)).toEqual(["beside"]);
+			expect(placed[0]).toMatchObject({ in: "frame-a" });
+			const board = await storedBoard(artifactId);
+			const beside = board.nodes.find((n) => n.id === "beside");
+			expect(placed[0]).toMatchObject({
+				x: beside?.position.x,
+				y: beside?.position.y,
+			});
+		});
+
 		it("puts a note next to the one it names, in its frame, and says where an id it does not have should have been", async () => {
 			const artifactId = await seedBoard();
 			const result = await runEdit(artifactId, {

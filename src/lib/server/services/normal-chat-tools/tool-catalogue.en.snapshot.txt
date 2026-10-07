@@ -655,7 +655,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                         },
                         "type": {
                           "type": "string",
-                          "description": "The block kind: one of frame, sticky, text, checklist, chart, mermaid. It must equal data.kind."
+                          "description": "The block kind: one of frame, sticky, text, checklist, chart, mermaid (mermaid is a flowchart or other diagram). It must equal data.kind."
                         },
                         "parentId": {
                           "description": "The id of a frame: the node then sits inside it and position is relative to the frame's top-left corner.",

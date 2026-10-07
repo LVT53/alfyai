@@ -73,7 +73,7 @@ const boardOpSchema = z.discriminatedUnion("op", [
 				.string()
 				.min(1)
 				.describe(
-					`The block kind: one of ${MODEL_CREATABLE_KINDS.join(", ")}. It must equal data.kind.`,
+					`The block kind: one of ${MODEL_CREATABLE_KINDS.join(", ")} (mermaid is a flowchart or other diagram). It must equal data.kind.`,
 				),
 			parentId: idSchema
 				.optional()
@@ -956,6 +956,133 @@ export const boardOpsVocabulary: OpsVocabulary<
 	validate: validateOps,
 	apply: applyOp,
 };
+
+// ── What the model is told about where its blocks went ─────────────────
+
+/**
+ * One block whose place the app had a hand in, as the model reads it after an
+ * edit: where it is (`x`, `y`, in the frame it is in, if any), and when there is
+ * more to say — it was moved off a taken place, the frame it asked for grew, or
+ * there was no room and it is beside the frame — what that was. A block that
+ * went exactly where the model said it should is not listed.
+ */
+export interface PlacedNote {
+	id: string;
+	x: number;
+	y: number;
+	in?: string;
+	note?: string;
+}
+
+function addedId(op: BoardOp): string | undefined {
+	if (op.op === "add_frame") return op.id;
+	if (op.op === "add_node") return op.node?.id;
+	return undefined;
+}
+
+function sizeIn(
+	body: CanvasBody,
+	id: string,
+): { width: number; height: number } | null {
+	const found = body.nodes.find((node) => node.id === id);
+	return found ? estimatedNodeSize(found) : null;
+}
+
+/**
+ * Compares what the model asked for with what the judge settled: for every
+ * accepted add, was the place its own, and did a frame grow to hold it. Pure; the
+ * boards are the one the diff was judged against and the one it left. A block
+ * that went where it was told, in a frame that did not grow, is not listed.
+ */
+export function placementNotes(
+	before: CanvasBody,
+	after: CanvasBody,
+	asked: readonly BoardOp[],
+	settled: readonly BoardOp[],
+): PlacedNote[] {
+	const askedById = new Map<string, BoardOp>();
+	const askedFrameSize = new Map<string, { width: number; height: number }>();
+	for (const op of asked) {
+		const id = addedId(op);
+		if (id === undefined) continue;
+		askedById.set(id, op);
+		if (op.op === "add_frame") askedFrameSize.set(id, op.size);
+		if (op.op === "add_node" && op.node?.data?.kind === "frame") {
+			askedFrameSize.set(id, op.node.data);
+		}
+	}
+	const found: Array<{ entry: PlacedNote; silent: boolean }> = [];
+	const lastInFrame = new Map<string, number>();
+	for (const op of settled) {
+		const id = addedId(op);
+		const at =
+			op.op === "add_frame"
+				? op.position
+				: op.op === "add_node"
+					? op.node.position
+					: undefined;
+		if (id === undefined || !at) continue;
+		const parent = op.op === "add_node" ? op.node.parentId : undefined;
+		const asking = askedById.get(id);
+		const given =
+			asking?.op === "add_frame"
+				? asking.position
+				: asking?.op === "add_node"
+					? asking.node.position
+					: undefined;
+		const askedParent =
+			asking?.op === "add_node" ? asking.node.parentId : undefined;
+		const near =
+			asking?.op === "add_frame"
+				? asking.near
+				: asking?.op === "add_node"
+					? asking.node.near
+					: undefined;
+		const nearParent = near
+			? before.nodes.find((node) => node.id === near)?.parentId
+			: undefined;
+		const wantedFrame = askedParent ?? nearParent;
+		const outside = wantedFrame !== undefined && parent !== wantedFrame;
+		const adopted =
+			wantedFrame === undefined && parent !== undefined && given !== undefined;
+		const moved =
+			given !== undefined &&
+			!adopted &&
+			!outside &&
+			(given.x !== at.x || given.y !== at.y);
+		const entry: PlacedNote = {
+			id,
+			x: at.x,
+			y: at.y,
+			...(parent === undefined ? {} : { in: parent }),
+		};
+		if (outside) {
+			entry.note = `there was no room in "${wantedFrame}" and it could not grow: this is beside it, not in it`;
+		} else if (moved) {
+			entry.note = "that place was taken: moved to free ground";
+		} else if (adopted) {
+			entry.note = `its middle was over "${parent}", so it is in that frame`;
+		}
+		found.push({
+			entry,
+			silent: given !== undefined && !outside && !moved && !adopted,
+		});
+		if (parent !== undefined) lastInFrame.set(parent, found.length - 1);
+	}
+	// A frame that had to grow says so once, on the last block it grew for.
+	for (const [frameId, index] of lastInFrame) {
+		const was = sizeIn(before, frameId) ?? askedFrameSize.get(frameId);
+		const now = sizeIn(after, frameId);
+		if (!was || !now) continue;
+		if (now.width > was.width || now.height > was.height) {
+			const grew = `frame "${frameId}" grew to ${now.width}x${now.height} to hold it`;
+			const mark = found[index];
+			mark.entry.note = mark.entry.note ? `${mark.entry.note}; ${grew}` : grew;
+			mark.silent = false;
+		}
+	}
+	return found.filter((item) => !item.silent).map((item) => item.entry);
+}
 
 // ── What a client animates with ─────────────────────────────────────────
 

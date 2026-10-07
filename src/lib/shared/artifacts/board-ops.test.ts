@@ -15,6 +15,7 @@ import {
 	MAX_NEW_NODES_PER_DIFF,
 	MAX_OPS_PER_DIFF,
 	moveOps,
+	placementNotes,
 	refusalLabelKey,
 	structuralOps,
 	validateBoardDiff,
@@ -927,6 +928,142 @@ describe("validateBoardDiff — where a block goes when Alfy adds it (ruling 74)
 			fillBoard(MAX_NODES_PER_BOARD),
 		);
 		expect(refused[0]).toMatchObject({ reason: "limit_exceeded" });
+	});
+});
+
+describe("placementNotes — what the model is told about where its blocks went (ruling 74)", () => {
+	const frame = (id: string, x: number, y: number, w: number, h: number) => ({
+		id,
+		type: "frame" as const,
+		position: { x, y },
+		width: w,
+		height: h,
+		data: { kind: "frame" as const, label: id, width: w, height: h },
+	});
+	const sticky = (id: string, x: number, y: number, parentId?: string) => ({
+		id,
+		type: "sticky" as const,
+		position: { x, y },
+		width: 190,
+		...(parentId ? { parentId } : {}),
+		data: { kind: "sticky" as const, text: "note", tone: "plain" as const },
+	});
+	function board(...nodes: CanvasNode[]): CanvasBody {
+		return { ...sampleBoard(), nodes, edges: [], annotations: [] };
+	}
+	const add = (id: string, extra: Record<string, unknown> = {}) =>
+		({
+			op: "add_node",
+			node: {
+				id,
+				type: "sticky",
+				data: { kind: "sticky", text: "new", tone: "mint" },
+				...extra,
+			},
+		}) as BoardOp;
+	function notesFor(before: CanvasBody, ...ops: BoardOp[]) {
+		const run = land(before, ...ops);
+		return placementNotes(before, run.doc, ops, run.accepted);
+	}
+
+	it("says nothing of a block that went exactly where the model put it", () => {
+		expect(
+			notesFor(
+				board(sticky("a", 0, 0)),
+				add("n", { position: { x: 400, y: 400 } }),
+			),
+		).toEqual([]);
+	});
+
+	it("says where a block went that the model gave no place for, and in which frame", () => {
+		const notes = notesFor(
+			board(frame("f", 0, 0, 460, 360)),
+			add("n", { parentId: "f" }),
+			add("m", { near: "n" }),
+		);
+		expect(notes).toEqual([
+			{ id: "n", x: 20, y: 56, in: "f" },
+			{ id: "m", x: 234, y: 56, in: "f" },
+		]);
+	});
+
+	it("says a place that was taken was moved, and to where", () => {
+		const notes = notesFor(
+			board(sticky("a", 100, 100)),
+			add("n", { position: { x: 120, y: 110 } }),
+		);
+		expect(notes).toEqual([
+			{
+				id: "n",
+				x: 100,
+				y: 188,
+				note: "that place was taken: moved to free ground",
+			},
+		]);
+	});
+
+	it("says a frame grew, once, on the last block it grew for", () => {
+		const before = board(frame("f", 0, 0, 460, 160), sticky("a", 20, 56, "f"));
+		const notes = notesFor(
+			before,
+			add("b", { parentId: "f" }),
+			add("c", { parentId: "f" }),
+		);
+		expect(notes).toHaveLength(2);
+		expect(notes[0].note).toBeUndefined();
+		expect(notes[1].note).toMatch(/^frame "f" grew to 460x\d+ to hold it$/);
+	});
+
+	it("says a block is beside a frame and not in it when there was no room and the frame could not grow", () => {
+		const before = board(
+			frame("f", 0, 0, 460, 160),
+			sticky("a", 20, 56, "f"),
+			sticky("wall", 0, 180),
+		);
+		const notes = notesFor(before, {
+			op: "add_node",
+			node: {
+				id: "chart",
+				type: "chart",
+				parentId: "f",
+				data: {
+					kind: "chart",
+					code: '{"type":"bar","data":{"datasets":[{"data":[1]}]}}',
+				},
+			},
+		} as BoardOp);
+		expect(notes).toHaveLength(1);
+		expect(notes[0].in).toBeUndefined();
+		expect(notes[0].note).toBe(
+			'there was no room in "f" and it could not grow: this is beside it, not in it',
+		);
+	});
+
+	it("says a block whose middle was over a frame is in it", () => {
+		const notes = notesFor(
+			board(frame("f", 0, 0, 460, 360)),
+			add("n", { position: { x: 100, y: 100 } }),
+		);
+		expect(notes).toEqual([
+			{
+				id: "n",
+				x: 100,
+				y: 100,
+				in: "f",
+				note: 'its middle was over "f", so it is in that frame',
+			},
+		]);
+	});
+
+	it("says a new frame that was given no place went where it did", () => {
+		const notes = notesFor(board(sticky("a", 0, 0)), {
+			op: "add_frame",
+			id: "day",
+			label: "Day",
+			size: { width: 300, height: 200 },
+		});
+		expect(notes).toHaveLength(1);
+		expect(notes[0].id).toBe("day");
 	});
 });
 
