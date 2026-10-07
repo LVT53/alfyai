@@ -12,7 +12,9 @@
  *   loaded, or one that carries `themeCSS` / `fontFamily`, and a CSS `url(…)` in
  *   a class or state diagram's `classDef` / `style` (also spelt `\75rl(…)`);
  * - show a link inside the picture: `click`, and a sequence diagram's `link` and
- *   `links`, which survive Mermaid's own sanitizer as an `<a>`.
+ *   `links`, which survive Mermaid's own sanitizer as an `<a>`; and a sequence
+ *   diagram's `properties A: {"icon": "https://…"}` draws an `<image>` for the
+ *   actor, which the browser asks for as the diagram is measured.
  *
  * One function, `sanitizeMermaidSource`, takes those out of a source before
  * Mermaid reads it, whatever draws it: the chat's reply, a board's diagram block,
@@ -33,6 +35,7 @@ type Hazard =
 	| "shape-block"
 	| "click"
 	| "link"
+	| "properties"
 	| "directive"
 	| "config"
 	| "css-address";
@@ -254,6 +257,12 @@ const LINK_STATEMENT = new RegExp(
 	"gimd",
 );
 
+/** A sequence diagram's `properties A: {"icon": "…"}`: the actor is drawn with that picture, which the browser asks for as the diagram is measured. */
+const PROPERTIES_STATEMENT = new RegExp(
+	String.raw`${STATEMENT_START}(properties[ \t]+[^\s:;"']+[ \t]*:[^\n\r;]*)`,
+	"gimd",
+);
+
 function removeStatements(
 	text: string,
 	pattern: RegExp,
@@ -346,6 +355,7 @@ export function sanitizeMermaidSource(source: string): {
 		next = removeShapeBlocks(next, found);
 		next = removeStatements(next, CLICK_STATEMENT, "click", found);
 		next = removeStatements(next, LINK_STATEMENT, "link", found);
+		next = removeStatements(next, PROPERTIES_STATEMENT, "properties", found);
 		next = breakCssAddresses(next, found);
 		if (next === text) return { source: text, removed: [...found] };
 		text = next;
@@ -364,6 +374,7 @@ const REFUSED_AS: ReadonlyArray<readonly [Hazard, string]> = [
 	],
 	["click", "a click line"],
 	["link", "a link line"],
+	["properties", "a properties line, which can name a picture to load"],
 	["directive", "a %%{ … }%% directive"],
 	["config", "a front-matter config block"],
 	["css-address", "a CSS address (url(), image-set() or @import)"],

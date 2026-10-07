@@ -441,6 +441,30 @@ describe("sanitizeMermaidSource: a click or link line makes a box a link", () =>
 		).not.toContain(HOST);
 	});
 
+	it("removes a sequence diagram's properties line, which can name an icon the browser then loads", async () => {
+		// Measured: `properties A: {"icon": "https://…"}` draws an <image> for the actor, and
+		// the browser asks for it as the diagram is measured.
+		for (const line of [
+			`properties A: {"icon": "${HOST}/p.png", "class": "service"}`,
+			`PROPERTIES A: {"icon": "${HOST}/p.png"}`,
+			`properties A: {"icon": "@clock"}`,
+		]) {
+			const result = sanitizeMermaidSource(
+				`sequenceDiagram\n  participant A\n  ${line}\n  A->>A: hi`,
+			);
+			expect(result.source, line).toBe(
+				"sequenceDiagram\n  participant A\n  A->>A: hi",
+			);
+			expect(result.removed).toEqual(["properties"]);
+			expect(await parses(result.source)).toBe(true);
+		}
+		expect(
+			sanitizeMermaidSource(
+				`sequenceDiagram\n  A->>A: hi; properties A: {"icon": "${HOST}/p.png"}`,
+			).source,
+		).not.toContain(HOST);
+	});
+
 	it("keeps words that only look like one: a node called click or link, a label, a note", () => {
 		for (const source of [
 			"flowchart LR\n  click --> B",
@@ -449,6 +473,8 @@ describe("sanitizeMermaidSource: a click or link line makes a box a link", () =>
 			'flowchart LR\n  A["click B href x"] --> B',
 			"stateDiagram-v2\n  [*] --> A\n  note right of A\n    click here to continue\n  end note",
 			"sequenceDiagram\n  A->>B: link to docs: see below",
+			"sequenceDiagram\n  A->>B: properties of the account: see below",
+			"flowchart LR\n  properties --> B",
 		]) {
 			expect(sanitizeMermaidSource(source), source).toEqual({
 				source,
@@ -638,6 +664,11 @@ describe("mermaidSourceProblem: the door a model writes a diagram through", () =
 			"a link line",
 			`sequenceDiagram\n  link A: D @ ${HOST}/s\n  A->>A: hi`,
 			"a link line",
+		],
+		[
+			"a properties line",
+			`sequenceDiagram\n  participant A\n  properties A: {"icon": "${HOST}/p.png"}`,
+			"a properties line",
 		],
 		[
 			"a directive",

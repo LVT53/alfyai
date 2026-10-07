@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { db } from "../../src/lib/server/db";
 import { messages } from "../../src/lib/server/db/schema";
-import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
 import type { CanvasNode } from "../../src/lib/shared/artifacts/canvas";
+import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
 import {
 	bareSpot,
 	centre,
@@ -126,6 +126,17 @@ const HOSTILE: Case[] = [
 		].join("\n"),
 	},
 	{
+		name: "a sequence diagram's properties line that names an icon",
+		words: ["Docs", "Done", "hello"],
+		source: [
+			"sequenceDiagram",
+			"  participant A as Docs",
+			"  participant B as Done",
+			`  properties A: {"icon": "${URL("icon.png")}"}`,
+			"  A->>B: hello",
+		].join("\n"),
+	},
+	{
 		name: "a class diagram style with a url() spelt with a CSS escape",
 		words: ["Docs", "Done"],
 		source: [
@@ -169,7 +180,7 @@ const ORDINARY: Case[] = [
 			"%% a plain comment",
 			"flowchart TD",
 			"  A[Start] --> B{Choice}",
-			"  B -->|yes| C@{ shape: cyl, label: \"Store\" }",
+			'  B -->|yes| C@{ shape: cyl, label: "Store" }',
 			"  B -->|no| D[Skip]",
 			"  style A fill:#f9f,stroke:#333,stroke-width:2px",
 			"  classDef good fill:#bbf,stroke:#33f",
@@ -180,10 +191,9 @@ const ORDINARY: Case[] = [
 	{
 		name: "a flowchart whose labels say click and link",
 		words: ["Click here", "Link it"],
-		source: [
-			"flowchart LR",
-			'  A["Click here"] -->|link| B["Link it"]',
-		].join("\n"),
+		source: ["flowchart LR", '  A["Click here"] -->|link| B["Link it"]'].join(
+			"\n",
+		),
 	},
 	{
 		name: "a titled sequence diagram with a coloured block",
@@ -225,10 +235,7 @@ const ORDINARY: Case[] = [
 	{
 		name: "an ER diagram",
 		words: ["CUSTOMER", "ORDER"],
-		source: [
-			"erDiagram",
-			"  CUSTOMER ||--o{ ORDER : places",
-		].join("\n"),
+		source: ["erDiagram", "  CUSTOMER ||--o{ ORDER : places"].join("\n"),
 	},
 	{
 		name: "a Gantt chart",
@@ -244,7 +251,7 @@ const ORDINARY: Case[] = [
 	{
 		name: "a pie chart",
 		words: ["Dogs", "Cats"],
-		source: ['pie title Pets', '  "Dogs" : 386', '  "Cats" : 85'].join("\n"),
+		source: ["pie title Pets", '  "Dogs" : 386', '  "Cats" : 85'].join("\n"),
 	},
 ];
 
@@ -275,15 +282,30 @@ async function openChat(page: Page, conversationId: string) {
 	await page.reload({ waitUntil: "networkidle" });
 }
 
+/** Every diagram of the page is drawn, and none gave up (a failure says which of the two it was). */
+async function expectAllDrawn(page: Page, count: number) {
+	await expect
+		.poll(
+			async () => ({
+				drawn: await page.locator(".markdown-mermaid").count(),
+				gaveUp: await page.locator(".markdown-diagram-error").count(),
+			}),
+			{ timeout: 60_000 },
+		)
+		.toEqual({ drawn: count, gaveUp: 0 });
+}
+
 /** The links a drawing offers: an anchor, or anything that points at an address that is not its own fragment. */
 async function linksIn(scope: Locator): Promise<string[]> {
 	return scope.evaluate((root) => {
 		const found: string[] = [];
 		for (const element of root.querySelectorAll("*")) {
-			if (element.localName === "a") found.push(`<a> ${element.outerHTML.slice(0, 80)}`);
+			if (element.localName === "a")
+				found.push(`<a> ${element.outerHTML.slice(0, 80)}`);
 			for (const name of ["href", "xlink:href", "src"]) {
 				const value = element.getAttribute(name);
-				if (value && !value.startsWith("#")) found.push(`${element.localName}[${name}]=${value}`);
+				if (value && !value.startsWith("#"))
+					found.push(`${element.localName}[${name}]=${value}`);
 			}
 		}
 		return found;
@@ -302,10 +324,18 @@ async function reachesOut(scope: Locator): Promise<string[]> {
 					found.push(`${element.localName}[${attribute.name}]`);
 				}
 			}
-			if (element.localName === "style" && (pattern.test(element.textContent ?? "") || /@import/i.test(element.textContent ?? ""))) {
+			if (
+				element.localName === "style" &&
+				(pattern.test(element.textContent ?? "") ||
+					/@import/i.test(element.textContent ?? ""))
+			) {
 				found.push("style element");
 			}
-			if (["img", "image", "iframe", "object", "embed", "link"].includes(element.localName)) {
+			if (
+				["img", "image", "iframe", "object", "embed", "link"].includes(
+					element.localName,
+				)
+			) {
 				found.push(element.localName);
 			}
 		}
@@ -325,7 +355,10 @@ async function expectDrawn(diagram: Locator, entry: Case) {
 		expect.soft(text, `${entry.name}: the word ${word}`).toContain(word);
 	}
 	expect
-		.soft(await diagram.locator(".markdown-diagram-error").count(), `${entry.name}: error note`)
+		.soft(
+			await diagram.locator(".markdown-diagram-error").count(),
+			`${entry.name}: error note`,
+		)
 		.toBe(0);
 }
 
@@ -343,7 +376,7 @@ test.describe("what a diagram asks for is not what the chat's Mermaid does", () 
 		await openChat(page, conversationId);
 
 		const diagrams = page.locator(".markdown-mermaid");
-		await expect(diagrams).toHaveCount(HOSTILE.length, { timeout: 60_000 });
+		await expectAllDrawn(page, HOSTILE.length);
 		for (const [index, entry] of HOSTILE.entries()) {
 			const diagram = diagrams.nth(index);
 			await expectDrawn(diagram, entry);
@@ -356,7 +389,9 @@ test.describe("what a diagram asks for is not what the chat's Mermaid does", () 
 		// can arrive a moment after it is drawn: look once more after the page is idle.
 		await page.waitForLoadState("networkidle");
 		await page.waitForTimeout(800);
-		expect.soft(calls, "what the browser asked the stand-in host for").toEqual([]);
+		expect
+			.soft(calls, "what the browser asked the stand-in host for")
+			.toEqual([]);
 	});
 
 	test("ordinary diagrams are drawn as they always were: nothing in them is left out", async ({
@@ -367,21 +402,21 @@ test.describe("what a diagram asks for is not what the chat's Mermaid does", () 
 		await openChat(page, conversationId);
 
 		const diagrams = page.locator(".markdown-mermaid");
-		await expect(diagrams).toHaveCount(ORDINARY.length, { timeout: 60_000 });
+		await expectAllDrawn(page, ORDINARY.length);
 		for (const [index, entry] of ORDINARY.entries()) {
 			const diagram = diagrams.nth(index);
 			await expectDrawn(diagram, entry);
-			await expect(diagram, `${entry.name}: nothing removed`).not.toHaveAttribute(
-				"data-removed",
-				/.+/,
-			);
+			await expect(
+				diagram,
+				`${entry.name}: nothing removed`,
+			).not.toHaveAttribute("data-removed", /.+/);
 		}
 		expect(calls).toEqual([]);
 	});
 });
 
 const BOARD_HOSTILE = [
-	"%%{init: {\"htmlLabels\": true}}%%",
+	'%%{init: {"htmlLabels": true}}%%',
 	"flowchart LR",
 	`  A@{ img: "${URL("board-shape.png")}", label: "Docs" } --> B["Done <img src='${URL("board-label.png")}'>"]`,
 	`  click A href "${URL("board-click")}" _blank`,
@@ -417,12 +452,20 @@ test.describe("a board's diagram block draws through the same gate, whoever wrot
 		await openCanvasPanel(page);
 
 		const drawing = page.getByTestId("canvas-mermaid");
-		await expect(drawing.locator("svg").first()).toBeVisible({ timeout: 30_000 });
+		await expect(drawing.locator("svg").first()).toBeVisible({
+			timeout: 30_000,
+		});
 		await page.waitForTimeout(800);
-		expect.soft(calls, "what the browser asked the stand-in host for").toEqual([]);
+		expect
+			.soft(calls, "what the browser asked the stand-in host for")
+			.toEqual([]);
 		expect.soft(await linksIn(drawing), "links").toEqual([]);
 		expect.soft(await reachesOut(drawing), "reaches out").toEqual([]);
-		await expectDrawn(drawing, { name: "the stored diagram", words: ["Docs", "Done"], source: "" });
+		await expectDrawn(drawing, {
+			name: "the stored diagram",
+			words: ["Docs", "Done"],
+			source: "",
+		});
 	});
 
 	test("the reader's own edit of a diagram's source goes through it too", async ({
@@ -460,16 +503,26 @@ test.describe("a board's diagram block draws through the same gate, whoever wrot
 		await click(
 			page,
 			"mouse",
-			centre((await form.getByTestId("canvas-edit-save").boundingBox()) as never),
+			centre(
+				(await form.getByTestId("canvas-edit-save").boundingBox()) as never,
+			),
 		);
 		await expect(form).toHaveCount(0);
 
-		await expect(drawing.locator("svg").first()).toBeVisible({ timeout: 30_000 });
+		await expect(drawing.locator("svg").first()).toBeVisible({
+			timeout: 30_000,
+		});
 		await page.waitForTimeout(800);
-		expect.soft(calls, "what the browser asked the stand-in host for").toEqual([]);
+		expect
+			.soft(calls, "what the browser asked the stand-in host for")
+			.toEqual([]);
 		expect.soft(await linksIn(drawing), "links").toEqual([]);
 		expect.soft(await reachesOut(drawing), "reaches out").toEqual([]);
-		await expectDrawn(drawing, { name: "the edited diagram", words: ["Docs", "Done"], source: "" });
+		await expectDrawn(drawing, {
+			name: "the edited diagram",
+			words: ["Docs", "Done"],
+			source: "",
+		});
 		// The board keeps what the reader typed; what is drawn is what the gate lets through.
 		await expect
 			.poll(async () => {
