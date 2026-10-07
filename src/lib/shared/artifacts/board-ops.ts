@@ -33,11 +33,11 @@ import {
 	isModelCreatableKind,
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	MODEL_CREATABLE_KINDS,
-	mermaidSourceProblem,
 	modelCreatableBlockDataSchema,
 	modelUpdatableFields,
 	storedBlockData,
 } from "./canvas-model-blocks";
+import { mermaidSourceProblem } from "./mermaid-source";
 import { plannedNodeSize } from "./node-size";
 import type { OpRefusal, OpsJudgeContext, OpsVocabulary } from "./ops";
 

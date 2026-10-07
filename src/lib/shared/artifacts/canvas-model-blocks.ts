@@ -1,8 +1,8 @@
 /**
  * What the MODEL may add to a board, and change on one (decisions.md rulings 64,
- * 67 and 74): the strict variants of the six kinds it writes, the fields of each
- * it may change afterwards, and the rules for what a diagram source it writes
- * may carry. Its own module, and not part of `canvas-blocks.ts`, because
+ * 67 and 74): the strict variants of the six kinds it writes and the fields of
+ * each it may change afterwards (what a diagram source it writes may carry is
+ * `mermaid-source.ts`'s rule). Its own module, and not part of `canvas-blocks.ts`, because
  * everything in that module is in the editor's first paint and none of this is
  * the editor's: the server judges what a model sends with it, and the editor
  * never needs a schema stricter than the one it stores (ruling 68's size gate).
@@ -141,34 +141,4 @@ export function storedBlockData<T>(data: T): T {
 		}
 	}
 	return data;
-}
-
-/**
- * What a diagram's source may not carry when the MODEL writes it (ruling 74, on
- * the reasoning of ruling 67). The board draws it with the chat's own component
- * under the chat's own security settings (`securityLevel: "strict"`, labels as
- * SVG text, the SVG through the app's sanitizer), and what the chat draws from a
- * reply is by nature the model's words. But a board keeps them, and draws them
- * again on every open, so what asks the reader's browser to fetch an address, or
- * hands them a link inside the picture, is not written onto one: an image or icon
- * shape (Mermaid fetches the picture while it draws, before any sanitizer
- * runs), a `click` line (it makes a box a link), a `%%{ … }%%` directive (it
- * reconfigures the renderer the app has configured), a web address. What the
- * reader inserts from the chat is the chat's own and is not judged here.
- */
-const MERMAID_SOURCE_REFUSALS: ReadonlyArray<readonly [RegExp, string]> = [
-	[/@\{[^}]*\b(?:img|icon)\b/i, "an image or icon shape"],
-	[/^\s*click\s/im, "a click line"],
-	[/%%\s*\{/, "a %%{ … }%% directive"],
-	[/\bhttps?:\/\//i, "a web address"],
-];
-
-/** What is wrong with a diagram source the model wrote, in a sentence it can act on, or null. */
-export function mermaidSourceProblem(code: string): string | null {
-	for (const [pattern, what] of MERMAID_SOURCE_REFUSALS) {
-		if (pattern.test(code)) {
-			return `a diagram's source may not contain ${what}: the board draws boxes, arrows and words, and anything that loads or links an address would reach whoever opens it. Write the diagram without it.`;
-		}
-	}
-	return null;
 }

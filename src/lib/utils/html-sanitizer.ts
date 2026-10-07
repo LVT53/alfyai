@@ -1,4 +1,5 @@
 import DOMPurify from "isomorphic-dompurify";
+import { decodeCssEscapes } from "./css-escapes";
 
 // Neutralize outbound/networked references inside a CSS string. DOMPurify passes
 // <style> element CSS text (and, with the SVG profile, `style` attribute values)
@@ -18,19 +19,61 @@ import DOMPurify from "isomorphic-dompurify";
 // HTML regex.
 function scrubCssExternalReferences(css: string): string {
 	if (!css) return css;
+	// A browser reads CSS with its escapes undone (`\75rl(` is `url(`), so that is the
+	// text scrubbed; text with nothing in it to scrub comes back as it was written.
+	const reading = css.includes("\\") ? decodeCssEscapes(css) : css;
+	if (!/url\(|@import|image-set\(|src\(/i.test(reading)) return css;
 	// Drop @import rules (both `@import "..."` and `@import url(...)` forms).
-	let out = css.replace(/@import\b[^;]*;?/gi, "");
+	let out = reading.replace(/@import\b[^;]*;?/gi, "");
 	// Neutralize external url(...) references, handling quoted and bare targets.
-	out = out.replace(
-		/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)/gi,
-		(match, doubleQuoted, singleQuoted, bare) => {
-			const target = String(doubleQuoted ?? singleQuoted ?? bare ?? "").trim();
-			if (target.startsWith("#")) return match; // internal fragment ref — keep
-			if (/^data:/i.test(target)) return match; // inline data URI — keep
-			return "none"; // external / networked reference — drop
-		},
+	out = replaceCalls(out, /url\(/gi, (target) =>
+		target.startsWith("#") || /^data:/i.test(target) ? null : "none",
 	);
-	return out;
+	// image-set() and src() take an address as a string, with no url() in it to catch.
+	out = replaceCalls(
+		out,
+		/(?:-webkit-)?image-set\(|\bsrc\(\s*(?=["'])/gi,
+		() => "none",
+	);
+	return out === reading ? css : out;
+}
+
+/**
+ * Each call whose opening `head` matches, up to its first closing bracket, as
+ * `decide` says: its replacement, or null to keep it. One pass over the text, so a
+ * source of thousands of unclosed calls is not quadratic (the first version used a
+ * lazy pattern that was). A call with no bracket to close it still counts: CSS ends
+ * an open `url(` at the end of the value, and what is left would be its address.
+ */
+function replaceCalls(
+	text: string,
+	head: RegExp,
+	decide: (target: string) => string | null,
+): string {
+	let out = "";
+	let at = 0;
+	for (const match of text.matchAll(head)) {
+		if (match.index < at) continue;
+		const open = match.index + match[0].length;
+		const close = text.indexOf(")", open);
+		const end = close < 0 ? text.length : close;
+		const replacement = decide(
+			text.slice(open, end).trim().replace(/^["']/, ""),
+		);
+		if (replacement === null) continue;
+		out += text.slice(at, match.index) + replacement;
+		at = close < 0 ? text.length : close + 1;
+	}
+	return out + text.slice(at);
+}
+
+/** A reference a diagram may keep: to something inside the picture, or a picture held in the attribute itself. */
+function ownReference(value: string): boolean {
+	const target = value.trim();
+	return (
+		target.startsWith("#") ||
+		/^data:image\/(?:png|jpe?g|gif|webp|svg\+xml)[;,]/i.test(target)
+	);
 }
 
 export function sanitizeHtml(
@@ -47,6 +90,12 @@ export function sanitizeHtml(
 		// <script>, event handlers, and javascript: URLs from inside the SVG. We
 		// prefer the profile over hand-listing dozens of SVG tags because that list
 		// would drift out of date with mermaid's output and is easy to under-specify.
+		// It is also the diagram's second gate (the first reads the source,
+		// `shared/artifacts/mermaid-source.ts`): a diagram is a picture, so the SVG it
+		// returns has no link (`<a>` is unwrapped), keeps an `href` only to something
+		// inside it (`#id`) or a picture it holds (`data:image/…`), and has any CSS
+		// address scrubbed from every attribute and from <style> alike, since the
+		// browser asks for a paint server, a cursor or a picture as soon as it draws.
 		svg?: boolean;
 	} = {},
 ): string {
@@ -54,13 +103,15 @@ export function sanitizeHtml(
 
 	// Style is opted in on the SVG/mermaid path. Wrap the sanitize call in
 	// DOMPurify hooks that scrub external references out of <style> element CSS
-	// and inline `style` attribute values. Hooks are global on the instance, so
+	// and inline `style` attribute values; on the SVG path they also reach every
+	// other attribute (`fill`, `filter`, `cursor`, … take a url() as well) and drop
+	// an `href` that points outside the picture. Hooks are global on the instance, so
 	// they are added just for this call and removed in `finally` — sanitize is
 	// synchronous (single-threaded), so no other sanitize call can interleave.
 	// We prefer hooks over a raw-string regex because DOMPurify parses the HTML
 	// for us; our regex only ever runs on already-isolated CSS text.
 	const scrubStyleCss = Boolean(
-		options.allowStyleTags || options.allowStyleAttributes,
+		options.allowStyleTags || options.allowStyleAttributes || options.svg,
 	);
 	if (scrubStyleCss) {
 		DOMPurify.addHook("uponSanitizeElement", (node, data) => {
@@ -71,7 +122,15 @@ export function sanitizeHtml(
 			}
 		});
 		DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
-			if (data.attrName === "style" && data.attrValue) {
+			if (
+				options.svg &&
+				(data.attrName === "href" || data.attrName === "xlink:href") &&
+				!ownReference(data.attrValue)
+			) {
+				data.keepAttr = false;
+				return;
+			}
+			if (data.attrValue && (options.svg || data.attrName === "style")) {
 				data.attrValue = scrubCssExternalReferences(data.attrValue);
 			}
 		});
@@ -82,7 +141,11 @@ export function sanitizeHtml(
 			USE_PROFILES: options.svg
 				? { html: true, svg: true, svgFilters: true }
 				: { html: true },
-			FORBID_TAGS: options.allowStyleTags ? ["script"] : ["script", "style"],
+			FORBID_TAGS: [
+				"script",
+				...(options.allowStyleTags ? [] : ["style"]),
+				...(options.svg ? ["a"] : []),
+			],
 			FORBID_ATTR: options.allowStyleAttributes ? [] : ["style"],
 			// A3 rich blocks: <details>/<summary> back the accordion block (raw-HTML
 			// passthrough syntax). They are part of DOMPurify's default HTML profile,
