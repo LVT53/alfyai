@@ -71,6 +71,18 @@ function madeItem(
 	};
 }
 
+/**
+ * The panel an item opened in: its desktop shell. A phone's overlay is its twin
+ * in the markup and the stylesheet shows one of the two, so a role lookup alone
+ * finds both here.
+ */
+async function findPanel(name: string): Promise<HTMLElement> {
+	const shells = await screen.findAllByRole("dialog", { name });
+	const desktop = shells.find((shell) => shell.tagName === "ASIDE");
+	if (!desktop) throw new Error(`no desktop shell is named "${name}"`);
+	return desktop;
+}
+
 function open(
 	files: ProjectKnowledgeItem[] | null,
 	options: {
@@ -169,13 +181,15 @@ describe("ProjectFilesDialog document workspace", () => {
 
 		await fireEvent.click(screen.getByTestId("project-file-preview"));
 
-		const shell = await screen.findByRole("complementary", {
-			name: "Wien itinerary.pdf, File",
-		});
+		const shell = await findPanel("Wien itinerary.pdf, File");
 		expect(within(shell).getByText("Wien itinerary.pdf")).toBeInTheDocument();
-		// The Files modal itself is the one dialog; the preview does not draw a
-		// second, competing modal on top of it.
-		expect(screen.getAllByRole("dialog")).toHaveLength(1);
+		// Two layers, one modal: the preview is the modal layer over the Files
+		// dialog, which gives the claim up while the preview is open.
+		expect(shell).toHaveAttribute("aria-modal", "true");
+		expect(screen.getByRole("dialog", { name: "Files" })).toHaveAttribute(
+			"aria-modal",
+			"false",
+		);
 	});
 });
 
@@ -365,13 +379,10 @@ describe("ProjectFilesDialog: what the chats made", () => {
 			screen.getByRole("button", { name: "Open Vienna notes" }),
 		);
 
-		const shell = await screen.findByRole("complementary", {
-			name: "Vienna notes, Document",
-		});
+		const shell = await findPanel("Vienna notes, Document");
 		const body = await within(shell).findByTestId("fake-artifact-body");
 		expect(body.dataset.kind).toBe("document");
 		expect(body.dataset.artifactId).toBe("doc-1");
-		expect(screen.getAllByRole("dialog")).toHaveLength(1);
 	});
 
 	it("names the reader to the panel it opens an item in, so the tours' answers are theirs", async () => {
@@ -386,9 +397,7 @@ describe("ProjectFilesDialog: what the chats made", () => {
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Open Vienna notes" }),
 		);
-		await screen.findByRole("complementary", {
-			name: "Vienna notes, Document",
-		});
+		await findPanel("Vienna notes, Document");
 
 		await vi.waitFor(() =>
 			expect(keepArtifactToursFor).toHaveBeenCalledWith("reader-1"),
@@ -403,22 +412,38 @@ describe("ProjectFilesDialog: what the chats made", () => {
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Open Vienna notes" }),
 		);
-		await screen.findByRole("complementary", {
-			name: "Vienna notes, Document",
-		});
+		await findPanel("Vienna notes, Document");
 
 		await fireEvent.keyDown(window, { key: "Escape" });
 
 		expect(onClose).not.toHaveBeenCalled();
 		await waitFor(() =>
 			expect(
-				screen.queryByRole("complementary", { name: "Vienna notes, Document" }),
-			).not.toBeInTheDocument(),
+				screen.queryAllByRole("dialog", { name: "Vienna notes, Document" }),
+			).toHaveLength(0),
 		);
 		expect(screen.getByRole("dialog", { name: "Files" })).toBeInTheDocument();
 
 		await fireEvent.keyDown(window, { key: "Escape" });
 		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	// The panel is the modal layer to assistive technology while it is open
+	// (RV-F follow-up): the dialog under it gives the claim up and takes it back.
+	it("stops claiming to be modal while the panel is open over it, and claims it again once the panel is gone", async () => {
+		open([madeItem()]);
+		const files = screen.getByRole("dialog", { name: "Files" });
+		expect(files).toHaveAttribute("aria-modal", "true");
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open Vienna notes" }),
+		);
+		const panel = await findPanel("Vienna notes, Document");
+		expect(panel).toHaveAttribute("aria-modal", "true");
+		expect(files).toHaveAttribute("aria-modal", "false");
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+		await waitFor(() => expect(files).toHaveAttribute("aria-modal", "true"));
 	});
 
 	it("offers no unlink on an item that is here only through its chat, and one on a linked item", () => {

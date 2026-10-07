@@ -25,6 +25,8 @@ import {
 	login,
 	logout,
 	waitForHydration,
+	waitForMotionToSettle,
+	waitForStableBoundingBox,
 } from "./helpers";
 
 /**
@@ -492,5 +494,320 @@ test.describe("The tours' reader, where the panel sits over the Files dialog", (
 
 		await page.keyboard.press("Escape");
 		await expect(dialog).toHaveCount(0);
+	});
+});
+
+/**
+ * A press outside the expanded panel while it sits over the Files dialog
+ * (FX-B2, 1). The panel leaves a ring of the dialog's own scrim around itself
+ * (20 px, more on a wide window), and a press there is a press on the dialog
+ * as far as the browser goes: the panel closes on it, and the same press's
+ * click then reached the dialog's scrim, which closed the dialog too. A press
+ * closes the layer that was on top when it began and no other, which is what
+ * one Escape does.
+ */
+
+/**
+ * A layer is still there once whatever was fading out has finished: a dialog
+ * that is closing stays "visible" to a bare `toBeVisible()` for the length of
+ * its fade, so the answer is asked after the motion has settled.
+ */
+async function expectLayerStays(page: Page, layer: Locator, message: string) {
+	await waitForMotionToSettle(page);
+	await expect(layer, message).toHaveCount(1);
+	await expect(layer, message).toBeVisible();
+}
+
+/** A real press on the dialog's scrim, in the ring the expanded panel leaves round itself. */
+async function pressRing(page: Page, panel: Locator) {
+	await waitForStableBoundingBox(panel);
+	await waitForMotionToSettle(page);
+	const box = await panel.boundingBox();
+	if (!box) throw new Error("the panel has no box to leave a ring round");
+	expect(box.x, "the panel leaves a ring on its left").toBeGreaterThan(4);
+	await page.mouse.click(box.x / 2, box.y + box.height / 2);
+}
+
+test.describe("A press outside the panel over a project's Files dialog", () => {
+	for (const width of [1440, 1920]) {
+		test(`closes the panel and not the dialog under it (${width} px wide)`, async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width, height: 1000 });
+			await login(page);
+			const { projectId, names } = await seedMadeProject(await testUserId());
+			const dialog = await openFilesDialog(page, projectId);
+			await openButton(dialog, names.document).click();
+			const panel = panelShell(page);
+			await expect(panel.getByTestId("artifact-panel-title")).toBeVisible({
+				timeout: 30_000,
+			});
+
+			await pressRing(page, panel);
+
+			await expect(panel).toHaveCount(0);
+			await expectLayerStays(page, dialog, "the dialog is still there");
+
+			// The dialog is the topmost layer again, and answers the keys as its own.
+			await page.keyboard.press("Escape");
+			await expect(dialog).toHaveCount(0);
+			await expect(page.getByTestId("project-files-button")).toBeFocused();
+		});
+	}
+
+	test("with the Download popover open, closes the popover only; the next closes the panel, the next the dialog", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		await openButton(dialog, names.document).click();
+		const panel = panelShell(page);
+		const download = panel.getByTestId("artifact-download-button");
+		await expect(download).toBeVisible({ timeout: 30_000 });
+		await download.click();
+		const popover = page.getByTestId("document-download-popover");
+		await expect(popover).toBeVisible();
+
+		await pressRing(page, panel);
+		await expect(popover).toHaveCount(0);
+		await expectLayerStays(page, panel, "the panel is still there");
+		await expectLayerStays(page, dialog, "the dialog is still there");
+
+		await pressRing(page, panel);
+		await expect(panel).toHaveCount(0);
+		await expectLayerStays(page, dialog, "the dialog is still there");
+
+		await page.mouse.click(8, 500);
+		await expect(dialog).toHaveCount(0);
+	});
+
+	test("inside the panel's own popover leaves the panel open", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		await openButton(dialog, names.document).click();
+		const panel = panelShell(page);
+		const download = panel.getByTestId("artifact-download-button");
+		await expect(download).toBeVisible({ timeout: 30_000 });
+		await download.click();
+		const popover = page.getByTestId("document-download-popover");
+		await expect(popover).toBeVisible();
+		const box = await popover.boundingBox();
+		if (!box) throw new Error("the popover has no box");
+
+		// The popover is a layer of its own, painted outside the panel's markup:
+		// a press on its heading is a press on the popover, not outside the panel.
+		await page.mouse.click(box.x + 40, box.y + 20);
+
+		await expectLayerStays(page, panel, "the panel is still there");
+		await expect(popover).toBeVisible();
+		await expectLayerStays(page, dialog, "the dialog is still there");
+	});
+});
+
+/**
+ * What assistive technology is told about the layers (FX-B2, 2). The Files
+ * dialog is an `aria-modal` dialog, and the panel is an `aside` that stays where
+ * its page put it, so it is not even later in the document than the dialog (a
+ * dialog is moved to the end of <body> when it opens). A screen reader that
+ * limits itself to the modal layer would have been left in the dialog with the
+ * panel hidden from it. While the panel sits over the dialog it is the one
+ * modal layer, and the dialog stops claiming to be one until the panel is gone.
+ *
+ * Asked of the browser's own accessibility tree (what the platform's screen
+ * readers are given), not only of the markup.
+ */
+
+type AxNode = {
+	ignored?: boolean;
+	name?: { value?: string };
+	properties?: { name: string; value?: { value?: unknown } }[];
+};
+
+/** The names of the layers the browser's accessibility tree says are modal. */
+async function modalLayers(page: Page): Promise<string[]> {
+	const client = await page.context().newCDPSession(page);
+	try {
+		await client.send("Accessibility.enable");
+		const { nodes } = (await client.send("Accessibility.getFullAXTree")) as {
+			nodes: AxNode[];
+		};
+		return nodes
+			.filter(
+				(node) =>
+					!node.ignored &&
+					node.properties?.some(
+						(property) =>
+							property.name === "modal" && property.value?.value === true,
+					),
+			)
+			.map((node) => node.name?.value ?? "");
+	} finally {
+		await client.detach();
+	}
+}
+
+test.describe("The panel as the modal layer over a project's Files dialog", () => {
+	test("is the one modal layer while it sits over the dialog, and the dialog is again once it is gone", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		await expect(dialog).toHaveAttribute("aria-modal", "true");
+		expect(await modalLayers(page)).toEqual(["Files"]);
+
+		await openButton(dialog, names.document).click();
+		const panel = page.getByRole("dialog", {
+			name: `${names.document}, Document`,
+		});
+		await expect(panel).toBeVisible({ timeout: 30_000 });
+		await expect(panel).toHaveAttribute("aria-modal", "true");
+
+		// One modal layer in the markup that is shown (the panel's twin for the
+		// other viewport is not rendered) and in the browser's own tree: the panel.
+		await expect(page.locator('[aria-modal="true"]:visible')).toHaveCount(1);
+		await expect(dialog).toHaveAttribute("aria-modal", "false");
+		await expect
+			.poll(() => modalLayers(page))
+			.toEqual([`${names.document}, Document`]);
+		// Nothing above the panel hides it from assistive technology.
+		expect(
+			await panel.evaluate(
+				(node) => node.closest('[aria-hidden="true"], [inert]') === null,
+			),
+		).toBe(true);
+
+		await page.keyboard.press("Escape");
+		await expect(panel).toHaveCount(0);
+		await expect(dialog).toHaveAttribute("aria-modal", "true");
+		await expect(page.locator('[aria-modal="true"]:visible')).toHaveCount(1);
+		await expect.poll(() => modalLayers(page)).toEqual(["Files"]);
+	});
+});
+
+test.describe("The panel as the modal layer over the Files sheet — phone", () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test("is the one modal layer on a phone too", async ({ page }) => {
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		expect(await modalLayers(page)).toEqual(["Files"]);
+
+		await openButton(dialog, names.document).tap();
+		const panel = page.getByRole("dialog", {
+			name: `${names.document}, Document`,
+		});
+		await expect(panel).toBeVisible({ timeout: 30_000 });
+
+		await expect(page.locator('[aria-modal="true"]:visible')).toHaveCount(1);
+		await expect(dialog).toHaveAttribute("aria-modal", "false");
+		await expect
+			.poll(() => modalLayers(page))
+			.toEqual([`${names.document}, Document`]);
+
+		await page.keyboard.press("Escape");
+		await expect(panel).toHaveCount(0);
+		await expect(dialog).toHaveAttribute("aria-modal", "true");
+		await expect.poll(() => modalLayers(page)).toEqual(["Files"]);
+	});
+});
+
+/**
+ * The page's scroll lock (FX-B2, 3). The Files dialog locks the page while it is
+ * open and releases it when the last layer on the dialog stack is gone. With the
+ * panel open over it, a browser Back takes the whole page away under both: the
+ * dialog was torn down first, found the panel still on the stack and left the
+ * lock, and nothing released it after the panel had gone too.
+ */
+const pageScrollLock = (page: Page) =>
+	page.evaluate(() => document.body.style.overflow);
+
+test.describe("The page's scroll lock under a project's Files dialog", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+	});
+
+	test("is held while a layer is open and released when the last one closes", async ({
+		page,
+	}) => {
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		await openProjectPage(page, projectId);
+		expect(await pageScrollLock(page)).toBe("");
+
+		const dialog = await openFilesDialogHere(page);
+		expect(await pageScrollLock(page)).toBe("hidden");
+
+		await openButton(dialog, names.document).click();
+		const panel = panelShell(page);
+		await expect(panel.getByTestId("artifact-panel-title")).toBeVisible({
+			timeout: 30_000,
+		});
+		expect(await pageScrollLock(page)).toBe("hidden");
+
+		await page.keyboard.press("Escape");
+		await expect(panel).toHaveCount(0);
+		await expect(dialog).toBeVisible();
+		expect(await pageScrollLock(page)).toBe("hidden");
+
+		await page.keyboard.press("Escape");
+		await expect(dialog).toHaveCount(0);
+		await expect.poll(() => pageScrollLock(page)).toBe("");
+	});
+
+	test("is released when browser Back takes the page away under the dialog and the panel", async ({
+		page,
+	}) => {
+		const { projectId, projectName, names } = await seedMadeProject(
+			await testUserId(),
+		);
+		await login(page);
+		// In through the app, so that Back is the app's own navigation and the
+		// tab keeps the page it has (a reload would start a page with no lock).
+		await ensureSidebarExpanded(page);
+		const row = page
+			.getByTestId("project-drop-target")
+			.filter({ hasText: projectName });
+		await row.hover();
+		await row.getByRole("button", { name: `Open ${projectName}` }).click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`));
+		await waitForHydration(page);
+		const dialog = await openFilesDialogHere(page);
+		await openButton(dialog, names.document).click();
+		await expect(
+			panelShell(page).getByTestId("artifact-panel-title"),
+		).toBeVisible({ timeout: 30_000 });
+		expect(await pageScrollLock(page)).toBe("hidden");
+		// A mark on the page the tab holds: Back must not be a reload, which
+		// would start a page with no lock whatever the dialog did.
+		await page.evaluate(() => {
+			(window as unknown as { __sameDocument: boolean }).__sameDocument = true;
+		});
+
+		await page.goBack();
+
+		await expect(page).toHaveURL("/");
+		await expect(page.getByTestId("message-input")).toBeVisible();
+		await expect(dialog).toHaveCount(0);
+		expect(
+			await page.evaluate(
+				() =>
+					(window as unknown as { __sameDocument?: boolean }).__sameDocument,
+			),
+			"Back was the app's own navigation, not a reload",
+		).toBe(true);
+		await expect.poll(() => pageScrollLock(page)).toBe("");
 	});
 });

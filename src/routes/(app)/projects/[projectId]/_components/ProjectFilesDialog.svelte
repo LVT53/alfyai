@@ -331,6 +331,7 @@ $effect(() => {
 		onClose={onClose}
 		maxWidthClass="max-w-[700px]"
 		phonePresentation="sheet"
+		covered={workspaceOpen}
 	>
 		<div class="files-dialog-head">
 			<span class="text-xl font-semibold text-text-primary"
@@ -543,7 +544,10 @@ $effect(() => {
 	     of the dialog stack, and the dialog's own Tab trap and Escape stand down
 	     for as long as it is there. After the dialog in the template on purpose:
 	     the stack is ordered by when a layer registers, and the dialog has to be
-	     the one underneath. -->
+	     the one underneath. It is the modal layer to assistive technology as
+	     well, and its markup is not later in the document than the dialog's (the
+	     dialog is moved to the end of <body>), so the dialog says it is `covered`
+	     and stops claiming to be modal while the panel is open. -->
 	<DocumentWorkspace
 		open={workspaceOpen}
 		presentation="expanded"
