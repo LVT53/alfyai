@@ -199,16 +199,26 @@ const HUNGARIAN_SUFFIXES = [
 	"ül",
 ];
 
-// --- explicit requests for a reply language -----------------------------------
+// --- explicit requests for a language ----------------------------------------
 //
-// One place decides whether the user explicitly asked for the reply in a given
-// language ("válaszolj angolul", "answer in Hungarian"); it is the first check
-// `resolveResponseLanguage` makes, so a request wins even when the message
-// itself is written in the other language (a Hungarian message ending "...
-// válaszolj angolul").
+// One place decides whether the user explicitly asked for a language ("válaszolj
+// angolul", "answer in Hungarian", "írj egy e-mailt angolul"), and for WHAT: the
+// reply itself, or a piece of writing the reply holds (ruling 75).
 //
-// A language word is a REQUEST only when the person asks for the answer in it.
-// A message that merely mentions the language keeps the conversation's: "Hogy
+//  - A request for the REPLY ("answer in English", "válaszolj angolul", "in
+//    English please", "beszéljünk angolul") is the first check
+//    `resolveResponseLanguage` makes, so it wins even when the message itself is
+//    written in the other language (a Hungarian message ending "...válaszolj
+//    angolul"): the whole turn changes language, chips and status line with it.
+//  - A request for CONTENT ("Írj egy e-mailt angolul a kollégámnak", "Write an
+//    email to my colleague in Hungarian") keeps the conversation in ITS language:
+//    only the piece is written in the other one. The turn does not flip;
+//    `detectContentLanguageRequest` says which language the piece is in, for the
+//    places that write it themselves (an App's UI) and for the line that tells the
+//    model the two differ.
+//
+// A language word is a request only when the person ASKS for something in it. A
+// message that merely mentions the language keeps the conversation's: "Hogy
 // mondják angolul, hogy alma?" is a Hungarian question about English and its
 // answer is Hungarian, "How do you say 'apple' in Hungarian?" is answered in
 // English. (The old rule took "angolul" / "in Hungarian" anywhere as a request:
@@ -218,15 +228,21 @@ const HUNGARIAN_SUFFIXES = [
 // Per sentence, with accents folded (people type "valaszolj angolul"):
 //  - a sentence that opens with a question word is a question ABOUT the language
 //    (how, what, which; hogy, mit, melyik) and requests nothing;
-//  - otherwise the language word asks for the reply when a directive about the
-//    reply (answer, write, speak, talk, explain, summarize; válaszolj, írd,
-//    beszéljünk, magyarázd, foglald össze) stands within seven words of it (an
-//    instruction that opens the sentence reaches twenty), or "please" / "kérlek"
-//    / "legyen" / "only" is right beside it, or the sentence is little more
-//    than the language word ("In English, please." / "Angolul.");
-//  - translate / fordítsd, learn / tanulni, mean / jelent and "can you speak"
-//    are none of those, so they never flip it.
-// The latest request in the message wins.
+//  - a REPLY directive (answer, speak, talk, continue, explain, summarize;
+//    válaszolj, beszéljünk, folytasd, magyarázd, foglald össze) within seven words
+//    of the language word (an instruction that opens the sentence reaches twenty)
+//    asks for the reply; so does "please" / "kérlek" / "legyen" / "only" right
+//    beside it, and a sentence that is little more than the language word ("In
+//    English, please." / "Angolul.");
+//  - a CONTENT directive (write, draft, compose, make, give me; írj, fogalmazz,
+//    készíts, adj) asks for content: "Write an email in English", "Írj egy
+//    e-mailt angolul". It asks for the reply only when there is nothing to write
+//    ("Write in English, please", "Írj nekem angolul") or what is to be written is
+//    the reply ("Write your answers in Hungarian"). A definite Hungarian form
+//    ("Írd angolul") carries its object, so it is content too;
+//  - translate / fordítsd asks for content; learn / tanulni, mean / jelent and
+//    "can you speak" ask for nothing.
+// The latest request of each kind in the message wins.
 
 const wordSet = (list: string) => new Set(list.split(" "));
 
@@ -246,6 +262,9 @@ type LanguageMarker = {
 	// "English" with no preposition, which only a few shapes read as a request.
 	kind: "adverb" | "in" | "bare";
 };
+
+// What a language word was asked for: the reply, or a piece of writing in it.
+type RequestKind = "reply" | "content";
 
 const ENGLISH_NAMES: Record<string, SupportedLanguage> = {
 	english: "en",
@@ -308,20 +327,28 @@ const QUESTION_STARTERS = wordSet(
 const HUNGARIAN_HOW_SAID_RE =
 	/\bhogy(?:an)? (?:\p{L}+ )?(?:mondjak|mondjuk|mondod|mondom|mondanak|hivjak|hivjuk|hivod|forditjak|forditod|forditom|van|lesz|hangzik|szol|kell|irod|irom|irjuk)\b|\bmit jelent|\bjelentese\b/u;
 
-// A directive about the reply, in a form that asks for it: an imperative, a
-// polite conditional or "may". "válaszolok" (I answer) and "beszélsz" (you
-// speak) are not on the list.
-const HUNGARIAN_DIRECTIVE_RE =
-	/^(?:valaszol(?:j|jal|jad|jon|jatok|junk|hatsz|hatnal|hatnad|nal|nad)|ir(?:j|jal|jad|jon|d|nal|nad|hatsz|hatnal|hatnad|hatod)|beszel(?:j|jel|jen|junk|nel|hetunk|hetnenk|hetsz|hetnel)|beszelgess(?:unk|en)?|beszelget(?:nel|hetunk|hetnenk|hetsz|hetnel)|folyt(?:as(?:d|s|suk|sunk)|athatjuk|atnal)|magyaraz(?:d|z|zad|zon|hatnad)|fogalmaz(?:d|z|zad|zon|nal|nad)|foglal(?:d|j|nad|nal)|osszegez(?:d|z|nel)|mesel(?:j|d|nel)|kommunikal(?:j|junk))$/;
+// A directive in a form that asks for it: an imperative, a polite conditional or
+// "may". "válaszolok" (I answer) and "beszélsz" (you speak) are not on the lists.
+// A REPLY directive asks for the answer itself; a CONTENT directive asks for a
+// piece of writing the reply will hold.
+const HUNGARIAN_REPLY_DIRECTIVE_RE =
+	/^(?:valaszol(?:j|jal|jad|jon|jatok|junk|hatsz|hatnal|hatnad|nal|nad)|beszel(?:j|jel|jen|junk|nel|hetunk|hetnenk|hetsz|hetnel)|beszelgess(?:unk|en)?|beszelget(?:nel|hetunk|hetnenk|hetsz|hetnel)|folyt(?:as(?:d|s|suk|sunk)|athatjuk|atnal)|magyaraz(?:d|z|zad|zon|hatnad)|foglal(?:d|j|nad|nal)|osszegez(?:d|z|nel)|mesel(?:j|d|nel)|kommunikal(?:j|junk))$/;
+const HUNGARIAN_CONTENT_DIRECTIVE_RE =
+	/^(?:ir(?:j|jal|jad|jon|d|nal|nad|hatsz|hatnal|hatnad|hatod)|fogalmaz(?:d|z|zad|zon|nal|nad)|keszit(?:s|sd|sen|enel|hetnel)|csinal(?:j|d|jon|nal|nad)|adj|add|adjon|adnal|adnad)$/;
+// "Írd angolul", "Fogalmazd meg angolul": the definite form carries its object
+// ("write IT in English"), so it is never a bare "write in English".
+const HUNGARIAN_DEFINITE_DIRECTIVE_RE =
+	/^(?:ird|irjad|irnad|irhatnad|irhatod|fogalmazd|fogalmazzad|fogalmaznad|keszitsd|csinald|add|adnad)$/;
 // "Tudnál angolul válaszolni?" / "Angolul szeretnék beszélgetni": an infinitive
 // that a polite modal asks for. "Tudsz angolul válaszolni?" asks for the reply
 // too; "Tudsz angolul beszélni?" asks whether you speak it.
-const HUNGARIAN_INFINITIVE_RE =
-	/^(?:valaszolni|irni|beszelni|beszelgetni|folytatni|magyarazni|fogalmazni|meselni|kommunikalni)$/;
+const HUNGARIAN_REPLY_INFINITIVE_RE =
+	/^(?:valaszolni|beszelni|beszelgetni|folytatni|magyarazni|meselni|kommunikalni)$/;
 const HUNGARIAN_ANSWER_INFINITIVE_RE =
-	/^(?:valaszolni|irni|folytatni|magyarazni|fogalmazni|meselni)$/;
+	/^(?:valaszolni|folytatni|magyarazni|meselni)$/;
+const HUNGARIAN_CONTENT_INFINITIVE_RE = /^(?:irni|fogalmazni)$/;
 const HUNGARIAN_REQUEST_MODALS = wordSet(
-	"tudnal tudnatok tudnank tudunk lehet lehetne szeretnek szeretnem szeretnenk kerlek kerem kernek kernem kellene erdemes szabad",
+	"tudnal tudnatok tudnank tudunk lehet lehetne szeretnek szeretnem szeretnenk kerlek kerem kernek kernem kellene erdemes szabad segitenel segitenetek segitesz segitsel",
 );
 const HUNGARIAN_POLITE_WORDS = wordSet(
 	"kerlek kerem kernek kernem legy legyel legyen szives szivesen inkabb csak mostantol ezentul most",
@@ -330,15 +357,20 @@ const HUNGARIAN_WISH_WORDS = wordSet("legyen legyel lehet lehetne");
 // Learning, ability, translation and meaning: the language is the subject.
 const HUNGARIAN_SUBJECT_STEM_RE =
 	/^(?:tanul|megtanul|tanit|gyakorol|tud(?:sz|ok|om|od|ja|nak)?$|beszel(?:sz|ek|nek)$|ert(?:em|ed|esz)?$|ismer|fordit|lefordit|atfordit|jelent)/;
+const HUNGARIAN_TRANSLATE_RE = /^(?:fordit|lefordit|atfordit)/;
 
 // Directives that mean it wherever they stand, and ones that are only an
 // instruction at the head of a sentence or inside a request ("I give lessons in
 // English" is not one).
-const ENGLISH_DIRECTIVES = wordSet(
-	"reply respond answer write speak talk chat converse communicate continue explain describe summarize summarise rephrase rewrite",
+const ENGLISH_REPLY_DIRECTIVES = wordSet(
+	"reply respond answer speak talk chat converse communicate continue explain describe summarize summarise",
 );
-const ENGLISH_WEAK_DIRECTIVES = wordSet(
-	"redo repeat type give keep stick switch",
+const ENGLISH_CONTENT_DIRECTIVES = wordSet(
+	"write rewrite rephrase draft compose",
+);
+const ENGLISH_WEAK_REPLY_DIRECTIVES = wordSet("keep stick switch");
+const ENGLISH_WEAK_CONTENT_DIRECTIVES = wordSet(
+	"redo repeat type give make create build prepare generate produce",
 );
 // Verbs that take a bare language name ("Speak Hungarian to me", "Switch to
 // Hungarian"); the others take "in".
@@ -346,6 +378,10 @@ const ENGLISH_SPEECH_VERBS = wordSet(
 	"speak talk chat converse communicate continue switch go stick keep use",
 );
 const ENGLISH_SUBJECTS = wordSet("i we they he she it people students");
+// "your reply", "a talk": after one of these an English directive word is a noun.
+const ENGLISH_DETERMINERS = wordSet(
+	"a an the your my his her our their this that its",
+);
 // Learning, translation and meaning in English: the language is the subject.
 const ENGLISH_SUBJECT_STEM_RE =
 	/^(?:learn|study|studying|teach|practi[sc]e|translat|pronounc|spell|grammar|meaning|means?$)/;
@@ -353,12 +389,45 @@ const ENGLISH_POLITE_WORDS = wordSet("please pls plz kindly");
 const BARE_FILLERS = wordSet(
 	"please pls plz only just in the language instead rather better then now and but so ok okay yes no nope sorry oh yeah thanks thank you kerlek kerem kernek legy legyel legyen szives szivesen inkabb csak mostantol ezentul most es de akkor igen nem ne na hat ja nos is",
 );
+// What a content directive may stand beside and still be a request for the reply:
+// "Write in English", "Please write to me in Hungarian from now on", "Írj nekem
+// angolul, kérlek". Anything else in the sentence (an e-mail, "this", "a poem")
+// is the thing to be written.
+const REPLY_SHAPE_WORDS = wordSet(
+	"can could would will i we us let's lets i'd id like want need prefer to me my your for from on always going forward a an the all every each any of nekem nekunk mindig minden osszes mind az a egy tudsz tudnal tudnatok tudnank tudunk lehet lehetne szeretnek szeretnem szeretnenk kellene erdemes szabad ezutan segitenel segitenetek segitesz segitsel",
+);
+// ...and the reply itself is what to write: "Write your answers in Hungarian".
+const REPLY_OBJECT_WORDS = wordSet(
+	"reply replies answer answers response responses valasz valaszt valaszod valaszodat valaszaid valaszaidat valaszokat",
+);
+// "I want it in Hungarian" (the reply, as before) versus "I want a cover letter in
+// Hungarian" (a letter).
+const OBJECT_PRONOUNS = wordSet(
+	"it this that these those them everything something anything all",
+);
+
+// What may follow "in English" when it names the language the writing is in ("in
+// Hungarian to my landlord", "in Hungarian saying I am sick", "in Hungarian
+// please"); a noun after it makes the language an adjective ("in Hungarian
+// cities", "in English literature"), which is the topic of the writing, not its
+// language.
+const LANGUAGE_CONTINUERS = wordSet(
+	"to for from with about on at by of into and or but so that this these those please pls plz kindly thanks only too also instead just now again then as if when where which who saying says said stating telling asking explaining showing listing describing announcing thanking apologizing apologising confirming inviting requesting reminding wishing congratulating because since while after before until during the a an my our your his her their its it them him me us we you i is are was were be do does did have has had can could would will should shall may might must",
+);
 
 // How many words an instruction that opens the sentence reaches.
 const HEAD_DIRECTIVE_REACH = 20;
 
-function isHungarianDirective(word: string): boolean {
-	return HUNGARIAN_DIRECTIVE_RE.test(word);
+function isLanguageWord(word: string): boolean {
+	return (
+		ENGLISH_NAMES[word] !== undefined ||
+		word === "angolul" ||
+		word === "magyarul" ||
+		word === "angol" ||
+		word === "magyar" ||
+		word === "nyelven" ||
+		word === "nyelvu"
+	);
 }
 
 // "Can you...", "please...", "I'd like...", "let's...": the sentence is itself
@@ -384,20 +453,67 @@ type SentenceContext = {
 	first: string | undefined;
 	// The index of the sentence's first word that is not a filler.
 	firstAt: number;
+	// Which colon-separated stretch each word is in: what follows "Írj angolul:"
+	// is the thing to answer or write about, not part of the instruction.
+	segmentOf: number[];
 	requestFrame: boolean;
 	asking: boolean;
-	wants: boolean;
+	// The index of "want / need / prefer / would like", or -1.
+	wantAt: number;
 	translating: boolean;
 	subjectIsTheLanguage: boolean;
 	requestModal: boolean;
 	abilityModal: boolean;
+	// Running counts over the words, so "is everything else a filler" costs the
+	// same for every language word however long the sentence is: [i] holds how
+	// many of the first i words are NOT of the kind.
+	notFillerBefore: number[];
+	notShapeBefore: number[];
+	notWantFillerBefore: number[];
+	replyObjectBefore: number[];
+	// The first and last word of each colon-separated stretch.
+	segmentStart: number[];
+	segmentEnd: number[];
+	// The first content directive of the sentence (-1: none), read once on demand.
+	firstContentAt?: number;
 };
 
-function readSentence(words: string[]): SentenceContext {
+const isFillerWord = (word: string) =>
+	BARE_FILLERS.has(word) || isLanguageWord(word);
+// What may stand beside a content directive in a request for the reply.
+const isShapeWord = (word: string) =>
+	isFillerWord(word) ||
+	REPLY_SHAPE_WORDS.has(word) ||
+	REPLY_OBJECT_WORDS.has(word);
+// What may stand between "I want" and the language in a request for the reply.
+const isWantFiller = (word: string) =>
+	BARE_FILLERS.has(word) ||
+	REPLY_SHAPE_WORDS.has(word) ||
+	REPLY_OBJECT_WORDS.has(word) ||
+	OBJECT_PRONOUNS.has(word);
+
+function countBefore(
+	words: string[],
+	test: (word: string) => boolean,
+): number[] {
+	const sums = [0];
+	for (const word of words) {
+		sums.push(sums[sums.length - 1] + (test(word) ? 1 : 0));
+	}
+	return sums;
+}
+
+// How many of words[from..toExclusive) are counted in `sums`.
+function countBetween(sums: number[], from: number, toExclusive: number) {
+	return from < toExclusive ? sums[toExclusive] - sums[from] : 0;
+}
+
+function readSentence(words: string[], segmentOf: number[]): SentenceContext {
 	const firstAt = words.findIndex((word) => !LEADING_FILLERS.has(word));
 	return {
 		first: words[firstAt],
 		firstAt,
+		segmentOf,
 		requestFrame: hasRequestFrame(words),
 		// "Let's...", "Can we...", "please...".
 		asking: words.some(
@@ -405,13 +521,16 @@ function readSentence(words: string[]): SentenceContext {
 				/^(?:we|us|let's|lets)$/.test(word) || ENGLISH_POLITE_WORDS.has(word),
 		),
 		// "I want / I'd like / I prefer" it in the language.
-		wants: words.some(
+		wantAt: words.findIndex(
 			(word, at) =>
 				(/^(?:want|need|prefer)$/.test(word) &&
 					/^(?:i|we)$/.test(words[at - 1] ?? "")) ||
 				(word === "like" && /^(?:would|i'd|id)$/.test(words[at - 1] ?? "")),
 		),
-		translating: words.some((word) => word.startsWith("translat")),
+		translating: words.some(
+			(word) =>
+				word.startsWith("translat") || HUNGARIAN_TRANSLATE_RE.test(word),
+		),
 		subjectIsTheLanguage: words.some(
 			(word) =>
 				HUNGARIAN_SUBJECT_STEM_RE.test(word) ||
@@ -419,15 +538,220 @@ function readSentence(words: string[]): SentenceContext {
 		),
 		requestModal: words.some((word) => HUNGARIAN_REQUEST_MODALS.has(word)),
 		abilityModal: words.includes("tudsz"),
+		notFillerBefore: countBefore(words, (word) => !isFillerWord(word)),
+		notShapeBefore: countBefore(words, (word) => !isShapeWord(word)),
+		notWantFillerBefore: countBefore(words, (word) => !isWantFiller(word)),
+		replyObjectBefore: countBefore(words, (word) =>
+			REPLY_OBJECT_WORDS.has(word),
+		),
+		...segmentBounds(segmentOf),
 	};
 }
 
-function isRequestAround(
+function segmentBounds(segmentOf: number[]) {
+	const segmentStart: number[] = [];
+	const segmentEnd: number[] = [];
+	segmentOf.forEach((segment, at) => {
+		segmentStart[segment] ??= at;
+		segmentEnd[segment] = at;
+	});
+	return { segmentStart, segmentEnd };
+}
+
+type Directive = { kind: RequestKind; at: number };
+
+// What the word at `at` asks for when it is a directive in a form that asks for
+// it: the reply ("answer", "válaszolj") or a piece of writing ("write", "írj"),
+// else null. "I write in English at work" and "learning to write in Hungarian"
+// are not directives.
+function directiveKindAt(
+	words: string[],
+	at: number,
+	sentence: SentenceContext,
+): RequestKind | null {
+	const word = words[at];
+	const previous = words[at - 1];
+	const requestFrame = sentence.requestFrame;
+	// "learning to write in Hungarian", "I write in English at work".
+	const notSubject =
+		(previous !== "to" && !ENGLISH_SUBJECTS.has(previous ?? "")) ||
+		requestFrame;
+	const weak = word === sentence.first || requestFrame;
+	const english =
+		ENGLISH_REPLY_DIRECTIVES.has(word) ||
+		ENGLISH_CONTENT_DIRECTIVES.has(word) ||
+		ENGLISH_WEAK_REPLY_DIRECTIVES.has(word) ||
+		ENGLISH_WEAK_CONTENT_DIRECTIVES.has(word);
+	if (english) {
+		// "Write your reply in Hungarian": "reply" there is the thing to write.
+		if (ENGLISH_DETERMINERS.has(previous ?? "") || !notSubject) return null;
+		if (ENGLISH_REPLY_DIRECTIVES.has(word)) return "reply";
+		if (ENGLISH_CONTENT_DIRECTIVES.has(word)) return "content";
+		if (!weak) return null;
+		return ENGLISH_WEAK_REPLY_DIRECTIVES.has(word) ? "reply" : "content";
+	}
+	if (HUNGARIAN_REPLY_DIRECTIVE_RE.test(word)) return "reply";
+	if (HUNGARIAN_CONTENT_DIRECTIVE_RE.test(word)) return "content";
+	if (HUNGARIAN_REPLY_INFINITIVE_RE.test(word)) {
+		return sentence.requestModal ||
+			(sentence.abilityModal && HUNGARIAN_ANSWER_INFINITIVE_RE.test(word))
+			? "reply"
+			: null;
+	}
+	if (HUNGARIAN_CONTENT_INFINITIVE_RE.test(word)) {
+		return sentence.requestModal || sentence.abilityModal ? "content" : null;
+	}
+	return null;
+}
+
+// "to learn Hungarian", "amivel angolul tanulhatok": the language is what is
+// being learned, practised or translated, within four words of it. (A "tudok"
+// ten words away, in "nem tudok bejönni", says nothing about it.)
+function languageIsTheSubjectNear(
+	words: string[],
+	marker: LanguageMarker,
+): boolean {
+	const to = Math.min(words.length - 1, marker.end + 4);
+	for (let at = Math.max(0, marker.at - 4); at <= to; at++) {
+		if (
+			HUNGARIAN_SUBJECT_STEM_RE.test(words[at]) ||
+			ENGLISH_SUBJECT_STEM_RE.test(words[at])
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// The directive that governs a language word: the nearest within seven words
+// either side, else one that opens the sentence (however far the language word
+// is: "Write a short thank-you email to our hosts in English"), else a content
+// directive anywhere before it, so that "please" at the end of a long request for
+// a letter cannot turn it into a request for the reply. Never when the language
+// is the subject.
+function findDirective(
+	words: string[],
+	marker: LanguageMarker,
+	sentence: SentenceContext,
+): Directive | null {
+	const directiveAt = (at: number) => directiveKindAt(words, at, sentence);
+	// "Legyen angolul a válasz" asks for the reply, "az e-mail legyen angolul" for
+	// the e-mail: the wish word governs a Hungarian adverb right beside it, and what
+	// the wish is about decides which.
+	const wishAt = (at: number): RequestKind | null => {
+		if (
+			marker.kind !== "adverb" ||
+			sentence.subjectIsTheLanguage ||
+			!HUNGARIAN_WISH_WORDS.has(words[at])
+		) {
+			return null;
+		}
+		const distance = at < marker.at ? marker.at - at : at - marker.end;
+		if (distance > 3) return null;
+		return isReplyShape(words, { kind: "content", at }, marker, sentence)
+			? "reply"
+			: "content";
+	};
+
+	const from = Math.max(0, marker.at - 7);
+	const to = Math.min(words.length - 1, marker.end + 7);
+	let governing: Directive | null = null;
+	let best = Number.POSITIVE_INFINITY;
+	for (let at = from; at <= to; at++) {
+		if (at >= marker.at && at <= marker.end) continue;
+		const kind = directiveAt(at) ?? wishAt(at);
+		if (kind === null) continue;
+		// "an app to learn Hungarian": a lesson in the language, not a piece in it
+		// (a translation is both).
+		if (
+			kind === "content" &&
+			!sentence.translating &&
+			languageIsTheSubjectNear(words, marker)
+		) {
+			continue;
+		}
+		const before = at < marker.at;
+		const distance = before ? marker.at - at : at - marker.end;
+		// "in English" belongs to the verb phrase before it ("Answer in English and
+		// write the email in Hungarian"); a Hungarian adverb sits on either side of
+		// its verb, so the nearest one governs it.
+		const rank =
+			marker.kind === "in" && !before ? distance + words.length : distance;
+		if (rank < best) {
+			best = rank;
+			governing = { kind, at };
+		}
+	}
+	if (governing) return governing;
+	if (sentence.subjectIsTheLanguage) return null;
+
+	const headAt = sentence.firstAt;
+	if (
+		headAt >= 0 &&
+		headAt < from &&
+		marker.at - headAt <= HEAD_DIRECTIVE_REACH
+	) {
+		const kind = directiveAt(headAt);
+		if (kind) return { kind, at: headAt };
+	}
+	// Read once per sentence, so a long sentence with many language words stays linear.
+	sentence.firstContentAt ??= words.findIndex(
+		(_, at) => directiveAt(at) === "content",
+	);
+	if (sentence.firstContentAt >= 0 && sentence.firstContentAt < from) {
+		return { kind: "content", at: sentence.firstContentAt };
+	}
+	return null;
+}
+
+// "Write in English, please" / "Írj nekem angolul" / "Write your answers in
+// Hungarian": a content directive with nothing to write but the reply itself.
+function isReplyShape(
+	words: string[],
+	directive: Directive,
+	marker: LanguageMarker,
+	sentence: SentenceContext,
+): boolean {
+	const segment = sentence.segmentOf[marker.at];
+	const start = sentence.segmentStart[segment];
+	const end = sentence.segmentEnd[segment];
+	// Everything else in this stretch of the sentence is a filler; the directive's
+	// and the language's own words are not "something else".
+	let others = countBetween(sentence.notShapeBefore, start, end + 1);
+	const own = [directive.at];
+	for (let at = marker.at; at <= marker.end; at++) own.push(at);
+	for (const at of own) {
+		if (at >= start && at <= end && !isShapeWord(words[at])) others--;
+	}
+	if (others > 0) return false;
+	const replyObject =
+		countBetween(sentence.replyObjectBefore, start, end + 1) > 0;
+	// "Írd angolul" has its object in the verb: only a reply noun makes it the reply.
+	return (
+		replyObject || !HUNGARIAN_DEFINITE_DIRECTIVE_RE.test(words[directive.at])
+	);
+}
+
+// "in Hungarian" names the language of a piece of writing unless a noun follows it.
+function namesTheLanguageOfTheWriting(
 	words: string[],
 	marker: LanguageMarker,
 	sentence: SentenceContext,
 ): boolean {
-	const requestFrame = sentence.requestFrame;
+	if (marker.kind !== "in") return true;
+	const next = words[marker.end + 1];
+	return (
+		next === undefined ||
+		sentence.segmentOf[marker.end + 1] !== sentence.segmentOf[marker.end] ||
+		LANGUAGE_CONTINUERS.has(next)
+	);
+}
+
+function classifyMarker(
+	words: string[],
+	marker: LanguageMarker,
+	sentence: SentenceContext,
+): RequestKind | null {
 	const nextToMarker = (set: Set<string>, reach: number) =>
 		words
 			.slice(Math.max(0, marker.at - reach), marker.end + reach + 1)
@@ -435,15 +759,11 @@ function isRequestAround(
 
 	// A sentence that is little more than the language word: "In English,
 	// please." / "Angolul." / "Nem, angolul!".
-	const onlyTheLanguage = words.every(
-		(word, at) =>
-			(at >= marker.at && at <= marker.end) ||
-			BARE_FILLERS.has(word) ||
-			ENGLISH_NAMES[word] !== undefined ||
-			word === "angolul" ||
-			word === "magyarul",
-	);
-	if (onlyTheLanguage) return true;
+	const onlyTheLanguage =
+		countBetween(sentence.notFillerBefore, 0, marker.at) +
+			countBetween(sentence.notFillerBefore, marker.end + 1, words.length) ===
+		0;
+	if (onlyTheLanguage) return "reply";
 
 	if (marker.kind === "bare") {
 		// "Speak Hungarian to me", "Switch to Hungarian", "Let's speak Hungarian",
@@ -457,122 +777,145 @@ function isRequestAround(
 			(sentence.asking ||
 				(first !== undefined && ENGLISH_SPEECH_VERBS.has(first)))
 		) {
-			return true;
+			return "reply";
 		}
 		// "Hungarian please", "English only".
-		return (
-			/^(?:please|only|title)$/.test(words[marker.at + 1] ?? "") ||
+		if (
+			/^(?:please|only)$/.test(words[marker.at + 1] ?? "") ||
 			/^(?:please|only)$/.test(words[marker.at - 1] ?? "")
-		);
+		) {
+			return "reply";
+		}
+		// "an English title", "Translate this into Hungarian", "Rewrite it to
+		// Hungarian": writing in it. A bare name before a noun ("a Hungarian recipe
+		// app", "a Hungarian poem") may as well be the topic, so it is not read.
+		if (words[marker.at + 1] === "title" || sentence.translating) {
+			return "content";
+		}
+		return /^(?:to|into)$/.test(words[marker.at - 1] ?? "") &&
+			findDirective(words, marker, sentence)?.kind === "content"
+			? "content"
+			: null;
 	}
 
-	// A directive about the reply within a few words either side; and one that
-	// opens the sentence, however far the language word is ("Write a short thank-you
-	// email to our hosts in English"), unless the language is the subject.
-	const first = sentence.first;
-	const isDirectiveAt = (at: number): boolean => {
-		const word = words[at];
-		const previous = words[at - 1];
-		if (
-			(ENGLISH_DIRECTIVES.has(word) ||
-				(ENGLISH_WEAK_DIRECTIVES.has(word) &&
-					(word === first || requestFrame))) &&
-			// "learning to write in Hungarian", "I write in English at work".
-			((previous !== "to" && !ENGLISH_SUBJECTS.has(previous ?? "")) ||
-				requestFrame)
-		) {
-			return true;
-		}
-		if (isHungarianDirective(word)) return true;
-		if (HUNGARIAN_INFINITIVE_RE.test(word)) {
-			return (
-				sentence.requestModal ||
-				(sentence.abilityModal && HUNGARIAN_ANSWER_INFINITIVE_RE.test(word))
-			);
-		}
-		return false;
-	};
-	const from = Math.max(0, marker.at - 7);
-	const to = Math.min(words.length - 1, marker.end + 7);
-	for (let at = from; at <= to; at++) {
-		if (at >= marker.at && at <= marker.end) continue;
-		if (isDirectiveAt(at)) return true;
+	const directive = findDirective(words, marker, sentence);
+	if (directive?.kind === "reply") return "reply";
+	if (directive?.kind === "content") {
+		if (isReplyShape(words, directive, marker, sentence)) return "reply";
+		return namesTheLanguageOfTheWriting(words, marker, sentence)
+			? "content"
+			: null;
 	}
-	const headAt = sentence.firstAt;
-	if (
-		headAt >= 0 &&
-		headAt < from &&
-		marker.at - headAt <= HEAD_DIRECTIVE_REACH &&
-		!sentence.subjectIsTheLanguage &&
-		isDirectiveAt(headAt)
-	) {
-		return true;
+	if (sentence.translating) {
+		return namesTheLanguageOfTheWriting(words, marker, sentence)
+			? "content"
+			: null;
 	}
+	// "Show me the answer in Hungarian", "a válaszod angolul": the language is
+	// the reply's.
+	if (REPLY_OBJECT_WORDS.has(words[marker.at - 1] ?? "")) return "reply";
 
 	if (marker.kind === "adverb") {
-		// "Legyen angolul a válasz", "Lehet angolul?" (not "hogyan lehet megtanulni
-		// angolul").
-		if (
-			!sentence.subjectIsTheLanguage &&
-			nextToMarker(HUNGARIAN_WISH_WORDS, 3)
-		) {
-			return true;
-		}
 		// "Kérlek angolul", "Angolul, légy szíves", "Csak angolul".
 		if (
 			!sentence.subjectIsTheLanguage &&
 			nextToMarker(HUNGARIAN_POLITE_WORDS, 2)
 		) {
-			return true;
+			return "reply";
 		}
 	}
 
 	if (marker.kind === "in") {
-		if (sentence.wants) return true;
-		// "In English please", "only in Hungarian" — but not "translate it in
-		// Hungarian please".
-		if (!sentence.translating) {
-			if (nextToMarker(ENGLISH_POLITE_WORDS, 1)) return true;
-			if (words[marker.at - 1] === "only" || words[marker.end + 1] === "only") {
-				return true;
-			}
+		// "I want it in Hungarian" asks for the reply; "I need a cover letter in
+		// Hungarian" asks for a letter.
+		if (sentence.wantAt >= 0) {
+			return countBetween(
+				sentence.notWantFillerBefore,
+				sentence.wantAt + 1,
+				marker.at,
+			) > 0
+				? "content"
+				: "reply";
+		}
+		// "In English please", "only in Hungarian".
+		if (nextToMarker(ENGLISH_POLITE_WORDS, 1)) return "reply";
+		if (words[marker.at - 1] === "only" || words[marker.end + 1] === "only") {
+			return "reply";
 		}
 	}
-	return false;
+	return null;
 }
 
-function requestInSentence(sentence: string): SupportedLanguage | null {
-	const words = sentence.match(/[\p{L}\p{N}']+/gu) ?? [];
-	const markers = findLanguageMarkers(words);
-	if (markers.length === 0) return null;
-	const first = words.find((word) => !LEADING_FILLERS.has(word));
-	if (first !== undefined && QUESTION_STARTERS.has(first)) return null;
-	if (HUNGARIAN_HOW_SAID_RE.test(words.join(" "))) return null;
+type LanguageRequests = {
+	reply: SupportedLanguage | null;
+	content: SupportedLanguage | null;
+};
 
-	const context = readSentence(words);
-	let found: SupportedLanguage | null = null;
+function requestsInSentence(sentence: string): LanguageRequests {
+	const found: LanguageRequests = { reply: null, content: null };
+	const tokens = [...sentence.matchAll(/[\p{L}\p{N}']+/gu)];
+	const words = tokens.map((token) => token[0]);
+	const markers = findLanguageMarkers(words);
+	if (markers.length === 0) return found;
+	const first = words.find((word) => !LEADING_FILLERS.has(word));
+	if (first !== undefined && QUESTION_STARTERS.has(first)) return found;
+	if (HUNGARIAN_HOW_SAID_RE.test(words.join(" "))) return found;
+
+	// Which colon-separated stretch each word is in, counted as the words go by.
+	let segment = 0;
+	let scanned = 0;
+	const segmentOf = tokens.map((token) => {
+		for (; scanned < token.index; scanned++) {
+			if (sentence[scanned] === ":") segment++;
+		}
+		scanned = token.index + token[0].length;
+		return segment;
+	});
+	const context = readSentence(words, segmentOf);
 	for (const marker of markers) {
-		if (isRequestAround(words, marker, context)) found = marker.language;
+		const kind = classifyMarker(words, marker, context);
+		if (kind) found[kind] = marker.language;
+	}
+	return found;
+}
+
+function readLanguageRequests(text: string): LanguageRequests {
+	const found: LanguageRequests = { reply: null, content: null };
+	for (const sentence of foldAccents(text).split(/[.!?;\n]+/)) {
+		const requests = requestsInSentence(sentence);
+		if (requests.reply) found.reply = requests.reply;
+		if (requests.content) found.content = requests.content;
 	}
 	return found;
 }
 
 /**
- * Whether `text` explicitly asks for the reply in a given language,
- * regardless of what language `text` itself is written in. `null` when no
- * such request is present: a message that only mentions a language ("Hogy
- * mondják angolul, hogy alma?", "How do you say 'apple' in Hungarian?") is not
- * one. When a message asks for both, the latest request wins.
+ * Whether `text` explicitly asks for the REPLY in a given language, regardless
+ * of what language `text` itself is written in. `null` when no such request is
+ * present: a message that only mentions a language ("Hogy mondják angolul, hogy
+ * alma?", "How do you say 'apple' in Hungarian?") is not one, and neither is a
+ * request for a piece of writing in it ("Írj egy e-mailt angolul a
+ * kollégámnak": see `detectContentLanguageRequest`). When a message asks for
+ * the reply in both, the latest request wins.
  */
 export function detectExplicitLanguageRequest(
 	text: string,
 ): SupportedLanguage | null {
-	let result: SupportedLanguage | null = null;
-	for (const sentence of foldAccents(text).split(/[.!?;\n]+/)) {
-		const found = requestInSentence(sentence);
-		if (found) result = found;
-	}
-	return result;
+	return readLanguageRequests(text).reply;
+}
+
+/**
+ * The language a message asks a PIECE OF WRITING to be in ("Írj egy e-mailt
+ * angolul a kollégámnak", "Write an email to my colleague in Hungarian", "Make a
+ * quiz app in Hungarian", "Translate this into Hungarian"), or `null`. It never
+ * changes the language of the turn (ruling 75); it is for what writes the piece
+ * itself (an App's labels) and for telling the model the content differs from
+ * the reply.
+ */
+export function detectContentLanguageRequest(
+	text: string,
+): SupportedLanguage | null {
+	return readLanguageRequests(text).content;
 }
 
 function normalizeWord(word: string): string {
@@ -747,9 +1090,13 @@ export function detectLanguage(
 
 /**
  * The one place a chat turn's reply language is decided. Policy:
- *  1. An explicit request in the latest message ("write this in Hungarian",
- *     "válaszolj angolul") always wins, regardless of what language the
- *     message itself is written in.
+ *  1. An explicit request for the REPLY in the latest message ("answer in
+ *     Hungarian", "válaszolj angolul") always wins, regardless of what
+ *     language the message itself is written in. A request for a piece of
+ *     writing in a language ("write an email to my colleague in Hungarian",
+ *     "írj egy e-mailt angolul") is not one: the conversation keeps its own
+ *     language and only the piece is written in the other (ruling 75, see
+ *     `detectContentLanguageRequest`).
  *  2. Otherwise, if the latest message's language is clear, use it.
  *  3. Otherwise (the latest message is ambiguous — very short, code, a URL,
  *     a bare name, mixed evidence), fall back to the conversation's

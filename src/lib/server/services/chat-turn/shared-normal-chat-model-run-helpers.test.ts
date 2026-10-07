@@ -438,6 +438,38 @@ describe("resolveTurnResponseLanguage", () => {
 		expect(result).toBe("en");
 	});
 
+	// Ruling 75, the one function send, stream and retry all resolve the turn through:
+	// the chips, the status line and the title read this value, so a request for a
+	// piece of writing in another language must leave it where the conversation is.
+	it("keeps the conversation's language when the message asks for content in another one, and flips it for a request for the reply", async () => {
+		mocks.listRecentUserMessageTexts.mockResolvedValue([
+			"Szia, segítenél a munkahelyi levelezésben?",
+		]);
+		const resolve = (message: string, uiLanguage: "en" | "hu") =>
+			resolveTurnResponseLanguage({
+				message,
+				conversationId: "conv-1",
+				user: { id: "user-1", uiLanguage },
+			});
+
+		expect(
+			await resolve(
+				"Írj egy e-mailt angolul a kollégámnak, hogy holnap nem tudok bejönni.",
+				"en",
+			),
+		).toBe("hu");
+		expect(
+			await resolve(
+				"Write an email to my colleague in Hungarian saying I can't come in tomorrow.",
+				"hu",
+			),
+		).toBe("en");
+		expect(await resolve("Válaszolj angolul, kérlek.", "hu")).toBe("en");
+		expect(
+			await resolve("Please answer in Hungarian: what is a mutex?", "en"),
+		).toBe("hu");
+	});
+
 	it("reads recent prior user messages and falls back to one with a clear language when the latest message is ambiguous", async () => {
 		mocks.listRecentUserMessageTexts.mockResolvedValue([
 			"Szia, hogy vagy?",

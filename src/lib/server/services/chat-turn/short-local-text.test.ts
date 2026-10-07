@@ -337,6 +337,26 @@ describe("resolveShortTextLanguage", () => {
 		expect(resolveShortTextLanguage("Kérlek válaszolj magyarul")).toBe("hu");
 	});
 
+	// Ruling 75: the title, the thought-step status line and the rail headline are
+	// the person's, so a request for a piece of writing in another language
+	// ("Írj egy e-mailt angolul...") leaves them in the conversation's language.
+	it("keeps the conversation's language when the message asks for content in another one", () => {
+		expect(
+			resolveShortTextLanguage(
+				"Írj egy e-mailt angolul a kollégámnak, hogy holnap nem tudok bejönni.",
+				"auto",
+				"hu",
+			),
+		).toBe("hu");
+		expect(
+			resolveShortTextLanguage(
+				"Write an email to my colleague in Hungarian saying I can't come in tomorrow.",
+				"auto",
+				"en",
+			),
+		).toBe("en");
+	});
+
 	it("falls back to language detection", () => {
 		expect(resolveShortTextLanguage("Egy magyar mondat és kérdés")).toBe("hu");
 		expect(
