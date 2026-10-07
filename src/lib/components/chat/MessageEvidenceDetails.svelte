@@ -954,6 +954,15 @@ function openDocument(item: MessageEvidenceItem) {
 		color: var(--text-muted);
 	}
 
+	/* The card's sentence ("Ez a dokumentum törölve lett") is longer than a kind
+	   word: on a narrow row it wraps in its own column instead of pushing past the
+	   row's edge. */
+	.evidence-row-plain--gone .evidence-kind {
+		max-width: 45%;
+		white-space: normal;
+		text-align: right;
+	}
+
 	@media (hover: none) and (pointer: coarse) {
 		.evidence-row-button--made {
 			min-height: 44px;
