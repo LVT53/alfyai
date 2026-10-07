@@ -103,4 +103,45 @@ describe("OpenDocumentsRail", () => {
 		);
 		expect(onSelectDocument).not.toHaveBeenCalled();
 	});
+
+	// A Canvas opened beside a File from it (RC-F MIN-2): the rail named it by the preview's
+	// "unsupported", in capitals and in English, as it names a file type.
+	it("names a Document, an App and a Canvas by their kind, not by a file type they do not have", () => {
+		render(OpenDocumentsRail, {
+			props: {
+				documents: [
+					makeDocument({
+						id: "board-1",
+						source: "knowledge_artifact",
+						filename: "Board",
+						title: "Board",
+						mimeType: null,
+						kind: "canvas",
+					}),
+					makeDocument({
+						id: "file-2",
+						filename: "report.pdf",
+						title: "Report",
+					}),
+					makeDocument({
+						id: "note-1",
+						source: "knowledge_artifact",
+						filename: "Notes",
+						title: "Notes",
+						mimeType: null,
+						kind: "document",
+					}),
+				],
+				activeDocumentId: "board-1",
+				onSelectDocument: vi.fn(),
+				onCloseDocument: vi.fn(),
+			},
+		});
+
+		expect(screen.queryByText(/unsupported/i)).toBeNull();
+		expect(screen.getByText("Canvas")).toBeInTheDocument();
+		expect(screen.getByText("Document")).toBeInTheDocument();
+		// A produced file is still named by what it is.
+		expect(screen.getByText("PDF")).toBeInTheDocument();
+	});
 });

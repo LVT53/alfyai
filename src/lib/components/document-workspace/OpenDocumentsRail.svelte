@@ -78,12 +78,16 @@ function getDocumentSourceLabel(document: DocumentWorkspaceItem): string {
 		: $t("documentWorkspace.fromKnowledgeBase");
 }
 
+// A Document, an App or a Canvas has no file type to preview: it is named by its kind, in the
+// reader's language, not by the preview's "unsupported" (RC-F MIN-2).
 function getDocumentDetailMetadata(document: DocumentWorkspaceItem): string {
 	return [
-		determinePreviewFileType(
-			document.mimeType,
-			document.filename,
-		).toUpperCase(),
+		document.kind && document.kind !== "file"
+			? $t(`artifacts.type.${document.kind}`)
+			: determinePreviewFileType(
+					document.mimeType,
+					document.filename,
+				).toUpperCase(),
 		formatRoleLabel(document.documentRole),
 	]
 		.filter(Boolean)
