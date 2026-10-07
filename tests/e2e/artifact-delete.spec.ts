@@ -304,14 +304,17 @@ test.describe("A Sources row of an item that was deleted", () => {
 		await login(page);
 		const conversationId = await createConversation(page, "Plan a weekend");
 		const uid = await testUserId();
-		await seedMadeDocumentTurn(conversationId, uid);
+		// A title of its own: the library lists every Document the other specs
+		// made in this database, "Weekend plan" among them.
+		const title = `Library plan ${Date.now()}`;
+		await seedMadeDocumentTurn(conversationId, uid, { title });
 
 		// The reader's own clicks in the library: the row's Delete, then the
 		// confirmation.
 		await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
 		await waitForHydration(page);
 		await page.getByRole("tab", { name: "Documents" }).click();
-		const libraryRow = page.locator("tbody tr", { hasText: CREATED_TITLE });
+		const libraryRow = page.locator("tbody tr", { hasText: title });
 		await expect(libraryRow).toBeVisible();
 		await libraryRow.getByRole("button", { name: /delete/i }).click();
 		await page.getByTestId("confirm-delete").click();
@@ -326,13 +329,13 @@ test.describe("A Sources row of an item that was deleted", () => {
 		);
 		await page.getByRole("button", { name: /^Sources/ }).click();
 		const group = page.getByRole("group", { name: "Made in this chat" });
-		await expect(group).toContainText(CREATED_TITLE);
+		await expect(group).toContainText(title);
 		await expect(group).toContainText("This document was deleted");
 		await expect(group.getByRole("button")).toHaveCount(0);
 		await expect(group.getByText("Document", { exact: true })).toHaveCount(0);
 
 		// Nothing to open: a click on the row does nothing at all.
-		await group.getByText(CREATED_TITLE).click();
+		await group.getByText(title).click();
 		await expect(workspacePanel(page)).toHaveCount(0);
 		await expect(page.getByTestId("workspace-main")).toBeHidden();
 	});
