@@ -1,0 +1,392 @@
+import { describe, expect, it } from "vitest";
+import {
+	DIAGRAM_FALLBACK_HEIGHT,
+	estimatedDiagramHeight,
+} from "./mermaid-size";
+
+/**
+ * What Mermaid 11.17.0 drew, measured in headless Chromium on 2026-10-07 with
+ * the chat's own posture (`securityLevel: "strict"`, `htmlLabels: false`, the
+ * default theme) and the panel's CSS (`max-width: 100%`, `height: auto`): the
+ * source, and the height of the picture inside a diagram block 480 wide (456 of
+ * it is the picture's). The numbers are the ground truth the estimate is held
+ * to; none of this runs a browser.
+ */
+const MEASURED: ReadonlyArray<readonly [string, string, number]> = [
+	[
+		"flow-td-chain4",
+		"flowchart TD\n  A[Idea] --> B[Draft]\n  B --> C[Review]\n  C --> D[Publish]",
+		362,
+	],
+	[
+		"flow-td-chain7",
+		"flowchart TD\n  A[Wake up] --> B[Breakfast]\n  B --> C[Commute]\n  C --> D[Work]\n  D --> E[Lunch]\n  E --> F[Meetings]\n  F --> G[Go home]",
+		659,
+	],
+	[
+		"flow-td-decision",
+		"flowchart TD\n  A[Start] --> B{Is it raining?}\n  B -->|Yes| C[Take an umbrella]\n  B -->|No| D[Wear sunglasses]\n  C --> E[Walk to the museum]\n  D --> E\n  E --> F[Lunch at the Naschmarkt]",
+		571,
+	],
+	[
+		"flow-td-order",
+		"flowchart TD\n  A[Customer places order] --> B{Payment OK?}\n  B -->|Yes| C[Pack the items]\n  B -->|No| D[Notify the customer]\n  C --> E[Ship]\n  E --> F[Delivered]\n  D --> A",
+		576,
+	],
+	[
+		"flow-lr-5",
+		"flowchart LR\n  A[Plan] --> B[Build] --> C[Test] --> D[Deploy] --> E[Monitor]",
+		41,
+	],
+	[
+		"flow-lr-branch",
+		"flowchart LR\n  A[Request] --> B{Valid?}\n  B -->|yes| C[Process]\n  B -->|no| D[Reject]\n  C --> E[Respond]\n  D --> E",
+		119,
+	],
+	[
+		"graph-td-hu",
+		"graph TD\n  A[Ébredés] --> B[Reggeli a Café Centralban]\n  B --> C[Kunsthistorisches Múzeum]\n  C --> D[Ebéd a Naschmarkton]\n  D --> E{Esik az eső?}\n  E -->|Igen| F[Opera]\n  E -->|Nem| G[Séta a Ringen]",
+		666,
+	],
+	[
+		"flow-subgraph",
+		"flowchart TD\n  subgraph Saturday\n    A[Museum] --> B[Lunch]\n  end\n  subgraph Sunday\n    C[Brunch] --> D[Prater]\n  end\n  B --> C",
+		462,
+	],
+	[
+		"flow-wide-td",
+		"flowchart TD\n  A[Start] --> B[One]\n  A --> C[Two]\n  A --> D[Three]\n  A --> E[Four]\n  A --> F[Five]\n  B --> G[End]\n  C --> G\n  D --> G\n  E --> G\n  F --> G",
+		178,
+	],
+	[
+		"seq-3",
+		"sequenceDiagram\n  participant U as User\n  participant A as App\n  participant S as Server\n  U->>A: Open the board\n  A->>S: Load the artifact\n  S-->>A: Board JSON\n  A-->>U: Show the board\n  U->>A: Add a note\n  A->>S: Save",
+		314,
+	],
+	[
+		"seq-2",
+		"sequenceDiagram\n  Alice->>Bob: Hello Bob\n  Bob-->>Alice: Hi Alice",
+		263,
+	],
+	[
+		"state-5",
+		"stateDiagram-v2\n  [*] --> Idle\n  Idle --> Running: start\n  Running --> Paused: pause\n  Paused --> Running: resume\n  Running --> Done: finish\n  Done --> [*]",
+		395,
+	],
+	[
+		"class-3",
+		"classDiagram\n  class Animal {\n    +String name\n    +eat()\n  }\n  class Dog {\n    +bark()\n  }\n  class Cat {\n    +meow()\n  }\n  Animal <|-- Dog\n  Animal <|-- Cat",
+		311,
+	],
+	[
+		"er-3",
+		"erDiagram\n  CUSTOMER ||--o{ ORDER : places\n  ORDER ||--|{ LINE_ITEM : contains\n  PRODUCT ||--o{ LINE_ITEM : appears_in",
+		459,
+	],
+	[
+		"gantt-5",
+		"gantt\n  title Release plan\n  dateFormat YYYY-MM-DD\n  section Build\n  Design :a1, 2026-10-01, 7d\n  Implement :a2, after a1, 14d\n  section Ship\n  Test :a3, after a2, 7d\n  Release :a4, after a3, 2d",
+		75,
+	],
+	[
+		"pie-4",
+		'pie title Pets\n  "Dogs" : 386\n  "Cats" : 85\n  "Rats" : 15\n  "Birds" : 30',
+		373,
+	],
+	[
+		"mindmap",
+		"mindmap\n  root((Weekend))\n    Saturday\n      Museum\n      Lunch\n    Sunday\n      Brunch\n      Prater",
+		402,
+	],
+	[
+		"timeline",
+		"timeline\n  title History\n  2020 : Started\n  2022 : Launched\n  2024 : Grew",
+		218,
+	],
+	[
+		"journey",
+		"journey\n  title My day\n  section Work\n    Make tea: 5: Me\n    Do work: 1: Me, Cat\n  section Home\n    Sit down: 5: Me",
+		274,
+	],
+	[
+		"flow-ten-chain",
+		"flowchart TD\n  A1[Step 1] --> A2[Step 2]\n  A2 --> A3[Step 3]\n  A3 --> A4[Step 4]\n  A4 --> A5[Step 5]\n  A5 --> A6[Step 6]\n  A6 --> A7[Step 7]\n  A7 --> A8[Step 8]\n  A8 --> A9[Step 9]\n  A9 --> A10[Step 10]",
+		956,
+	],
+	[
+		"flow-cyc",
+		"flowchart TD\n  A[Plan] --> B[Do]\n  B --> C[Check]\n  C --> D[Act]\n  D --> A",
+		362,
+	],
+	[
+		"c5-plain",
+		"flowchart TD\n  A[One] --> B[Two]\n  B --> C[Three]\n  C --> D[Four]\n  D --> E[Five]",
+		461,
+	],
+	[
+		"c5-all-labels",
+		"flowchart TD\n  A[One] -->|a| B[Two]\n  B -->|b| C[Three]\n  C -->|c| D[Four]\n  D -->|d| E[Five]",
+		553,
+	],
+	[
+		"c5-one-label",
+		"flowchart TD\n  A[One] --> B[Two]\n  B -->|yes| C[Three]\n  C --> D[Four]\n  D --> E[Five]",
+		484,
+	],
+	[
+		"c5-diamond",
+		"flowchart TD\n  A[One] --> B[Two]\n  B --> C{Three?}\n  C --> D[Four]\n  D --> E[Five]",
+		509,
+	],
+	[
+		"fork-nolabel",
+		"flowchart TD\n  A[Start] --> B{Q}\n  B --> C[Left]\n  B --> D[Right]\n  C --> E[End]\n  D --> E",
+		374,
+	],
+	[
+		"fork-labels",
+		"flowchart TD\n  A[Start] --> B{Q}\n  B -->|yes| C[Left]\n  B -->|no| D[Right]\n  C --> E[End]\n  D --> E",
+		397,
+	],
+	[
+		"fork-labels-long",
+		"flowchart TD\n  A[Start] --> B{Is it raining today?}\n  B -->|Yes| C[Take an umbrella and a coat]\n  B -->|No| D[Wear sunglasses and a hat]\n  C --> E[End of the day]\n  D --> E",
+		451,
+	],
+	[
+		"long-labels-chain",
+		"flowchart TD\n  A[Customer places the order online] --> B[Warehouse picks and packs the items carefully]\n  B --> C[Courier delivers within three days]",
+		316,
+	],
+	["single", "flowchart TD\n  A[Only]", 65],
+	["two-rank", "flowchart TD\n  A[Start] --> B[End]", 164],
+	["lr-chain3", "flowchart LR\n  A[One] --> B[Two] --> C[Three]", 65],
+	[
+		"lr-chain6",
+		"flowchart LR\n  A[One] --> B[Two] --> C[Three] --> D[Four] --> E[Five] --> F[Six]",
+		37,
+	],
+	[
+		"lr-fork",
+		"flowchart LR\n  A[Start] --> B[One]\n  A --> C[Two]\n  A --> D[Three]\n  B --> E[End]\n  C --> E\n  D --> E",
+		263,
+	],
+	[
+		"td-3wide",
+		"flowchart TD\n  A[Start] --> B[Alpha]\n  A --> C[Beta]\n  A --> D[Gamma]",
+		164,
+	],
+	[
+		"td-6wide",
+		"flowchart TD\n  A[Start] --> B[Alpha]\n  A --> C[Beta]\n  A --> D[Gamma]\n  A --> E[Delta]\n  A --> F[Epsilon]\n  A --> G[Zeta]",
+		86,
+	],
+	[
+		"sub1",
+		"flowchart TD\n  subgraph S[Group]\n    A[One] --> B[Two]\n  end",
+		135,
+	],
+	[
+		"sub-chain",
+		"flowchart TD\n  X[Before] --> A\n  subgraph S[Group]\n    A[One] --> B[Two]\n  end\n  B --> Y[After]",
+		412,
+	],
+	[
+		"quoted",
+		'flowchart TD\n  A["Breakfast (Café Central), 9:00"] --> B["Museum: KHM"]',
+		182,
+	],
+	[
+		"stateTD",
+		"stateDiagram-v2\n  [*] --> A\n  A --> B\n  B --> C\n  C --> [*]",
+		349,
+	],
+	[
+		"seq-notes",
+		"sequenceDiagram\n  participant A\n  participant B\n  A->>B: One\n  Note right of B: A note\n  B-->>A: Two\n  alt ok\n    A->>B: Three\n  else fail\n    A->>B: Four\n  end",
+		418,
+	],
+];
+
+const BLOCK_WIDTH = 480;
+
+describe("estimatedDiagramHeight — held to what Mermaid drew", () => {
+	it.each(
+		MEASURED,
+	)("%s is never estimated short of the %s px it is drawn at", (id, source, drawn) => {
+		expect(
+			estimatedDiagramHeight(source, BLOCK_WIDTH),
+			id,
+		).toBeGreaterThanOrEqual(drawn);
+	});
+
+	it.each(
+		MEASURED,
+	)("%s is not reserved more than twice what it is drawn at (or 100 px over)", (id, source, drawn) => {
+		expect(estimatedDiagramHeight(source, BLOCK_WIDTH), id).toBeLessThanOrEqual(
+			Math.max(drawn * 2, drawn + 100),
+		);
+	});
+
+	it("is within a fifth of what a top-down flowchart of any size is drawn at (the layout is read, not guessed)", () => {
+		const flows = MEASURED.filter(
+			([id, source, drawn]) =>
+				/^(flowchart|graph) TD/.test(source) &&
+				!id.includes("sub") &&
+				drawn >= 200,
+		);
+		expect(flows.length).toBeGreaterThan(10);
+		for (const [id, source, drawn] of flows) {
+			const estimate = estimatedDiagramHeight(source, BLOCK_WIDTH);
+			expect(estimate / drawn, id).toBeLessThan(1.2);
+		}
+	});
+});
+
+describe("estimatedDiagramHeight — how the layout is read", () => {
+	const chain = (steps: number, arrow = "-->") =>
+		`flowchart TD\n${Array.from({ length: steps - 1 }, (_, i) => `  S${i}[Step ${i}] ${arrow} S${i + 1}[Step ${i + 1}]`).join("\n")}`;
+
+	it("makes a top-down flowchart as tall as its ranks: about 99 more per step", () => {
+		const four = estimatedDiagramHeight(chain(4), BLOCK_WIDTH);
+		const seven = estimatedDiagramHeight(chain(7), BLOCK_WIDTH);
+		expect(seven - four).toBeGreaterThan(3 * 99);
+		expect(seven - four).toBeLessThan(3 * 99 * 1.2);
+	});
+
+	it("gives an arrow with words its room, and a decision its height", () => {
+		const plain = estimatedDiagramHeight(
+			"flowchart TD\n  A[One] --> B[Two]\n  B --> C[Three]",
+			BLOCK_WIDTH,
+		);
+		const labelled = estimatedDiagramHeight(
+			"flowchart TD\n  A[One] -->|yes| B[Two]\n  B -->|no| C[Three]",
+			BLOCK_WIDTH,
+		);
+		const decision = estimatedDiagramHeight(
+			"flowchart TD\n  A[One] --> B{Is it raining today?}\n  B --> C[Three]",
+			BLOCK_WIDTH,
+		);
+		expect(labelled).toBeGreaterThan(plain + 30);
+		expect(decision).toBeGreaterThan(plain + 100);
+	});
+
+	it("reads chains, groups with &, every arrow style, and quoted words", () => {
+		const chained = estimatedDiagramHeight(
+			"flowchart TD\n  A --> B --> C --> D",
+			BLOCK_WIDTH,
+		);
+		const written = estimatedDiagramHeight(
+			"flowchart TD\n  A --> B\n  B --> C\n  C --> D",
+			BLOCK_WIDTH,
+		);
+		expect(chained).toBe(written);
+		const grouped = estimatedDiagramHeight(
+			"flowchart TD\n  A --> B & C & D\n  B & C & D --> E",
+			BLOCK_WIDTH,
+		);
+		const bare = estimatedDiagramHeight(
+			"flowchart TD\n  A --> B\n  A --> C\n  A --> D\n  B --> E\n  C --> E\n  D --> E",
+			BLOCK_WIDTH,
+		);
+		expect(grouped).toBe(bare);
+		const styles = estimatedDiagramHeight(
+			'flowchart TD\n  A["Start (here), now"] -.-> B\n  B ==> C\n  C -- words --> D\n  D --o E\n  E --- F\n  F <--> G',
+			BLOCK_WIDTH,
+		);
+		const same = estimatedDiagramHeight(
+			"flowchart TD\n  A --> B\n  B --> C\n  C --> D\n  D --> E\n  E --> F\n  F --> G",
+			BLOCK_WIDTH,
+		);
+		expect(styles).toBeGreaterThanOrEqual(same);
+		expect(styles).toBeLessThan(same + 60);
+	});
+
+	it("does not loop on a cycle, and ignores styling lines and comments", () => {
+		const cycle = estimatedDiagramHeight(
+			"flowchart TD\n  A --> B\n  B --> C\n  C --> A",
+			BLOCK_WIDTH,
+		);
+		const open = estimatedDiagramHeight(
+			"flowchart TD\n  A --> B\n  B --> C",
+			BLOCK_WIDTH,
+		);
+		expect(cycle).toBe(open);
+		const styled = estimatedDiagramHeight(
+			"%% a comment\nflowchart TD\n  A --> B\n  classDef warm fill:#f96\n  class A warm\n  style B stroke:#333\n  click A callback",
+			BLOCK_WIDTH,
+		);
+		expect(styled).toBe(
+			estimatedDiagramHeight("flowchart TD\n  A --> B", BLOCK_WIDTH),
+		);
+	});
+
+	it("draws a left-to-right flowchart short and a wide one smaller than its own size", () => {
+		const across = estimatedDiagramHeight(
+			"flowchart LR\n  A --> B --> C",
+			BLOCK_WIDTH,
+		);
+		const down = estimatedDiagramHeight(
+			"flowchart TD\n  A --> B --> C",
+			BLOCK_WIDTH,
+		);
+		expect(across).toBeLessThan(down / 2);
+		const wide = estimatedDiagramHeight(
+			"flowchart TD\n  A --> B\n  A --> C\n  A --> D\n  A --> E\n  A --> F\n  A --> G",
+			BLOCK_WIDTH,
+		);
+		const narrow = estimatedDiagramHeight(
+			"flowchart TD\n  A --> B\n  A --> C",
+			BLOCK_WIDTH,
+		);
+		expect(wide).toBeLessThan(narrow);
+	});
+
+	it("scales with the width it is drawn in: a diagram wider than its block is drawn smaller", () => {
+		const source =
+			"flowchart TD\n  A --> B\n  A --> C\n  A --> D\n  A --> E\n  A --> F";
+		expect(estimatedDiagramHeight(source, 240)).toBeLessThan(
+			estimatedDiagramHeight(source, 720),
+		);
+	});
+
+	it("reads a sequence diagram's people and messages", () => {
+		const two = estimatedDiagramHeight(
+			"sequenceDiagram\n  A->>B: one\n  B-->>A: two",
+			BLOCK_WIDTH,
+		);
+		const six = estimatedDiagramHeight(
+			"sequenceDiagram\n  A->>B: one\n  B-->>A: two\n  A->>B: three\n  B-->>A: four\n  A->>B: five\n  B-->>A: six",
+			BLOCK_WIDTH,
+		);
+		expect(six).toBeGreaterThan(two + 150);
+	});
+
+	it("reserves what the Insert menu does for a source it does not know how to read, and never less than it can draw", () => {
+		expect(
+			estimatedDiagramHeight("quadrantChart\n  title X", BLOCK_WIDTH),
+		).toBeGreaterThanOrEqual(DIAGRAM_FALLBACK_HEIGHT);
+		expect(estimatedDiagramHeight("", BLOCK_WIDTH)).toBeGreaterThanOrEqual(80);
+		expect(
+			estimatedDiagramHeight("flowchart TD", BLOCK_WIDTH),
+		).toBeGreaterThanOrEqual(DIAGRAM_FALLBACK_HEIGHT);
+	});
+
+	it("stays finite on a source of every shape a model could send", () => {
+		for (const source of [
+			"flowchart TD\n" +
+				Array.from({ length: 300 }, (_, i) => `  N${i} --> N${i + 1}`).join(
+					"\n",
+				),
+			"graph LR\n  A[\n",
+			'flowchart TD\n  A["unclosed --> B',
+			"flowchart TD\n  A --> A",
+			"---\ntitle: x\n---\nflowchart TD\n  A --> B",
+		]) {
+			const height = estimatedDiagramHeight(source, BLOCK_WIDTH);
+			expect(Number.isFinite(height)).toBe(true);
+			expect(height).toBeGreaterThanOrEqual(80);
+			expect(height).toBeLessThanOrEqual(3000);
+		}
+	});
+});
