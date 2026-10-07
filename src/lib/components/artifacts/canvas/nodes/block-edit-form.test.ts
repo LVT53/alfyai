@@ -26,8 +26,18 @@ const BAR = JSON.stringify({
 	data: { labels: ["A", "B"], datasets: [{ data: [1, 2] }] },
 });
 
+// Where the form has to be is arithmetic on rectangles a jsdom does not have: the board's
+// own spec drives it for real. What is held here is that the form asks, once, when it opens.
+const revealForm = vi.hoisted(() =>
+	vi.fn<(form: HTMLElement) => { x: number; y: number; ms: number } | null>(
+		() => null,
+	),
+);
+vi.mock("../_lib/keyboard-reveal", () => ({ revealForm }));
+
 const updateData = vi.fn();
 const onclose = vi.fn();
+const panBy = vi.fn();
 
 function context(): CanvasBoardContext {
 	return {
@@ -36,6 +46,7 @@ function context(): CanvasBoardContext {
 		takeEditRequest: () => false,
 		dropTargetId: null,
 		updateData: (id, patch) => updateData(id, patch),
+		panBy: (pan, ms) => panBy(pan, ms),
 	};
 }
 
@@ -187,6 +198,37 @@ describe("the form of a chart", () => {
 		});
 		document.removeEventListener("keydown", outside);
 		expect(outside).not.toHaveBeenCalled();
+	});
+});
+
+// A form in the block makes the block taller and is drawn at the board's zoom: low on the
+// board its buttons were below the pane (RC-F IMP-3). It asks the board to pan once, by what
+// the arithmetic says, and a form that is already in view asks for nothing.
+describe("bringing itself into view", () => {
+	it("asks the board to pan, once, by what the arithmetic says, when it opens", async () => {
+		revealForm.mockReturnValue({ x: 0, y: -140, ms: 200 });
+		mount("chart", chart());
+		await waitFor(() => expect(panBy).toHaveBeenCalledTimes(1));
+		expect(panBy).toHaveBeenCalledWith({ x: 0, y: -140 }, 200);
+		expect(revealForm).toHaveBeenCalledTimes(1);
+		expect(revealForm.mock.calls[0][0]).toBe(
+			screen.getByTestId("canvas-edit-form"),
+		);
+	});
+
+	it("asks for nothing where the form is already in view", async () => {
+		revealForm.mockReturnValue(null);
+		mount("chart", chart());
+		await waitFor(() => expect(revealForm).toHaveBeenCalledTimes(1));
+		expect(panBy).not.toHaveBeenCalled();
+	});
+
+	it("does not pan for a form that has already gone", async () => {
+		revealForm.mockReturnValue({ x: 0, y: -140, ms: 200 });
+		const { unmount } = mount("chart", chart());
+		unmount();
+		await new Promise((resolve) => setTimeout(resolve, 60));
+		expect(panBy).not.toHaveBeenCalled();
 	});
 });
 
@@ -360,6 +402,15 @@ describe("on a phone", () => {
 		await fireEvent.click(scrim as Element);
 		expect(onclose).toHaveBeenCalledTimes(3);
 		expect(updateData).not.toHaveBeenCalled();
+	});
+
+	it("needs no help to be in view: the sheet is at the page's own size, and the board does not pan", async () => {
+		revealForm.mockReturnValue({ x: 0, y: -140, ms: 200 });
+		mount("chart", chart());
+		await screen.findByRole("dialog", { name: "Edit" });
+		await new Promise((resolve) => setTimeout(resolve, 60));
+		expect(revealForm).not.toHaveBeenCalled();
+		expect(panBy).not.toHaveBeenCalled();
 	});
 
 	it("does not take the focus into the title: the keyboard it opens would cover the sheet", async () => {

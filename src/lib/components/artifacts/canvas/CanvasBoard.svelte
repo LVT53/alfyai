@@ -354,6 +354,13 @@ provideBoardContext({
 	posterFailed: (id) => posterFailedIds.has(id),
 	updateData: (id, patch) => flow.updateNodeData(id, patch),
 	history: (action) => (action === "undo" ? undo() : redo()),
+	panBy: (pan, ms) => {
+		const { x, y, zoom } = flow.getViewport();
+		void flow.setViewport(
+			{ x: x + pan.x, y: y + pan.y, zoom },
+			{ duration: ms },
+		);
+	},
 	resizeFloor,
 	get toolbarShift() {
 		return toolbarPlaced;

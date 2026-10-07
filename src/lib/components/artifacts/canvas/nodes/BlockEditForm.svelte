@@ -87,6 +87,23 @@ let form = $state<HTMLFormElement | null>(null);
 // A phone gets a sheet; a window that is wide (or becomes so) gets the form in the block.
 let phone = $state(isPhoneViewport());
 $effect(() => watchPhoneViewport((now) => (phone = now)));
+
+// A form in the block is drawn at the board's zoom and makes the block taller: low on the
+// board, its buttons were below the pane and the board's toolbar was over the rest. When it
+// opens the camera pans, once, by the least that brings the block into view clear of the
+// toolbar and the overview (the form's buttons, when the block is taller than the room), and
+// not at all when the form is where it can be used. The arithmetic is loaded only now.
+$effect(() => {
+	if (phone || !form) return;
+	const element = form;
+	const frame = requestAnimationFrame(() => {
+		void import("../_lib/keyboard-reveal").then(({ revealForm }) => {
+			const pan = element.isConnected ? revealForm(element) : null;
+			if (pan) board.panBy?.({ x: pan.x, y: pan.y }, pan.ms);
+		});
+	});
+	return () => cancelAnimationFrame(frame);
+});
 // The sheet's Save is outside the form, which it submits by this id.
 const formId = $props.id();
 
