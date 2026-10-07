@@ -23,9 +23,10 @@
  * SVG Mermaid makes is the second gate (`utils/html-sanitizer.ts`), and the
  * renderer's configuration (`components/chat/Mermaid.svelte`) the third.
  *
- * Browser-safe, no imports: the server judges a model's diagram with it and the
- * browser loads it lazily with Mermaid.
+ * Browser-safe, and nothing but one pure helper imported: the server judges a
+ * model's diagram with it and the browser loads it lazily with Mermaid.
  */
+import { decodeCssEscapes } from "../../utils/css-escapes";
 
 type Hazard =
 	| "image-shape"
@@ -267,22 +268,9 @@ function removeStatements(
 const CSS_NAME =
 	/(?:[\w-]|[\u0080-￿]|\\(?:[0-9A-Fa-f]{1,6}[ \t\n\r\f]?|[^\n\r\f0-9A-Fa-f]))+/g;
 
-function codePoint(hex: string): string {
-	const value = Number.parseInt(hex, 16);
-	return value === 0 || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)
-		? "�"
-		: String.fromCodePoint(value);
-}
-
 /** The name as the CSS parser reads it: escapes undone, case folded. */
 function cssName(raw: string): string {
-	return raw
-		.replace(
-			/\\(?:([0-9A-Fa-f]{1,6})[ \t\n\r\f]?|([^\n\r\f0-9A-Fa-f]))/g,
-			(_all, hex: string | undefined, char: string | undefined) =>
-				hex ? codePoint(hex) : (char ?? ""),
-		)
-		.toLowerCase();
+	return decodeCssEscapes(raw).toLowerCase();
 }
 
 /** The functions that make a browser fetch an address: `url()`, `image-set()` (which takes a string), and `src()`. */

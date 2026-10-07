@@ -216,6 +216,119 @@ describe("sanitizeHtml SVG <style> CSS external-reference scrub", () => {
 	});
 });
 
+describe("sanitizeHtml SVG: no link and no address in what a diagram draws (FX-E)", () => {
+	// The second gate behind `mermaid-source.ts`: whatever Mermaid made, from a source
+	// or a setting nobody foresaw, the SVG the page receives holds no link, no picture
+	// from elsewhere, and no CSS that asks for an address, once it is {@html}-injected
+	// (the browser asks for a paint server, a cursor or a picture as soon as it draws).
+	const opts = {
+		svg: true,
+		allowStyleTags: true,
+		allowStyleAttributes: true,
+	} as const;
+	const wrap = (inner: string) =>
+		`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">${inner}</svg>`;
+
+	it("takes a link out of the picture and keeps what was inside it", () => {
+		const out = sanitizeHtml(
+			wrap(
+				'<a xlink:href="https://x.test/docs" target="_blank"><g><rect width="4" height="4"/><text>Docs</text></g></a><a href="#local"><text>Local</text></a>',
+			),
+			opts,
+		);
+		expect(out).not.toContain("<a");
+		expect(out).not.toContain("x.test");
+		expect(out).not.toContain("_blank");
+		expect(out).toContain("<rect");
+		expect(out).toContain("Docs");
+		expect(out).toContain("Local");
+	});
+
+	it("keeps a link in ordinary HTML (this is the diagram's gate, not the page's)", () => {
+		expect(
+			sanitizeHtml('<p><a href="https://x.test/docs">Docs</a></p>'),
+		).toContain('href="https://x.test/docs"');
+	});
+
+	it("keeps only an href that points inside the picture or holds the picture", () => {
+		const out = sanitizeHtml(
+			wrap(
+				'<image href="https://x.test/p.png" width="4" height="4"/>' +
+					'<image xlink:href="//x.test/q.png" width="4" height="4"/>' +
+					'<image href="data:image/png;base64,iVBORw0KGgo=" width="4" height="4"/>' +
+					'<image href="#inside" width="4" height="4"/>',
+			),
+			opts,
+		);
+		expect(out).not.toContain("x.test");
+		expect(out).toContain("data:image/png;base64,iVBORw0KGgo=");
+		expect(out).toContain('href="#inside"');
+	});
+
+	it("neutralizes an external url() in a presentation attribute, not only in style", () => {
+		const out = sanitizeHtml(
+			wrap(
+				'<rect fill="url(https://x.test/p.svg#a)" stroke="url(//x.test/s.svg#a)" filter="url(https://x.test/f.svg#f)" clip-path="url(https://x.test/c.svg#c)" mask="url(&quot;https://x.test/m.svg#m&quot;)" marker-end="url(https://x.test/e.svg#e)" cursor="url(https://x.test/c.png), auto" width="4" height="4"/>',
+			),
+			{ svg: true },
+		);
+		expect(out).not.toContain("x.test");
+		expect(out).toContain("<rect");
+	});
+
+	it("keeps what a diagram uses inside itself: marker and gradient references, paths, transforms, styles", () => {
+		const svg = wrap(
+			'<defs><marker id="arrow"><path d="M0,0L1,1"/></marker></defs><path d="M0,0L9,9" marker-end="url(#arrow)" transform="translate(1,2) rotate(3)" style="fill:#fff;stroke:#333;font-family:&quot;trebuchet ms&quot;,verdana"/><rect fill="url(&quot;#arrow&quot;)" width="4" height="4"/>',
+		);
+		const out = sanitizeHtml(svg, opts);
+		expect(out).toContain('marker-end="url(#arrow)"');
+		expect(out).toContain('transform="translate(1,2) rotate(3)"');
+		expect(out).toContain('d="M0,0L9,9"');
+		expect(out).toContain("fill:#fff");
+		expect(out).toContain("trebuchet ms");
+	});
+
+	it("reads CSS the way a browser does: an escaped url() is a url()", () => {
+		const out = sanitizeHtml(
+			wrap(
+				'<style>.a{fill:\\75rl(https://x.test/a.svg#a)}.b{fill:\\u\\r\\l(//x.test/b.svg#b)}</style><rect style="fill:\\75 rl(https://x.test/c.svg#c)" width="4" height="4"/><rect fill="\\75rl(https://x.test/d.svg#d)" width="4" height="4"/>',
+			),
+			opts,
+		);
+		expect(out).not.toContain("x.test");
+		expect(out).not.toMatch(/\\75|\\u\\r/i);
+	});
+
+	it("neutralizes the other CSS functions that fetch: image-set() with a string, src()", () => {
+		const out = sanitizeHtml(
+			wrap(
+				'<style>.a{cursor:image-set("https://x.test/c.png" 1x),auto}.b{cursor:-webkit-image-set(url(https://x.test/d.png) 1x),auto}.c{fill:src("https://x.test/e.svg")}</style>',
+			),
+			opts,
+		);
+		expect(out).not.toContain("x.test");
+	});
+
+	it("leaves a CSS escape that holds no address as it is", () => {
+		const out = sanitizeHtml(
+			wrap('<style>.q::before{content:"\\201C"}</style><text>x</text>'),
+			opts,
+		);
+		expect(out).toContain('content:"\\201C"');
+	});
+
+	it("leaves nothing of the other ways in: an image, a script, a handler, a foreign object", () => {
+		const out = sanitizeHtml(
+			wrap(
+				'<foreignObject><img src="https://x.test/p.png"/></foreignObject><script>1</script><rect onload="x()" width="1" height="1"/>',
+			),
+			opts,
+		);
+		expect(out).not.toMatch(/<img|<script|onload|foreignObject/i);
+		expect(out).not.toContain("x.test");
+	});
+});
+
 describe("html utilities", () => {
 	it("escapes HTML-sensitive characters with the default apostrophe entity", () => {
 		expect(escapeHtml(`Tom & "Jerry" <'tag'>`)).toBe(
