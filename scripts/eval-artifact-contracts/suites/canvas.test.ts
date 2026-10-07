@@ -18,15 +18,18 @@ import {
 	CANVAS_EVAL_CASES,
 	CANVAS_TOOL_SUITE,
 	canvasSystemPrompt,
+	diagramProblems,
 	frameProblems,
 	labelProblems,
 	loadFixtureBoard,
 	overlapProblems,
 	readArtifactAnswer,
+	rectGap,
 	removedProblems,
 	scoreCanvasEval,
 	userMessage,
 } from "./canvas";
+import { diagramSourcesIn, evaluateCanvasEval } from "./canvas-diagrams";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_ROOT = join(HERE, "..", "fixtures");
@@ -224,7 +227,7 @@ const HONEST_CREATES: Record<string, unknown> = {
 };
 
 describe("the canvas suite's cases", () => {
-	it("has the six fixtures of the brief — arrange, add a frame (en and hu), remove and connect, a create (en and hu) — each declaring its language", () => {
+	it("has the six fixtures of the brief — arrange, add a frame (en and hu), remove and connect, a create (en and hu) — and the six of CV-A (a note beside one, a chart in a full frame, a flowchart; each en and hu), each declaring its language", () => {
 		const real = CANVAS_EVAL_CASES.filter((c) => !c.knownBad);
 		expect(real.map((c) => [c.id, c.language])).toEqual([
 			["canvas-arrange-saturday", "en"],
@@ -233,6 +236,12 @@ describe("the canvas suite's cases", () => {
 			["canvas-add-sunday-hu", "hu"],
 			["canvas-create-vienna-en", "en"],
 			["canvas-create-vienna-hu", "hu"],
+			["canvas-add-note-beside", "en"],
+			["canvas-add-note-beside-hu", "hu"],
+			["canvas-chart-in-frame", "en"],
+			["canvas-chart-in-frame-hu", "hu"],
+			["canvas-add-flowchart", "en"],
+			["canvas-add-flowchart-hu", "hu"],
 		]);
 	});
 
@@ -800,9 +809,9 @@ describe("scoring — a board made through create_artifact", () => {
 		expect(flat.reasons.join(" ")).toMatch(/request: 1 block\(s\) with words/);
 
 		// A note the body lays on another is moved clear of it by the app (ruling 74),
-		// so it is not a miss.
+		// so it is not a miss; one the model put nowhere is placed.
 		const piled = HONEST_CREATES["canvas-create-vienna-en"] as {
-			nodes: Array<{ id: string; position: object }>;
+			nodes: Array<{ id: string; position?: object }>;
 		};
 		const overlapped = {
 			...piled,
@@ -812,6 +821,17 @@ describe("scoring — a board made through create_artifact", () => {
 		};
 		expect(
 			score("canvas-create-vienna-en", createAnswer(overlapped)).reasons,
+		).toEqual([expect.stringMatching(/^ok:/)]);
+		const unplaced = {
+			...piled,
+			nodes: piled.nodes.map(({ position: _gone, ...n }) =>
+				n.id === "a" || n.id === "b" || n.id === "c"
+					? n
+					: { ...n, position: { x: 40, y: 340 } },
+			),
+		};
+		expect(
+			score("canvas-create-vienna-en", createAnswer(unplaced)).reasons,
 		).toEqual([expect.stringMatching(/^ok:/)]);
 
 		const wrongLanguage = score(
@@ -842,6 +862,417 @@ describe("scoring — a board made through create_artifact", () => {
 		);
 		expect(result.verdict).toBe("acceptable");
 		expect(result.reasons[0]).toMatch(/note: 2 create_artifact calls/);
+	});
+});
+
+describe("scoring — what is added to a board that already has things on it (CV-A, ruling 74)", () => {
+	const note = (
+		id: string,
+		text: string,
+		x: number,
+		y: number,
+		parent = "sat",
+	) => sticky(id, text, x, y, parent);
+
+	const addNote = (...args: Parameters<typeof note>) => ({
+		op: "add_node",
+		node: note(...args),
+	});
+
+	/** The Saturday frame of the tidy board is full to y 216 and 360 tall: this is the free ground below the museum note's column. */
+	const BESIDE = [addNote("sacher", "Sachertorte at Café Sacher", 230, 240)];
+
+	it("scores a note put beside the one named, in its frame and on nothing, good", () => {
+		const result = score("canvas-add-note-beside", editAnswer(BESIDE));
+		expect(result.reasons).toEqual([expect.stringMatching(/^ok:/)]);
+		expect(result.verdict).toBe("good");
+	});
+
+	it("fails a note that is about something else, and one that is nowhere near the museum note", () => {
+		const other = score(
+			"canvas-add-note-beside",
+			editAnswer([addNote("x", "Remember the umbrella", 230, 240)]),
+		);
+		expect(other.verdict).toBe("bad");
+		expect(other.reasons.join(" ")).toMatch(/request: no new note is about/);
+
+		const far = score(
+			"canvas-add-note-beside",
+			editAnswer([
+				{
+					op: "add_node",
+					node: sticky("sacher", "Sachertorte", 900, 700),
+				},
+			]),
+		);
+		expect(far.verdict).toBe("bad");
+		expect(far.reasons.join(" ")).toMatch(
+			/request: the new note is \d+ away from the museum note/,
+		);
+	});
+
+	it("scores a note laid on another good, because the app moved it clear: what is judged is the board that is left", () => {
+		const covering = score(
+			"canvas-add-note-beside",
+			editAnswer([addNote("sacher", "Sachertorte", 230, 152)]),
+		);
+		expect(covering.reasons).toEqual([expect.stringMatching(/^ok:/)]);
+	});
+
+	it("scores a note put nowhere good, and one put beside the museum note by name", () => {
+		expect(
+			score(
+				"canvas-add-note-beside",
+				editAnswer([
+					{
+						op: "add_node",
+						node: {
+							id: "sacher",
+							type: "sticky",
+							near: "museum",
+							data: { kind: "sticky", text: "Sachertorte", tone: "mint" },
+						},
+					},
+				]),
+			).reasons,
+		).toEqual([expect.stringMatching(/^ok:/)]);
+	});
+
+	it("reads the Hungarian request on the Hungarian board", () => {
+		const result = score(
+			"canvas-add-note-beside-hu",
+			editAnswer([
+				addNote("sacher", "Sacher-torta a Café Sacherben", 230, 240),
+			]),
+		);
+		expect(result.reasons).toEqual([expect.stringMatching(/^ok:/)]);
+		const english = score(
+			"canvas-add-note-beside-hu",
+			editAnswer([
+				addNote("sacher", "Sachertorte at the Café Sacher", 230, 240),
+			]),
+		);
+		expect(english.reasons.join(" ")).toMatch(/language:/);
+	});
+
+	const chart = (parentId: string | undefined, x: number, y: number) => ({
+		op: "add_node",
+		node: {
+			id: "costs",
+			type: "chart",
+			...(parentId ? { parentId } : {}),
+			position: { x, y },
+			data: {
+				kind: "chart",
+				label: "Costs",
+				code: JSON.stringify({
+					type: "bar",
+					data: {
+						labels: ["Breakfast", "Museum", "Lunch", "Tram"],
+						datasets: [{ label: "EUR", data: [12, 21, 18, 8] }],
+					},
+				}),
+			},
+		},
+	});
+	const grow = (height: number) => ({
+		op: "update_node",
+		id: "sat",
+		data: { width: 460, height },
+	});
+
+	it("scores a chart in the frame, the frame grown to hold it, good", () => {
+		const result = score(
+			"canvas-chart-in-frame",
+			editAnswer([grow(500), chart("sat", 50, 240)]),
+		);
+		expect(result.reasons).toEqual([expect.stringMatching(/^ok:/)]);
+	});
+
+	it("scores a chart the frame has no room for good too: the app grows the frame, so the chart is inside it and covers nothing", () => {
+		const result = score(
+			"canvas-chart-in-frame",
+			editAnswer([chart("sat", 50, 150)]),
+		);
+		expect(result.reasons).toEqual([expect.stringMatching(/^ok:/)]);
+	});
+
+	it("reads a chart's config the way the chat does, so a config one closing brace short is a chart that draws, and one that is not JSON at all is a miss", () => {
+		const short = chart("sat", 50, 240);
+		const code = (short.node.data as { code: string }).code;
+		(short.node.data as { code: string }).code = code.slice(0, -1);
+		expect(
+			score("canvas-chart-in-frame", editAnswer([grow(500), short])).reasons,
+		).toEqual([expect.stringMatching(/^ok:/)]);
+		(short.node.data as { code: string }).code = "a bar chart of the costs";
+		expect(
+			score(
+				"canvas-chart-in-frame",
+				editAnswer([grow(500), short]),
+			).reasons.join(" "),
+		).toMatch(/request: the chart's config cannot be read as JSON/);
+	});
+
+	it("fails a chart that is next to the frame and not in it, one that is not a bar chart, and one without the numbers", () => {
+		const outside = score(
+			"canvas-chart-in-frame",
+			editAnswer([chart(undefined, 40, 460)]),
+		);
+		expect(outside.reasons.join(" ")).toMatch(
+			/request: the chart is not inside the Saturday frame/,
+		);
+		const line = chart("sat", 50, 240);
+		const lineData = (line.node.data as { code: string }).code;
+		(line.node.data as { code: string }).code = lineData
+			.replace('"bar"', '"line"')
+			.replace("[12,21,18,8]", "[12,21]");
+		const wrong = score("canvas-chart-in-frame", editAnswer([grow(500), line]));
+		expect(wrong.reasons.join(" ")).toMatch(/a bar chart was asked for/);
+		expect(wrong.reasons.join(" ")).toMatch(
+			/the chart does not hold 18, 8 of the 12, 21, 18, 8/,
+		);
+	});
+
+	it("names the Hungarian frame in the Hungarian case", () => {
+		const result = score(
+			"canvas-chart-in-frame-hu",
+			editAnswer([chart(undefined, 40, 460)]),
+		);
+		expect(result.reasons.join(" ")).toMatch(
+			/request: the chart is not inside the Szombat frame/,
+		);
+	});
+
+	const diagram = (code: string, extra: Record<string, unknown> = {}) => ({
+		op: "add_node",
+		node: {
+			id: "plan",
+			type: "mermaid",
+			data: { kind: "mermaid", code, ...extra },
+		},
+	});
+	const EN_FLOW =
+		"flowchart TD\n  A[Breakfast] --> B[Museum]\n  B --> C[Lunch]\n  C --> D[Walk]\n  D --> E[Opera]";
+	const HU_FLOW =
+		"flowchart TD\n  A[Reggeli] --> B[Múzeum]\n  B --> C[Ebéd]\n  C --> D[Séta]\n  D --> E[Opera]";
+
+	it("scores a flowchart of the plan good, in each language, and drawn clear of everything", () => {
+		expect(
+			score("canvas-add-flowchart", editAnswer([diagram(EN_FLOW)])).reasons,
+		).toEqual([expect.stringMatching(/^ok:/)]);
+		expect(
+			score("canvas-add-flowchart-hu", editAnswer([diagram(HU_FLOW)])).reasons,
+		).toEqual([expect.stringMatching(/^ok:/)]);
+	});
+
+	it("fails a diagram that is not a flowchart, one that names too few of the stops, and English stops for a Hungarian request", () => {
+		const sequence = score(
+			"canvas-add-flowchart",
+			editAnswer([diagram("sequenceDiagram\n  Breakfast->>Museum: then")]),
+		);
+		expect(sequence.reasons.join(" ")).toMatch(
+			/request: a flowchart was asked for, the diagram starts "sequenceDiagram"/,
+		);
+		const few = score(
+			"canvas-add-flowchart",
+			editAnswer([diagram("flowchart TD\n  A[Breakfast] --> B[Museum]")]),
+		);
+		expect(few.reasons.join(" ")).toMatch(
+			/request: the flowchart names 2 of the 5 stops/,
+		);
+		const english = score(
+			"canvas-add-flowchart-hu",
+			editAnswer([diagram(EN_FLOW)]),
+		);
+		expect(english.reasons.join(" ")).toMatch(
+			/request: the flowchart names 1 of the 5 stops/,
+		);
+	});
+
+	it("fails a source the chat's Mermaid could not read, when the evaluation says so, and a source the board refuses", () => {
+		const broken =
+			"flowchart TD\n  A[Breakfast --> B[Museum] --> C[Lunch] --> D[Walk] --> E[Opera]";
+		const answer = editAnswer([diagram(broken)]);
+		const attempt: EvalAttempt = {
+			caseId: "canvas-add-flowchart",
+			suite: "canvas",
+			response: answer,
+		};
+		const read = scoreCanvasEval(caseOf("canvas-add-flowchart"), attempt, {
+			diagrams: [{ code: broken, ok: false, error: "Parse error on line 2" }],
+		});
+		expect(read.verdict).toBe("bad");
+		expect(read.reasons.join(" ")).toMatch(
+			/diagram: mermaid "plan" does not draw: Parse error on line 2/,
+		);
+		const linked = score(
+			"canvas-add-flowchart",
+			editAnswer([diagram(`${EN_FLOW}\n  click A href "https://x.test"`)]),
+		);
+		expect(linked.verdict).toBe("bad");
+		expect(linked.reasons.join(" ")).toMatch(/refusal: .*a click line/);
+	});
+
+	it("asks of a flowchart that it is a diagram block, a flowchart, and holds the plan", () => {
+		const notes = score(
+			"canvas-add-flowchart",
+			editAnswer([
+				addNote("a", "Breakfast", 20, 240),
+				addNote("b", "Museum", 230, 240),
+			]),
+		);
+		expect(notes.verdict).toBe("bad");
+		expect(notes.reasons.join(" ")).toMatch(
+			/request: no diagram block was added \(2 sticky notes instead\)/,
+		);
+	});
+});
+
+describe("scoring — a diagram Mermaid cannot read (ruling 74)", () => {
+	const board = (code: string) =>
+		({
+			version: 1,
+			nodes: [
+				{
+					id: "flow",
+					type: "mermaid",
+					position: { x: 0, y: 0 },
+					data: { kind: "mermaid", code },
+				},
+			],
+			edges: [],
+			viewport: { x: 0, y: 0, zoom: 1 },
+			annotations: [],
+		}) as unknown as CanvasBody;
+	const evaluation = (ok: boolean, code: string, error?: string) => ({
+		diagrams: [{ code, ok, ...(error ? { error } : {}) }],
+	});
+
+	it("names a source the evaluation says did not parse, with where the grammar stopped", () => {
+		const code = "flowchart TD\n  A[Start --> B";
+		expect(
+			diagramProblems(
+				null,
+				board(code),
+				evaluation(false, code, "Parse error on line 2"),
+			),
+		).toEqual(['mermaid "flow" does not draw: Parse error on line 2']);
+	});
+
+	it("passes a source that parsed, one the evaluation never saw, and one that was already on the board", () => {
+		const code = "flowchart TD\n  A --> B";
+		expect(diagramProblems(null, board(code), evaluation(true, code))).toEqual(
+			[],
+		);
+		expect(diagramProblems(null, board(code), undefined)).toEqual([]);
+		const bad = "not a diagram";
+		expect(
+			diagramProblems(board(bad), board(bad), evaluation(false, bad, "x")),
+		).toEqual([]);
+	});
+});
+
+describe("the canvas evaluation: can the chat's own Mermaid read what the model wrote?", () => {
+	it("finds a diagram source wherever the model put it: an op's data, an update, a create's board, ops sent as text", () => {
+		const add = {
+			op: "add_node",
+			node: {
+				id: "d",
+				type: "mermaid",
+				data: { kind: "mermaid", code: "flowchart TD\n A-->B" },
+			},
+		};
+		const update = {
+			op: "update_node",
+			id: "d",
+			data: { code: "flowchart LR\n C-->D" },
+		};
+		expect(diagramSourcesIn({ ops: [add, update] }).sort()).toEqual([
+			"flowchart LR\n C-->D",
+			"flowchart TD\n A-->B",
+		]);
+		expect(diagramSourcesIn({ ops: JSON.stringify([add]) })).toEqual([
+			"flowchart TD\n A-->B",
+		]);
+		expect(
+			diagramSourcesIn({
+				body: JSON.stringify({ nodes: [add.node], edges: [] }),
+			}),
+		).toEqual(["flowchart TD\n A-->B"]);
+		expect(
+			diagramSourcesIn({ ops: [{ op: "move", id: "a", to: { x: 1, y: 2 } }] }),
+		).toEqual([]);
+	});
+
+	it("parses each source with Mermaid, and says where one stopped", async () => {
+		const good = "flowchart TD\n  A[Start] --> B{Ok?}\n  B -->|yes| C[Go]";
+		const bad = "flowchart TD\n  A[Start --> B{Ok?";
+		const evaluation = await evaluateCanvasEval(
+			caseOf("canvas-add-flowchart"),
+			{
+				caseId: "canvas-add-flowchart",
+				suite: "canvas",
+				response: encodeToolPathResponse({
+					toolCalls: [
+						{
+							name: "edit_artifact",
+							arguments: {
+								artifactId: ART,
+								ops: [
+									{
+										op: "add_node",
+										node: {
+											id: "a",
+											type: "mermaid",
+											data: { kind: "mermaid", code: good },
+										},
+									},
+									{
+										op: "add_node",
+										node: {
+											id: "b",
+											type: "mermaid",
+											data: { kind: "mermaid", code: bad },
+										},
+									},
+								],
+							},
+						},
+					],
+					content: "",
+					finishReason: "tool_calls",
+				}),
+			},
+		);
+		const diagrams = (
+			evaluation as {
+				diagrams: Array<{ code: string; ok: boolean; error?: string }>;
+			}
+		).diagrams;
+		expect(diagrams.find((d) => d.code === good)?.ok).toBe(true);
+		const failed = diagrams.find((d) => d.code === bad);
+		expect(failed?.ok).toBe(false);
+		expect(failed?.error).toMatch(/Parse error/i);
+	});
+
+	it("has nothing to say about an answer with no diagram in it", async () => {
+		const evaluation = await evaluateCanvasEval(caseOf("canvas-add-sunday"), {
+			caseId: "canvas-add-sunday",
+			suite: "canvas",
+			response: editAnswer([{ op: "move", id: "a", to: { x: 1, y: 2 } }]),
+		});
+		expect(evaluation).toBeNull();
+	});
+});
+
+describe("the rubric's own gap", () => {
+	it("measures how far apart two blocks' nearest edges are, and 0 when they touch or share space", () => {
+		const a = { x: 0, y: 0, width: 100, height: 50 };
+		expect(rectGap(a, { x: 130, y: 0, width: 50, height: 50 })).toBe(30);
+		expect(rectGap(a, { x: 0, y: 90, width: 50, height: 50 })).toBe(40);
+		expect(rectGap(a, { x: 130, y: 90, width: 50, height: 50 })).toBe(50);
+		expect(rectGap(a, { x: 100, y: 0, width: 50, height: 50 })).toBe(0);
+		expect(rectGap(a, { x: 40, y: 20, width: 50, height: 50 })).toBe(0);
 	});
 });
 
@@ -1070,9 +1501,15 @@ describe("the known-bad answers (ruling 59: hand-written, never a model call)", 
 		);
 		expect(report.knownBadFailedAsExpected).toBe(true);
 		expect(report.results.map((r) => r.caseId).sort()).toEqual([
+			"canvas-add-flowchart",
+			"canvas-add-flowchart-hu",
+			"canvas-add-note-beside",
+			"canvas-add-note-beside-hu",
 			"canvas-add-sunday",
 			"canvas-add-sunday-hu",
 			"canvas-arrange-saturday",
+			"canvas-chart-in-frame",
+			"canvas-chart-in-frame-hu",
 			"canvas-create-vienna-en",
 			"canvas-create-vienna-hu",
 			"canvas-remove-and-connect",

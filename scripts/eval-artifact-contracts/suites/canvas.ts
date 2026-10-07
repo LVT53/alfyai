@@ -26,8 +26,10 @@
 // A create is judged through `parseCanvasCreateBody`, the tool's own parse.
 // Every reason starts with the check that found it (`routing:`, `tool-args:`,
 // `schema:`, `refusal:`, `request:`, `frames:`, `overlap:`, `labels:`,
-// `removed:`, `language:`, `note:`, `ok:`) so a run's results can be counted by
-// kind without parsing prose.
+// `removed:`, `language:`, `diagram:`, `note:`, `ok:`) so a run's results can be
+// counted by kind without parsing prose. `diagram:` is the one check that needs an
+// await (can the chat's own Mermaid read the source?), so it is read from the
+// suite's evaluation (`canvas-diagrams.ts`), never run here.
 //
 // The known-bad answers are hand-written and served from disk (ruling 59).
 import { readFileSync } from "node:fs";
@@ -38,6 +40,7 @@ import { classifyLanguageSignal } from "$lib/server/services/language";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import { estimatedNodeSize } from "$lib/shared/artifacts/canvas-blocks";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
+import { parseJsonLenient } from "$lib/utils/lenient-json";
 import {
 	decodeToolPathResponse,
 	type ToolPathEnvelope,
@@ -46,6 +49,7 @@ import {
 	type ToolSuite,
 } from "../tool-path";
 import type { EvalCase, EvalScoreResult, SuiteScorer } from "../types";
+import { diagramVerdict } from "./canvas-diagrams";
 import { createCanvasTools } from "./canvas-tools";
 
 // ── fixtures ─────────────────────────────────────────────────────────────
@@ -103,6 +107,15 @@ const FIXTURE_NAMES = [
 	"add-sunday-hu",
 	"create-vienna-en",
 	"create-vienna-hu",
+	// Wave 4 (CV-A, ruling 74): what is added to a board that already has things
+	// on it — one note beside another, a chart in a frame that is full, and the
+	// owner's flowchart — each in both languages.
+	"add-note-beside",
+	"add-note-beside-hu",
+	"chart-in-frame",
+	"chart-in-frame-hu",
+	"add-flowchart",
+	"add-flowchart-hu",
 ] as const;
 const FIXTURES = FIXTURE_NAMES.map(loadFixture);
 
@@ -354,8 +367,13 @@ function labelOf(node: CanvasNode): string {
 	const data = node.data;
 	if (data.kind === "sticky" || data.kind === "text") return data.text;
 	if (data.kind === "frame") return data.label;
-	if (data.kind === "checklist" || data.kind === "chart")
+	if (
+		data.kind === "checklist" ||
+		data.kind === "chart" ||
+		data.kind === "mermaid"
+	) {
 		return data.label ?? "";
+	}
 	return "";
 }
 
@@ -513,13 +531,22 @@ function newWords(before: CanvasBody | null, after: CanvasBody): string {
 	for (const node of after.nodes) {
 		if (had.has(`${node.id}\u0000${JSON.stringify(node.data)}`)) continue;
 		const data = node.data;
+		// A diagram's words are a few proper nouns and a title, which the language
+		// detector reads as English whatever they are; its stops are judged by name
+		// in the request's own check instead (a Hungarian flowchart names "múzeum").
+		if (data.kind === "mermaid") continue;
 		if (data.kind === "checklist") {
 			words.push(data.label ?? "", ...data.items.map((item) => item.text));
 		} else {
 			words.push(labelOf(node));
 		}
 	}
-	return words.filter((word) => word.trim() !== "").join("\n");
+	// A fragment of one or two words ("Opera, 19:00", a frame's name) is a proper
+	// noun or a time to the detector, whatever language it is in: only what is
+	// written as a phrase says which language it was written in.
+	return words
+		.filter((word) => word.trim().split(/\s+/).length >= 3)
+		.join("\n");
 }
 
 function languageProblem(
@@ -554,8 +581,12 @@ interface RequestedCheck {
 	mayRemove: string[];
 	/** Overlap is judged for the pairs that involve a node the change touched, or for every pair. */
 	overlapScope: "touched" | "all";
-	/** The request's own items: hard findings. */
-	requested: (before: CanvasBody, after: CanvasBody) => string[];
+	/** The request's own items: hard findings. The suite's evaluation is the third argument, for what needed an await to find out. */
+	requested: (
+		before: CanvasBody,
+		after: CanvasBody,
+		evaluation?: unknown,
+	) => string[];
 	/** Softer findings about how it was done. */
 	notes?: (before: CanvasBody, after: CanvasBody) => string[];
 }
@@ -609,6 +640,173 @@ function sundayCheck(patterns: RegExp[]): RequestedCheck["requested"] {
 		}
 		return problems;
 	};
+}
+
+/** The blocks a change added: ids the board did not have. */
+function addedNodes(before: CanvasBody, after: CanvasBody): CanvasNode[] {
+	const known = new Set(before.nodes.map((node) => node.id));
+	return after.nodes.filter((node) => !known.has(node.id));
+}
+
+/** The distance between two rectangles' nearest edges: 0 when they touch or share space. */
+export function rectGap(a: Rect, b: Rect): number {
+	const across = Math.max(
+		0,
+		Math.max(a.x, b.x) - Math.min(a.x + a.width, b.x + b.width),
+	);
+	const down = Math.max(
+		0,
+		Math.max(a.y, b.y) - Math.min(a.y + a.height, b.y + b.height),
+	);
+	return Math.hypot(across, down);
+}
+
+/**
+ * "Next to" the block a request names: the new block's nearest edge within a
+ * note's width of it. Generous on purpose — a frame that is full has no room at
+ * the block's own side, and the nearest free ground can be a row below. Where it
+ * lies (in the frame, on nothing) is judged by `frames:` and `overlap:`.
+ */
+const NEXT_TO_GAP = 160;
+
+function noteBesideCheck(
+	about: RegExp,
+	besideId: string,
+	besideName: string,
+): RequestedCheck["requested"] {
+	return (before, after) => {
+		const note = addedNodes(before, after).find(
+			(node) => node.data.kind === "sticky" && about.test(node.data.text),
+		);
+		if (!note) {
+			return [`request: no new note is about ${about.source.split("|")[0]}`];
+		}
+		const byId = byIdOf(after);
+		const beside = byId.get(besideId);
+		if (!beside) return [];
+		const gap = rectGap(absoluteRect(note, byId), absoluteRect(beside, byId));
+		return gap > NEXT_TO_GAP
+			? [
+					`request: the new note is ${Math.round(gap)} away from the ${besideName} note, which is not next to it`,
+				]
+			: [];
+	};
+}
+
+/**
+ * The numbers a Chart.js config holds in its datasets, or null when it is not
+ * JSON. Read the way the chat reads a chart fence (`parseJsonLenient`: a model
+ * one closing brace short, or with a trailing comma, still draws a chart), so
+ * what is judged is what is drawn.
+ */
+function chartValues(code: string): { type: string; values: number[] } | null {
+	const config = parseJsonLenient(code) as
+		| {
+				type?: unknown;
+				data?: { datasets?: Array<{ data?: unknown }> };
+		  }
+		| undefined;
+	if (typeof config !== "object" || config === null) return null;
+	const values = (config.data?.datasets ?? []).flatMap((dataset) =>
+		Array.isArray(dataset.data)
+			? dataset.data.filter((v): v is number => typeof v === "number")
+			: [],
+	);
+	return { type: String(config.type ?? ""), values };
+}
+
+function chartInFrameCheck(
+	frameId: string,
+	frameName: string,
+	values: number[],
+): RequestedCheck["requested"] {
+	return (before, after) => {
+		const chart = addedNodes(before, after).find(
+			(node) => node.data.kind === "chart",
+		);
+		if (!chart || chart.data.kind !== "chart") {
+			return ["request: no new chart is on the board"];
+		}
+		const problems: string[] = [];
+		const read = chartValues(chart.data.code);
+		if (!read) {
+			problems.push("request: the chart's config cannot be read as JSON");
+		} else {
+			if (read.type !== "bar") {
+				problems.push(
+					`request: a bar chart was asked for, this is "${read.type}"`,
+				);
+			}
+			const missing = values.filter((value) => !read.values.includes(value));
+			if (missing.length > 0) {
+				problems.push(
+					`request: the chart does not hold ${missing.join(", ")} of the ${values.join(", ")} asked for`,
+				);
+			}
+		}
+		if (chart.parentId !== frameId) {
+			problems.push(`request: the chart is not inside the ${frameName} frame`);
+		}
+		return problems;
+	};
+}
+
+/** At least this many of the plan's stops have to be in a flowchart that was asked to hold them. */
+const FLOWCHART_MIN_STOPS = 4;
+
+function flowchartCheck(stops: RegExp[]): RequestedCheck["requested"] {
+	return (before, after) => {
+		const added = addedNodes(before, after);
+		const diagram = added.find((node) => node.data.kind === "mermaid");
+		if (!diagram || diagram.data.kind !== "mermaid") {
+			const notes = added.filter((node) => node.data.kind === "sticky").length;
+			return [
+				`request: no diagram block was added${notes > 0 ? ` (${notes} sticky note${notes === 1 ? "" : "s"} instead)` : ""}`,
+			];
+		}
+		const problems: string[] = [];
+		const source = diagram.data.code;
+		const header = source
+			.split("\n")
+			.map((line) => line.trim())
+			.find((line) => line !== "" && !line.startsWith("%%"));
+		if (!/^(flowchart|graph)\b/i.test(header ?? "")) {
+			problems.push(
+				`request: a flowchart was asked for, the diagram starts "${(header ?? "").slice(0, 30)}"`,
+			);
+		}
+		const named = stops.filter((stop) => stop.test(source)).length;
+		if (named < FLOWCHART_MIN_STOPS) {
+			problems.push(
+				`request: the flowchart names ${named} of the ${stops.length} stops`,
+			);
+		}
+		return problems;
+	};
+}
+
+/** What Mermaid made of every diagram a change added or rewrote: a source it cannot read is drawn as source text and an error note. */
+export function diagramProblems(
+	before: CanvasBody | null,
+	after: CanvasBody,
+	evaluation: unknown,
+): string[] {
+	const was = new Map((before?.nodes ?? []).map((node) => [node.id, node]));
+	const problems: string[] = [];
+	for (const node of after.nodes) {
+		if (node.data.kind !== "mermaid") continue;
+		const prior = was.get(node.id);
+		if (prior?.data.kind === "mermaid" && prior.data.code === node.data.code) {
+			continue;
+		}
+		const verdict = diagramVerdict(evaluation, node.data.code);
+		if (verdict && !verdict.ok) {
+			problems.push(
+				`${describeNode(node)} does not draw: ${verdict.error ?? "Mermaid could not read it"}`,
+			);
+		}
+	}
+	return problems;
 }
 
 const REQUESTED: Record<string, RequestedCheck> = {
@@ -681,6 +879,48 @@ const REQUESTED: Record<string, RequestedCheck> = {
 		overlapScope: "touched",
 		requested: sundayCheck([/brunch|reggeli/i, /prater|práter/i, /vonat/i]),
 	},
+	"add-note-beside": {
+		mayRemove: [],
+		overlapScope: "touched",
+		requested: noteBesideCheck(/sacher/i, "museum", "museum"),
+	},
+	"add-note-beside-hu": {
+		mayRemove: [],
+		overlapScope: "touched",
+		requested: noteBesideCheck(/sacher/i, "museum", "museum"),
+	},
+	"chart-in-frame": {
+		mayRemove: [],
+		overlapScope: "touched",
+		requested: chartInFrameCheck("sat", "Saturday", [12, 21, 18, 8]),
+	},
+	"chart-in-frame-hu": {
+		mayRemove: [],
+		overlapScope: "touched",
+		requested: chartInFrameCheck("sat", "Szombat", [12, 21, 18, 8]),
+	},
+	"add-flowchart": {
+		mayRemove: [],
+		overlapScope: "touched",
+		requested: flowchartCheck([
+			/breakfast/i,
+			/museum/i,
+			/lunch/i,
+			/walk/i,
+			/opera/i,
+		]),
+	},
+	"add-flowchart-hu": {
+		mayRemove: [],
+		overlapScope: "touched",
+		requested: flowchartCheck([
+			/reggeli/i,
+			/m[uú]zeum/i,
+			/eb[eé]d/i,
+			/s[eé]ta/i,
+			/opera/i,
+		]),
+	},
 	"remove-and-connect": {
 		mayRemove: ["museum"],
 		overlapScope: "touched",
@@ -749,6 +989,7 @@ function createRubric(board: CanvasBody): string[] {
 function scoreTranscript(
 	fixture: CanvasFixture,
 	envelope: ToolPathEnvelope,
+	evaluation?: unknown,
 ): EvalScoreResult {
 	const tools = toolsFor(fixture);
 	const before = fixture.kind === "edit" ? tools.board() : null;
@@ -793,7 +1034,7 @@ function scoreTranscript(
 	if (fixture.kind === "edit") {
 		const check = REQUESTED[fixture.id];
 		const start = before as CanvasBody;
-		rubric.push(...check.requested(start, board));
+		rubric.push(...check.requested(start, board, evaluation));
 		const frames = frameProblems(board);
 		if (frames.length > 0) rubric.push(`frames: ${listed(frames)}`);
 		const overlaps = overlapProblems(
@@ -803,6 +1044,8 @@ function scoreTranscript(
 		if (overlaps.length > 0) rubric.push(`overlap: ${listed(overlaps)}`);
 		const labels = labelProblems(board);
 		if (labels.length > 0) rubric.push(`labels: ${listed(labels)}`);
+		const diagrams = diagramProblems(start, board, evaluation);
+		if (diagrams.length > 0) rubric.push(`diagram: ${listed(diagrams)}`);
 		const removed = removedProblems(start, board, check.mayRemove);
 		if (removed.length > 0) rubric.push(`removed: ${listed(removed)}`);
 		const language = languageProblem(newWords(start, board), fixture.language);
@@ -819,6 +1062,8 @@ function scoreTranscript(
 		if (overlaps.length > 0) rubric.push(`overlap: ${listed(overlaps)}`);
 		const labels = labelProblems(board);
 		if (labels.length > 0) rubric.push(`labels: ${listed(labels)}`);
+		const diagrams = diagramProblems(null, board, evaluation);
+		if (diagrams.length > 0) rubric.push(`diagram: ${listed(diagrams)}`);
 		const language = languageProblem(
 			`${tools.title()}\n${newWords(null, board)}`,
 			fixture.language,
@@ -856,7 +1101,7 @@ function scoreTranscript(
 	};
 }
 
-export const scoreCanvasEval: SuiteScorer = (evalCase, attempt) => {
+export const scoreCanvasEval: SuiteScorer = (evalCase, attempt, evaluation) => {
 	const fixture = fixtureByCaseId.get(evalCase.id);
 	if (!fixture) {
 		return bad(`no fixture is registered for case "${evalCase.id}"`);
@@ -867,5 +1112,5 @@ export const scoreCanvasEval: SuiteScorer = (evalCase, attempt) => {
 			"tool-call: the recorded answer is not a tool-call envelope (toolCalls, content, finishReason)",
 		);
 	}
-	return scoreTranscript(fixture, envelope);
+	return scoreTranscript(fixture, envelope, evaluation);
 };

@@ -1,0 +1,10 @@
+{
+	"evaluation": {
+		"diagrams": [
+			{
+				"code": "flowchart TD\n  A[\"Breakfast, Café Central 9:00\"] --> B[\"Kunsthistorisches Museum 11:00\"]\n  B --> C[\"Lunch, Naschmarkt 13:30\"]\n  C --> D[\"Walk along the Ringstrasse 16:00\"]\n  D --> E[\"Opera, 19:30\"]",
+				"ok": true
+			}
+		]
+	}
+}

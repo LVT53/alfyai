@@ -1,0 +1,10 @@
+{
+	"id": "chart-in-frame",
+	"description": "A chart asked for in a named frame that has no room left for one (four notes fill it): the chart belongs in that frame, so the frame has to grow to hold it, and nothing may be covered.",
+	"language": "en",
+	"kind": "edit",
+	"board": "vienna-tidy",
+	"artifactId": "3f6b2a94-7c1e-4d55-9a0e-5b2f1c8d7e10",
+	"title": "Vienna weekend",
+	"request": "Put a bar chart of Saturday's costs in the Saturday frame: breakfast 12, museum 21, lunch 18, tram tickets 8."
+}
