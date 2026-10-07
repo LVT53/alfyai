@@ -334,31 +334,38 @@ describe("ArtifactCard", () => {
 		expect(head).toHaveTextContent("Open");
 	});
 
-	// M-7 of the final review: the head's second line wraps wherever its column
-	// lets it (the panel docked beside the chat squeezes the column to a few dozen
-	// pixels), and used to break "1 fül" into "1" / "fül". A fact of the line
-	// ("· 1 fül") wraps whole: no-break spaces after the separator and between a
-	// number and its unit. To a reader the line says what it said.
-	it("chrome=full keeps each fact of the second line whole, without changing what the line says", () => {
+	// M-7 of the final review and the card's narrow-column fix (FX-D): the head's
+	// second line is ONE line element (kind, facts, version) that the stylesheet
+	// keeps on one line (it ends in an ellipsis before it wraps), so a number
+	// never parts from its unit however narrow the column is. The review pills are
+	// its siblings, never inside it, so they can drop to a row of their own.
+	it("chrome=full draws kind, facts and version as one line, with the review pill beside it and not inside it", () => {
 		const cases: Array<[string, string]> = [
-			["Dokumentum · 1 fül", "Dokumentum ·\u00a01\u00a0fül"],
-			["Document · 3 tabs", "Document ·\u00a03\u00a0tabs"],
-			["Canvas · 11 blocks", "Canvas ·\u00a011\u00a0blocks"],
-			["Tábla · 12 blokk", "Tábla ·\u00a012\u00a0blokk"],
-			["App", "App"],
+			["Dokumentum · 1 fül", "Dokumentum · 1 fül · v2"],
+			["Document · 3 tabs", "Document · 3 tabs · v2"],
+			["Canvas · 11 blocks", "Canvas · 11 blocks · v2"],
+			["Tábla · 12 blokk", "Tábla · 12 blokk · v2"],
+			["App", "App · v2"],
 		];
-		for (const [subtitle, kept] of cases) {
+		for (const [subtitle, line] of cases) {
 			const { container, unmount } = render(ArtifactCard, {
-				view: view({ subtitle, versionNumber: 2, openTargetId: "artifact-1" }),
+				view: view({
+					subtitle,
+					versionNumber: 2,
+					pendingReviewCount: 1,
+					openTargetId: "artifact-1",
+				}),
 				chrome: "full",
 			});
 
+			const facts = container.querySelector(
+				".artifact-card-sub > .artifact-card-facts",
+			);
+			expect(facts?.textContent?.replace(/\s+/g, " ").trim()).toBe(line);
 			expect(
-				container.querySelector(".artifact-card-sub > span")?.textContent,
-			).toBe(kept);
-			expect(
-				screen.getByRole("button", { name: /Weekend checklist/ }),
-			).toHaveTextContent(subtitle);
+				container.querySelector(".artifact-card-sub > .pill"),
+			).toBeInTheDocument();
+			expect(facts?.querySelector(".pill")).toBeNull();
 			// The version beside it is its own fact, led by its own separator.
 			expect(container.querySelector(".artifact-card-sep")).toHaveTextContent(
 				"·",

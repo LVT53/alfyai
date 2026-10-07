@@ -640,13 +640,14 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 
 // M-7 of the final review: with the panel docked beside the chat the card's text
 // column is squeezed by its "Megnyitva a panelen" label, and the meta line
-// wrapped between a number and its unit — "Dokumentum · 1 / fül / · v1". The
-// line may break between its facts, never inside one ("· 1 fül" is a fact: its
-// separator leads it, as "· v1" is led, and is never left at the end of a line). The card is the one the
-// app draws for a Document the turn made (seeded the way the call leaves it:
-// the artifact and the message with the call's own record, since the wrap does
-// not depend on how the Document came to be); the panel is opened with a click
-// on the card, and what is measured is where the browser put the line breaks.
+// wrapped between a number and its unit — "Dokumentum · 1 / fül / · v1". The line
+// is now one line (FX-D: it ends in an ellipsis before it wraps, and the label
+// has a row of its own when the card is narrow), so "· 1 fül" is never broken
+// apart. The card is the one the app draws for a Document the turn made (seeded
+// the way the call leaves it: the artifact and the message with the call's own
+// record, since the wrap does not depend on how the Document came to be); the
+// panel is opened with a click on the card, and what is measured is where the
+// browser put the line.
 test.describe("the in-chat artifact card's meta line", () => {
 	for (const width of [1440, 1280]) {
 		test(`keeps a number and its unit on one line when the docked panel squeezes the card (${width} px, Hungarian)`, async ({
@@ -707,54 +708,48 @@ test.describe("the in-chat artifact card's meta line", () => {
 						name: /Weekend plan, Dokumentum$/,
 					}),
 				).toBeVisible({ timeout: 30_000 });
-				const unit = page
+				// The kind, the facts and the version are ONE line element that the
+				// card keeps on one line (it would end in an ellipsis before it
+				// wrapped), so "· 1 fül" is never broken apart.
+				const facts = page
 					.getByTestId("artifact-card-head")
-					.getByText("Dokumentum · 1 fül");
-				await expect(unit).toBeVisible();
+					.locator(".artifact-card-facts");
+				await expect(facts).toHaveText(/Dokumentum · 1 fül\s+·\s+v1/);
 
-				// Where the browser broke the line: "· 1 fül" is one run of text, so
-				// its pieces must all sit on one line.
-				const lines = await unit.evaluate((element) => {
-					const text = element.firstChild as Text;
-					const at = text.data.search(/·\s+\d+\s+\p{L}+$/u);
+				// Where the browser put the line: every piece of it on one line.
+				const lines = await facts.evaluate((element) => {
 					const range = document.createRange();
-					range.setStart(text, at);
-					range.setEnd(text, text.data.length);
+					range.selectNodeContents(element);
 					return new Set(
 						Array.from(range.getClientRects()).map((rect) =>
 							Math.round(rect.top),
 						),
 					).size;
 				});
-				expect(lines, 'the lines "· 1 fül" is drawn on').toBe(1);
+				expect(lines, "the lines the facts are drawn on").toBe(1);
 
-				// And the line stays in its own column: the open label beside it is
-				// never drawn over, however narrow the panel leaves the card.
+				// And the open label is never drawn over it, however narrow the panel
+				// leaves the card: the card's own width puts the label on a row of its
+				// own under the text (artifact-card-narrow.spec.ts measures every
+				// state of it).
 				const overlap = await page.evaluate(() => {
-					const sub = document.querySelector(
-						"[data-testid=artifact-card-head] .artifact-card-sub",
-					) as HTMLElement;
-					const label = document.querySelector(
-						"[data-testid=artifact-card-head] .artifact-card-cta",
-					) as HTMLElement;
-					const range = document.createRange();
-					range.selectNodeContents(sub);
-					const textRight = Math.max(
-						...Array.from(range.getClientRects()).map((rect) => rect.right),
+					const head = "[data-testid=artifact-card-head]";
+					const line = document
+						.querySelector(`${head} .artifact-card-facts`)
+						?.getBoundingClientRect() as DOMRect;
+					const label = document
+						.querySelector(`${head} .artifact-card-cta`)
+						?.getBoundingClientRect() as DOMRect;
+					return (
+						line.left < label.right &&
+						label.left < line.right &&
+						line.top < label.bottom &&
+						label.top < line.bottom
 					);
-					// Where the label's own words start (its box has room before them).
-					const words = Array.from(label.childNodes).find(
-						(node) =>
-							node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
-					) as Text;
-					const wordsRange = document.createRange();
-					wordsRange.selectNodeContents(words);
-					return textRight - wordsRange.getBoundingClientRect().left;
 				});
-				expect(
-					overlap,
-					"px of the meta line under the open label",
-				).toBeLessThanOrEqual(0);
+				expect(overlap, "the meta line is drawn under the open label").toBe(
+					false,
+				);
 			} finally {
 				await db
 					.update(users)
