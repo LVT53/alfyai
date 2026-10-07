@@ -4,12 +4,13 @@ import type { LazyShell } from "../_lib/lazy-nodes";
 
 type ChartShellData = Extract<CanvasBlockData, { kind: "chart" }>;
 
-/** How a chart dresses the shell `LazyNode` draws: its label as the title, its subtitle at the header's end. */
+/** How a chart dresses the shell `LazyNode` draws: its label as the title, its subtitle at the header's end. A chart has a form of its own (its title and its data). */
 export function chartShell(data: ChartShellData): LazyShell {
 	return {
 		title: data.label ?? "",
 		meta: data.subtitle ?? "",
 		summary: data.label ?? "",
+		editable: true,
 	};
 }
 </script>
@@ -23,17 +24,33 @@ export function chartShell(data: ChartShellData): LazyShell {
  */
 import Chart from "$lib/components/chat/Chart.svelte";
 import { chartAspectRatio } from "$lib/shared/artifacts/canvas-blocks";
+import BlockEditForm from "./BlockEditForm.svelte";
 
-let { data }: { data: ChartShellData } = $props();
+let {
+	id,
+	data,
+	editing = false,
+	onclose,
+}: {
+	id: string;
+	data: ChartShellData;
+	/** The block's form is open: it takes the place of the plot. */
+	editing?: boolean;
+	onclose: () => void;
+} = $props();
 
 // The box the plot is drawn into, at the ratio Chart.js would draw it at (the
 // estimate the model reads is of the same box).
 let plotRatio = $derived(chartAspectRatio(data.code));
 </script>
 
-<div class="chart" data-testid="canvas-chart" style:--plot-ratio={plotRatio}>
-	<Chart code={data.code} />
-</div>
+{#if editing}
+	<BlockEditForm {id} kind="chart" {data} {onclose} />
+{:else}
+	<div class="chart" data-testid="canvas-chart" style:--plot-ratio={plotRatio}>
+		<Chart code={data.code} />
+	</div>
+{/if}
 
 <style>
 	.chart {

@@ -92,7 +92,7 @@ describe("the loading wrapper", () => {
 		expect(screen.getAllByTestId("canvas-node")).toHaveLength(1);
 	});
 
-	it("hands the content the node's id, data and selection, and nothing else of the flow's", async () => {
+	it("hands the content the node's id, data and selection, whether its form is open and how to close it, and nothing else of the flow's", async () => {
 		loaders.file = () => content();
 		mount(
 			nodeProps({ selected: true, width: 200, dragging: false, zIndex: 3 }),
@@ -100,7 +100,9 @@ describe("the loading wrapper", () => {
 		const stub = await screen.findByTestId("content-stub");
 		expect(JSON.parse(stub.dataset.propNames ?? "[]")).toEqual([
 			"data",
+			"editing",
 			"id",
+			"onclose",
 			"selected",
 		]);
 		expect(stub.dataset.nodeId).toBe("n1");
@@ -131,6 +133,88 @@ describe("the loading wrapper", () => {
 		);
 		await fireEvent.keyDown(wrapper, { key: "Enter" });
 		expect(activate).toHaveBeenCalledTimes(1);
+	});
+
+	// A block with a form of its own (a chart's source, a title): the shell offers Edit,
+	// Enter and F2 open it, the content is told it is open and how to close it.
+	describe("a block with a form of its own", () => {
+		const editableShell =
+			(extra: Record<string, unknown> = {}) =>
+			() => ({
+				title: "Budget",
+				editable: true,
+				...extra,
+			});
+
+		it("offers Edit on its toolbar, opens the form on it, and takes the form away when the content closes it", async () => {
+			loaders.chart = () => content(editableShell());
+			mount(nodeProps({ type: "chart", selected: true }));
+			const stub = await screen.findByTestId("content-stub");
+			expect(stub.dataset.editing).toBe("false");
+			await fireEvent.click(screen.getByTestId("canvas-node-edit"));
+			await waitFor(() =>
+				expect(screen.getByTestId("content-stub").dataset.editing).toBe("true"),
+			);
+			await fireEvent.click(screen.getByTestId("content-stub-close"));
+			await waitFor(() =>
+				expect(screen.getByTestId("content-stub").dataset.editing).toBe(
+					"false",
+				),
+			);
+		});
+
+		it("opens the form on Enter and on F2 when the block does nothing else with them", async () => {
+			loaders.chart = () => content(editableShell());
+			mount(nodeProps({ type: "chart" }));
+			await screen.findByTestId("content-stub");
+			const wrapper = screen.getByTestId("node-wrapper");
+			await fireEvent.keyDown(wrapper, { key: "F2" });
+			await waitFor(() =>
+				expect(screen.getByTestId("content-stub").dataset.editing).toBe("true"),
+			);
+		});
+
+		it("leaves Enter to the block that has something of its own for it (a file opens)", async () => {
+			const activate = vi.fn();
+			loaders.chart = () => content(editableShell({ activate }));
+			mount(nodeProps({ type: "chart" }));
+			await screen.findByTestId("content-stub");
+			await fireEvent.keyDown(screen.getByTestId("node-wrapper"), {
+				key: "Enter",
+			});
+			expect(activate).toHaveBeenCalledTimes(1);
+			expect(screen.getByTestId("content-stub").dataset.editing).toBe("false");
+		});
+
+		it("has no Edit, and no open form, on a read-only board", async () => {
+			loaders.chart = () => content(editableShell());
+			render(WithBoard, {
+				props: {
+					component: LazyNode,
+					componentProps: nodeProps({ type: "chart", selected: true }),
+					context: {
+						readonly: true,
+						requestEdit() {},
+						takeEditRequest: () => false,
+						dropTargetId: null,
+					},
+				},
+			});
+			await screen.findByTestId("content-stub");
+			expect(screen.queryByTestId("canvas-node-edit")).toBeNull();
+			await fireEvent.keyDown(screen.getByTestId("node-wrapper"), {
+				key: "F2",
+			});
+			expect(screen.getByTestId("content-stub").dataset.editing).toBe("false");
+		});
+
+		it("has no Edit for a block that is not editable (a file, a live web search)", async () => {
+			loaders.file = () => content();
+			mount(nodeProps({ selected: true }));
+			await screen.findByTestId("content-stub");
+			expect(screen.getByTestId("canvas-node-delete")).toBeInTheDocument();
+			expect(screen.queryByTestId("canvas-node-edit")).toBeNull();
+		});
 	});
 
 	it("names the shell after the kind alone until the content has said more", async () => {

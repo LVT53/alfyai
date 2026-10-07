@@ -28,11 +28,11 @@ describe("the loaders of the blocks made from the chat", () => {
 		}
 	});
 
-	// Photos say nothing of themselves to the shell but the kind's own name.
-	it("loads photos' own content, and dresses the shell with nothing", async () => {
+	// A photo block says its caption to the shell, when the reader gave it one.
+	it("loads photos' own content, and dresses the shell with the caption", async () => {
 		const loaded = await lazyNodeLoader("photo")?.();
 		expect(loaded?.default).toBe(PhotoModule.default);
-		expect(loaded?.shell).toBeUndefined();
+		expect(loaded?.shell).toBe(PhotoModule.photoShell);
 	});
 
 	it("has none for a note-shaped block (those are in the editor already) or for a kind that has no node", () => {

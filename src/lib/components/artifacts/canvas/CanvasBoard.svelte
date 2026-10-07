@@ -171,6 +171,14 @@ let annotations = $state.raw<Annotation[]>([...initial.annotations]);
 
 /** Wait this long after the last change before calling it a step: a drag or a burst of typing is one. */
 const SETTLE_MS = 350;
+/**
+ * How far a pointer may wander between the press and the release (px) and still be
+ * a click on a block or on the board, and not yet a drag. A laptop's touchpad never
+ * holds still; the library's own 1 px took that for a drag, dropped the click that
+ * followed (a File block did not open, a frame was not picked by its ground) and
+ * nudged a note a few pixels, as a step of its own.
+ */
+const WOBBLE_PX = 4;
 /** A panel narrower than this gets the compact toolbar and no minimap. */
 const COMPACT_BELOW = 480;
 const MINIMAP_ABOVE = 720;
@@ -1165,6 +1173,9 @@ function minimapColor(node: {
 		selectionMode={SelectionMode.Full}
 		multiSelectionKey={MULTI_SELECTION_KEY}
 		{nodesDraggable}
+		nodeClickDistance={WOBBLE_PX}
+		nodeDragThreshold={WOBBLE_PX}
+		paneClickDistance={WOBBLE_PX}
 		nodesConnectable={!readonly && !held}
 		connectionMode={ConnectionMode.Loose}
 		deleteKey={readonly || held ? null : ["Backspace", "Delete"]}
