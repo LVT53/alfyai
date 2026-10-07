@@ -9,7 +9,9 @@ import {
 	BLOCK_SHAPES_HINT,
 	canvasEditFailureMessage,
 	canvasReadBlocks,
+	createKnownBoards,
 	lastKnownBoardVersion,
+	MAX_KNOWN_BOARDS_PER_TURN,
 	parseCanvasCreateBody,
 } from "./canvas-model";
 
@@ -806,5 +808,67 @@ describe("lastKnownBoardVersion — what the model has seen of a board this turn
 				"a",
 			),
 		).toBe("v1");
+	});
+});
+
+// Ruling 67 × ruling 47: the words of a board the model last saw in this turn. A
+// version id cannot say them: the reader's saves are written into the version the
+// model read.
+describe("createKnownBoards — the words a turn knows of the boards it read", () => {
+	it("knows nothing of a board it was not shown", () => {
+		const known = createKnownBoards();
+		expect(known.get("a")).toBeUndefined();
+		known.remember("a", "{}");
+		expect(known.get("b")).toBeUndefined();
+	});
+
+	it("keeps what it was shown, and replaces it with what it is shown next", () => {
+		const known = createKnownBoards();
+		known.remember("a", "first");
+		known.remember("b", "other board");
+		known.remember("a", "second");
+		expect(known.get("a")).toBe("second");
+		expect(known.get("b")).toBe("other board");
+	});
+
+	it("keeps no turn's words for another: each store is its own", () => {
+		const first = createKnownBoards();
+		const second = createKnownBoards();
+		first.remember("a", "words");
+		expect(second.get("a")).toBeUndefined();
+	});
+
+	it("holds a bounded number of boards and forgets the one it learned of longest ago", () => {
+		const known = createKnownBoards(2);
+		known.remember("a", "a1");
+		known.remember("b", "b1");
+		known.remember("c", "c1");
+		expect(known.get("a")).toBeUndefined();
+		expect(known.get("b")).toBe("b1");
+		expect(known.get("c")).toBe("c1");
+	});
+
+	it("counts a board read again as the newest, so the one forgotten is the one left alone", () => {
+		const known = createKnownBoards(2);
+		known.remember("a", "a1");
+		known.remember("b", "b1");
+		known.remember("a", "a2");
+		known.remember("c", "c1");
+		expect(known.get("a")).toBe("a2");
+		expect(known.get("b")).toBeUndefined();
+		expect(known.get("c")).toBe("c1");
+	});
+
+	it("holds eight boards by default, which a turn that works on boards does not outgrow", () => {
+		expect(MAX_KNOWN_BOARDS_PER_TURN).toBe(8);
+		const known = createKnownBoards();
+		for (let index = 0; index < MAX_KNOWN_BOARDS_PER_TURN + 1; index += 1) {
+			known.remember(`board-${index}`, `words ${index}`);
+		}
+		expect(known.get("board-0")).toBeUndefined();
+		expect(known.get("board-1")).toBe("words 1");
+		expect(known.get(`board-${MAX_KNOWN_BOARDS_PER_TURN}`)).toBe(
+			`words ${MAX_KNOWN_BOARDS_PER_TURN}`,
+		);
 	});
 });

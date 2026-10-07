@@ -31,7 +31,7 @@ import {
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
-import { parseCanvasCreateBody } from "./canvas-model";
+import { createKnownBoards, parseCanvasCreateBody } from "./canvas-model";
 import { CREATE_ARTIFACT_HANDLERS, runCreateArtifactTool } from "./create";
 import { buildEditArtifactModelInputSchema, runEditArtifactTool } from "./edit";
 import {
@@ -1062,5 +1062,231 @@ describe("edit_artifact.canvas — the reader's newer words (ruling 67)", () => 
 
 		expect(second.modelPayload.success).toBe(false);
 		expect(await museumText(id)).toBe("Museum, 16:30 (the reader's)");
+	});
+});
+
+// RV-F I-1 / ruling 47: the reader's own saves within ten minutes are written INTO
+// their newest version, so the version the model read can hold newer words under
+// the same id. A turn that holds the words it was shown judges against those.
+// (`canvas-stale-read.test.ts` runs the same through the real tools.)
+describe("edit_artifact.canvas — the words the turn holds (ruling 67 × ruling 47)", () => {
+	async function readerWritesCoalesced(artifactId: string, text: string) {
+		const board = await storedBoard(artifactId);
+		const note = board.nodes.find((n) => n.id === "note-museum");
+		if (!note) throw new Error("fixture");
+		note.data = { kind: "sticky", text, tone: "mint" };
+		const saved = await saveCanvasBoard({
+			userId,
+			artifactId,
+			conversationId,
+			body: JSON.stringify(board),
+			author: "user",
+			summary: VERSION_SUMMARY.edited,
+			coalesceUserEdits: true,
+		});
+		if (!saved.ok) throw new Error(`setup: ${saved.reason}`);
+	}
+
+	async function museumWords(artifactId: string): Promise<string> {
+		const data = (await storedBoard(artifactId)).nodes.find(
+			(n) => n.id === "note-museum",
+		)?.data;
+		return data?.kind === "sticky" ? data.text : "";
+	}
+
+	async function newestBody(artifactId: string): Promise<string | null> {
+		const [newest] = await listVersions({
+			userId,
+			artifactId,
+			conversationId,
+			limit: 1,
+		});
+		return newest
+			? getVersionBody({
+					userId,
+					artifactId,
+					conversationId,
+					versionId: newest.id,
+				})
+			: null;
+	}
+
+	const rewriteMuseum = {
+		op: "update_node",
+		id: "note-museum",
+		data: { text: "Museum, 14:00 — Alfy's words" },
+	};
+	const moveLunch = { op: "move", id: "note-1", to: { x: 30, y: 70 } };
+
+	/** One turn: a read that fills the store, then the edit's own context. */
+	async function turnThatRead(artifactId: string) {
+		const knownBoards = createKnownBoards();
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId,
+			turnContext: { knownBoards },
+			abortSignal: abortSignal(),
+		});
+		const sources = [
+			{
+				callId: "call-read",
+				name: "read_artifact",
+				input: { artifactId },
+				status: "done" as const,
+				metadata: read.metadata,
+			},
+		];
+		return {
+			knownBoards,
+			read,
+			edit: (ops: unknown[]) =>
+				runEditArtifactTool({
+					userId,
+					conversationId,
+					turnId: "turn-1",
+					artifactId,
+					abortSignal: abortSignal(),
+					ops,
+					turnContext: { sources, knownBoards },
+				}),
+		};
+	}
+
+	it("keeps the stored words a read showed, word for word, and puts them on neither the model's answer nor the record", async () => {
+		const id = await seedBoard();
+		const stored = (
+			await getArtifact({ userId, artifactId: id, conversationId })
+		)?.body;
+		const knownBoards = createKnownBoards();
+
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId: id,
+			detail: "blocks",
+			turnContext: { knownBoards },
+			abortSignal: abortSignal(),
+		});
+
+		expect(stored).toBeTruthy();
+		expect(knownBoards.get(id)).toBe(stored);
+		expect(JSON.stringify(read.modelPayload)).not.toContain(stored ?? "?");
+		expect(JSON.stringify(read.metadata)).not.toContain("Lunch at the market");
+		expect(JSON.stringify(read.metadata)).not.toContain('"nodes"');
+	});
+
+	it("refuses the note the reader rewrote even though the version id the read named is still the newest", async () => {
+		const id = await seedBoard();
+		const turn = await turnThatRead(id);
+		await readerWritesCoalesced(id, "Museum, 16:30 (the reader's)");
+		// The id the read recorded is the newest version's, as it was.
+		const [newest] = await listVersions({
+			userId,
+			artifactId: id,
+			conversationId,
+			limit: 1,
+		});
+		expect(newest.id).toBe(turn.read.metadata.versionId);
+
+		const result = await turn.edit([rewriteMuseum, moveLunch]);
+
+		expect(result.modelPayload).toMatchObject({
+			success: true,
+			applied: 1,
+			refused: [{ target: "note-museum", reason: "stale", opIndex: 0 }],
+		});
+		expect(await museumWords(id)).toBe("Museum, 16:30 (the reader's)");
+	});
+
+	it("moves what it knows forward to the version its own edit made, when the edit landed on the board it knew", async () => {
+		const id = await seedBoard();
+		const turn = await turnThatRead(id);
+		const readWords = turn.knownBoards.get(id);
+
+		const edited = await turn.edit([moveLunch]);
+
+		expect(edited.modelPayload.success).toBe(true);
+		expect(turn.knownBoards.get(id)).toBe(await newestBody(id));
+		expect(turn.knownBoards.get(id)).not.toBe(readWords);
+	});
+
+	it("leaves what it knows where it was when its edit landed on top of words it never read", async () => {
+		const id = await seedBoard();
+		const turn = await turnThatRead(id);
+		const readWords = turn.knownBoards.get(id);
+		await readerWritesCoalesced(id, "Museum, 16:30 (the reader's)");
+
+		const edited = await turn.edit([moveLunch]);
+
+		expect(edited.modelPayload.success).toBe(true);
+		expect(turn.knownBoards.get(id)).toBe(readWords);
+		expect(await newestBody(id)).not.toBe(readWords);
+	});
+
+	it("does not move what it knows for an edit that changed nothing", async () => {
+		const id = await seedBoard();
+		const turn = await turnThatRead(id);
+		const readWords = turn.knownBoards.get(id);
+		const versions = await versionCount(id);
+
+		const highlighted = await turn.edit([{ op: "highlight", ids: ["note-1"] }]);
+
+		expect(highlighted.modelPayload.success).toBe(true);
+		expect(await versionCount(id)).toBe(versions);
+		expect(turn.knownBoards.get(id)).toBe(readWords);
+	});
+
+	it("falls back to the version it read for a board the turn no longer holds the words of", async () => {
+		const id = await seedBoard();
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId: id,
+			abortSignal: abortSignal(),
+		});
+		// A save that starts a version of its own, which the version id can judge.
+		const board = await storedBoard(id);
+		const note = board.nodes.find((n) => n.id === "note-museum");
+		if (!note) throw new Error("fixture");
+		note.data = {
+			kind: "sticky",
+			text: "Museum, 16:30 (the reader's)",
+			tone: "mint",
+		};
+		const saved = await saveCanvasBoard({
+			userId,
+			artifactId: id,
+			conversationId,
+			body: JSON.stringify(board),
+			author: "user",
+			summary: VERSION_SUMMARY.edited,
+			coalesceUserEdits: false,
+		});
+		if (!saved.ok) throw new Error(`setup: ${saved.reason}`);
+
+		const result = await runEditArtifactTool({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			artifactId: id,
+			abortSignal: abortSignal(),
+			ops: [rewriteMuseum],
+			turnContext: {
+				sources: [
+					{
+						callId: "call-read",
+						name: "read_artifact",
+						input: { artifactId: id },
+						status: "done" as const,
+						metadata: read.metadata,
+					},
+				],
+				knownBoards: createKnownBoards(),
+			},
+		});
+
+		expect(result.modelPayload.success).toBe(false);
+		expect(await museumWords(id)).toBe("Museum, 16:30 (the reader's)");
 	});
 });

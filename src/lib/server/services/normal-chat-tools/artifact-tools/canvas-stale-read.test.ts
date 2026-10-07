@@ -257,6 +257,17 @@ describe("edit_artifact on a board, through the real tools (ruling 67 × ruling 
 		expect(await museumText(id)).toBe(ALFYS_WORDS);
 	});
 
+	it("starts every turn with no read: what an earlier turn was shown is not this turn's", async () => {
+		const id = await seedBoard();
+		await turn().read(id);
+		await readerWrites(id, READERS_WORDS);
+
+		const result = await turn().edit(id, [rewriteMuseum]);
+
+		expect(result).toMatchObject({ success: true, applied: 1 });
+		expect(await museumText(id)).toBe(ALFYS_WORDS);
+	});
+
 	it("keeps the words it read out of the tool calls the turn records", async () => {
 		const id = await seedBoard();
 		const alfy = turn();
