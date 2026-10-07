@@ -591,7 +591,10 @@ function handleOpen(): void {
 	   already (ToolActivityRow's `.act-body`) — is untouched. */
 	.artifact-card-full {
 		/* The card answers to ITS OWN width (see the @container block below): the
-		   chat column beside a docked panel is narrow whatever the window is. */
+		   chat column beside a docked panel is narrow whatever the window is.
+		   Inline-size containment means the card takes its width from its parent
+		   and never from its content, so a host must be a block box (as
+		   ToolActivityRow's `.act-standalone-card` is), not a shrink-to-fit one. */
 		container: artifact-card / inline-size;
 		gap: 0;
 		border: 1px solid var(--border-default);
