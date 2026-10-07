@@ -734,6 +734,9 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
 - **And for W4-E (orchestrator, 2026-10-07), by a measured 415 B gzip (540,070 → 540,485):** the "Made in this chat" group in
   the message's Sources panel (its row, the kind's icon and word, one string in each language); `feat/artifacts` builds the
   chat route at 542,080 B before the merge and 542,495 B after it on this Mac (its agent measured +409 B on its own base).
+- **And for FX-B (orchestrator, 2026-10-07), by a measured 429 B gzip (540,485 → 540,914):** the panel joining the dialog
+  stack over a project's Files dialog (its focus trap and Escape handling in the panel the chat also loads), the tours'
+  reader threading and `forgetArtifactTours`: 542,496 B before the merge, 542,925 B after it (its agent: +414 B).
 
 ## 69. Slides is shelved; the tours come next
 
