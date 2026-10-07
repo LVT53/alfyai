@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { click } from "./artifact-canvas-edit-helpers";
 import {
 	centreOf,
 	expectCamera,
 	openBoard,
 	settledCamera,
 } from "./artifact-canvas-helpers";
-import { click } from "./artifact-canvas-edit-helpers";
 
 // The loose ends of CV-B (Feature 2 · Canvas, CV-B2). Every flow here is real input:
 // a mouse, a finger, the keyboard and the wheel as a laptop's touchpad sends it.
