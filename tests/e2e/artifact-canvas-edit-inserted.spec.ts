@@ -169,7 +169,7 @@ test.describe("everything inserted can be changed afterwards", () => {
 		await expect(del).toBeVisible();
 		await click(page, "mouse", centre((await del.boundingBox()) as never));
 		await expect(wrapperOf(page, id)).toHaveCount(0);
-		await page.keyboard.press("ControlOrMeta+z");
+		await page.keyboard.press("Control+z");
 		await expect(wrapperOf(page, id)).toHaveCount(1);
 	});
 
@@ -180,6 +180,10 @@ test.describe("everything inserted can be changed afterwards", () => {
 		await openTheBoard(page, conversationId);
 		await insertFromMenu(page, /^Chart$/);
 		const id = await idOfKind(page, "chart");
+		// The insert is saved with the board before anything is done to the block.
+		await expect
+			.poll(async () => (await storedData(boardId, id))?.code)
+			.toBeTruthy();
 		const before = await storedData(boardId, id);
 		await select(page, id);
 		await pressEdit(page);
@@ -212,22 +216,24 @@ test.describe("everything inserted can be changed afterwards", () => {
 			"Visits per day",
 		);
 		await expect
-			.poll(
-				async () =>
-					JSON.parse(String((await storedData(boardId, id))?.code)).type,
-			)
+			.poll(async () => {
+				const code = (await storedData(boardId, id))?.code;
+				return typeof code === "string" ? JSON.parse(code).type : null;
+			})
 			.toBe("line");
 		expect((await storedData(boardId, id))?.label).toBe("Visits per day");
 
 		// One press of Undo takes the whole edit back.
-		await page.keyboard.press("ControlOrMeta+z");
+		await page.keyboard.press("Control+z");
 		await expect(nodeOf(page, id).locator(".canvas-node__title")).toHaveText(
 			"Chart",
 		);
 		await expect
 			.poll(async () => (await storedData(boardId, id))?.code)
 			.toBe(before?.code);
-		expect((await storedData(boardId, id))?.label).toBeUndefined();
+		await expect
+			.poll(async () => (await storedData(boardId, id))?.label)
+			.toBeUndefined();
 
 		// Cancel leaves the block as it is.
 		await select(page, id);
@@ -299,7 +305,7 @@ test.describe("everything inserted can be changed afterwards", () => {
 			.poll(async () => String((await storedData(boardId, id))?.code))
 			.toContain("Begin");
 
-		await page.keyboard.press("ControlOrMeta+z");
+		await page.keyboard.press("Control+z");
 		await expect(drawing).toContainText("Start", { timeout: 15_000 });
 		await expect
 			.poll(async () => String((await storedData(boardId, id))?.code))
@@ -319,6 +325,8 @@ test.describe("everything inserted can be changed afterwards", () => {
 			await openTheBoard(page, conversationId);
 			await insertFromMenu(page, row);
 			const id = await idOfKind(page, kind);
+			// The insert is saved with the board before anything is done to the block.
+			await expect.poll(async () => storedData(boardId, id)).toBeDefined();
 			const before = (await storedData(boardId, id))?.[field];
 			await select(page, id);
 			await pressEdit(page);
@@ -346,7 +354,7 @@ test.describe("everything inserted can be changed afterwards", () => {
 				.poll(async () => (await storedData(boardId, id))?.[field])
 				.toBe("Weekend plan");
 
-			await page.keyboard.press("ControlOrMeta+z");
+			await page.keyboard.press("Control+z");
 			await expect
 				.poll(async () => (await storedData(boardId, id))?.[field])
 				.toBe(before);

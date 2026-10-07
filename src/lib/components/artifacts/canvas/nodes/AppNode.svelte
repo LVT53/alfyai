@@ -4,9 +4,9 @@ import type { LazyShell } from "../_lib/lazy-nodes";
 
 type AppData = Extract<CanvasBlockData, { kind: "app" }>;
 
-/** How an App block dresses the shell `LazyNode` draws: titled and named after the App. */
+/** How an App block dresses the shell `LazyNode` draws: titled and named after the App. Its title, on the board, has a form. */
 export function appShell(data: AppData): LazyShell {
-	return { title: data.title, summary: data.title };
+	return { title: data.title, summary: data.title, editable: true };
 }
 </script>
 
@@ -36,10 +36,22 @@ import { ApiError } from "$lib/client/api/http";
 import AppFrame from "$lib/components/artifacts/app/AppFrame.svelte";
 import { t } from "$lib/i18n";
 import { useChatContext } from "../_lib/chat-context";
+import BlockEditForm from "./BlockEditForm.svelte";
 
 type Phase = "loading" | "ready" | "gone" | "error";
 
-let { data }: { data: AppData } = $props();
+let {
+	id,
+	data,
+	editing = false,
+	onclose,
+}: {
+	id: string;
+	data: AppData;
+	/** The block's title form is open, over the top of the App. */
+	editing?: boolean;
+	onclose: () => void;
+} = $props();
 
 const chat = useChatContext();
 
@@ -104,6 +116,9 @@ $effect(() => {
 });
 </script>
 
+{#if editing}
+	<BlockEditForm {id} kind="app" {data} {onclose} overlay />
+{/if}
 <div class="app nodrag nowheel nopan" data-testid="canvas-app">
 		{#if phase === "ready"}
 			<AppFrame

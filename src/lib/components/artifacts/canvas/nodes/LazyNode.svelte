@@ -35,6 +35,8 @@ const board = useBoardContext();
 let loaded = $state.raw<LazyNodeModule | null>(null);
 let failed = $state(false);
 let attempt = $state(0);
+// The block's own form is open (Edit, Enter or F2 on a block that has one).
+let editing = $state(false);
 
 let kind = $derived(String(props.type));
 // Said in the block's meta line while it has no still image; not in a picture of the board.
@@ -46,6 +48,8 @@ let blockMeta = $derived(metaFor(kind));
 let shell = $derived<LazyShell>(
 	loaded?.shell?.(props.data as never, chat) ?? {},
 );
+let canEdit = $derived(Boolean(shell.editable) && !board.readonly);
+const edit = () => (editing = true);
 
 $effect(() => {
 	const load = loader;
@@ -81,11 +85,18 @@ $effect(() => {
 		title={shell.title}
 		meta={showPosterFailed ? $t("artifacts.canvas.posterFailed") : shell.meta}
 		summary={shell.summary}
-		activate={shell.activate}
+		activate={shell.activate ?? (canEdit ? edit : undefined)}
+		edit={canEdit ? edit : undefined}
 	>
 		{#if loaded}
 			{@const Content = loaded.default}
-			<Content id={props.id} data={props.data} selected={props.selected} />
+			<Content
+				id={props.id}
+				data={props.data}
+				selected={props.selected}
+				editing={editing && canEdit}
+				onclose={() => (editing = false)}
+			/>
 		{:else if failed}
 			<NodeNotice
 				message={$t("artifacts.canvas.block.loadFailed")}

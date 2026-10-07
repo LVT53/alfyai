@@ -459,6 +459,8 @@ const photoUrlSchema = z
 
 const photoDataSchema = z.object({
 	kind: z.literal("photo"),
+	/** A caption the reader gave the block: its header says it instead of the kind's name. */
+	label: labelSchema.optional(),
 	items: z
 		.array(
 			z.object({

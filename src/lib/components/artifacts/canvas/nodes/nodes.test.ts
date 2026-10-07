@@ -263,6 +263,7 @@ describe("a sticky note", () => {
 	});
 
 	it("has the whole note, however tall it was made, to double-click on", () => {
+		mount(StickyNode, stickyProps());
 		const style = readFileSync(
 			path.join(
 				path.dirname(fileURLToPath(import.meta.url)),
@@ -398,13 +399,10 @@ describe("a frame", () => {
 		expect(chip.closest(".canvas-node__chip")).not.toBeNull();
 	});
 
-	it("renames from the Edit button of the selection's toolbar", async () => {
+	it("renames from the Edit button of the selection's toolbar, and its toolbar is lifted above the board's pane so every button of it can be pressed", async () => {
 		mount(FrameNode, props({ selected: true }));
 		await fireEvent.click(screen.getByTestId("canvas-node-edit"));
 		expect(screen.getByRole("textbox", { name: "Frame name" })).toHaveFocus();
-	});
-
-	it("lifts its toolbar above the board's pane, so every button of it can be pressed", () => {
 		// The library lifts a toolbar to its block's layer plus one, which for a frame (behind
 		// everything) is 0, under the pane: the layer the toolbar gets is the frame's own class.
 		const shell = readFileSync(
@@ -603,12 +601,14 @@ describe("the board's own checklist", () => {
 				title: "Pack",
 				meta: "1/2",
 				summary: "Pack",
+				editable: true,
 			},
 		);
 		expect(checklistShell({ kind: "checklist", items: [] })).toEqual({
 			title: "",
 			meta: "",
 			summary: "",
+			editable: true,
 		});
 	});
 
@@ -727,11 +727,17 @@ describe("a chart block", () => {
 				subtitle: "Q3",
 				code: "{}",
 			}),
-		).toEqual({ title: "Budget", meta: "Q3", summary: "Budget" });
+		).toEqual({
+			title: "Budget",
+			meta: "Q3",
+			summary: "Budget",
+			editable: true,
+		});
 		expect(chartShell({ kind: "chart", code: "{}" })).toEqual({
 			title: "",
 			meta: "",
 			summary: "",
+			editable: true,
 		});
 	});
 });
@@ -758,11 +764,17 @@ describe("a diagram block", () => {
 				subtitle: "v2",
 				code: "flowchart TD",
 			}),
-		).toEqual({ title: "Checkout", meta: "v2", summary: "Checkout" });
+		).toEqual({
+			title: "Checkout",
+			meta: "v2",
+			summary: "Checkout",
+			editable: true,
+		});
 		expect(mermaidShell({ kind: "mermaid", code: "flowchart TD" })).toEqual({
 			title: "",
 			meta: "",
 			summary: "",
+			editable: true,
 		});
 	});
 });

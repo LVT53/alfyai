@@ -4,13 +4,14 @@ import type { LazyShell } from "../_lib/lazy-nodes";
 
 type ChecklistShellData = Extract<CanvasBlockData, { kind: "checklist" }>;
 
-/** How a checklist dresses the shell `LazyNode` draws: its label, and how many of its items are done. */
+/** How a checklist dresses the shell `LazyNode` draws: its label, and how many of its items are done. Its title has a form; its items are edited where they are. */
 export function checklistShell(data: ChecklistShellData): LazyShell {
 	const done = data.items.filter((item) => item.done).length;
 	return {
 		title: data.label ?? "",
 		meta: data.items.length > 0 ? `${done}/${data.items.length}` : "",
 		summary: data.label ?? "",
+		editable: true,
 	};
 }
 </script>
@@ -30,6 +31,7 @@ import {
 	CHECKLIST_MAX_ITEMS,
 } from "$lib/shared/artifacts/canvas-blocks";
 import { useBoardContext } from "../_lib/board-context";
+import BlockEditForm from "./BlockEditForm.svelte";
 
 type ChecklistData = Extract<CanvasBlockData, { kind: "checklist" }>;
 type Item = ChecklistData["items"][number];
@@ -38,7 +40,16 @@ let {
 	id,
 	data,
 	selected = false,
-}: { id: string; data: ChecklistData; selected?: boolean } = $props();
+	editing = false,
+	onclose,
+}: {
+	id: string;
+	data: ChecklistData;
+	selected?: boolean;
+	/** The block's title form is open, above the items (a checklist is as tall as what it holds, so it grows to make room). */
+	editing?: boolean;
+	onclose: () => void;
+} = $props();
 
 const board = useBoardContext();
 
@@ -78,6 +89,9 @@ function add(): void {
 }
 </script>
 
+	{#if editing}
+		<BlockEditForm {id} kind="checklist" {data} {onclose} />
+	{/if}
 	<ul class="checklist" data-testid="canvas-checklist">
 		<!-- Keyed by place and id: a repeated id would make Svelte throw, and the board with it. -->
 		{#each data.items as item, index (`${index}:${item.id}`)}
