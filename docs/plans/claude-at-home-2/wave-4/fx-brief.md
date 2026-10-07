@@ -43,3 +43,15 @@ deleted item's "Made in this chat" row shows the deleted state through the same 
 say the item was made in the original chat (the card's own wording). M-3: one browser-safe `SHIPPED_ARTIFACT_KINDS` in
 `kinds.ts`; the tours' list derives from or is checked against it, and the evidence guard reads it. M-7: "1 fül" never
 wraps apart in the card's meta line ("Dokumentum · 1 fül · v1").
+
+## FX-B2 · FX-B's three loose ends (after FX-B merged)
+
+Worktree `.claude/worktrees/art-fxb5`, branch `fix/artifacts-w4-panel-layer` (from `feat/artifacts`), port **5470**. Read
+FX-B's report (`wave-4/fx-b-report.md`, its concerns) first. (1) A click on the ~20 px ring around the expanded panel over
+the Files dialog closes the panel AND the dialog: a pointer outside the panel but over the dialog closes only the topmost
+layer, the same rule as Escape (red first, a real click). (2) The panel is an `aside` sitting over an `aria-modal` dialog,
+so a screen reader may hide it: while it sits over a dialog it is the modal layer to assistive tech (its role/`aria-modal`,
+or the dialog behind made `inert`) — pick the one that matches the app's dialog stack and test it (roles/`aria-hidden`
+asserted in Playwright). (3) Destroying the dialog while the panel is registered (browser Back with both open) must not
+leave the body scroll lock on (red first: Back, then the page scrolls). Files: `DocumentWorkspace.svelte` (the `overDialog`
+paths only), `ProjectFilesDialog.svelte`, the dialog-stack module, FX-B's spec.
