@@ -82,3 +82,20 @@ sanitized. Red first: unit tests per construct (in both directions: an ordinary 
 and pie still render), and a Playwright case where a reply with such a diagram makes **no** outbound request
 (`page.route` counting requests) and shows no link. Files: `components/chat/Mermaid.svelte`, the shared rule module CV-A made,
 its tests.
+
+## FX-F · RC-F's four Important findings and its cheap Minors (the last pass before the deploy)
+
+Worktree `.claude/worktrees/art-fxf4`, branch `fix/artifacts-w4-final` (from `feat/artifacts`, which holds FX-E), port
+**5510**. Read RC-F's report (`wave-4/rcf-report.md`) in full first, with its screenshots. Fix, red first with real input:
+**IMP-1** a freshly made board is fitted before a block (a flowchart) has drawn its real size, so it runs off the bottom with
+dead space on top — the board re-fits when a block's measured size changes while the camera is still the fit's and the
+reader has not touched it (TR-D3's `followsPane` rule extended to block growth, never after a touch); **IMP-2** on the
+Knowledge page (and in the chat's expanded panel) a press inside the panel's own popover (Download, Versions) closes the
+panel — the outside-press handler returns while a dialog/popover above it is open, as Escape does (FX-B2's open item);
+**IMP-3** a block's edit form low on the board puts Save off-screen with the board's palette over it — the form keeps itself
+and its buttons in view on desktop too (pan the camera the least distance, as TR-D4's reveal does, or place the form in
+view), never under the palette; **IMP-4** at 1100 docked the board's palette covers the zoom-out button — the floating
+layers stay off each other at narrow widths (`canvas/_lib/floating.ts`'s rule). Then the Minors from the report that are a
+few lines each (say which you took and which you left, with reasons), and FX-B2's (b): after a ring press, focus returns to
+the row that opened the panel. **The chat route has ~220 B of headroom:** add no strings unless a fix needs one, measure,
+report; do not move the baseline. Screenshots you look at yourself for each Important finding, before and after.
