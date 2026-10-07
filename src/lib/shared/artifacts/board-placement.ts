@@ -339,10 +339,14 @@ function frameHoldingMiddle(
 	return best?.frame ?? null;
 }
 
+/** How near a growing frame may come to what stands beside it: a frame that touches its neighbour looks like one. */
+const GROW_CLEARANCE = 12;
+
 /**
  * Whether a frame could be made `width` by `height`, its top-left corner staying
- * where it is: the ground it would take is free of what sits beside it, and it
- * stays inside the frame it is in, if it is in one.
+ * where it is: the ground it would take (a strip down its side, a strip along its
+ * bottom) is free of what sits beside it, a clearance away, and it stays inside
+ * the frame it is in, if it is in one.
  */
 function canBecome(
 	body: CanvasBody,
@@ -350,11 +354,34 @@ function canBecome(
 	width: number,
 	height: number,
 ): boolean {
-	const grown: Box = { ...frame.position, width, height };
+	const was = estimatedNodeSize(frame);
 	const beside = containerOf(body, frame.parentId, frame.id);
-	if (beside.siblings.some((other) => overlaps(grown, other))) return false;
-	if (beside.bounds && !withinFrame(grown, beside.bounds)) return false;
-	return true;
+	const claimed: Box[] = [];
+	if (width > was.width) {
+		claimed.push({
+			x: frame.position.x + was.width,
+			y: frame.position.y,
+			width: width - was.width,
+			height: Math.max(height, was.height),
+		});
+	}
+	if (height > was.height) {
+		claimed.push({
+			x: frame.position.x,
+			y: frame.position.y + was.height,
+			width: Math.max(width, was.width),
+			height: height - was.height,
+		});
+	}
+	if (
+		beside.siblings.some((other) =>
+			claimed.some((strip) => intersects(strip, other, GROW_CLEARANCE)),
+		)
+	) {
+		return false;
+	}
+	const grown: Box = { ...frame.position, width, height };
+	return !beside.bounds || withinFrame(grown, beside.bounds);
 }
 
 /**

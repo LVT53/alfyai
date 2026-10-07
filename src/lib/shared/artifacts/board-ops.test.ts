@@ -783,8 +783,10 @@ describe("validateBoardDiff — where a block goes when Alfy adds it (ruling 74)
 		expect(chart.position.y + 228).toBeLessThanOrEqual(frame.height ?? 0);
 	});
 
-	it("places a diagram, which is wider than the frame, by growing the frame sideways too", () => {
-		const run = land(vienna(), {
+	it("places a diagram, which is wider than the frame, by growing the frame sideways too, when what stands beside it is far enough off", () => {
+		const roomy = vienna();
+		roomy.nodes = roomy.nodes.filter((n) => n.id !== "title");
+		const run = land(roomy, {
 			op: "add_node",
 			node: {
 				id: "flow",
@@ -799,6 +801,22 @@ describe("validateBoardDiff — where a block goes when Alfy adds it (ruling 74)
 		expect(run.refused).toEqual([]);
 		expect(node(run.doc, "sat").width).toBe(520);
 		expect(node(run.doc, "flow").width).toBe(480);
+	});
+
+	it("does not grow a frame up against what stands beside it: the diagram goes beside the frame instead, as it does when the ground below is taken", () => {
+		// The title stands at x 560, the frame ends at 500: 520 wide would touch it.
+		const run = land(vienna(), {
+			op: "add_node",
+			node: {
+				id: "flow",
+				type: "mermaid",
+				parentId: "sat",
+				data: { kind: "mermaid", code: "flowchart TD\n  A[One] --> B[Two]" },
+			},
+		} as BoardOp);
+		expect(run.refused).toEqual([]);
+		expect(node(run.doc, "flow").parentId).toBeUndefined();
+		expect(node(run.doc, "sat").width).toBe(460);
 	});
 
 	it("leaves a diagram beside the frame when the frame cannot grow into free ground", () => {

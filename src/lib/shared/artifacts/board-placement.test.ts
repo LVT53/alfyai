@@ -306,6 +306,17 @@ describe("placeBlock — a frame with no room", () => {
 		});
 	});
 
+	it("does not grow the frame up against what stands beside it", () => {
+		// The title text stands at x 560; a diagram wants the frame 520 wide, which ends at 560.
+		const placed = placeBlock(vienna(), {
+			id: "diagram",
+			size: DIAGRAM,
+			parentId: "sat",
+		});
+		expect(placed.how).toBe("outside");
+		expect(placed.parentId).toBeUndefined();
+	});
+
 	it("puts the block beside the frame, and says so, when the ground it would grow into is taken", () => {
 		const body = vienna();
 		body.nodes.push(note("blocker", 40, 424));

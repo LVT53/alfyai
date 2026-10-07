@@ -6,7 +6,7 @@
  * by them, so a diagram taller than what was reserved for it ends up under the
  * block placed below it. This reads the source the way the layout does (ranks,
  * lanes, messages), and the numbers are what Mermaid 11.17 drew in headless
- * Chromium, measured on 40 sources (`mermaid-size.test.ts` holds them):
+ * Chromium, measured on 41 sources (`mermaid-size.test.ts` holds them):
  *
  *  - a flowchart is a stack of ranks (top to bottom) or of lanes (left to
  *    right): 49 per box, 50 between ranks and between neighbours, 23 more
@@ -16,7 +16,9 @@
  *    participant;
  *  - the panel draws the picture no wider than the block, so a wide diagram is
  *    shorter on the board than it is in its own units (a Gantt chart, 1184
- *    wide, is drawn at a third of its height).
+ *    wide, is drawn at a third of its height);
+ *  - the block is the picture plus its card: a 31-high header and 28 of
+ *    margin, measured on the board itself (the panel, not a bare render).
  *
  * The answer is an estimate, and on purpose never a short one: it is the same
  * number the model's read reports and the placer reserves, and ground left over
@@ -26,15 +28,24 @@
 
 /** What is reserved for a diagram when its source says too little to read a size from. */
 export const DIAGRAM_FALLBACK_HEIGHT = 420;
-const DIAGRAM_MIN_HEIGHT = 80;
+const DIAGRAM_MIN_HEIGHT = 120;
 const DIAGRAM_MAX_HEIGHT = 3000;
-/** The block's card and the diagram's own margin: what the picture is drawn inside of. */
+/** Across, the block's own padding and the picture's margin: what the picture is drawn inside of. */
 const CARD_INSET = 24;
-/** The estimate is the layout's height plus a tenth and a little: slack, never a shortfall. */
-const SAFETY_FACTOR = 1.1;
-const SAFETY_ADD = 12;
+/** Down, what the block adds to the picture: its header bar (31) and the margins around the picture (28), measured on the board. */
+const CARD_CHROME = 59;
+/** The estimate is the layout's height plus a twentieth and a few pixels: slack, never a shortfall. */
+const SAFETY_FACTOR = 1.05;
+const SAFETY_ADD = 6;
+/**
+ * A diagram wider than its block is drawn smaller, and a width read too wide
+ * would draw it smaller than it is, which is the short way to be wrong. A
+ * source's words are read at a typical letter's width, so the width is taken at
+ * a little under what that says.
+ */
+const WIDTH_BIAS = 0.88;
 
-const CHAR_WIDTH = 8.4;
+const CHAR_WIDTH = 7.7;
 const WRAP_WIDTH = 200;
 const BOX_HEIGHT = 49;
 const EXTRA_LINE = 18;
@@ -457,21 +468,23 @@ function naturalSizeOf(code: string): Natural {
 	if (/^erdiagram/.test(header)) return entityRelationSize(statements);
 	if (/^classdiagram/.test(header)) return classSize(statements);
 	if (/^(timeline|journey)\b/.test(header)) {
-		return { width: 950, height: 500 };
+		return { width: 900, height: 540 };
 	}
 	return { width: 480, height: DIAGRAM_FALLBACK_HEIGHT };
 }
 
 /**
- * The height, in board units, a diagram of this source is drawn at in a block
+ * The height, in board units, the block of a diagram of this source is drawn at,
  * `width` wide: its layout's own height, scaled the way the picture is when it
- * is wider than the block, plus the slack described above. Whole numbers.
+ * is wider than the block, plus the card around it and the slack described
+ * above. Whole numbers.
  */
 export function estimatedDiagramHeight(code: string, width: number): number {
 	const natural = naturalSizeOf(code);
 	const inner = Math.max(120, width - CARD_INSET);
-	const scale = Math.min(1, inner / natural.width);
-	const drawn = natural.height * scale * SAFETY_FACTOR + SAFETY_ADD;
+	const scale = Math.min(1, inner / (natural.width * WIDTH_BIAS));
+	const drawn =
+		natural.height * scale * SAFETY_FACTOR + CARD_CHROME + SAFETY_ADD;
 	return Math.min(
 		DIAGRAM_MAX_HEIGHT,
 		Math.max(DIAGRAM_MIN_HEIGHT, Math.ceil(drawn)),
