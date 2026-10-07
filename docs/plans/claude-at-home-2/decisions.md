@@ -737,6 +737,9 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
 - **And for FX-B (orchestrator, 2026-10-07), by a measured 429 B gzip (540,485 → 540,914):** the panel joining the dialog
   stack over a project's Files dialog (its focus trap and Escape handling in the panel the chat also loads), the tours'
   reader threading and `forgetArtifactTours`: 542,496 B before the merge, 542,925 B after it (its agent: +414 B).
+- **And for FX-C (orchestrator, 2026-10-07), by a measured 219 B gzip (540,914 → 541,133):** the Sources rows' deleted and
+  forked states and `SHIPPED_ARTIFACT_KINDS` (no new strings; the card's own sentences): 542,916 B before the merge,
+  543,135 B after it (its agent: +237 B).
 
 ## 69. Slides is shelved; the tours come next
 

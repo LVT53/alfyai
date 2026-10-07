@@ -55,3 +55,16 @@ or the dialog behind made `inert`) — pick the one that matches the app's dialo
 asserted in Playwright). (3) Destroying the dialog while the panel is registered (browser Back with both open) must not
 leave the body scroll lock on (red first: Back, then the page scrolls). Files: `DocumentWorkspace.svelte` (the `overDialog`
 paths only), `ProjectFilesDialog.svelte`, the dialog-stack module, FX-B's spec.
+
+## FX-D · the in-chat card at a docked panel's narrow chat column
+
+Worktree `.claude/worktrees/art-fxd4`, branch `fix/artifacts-card-narrow` (from `feat/artifacts`), port **5480**. FX-C found
+(screenshot `…/w4/shots/fx-c/08-concern-docked-card-1100-light-hu.png`): with the panel docked, the chat column is ~340 px at
+a 1100 px window and the card (`components/artifacts/ArtifactCard.svelte`, `chrome="full"`) breaks its meta line into four
+("Dokumentum / · 1 fül / · / v1") while "Megnyitva a panelen ›" is drawn over it; below ~1280 px it is already crushed. The
+card must adapt to **its own** width (a CSS container query on the card, not the viewport): when narrow, the action
+(Megnyitás / Megnyitva a panelen / Újragenerálás) takes its own row under the title, the meta line stays one line
+(ellipsis before it wraps), nothing overlaps, and every kind and state (deleted, out of reach, review badge, File rows
+through `chrome="body"`) still reads. Red first: Playwright at 1100×800 and 1280×800 with the panel docked, asserting no
+overlap of the action with the meta line (bounding boxes) and the meta line's height of one line; screenshots at 1100, 1280,
+1440 and 390, light and dark. CSS mostly; no new strings.
