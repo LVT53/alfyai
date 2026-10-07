@@ -23,7 +23,13 @@ import {
 } from "$lib/client/api/artifact-tours";
 import { ApiError } from "$lib/client/api/http";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
-import { hasOpenDialog } from "$lib/components/ui/DialogShell.svelte";
+import {
+	deregisterDialog,
+	hasOpenDialog,
+	isTopmostDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
+import { focusTrap } from "$lib/utils/focus-trap";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
@@ -101,6 +107,7 @@ let {
 	onDeleteArtifact = undefined,
 	onFlushReady = undefined,
 	currentUser = null,
+	overDialog = false,
 }: {
 	open?: boolean;
 	presentation?: "docked" | "expanded";
@@ -169,6 +176,15 @@ let {
 		displayName: string;
 		profilePicture: string | null;
 	} | null;
+	/**
+	 * The panel is shown above a dialog (a project's Files dialog opens a made
+	 * item in it), so while it is open it is a layer of the one dialog stack,
+	 * above that dialog: Tab stays inside the panel, and one Escape closes the
+	 * panel and not the dialog under it, which is the topmost layer again once
+	 * the panel is gone. A host with nothing beneath leaves it off, and the
+	 * panel answers Escape from the window handler below as it always did.
+	 */
+	overDialog?: boolean;
 } = $props();
 
 let activeDocument: WorkspaceDocument | null = $derived.by(() => {
@@ -1360,11 +1376,19 @@ function handleWindowKeydown(event: KeyboardEvent) {
 	// Deferring to `hasOpenDialog()` (order-independent) instead of relying
 	// on `event.defaultPrevented` above is what keeps one Escape closing
 	// only the innermost layer (redesign §5.4) instead of the popover AND
-	// the expanded panel at once.
+	// the expanded panel at once. A panel over a dialog is itself on that
+	// stack, so this always defers there: its trap below answers Escape.
 	if (hasOpenDialog()) return;
 
-	// The list closes first, in any presentation; only then does Escape fall
-	// through to the panel's own (expanded-only) close behaviour.
+	closeFromEscape();
+}
+
+/**
+ * What Escape does to the panel itself: the list closes first, in any
+ * presentation; only then does it fall through to the panel's own
+ * (expanded-only) close behaviour.
+ */
+function closeFromEscape() {
 	if (list?.open) {
 		onListOpenChange?.(false);
 		return;
@@ -1374,6 +1398,67 @@ function handleWindowKeydown(event: KeyboardEvent) {
 
 	handleCloseWorkspace();
 }
+
+// A panel over a dialog (`overDialog`) is a layer of the one dialog stack for as
+// long as it is open, registered after the dialog it sits on so it is the
+// topmost: the dialog's own trap then lets Tab and Escape pass until the panel
+// is gone. The pattern is the one every dialog that is not a DialogShell but
+// nests with them uses (ImageLightbox, ModelForm, the artifact popovers):
+// register, then a `focusTrap` gated on `isTopmostDialog`.
+const stackId = Symbol("document-workspace");
+
+$effect(() => {
+	if (!overDialog || !shouldShowWorkspaceShell) return;
+	registerDialog(stackId);
+	return () => deregisterDialog(stackId);
+});
+
+/**
+ * ProseMirror takes Escape (and Enter) for itself on every key press, so that
+ * the browser's own default never runs (`captureKeyDown` in prosemirror-view):
+ * a `defaultPrevented` Escape from inside the Document's editor says nothing
+ * about the layers above the text.
+ */
+function isEditorsOwnEscape(event: KeyboardEvent): boolean {
+	return (
+		event.target instanceof Element &&
+		event.target.closest(".ProseMirror") !== null
+	);
+}
+
+/**
+ * The trap for one of the two shells. Both are mounted and the viewport shows
+ * one of them (`previewRendererSurface`, which is also the one that holds the
+ * body), so each trap answers only while its own shell is the one on screen:
+ * the other has nothing to land on and would otherwise swallow the key. Escape
+ * is the window handler's own rule (`closeFromEscape`), and a key a layer inside
+ * the panel already used for itself (the board's note being edited, a menu, a
+ * composer cancelling) stays that layer's: the window handler skips a
+ * `defaultPrevented` key the same way. Focus goes back to what had it when the
+ * shell mounted, the row that opened the item.
+ */
+function trapFor(surface: "desktop" | "mobile") {
+	return focusTrap({
+		isTopmost: () =>
+			overDialog &&
+			previewRendererSurface === surface &&
+			isTopmostDialog(stackId),
+		onEscape: (event) => {
+			if (event.defaultPrevented && !isEditorsOwnEscape(event)) return;
+			event.preventDefault();
+			// As the topmost layer of the stack always does (DialogShell's own
+			// handler too): no later window listener reacts to this press. The
+			// dialog under the panel is topmost the moment the panel has left the
+			// stack, which can be before its listener has run.
+			event.stopImmediatePropagation();
+			closeFromEscape();
+		},
+		restoreFocusOnCleanup: true,
+		preventScroll: true,
+	});
+}
+const desktopTrap = trapFor("desktop");
+const mobileTrap = trapFor("mobile");
 
 function closeArtifactList(): void {
 	onListOpenChange?.(false);
@@ -1646,6 +1731,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	>
 		<section
 			bind:this={mobileShellElement}
+			{@attach overDialog ? mobileTrap : undefined}
 			class="workspace-shell workspace-shell-mobile"
 			aria-label={list.title ?? $t('artifacts.panel.title')}
 		>
@@ -1680,6 +1766,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	<!-- Desktop / tablet side pane -->
 	<aside
 		bind:this={desktopShellElement}
+		{@attach overDialog ? desktopTrap : undefined}
 		class="workspace-shell workspace-shell-desktop transition fade"
 		class:workspace-fade-in={isVisible}
 		style:opacity={isVisible ? '1' : '0'}
@@ -1954,6 +2041,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	>
 		<section
 			bind:this={mobileShellElement}
+			{@attach overDialog ? mobileTrap : undefined}
 			class="workspace-shell workspace-shell-mobile"
 			aria-label={panelLandmarkLabel}
 			data-testid="document-workspace-mobile-shell"
@@ -2238,6 +2326,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	<!-- Desktop / tablet side pane -->
 	<aside 
 		bind:this={desktopShellElement}
+		{@attach overDialog ? desktopTrap : undefined}
 		class="workspace-shell workspace-shell-desktop transition fade"
 		class:workspace-fade-in={isVisible}
 		class:workspace-resizing={isResizing}

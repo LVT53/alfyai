@@ -516,9 +516,15 @@ $effect(() => {
 		onClose={() => (addFromLibraryOpen = false)}
 	/>
 
+	<!-- Above the dialog, so `overDialog`: while the panel is open it is a layer
+	     of the dialog stack, and the dialog's own Tab trap and Escape stand down
+	     for as long as it is there. After the dialog in the template on purpose:
+	     the stack is ordered by when a layer registers, and the dialog has to be
+	     the one underneath. -->
 	<DocumentWorkspace
 		open={workspaceOpen}
 		presentation="expanded"
+		overDialog
 		returnToDockedOnExpandedClose={false}
 		showPresentationToggle={false}
 		documents={workspaceDocuments}
