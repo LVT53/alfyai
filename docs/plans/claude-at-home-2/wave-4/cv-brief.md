@@ -74,3 +74,9 @@ selected by one: a click selects it like every other block, a double click or En
 so). (3) On a phone, an edit form on a block near the bottom opens with Save below the fold: the form keeps its buttons in
 view (scroll it into view, or open it as the app's sheet on phones — follow how the board's other phone surfaces do it).
 Red first with real input for each; screenshots at 1440 and 390.
+(4) **Safari's pinch** (CV-C's concern 3): Safari on macOS reports a trackpad pinch as `gesturestart`/`gesturechange`/
+`gestureend` (with `scale`), not as Ctrl+wheel, so a pinch zooms nothing there — feed it to CV-C's wheel part
+(`canvas/_lib/wheel.ts`) as the same zoom about the pointer, and stop Safari's own page zoom over the board (unit tests with
+synthetic gesture events; Playwright cannot drive Safari's gestures). (5) A note being typed in carries `nowheel`
+(`InlineTextField`), so the wheel does nothing over it: it never scrolls, so let the board pan there (CV-C's concern 4).
+
