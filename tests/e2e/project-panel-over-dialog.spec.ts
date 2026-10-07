@@ -48,7 +48,7 @@ const APP_HTML =
 /** A chat of the user's inside the project, with the title a row will quote. */
 async function seedProjectChat(
 	userId: string,
-	projectId: string,
+	projectId: string | null,
 	title: string,
 ): Promise<string> {
 	const id = randomUUID();
@@ -269,6 +269,54 @@ test.describe("The panel over a project's Files dialog", () => {
 
 		await page.keyboard.press("Escape");
 		await expect(dialog).toHaveCount(0);
+	});
+});
+
+test.describe("The Files dialog's footer", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await login(page);
+	});
+
+	// RV-F, M-6: "3 items · removing one here keeps it in your library" under a
+	// list none of whose rows has a way to remove it.
+	test("promises removal only while a row on the list offers it", async ({
+		page,
+	}) => {
+		const userId = await testUserId();
+		const { projectId } = await seedMadeProject(userId);
+		const dialog = await openFilesDialog(page, projectId);
+		const footer = dialog.getByTestId("project-files-footer");
+
+		await expect(dialog.getByTestId("project-file-row")).toHaveCount(3);
+		await expect(dialog.getByTestId("project-file-unlink")).toHaveCount(0);
+		await expect(footer).toHaveText("3 items");
+
+		// A Document made in a chat outside the project and linked from the
+		// library is the one kind of row here that can be removed.
+		const outsideChat = await seedProjectChat(userId, null, "Packing chat");
+		const packing = await createDocumentArtifact({
+			userId,
+			conversationId: outsideChat,
+			title: `Packing list ${randomUUID().slice(0, 6)}`,
+			markdown: "## Packing\n\nPassport, charger.",
+			author: "alfy",
+			summary: "Seeded for E2E",
+		});
+		const linked = await page.request.post(
+			`/api/projects/${projectId}/knowledge`,
+			{ data: { artifactIds: [packing.id] } },
+		);
+		expect(linked.ok(), "linking must succeed").toBe(true);
+		await dialog.getByRole("button", { name: "Done" }).click();
+		await expect(dialog).toHaveCount(0);
+
+		const reopened = await openFilesDialogHere(page);
+		await expect(reopened.getByTestId("project-file-row")).toHaveCount(4);
+		await expect(reopened.getByTestId("project-file-unlink")).toHaveCount(1);
+		await expect(reopened.getByTestId("project-files-footer")).toHaveText(
+			"4 items · removing one here keeps it in your library",
+		);
 	});
 });
 

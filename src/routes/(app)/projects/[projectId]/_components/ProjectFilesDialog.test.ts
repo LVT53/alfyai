@@ -410,7 +410,7 @@ describe("ProjectFilesDialog: what the chats made", () => {
 			"2 items · removing one here keeps it in your library",
 		);
 
-		await rerender({ files: [madeItem()] });
+		await rerender({ files: [madeItem({ linked: true })] });
 		expect(footerCount()).toBe(
 			"1 item · removing one here keeps it in your library",
 		);
@@ -419,6 +419,48 @@ describe("ProjectFilesDialog: what the chats made", () => {
 		expect(footerCount()).toBe(
 			"1 file · removing it here keeps it in your library",
 		);
+	});
+
+	// The footer's note is about the unlink on a row. A made item that is here
+	// only through its chat has none, so a list of nothing else has nothing to
+	// promise (RV-F, M-6): it counts and stops.
+	it("promises removal only while a row on the list offers it", async () => {
+		const { rerender } = open([
+			madeItem(),
+			madeItem({ artifactId: "app-1", name: "Cost splitter" }),
+			madeItem({ artifactId: "board-1", name: "Trip board" }),
+		]);
+		expect(screen.queryAllByTestId("project-file-unlink")).toHaveLength(0);
+		expect(footerCount()).toBe("3 items");
+
+		await rerender({
+			files: [madeItem(), madeItem({ artifactId: "doc-2", linked: true })],
+		});
+		expect(screen.getAllByTestId("project-file-unlink")).toHaveLength(1);
+		expect(footerCount()).toBe(
+			"2 items · removing one here keeps it in your library",
+		);
+
+		await rerender({ files: [madeItem()] });
+		expect(footerCount()).toBe("1 item");
+	});
+
+	it("reads the same in Hungarian: the note goes with the row that could be removed", async () => {
+		uiLanguage.set("hu");
+		const { rerender } = open([madeItem(), madeItem({ artifactId: "app-1" })]);
+		expect(footerCount()).toBe("2 elem");
+
+		await rerender({
+			files: [madeItem(), madeItem({ artifactId: "doc-2", linked: true })],
+		});
+		expect(footerCount()).toBe(
+			"2 elem · az eltávolítás nem törli a könyvtárból",
+		);
+	});
+
+	it("says nothing of removal about a list with nothing on it", () => {
+		open([]);
+		expect(footerCount()).toBe("");
 	});
 
 	it("finds an item by its title in the search box", async () => {
