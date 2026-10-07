@@ -68,3 +68,17 @@ card must adapt to **its own** width (a CSS container query on the card, not the
 through `chrome="body"`) still reads. Red first: Playwright at 1100×800 and 1280×800 with the panel docked, asserting no
 overlap of the action with the meta line (bounding boxes) and the meta line's height of one line; screenshots at 1100, 1280,
 1440 and 390, light and dark. CSS mostly; no new strings.
+
+## FX-E · the chat's Mermaid renders no image URL and no link a model wrote (security, pre-existing)
+
+Worktree `.claude/worktrees/art-fxe4`, branch `fix/mermaid-hardening` (from `feat/artifacts`), port **5500**. CV-A found
+(`wave-4/cv-a-report.md`, concern 1) that the chat's own `Mermaid.svelte` fetches an `img:` URL while rendering a diagram and
+keeps `click … href` links, so a model-written diagram in a reply (prompt-injected through a web page, say) can make the
+reader's browser call any address or show a disguised link. CV-A refuses those constructs for a diagram Alfy writes on a
+board. Make **one** sanitizer (beside CV-A's rule, shared, browser-safe) that every Mermaid render goes through — chat
+replies, the board's diagram blocks, the reader's own edit (CV-B's form) — removing or refusing image/icon shapes, `click`
+lines, `%%{ }%%` init directives, `href`/URLs, and confirm Mermaid runs with `securityLevel: "strict"` and its output is
+sanitized. Red first: unit tests per construct (in both directions: an ordinary flowchart, sequence, class, state, ER, Gantt
+and pie still render), and a Playwright case where a reply with such a diagram makes **no** outbound request
+(`page.route` counting requests) and shows no link. Files: `components/chat/Mermaid.svelte`, the shared rule module CV-A made,
+its tests.
