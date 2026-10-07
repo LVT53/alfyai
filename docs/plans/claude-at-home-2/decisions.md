@@ -740,6 +740,12 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
 - **And for FX-C (orchestrator, 2026-10-07), by a measured 219 B gzip (540,914 → 541,133):** the Sources rows' deleted and
   forked states and `SHIPPED_ARTIFACT_KINDS` (no new strings; the card's own sentences): 542,916 B before the merge,
   543,135 B after it (its agent: +237 B).
+- **The editor's first-paint ceiling raised for the owner's Canvas round (orchestrator, 2026-10-07): 71,680 → 72,704 B
+  (71 KiB) gzip.** The owner asked (2026-10-07) that everything inserted on a board can be changed, that a laptop touchpad
+  drives the board, and that Alfy can draw diagrams. CV-B's Edit affordances (the toolbar's Edit button on every editable
+  block, `NodeShell`'s `edit` prop, `LazyShell.editable`; the forms themselves load on demand) measured 71,598 → 71,930 B
+  (+332); the rest of the headroom is for CV-C and CV-A, which report their own numbers. **The chat-route baseline moved
+  with it by a measured 356 B (541,133 → 541,489):** CV-B's twelve new strings in each language, 543,135 → 543,491 B.
 
 ## 69. Slides is shelved; the tours come next
 

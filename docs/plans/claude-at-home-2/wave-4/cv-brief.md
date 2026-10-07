@@ -63,3 +63,14 @@ for English turns asking for Hungarian content. Files: `services/language.ts` (`
 callers), `normal-chat-context.ts` only if the model needs one line saying the content's language differs from the reply's
 (AGENTS.md: guidance lives where it lives today), tests both ways in both languages, and CHP's live trap prompts re-run with
 new content-language cases (reuse `…/w4/chp-probe/`).
+
+## CV-B2 · CV-B's loose ends (after CV-B, CV-C and CV-A merged)
+
+Worktree `art-cvb2`, branch `fix/canvas-edit-polish` (from `feat/artifacts`), port **5490**. Read CV-B's report
+(`wave-4/cv-b-report.md`, its concerns). (1) The selection's toolbar (Edit, tones, Delete) is clipped when a block sits
+within ~45 px of the pane's top: it goes below the block when there is no room above, through `canvas/_lib/floating.ts`'s
+placement (the floating-layers rule: in the pane, off the other layers). (2) A File block opens on a click, so it cannot be
+selected by one: a click selects it like every other block, a double click or Enter opens it (and the open affordance says
+so). (3) On a phone, an edit form on a block near the bottom opens with Save below the fold: the form keeps its buttons in
+view (scroll it into view, or open it as the app's sheet on phones — follow how the board's other phone surfaces do it).
+Red first with real input for each; screenshots at 1440 and 390.

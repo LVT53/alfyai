@@ -5,7 +5,7 @@
     "dev": "vite dev",
     "build": "NODE_OPTIONS=--no-deprecation vite build && node scripts/patch-body-size-limit.mjs && npm run check:worker-assets",
     "check:worker-assets": "node scripts/check-built-worker-assets.mjs",
-    "check:artifact-chunks": "node scripts/check-artifact-chunks.mjs --allow-entry artifacts/canvas/ --max-target-gzip 65000 --max-gzip 71680 --forbid chart.js --forbid maplibre-gl --forbid mermaid --chat-route \"/(app)/chat/[conversationId]\" --chat-baseline 541133",
+    "check:artifact-chunks": "node scripts/check-artifact-chunks.mjs --allow-entry artifacts/canvas/ --max-target-gzip 65000 --max-gzip 72704 --forbid chart.js --forbid maplibre-gl --forbid mermaid --chat-route \"/(app)/chat/[conversationId]\" --chat-baseline 541489",
     "start": "npm run check:migrations && npm run db:prepare && node build",
     "preview": "vite preview",
     "check": "NODE_OPTIONS=--no-deprecation svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
