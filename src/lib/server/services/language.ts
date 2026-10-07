@@ -348,7 +348,7 @@ const HUNGARIAN_ANSWER_INFINITIVE_RE =
 	/^(?:valaszolni|folytatni|magyarazni|meselni)$/;
 const HUNGARIAN_CONTENT_INFINITIVE_RE = /^(?:irni|fogalmazni)$/;
 const HUNGARIAN_REQUEST_MODALS = wordSet(
-	"tudnal tudnatok tudnank tudunk lehet lehetne szeretnek szeretnem szeretnenk kerlek kerem kernek kernem kellene erdemes szabad",
+	"tudnal tudnatok tudnank tudunk lehet lehetne szeretnek szeretnem szeretnenk kerlek kerem kernek kernem kellene erdemes szabad segitenel segitenetek segitesz segitsel",
 );
 const HUNGARIAN_POLITE_WORDS = wordSet(
 	"kerlek kerem kernek kernem legy legyel legyen szives szivesen inkabb csak mostantol ezentul most",
@@ -394,7 +394,7 @@ const BARE_FILLERS = wordSet(
 // angolul, kérlek". Anything else in the sentence (an e-mail, "this", "a poem")
 // is the thing to be written.
 const REPLY_SHAPE_WORDS = wordSet(
-	"can could would will i we us let's lets i'd id like want need prefer to me my your for from on always going forward a an the all of nekem nekunk mindig az a egy tudsz tudnal tudnatok tudnank tudunk lehet lehetne szeretnek szeretnem szeretnenk kellene erdemes szabad ezutan",
+	"can could would will i we us let's lets i'd id like want need prefer to me my your for from on always going forward a an the all every each any of nekem nekunk mindig minden osszes mind az a egy tudsz tudnal tudnatok tudnank tudunk lehet lehetne szeretnek szeretnem szeretnenk kellene erdemes szabad ezutan segitenel segitenetek segitesz segitsel",
 );
 // ...and the reply itself is what to write: "Write your answers in Hungarian".
 const REPLY_OBJECT_WORDS = wordSet(
@@ -404,6 +404,15 @@ const REPLY_OBJECT_WORDS = wordSet(
 // Hungarian" (a letter).
 const OBJECT_PRONOUNS = wordSet(
 	"it this that these those them everything something anything all",
+);
+
+// What may follow "in English" when it names the language the writing is in ("in
+// Hungarian to my landlord", "in Hungarian saying I am sick", "in Hungarian
+// please"); a noun after it makes the language an adjective ("in Hungarian
+// cities", "in English literature"), which is the topic of the writing, not its
+// language.
+const LANGUAGE_CONTINUERS = wordSet(
+	"to for from with about on at by of into and or but so that this these those please pls plz kindly thanks only too also instead just now again then as if when where which who saying says said stating telling asking explaining showing listing describing announcing thanking apologizing apologising confirming inviting requesting reminding wishing congratulating because since while after before until during the a an my our your his her their its it them him me us we you i is are was were be do does did have has had can could would will should shall may might must",
 );
 
 // How many words an instruction that opens the sentence reaches.
@@ -597,12 +606,48 @@ function directiveKindAt(
 	return null;
 }
 
+// "to learn Hungarian", "amivel angolul tanulhatok": the language is what is
+// being learned, practised or translated, within four words of it. (A "tudok"
+// ten words away, in "nem tudok bejönni", says nothing about it.)
+function languageIsTheSubjectNear(
+	words: string[],
+	marker: LanguageMarker,
+): boolean {
+	const to = Math.min(words.length - 1, marker.end + 4);
+	for (let at = Math.max(0, marker.at - 4); at <= to; at++) {
+		if (
+			HUNGARIAN_SUBJECT_STEM_RE.test(words[at]) ||
+			ENGLISH_SUBJECT_STEM_RE.test(words[at])
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
 function findDirective(
 	words: string[],
 	marker: LanguageMarker,
 	sentence: SentenceContext,
 ): Directive | null {
 	const directiveAt = (at: number) => directiveKindAt(words, at, sentence);
+	// "Legyen angolul a válasz" asks for the reply, "az e-mail legyen angolul" for
+	// the e-mail: the wish word governs a Hungarian adverb right beside it, and what
+	// the wish is about decides which.
+	const wishAt = (at: number): RequestKind | null => {
+		if (
+			marker.kind !== "adverb" ||
+			sentence.subjectIsTheLanguage ||
+			!HUNGARIAN_WISH_WORDS.has(words[at])
+		) {
+			return null;
+		}
+		const distance = at < marker.at ? marker.at - at : at - marker.end;
+		if (distance > 3) return null;
+		return isReplyShape(words, { kind: "content", at }, marker, sentence)
+			? "reply"
+			: "content";
+	};
 
 	const from = Math.max(0, marker.at - 7);
 	const to = Math.min(words.length - 1, marker.end + 7);
@@ -610,8 +655,17 @@ function findDirective(
 	let best = Number.POSITIVE_INFINITY;
 	for (let at = from; at <= to; at++) {
 		if (at >= marker.at && at <= marker.end) continue;
-		const kind = directiveAt(at);
+		const kind = directiveAt(at) ?? wishAt(at);
 		if (kind === null) continue;
+		// "an app to learn Hungarian": a lesson in the language, not a piece in it
+		// (a translation is both).
+		if (
+			kind === "content" &&
+			!sentence.translating &&
+			languageIsTheSubjectNear(words, marker)
+		) {
+			continue;
+		}
 		const before = at < marker.at;
 		const distance = before ? marker.at - at : at - marker.end;
 		// "in English" belongs to the verb phrase before it ("Answer in English and
@@ -674,6 +728,21 @@ function isReplyShape(
 	);
 }
 
+// "in Hungarian" names the language of a piece of writing unless a noun follows it.
+function namesTheLanguageOfTheWriting(
+	words: string[],
+	marker: LanguageMarker,
+	sentence: SentenceContext,
+): boolean {
+	if (marker.kind !== "in") return true;
+	const next = words[marker.end + 1];
+	return (
+		next === undefined ||
+		sentence.segmentOf[marker.end + 1] !== sentence.segmentOf[marker.end] ||
+		LANGUAGE_CONTINUERS.has(next)
+	);
+}
+
 function classifyMarker(
 	words: string[],
 	marker: LanguageMarker,
@@ -713,12 +782,14 @@ function classifyMarker(
 		) {
 			return "reply";
 		}
-		// "Give me a Hungarian version of this", "Write a Hungarian poem", "an
-		// English title", "Translate this into Hungarian": writing in it.
+		// "an English title", "Translate this into Hungarian", "Rewrite it to
+		// Hungarian": writing in it. A bare name before a noun ("a Hungarian recipe
+		// app", "a Hungarian poem") may as well be the topic, so it is not read.
 		if (words[marker.at + 1] === "title" || sentence.translating) {
 			return "content";
 		}
-		return findDirective(words, marker, sentence)?.kind === "content"
+		return /^(?:to|into)$/.test(words[marker.at - 1] ?? "") &&
+			findDirective(words, marker, sentence)?.kind === "content"
 			? "content"
 			: null;
 	}
@@ -726,24 +797,21 @@ function classifyMarker(
 	const directive = findDirective(words, marker, sentence);
 	if (directive?.kind === "reply") return "reply";
 	if (directive?.kind === "content") {
-		return isReplyShape(words, directive, marker, sentence)
-			? "reply"
-			: "content";
+		if (isReplyShape(words, directive, marker, sentence)) return "reply";
+		return namesTheLanguageOfTheWriting(words, marker, sentence)
+			? "content"
+			: null;
 	}
-	if (sentence.translating) return "content";
+	if (sentence.translating) {
+		return namesTheLanguageOfTheWriting(words, marker, sentence)
+			? "content"
+			: null;
+	}
 	// "Show me the answer in Hungarian", "a válaszod angolul": the language is
 	// the reply's.
 	if (REPLY_OBJECT_WORDS.has(words[marker.at - 1] ?? "")) return "reply";
 
 	if (marker.kind === "adverb") {
-		// "Legyen angolul a válasz", "Lehet angolul?" (not "hogyan lehet megtanulni
-		// angolul").
-		if (
-			!sentence.subjectIsTheLanguage &&
-			nextToMarker(HUNGARIAN_WISH_WORDS, 3)
-		) {
-			return "reply";
-		}
 		// "Kérlek angolul", "Angolul, légy szíves", "Csak angolul".
 		if (
 			!sentence.subjectIsTheLanguage &&

@@ -283,6 +283,9 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			"Mostantól írj angolul",
 			"Írj angolul: mi az a mutex?",
 			"Írd a válaszod angolul",
+			"Mostantól minden válaszodat angolul írd",
+			"A válasz legyen angolul",
+			"Legyen angolul a válasz",
 		])("%j asks for English", (text) => {
 			expect(detectExplicitLanguageRequest(text)).toBe("en");
 		});
@@ -322,6 +325,9 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			"Írd meg angolul",
 			"Írd angolul",
 			"Tudnál angolul írni egy e-mailt a kollégámnak?",
+			"Szia! Segítenél írni egy levelet angolul a szállásadómnak?",
+			"Az e-mail legyen angolul",
+			"Legyen angolul a levél",
 			"Készíts egy angol nyelvű önéletrajzot",
 			"Készíts egy kvíz alkalmazást angolul",
 			'Adj egy angol nyelvű példamondatot a "serendipity" szóra',
@@ -332,9 +338,11 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			expect(detectContentLanguageRequest(text)).toBe("en");
 		});
 
-		it("a reply request next to it still flips the reply", () => {
-			const text =
-				"Válaszolj magyarul, de az e-mailt írd meg angolul a kollégámnak";
+		it.each([
+			"Válaszolj magyarul, de az e-mailt írd meg angolul a kollégámnak",
+			"Válaszolj magyarul, de a levél legyen angolul",
+			"Magyarul válaszolj, az e-mailt pedig írd meg angolul",
+		])("%j: a reply request next to it still flips the reply", (text) => {
 			expect(detectExplicitLanguageRequest(text)).toBe("hu");
 			expect(detectContentLanguageRequest(text)).toBe("en");
 		});
@@ -442,7 +450,6 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			"Please write a polite message to my landlord about the broken heater and the water leak in the bathroom in Hungarian please.",
 			"Create a quiz app in Hungarian",
 			"Make me a quiz app in Hungarian",
-			"Give me a Hungarian version of this email",
 			"Give me an English title",
 			"Translate this in Hungarian please",
 			"Translate 'good morning' into Hungarian.",
@@ -459,7 +466,6 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			["I need a cover letter in Hungarian", "hu"],
 			["I'd like an email in Hungarian", "hu"],
 			["Create a quiz app in Hungarian", "hu"],
-			["Give me a Hungarian version of this email", "hu"],
 			["Give me an English title", "en"],
 			["Translate 'good morning' into Hungarian.", "hu"],
 		] as const)("%j wants the content in %s", (text, language) => {
@@ -498,6 +504,16 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 
 	describe("a question or a lesson about a language asks for no content in it either", () => {
 		it.each([
+			// The language is what an App or a text is ABOUT, not what it is written in.
+			"Build a flashcard app to learn Hungarian",
+			"Create an app that teaches Hungarian vocabulary",
+			"Make a quiz app to practice English",
+			"Készíts egy appot, amivel angolul tanulhatok",
+			"Make an app listing the best bars in Hungarian cities",
+			"Write an essay about English literature in Hungarian universities",
+			"Create a Hungarian recipe app",
+			"Write a Hungarian poem about spring",
+			"Give me a Hungarian version of this email",
 			"Hogy mondják angolul, hogy alma?",
 			"Mit jelent angolul az, hogy 'serendipity'?",
 			"Hogyan tanuljak meg gyorsan angolul, ha csak napi húsz percem van?",
