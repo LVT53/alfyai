@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "$lib/server/db";
 import { conversations, users } from "$lib/server/db/schema";
+import type { EditArtifactModelPayload } from "./edit";
 
 const hooks = vi.hoisted(() => ({
 	stopDuringNextEdit: null as AbortController | null,
@@ -94,11 +95,11 @@ describe("edit_artifact on a board, cut off by the turn's stop (ruling 67)", () 
 			conversationId,
 			turnId: `turn-${randomUUID()}`,
 		});
-		const call = (ops: unknown[], abortSignal?: AbortSignal) =>
-			tools.edit_artifact.execute?.(
+		const call = async (ops: unknown[], abortSignal?: AbortSignal) =>
+			(await tools.edit_artifact.execute?.(
 				{ artifactId: id, ops },
 				{ toolCallId: `call-${randomUUID()}`, messages: [], abortSignal },
-			) as Promise<{ success: boolean }>;
+			)) as EditArtifactModelPayload;
 		const museum = async () => {
 			const record = await getArtifact({
 				userId,
