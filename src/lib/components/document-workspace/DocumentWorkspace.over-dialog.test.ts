@@ -48,6 +48,13 @@ function openOver(options: { overDialog: boolean; presentation?: "expanded" }) {
 
 const pressEscape = () => fireEvent.keyDown(window, { key: "Escape" });
 
+/** The side pane; a phone's overlay is its twin in the markup and the stylesheet shows one of the two. */
+const desktopShell = () =>
+	document.querySelector<HTMLElement>("aside.workspace-shell-desktop") ??
+	(() => {
+		throw new Error("the desktop shell is not mounted");
+	})();
+
 describe("DocumentWorkspace over a dialog", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -135,7 +142,7 @@ describe("DocumentWorkspace over a dialog", () => {
 	it("wraps Tab and Shift+Tab inside the panel, never out to what is beneath", async () => {
 		openOver({ overDialog: true });
 		await screen.findByTestId("fake-artifact-body");
-		const stops = getFocusableElements(screen.getByRole("complementary"));
+		const stops = getFocusableElements(desktopShell());
 		expect(stops.length).toBeGreaterThan(1);
 		const first = stops[0];
 		const last = stops[stops.length - 1];
@@ -227,5 +234,49 @@ describe("DocumentWorkspace over a dialog: a press outside the panel", () => {
 
 		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
 		registerDialog(dialogBelow);
+	});
+});
+
+describe("DocumentWorkspace over a dialog: what assistive technology is told", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		global.fetch = vi.fn();
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeArtifactBody.svelte");
+	});
+
+	afterEach(() => {
+		delete ARTIFACT_BODIES.document;
+	});
+
+	// The panel stays where its page put it, so it is not later in the document
+	// than the dialog under it (a dialog is moved to the end of <body>): it says
+	// itself that it is the modal layer, in both of its shells.
+	it("is a modal dialog named for what it shows, in the side pane and on a phone", async () => {
+		openOver({ overDialog: true });
+		await screen.findByTestId("fake-artifact-body");
+
+		const shells = screen.getAllByRole("dialog", {
+			name: "Vienna notes, Document",
+		});
+		expect(shells.map((shell) => shell.tagName).sort()).toEqual([
+			"ASIDE",
+			"SECTION",
+		]);
+		for (const shell of shells) {
+			expect(shell.getAttribute("aria-modal")).toBe("true");
+		}
+	});
+
+	it("stays a landmark of its page where it is not over a dialog", async () => {
+		openOver({ overDialog: false });
+		await screen.findByTestId("fake-artifact-body");
+
+		expect(
+			screen.getByRole("complementary", { name: "Vienna notes, Document" }),
+		).toBeInTheDocument();
+		expect(screen.queryAllByRole("dialog")).toHaveLength(0);
+		expect(document.querySelector("[aria-modal]")).toBeNull();
 	});
 });

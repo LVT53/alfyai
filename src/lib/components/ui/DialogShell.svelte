@@ -140,6 +140,14 @@ let {
 	// its buttons in that order) and, on a phone, every direct button child
 	// grows to an equal-width, full-height 44px target.
 	footer,
+	// A layer sits over this dialog that is not later in the document: the
+	// document panel opened from a project's Files dialog stays where its page
+	// put it, while every other layer (a DialogShell, a popover, a lightbox) is
+	// appended to <body> after the dialog it covers. Assistive technology picks
+	// the modal layer by document order, so the dialog under such a layer
+	// stops claiming to be modal until the layer is gone and the layer above
+	// is the one modal. A host with such a layer says so here.
+	covered = false,
 }: {
 	title: string;
 	description?: string;
@@ -151,6 +159,7 @@ let {
 	titleVisuallyHidden?: boolean;
 	phonePresentation?: DialogPresentation;
 	footer?: Snippet;
+	covered?: boolean;
 } = $props();
 
 const dialogId = Symbol("dialog-shell");
@@ -318,7 +327,7 @@ function closeFromScrim(event: MouseEvent) {
   <div
     {@attach dialogFocusTrap}
     role="dialog"
-    aria-modal="true"
+    aria-modal={covered ? 'false' : 'true'}
     aria-labelledby={titleId}
     aria-describedby={description ? 'dialog-shell-description' : undefined}
     tabindex="-1"

@@ -181,8 +181,12 @@ let {
 	 * item in it), so while it is open it is a layer of the one dialog stack,
 	 * above that dialog: Tab stays inside the panel, and one Escape closes the
 	 * panel and not the dialog under it, which is the topmost layer again once
-	 * the panel is gone. A host with nothing beneath leaves it off, and the
-	 * panel answers Escape from the window handler below as it always did.
+	 * the panel is gone. It is also the one modal layer to assistive technology
+	 * (`role="dialog"`, `aria-modal`, named as the landmark was): the panel stays
+	 * where its page put it, so it is not later in the document than the dialog,
+	 * and the host passes `covered` to that dialog so it gives the claim up. A host
+	 * with nothing beneath leaves it off, and the panel answers Escape from the
+	 * window handler below as it always did.
 	 */
 	overDialog?: boolean;
 } = $props();
@@ -1738,6 +1742,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		<section
 			bind:this={mobileShellElement}
 			{@attach overDialog ? mobileTrap : undefined}
+			role={overDialog ? "dialog" : undefined}
+			aria-modal={overDialog ? "true" : undefined}
 			class="workspace-shell workspace-shell-mobile"
 			aria-label={list.title ?? $t('artifacts.panel.title')}
 		>
@@ -1773,6 +1779,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	<aside
 		bind:this={desktopShellElement}
 		{@attach overDialog ? desktopTrap : undefined}
+		role={overDialog ? "dialog" : undefined}
+		aria-modal={overDialog ? "true" : undefined}
 		class="workspace-shell workspace-shell-desktop transition fade"
 		class:workspace-fade-in={isVisible}
 		style:opacity={isVisible ? '1' : '0'}
@@ -2048,6 +2056,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		<section
 			bind:this={mobileShellElement}
 			{@attach overDialog ? mobileTrap : undefined}
+			role={overDialog ? "dialog" : undefined}
+			aria-modal={overDialog ? "true" : undefined}
 			class="workspace-shell workspace-shell-mobile"
 			aria-label={panelLandmarkLabel}
 			data-testid="document-workspace-mobile-shell"
@@ -2333,6 +2343,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	<aside 
 		bind:this={desktopShellElement}
 		{@attach overDialog ? desktopTrap : undefined}
+		role={overDialog ? "dialog" : undefined}
+		aria-modal={overDialog ? "true" : undefined}
 		class="workspace-shell workspace-shell-desktop transition fade"
 		class:workspace-fade-in={isVisible}
 		class:workspace-resizing={isResizing}

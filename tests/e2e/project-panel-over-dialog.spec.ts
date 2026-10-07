@@ -609,3 +609,117 @@ test.describe("A press outside the panel over a project's Files dialog", () => {
 		await expectLayerStays(page, dialog, "the dialog is still there");
 	});
 });
+
+/**
+ * What assistive technology is told about the layers (FX-B2, 2). The Files
+ * dialog is an `aria-modal` dialog, and the panel is an `aside` that stays where
+ * its page put it, so it is not even later in the document than the dialog (a
+ * dialog is moved to the end of <body> when it opens). A screen reader that
+ * limits itself to the modal layer would have been left in the dialog with the
+ * panel hidden from it. While the panel sits over the dialog it is the one
+ * modal layer, and the dialog stops claiming to be one until the panel is gone.
+ *
+ * Asked of the browser's own accessibility tree (what the platform's screen
+ * readers are given), not only of the markup.
+ */
+
+type AxNode = {
+	ignored?: boolean;
+	name?: { value?: string };
+	properties?: { name: string; value?: { value?: unknown } }[];
+};
+
+/** The names of the layers the browser's accessibility tree says are modal. */
+async function modalLayers(page: Page): Promise<string[]> {
+	const client = await page.context().newCDPSession(page);
+	try {
+		await client.send("Accessibility.enable");
+		const { nodes } = (await client.send("Accessibility.getFullAXTree")) as {
+			nodes: AxNode[];
+		};
+		return nodes
+			.filter(
+				(node) =>
+					!node.ignored &&
+					node.properties?.some(
+						(property) =>
+							property.name === "modal" && property.value?.value === true,
+					),
+			)
+			.map((node) => node.name?.value ?? "");
+	} finally {
+		await client.detach();
+	}
+}
+
+test.describe("The panel as the modal layer over a project's Files dialog", () => {
+	test("is the one modal layer while it sits over the dialog, and the dialog is again once it is gone", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		await expect(dialog).toHaveAttribute("aria-modal", "true");
+		expect(await modalLayers(page)).toEqual(["Files"]);
+
+		await openButton(dialog, names.document).click();
+		const panel = page.getByRole("dialog", {
+			name: `${names.document}, Document`,
+		});
+		await expect(panel).toBeVisible({ timeout: 30_000 });
+		await expect(panel).toHaveAttribute("aria-modal", "true");
+
+		// One modal layer in the markup that is shown (the panel's twin for the
+		// other viewport is not rendered) and in the browser's own tree: the panel.
+		await expect(page.locator('[aria-modal="true"]:visible')).toHaveCount(1);
+		await expect(dialog).toHaveAttribute("aria-modal", "false");
+		await expect
+			.poll(() => modalLayers(page))
+			.toEqual([`${names.document}, Document`]);
+		// Nothing above the panel hides it from assistive technology.
+		expect(
+			await panel.evaluate(
+				(node) => node.closest('[aria-hidden="true"], [inert]') === null,
+			),
+		).toBe(true);
+
+		await page.keyboard.press("Escape");
+		await expect(panel).toHaveCount(0);
+		await expect(dialog).toHaveAttribute("aria-modal", "true");
+		await expect(page.locator('[aria-modal="true"]:visible')).toHaveCount(1);
+		await expect.poll(() => modalLayers(page)).toEqual(["Files"]);
+	});
+});
+
+test.describe("The panel as the modal layer over the Files sheet — phone", () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test("is the one modal layer on a phone too", async ({ page }) => {
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		expect(await modalLayers(page)).toEqual(["Files"]);
+
+		await openButton(dialog, names.document).tap();
+		const panel = page.getByRole("dialog", {
+			name: `${names.document}, Document`,
+		});
+		await expect(panel).toBeVisible({ timeout: 30_000 });
+
+		await expect(page.locator('[aria-modal="true"]:visible')).toHaveCount(1);
+		await expect(dialog).toHaveAttribute("aria-modal", "false");
+		await expect
+			.poll(() => modalLayers(page))
+			.toEqual([`${names.document}, Document`]);
+
+		await page.keyboard.press("Escape");
+		await expect(panel).toHaveCount(0);
+		await expect(dialog).toHaveAttribute("aria-modal", "true");
+		await expect.poll(() => modalLayers(page)).toEqual(["Files"]);
+	});
+});

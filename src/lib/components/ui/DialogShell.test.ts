@@ -376,6 +376,23 @@ describe("DialogShell scrim", () => {
 	});
 });
 
+describe("DialogShell as the modal layer", () => {
+	it("claims to be modal, gives the claim up while something covers it, and takes it back", async () => {
+		const view = render(DialogShell, {
+			props: { title: "Files", children: inertChildren },
+		});
+		await tick();
+		const dialog = view.getByRole("dialog");
+		expect(dialog.getAttribute("aria-modal")).toBe("true");
+
+		await view.rerender({ covered: true });
+		expect(dialog.getAttribute("aria-modal")).toBe("false");
+
+		await view.rerender({ covered: false });
+		expect(dialog.getAttribute("aria-modal")).toBe("true");
+	});
+});
+
 describe("DialogShell Tab focus trap", () => {
 	const appended: HTMLElement[] = [];
 
