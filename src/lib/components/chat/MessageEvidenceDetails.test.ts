@@ -29,6 +29,19 @@ vi.mock("$lib/client/api/knowledge", () => ({
 	submitMemoryV2Action: submitMemoryV2ActionMock,
 }));
 
+// Transparent unless a test shelves the tours: which kinds a made row can name
+// must not depend on which kinds have a tour (M-3 of the final review).
+const tours = vi.hoisted(() => ({ shelved: false }));
+vi.mock("$lib/shared/artifacts/tours", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/shared/artifacts/tours")>();
+	return {
+		...actual,
+		isShippedArtifactTourType: (value: unknown) =>
+			!tours.shelved && actual.isShippedArtifactTourType(value),
+	};
+});
+
 function buildSummary(
 	overrides: Partial<MessageEvidenceSummary> = {},
 ): MessageEvidenceSummary {
@@ -1218,6 +1231,28 @@ describe("MessageEvidenceDetails — what the turn made", () => {
 			.getByText("Weekend plan")
 			.closest(".evidence-row") as HTMLElement;
 		expect(within(row).getByText("Document")).toBeInTheDocument();
+	});
+
+	it("names and opens a kind that ships whatever its tour does: a shelved tour does not turn the row plain", async () => {
+		tours.shelved = true;
+		try {
+			const onOpenDocument = vi.fn();
+			render(MessageEvidenceDetails, {
+				evidenceSummary: madeSummary(made("board-1", "Trip board", "canvas")),
+				onOpenDocument,
+			});
+			await openSources();
+
+			const row = screen.getByRole("button", { name: /Trip board/ });
+			expect(within(row).getByText("Canvas")).toBeInTheDocument();
+			await fireEvent.click(row);
+			expect(onOpenDocument.mock.calls[0][0]).toMatchObject({
+				artifactId: "board-1",
+				kind: "canvas",
+			});
+		} finally {
+			tours.shelved = false;
+		}
 	});
 
 	it("does not offer to open a made row that names no kind it can draw", async () => {

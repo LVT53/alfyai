@@ -34,7 +34,7 @@ import { buildWebCitationAudit } from "$lib/server/services/web-citation-audit";
 import { extractCitedCanonicalWebUrls } from "$lib/server/services/web-grounding";
 import { resolveWorkingDocumentSelection } from "$lib/server/services/working-document-selection";
 import { artifactCallOf } from "$lib/shared/artifacts/artifact-calls";
-import { isShippedArtifactTourType } from "$lib/shared/artifacts/tours";
+import { isShippedArtifactKind } from "$lib/shared/artifacts/kinds";
 import { persistAssistantRailSummary } from "./rail-summary";
 import {
 	type PersistAssistantEvidenceParams,
@@ -265,7 +265,7 @@ function turnArtifactsFromToolCalls(
 		const artifactCall = artifactCallOf(call);
 		if (!artifactCall) continue;
 		const { artifactKind, artifactTitle } = call.metadata ?? {};
-		if (!isShippedArtifactTourType(artifactKind)) continue;
+		if (!isShippedArtifactKind(artifactKind)) continue;
 		const title =
 			(typeof artifactTitle === "string" ? artifactTitle.trim() : "") ||
 			(typeof artifactCall.input.title === "string"

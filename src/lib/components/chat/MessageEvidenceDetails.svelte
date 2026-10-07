@@ -30,8 +30,10 @@ import type {
 	MessageEvidenceItem,
 	MessageEvidenceSummary,
 } from "$lib/server/services/message-evidence";
-import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
-import { isShippedArtifactTourType } from "$lib/shared/artifacts/tours";
+import {
+	type ArtifactKind,
+	isShippedArtifactKind,
+} from "$lib/shared/artifacts/kinds";
 import type { InstructionScope } from "$lib/shared/instructions";
 import ScopeToken from "$lib/components/instructions/ScopeToken.svelte";
 
@@ -226,7 +228,7 @@ function typeIconFor(sourceType: EvidenceSourceType): Component {
 function artifactKindOf(item: MessageEvidenceItem): ArtifactKind | null {
 	if (item.sourceType !== "artifact") return null;
 	const kind = item.metadata?.artifactKind;
-	return isShippedArtifactTourType(kind) ? kind : null;
+	return isShippedArtifactKind(kind) ? kind : null;
 }
 
 function iconFor(item: MessageEvidenceItem): Component {

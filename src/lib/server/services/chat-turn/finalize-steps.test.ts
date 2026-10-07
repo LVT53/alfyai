@@ -33,6 +33,20 @@ vi.mock("$lib/server/services/tei-reranker", () => ({
 	rerankItems: vi.fn(),
 }));
 
+// Transparent unless a test shelves the tours: the evidence group must not
+// depend on which kinds have a tour (M-3 of the final review), and the one test
+// that proves it makes the tours' list say "none" for a moment.
+const tours = vi.hoisted(() => ({ shelved: false }));
+vi.mock("$lib/shared/artifacts/tours", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/shared/artifacts/tours")>();
+	return {
+		...actual,
+		isShippedArtifactTourType: (value: unknown) =>
+			!tours.shelved && actual.isShippedArtifactTourType(value),
+	};
+});
+
 // Binds its query executor to `db` at import, before any test has a database;
 // the evidence step never touches drafts.
 vi.mock("$lib/server/services/conversation-drafts", () => ({
@@ -464,6 +478,48 @@ describe("persistAssistantEvidence — what the turn made", () => {
 		await persistEvidence([succeeded("slides"), succeeded("file")]);
 
 		expect(madeGroup(await stored())).toBeUndefined();
+	});
+
+	it("names a kind that ships whatever its tour does: a shelved tour does not take the rows away", async () => {
+		tours.shelved = true;
+		try {
+			const succeeded = (artifactKind: string): ToolCallEntry => ({
+				callId: `call-${artifactKind}`,
+				name: "create_artifact",
+				input: { artifactType: artifactKind, title: `A ${artifactKind}` },
+				status: "done",
+				sourceType: "tool",
+				metadata: {
+					ok: true,
+					artifactId: `item-${artifactKind}`,
+					artifactKind,
+					artifactTitle: `A ${artifactKind}`,
+				},
+			});
+
+			await persistEvidence([
+				succeeded("document"),
+				succeeded("app"),
+				succeeded("canvas"),
+			]);
+
+			expect(madeGroup(await stored())?.items).toEqual([
+				expect.objectContaining({
+					id: "item-document",
+					metadata: { artifactKind: "document" },
+				}),
+				expect.objectContaining({
+					id: "item-app",
+					metadata: { artifactKind: "app" },
+				}),
+				expect.objectContaining({
+					id: "item-canvas",
+					metadata: { artifactKind: "canvas" },
+				}),
+			]);
+		} finally {
+			tours.shelved = false;
+		}
 	});
 
 	it("never lists a produced file as something the turn made", async () => {
