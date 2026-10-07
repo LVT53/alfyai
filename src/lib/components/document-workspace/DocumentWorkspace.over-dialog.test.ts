@@ -225,6 +225,26 @@ describe("DocumentWorkspace over a dialog: a press outside the panel", () => {
 		expect(onCloseWorkspace).not.toHaveBeenCalled();
 	});
 
+	// A panel on a page (the Knowledge library, the chat) is on no stack, but its popovers
+	// and the dialogs it asks for are: a press on one is that layer's, as it is over a dialog
+	// (RC-F IMP-2: a press inside the Download popover closed the panel on Knowledge, and
+	// docked it in the chat).
+	it("on a page, leaves a press to a layer opened above it (a popover on the stack), and answers the next one", async () => {
+		deregisterDialog(dialogBelow);
+		const { onCloseWorkspace } = openOver({ overDialog: false });
+		await screen.findByTestId("fake-artifact-body");
+		const popover = Symbol("popover opened from the panel");
+		registerDialog(popover);
+
+		await fireEvent.pointerDown(document.body);
+		expect(onCloseWorkspace).not.toHaveBeenCalled();
+
+		deregisterDialog(popover);
+		await fireEvent.pointerDown(document.body);
+		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
+		registerDialog(dialogBelow);
+	});
+
 	it("is unchanged for a panel that is not over a dialog: it closes on the press as it always did", async () => {
 		deregisterDialog(dialogBelow);
 		const { onCloseWorkspace } = openOver({ overDialog: false });
