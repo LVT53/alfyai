@@ -25,6 +25,8 @@ import {
 	login,
 	logout,
 	waitForHydration,
+	waitForMotionToSettle,
+	waitForStableBoundingBox,
 } from "./helpers";
 
 /**
@@ -492,5 +494,118 @@ test.describe("The tours' reader, where the panel sits over the Files dialog", (
 
 		await page.keyboard.press("Escape");
 		await expect(dialog).toHaveCount(0);
+	});
+});
+
+/**
+ * A press outside the expanded panel while it sits over the Files dialog
+ * (FX-B2, 1). The panel leaves a ring of the dialog's own scrim around itself
+ * (20 px, more on a wide window), and a press there is a press on the dialog
+ * as far as the browser goes: the panel closes on it, and the same press's
+ * click then reached the dialog's scrim, which closed the dialog too. A press
+ * closes the layer that was on top when it began and no other, which is what
+ * one Escape does.
+ */
+
+/**
+ * A layer is still there once whatever was fading out has finished: a dialog
+ * that is closing stays "visible" to a bare `toBeVisible()` for the length of
+ * its fade, so the answer is asked after the motion has settled.
+ */
+async function expectLayerStays(page: Page, layer: Locator, message: string) {
+	await waitForMotionToSettle(page);
+	await expect(layer, message).toHaveCount(1);
+	await expect(layer, message).toBeVisible();
+}
+
+/** A real press on the dialog's scrim, in the ring the expanded panel leaves round itself. */
+async function pressRing(page: Page, panel: Locator) {
+	await waitForStableBoundingBox(panel);
+	await waitForMotionToSettle(page);
+	const box = await panel.boundingBox();
+	if (!box) throw new Error("the panel has no box to leave a ring round");
+	expect(box.x, "the panel leaves a ring on its left").toBeGreaterThan(4);
+	await page.mouse.click(box.x / 2, box.y + box.height / 2);
+}
+
+test.describe("A press outside the panel over a project's Files dialog", () => {
+	for (const width of [1440, 1920]) {
+		test(`closes the panel and not the dialog under it (${width} px wide)`, async ({
+			page,
+		}) => {
+			await page.setViewportSize({ width, height: 1000 });
+			await login(page);
+			const { projectId, names } = await seedMadeProject(await testUserId());
+			const dialog = await openFilesDialog(page, projectId);
+			await openButton(dialog, names.document).click();
+			const panel = panelShell(page);
+			await expect(panel.getByTestId("artifact-panel-title")).toBeVisible({
+				timeout: 30_000,
+			});
+
+			await pressRing(page, panel);
+
+			await expect(panel).toHaveCount(0);
+			await expectLayerStays(page, dialog, "the dialog is still there");
+
+			// The dialog is the topmost layer again, and answers the keys as its own.
+			await page.keyboard.press("Escape");
+			await expect(dialog).toHaveCount(0);
+			await expect(page.getByTestId("project-files-button")).toBeFocused();
+		});
+	}
+
+	test("with the Download popover open, closes the popover only; the next closes the panel, the next the dialog", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		await openButton(dialog, names.document).click();
+		const panel = panelShell(page);
+		const download = panel.getByTestId("artifact-download-button");
+		await expect(download).toBeVisible({ timeout: 30_000 });
+		await download.click();
+		const popover = page.getByTestId("document-download-popover");
+		await expect(popover).toBeVisible();
+
+		await pressRing(page, panel);
+		await expect(popover).toHaveCount(0);
+		await expectLayerStays(page, panel, "the panel is still there");
+		await expectLayerStays(page, dialog, "the dialog is still there");
+
+		await pressRing(page, panel);
+		await expect(panel).toHaveCount(0);
+		await expectLayerStays(page, dialog, "the dialog is still there");
+
+		await page.mouse.click(8, 500);
+		await expect(dialog).toHaveCount(0);
+	});
+
+	test("inside the panel's own popover leaves the panel open", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await login(page);
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		await openButton(dialog, names.document).click();
+		const panel = panelShell(page);
+		const download = panel.getByTestId("artifact-download-button");
+		await expect(download).toBeVisible({ timeout: 30_000 });
+		await download.click();
+		const popover = page.getByTestId("document-download-popover");
+		await expect(popover).toBeVisible();
+		const box = await popover.boundingBox();
+		if (!box) throw new Error("the popover has no box");
+
+		// The popover is a layer of its own, painted outside the panel's markup:
+		// a press on its heading is a press on the popover, not outside the panel.
+		await page.mouse.click(box.x + 40, box.y + 20);
+
+		await expectLayerStays(page, panel, "the panel is still there");
+		await expect(popover).toBeVisible();
+		await expectLayerStays(page, dialog, "the dialog is still there");
 	});
 });

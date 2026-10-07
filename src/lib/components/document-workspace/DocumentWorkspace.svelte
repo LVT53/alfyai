@@ -1495,6 +1495,12 @@ function handleDocumentPointerdown(event: PointerEvent) {
 	) {
 		return;
 	}
+	// Over a dialog the press belongs to the layer that is on top, as Escape does:
+	// a popover opened from the panel is painted outside its markup, and a press on
+	// it or beside it is the popover's own. The dialog under the panel is not
+	// asked either: its scrim ignores the click that ends a press which began
+	// while a layer was over it.
+	if (overDialog && !isTopmostDialog(stackId)) return;
 
 	const target = event.target;
 	if (target instanceof Node && desktopShellElement.contains(target)) {

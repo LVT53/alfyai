@@ -270,6 +270,26 @@ onDestroy(() => {
 		document.body.style.overflow = "";
 	}
 });
+
+// A press on the scrim closes the dialog only if the dialog was the topmost
+// layer when the press began. A layer over it (a popover, the document panel)
+// can close on that same press, and the click that ends the press then arrives
+// at the scrim with the dialog on top again: the press was the layer's, not
+// the dialog's. Recorded in the capture phase, before any layer's own handler
+// can react to the press. A click with no press behind it (a key on the
+// focused scrim) is judged as the dialog is.
+let coveredAtPress = false;
+
+function notePress() {
+	coveredAtPress = !isTopmostDialog(dialogId);
+}
+
+function closeFromScrim(event: MouseEvent) {
+	const covered =
+		event.detail > 0 ? coveredAtPress : !isTopmostDialog(dialogId);
+	coveredAtPress = false;
+	if (!covered) onClose?.();
+}
 </script>
 
 <div
@@ -291,7 +311,8 @@ onDestroy(() => {
       ? 'dialog-sheet__scrim absolute inset-0'
       : 'absolute inset-0 bg-surface-page opacity-80 backdrop-blur-sm'}
     aria-label={$t('common.close')}
-    onclick={() => onClose?.()}
+    onpointerdowncapture={notePress}
+    onclick={closeFromScrim}
   ></button>
 
   <div

@@ -165,3 +165,67 @@ describe("DocumentWorkspace over a dialog", () => {
 		registerDialog(dialogBelow);
 	});
 });
+
+describe("DocumentWorkspace over a dialog: a press outside the panel", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		global.fetch = vi.fn();
+		ARTIFACT_BODIES.document = () =>
+			import("./__fixtures__/FakeArtifactBody.svelte");
+		registerDialog(dialogBelow);
+	});
+
+	afterEach(() => {
+		deregisterDialog(dialogBelow);
+		delete ARTIFACT_BODIES.document;
+	});
+
+	// The same rule as Escape: one press closes the layer that is on top and no
+	// other. The dialog under the panel is not asked at all (its own scrim
+	// ignores a click whose press began while the panel was above it).
+	it("closes the panel when it is the topmost layer", async () => {
+		const { onCloseWorkspace } = openOver({ overDialog: true });
+		await screen.findByTestId("fake-artifact-body");
+
+		await fireEvent.pointerDown(document.body);
+
+		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
+	});
+
+	it("leaves the press to a layer opened above it (a popover on the stack), and answers the next one", async () => {
+		const { onCloseWorkspace } = openOver({ overDialog: true });
+		await screen.findByTestId("fake-artifact-body");
+		const popover = Symbol("popover above the panel");
+		registerDialog(popover);
+
+		// Outside the panel's markup and on the popover's own, which is painted
+		// outside it: both are the popover's press.
+		await fireEvent.pointerDown(document.body);
+		expect(onCloseWorkspace).not.toHaveBeenCalled();
+
+		deregisterDialog(popover);
+		await fireEvent.pointerDown(document.body);
+		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not close on a press inside itself", async () => {
+		const { onCloseWorkspace } = openOver({ overDialog: true });
+		const body = await screen.findByTestId("fake-artifact-body");
+
+		await fireEvent.pointerDown(body);
+
+		expect(onCloseWorkspace).not.toHaveBeenCalled();
+	});
+
+	it("is unchanged for a panel that is not over a dialog: it closes on the press as it always did", async () => {
+		deregisterDialog(dialogBelow);
+		const { onCloseWorkspace } = openOver({ overDialog: false });
+		await screen.findByTestId("fake-artifact-body");
+
+		await fireEvent.pointerDown(document.body);
+
+		expect(onCloseWorkspace).toHaveBeenCalledTimes(1);
+		registerDialog(dialogBelow);
+	});
+});
