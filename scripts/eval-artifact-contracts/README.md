@@ -235,8 +235,8 @@ fixture clean on a pass, in two of three; `app` has no `broken` answer but no pa
 10 of 10 `works`. ADR-0066 reads a suite below its bar as a change to the design rather
 than to the bar, which is the owner's call; nothing here moved a bar.
 
-**Which run is committed.** The committed `fixtures/*/responses/` (and `fixtures/app/
-evaluations/`) are one pass of the run: the first, except `canvas`, whose first pass held
+**Which run is committed.** The committed responses (and the app's recorded browser
+evaluations) are one pass of the run: the first, except `canvas`, whose first pass held
 the one bad answer and whose second is the first without one. The replay gate reads a
 recorded bad answer as a failure of the gate, not as a measurement of the model, so a
 committed bad answer would turn CI red on yesterday's model rather than on today's
@@ -245,8 +245,8 @@ scorer. The rates above are over all three passes; the raw runs are not committe
 **What this does not measure, and what each measurement stands in for.**
 
 - *Thinking.* The chat turn runs with thinking on unless the reader chose Quick
-  (ADR-0061); App generation is the one call the product forces off. Every suite here
-  ran thinking off. Canvas was also run with thinking on (`--thinking on`, three passes,
+  (ADR-0061); only App generation is forced off by the product. Every suite here ran
+  thinking off. Canvas was also run with thinking on (`--thinking on`, three passes,
   the tool path's `auto` choice): 15 of 18 good, all twelve edit answers good, and the
   creates 2/3 (en) and 1/3 (hu) clean: two overlaps and one board with notes sticking out
   of their frames (`canvas-create-vienna-en`, pass 1: `text "intro" covers frame "fri"`;
@@ -264,8 +264,8 @@ scorer. The rates above are over all three passes; the raw runs are not committe
   it was run as it is. `canvas` is the only suite that goes through the tools.
 - *System and user are one message.* `generateApp` and `verifyApp` send their contract as
   the system message and the request as the user message; the `app` and `verification`
-  cases send both as one user message (`client.ts` has no system role). Qwen's template
-  treats the two differently.
+  cases send both as one user message (`client.ts` has no system role). The two are
+  different roles in Qwen's chat template; whether that moves a result was not measured.
 - *One answer, not the product's whole path.* `verification` does not run the classifier,
   `research_web`, the repair or the re-verification; `app` does not run the product's
   retry on a contract violation. Each is the model's one answer, scored by the
