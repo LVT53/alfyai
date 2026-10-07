@@ -404,6 +404,17 @@ export async function runSuite(
 		.map((result) => result.caseId);
 
 	if (knownBadFailures.length > 0) {
+		// The report drops these cases' own results (nothing is trusted), so say here
+		// whether the gate failed because a scorer passed a known-bad answer or
+		// because a known-bad case never had an answer to score.
+		for (const result of knownBadRun.results) {
+			if (!knownBadFailures.includes(result.caseId)) continue;
+			deps.log(
+				`[${suiteName}] known-bad ${result.caseId}: ${
+					result.callFailed ? "never scored" : `scored ${result.verdict}`
+				}${result.reasons.length > 0 ? ` — ${result.reasons.join("; ")}` : ""}`,
+			);
+		}
 		return {
 			suite: suiteName,
 			knownBadFailedAsExpected: false,
