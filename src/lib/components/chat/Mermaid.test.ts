@@ -149,7 +149,8 @@ describe("Mermaid", () => {
 		});
 		await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(1));
 		const handed = renderMermaid.mock.calls[0][1] as string;
-		expect(handed).toBe("flowchart LR\n  A --> B[Done]");
+		// The image is out, the caption stays: a box that says Docs.
+		expect(handed).toBe('flowchart LR\n  A@{ label: "Docs" } --> B[Done]');
 		await waitFor(() =>
 			expect(container.querySelector(".markdown-mermaid")).toBeTruthy(),
 		);
