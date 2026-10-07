@@ -296,7 +296,7 @@ describe("watchWheel: the events over the pane", () => {
 		const seenByLibrary = vi.fn();
 		// The library's own listener: bubble phase, on the same element.
 		parts.pane.addEventListener("wheel", seenByLibrary);
-		const stop = watchWheel(parts.board, flow, RANGE);
+		const stop = watchWheel(parts.board, flow, RANGE.min, RANGE.max);
 		return { ...parts, set, seenByLibrary, stop, camera: () => camera };
 	}
 
@@ -370,6 +370,30 @@ describe("watchWheel: the events over the pane", () => {
 		expect(after.y).toBeCloseTo(before.y, 9);
 	});
 
+	it("does not leave the page's own zoom to a pinch over the board's chrome, which is not the pane", () => {
+		const { board, set } = watched();
+		const toolbar = document.createElement("div");
+		board.append(toolbar);
+		const pinch = wheelEvent({ deltaY: -9, ctrlKey: true });
+		toolbar.dispatchEvent(pinch);
+		expect(pinch.defaultPrevented).toBe(true);
+		const command = wheelEvent({ deltaY: -9, metaKey: true });
+		toolbar.dispatchEvent(command);
+		expect(command.defaultPrevented).toBe(true);
+		// A plain scroll there is nobody's business here, and the camera stays where it is.
+		const scroll = wheelEvent({ deltaY: 30 });
+		toolbar.dispatchEvent(scroll);
+		expect(scroll.defaultPrevented).toBe(false);
+		expect(set).not.toHaveBeenCalled();
+	});
+
+	it("keeps what scrolls inside the board from carrying on out of it, and gives that back when let go", () => {
+		const { board, stop } = watched();
+		expect(board.style.overscrollBehavior).toBe("none");
+		stop();
+		expect(board.style.overscrollBehavior).toBe("");
+	});
+
 	it("is not an event the board takes once it is let go, and takes nothing where there is no pane", () => {
 		const { child, set, stop } = watched();
 		stop();
@@ -379,7 +403,12 @@ describe("watchWheel: the events over the pane", () => {
 		expect(set).not.toHaveBeenCalled();
 		const empty = document.createElement("div");
 		expect(() =>
-			watchWheel(empty, { getViewport: () => AT, setViewport: set }, RANGE)(),
+			watchWheel(
+				empty,
+				{ getViewport: () => AT, setViewport: set },
+				RANGE.min,
+				RANGE.max,
+			)(),
 		).not.toThrow();
 	});
 });

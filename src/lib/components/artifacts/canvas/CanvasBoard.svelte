@@ -588,6 +588,17 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 // ---- Zoom ----------------------------------------------------------------
 
 const ZOOM_STEP = 1.2;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 2;
+
+// A laptop's touchpad, a pinch and a mouse wheel move the camera: one lazy part
+// (`_lib/wheel.ts`) takes the wheel over the pane when the board mounts. Until it
+// has loaded the library's own pan-on-scroll below does the nearest thing.
+function takeWheel(board: HTMLElement): void {
+	void import("./_lib/wheel").then((wheel) =>
+		wheel.watchWheel(board, flow, MIN_ZOOM, MAX_ZOOM),
+	);
+}
 
 // Not `flow.zoomIn()`: `useSvelteFlow()` reads those two off the store that
 // exists when it is CALLED, and the board calls it above the `<SvelteFlow>` it
@@ -1121,6 +1132,7 @@ function minimapColor(node: {
 	bind:clientHeight={boardHeight}
 	onpointerdowncapture={() => (touched = true)}
 	onfocusincapture={() => (touched = true)}
+	{@attach takeWheel}
 	style:--canvas-board-width="{boardWidth}px"
 	style:--canvas-inv-zoom={1 / restingZoom}
 	data-testid="canvas-board"
@@ -1158,8 +1170,9 @@ function minimapColor(node: {
 		aria-label={$t("artifacts.type.canvas")}
 		fitView={fitOnOpen}
 		{fitViewOptions}
-		minZoom={0.2}
-		maxZoom={2}
+		minZoom={MIN_ZOOM}
+		maxZoom={MAX_ZOOM}
+		panOnScroll
 		{panOnDrag}
 		{selectionOnDrag}
 		selectionMode={SelectionMode.Full}

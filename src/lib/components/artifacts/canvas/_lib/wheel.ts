@@ -191,17 +191,39 @@ function handleWheel(
 	if (next) void flow.setViewport(next);
 }
 
-/** Takes the wheel over the board's pane (`board` holds the library's zoom element); returns the way to give it back. */
+/** A pinch over the board's own chrome (the toolbar, the zoom, the overview) is not the page's to zoom either. */
+function keepPageZoom(event: Event): void {
+	const { ctrlKey, metaKey } = event as WheelEvent;
+	if (ctrlKey || metaKey) event.preventDefault();
+}
+
+/**
+ * Takes the wheel over the board's pane (`board` holds the library's zoom element)
+ * for a camera that zooms between `min` and `max`; returns the way to give it back.
+ *
+ * It also sets the board's `overscroll-behavior` here rather than in its style: what
+ * scrolls inside the board stops at it (no page scroll, no history swipe), and a
+ * declaration in the board's style would sit in the editor's first paint.
+ */
 export function watchWheel(
-	board: Element,
+	board: HTMLElement,
 	flow: WheelFlow,
-	range: ZoomRange,
+	min: number,
+	max: number,
 ): () => void {
 	const pane = board.querySelector(PANE);
 	if (!pane) return () => {};
+	const range = { min, max };
 	const listen = (event: Event) =>
 		handleWheel(event as WheelEvent, pane, flow, range);
+	const before = board.style.overscrollBehavior;
+	board.style.overscrollBehavior = "none";
 	// Not passive: the page's own handling of the event is what this cancels.
 	pane.addEventListener("wheel", listen, { capture: true, passive: false });
-	return () => pane.removeEventListener("wheel", listen, { capture: true });
+	board.addEventListener("wheel", keepPageZoom, { passive: false });
+	return () => {
+		pane.removeEventListener("wheel", listen, { capture: true });
+		board.removeEventListener("wheel", keepPageZoom);
+		board.style.overscrollBehavior = before;
+	};
 }
