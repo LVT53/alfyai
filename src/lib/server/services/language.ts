@@ -560,12 +560,10 @@ function segmentBounds(segmentOf: number[]) {
 
 type Directive = { kind: RequestKind; at: number };
 
-// The directive that governs a language word: within seven words either side
-// (a reply directive wins over a content one), else one that opens the sentence
-// (however far the language word is: "Write a short thank-you email to our
-// hosts in English"), else a content directive anywhere before it, so that
-// "please" at the end of a long request for a letter cannot turn it into a
-// request for the reply. Never when the language is the subject.
+// What the word at `at` asks for when it is a directive in a form that asks for
+// it: the reply ("answer", "válaszolj") or a piece of writing ("write", "írj"),
+// else null. "I write in English at work" and "learning to write in Hungarian"
+// are not directives.
 function directiveKindAt(
 	words: string[],
 	at: number,
@@ -625,6 +623,12 @@ function languageIsTheSubjectNear(
 	return false;
 }
 
+// The directive that governs a language word: the nearest within seven words
+// either side, else one that opens the sentence (however far the language word
+// is: "Write a short thank-you email to our hosts in English"), else a content
+// directive anywhere before it, so that "please" at the end of a long request for
+// a letter cannot turn it into a request for the reply. Never when the language
+// is the subject.
 function findDirective(
 	words: string[],
 	marker: LanguageMarker,
