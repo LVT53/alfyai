@@ -1043,6 +1043,66 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 		expect(hu).toMatch(/megmarad, ha szabad/);
 	});
 
+	it("parses through the advertised schema, and through the validator against a real board with nothing refused, a diagram, a chart written as an object, a note put near another and a frame with no place (ruling 62, ruling 74)", () => {
+		const schema = buildEditArtifactModelInputSchema(kinds);
+		const call = {
+			artifactId: "a2",
+			ops: [
+				{
+					op: "add_node",
+					node: {
+						id: "flow",
+						type: "mermaid",
+						data: {
+							kind: "mermaid",
+							label: "Release",
+							code: "flowchart TD\n  A[Build] --> B{Green?}\n  B -->|yes| C[Ship]",
+						},
+					},
+				},
+				{
+					op: "add_node",
+					node: {
+						id: "costs",
+						type: "chart",
+						parentId: "frame-a",
+						data: {
+							kind: "chart",
+							code: {
+								type: "bar",
+								data: { labels: ["A"], datasets: [{ data: [1] }] },
+							},
+						},
+					},
+				},
+				{
+					op: "add_node",
+					node: {
+						id: "beside",
+						type: "sticky",
+						near: "note-museum",
+						data: { kind: "sticky", text: "Beside the museum", tone: "mint" },
+					},
+				},
+				{
+					op: "add_frame",
+					id: "sun",
+					label: "Sunday",
+					size: { width: 300, height: 200 },
+				},
+			],
+			summary: "More on the board",
+		};
+		const parsed = schema.safeParse(call);
+		expect(parsed.success, JSON.stringify(parsed)).toBe(true);
+		const { refused, accepted } = validateBoardDiff(
+			{ id: "d", summary: "x", ops: boardOpsArraySchema.parse(call.ops) },
+			sampleBoard(),
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(4);
+	});
+
 	it("advertises, in the one schema the handler parses, a position that may be left out and a near beside it, on a frame as on a block", () => {
 		const advertised = JSON.stringify(
 			z.toJSONSchema(buildEditArtifactModelInputSchema(kinds)),
