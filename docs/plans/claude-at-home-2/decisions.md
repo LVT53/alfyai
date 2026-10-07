@@ -746,6 +746,10 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
   block, `NodeShell`'s `edit` prop, `LazyShell.editable`; the forms themselves load on demand) measured 71,598 → 71,930 B
   (+332); the rest of the headroom is for CV-C and CV-A, which report their own numbers. **The chat-route baseline moved
   with it by a measured 356 B (541,133 → 541,489):** CV-B's twelve new strings in each language, 543,135 → 543,491 B.
+- **And for FX-E (orchestrator, 2026-10-07), by a measured 515 B gzip (541,489 → 542,004):** a security fix — the SVG gate
+  in `html-sanitizer.ts` (no `<a>`, no outside address in any attribute or style, escape-aware) and the Mermaid loader's
+  sanitizer hook ride the chat route; the source sanitizer itself is lazy with Mermaid. 543,310 B before the merge,
+  543,825 B after it (its agent: +493 B). Moving the SVG mode to a lazy module would win most of it back (a follow-up).
 
 ## 69. Slides is shelved; the tours come next
 
