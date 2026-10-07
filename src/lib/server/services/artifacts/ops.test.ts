@@ -11,6 +11,7 @@ import {
 	applyOp,
 	BOARD_OPS_EXAMPLE,
 	type BoardOp,
+	validateBoardDiff,
 } from "$lib/shared/artifacts/board-ops";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
@@ -171,8 +172,14 @@ describe("applyArtifactOps — a diff that lands", () => {
 		expect(rows[1].id).toBe(result.versionId);
 		expect(rows[1].summary).toBe("Planned Sunday");
 
+		// The board the diff makes: its ops applied as the judge settled them (a
+		// frame the example puts on top of the sample board's chart is moved clear of it).
+		const judged = validateBoardDiff(
+			{ id: "d", summary: "Planned Sunday", ops: BOARD_OPS_EXAMPLE },
+			sampleBoard(),
+		);
 		let expected = sampleBoard();
-		for (const op of BOARD_OPS_EXAMPLE) expected = applyOp(expected, op);
+		for (const op of judged.accepted) expected = applyOp(expected, op);
 		expect(rows[1].body).toBe(boardJson(expected));
 		expect(storedBody(id)).toBe(boardJson(expected));
 		expect(rows[1].bodyHash).toBe(canvasBodyHash(boardJson(expected)));
@@ -606,8 +613,16 @@ describe("applyArtifactOps — a board it cannot read is not a reason to lose th
 // sets it, and a caller without one gets the plain "judged against the board as it
 // is now".
 describe("applyArtifactOps — the reader's newer words are not overwritten (ruling 67)", () => {
-	/** The reader rewrites a note and saves: a user version on top of the one Alfy read. */
-	async function readerRewrites(artifactId: string, text: string) {
+	/**
+	 * The reader rewrites a note and saves: a user version on top of the one Alfy
+	 * read, or (`coalesce`, as the panel's autosave) written into their own newest
+	 * version when that is the one on top.
+	 */
+	async function readerRewrites(
+		artifactId: string,
+		text: string,
+		coalesce = false,
+	) {
 		const board = sampleBoard();
 		const note = board.nodes.find((n) => n.id === "note-museum");
 		if (!note) throw new Error("fixture");
@@ -619,7 +634,7 @@ describe("applyArtifactOps — the reader's newer words are not overwritten (rul
 			body: JSON.stringify(board),
 			author: "user",
 			summary: "Edited",
-			coalesceUserEdits: false,
+			coalesceUserEdits: coalesce,
 		});
 		if (!saved.ok) throw new Error(saved.reason);
 	}
@@ -707,6 +722,68 @@ describe("applyArtifactOps — the reader's newer words are not overwritten (rul
 		expect(result.refused).toEqual([]);
 		expect(result.applied).toBe(1);
 		expect(museumText(id)).toBe("Museum, 14:00 — Alfy's words");
+	});
+
+	// The panel's autosave writes the reader's saves into their own newest version
+	// (ruling 47), so the version an author read can hold newer words by the time
+	// the diff lands: same id, different body. The body the caller read is the only
+	// thing that can say what the reader changed since (the `@Alfy` comment reply).
+	describe("with the body the caller read", () => {
+		it("refuses what the reader changed since, even when the version it read is still the newest", async () => {
+			const id = await createBoard();
+			await readerRewrites(id, "Museum, 15:00");
+			const read = await currentVersionId(id);
+			const readBody = storedBody(id) as string;
+			await readerRewrites(id, "Museum, 16:30 (the reader's)", true);
+			// Written into that very version: one id, newer words.
+			expect(await currentVersionId(id)).toBe(read);
+			expect(versionRows(id)).toHaveLength(2);
+
+			const result = await applyArtifactOps({
+				userId: OWNER,
+				artifactId: id,
+				conversationId: CONVERSATION,
+				payload: payload(read, [
+					rewriteMuseum,
+					{ op: "move", id: "note-1", to: { x: 30, y: 70 } },
+				]),
+				readBody,
+			});
+
+			if (!result.ok) throw new Error(result.reason);
+			expect(result.applied).toBe(1);
+			expect(result.refused).toHaveLength(1);
+			expect(result.refused[0]).toMatchObject({
+				index: 0,
+				id: "note-museum",
+				reason: "stale",
+			});
+			expect(museumText(id)).toBe("Museum, 16:30 (the reader's)");
+		});
+
+		it("takes the body over the version id it is given beside it", async () => {
+			const id = await createBoard();
+			const first = await currentVersionId(id);
+			await readerRewrites(id, "Museum, 15:00");
+			const newest = await currentVersionId(id);
+			const readBody = storedBody(id) as string;
+
+			// By the id it names (the first version) the museum note changed, but the
+			// body says the caller read the board as it is: nothing is stale.
+			const result = await applyArtifactOps({
+				userId: OWNER,
+				artifactId: id,
+				conversationId: CONVERSATION,
+				payload: payload(newest, [rewriteMuseum]),
+				readVersionId: first,
+				readBody,
+			});
+
+			if (!result.ok) throw new Error(result.reason);
+			expect(result.refused).toEqual([]);
+			expect(result.applied).toBe(1);
+			expect(museumText(id)).toBe("Museum, 14:00 — Alfy's words");
+		});
 	});
 
 	it("judges against the current board when there was no read, or the read version is not this board's", async () => {

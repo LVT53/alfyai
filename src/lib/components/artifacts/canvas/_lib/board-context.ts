@@ -28,6 +28,10 @@ export interface CanvasBoardContext {
 	readonly dropTargetId: string | null;
 	/** Several blocks are picked and one box stands for them: a picked block shows no corners, anchors or toolbar of its own. */
 	readonly grouped?: boolean;
+	/** How far the picked block's toolbar is moved, on the screen, from where the library hangs it (centred over the block, a gap above it), so it stays in the pane (`placeToolbar`). Null when it needs no moving, or before anything is known. */
+	readonly toolbarShift?: { dx: number; dy: number } | null;
+	/** The toolbar says how big it is on the screen, so the board can place it. */
+	measureToolbar?(size: { width: number; height: number }): void;
 	/** Set only while a picture of the board is being taken: what stands in for this block's live content, or null (the live board). */
 	picture?(id: string): BlockPicture | null;
 	/** True while this block's last still image could not be made: its meta line says so. */
@@ -36,6 +40,8 @@ export interface CanvasBoardContext {
 	updateData?(id: string, patch: Record<string, unknown>): void;
 	/** Runs the reader's own Undo or Redo (ruling 16): a field that has nothing of its own to undo hands the chord here (`handsHistoryToBoard`). */
 	history?(action: "undo" | "redo"): void;
+	/** Moves the camera by `pan` screen pixels over `ms` milliseconds, once: a form that opened out of reach brings itself into view (`revealForm`). A block loaded on demand cannot import the flow library, so it reaches the camera here. */
+	panBy?(pan: { x: number; y: number }, ms: number): void;
 	/** The smallest a block may be made by the resize control at this position, as sizes: a frame may not be pulled in past what is inside it. Absent (or null) for a block that holds nothing. */
 	resizeFloor?(
 		id: string,

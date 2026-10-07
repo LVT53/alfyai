@@ -886,6 +886,33 @@ const artifactsDict = {
 			"This block is not part of this image.",
 		// After the Canvas review (RV-3, cluster B).
 		"artifacts.canvas.block.drawFailed": "This block could not be drawn.",
+		// Changing what was inserted (CV-B): the form of a chart and a diagram (its
+		// data or source and its title) and the title of a checklist, a map, an App
+		// and a photo block. Edit, Save and Cancel are the common words.
+		"artifacts.canvas.edit.title": "Title",
+		"artifacts.canvas.edit.chartSource": "Chart data (JSON)",
+		"artifacts.canvas.edit.diagramSource": "Diagram source (Mermaid)",
+		"artifacts.canvas.edit.error.empty": "This cannot be empty.",
+		"artifacts.canvas.edit.error.tooLong":
+			"This is longer than a board can keep.",
+		"artifacts.canvas.edit.error.notChart":
+			'This is not a chart yet: it needs a "type" and some "data".',
+		// Opening what a block points at (CV-B2): a File block is picked by a click,
+		// like every other block, and opened by a double-click, Enter or its Open button.
+		"artifacts.canvas.file.hint": "Double-click to open",
+		// A project's bundle (Slice 5b · T5): the Files dialog lists the
+		// Documents, Apps and Canvases its chats made beside its files. A row
+		// says which chat made it; its time is the Added column's, so it is not
+		// said twice. Once any of them is not a file the counts read "items", and
+		// the dialog's footer adds the note to that count.
+		"artifacts.bundle.fromChat": "from “{title}”",
+		"artifacts.bundle.items":
+			"{count} {count, plural, one {item} other {items}}",
+		"artifacts.bundle.footerNote": "removing one here keeps it in your library",
+		// The message's Sources panel (Slice 5b · T4): what the turn made or
+		// changed, under its own heading beside what it found. Each row is named
+		// by its kind through artifacts.type.*, never by this string.
+		"artifacts.evidence.madeInThisChat": "Made in this chat",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1579,6 +1606,35 @@ const artifactsDict = {
 		// A Canvas-áttekintés után (RV-3, B csoport).
 		"artifacts.canvas.block.drawFailed":
 			"Ezt a blokkot nem sikerült megrajzolni.",
+		// Ami már a táblán van, megváltoztatható (CV-B): a diagram és az ábra
+		// űrlapja (adatai vagy forrása és címe), valamint az ellenőrzőlista, a
+		// térkép, az alkalmazás és a fényképek blokkjának címe. A Szerkesztés, a
+		// Mentés és a Mégse a közös szavak.
+		"artifacts.canvas.edit.title": "Cím",
+		"artifacts.canvas.edit.chartSource": "Diagram adatai (JSON)",
+		"artifacts.canvas.edit.diagramSource": "Ábra forrása (Mermaid)",
+		"artifacts.canvas.edit.error.empty": "Ez nem maradhat üresen.",
+		"artifacts.canvas.edit.error.tooLong":
+			"Ez hosszabb, mint amit egy tábla meg tud tartani.",
+		"artifacts.canvas.edit.error.notChart":
+			'Ez még nem diagram: kell hozzá egy "type" és némi "data".',
+		// Amire egy blokk mutat, annak megnyitása (CV-B2): a fájlblokkot kattintás
+		// jelöli ki, mint bármelyik másikat, dupla kattintás, Enter vagy a Megnyitás
+		// gomb nyitja meg.
+		"artifacts.canvas.file.hint": "Dupla kattintással megnyílik",
+		// A projekt csomagja (5b szelet · T5): a Fájlok ablak a fájlok mellett
+		// felsorolja azt is, amit a projekt beszélgetései készítettek. A sor
+		// megmondja, melyik beszélgetés készítette; az idejét a „Hozzáadva”
+		// oszlop mutatja, ezért nem szerepel kétszer. Amint van köztük nem fájl,
+		// a számlálók „elem”-et mondanak, az ablak lábléce pedig ehhez fűzi a
+		// megjegyzést.
+		"artifacts.bundle.fromChat": "„{title}” beszélgetésből",
+		"artifacts.bundle.items": "{count} elem",
+		"artifacts.bundle.footerNote": "az eltávolítás nem törli a könyvtárból",
+		// Az üzenet Források panelje (5b szelet · T4): amit a kör készített vagy
+		// módosított, a talált források mellett, saját fejléc alatt. Minden sor a
+		// saját fajtájának nevét viseli (artifacts.type.*), nem ezt a szöveget.
+		"artifacts.evidence.madeInThisChat": "Ebben a beszélgetésben készült",
 	},
 } as const;
 

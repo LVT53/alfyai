@@ -46,6 +46,7 @@ function startEditing(): void {
 	minHeight={minSize.height}
 	summary={excerpt(data.text)}
 	activate={startEditing}
+	edit={startEditing}
 >
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="text-block" ondblclick={startEditing} data-testid="canvas-text">
@@ -62,8 +63,10 @@ function startEditing(): void {
 </NodeShell>
 
 <style>
+	/* The whole block is what a double-click edits, however tall the reader made it. */
 	.text-block {
 		box-sizing: border-box;
+		height: 100%;
 		min-height: 32px;
 		padding: 4px 6px;
 		color: var(--text-primary);

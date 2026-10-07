@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactDetail } from "$lib/server/services/artifacts";
 import { MAX_INLINE_TEXT_CHARS } from "../files";
+import { createKnownBoards } from "./canvas-model";
 
 const getArtifactMock =
 	vi.fn<
@@ -224,6 +225,97 @@ describe("runReadArtifactTool", () => {
 		});
 
 		expect(seenSignal).toBe(controller.signal);
+	});
+});
+
+// Ruling 67 × ruling 47: what a handler says it showed the model (`readBody`) is
+// kept for the turn's later edit, and only there.
+describe("runReadArtifactTool — what the turn keeps of a read", () => {
+	const read = (
+		turnContext: Parameters<typeof runReadArtifactTool>[0]["turnContext"],
+		signal: AbortSignal = new AbortController().signal,
+	) =>
+		runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "artifact-1",
+			detail: "blocks",
+			turnContext,
+			abortSignal: signal,
+		});
+
+	it("keeps the words a handler showed, and puts them on neither the model's answer nor the record", async () => {
+		const knownBoards = createKnownBoards();
+		READ_ARTIFACT_HANDLERS.document = async () => ({
+			blocks: [{ blockId: "b1", kind: "text", hash: "h1", text: "Hello" }],
+			versionId: "version-1",
+			readBody: "the stored words, exactly",
+		});
+		getArtifactMock.mockResolvedValue(detail());
+
+		const result = await read({ knownBoards });
+
+		expect(knownBoards.get("artifact-1")).toBe("the stored words, exactly");
+		expect(JSON.stringify(result.modelPayload)).not.toContain(
+			"the stored words",
+		);
+		expect(JSON.stringify(result.metadata)).not.toContain("the stored words");
+		expect(result.metadata).toMatchObject({ versionId: "version-1" });
+	});
+
+	it("replaces what it kept with what the next read showed", async () => {
+		const knownBoards = createKnownBoards();
+		knownBoards.remember("artifact-1", "older words");
+		READ_ARTIFACT_HANDLERS.document = async () => ({ readBody: "newer words" });
+		getArtifactMock.mockResolvedValue(detail());
+
+		await read({ knownBoards });
+
+		expect(knownBoards.get("artifact-1")).toBe("newer words");
+	});
+
+	it("keeps nothing from a read the turn's signal had already cut off: the model was told it failed", async () => {
+		const knownBoards = createKnownBoards();
+		const controller = new AbortController();
+		READ_ARTIFACT_HANDLERS.document = async () => {
+			controller.abort();
+			return { readBody: "words nobody was shown" };
+		};
+		getArtifactMock.mockResolvedValue(detail());
+
+		await read({ knownBoards }, controller.signal);
+
+		expect(knownBoards.get("artifact-1")).toBeUndefined();
+	});
+
+	it("leaves what it knew alone when the handler showed no words", async () => {
+		const knownBoards = createKnownBoards();
+		knownBoards.remember("artifact-1", "what it knew");
+		READ_ARTIFACT_HANDLERS.document = async () => ({ blocks: [] });
+		getArtifactMock.mockResolvedValue(detail());
+
+		await read({ knownBoards });
+
+		expect(knownBoards.get("artifact-1")).toBe("what it knew");
+	});
+
+	it("keeps nothing for an id this conversation does not have", async () => {
+		const knownBoards = createKnownBoards();
+		getArtifactMock.mockResolvedValue(null);
+		listArtifactCatalogueEntriesMock.mockResolvedValue([]);
+
+		await read({ knownBoards });
+
+		expect(knownBoards.get("artifact-1")).toBeUndefined();
+	});
+
+	it("reads fine when the turn keeps nothing", async () => {
+		READ_ARTIFACT_HANDLERS.document = async () => ({ readBody: "words" });
+		getArtifactMock.mockResolvedValue(detail());
+
+		const result = await read(undefined);
+
+		expect(result.modelPayload).toMatchObject({ success: true });
 	});
 });
 

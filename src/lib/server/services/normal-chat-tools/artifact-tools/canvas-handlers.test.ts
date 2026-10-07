@@ -23,15 +23,16 @@ import {
 	boardOpsArraySchema,
 	validateBoardDiff,
 } from "$lib/shared/artifacts/board-ops";
-import type { CanvasBody } from "$lib/shared/artifacts/canvas";
+import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import {
 	defaultNodeWidth,
 	estimatedNodeSize,
 } from "$lib/shared/artifacts/canvas-blocks";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
+import { plannedNodeSize } from "$lib/shared/artifacts/node-size";
 import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
-import { parseCanvasCreateBody } from "./canvas-model";
+import { createKnownBoards, parseCanvasCreateBody } from "./canvas-model";
 import { CREATE_ARTIFACT_HANDLERS, runCreateArtifactTool } from "./create";
 import { buildEditArtifactModelInputSchema, runEditArtifactTool } from "./edit";
 import {
@@ -253,7 +254,7 @@ describe("create_artifact.canvas", () => {
 		).toHaveLength(0);
 	});
 
-	it("refuses a block the model may not make, names the five it may, and writes nothing", async () => {
+	it("refuses a block the model may not make, names the six it may, and writes nothing", async () => {
 		const result = await createBoard(
 			JSON.stringify({
 				nodes: [
@@ -268,7 +269,14 @@ describe("create_artifact.canvas", () => {
 		);
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
-		for (const kind of ["frame", "sticky", "text", "checklist", "chart"]) {
+		for (const kind of [
+			"frame",
+			"sticky",
+			"text",
+			"checklist",
+			"chart",
+			"mermaid",
+		]) {
 			expect(result.reason).toContain(kind);
 		}
 		expect(result.reason).toContain('nodes[0] "m1"');
@@ -325,6 +333,30 @@ describe("read_artifact.canvas", () => {
 			expect(ids).toContain(id);
 		}
 		expect(read_?.body).toBeUndefined();
+	});
+
+	it("'blocks' shows a diagram's source, which an edit of it is made from, and names a diagram by its kind when it has no name", async () => {
+		const board = sampleBoard();
+		board.nodes.push({
+			id: "diagram-2",
+			type: "mermaid",
+			position: { x: 700, y: 1000 },
+			data: { kind: "mermaid", code: "sequenceDiagram\n  A->>B: Hi" },
+		});
+		const artifactId = await seedBoard(board);
+		const blocks = (await read(artifactId, "blocks"))?.blocks ?? [];
+		expect(blocks.find((block) => block.id === "diagram-1")).toMatchObject({
+			kind: "mermaid",
+			label: "Release flow",
+			code: "flowchart TD\n  A --> B",
+		});
+		expect(blocks.find((block) => block.id === "diagram-2")).toMatchObject({
+			label: "sequenceDiagram",
+			code: "sequenceDiagram\n  A->>B: Hi",
+		});
+		expect(
+			blocks.find((block) => block.id === "diagram-1")?.height,
+		).toBeGreaterThan(84);
 	});
 
 	it("'full' also returns the canonical board JSON", async () => {
@@ -648,6 +680,202 @@ describe("edit_artifact.canvas", () => {
 		});
 	});
 
+	describe("a diagram, and where what is added goes (ruling 74)", () => {
+		const flow = (extra: Record<string, unknown> = {}) => ({
+			op: "add_node",
+			node: {
+				id: "flow",
+				type: "mermaid",
+				data: {
+					kind: "mermaid",
+					code: "flowchart TD\n  A[Idea] --> B[Draft] --> C[Publish]",
+				},
+				...extra,
+			},
+		});
+
+		it("adds a diagram, which is drawn by the chat's own component from the very source it wrote, and puts it on free ground", async () => {
+			const artifactId = await seedBoard();
+			const result = await runEdit(artifactId, { ops: [flow()] });
+			expect(result.modelPayload).toMatchObject({
+				success: true,
+				applied: 1,
+				refused: [],
+			});
+			const board = await storedBoard(artifactId);
+			const added = board.nodes.find((node) => node.id === "flow");
+			expect(added).toMatchObject({
+				type: "mermaid",
+				width: 480,
+				data: {
+					kind: "mermaid",
+					code: "flowchart TD\n  A[Idea] --> B[Draft] --> C[Publish]",
+				},
+			});
+			if (!added) throw new Error("the diagram was not added");
+			const tall = plannedNodeSize(added);
+			// It covers none of what was there: the sample board is full.
+			for (const other of board.nodes.filter(
+				(n) => n.id !== "flow" && !n.parentId,
+			)) {
+				const rect = { ...other.position, ...plannedNodeSize(other) };
+				const across =
+					Math.min(added.position.x + tall.width, rect.x + rect.width) -
+					Math.max(added.position.x, rect.x);
+				const down =
+					Math.min(added.position.y + tall.height, rect.y + rect.height) -
+					Math.max(added.position.y, rect.y);
+				expect(across > 1 && down > 1, other.id).toBe(false);
+			}
+		});
+
+		it("changes a diagram's source with update_node, and refuses one that would load an address", async () => {
+			const artifactId = await seedBoard();
+			const result = await runEdit(artifactId, {
+				ops: [
+					{
+						op: "update_node",
+						id: "diagram-1",
+						data: { code: "flowchart LR\n  X --> Y --> Z" },
+					},
+					{
+						op: "update_node",
+						id: "diagram-1",
+						data: {
+							code: 'flowchart TD\n  A@{ img: "https://x.test/p.png", w: 60, h: 60 }',
+						},
+					},
+				],
+			});
+			expect(result.modelPayload).toMatchObject({ success: true, applied: 1 });
+			if (!result.modelPayload.success) return;
+			expect(result.modelPayload.refused).toEqual([
+				expect.objectContaining({ reason: "invalid_data", opIndex: 1 }),
+			]);
+			expect(result.modelPayload.refused[0].detail).toContain(
+				"an image or icon shape",
+			);
+			const board = await storedBoard(artifactId);
+			expect(board.nodes.find((n) => n.id === "diagram-1")?.data).toMatchObject(
+				{
+					code: "flowchart LR\n  X --> Y --> Z",
+				},
+			);
+		});
+
+		it("tells the model where the app put what it added, and says nothing of a block that went where it was told", async () => {
+			const artifactId = await seedBoard();
+			const result = await runEdit(artifactId, {
+				ops: [
+					{
+						op: "add_node",
+						node: {
+							id: "beside",
+							type: "sticky",
+							near: "note-1",
+							data: { kind: "sticky", text: "Next to lunch", tone: "mint" },
+						},
+					},
+					{
+						op: "add_node",
+						node: {
+							id: "told",
+							type: "sticky",
+							position: { x: 900, y: 1500 },
+							data: { kind: "sticky", text: "Where I said", tone: "plain" },
+						},
+					},
+				],
+			});
+			expect(result.modelPayload).toMatchObject({ success: true, applied: 2 });
+			if (!result.modelPayload.success) return;
+			const placed = result.modelPayload.placed ?? [];
+			expect(placed.map((entry) => entry.id)).toEqual(["beside"]);
+			expect(placed[0]).toMatchObject({ in: "frame-a" });
+			const board = await storedBoard(artifactId);
+			const beside = board.nodes.find((n) => n.id === "beside");
+			expect(placed[0]).toMatchObject({
+				x: beside?.position.x,
+				y: beside?.position.y,
+			});
+		});
+
+		it("puts a note next to the one it names, in its frame, and says where an id it does not have should have been", async () => {
+			const artifactId = await seedBoard();
+			const result = await runEdit(artifactId, {
+				ops: [
+					{
+						op: "add_node",
+						node: {
+							id: "beside",
+							type: "sticky",
+							near: "note-1",
+							data: { kind: "sticky", text: "Next to lunch", tone: "mint" },
+						},
+					},
+					{
+						op: "add_node",
+						node: {
+							id: "lost",
+							type: "sticky",
+							near: "no-such-note",
+							data: { kind: "sticky", text: "Nowhere", tone: "plain" },
+						},
+					},
+				],
+			});
+			expect(result.modelPayload).toMatchObject({ success: true, applied: 1 });
+			if (!result.modelPayload.success) return;
+			expect(result.modelPayload.refused[0]).toMatchObject({
+				reason: "unknown_id",
+				target: "no-such-note",
+			});
+			expect(result.modelPayload.refused[0].detail).toContain("note-1");
+			const board = await storedBoard(artifactId);
+			const beside = board.nodes.find((n) => n.id === "beside");
+			expect(beside?.parentId).toBe("frame-a");
+			expect(board.nodes.some((n) => n.id === "lost")).toBe(false);
+		});
+
+		it("grows a frame for the diagram it was asked to hold when the ground below is free, so the diagram is inside it", async () => {
+			const board = sampleBoard();
+			board.nodes = board.nodes.filter(
+				(n) => n.id === "frame-a" || n.id === "note-1",
+			);
+			board.edges = [];
+			const artifactId = await seedBoard(board);
+			const result = await runEdit(artifactId, {
+				ops: [flow({ parentId: "frame-a" })],
+			});
+			expect(result.modelPayload).toMatchObject({ success: true, applied: 1 });
+			const stored = await storedBoard(artifactId);
+			const frame = stored.nodes.find((n) => n.id === "frame-a");
+			const added = stored.nodes.find((n) => n.id === "flow");
+			expect(added?.parentId).toBe("frame-a");
+			const size = plannedNodeSize(added as CanvasNode);
+			expect((added?.position.x ?? 0) + size.width).toBeLessThanOrEqual(
+				frame?.width ?? 0,
+			);
+			expect((added?.position.y ?? 0) + size.height).toBeLessThanOrEqual(
+				frame?.height ?? 0,
+			);
+			expect(frame?.width).toBeGreaterThan(360);
+		});
+
+		it("leaves the frame as it is, and the diagram beside it, when what is below is in the way", async () => {
+			const artifactId = await seedBoard();
+			const result = await runEdit(artifactId, {
+				ops: [flow({ parentId: "frame-a" })],
+			});
+			expect(result.modelPayload).toMatchObject({ success: true, applied: 1 });
+			const stored = await storedBoard(artifactId);
+			expect(
+				stored.nodes.find((n) => n.id === "flow")?.parentId,
+			).toBeUndefined();
+			expect(stored.nodes.find((n) => n.id === "frame-a")?.height).toBe(300);
+		});
+	});
+
 	it("reads the newest version itself: the model never quotes a version, and a user's save before the edit is not overwritten", async () => {
 		const artifactId = await seedBoard();
 		// The user saves through the body route's seam after the model's read.
@@ -793,6 +1021,100 @@ describe("ruling 62: what the model is shown is what the handler parses", () => 
 		expect(hu).toContain(`a diagram ${chartWidth}`);
 		expect(hu).toContain(`egy diagram ${flat} magas`);
 		expect(hu).toContain(`${round}`);
+	});
+
+	// Ruling 74: a diagram is a block Alfy may add, and a block it adds is placed.
+	it("says, in both languages, how wide a diagram is, and that a position left out is placed for it, from the numbers the board is drawn with", () => {
+		const width = defaultNodeWidth("mermaid");
+		for (const text of [
+			editArtifactRuleClause(kinds, "en"),
+			createArtifactBodyFormat(kinds),
+		]) {
+			expect(text).toContain(`a diagram ${width}`);
+		}
+		const en = editArtifactRuleClause(kinds, "en");
+		expect(en).toMatch(/Leave position out and the block is placed for you/);
+		expect(en).toMatch(/near/);
+		expect(en).toMatch(/kept if free, else moved/);
+		const hu = editArtifactRuleClause(kinds, "hu");
+		expect(hu).toContain(`az ábra ${width}`);
+		expect(hu).toMatch(/A pozíciót hagyd el/);
+		expect(hu).toMatch(/near/);
+		expect(hu).toMatch(/megmarad, ha szabad/);
+	});
+
+	it("parses through the advertised schema, and through the validator against a real board with nothing refused, a diagram, a chart written as an object, a note put near another and a frame with no place (ruling 62, ruling 74)", () => {
+		const schema = buildEditArtifactModelInputSchema(kinds);
+		const call = {
+			artifactId: "a2",
+			ops: [
+				{
+					op: "add_node",
+					node: {
+						id: "flow",
+						type: "mermaid",
+						data: {
+							kind: "mermaid",
+							label: "Release",
+							code: "flowchart TD\n  A[Build] --> B{Green?}\n  B -->|yes| C[Ship]",
+						},
+					},
+				},
+				{
+					op: "add_node",
+					node: {
+						id: "costs",
+						type: "chart",
+						parentId: "frame-a",
+						data: {
+							kind: "chart",
+							code: {
+								type: "bar",
+								data: { labels: ["A"], datasets: [{ data: [1] }] },
+							},
+						},
+					},
+				},
+				{
+					op: "add_node",
+					node: {
+						id: "beside",
+						type: "sticky",
+						near: "note-museum",
+						data: { kind: "sticky", text: "Beside the museum", tone: "mint" },
+					},
+				},
+				{
+					op: "add_frame",
+					id: "sun",
+					label: "Sunday",
+					size: { width: 300, height: 200 },
+				},
+			],
+			summary: "More on the board",
+		};
+		const parsed = schema.safeParse(call);
+		expect(parsed.success, JSON.stringify(parsed)).toBe(true);
+		const { refused, accepted } = validateBoardDiff(
+			{ id: "d", summary: "x", ops: boardOpsArraySchema.parse(call.ops) },
+			sampleBoard(),
+		);
+		expect(refused).toEqual([]);
+		expect(accepted).toHaveLength(4);
+	});
+
+	it("advertises, in the one schema the handler parses, a position that may be left out and a near beside it, on a frame as on a block", () => {
+		const advertised = JSON.stringify(
+			z.toJSONSchema(buildEditArtifactModelInputSchema(kinds)),
+		);
+		expect(advertised).toContain('"near"');
+		expect(advertised).toContain(
+			"Leave it out and the block is placed for you",
+		);
+		expect(advertised).toContain(
+			"Leave it out and the frame is placed on free ground",
+		);
+		expect(advertised).toContain("```mermaid fence");
 	});
 
 	it("parses the edit example, whole, through the advertised schema — and its ops through the validator against a real board with zero refusals", () => {
@@ -1062,5 +1384,231 @@ describe("edit_artifact.canvas — the reader's newer words (ruling 67)", () => 
 
 		expect(second.modelPayload.success).toBe(false);
 		expect(await museumText(id)).toBe("Museum, 16:30 (the reader's)");
+	});
+});
+
+// RV-F I-1 / ruling 47: the reader's own saves within ten minutes are written INTO
+// their newest version, so the version the model read can hold newer words under
+// the same id. A turn that holds the words it was shown judges against those.
+// (`canvas-stale-read.test.ts` runs the same through the real tools.)
+describe("edit_artifact.canvas — the words the turn holds (ruling 67 × ruling 47)", () => {
+	async function readerWritesCoalesced(artifactId: string, text: string) {
+		const board = await storedBoard(artifactId);
+		const note = board.nodes.find((n) => n.id === "note-museum");
+		if (!note) throw new Error("fixture");
+		note.data = { kind: "sticky", text, tone: "mint" };
+		const saved = await saveCanvasBoard({
+			userId,
+			artifactId,
+			conversationId,
+			body: JSON.stringify(board),
+			author: "user",
+			summary: VERSION_SUMMARY.edited,
+			coalesceUserEdits: true,
+		});
+		if (!saved.ok) throw new Error(`setup: ${saved.reason}`);
+	}
+
+	async function museumWords(artifactId: string): Promise<string> {
+		const data = (await storedBoard(artifactId)).nodes.find(
+			(n) => n.id === "note-museum",
+		)?.data;
+		return data?.kind === "sticky" ? data.text : "";
+	}
+
+	async function newestBody(artifactId: string): Promise<string | null> {
+		const [newest] = await listVersions({
+			userId,
+			artifactId,
+			conversationId,
+			limit: 1,
+		});
+		return newest
+			? getVersionBody({
+					userId,
+					artifactId,
+					conversationId,
+					versionId: newest.id,
+				})
+			: null;
+	}
+
+	const rewriteMuseum = {
+		op: "update_node",
+		id: "note-museum",
+		data: { text: "Museum, 14:00 — Alfy's words" },
+	};
+	const moveLunch = { op: "move", id: "note-1", to: { x: 30, y: 70 } };
+
+	/** One turn: a read that fills the store, then the edit's own context. */
+	async function turnThatRead(artifactId: string) {
+		const knownBoards = createKnownBoards();
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId,
+			turnContext: { knownBoards },
+			abortSignal: abortSignal(),
+		});
+		const sources = [
+			{
+				callId: "call-read",
+				name: "read_artifact",
+				input: { artifactId },
+				status: "done" as const,
+				metadata: read.metadata,
+			},
+		];
+		return {
+			knownBoards,
+			read,
+			edit: (ops: unknown[]) =>
+				runEditArtifactTool({
+					userId,
+					conversationId,
+					turnId: "turn-1",
+					artifactId,
+					abortSignal: abortSignal(),
+					ops,
+					turnContext: { sources, knownBoards },
+				}),
+		};
+	}
+
+	it("keeps the stored words a read showed, word for word, and puts them on neither the model's answer nor the record", async () => {
+		const id = await seedBoard();
+		const stored = (
+			await getArtifact({ userId, artifactId: id, conversationId })
+		)?.body;
+		const knownBoards = createKnownBoards();
+
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId: id,
+			detail: "blocks",
+			turnContext: { knownBoards },
+			abortSignal: abortSignal(),
+		});
+
+		expect(stored).toBeTruthy();
+		expect(knownBoards.get(id)).toBe(stored);
+		expect(JSON.stringify(read.modelPayload)).not.toContain(stored ?? "?");
+		expect(JSON.stringify(read.metadata)).not.toContain("Lunch at the market");
+		expect(JSON.stringify(read.metadata)).not.toContain('"nodes"');
+	});
+
+	it("refuses the note the reader rewrote even though the version id the read named is still the newest", async () => {
+		const id = await seedBoard();
+		const turn = await turnThatRead(id);
+		await readerWritesCoalesced(id, "Museum, 16:30 (the reader's)");
+		// The id the read recorded is the newest version's, as it was.
+		const [newest] = await listVersions({
+			userId,
+			artifactId: id,
+			conversationId,
+			limit: 1,
+		});
+		expect(newest.id).toBe(turn.read.metadata.versionId);
+
+		const result = await turn.edit([rewriteMuseum, moveLunch]);
+
+		expect(result.modelPayload).toMatchObject({
+			success: true,
+			applied: 1,
+			refused: [{ target: "note-museum", reason: "stale", opIndex: 0 }],
+		});
+		expect(await museumWords(id)).toBe("Museum, 16:30 (the reader's)");
+	});
+
+	it("moves what it knows forward to the version its own edit made, when the edit landed on the board it knew", async () => {
+		const id = await seedBoard();
+		const turn = await turnThatRead(id);
+		const readWords = turn.knownBoards.get(id);
+
+		const edited = await turn.edit([moveLunch]);
+
+		expect(edited.modelPayload.success).toBe(true);
+		expect(turn.knownBoards.get(id)).toBe(await newestBody(id));
+		expect(turn.knownBoards.get(id)).not.toBe(readWords);
+	});
+
+	it("leaves what it knows where it was when its edit landed on top of words it never read", async () => {
+		const id = await seedBoard();
+		const turn = await turnThatRead(id);
+		const readWords = turn.knownBoards.get(id);
+		await readerWritesCoalesced(id, "Museum, 16:30 (the reader's)");
+
+		const edited = await turn.edit([moveLunch]);
+
+		expect(edited.modelPayload.success).toBe(true);
+		expect(turn.knownBoards.get(id)).toBe(readWords);
+		expect(await newestBody(id)).not.toBe(readWords);
+	});
+
+	it("does not move what it knows for an edit that changed nothing", async () => {
+		const id = await seedBoard();
+		const turn = await turnThatRead(id);
+		const readWords = turn.knownBoards.get(id);
+		const versions = await versionCount(id);
+
+		const highlighted = await turn.edit([{ op: "highlight", ids: ["note-1"] }]);
+
+		expect(highlighted.modelPayload.success).toBe(true);
+		expect(await versionCount(id)).toBe(versions);
+		expect(turn.knownBoards.get(id)).toBe(readWords);
+	});
+
+	it("falls back to the version it read for a board the turn no longer holds the words of", async () => {
+		const id = await seedBoard();
+		const read = await runReadArtifactTool({
+			userId,
+			conversationId,
+			artifactId: id,
+			abortSignal: abortSignal(),
+		});
+		// A save that starts a version of its own, which the version id can judge.
+		const board = await storedBoard(id);
+		const note = board.nodes.find((n) => n.id === "note-museum");
+		if (!note) throw new Error("fixture");
+		note.data = {
+			kind: "sticky",
+			text: "Museum, 16:30 (the reader's)",
+			tone: "mint",
+		};
+		const saved = await saveCanvasBoard({
+			userId,
+			artifactId: id,
+			conversationId,
+			body: JSON.stringify(board),
+			author: "user",
+			summary: VERSION_SUMMARY.edited,
+			coalesceUserEdits: false,
+		});
+		if (!saved.ok) throw new Error(`setup: ${saved.reason}`);
+
+		const result = await runEditArtifactTool({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			artifactId: id,
+			abortSignal: abortSignal(),
+			ops: [rewriteMuseum],
+			turnContext: {
+				sources: [
+					{
+						callId: "call-read",
+						name: "read_artifact",
+						input: { artifactId: id },
+						status: "done" as const,
+						metadata: read.metadata,
+					},
+				],
+				knownBoards: createKnownBoards(),
+			},
+		});
+
+		expect(result.modelPayload.success).toBe(false);
+		expect(await museumWords(id)).toBe("Museum, 16:30 (the reader's)");
 	});
 });

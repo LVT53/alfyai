@@ -1,4 +1,9 @@
 {
-	"response": "[{\"op\":\"replaceBlock\",\"blockId\":\"p1\",\"baseHash\":\"9bee6370\",\"text\":\"Erősítsd meg a szállodát.\"}]",
-	"durationMs": 400
+	"response": "[{\"op\":\"replaceBlock\",\"blockId\":\"p1\",\"baseHash\":\"9bee6370\",\"text\":\"Erősítsd meg a szálloda foglalását.\"}]",
+	"durationMs": 295,
+	"usage": {
+		"promptTokens": 244,
+		"completionTokens": 38,
+		"totalTokens": 282
+	}
 }

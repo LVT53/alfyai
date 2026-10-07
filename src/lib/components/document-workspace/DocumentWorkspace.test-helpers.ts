@@ -26,6 +26,7 @@ type WorkspaceRenderOptions = {
 	activeDocumentId?: string | null;
 	conversationId?: string | null;
 	incognito?: boolean;
+	overDialog?: boolean;
 	currentUser?: {
 		id: string;
 		displayName: string;

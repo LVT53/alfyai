@@ -1,0 +1,10 @@
+{
+	"evaluation": {
+		"diagrams": [
+			{
+				"code": "flowchart TD\n    A[\"Reggeli a Café Centralban, 9:00\"] --> B[\"Kunsthistorisches Museum, 11:00\"]\n    B --> C[\"Ebéd a Naschmarkton, 13:30\"]\n    C --> D[\"Séta a Ringstrassén, 16:00\"]\n    D --> E[\"Opera, 19:30\"]",
+				"ok": true
+			}
+		]
+	}
+}

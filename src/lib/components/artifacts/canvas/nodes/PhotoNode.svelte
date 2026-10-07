@@ -1,3 +1,15 @@
+<script module lang="ts">
+import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
+import type { LazyShell } from "../_lib/lazy-nodes";
+
+type PhotoShellData = Extract<CanvasBlockData, { kind: "photo" }>;
+
+/** How a photo block dresses the shell `LazyNode` draws: its caption as the title, the kind's own name when it has none. The caption has a form. */
+export function photoShell(data: PhotoShellData): LazyShell {
+	return { title: data.label ?? "", summary: data.label ?? "", editable: true };
+}
+</script>
+
 <script lang="ts">
 /**
  * A photo block's content: a small grid of thumbnails from the reader's own photo
@@ -22,14 +34,25 @@ import { tick } from "svelte";
 import ImageLightbox from "$lib/components/chat/ImageLightbox.svelte";
 import { t } from "$lib/i18n";
 import { isPhotoProxyPath } from "$lib/shared/artifacts/block-urls";
-import type { CanvasBlockData } from "$lib/shared/artifacts/canvas-blocks";
+import BlockEditForm from "./BlockEditForm.svelte";
 
-type PhotoData = Extract<CanvasBlockData, { kind: "photo" }>;
+type PhotoData = PhotoShellData;
 
 /** How many thumbnails the block draws; the rest are a count on the last one and are all in the lightbox. */
 const THUMBNAILS_SHOWN = 6;
 
-let { data }: { data: PhotoData } = $props();
+let {
+	id,
+	data,
+	editing = false,
+	onclose,
+}: {
+	id: string;
+	data: PhotoData;
+	/** The block's caption form is open, over the top of the photos. */
+	editing?: boolean;
+	onclose: () => void;
+} = $props();
 
 /** The photos this block may draw: an address that is not the app's own proxy is not one, whatever the stored data says. */
 let photos = $derived(
@@ -82,6 +105,9 @@ async function close(): Promise<void> {
 }
 </script>
 
+{#if editing}
+	<BlockEditForm {id} kind="photo" {data} {onclose} overlay />
+{/if}
 <div class="photo" data-testid="canvas-photo">
 	{#if photos.length === 0}
 		<p class="photo__empty">{$t("artifacts.canvas.photo.empty")}</p>

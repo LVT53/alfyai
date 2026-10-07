@@ -22,7 +22,11 @@ import {
 	parseCanvasCreateBody,
 } from "$lib/server/services/normal-chat-tools/artifact-tools/canvas-model";
 import { jsonArrayArg } from "$lib/server/services/normal-chat-tools/artifact-tools/tool-args";
-import { boardOpsVocabulary } from "$lib/shared/artifacts/board-ops";
+import {
+	boardDiffSchema,
+	boardOpsVocabulary,
+	placementNotes,
+} from "$lib/shared/artifacts/board-ops";
 import type { CanvasBody } from "$lib/shared/artifacts/canvas";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { runOps } from "$lib/shared/artifacts/ops";
@@ -311,11 +315,12 @@ export function createCanvasTools(options: CanvasToolsOptions) {
 				}),
 			);
 		}
-		const run = runOps(boardOpsVocabulary, board, {
+		const diff = {
 			id: "eval",
 			summary: (summary ?? "").trim() || "Alfy's edit",
 			ops: ops ?? [],
-		});
+		};
+		const run = runOps(boardOpsVocabulary, board, diff);
 		if (!run.ok) {
 			lines.push(`schema: ${clip(run.detail)}`);
 			return finish(
@@ -345,6 +350,11 @@ export function createCanvasTools(options: CanvasToolsOptions) {
 				}),
 			);
 		}
+		// Where the app put what was added, as the tool tells the model (ruling 74).
+		const asked = boardDiffSchema.safeParse(diff);
+		const placed = asked.success
+			? placementNotes(board, run.doc, asked.data.ops, run.accepted)
+			: [];
 		board = run.doc;
 		version += 1;
 		appliedOps += outcome.applied;
@@ -356,6 +366,7 @@ export function createCanvasTools(options: CanvasToolsOptions) {
 				versionId: `eval-version-${version}`,
 				applied: outcome.applied,
 				refused: outcome.refused,
+				placed,
 			}),
 		);
 	}

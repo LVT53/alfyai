@@ -282,5 +282,35 @@ describe("ConversationJumpRail", () => {
 			await fireEvent.keyDown(sheet, { key: "Tab", shiftKey: true });
 			expect(document.activeElement).toBe(last);
 		});
+
+		// The sheet takes focus itself on open, so it is the position "before the
+		// first control": Shift+Tab pressed right away must wrap to the last
+		// control or it would walk out of the sheet. (This used to be this
+		// component's own Tab rule; it is the shared trap's now.)
+		it("wraps Shift+Tab pressed on the sheet itself, where focus starts, to the last control", async () => {
+			mockViewportStore.tier = "phone";
+			render(ConversationJumpRail, {
+				props: { messages: conversation(6), scrollToMessage: vi.fn() },
+			});
+
+			await fireEvent.click(screen.getByTestId("jump-rail-mobile-button"));
+			const sheet = screen.getByTestId("jump-rail-mobile-sheet");
+			expect(document.activeElement).toBe(sheet);
+			const focusables = sheet.querySelectorAll<HTMLElement>(
+				'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+			);
+			const last = focusables[focusables.length - 1];
+
+			const event = new KeyboardEvent("keydown", {
+				key: "Tab",
+				shiftKey: true,
+				bubbles: true,
+				cancelable: true,
+			});
+			sheet.dispatchEvent(event);
+
+			expect(event.defaultPrevented).toBe(true);
+			expect(document.activeElement).toBe(last);
+		});
 	});
 });

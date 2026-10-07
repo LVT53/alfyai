@@ -28,6 +28,10 @@ export interface LazyShell {
 	summary?: string;
 	/** Enter or F2 while the block itself has focus. */
 	activate?: () => void;
+	/** Opens what the block points at (a file, in the panel's viewer): a double-click anywhere on the block, Enter and an Open button in the toolbar do it. A click only picks the block, as it does for every block. */
+	open?: () => void;
+	/** The block has a form of its own (its title, a chart's and a diagram's source): the shell offers Edit, and Enter or F2 opens it when `activate` does not. The content is handed `editing` and `onclose`. */
+	editable?: boolean;
 }
 
 /** What a block module gives `LazyNode`: its content, and how it dresses the shell. */
@@ -76,10 +80,10 @@ const LOADERS = {
 			default: module.default,
 			shell: module.mapShell,
 		})),
-	// Photos dress the shell with nothing but the kind's own name.
 	photo: () =>
 		import("../nodes/PhotoNode.svelte").then((module) => ({
 			default: module.default,
+			shell: module.photoShell,
 		})),
 	liveweb: () =>
 		import("../nodes/LiveWebNode.svelte").then((module) => ({

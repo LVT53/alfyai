@@ -726,6 +726,30 @@ stay out of the editor's closure. Cost if wrong: 2 KiB more on a board's first o
   remaining headroom (+2,048 at its merge), and the tour's chrome strings plus the panel's trigger add the rest; the card
   and its drawings are one lazy chunk (2.8 kB) the chat never loads until a tour shows. TR-C may move it by its own
   measured growth the same way.
+- **Moved for the final round's merges (orchestrator, 2026-10-06), by a measured 462 B gzip (539,608 → 540,070):** FU-2's
+  focus traps (`ImageLightbox`, `ModelSelectionGuideModal`, `ModelForm`; its agent measured +175 B) and W4-B's project-bundle
+  rows and strings (~+210 B) were each measured on their own base and merged into `feat/artifacts` together; on this Mac
+  `dev` `9aed65c0` builds the chat route at 541,618 B (+2,010) and `feat/artifacts` `86a736b5` at 542,080 B, so the move is
+  exactly that difference and the route again reads +2,010.
+- **And for W4-E (orchestrator, 2026-10-07), by a measured 415 B gzip (540,070 → 540,485):** the "Made in this chat" group in
+  the message's Sources panel (its row, the kind's icon and word, one string in each language); `feat/artifacts` builds the
+  chat route at 542,080 B before the merge and 542,495 B after it on this Mac (its agent measured +409 B on its own base).
+- **And for FX-B (orchestrator, 2026-10-07), by a measured 429 B gzip (540,485 → 540,914):** the panel joining the dialog
+  stack over a project's Files dialog (its focus trap and Escape handling in the panel the chat also loads), the tours'
+  reader threading and `forgetArtifactTours`: 542,496 B before the merge, 542,925 B after it (its agent: +414 B).
+- **And for FX-C (orchestrator, 2026-10-07), by a measured 219 B gzip (540,914 → 541,133):** the Sources rows' deleted and
+  forked states and `SHIPPED_ARTIFACT_KINDS` (no new strings; the card's own sentences): 542,916 B before the merge,
+  543,135 B after it (its agent: +237 B).
+- **The editor's first-paint ceiling raised for the owner's Canvas round (orchestrator, 2026-10-07): 71,680 → 72,704 B
+  (71 KiB) gzip.** The owner asked (2026-10-07) that everything inserted on a board can be changed, that a laptop touchpad
+  drives the board, and that Alfy can draw diagrams. CV-B's Edit affordances (the toolbar's Edit button on every editable
+  block, `NodeShell`'s `edit` prop, `LazyShell.editable`; the forms themselves load on demand) measured 71,598 → 71,930 B
+  (+332); the rest of the headroom is for CV-C and CV-A, which report their own numbers. **The chat-route baseline moved
+  with it by a measured 356 B (541,133 → 541,489):** CV-B's twelve new strings in each language, 543,135 → 543,491 B.
+- **And for FX-E (orchestrator, 2026-10-07), by a measured 515 B gzip (541,489 → 542,004):** a security fix — the SVG gate
+  in `html-sanitizer.ts` (no `<a>`, no outside address in any attribute or style, escape-aware) and the Mermaid loader's
+  sanitizer hook ride the chat route; the source sanitizer itself is lazy with Mermaid. 543,310 B before the merge,
+  543,825 B after it (its agent: +493 B). Moving the SVG mode to a lazy module would win most of it back (a follow-up).
 
 ## 69. Slides is shelved; the tours come next
 
@@ -772,4 +796,28 @@ by its measurement.
 in the panel that lists an item's sources, the turn's web sources already show in the message's Sources panel, and an
 unused export is a Fallow finding. The "Made in this chat" group (rulings 6, 7) is built. Cost if wrong: one read-model
 function and a panel row later.
+
+## 73. A project's bundle is its own list; the prompt's project files stay files (Wave 4, orchestrator, 2026-10-06)
+
+*From W4-B.* `listProjectBundle` (artifacts service) lists what a person sees in a project — its files plus the
+Documents, Apps and Canvases its chats made (membership by the chat's project at read time, never stored) or linked
+from the library — and feeds the Files dialog, the project page and the home cards. `listProjectKnowledge` stays
+files-only, because it feeds the prompt and the project-file mention path, where a family row (never prompt-ready)
+would refuse the turn, and because knowledge importing artifacts would be a cycle. Slice 5 T5's "listProjectKnowledge
+includes artifacts" is read through this ruling.
+
+## 74. Alfy may draw the chat's diagrams on a board (Wave 4, orchestrator on the owner's request, 2026-10-07)
+
+*The owner:* "Are you sure you fixed Canvas so that the model can actually render the same charts from chat?" A live probe on
+ai.dev showed Alfy's Chart.js charts land (bar, radar, pie, line) but a requested flowchart became three sticky notes,
+because ruling 64 kept diagrams to the reader's Insert. **Ruling 64 is amended:** a `diagram` block joins the kinds Alfy may
+add — the Mermaid source it writes in a chat reply, drawn by the chat's own component under the chat's security settings —
+and `update_node` may change a diagram's source. Maps, files, Apps, photos and web blocks stay the reader's (they carry
+references the model cannot mint). Built by CV-A, with the placement work the owner asked for beside it.
+
+## 75. A request for content in another language keeps the conversation's language (owner, 2026-10-07)
+
+RV-F M-8, the owner: "Írj egy e-mailt angolul a kollégámnak…" keeps the reply, the chips and the status line in the
+conversation's language; only the requested content is written in the other one. Only a request for the *reply* in a
+language ("válaszolj angolul", "answer in English") flips the turn (CHP's rule, narrowed). Built by LANG-2.
 

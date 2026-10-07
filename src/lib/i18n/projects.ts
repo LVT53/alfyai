@@ -40,7 +40,7 @@ const projectsDict = {
 		// project knows it exists; it is read when a chat needs it.
 		"projects.filesTitle": "Files",
 		"projects.filesDescription":
-			"Every chat in this project knows these exist and reads them when they're needed.",
+			"Every chat in this project knows its files exist and reads them when they're needed. What its chats made is listed here too.",
 		"projects.filesSearch": "Search files in this project",
 		// The Add from library picker's box. It filters the user's library, not
 		// the project, so it has its own key instead of borrowing the one above.
@@ -107,7 +107,7 @@ const projectsDict = {
 		"projects.missing": "Ez a projekt már nem létezik.",
 		"projects.filesTitle": "Fájlok",
 		"projects.filesDescription":
-			"A projekt minden csevegése tud róluk, és akkor olvassa el őket, amikor szükség van rájuk.",
+			"A projekt minden csevegése tud a fájlokról, és akkor olvassa el őket, amikor szükség van rájuk. Itt látszik az is, amit a csevegései készítettek.",
 		"projects.filesSearch": "Keresés a projekt fájljai között",
 		"projects.filesLibrarySearch": "Keresés a könyvtárban",
 		"projects.filesAddFromLibrary": "Hozzáadás a könyvtárból",

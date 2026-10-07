@@ -33,4 +33,5 @@ Opus reviewer will read your diff: keep it small and explicit.
 
 Then the full gates once (Wave 3 rules' list; every artifact suite and `knowledge.spec.ts`).
 
-**Runs beside you:** named by the orchestrator at dispatch.
+**Runs beside you:** W4-B (the project bundle and doc fixes) and later W4-E (evidence rows: `message-evidence.ts`,
+`MessageEvidenceDetails.svelte`). You may share only the containment suite (append one `describe`).

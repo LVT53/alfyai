@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
-import { users } from "../../src/lib/server/db/schema";
+import { messages, users } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
 import { runReadArtifactTool } from "../../src/lib/server/services/normal-chat-tools/artifact-tools/read";
 import {
@@ -539,6 +540,224 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			}
 		}
 	});
+
+	// Slice 5b · T4 (rulings 6, 7): what a turn made is listed in the message's
+	// Sources panel, named by its kind, and the row opens it. The owner reads
+	// Hungarian, so the language is part of what is checked: the row says
+	// "Dokumentum", the group says "Ebben a beszélgetésben készült".
+	test("a Document the turn made is listed in the message's Sources, and its row opens it", async ({
+		page,
+	}) => {
+		test.setTimeout(120_000);
+		await db
+			.update(users)
+			.set({ uiLanguage: "hu" })
+			.where(eq(users.email, "admin@local"));
+		await login(page);
+		const previousModelPreference = await snapshotUserModelPreference(page);
+		let temporaryProvider: {
+			providerId: string;
+			selectedModel: string;
+		} | null = null;
+
+		try {
+			const conversationId = await createConversation(page, "Plan a weekend");
+			temporaryProvider = await createTemporaryFakeProviderModel(
+				page,
+				fakeProvider.baseURL,
+			);
+			await updateUserModelPreference(page, temporaryProvider.selectedModel);
+			await openChatAndReload(page, conversationId);
+
+			await sendMessage(page, AI_SMOKE_CREATE_ARTIFACT_MARKER);
+			await expect(
+				page.getByText(AI_SMOKE_CREATE_ARTIFACT_FINAL_TEXT),
+			).toBeVisible({ timeout: 30_000 });
+
+			// The evidence is written after the turn ends and the page polls for it:
+			// the message gets its Sources toggle without a reload.
+			const sources = page.getByRole("button", { name: /^Források/ });
+			await expect(sources).toBeVisible({ timeout: 30_000 });
+			await expect(sources).toHaveAttribute("aria-expanded", "false");
+			await sources.click();
+			await expect(sources).toHaveAttribute("aria-expanded", "true");
+
+			await expect(
+				page.getByRole("heading", { name: "Ebben a beszélgetésben készült" }),
+			).toBeVisible();
+			// The chat card above is named the same, so the row is found in its group.
+			const made = page.getByRole("group", {
+				name: "Ebben a beszélgetésben készült",
+			});
+			const row = made.getByRole("button", {
+				name: new RegExp(`${AI_SMOKE_CREATE_ARTIFACT_TITLE}.*Dokumentum`),
+			});
+			await expect(row).toBeVisible();
+			await expect(row.getByText("Dokumentum", { exact: true })).toBeVisible();
+			// The Document's own icon, not the generic file one.
+			await expect(row.locator("svg.lucide-square-pen")).toBeVisible();
+			await expect(row.locator("svg.lucide-file-text")).toHaveCount(0);
+
+			// Nothing is open yet; the click opens exactly this Document.
+			await expect(
+				page.getByRole("complementary", { name: /, Dokumentum$/ }),
+			).toHaveCount(0);
+			await row.click();
+			const workspace = page.getByRole("complementary", {
+				name: new RegExp(`${AI_SMOKE_CREATE_ARTIFACT_TITLE}, Dokumentum$`),
+			});
+			await expect(workspace).toBeVisible({ timeout: 30_000 });
+			await expect(workspace.getByText("Book the museum tickets.")).toBeVisible(
+				{ timeout: 30_000 },
+			);
+
+			// It is still there after a reload: the group is persisted with the
+			// message, not a live-only state.
+			await page.reload({ waitUntil: "networkidle" });
+			const sourcesAfterReload = page.getByRole("button", {
+				name: /^Források/,
+			});
+			await sourcesAfterReload.click();
+			await expect(
+				page
+					.getByRole("group", { name: "Ebben a beszélgetésben készült" })
+					.getByRole("button", {
+						name: new RegExp(`${AI_SMOKE_CREATE_ARTIFACT_TITLE}.*Dokumentum`),
+					}),
+			).toBeVisible();
+		} finally {
+			await db
+				.update(users)
+				.set({ uiLanguage: "en" })
+				.where(eq(users.email, "admin@local"));
+			await updateUserModelPreference(page, previousModelPreference);
+			if (temporaryProvider) {
+				await deleteTemporaryProvider(page, temporaryProvider.providerId);
+			}
+		}
+	});
+});
+
+// M-7 of the final review: with the panel docked beside the chat the card's text
+// column is squeezed by its "Megnyitva a panelen" label, and the meta line
+// wrapped between a number and its unit — "Dokumentum · 1 / fül / · v1". The line
+// is now one line (FX-D: it ends in an ellipsis before it wraps, and the label
+// has a row of its own when the card is narrow), so "· 1 fül" is never broken
+// apart. The card is the one the app draws for a Document the turn made (seeded
+// the way the call leaves it: the artifact and the message with the call's own
+// record, since the wrap does not depend on how the Document came to be); the
+// panel is opened with a click on the card, and what is measured is where the
+// browser put the line.
+test.describe("the in-chat artifact card's meta line", () => {
+	for (const width of [1440, 1280]) {
+		test(`keeps a number and its unit on one line when the docked panel squeezes the card (${width} px, Hungarian)`, async ({
+			page,
+		}) => {
+			await db
+				.update(users)
+				.set({ uiLanguage: "hu" })
+				.where(eq(users.email, "admin@local"));
+			try {
+				await page.setViewportSize({ width, height: 900 });
+				await login(page);
+				const conversationId = await createConversation(page, "Plan a weekend");
+				const uid = await testUserId();
+				const made = await createDocumentArtifact({
+					userId: uid,
+					conversationId,
+					title: "Weekend plan",
+					markdown: "# Weekend plan\n\nBook the museum tickets.",
+					author: "alfy",
+					summary: "Alfy wrote the first draft",
+				});
+				await db.insert(messages).values({
+					id: randomUUID(),
+					conversationId,
+					messageSequence: 900,
+					role: "assistant",
+					content: "Made the document.",
+					toolCalls: JSON.stringify([
+						{
+							type: "tool_call",
+							callId: "e2e-meta-line-call",
+							name: "create_artifact",
+							input: {
+								artifactType: "document",
+								title: "Weekend plan",
+								body: "# Weekend plan",
+							},
+							status: "done",
+							outputSummary: 'Created Document "Weekend plan"',
+							sourceType: "tool",
+							metadata: {
+								ok: true,
+								artifactId: made.id,
+								artifactKind: "document",
+								artifactTitle: "Weekend plan",
+							},
+						},
+					]),
+					createdAt: new Date(),
+				});
+				await openChatAndReload(page, conversationId);
+
+				// The panel docks beside the chat when the card is opened.
+				await page.getByTestId("artifact-card-head").click();
+				await expect(
+					page.getByRole("complementary", {
+						name: /Weekend plan, Dokumentum$/,
+					}),
+				).toBeVisible({ timeout: 30_000 });
+				// The kind, the facts and the version are ONE line element that the
+				// card keeps on one line (it would end in an ellipsis before it
+				// wrapped), so "· 1 fül" is never broken apart.
+				const facts = page
+					.getByTestId("artifact-card-head")
+					.locator(".artifact-card-facts");
+				await expect(facts).toHaveText(/Dokumentum · 1 fül\s+·\s+v1/);
+
+				// Where the browser put the line: every piece of it on one line.
+				const lines = await facts.evaluate((element) => {
+					const range = document.createRange();
+					range.selectNodeContents(element);
+					return new Set(
+						Array.from(range.getClientRects()).map((rect) =>
+							Math.round(rect.top),
+						),
+					).size;
+				});
+				expect(lines, "the lines the facts are drawn on").toBe(1);
+
+				// And the open label is never drawn over it, however narrow the panel
+				// leaves the card: the card's own width puts the label on a row of its
+				// own under the text (artifact-card-narrow.spec.ts measures every
+				// state of it).
+				const overlap = await page.evaluate(() => {
+					const head = "[data-testid=artifact-card-head]";
+					const line = document
+						.querySelector(`${head} .artifact-card-facts`)
+						?.getBoundingClientRect() as DOMRect;
+					const label = document
+						.querySelector(`${head} .artifact-card-cta`)
+						?.getBoundingClientRect() as DOMRect;
+					return (
+						line.left < label.right &&
+						label.left < line.right &&
+						line.top < label.bottom &&
+						label.top < line.bottom
+					);
+				});
+				expect(overlap, "the meta line is drawn under the open label").toBe(
+					false,
+				);
+			} finally {
+				await db
+					.update(users)
+					.set({ uiLanguage: "en" })
+					.where(eq(users.email, "admin@local"));
+			}
+		});
+	}
 });
 
 // Sanity: the scripted markdown really does contain the sentence the panel

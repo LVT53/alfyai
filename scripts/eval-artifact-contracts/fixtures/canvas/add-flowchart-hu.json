@@ -1,0 +1,10 @@
+{
+	"id": "add-flowchart-hu",
+	"description": "The same request in Hungarian, on the Hungarian board: a Mermaid flowchart whose labels are Hungarian.",
+	"language": "hu",
+	"kind": "edit",
+	"board": "vienna-tidy-hu",
+	"artifactId": "3f6b2a94-7c1e-4d55-9a0e-5b2f1c8d7e10",
+	"title": "Bécsi hétvége",
+	"request": "Adj hozzá egy folyamatábrát a szombati tervről: reggeli, múzeum, ebéd, séta, majd az opera."
+}

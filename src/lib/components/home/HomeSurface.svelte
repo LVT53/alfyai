@@ -115,12 +115,16 @@ export type HomeMode =
 			kind: "project";
 			project: { id: string; name: string };
 			/**
-			 * How many library documents the project knows. `undefined` means the
-			 * count has not been read yet — the project page loads it in the
-			 * browser — and reads as zero: an unread count must never hide the
-			 * Files chip, which is the only door to the project's files.
+			 * How many items the project's bundle holds: the library documents it
+			 * knows and the Documents, Apps and Canvases its chats made.
+			 * `undefined` means the count has not been read yet — the project page
+			 * loads it in the browser — and reads as zero: an unread count must
+			 * never hide the Files chip, which is the only door to the project's
+			 * files.
 			 */
 			fileCount?: number;
+			/** Whether any of them was made by a chat: the count then says "items". */
+			hasMadeItems?: boolean;
 			chatCount: number;
 			lastActivityAt: number | null;
 	  };
@@ -261,12 +265,17 @@ const quietLineInstructionsLabel = $derived(
 const quietLineFilesCount = $derived(
 	mode.kind === "project" ? (mode.fileCount ?? 0) : 0,
 );
+const quietLineHasMadeItems = $derived(
+	mode.kind === "project" && mode.hasMadeItems === true,
+);
 const quietLineFilesLabel = $derived(
 	quietLineFilesCount > 0
 		? $t(
-				quietLineFilesCount === 1
-					? "projects.filesLabelOne"
-					: "projects.filesLabel",
+				quietLineHasMadeItems
+					? "artifacts.bundle.items"
+					: quietLineFilesCount === 1
+						? "projects.filesLabelOne"
+						: "projects.filesLabel",
 				{ count: quietLineFilesCount },
 			)
 		: $t("projects.addFiles"),

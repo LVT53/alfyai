@@ -44,13 +44,28 @@ export type PanelTransitionParams = {
 //
 // Backed by the same stack primitive src/lib/utils/focus-trap.ts hands to
 // every migrated trap, but kept as its OWN instance here rather than a
-// shared default: CampaignModal.svelte and CampaignCropModal.svelte import
-// these three functions directly to join this exact stack (neither is a
-// DialogShell, but both nest inside/beside one), so this module-level
-// singleton has to stay the one source of truth for "is a dialog topmost" —
-// moving it elsewhere would fork the stack and let a DialogShell and a
-// campaign dialog fight over focus again.
+// shared default: every dialog that is not a DialogShell but nests inside or
+// beside one (CampaignModal, CampaignCropModal, ImageLightbox,
+// ModelSelectionGuideModal, ModelForm, the artifact popovers and drawers)
+// imports these three functions directly to join this exact stack, so this
+// module-level singleton has to stay the one source of truth for "is a dialog
+// topmost" — moving it elsewhere would fork the stack and let a DialogShell
+// and one of those dialogs fight over focus again.
 const dialogStack = createFocusTrapStack();
+
+// The page's scroll lock belongs to the stack, not to the dialog that took it.
+// The first DialogShell on an empty stack locks the page; it is released when
+// the stack is empty again, whichever layer is the last one out. A layer that
+// is not a DialogShell can outlive the dialog it sits over (the document panel
+// over a project's Files dialog, when the whole page goes away under both: a
+// browser Back with them open), and releasing only in the dialog's own teardown
+// left the page locked for good.
+let pageScrollLocked = false;
+
+function lockPageScroll(): void {
+	document.body.style.overflow = "hidden";
+	pageScrollLocked = true;
+}
 
 export function registerDialog(id: symbol): void {
 	dialogStack.register(id);
@@ -58,6 +73,10 @@ export function registerDialog(id: symbol): void {
 
 export function deregisterDialog(id: symbol): void {
 	dialogStack.deregister(id);
+	if (pageScrollLocked && dialogStack.size() === 0) {
+		document.body.style.overflow = "";
+		pageScrollLocked = false;
+	}
 }
 
 export function isTopmostDialog(id: symbol): boolean {
@@ -67,7 +86,8 @@ export function isTopmostDialog(id: symbol): boolean {
 /**
  * Whether ANY dialog/popover/sheet on this shared stack is currently open —
  * for a host that owns its OWN window-level Escape handling (e.g.
- * `DocumentWorkspace.svelte`'s expanded-panel close) and needs to defer to
+ * `DocumentWorkspace.svelte`'s expanded-panel close, or the composer's "+"
+ * menu, which the model guide opens above) and needs to defer to
  * whichever layer is actually on top rather than fight over the same
  * keypress. A window keydown listener mounted before the stack's first
  * entry runs BEFORE it on the same event (registration order), so checking
@@ -138,6 +158,14 @@ let {
 	// its buttons in that order) and, on a phone, every direct button child
 	// grows to an equal-width, full-height 44px target.
 	footer,
+	// A layer sits over this dialog that is not later in the document: the
+	// document panel opened from a project's Files dialog stays where its page
+	// put it, while every other layer (a DialogShell, a popover, a lightbox) is
+	// appended to <body> after the dialog it covers. Assistive technology picks
+	// the modal layer by document order, so the dialog under such a layer
+	// stops claiming to be modal until the layer is gone and the layer above
+	// is the one modal. A host with such a layer says so here.
+	covered = false,
 }: {
 	title: string;
 	description?: string;
@@ -149,6 +177,7 @@ let {
 	titleVisuallyHidden?: boolean;
 	phonePresentation?: DialogPresentation;
 	footer?: Snippet;
+	covered?: boolean;
 } = $props();
 
 const dialogId = Symbol("dialog-shell");
@@ -252,22 +281,48 @@ onMount(() => {
 	// Ref-count the body-scroll lock against the open-dialog stack: only the
 	// FIRST dialog locks the page. A nested dialog registers while the page is
 	// already locked, so re-setting overflow here would be redundant — and,
-	// paired with the "last out unlocks" check in onDestroy, this stops a nested
-	// dialog's close from clearing the lock while its parent is still open.
+	// paired with the "last out unlocks" check in `deregisterDialog`, this stops
+	// a nested dialog's close from clearing the lock while its parent is still open.
 	if (dialogStack.size() === 1) {
-		document.body.style.overflow = "hidden";
+		lockPageScroll();
 	}
 });
 
 onDestroy(() => {
 	stopWatchingViewport?.();
+	// Deregistering releases the page lock once the LAST layer is gone. A nested
+	// dialog closing while its parent is still open must leave the page locked
+	// behind the parent, and so must this one while a layer over it stays open.
 	deregisterDialog(dialogId);
-	// Release the lock only once the LAST dialog closes. A nested dialog closing
-	// while its parent is still open must leave the page locked behind the parent.
-	if (dialogStack.size() === 0) {
-		document.body.style.overflow = "";
-	}
 });
+
+// A press on the scrim closes the dialog only if the dialog was the topmost
+// layer when the press began. A layer over it (a popover, the document panel)
+// can close on that same press, and the click that ends the press then arrives
+// at the scrim with the dialog on top again: the press was the layer's, not
+// the dialog's. Recorded in the capture phase, before any layer's own handler
+// can react to the press. A click with no press behind it (a key on the
+// focused scrim) is judged as the dialog is.
+let layerAboveAtPress = false;
+
+function notePress() {
+	layerAboveAtPress = !isTopmostDialog(dialogId);
+}
+
+// The scrim is a button so a keyboard can reach it, but a press on it is not a reason to
+// move the focus there: a layer that closed on this press (the document panel) has just
+// handed the focus back to what opened it, and the dialog about to close or stay has its
+// own.
+function keepFocus(event: MouseEvent) {
+	event.preventDefault();
+}
+
+function closeFromScrim(event: MouseEvent) {
+	const layerAbove =
+		event.detail > 0 ? layerAboveAtPress : !isTopmostDialog(dialogId);
+	layerAboveAtPress = false;
+	if (!layerAbove) onClose?.();
+}
 </script>
 
 <div
@@ -289,13 +344,15 @@ onDestroy(() => {
       ? 'dialog-sheet__scrim absolute inset-0'
       : 'absolute inset-0 bg-surface-page opacity-80 backdrop-blur-sm'}
     aria-label={$t('common.close')}
-    onclick={() => onClose?.()}
+    onpointerdowncapture={notePress}
+    onmousedown={keepFocus}
+    onclick={closeFromScrim}
   ></button>
 
   <div
     {@attach dialogFocusTrap}
     role="dialog"
-    aria-modal="true"
+    aria-modal={covered ? 'false' : 'true'}
     aria-labelledby={titleId}
     aria-describedby={description ? 'dialog-shell-description' : undefined}
     tabindex="-1"

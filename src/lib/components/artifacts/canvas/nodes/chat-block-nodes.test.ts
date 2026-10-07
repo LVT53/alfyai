@@ -53,12 +53,18 @@ function mount(
 	kind: "file" | "app" | "map",
 	data: Record<string, unknown>,
 	chat: CanvasChatContext = chatContext(),
+	options: { selected?: boolean; readonly?: boolean } = {},
 ) {
 	return render(WithChat, {
 		props: {
 			component: LazyNode,
-			componentProps: { id: `${kind}-node`, type: kind, selected: false, data },
-			context: board(),
+			componentProps: {
+				id: `${kind}-node`,
+				type: kind,
+				selected: options.selected ?? false,
+				data,
+			},
+			context: { ...board(), readonly: options.readonly ?? false },
 			chat,
 		},
 	});
@@ -108,13 +114,11 @@ describe("a file block", () => {
 		expect(row.textContent).not.toMatch(/\b0 B\b/);
 	});
 
-	it("opens a produced file in the panel's viewer, as the chat's own card opens it", async () => {
+	it("opens a produced file in the panel's viewer on a double-click, as the chat's own card opens it", async () => {
 		const openItem = vi.fn();
 		mount("file", fileData(), chatContext({ openItem }));
 
-		await fireEvent.click(
-			await screen.findByRole("button", { name: /Open Vienna trip\.pdf/ }),
-		);
+		await fireEvent.dblClick(await screen.findByTestId("canvas-file"));
 
 		expect(openItem).toHaveBeenCalledTimes(1);
 		expect(openItem).toHaveBeenCalledWith(
@@ -139,9 +143,7 @@ describe("a file block", () => {
 			chatContext({ openItem }),
 		);
 
-		await fireEvent.click(
-			await screen.findByRole("button", { name: /Open budget\.xlsx/ }),
-		);
+		await fireEvent.dblClick(await screen.findByTestId("canvas-file"));
 
 		expect(openItem).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -155,25 +157,64 @@ describe("a file block", () => {
 		);
 	});
 
+	it("opens on a double-click anywhere on the block, not only on its row", async () => {
+		const openItem = vi.fn();
+		mount("file", fileData(), chatContext({ openItem }));
+		await screen.findByTestId("canvas-file");
+		const box = wrapper().querySelector(".canvas-node__box") as HTMLElement;
+		await fireEvent.dblClick(box);
+		expect(openItem).toHaveBeenCalledTimes(1);
+	});
+
 	it("offers no way to open a file whose id names no file", async () => {
 		const openItem = vi.fn();
-		mount("file", fileData({ fileId: "artifact:" }), chatContext({ openItem }));
-		await fireEvent.click(await screen.findByTestId("canvas-file"));
-		expect(screen.queryByRole("button", { name: /Open/ })).toBeNull();
+		mount(
+			"file",
+			fileData({ fileId: "artifact:" }),
+			chatContext({ openItem }),
+			{ selected: true },
+		);
+		const row = await screen.findByTestId("canvas-file");
+		await fireEvent.dblClick(row);
+		await fireEvent.keyDown(wrapper(), { key: "Enter" });
+		expect(screen.queryByTestId("canvas-node-open")).toBeNull();
+		expect(row.getAttribute("title")).toBeNull();
 		expect(openItem).not.toHaveBeenCalled();
 	});
 
-	it("is a real button that takes the keyboard, and does not stop the block being dragged", async () => {
+	it("is only picked by a click: nothing opens, the row is not a button, and the block can still be dragged by it", async () => {
+		const openItem = vi.fn();
+		mount("file", fileData(), chatContext({ openItem }));
+		const row = await screen.findByTestId("canvas-file");
+		await fireEvent.click(row);
+		expect(openItem).not.toHaveBeenCalled();
+		expect(screen.queryByRole("button", { name: /Open/ })).toBeNull();
+		expect(row.tagName).toBe("DIV");
+		expect(row.className).not.toContain("nodrag");
+	});
+
+	it("ends the row with a small mark that it opens, where it can", async () => {
+		const { unmount } = mount(
+			"file",
+			fileData(),
+			chatContext({ openItem: vi.fn() }),
+		);
+		const row = await screen.findByTestId("canvas-file");
+		const mark = row.querySelector(".file__open");
+		expect(mark).not.toBeNull();
+		expect(mark?.getAttribute("aria-hidden")).toBe("true");
+		expect(mark?.querySelector("svg")).not.toBeNull();
+		unmount();
+		mount("file", fileData(), chatContext({ openItem: undefined }));
+		expect(
+			(await screen.findByTestId("canvas-file")).querySelector(".file__open"),
+		).toBeNull();
+	});
+
+	it("says in a tooltip on the row that a double-click opens it", async () => {
 		mount("file", fileData(), chatContext({ openItem: vi.fn() }));
-		const button = await screen.findByRole("button", {
-			name: /Open Vienna trip\.pdf/,
-		});
-		expect(button.tagName).toBe("BUTTON");
-		expect(button.getAttribute("type")).toBe("button");
-		expect(button.getAttribute("tabindex")).not.toBe("-1");
-		// A click opens the file and a drag moves the block, so the row must not
-		// opt out of the board's drag.
-		expect(button.className).not.toContain("nodrag");
+		const row = await screen.findByTestId("canvas-file");
+		expect(row.getAttribute("title")).toBe("Double-click to open");
 	});
 
 	it("opens on Enter while the block itself has focus, like a note opens for editing", async () => {
@@ -184,10 +225,33 @@ describe("a file block", () => {
 		expect(openItem).toHaveBeenCalledTimes(1);
 	});
 
-	it("is a plain row, not a button, where the panel cannot open a file", async () => {
-		mount("file", fileData(), chatContext({ openItem: undefined }));
+	it("opens on Enter and on a double-click when the board cannot change too: nothing is changed by looking", async () => {
+		const openItem = vi.fn();
+		mount("file", fileData(), chatContext({ openItem }), { readonly: true });
 		const row = await screen.findByTestId("canvas-file");
-		expect(screen.queryByRole("button", { name: /Open/ })).toBeNull();
+		await fireEvent.keyDown(wrapper(), { key: "Enter" });
+		expect(openItem).toHaveBeenCalledTimes(1);
+		await fireEvent.dblClick(row);
+		expect(openItem).toHaveBeenCalledTimes(2);
+	});
+
+	it("has an Open button in its toolbar once picked, named after the file, which opens it with one click", async () => {
+		const openItem = vi.fn();
+		mount("file", fileData(), chatContext({ openItem }), { selected: true });
+		await screen.findByTestId("canvas-file");
+		const open = await screen.findByTestId("canvas-node-open");
+		expect(open.getAttribute("aria-label")).toBe("Open Vienna trip.pdf");
+		await fireEvent.click(open);
+		expect(openItem).toHaveBeenCalledTimes(1);
+	});
+
+	it("is a plain row, with no Open button and no tooltip, where the panel cannot open a file", async () => {
+		mount("file", fileData(), chatContext({ openItem: undefined }), {
+			selected: true,
+		});
+		const row = await screen.findByTestId("canvas-file");
+		expect(screen.queryByTestId("canvas-node-open")).toBeNull();
+		expect(row.getAttribute("title")).toBeNull();
 		expect(row).toHaveTextContent("Vienna trip.pdf");
 		await fireEvent.keyDown(wrapper(), { key: "Enter" });
 	});
@@ -205,12 +269,17 @@ describe("a file block", () => {
 
 	it("says it in Hungarian in Hungarian", async () => {
 		uiLanguage.set("hu");
-		mount("file", fileData(), chatContext({ openItem: vi.fn() }));
+		mount("file", fileData(), chatContext({ openItem: vi.fn() }), {
+			selected: true,
+		});
 		expect(
 			await screen.findByRole("button", {
 				name: /Vienna trip\.pdf megnyitása/,
 			}),
 		).toBeInTheDocument();
+		expect(
+			(await screen.findByTestId("canvas-file")).getAttribute("title"),
+		).toBe("Dupla kattintással megnyílik");
 		expect(wrapper().getAttribute("aria-roledescription")).toBe("Fájl");
 	});
 });

@@ -5,18 +5,21 @@
 // taint every consumer of scoring.ts with a Playwright dependency, including
 // plain unit tests that never want one.
 //
-// Each type slice that needs a live post-attempt step (today, only `app` —
-// slice-2.md A9 Step 3's headless-Chromium pass) registers ONE entry here,
+// Each type slice that needs a live post-attempt step (today `app` —
+// slice-2.md A9 Step 3's headless-Chromium pass — and `canvas`, whose diagrams
+// are read by Mermaid's own parser, ruling 74) registers ONE entry here,
 // keyed by its suite name, exactly like SUITE_SCORERS. `getSuiteEvaluator`
 // is what `run.ts` calls; it returns `undefined` for a suite with none
 // registered, which `run.ts` treats as "resolves null" (see its own
 // `deps.evaluate` wiring) — the harness core never has to know which suites
 // have an evaluate step.
 import { evaluateAppEval } from "./suites/apps";
+import { evaluateCanvasEval } from "./suites/canvas-diagrams";
 import type { SuiteEvaluator } from "./types";
 
 export const SUITE_EVALUATORS: Partial<Record<string, SuiteEvaluator>> = {
 	app: evaluateAppEval,
+	canvas: evaluateCanvasEval,
 };
 
 export function getSuiteEvaluator(suite: string): SuiteEvaluator | undefined {

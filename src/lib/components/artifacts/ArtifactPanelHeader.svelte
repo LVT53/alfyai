@@ -1,8 +1,9 @@
 <script lang="ts">
 /**
  * The one panel-item header every artifact kind uses (Feature 2 · Artifacts
- * redesign §5.2/§8, Wave 2.5 Step 3): a breadcrumb back to "This chat", the
- * title, and a kind/version/meta line. Knows nothing about Tiptap or any
+ * redesign §5.2/§8, Wave 2.5 Step 3): a breadcrumb back to "This chat" (where
+ * the host has a list to go back to), the title, and a kind/version/meta line.
+ * Knows nothing about Tiptap or any
  * other kind's internals — `DocumentWorkspace.svelte` supplies everything
  * kind-specific (the version count, the meta line's text, and the actions
  * snippet: Download, Expand, Close, and later a kind's own extras such as
@@ -40,8 +41,8 @@ let {
 	meta?: string | null;
 	/** "What this chat made"'s total count, for the breadcrumb's badge and accessible name. `null`/omitted hides the badge and falls back to the plain "This chat" label. */
 	itemCount?: number | null;
-	/** The breadcrumb: returns to the list. */
-	onBack: () => void;
+	/** The breadcrumb: returns to the list. A host with no list (the Knowledge page, a project's Files dialog) passes none, and the header draws no breadcrumb: it would be a button that does nothing. */
+	onBack?: (() => void) | undefined;
 	/** Header actions (Download, a divider, Expand, Close, …) — entirely caller-supplied so this file never hardcodes a kind-specific action. */
 	actions?: Snippet;
 } = $props();
@@ -56,18 +57,20 @@ let crumbLabel = $derived(
 
 <header class="artifact-panel-header">
 	<div class="artifact-panel-header-top">
-		<button
-			type="button"
-			class="artifact-panel-header-crumb"
-			onclick={onBack}
-			aria-label={crumbLabel}
-		>
-			<ChevronLeft size={14} strokeWidth={2.2} aria-hidden="true" />
-			<span>{$t('artifacts.panel.eyebrow')}</span>
-			{#if itemCount != null}
-				<span class="artifact-panel-header-crumb-count">{itemCount}</span>
-			{/if}
-		</button>
+		{#if onBack}
+			<button
+				type="button"
+				class="artifact-panel-header-crumb"
+				onclick={onBack}
+				aria-label={crumbLabel}
+			>
+				<ChevronLeft size={14} strokeWidth={2.2} aria-hidden="true" />
+				<span>{$t('artifacts.panel.eyebrow')}</span>
+				{#if itemCount != null}
+					<span class="artifact-panel-header-crumb-count">{itemCount}</span>
+				{/if}
+			</button>
+		{/if}
 		<span class="artifact-panel-header-grow"></span>
 		{#if actions}
 			<div class="artifact-panel-header-actions">

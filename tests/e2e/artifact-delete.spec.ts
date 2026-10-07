@@ -11,9 +11,17 @@ import {
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
-import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
+import {
+	createDocumentArtifact,
+	deleteArtifact,
+} from "../../src/lib/server/services/artifacts";
 import { createConversationFork } from "../../src/lib/server/services/conversation-forks";
-import { createConversation, login, workspacePanel } from "./helpers";
+import {
+	createConversation,
+	login,
+	waitForHydration,
+	workspacePanel,
+} from "./helpers";
 
 // Polish G2-A: Delete for what is open in the panel and for each list row,
 // what a chat card or file row says once its item is gone, and Regenerate.
@@ -164,6 +172,322 @@ test.describe("Delete and Regenerate — a Document made by create_artifact", ()
 		await expect(
 			workspacePanel(page).getByText("Book the museum tickets."),
 		).toBeVisible({ timeout: 30_000 });
+	});
+});
+
+/**
+ * A turn that made the Document, as the app leaves it: the artifact through the
+ * creator the tool's handler uses, and an assistant message carrying the call
+ * that made it and the evidence the evidence step wrote after it ("Made in this
+ * chat"). Sources rows are read from this, so it is seeded rather than driven
+ * through the fake provider (the reason is at the top of this file); the real
+ * turn's own row is checked in artifact-chat-card.spec.ts.
+ */
+async function seedMadeDocumentTurn(
+	conversationId: string,
+	uid: string,
+	{ sequence = 900, title = CREATED_TITLE } = {},
+) {
+	const made = await createDocumentArtifact({
+		userId: uid,
+		conversationId,
+		title,
+		markdown: CREATED_BODY,
+		author: "alfy",
+		summary: "Alfy wrote the first draft",
+	});
+	const messageId = randomUUID();
+	await db.insert(messages).values({
+		id: messageId,
+		conversationId,
+		messageSequence: sequence,
+		role: "assistant",
+		content: "Made the document.",
+		toolCalls: JSON.stringify([
+			{
+				type: "tool_call",
+				callId: "e2e-create-call",
+				name: "create_artifact",
+				input: {
+					artifactType: "document",
+					title,
+					body: CREATED_BODY,
+				},
+				status: "done",
+				outputSummary: `Created Document "${title}"`,
+				sourceType: "tool",
+				metadata: {
+					ok: true,
+					artifactId: made.id,
+					artifactKind: "document",
+					artifactTitle: title,
+				},
+			},
+		]),
+		metadataJson: JSON.stringify({
+			evidenceStatus: "ready",
+			evidenceSummary: {
+				structuredWebSearch: false,
+				groups: [
+					{
+						sourceType: "artifact",
+						label: "Made in this chat",
+						reranked: false,
+						items: [
+							{
+								id: made.id,
+								title,
+								sourceType: "artifact",
+								status: "reference",
+								artifactId: made.id,
+								description: null,
+								channels: ["tool"],
+								metadata: { artifactKind: "document" },
+							},
+						],
+					},
+				],
+			},
+		}),
+		createdAt: new Date(),
+	});
+	return { made, messageId };
+}
+
+// Slice 5b · T4: the Sources panel's "Made in this chat" row opens through the
+// same path a chat card's Open does, so an item that is gone shows the deleted
+// state the card shows — it does not open an empty panel. M-1 of the final
+// review: and the row itself says so, with the card's own words, instead of
+// staying a live-looking link beside a card that says "deleted".
+test.describe("A Sources row of an item that was deleted", () => {
+	test("flips the card to deleted, says so, and opens nothing", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		const { made } = await seedMadeDocumentTurn(conversationId, uid);
+		await openChatAndReload(page, conversationId);
+		await expect(page.getByTestId("artifact-card")).not.toHaveAttribute(
+			"data-state",
+			"deleted",
+		);
+		await page.getByRole("button", { name: /^Sources/ }).click();
+		const group = page.getByRole("group", { name: "Made in this chat" });
+		const row = group.getByRole("button", { name: /Weekend plan/ });
+		await expect(row).toBeVisible();
+
+		// Deleted elsewhere (another tab, the library) after this page loaded.
+		const deleted = await deleteArtifact({
+			userId: uid,
+			artifactId: made.id,
+			conversationId,
+		});
+		expect(deleted.ok).toBe(true);
+
+		await row.click();
+
+		await expect(page.getByTestId("artifact-card")).toHaveAttribute(
+			"data-state",
+			"deleted",
+		);
+		await expect(workspacePanel(page)).toHaveCount(0);
+		await expect(page.getByTestId("workspace-main")).toBeHidden();
+		// The row followed the card: it says what the card says, and is no link.
+		await expect(group).toContainText("This document was deleted");
+		await expect(group.getByRole("button")).toHaveCount(0);
+	});
+
+	test("says so when it was deleted from the library, and does not pretend to open", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		// A title of its own: the library lists every Document the other specs
+		// made in this database, "Weekend plan" among them.
+		const title = `Library plan ${Date.now()}`;
+		await seedMadeDocumentTurn(conversationId, uid, { title });
+
+		// The reader's own clicks in the library: the row's Delete, then the
+		// confirmation.
+		await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await page.getByRole("tab", { name: "Documents" }).click();
+		const libraryRow = page.locator("tbody tr", { hasText: title });
+		await expect(libraryRow).toBeVisible();
+		await libraryRow.getByRole("button", { name: /delete/i }).click();
+		await page.getByTestId("confirm-delete").click();
+		await expect(libraryRow).toHaveCount(0);
+
+		// Back in the chat the card says the Document is gone — and the Sources
+		// row says the same, in the same words, rather than offering to open it.
+		await openChatAndReload(page, conversationId);
+		await expect(page.getByTestId("artifact-card")).toHaveAttribute(
+			"data-state",
+			"deleted",
+		);
+		await page.getByRole("button", { name: /^Sources/ }).click();
+		const group = page.getByRole("group", { name: "Made in this chat" });
+		await expect(group).toContainText(title);
+		await expect(group).toContainText("This document was deleted");
+		await expect(group.getByRole("button")).toHaveCount(0);
+		await expect(group.getByText("Document", { exact: true })).toHaveCount(0);
+
+		// Nothing to open: a click on the row does nothing at all.
+		await group.getByText(title).click();
+		await expect(workspacePanel(page)).toHaveCount(0);
+		await expect(page.getByTestId("workspace-main")).toBeHidden();
+	});
+
+	test("goes back to a live row when Regenerate makes the item again under the same id", async ({
+		page,
+	}) => {
+		await login(page);
+		const conversationId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		const { made } = await seedMadeDocumentTurn(conversationId, uid);
+		const deleted = await deleteArtifact({
+			userId: uid,
+			artifactId: made.id,
+			conversationId,
+		});
+		expect(deleted.ok).toBe(true);
+		await openChatAndReload(page, conversationId);
+		await page.getByRole("button", { name: /^Sources/ }).click();
+		const group = page.getByRole("group", { name: "Made in this chat" });
+		await expect(group).toContainText("This document was deleted");
+
+		await page.getByTestId("artifact-card-regenerate").click();
+
+		await expect(page.getByTestId("artifact-card")).not.toHaveAttribute(
+			"data-state",
+			"deleted",
+			{ timeout: 30_000 },
+		);
+		await expect(
+			group.getByRole("button", { name: /Weekend plan/ }),
+		).toBeVisible();
+		await expect(group).not.toContainText("was deleted");
+	});
+});
+
+// M-2 of the final review: a fork copies the parent's messages, and with each
+// assistant message its Sources as they were. What the parent's turn made was
+// made in the ORIGINAL chat, so the copied group must not say "Made in this
+// chat" — it says what the fork's own card says for an item out of reach.
+test.describe("A fork's copied Sources", () => {
+	test("say the item was made in the original chat, and the row still opens the parent's Document", async ({
+		page,
+	}) => {
+		await login(page);
+		const parentId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		const { messageId } = await seedMadeDocumentTurn(parentId, uid);
+
+		// The reader forks from the message that made it, with their own clicks.
+		await openChatAndReload(page, parentId);
+		await page.locator(`[data-message-id="${messageId}"]`).hover();
+		const fork = page.locator(`#fork-button-${messageId}`);
+		await expect(fork).toHaveAccessibleName("Fork from here");
+		await fork.click();
+		await page.waitForURL(
+			(url) => {
+				const id = url.pathname.match(/^\/chat\/([^/]+)$/)?.[1];
+				return Boolean(id && id !== parentId);
+			},
+			{ timeout: 15_000 },
+		);
+		await page.getByRole("button", { name: /^Sources/ }).click();
+
+		const group = page.getByRole("group", {
+			name: "Made in the original chat",
+		});
+		await expect(group).toContainText(CREATED_TITLE);
+		await expect(
+			page.getByRole("heading", { name: "Made in the original chat" }),
+		).toBeVisible();
+		await expect(page.getByText("Made in this chat")).toHaveCount(0);
+
+		// The parent's Document is there and this chat may read it: the row opens it.
+		await group.getByRole("button", { name: /Weekend plan/ }).click();
+		await expect(
+			workspacePanel(page).getByText("Book the museum tickets."),
+		).toBeVisible({ timeout: 30_000 });
+	});
+
+	test("of an incognito chat say so too, and the row is plain: the parent's Document is out of reach", async ({
+		page,
+	}) => {
+		await login(page);
+		const parentId = await createConversation(page, "Incognito plan");
+		await db
+			.update(conversations)
+			.set({ memoryIncognito: true })
+			.where(eq(conversations.id, parentId));
+		const uid = await testUserId();
+		const { messageId } = await seedMadeDocumentTurn(parentId, uid);
+		const fork = await createConversationFork({
+			userId: uid,
+			sourceConversationId: parentId,
+			sourceMessageId: messageId,
+		});
+		expect(fork.conversation.memoryIncognito).toBe(true);
+
+		await openChatAndReload(page, fork.conversation.id);
+		await expect(page.getByTestId("artifact-card")).toHaveAttribute(
+			"data-state",
+			"unreachable",
+		);
+		await page.getByRole("button", { name: /^Sources/ }).click();
+
+		const group = page.getByRole("group", {
+			name: "Made in the original chat",
+		});
+		await expect(group).toContainText(CREATED_TITLE);
+		await expect(page.getByText("Made in this chat")).toHaveCount(0);
+		// Nothing to open, and nothing called deleted: the Document exists.
+		await expect(group.getByRole("button")).toHaveCount(0);
+		await expect(group.getByText("Document", { exact: true })).toBeVisible();
+		await expect(page.getByText(/was deleted/)).toHaveCount(0);
+		await group.getByText(CREATED_TITLE).click();
+		await expect(workspacePanel(page)).toHaveCount(0);
+	});
+
+	test("leave the wording alone for what the fork itself makes", async ({
+		page,
+	}) => {
+		await login(page);
+		const parentId = await createConversation(page, "Plan a weekend");
+		const uid = await testUserId();
+		const { messageId } = await seedMadeDocumentTurn(parentId, uid);
+		const fork = await createConversationFork({
+			userId: uid,
+			sourceConversationId: parentId,
+			sourceMessageId: messageId,
+		});
+		// A turn of the fork's own, later than the copy: its Sources are its own.
+		await seedMadeDocumentTurn(fork.conversation.id, uid, {
+			sequence: 9000,
+			title: "Fork's own plan",
+		});
+
+		await openChatAndReload(page, fork.conversation.id);
+		await page
+			.getByRole("button", { name: /^Sources/ })
+			.first()
+			.click();
+		await page
+			.getByRole("button", { name: /^Sources/ })
+			.last()
+			.click();
+
+		await expect(
+			page.getByRole("group", { name: "Made in the original chat" }),
+		).toHaveCount(1);
+		const own = page.getByRole("group", { name: "Made in this chat" });
+		await expect(own).toHaveCount(1);
+		await expect(own).toContainText("Fork's own plan");
 	});
 });
 

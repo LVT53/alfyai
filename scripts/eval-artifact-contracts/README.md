@@ -96,8 +96,8 @@ core:
   same known-bad-first gate, one retry and circuit breaker. A known-bad case is
   **never sent**: its hand-written answer is served from disk (ruling 59).
   `npm run eval:artifacts:tools -- --suite canvas`.
-- `suites/canvas.ts`, `fixtures/canvas/` — six requests, each declaring its language
-  (ruling 65): the prototype's "arrange Saturday" on a board whose notes are piled up,
+- `suites/canvas.ts`, `fixtures/canvas/` — six requests (twelve since Wave 4, below), each
+  declaring its language (ruling 65): the prototype's "arrange Saturday" on a board whose notes are piled up,
   a Sunday frame with three stickies (English and Hungarian), "remove the museum note
   and connect lunch to the walk", and a board for a Vienna weekend from nothing
   (English and Hungarian). An edit case carries the artifact catalogue block the app
@@ -120,9 +120,35 @@ core:
   exactly the reason it exists; a test proves `runSuite` refuses to count real scores if
   one is let through.
 
+**Wave 4 (CV-A, ruling 74)** adds six cases on the same tidy Vienna boards, each in both
+languages, about what is added to a board that already has things on it: a note about
+something new "next to the museum note" (`add-note-beside`), a bar chart "in the Saturday
+frame", which four notes have left no room for (`chart-in-frame`), and the owner's flowchart
+(`add-flowchart`: "a flowchart of the Saturday plan"; it became three sticky notes before).
+Since the app now settles where an added block goes (`placeBlock`, behind `validateBoardDiff`),
+the rubric judges **the board that is left**: a note laid on another and a chart a frame has no
+room for are not misses (the app moves the one and grows the other), and `overlap:` and `frames:`
+can still fail on a `move`, which is the model's own rearrangement. What the new cases ask is
+in `requested`: the new note within a note's width of the museum note; a bar chart holding
+12, 21, 18 and 8, read the way the chat reads a chart fence (`parseJsonLenient`: one brace short
+still draws), inside the Saturday frame; a diagram block whose source starts `flowchart` or
+`graph` and names four of the five stops. The language check reads only phrases of three words
+or more: the detector reads a time or a proper noun ("Opera, 19:00") as English whatever it is.
+
+The suite's one async step is `suites/canvas-diagrams.ts` (a `SuiteEvaluator`, ruling 56): it
+finds every Mermaid source in the model's calls and has the chat's own Mermaid (`mermaid.parse`,
+under a jsdom window, no browser) read each, so a `diagram:` reason says a source would be drawn
+as its text and an error note. The result is recorded under `fixtures/canvas/evaluations/`, which
+is how a replay needs neither. What the diagram is DRAWN at (its height, against what the board is
+told) is not a parser's to say: `tests/e2e/artifact-canvas-alfy-blocks.spec.ts` measures it on the
+panel. The tool replay (`canvas-tools.ts`) now answers an edit as the app does, with `placed`:
+where each block whose place the app had a hand in went, and what became of its frame.
+
 ```bash
-# Live, through the tunnel on the runner's own port, one command:
-ssh -N -o ExitOnForwardFailure=yes -L 30020:192.168.1.96:30000 alfyroot & T=$!; sleep 2; \
+# Live, through the tunnel on the runner's own port, one command (see "Running it" for
+# why the tunnel carries -o ControlMaster=no -o ControlPath=none):
+ssh -N -o ControlMaster=no -o ControlPath=none -o ExitOnForwardFailure=yes \
+  -L 30020:192.168.1.96:30000 alfyroot & T=$!; sleep 3; \
   EVAL_ARTIFACTS_BASE_URL=http://127.0.0.1:30020/v1 EVAL_ARTIFACTS_MODEL=qwen3-6-27b \
   npx tsx scripts/eval-artifact-contracts/run-tool-suite.ts --suite canvas; kill $T
 #   --repeat 3            three sequential runs, to estimate a rate
@@ -142,6 +168,26 @@ was wrong with any call and the board the conversation left passes the rubric.
 | v1 (as first registered) | 30 | 18 | 3/5 | 3/5 / 3/5 | 5/5 | 2/5 / 2/5 |
 | final (note size, arrows are not blocks) | 30 | **24** | 3/5 | 5/5 / 5/5 | 5/5 | 3/5 / 3/5 |
 | after RV-3 (the geometry the reader sees) | 18 | **15** | 3/3 | 2/3 / 1/3 | 3/3 | 3/3 / 3/3 |
+| T9, 2026-10-07, vLLM 0.31 + FP8 KV, thinking off | 18 | **17** | 3/3 | 3/3 / 3/3 | 3/3 | 2/3 / 3/3 |
+| T9, same day, thinking on (the chat turn's default) | 18 | **15** | 3/3 | 3/3 / 3/3 | 3/3 | 2/3 / 1/3 |
+
+**CV-A (2026-10-07), twelve cases, 5 repeats each, thinking off, sequential, `qwen3-6-27b`**
+(60 answers a row; "good" is as above). "Before" is the tool as Wave 3 left it, scored by
+the rubric of the day, with the one answer whose chart was a closing brace short counted as the
+chat draws it (39, not 38); "after" is this change, scored by this rubric.
+
+| | Good | Arrange | Add Sunday (en / hu) | Remove and connect | Create (en / hu) | Note beside (en / hu) | Chart in frame (en / hu) | Flowchart (en / hu) |
+|---|---|---|---|---|---|---|---|---|
+| before | **39** | 4/5 | 4/5 / 5/5 | 5/5 | 3/5 / 4/5 | 4/5 / 5/5 | 4/5 / 1/5 | **0/5 / 0/5** |
+| after | **55** | 5/5 | 5/5 / 5/5 | 5/5 | 5/5 / 5/5 | 5/5 / 5/5 | 3/5 / 4/5 | **4/5 / 4/5** |
+
+The six new cases went from 14 of 30 to 25, the six old ones from 25 of 30 to 30. What is
+left is (a) the first call of a chart (or of a diagram whose labels are quoted) being refused
+because the model sent its whole `ops` as one string, with the JSON of the chart or the quotes
+of the labels escaped inside it, which it mends with its next call (letting a chart's config be
+written as an object took the chart cases' refused first calls from 5 of 10 answers to 3 of 10),
+and (b) one answer in five to "a flowchart" that is still a sticky note. The numbers are for this model on this rubric; a case of five answers is a
+measurement of a rate, not a pass.
 
 The last row is a different measurement, not a better model: the review of the Canvas (RV-3,
 C2) found that the rubric measured every note as 84 tall while the panel draws a note as tall as
@@ -175,6 +221,98 @@ read (a brace short after a nested checklist) arrives as text, which the tool no
 (`tool-args.ts`); it was mended in the next step in 4 of 6 answers, and an arrow filed with the
 blocks in 6 of 6.
 
+## What the all-suite run measured (Slice 5b · T9, 2026-10-07)
+
+Every suite on the real model, recorded, and re-scored with `--replay`. `qwen3-6-27b`
+(the box's production Flash-Next, vLLM v0.31 with FP8 KV), through a tunnel on one local
+port, strictly sequential, one retry at most. Sampling is the app's own: temperature 0.6,
+top_p 0.95, top_k 20, and `sampling.test.ts` reads what both request builders put on the
+wire against `resolveModelCallSampling` and the family profile, so the harness cannot
+drift from the product (a mutated temperature fails both wire tests). Thinking is off,
+the suites' own policy (see below for what that leaves out). Every known-bad answer was
+served from disk and never sent (ruling 59), and in every pass every known-bad answer
+failed as declared (the gate would have refused to count the pass otherwise). A pass is a
+full run of every real case; three passes of each suite, so a rate is over three samples
+and nothing here is a pass mark.
+
+| Suite | Real cases (+ known-bad) | Passes | Answers | Good | Acceptable | Bad | Known-bad refused | Committed responses |
+|---|---|---|---|---|---|---|---|---|
+| `document` | 7 (+1) | 3 | 21 | **21** | 0 | 0 | 1 of 1, every pass | pass 1 |
+| `app` | 10 (+1) | 3 | 30 | **27** | 3 | 0 | 1 of 1, every pass | pass 1 |
+| `verification` | 4 (+1) | 3 | 12 | **10** | 2 | 0 | 1 of 1, every pass | pass 1 |
+| `canvas` | 6 (+4) | 3 | 18 | **17** | 0 | 1 | 4 of 4, every pass | pass 2 |
+
+The records this run replaces were single passes made before the server moved to vLLM
+v0.31 with FP8 KV (2026-10-04): `document` 7 of 7 good, `app` 10 of 10 and `verification`
+4 of 4 (all 2026-09-26), `canvas` 6 of 6 (2026-09-30). The harness's own sampling did not
+change in between: it was already 0.6 / 0.95 / 20.
+
+**What is not good, and why** (every fixture below is as it was; none was changed):
+
+- `app`: no answer was broken, and every pass had exactly one `works-with-glitches`, a
+  different app each time. Pass 1, `app-09` (the cooking unit converter): an uncaught
+  `Cannot read properties of undefined (reading 'addEventListener')`. Pass 2, `app-03`
+  (the Hungarian loan calculator): the browser pass's smoke step found no enabled button.
+  Pass 3, `app-04` (the English-Hungarian cards): clicking the four category buttons
+  changed nothing in the DOM. The P1 baseline, which the suite is held to, is 10 of 10
+  `works`; no pass reached it, and no pass had a `broken`, which is the line that fails
+  the suite. Completion tokens 2,516-4,979 per app, 11.7-23.8 s.
+- `verification`: in pass 1 the verifier named both bugs in `verification-wrong-unit`
+  (the plural gloss "békák" for "frog") and `verification-wrong-key` (Bucharest is not on
+  the Danube) but left each finding unsettled (`settled: false`), the first also under the
+  wrong class (`mislabelled_aggregate`), which the scorer reads as acceptable: noticed,
+  not confirmed. Passes 2 and 3 settled all three seeded bugs and stayed silent on the
+  clean fixture. This harness has no tool loop, so the verifier runs without
+  `research_web`.
+- `canvas`: pass 1, `canvas-create-vienna-en`: `overlap: sticky "sun-heuriger" covers
+  sticky "sun-concert"` (the model's own layout arithmetic on a board made from nothing).
+  Per case over the three passes: arrange Saturday 3/3, add Sunday 3/3 (en) and 3/3 (hu),
+  remove and connect 3/3, create Vienna 2/3 (en) and 3/3 (hu). Completion tokens 395-1,495
+  per case (all its steps), 3.0-9.2 s.
+- `document`: nothing failed in 21 answers (completion tokens 2-125, 0.2-0.7 s).
+
+Against each suite's bar (`slice-5.md` §The eval harness): `document` meets it in every
+pass. `verification` meets it in two of three passes and `canvas`, whose bar is every
+fixture clean on a pass, in two of three; `app` has no `broken` answer but no pass of
+10 of 10 `works`. ADR-0066 reads a suite below its bar as a change to the design rather
+than to the bar, which is the owner's call; nothing here moved a bar.
+
+**Which run is committed.** The committed responses (and the app's recorded browser
+evaluations) are one pass of the run: the first, except `canvas`, whose first pass held
+the one bad answer and whose second is the first without one. The replay gate reads a
+recorded bad answer as a failure of the gate, not as a measurement of the model, so a
+committed bad answer would turn CI red on yesterday's model rather than on today's
+scorer. The rates above are over all three passes; the raw runs are not committed.
+
+**What this does not measure, and what each measurement stands in for.**
+
+- *Thinking.* The chat turn runs with thinking on unless the reader chose Quick
+  (ADR-0061); only App generation is forced off by the product. Every suite here ran
+  thinking off. Canvas was also run with thinking on (`--thinking on`, three passes,
+  the tool path's `auto` choice): 15 of 18 good, all twelve edit answers good, and the
+  creates 2/3 (en) and 1/3 (hu) clean: two overlaps and one board with notes sticking out
+  of their frames (`canvas-create-vienna-en`, pass 1: `text "intro" covers frame "fri"`;
+  `canvas-create-vienna-hu`, pass 1: `frame "frame-szombat" covers frame "frame-hasznos"`
+  and pass 3: notes at y 240 and 480 sticking out of their frames). Thinking on took
+  2,695 completion tokens for the arrange case in the first pass against 480-690 with it
+  off, and 23-60 s for a create against 6-9 s. It did not make the creates better.
+  `document` was not run with thinking on.
+- *The `document` suite is not the real tool.* Its prompt is hand-written text that asks
+  for a bare JSON array of three of the five ops, and its answer is scored by the real
+  patch engine; it does not send the tool catalogue or read the `edit_artifact` call.
+  Ruling 62 asks every suite to go through the real tool description and schema. The
+  harness's tool path (`tool-path.ts`, `run-tool-suite.ts`) can carry it, but the suite
+  has no tool-path registration and its scorer reads a text array rather than a call, so
+  it was run as it is. `canvas` is the only suite that goes through the tools.
+- *System and user are one message.* `generateApp` and `verifyApp` send their contract as
+  the system message and the request as the user message; the `app` and `verification`
+  cases send both as one user message (`client.ts` has no system role). The two are
+  different roles in Qwen's chat template; whether that moves a result was not measured.
+- *One answer, not the product's whole path.* `verification` does not run the classifier,
+  `research_web`, the repair or the re-verification; `app` does not run the product's
+  retry on a contract violation. Each is the model's one answer, scored by the
+  product's own parser and audit.
+
 ## What each type slice adds (ruling 44)
 
 Per `decisions.md` ruling 44, each type slice writes:
@@ -195,7 +333,10 @@ Per `decisions.md` ruling 44, each type slice writes:
 | `slides` | Slice 4 |
 
 **No type slice edits `run.ts`, `config.ts` or `client.ts`.** Slice 5b's own
-task (T9) is the all-suite real run and this README's final numbers.
+task (T9) is the all-suite real run and this README's numbers (below); it is the one
+task that edited the core after Slice 5a, to make ruling 59 the runner's own rule
+(a known-bad answer is served from disk for every suite, never sent, never
+re-recorded) rather than something only the canvas tool runner did.
 
 ## Running it
 
@@ -246,8 +387,17 @@ after a prompt or contract change, before committing them for `--replay`.
   command, on the runner's own local port:
 
   ```bash
-  ssh -N -o ExitOnForwardFailure=yes -L 30000:192.168.1.96:30000 alfyroot & T=$!; sleep 2; EVAL_ARTIFACTS_BASE_URL=http://127.0.0.1:30000/v1 EVAL_ARTIFACTS_MODEL=qwen3-6-27b npm run eval:artifacts -- --suite <suite>; kill $T
+  ssh -N -o ControlMaster=no -o ControlPath=none -o ExitOnForwardFailure=yes -L 30000:192.168.1.96:30000 alfyroot & T=$!; sleep 3; EVAL_ARTIFACTS_BASE_URL=http://127.0.0.1:30000/v1 EVAL_ARTIFACTS_MODEL=qwen3-6-27b npm run eval:artifacts -- --suite <suite>; kill $T
   ```
+
+  The two `-o` options are not decoration. A machine whose ssh config says
+  `ControlMaster auto` with a `ControlPersist` time (the owner's does, for this
+  host: 600 seconds) turns the first `ssh -N -L ...` into a background control
+  master that outlives the command: `$!` is the already-exited foreground client,
+  `kill $T` kills nothing, and the forward stays open for ten minutes after the run
+  (and any other session to the host would multiplex over it). With
+  `ControlPath=none` the tunnel is its own connection and dies with `kill $T`.
+  Check `pgrep -fl 'ssh -N'` is empty afterwards.
 
   Runs stay sequential — the model is shared — and recorded responses under
   `fixtures/<suite>/responses/` come from `qwen3-6-27b` only.
@@ -270,10 +420,16 @@ after a prompt or contract change, before committing them for `--replay`.
 ## Re-recording a suite
 
 `EVAL_ARTIFACTS_SKIP_EVAL=1 npx tsx scripts/eval-artifact-contracts/run.ts --suite <suite>`
-calls the configured model for every case in the suite (skipping the
+calls the configured model for every real case in the suite (skipping the
 known-bad gate entirely — nothing is being trusted yet) and overwrites
-`fixtures/<suite>/responses/*.json`. Review the diff before committing:
-a contract or prompt change is exactly when responses are expected to move.
+`fixtures/<suite>/responses/*.json`, except the suite's known-bad answers: they are
+hand-written, never asked of the model and never overwritten (ruling 59). The app's
+recording pass also runs the browser step and writes `fixtures/app/evaluations/`.
+Review the diff before committing: a contract or prompt change is exactly when
+responses are expected to move. To record and keep every pass of a rate, run the
+record, then `run.ts --replay --suite <suite> --out <dir>` to score it, and copy
+`fixtures/<suite>/responses/` aside before the next pass; the canvas tool runner
+does the same in one command (`--write-responses`, `--repeat`, `--responses-out`).
 
 ## The key rule, in one place
 
@@ -296,4 +452,8 @@ screenshots, named in slice-5.md), is that suite's own addition, not part of
 this core. Nothing here is a dependency of `npm test` or `npm run build`; CI
 runs `config.test.ts`, `client.test.ts` (pure — no real disk/network
 access), `scoring.test.ts` and `run.test.ts` (the fake suite described
-above), plus `--replay --suite all` once suites exist.
+above) as part of the unit tests, and the `Artifact contract replay` step of
+`.github/workflows/ci.yml` runs `npm run eval:artifacts:replay` (`--replay --suite
+all`: every committed answer re-scored, no model, no key, no browser). The live
+runners never run in CI: `wiring.test.ts` fails if the workflow names one, an
+`EVAL_ARTIFACTS_` variable, or if a `test*` script reaches a runner.

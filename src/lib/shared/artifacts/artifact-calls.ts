@@ -1,6 +1,7 @@
 import type {
 	ChatMessage,
 	ThinkingSegment,
+	ToolCallEntry,
 } from "$lib/server/services/messages-types";
 
 // What the messages a chat holds say about the artifacts their own tool calls
@@ -8,6 +9,30 @@ import type {
 // the messages it has persisted) and the chat page (on the messages it holds
 // live, including the turn that is still running and has no persisted row yet)
 // read them one way.
+
+interface ArtifactCall {
+	name: "create_artifact" | "edit_artifact";
+	artifactId: string;
+	input: Record<string, unknown>;
+}
+
+/**
+ * What a `create_artifact` / `edit_artifact` call made or changed, when it did:
+ * the one reading of "this call is about that item", for a stored thinking
+ * segment and a live tool-call entry alike (the turn's own finished calls, from
+ * which the Sources panel's "Made in this chat" group is built). A refused or
+ * failed call, a call that named no item and every other tool are `null`.
+ */
+export function artifactCallOf(
+	call: Pick<ToolCallEntry, "name" | "status" | "input" | "metadata">,
+): ArtifactCall | null {
+	if (call.name !== "create_artifact" && call.name !== "edit_artifact")
+		return null;
+	if (call.status === "failed" || call.metadata?.ok === false) return null;
+	const artifactId = call.metadata?.artifactId;
+	if (typeof artifactId !== "string" || artifactId.length === 0) return null;
+	return { name: call.name, artifactId, input: call.input ?? {} };
+}
 
 /**
  * The successful `create_artifact` / `edit_artifact` calls in a list of
@@ -17,24 +42,12 @@ import type {
  */
 export function artifactCallsFromSegments(
 	segments: readonly ThinkingSegment[] | undefined,
-): Array<{
-	name: "create_artifact" | "edit_artifact";
-	artifactId: string;
-	input: Record<string, unknown>;
-}> {
-	const calls: ReturnType<typeof artifactCallsFromSegments> = [];
+): ArtifactCall[] {
+	const calls: ArtifactCall[] = [];
 	for (const segment of segments ?? []) {
 		if (segment.type !== "tool_call") continue;
-		if (segment.name !== "create_artifact" && segment.name !== "edit_artifact")
-			continue;
-		if (segment.status === "failed" || segment.metadata?.ok === false) continue;
-		const artifactId = segment.metadata?.artifactId;
-		if (typeof artifactId !== "string" || artifactId.length === 0) continue;
-		calls.push({
-			name: segment.name,
-			artifactId,
-			input: segment.input ?? {},
-		});
+		const call = artifactCallOf(segment);
+		if (call) calls.push(call);
 	}
 	return calls;
 }

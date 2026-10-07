@@ -14,6 +14,7 @@ import {
 import { getFileProductionWorkerConfig } from "$lib/server/services/file-production/config";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
+import { detectContentLanguageRequest } from "$lib/server/services/language";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { toolReadArtifactIdsMetadata } from "$lib/server/services/message-evidence";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
@@ -38,6 +39,7 @@ import {
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
+import { createKnownBoards } from "./artifact-tools/canvas-model";
 import {
 	advertisedArtifactKinds,
 	buildCreateArtifactInputSchema,
@@ -703,6 +705,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// Every create_artifact call this turn, whatever kind — see
 	// MAX_CREATE_ARTIFACT_CALLS_PER_TURN (artifact-tools/create.ts).
 	let totalCreateArtifactCalls = 0;
+	// The words of each board this turn has read, for an edit to be judged
+	// against (ruling 67): in memory, and gone with the turn. Never on a record.
+	const knownBoards = createKnownBoards();
 	// At most one instruction offer per turn (Slice F). The offer is a row the
 	// user has to answer; a second row about the same sentence is a second
 	// decision, so a repeated call is refused rather than recorded.
@@ -1748,8 +1753,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								title: safeInput.title,
 								body: safeInput.body,
 								// The turn's own resolved language (ruling 55), never
-								// re-detected per kind — see CreateArtifactHandlerParams.
-								language: ctx.language ?? "en",
+								// re-detected per kind — see CreateArtifactHandlerParams —
+								// unless the message asks for the content in another
+								// one ("Készíts egy kvíz appot angolul"): the turn keeps
+								// its language then (ruling 75) and the App is written in
+								// the one the person asked for.
+								language:
+									detectContentLanguageRequest(ctx.requestText ?? "") ??
+									ctx.language ??
+									"en",
 								abortSignal,
 							});
 							return {
@@ -1806,6 +1818,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								conversationId: ctx.conversationId,
 								artifactId: input.artifactId,
 								detail: input.detail,
+								turnContext: { knownBoards },
 								abortSignal,
 							});
 							return {
@@ -1886,8 +1899,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								ops: safeInput.ops,
 								summary: safeInput.summary,
 								// What this turn has already done: a board edit is judged
-								// against the version the model last read (ruling 67).
-								turnContext: { sources: recorder.getEntries() },
+								// against what the model last read of it (ruling 67).
+								turnContext: {
+									sources: recorder.getEntries(),
+									knownBoards,
+								},
 								abortSignal,
 							});
 							return {
@@ -2906,11 +2922,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		),
 		// The offer is registered for the whole conversation, never gated per
 		// turn: it renders inside the cached prompt prefix, and a turn-varying
-		// tool set is the failure shouldExposeFileProductionTools() exists to
-		// prevent (see normal-chat-tool-gating.ts). What *is* gated is the
-		// offer itself — absent in incognito (the catalogue gate), once per
-		// turn (a closure counter below), and with the project scope only when
-		// the conversation is really in a project.
+		// tool set is the failure normal-chat-tool-gating.ts's header note
+		// describes. What *is* gated is the offer itself — absent in incognito
+		// (the catalogue gate), once per turn (a closure counter below), and
+		// with the project scope only when the conversation is really in a
+		// project.
 		suggest_instruction: asExecutableTool(
 			tool({
 				description: i18n.suggest_instruction.description,

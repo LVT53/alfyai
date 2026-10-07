@@ -9,7 +9,7 @@
  * does not read (they are stripped, never fatal: a board that is a version
  * behind still opens) and strict about the fields it does read. What the MODEL
  * writes goes through `modelCreatableBlockDataSchema`, the strict variants of
- * the five note-shaped kinds: a misspelt field is refused by name instead of
+ * the six kinds it may add: a misspelt field is refused by name instead of
  * being stripped into an op that "worked" and changed nothing.
  */
 import { z } from "zod";
@@ -176,6 +176,20 @@ type SizedNode = {
 	data: CanvasBlockData;
 };
 
+/**
+ * What the editor reserves for a diagram it has not measured: the room its own
+ * Insert gives one (`block-meta.ts`), and what a source that says too little to
+ * read a size from is given. A diagram's real height is Mermaid's layout, which
+ * the panel measures; reading it from the SOURCE, as the model's read, the placer
+ * and the eval must (they have no browser), is `mermaid-size.ts`'s job, reached
+ * through `plannedNodeSize` (`node-size.ts`) and kept out of this module because
+ * everything here is in the editor's first paint (ruling 68: 2.4 KiB gzip).
+ */
+export const DIAGRAM_RESERVED_HEIGHT = 420;
+
+/** How tall a diagram block `width` wide is drawn, read from its source: what a planner passes in (`plannedNodeSize`). */
+export type DiagramHeightEstimator = (code: string, width: number) => number;
+
 /** The width a block is drawn at: the one it stores, a frame's own, or its kind's default. */
 function estimatedNodeWidth(node: SizedNode): number {
 	if (node.width !== undefined) return node.width;
@@ -186,12 +200,15 @@ function estimatedNodeWidth(node: SizedNode): number {
 
 /**
  * The height a block is drawn at: the one it stores, a frame's own, or an
- * estimate from its words (a note, a text), its items (a checklist) or its plot
- * (a chart). The kinds whose height the app decides (a map, a file, an App,
- * photos, a web search, a diagram: it is as tall as what Mermaid draws) are left
- * at `DEFAULT_NODE_HEIGHT`.
+ * estimate from its words (a note, a text), its items (a checklist), its plot
+ * (a chart) or, for a diagram, what `diagramHeight` reads from its source (none
+ * given: `DIAGRAM_RESERVED_HEIGHT`). The kinds whose height the app decides (a
+ * map, a file, an App, photos, a web search) are left at `DEFAULT_NODE_HEIGHT`.
  */
-export function estimatedNodeHeight(node: SizedNode): number {
+export function estimatedNodeHeight(
+	node: SizedNode,
+	diagramHeight?: DiagramHeightEstimator,
+): number {
 	if (node.height !== undefined) return node.height;
 	const data = node.data;
 	const width = estimatedNodeWidth(node);
@@ -215,6 +232,10 @@ export function estimatedNodeHeight(node: SizedNode): number {
 				CHART_CHROME_HEIGHT +
 					Math.max(0, width - CHART_SIDE_INSET) / chartAspectRatio(data.code),
 			);
+		case "mermaid":
+			return diagramHeight
+				? diagramHeight(data.code, width)
+				: DIAGRAM_RESERVED_HEIGHT;
 		default:
 			return DEFAULT_NODE_HEIGHT;
 	}
@@ -225,13 +246,16 @@ export function estimatedNodeHeight(node: SizedNode): number {
  * model's read reports, what the board's geometry places by and what the eval's
  * rubric judges overlap with. One function, so the three cannot drift.
  */
-export function estimatedNodeSize(node: SizedNode): {
+export function estimatedNodeSize(
+	node: SizedNode,
+	diagramHeight?: DiagramHeightEstimator,
+): {
 	width: number;
 	height: number;
 } {
 	return {
 		width: estimatedNodeWidth(node),
-		height: estimatedNodeHeight(node),
+		height: estimatedNodeHeight(node, diagramHeight),
 	};
 }
 
@@ -253,7 +277,7 @@ const posterRefSchema = z.object({
 
 export type PosterRef = z.infer<typeof posterRefSchema>;
 
-// ── The five note-shaped kinds ───────────────────────────────────────────
+// ── The six kinds Alfy may write: five note-shaped, and a diagram ────────
 
 const frameDataSchema = z.object({
 	kind: z.literal("frame"),
@@ -459,6 +483,8 @@ const photoUrlSchema = z
 
 const photoDataSchema = z.object({
 	kind: z.literal("photo"),
+	/** A caption the reader gave the block: its header says it instead of the kind's name. */
+	label: labelSchema.optional(),
 	items: z
 		.array(
 			z.object({
@@ -519,79 +545,6 @@ export const BLOCK_KINDS = Object.keys(BLOCK_DATA_SCHEMAS) as BlockKind[];
 export function isBlockKind(value: unknown): value is BlockKind {
 	return typeof value === "string" && Object.hasOwn(BLOCK_DATA_SCHEMAS, value);
 }
-
-/**
- * What the model may add to a board (ruling 64): the five kinds that carry
- * only what it can write. The others carry app-owned references (a file, an
- * App, a route, a photo, a fetched page) it cannot mint, or what the chat drew (a
- * diagram), so the user places those, and an `add_node` of one is refused
- * `unknown_kind`. Strict variants of
- * the stored schemas: what the model writes must not carry a field the block
- * does not read, or a misspelt one would be stripped into an op that "worked"
- * and changed nothing.
- */
-export const MODEL_CREATABLE_DATA_SCHEMAS = {
-	frame: frameDataSchema.strict(),
-	sticky: stickyDataSchema.strict(),
-	text: textDataSchema.strict(),
-	checklist: checklistDataSchema.strict(),
-	chart: chartDataSchema.strict(),
-} as const;
-
-export type ModelCreatableKind = keyof typeof MODEL_CREATABLE_DATA_SCHEMAS;
-
-export const MODEL_CREATABLE_KINDS = Object.keys(
-	MODEL_CREATABLE_DATA_SCHEMAS,
-) as ModelCreatableKind[];
-
-export function isModelCreatableKind(
-	value: unknown,
-): value is ModelCreatableKind {
-	return (
-		typeof value === "string" &&
-		Object.hasOwn(MODEL_CREATABLE_DATA_SCHEMAS, value)
-	);
-}
-
-/**
- * What the model may change on a block that is already on the board (ruling 67).
- * The five note-shaped kinds are the model's own words, so every field of them
- * (but `kind`). The other five carry what the app vouches for — the search a web
- * block claims to be, the photos, the file, the App a block shows, a map's route,
- * and any block's poster — and those are set only by the app (the Insert menu,
- * Refresh, the poster capture): a turn that could rewrite them could plant its
- * own links, dressed as the app's search result with a fresh "Updated" line, and
- * every source's favicon would then contact whatever host it names on each open.
- * On them the model may change the descriptive part only. So it may on a diagram
- * (a Mermaid block the reader inserted from what the chat drew): it may name it,
- * and the drawing itself stays the chat's.
- */
-const APP_OWNED_UPDATABLE_FIELDS = {
-	map: ["label", "route", "meta"],
-	mermaid: ["label", "subtitle"],
-	file: [],
-	app: ["title"],
-	photo: [],
-	liveweb: [],
-} as const;
-
-export function modelUpdatableFields(kind: BlockKind): readonly string[] {
-	if (isModelCreatableKind(kind)) {
-		return Object.keys(BLOCK_DATA_SCHEMAS[kind].shape).filter(
-			(field) => field !== "kind",
-		);
-	}
-	return APP_OWNED_UPDATABLE_FIELDS[kind];
-}
-
-/** The advertised and the executed `data` of an `add_node`: one union of the five. */
-export const modelCreatableBlockDataSchema = z.discriminatedUnion("kind", [
-	MODEL_CREATABLE_DATA_SCHEMAS.frame,
-	MODEL_CREATABLE_DATA_SCHEMAS.sticky,
-	MODEL_CREATABLE_DATA_SCHEMAS.text,
-	MODEL_CREATABLE_DATA_SCHEMAS.checklist,
-	MODEL_CREATABLE_DATA_SCHEMAS.chart,
-]);
 
 // ── The ids of a block's own entries (RV-3 C1) ───────────────────────────
 

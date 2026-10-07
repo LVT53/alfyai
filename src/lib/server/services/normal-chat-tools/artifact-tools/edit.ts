@@ -9,6 +9,7 @@ import {
 	applyArtifactOps,
 	applyDocumentPatch,
 	getArtifact,
+	getVersionBody,
 	listArtifactCatalogueEntries,
 	listVersions,
 	type OpsEnvelopeResult,
@@ -26,12 +27,14 @@ import {
 import {
 	type BoardRefusalReason,
 	boardOpsArraySchema,
+	type PlacedNote,
 } from "$lib/shared/artifacts/board-ops";
 import { truncateText } from "../shared";
 import {
 	canvasEditFailureMessage,
 	canvasEditOutcome,
 	canvasOpsRequiredMessage,
+	type KnownBoards,
 	lastKnownBoardVersion,
 } from "./canvas-model";
 import {
@@ -153,7 +156,7 @@ export interface ArtifactRefusal {
 	opIndex?: number;
 	/**
 	 * Canvas: what would have worked, in the model's own language — the ids that
-	 * exist, the five blocks it may add, the fields of the kind (ruling 62).
+	 * exist, the six blocks it may add, the fields of the kind (ruling 62).
 	 * Document refusals carry a reason code only.
 	 */
 	detail?: string;
@@ -166,6 +169,8 @@ export type EditArtifactModelPayload =
 			versionId: string;
 			applied: number;
 			refused: ArtifactRefusal[];
+			/** Canvas: where the app put what was added, when it had a hand in it (ruling 74): the block's own place, and what became of its frame. */
+			placed?: PlacedNote[];
 	  }
 	| {
 			success: false;
@@ -193,10 +198,14 @@ export interface EditArtifactHandlerParams {
 	/**
 	 * What this turn has already done, for a kind that judges an edit against what
 	 * the model last read (Canvas, ruling 67): the recorder's entries, the same
-	 * seam a create handler is handed. Optional: without it every op is judged
-	 * against the item as it is now.
+	 * seam a create handler is handed, and the words of each board the turn read
+	 * (`knownBoards`, in memory, never on a record). Optional: without it every op
+	 * is judged against the item as it is now.
 	 */
-	turnContext?: { sources: readonly ToolCallEntry[] };
+	turnContext?: {
+		sources: readonly ToolCallEntry[];
+		knownBoards?: KnownBoards;
+	};
 	/**
 	 * Fires on the tool's own timeout (20s, TOOL_TIMEOUTS_MS.edit_artifact) or
 	 * the turn's own stop/disconnect. A handler MUST check
@@ -219,6 +228,8 @@ export interface EditArtifactHandlerSuccess {
 	 * model's own change is all that happened since it read (ruling 67).
 	 */
 	baseVersionId?: string;
+	/** Canvas: where the app put what was added (ruling 74). */
+	placed?: PlacedNote[];
 }
 
 /**
@@ -395,14 +406,21 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 		// refused, not overwritten. The read is the turn's own (its earlier
 		// `read_artifact`, moved forward by its own edits); with none, the edit
 		// applies to the board as it is and the one-change review is the safeguard.
-		const readVersionId = lastKnownBoardVersion(
-			params.turnContext?.sources ?? [],
-			params.artifactId,
-		);
+		// The read is the WORDS the model was shown when the turn holds them: the
+		// reader's saves within ten minutes are written into their newest version
+		// (ruling 47), so the version the model read can hold newer words under the
+		// same id. The version it read is the fallback, for a board whose words the
+		// turn no longer holds.
+		const knownBoards = params.turnContext?.knownBoards;
+		const read = {
+			versionId: lastKnownBoardVersion(
+				params.turnContext?.sources ?? [],
+				params.artifactId,
+			),
+			body: knownBoards?.get(params.artifactId),
+		};
 		const attempt = () =>
-			params.abortSignal.aborted
-				? null
-				: applyBoardOps(params, diff, readVersionId);
+			params.abortSignal.aborted ? null : applyBoardOps(params, diff, read);
 		let tried = await attempt();
 		if (
 			tried &&
@@ -421,6 +439,21 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 		if (!judged.ok) {
 			return { ok: false, error: judged.error, refused: judged.refused };
 		}
+		// A call the envelope has already told the model failed (its timeout, the
+		// turn's stop) is one it does not know the result of.
+		if (
+			knownBoards &&
+			read.body !== undefined &&
+			outcome.changed &&
+			baseVersionId !== undefined &&
+			!params.abortSignal.aborted
+		) {
+			await moveKnownBoardForward(params, knownBoards, {
+				read: read.body,
+				baseVersionId,
+				landedVersionId: outcome.versionId,
+			});
+		}
 		return {
 			ok: true,
 			value: {
@@ -428,20 +461,53 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 				applied: judged.applied,
 				refused: judged.refused,
 				...(baseVersionId === undefined ? {} : { baseVersionId }),
+				...(outcome.placed ? { placed: outcome.placed } : {}),
 			},
 		};
 	},
 };
 
 /**
+ * An edit landed as a version on top of another. When the board its ops were
+ * applied to is exactly the board the model knew, the model knows the result of
+ * its own edit, and the new version's words become what it knows. When the
+ * reader had written something in between it does not, and the words it read
+ * stay: what they wrote is still unseen, and the model's own change reads as
+ * changed since, so it reads the board again before it touches that block.
+ *
+ * Read after the write, from the two versions: Alfy's is the newest now, so the
+ * reader's next save is a version of its own and the base's words are final (the
+ * write itself was refused had they moved since the envelope read them, `baseHash`).
+ */
+async function moveKnownBoardForward(
+	params: EditArtifactHandlerParams,
+	knownBoards: KnownBoards,
+	landed: { read: string; baseVersionId: string; landedVersionId: string },
+): Promise<void> {
+	const scope = {
+		userId: params.userId,
+		artifactId: params.artifactId,
+		conversationId: params.conversationId,
+	};
+	const [base, now] = await Promise.all([
+		getVersionBody({ ...scope, versionId: landed.baseVersionId }),
+		getVersionBody({ ...scope, versionId: landed.landedVersionId }),
+	]);
+	if (base === landed.read && now !== null) {
+		knownBoards.remember(params.artifactId, now);
+	}
+}
+
+/**
  * One try at applying a diff to a board, as a new Alfy version, against the
  * board's newest version (`baseVersionId`: what the write lands on top of), and
- * judged against the version the model last read (`readVersionId`), if any.
+ * judged against what the model last read of it (`read`): the words when it
+ * holds them, else the version, if any.
  */
 async function applyBoardOps(
 	params: EditArtifactHandlerParams,
 	diff: { id: string; summary: string; ops: unknown[] },
-	readVersionId: string | undefined,
+	read: { versionId: string | undefined; body: string | undefined },
 ): Promise<{ outcome: OpsEnvelopeResult; baseVersionId?: string }> {
 	const [newest] = await listVersions({
 		userId: params.userId,
@@ -457,7 +523,8 @@ async function applyBoardOps(
 		artifactId: params.artifactId,
 		conversationId: params.conversationId,
 		payload: { baseVersionId: newest.id, diff },
-		readVersionId,
+		readVersionId: read.versionId,
+		readBody: read.body,
 	});
 	return { outcome, baseVersionId: newest.id };
 }
@@ -519,7 +586,7 @@ export async function runEditArtifactTool(params: {
 	patches?: unknown[];
 	ops?: unknown[];
 	summary?: string;
-	turnContext?: { sources: readonly ToolCallEntry[] };
+	turnContext?: EditArtifactHandlerParams["turnContext"];
 	abortSignal: AbortSignal;
 }): Promise<EditArtifactRunResult> {
 	if (params.patches && params.ops) {
@@ -648,6 +715,7 @@ export async function runEditArtifactTool(params: {
 			versionId: result.value.versionId,
 			applied: result.value.applied,
 			refused: result.value.refused,
+			...(result.value.placed ? { placed: result.value.placed } : {}),
 		},
 		outputSummary,
 		metadata: {

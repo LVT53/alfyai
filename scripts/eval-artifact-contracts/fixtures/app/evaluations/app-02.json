@@ -13,11 +13,11 @@
 				"pageErrors": [],
 				"blockedRequests": [],
 				"textLength": 291,
-				"textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
-				"controlCount": 7,
+				"textSample": "Bevásárlólista Írd be a tételt, válaszd ki a kategóriát, majd kattints a tételre, ha megvetted. A lista automatikusan megmarad. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Még nincs tétel a listán. A listád",
+				"controlCount": 3,
 				"storageGets": 1,
 				"storageSets": 1,
-				"storageKeys": ["shopping-list-v1"]
+				"storageKeys": ["shopping-list"]
 			},
 			{
 				"label": "dark-1280",
@@ -31,8 +31,8 @@
 				"pageErrors": [],
 				"blockedRequests": [],
 				"textLength": 291,
-				"textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
-				"controlCount": 7,
+				"textSample": "Bevásárlólista Írd be a tételt, válaszd ki a kategóriát, majd kattints a tételre, ha megvetted. A lista automatikusan megmarad. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Még nincs tétel a listán. A listád",
+				"controlCount": 3,
 				"storageGets": 1,
 				"storageSets": 0,
 				"storageKeys": []
@@ -49,8 +49,8 @@
 				"pageErrors": [],
 				"blockedRequests": [],
 				"textLength": 291,
-				"textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
-				"controlCount": 7,
+				"textSample": "Bevásárlólista Írd be a tételt, válaszd ki a kategóriát, majd kattints a tételre, ha megvetted. A lista automatikusan megmarad. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Még nincs tétel a listán. A listád",
+				"controlCount": 3,
 				"storageGets": 1,
 				"storageSets": 0,
 				"storageKeys": []
@@ -67,8 +67,8 @@
 				"pageErrors": [],
 				"blockedRequests": [],
 				"textLength": 291,
-				"textSample": "Bevásárlólista Pipáld be, amit megvettél – a lista megmarad, ha bezárod az ablakot. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Nincs tétel a listán Készek törlése Lista törlése Igen, töröljük Mégse A listá",
-				"controlCount": 7,
+				"textSample": "Bevásárlólista Írd be a tételt, válaszd ki a kategóriát, majd kattints a tételre, ha megvetted. A lista automatikusan megmarad. Új tétel Kategória Zöldség Pékáru Tejtermék Egyéb Hozzáad Még nincs tétel a listán. A listád",
+				"controlCount": 3,
 				"storageGets": 1,
 				"storageSets": 0,
 				"storageKeys": []
@@ -83,11 +83,11 @@
 			"clicked": true,
 			"domChanged": true,
 			"textBefore": 291,
-			"textAfter": 270,
+			"textAfter": 220,
 			"htmlChanged": true,
 			"storageSetsBefore": 0,
 			"storageSetsAfter": 1,
-			"storageKeys": ["shopping-list-v1"],
+			"storageKeys": ["shopping-list"],
 			"dialogs": [],
 			"note": null
 		},
@@ -96,6 +96,6 @@
 		"blockedRequests": [],
 		"storageGets": 1,
 		"storageSets": 1,
-		"storageKeys": ["shopping-list-v1"]
+		"storageKeys": ["shopping-list"]
 	}
 }

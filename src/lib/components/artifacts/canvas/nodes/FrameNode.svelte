@@ -95,6 +95,7 @@ function handleKeydown(event: KeyboardEvent): void {
 	dropTarget={board.dropTargetId === id}
 	summary={data.label}
 	activate={startEditing}
+	edit={startEditing}
 	header={chip}
 >
 	<!-- A frame draws nothing inside its outline: what is in it is other nodes. -->

@@ -9,8 +9,10 @@
 // same edit rule and worked example, the same board projection (`read_artifact`'s
 // blocks), and the same words for what went wrong. The ops land through the same
 // envelope as the tool's (`applyArtifactOps`: one version, author `alfy`, every
-// op judged against the board as it is now), and the reply goes in the thread —
-// applied, refused, or an answer, never silence, and a skipped op is named.
+// op judged against the board as it is now, except that an op on a block the
+// reader changed after the model read it is refused `stale` and the rest lands,
+// ruling 67), and the reply goes in the thread — applied, refused, or an answer,
+// never silence, and a skipped op is named.
 //
 // What is a comment's own here: the anchor scopes the request (a comment on a
 // block that is gone is refused before any model call), the note is written in
@@ -324,8 +326,18 @@ export async function runCanvasAlfyReply(
 		return result.text;
 	}
 
-	/** The ops as ONE Alfy version against the board's newest version; a save that lands in between is refused by the write and tried once more. */
-	async function apply(ops: unknown[]): Promise<OpsEnvelopeResult | null> {
+	/**
+	 * The ops as ONE Alfy version against the board's newest version; a save that
+	 * lands in between is refused by the write and tried once more. `readBody` is
+	 * the board as the model was shown it: an op on a block the reader changed
+	 * since is refused `stale` and the rest lands (ruling 67). The body, not the
+	 * version it came from: the reader's saves within ten minutes are written into
+	 * their newest version, so the version the model read can hold newer words.
+	 */
+	async function apply(
+		ops: unknown[],
+		readBody: string,
+	): Promise<OpsEnvelopeResult | null> {
 		let outcome: OpsEnvelopeResult | null = null;
 		for (let attempt = 0; attempt < 2; attempt += 1) {
 			// The signal is checked right before the write: once it fires the caller was told it failed.
@@ -334,6 +346,7 @@ export async function runCanvasAlfyReply(
 			if (!newest) return { ok: false, status: 404, reason: "not_found" };
 			outcome = await applyArtifactOps({
 				...scope,
+				readBody,
 				payload: {
 					baseVersionId: newest.id,
 					diff: { id: randomUUID(), summary: VERSION_SUMMARY, ops },
@@ -384,7 +397,7 @@ export async function runCanvasAlfyReply(
 			return answer("answered", counts, note || ALFY_EMPTY_REPLY_MARKER);
 		}
 
-		const landed = await apply(ops);
+		const landed = await apply(ops, artifact.body ?? "");
 		if (landed === null) return aborted;
 		if (!landed.ok) {
 			if (landed.reason === "not_found")

@@ -182,7 +182,9 @@ test.describe("the pill a selection raises", () => {
 			toolbar.getByRole("button", { name: /^Comment/ }),
 		).toBeVisible();
 
-		// Under the block, centred, and not on top of the block's own toolbar (above it).
+		// Under the block, centred, and not on top of the block's own toolbar (above the
+		// block when there is room for it, below it when the block is too near the top of
+		// the pane: the pill then stands under the toolbar).
 		const block = await nodeBox(page, MUSEUM);
 		const bar = await toolbar.boundingBox();
 		if (!bar) throw new Error("no pill box");
@@ -195,7 +197,15 @@ test.describe("the pill a selection raises", () => {
 			.first()
 			.boundingBox();
 		if (blockToolbar) {
-			expect(blockToolbar.y + blockToolbar.height).toBeLessThanOrEqual(block.y);
+			const apart =
+				blockToolbar.y + blockToolbar.height <= bar.y ||
+				bar.y + bar.height <= blockToolbar.y;
+			expect(apart, "the pill is clear of the block's own toolbar").toBe(true);
+			// The toolbar is on one side of the block or the other, never over it.
+			const clear =
+				blockToolbar.y + blockToolbar.height <= block.y ||
+				blockToolbar.y >= block.y + block.height;
+			expect(clear, "the toolbar is not over the block").toBe(true);
 		}
 
 		// Escape hides the pill and keeps the selection.

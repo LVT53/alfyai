@@ -17,7 +17,7 @@ import {
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { MAX_INLINE_TEXT_CHARS } from "../files";
 import { truncateText } from "../shared";
-import { canvasReadBlocks } from "./canvas-model";
+import { canvasReadBlocks, type KnownBoards } from "./canvas-model";
 import type { CreatableArtifactKind } from "./create";
 
 export const readArtifactInputSchema = z.object({
@@ -82,6 +82,15 @@ export interface ReadArtifactHandlerResult {
 	 * and never to the model: a later edit is judged against it (ruling 67).
 	 */
 	versionId?: string;
+	/**
+	 * The stored body this read showed the model, word for word. It goes to the
+	 * turn's `KnownBoards` and nowhere else: not to the model, not to the tool
+	 * call's record. A later edit is judged against it in place of `versionId`,
+	 * because the reader's saves within ten minutes are written INTO the version
+	 * this read showed (ruling 47), so only the words can say what they changed
+	 * since (ruling 67).
+	 */
+	readBody?: string;
 }
 
 /**
@@ -152,8 +161,9 @@ function readStoredBoard(stored: string | null): CanvasBody | null {
  * The Canvas branch (Slice 3): `blocks` lists every node and edge with the ids
  * an op must name (`canvas-model.ts`'s `canvasReadBlocks`); `full` adds the
  * board's canonical JSON, which the shell bounds like any body. A board has no
- * hashes and nothing to snapshot — an op is judged against the board as it is
- * when it lands — so a read writes nothing.
+ * hashes and nothing to snapshot, so a read writes nothing to the database: it
+ * says which version it showed and hands back the words it showed (`readBody`),
+ * and a later edit refuses what the reader changed after them (ruling 67).
  */
 READ_ARTIFACT_HANDLERS.canvas = async (params) => {
 	if (params.abortSignal.aborted) return {};
@@ -165,16 +175,22 @@ READ_ARTIFACT_HANDLERS.canvas = async (params) => {
 	const record = await getArtifact(scope);
 	const board = readStoredBoard(record?.body ?? null);
 	const blocks = board ? canvasReadBlocks(board) : [];
-	// Which version this is, by its number (the one the body was read at): a later
-	// edit refuses whatever the reader changed after it (ruling 67). A few versions
-	// are looked at in case a save lands between the two reads; none found, none said.
+	// Which version this is, by its number (the one the body was read at): the
+	// fallback for a later edit that no longer holds the words (ruling 67). A few
+	// versions are looked at in case a save lands between the two reads; none
+	// found, none said.
 	const versions = record
 		? await listVersions({ ...scope, limit: 4 }).catch(() => [])
 		: [];
 	const versionId = versions.find(
 		(version) => version.versionNumber === record?.versionNumber,
 	)?.id;
-	const known = versionId === undefined ? {} : { versionId };
+	// The words as stored, the very ones `blocks` was made from (one read of the
+	// row), so what an edit is judged against is what the model was shown.
+	const known = {
+		...(versionId === undefined ? {} : { versionId }),
+		...(typeof record?.body === "string" ? { readBody: record.body } : {}),
+	};
 	if (params.detail === "blocks") return { blocks, ...known };
 	return {
 		blocks,
@@ -277,6 +293,11 @@ export async function runReadArtifactTool(params: {
 	conversationId: string;
 	artifactId: string;
 	detail?: "blocks" | "full";
+	/**
+	 * What this turn keeps of what it reads: a board's words, for a later edit to
+	 * be judged against (ruling 67). Optional: without it a read keeps nothing.
+	 */
+	turnContext?: { knownBoards?: KnownBoards };
 	abortSignal: AbortSignal;
 }): Promise<ReadArtifactRunResult> {
 	const detail = params.detail ?? "full";
@@ -354,6 +375,11 @@ export async function runReadArtifactTool(params: {
 		abortSignal: params.abortSignal,
 	});
 	const bounded = boundReadOutput({ blocks: result.blocks, body: result.body });
+	// A read the envelope has already called failed (its timeout, the turn's stop)
+	// is a read the model was never shown: it knows nothing of this board.
+	if (result.readBody !== undefined && !params.abortSignal.aborted) {
+		params.turnContext?.knownBoards?.remember(record.id, result.readBody);
+	}
 	return {
 		modelPayload: {
 			success: true,

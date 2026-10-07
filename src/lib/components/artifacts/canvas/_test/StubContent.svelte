@@ -10,4 +10,9 @@ const props: Record<string, unknown> = $props();
 	data-node-id={String(props.id ?? "")}
 	data-selected={String(props.selected ?? "")}
 	data-data={JSON.stringify(props.data ?? null)}
-></div>
+	data-editing={String(props.editing ?? "")}
+>
+	{#if props.editing}
+		<button type="button" data-testid="content-stub-close" onclick={() => (props.onclose as () => void)?.()}>close</button>
+	{/if}
+</div>

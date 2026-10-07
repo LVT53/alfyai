@@ -478,15 +478,20 @@ function handleOpen(): void {
 				<span class="artifact-card-headtext">
 					<span class="artifact-card-title">{view.title}</span>
 					<span class="artifact-card-sub">
-						{#if view.creating}
-							<span class="artifact-card-sub-writing">{$t('artifacts.card.creatingSubtitle')}</span>
-						{:else}
-							<span>{subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
-						{/if}
-						{#if view.versionNumber}
-							<span class="artifact-card-sep" aria-hidden="true">·</span>
-							<span>{$t('artifacts.card.version', { n: view.versionNumber })}</span>
-						{/if}
+						<!-- The facts are ONE line (kind · facts · version) that ends in an
+						     ellipsis before it wraps; the review pills beside it drop to a
+						     row of their own when they do not fit. -->
+						<span class="artifact-card-facts">
+							{#if view.creating}
+								<span class="artifact-card-sub-writing">{$t('artifacts.card.creatingSubtitle')}</span>
+							{:else}
+								{subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey)}
+							{/if}
+							{#if view.versionNumber}
+								<span class="artifact-card-sep" aria-hidden="true">·</span>
+								{$t('artifacts.card.version', { n: view.versionNumber })}
+							{/if}
+						</span>
 						{#if view.pendingReviewCount}
 							<span class="pill artifact-card-pending">
 								<Sparkles size={12} strokeWidth={2} aria-hidden="true" />
@@ -585,6 +590,12 @@ function handleOpen(): void {
 	   `.artifact-card`) so chrome="body" — a host that draws its own box
 	   already (ToolActivityRow's `.act-body`) — is untouched. */
 	.artifact-card-full {
+		/* The card answers to ITS OWN width (see the @container block below): the
+		   chat column beside a docked panel is narrow whatever the window is.
+		   Inline-size containment means the card takes its width from its parent
+		   and never from its content, so a host must be a block box (as
+		   ToolActivityRow's `.act-standalone-card` is), not a shrink-to-fit one. */
+		container: artifact-card / inline-size;
 		gap: 0;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-lg, 12px);
@@ -759,6 +770,20 @@ function handleOpen(): void {
 		font-size: 0.78rem;
 	}
 
+	/* "Dokumentum · 1 fül · v1" is ONE line: it ends in an ellipsis before it
+	   wraps, however narrow the column is (a number never parts from its unit,
+	   because nothing in it can break). The review pills beside it are flex
+	   items of the wrapping `.artifact-card-sub`, so they drop under it when
+	   they do not fit. */
+	.artifact-card-facts {
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
 	.artifact-card-sep {
 		opacity: 0.6;
 	}
@@ -770,19 +795,25 @@ function handleOpen(): void {
 		color: var(--accent-text);
 	}
 
+	/* The three review pills ("N módosítás vár rád", "N részt nem érintett",
+	   "Átnézve") are one line wherever they fit, which is almost everywhere; in a
+	   column narrower than the pill (a tablet with the panel docked leaves the
+	   chat 180-250 px) their words wrap inside it rather than run past the card's
+	   edge, where they would be cut off. */
 	.artifact-card-pending {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
-		height: 20px;
-		padding: 0 0.44rem;
+		min-height: 20px;
+		max-width: 100%;
+		padding: 0.125rem 0.44rem;
 		border-radius: var(--radius-full);
 		background: var(--accent-tint);
 		color: var(--accent-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
-		white-space: nowrap;
+		white-space: normal;
 	}
 
 	/* Same shape as `.artifact-card-pending`, warning-toned to match
@@ -792,15 +823,16 @@ function handleOpen(): void {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
-		height: 20px;
-		padding: 0 0.44rem;
+		min-height: 20px;
+		max-width: 100%;
+		padding: 0.125rem 0.44rem;
 		border-radius: var(--radius-full);
 		background: var(--warning-tint);
 		color: var(--warning-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
-		white-space: nowrap;
+		white-space: normal;
 	}
 
 	/* Same shape as `.artifact-card-pending`, success-toned — "the card reads
@@ -809,15 +841,16 @@ function handleOpen(): void {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.25rem;
-		height: 20px;
-		padding: 0 0.44rem;
+		min-height: 20px;
+		max-width: 100%;
+		padding: 0.125rem 0.44rem;
 		border-radius: var(--radius-full);
 		background: var(--success-tint);
 		color: var(--success-text);
 		font-size: 0.69rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
-		white-space: nowrap;
+		white-space: normal;
 	}
 
 	.artifact-card-cta {
@@ -835,6 +868,44 @@ function handleOpen(): void {
 
 	.artifact-card-head:hover:not(:disabled) .artifact-card-cta {
 		background: var(--accent-tint);
+	}
+
+	/* A narrow card puts its action on a row of its own, under the text. The
+	   chat column a docked panel leaves is 180-370 px wide (a phone's is about as
+	   wide), and the action beside the text took 100-165 px of it: Hungarian
+	   "Megnyitva a panelen" alone is a 164 px box, which left the title and the
+	   facts a column of 5 px at a 1100 px window and drew the label over them.
+	   Beside the text the action needs a card of about 400 px (the icon and the
+	   head's spacing take 88, the facts line ~150, the longest action 164), so it
+	   steps down below 26rem. The card's width decides, never the window's: an
+	   undocked card in the same window is a wide one. */
+	@container artifact-card (max-width: 26rem) {
+		.artifact-card-head {
+			grid-template-columns: 36px minmax(0, 1fr);
+			row-gap: 0.125rem;
+		}
+
+		.artifact-card-cta,
+		.artifact-card-regenerate {
+			grid-column: 2;
+			justify-self: start;
+		}
+
+		/* Its words stand under the title's; a hover's tint reaches 0.5rem left of
+		   them. In a column narrower than the label (a tablet with the panel docked
+		   leaves ~110 px) the words wrap rather than run past the card's edge. */
+		.artifact-card-cta {
+			margin-left: -0.5rem;
+			white-space: normal;
+			text-align: left;
+		}
+
+		/* One word, so it cannot wrap: its own spacing gives way instead. */
+		.artifact-card-regenerate {
+			gap: 0.25rem;
+			margin-top: 0.375rem;
+			padding: 0 0.5rem;
+		}
 	}
 
 	/* Aligns under the head's text column (14px head padding + 36px icon +

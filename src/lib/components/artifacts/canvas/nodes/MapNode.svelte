@@ -4,10 +4,10 @@ import type { LazyShell } from "../_lib/lazy-nodes";
 
 type MapData = Extract<CanvasBlockData, { kind: "map" }>;
 
-/** How a map block dresses the shell `LazyNode` draws: titled with the route and its summary, as the chat's own row reads them. */
+/** How a map block dresses the shell `LazyNode` draws: titled with the route and its summary, as the chat's own row reads them. Its title has a form. */
 export function mapShell(data: MapData): LazyShell {
 	const title = data.label || data.route;
-	return { title, meta: data.meta ?? "", summary: title };
+	return { title, meta: data.meta ?? "", summary: title, editable: true };
 }
 </script>
 
@@ -25,10 +25,22 @@ export function mapShell(data: MapData): LazyShell {
  * (header, anchors, resize corners) is `LazyNode`'s; this module never imports it.
  */
 import { untrack } from "svelte";
+import BlockEditForm from "./BlockEditForm.svelte";
 
 type MapCard = typeof import("$lib/components/chat/MapRouteCard.svelte").default;
 
-let { data }: { data: MapData } = $props();
+let {
+	id,
+	data,
+	editing = false,
+	onclose,
+}: {
+	id: string;
+	data: MapData;
+	/** The block's title form is open, over the top of the map. */
+	editing?: boolean;
+	onclose: () => void;
+} = $props();
 
 let MapRouteCard = $state.raw<MapCard | null>(null);
 $effect(() => {
@@ -43,6 +55,9 @@ $effect(() => {
 });
 </script>
 
+{#if editing}
+	<BlockEditForm {id} kind="map" {data} {onclose} overlay />
+{/if}
 <div class="map nodrag nowheel nopan" data-testid="canvas-map">
 	{#if MapRouteCard}
 		<MapRouteCard map={data.map} />

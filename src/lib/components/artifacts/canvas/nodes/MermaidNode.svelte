@@ -4,12 +4,13 @@ import type { LazyShell } from "../_lib/lazy-nodes";
 
 type MermaidShellData = Extract<CanvasBlockData, { kind: "mermaid" }>;
 
-/** How a diagram dresses the shell `LazyNode` draws: its label as the title, its subtitle at the header's end. */
+/** How a diagram dresses the shell `LazyNode` draws: its label as the title, its subtitle at the header's end. A diagram has a form of its own (its title and its source). */
 export function mermaidShell(data: MermaidShellData): LazyShell {
 	return {
 		title: data.label ?? "",
 		meta: data.subtitle ?? "",
 		summary: data.label ?? "",
+		editable: true,
 	};
 }
 </script>
@@ -24,13 +25,34 @@ export function mermaidShell(data: MermaidShellData): LazyShell {
  * drawn) is what the chat draws.
  */
 import Mermaid from "$lib/components/chat/Mermaid.svelte";
+import BlockEditForm from "./BlockEditForm.svelte";
 
-let { data }: { data: MermaidShellData } = $props();
+let {
+	id,
+	data,
+	editing = false,
+	onclose,
+}: {
+	id: string;
+	data: MermaidShellData;
+	/** The block's form is open: it takes the place of the drawing. */
+	editing?: boolean;
+	onclose: () => void;
+} = $props();
 </script>
 
-<div class="diagram" data-testid="canvas-mermaid">
-	<Mermaid code={data.code} />
-</div>
+{#snippet drawing()}
+	<div class="diagram" data-testid="canvas-mermaid">
+		<Mermaid code={data.code} />
+	</div>
+{/snippet}
+
+{#if editing}
+	<!-- The form takes the drawing's place, except on a phone, where it is a sheet and the drawing stays. -->
+	<BlockEditForm {id} kind="mermaid" {data} {onclose}>{@render drawing()}</BlockEditForm>
+{:else}
+	{@render drawing()}
+{/if}
 
 <style>
 	.diagram {

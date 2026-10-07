@@ -13,7 +13,12 @@
 // server-shaped stays here: who may touch the row, which version the diff was
 // made against, and the write. Slides adds its branch to `OPS_BRANCHES` in a
 // later commit and touches neither this control flow nor the route.
-import { boardOpsVocabulary } from "$lib/shared/artifacts/board-ops";
+import {
+	boardDiffSchema,
+	boardOpsVocabulary,
+	type PlacedNote,
+	placementNotes,
+} from "$lib/shared/artifacts/board-ops";
 import { boardJson, emptyCanvasBody } from "$lib/shared/artifacts/canvas-body";
 import {
 	type OpRefusal,
@@ -41,6 +46,17 @@ export type OpsEnvelopeInput = {
 	 * as it is now. In-process only: the route never sets it.
 	 */
 	readVersionId?: string;
+	/**
+	 * The body the author READ, when the caller still holds it (the `@Alfy`
+	 * comment reply keeps the text it showed the model, and so does the edit
+	 * tool's turn: `KnownBoards`). Judged exactly as the body of `readVersionId`
+	 * is, and in its place. A version id names a row, and
+	 * the reader's own saves within ten minutes are written INTO the newest
+	 * version of theirs (ruling 47): when that is the version the author read,
+	 * its id is unchanged and its body is not, so only the body read can say what
+	 * the reader changed since. In-process only: the route never sets it.
+	 */
+	readBody?: string;
 	/**
 	 * Who the change is written as. `alfy` (the default) is the model's edit tool
 	 * and the `@Alfy` comment reply, calling this in-process: the diff's own
@@ -74,6 +90,8 @@ export type OpsEnvelopeResult =
 			 * current version, and a caller must not claim the board just changed.
 			 */
 			changed: boolean;
+			/** Canvas: where the app put what was added, when it had a hand in it (ruling 74). */
+			placed?: PlacedNote[];
 	  }
 	| {
 			ok: false;
@@ -97,6 +115,7 @@ export type OpsBranchOutcome =
 			applied: number;
 			refused: OpRefusal[];
 			summary: string;
+			placed?: PlacedNote[];
 	  }
 	| {
 			ok: false;
@@ -145,6 +164,12 @@ const canvasBranch: OpsBranch = ({ stored, diff, readStored }) => {
 	if (run.applied === 0 || after === boardJson(before)) {
 		return { ok: true, body: null, ...base };
 	}
+	// Where what was added went, for the model's answer: what the diff asked for
+	// against what the judge settled.
+	const asked = boardDiffSchema.safeParse(diff);
+	const placed = asked.success
+		? placementNotes(before, run.doc, asked.data.ops, run.accepted)
+		: [];
 	// The one gate a board passes on its way into storage: canonical, in caps.
 	const prepared = prepareCanvasBoard(after);
 	if (!prepared.ok) {
@@ -157,7 +182,12 @@ const canvasBranch: OpsBranch = ({ stored, diff, readStored }) => {
 				}
 			: { ok: false, status: 413, reason: "too_large" };
 	}
-	return { ok: true, body: prepared.json, ...base };
+	return {
+		ok: true,
+		body: prepared.json,
+		...base,
+		...(placed.length > 0 ? { placed } : {}),
+	};
 };
 
 /** kind → branch. Canvas registers here; Slides registers `slides` beside it. */
@@ -217,12 +247,14 @@ export async function applyArtifactOps(
 			detail: `A ${artifact.kind} cannot be changed with ops.`,
 		};
 	}
-	// The version the author last read, unless it is the current one (then nothing
-	// can have changed since) or is not this artifact's (then there is no read).
+	// What the author last read: the body they hold, else the body of the version
+	// they name, unless that is the current one (then nothing can have changed
+	// since) or is not this artifact's (then there is no read).
 	const readStored =
-		input.readVersionId && input.readVersionId !== newest.id
+		input.readBody ??
+		(input.readVersionId && input.readVersionId !== newest.id
 			? await getVersionBody({ ...scope, versionId: input.readVersionId })
-			: null;
+			: null);
 	const outcome = branch({
 		stored: artifact.body,
 		diff: envelope.diff,
@@ -290,5 +322,6 @@ export async function applyArtifactOps(
 		applied: outcome.applied,
 		refused: outcome.refused,
 		changed: true,
+		...(outcome.placed ? { placed: outcome.placed } : {}),
 	};
 }

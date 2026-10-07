@@ -10,10 +10,21 @@
 // The overlay is portaled to <body> (use:portal) so its position: fixed
 // fills the real viewport rather than being trapped by a transformed chat
 // message ancestor.
+//
+// It is a modal dialog, so it behaves as one: it takes focus when it opens,
+// keeps Tab and Shift+Tab inside, hands focus back to what had it when it
+// closes, and joins the DialogShell open-dialog stack so that Escape and the
+// arrows belong to it alone while it is the layer on top.
 import { ChevronLeft, ChevronRight, X } from "@lucide/svelte";
 import { fade, scale } from "svelte/transition";
 import { portal } from "$lib/actions/portal";
+import {
+	deregisterDialog,
+	isTopmostDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import { focusTrap } from "$lib/utils/focus-trap";
 import { reducedMotionAware } from "$lib/utils/motion";
 
 // prefers-reduced-motion: the CSS reset in app.css cannot reach these
@@ -54,12 +65,11 @@ function handleBackdropClick(event: MouseEvent) {
 	if (event.target === event.currentTarget) onClose();
 }
 
+// The arrow keys page through the pictures, but only while this is the layer on
+// top. Escape and Tab are the focus trap's (below).
 function handleKeydown(event: KeyboardEvent) {
-	if (!isOpen) return;
-	if (event.key === "Escape") {
-		event.preventDefault();
-		onClose();
-	} else if (event.key === "ArrowRight") {
+	if (!isOpen || !isTopmostDialog(dialogId)) return;
+	if (event.key === "ArrowRight") {
 		event.preventDefault();
 		step(1);
 	} else if (event.key === "ArrowLeft") {
@@ -67,6 +77,33 @@ function handleKeydown(event: KeyboardEvent) {
 		step(-1);
 	}
 }
+
+const dialogId = Symbol("image-lightbox");
+let dialogRef = $state<HTMLDivElement | null>(null);
+
+// On the shared stack only while it is open. The component can stay mounted
+// with no picture (a host that renders it always), and then it must not count
+// as an open dialog.
+$effect(() => {
+	if (!isOpen) return;
+	registerDialog(dialogId);
+	return () => deregisterDialog(dialogId);
+});
+
+// Tab/Shift+Tab wrapping and the pull-back of stray focus are the shared
+// utility's (src/lib/utils/focus-trap.ts). The dialog itself takes the first
+// focus (a picture has no control worth landing on), and neither that focus nor
+// its return to the opener may scroll the page behind it.
+const lightboxFocusTrap = focusTrap({
+	isTopmost: () => isTopmostDialog(dialogId),
+	onEscape: (event) => {
+		event.preventDefault();
+		onClose();
+	},
+	focus: { target: () => dialogRef },
+	restoreFocusOnCleanup: true,
+	preventScroll: true,
+});
 
 // Lock background scroll while the overlay is open, restoring the prior
 // value on close/unmount (mirrors DialogShell).
@@ -86,6 +123,8 @@ $effect(() => {
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		use:portal
+		bind:this={dialogRef}
+		{@attach lightboxFocusTrap}
 		class="image-lightbox"
 		data-testid="image-lightbox"
 		role="dialog"
@@ -158,6 +197,12 @@ $effect(() => {
 		padding: 3.5rem 1.25rem;
 		background: color-mix(in srgb, #000 82%, transparent 18%);
 		backdrop-filter: blur(6px);
+	}
+
+	/* The dialog takes the first focus itself; a ring around the whole window
+	   would say nothing, and every control inside has its own focus style. */
+	.image-lightbox:focus {
+		outline: none;
 	}
 
 	.image-lightbox-figure {

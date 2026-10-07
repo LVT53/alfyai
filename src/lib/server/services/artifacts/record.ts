@@ -658,6 +658,34 @@ async function deleteProducedFileBytes(row: ArtifactRow): Promise<void> {
 	}
 }
 
+/**
+ * What a deleted board leaves outside the database, for every delete of a
+ * family row to take: its posters, the chat files a block's still image is
+ * kept in (`canvas-posters.ts` owns the rule and what stays). Called with the
+ * row as it was BEFORE it went (once it is gone nothing says whose board it was
+ * or which chat it was made in) by the panel's Delete (`deleteArtifact`) and
+ * by Knowledge -> Documents' (`deleteLibraryArtifact`), so the two take exactly
+ * the same files. Like the embedding, never allowed to undo the delete: a
+ * failure leaves files that go with the chat.
+ */
+export async function deleteFilesOfDeletedBoard(
+	row: ArtifactRow,
+): Promise<void> {
+	if (!row.conversationId || kindForArtifactRow(row) !== "canvas") return;
+	try {
+		await deleteBoardPosters({
+			userId: row.userId,
+			conversationId: row.conversationId,
+			boardId: row.id,
+		});
+	} catch (error) {
+		console.warn("[ARTIFACTS] Deleted a board but not its poster files", {
+			artifactId: row.id,
+			error,
+		});
+	}
+}
+
 type DeleteArtifactResult =
 	| { ok: true }
 	| {
@@ -709,23 +737,7 @@ export async function deleteArtifact(
 			tx.delete(artifacts).where(eq(artifacts.id, row.id)).run().changes > 0,
 	);
 	if (!removed) return { ok: false, reason: "not_found" };
-	if (row.conversationId && kindForArtifactRow(row) === "canvas") {
-		// The posters of its blocks, a board's own chat files, go with it. Like the
-		// embedding below, never allowed to undo the delete: a failure leaves files that
-		// go with the chat.
-		try {
-			await deleteBoardPosters({
-				userId: row.userId,
-				conversationId: row.conversationId,
-				boardId: row.id,
-			});
-		} catch (error) {
-			console.warn("[ARTIFACTS] Deleted a board but not its poster files", {
-				artifactId: row.id,
-				error,
-			});
-		}
-	}
+	await deleteFilesOfDeletedBoard(row);
 	try {
 		await deleteSemanticEmbeddingsForSubjects({
 			userId: row.userId,

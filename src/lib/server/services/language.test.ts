@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	classifyLanguageSignal,
+	detectContentLanguageRequest,
 	detectExplicitLanguageRequest,
 	detectLanguage,
 	resolveResponseLanguage,
@@ -224,7 +225,7 @@ describe("detectExplicitLanguageRequest", () => {
 	it("recognizes an explicit request regardless of the request's own language", () => {
 		expect(detectExplicitLanguageRequest("válaszolj angolul")).toBe("en");
 		expect(
-			detectExplicitLanguageRequest("Can you write this in Hungarian please?"),
+			detectExplicitLanguageRequest("Can you answer in Hungarian please?"),
 		).toBe("hu");
 		expect(detectExplicitLanguageRequest("please respond in English")).toBe(
 			"en",
@@ -254,9 +255,6 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			"Válaszolj nekem angolul, kérlek",
 			"Valaszolj angolul", // typed without accents
 			"válaszolj angol nyelven",
-			"írd angolul",
-			"Írd meg angolul",
-			"Írj egy rövid levelet angolul a főnökömnek",
 			"beszéljünk angolul",
 			"Beszélgessünk inkább angolul",
 			"Folytassuk angolul",
@@ -276,12 +274,18 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			"Szeretném, ha angolul válaszolnál",
 			"A válaszod legyen angolul",
 			"Tudsz angolul válaszolni?",
-			"Írj angol nyelvű levelet a főnökömnek",
-			// The instruction opens the sentence and the language word closes it, many
-			// words later: the whole sentence is the request.
-			"Írj egy rövid köszönő e-mailt a vendéglátónknak angolul",
-			"Írj egy rövid, de udvarias köszönő e-mailt a hétvégi vacsoráért a vendéglátóinknak angolul",
 			"Kérlek nézd át ezt a kódot, és válaszolj angolul.",
+			// "Write in English" with nothing to write is a request for the reply.
+			"Írj angolul",
+			"Írj angolul, kérlek",
+			"Írj nekem angolul",
+			"Kérlek, írj angolul",
+			"Mostantól írj angolul",
+			"Írj angolul: mi az a mutex?",
+			"Írd a válaszod angolul",
+			"Mostantól minden válaszodat angolul írd",
+			"A válasz legyen angolul",
+			"Legyen angolul a válasz",
 		])("%j asks for English", (text) => {
 			expect(detectExplicitLanguageRequest(text)).toBe("en");
 		});
@@ -293,11 +297,54 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			"magyarul válaszolj",
 			"kérlek magyarul",
 			"Beszéljünk magyarul",
-			"Írd meg magyarul",
 			"Tudnál magyarul válaszolni?",
 			"Magyarul, légy szíves",
 		])("%j asks for Hungarian", (text) => {
 			expect(detectExplicitLanguageRequest(text)).toBe("hu");
+		});
+	});
+
+	// The owner's rule (ruling 75): a request for a piece of writing in a language
+	// ("Írj egy e-mailt angolul a kollégámnak") keeps the conversation in its own
+	// language and only the piece is written in the other one. It is not a request
+	// for the reply, so nothing here flips the turn.
+	describe("Hungarian message that asks for content in English", () => {
+		it.each([
+			"Írj egy e-mailt angolul a kollégámnak, hogy holnap nem tudok bejönni, mert beteg vagyok.",
+			"Írj egy e-mailt angolul a kollégámnak",
+			"Írj angolul egy e-mailt a kollégámnak",
+			"Írj egy angol nyelvű e-mailt a kollégámnak",
+			"Írj egy rövid levelet angolul a főnökömnek",
+			"Írj angol nyelvű levelet a főnökömnek",
+			"Írj egy rövid köszönő e-mailt a vendéglátónknak angolul",
+			"Írj egy rövid, de udvarias köszönő e-mailt a hétvégi vacsoráért a vendéglátóinknak angolul",
+			"Kérlek, írj egy hosszú és udvarias levelet a szállásadónknak a késő érkezésünkről és a kulcsátvételről angolul.",
+			"Angolul írj egy rövid bemutatkozást a LinkedIn profilomhoz",
+			"Fogalmazz meg angolul egy udvarias levelet a szállásadónknak",
+			"Fogalmazd meg angolul a kérésemet",
+			"Írd meg angolul",
+			"Írd angolul",
+			"Tudnál angolul írni egy e-mailt a kollégámnak?",
+			"Szia! Segítenél írni egy levelet angolul a szállásadómnak?",
+			"Az e-mail legyen angolul",
+			"Legyen angolul a levél",
+			"Készíts egy angol nyelvű önéletrajzot",
+			"Készíts egy kvíz alkalmazást angolul",
+			'Adj egy angol nyelvű példamondatot a "serendipity" szóra',
+			"Fordítsd le angolul ezt a mondatot: jó reggelt",
+			"Fordítsd le angolul, hogy 'köszönöm a segítséget'.",
+		])("%j keeps the conversation's language and wants the content in English", (text) => {
+			expect(detectExplicitLanguageRequest(text)).toBeNull();
+			expect(detectContentLanguageRequest(text)).toBe("en");
+		});
+
+		it.each([
+			"Válaszolj magyarul, de az e-mailt írd meg angolul a kollégámnak",
+			"Válaszolj magyarul, de a levél legyen angolul",
+			"Magyarul válaszolj, az e-mailt pedig írd meg angolul",
+		])("%j: a reply request next to it still flips the reply", (text) => {
+			expect(detectExplicitLanguageRequest(text)).toBe("hu");
+			expect(detectContentLanguageRequest(text)).toBe("en");
 		});
 	});
 
@@ -352,7 +399,6 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			["English please", "en"],
 			["Please summarize what this file is about in English.", "en"],
 			["Please explain the attached deployment notes in English", "en"],
-			["Can you write this in Hungarian please?", "hu"],
 			["Please answer in Hungarian", "hu"],
 			["Could you explain this in Hungarian?", "hu"],
 			["Respond in Hungarian from now on", "hu"],
@@ -363,12 +409,14 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			["I would like you to answer in Hungarian", "hu"],
 			["Write your reply in Hungarian", "hu"],
 			["Give me the answer in Hungarian", "hu"],
-			["Give me an English title", "en"],
-			["Write a short thank-you email to our hosts in English", "en"],
-			[
-				"Write a polite reminder to the whole team about Friday's meeting in English",
-				"en",
-			],
+			// "Write in English" with nothing to write is a request for the reply.
+			["Write in English", "en"],
+			["Please write in Hungarian", "hu"],
+			["Write to me in Hungarian from now on", "hu"],
+			["From now on, write in English please", "en"],
+			["Could you write in Hungarian please?", "hu"],
+			["Write in Hungarian: what is a mutex?", "hu"],
+			["Write all your answers in Hungarian", "hu"],
 			["Can we switch to Hungarian?", "hu"],
 			["Let's speak Hungarian", "hu"],
 			["Use English from now on", "en"],
@@ -378,6 +426,50 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 			["Only in Hungarian", "hu"],
 		] as const)("%j asks for %s", (text, language) => {
 			expect(detectExplicitLanguageRequest(text)).toBe(language);
+		});
+	});
+
+	describe("English message that asks for content in Hungarian", () => {
+		it.each([
+			"Write an email to my colleague in Hungarian saying I can't come in tomorrow because I'm sick.",
+			"Write a short thank-you email to our hosts in English",
+			"Write a short thank-you note to our hosts in Hungarian.",
+			"Write a polite reminder to the whole team about Friday's meeting in English",
+			"Please write a thank-you note in Hungarian",
+			"Write a thank-you note in Hungarian, please.",
+			"Write in Hungarian a short thank-you note to our hosts",
+			"Draft a polite message in Hungarian to my landlord that the rent will be late",
+			"Can you write a short toast in Hungarian for my brother's wedding?",
+			"Could you please draft an email in Hungarian?",
+			"Can you write this in Hungarian please?",
+			"Write this in Hungarian please",
+			"Compose a poem in Hungarian",
+			"Rewrite this paragraph in Hungarian",
+			"I need a cover letter in Hungarian",
+			"I'd like an email in Hungarian",
+			"Please write a polite message to my landlord about the broken heater and the water leak in the bathroom in Hungarian please.",
+			"Create a quiz app in Hungarian",
+			"Make me a quiz app in Hungarian",
+			"Give me an English title",
+			"Translate this in Hungarian please",
+			"Translate 'good morning' into Hungarian.",
+		])("%j keeps the conversation's language", (text) => {
+			expect(detectExplicitLanguageRequest(text)).toBeNull();
+			expect(detectContentLanguageRequest(text)).not.toBeNull();
+		});
+
+		it.each([
+			["Write an email to my colleague in Hungarian saying hi", "hu"],
+			["Write a short thank-you email to our hosts in English", "en"],
+			["Draft a polite message in Hungarian to my landlord", "hu"],
+			["Can you write this in Hungarian please?", "hu"],
+			["I need a cover letter in Hungarian", "hu"],
+			["I'd like an email in Hungarian", "hu"],
+			["Create a quiz app in Hungarian", "hu"],
+			["Give me an English title", "en"],
+			["Translate 'good morning' into Hungarian.", "hu"],
+		] as const)("%j wants the content in %s", (text, language) => {
+			expect(detectContentLanguageRequest(text)).toBe(language);
 		});
 	});
 
@@ -410,6 +502,42 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 		});
 	});
 
+	describe("a question or a lesson about a language asks for no content in it either", () => {
+		it.each([
+			// The language is what an App or a text is ABOUT, not what it is written in.
+			"Build a flashcard app to learn Hungarian",
+			"Create an app that teaches Hungarian vocabulary",
+			"Make a quiz app to practice English",
+			"Készíts egy appot, amivel angolul tanulhatok",
+			"Make an app listing the best bars in Hungarian cities",
+			"Write an essay about English literature in Hungarian universities",
+			"Create a Hungarian recipe app",
+			"Write a Hungarian poem about spring",
+			"Give me a Hungarian version of this email",
+			"Hogy mondják angolul, hogy alma?",
+			"Mit jelent angolul az, hogy 'serendipity'?",
+			"Hogyan tanuljak meg gyorsan angolul, ha csak napi húsz percem van?",
+			"Hogyan írjam le angolul, hogy 'sajnálom a késést'?",
+			"Szeretnék angolul tanulni, hol kezdjem?",
+			"Hogy hívják angolul a rántottát?",
+			"Beszélsz angolul?",
+			"Tudsz angolul beszélni?",
+			"Írj egy hosszú összefoglalót arról, hogy hogyan lehet gyorsan megtanulni angolul",
+			"How do you say 'apple' in Hungarian?",
+			"What does 'szia' mean in Hungarian?",
+			"How would you write 'good morning' in Hungarian?",
+			"What is the word for 'cozy' in Hungarian?",
+			"I'm learning to write in Hungarian, any tips?",
+			"Can you speak Hungarian?",
+			"I write in English at work",
+			"Should I write in Hungarian or English?",
+			"Write a long summary of how people learn to speak in English",
+		])("%j", (text) => {
+			expect(detectExplicitLanguageRequest(text)).toBeNull();
+			expect(detectContentLanguageRequest(text)).toBeNull();
+		});
+	});
+
 	it("takes the latest request when a message asks for both", () => {
 		expect(
 			detectExplicitLanguageRequest(
@@ -421,6 +549,26 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 				"Hogy mondják angolul, hogy alma? Válaszolj magyarul.",
 			),
 		).toBe("hu");
+	});
+});
+
+// A pasted blob with no sentence break and thousands of language words must not
+// stall the request: every check per language word reads running counts, not the
+// whole sentence again (these took 6 s and 8 s when each one scanned it).
+describe("a very long sentence full of language words", () => {
+	it.each([
+		["only the language", "in English ".repeat(20_000)],
+		["one directive and the language", `write ${"in English ".repeat(20_000)}`],
+		["a want and the language", `I want it ${"in English ".repeat(20_000)}`],
+		[
+			"colon-separated stretches",
+			"írj egy levelet: angolul: kérlek: ".repeat(20_000),
+		],
+	])("%s is read in well under a second", (_name, text) => {
+		const started = performance.now();
+		detectExplicitLanguageRequest(text);
+		detectContentLanguageRequest(text);
+		expect(performance.now() - started).toBeLessThan(1500);
 	});
 });
 
@@ -494,9 +642,48 @@ describe("resolveResponseLanguage", () => {
 		).toBe("en");
 		expect(
 			resolveResponseLanguage({
-				latestMessage: "Can you write this in Hungarian please?",
+				latestMessage: "Can you answer in Hungarian please?",
 			}),
 		).toBe("hu");
+	});
+
+	// Ruling 75, the owner's own message: the email is the only thing written in
+	// English; the turn (reply, chips, status line, title) stays in Hungarian.
+	it("keeps the conversation's language when the message asks for content in another one", () => {
+		const resolve = (latestMessage: string, uiLanguage?: "en" | "hu") =>
+			resolveResponseLanguage({
+				latestMessage,
+				priorUserMessages: [],
+				uiLanguage,
+			});
+		expect(
+			resolve(
+				"Írj egy e-mailt angolul a kollégámnak, hogy holnap nem tudok bejönni, mert beteg vagyok.",
+				"hu",
+			),
+		).toBe("hu");
+		expect(
+			resolve("Írj egy rövid köszönő e-mailt a vendéglátónknak angolul."),
+		).toBe("hu");
+		// The mirror: an English turn asking for Hungarian content.
+		expect(
+			resolve(
+				"Write an email to my colleague in Hungarian saying I can't come in tomorrow because I'm sick.",
+				"en",
+			),
+		).toBe("en");
+		expect(
+			resolve("Write a short thank-you note to our hosts in Hungarian."),
+		).toBe("en");
+		expect(resolve("Can you write this in Hungarian please?")).toBe("en");
+		// ...and a request for the reply in the same breath still flips it.
+		expect(
+			resolve("Write the email in English and answer me in Hungarian, please."),
+		).toBe("hu");
+		expect(resolve("Írj angolul, kérlek: mit érdemes megnézni Bécsben?")).toBe(
+			"en",
+		);
+		expect(resolve("Please write in Hungarian from now on.")).toBe("hu");
 	});
 
 	it("keeps the message's own language when it only mentions another language", () => {

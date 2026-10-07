@@ -253,6 +253,28 @@ describe("a sticky note", () => {
 		expect(field).toHaveFocus();
 	});
 
+	it("opens for editing from the Edit button of the selection's toolbar, which is how a reader who does not know to double-click finds it", async () => {
+		mount(StickyNode, stickyProps({ selected: true }));
+		expect(screen.queryByRole("textbox")).toBeNull();
+		const edit = screen.getByTestId("canvas-node-edit");
+		expect(edit).toHaveAccessibleName("Edit");
+		await fireEvent.click(edit);
+		expect(screen.getByRole("textbox", { name: "Sticky note" })).toHaveFocus();
+	});
+
+	it("has the whole note, however tall it was made, to double-click on", () => {
+		mount(StickyNode, stickyProps());
+		const style = readFileSync(
+			path.join(
+				path.dirname(fileURLToPath(import.meta.url)),
+				"StickyNode.svelte",
+			),
+			"utf8",
+		);
+		// What a double-click edits is the paper, not just the lines of words on it.
+		expect(style).toMatch(/\.sticky\s*\{[^}]*height:\s*100%/);
+	});
+
 	it("opens for editing on Enter while the node itself has focus, and not on Enter from elsewhere", async () => {
 		mount(StickyNode, stickyProps());
 		const wrapper = screen.getByTestId("node-wrapper");
@@ -333,6 +355,23 @@ describe("a text block", () => {
 		expect(screen.getByText("Write something…")).toBeInTheDocument();
 	});
 
+	it("opens for editing from the Edit button of the selection's toolbar", async () => {
+		mount(TextNode, props({ selected: true }));
+		await fireEvent.click(screen.getByTestId("canvas-node-edit"));
+		expect(screen.getByRole("textbox", { name: "Text" })).toHaveFocus();
+	});
+
+	it("has the whole block, however tall it was made, to double-click on", () => {
+		const style = readFileSync(
+			path.join(
+				path.dirname(fileURLToPath(import.meta.url)),
+				"TextNode.svelte",
+			),
+			"utf8",
+		);
+		expect(style).toMatch(/\.text-block\s*\{[^}]*height:\s*100%/);
+	});
+
 	it("edits in place with the same limit as a note", async () => {
 		mount(TextNode, props());
 		await fireEvent.dblClick(screen.getByTestId("canvas-text"));
@@ -358,6 +397,26 @@ describe("a frame", () => {
 		const chip = screen.getByTestId("canvas-frame-label");
 		expect(chip).toHaveTextContent("Saturday");
 		expect(chip.closest(".canvas-node__chip")).not.toBeNull();
+	});
+
+	it("renames from the Edit button of the selection's toolbar, and its toolbar is lifted above the board's pane so every button of it can be pressed", async () => {
+		mount(FrameNode, props({ selected: true }));
+		await fireEvent.click(screen.getByTestId("canvas-node-edit"));
+		expect(screen.getByRole("textbox", { name: "Frame name" })).toHaveFocus();
+		// The library lifts a toolbar to its block's layer plus one, which for a frame (behind
+		// everything) is 0, under the pane: the layer the toolbar gets is the frame's own class.
+		const shell = readFileSync(
+			path.join(
+				path.dirname(fileURLToPath(import.meta.url)),
+				"..",
+				"NodeShell.svelte",
+			),
+			"utf8",
+		);
+		expect(shell).toContain("' canvas-toolbar--frame'");
+		expect(shell).toMatch(
+			/\.svelte-flow__node-toolbar\.canvas-toolbar--frame\)\s*\{[^}]*z-index:\s*6\s*!important/,
+		);
 	});
 
 	it("renames in place, within the label limit, on a double-click", async () => {
@@ -542,12 +601,14 @@ describe("the board's own checklist", () => {
 				title: "Pack",
 				meta: "1/2",
 				summary: "Pack",
+				editable: true,
 			},
 		);
 		expect(checklistShell({ kind: "checklist", items: [] })).toEqual({
 			title: "",
 			meta: "",
 			summary: "",
+			editable: true,
 		});
 	});
 
@@ -666,11 +727,17 @@ describe("a chart block", () => {
 				subtitle: "Q3",
 				code: "{}",
 			}),
-		).toEqual({ title: "Budget", meta: "Q3", summary: "Budget" });
+		).toEqual({
+			title: "Budget",
+			meta: "Q3",
+			summary: "Budget",
+			editable: true,
+		});
 		expect(chartShell({ kind: "chart", code: "{}" })).toEqual({
 			title: "",
 			meta: "",
 			summary: "",
+			editable: true,
 		});
 	});
 });
@@ -697,11 +764,17 @@ describe("a diagram block", () => {
 				subtitle: "v2",
 				code: "flowchart TD",
 			}),
-		).toEqual({ title: "Checkout", meta: "v2", summary: "Checkout" });
+		).toEqual({
+			title: "Checkout",
+			meta: "v2",
+			summary: "Checkout",
+			editable: true,
+		});
 		expect(mermaidShell({ kind: "mermaid", code: "flowchart TD" })).toEqual({
 			title: "",
 			meta: "",
 			summary: "",
+			editable: true,
 		});
 	});
 });

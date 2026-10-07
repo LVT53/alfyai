@@ -123,6 +123,10 @@ export interface EvalCaseOutcome {
 	 * but dropped it before it reached the report; recorded here so a run can
 	 * be compared against P1's measured 12.7–23.0s per app. */
 	durationMs?: number;
+	/** True when this case produced no answer to score (no committed response,
+	 * or a model call that failed after its retry): its "bad" is not a verdict.
+	 * A known-bad case in this state does not count as failed-as-declared. */
+	callFailed?: true;
 }
 
 export interface EvalSuiteReport {

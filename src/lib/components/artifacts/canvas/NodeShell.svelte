@@ -19,7 +19,7 @@
  * from a block's bottom to another's top; the board connects in loose mode, so
  * a reader can still start from any side.
  */
-import { Trash2 } from "@lucide/svelte";
+import { ExternalLink, Pencil, Trash2 } from "@lucide/svelte";
 import {
 	Handle,
 	NodeResizeControl,
@@ -47,6 +47,8 @@ let {
 	tone,
 	dropTarget = false,
 	activate,
+	open,
+	edit,
 	header,
 	toolbar,
 	children,
@@ -70,6 +72,10 @@ let {
 	dropTarget?: boolean;
 	/** Enter or F2 while the block itself has focus (a text block opens for editing). */
 	activate?: () => void;
+	/** Opens what the block points at (a file, in the panel's viewer): a double-click anywhere on the block, Enter or F2 while it has focus (the board being read-only does not stop it: nothing is changed), and the toolbar's Open button. A click only picks the block, as it does for every block. */
+	open?: () => void;
+	/** Opens the block for changing (its words, its name, its source): the toolbar's Edit button. A block with nothing of its own to change gives none, and has no button. */
+	edit?: () => void;
 	/** Replaces a card's default header, and is a frame's label chip. */
 	header?: Snippet;
 	/** Extra controls for the selection toolbar, before Delete. */
@@ -139,16 +145,31 @@ const wrapperBehaviour: Attachment<HTMLElement> = (element) => {
 		attributeFilter: ["aria-label", "aria-roledescription"],
 	});
 	const onKeydown = (event: KeyboardEvent) => {
-		if (event.target !== wrapper || !activate || !editable) return;
+		const act = open ?? (editable ? activate : undefined);
+		if (event.target !== wrapper || !act) return;
 		if (event.key !== "Enter" && event.key !== "F2") return;
 		event.preventDefault();
-		activate();
+		act();
 	};
 	wrapper.addEventListener("keydown", onKeydown);
 	return () => {
 		keeper.disconnect();
 		wrapper.removeEventListener("keydown", onKeydown);
 	};
+};
+
+/**
+ * Tells the board how big the toolbar is on the screen, so it can be kept in the pane
+ * (`board.toolbarShift`): read when it is drawn and again when the buttons it holds change
+ * (the block's form arrives with its chunk). `offsetWidth`, not a bounding box: the toolbar
+ * is not scaled by the camera.
+ */
+const measureToolbar: Attachment<HTMLElement> = (element) => {
+	void [edit, open];
+	board.measureToolbar?.({
+		width: element.offsetWidth,
+		height: element.offsetHeight,
+	});
 };
 
 /**
@@ -185,7 +206,9 @@ function reportBroken(error: unknown): void {
 	data-missing={blockMeta.kind === "missing" ? "true" : undefined}
 	{@attach wrapperBehaviour}
 >
-	<div class="canvas-node__box" data-tone={tone}>
+	<!-- A double-click opens what the block points at; Enter does it from the keyboard (`wrapperBehaviour`). -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="canvas-node__box" data-tone={tone} ondblclick={open}>
 		{#if chrome === "card"}
 			<div class="canvas-node__head">
 				{#if header}
@@ -265,9 +288,47 @@ function reportBroken(error: unknown): void {
 				class="canvas-resize"
 			/>
 		{/each}
-		<NodeToolbar position={Position.Top} offset={12}>
-			<div class="canvas-node-toolbar" role="toolbar" aria-label={kindLabel} data-testid="canvas-node-toolbar">
+		<!-- The library hangs it centred above the block, 12 px clear of it (`TOOLBAR_OFFSET` in floating.ts, which a test holds to this number); the board moves it (`toolbarShift`) when that would leave the pane. -->
+		<NodeToolbar
+			position={Position.Top}
+			offset={12}
+			class="svelte-flow__node-toolbar{chrome === 'frame' ? ' canvas-toolbar--frame' : ''}"
+			style={board.toolbarShift
+				? `translate: ${board.toolbarShift.dx}px ${board.toolbarShift.dy}px`
+				: undefined}
+		>
+			<div
+				class="canvas-node-toolbar"
+				role="toolbar"
+				aria-label={kindLabel}
+				data-testid="canvas-node-toolbar"
+				{@attach measureToolbar}
+			>
 				{@render toolbar?.()}
+				{#if open}
+					<button
+						type="button"
+						class="canvas-node-toolbar__button"
+						aria-label={$t("artifacts.canvas.file.open", { name: summary })}
+						title={$t("artifacts.canvas.file.open", { name: summary })}
+						data-testid="canvas-node-open"
+						onclick={open}
+					>
+						<ExternalLink size={15} strokeWidth={2} aria-hidden="true" />
+					</button>
+				{/if}
+				{#if edit}
+					<button
+						type="button"
+						class="canvas-node-toolbar__button"
+						aria-label={$t("common.edit")}
+						title={$t("common.edit")}
+						data-testid="canvas-node-edit"
+						onclick={edit}
+					>
+						<Pencil size={15} strokeWidth={2} aria-hidden="true" />
+					</button>
+				{/if}
 				<button
 					type="button"
 					class="canvas-node-toolbar__button"
@@ -532,6 +593,14 @@ function reportBroken(error: unknown): void {
 		font-family: var(--font-sans);
 		font-size: var(--text-xs);
 		white-space: nowrap;
+	}
+
+	/* A frame sits behind what it groups (z -1) and the library lifts a toolbar to its
+	   block's layer plus one, which for a frame is 0: under the board's pane, so the
+	   buttons were drawn and could not be pressed. Every other block's is 6. (A class
+	   passed to the toolbar replaces the library's own, so the frame's is given both.) */
+	:global(.svelte-flow__node-toolbar.canvas-toolbar--frame) {
+		z-index: 6 !important;
 	}
 
 	:global(.canvas-node-toolbar__button) {

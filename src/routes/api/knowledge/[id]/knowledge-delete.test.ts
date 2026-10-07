@@ -5,17 +5,23 @@ vi.mock("$lib/server/auth/hooks", () => ({
 }));
 
 vi.mock("$lib/server/services/knowledge", () => ({
-	deleteArtifactForUser: vi.fn(),
 	getArtifactForUser: vi.fn(),
 	listArtifactLinksForUser: vi.fn(),
 }));
 
+// The library's Delete is the knowledge store's own delete followed by what a
+// deleted board leaves outside the database (artifacts/library-delete.ts); the
+// route only maps its answer to the wire.
+vi.mock("$lib/server/services/artifacts", () => ({
+	deleteLibraryArtifact: vi.fn(),
+}));
+
 import { requireAuth } from "$lib/server/auth/hooks";
-import { deleteArtifactForUser } from "$lib/server/services/knowledge";
+import { deleteLibraryArtifact } from "$lib/server/services/artifacts";
 import { DELETE } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
-const mockDeleteArtifactForUser = deleteArtifactForUser as ReturnType<
+const mockDeleteLibraryArtifact = deleteLibraryArtifact as ReturnType<
 	typeof vi.fn
 >;
 type KnowledgeDeleteEvent = Parameters<typeof DELETE>[0];
@@ -39,7 +45,7 @@ describe("DELETE /api/knowledge/[id]", () => {
 	});
 
 	it("returns a success payload with a message when deletion succeeds", async () => {
-		mockDeleteArtifactForUser.mockResolvedValue({
+		mockDeleteLibraryArtifact.mockResolvedValue({
 			deletedArtifactIds: ["artifact-1", "artifact-2"],
 			deletedStoragePaths: ["data/knowledge/user-1/file.pdf"],
 			failedStoragePaths: [],
@@ -60,7 +66,7 @@ describe("DELETE /api/knowledge/[id]", () => {
 	// hid the leak — the row was still on disk and the caller was told it was
 	// gone, so nothing ever removed it.
 	it("404s when the artifact does not exist", async () => {
-		mockDeleteArtifactForUser.mockResolvedValue(null);
+		mockDeleteLibraryArtifact.mockResolvedValue(null);
 
 		const response = await DELETE(makeEvent("missing-artifact"));
 		const data = await response.json();
@@ -72,12 +78,12 @@ describe("DELETE /api/knowledge/[id]", () => {
 	});
 
 	it("404s, indistinguishably, when the row exists but is not the caller's", async () => {
-		mockDeleteArtifactForUser.mockResolvedValue(null);
+		mockDeleteLibraryArtifact.mockResolvedValue(null);
 		const unknown = await DELETE(makeEvent("missing-artifact"));
 
 		// The store answers `null` for both, and the wire must not tell them
 		// apart: a different body would turn DELETE into an id oracle.
-		mockDeleteArtifactForUser.mockResolvedValue(null);
+		mockDeleteLibraryArtifact.mockResolvedValue(null);
 		const foreign = await DELETE(makeEvent("someone-elses-artifact"));
 
 		expect(foreign.status).toBe(unknown.status);
@@ -87,7 +93,7 @@ describe("DELETE /api/knowledge/[id]", () => {
 	// The quieter of the two "nothing happened" shapes: a non-null result whose
 	// id list is empty. A 200 here would report a deletion that did not occur.
 	it("404s when the store deleted nothing at all", async () => {
-		mockDeleteArtifactForUser.mockResolvedValue({
+		mockDeleteLibraryArtifact.mockResolvedValue({
 			deletedArtifactIds: [],
 			deletedStoragePaths: [],
 			failedStoragePaths: [],
@@ -100,7 +106,7 @@ describe("DELETE /api/knowledge/[id]", () => {
 	});
 
 	it("returns a structured 500 error payload when deletion throws", async () => {
-		mockDeleteArtifactForUser.mockRejectedValue(new Error("disk failure"));
+		mockDeleteLibraryArtifact.mockRejectedValue(new Error("disk failure"));
 
 		const response = await DELETE(makeEvent());
 		const data = await response.json();

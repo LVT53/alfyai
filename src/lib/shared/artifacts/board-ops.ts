@@ -18,20 +18,27 @@
  */
 import { z } from "zod";
 import { diffBoards } from "./board-diff";
+import { FRAME_INSET, placeBlock } from "./board-placement";
+import type { BoardRefusalReason } from "./board-refusals";
 import { type CanvasBody, type CanvasNode, type Pt, ptSchema } from "./canvas";
 import {
 	BLOCK_DATA_SCHEMAS,
 	type BlockKind,
 	type CanvasBlockData,
 	defaultNodeWidth,
+	repeatedEntryIds,
+} from "./canvas-blocks";
+import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
+import {
 	isModelCreatableKind,
 	MODEL_CREATABLE_DATA_SCHEMAS,
 	MODEL_CREATABLE_KINDS,
 	modelCreatableBlockDataSchema,
 	modelUpdatableFields,
-	repeatedEntryIds,
-} from "./canvas-blocks";
-import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
+	storedBlockData,
+} from "./canvas-model-blocks";
+import { mermaidSourceProblem } from "./mermaid-source";
+import { plannedNodeSize } from "./node-size";
 import type { OpRefusal, OpsJudgeContext, OpsVocabulary } from "./ops";
 
 /** A batch is one transaction; 40 ops is already a whole board. */
@@ -44,14 +51,20 @@ export const MAX_NEW_NODES_PER_DIFF = 24;
 const idSchema = z.string().min(1).max(128);
 const labelSchema = z.string().max(500);
 
+const NEAR_DESCRIPTION =
+	"The id of a block to put this one beside: to its right, else under it, in its frame if it has one. Leave position out when you use it.";
+
 const boardOpSchema = z.discriminatedUnion("op", [
 	z.object({
 		op: z.literal("add_frame"),
 		id: idSchema.describe("A new id you choose for the frame."),
 		label: labelSchema.describe("The frame's title."),
-		position: ptSchema.describe(
-			"The frame's top-left corner, in board coordinates.",
-		),
+		position: ptSchema
+			.optional()
+			.describe(
+				"The frame's top-left corner, in board coordinates. Leave it out and the frame is placed on free ground.",
+			),
+		near: idSchema.optional().describe(NEAR_DESCRIPTION),
 		size: z
 			.object({ width: z.number().positive(), height: z.number().positive() })
 			.describe("The frame's size, in board units."),
@@ -64,16 +77,19 @@ const boardOpSchema = z.discriminatedUnion("op", [
 				.string()
 				.min(1)
 				.describe(
-					`The block kind: one of ${MODEL_CREATABLE_KINDS.join(", ")}. It must equal data.kind.`,
+					`The block kind: one of ${MODEL_CREATABLE_KINDS.join(", ")} (mermaid is a flowchart or other diagram). It must equal data.kind.`,
 				),
 			parentId: idSchema
 				.optional()
 				.describe(
 					"The id of a frame: the node then sits inside it and position is relative to the frame's top-left corner.",
 				),
-			position: ptSchema.describe(
-				"Board coordinates, or relative to the frame's top-left corner when parentId is set.",
-			),
+			position: ptSchema
+				.optional()
+				.describe(
+					"Board coordinates, or relative to the frame's top-left corner when parentId is set. Leave it out and the block is placed for you: beside near, else in the next free place of its parentId frame (the frame grows to fit), else on free ground.",
+				),
+			near: idSchema.optional().describe(NEAR_DESCRIPTION),
 			data: modelCreatableBlockDataSchema,
 		}),
 	}),
@@ -186,51 +202,15 @@ export const BOARD_OPS_EXAMPLE: BoardOp[] = [
 
 // ── Refusals ─────────────────────────────────────────────────────────────
 
-export const BOARD_REFUSAL_REASONS = [
-	"unknown_id",
-	"duplicate_id",
-	"unknown_kind",
-	"kind_mismatch",
-	"missing_parent",
-	"self_parent",
-	"cycle",
-	"invalid_data",
-	"limit_exceeded",
-	"stale",
-] as const;
+// Declared in `board-refusals.ts` (the editor reads them without the vocabulary);
+// the server and the tests reach them through here, as before.
+export {
+	BOARD_REFUSAL_REASONS,
+	type BoardRefusalReason,
+	refusalLabelKey,
+} from "./board-refusals";
 
-export type BoardRefusalReason = (typeof BOARD_REFUSAL_REASONS)[number];
 export type BoardRefusal = OpRefusal<BoardRefusalReason>;
-
-/** Every refusal reason has a message key; the switch is exhaustive so a new reason cannot ship without one. */
-export function refusalLabelKey(reason: BoardRefusalReason): string {
-	switch (reason) {
-		case "unknown_id":
-			return "artifacts.canvas.refusal.unknown_id";
-		case "duplicate_id":
-			return "artifacts.canvas.refusal.duplicate_id";
-		case "unknown_kind":
-			return "artifacts.canvas.refusal.unknown_kind";
-		case "kind_mismatch":
-			return "artifacts.canvas.refusal.kind_mismatch";
-		case "missing_parent":
-			return "artifacts.canvas.refusal.missing_parent";
-		case "self_parent":
-			return "artifacts.canvas.refusal.self_parent";
-		case "cycle":
-			return "artifacts.canvas.refusal.cycle";
-		case "invalid_data":
-			return "artifacts.canvas.refusal.invalid_data";
-		case "limit_exceeded":
-			return "artifacts.canvas.refusal.limit_exceeded";
-		case "stale":
-			return "artifacts.canvas.refusal.stale";
-		default: {
-			const unreachable: never = reason;
-			return unreachable;
-		}
-	}
-}
 
 // ── Applying one op ──────────────────────────────────────────────────────
 
@@ -254,7 +234,7 @@ export function applyOp(body: CanvasBody, op: BoardOp): CanvasBody {
 					{
 						id: op.id,
 						type: "frame",
-						position: { x: op.position.x, y: op.position.y },
+						position: { x: op.position?.x ?? 0, y: op.position?.y ?? 0 },
 						width: op.size.width,
 						height: op.size.height,
 						data: {
@@ -271,7 +251,7 @@ export function applyOp(body: CanvasBody, op: BoardOp): CanvasBody {
 			const added: CanvasNode = {
 				id,
 				type: type as BlockKind,
-				position: { x: position.x, y: position.y },
+				position: { x: position?.x ?? 0, y: position?.y ?? 0 },
 				data: data as CanvasBlockData,
 			};
 			if (parentId !== undefined) added.parentId = parentId;
@@ -287,7 +267,10 @@ export function applyOp(body: CanvasBody, op: BoardOp): CanvasBody {
 				// is as tall as its content.
 				added.width = defaultNodeWidth(added.type);
 			}
-			return { ...body, nodes: [...body.nodes, added] };
+			return {
+				...body,
+				nodes: growFramesAround([...body.nodes, added], added),
+			};
 		}
 		case "move":
 			return {
@@ -345,10 +328,50 @@ export function applyOp(body: CanvasBody, op: BoardOp): CanvasBody {
 	}
 }
 
+/**
+ * A block added inside a frame never sticks out of it: when it would, the frame
+ * grows (down and to the right, a margin past the block), and so does the frame
+ * it is in, if it then sticks out of that. The judge only lets a block be added
+ * where the ground it grows the frame into is free (`placeBlock`), so this is
+ * the arithmetic of that decision and not a second one.
+ */
+function growFramesAround(
+	nodes: CanvasNode[],
+	added: CanvasNode,
+): CanvasNode[] {
+	let result = nodes;
+	let child = added;
+	for (let depth = 0; depth < 8 && child.parentId !== undefined; depth += 1) {
+		const frame = result.find((node) => node.id === child.parentId);
+		if (!frame || frame.data.kind !== "frame") break;
+		const { width: childWidth, height: childHeight } = plannedNodeSize(child);
+		const inside = plannedNodeSize(frame);
+		const right = child.position.x + childWidth;
+		const bottom = child.position.y + childHeight;
+		const width =
+			right > inside.width + 1 ? right + FRAME_INSET.x : inside.width;
+		const height =
+			bottom > inside.height + 1 ? bottom + FRAME_INSET.bottom : inside.height;
+		if (width === inside.width && height === inside.height) break;
+		const grown: CanvasNode = {
+			...frame,
+			width,
+			height,
+			data: { ...frame.data, width, height },
+		};
+		result = result.map((node) => (node.id === frame.id ? grown : node));
+		child = grown;
+	}
+	return result;
+}
+
 // ── Judging a diff ───────────────────────────────────────────────────────
 
 type Problem = { reason: BoardRefusalReason; id?: string; detail: string };
-type Step = { ok: true; next: CanvasBody } | { ok: false; problem: Problem };
+/** What judging one op came to: the board it leaves, and the op as it was applied (an add with its place settled), or why it was refused. */
+type Step =
+	| { ok: true; next: CanvasBody; op?: BoardOp }
+	| { ok: false; problem: Problem };
 
 function refuse(reason: BoardRefusalReason, detail: string, id?: string): Step {
 	return {
@@ -439,14 +462,14 @@ function exceedsByteCap(body: CanvasBody): boolean {
 }
 
 /** An op that makes the board bigger is judged against the board it would leave. */
-function grow(next: CanvasBody, id: string): Step {
+function grow(next: CanvasBody, id: string, op?: BoardOp): Step {
 	return exceedsByteCap(next)
 		? refuse(
 				"limit_exceeded",
 				"The board would be larger than it may be; make room by removing something first.",
 				id,
 			)
-		: { ok: true, next };
+		: { ok: true, next, ...(op ? { op } : {}) };
 }
 
 function creationLimit(
@@ -504,7 +527,39 @@ function stepAddFrame(
 			op.id,
 		);
 	}
-	return creationLimit(body, created, op.id) ?? grow(applyOp(body, op), op.id);
+	const unknownNear = unknownNearProblem(body, op.near);
+	if (unknownNear) return unknownNear;
+	const limited = creationLimit(body, created, op.id);
+	if (limited) return limited;
+	// Where it goes is settled here, once: the op that lands names a place.
+	const placed = placeBlock(body, {
+		id: op.id,
+		asFrame: true,
+		size: { width: op.size.width, height: op.size.height },
+		position: op.position,
+		near: op.near,
+	});
+	const settled: BoardOp = {
+		op: "add_frame",
+		id: op.id,
+		label: op.label,
+		position: placed.position,
+		size: op.size,
+	};
+	return grow(applyOp(body, settled), op.id, settled);
+}
+
+/** A `near` that names nothing on the board (or created earlier in this change) is an address that is wrong, like any other. */
+function unknownNearProblem(
+	body: CanvasBody,
+	near: string | undefined,
+): Step | null {
+	if (near === undefined || findNode(body, near)) return null;
+	return refuse(
+		"unknown_id",
+		`near names "${near}", and there is no node by that id on the board (or created earlier in this change). Node ids: ${idList(body.nodes.map((node) => node.id))}. Leave near out to have the block placed for you.`,
+		near,
+	);
 }
 
 function stepAddNode(
@@ -523,9 +578,10 @@ function stepAddNode(
 			spec.id,
 		);
 	}
-	const data = MODEL_CREATABLE_DATA_SCHEMAS[spec.type].safeParse(spec.data);
+	const written = storedBlockData(spec.data);
+	const data = MODEL_CREATABLE_DATA_SCHEMAS[spec.type].safeParse(written);
 	if (!data.success) {
-		const declared = isRecord(spec.data) ? spec.data.kind : undefined;
+		const declared = isRecord(written) ? written.kind : undefined;
 		if (typeof declared === "string" && declared !== spec.type) {
 			return refuse(
 				"kind_mismatch",
@@ -539,8 +595,14 @@ function stepAddNode(
 			spec.id,
 		);
 	}
-	const repeated = repeatedIdsProblem(data.data);
+	// A chart's config was written as text above, so this is a block as it is stored.
+	const block = data.data as CanvasBlockData;
+	const repeated = repeatedIdsProblem(block);
 	if (repeated !== null) return refuse("invalid_data", repeated, spec.id);
+	if (data.data.kind === "mermaid") {
+		const unsafe = mermaidSourceProblem(data.data.code);
+		if (unsafe !== null) return refuse("invalid_data", unsafe, spec.id);
+	}
 	if (spec.parentId !== undefined) {
 		if (spec.parentId === spec.id) {
 			return refuse(
@@ -568,9 +630,40 @@ function stepAddNode(
 			);
 		}
 	}
-	return (
-		creationLimit(body, created, spec.id) ?? grow(applyOp(body, op), spec.id)
-	);
+	const unknownNear = unknownNearProblem(body, spec.near);
+	if (unknownNear) return unknownNear;
+	const limited = creationLimit(body, created, spec.id);
+	if (limited) return limited;
+	// Where it goes is settled here, once: the op that lands names a place and a
+	// frame, and no longer a `near`.
+	const kind = block.kind;
+	const size =
+		block.kind === "frame"
+			? { width: block.width, height: block.height }
+			: plannedNodeSize({
+					type: spec.type,
+					width: defaultNodeWidth(spec.type),
+					data: block,
+				});
+	const placed = placeBlock(body, {
+		id: spec.id,
+		asFrame: kind === "frame",
+		size,
+		position: spec.position,
+		parentId: spec.parentId,
+		near: spec.near,
+	});
+	const settled = {
+		op: "add_node",
+		node: {
+			id: spec.id,
+			type: spec.type,
+			...(placed.parentId === undefined ? {} : { parentId: placed.parentId }),
+			position: placed.position,
+			data: written,
+		},
+	} as BoardOp;
+	return grow(applyOp(body, settled), spec.id, settled);
 }
 
 function stepUpdateNode(
@@ -593,9 +686,14 @@ function stepUpdateNode(
 			op.id,
 		);
 	}
+	// A chart's config written as an object is the JSON text the block holds.
+	const patch: Record<string, unknown> =
+		target.type === "chart" && isRecord(op.data.code)
+			? { ...op.data, code: JSON.stringify(op.data.code) }
+			: op.data;
 	const schema = BLOCK_DATA_SCHEMAS[target.type];
 	const fields = Object.keys(schema.shape);
-	const stray = Object.keys(op.data).filter((key) => !fields.includes(key));
+	const stray = Object.keys(patch).filter((key) => !fields.includes(key));
 	if (stray.length > 0) {
 		return refuse(
 			"invalid_data",
@@ -605,7 +703,7 @@ function stepUpdateNode(
 	}
 	// What the app vouches for is set by the app, never by an op (ruling 67).
 	const settable = modelUpdatableFields(target.type);
-	const owned = Object.keys(op.data).filter(
+	const owned = Object.keys(patch).filter(
 		(key) => key !== "kind" && !settable.includes(key),
 	);
 	if (owned.length > 0) {
@@ -615,8 +713,12 @@ function stepUpdateNode(
 			op.id,
 		);
 	}
+	if (target.type === "mermaid" && typeof patch.code === "string") {
+		const unsafe = mermaidSourceProblem(patch.code);
+		if (unsafe !== null) return refuse("invalid_data", unsafe, op.id);
+	}
 	// The merged data has to be a whole, valid block of the node's own kind.
-	const merged = schema.safeParse({ ...target.data, ...op.data });
+	const merged = schema.safeParse({ ...target.data, ...patch });
 	if (!merged.success) {
 		return refuse(
 			"invalid_data",
@@ -626,7 +728,8 @@ function stepUpdateNode(
 	}
 	const repeated = repeatedIdsProblem(merged.data);
 	if (repeated !== null) return refuse("invalid_data", repeated, op.id);
-	return grow(applyOp(body, op), op.id);
+	const settled: BoardOp = { ...op, data: patch };
+	return grow(applyOp(body, settled), op.id, settled);
 }
 
 /**
@@ -798,7 +901,7 @@ function validateOps(
 		}
 		working = outcome.next;
 		if (op.op === "add_frame" || op.op === "add_node") created += 1;
-		accepted.push(op);
+		accepted.push(outcome.op ?? op);
 	});
 	return { accepted, refused };
 }
@@ -830,6 +933,133 @@ export const boardOpsVocabulary: OpsVocabulary<
 	validate: validateOps,
 	apply: applyOp,
 };
+
+// ── What the model is told about where its blocks went ─────────────────
+
+/**
+ * One block whose place the app had a hand in, as the model reads it after an
+ * edit: where it is (`x`, `y`, in the frame it is in, if any), and when there is
+ * more to say — it was moved off a taken place, the frame it asked for grew, or
+ * there was no room and it is beside the frame — what that was. A block that
+ * went exactly where the model said it should is not listed.
+ */
+export interface PlacedNote {
+	id: string;
+	x: number;
+	y: number;
+	in?: string;
+	note?: string;
+}
+
+function addedId(op: BoardOp): string | undefined {
+	if (op.op === "add_frame") return op.id;
+	if (op.op === "add_node") return op.node?.id;
+	return undefined;
+}
+
+function sizeIn(
+	body: CanvasBody,
+	id: string,
+): { width: number; height: number } | null {
+	const found = body.nodes.find((node) => node.id === id);
+	return found ? plannedNodeSize(found) : null;
+}
+
+/**
+ * Compares what the model asked for with what the judge settled: for every
+ * accepted add, was the place its own, and did a frame grow to hold it. Pure; the
+ * boards are the one the diff was judged against and the one it left. A block
+ * that went where it was told, in a frame that did not grow, is not listed.
+ */
+export function placementNotes(
+	before: CanvasBody,
+	after: CanvasBody,
+	asked: readonly BoardOp[],
+	settled: readonly BoardOp[],
+): PlacedNote[] {
+	const askedById = new Map<string, BoardOp>();
+	const askedFrameSize = new Map<string, { width: number; height: number }>();
+	for (const op of asked) {
+		const id = addedId(op);
+		if (id === undefined) continue;
+		askedById.set(id, op);
+		if (op.op === "add_frame") askedFrameSize.set(id, op.size);
+		if (op.op === "add_node" && op.node?.data?.kind === "frame") {
+			askedFrameSize.set(id, op.node.data);
+		}
+	}
+	const found: Array<{ entry: PlacedNote; silent: boolean }> = [];
+	const lastInFrame = new Map<string, number>();
+	for (const op of settled) {
+		const id = addedId(op);
+		const at =
+			op.op === "add_frame"
+				? op.position
+				: op.op === "add_node"
+					? op.node.position
+					: undefined;
+		if (id === undefined || !at) continue;
+		const parent = op.op === "add_node" ? op.node.parentId : undefined;
+		const asking = askedById.get(id);
+		const given =
+			asking?.op === "add_frame"
+				? asking.position
+				: asking?.op === "add_node"
+					? asking.node.position
+					: undefined;
+		const askedParent =
+			asking?.op === "add_node" ? asking.node.parentId : undefined;
+		const near =
+			asking?.op === "add_frame"
+				? asking.near
+				: asking?.op === "add_node"
+					? asking.node.near
+					: undefined;
+		const nearParent = near
+			? before.nodes.find((node) => node.id === near)?.parentId
+			: undefined;
+		const wantedFrame = askedParent ?? nearParent;
+		const outside = wantedFrame !== undefined && parent !== wantedFrame;
+		const adopted =
+			wantedFrame === undefined && parent !== undefined && given !== undefined;
+		const moved =
+			given !== undefined &&
+			!adopted &&
+			!outside &&
+			(given.x !== at.x || given.y !== at.y);
+		const entry: PlacedNote = {
+			id,
+			x: at.x,
+			y: at.y,
+			...(parent === undefined ? {} : { in: parent }),
+		};
+		if (outside) {
+			entry.note = `there was no room in "${wantedFrame}" and it could not grow: this is beside it, not in it`;
+		} else if (moved) {
+			entry.note = "that place was taken: moved to free ground";
+		} else if (adopted) {
+			entry.note = `its middle was over "${parent}", so it is in that frame`;
+		}
+		found.push({
+			entry,
+			silent: given !== undefined && !outside && !moved && !adopted,
+		});
+		if (parent !== undefined) lastInFrame.set(parent, found.length - 1);
+	}
+	// A frame that had to grow says so once, on the last block it grew for.
+	for (const [frameId, index] of lastInFrame) {
+		const was = sizeIn(before, frameId) ?? askedFrameSize.get(frameId);
+		const now = sizeIn(after, frameId);
+		if (!was || !now) continue;
+		if (now.width > was.width || now.height > was.height) {
+			const grew = `frame "${frameId}" grew to ${now.width}x${now.height} to hold it`;
+			const mark = found[index];
+			mark.entry.note = mark.entry.note ? `${mark.entry.note}; ${grew}` : grew;
+			mark.silent = false;
+		}
+	}
+	return found.filter((item) => !item.silent).map((item) => item.entry);
+}
 
 // ── What a client animates with ─────────────────────────────────────────
 

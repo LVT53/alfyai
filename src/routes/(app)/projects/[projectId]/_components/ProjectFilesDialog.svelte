@@ -13,8 +13,22 @@
  * the composer counts the same list — and every mutation ends with `onRefresh`,
  * so what is rendered is always what the server last said. That is also why
  * the numbers here cannot drift from the chip behind the modal.
+ *
+ * The list is the project's bundle: its files, and the Documents, Apps and
+ * Canvases its chats made. A made item is not a file — it says what it is and
+ * which chat made it, and its way in opens the panel on the editor, the one
+ * shell every other surface opens it in. It has no unlink when it is here only
+ * through its chat, because there is no link to remove.
  */
-import { Eye, Library, Search, Unlink, Upload } from "@lucide/svelte";
+import {
+	Eye,
+	Library,
+	PanelRightOpen,
+	Search,
+	Unlink,
+	Upload,
+} from "@lucide/svelte";
+import { ARTIFACT_KIND_ICONS } from "$lib/components/artifacts/kind-icons";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import ScopeToken from "$lib/components/instructions/ScopeToken.svelte";
@@ -30,7 +44,7 @@ import {
 } from "$lib/client/document-workspace-state";
 import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
-import { t } from "$lib/i18n";
+import { type I18nKey, t } from "$lib/i18n";
 import {
 	fileExtension,
 	getCategory,
@@ -66,6 +80,16 @@ interface Props {
 	/** The route re-reads the project's files and updates its own state. */
 	onRefresh: () => Promise<void>;
 	onClose: () => void;
+	/**
+	 * Who is reading, named to the panel the items open in: the first-open tours
+	 * keep what they were told for the life of the page, and it has to be this
+	 * reader's. Also what puts their own picture on a comment they write there.
+	 */
+	currentUser?: {
+		id: string;
+		displayName: string;
+		profilePicture: string | null;
+	} | null;
 }
 
 let {
@@ -76,6 +100,7 @@ let {
 	filesFailed,
 	onRefresh,
 	onClose,
+	currentUser = null,
 }: Props = $props();
 
 let searchQuery = $state("");
@@ -98,15 +123,36 @@ const visibleFiles = $derived.by(() => {
 	return all.filter((file) => file.name.toLowerCase().includes(query));
 });
 
-// Nothing is counted before the first read lands: "0 files" there would be the
-// same untruth as "No files yet.".
-const footerLabel = $derived(
-	files === null
-		? ""
-		: files.length === 1
-			? $t("projects.filesFooterOne")
-			: $t("projects.filesFooter", { count: files.length }),
+// Whether anything in the list was made by a chat rather than uploaded. Once
+// something was, the count says "items": "3 files" would be a claim about
+// three PDFs.
+const hasMadeItems = $derived(
+	(files ?? []).some((file) => file.artifactKind !== undefined),
 );
+
+// A row offers removal when it has an unlink: every row but a made item that is
+// here only through its chat, which has no link to remove.
+function isRemovable(file: ProjectKnowledgeItem): boolean {
+	return file.linked !== false;
+}
+
+// The footer's note is about that unlink, so a list with none promises nothing.
+const hasRemovableRows = $derived((files ?? []).some(isRemovable));
+
+const footerLabel = $derived.by(() => {
+	// Nothing is counted before the first read lands: "0 files" there would be the
+	// same untruth as "No files yet.". A list with nothing on it says so itself.
+	if (files === null || files.length === 0) return "";
+	if (hasMadeItems) {
+		const count = $t("artifacts.bundle.items", { count: files.length });
+		return hasRemovableRows
+			? `${count} · ${$t("artifacts.bundle.footerNote")}`
+			: count;
+	}
+	return files.length === 1
+		? $t("projects.filesFooterOne")
+		: $t("projects.filesFooter", { count: files.length });
+});
 
 function isBusy(artifactId: string): boolean {
 	return busyArtifactIds.includes(artifactId);
@@ -119,12 +165,17 @@ function setBusy(artifactId: string, busy: boolean): void {
 }
 
 /**
- * The document's own extension is its label, exactly as the library's own table
- * words it (`.htm` shows "HTML", a file with no extension falls back to the
- * registry's canonical one). Two places that name a file type must not name it
- * differently.
+ * The row's type pill. A file is labelled by its own extension, exactly as the
+ * library's own table words it (`.htm` shows "HTML", a file with no extension
+ * falls back to the registry's canonical one); two places that name a file type
+ * must not name it differently. A Document, an App or a Canvas is labelled by
+ * the UI's own word for its kind — the same `artifacts.type.*` every other
+ * surface prints.
  */
 function formatFileType(file: ProjectKnowledgeItem): string {
+	if (file.artifactKind) {
+		return $t(`artifacts.type.${file.artifactKind}` as I18nKey);
+	}
 	const extension = fileExtension(file.name);
 	if (!extension) {
 		const byMime = getEntryByMimeType(file.mimeType);
@@ -143,6 +194,22 @@ function formatSize(sizeBytes: number | null): string {
 function toWorkspaceDocument(
 	file: ProjectKnowledgeItem,
 ): DocumentWorkspaceItem {
+	if (file.artifactKind) {
+		// The artifact family opens in the panel's own body for its kind, not in
+		// the file viewer: the same item the Knowledge page builds for one of its
+		// Documents, App or Canvas rows (`kind` is what the panel dispatches on,
+		// and it has no file to preview, so no mime type).
+		return {
+			id: `artifact:${file.artifactId}`,
+			source: "knowledge_artifact",
+			filename: file.name,
+			title: file.name,
+			kind: file.artifactKind,
+			mimeType: null,
+			artifactId: file.artifactId,
+			conversationId: file.sourceConversationId ?? null,
+		};
+	}
 	return {
 		// The same id shape the knowledge page uses for a library artifact, so
 		// the shared workspace treats a project file as what it is.
@@ -264,6 +331,7 @@ $effect(() => {
 		onClose={onClose}
 		maxWidthClass="max-w-[700px]"
 		phonePresentation="sheet"
+		covered={workspaceOpen}
 	>
 		<div class="files-dialog-head">
 			<span class="text-xl font-semibold text-text-primary"
@@ -354,22 +422,53 @@ $effect(() => {
 				</p>
 			{:else}
 				{#each visibleFiles as file (file.artifactId)}
+					{@const KindIcon = file.artifactKind
+						? ARTIFACT_KIND_ICONS[file.artifactKind]
+						: null}
+					{@const openLabel = file.artifactKind
+						? $t("artifacts.card.openA11y", { title: file.name })
+						: $t("projects.filesPreviewA11y", { name: file.name })}
 					<div
 						class="files-row"
+						class:files-row--made={KindIcon !== null}
 						data-testid="project-file-row"
 						data-artifact-id={file.artifactId}
+						data-artifact-kind={file.artifactKind}
 					>
 						<span class="files-icon">
-							<FileTypeIcon
-								category={getCategory(file.name, file.mimeType)}
-								size={16}
-							/>
+							{#if KindIcon}
+								<KindIcon size={16} strokeWidth={1.9} aria-hidden="true" />
+							{:else}
+								<FileTypeIcon
+									category={getCategory(file.name, file.mimeType)}
+									size={16}
+								/>
+							{/if}
 						</span>
-						<span class="files-name" data-testid="project-file-name"
-							>{file.name}</span
-						>
+						<span class="files-name-cell">
+							<span class="files-name" data-testid="project-file-name"
+								>{file.name}</span
+							>
+							{#if file.artifactKind && file.sourceConversationTitle}
+								<!-- Which chat made it: what tells "the Document I asked for in
+								     this chat" from "the file I uploaded into this project". The
+								     time is the Added column's. -->
+								<span
+									class="files-origin"
+									data-testid="project-file-origin"
+									title={$t("artifacts.bundle.fromChat", {
+										title: file.sourceConversationTitle,
+									})}
+									>{$t("artifacts.bundle.fromChat", {
+										title: file.sourceConversationTitle,
+									})}</span
+								>
+							{/if}
+						</span>
 						<span class="files-type">
-							<span class="files-pill">{formatFileType(file)}</span>
+							<span class="files-pill" data-testid="project-file-type"
+								>{formatFileType(file)}</span
+							>
 						</span>
 						<span class="files-size">{formatSize(file.sizeBytes)}</span>
 						<span class="files-added">
@@ -380,27 +479,38 @@ $effect(() => {
 								type="button"
 								class="files-action"
 								data-testid="project-file-preview"
-								title={$t("projects.filesPreviewA11y", { name: file.name })}
-								aria-label={$t("projects.filesPreviewA11y", {
-									name: file.name,
-								})}
+								title={openLabel}
+								aria-label={openLabel}
 								onclick={() => void preview(file)}
 							>
-								<Eye size={15} strokeWidth={1.9} aria-hidden="true" />
+								{#if file.artifactKind}
+									<PanelRightOpen size={15} strokeWidth={1.9} aria-hidden="true" />
+								{:else}
+									<Eye size={15} strokeWidth={1.9} aria-hidden="true" />
+								{/if}
 							</button>
-							<button
-								type="button"
-								class="files-action"
-								data-testid="project-file-unlink"
-								title={$t("projects.filesUnlinkA11y", { name: file.name })}
-								aria-label={$t("projects.filesUnlinkA11y", {
-									name: file.name,
-								})}
-								disabled={isBusy(file.artifactId)}
-								onclick={() => void unlink(file)}
-							>
-								<Unlink size={15} strokeWidth={1.9} aria-hidden="true" />
-							</button>
+							{#if isRemovable(file)}
+								<button
+									type="button"
+									class="files-action"
+									data-testid="project-file-unlink"
+									title={$t("projects.filesUnlinkA11y", { name: file.name })}
+									aria-label={$t("projects.filesUnlinkA11y", {
+										name: file.name,
+									})}
+									disabled={isBusy(file.artifactId)}
+									onclick={() => void unlink(file)}
+								>
+									<Unlink size={15} strokeWidth={1.9} aria-hidden="true" />
+								</button>
+							{:else}
+								<!-- Keeps the way in on one line down the column, with or
+								     without an unlink beside it. -->
+								<span
+									class="files-action files-action--spacer"
+									aria-hidden="true"
+								></span>
+							{/if}
 						</span>
 					</div>
 				{/each}
@@ -430,9 +540,18 @@ $effect(() => {
 		onClose={() => (addFromLibraryOpen = false)}
 	/>
 
+	<!-- Above the dialog, so `overDialog`: while the panel is open it is a layer
+	     of the dialog stack, and the dialog's own Tab trap and Escape stand down
+	     for as long as it is there. After the dialog in the template on purpose:
+	     the stack is ordered by when a layer registers, and the dialog has to be
+	     the one underneath. It is the modal layer to assistive technology as
+	     well, and its markup is not later in the document than the dialog's (the
+	     dialog is moved to the end of <body>), so the dialog says it is `covered`
+	     and stops claiming to be modal while the panel is open. -->
 	<DocumentWorkspace
 		open={workspaceOpen}
 		presentation="expanded"
+		overDialog
 		returnToDockedOnExpandedClose={false}
 		showPresentationToggle={false}
 		documents={workspaceDocuments}
@@ -440,6 +559,7 @@ $effect(() => {
 		onSelectDocument={(documentId) => (activeWorkspaceDocumentId = documentId)}
 		onCloseDocument={closeWorkspaceDocument}
 		onCloseWorkspace={closeWorkspace}
+		{currentUser}
 	/>
 {/if}
 
@@ -506,7 +626,9 @@ $effect(() => {
 
 	.files-row {
 		display: grid;
-		grid-template-columns: 22px minmax(0, 1fr) 54px 64px 78px 58px;
+		/* The type column is wide enough for the longest kind word ("Alkalmazás"
+		   at the pill's size), which an extension never needed. */
+		grid-template-columns: 22px minmax(0, 1fr) 86px 64px 78px 58px;
 		align-items: center;
 		gap: 10px;
 		padding: 11px 12px;
@@ -540,11 +662,33 @@ $effect(() => {
 		color: var(--text-muted);
 	}
 
+	.files-name-cell {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		gap: 2px;
+	}
+
 	.files-name {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		color: var(--text-primary);
+	}
+
+	/* The line under a made item's name: which chat made it. */
+	.files-origin {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 12px;
+		color: var(--text-muted);
+	}
+
+	/* A made item has no size: the cell keeps its place in the grid on a wide
+	   screen and is not drawn where the facts stack. */
+	.files-row--made .files-size {
+		visibility: hidden;
 	}
 
 	.files-type {
@@ -602,6 +746,11 @@ $effect(() => {
 		opacity: 0.5;
 	}
 
+	.files-action--spacer {
+		visibility: hidden;
+		pointer-events: none;
+	}
+
 	.files-empty {
 		margin: 0;
 		padding: 18px 12px;
@@ -636,7 +785,10 @@ $effect(() => {
 	   breakpoint the row becomes two lines: what the file is, then its facts. */
 	@media (max-width: 639px) {
 		.files-row {
-			grid-template-columns: 22px minmax(0, 1fr) 58px;
+			/* Room for two 44px targets side by side: the buttons stay drawn at 28px
+			   and their hit areas (below) reach 44px, so the column has to leave
+			   their centres 44px apart. */
+			grid-template-columns: 22px minmax(0, 1fr) 72px;
 			row-gap: 4px;
 		}
 
@@ -644,10 +796,18 @@ $effect(() => {
 			display: none;
 		}
 
+		.files-name-cell {
+			grid-column: 2;
+		}
+
 		.files-type,
 		.files-size,
 		.files-added {
 			grid-column: 2;
+		}
+
+		.files-row--made .files-size {
+			display: none;
 		}
 
 		.files-type {
@@ -663,10 +823,34 @@ $effect(() => {
 			grid-row: 4;
 		}
 
+		/* There is room under the name on a phone: the chat that made an item
+		   reads whole instead of being cut at the buttons. */
+		.files-origin {
+			white-space: normal;
+			overflow-wrap: anywhere;
+		}
+
+		/* A made item has no size line, so its facts close the gap. */
+		.files-row--made .files-added {
+			grid-row: 3;
+		}
+
 		.files-actions {
 			grid-column: 3;
 			grid-row: 1 / span 4;
 			align-self: center;
+			gap: 16px;
+		}
+
+		/* A finger needs 44px. The button is not redrawn; its hit area grows. */
+		.files-action {
+			position: relative;
+		}
+
+		.files-action::after {
+			content: "";
+			position: absolute;
+			inset: -8px;
 		}
 	}
 </style>

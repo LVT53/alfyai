@@ -1,9 +1,9 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
+import { listProjectBundle } from "$lib/server/services/artifacts";
 import {
 	isProjectKnowledgeError,
 	linkProjectKnowledge,
-	listProjectKnowledge,
 } from "$lib/server/services/knowledge";
 import { getProject } from "$lib/server/services/projects";
 import type { RequestHandler } from "./$types";
@@ -33,7 +33,8 @@ function projectKnowledgeErrorResponse(error: unknown) {
 }
 
 /**
- * The project's linked library documents.
+ * The project's bundle: its linked library documents, and the Documents, Apps
+ * and Canvases its chats made (`files` is the key the browser has always read).
  *
  * The ownership check is this read's own — the service would answer an empty
  * list for somebody else's project, and "empty" and "not yours" must not look
@@ -51,7 +52,7 @@ export const GET: RequestHandler = async (event) => {
 		return json({ error: "Project not found" }, { status: 404 });
 	}
 
-	const files = await listProjectKnowledge({
+	const files = await listProjectBundle({
 		userId: user.id,
 		projectId: project.id,
 	});
@@ -78,10 +79,16 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	try {
-		const files = await linkProjectKnowledge({
+		await linkProjectKnowledge({
 			userId: user.id,
 			projectId: event.params.id,
 			artifactIds,
+		});
+		// Answers with the whole bundle, as the GET does: what the server has,
+		// not what the caller hoped it sent.
+		const files = await listProjectBundle({
+			userId: user.id,
+			projectId: event.params.id,
 		});
 		return json({ files });
 	} catch (error) {

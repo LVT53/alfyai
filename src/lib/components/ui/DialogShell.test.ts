@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import { createRawSnippet, tick } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DialogShell, {
@@ -282,6 +282,174 @@ describe("DialogShell body-scroll lock", () => {
 		parent.unmount();
 		await tick();
 		expect(document.body.style.overflow).toBe("");
+	});
+
+	// The page's lock belongs to the stack, not to the dialog that took it: a
+	// layer that is not a DialogShell (the document panel over a project's Files
+	// dialog) can be the last one out, as it is when the whole page goes away
+	// under both, a browser Back with them open.
+	it("keeps the page locked while a layer over the dialog stays open after the dialog is gone, and releases it when that layer leaves", async () => {
+		const dialog = render(DialogShell, {
+			props: { title: "Dialog", onClose: vi.fn(), children: inertChildren },
+		});
+		await tick();
+		const layerOver = Symbol("a layer that is not a DialogShell");
+		registerDialog(layerOver);
+
+		dialog.unmount();
+		await tick();
+		expect(document.body.style.overflow).toBe("hidden");
+
+		deregisterDialog(layerOver);
+		expect(document.body.style.overflow).toBe("");
+	});
+
+	it("releases the lock when the layer over the dialog leaves first and the dialog last", async () => {
+		const dialog = render(DialogShell, {
+			props: { title: "Dialog", onClose: vi.fn(), children: inertChildren },
+		});
+		await tick();
+		const layerOver = Symbol("a layer that is not a DialogShell");
+		registerDialog(layerOver);
+
+		deregisterDialog(layerOver);
+		expect(document.body.style.overflow).toBe("hidden");
+
+		dialog.unmount();
+		await tick();
+		expect(document.body.style.overflow).toBe("");
+	});
+
+	it("leaves a page that no dialog locked alone when the stack empties", () => {
+		document.body.style.overflow = "scroll";
+		const layer = Symbol("a layer that took no lock");
+		registerDialog(layer);
+
+		deregisterDialog(layer);
+
+		expect(document.body.style.overflow).toBe("scroll");
+	});
+});
+
+describe("DialogShell scrim", () => {
+	// A layer above a dialog (a popover, the document panel) can close on a
+	// press that lands on the dialog's own scrim, and the click that ends the
+	// same press then reaches the scrim as well. The press belongs to the layer
+	// that was on top when it began, so the dialog behind it does not close.
+	const registeredAbove: symbol[] = [];
+
+	function layerAbove(): symbol {
+		const id = Symbol("layer above the dialog");
+		registeredAbove.push(id);
+		registerDialog(id);
+		return id;
+	}
+
+	function leave(id: symbol) {
+		deregisterDialog(id);
+		registeredAbove.splice(registeredAbove.indexOf(id), 1);
+	}
+
+	afterEach(() => {
+		for (const id of registeredAbove.splice(0)) deregisterDialog(id);
+	});
+
+	async function openDialog() {
+		const onClose = vi.fn();
+		const view = render(DialogShell, {
+			props: { title: "Files", onClose, children: inertChildren },
+		});
+		await tick();
+		return { onClose, scrim: view.getByRole("button", { name: "Close" }) };
+	}
+
+	it("closes on a press and click of the scrim while it is the topmost layer", async () => {
+		const { onClose, scrim } = await openDialog();
+
+		await fireEvent.pointerDown(scrim);
+		await fireEvent.click(scrim, { detail: 1 });
+
+		expect(onClose).toHaveBeenCalledOnce();
+	});
+
+	it("does not close on a click whose press began while another layer was above it, even though that layer closed on the press", async () => {
+		const { onClose, scrim } = await openDialog();
+		const above = layerAbove();
+
+		await fireEvent.pointerDown(scrim);
+		// The layer above closes on the press itself, so by the time the click
+		// arrives the dialog is the topmost layer again.
+		leave(above);
+		await fireEvent.click(scrim, { detail: 1 });
+
+		expect(onClose).not.toHaveBeenCalled();
+	});
+
+	it("answers the next press as its own once the layer above is gone", async () => {
+		const { onClose, scrim } = await openDialog();
+		const above = layerAbove();
+		await fireEvent.pointerDown(scrim);
+		leave(above);
+		await fireEvent.click(scrim, { detail: 1 });
+		expect(onClose).not.toHaveBeenCalled();
+
+		await fireEvent.pointerDown(scrim);
+		await fireEvent.click(scrim, { detail: 1 });
+
+		expect(onClose).toHaveBeenCalledOnce();
+	});
+
+	it("does not keep a covered press for a press that never became a click", async () => {
+		const { onClose, scrim } = await openDialog();
+		const above = layerAbove();
+		// Pressed while covered, then dragged away: no click follows.
+		await fireEvent.pointerDown(scrim);
+		leave(above);
+
+		// A key activates the button: no press behind it, so it is judged as it is.
+		scrim.click();
+
+		expect(onClose).toHaveBeenCalledOnce();
+	});
+
+	it("does not close from the scrim while another layer is above it and no press began", async () => {
+		const { onClose, scrim } = await openDialog();
+		layerAbove();
+
+		scrim.click();
+
+		expect(onClose).not.toHaveBeenCalled();
+	});
+
+	// A button takes the focus when it is pressed. The scrim is one so a keyboard can
+	// reach it, but the layer that closed on the same press (the document panel) has
+	// just handed the focus back to what opened it, and a press on the backdrop is not
+	// a reason to take it away (RC-F MIN-4).
+	it("does not take the focus when it is pressed", async () => {
+		const { scrim } = await openDialog();
+
+		const notPrevented = await fireEvent.mouseDown(scrim);
+
+		expect(notPrevented, "the press's default (the focus) was cancelled").toBe(
+			false,
+		);
+	});
+});
+
+describe("DialogShell as the modal layer", () => {
+	it("claims to be modal, gives the claim up while something covers it, and takes it back", async () => {
+		const view = render(DialogShell, {
+			props: { title: "Files", children: inertChildren },
+		});
+		await tick();
+		const dialog = view.getByRole("dialog");
+		expect(dialog.getAttribute("aria-modal")).toBe("true");
+
+		await view.rerender({ covered: true });
+		expect(dialog.getAttribute("aria-modal")).toBe("false");
+
+		await view.rerender({ covered: false });
+		expect(dialog.getAttribute("aria-modal")).toBe("true");
 	});
 });
 

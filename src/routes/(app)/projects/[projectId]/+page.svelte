@@ -195,6 +195,7 @@ $effect(() => {
 		kind: "project",
 		project: { id: data.project.id, name: data.project.name },
 		fileCount: projectFiles?.length,
+		hasMadeItems: projectFiles?.some((file) => file.artifactKind !== undefined),
 		chatCount: data.chatCount,
 		lastActivityAt: data.lastActivityAt,
 	}}
@@ -229,4 +230,5 @@ $effect(() => {
 	filesFailed={projectFilesFailed}
 	onRefresh={() => refreshProjectFiles(data.project.id)}
 	onClose={() => (filesDialogOpen = false)}
+	currentUser={data.user}
 />

@@ -12,12 +12,12 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 578,
-				"textSample": "Angol–Magyar Kártyák Kattints a kártyákra, hogy megforduljanak és tanulj! Megfordított kártyák 0 Összes kártya 12 🐱 cat Állatok 🐱 macska Állatok 🐶 dog Állatok 🐶 kutya Állatok 🐦 bird Állatok 🐦 madár Állatok 🐟 fish ",
-				"controlCount": 14,
+				"textLength": 943,
+				"textSample": "Szófordítós kártyák 🎴 Kattints egy kártyára, hogy megforduljon! Ha tudod az angol szót, jelöld be a „Tudtam!” gombbal. 30 KÁRTYA 0 TUDTAM 0 SOROZAT 0 REKORD Mind Állatok Színek Iskola 🔀 Keverés 🔄 Újrakezdés ÁLLATOK 🐶",
+				"controlCount": 66,
 				"storageGets": 1,
-				"storageSets": 1,
-				"storageKeys": ["flippedCards"]
+				"storageSets": 2,
+				"storageKeys": ["szoforditos-v1"]
 			},
 			{
 				"label": "dark-1280",
@@ -30,9 +30,9 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 578,
-				"textSample": "Angol–Magyar Kártyák Kattints a kártyákra, hogy megforduljanak és tanulj! Megfordított kártyák 0 Összes kártya 12 🐱 cat Állatok 🐱 macska Állatok 🐶 dog Állatok 🐶 kutya Állatok 🐦 bird Állatok 🐦 madár Állatok 🐟 fish ",
-				"controlCount": 14,
+				"textLength": 943,
+				"textSample": "Szófordítós kártyák 🎴 Kattints egy kártyára, hogy megforduljon! Ha tudod az angol szót, jelöld be a „Tudtam!” gombbal. 30 KÁRTYA 0 TUDTAM 0 SOROZAT 0 REKORD Mind Állatok Színek Iskola 🔀 Keverés 🔄 Újrakezdés ÁLLATOK 🐶",
+				"controlCount": 66,
 				"storageGets": 1,
 				"storageSets": 0,
 				"storageKeys": []
@@ -48,9 +48,9 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 578,
-				"textSample": "Angol–Magyar Kártyák Kattints a kártyákra, hogy megforduljanak és tanulj! Megfordított kártyák 0 Összes kártya 12 🐱 cat Állatok 🐱 macska Állatok 🐶 dog Állatok 🐶 kutya Állatok 🐦 bird Állatok 🐦 madár Állatok 🐟 fish ",
-				"controlCount": 14,
+				"textLength": 943,
+				"textSample": "Szófordítós kártyák 🎴 Kattints egy kártyára, hogy megforduljon! Ha tudod az angol szót, jelöld be a „Tudtam!” gombbal. 30 KÁRTYA 0 TUDTAM 0 SOROZAT 0 REKORD Mind Állatok Színek Iskola 🔀 Keverés 🔄 Újrakezdés ÁLLATOK 🐶",
+				"controlCount": 66,
 				"storageGets": 1,
 				"storageSets": 0,
 				"storageKeys": []
@@ -66,9 +66,9 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 578,
-				"textSample": "Angol–Magyar Kártyák Kattints a kártyákra, hogy megforduljanak és tanulj! Megfordított kártyák 0 Összes kártya 12 🐱 cat Állatok 🐱 macska Állatok 🐶 dog Állatok 🐶 kutya Állatok 🐦 bird Állatok 🐦 madár Állatok 🐟 fish ",
-				"controlCount": 14,
+				"textLength": 943,
+				"textSample": "Szófordítós kártyák 🎴 Kattints egy kártyára, hogy megforduljon! Ha tudod az angol szót, jelöld be a „Tudtam!” gombbal. 30 KÁRTYA 0 TUDTAM 0 SOROZAT 0 REKORD Mind Állatok Színek Iskola 🔀 Keverés 🔄 Újrakezdés ÁLLATOK 🐶",
+				"controlCount": 66,
 				"storageGets": 1,
 				"storageSets": 0,
 				"storageKeys": []
@@ -77,17 +77,17 @@
 		"interaction": {
 			"inputSelector": null,
 			"inputValue": null,
-			"buttonText": "🐱 cat Állatok 🐱 macska Állatok",
-			"clickedButtons": ["🐱 cat Állatok 🐱 macska Állatok"],
-			"domChangedAfter": "🐱 cat Állatok 🐱 macska Állatok",
+			"buttonText": "Állatok",
+			"clickedButtons": ["Mind", "Állatok"],
+			"domChangedAfter": "Állatok",
 			"clicked": true,
 			"domChanged": true,
-			"textBefore": 578,
-			"textAfter": 563,
+			"textBefore": 943,
+			"textAfter": 454,
 			"htmlChanged": true,
 			"storageSetsBefore": 0,
-			"storageSetsAfter": 1,
-			"storageKeys": ["flippedCards"],
+			"storageSetsAfter": 2,
+			"storageKeys": ["szoforditos-v1"],
 			"dialogs": [],
 			"note": null
 		},
@@ -95,7 +95,7 @@
 		"pageErrors": [],
 		"blockedRequests": [],
 		"storageGets": 1,
-		"storageSets": 1,
-		"storageKeys": ["flippedCards"]
+		"storageSets": 2,
+		"storageKeys": ["szoforditos-v1"]
 	}
 }

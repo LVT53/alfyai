@@ -76,8 +76,11 @@ Env switches (EVAL_ARTIFACTS_* prefixed; a flag above overrides its switch):
 
 Known-bad-first: each suite's declared known-bad fixtures run before anything
 else and must all score "bad"; a real score is only trusted once every one of
-them has. A suite with no known-bad fixtures declared passes this gate
-vacuously, with a warning — it has not yet earned the harness's trust either.
+them has. A known-bad answer is hand-written and committed under
+fixtures/<suite>/responses/: a live run serves it from disk and never sends it
+to the model, and recording never touches it (ruling 59). A suite with no
+known-bad fixtures declared passes this gate vacuously, with a warning — it has
+not yet earned the harness's trust either.
 `.trim();
 
 export interface ParsedArgs {
@@ -192,17 +195,31 @@ function errorMessage(error: unknown): string {
 
 type CaseAttemptOutcome = { attempt: EvalAttempt } | { error: unknown };
 
+/**
+ * Ruling 59: a known-bad case is a hand-written answer, served from disk in a
+ * live run exactly as in a replay. It exists to prove the scorer CAN fail, so it
+ * must never depend on the model misbehaving (RV-2B: the verification suite's
+ * known-bad asked the model to break its contract, the model kept it, and the
+ * gate rightly refused every score in that run). Nothing here ever sends one to
+ * the model, and a missing answer is a failure to run it, not a verdict.
+ */
+function servesFromDisk(evalCase: EvalCase, options: { replay: boolean }) {
+	return options.replay || evalCase.knownBad === true;
+}
+
 async function attemptCase(
 	evalCase: EvalCase,
 	options: { replay: boolean },
 	deps: RunDeps,
 ): Promise<CaseAttemptOutcome> {
-	if (options.replay) {
+	if (servesFromDisk(evalCase, options)) {
 		const committed = deps.loadCommittedResponse(evalCase.suite, evalCase.id);
 		if (!committed) {
 			return {
 				error: new Error(
-					`No committed response for case "${evalCase.id}" (fixtures/${evalCase.suite}/responses/${evalCase.id}.json) — record one first (EVAL_ARTIFACTS_SKIP_EVAL) or run live.`,
+					evalCase.knownBad === true
+						? `No hand-written answer for known-bad case "${evalCase.id}" (fixtures/${evalCase.suite}/responses/${evalCase.id}.json) — write one; the model is never asked for it (ruling 59).`
+						: `No committed response for case "${evalCase.id}" (fixtures/${evalCase.suite}/responses/${evalCase.id}.json) — record one first (EVAL_ARTIFACTS_SKIP_EVAL) or run live.`,
 				),
 			};
 		}
@@ -264,7 +281,9 @@ async function runCasesSequentially(
 
 	for (const evalCase of cases) {
 		let outcome = await attemptCase(evalCase, options, deps);
-		let retriesLeft = options.replay ? 0 : EVAL_ARTIFACTS_MAX_RETRIES_PER_CASE;
+		let retriesLeft = servesFromDisk(evalCase, options)
+			? 0
+			: EVAL_ARTIFACTS_MAX_RETRIES_PER_CASE;
 		while ("error" in outcome && retriesLeft > 0) {
 			retriesLeft -= 1;
 			outcome = await attemptCase(evalCase, options, deps);
@@ -281,6 +300,7 @@ async function runCasesSequentially(
 				reasons: [
 					`case ${evalCase.id}: call failed — ${errorMessage(outcome.error)}`,
 				],
+				callFailed: true,
 			});
 			if (!options.replay && isRateLimitOrServerError(outcome.error)) {
 				consecutiveRateLimitErrors += 1;
@@ -376,11 +396,25 @@ export async function runSuite(
 	}
 
 	const knownBadRun = await runCasesSequentially(knownBad, options, deps);
+	// A known-bad case counts as failed-as-declared only when the scorer SAW its
+	// answer and failed it. A case that never produced an answer to score (no
+	// hand-written file) also reads "bad", but nothing proved the scorer can fail.
 	const knownBadFailures = knownBadRun.results
-		.filter((result) => result.verdict !== "bad")
+		.filter((result) => result.verdict !== "bad" || result.callFailed === true)
 		.map((result) => result.caseId);
 
 	if (knownBadFailures.length > 0) {
+		// The report drops these cases' own results (nothing is trusted), so say here
+		// whether the gate failed because a scorer passed a known-bad answer or
+		// because a known-bad case never had an answer to score.
+		for (const result of knownBadRun.results) {
+			if (!knownBadFailures.includes(result.caseId)) continue;
+			deps.log(
+				`[${suiteName}] known-bad ${result.caseId}: ${
+					result.callFailed ? "never scored" : `scored ${result.verdict}`
+				}${result.reasons.length > 0 ? ` — ${result.reasons.join("; ")}` : ""}`,
+			);
+		}
 		return {
 			suite: suiteName,
 			knownBadFailedAsExpected: false,
@@ -425,7 +459,11 @@ export async function recordSuiteResponses(
 	if (!deps.client) {
 		throw new Error("recordSuiteResponses needs a configured model client");
 	}
-	let cases = deps.cases[suiteName] ?? [];
+	// A known-bad answer is hand-written (ruling 59): never asked of the model, and
+	// so never overwritten by what the model happened to say.
+	let cases = (deps.cases[suiteName] ?? []).filter(
+		(evalCase) => evalCase.knownBad !== true,
+	);
 	if (options.only) {
 		const onlyIds = new Set(options.only);
 		cases = cases.filter((evalCase) => onlyIds.has(evalCase.id));

@@ -10,9 +10,9 @@ import { dirname, join, resolve } from "node:path";
 // breaker, the report — and hands it a client built on `tool-path.ts`:
 //
 //   - a real case is sent through the tools as its suite asks (`requestFor`)
-//   - a known-bad case is never sent: the committed answer is served from disk
-//     (ruling 59), so a live run cannot pass its gate because a model happened
-//     to misbehave
+//   - a known-bad case is never sent: `runSuite` serves its hand-written answer
+//     from disk (ruling 59) for every suite, so a live run cannot pass its gate
+//     because a model happened to misbehave
 //
 // `--replay` needs no runner of its own: `run.ts --suite <name> --replay`
 // re-scores the committed responses with no model and no key.
@@ -35,11 +35,13 @@ import { fileURLToPath } from "node:url";
 import { EVAL_CASES } from "./cases";
 import type { EvalArtifactsModelClient } from "./client";
 import { resolveEvalArtifactsConfig } from "./config";
+import { getSuiteEvaluator } from "./evaluators";
 import {
 	loadCommittedResponseFromDisk,
 	parseArgv,
 	type RunDeps,
 	runSuite,
+	writeCommittedEvaluationToDisk,
 	writeCommittedResponseToDisk,
 	writeResultsJson,
 } from "./run";
@@ -73,6 +75,8 @@ export interface ToolSuiteRunDeps {
 	send: typeof sendThroughTools;
 	log: (message: string) => void;
 	score: RunDeps["score"];
+	/** The suite's own async step (ruling 56), when it has one: its result is recorded and handed to the scorer. */
+	evaluate?: RunDeps["evaluate"];
 	defaultThinking: "on" | "off";
 }
 
@@ -107,18 +111,12 @@ export async function runToolSuite(
 					`run-tool-suite: no ${options.suite} case has this prompt; cases are told apart by their prompt`,
 				);
 			}
+			// `runSuite` serves a known-bad case's hand-written answer from disk and
+			// never calls this client for one (ruling 59): reaching it is a bug.
 			if (evalCase.knownBad) {
-				const committed = loadCommittedResponseFromDisk(
-					deps.fixturesRoot,
-					options.suite,
-					evalCase.id,
+				throw new Error(
+					`run-tool-suite: known-bad case ${evalCase.id} reached the model client; its answer is served from disk, never sent (ruling 59)`,
 				);
-				if (!committed) {
-					throw new Error(
-						`known-bad case ${evalCase.id} has no committed answer under fixtures/${options.suite}/responses/`,
-					);
-				}
-				return { text: committed.response };
 			}
 			const spec = toolSuite.requestFor(evalCase);
 			if (options.thinking) spec.thinking = options.thinking;
@@ -144,7 +142,7 @@ export async function runToolSuite(
 				loadCommittedResponseFromDisk(deps.fixturesRoot, suite, caseId),
 			loadCommittedEvaluation: () => null,
 			score: deps.score,
-			evaluate: async () => null,
+			evaluate: deps.evaluate ?? (async () => null),
 			log: deps.log,
 			defaultThinking: deps.defaultThinking,
 		},
@@ -159,6 +157,18 @@ export async function runToolSuite(
 				durationMs: attempt.durationMs,
 				usage: attempt.usage,
 			});
+		}
+		// What the suite's own step made of each answer is committed beside it, so a
+		// replay re-scores both with neither a model nor the step's tooling.
+		for (const result of report.results) {
+			if (result.evaluation === undefined || result.evaluation === null)
+				continue;
+			writeCommittedEvaluationToDisk(
+				deps.fixturesRoot,
+				options.suite,
+				result.caseId,
+				result.evaluation,
+			);
 		}
 	}
 	return { report, captured };
@@ -238,6 +248,9 @@ export async function main(
 				log,
 				score: (evalCase, attempt, evaluation) =>
 					getSuiteScorer(evalCase.suite)(evalCase, attempt, evaluation),
+				evaluate: async (evalCase, attempt) =>
+					(await getSuiteEvaluator(evalCase.suite)?.(evalCase, attempt)) ??
+					null,
 				defaultThinking: config.thinking,
 			},
 		);
@@ -252,6 +265,17 @@ export async function main(
 					durationMs: attempt.durationMs,
 					usage: attempt.usage,
 				});
+			}
+			for (const result of report.results) {
+				if (result.evaluation === undefined || result.evaluation === null) {
+					continue;
+				}
+				writeCommittedEvaluationToDisk(
+					root,
+					suite,
+					result.caseId,
+					result.evaluation,
+				);
 			}
 		}
 		log(

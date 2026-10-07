@@ -334,6 +334,46 @@ describe("ArtifactCard", () => {
 		expect(head).toHaveTextContent("Open");
 	});
 
+	// M-7 of the final review and the card's narrow-column fix (FX-D): the head's
+	// second line is ONE line element (kind, facts, version) that the stylesheet
+	// keeps on one line (it ends in an ellipsis before it wraps), so a number
+	// never parts from its unit however narrow the column is. The review pills are
+	// its siblings, never inside it, so they can drop to a row of their own.
+	it("chrome=full draws kind, facts and version as one line, with the review pill beside it and not inside it", () => {
+		const cases: Array<[string, string]> = [
+			["Dokumentum · 1 fül", "Dokumentum · 1 fül · v2"],
+			["Document · 3 tabs", "Document · 3 tabs · v2"],
+			["Canvas · 11 blocks", "Canvas · 11 blocks · v2"],
+			["Tábla · 12 blokk", "Tábla · 12 blokk · v2"],
+			["App", "App · v2"],
+		];
+		for (const [subtitle, line] of cases) {
+			const { container, unmount } = render(ArtifactCard, {
+				view: view({
+					subtitle,
+					versionNumber: 2,
+					pendingReviewCount: 1,
+					openTargetId: "artifact-1",
+				}),
+				chrome: "full",
+			});
+
+			const facts = container.querySelector(
+				".artifact-card-sub > .artifact-card-facts",
+			);
+			expect(facts?.textContent?.replace(/\s+/g, " ").trim()).toBe(line);
+			expect(
+				container.querySelector(".artifact-card-sub > .pill"),
+			).toBeInTheDocument();
+			expect(facts?.querySelector(".pill")).toBeNull();
+			// The version beside it is its own fact, led by its own separator.
+			expect(container.querySelector(".artifact-card-sep")).toHaveTextContent(
+				"·",
+			);
+			unmount();
+		}
+	});
+
 	it("chrome=body still renders nothing but the lazy File body for kind file", async () => {
 		render(ArtifactCard, {
 			view: view({ kind: "file", title: "Quarterly report" }),

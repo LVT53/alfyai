@@ -68,6 +68,7 @@ function startEditing(): void {
 	tone={data.tone}
 	summary={excerpt(data.text)}
 	activate={startEditing}
+	edit={startEditing}
 	toolbar={toneSwatches}
 >
 	<!-- The double-click is a pointer shortcut for what Enter does on the
@@ -87,8 +88,10 @@ function startEditing(): void {
 </NodeShell>
 
 <style>
+	/* The whole note is the thing a double-click edits, however tall the reader made it. */
 	.sticky {
 		box-sizing: border-box;
+		height: 100%;
 		min-height: 64px;
 		padding: 9px 10px;
 		color: var(--text-primary);

@@ -171,11 +171,27 @@ let annotations = $state.raw<Annotation[]>([...initial.annotations]);
 
 /** Wait this long after the last change before calling it a step: a drag or a burst of typing is one. */
 const SETTLE_MS = 350;
+/**
+ * How far a pointer may wander between the press and the release (px) and still be
+ * a click on a block or on the board, and not yet a drag. A laptop's touchpad never
+ * holds still; the library's own 1 px took that for a drag, dropped the click that
+ * followed (a File block did not open, a frame was not picked by its ground) and
+ * nudged a note a few pixels, as a step of its own.
+ */
+const WOBBLE_PX = 4;
 /** A panel narrower than this gets the compact toolbar and no minimap. */
 const COMPACT_BELOW = 480;
 const MINIMAP_ABOVE = 720;
-/** The toolbar and the zoom no longer fit side by side below this (a column of comments beside the board narrows it): the zoom goes above the toolbar. */
-const STACK_ZOOM_BELOW = 680;
+/**
+ * The toolbar and the zoom no longer fit side by side below this: the zoom goes above
+ * the toolbar. The toolbar is centred and 517 px wide in Hungarian, its widest (two
+ * of its buttons carry words), and the zoom (140 px and its 12 px margin) stands at
+ * the pane's right edge: they meet below 517 + 2 × 152 = 821 px, and this leaves
+ * the toolbar a few pixels clear of the zoom at the narrowest board above it. A
+ * column of comments beside the board narrows the pane, and so does a docked panel
+ * in a window of 1100 px (713 px). `artifact-canvas-floats-narrow.spec.ts` sweeps it.
+ */
+const STACK_ZOOM_BELOW = 830;
 
 let boardEl = $state<HTMLElement | null>(null);
 let boardWidth = $state(0);
@@ -294,6 +310,11 @@ $effect(() => {
 		hint: () => $t("artifacts.canvas.group.touchHint"),
 	});
 });
+// A finger types with a keyboard that shortens the pane or covers it: the camera pans, once, to bring the block being typed in back into view.
+$effect(() => {
+	if (!coarsePointer || !groupParts || !boardEl) return;
+	return groupParts.watchKeyboardReveal(boardEl, flow, isTextEntry);
+});
 /** Two or more blocks are picked and the box that stands for them is drawn: the blocks give up their own corners and toolbars. */
 let grouped = $derived(
 	groupParts !== null &&
@@ -333,7 +354,18 @@ provideBoardContext({
 	posterFailed: (id) => posterFailedIds.has(id),
 	updateData: (id, patch) => flow.updateNodeData(id, patch),
 	history: (action) => (action === "undo" ? undo() : redo()),
+	panBy: (pan, ms) => {
+		const { x, y, zoom } = flow.getViewport();
+		void flow.setViewport(
+			{ x: x + pan.x, y: y + pan.y, zoom },
+			{ duration: ms },
+		);
+	},
 	resizeFloor,
+	get toolbarShift() {
+		return toolbarPlaced;
+	},
+	measureToolbar: (size) => (toolbarSize = size),
 });
 
 function snapshot(): CanvasBody {
@@ -583,6 +615,17 @@ function handleWindowKeydown(event: KeyboardEvent): void {
 // ---- Zoom ----------------------------------------------------------------
 
 const ZOOM_STEP = 1.2;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 2;
+
+// A laptop's touchpad, a pinch and a mouse wheel move the camera: one lazy part
+// (`_lib/wheel.ts`) takes the wheel over the pane when the board mounts. Until it
+// has loaded the library's own pan-on-scroll below does the nearest thing.
+function takeWheel(board: HTMLElement): void {
+	void import("./_lib/wheel").then((wheel) =>
+		wheel.watchWheel(board, flow, MIN_ZOOM, MAX_ZOOM),
+	);
+}
 
 // Not `flow.zoomIn()`: `useSvelteFlow()` reads those two off the store that
 // exists when it is CALLED, and the board calls it above the `<SvelteFlow>` it
@@ -963,6 +1006,44 @@ function handleAsk(): void {
 // Where the change layer's pill is: the selection's pill keeps off it (RC-3 N3).
 let changePillBox = $state.raw<ScreenRect | null>(null);
 
+// The picked block's own small toolbar is hung by the library, centred above the block; the
+// pane keeps it from being cut off at its top or its sides (`placeToolbar`, CV-B2). The
+// block's shell is told how far to move it from where the library puts it, and the
+// selection's pill, which hangs under the block, is told where it ended up. The geometry
+// is a lazy part (`_lib/floating.ts`, which the layers that float over the board share):
+// it is asked for when the board mounts, long before anything is picked, and until it is
+// here the library's own place stands.
+let floating = $state.raw<typeof import("./_lib/floating") | null>(null);
+$effect(() => {
+	void import("./_lib/floating").then((module) => (floating = module));
+});
+let toolbarSize = $state.raw({ width: 0, height: 0 });
+let toolbarPlaced = $derived.by(() => {
+	if (!floating || readonly || grouped || pickedCount !== 1) return null;
+	const node = nodes.find((candidate) => candidate.selected);
+	if (!node) return null;
+	const box = nodeRect(node, nodes, node.measured);
+	const { x, y, zoom } = viewport;
+	const block = {
+		left: box.x * zoom + x,
+		top: box.y * zoom + y,
+		right: (box.x + box.width) * zoom + x,
+		bottom: (box.y + box.height) * zoom + y,
+	};
+	const size = toolbarSize;
+	const { rect } = floating.placeToolbar(
+		block,
+		{ width: boardWidth, height: boardHeight },
+		size,
+		changePillBox,
+	);
+	return {
+		rect,
+		// The library hangs it centred over the block, `TOOLBAR_OFFSET` above it.
+		dx: rect.left - ((block.left + block.right) / 2 - size.width / 2),
+		dy: rect.top - (block.top - floating.TOOLBAR_OFFSET - size.height),
+	};
+});
 let layerApi = $derived<BoardLayerApi>({
 	nodes,
 	viewport,
@@ -975,6 +1056,7 @@ let layerApi = $derived<BoardLayerApi>({
 	readonly,
 	changePillBox,
 	setChangePillBox: (box) => (changePillBox = box),
+	toolbarBox: toolbarPlaced?.rect ?? null,
 });
 
 let compact = $derived(boardWidth > 0 && boardWidth < COMPACT_BELOW);
@@ -1040,19 +1122,24 @@ let fitViewOptions = $derived({
 	maxZoom: 1,
 } as const);
 
-// A board is fitted again when its pane changes size (a tour card arriving or
-// going, a window resize, a bar that comes), but only until the reader touches it:
-// their first press on the board, or the focus entering it (a tap, a click, a
-// Tab), is the camera becoming theirs, and nothing here moves it after that. The
-// on-screen keyboard that opens when they tap a note to type shortens the pane,
-// and a board that zoomed out from under the note they are writing in is a board
-// that moves under them. A camera that has moved since the last fit (a pan, a
-// zoom, a centring) is theirs too, and a save that brought a camera of its own
-// has no fit to keep. Their Fit button is a fit again, and the reference again.
-// A pane that changes size over a transition changes every frame, so the board
-// follows it, a frame at a time.
-let fitted: Viewport | null = null;
+// A board is fitted again when what the fit takes in changes, but only until the
+// reader touches it: a pane that changes size (a tour card arriving or going, a
+// window resize, a bar that comes) and a block that draws its real size after the
+// board was fitted (a diagram: Mermaid lays it out a moment after the block was
+// measured empty, and the block then grows downwards, out of the pane). Their first
+// press on the board, or the focus entering it (a tap, a click, a Tab), is the
+// camera becoming theirs, and nothing here moves it after that. The on-screen
+// keyboard that opens when they tap a note to type shortens the pane, and a board
+// that zoomed out from under the note they are writing in is a board that moves
+// under them. A camera that has moved since the last fit (a pan, a zoom, a
+// centring) is theirs too, and a save that brought a camera of its own has no fit
+// to keep. Their Fit button is a fit again, and the reference again. A pane that
+// changes size over a transition changes every frame, so the board follows it, a
+// frame at a time. `fitKey` is what the last fit was told (the pane and the room
+// the blocks take), so the nodes the fit itself replaces are not a reason to fit.
+let fitted = $state.raw<Viewport | null>(null);
 let touched = false;
+let fitKey = "";
 
 function fitBoard(duration: number): void {
 	void flow
@@ -1061,7 +1148,7 @@ function fitBoard(duration: number): void {
 }
 
 $effect(() => {
-	void [boardWidth, boardHeight];
+	void [boardWidth, boardHeight, nodes, held, pictures, fitted];
 	untrack(() => {
 		if (
 			boardWidth > 0 &&
@@ -1070,6 +1157,13 @@ $effect(() => {
 			!held &&
 			followsPane(flow.getViewport(), fitted, touched)
 		) {
+			const key = [
+				boardWidth,
+				boardHeight,
+				...Object.values(flow.getNodesBounds(nodes)),
+			].join();
+			if (key === fitKey) return;
+			fitKey = key;
 			fitBoard(0);
 		}
 	});
@@ -1116,6 +1210,7 @@ function minimapColor(node: {
 	bind:clientHeight={boardHeight}
 	onpointerdowncapture={() => (touched = true)}
 	onfocusincapture={() => (touched = true)}
+	{@attach takeWheel}
 	style:--canvas-board-width="{boardWidth}px"
 	style:--canvas-inv-zoom={1 / restingZoom}
 	data-testid="canvas-board"
@@ -1153,13 +1248,17 @@ function minimapColor(node: {
 		aria-label={$t("artifacts.type.canvas")}
 		fitView={fitOnOpen}
 		{fitViewOptions}
-		minZoom={0.2}
-		maxZoom={2}
+		minZoom={MIN_ZOOM}
+		maxZoom={MAX_ZOOM}
+		panOnScroll
 		{panOnDrag}
 		{selectionOnDrag}
 		selectionMode={SelectionMode.Full}
 		multiSelectionKey={MULTI_SELECTION_KEY}
 		{nodesDraggable}
+		nodeClickDistance={WOBBLE_PX}
+		nodeDragThreshold={WOBBLE_PX}
+		paneClickDistance={WOBBLE_PX}
 		nodesConnectable={!readonly && !held}
 		connectionMode={ConnectionMode.Loose}
 		deleteKey={readonly || held ? null : ["Backspace", "Delete"]}
@@ -1228,7 +1327,7 @@ function minimapColor(node: {
 				zoomable
 				nodeColor={minimapColor}
 				class="canvas-minimap"
-				style="margin-bottom: 52px;"
+				style="margin-bottom: {stackedZoom ? 108 : 52}px;"
 			/>
 		{/if}
 		<Panel

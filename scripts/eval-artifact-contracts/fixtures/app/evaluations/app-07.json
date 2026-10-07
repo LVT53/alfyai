@@ -12,12 +12,12 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 249,
-				"textSample": "Duna-kvíz 10 kérdés Európa legismertebb folyójáról. Válassz egy választ a négy közül, majd lépj a következőre. Készen állsz? Ez a kvíz 10 kérdést tartalmaz a Dunáról, mindegyikhez négy válaszlehetőséggel. A végén megkapo",
-				"controlCount": 1,
+				"textLength": 241,
+				"textSample": "Duna kvíz 10 kérdés Európa egyik legnagyobb folyójáról. Válassz egy választ, majd lépj a következőre. A végén megmutatjuk a pontszámodat. Kész a kvízre? Még nem válaszoltál egyetlen kérdésre sem. Nyomd meg a gombot a kez",
+				"controlCount": 4,
 				"storageGets": 1,
 				"storageSets": 1,
-				"storageKeys": ["duna-quiz"]
+				"storageKeys": ["duna-quiz-v1"]
 			},
 			{
 				"label": "dark-1280",
@@ -30,9 +30,9 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 249,
-				"textSample": "Duna-kvíz 10 kérdés Európa legismertebb folyójáról. Válassz egy választ a négy közül, majd lépj a következőre. Készen állsz? Ez a kvíz 10 kérdést tartalmaz a Dunáról, mindegyikhez négy válaszlehetőséggel. A végén megkapo",
-				"controlCount": 1,
+				"textLength": 241,
+				"textSample": "Duna kvíz 10 kérdés Európa egyik legnagyobb folyójáról. Válassz egy választ, majd lépj a következőre. A végén megmutatjuk a pontszámodat. Kész a kvízre? Még nem válaszoltál egyetlen kérdésre sem. Nyomd meg a gombot a kez",
+				"controlCount": 4,
 				"storageGets": 1,
 				"storageSets": 0,
 				"storageKeys": []
@@ -48,9 +48,9 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 249,
-				"textSample": "Duna-kvíz 10 kérdés Európa legismertebb folyójáról. Válassz egy választ a négy közül, majd lépj a következőre. Készen állsz? Ez a kvíz 10 kérdést tartalmaz a Dunáról, mindegyikhez négy válaszlehetőséggel. A végén megkapo",
-				"controlCount": 1,
+				"textLength": 241,
+				"textSample": "Duna kvíz 10 kérdés Európa egyik legnagyobb folyójáról. Válassz egy választ, majd lépj a következőre. A végén megmutatjuk a pontszámodat. Kész a kvízre? Még nem válaszoltál egyetlen kérdésre sem. Nyomd meg a gombot a kez",
+				"controlCount": 4,
 				"storageGets": 1,
 				"storageSets": 0,
 				"storageKeys": []
@@ -66,9 +66,9 @@
 				"consoleErrors": [],
 				"pageErrors": [],
 				"blockedRequests": [],
-				"textLength": 249,
-				"textSample": "Duna-kvíz 10 kérdés Európa legismertebb folyójáról. Válassz egy választ a négy közül, majd lépj a következőre. Készen állsz? Ez a kvíz 10 kérdést tartalmaz a Dunáról, mindegyikhez négy válaszlehetőséggel. A végén megkapo",
-				"controlCount": 1,
+				"textLength": 241,
+				"textSample": "Duna kvíz 10 kérdés Európa egyik legnagyobb folyójáról. Válassz egy választ, majd lépj a következőre. A végén megmutatjuk a pontszámodat. Kész a kvízre? Még nem válaszoltál egyetlen kérdésre sem. Nyomd meg a gombot a kez",
+				"controlCount": 4,
 				"storageGets": 1,
 				"storageSets": 0,
 				"storageKeys": []
@@ -82,12 +82,12 @@
 			"domChangedAfter": "Kvíz indítása",
 			"clicked": true,
 			"domChanged": true,
-			"textBefore": 249,
-			"textAfter": 347,
+			"textBefore": 241,
+			"textAfter": 257,
 			"htmlChanged": true,
 			"storageSetsBefore": 0,
 			"storageSetsAfter": 1,
-			"storageKeys": ["duna-quiz"],
+			"storageKeys": ["duna-quiz-v1"],
 			"dialogs": [],
 			"note": null
 		},
@@ -96,6 +96,6 @@
 		"blockedRequests": [],
 		"storageGets": 1,
 		"storageSets": 1,
-		"storageKeys": ["duna-quiz"]
+		"storageKeys": ["duna-quiz-v1"]
 	}
 }
