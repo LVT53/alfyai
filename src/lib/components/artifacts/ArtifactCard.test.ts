@@ -334,6 +334,39 @@ describe("ArtifactCard", () => {
 		expect(head).toHaveTextContent("Open");
 	});
 
+	// M-7 of the final review: the head's second line wraps wherever its column
+	// lets it (the panel docked beside the chat squeezes the column to a few dozen
+	// pixels), and used to break "1 fül" into "1" / "fül". A fact of the line
+	// ("· 1 fül") wraps whole: no-break spaces after the separator and between a
+	// number and its unit. To a reader the line says what it said.
+	it("chrome=full keeps each fact of the second line whole, without changing what the line says", () => {
+		const cases: Array<[string, string]> = [
+			["Dokumentum · 1 fül", "Dokumentum ·\u00a01\u00a0fül"],
+			["Document · 3 tabs", "Document ·\u00a03\u00a0tabs"],
+			["Canvas · 11 blocks", "Canvas ·\u00a011\u00a0blocks"],
+			["Tábla · 12 blokk", "Tábla ·\u00a012\u00a0blokk"],
+			["App", "App"],
+		];
+		for (const [subtitle, kept] of cases) {
+			const { container, unmount } = render(ArtifactCard, {
+				view: view({ subtitle, versionNumber: 2, openTargetId: "artifact-1" }),
+				chrome: "full",
+			});
+
+			expect(
+				container.querySelector(".artifact-card-sub > span")?.textContent,
+			).toBe(kept);
+			expect(
+				screen.getByRole("button", { name: /Weekend checklist/ }),
+			).toHaveTextContent(subtitle);
+			// The version beside it is its own fact, led by its own separator.
+			expect(container.querySelector(".artifact-card-sep")).toHaveTextContent(
+				"·",
+			);
+			unmount();
+		}
+	});
+
 	it("chrome=body still renders nothing but the lazy File body for kind file", async () => {
 		render(ArtifactCard, {
 			view: view({ kind: "file", title: "Quarterly report" }),
