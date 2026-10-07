@@ -33,6 +33,7 @@ import {
 	modelCreatableBlockDataSchema,
 	modelUpdatableFields,
 	repeatedEntryIds,
+	storedBlockData,
 } from "./canvas-blocks";
 import { boardJson, MAX_BODY_BYTES, MAX_NODES_PER_BOARD } from "./canvas-body";
 import type { OpRefusal, OpsJudgeContext, OpsVocabulary } from "./ops";
@@ -610,9 +611,10 @@ function stepAddNode(
 			spec.id,
 		);
 	}
-	const data = MODEL_CREATABLE_DATA_SCHEMAS[spec.type].safeParse(spec.data);
+	const written = storedBlockData(spec.data);
+	const data = MODEL_CREATABLE_DATA_SCHEMAS[spec.type].safeParse(written);
 	if (!data.success) {
-		const declared = isRecord(spec.data) ? spec.data.kind : undefined;
+		const declared = isRecord(written) ? written.kind : undefined;
 		if (typeof declared === "string" && declared !== spec.type) {
 			return refuse(
 				"kind_mismatch",
@@ -626,7 +628,9 @@ function stepAddNode(
 			spec.id,
 		);
 	}
-	const repeated = repeatedIdsProblem(data.data);
+	// A chart's config was written as text above, so this is a block as it is stored.
+	const block = data.data as CanvasBlockData;
+	const repeated = repeatedIdsProblem(block);
 	if (repeated !== null) return refuse("invalid_data", repeated, spec.id);
 	if (data.data.kind === "mermaid") {
 		const unsafe = mermaidSourceProblem(data.data.code);
@@ -665,14 +669,14 @@ function stepAddNode(
 	if (limited) return limited;
 	// Where it goes is settled here, once: the op that lands names a place and a
 	// frame, and no longer a `near`.
-	const kind = data.data.kind;
+	const kind = block.kind;
 	const size =
-		kind === "frame"
-			? { width: data.data.width, height: data.data.height }
+		block.kind === "frame"
+			? { width: block.width, height: block.height }
 			: estimatedNodeSize({
 					type: spec.type,
 					width: defaultNodeWidth(spec.type),
-					data: data.data,
+					data: block,
 				});
 	const placed = placeBlock(body, {
 		id: spec.id,
@@ -689,7 +693,7 @@ function stepAddNode(
 			type: spec.type,
 			...(placed.parentId === undefined ? {} : { parentId: placed.parentId }),
 			position: placed.position,
-			data: spec.data,
+			data: written,
 		},
 	} as BoardOp;
 	return grow(applyOp(body, settled), spec.id, settled);
@@ -715,9 +719,14 @@ function stepUpdateNode(
 			op.id,
 		);
 	}
+	// A chart's config written as an object is the JSON text the block holds.
+	const patch: Record<string, unknown> =
+		target.type === "chart" && isRecord(op.data.code)
+			? { ...op.data, code: JSON.stringify(op.data.code) }
+			: op.data;
 	const schema = BLOCK_DATA_SCHEMAS[target.type];
 	const fields = Object.keys(schema.shape);
-	const stray = Object.keys(op.data).filter((key) => !fields.includes(key));
+	const stray = Object.keys(patch).filter((key) => !fields.includes(key));
 	if (stray.length > 0) {
 		return refuse(
 			"invalid_data",
@@ -727,7 +736,7 @@ function stepUpdateNode(
 	}
 	// What the app vouches for is set by the app, never by an op (ruling 67).
 	const settable = modelUpdatableFields(target.type);
-	const owned = Object.keys(op.data).filter(
+	const owned = Object.keys(patch).filter(
 		(key) => key !== "kind" && !settable.includes(key),
 	);
 	if (owned.length > 0) {
@@ -737,12 +746,12 @@ function stepUpdateNode(
 			op.id,
 		);
 	}
-	if (target.type === "mermaid" && typeof op.data.code === "string") {
-		const unsafe = mermaidSourceProblem(op.data.code);
+	if (target.type === "mermaid" && typeof patch.code === "string") {
+		const unsafe = mermaidSourceProblem(patch.code);
 		if (unsafe !== null) return refuse("invalid_data", unsafe, op.id);
 	}
 	// The merged data has to be a whole, valid block of the node's own kind.
-	const merged = schema.safeParse({ ...target.data, ...op.data });
+	const merged = schema.safeParse({ ...target.data, ...patch });
 	if (!merged.success) {
 		return refuse(
 			"invalid_data",
@@ -752,7 +761,8 @@ function stepUpdateNode(
 	}
 	const repeated = repeatedIdsProblem(merged.data);
 	if (repeated !== null) return refuse("invalid_data", repeated, op.id);
-	return grow(applyOp(body, op), op.id);
+	const settled: BoardOp = { ...op, data: patch };
+	return grow(applyOp(body, settled), op.id, settled);
 }
 
 /**

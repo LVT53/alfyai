@@ -284,6 +284,26 @@ const chartDataSchema = z.object({
 	code: z.string().min(1).max(CHART_CODE_MAX_CHARS),
 });
 
+/**
+ * The chart the MODEL writes: the Chart.js config as an object, or as the JSON
+ * text the block stores. JSON inside a JSON string is where a model's escaping
+ * slips (an `ops` array sent as one string that cannot be read: three in five of
+ * the first tries to add a chart in the Canvas eval), so the object is the way
+ * the schema leads with, and `storedBlockData` turns it into the text the block
+ * holds before anything is judged or kept.
+ */
+function modelChartDataSchema() {
+	return chartDataSchema
+		.extend({
+			code: z
+				.union([chartDataSchema.shape.code, z.record(z.string(), z.unknown())])
+				.describe(
+					"The Chart.js config, as an object ({type, data, options}) or as JSON text.",
+				),
+		})
+		.strict();
+}
+
 const mermaidDataSchema = z.object({
 	kind: z.literal("mermaid"),
 	label: labelSchema.optional(),
@@ -294,7 +314,7 @@ const mermaidDataSchema = z.object({
 		.min(1)
 		.max(MERMAID_CODE_MAX_CHARS)
 		.describe(
-			"Mermaid source as in a chat reply's ```mermaid fence, without the fence: a flowchart, sequence, state, class, ER, gantt or pie diagram. Quote a label that has ( ) : or \" in it.",
+			"Mermaid source as in a chat reply's ```mermaid fence, without the fence: a flowchart, sequence, state, class, ER, gantt or pie diagram. A label with ( ) in it must be quoted; otherwise avoid double quotes (inside this JSON each needs an escape).",
 		),
 });
 
@@ -545,7 +565,7 @@ export const MODEL_CREATABLE_DATA_SCHEMAS = {
 	sticky: stickyDataSchema.strict(),
 	text: textDataSchema.strict(),
 	checklist: checklistDataSchema.strict(),
-	chart: chartDataSchema.strict(),
+	chart: modelChartDataSchema(),
 	mermaid: mermaidDataSchema.strict(),
 } as const;
 
@@ -603,6 +623,26 @@ export const modelCreatableBlockDataSchema = z.discriminatedUnion("kind", [
 	MODEL_CREATABLE_DATA_SCHEMAS.chart,
 	MODEL_CREATABLE_DATA_SCHEMAS.mermaid,
 ]);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * What the model wrote, as the block stores it: a chart's config written as an
+ * object becomes the JSON text the block holds. Everything else is as written.
+ * Applied to what the model sends (an add's `data`, an update's fields) before it
+ * is judged, so the one stored schema is the one a block is held to.
+ */
+export function storedBlockData<T>(data: T): T {
+	if (isPlainObject(data) && isPlainObject(data.code)) {
+		const kind = data.kind;
+		if (kind === undefined || kind === "chart") {
+			return { ...data, code: JSON.stringify(data.code) } as T;
+		}
+	}
+	return data;
+}
 
 /**
  * What a diagram's source may not carry when the MODEL writes it (ruling 74, on

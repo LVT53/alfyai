@@ -27,7 +27,7 @@
 import type { CanvasBody, CanvasNode, Pt } from "./canvas";
 import { estimatedNodeSize } from "./canvas-blocks";
 
-export interface Box {
+interface Box {
 	x: number;
 	y: number;
 	width: number;

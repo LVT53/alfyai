@@ -640,6 +640,82 @@ describe("validateBoardDiff — a diagram Alfy may add and rewrite (ruling 74, a
 	});
 });
 
+describe("validateBoardDiff — a chart's config as an object (ruling 74's eval: JSON inside a JSON string is where models slip)", () => {
+	const config = {
+		type: "bar",
+		data: {
+			labels: ["A", "B"],
+			datasets: [{ label: "EUR", data: [1, 2] }],
+		},
+	};
+	const addChart = (code: unknown) =>
+		unchecked({
+			op: "add_node",
+			node: {
+				id: "costs",
+				type: "chart",
+				position: { x: 700, y: 400 },
+				data: { kind: "chart", label: "Costs", code },
+			},
+		});
+
+	it("takes the config as an object and stores it as the JSON text the block holds", () => {
+		const run = land(sampleBoard(), ...addChart(config).ops);
+		expect(run.refused).toEqual([]);
+		const stored = node(run.doc, "costs");
+		expect(stored.data).toEqual({
+			kind: "chart",
+			label: "Costs",
+			code: JSON.stringify(config),
+		});
+		// The op that landed says the same, so nothing downstream sees an object.
+		expect(run.accepted[0]).toMatchObject({
+			node: { data: { code: JSON.stringify(config) } },
+		});
+	});
+
+	it("takes the config as JSON text, as before, and refuses what is neither", () => {
+		const text = JSON.stringify(config);
+		expect(validateBoardDiff(addChart(text), sampleBoard()).refused).toEqual(
+			[],
+		);
+		for (const code of [5, ["bar"], null, true]) {
+			const { accepted, refused } = validateBoardDiff(
+				addChart(code),
+				sampleBoard(),
+			);
+			expect(accepted, JSON.stringify(code)).toEqual([]);
+			expect(refused[0].reason).toBe("invalid_data");
+		}
+	});
+
+	it("takes an object in an update of a chart, and leaves a diagram's source to be text", () => {
+		const { accepted, refused } = validateBoardDiff(
+			unchecked(
+				{ op: "update_node", id: "chart-1", data: { code: config } },
+				{ op: "update_node", id: "diagram-1", data: { code: config } },
+			),
+			sampleBoard(),
+		);
+		expect(accepted).toHaveLength(1);
+		expect(accepted[0]).toMatchObject({
+			op: "update_node",
+			id: "chart-1",
+			data: { code: JSON.stringify(config) },
+		});
+		expect(refused).toHaveLength(1);
+		expect(refused[0]).toMatchObject({
+			id: "diagram-1",
+			reason: "invalid_data",
+		});
+	});
+
+	it("advertises both forms in the one schema it validates with", () => {
+		const advertised = JSON.stringify(z.toJSONSchema(boardOpsArraySchema));
+		expect(advertised).toContain("The Chart.js config, as an object");
+	});
+});
+
 describe("validateBoardDiff — where a block goes when Alfy adds it (ruling 74)", () => {
 	/** The tidy board of the eval: a Saturday frame full of four notes, a title and a checklist to its right. */
 	function vienna(): CanvasBody {

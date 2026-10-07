@@ -814,8 +814,19 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                                   "maxLength": 500
                                 },
                                 "code": {
-                                  "type": "string",
-                                  "maxLength": 100000
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 100000
+                                    },
+                                    {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  ],
+                                  "description": "The Chart.js config, as an object ({type, data, options}) or as JSON text."
                                 }
                               },
                               "required": [
@@ -841,7 +852,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
                                 "code": {
                                   "type": "string",
                                   "maxLength": 50000,
-                                  "description": "Mermaid source as in a chat reply's ```mermaid fence, without the fence: a flowchart, sequence, state, class, ER, gantt or pie diagram. Quote a label that has ( ) : or \" in it."
+                                  "description": "Mermaid source as in a chat reply's ```mermaid fence, without the fence: a flowchart, sequence, state, class, ER, gantt or pie diagram. A label with ( ) in it must be quoted; otherwise avoid double quotes (inside this JSON each needs an escape)."
                                 }
                               },
                               "required": [
