@@ -980,4 +980,14 @@ UI (ruling 72 confirmed). The model server's downtime this afternoon was the own
   migrations OK, **17,386 tests**, build 32/2, chunks OK (editor closure 70.7 kB gzip; chat +1,806 / 2,048), Fallow 124/4
   (0 new), **Playwright 667 passed + 23 skipped, 0 failed** (every artifact suite, knowledge, streaming, follow-up chips,
   admin campaigns, the project specs, the panel over the dialog, forks, settings-admin).
+- **M3 — WAVE 4 IS LIVE ON ai.dev (2026-10-07 ~15:20 UTC): `dev` = ai.dev = `7cb27654`** (pushed; deploy OK, health 200,
+  `current -> releases/7cb27654`). Release gates (dev-int): check 0/17, **17,408 tests**, build 32/2, chunks OK (editor
+  closure 70.9 kB gzip; chat +1,851 / 2,048), Fallow 124/4 (0 new), **Playwright 686 passed + 23 skipped, 0 failed**
+  (every artifact suite, knowledge, streaming, follow-up chips, admin campaigns, the project specs, the panel over the
+  dialog, forks, settings-admin). **Live, real model:** Canvas 5/5 PASS (create-en, edit, create-hu, incognito, and
+  alfy-comment — passing now that FU-1 fixed the script); tours 10/10; the chart probe: the Hungarian board now holds a bar
+  chart, a radar chart AND a real `mermaid` flowchart (three sticky notes before), the English one pie + line; language
+  13/13 in substance (the script's detector reads bare "144"/"169" as unknown). **Stopped for the owner's walk.** Next (owner,
+  2026-10-07): the gate-speed job (memory `alfyai-dev-process-speed`), then the release checklist; production only on the
+  owner's word.
 
