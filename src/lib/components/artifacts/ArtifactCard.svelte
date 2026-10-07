@@ -299,6 +299,21 @@ $effect(() => {
 function handleOpen(): void {
 	if (view.openTargetId) onOpen?.(view.openTargetId);
 }
+
+/**
+ * The head's second line is one string ("Dokumentum · 1 fül"), and the column
+ * it sits in can be squeezed to a few dozen pixels by the open label beside it
+ * (the panel docked next to the chat), so it wraps wherever the text allows —
+ * and used to break a number from its unit ("1" / "fül"). A no-break space
+ * after the separator and between a number and the word after it makes each
+ * fact ("· 1 fül") one piece that wraps whole, led by its dot like the version
+ * beside it ("· v1"), and leaves the line free to wrap between its facts.
+ * (`white-space: nowrap` on the whole line would hold a fact together too, but
+ * spills into the open label once the column is narrower than the line.)
+ */
+function keepFactsWhole(text: string): string {
+	return text.replace(/([\d·]) (?=[\p{L}\d])/gu, "$1\u00a0");
+}
 </script>
 
 {#if chrome === 'body' && view.kind === 'file'}
@@ -481,7 +496,7 @@ function handleOpen(): void {
 						{#if view.creating}
 							<span class="artifact-card-sub-writing">{$t('artifacts.card.creatingSubtitle')}</span>
 						{:else}
-							<span>{subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
+							<span>{keepFactsWhole(subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey))}</span>
 						{/if}
 						{#if view.versionNumber}
 							<span class="artifact-card-sep" aria-hidden="true">·</span>

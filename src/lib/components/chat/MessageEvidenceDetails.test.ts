@@ -6,6 +6,7 @@ import {
 	within,
 } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { DeletedArtifacts } from "$lib/components/artifacts/deleted-artifacts";
 import type {
 	MessageEvidenceItem,
 	MessageEvidenceSummary,
@@ -28,6 +29,19 @@ vi.mock("$lib/client/api/knowledge", () => ({
 	submitKnowledgeMemoryAction: submitKnowledgeMemoryActionMock,
 	submitMemoryV2Action: submitMemoryV2ActionMock,
 }));
+
+// Transparent unless a test shelves the tours: which kinds a made row can name
+// must not depend on which kinds have a tour (M-3 of the final review).
+const tours = vi.hoisted(() => ({ shelved: false }));
+vi.mock("$lib/shared/artifacts/tours", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("$lib/shared/artifacts/tours")>();
+	return {
+		...actual,
+		isShippedArtifactTourType: (value: unknown) =>
+			!tours.shelved && actual.isShippedArtifactTourType(value),
+	};
+});
 
 function buildSummary(
 	overrides: Partial<MessageEvidenceSummary> = {},
@@ -1218,6 +1232,215 @@ describe("MessageEvidenceDetails — what the turn made", () => {
 			.getByText("Weekend plan")
 			.closest(".evidence-row") as HTMLElement;
 		expect(within(row).getByText("Document")).toBeInTheDocument();
+	});
+
+	it("names and opens a kind that ships whatever its tour does: a shelved tour does not turn the row plain", async () => {
+		tours.shelved = true;
+		try {
+			const onOpenDocument = vi.fn();
+			render(MessageEvidenceDetails, {
+				evidenceSummary: madeSummary(made("board-1", "Trip board", "canvas")),
+				onOpenDocument,
+			});
+			await openSources();
+
+			const row = screen.getByRole("button", { name: /Trip board/ });
+			expect(within(row).getByText("Canvas")).toBeInTheDocument();
+			await fireEvent.click(row);
+			expect(onOpenDocument.mock.calls[0][0]).toMatchObject({
+				artifactId: "board-1",
+				kind: "canvas",
+			});
+		} finally {
+			tours.shelved = false;
+		}
+	});
+
+	// M-2 of the final review: a fork copies the parent's messages with their
+	// Sources as they were, so what the parent's turn made was made in the
+	// ORIGINAL chat. The heading says so in the card's own words.
+	it("calls the group 'Made in the original chat' in a fork's copied Sources, and the rows still open", async () => {
+		const onOpenDocument = vi.fn();
+		render(MessageEvidenceDetails, {
+			evidenceSummary: madeSummary(made("doc-1", "Weekend plan", "document")),
+			onOpenDocument,
+			madeInOriginalChat: true,
+		});
+		await openSources();
+
+		expect(
+			screen.getByRole("heading", { name: "Made in the original chat" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("group", { name: "Made in the original chat" }),
+		).toBeInTheDocument();
+		expect(screen.queryByText("Made in this chat")).toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: /Weekend plan/ }));
+		expect(onOpenDocument).toHaveBeenCalledTimes(1);
+	});
+
+	it("says it in Hungarian with the card's own words too", async () => {
+		uiLanguage.set("hu");
+		render(MessageEvidenceDetails, {
+			evidenceSummary: madeSummary(made("doc-1", "Hétvégi terv", "document")),
+			onOpenDocument: vi.fn(),
+			madeInOriginalChat: true,
+		});
+		await openSources();
+
+		expect(
+			screen.getByRole("heading", {
+				name: "Az eredeti beszélgetésben készült",
+			}),
+		).toBeInTheDocument();
+		expect(screen.queryByText("Ebben a beszélgetésben készült")).toBeNull();
+	});
+
+	// M-1 of the final review: the chat's cards say an item was deleted, and the
+	// Sources row of the same item kept looking like a link. It reads the state
+	// the cards read (`DeletedArtifacts`) and says it in the card's own words.
+	describe("an item that is gone or out of reach", () => {
+		function state(
+			overrides: Partial<Omit<DeletedArtifacts, "onRegenerate">> = {},
+		): DeletedArtifacts {
+			return {
+				deletedIds: [],
+				unreachableIds: [],
+				regeneratingIds: [],
+				unavailableIds: [],
+				onRegenerate: vi.fn(),
+				...overrides,
+			};
+		}
+
+		it("draws the row of a deleted item as plain text, with the card's words in place of the kind, and no way to open it", async () => {
+			const onOpenDocument = vi.fn();
+			render(MessageEvidenceDetails, {
+				evidenceSummary: madeSummary(
+					made("doc-1", "Weekend plan", "document"),
+					made("doc-2", "Packing list", "document"),
+				),
+				onOpenDocument,
+				deletedArtifacts: state({ deletedIds: ["doc-1"] }),
+			});
+			await openSources();
+
+			expect(screen.queryByRole("button", { name: /Weekend plan/ })).toBeNull();
+			const gone = screen
+				.getByText("Weekend plan")
+				.closest(".evidence-row") as HTMLElement;
+			expect(
+				within(gone).getByText("This document was deleted"),
+			).toBeInTheDocument();
+			expect(within(gone).queryByText("Document")).toBeNull();
+			await fireEvent.click(screen.getByText("Weekend plan"));
+			expect(onOpenDocument).not.toHaveBeenCalled();
+			// The other item is untouched: still a button, still named by its kind.
+			const live = screen.getByRole("button", { name: /Packing list/ });
+			expect(within(live).getByText("Document")).toBeInTheDocument();
+		});
+
+		it("says it per kind, in English and in Hungarian, with the words the cards use", async () => {
+			const items = [
+				made("doc-1", "Weekend plan", "document"),
+				made("app-1", "Budget tracker", "app"),
+				made("board-1", "Trip board", "canvas"),
+			];
+			const deletedArtifacts = state({
+				deletedIds: ["doc-1", "app-1", "board-1"],
+			});
+			const { unmount } = render(MessageEvidenceDetails, {
+				evidenceSummary: madeSummary(...items),
+				onOpenDocument: vi.fn(),
+				deletedArtifacts,
+			});
+			await openSources();
+			for (const [title, words] of [
+				["Weekend plan", "This document was deleted"],
+				["Budget tracker", "This app was deleted"],
+				["Trip board", "This canvas was deleted"],
+			]) {
+				const row = screen
+					.getByText(title)
+					.closest(".evidence-row") as HTMLElement;
+				expect(within(row).getByText(words)).toBeInTheDocument();
+			}
+			unmount();
+
+			uiLanguage.set("hu");
+			render(MessageEvidenceDetails, {
+				evidenceSummary: madeSummary(...items),
+				onOpenDocument: vi.fn(),
+				deletedArtifacts,
+			});
+			await openSources();
+			for (const [title, words] of [
+				["Weekend plan", "Ez a dokumentum törölve lett"],
+				["Budget tracker", "Ez az alkalmazás törölve lett"],
+				["Trip board", "Ez a tábla törölve lett"],
+			]) {
+				const row = screen
+					.getByText(title)
+					.closest(".evidence-row") as HTMLElement;
+				expect(within(row).getByText(words)).toBeInTheDocument();
+			}
+		});
+
+		it("draws an item that exists but is out of this chat's reach as plain text too, never as deleted", async () => {
+			const onOpenDocument = vi.fn();
+			render(MessageEvidenceDetails, {
+				evidenceSummary: madeSummary(made("doc-1", "Weekend plan", "document")),
+				onOpenDocument,
+				// Both lists name it: out of reach wins, as it does on the card.
+				deletedArtifacts: state({
+					deletedIds: ["doc-1"],
+					unreachableIds: ["doc-1"],
+				}),
+			});
+			await openSources();
+
+			expect(screen.queryByRole("button", { name: /Weekend plan/ })).toBeNull();
+			const row = screen
+				.getByText("Weekend plan")
+				.closest(".evidence-row") as HTMLElement;
+			expect(within(row).getByText("Document")).toBeInTheDocument();
+			expect(screen.queryByText(/was deleted/)).toBeNull();
+			await fireEvent.click(screen.getByText("Weekend plan"));
+			expect(onOpenDocument).not.toHaveBeenCalled();
+		});
+
+		it("is a live row again the moment the item is back, with the page's own state as the only source", async () => {
+			const onOpenDocument = vi.fn();
+			const { rerender } = render(MessageEvidenceDetails, {
+				evidenceSummary: madeSummary(made("doc-1", "Weekend plan", "document")),
+				onOpenDocument,
+				deletedArtifacts: state({ deletedIds: ["doc-1"] }),
+			});
+			await openSources();
+			expect(screen.getByText("This document was deleted")).toBeInTheDocument();
+
+			// Regenerate on the card makes it again under the same id.
+			await rerender({ deletedArtifacts: state() });
+
+			expect(screen.queryByText(/was deleted/)).toBeNull();
+			await fireEvent.click(
+				screen.getByRole("button", { name: /Weekend plan/ }),
+			);
+			expect(onOpenDocument).toHaveBeenCalledTimes(1);
+		});
+
+		it("marks nothing when the page gave no state", async () => {
+			render(MessageEvidenceDetails, {
+				evidenceSummary: madeSummary(made("doc-1", "Weekend plan", "document")),
+				onOpenDocument: vi.fn(),
+			});
+			await openSources();
+
+			expect(
+				screen.getByRole("button", { name: /Weekend plan/ }),
+			).toBeInTheDocument();
+			expect(screen.queryByText(/was deleted/)).toBeNull();
+		});
 	});
 
 	it("does not offer to open a made row that names no kind it can draw", async () => {

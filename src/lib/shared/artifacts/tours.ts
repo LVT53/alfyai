@@ -6,7 +6,7 @@
  * the server must agree on: which kinds have a tour, and the wire shapes of
  * the two tour routes.
  */
-import type { ArtifactKind } from "./kinds";
+import type { ArtifactKind, ShippedArtifactKind } from "./kinds";
 
 /**
  * Every kind a tour's COPY can exist for. Ruling 8: File gets no tour,
@@ -23,22 +23,28 @@ import type { ArtifactKind } from "./kinds";
 export type ArtifactTourType = Exclude<ArtifactKind, "file">;
 
 /**
- * The kinds whose tour ships — the ONE list (ruling 69: Slides is shelved, so
- * three tours ship until it comes back). The tour routes, the resolver, the
- * admin seeding and the account archive's labels all read this list, so a kind
- * that is not on it is not served (a 404, like any unknown path segment), not
- * seeded as a draft and not shown. Its default copy may stay in
- * `ARTIFACT_TOUR_DEFAULTS` for the day it ships; being in that table reaches
+ * The kinds whose tour ships — the ONE list of tours (ruling 69: Slides is
+ * shelved, so three tours ship until it comes back). The tour routes, the
+ * resolver, the admin seeding and the account archive's labels all read this
+ * list, so a kind that is not on it is not served (a 404, like any unknown
+ * path segment), not seeded as a draft and not shown. Its default copy may stay
+ * in `ARTIFACT_TOUR_DEFAULTS` for the day it ships; being in that table reaches
  * nobody.
  *
- * Bringing Slides back is one entry here, in the same commit as Slides
+ * It is a list of its own, checked against the kinds that ship
+ * (`SHIPPED_ARTIFACT_KINDS`, `./kinds`): a tour cannot be listed for a kind
+ * that does not ship (it fails to compile), and a kind that ships without a
+ * tour, or whose tour is shelved, stays a kind — what the evidence panel names
+ * and opens reads the kinds' list, never this one.
+ *
+ * Bringing Slides back is one entry in each list, in the same commit as Slides
  * itself, and nothing else: the table already has its copy.
  */
 export const SHIPPED_ARTIFACT_TOUR_TYPES = [
 	"document",
 	"app",
 	"canvas",
-] as const satisfies readonly ArtifactTourType[];
+] as const satisfies readonly (ArtifactTourType & ShippedArtifactKind)[];
 
 export type ShippedArtifactTourType =
 	(typeof SHIPPED_ARTIFACT_TOUR_TYPES)[number];

@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
-import { users } from "../../src/lib/server/db/schema";
+import { messages, users } from "../../src/lib/server/db/schema";
 import { createDocumentArtifact } from "../../src/lib/server/services/artifacts";
 import { runReadArtifactTool } from "../../src/lib/server/services/normal-chat-tools/artifact-tools/read";
 import {
@@ -635,6 +636,133 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 			}
 		}
 	});
+});
+
+// M-7 of the final review: with the panel docked beside the chat the card's text
+// column is squeezed by its "Megnyitva a panelen" label, and the meta line
+// wrapped between a number and its unit — "Dokumentum · 1 / fül / · v1". The
+// line may break between its facts, never inside one ("· 1 fül" is a fact: its
+// separator leads it, as "· v1" is led, and is never left at the end of a line). The card is the one the
+// app draws for a Document the turn made (seeded the way the call leaves it:
+// the artifact and the message with the call's own record, since the wrap does
+// not depend on how the Document came to be); the panel is opened with a click
+// on the card, and what is measured is where the browser put the line breaks.
+test.describe("the in-chat artifact card's meta line", () => {
+	for (const width of [1440, 1280]) {
+		test(`keeps a number and its unit on one line when the docked panel squeezes the card (${width} px, Hungarian)`, async ({
+			page,
+		}) => {
+			await db
+				.update(users)
+				.set({ uiLanguage: "hu" })
+				.where(eq(users.email, "admin@local"));
+			try {
+				await page.setViewportSize({ width, height: 900 });
+				await login(page);
+				const conversationId = await createConversation(page, "Plan a weekend");
+				const uid = await testUserId();
+				const made = await createDocumentArtifact({
+					userId: uid,
+					conversationId,
+					title: "Weekend plan",
+					markdown: "# Weekend plan\n\nBook the museum tickets.",
+					author: "alfy",
+					summary: "Alfy wrote the first draft",
+				});
+				await db.insert(messages).values({
+					id: randomUUID(),
+					conversationId,
+					messageSequence: 900,
+					role: "assistant",
+					content: "Made the document.",
+					toolCalls: JSON.stringify([
+						{
+							type: "tool_call",
+							callId: "e2e-meta-line-call",
+							name: "create_artifact",
+							input: {
+								artifactType: "document",
+								title: "Weekend plan",
+								body: "# Weekend plan",
+							},
+							status: "done",
+							outputSummary: 'Created Document "Weekend plan"',
+							sourceType: "tool",
+							metadata: {
+								ok: true,
+								artifactId: made.id,
+								artifactKind: "document",
+								artifactTitle: "Weekend plan",
+							},
+						},
+					]),
+					createdAt: new Date(),
+				});
+				await openChatAndReload(page, conversationId);
+
+				// The panel docks beside the chat when the card is opened.
+				await page.getByTestId("artifact-card-head").click();
+				await expect(
+					page.getByRole("complementary", {
+						name: /Weekend plan, Dokumentum$/,
+					}),
+				).toBeVisible({ timeout: 30_000 });
+				const unit = page
+					.getByTestId("artifact-card-head")
+					.getByText("Dokumentum · 1 fül");
+				await expect(unit).toBeVisible();
+
+				// Where the browser broke the line: "· 1 fül" is one run of text, so
+				// its pieces must all sit on one line.
+				const lines = await unit.evaluate((element) => {
+					const text = element.firstChild as Text;
+					const at = text.data.search(/·\s+\d+\s+\p{L}+$/u);
+					const range = document.createRange();
+					range.setStart(text, at);
+					range.setEnd(text, text.data.length);
+					return new Set(
+						Array.from(range.getClientRects()).map((rect) =>
+							Math.round(rect.top),
+						),
+					).size;
+				});
+				expect(lines, 'the lines "· 1 fül" is drawn on').toBe(1);
+
+				// And the line stays in its own column: the open label beside it is
+				// never drawn over, however narrow the panel leaves the card.
+				const overlap = await page.evaluate(() => {
+					const sub = document.querySelector(
+						"[data-testid=artifact-card-head] .artifact-card-sub",
+					) as HTMLElement;
+					const label = document.querySelector(
+						"[data-testid=artifact-card-head] .artifact-card-cta",
+					) as HTMLElement;
+					const range = document.createRange();
+					range.selectNodeContents(sub);
+					const textRight = Math.max(
+						...Array.from(range.getClientRects()).map((rect) => rect.right),
+					);
+					// Where the label's own words start (its box has room before them).
+					const words = Array.from(label.childNodes).find(
+						(node) =>
+							node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+					) as Text;
+					const wordsRange = document.createRange();
+					wordsRange.selectNodeContents(words);
+					return textRight - wordsRange.getBoundingClientRect().left;
+				});
+				expect(
+					overlap,
+					"px of the meta line under the open label",
+				).toBeLessThanOrEqual(0);
+			} finally {
+				await db
+					.update(users)
+					.set({ uiLanguage: "en" })
+					.where(eq(users.email, "admin@local"));
+			}
+		});
+	}
 });
 
 // Sanity: the scripted markdown really does contain the sentence the panel
