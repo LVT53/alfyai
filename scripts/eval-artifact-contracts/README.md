@@ -96,8 +96,8 @@ core:
   same known-bad-first gate, one retry and circuit breaker. A known-bad case is
   **never sent**: its hand-written answer is served from disk (ruling 59).
   `npm run eval:artifacts:tools -- --suite canvas`.
-- `suites/canvas.ts`, `fixtures/canvas/` — six requests, each declaring its language
-  (ruling 65): the prototype's "arrange Saturday" on a board whose notes are piled up,
+- `suites/canvas.ts`, `fixtures/canvas/` — six requests (twelve since Wave 4, below), each
+  declaring its language (ruling 65): the prototype's "arrange Saturday" on a board whose notes are piled up,
   a Sunday frame with three stickies (English and Hungarian), "remove the museum note
   and connect lunch to the walk", and a board for a Vienna weekend from nothing
   (English and Hungarian). An edit case carries the artifact catalogue block the app
@@ -119,6 +119,30 @@ core:
   does not have, one that removes a note the request never named. Each fails for
   exactly the reason it exists; a test proves `runSuite` refuses to count real scores if
   one is let through.
+
+**Wave 4 (CV-A, ruling 74)** adds six cases on the same tidy Vienna boards, each in both
+languages, about what is added to a board that already has things on it: a note about
+something new "next to the museum note" (`add-note-beside`), a bar chart "in the Saturday
+frame", which four notes have left no room for (`chart-in-frame`), and the owner's flowchart
+(`add-flowchart`: "a flowchart of the Saturday plan"; it became three sticky notes before).
+Since the app now settles where an added block goes (`placeBlock`, behind `validateBoardDiff`),
+the rubric judges **the board that is left**: a note laid on another and a chart a frame has no
+room for are not misses (the app moves the one and grows the other), and `overlap:` and `frames:`
+can still fail on a `move`, which is the model's own rearrangement. What the new cases ask is
+in `requested`: the new note within a note's width of the museum note; a bar chart holding
+12, 21, 18 and 8, read the way the chat reads a chart fence (`parseJsonLenient`: one brace short
+still draws), inside the Saturday frame; a diagram block whose source starts `flowchart` or
+`graph` and names four of the five stops. The language check reads only phrases of three words
+or more: the detector reads a time or a proper noun ("Opera, 19:00") as English whatever it is.
+
+The suite's one async step is `suites/canvas-diagrams.ts` (a `SuiteEvaluator`, ruling 56): it
+finds every Mermaid source in the model's calls and has the chat's own Mermaid (`mermaid.parse`,
+under a jsdom window, no browser) read each, so a `diagram:` reason says a source would be drawn
+as its text and an error note. The result is recorded under `fixtures/canvas/evaluations/`, which
+is how a replay needs neither. What the diagram is DRAWN at (its height, against what the board is
+told) is not a parser's to say: `tests/e2e/artifact-canvas-alfy-blocks.spec.ts` measures it on the
+panel. The tool replay (`canvas-tools.ts`) now answers an edit as the app does, with `placed`:
+where each block whose place the app had a hand in went, and what became of its frame.
 
 ```bash
 # Live, through the tunnel on the runner's own port, one command (see "Running it" for
@@ -146,6 +170,24 @@ was wrong with any call and the board the conversation left passes the rubric.
 | after RV-3 (the geometry the reader sees) | 18 | **15** | 3/3 | 2/3 / 1/3 | 3/3 | 3/3 / 3/3 |
 | T9, 2026-10-07, vLLM 0.31 + FP8 KV, thinking off | 18 | **17** | 3/3 | 3/3 / 3/3 | 3/3 | 2/3 / 3/3 |
 | T9, same day, thinking on (the chat turn's default) | 18 | **15** | 3/3 | 3/3 / 3/3 | 3/3 | 2/3 / 1/3 |
+
+**CV-A (2026-10-07), twelve cases, 5 repeats each, thinking off, sequential, `qwen3-6-27b`**
+(60 answers a row; "good" is as above). "Before" is the tool as Wave 3 left it, scored by
+the rubric of the day, with the one answer whose chart was a closing brace short counted as the
+chat draws it (39, not 38); "after" is this change, scored by this rubric.
+
+| | Good | Arrange | Add Sunday (en / hu) | Remove and connect | Create (en / hu) | Note beside (en / hu) | Chart in frame (en / hu) | Flowchart (en / hu) |
+|---|---|---|---|---|---|---|---|---|
+| before | **39** | 4/5 | 4/5 / 5/5 | 5/5 | 3/5 / 4/5 | 4/5 / 5/5 | 4/5 / 1/5 | **0/5 / 0/5** |
+| after | **55** | 5/5 | 5/5 / 5/5 | 5/5 | 5/5 / 5/5 | 5/5 / 5/5 | 3/5 / 4/5 | **4/5 / 4/5** |
+
+The six new cases went from 14 of 30 to 25, the six old ones from 25 of 30 to 30. What is
+left is (a) the first call of a chart (or of a diagram whose labels are quoted) being refused
+because the model sent its whole `ops` as one string, with the JSON of the chart or the quotes
+of the labels escaped inside it, which it mends with its next call (letting a chart's config be
+written as an object took the chart cases' refused first calls from 5 of 10 answers to 3 of 10),
+and (b) one answer in five to "a flowchart" that is still a sticky note. The numbers are for this model on this rubric; a case of five answers is a
+measurement of a rate, not a pass.
 
 The last row is a different measurement, not a better model: the review of the Canvas (RV-3,
 C2) found that the rubric measured every note as 84 tall while the panel draws a note as tall as

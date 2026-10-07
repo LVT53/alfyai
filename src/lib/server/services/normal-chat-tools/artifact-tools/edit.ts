@@ -27,6 +27,7 @@ import {
 import {
 	type BoardRefusalReason,
 	boardOpsArraySchema,
+	type PlacedNote,
 } from "$lib/shared/artifacts/board-ops";
 import { truncateText } from "../shared";
 import {
@@ -155,7 +156,7 @@ export interface ArtifactRefusal {
 	opIndex?: number;
 	/**
 	 * Canvas: what would have worked, in the model's own language — the ids that
-	 * exist, the five blocks it may add, the fields of the kind (ruling 62).
+	 * exist, the six blocks it may add, the fields of the kind (ruling 62).
 	 * Document refusals carry a reason code only.
 	 */
 	detail?: string;
@@ -168,6 +169,8 @@ export type EditArtifactModelPayload =
 			versionId: string;
 			applied: number;
 			refused: ArtifactRefusal[];
+			/** Canvas: where the app put what was added, when it had a hand in it (ruling 74): the block's own place, and what became of its frame. */
+			placed?: PlacedNote[];
 	  }
 	| {
 			success: false;
@@ -225,6 +228,8 @@ export interface EditArtifactHandlerSuccess {
 	 * model's own change is all that happened since it read (ruling 67).
 	 */
 	baseVersionId?: string;
+	/** Canvas: where the app put what was added (ruling 74). */
+	placed?: PlacedNote[];
 }
 
 /**
@@ -456,6 +461,7 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 				applied: judged.applied,
 				refused: judged.refused,
 				...(baseVersionId === undefined ? {} : { baseVersionId }),
+				...(outcome.placed ? { placed: outcome.placed } : {}),
 			},
 		};
 	},
@@ -709,6 +715,7 @@ export async function runEditArtifactTool(params: {
 			versionId: result.value.versionId,
 			applied: result.value.applied,
 			refused: result.value.refused,
+			...(result.value.placed ? { placed: result.value.placed } : {}),
 		},
 		outputSummary,
 		metadata: {

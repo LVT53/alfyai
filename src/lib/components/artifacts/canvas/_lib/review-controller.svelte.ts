@@ -37,7 +37,7 @@ import {
 	BOARD_REFUSAL_REASONS,
 	type BoardRefusalReason,
 	refusalLabelKey,
-} from "$lib/shared/artifacts/board-ops";
+} from "$lib/shared/artifacts/board-refusals";
 import type { CanvasBody } from "$lib/shared/artifacts/canvas";
 import {
 	boardJson,

@@ -35,11 +35,13 @@ import { fileURLToPath } from "node:url";
 import { EVAL_CASES } from "./cases";
 import type { EvalArtifactsModelClient } from "./client";
 import { resolveEvalArtifactsConfig } from "./config";
+import { getSuiteEvaluator } from "./evaluators";
 import {
 	loadCommittedResponseFromDisk,
 	parseArgv,
 	type RunDeps,
 	runSuite,
+	writeCommittedEvaluationToDisk,
 	writeCommittedResponseToDisk,
 	writeResultsJson,
 } from "./run";
@@ -73,6 +75,8 @@ export interface ToolSuiteRunDeps {
 	send: typeof sendThroughTools;
 	log: (message: string) => void;
 	score: RunDeps["score"];
+	/** The suite's own async step (ruling 56), when it has one: its result is recorded and handed to the scorer. */
+	evaluate?: RunDeps["evaluate"];
 	defaultThinking: "on" | "off";
 }
 
@@ -138,7 +142,7 @@ export async function runToolSuite(
 				loadCommittedResponseFromDisk(deps.fixturesRoot, suite, caseId),
 			loadCommittedEvaluation: () => null,
 			score: deps.score,
-			evaluate: async () => null,
+			evaluate: deps.evaluate ?? (async () => null),
 			log: deps.log,
 			defaultThinking: deps.defaultThinking,
 		},
@@ -153,6 +157,18 @@ export async function runToolSuite(
 				durationMs: attempt.durationMs,
 				usage: attempt.usage,
 			});
+		}
+		// What the suite's own step made of each answer is committed beside it, so a
+		// replay re-scores both with neither a model nor the step's tooling.
+		for (const result of report.results) {
+			if (result.evaluation === undefined || result.evaluation === null)
+				continue;
+			writeCommittedEvaluationToDisk(
+				deps.fixturesRoot,
+				options.suite,
+				result.caseId,
+				result.evaluation,
+			);
 		}
 	}
 	return { report, captured };
@@ -232,6 +248,9 @@ export async function main(
 				log,
 				score: (evalCase, attempt, evaluation) =>
 					getSuiteScorer(evalCase.suite)(evalCase, attempt, evaluation),
+				evaluate: async (evalCase, attempt) =>
+					(await getSuiteEvaluator(evalCase.suite)?.(evalCase, attempt)) ??
+					null,
 				defaultThinking: config.thinking,
 			},
 		);
@@ -246,6 +265,17 @@ export async function main(
 					durationMs: attempt.durationMs,
 					usage: attempt.usage,
 				});
+			}
+			for (const result of report.results) {
+				if (result.evaluation === undefined || result.evaluation === null) {
+					continue;
+				}
+				writeCommittedEvaluationToDisk(
+					root,
+					suite,
+					result.caseId,
+					result.evaluation,
+				);
 			}
 		}
 		log(

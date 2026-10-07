@@ -1,0 +1,10 @@
+{
+	"id": "add-flowchart",
+	"description": "The owner's probe: a flowchart asked for on an existing board. It has to be a diagram the chat can draw (Mermaid source, the same as a chat reply's fence), on free ground, and not three sticky notes.",
+	"language": "en",
+	"kind": "edit",
+	"board": "vienna-tidy",
+	"artifactId": "3f6b2a94-7c1e-4d55-9a0e-5b2f1c8d7e10",
+	"title": "Vienna weekend",
+	"request": "Add a flowchart of the Saturday plan: breakfast, museum, lunch, a walk, then the opera."
+}

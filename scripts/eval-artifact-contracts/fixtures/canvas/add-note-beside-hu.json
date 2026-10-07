@@ -1,0 +1,10 @@
+{
+	"id": "add-note-beside-hu",
+	"description": "The same request in Hungarian, on the Hungarian board: one new note beside the museum note, in its frame, whose words are Hungarian.",
+	"language": "hu",
+	"kind": "edit",
+	"board": "vienna-tidy-hu",
+	"artifactId": "3f6b2a94-7c1e-4d55-9a0e-5b2f1c8d7e10",
+	"title": "Bécsi hétvége",
+	"request": "Tegyél egy jegyzetet a Sacher-tortáról a múzeumi jegyzet mellé."
+}

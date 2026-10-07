@@ -15,7 +15,7 @@
 //     accept exactly the same nodes — one validator, never a twin;
 //   - `canvasEditFailureMessage` and `BLOCK_SHAPES_HINT`: the words for an edit
 //     the board could not take at all. A refusal that names the fix (the valid
-//     ops, the five blocks the model may add and their fields, the ids that
+//     ops, the six blocks the model may add and their fields, the ids that
 //     exist) is corrected in one step; one that only says no is guessed at.
 
 import type { OpsEnvelopeResult } from "$lib/server/services/artifacts";
@@ -36,13 +36,11 @@ import type {
 	CanvasNode,
 } from "$lib/shared/artifacts/canvas";
 import {
-	estimatedNodeSize,
-	MODEL_CREATABLE_DATA_SCHEMAS,
-} from "$lib/shared/artifacts/canvas-blocks";
-import {
 	emptyCanvasBody,
 	parentsFirst,
 } from "$lib/shared/artifacts/canvas-body";
+import { MODEL_CREATABLE_DATA_SCHEMAS } from "$lib/shared/artifacts/canvas-model-blocks";
+import { plannedNodeSize } from "$lib/shared/artifacts/node-size";
 import type { OpRefusal } from "$lib/shared/artifacts/ops";
 import { describeJsonSlip } from "./tool-args";
 
@@ -69,8 +67,9 @@ function labelOf(node: CanvasNode): string {
 			return clip(data.text);
 		case "checklist":
 		case "chart":
-		case "mermaid":
 			return data.label ?? "";
+		case "mermaid":
+			return data.label ?? diagramKind(data.code);
 		case "map":
 			return data.route;
 		case "file":
@@ -86,6 +85,15 @@ function labelOf(node: CanvasNode): string {
 	}
 }
 
+/** What kind of diagram a source is, from its first line: `flowchart`, `sequenceDiagram`, `gantt`. */
+function diagramKind(code: string): string {
+	const first = code
+		.split("\n")
+		.map((line) => line.trim())
+		.find((line) => line !== "" && !line.startsWith("%%") && line !== "---");
+	return (first ?? "").split(/\s+/)[0].slice(0, 40);
+}
+
 function readNodeBlock(node: CanvasNode): Record<string, unknown> {
 	const data = node.data;
 	return {
@@ -98,9 +106,11 @@ function readNodeBlock(node: CanvasNode): Record<string, unknown> {
 		// width and the height its words, items or plot take (a note is as tall as
 		// its words, RV-3 C2; a chart and a checklist have widths of their own, RC-3
 		// N1), so what a model arranges by is what the reader sees.
-		...estimatedNodeSize(node),
+		...plannedNodeSize(node),
 		...(node.parentId === undefined ? {} : { parentId: node.parentId }),
 		...(data.kind === "sticky" ? { tone: data.tone } : {}),
+		// A diagram's source is what an edit of it is made from, and a diagram is short.
+		...(data.kind === "mermaid" ? { code: data.code } : {}),
 		...(data.kind === "checklist"
 			? {
 					items: data.items.map((item) => ({
@@ -239,7 +249,7 @@ const BLOCK_KINDS_PHRASE = (
 	.join("; ");
 
 /**
- * The five blocks the model may add and the fields of each one's `data`, read
+ * The six blocks the model may add and the fields of each one's `data`, read
  * off the schemas the validator parses with, so a refusal can never name a field
  * the block does not have. Appended to what a diff or a board that could not be
  * read is answered with, because a zod issue alone says what is wrong and not
@@ -247,7 +257,7 @@ const BLOCK_KINDS_PHRASE = (
  */
 export const BLOCK_SHAPES_HINT = `Blocks you can add, and the fields of their data — ${BLOCK_KINDS_PHRASE}. A sticky's tone is one of ${MODEL_CREATABLE_DATA_SCHEMAS.sticky.shape.tone.options.slice(0, -1).join(", ")} or ${MODEL_CREATABLE_DATA_SCHEMAS.sticky.shape.tone.options.at(-1)}; a checklist item is {id, text, done}, and each item's id is used once in its checklist; type must equal data.kind.`;
 
-const CREATE_SHAPE_HINT = `A board is {"nodes":[{"id","type","position":{"x","y"},"data":{"kind",...}}],"edges":[{"id","source","target"}]}, or {} for an empty board. ${BLOCK_SHAPES_HINT}`;
+const CREATE_SHAPE_HINT = `A board is {"nodes":[{"id","type","parentId" (a frame),"position":{"x","y"} (leave it out to have the block placed),"near" (a block's id),"data":{"kind",...}}],"edges":[{"id","source","target"}]}, or {} for an empty board. ${BLOCK_SHAPES_HINT}`;
 
 /** At most this many problems are spelled out; a runaway list helps nobody. */
 const MAX_PROBLEMS_SHOWN = 6;
@@ -332,11 +342,15 @@ function nodeShapeProblem(value: unknown): string | null {
 	if (!isText(value.id, 128))
 		missing.push("id (a string of 1 to 128 characters)");
 	if (!isText(value.type, 64)) missing.push("type (a block kind)");
-	if (!isPoint(value.position))
-		missing.push('position ({"x": number, "y": number})');
+	if (value.position !== undefined && !isPoint(value.position)) {
+		missing.push('position ({"x": number, "y": number}, or leave it out)');
+	}
 	if (!isRecord(value.data)) missing.push("data (an object with a kind)");
 	if (value.parentId !== undefined && !isText(value.parentId, 128)) {
 		missing.push("parentId (the id of a frame, or leave it out)");
+	}
+	if (value.near !== undefined && !isText(value.near, 128)) {
+		missing.push("near (the id of a block, or leave it out)");
 	}
 	return missing.length > 0 ? `needs ${missing.join(", ")}.` : null;
 }
@@ -471,14 +485,15 @@ export function parseCanvasCreateBody(raw: string): CanvasCreateResult {
 	const ops: BoardOp[] = [];
 	const origins: Origin[] = [];
 	for (const entry of inParentsFirstOrder(entries)) {
-		const { id, type, parentId, position, data } = entry.node;
+		const { id, type, parentId, position, near, data } = entry.node;
 		ops.push({
 			op: "add_node",
 			node: {
 				id,
 				type,
 				...(parentId === undefined ? {} : { parentId }),
-				position,
+				...(position === undefined ? {} : { position }),
+				...(near === undefined ? {} : { near }),
 				data,
 			},
 		} as BoardOp);

@@ -13,7 +13,12 @@
 // server-shaped stays here: who may touch the row, which version the diff was
 // made against, and the write. Slides adds its branch to `OPS_BRANCHES` in a
 // later commit and touches neither this control flow nor the route.
-import { boardOpsVocabulary } from "$lib/shared/artifacts/board-ops";
+import {
+	boardDiffSchema,
+	boardOpsVocabulary,
+	type PlacedNote,
+	placementNotes,
+} from "$lib/shared/artifacts/board-ops";
 import { boardJson, emptyCanvasBody } from "$lib/shared/artifacts/canvas-body";
 import {
 	type OpRefusal,
@@ -85,6 +90,8 @@ export type OpsEnvelopeResult =
 			 * current version, and a caller must not claim the board just changed.
 			 */
 			changed: boolean;
+			/** Canvas: where the app put what was added, when it had a hand in it (ruling 74). */
+			placed?: PlacedNote[];
 	  }
 	| {
 			ok: false;
@@ -108,6 +115,7 @@ export type OpsBranchOutcome =
 			applied: number;
 			refused: OpRefusal[];
 			summary: string;
+			placed?: PlacedNote[];
 	  }
 	| {
 			ok: false;
@@ -156,6 +164,12 @@ const canvasBranch: OpsBranch = ({ stored, diff, readStored }) => {
 	if (run.applied === 0 || after === boardJson(before)) {
 		return { ok: true, body: null, ...base };
 	}
+	// Where what was added went, for the model's answer: what the diff asked for
+	// against what the judge settled.
+	const asked = boardDiffSchema.safeParse(diff);
+	const placed = asked.success
+		? placementNotes(before, run.doc, asked.data.ops, run.accepted)
+		: [];
 	// The one gate a board passes on its way into storage: canonical, in caps.
 	const prepared = prepareCanvasBoard(after);
 	if (!prepared.ok) {
@@ -168,7 +182,12 @@ const canvasBranch: OpsBranch = ({ stored, diff, readStored }) => {
 				}
 			: { ok: false, status: 413, reason: "too_large" };
 	}
-	return { ok: true, body: prepared.json, ...base };
+	return {
+		ok: true,
+		body: prepared.json,
+		...base,
+		...(placed.length > 0 ? { placed } : {}),
+	};
 };
 
 /** kind → branch. Canvas registers here; Slides registers `slides` beside it. */
@@ -303,5 +322,6 @@ export async function applyArtifactOps(
 		applied: outcome.applied,
 		refused: outcome.refused,
 		changed: true,
+		...(outcome.placed ? { placed: outcome.placed } : {}),
 	};
 }

@@ -1,0 +1,10 @@
+{
+	"id": "add-note-beside",
+	"description": "One note about something new, asked for next to a note that is already there (in a frame, on a tidy board): where it goes is the model's to say or the app's to give, and it has to land beside the museum note, inside its frame, on nothing else.",
+	"language": "en",
+	"kind": "edit",
+	"board": "vienna-tidy",
+	"artifactId": "3f6b2a94-7c1e-4d55-9a0e-5b2f1c8d7e10",
+	"title": "Vienna weekend",
+	"request": "Add a note about the Sachertorte next to the museum note."
+}

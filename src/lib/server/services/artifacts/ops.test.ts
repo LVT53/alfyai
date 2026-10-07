@@ -11,6 +11,7 @@ import {
 	applyOp,
 	BOARD_OPS_EXAMPLE,
 	type BoardOp,
+	validateBoardDiff,
 } from "$lib/shared/artifacts/board-ops";
 import { boardJson } from "$lib/shared/artifacts/canvas-body";
 import { sampleBoard } from "$lib/shared/artifacts/canvas-fixtures.test-helpers";
@@ -171,8 +172,14 @@ describe("applyArtifactOps — a diff that lands", () => {
 		expect(rows[1].id).toBe(result.versionId);
 		expect(rows[1].summary).toBe("Planned Sunday");
 
+		// The board the diff makes: its ops applied as the judge settled them (a
+		// frame the example puts on top of the sample board's chart is moved clear of it).
+		const judged = validateBoardDiff(
+			{ id: "d", summary: "Planned Sunday", ops: BOARD_OPS_EXAMPLE },
+			sampleBoard(),
+		);
 		let expected = sampleBoard();
-		for (const op of BOARD_OPS_EXAMPLE) expected = applyOp(expected, op);
+		for (const op of judged.accepted) expected = applyOp(expected, op);
 		expect(rows[1].body).toBe(boardJson(expected));
 		expect(storedBody(id)).toBe(boardJson(expected));
 		expect(rows[1].bodyHash).toBe(canvasBodyHash(boardJson(expected)));
