@@ -4821,7 +4821,9 @@ describe("createNormalChatTools", () => {
 // throwaway per-suite database (src/vitest-setup.ts) with nothing seeded —
 // exactly the "an id this conversation does not have" case.
 describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () => {
-	function artifactTools(overrides: { language?: "en" | "hu" } = {}) {
+	function artifactTools(
+		overrides: { language?: "en" | "hu"; requestText?: string } = {},
+	) {
 		const { tools, getToolCalls } = createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
@@ -4866,6 +4868,46 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 			);
 
 			expect(receivedLanguage).toBe("hu");
+		});
+
+		// Ruling 75: the turn keeps its language when the message asks for content in
+		// another one, so the App (which the server writes itself, in ONE language) is
+		// told the language the person asked for, not the turn's.
+		it("passes the language the message asks the content in, when it names one", async () => {
+			const received: string[] = [];
+			CREATE_ARTIFACT_HANDLERS.document = async (params) => {
+				received.push(params.language);
+				return {
+					ok: true,
+					value: { artifactId: "artifact-1", title: params.title },
+				};
+			};
+			const call = (overrides: Parameters<typeof artifactTools>[0]) =>
+				artifactTools(overrides).tools.create_artifact.execute?.(
+					{ artifactType: "document", title: "Kvíz", body: "tartalom" },
+					{ toolCallId: "call-1", messages: [] },
+				);
+
+			await call({
+				language: "hu",
+				requestText: "Készíts egy kvíz alkalmazást angolul",
+			});
+			await call({
+				language: "en",
+				requestText: "Create a quiz app in Hungarian",
+			});
+			// Nothing asked for: the turn's own language, as ever.
+			await call({
+				language: "hu",
+				requestText: "Készíts egy kvíz alkalmazást",
+			});
+			// A question about a language asks for no content in it.
+			await call({
+				language: "hu",
+				requestText: "Hogy mondják angolul, hogy kvíz?",
+			});
+
+			expect(received).toEqual(["en", "hu", "hu", "hu"]);
 		});
 
 		it('defaults to "en" when the turn context carries no language', async () => {

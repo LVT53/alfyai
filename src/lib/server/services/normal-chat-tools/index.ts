@@ -14,6 +14,7 @@ import {
 import { getFileProductionWorkerConfig } from "$lib/server/services/file-production/config";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
+import { detectContentLanguageRequest } from "$lib/server/services/language";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import { toolReadArtifactIdsMetadata } from "$lib/server/services/message-evidence";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
@@ -1752,8 +1753,15 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								title: safeInput.title,
 								body: safeInput.body,
 								// The turn's own resolved language (ruling 55), never
-								// re-detected per kind — see CreateArtifactHandlerParams.
-								language: ctx.language ?? "en",
+								// re-detected per kind — see CreateArtifactHandlerParams —
+								// unless the message asks for the content in another
+								// one ("Készíts egy kvíz appot angolul"): the turn keeps
+								// its language then (ruling 75) and the App is written in
+								// the one the person asked for.
+								language:
+									detectContentLanguageRequest(ctx.requestText ?? "") ??
+									ctx.language ??
+									"en",
 								abortSignal,
 							});
 							return {

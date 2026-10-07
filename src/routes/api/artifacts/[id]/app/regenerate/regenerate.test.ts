@@ -281,5 +281,28 @@ describe("POST /api/artifacts/[id]/app/regenerate", () => {
 				expect.objectContaining({ language: "en" }),
 			);
 		});
+
+		// Ruling 75: there is no reply here, only the App, so a request for the labels
+		// in a language ("Write all the labels in Hungarian") is the App's language.
+		it("takes a request for the App's own words in a language as its language", async () => {
+			mockRegenerateApp.mockResolvedValue({
+				ok: true,
+				version: 2,
+				title: "x",
+				verification: { checked: false, verdict: "clean", reason: null },
+			});
+
+			await POST(
+				makeEvent(
+					"owner-user",
+					{ prompt: "Add a score counter. Write all the labels in Hungarian." },
+					{ uiLanguage: "en" },
+				),
+			);
+
+			expect(mockRegenerateApp).toHaveBeenCalledWith(
+				expect.objectContaining({ language: "hu" }),
+			);
+		});
 	});
 });

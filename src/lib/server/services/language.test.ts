@@ -536,6 +536,26 @@ describe("detectExplicitLanguageRequest: only an asked-for reply language flips"
 	});
 });
 
+// A pasted blob with no sentence break and thousands of language words must not
+// stall the request: every check per language word reads running counts, not the
+// whole sentence again (these took 6 s and 8 s when each one scanned it).
+describe("a very long sentence full of language words", () => {
+	it.each([
+		["only the language", "in English ".repeat(20_000)],
+		["one directive and the language", `write ${"in English ".repeat(20_000)}`],
+		["a want and the language", `I want it ${"in English ".repeat(20_000)}`],
+		[
+			"colon-separated stretches",
+			"írj egy levelet: angolul: kérlek: ".repeat(20_000),
+		],
+	])("%s is read in well under a second", (_name, text) => {
+		const started = performance.now();
+		detectExplicitLanguageRequest(text);
+		detectContentLanguageRequest(text);
+		expect(performance.now() - started).toBeLessThan(1500);
+	});
+});
+
 describe("resolveResponseLanguage", () => {
 	it("uses the latest message when its language is clear", () => {
 		expect(

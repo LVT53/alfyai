@@ -2,7 +2,10 @@ import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import { regenerateApp } from "$lib/server/services/artifacts/app/regenerate";
 import { resolveTurnResponseLanguage } from "$lib/server/services/chat-turn";
-import { resolveResponseLanguage } from "$lib/server/services/language";
+import {
+	detectContentLanguageRequest,
+	resolveResponseLanguage,
+} from "$lib/server/services/language";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -52,16 +55,21 @@ export const POST: RequestHandler = async (event) => {
 	const scopedConversationId =
 		typeof conversationId === "string" ? conversationId : null;
 
-	const language = scopedConversationId
-		? await resolveTurnResponseLanguage({
-				message: prompt,
-				conversationId: scopedConversationId,
-				user,
-			})
-		: resolveResponseLanguage({
-				latestMessage: prompt,
-				uiLanguage: user.uiLanguage,
-			});
+	// There is no reply here, only the App: an instruction for its own words in a
+	// language ("Write all the labels in Hungarian") is the App's language
+	// (ruling 75), ahead of the conversation's and the account's.
+	const language =
+		detectContentLanguageRequest(prompt) ??
+		(scopedConversationId
+			? await resolveTurnResponseLanguage({
+					message: prompt,
+					conversationId: scopedConversationId,
+					user,
+				})
+			: resolveResponseLanguage({
+					latestMessage: prompt,
+					uiLanguage: user.uiLanguage,
+				}));
 
 	const result = await regenerateApp({
 		userId: user.id,

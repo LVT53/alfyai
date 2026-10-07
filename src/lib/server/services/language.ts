@@ -455,7 +455,49 @@ type SentenceContext = {
 	subjectIsTheLanguage: boolean;
 	requestModal: boolean;
 	abilityModal: boolean;
+	// Running counts over the words, so "is everything else a filler" costs the
+	// same for every language word however long the sentence is: [i] holds how
+	// many of the first i words are NOT of the kind.
+	notFillerBefore: number[];
+	notShapeBefore: number[];
+	notWantFillerBefore: number[];
+	replyObjectBefore: number[];
+	// The first and last word of each colon-separated stretch.
+	segmentStart: number[];
+	segmentEnd: number[];
+	// The first content directive of the sentence (-1: none), read once on demand.
+	firstContentAt?: number;
 };
+
+const isFillerWord = (word: string) =>
+	BARE_FILLERS.has(word) || isLanguageWord(word);
+// What may stand beside a content directive in a request for the reply.
+const isShapeWord = (word: string) =>
+	isFillerWord(word) ||
+	REPLY_SHAPE_WORDS.has(word) ||
+	REPLY_OBJECT_WORDS.has(word);
+// What may stand between "I want" and the language in a request for the reply.
+const isWantFiller = (word: string) =>
+	BARE_FILLERS.has(word) ||
+	REPLY_SHAPE_WORDS.has(word) ||
+	REPLY_OBJECT_WORDS.has(word) ||
+	OBJECT_PRONOUNS.has(word);
+
+function countBefore(
+	words: string[],
+	test: (word: string) => boolean,
+): number[] {
+	const sums = [0];
+	for (const word of words) {
+		sums.push(sums[sums.length - 1] + (test(word) ? 1 : 0));
+	}
+	return sums;
+}
+
+// How many of words[from..toExclusive) are counted in `sums`.
+function countBetween(sums: number[], from: number, toExclusive: number) {
+	return from < toExclusive ? sums[toExclusive] - sums[from] : 0;
+}
 
 function readSentence(words: string[], segmentOf: number[]): SentenceContext {
 	const firstAt = words.findIndex((word) => !LEADING_FILLERS.has(word));
@@ -487,7 +529,24 @@ function readSentence(words: string[], segmentOf: number[]): SentenceContext {
 		),
 		requestModal: words.some((word) => HUNGARIAN_REQUEST_MODALS.has(word)),
 		abilityModal: words.includes("tudsz"),
+		notFillerBefore: countBefore(words, (word) => !isFillerWord(word)),
+		notShapeBefore: countBefore(words, (word) => !isShapeWord(word)),
+		notWantFillerBefore: countBefore(words, (word) => !isWantFiller(word)),
+		replyObjectBefore: countBefore(words, (word) =>
+			REPLY_OBJECT_WORDS.has(word),
+		),
+		...segmentBounds(segmentOf),
 	};
+}
+
+function segmentBounds(segmentOf: number[]) {
+	const segmentStart: number[] = [];
+	const segmentEnd: number[] = [];
+	segmentOf.forEach((segment, at) => {
+		segmentStart[segment] ??= at;
+		segmentEnd[segment] = at;
+	});
+	return { segmentStart, segmentEnd };
 }
 
 type Directive = { kind: RequestKind; at: number };
@@ -498,46 +557,52 @@ type Directive = { kind: RequestKind; at: number };
 // hosts in English"), else a content directive anywhere before it, so that
 // "please" at the end of a long request for a letter cannot turn it into a
 // request for the reply. Never when the language is the subject.
+function directiveKindAt(
+	words: string[],
+	at: number,
+	sentence: SentenceContext,
+): RequestKind | null {
+	const word = words[at];
+	const previous = words[at - 1];
+	const requestFrame = sentence.requestFrame;
+	// "learning to write in Hungarian", "I write in English at work".
+	const notSubject =
+		(previous !== "to" && !ENGLISH_SUBJECTS.has(previous ?? "")) ||
+		requestFrame;
+	const weak = word === sentence.first || requestFrame;
+	const english =
+		ENGLISH_REPLY_DIRECTIVES.has(word) ||
+		ENGLISH_CONTENT_DIRECTIVES.has(word) ||
+		ENGLISH_WEAK_REPLY_DIRECTIVES.has(word) ||
+		ENGLISH_WEAK_CONTENT_DIRECTIVES.has(word);
+	if (english) {
+		// "Write your reply in Hungarian": "reply" there is the thing to write.
+		if (ENGLISH_DETERMINERS.has(previous ?? "") || !notSubject) return null;
+		if (ENGLISH_REPLY_DIRECTIVES.has(word)) return "reply";
+		if (ENGLISH_CONTENT_DIRECTIVES.has(word)) return "content";
+		if (!weak) return null;
+		return ENGLISH_WEAK_REPLY_DIRECTIVES.has(word) ? "reply" : "content";
+	}
+	if (HUNGARIAN_REPLY_DIRECTIVE_RE.test(word)) return "reply";
+	if (HUNGARIAN_CONTENT_DIRECTIVE_RE.test(word)) return "content";
+	if (HUNGARIAN_REPLY_INFINITIVE_RE.test(word)) {
+		return sentence.requestModal ||
+			(sentence.abilityModal && HUNGARIAN_ANSWER_INFINITIVE_RE.test(word))
+			? "reply"
+			: null;
+	}
+	if (HUNGARIAN_CONTENT_INFINITIVE_RE.test(word)) {
+		return sentence.requestModal || sentence.abilityModal ? "content" : null;
+	}
+	return null;
+}
+
 function findDirective(
 	words: string[],
 	marker: LanguageMarker,
 	sentence: SentenceContext,
 ): Directive | null {
-	const requestFrame = sentence.requestFrame;
-	const first = sentence.first;
-	const directiveAt = (at: number): RequestKind | null => {
-		const word = words[at];
-		const previous = words[at - 1];
-		// "learning to write in Hungarian", "I write in English at work".
-		const notSubject =
-			(previous !== "to" && !ENGLISH_SUBJECTS.has(previous ?? "")) ||
-			requestFrame;
-		// "Write your reply in Hungarian": "reply" there is the thing to write.
-		if (ENGLISH_DETERMINERS.has(previous ?? "")) return null;
-		if (ENGLISH_REPLY_DIRECTIVES.has(word)) return notSubject ? "reply" : null;
-		if (ENGLISH_CONTENT_DIRECTIVES.has(word)) {
-			return notSubject ? "content" : null;
-		}
-		const weak = word === first || requestFrame;
-		if (ENGLISH_WEAK_REPLY_DIRECTIVES.has(word)) {
-			return weak && notSubject ? "reply" : null;
-		}
-		if (ENGLISH_WEAK_CONTENT_DIRECTIVES.has(word)) {
-			return weak && notSubject ? "content" : null;
-		}
-		if (HUNGARIAN_REPLY_DIRECTIVE_RE.test(word)) return "reply";
-		if (HUNGARIAN_CONTENT_DIRECTIVE_RE.test(word)) return "content";
-		if (HUNGARIAN_REPLY_INFINITIVE_RE.test(word)) {
-			return sentence.requestModal ||
-				(sentence.abilityModal && HUNGARIAN_ANSWER_INFINITIVE_RE.test(word))
-				? "reply"
-				: null;
-		}
-		if (HUNGARIAN_CONTENT_INFINITIVE_RE.test(word)) {
-			return sentence.requestModal || sentence.abilityModal ? "content" : null;
-		}
-		return null;
-	};
+	const directiveAt = (at: number) => directiveKindAt(words, at, sentence);
 
 	const from = Math.max(0, marker.at - 7);
 	const to = Math.min(words.length - 1, marker.end + 7);
@@ -571,8 +636,12 @@ function findDirective(
 		const kind = directiveAt(headAt);
 		if (kind) return { kind, at: headAt };
 	}
-	for (let at = 0; at < from; at++) {
-		if (directiveAt(at) === "content") return { kind: "content", at };
+	// Read once per sentence, so a long sentence with many language words stays linear.
+	sentence.firstContentAt ??= words.findIndex(
+		(_, at) => directiveAt(at) === "content",
+	);
+	if (sentence.firstContentAt >= 0 && sentence.firstContentAt < from) {
+		return { kind: "content", at: sentence.firstContentAt };
 	}
 	return null;
 }
@@ -586,21 +655,19 @@ function isReplyShape(
 	sentence: SentenceContext,
 ): boolean {
 	const segment = sentence.segmentOf[marker.at];
-	let replyObject = false;
-	for (let at = 0; at < words.length; at++) {
-		if (sentence.segmentOf[at] !== segment) continue;
-		if (at === directive.at || (at >= marker.at && at <= marker.end)) continue;
-		const word = words[at];
-		if (REPLY_OBJECT_WORDS.has(word)) {
-			replyObject = true;
-		} else if (
-			!BARE_FILLERS.has(word) &&
-			!REPLY_SHAPE_WORDS.has(word) &&
-			!isLanguageWord(word)
-		) {
-			return false;
-		}
+	const start = sentence.segmentStart[segment];
+	const end = sentence.segmentEnd[segment];
+	// Everything else in this stretch of the sentence is a filler; the directive's
+	// and the language's own words are not "something else".
+	let others = countBetween(sentence.notShapeBefore, start, end + 1);
+	const own = [directive.at];
+	for (let at = marker.at; at <= marker.end; at++) own.push(at);
+	for (const at of own) {
+		if (at >= start && at <= end && !isShapeWord(words[at])) others--;
 	}
+	if (others > 0) return false;
+	const replyObject =
+		countBetween(sentence.replyObjectBefore, start, end + 1) > 0;
 	// "Írd angolul" has its object in the verb: only a reply noun makes it the reply.
 	return (
 		replyObject || !HUNGARIAN_DEFINITE_DIRECTIVE_RE.test(words[directive.at])
@@ -619,12 +686,10 @@ function classifyMarker(
 
 	// A sentence that is little more than the language word: "In English,
 	// please." / "Angolul." / "Nem, angolul!".
-	const onlyTheLanguage = words.every(
-		(word, at) =>
-			(at >= marker.at && at <= marker.end) ||
-			BARE_FILLERS.has(word) ||
-			isLanguageWord(word),
-	);
+	const onlyTheLanguage =
+		countBetween(sentence.notFillerBefore, 0, marker.at) +
+			countBetween(sentence.notFillerBefore, marker.end + 1, words.length) ===
+		0;
 	if (onlyTheLanguage) return "reply";
 
 	if (marker.kind === "bare") {
@@ -692,16 +757,13 @@ function classifyMarker(
 		// "I want it in Hungarian" asks for the reply; "I need a cover letter in
 		// Hungarian" asks for a letter.
 		if (sentence.wantAt >= 0) {
-			const between = words
-				.slice(sentence.wantAt + 1, marker.at)
-				.filter(
-					(word) =>
-						!BARE_FILLERS.has(word) &&
-						!REPLY_SHAPE_WORDS.has(word) &&
-						!REPLY_OBJECT_WORDS.has(word) &&
-						!OBJECT_PRONOUNS.has(word),
-				);
-			return between.length > 0 ? "content" : "reply";
+			return countBetween(
+				sentence.notWantFillerBefore,
+				sentence.wantAt + 1,
+				marker.at,
+			) > 0
+				? "content"
+				: "reply";
 		}
 		// "In English please", "only in Hungarian".
 		if (nextToMarker(ENGLISH_POLITE_WORDS, 1)) return "reply";
@@ -727,9 +789,16 @@ function requestsInSentence(sentence: string): LanguageRequests {
 	if (first !== undefined && QUESTION_STARTERS.has(first)) return found;
 	if (HUNGARIAN_HOW_SAID_RE.test(words.join(" "))) return found;
 
-	const segmentOf = tokens.map(
-		(token) => sentence.slice(0, token.index).split(":").length - 1,
-	);
+	// Which colon-separated stretch each word is in, counted as the words go by.
+	let segment = 0;
+	let scanned = 0;
+	const segmentOf = tokens.map((token) => {
+		for (; scanned < token.index; scanned++) {
+			if (sentence[scanned] === ":") segment++;
+		}
+		scanned = token.index + token[0].length;
+		return segment;
+	});
 	const context = readSentence(words, segmentOf);
 	for (const marker of markers) {
 		const kind = classifyMarker(words, marker, context);
