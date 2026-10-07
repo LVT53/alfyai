@@ -264,6 +264,27 @@ test.describe("The panel over a project's Files dialog", () => {
 		await expect(open).toBeFocused();
 	});
 
+	test("closing the panel with its own Close button leaves the dialog and gives focus back to the row too", async ({
+		page,
+	}) => {
+		const { projectId, names } = await seedMadeProject(await testUserId());
+		const dialog = await openFilesDialog(page, projectId);
+		const open = openButton(dialog, names.canvas);
+		await open.click();
+		await expect(page.getByTestId("canvas-board")).toBeVisible({
+			timeout: 30_000,
+		});
+		const panel = panelShell(page);
+
+		await panel
+			.getByRole("button", { name: "Close document workspace" })
+			.click();
+
+		await expect(panel).toHaveCount(0);
+		await expect(dialog).toBeVisible();
+		await expect(open).toBeFocused();
+	});
+
 	test("the layers close one at a time, the topmost first: the Download popover, the panel, the dialog", async ({
 		page,
 	}) => {

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keepArtifactToursFor } from "$lib/client/api/artifact-tours";
 import { ARTIFACT_BODIES } from "$lib/components/artifacts/artifact-bodies";
@@ -70,6 +76,7 @@ function open(
 	options: {
 		filesFailed?: boolean;
 		onRefresh?: () => Promise<void>;
+		onClose?: () => void;
 		currentUser?: {
 			id: string;
 			displayName: string;
@@ -85,7 +92,7 @@ function open(
 			files,
 			filesFailed: options.filesFailed ?? false,
 			onRefresh: options.onRefresh ?? (async () => undefined),
-			onClose: () => undefined,
+			onClose: options.onClose ?? (() => undefined),
 			currentUser: options.currentUser ?? null,
 		},
 	});
@@ -386,6 +393,32 @@ describe("ProjectFilesDialog: what the chats made", () => {
 		await vi.waitFor(() =>
 			expect(keepArtifactToursFor).toHaveBeenCalledWith("reader-1"),
 		);
+	});
+
+	// The panel sits above the dialog. It is a layer of the dialog stack while it
+	// is open (RV-F, I-2), so one Escape closes it and the dialog answers the next.
+	it("closes the panel on one Escape and leaves the dialog, which answers the next", async () => {
+		const onClose = vi.fn();
+		open([madeItem()], { onClose });
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open Vienna notes" }),
+		);
+		await screen.findByRole("complementary", {
+			name: "Vienna notes, Document",
+		});
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+
+		expect(onClose).not.toHaveBeenCalled();
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("complementary", { name: "Vienna notes, Document" }),
+			).not.toBeInTheDocument(),
+		);
+		expect(screen.getByRole("dialog", { name: "Files" })).toBeInTheDocument();
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
 	it("offers no unlink on an item that is here only through its chat, and one on a linked item", () => {
