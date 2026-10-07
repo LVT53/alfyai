@@ -253,6 +253,15 @@ describe("a sticky note", () => {
 		expect(field).toHaveFocus();
 	});
 
+	it("opens for editing from the Edit button of the selection's toolbar, which is how a reader who does not know to double-click finds it", async () => {
+		mount(StickyNode, stickyProps({ selected: true }));
+		expect(screen.queryByRole("textbox")).toBeNull();
+		const edit = screen.getByTestId("canvas-node-edit");
+		expect(edit).toHaveAccessibleName("Edit");
+		await fireEvent.click(edit);
+		expect(screen.getByRole("textbox", { name: "Sticky note" })).toHaveFocus();
+	});
+
 	it("has the whole note, however tall it was made, to double-click on", () => {
 		const style = readFileSync(
 			path.join(
@@ -345,6 +354,12 @@ describe("a text block", () => {
 		expect(screen.getByText("Write something…")).toBeInTheDocument();
 	});
 
+	it("opens for editing from the Edit button of the selection's toolbar", async () => {
+		mount(TextNode, props({ selected: true }));
+		await fireEvent.click(screen.getByTestId("canvas-node-edit"));
+		expect(screen.getByRole("textbox", { name: "Text" })).toHaveFocus();
+	});
+
 	it("has the whole block, however tall it was made, to double-click on", () => {
 		const style = readFileSync(
 			path.join(
@@ -381,6 +396,12 @@ describe("a frame", () => {
 		const chip = screen.getByTestId("canvas-frame-label");
 		expect(chip).toHaveTextContent("Saturday");
 		expect(chip.closest(".canvas-node__chip")).not.toBeNull();
+	});
+
+	it("renames from the Edit button of the selection's toolbar", async () => {
+		mount(FrameNode, props({ selected: true }));
+		await fireEvent.click(screen.getByTestId("canvas-node-edit"));
+		expect(screen.getByRole("textbox", { name: "Frame name" })).toHaveFocus();
 	});
 
 	it("lifts its toolbar above the board's pane, so every button of it can be pressed", () => {

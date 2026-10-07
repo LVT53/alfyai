@@ -19,7 +19,7 @@
  * from a block's bottom to another's top; the board connects in loose mode, so
  * a reader can still start from any side.
  */
-import { Trash2 } from "@lucide/svelte";
+import { Pencil, Trash2 } from "@lucide/svelte";
 import {
 	Handle,
 	NodeResizeControl,
@@ -47,6 +47,7 @@ let {
 	tone,
 	dropTarget = false,
 	activate,
+	edit,
 	header,
 	toolbar,
 	children,
@@ -70,6 +71,8 @@ let {
 	dropTarget?: boolean;
 	/** Enter or F2 while the block itself has focus (a text block opens for editing). */
 	activate?: () => void;
+	/** Opens the block for changing (its words, its name, its source): the toolbar's Edit button. A block with nothing of its own to change gives none, and has no button. */
+	edit?: () => void;
 	/** Replaces a card's default header, and is a frame's label chip. */
 	header?: Snippet;
 	/** Extra controls for the selection toolbar, before Delete. */
@@ -272,6 +275,18 @@ function reportBroken(error: unknown): void {
 		>
 			<div class="canvas-node-toolbar" role="toolbar" aria-label={kindLabel} data-testid="canvas-node-toolbar">
 				{@render toolbar?.()}
+				{#if edit}
+					<button
+						type="button"
+						class="canvas-node-toolbar__button"
+						aria-label={$t("common.edit")}
+						title={$t("common.edit")}
+						data-testid="canvas-node-edit"
+						onclick={edit}
+					>
+						<Pencil size={15} strokeWidth={2} aria-hidden="true" />
+					</button>
+				{/if}
 				<button
 					type="button"
 					class="canvas-node-toolbar__button"

@@ -46,6 +46,7 @@ function startEditing(): void {
 	minHeight={minSize.height}
 	summary={excerpt(data.text)}
 	activate={startEditing}
+	edit={startEditing}
 >
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="text-block" ondblclick={startEditing} data-testid="canvas-text">

@@ -68,6 +68,7 @@ function startEditing(): void {
 	tone={data.tone}
 	summary={excerpt(data.text)}
 	activate={startEditing}
+	edit={startEditing}
 	toolbar={toneSwatches}
 >
 	<!-- The double-click is a pointer shortcut for what Enter does on the
