@@ -36,11 +36,21 @@ read it whole) are the visual reference.
    "Now showing v2", the building and failure lines and the toast are literals (on a second regenerate the header said
    v3 and the toast v2), and the popover's "v1 stays in History" becomes true now that History exists. The App's delete
    confirmation names its versions like the Document's and the Canvas's (`artifacts.delete.body.app`).
-3. **The old sheet goes.** Once nothing imports them, delete `document/VersionsSheet.svelte` and
-   `document/version-summary.ts` (and their tests), and anything only they used (Fallow will tell you).
+3. **The old sheet goes.** Follow VB-2's removal list (its report's hand-off): register the Canvas and App entries
+   in `history/history-previews.ts` (`HISTORY_PREVIEWS`; `kindHasHistory` then turns true by itself), register `flush`
+   and `reload` from the board and the App the way `DocumentBody.svelte` does, then delete `document/VersionsSheet.svelte`,
+   `document/version-summary.ts` (and their tests), the Canvas sheet mount, the header's fallback and
+   `ArtifactPanelBodyActions.openVersions`, and anything only they used (Fallow will tell you).
+4. **The last version number.** The Knowledge → Documents table still prints a `v7` badge on artifact rows
+   (`DocumentsList.svelte`, `documents-table.ts`); ruling 76's Q2 says no surface but History's fine print shows a
+   number: show the latest moment there through the same source VB-2 built (`moment-phrase.ts`, the observed moment).
 
 New strings in your own block of `src/lib/i18n/artifacts.ts`, EN and HU in the same commit (HU from §8). Reduced motion,
 44 px phone targets, Lucide icons, semantic tokens.
+
+**The chat route's byte baseline** (`--chat-baseline` in `package.json`) reads over on your base already (+8,858 B from
+VB-2's strings and panel wiring); FG is replacing it with a closure rule (no heavy library in the chat route's first
+load). Do not move it: report the chat route's number before and after your change, and that no heavy library joined it.
 
 ## Tests and gates
 
