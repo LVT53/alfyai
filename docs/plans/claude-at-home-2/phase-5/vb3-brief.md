@@ -27,7 +27,12 @@ read it whole) are the visual reference.
    The restore question names the board, not "text" (today the Canvas reuses the Document's "A jelenlegi szöveged…").
 2. **The App in History.** `app/AppVersionPreview.svelte`: Preview (an `AppFrame` pointed at VB-1's version route,
    storage read-only: a write inside the frame is refused) and Code (a line diff of the source), registered in the
-   registry; the App's header opens History. The regenerate flow's copy stops hard-coding versions: today "Make v2",
+   registry; the App's header opens History. **Security (VB-1's hand-off, a condition of the old-App route):** the
+   preview frame's `src` is the version route (with `?conversationId=` in an incognito chat), the same
+   `sandbox="allow-scripts allow-forms"` as the live App, and **the parent refuses every `alfy.storage` `set` message
+   in preview mode** — a hostile old version can post raw messages whatever its bridge says; a 422 `not_runnable`
+   answer means "Code only". The Opus review reads this part first. An App rebuild's Undo restores with the rebuild's
+   number, as VB-1's report says. The regenerate flow's copy stops hard-coding versions: today "Make v2",
    "Now showing v2", the building and failure lines and the toast are literals (on a second regenerate the header said
    v3 and the toast v2), and the popover's "v1 stays in History" becomes true now that History exists. The App's delete
    confirmation names its versions like the Document's and the Canvas's (`artifacts.delete.body.app`).
