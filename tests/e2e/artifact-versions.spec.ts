@@ -20,7 +20,7 @@ import {
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
-import { createConversation, login, sendMessage } from "./helpers";
+import { createEmptyConversation, login, sendMessage } from "./helpers";
 
 // Wave 2.5 polish G1-B (owner: "the version numbers are all over the place —
 // in the overview I see v5, inside it's only v3, and in the versions tab I
@@ -175,16 +175,16 @@ test.describe("one latest moment on every surface", () => {
 		await fakeProvider.reset();
 	});
 
-	test("create → user edit → Alfy edit → review → Undo → restore → undo the restore: the header, the list row, the chat card and History agree at every step, and after a reload", async ({
-		page,
-	}) => {
+	test("create → user edit → Alfy edit → review → Undo → restore → undo the restore: the header, the list row, the chat card and History agree at every step, and after a reload", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		test.setTimeout(300_000);
 		await page.setViewportSize({ width: 1440, height: 900 });
 		await login(page);
 		const previousModelPreference = await snapshotUserModelPreference(page);
 		let providerId: string | null = null;
 		try {
-			const conversationId = await createConversation(page, "Moment walk");
+			const conversationId = await createEmptyConversation(page);
 			const userId = await testUserId();
 			const artifact = await createDocumentArtifact({
 				userId,
@@ -508,7 +508,7 @@ test.describe("the restore toast's exit", () => {
 
 	test("fades and sinks away, then leaves the DOM", async ({ page }) => {
 		test.setTimeout(120_000);
-		const conversationId = await createConversation(page, "Toast exit");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocumentWithVersions(conversationId, 2);
 		await openChatAndReload(page, conversationId);
 		await openDocumentFromPanel(page);
@@ -531,7 +531,7 @@ test.describe("the restore toast's exit", () => {
 	}) => {
 		test.setTimeout(120_000);
 		await page.emulateMedia({ reducedMotion: "reduce" });
-		const conversationId = await createConversation(page, "Toast exit reduced");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocumentWithVersions(conversationId, 2);
 		await openChatAndReload(page, conversationId);
 		await openDocumentFromPanel(page);

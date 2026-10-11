@@ -24,7 +24,7 @@ import {
 } from "../../src/lib/shared/artifacts/version-summaries";
 import { openCanvasPanel, openChatAndReload } from "./artifact-canvas-helpers";
 import {
-	createConversation,
+	createEmptyConversation,
 	login,
 	waitForHydration,
 	workspacePanel,
@@ -159,7 +159,7 @@ test.describe("History mode", () => {
 	test("opens from the header's history button, selects the newest moment, and Done returns to the Document", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History open");
+		const conversationId = await createEmptyConversation(page, "History open");
 		await seedDocument(conversationId, "History open", THREE_VERSIONS);
 		await openChat(page, conversationId);
 		await openDocumentInPanel(page);
@@ -200,7 +200,10 @@ test.describe("History mode", () => {
 	});
 
 	test("returns to editing with the scroll where it was", async ({ page }) => {
-		const conversationId = await createConversation(page, "History scroll");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History scroll",
+		);
 		const paragraphs = Array.from(
 			{ length: 60 },
 			(_, index) => `Paragraph number ${index + 1} of the long plan.`,
@@ -240,7 +243,7 @@ test.describe("History mode", () => {
 	test("saves what was just typed before it shows the history, so the step is in it (P10)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History flush");
+		const conversationId = await createEmptyConversation(page, "History flush");
 		await seedDocument(conversationId, "History flush", [
 			{
 				author: "alfy",
@@ -271,7 +274,7 @@ test.describe("History mode", () => {
 	test("the rail is a listbox of sentences that arrow keys walk, and Escape leaves History with the focus back on its button (T9)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History a11y");
+		const conversationId = await createEmptyConversation(page, "History a11y");
 		await seedDocument(conversationId, "History a11y", [
 			...THREE_VERSIONS,
 			{
@@ -322,7 +325,16 @@ test.describe("History mode", () => {
 		await expect(preview).not.toContainText("The museum.");
 		await page.keyboard.press("End");
 		await expect(options.nth(3)).toHaveAttribute("aria-selected", "true");
-		await expect(preview).not.toContainText("then a cafe");
+		// The preview is made anew for every moment and is an empty skeleton until its
+		// bodies are read, so an absence ("no cafe") is true there at once and is not
+		// what shows the preview followed. The first draft has no parent: it is shown
+		// against now (the cafe, struck), and what only it has is its own last line.
+		await expect(preview).toHaveAttribute("aria-busy", "false");
+		await expect(preview).toHaveAttribute(
+			"aria-label",
+			/Alfy wrote the first draft/,
+		);
+		await expect(preview).toContainText("Belvedere in the morning.");
 		await page.keyboard.press("Home");
 		await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
 
@@ -340,7 +352,10 @@ test.describe("History mode", () => {
 		page,
 	}) => {
 		test.setTimeout(240_000);
-		const conversationId = await createConversation(page, "History paging");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History paging",
+		);
 		const userId = await adminId();
 		const artifact = await createDocumentArtifact({
 			userId,
@@ -392,7 +407,7 @@ test.describe("History mode", () => {
 			.set({ uiLanguage: "hu" })
 			.where(eq(users.email, "admin@local"));
 		try {
-			const conversationId = await createConversation(page, "Előzmények");
+			const conversationId = await createEmptyConversation(page, "Előzmények");
 			await seedDocument(conversationId, "Előzmények", [
 				{
 					author: "alfy",
@@ -479,7 +494,7 @@ test.describe("History mode: what changed, restore and names", () => {
 	test("marks what each version changed, steps through the changes, folds what did not, and compares with now", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History marks");
+		const conversationId = await createEmptyConversation(page, "History marks");
 		const v1 = withIds(
 			["h1", "# Friday"],
 			["p1", "Arrive in the afternoon."],
@@ -587,7 +602,10 @@ test.describe("History mode: what changed, restore and names", () => {
 	test("naming a version closes the typing burst: the next edit is a moment of its own, and the name stays on the first (T2)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History naming");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History naming",
+		);
 		await seedDocument(conversationId, "History naming", [
 			{
 				author: "alfy",
@@ -661,7 +679,10 @@ test.describe("History mode: what changed, restore and names", () => {
 	test("restores what was typed a moment ago as the moment before the restore, with no conflict (T5)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History restore");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History restore",
+		);
 		await seedDocument(conversationId, "History restore", [
 			{
 				author: "alfy",
@@ -719,7 +740,7 @@ test.describe("History mode: what changed, restore and names", () => {
 	test("answers a restore that something else outran inline, and lets the reader ask again", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History moved");
+		const conversationId = await createEmptyConversation(page, "History moved");
 		const artifactId = await seedDocument(conversationId, "History moved", [
 			{
 				author: "alfy",
@@ -771,7 +792,7 @@ test.describe("History mode on a phone", () => {
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		await login(page);
-		const conversationId = await createConversation(page, "History phone");
+		const conversationId = await createEmptyConversation(page, "History phone");
 		await seedDocument(conversationId, "History phone", THREE_VERSIONS);
 		await openChat(page, conversationId);
 
@@ -818,7 +839,15 @@ test.describe("History mode on a phone", () => {
 		await expect(preview).toContainText("The museum.");
 		await older.tap();
 		await older.tap();
-		await expect(preview).not.toContainText("then a cafe");
+		// As in the keyboard test above: the first draft's preview is an empty skeleton until
+		// it has loaded, then holds the struck cafe it is shown against, so wait for the load
+		// and look for the draft's own last line instead of for an absence.
+		await expect(preview).toHaveAttribute("aria-busy", "false");
+		await expect(preview).toHaveAttribute(
+			"aria-label",
+			/Alfy wrote the first draft/,
+		);
+		await expect(preview).toContainText("Belvedere in the morning.");
 
 		// Restore: the question replaces the bottom bar, its buttons are 44 px.
 		await sheet.getByTestId("history-restore").tap();
@@ -926,7 +955,7 @@ test.describe("History mode: a board", () => {
 	test("an Alfy change undone on the review bar folds in History, its preview rings what it touched, and Restore brings it back (T7)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History board");
+		const conversationId = await createEmptyConversation(page, "History board");
 		const userId = await adminId();
 		const created = await createArtifact({
 			userId,
@@ -1154,7 +1183,7 @@ test.describe("History mode: an App", () => {
 	test("a rebuilt App's first version runs in History with its storage read-only, its Code shows the difference, and Restore brings it back (T6)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History app");
+		const conversationId = await createEmptyConversation(page, "History app");
 		const artifactId = await seedApp(conversationId, "Trip budget", [
 			{
 				html: FIRST_APP_HTML,
@@ -1293,7 +1322,10 @@ test.describe("History mode: an App", () => {
 	test("a version the rules now forbid is Code only: the reader is told, and the code is there (T6)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History runaway");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History runaway",
+		);
 		await seedApp(conversationId, "Trip budget", [
 			{
 				html: SECOND_APP_HTML,
@@ -1340,7 +1372,10 @@ test.describe("History mode: an App", () => {
 	test("the toast's Undo takes the rebuild back as one moment with it, and History says so (T6)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History undo app");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History undo app",
+		);
 		const artifactId = await seedApp(conversationId, "Trip budget", [
 			{ html: FIRST_APP_HTML, summary: madeAppSummary("a trip budget") },
 		]);
@@ -1399,7 +1434,10 @@ test.describe("The library says what changed last", () => {
 	test("an artifact row's Version cell says who changed it and when, never a number (ruling 76, Q2)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Library moments");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Library moments",
+		);
 		await seedDocument(conversationId, "Library plan reader", [
 			{
 				author: "alfy",
@@ -1475,7 +1513,10 @@ test.describe("History mode on a phone: an App and a board", () => {
 	test("an App's preview runs in the sheet, and its tabs and folds are 44 px targets (T6)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History app phone");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History app phone",
+		);
 		// A source whose top is the same in both versions (so there is a fold) and whose
 		// bottom is all different (so the difference is taller than the sheet).
 		const longApp = (heading: string, word: string) =>
@@ -1551,7 +1592,7 @@ test.describe("History mode on a phone: an App and a board", () => {
 	test("a board's preview fits the sheet, ringed and tagged, and a tap on it changes nothing (T7)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"History board phone",
 		);

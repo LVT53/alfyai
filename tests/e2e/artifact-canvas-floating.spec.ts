@@ -16,7 +16,7 @@ import {
 	openChatAndReload,
 	testUserId,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // The layers that float over the board stay where the reader can use them (RC-3
 // N3): the change pill inside the pane, the selection's pill inside the pane and
@@ -43,7 +43,7 @@ function note(id: string, x: number, y: number, text: string): CanvasNode {
  */
 async function open(page: Page, at: { x: number; y: number }) {
 	await login(page);
-	const conversationId = await createConversation(page, "Floating");
+	const conversationId = await createEmptyConversation(page, "Floating");
 	const userId = await testUserId();
 	const board: CanvasBody = {
 		version: 1,

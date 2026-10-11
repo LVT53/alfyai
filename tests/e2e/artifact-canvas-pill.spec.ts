@@ -24,7 +24,7 @@ import {
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
-import { createConversation, login, sendMessage } from "./helpers";
+import { createEmptyConversation, login, sendMessage } from "./helpers";
 
 // The change pill (Keep / Undo) stays with what Alfy changed. The owner's walk:
 // "sometimes the 'Keep Undo' row moves into weird locations far from the element."
@@ -100,7 +100,7 @@ test.beforeEach(async () => {
 async function open(page: Page, options: { panel?: boolean } = {}) {
 	await login(page);
 	const previousPreference = await snapshotUserModelPreference(page);
-	const conversationId = await createConversation(page, "Pill place");
+	const conversationId = await createEmptyConversation(page);
 	const created = await createArtifact({
 		userId: await testUserId(),
 		conversationId,

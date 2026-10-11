@@ -8,7 +8,7 @@ import {
 	messages,
 	users,
 } from "../../src/lib/server/db/schema";
-import { createConversation, login, workspacePanel } from "./helpers";
+import { createEmptyConversation, login, workspacePanel } from "./helpers";
 
 // Surfaces 1-3 of the artifact-surfaces mockup: the chat header's quiet
 // count button, the panel opening on its "what this chat made" list, and a
@@ -79,7 +79,7 @@ async function seedProducedFile(
 }
 
 async function openChatAndReload(page: Page, conversationId: string) {
-	// createConversation() sends the first message through the real composer
+	// createEmptyConversation() sends the first message through the real composer
 	// flow, which stores a "pending message" in sessionStorage for the chat
 	// page to consume on mount and clears it once consumed. In this
 	// environment the model backend is unreachable, so that first send
@@ -106,7 +106,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 	test("renders no count button in a chat that has made nothing", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Just a plain question, nothing produced",
 		);
@@ -118,10 +118,10 @@ test.describe("the chat header's artifact count button and panel", () => {
 		);
 	});
 
-	test("shows the count and opens the panel on the list with the File row visible", async ({
-		page,
-	}) => {
-		const conversationId = await createConversation(
+	test("shows the count and opens the panel on the list with the File row visible", {
+		tag: "@smoke",
+	}, async ({ page }) => {
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a trip summary",
 		);
@@ -157,7 +157,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 			page,
 		}) => {
 			await page.setViewportSize(viewport);
-			const conversationId = await createConversation(
+			const conversationId = await createEmptyConversation(
 				page,
 				"A trip summary and a long enough title to be worth centring",
 			);
@@ -220,7 +220,10 @@ test.describe("the chat header's artifact count button and panel", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 900, height: 700 });
-		const conversationId = await createConversation(page, "Compact header");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Compact header",
+		);
 		await seedProducedFile(conversationId);
 		await openChatAndReload(page, conversationId);
 
@@ -242,7 +245,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 	test("opens the File's preview from the list, and closing returns to the chat", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a trip summary",
 		);
@@ -274,7 +277,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 	test("returns focus to the count button when the panel closes, not to the page body", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a trip summary",
 		);
@@ -309,7 +312,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a trip summary",
 		);
@@ -360,7 +363,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a trip summary",
 		);

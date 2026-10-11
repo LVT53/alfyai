@@ -13,7 +13,7 @@ import {
 	storedBoard,
 	versionRows,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // A frame is a group a reader can grab (the owner's walk: "what's the point of
 // adding canvas elements into bigger groups if I can't even select the group when
@@ -75,7 +75,7 @@ type Box = { x: number; y: number; width: number; height: number };
 
 async function openBoard(page: Page): Promise<string> {
 	await login(page);
-	const conversationId = await createConversation(page, "Frame group");
+	const conversationId = await createEmptyConversation(page, "Frame group");
 	const artifactId = await seedCanvas(conversationId, seededBoard());
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);
@@ -181,7 +181,7 @@ test.describe("a frame is a group a reader can grab", () => {
 
 	test("the innermost frame under a click takes it", async ({ page }) => {
 		await login(page);
-		const conversationId = await createConversation(page, "Nested frames");
+		const conversationId = await createEmptyConversation(page, "Nested frames");
 		const board = seededBoard();
 		board.nodes.splice(1, 0, {
 			id: "frame-inner",

@@ -14,6 +14,7 @@ import {
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
 import {
+	liveBlock,
 	nodeCount,
 	openChatAndReload,
 	savedStatus,
@@ -22,7 +23,12 @@ import {
 	testUserId,
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import { moduleUrlPattern } from "./build-assets";
+import {
+	createEmptyConversation,
+	login,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // The blocks made from the chat (Feature 2 · Canvas, S3-R1): the Insert menu's
 // "From this chat" lists what the board's own chat made, and a pick puts a File,
@@ -103,7 +109,7 @@ async function seedChat(
 	page: Page,
 	title = "Board from the chat",
 ): Promise<Seeded> {
-	const conversationId = await createConversation(page, title);
+	const conversationId = await createEmptyConversation(page, title);
 	const userId = await testUserId();
 	const now = new Date();
 
@@ -294,9 +300,7 @@ async function fitBoard(page: Page) {
  * the two is the only failure.
  */
 async function expectMapSettled(page: Page) {
-	const surface = page
-		.getByTestId("canvas-map")
-		.getByTestId("map-route-canvas");
+	const surface = liveBlock(page, "canvas-map").getByTestId("map-route-canvas");
 	await expect
 		.poll(
 			async () => {
@@ -309,7 +313,7 @@ async function expectMapSettled(page: Page) {
 		)
 		.not.toBe("pending");
 	await expect(
-		page.getByTestId("canvas-map").getByTestId("map-route-fallback"),
+		liveBlock(page, "canvas-map").getByTestId("map-route-fallback"),
 	).toBeAttached();
 }
 
@@ -377,7 +381,7 @@ test.describe("blocks from this chat", () => {
 		await pickFromChat(page, /Cork → Kinsale/);
 		await expect(nodeOf(page, "map")).toHaveCount(1);
 		await expect(
-			page.getByTestId("canvas-map").getByTestId("map-route-card"),
+			liveBlock(page, "canvas-map").getByTestId("map-route-card"),
 		).toBeVisible();
 		await expectMapSettled(page);
 
@@ -433,7 +437,7 @@ test.describe("blocks from this chat", () => {
 				.getByRole("heading", { name: "Tip calculator" }),
 		).toBeVisible();
 		await expect(
-			page.getByTestId("canvas-map").getByTestId("map-route-card"),
+			liveBlock(page, "canvas-map").getByTestId("map-route-card"),
 		).toBeVisible();
 		await expect(
 			page.getByTestId("canvas-chart").locator("canvas"),
@@ -562,8 +566,13 @@ test.describe("blocks from this chat", () => {
 		await openBoard(page);
 		// Nothing has asked for it yet: the editor opens without it.
 		const requests: string[] = [];
+		// `vite dev` serves the module at its source path; the production build serves
+		// its chunk (the manifest says which), so the pattern is asked of the build.
+		const placementModule = moduleUrlPattern(
+			"src/lib/components/artifacts/canvas/_lib/placement.ts",
+		);
 		page.on("request", (request) => {
-			if (/\/_lib\/placement/.test(request.url())) requests.push(request.url());
+			if (placementModule.test(request.url())) requests.push(request.url());
 		});
 		expect(requests).toHaveLength(0);
 		await insertButton(page).hover();
@@ -634,7 +643,10 @@ test.describe("blocks from this chat", () => {
 	test("says quietly that there is nothing to insert in a chat that has made nothing", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Nothing made here");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Nothing made here",
+		);
 		await seedCanvas(conversationId, emptyCanvasBody(), "Empty board");
 		await openChatAndReload(page, conversationId);
 		await openBoard(page);
@@ -675,7 +687,7 @@ test.describe("blocks from this chat", () => {
 	test("draws a stored board's file, App, map and chart in place, with their own gestures", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Stored blocks");
+		const conversationId = await createEmptyConversation(page, "Stored blocks");
 		const tipApp = await seedApp(conversationId, "Tip calculator");
 		const body: CanvasBody = {
 			...emptyCanvasBody(),
@@ -728,7 +740,7 @@ test.describe("blocks from this chat", () => {
 				.getByRole("heading", { name: "Tip calculator" }),
 		).toBeVisible();
 		await expect(
-			page.getByTestId("canvas-map").getByTestId("map-route-card"),
+			liveBlock(page, "canvas-map").getByTestId("map-route-card"),
 		).toBeVisible();
 		// The App's frame is the panel's: exactly this sandbox, on the block too.
 		await expect(page.locator("iframe.app-frame")).toHaveAttribute(
@@ -737,9 +749,9 @@ test.describe("blocks from this chat", () => {
 		);
 		// The board's gestures are kept off the App and the map.
 		for (const testId of ["canvas-app", "canvas-map"]) {
-			await expect(page.getByTestId(testId)).toHaveClass(/nodrag/);
-			await expect(page.getByTestId(testId)).toHaveClass(/nowheel/);
-			await expect(page.getByTestId(testId)).toHaveClass(/nopan/);
+			await expect(liveBlock(page, testId)).toHaveClass(/nodrag/);
+			await expect(liveBlock(page, testId)).toHaveClass(/nowheel/);
+			await expect(liveBlock(page, testId)).toHaveClass(/nopan/);
 		}
 		// Every block is a real node: it can be picked and it has anchors.
 		expect(await nodeCount(page)).toBe(3);

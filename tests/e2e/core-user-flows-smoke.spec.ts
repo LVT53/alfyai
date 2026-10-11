@@ -42,9 +42,9 @@ test.describe("Core user flows smoke", () => {
 		await provider.reset();
 	});
 
-	test("logs in, sends from landing through the fake provider, and reloads the persisted response", async ({
-		page,
-	}) => {
+	test("logs in, sends from landing through the fake provider, and reloads the persisted response", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		await login(page);
 		const previousModelPreference = await snapshotUserModelPreference(page);
 		const previousSelectedModel = await snapshotBrowserSelectedModel(page);
@@ -96,9 +96,9 @@ test.describe("Core user flows smoke", () => {
 		}
 	});
 
-	test("shows a stream failure, retries, and replaces it with a visible assistant response", async ({
-		page,
-	}) => {
+	test("shows a stream failure, retries, and replaces it with a visible assistant response", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		await login(page);
 
 		let streamAttempts = 0;
@@ -146,9 +146,9 @@ test.describe("Core user flows smoke", () => {
 		);
 	});
 
-	test("searches and opens a knowledge document in the workspace", async ({
-		page,
-	}) => {
+	test("searches and opens a knowledge document in the workspace", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		await login(page);
 		// /knowledge defaults to the Memory tab; the document list and its search
 		// box live under the Documents tab.

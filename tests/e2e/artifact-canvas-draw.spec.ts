@@ -16,7 +16,7 @@ import {
 	storedBoard,
 	versionRows,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // The drawing layer on the Canvas (Feature 2 · Artifacts, Slice 3, T4): the
 // pen, the highlighter, shapes, text and the eraser, drawn in board
@@ -70,7 +70,7 @@ function pen(
 }
 
 async function open(page: Page, body: CanvasBody) {
-	const conversationId = await createConversation(page, "Drawing");
+	const conversationId = await createEmptyConversation(page, "Drawing");
 	const artifactId = await seedCanvas(conversationId, body);
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);

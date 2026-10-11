@@ -3,7 +3,7 @@ import {
 	seedDocument,
 	setUiLanguage,
 } from "./artifact-document-polish-helpers";
-import { createConversation, login, workspacePanel } from "./helpers";
+import { createEmptyConversation, login, workspacePanel } from "./helpers";
 
 // Review 276-279 (G3): the panel is named for what it shows and a list row says
 // what it is. Role and name queries, in both UI languages, because the accessible
@@ -32,7 +32,7 @@ test.describe("The panel's names (review 276-279)", () => {
 		await setUiLanguage("en");
 		await login(page);
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Panel names");
+		const conversationId = await createEmptyConversation(page, "Panel names");
 		await seedDocument(conversationId, {
 			markdown: "# A\n\nB.",
 			title: "Budget",
@@ -77,7 +77,10 @@ test.describe("The panel's names (review 276-279)", () => {
 		await setUiLanguage("hu");
 		await login(page);
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Panel names HU");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Panel names HU",
+		);
 		await seedDocument(conversationId, {
 			markdown: "Szöveg.\n\nMásik.",
 			title: "Bécsi utazás",

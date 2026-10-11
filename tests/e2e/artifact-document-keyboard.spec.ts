@@ -4,7 +4,7 @@ import {
 	seedDocument,
 	setUiLanguage,
 } from "./artifact-document-polish-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // G3, keyboard undo and redo in the Document. Everything here is a real
 // browser: the keys, the focus and the browser's own undo are what is under
@@ -116,7 +116,10 @@ for (const [name, keys] of [
 			page,
 		}) => {
 			await page.setViewportSize({ width: 1440, height: 900 });
-			const conversationId = await createConversation(page, "Keys in text");
+			const conversationId = await createEmptyConversation(
+				page,
+				"Keys in text",
+			);
 			await seedDocument(conversationId, {
 				markdown: "Alpha.\n\nBeta.\n\nGamma.",
 			});
@@ -155,7 +158,7 @@ for (const [name, keys] of [
 			page,
 		}) => {
 			await page.setViewportSize({ width: 1440, height: 900 });
-			const conversationId = await createConversation(
+			const conversationId = await createEmptyConversation(
 				page,
 				"Keys after toolbar",
 			);
@@ -184,7 +187,7 @@ for (const [name, keys] of [
 			page,
 		}) => {
 			await page.setViewportSize({ width: 1440, height: 900 });
-			const conversationId = await createConversation(
+			const conversationId = await createEmptyConversation(
 				page,
 				"Keys from toolbar",
 			);
@@ -212,7 +215,10 @@ for (const [name, keys] of [
 			page,
 		}) => {
 			await page.setViewportSize({ width: 1440, height: 900 });
-			const conversationId = await createConversation(page, "Tooltip keys");
+			const conversationId = await createEmptyConversation(
+				page,
+				"Tooltip keys",
+			);
 			await seedDocument(conversationId, { markdown: "Some text." });
 			const shell = await openDocument(page, conversationId);
 			const undo = shell.getByRole("button", { name: keys.undoName });
@@ -234,7 +240,10 @@ test.describe("Keyboard undo and redo: what must keep its own", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Keys in comment");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Keys in comment",
+		);
 		await seedDocument(conversationId, {
 			markdown: "Alpha and beta.\n\nBeta.\n\nGamma.",
 		});
@@ -271,7 +280,7 @@ test.describe("Keyboard: Alfy's change stays apart from the text history", () =>
 		pm: Locator;
 	}> {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Alfy chords");
+		const conversationId = await createEmptyConversation(page, "Alfy chords");
 		await seedDocument(conversationId, {
 			markdown: "Alpha.\n\nBeta.\n\nGamma.",
 			pendingOps: 2,
