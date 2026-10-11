@@ -1019,3 +1019,17 @@ the owner's review, with the fast gates measured before and after.
   questions (`docs/design/artifacts-versioning/versioning.md` §13, each with a recommendation) and the word to resume
   (FG's finish, then the friction audit FA). Budget at the halt: 5-hour window ~35 %, weekly 66 % (resets 2026-10-12
   09:00 UTC).
+- **RESUMED (owner, 2026-10-11 ~15:30 UTC): "I like the redesign. I approve of it. You may fully continue working."**
+  Ruling 76: the versioning design is approved; its eight questions go as recommended; amendments A1–A5 adopted. Budget
+  at the resume: 5-hour window 1 % (resets 20:20 UTC), weekly 68 % (resets 2026-10-12 09:00 UTC). Plan: FG-2 finishes
+  the fast gates from FG's work; VB-1 builds the versioning server; VB-2 (History mode + Document) starts from VB-1's
+  first commit (the shared type); FA starts when FG-2 is done (the owner's word); VB-3 (Canvas + App previews, deletes
+  the old sheet) after VB-2; then one Opus review of the versioning batch (routes' scope, the old-App route's sandbox,
+  the restore guard), fixes, the integration gate on the new fast gates, deploy, the owner's check.
+
+| Agent | Scope | Branch / worktree (port) | State |
+|---|---|---|---|
+| FG-2 | finish FG: review and commit its WIP, the gate runner, quarantine list, `@smoke`, the after-measurement, the report | `infra/fast-gates` / `art-fg` (5450–5469) | running |
+| VB-1 | versioning server: the shared `ArtifactMoment` type first, the vocabulary (A5), migration `1777140000113` (Q3), coalescing (A2, Q4), `listHistory`/`deriveMoments`, restore guard, naming, paging, routes, the old-App version route (Q7), the summary tool text (Q8) | `feat/versioning-server` / `art-vb1` (5400–5409) | running |
+| VB-2 | History mode + the latest moment on every surface (A1, Q2) + the Document preview, restore, naming; T1–T5, T8, T9 | `feat/versioning-history` / `art-vb2` (5420–5429) | queued for VB-1's first commit |
+| VB-3 | Canvas + App previews in History, the App's regenerate copy, delete the old sheet; T6, T7 | — | queued after VB-2 |
