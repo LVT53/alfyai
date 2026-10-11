@@ -25,7 +25,7 @@ import {
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
 import {
-	createConversation,
+	createEmptyConversation,
 	login,
 	sendMessage,
 	workspacePanel,
@@ -212,7 +212,7 @@ test.describe("The panel header follows the item the panel shows (D1)", () => {
 		await setUiLanguage("en");
 		await login(page);
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Panel swap");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument(conversationId, {
 			markdown: "First.\n\nSecond.",
 			title: "Alpha",
@@ -268,7 +268,7 @@ test.describe("The panel header follows the item the panel shows (D1)", () => {
 		await setUiLanguage("en");
 		await login(page);
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Panel swap phone");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument(conversationId, {
 			markdown: "First.\n\nSecond.",
 			title: "Alpha",
@@ -318,7 +318,7 @@ test.describe("The panel header follows the item the panel shows (D1)", () => {
 		await setUiLanguage("en");
 		await login(page);
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Card swap");
+		const conversationId = await createEmptyConversation(page);
 		const alpha = await seedDocument(conversationId, {
 			markdown: "# Alpha\n\nBody of Alpha.",
 			title: "Alpha",
@@ -384,10 +384,7 @@ test.describe("A live Alfy edit is applied once, however often the Document is o
 	});
 
 	/** Opens the chat with the Document already showing in the panel, so the body is mounted while Alfy's edit lands, then lets Alfy edit it (one applied block, one refused). */
-	async function editWhileOpen(
-		page: Page,
-		conversationTitle: string,
-	): Promise<{
+	async function editWhileOpen(page: Page): Promise<{
 		conversationId: string;
 		artifactId: string;
 		providerId: string;
@@ -396,7 +393,7 @@ test.describe("A live Alfy edit is applied once, however often the Document is o
 		await login(page);
 		await page.setViewportSize({ width: 1440, height: 900 });
 		const previousModelPreference = await snapshotUserModelPreference(page);
-		const conversationId = await createConversation(page, conversationTitle);
+		const conversationId = await createEmptyConversation(page);
 		const artifactId = await seedDocument(conversationId, {
 			markdown: "Book the hotel.\n\nBook the flight.",
 			title: "Trip plan",
@@ -449,7 +446,7 @@ test.describe("A live Alfy edit is applied once, however often the Document is o
 		let providerId: string | null = null;
 		let previousModelPreference: string | null = null;
 		try {
-			const walk = await editWhileOpen(page, "Replay walk");
+			const walk = await editWhileOpen(page);
 			providerId = walk.providerId;
 			previousModelPreference = walk.previousModelPreference;
 			const review = page.getByRole("region", { name: "Changes from Alfy" });
@@ -515,7 +512,7 @@ test.describe("A live Alfy edit is applied once, however often the Document is o
 		let providerId: string | null = null;
 		let previousModelPreference: string | null = null;
 		try {
-			const walk = await editWhileOpen(page, "Replay keep walk");
+			const walk = await editWhileOpen(page);
 			providerId = walk.providerId;
 			previousModelPreference = walk.previousModelPreference;
 			const review = page.getByRole("region", { name: "Changes from Alfy" });

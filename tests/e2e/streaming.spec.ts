@@ -18,7 +18,9 @@ test.describe("SSE streaming verification", () => {
 		await login(page);
 	});
 
-	test("tokens appear incrementally during streaming", async ({ page }) => {
+	test("tokens appear incrementally during streaming", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		await page.route("**/api/chat/stream", async (route) => {
 			await route.fulfill({
 				status: 200,

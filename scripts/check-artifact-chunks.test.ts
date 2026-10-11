@@ -7,6 +7,7 @@ import {
 	checkChatRoute,
 	chunkReader,
 	findTargetKeys,
+	formatChatReport,
 	formatReport,
 	PACKAGE_FINGERPRINTS,
 	parseRouteNodes,
@@ -428,12 +429,15 @@ describe("checkArtifactChunks", () => {
 describe("the fingerprints", () => {
 	it("cover the packages the editor guards, each with something a minifier keeps", () => {
 		expect(Object.keys(PACKAGE_FINGERPRINTS).sort()).toEqual([
+			"@tiptap/core",
 			"@xyflow",
 			"chart.js",
 			"html-to-image",
 			"maplibre-gl",
 			"mermaid",
 			"perfect-freehand",
+			"prosemirror-model",
+			"prosemirror-view",
 		]);
 		expect(PACKAGE_FINGERPRINTS["@xyflow"]).toContain("svelte-flow__pane");
 		// Mermaid's core keeps its own error for a source it cannot place (a diagram block loads it on demand).
@@ -641,7 +645,7 @@ describe("what the editor loads that is shared only with other lazy entries", ()
 });
 
 describe("packages the editor must not load", () => {
-	const CHART = "…chartjs-…_adapters…";
+	const CHART = "…$chartjs…_adapters…";
 
 	it("FAILS when a forbidden package is in a chunk the editor loads when it opens", () => {
 		const { manifest, readChunk } = app({
@@ -703,7 +707,7 @@ describe("packages the editor must not load", () => {
 	});
 });
 
-describe("the chat route's own weight", () => {
+describe("the chat route's first paint", () => {
 	const APP = `export const dictionary = {
 		"/(app)": [3,[2]],
 		"/(app)/chat": [~4,[2]],
@@ -720,8 +724,16 @@ describe("the chat route's own weight", () => {
 		expect(parseRouteNodes(APP, "/nowhere")).toBeNull();
 	});
 
-	/** A build with three route nodes and a lazy editor the chat page reaches only by import(). */
-	function build(chatText = "chat page") {
+	/**
+	 * A build with three route nodes, the chunks they import statically, and the
+	 * heavy libraries and the lazy editor the chat page reaches only by import().
+	 */
+	function build(
+		overrides: {
+			texts?: Record<string, string>;
+			manifest?: Record<string, Chunk>;
+		} = {},
+	) {
 		const manifest: Record<string, Chunk> = {
 			".svelte-kit/generated/client-optimized/nodes/0.js": {
 				file: "nodes/0.js",
@@ -737,75 +749,233 @@ describe("the chat route's own weight", () => {
 				file: "nodes/5.js",
 				isEntry: true,
 				imports: ["_shared", "_chat"],
-				dynamicImports: ["editor"],
+				dynamicImports: [
+					"src/lib/components/artifacts/canvas/CanvasEditor.svelte",
+					"chart",
+					"map",
+					"diagram",
+					"document",
+				],
 			},
-			editor: {
+			"src/lib/components/artifacts/canvas/CanvasEditor.svelte": {
 				file: "chunks/editor.js",
+				name: "CanvasEditor",
+				src: "src/lib/components/artifacts/canvas/CanvasEditor.svelte",
 				isDynamicEntry: true,
 				imports: ["_shared"],
 			},
+			chart: { file: "chunks/chart.js", isDynamicEntry: true },
+			map: { file: "chunks/map.js", isDynamicEntry: true },
+			diagram: { file: "chunks/diagram.js", isDynamicEntry: true },
+			document: { file: "chunks/document.js", isDynamicEntry: true },
 			_shared: { file: "chunks/shared.js" },
 			_chat: { file: "chunks/chat.js" },
+			...overrides.manifest,
 		};
 		const texts: Record<string, string> = {
 			"nodes/0.js": "root ".repeat(500),
 			"nodes/2.js": "layout ".repeat(500),
 			"nodes/5.js": "page ".repeat(500),
 			"chunks/shared.js": "shared ".repeat(2000),
-			"chunks/chat.js": chatText,
-			"chunks/editor.js": "editor ".repeat(20_000),
+			"chunks/chat.js": "chat ".repeat(500),
+			"chunks/editor.js": `editor ${FLOW} `.repeat(2000),
+			// The libraries the chat loads on demand: each in a chunk of its own.
+			"chunks/chart.js": "…$chartjs…_adapters…",
+			"chunks/map.js": "…maplibregl-canvas…maplibregl-map…",
+			"chunks/diagram.js": "…No diagram type detected…UnknownDiagramError…",
+			"chunks/document.js":
+				"…ProseMirror-hideselection…ProseMirror-selectednode… Invalid content for node …Unknown node type…[tiptap error]…",
+			...overrides.texts,
 		};
 		return { manifest, readChunk: (chunk: Chunk) => texts[chunk.file] ?? "" };
 	}
 	const nodes = [0, 2, 5];
+	const HEAVY = [
+		"chart.js",
+		"maplibre-gl",
+		"mermaid",
+		"@xyflow",
+		"prosemirror-view",
+		"prosemirror-model",
+		"@tiptap/core",
+	];
 
-	it("sums every chunk the route's first load needs, once, and never a lazy one", () => {
+	it("passes when every heavy library is in a chunk loaded on demand, and reports the size as information", () => {
 		const { manifest, readChunk } = build();
 		const result = checkChatRoute({
 			manifest,
 			readChunk,
 			nodes,
-			baseline: 1_000_000,
+			forbid: HEAVY,
+			editorName: "CanvasEditor",
 		});
 		expect(result.ok).toBe(true);
+		expect(result.violations).toEqual([]);
+		// The route's own first load: its three nodes, the shared chunk and its own.
 		expect(result.chunks).toBe(5);
 		expect(result.gzipBytes).toBeGreaterThan(0);
-		// The editor's own chunk is not in it, however big.
+		// No budget: nothing in the result names a baseline or a tolerance.
+		expect(result).not.toHaveProperty("baseline");
+		// What is on demand is counted nowhere in it, however big.
 		expect(result.gzipBytes).toBeLessThan(2_000);
+		// Each library is found in the build (so a green line is not a blind one) and not with the route.
+		for (const pkg of HEAVY.filter((name) => name !== "@xyflow")) {
+			const found = result.packages.find(
+				(entry: { pkg: string }) => entry.pkg === pkg,
+			);
+			expect(found.chunks.length, pkg).toBeGreaterThan(0);
+			expect(found.loadedWithRoute, pkg).toEqual([]);
+		}
 	});
 
-	it("passes within the tolerance of the baseline and FAILS past it", () => {
-		const { manifest, readChunk } = build();
-		const measured = checkChatRoute({
-			manifest,
-			readChunk,
-			nodes,
-			baseline: 1_000_000,
-		}).gzipBytes;
-		const within = checkChatRoute({
-			manifest,
-			readChunk,
-			nodes,
-			baseline: measured - 2_000,
-			tolerance: 2_048,
+	it("does not hold the size: a heavier chat route still passes while nothing heavy is in it", () => {
+		const { manifest, readChunk } = build({
+			texts: {
+				"chunks/chat.js": "a different, much longer chat chunk ".repeat(
+					200_000,
+				),
+			},
 		});
-		expect(within.ok).toBe(true);
-		const past = checkChatRoute({
+		const result = checkChatRoute({
 			manifest,
 			readChunk,
 			nodes,
-			baseline: measured - 2_049,
-			tolerance: 2_048,
+			forbid: HEAVY,
+			editorName: "CanvasEditor",
 		});
-		expect(past.ok).toBe(false);
-		expect(past.message).toContain("grew");
+		expect(result.ok).toBe(true);
+		expect(result.gzipBytes).toBeGreaterThan(0);
 	});
 
-	it("does not fail when the route got lighter", () => {
+	// One heavy library per row: the fingerprint each is found by in a built chunk.
+	const FOUND_BY: Record<string, string> = {
+		"chart.js": "…$chartjs…_adapters…",
+		"maplibre-gl": "…maplibregl-canvas…maplibregl-map…",
+		mermaid: "…No diagram type detected…UnknownDiagramError…",
+		"@xyflow": FLOW,
+		"prosemirror-view": "…ProseMirror-hideselection…ProseMirror-selectednode…",
+		"prosemirror-model": "…Invalid content for node …Unknown node type…",
+		"@tiptap/core": "…[tiptap error]: Invalid JSON content…",
+	};
+
+	for (const pkg of HEAVY) {
+		it(`FAILS when ${pkg} is in a chunk the route's own page imports statically`, () => {
+			const { manifest, readChunk } = build({
+				texts: { "chunks/chat.js": FOUND_BY[pkg] },
+			});
+			const result = checkChatRoute({
+				manifest,
+				readChunk,
+				nodes,
+				forbid: [pkg],
+			});
+			expect(result.ok).toBe(false);
+			expect(result.violations).toHaveLength(1);
+			expect(result.violations[0]).toMatchObject({
+				kind: "forbidden",
+				pkg,
+				file: "chunks/chat.js",
+			});
+			expect(result.violations[0].message).toContain(pkg);
+			expect(result.violations[0].message).toContain("chunks/chat.js");
+		});
+	}
+
+	it("FAILS when the library is in a chunk the route's layouts share, not only its page", () => {
+		const { manifest, readChunk } = build({
+			texts: { "chunks/shared.js": `shared ${FOUND_BY["chart.js"]}` },
+		});
+		const result = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			forbid: ["chart.js"],
+		});
+		expect(result.ok).toBe(false);
+		expect(result.violations[0]).toMatchObject({
+			kind: "forbidden",
+			file: "chunks/shared.js",
+		});
+	});
+
+	it("FAILS when the page imports the library's chunk statically instead of with import()", () => {
+		// The chat's real mistake: `import Chart from "chart.js/auto"` in a component.
+		const { manifest, readChunk } = build({
+			manifest: {
+				".svelte-kit/generated/client-optimized/nodes/5.js": {
+					file: "nodes/5.js",
+					isEntry: true,
+					imports: ["_shared", "_chat", "chart"],
+				},
+			},
+		});
+		const result = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			forbid: ["chart.js", "mermaid"],
+		});
+		expect(result.ok).toBe(false);
+		expect(result.violations.map((v: { pkg: string }) => v.pkg)).toEqual([
+			"chart.js",
+		]);
+	});
+
+	it("does not take a chunk that has only some of a package's fingerprints for the package", () => {
+		const { manifest, readChunk } = build({
+			texts: { "chunks/chat.js": "…$chartjs… but not the other mark…" },
+		});
+		expect(
+			checkChatRoute({ manifest, readChunk, nodes, forbid: ["chart.js"] }).ok,
+		).toBe(true);
+	});
+
+	it("FAILS when the Canvas editor's own entry is imported statically by the route", () => {
+		const { manifest, readChunk } = build({
+			manifest: {
+				".svelte-kit/generated/client-optimized/nodes/5.js": {
+					file: "nodes/5.js",
+					isEntry: true,
+					imports: [
+						"_shared",
+						"_chat",
+						"src/lib/components/artifacts/canvas/CanvasEditor.svelte",
+					],
+				},
+			},
+		});
+		const result = checkChatRoute({
+			manifest,
+			readChunk,
+			nodes,
+			forbid: [],
+			editorName: "CanvasEditor",
+		});
+		expect(result.ok).toBe(false);
+		expect(result.violations[0]).toMatchObject({
+			kind: "editor",
+			file: "chunks/editor.js",
+		});
+	});
+
+	it("passes when the editor's entry is only reached by import(), which is how the panel loads it", () => {
 		const { manifest, readChunk } = build();
 		expect(
-			checkChatRoute({ manifest, readChunk, nodes, baseline: 90_000 }).ok,
+			checkChatRoute({
+				manifest,
+				readChunk,
+				nodes,
+				forbid: [],
+				editorName: "CanvasEditor",
+			}).ok,
 		).toBe(true);
+	});
+
+	it("throws for a package it has no fingerprint for, rather than vouching for it", () => {
+		const { manifest, readChunk } = build();
+		expect(() =>
+			checkChatRoute({ manifest, readChunk, nodes, forbid: ["left-pad"] }),
+		).toThrow(/left-pad/);
 	});
 
 	it("says so, and fails, when a route node is not in the build", () => {
@@ -814,10 +984,63 @@ describe("the chat route's own weight", () => {
 			manifest,
 			readChunk,
 			nodes: [0, 2, 99],
-			baseline: 1,
+			forbid: HEAVY,
 		});
 		expect(result.ok).toBe(false);
 		expect(result.message).toContain("99");
+	});
+});
+
+describe("the chat route's report", () => {
+	it("names the size as information and each guarded library where it lives", () => {
+		const lines = formatChatReport("/(app)/chat/[conversationId]", {
+			ok: true,
+			chunks: 79,
+			gzipBytes: 543_859,
+			violations: [],
+			packages: [
+				{
+					pkg: "chart.js",
+					chunks: ["_app/immutable/chunks/chart.js"],
+					loadedWithRoute: [],
+				},
+				{ pkg: "mermaid", chunks: [], loadedWithRoute: [] },
+			],
+			message: "79 chunk(s), 543859 bytes gzip (information only, no budget)",
+		});
+		expect(lines).toContain("chat route /(app)/chat/[conversationId]");
+		expect(lines).toContain("79 chunk(s), 543859 bytes gzip");
+		expect(lines).toMatch(/information only|no budget/);
+		expect(lines).toContain("chart.js: _app/immutable/chunks/chart.js");
+		expect(lines).toMatch(/mermaid: not in this build/);
+		expect(lines).not.toContain("FAIL");
+	});
+
+	it("prints a FAIL line for each library the route loads statically", () => {
+		const lines = formatChatReport("/(app)/chat/[conversationId]", {
+			ok: false,
+			chunks: 5,
+			gzipBytes: 1_000,
+			violations: [
+				{
+					kind: "forbidden",
+					pkg: "chart.js",
+					file: "chunks/chat.js",
+					message:
+						"chart.js is in chunks/chat.js, which the chat route loads statically",
+				},
+			],
+			packages: [
+				{
+					pkg: "chart.js",
+					chunks: ["chunks/chat.js"],
+					loadedWithRoute: ["chunks/chat.js"],
+				},
+			],
+			message: "",
+		});
+		expect(lines).toContain("FAIL (chat-route)");
+		expect(lines).toContain("chart.js is in chunks/chat.js");
 	});
 });
 

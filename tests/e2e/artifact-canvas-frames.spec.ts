@@ -13,7 +13,7 @@ import {
 	storedBoard,
 	versionRows,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // Frames, adoption and connectors on the Canvas (Feature 2 · Artifacts, Slice
 // 3, T3). Each Svelte Flow v1 trap the prototype measured is a test here: the
@@ -64,7 +64,7 @@ function board(
 }
 
 async function open(page: import("@playwright/test").Page, body: CanvasBody) {
-	const conversationId = await createConversation(page, "Frames");
+	const conversationId = await createEmptyConversation(page, "Frames");
 	const artifactId = await seedCanvas(conversationId, body);
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);

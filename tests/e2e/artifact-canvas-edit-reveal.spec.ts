@@ -18,7 +18,7 @@ import {
 	TRIP_COSTS,
 	TRIP_FLOWCHART,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 /**
  * A block's edit form opens where the reader can use it (final re-check RC-F, IMP-3).
@@ -163,7 +163,7 @@ async function expectFormReachable(page: Page, where: string) {
 /** Signs in, seeds the board and opens the panel on it; answers the board's id, to read what was saved. */
 async function openBoardWithId(page: Page, title: string, body: CanvasBody) {
 	await login(page);
-	const conversationId = await createConversation(page, title);
+	const conversationId = await createEmptyConversation(page, title);
 	const boardId = await seedCanvas(conversationId, body);
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);

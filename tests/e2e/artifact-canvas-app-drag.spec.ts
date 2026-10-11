@@ -13,6 +13,7 @@ import type {
 	CanvasNode,
 } from "../../src/lib/shared/artifacts/canvas";
 import {
+	liveBlock,
 	nodeBox,
 	openChatAndReload,
 	savedStatus,
@@ -21,7 +22,11 @@ import {
 	testUserId,
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // An App block dragged into (or out of) a frame (Feature 2 · Canvas, RV-3 I1).
 // The library draws the blocks in the order of the board's list, and a block that
@@ -188,7 +193,10 @@ async function openBoard(
 	page: Page,
 	nodesFor: (apps: { counter: string; runaway: string }) => CanvasNode[],
 ) {
-	const conversationId = await createConversation(page, "An App on a board");
+	const conversationId = await createEmptyConversation(
+		page,
+		"An App on a board",
+	);
 	const counter = await seedApp(conversationId, "Counter", COUNTER_APP_HTML);
 	const runaway = await seedApp(conversationId, "Runaway", RUNAWAY_APP_HTML);
 	const body: CanvasBody = {
@@ -241,8 +249,7 @@ async function dragBlockBy(
 	await page.mouse.up();
 }
 
-const notice = (page: Page) =>
-	page.getByTestId("canvas-app").getByRole("alert");
+const notice = (page: Page) => liveBlock(page, "canvas-app").getByRole("alert");
 
 test.describe("an App block and the frames of a board", () => {
 	test.beforeEach(async ({ page }) => {

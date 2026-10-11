@@ -184,9 +184,9 @@ test.describe("Project page", () => {
 		await expect(page.getByText(looseTitle)).toHaveCount(0);
 	});
 
-	test("creates the first chat inside the project when a message is sent from the project page", async ({
-		page,
-	}) => {
+	test("creates the first chat inside the project when a message is sent from the project page", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
 		const projectId = await createProject(page, projectName);
 

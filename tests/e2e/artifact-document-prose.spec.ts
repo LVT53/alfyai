@@ -5,7 +5,7 @@ import {
 	PROSE_MARKDOWN,
 	seedDocument,
 } from "./artifact-document-polish-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 test.describe("Document prose details (review 251-255)", () => {
 	test.beforeEach(async ({ page }) => {
@@ -19,7 +19,10 @@ test.describe("Document prose details (review 251-255)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Checklist rhythm");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Checklist rhythm",
+		);
 		await seedDocument(conversationId, { markdown: PROSE_MARKDOWN });
 		const shell = await openDocument(page, conversationId);
 		const rows = shell.locator(".document-editor-host li[data-checked]");
@@ -46,7 +49,7 @@ test.describe("Document prose details (review 251-255)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Ticked tasks");
+		const conversationId = await createEmptyConversation(page, "Ticked tasks");
 		await seedDocument(conversationId, { markdown: PROSE_MARKDOWN });
 		const shell = await openDocument(page, conversationId);
 		const items = shell.locator(".document-editor-host li[data-checked]");
@@ -122,7 +125,7 @@ test.describe("Document prose details (review 251-255)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Table rhythm");
+		const conversationId = await createEmptyConversation(page, "Table rhythm");
 		await seedDocument(conversationId, { markdown: PROSE_MARKDOWN });
 		const shell = await openDocument(page, conversationId);
 		const rows = shell.locator(".document-editor-host tr");
@@ -141,7 +144,7 @@ test.describe("Document prose details (review 251-255)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Chip width");
+		const conversationId = await createEmptyConversation(page, "Chip width");
 		await seedDocument(conversationId, { markdown: PROSE_MARKDOWN });
 		const shell = await openDocument(page, conversationId);
 		const selects = shell.locator(".document-editor-host .tracker-chip-select");

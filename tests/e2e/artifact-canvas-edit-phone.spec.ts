@@ -10,7 +10,11 @@ import {
 	storedBoard,
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
-import { createConversation, login, waitForMotionToSettle } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForMotionToSettle,
+} from "./helpers";
 
 // The edit form of a block, on a phone (Feature 2 · Canvas, CV-B2). CV-B's form opens
 // in the block, at the board's zoom, and a block low in a phone's pane left Save and
@@ -62,10 +66,7 @@ async function openPhoneBoard(
 	body: CanvasBody,
 ) {
 	await login(page);
-	const conversationId = await createConversation(
-		page,
-		"A form near the bottom",
-	);
+	const conversationId = await createEmptyConversation(page);
 	const boardId = await seedCanvas(conversationId, body);
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);

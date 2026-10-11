@@ -380,7 +380,9 @@ test.describe("home projects row", () => {
 		);
 	});
 
-	test("takes the click through to the project it names", async ({ page }) => {
+	test("takes the click through to the project it names", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const userId = await adminUserId();
 		await clearProjectFixtures(userId);
 

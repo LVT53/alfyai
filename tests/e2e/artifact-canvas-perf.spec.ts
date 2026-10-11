@@ -16,7 +16,7 @@ import {
 	seedCanvas,
 	storedAnnotations,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // The Canvas's performance budget (Feature 2 · Artifacts, Slice 3, T8; rulings 9
 // and 16). CI asserts what is deterministic and a loose timing ceiling: the
@@ -71,7 +71,7 @@ function heavyBoard(): CanvasBody {
 }
 
 async function open(page: Page, body: CanvasBody) {
-	const conversationId = await createConversation(page, "Budget");
+	const conversationId = await createEmptyConversation(page, "Budget");
 	const artifactId = await seedCanvas(conversationId, body);
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);

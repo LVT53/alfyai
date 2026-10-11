@@ -13,7 +13,11 @@ import {
 	storedBoard,
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // Every chart and diagram the chat draws is drawn on a board too (the owner's walk
 // on ai.dev: "all other chart types that would load in chat do not load inside the
@@ -456,7 +460,7 @@ async function seedChat(
 	page: Page,
 	replies: string[],
 ): Promise<{ conversationId: string; boardId: string }> {
-	const conversationId = await createConversation(page, "Chart board");
+	const conversationId = await createEmptyConversation(page, "Chart board");
 	for (const reply of replies) {
 		sequence += 1;
 		await db.insert(messages).values({

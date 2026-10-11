@@ -15,7 +15,7 @@ import {
 	setUiLanguage,
 } from "./artifact-document-polish-helpers";
 import {
-	createConversation,
+	createEmptyConversation,
 	login,
 	waitForStableBoundingBox,
 	workspacePanel,
@@ -129,7 +129,10 @@ test.describe("Review bar on phone (Wave 2.5 review fix, Critical)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Review bar phone");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Review bar phone",
+		);
 		await seedPendingChanges(
 			conversationId,
 			["Book the flight to Vienna.", "Reserve the hotel near the river."],
@@ -192,7 +195,10 @@ test.describe("Review bar positioning while scrolling (Wave 2.5 review fix, Impo
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Review bar scroll");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Review bar scroll",
+		);
 		const filler = Array.from(
 			{ length: 40 },
 			(_, i) =>
@@ -311,7 +317,7 @@ test.describe("Comments drawer and the review bar (owner walk-through)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1024, height: 768 });
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Drawer above the review bar",
 		);
@@ -413,7 +419,10 @@ test.describe("Review bar at laptop widths, in Hungarian (G1-A screenshots)", ()
 			page,
 		}) => {
 			await page.setViewportSize({ width, height });
-			const conversationId = await createConversation(page, "Review bar HU");
+			const conversationId = await createEmptyConversation(
+				page,
+				"Review bar HU",
+			);
 			await seedDocument(conversationId, {
 				markdown: [
 					"Első bekezdés a szállodáról.",
@@ -512,7 +521,10 @@ test.describe("Review bar on a phone, flush with the bottom (Hungarian)", () => 
 			page,
 		}) => {
 			await page.setViewportSize({ width, height });
-			const conversationId = await createConversation(page, "Review bar phone");
+			const conversationId = await createEmptyConversation(
+				page,
+				"Review bar phone",
+			);
 			await seedDocument(conversationId, {
 				markdown: [
 					"Első bekezdés a szállodáról.",
@@ -632,7 +644,7 @@ test.describe("The count button's dot after a reload (persisted review state)", 
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Dot persisted");
+		const conversationId = await createEmptyConversation(page, "Dot persisted");
 		await seedPendingChanges(
 			conversationId,
 			["Book the flight to Vienna.", "Reserve the hotel near the river."],
@@ -652,7 +664,10 @@ test.describe("The count button's dot after a reload (persisted review state)", 
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Dot after keep");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Dot after keep",
+		);
 		await seedPendingChanges(
 			conversationId,
 			["Book the flight to Vienna.", "Reserve the hotel near the river."],

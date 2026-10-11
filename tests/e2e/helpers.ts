@@ -114,6 +114,66 @@ export async function sendMessage(page: Page, text: string) {
 	await sendButton.click();
 }
 
+/**
+ * A conversation with no messages: what the landing page prepares as a draft
+ * before the first send (`POST /api/conversations`), without the send. A spec
+ * that only needs a conversation to put things in uses this, not
+ * `createConversation`: that one's first message goes to whatever model the
+ * server has (on the e2e servers an unreachable one) and the chat page sends it
+ * when it mounts, a few hundred ms after the URL changes. That turn then races
+ * everything the spec does next: it fails (so the chat remembers the model it
+ * was sent with for this conversation, over the profile default the spec has
+ * just changed), it shows the context ring, and a reload that lands in the
+ * middle of it reattaches to a turn that never ends. A slow dev server hid all
+ * of it; a production build, where the page mounts fast, does not.
+ */
+export async function createEmptyConversation(
+	page: Page,
+	title?: string,
+): Promise<string> {
+	return page.evaluate(async (name) => {
+		const result = await fetch("/api/conversations", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(name === undefined ? {} : { title: name }),
+		});
+		if (!result.ok) throw new Error(`create conversation ${result.status}`);
+		return ((await result.json()) as { id: string }).id;
+	}, title);
+}
+
+/**
+ * Puts admin overrides back to the env default (an empty value is the API's "back to
+ * the default": it deletes the row and updates the server's cache). A worker keeps its
+ * database, and its server, from one spec file to the next, so a spec that sets an
+ * override clears it when it is done; the next file on the worker meets the default.
+ */
+export async function clearAdminConfig(page: Page, keys: string[]) {
+	const response = await page.request.put("/api/admin/config", {
+		data: Object.fromEntries(keys.map((key) => [key, ""])),
+	});
+	expect(response.ok(), `admin config reset -> ${response.status()}`).toBe(
+		true,
+	);
+}
+
+/** Removes the providers a spec added, found by the prefix of their name; the seeded one stays. */
+export async function deleteProvidersWithPrefix(page: Page, prefix: string) {
+	const listed = await page.request.get("/api/admin/providers");
+	expect(listed.ok(), `provider list -> ${listed.status()}`).toBe(true);
+	const { providers } = (await listed.json()) as {
+		providers: Array<{ id: string; name: string }>;
+	};
+	for (const provider of providers.filter((entry) =>
+		entry.name.startsWith(prefix),
+	)) {
+		const removed = await page.request.delete(
+			`/api/admin/providers/${provider.id}`,
+		);
+		expect(removed.ok(), `provider delete -> ${removed.status()}`).toBe(true);
+	}
+}
+
 export async function waitForAssistantResponse(page: Page, timeout = 30000) {
 	await expect(
 		page.getByTestId("assistant-message").filter({ hasText: /\S/ }).first(),

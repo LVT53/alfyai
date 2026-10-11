@@ -19,7 +19,7 @@ import {
 	settledCamera,
 	storedBoard,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // What Alfy adds to a board is drawn, and drawn where a person would put it (the
 // owner's Canvas round, ruling 74): a flowchart Alfy writes is drawn by the chat's
@@ -166,7 +166,7 @@ async function openBoardOf(
 	board: CanvasBody = viennaBoard(),
 ): Promise<{ artifactId: string; conversationId: string }> {
 	await login(page);
-	const conversationId = await createConversation(page, title);
+	const conversationId = await createEmptyConversation(page, title);
 	const artifactId = await seedCanvas(conversationId, board, title);
 	return { artifactId, conversationId };
 }

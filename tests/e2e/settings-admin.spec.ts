@@ -137,9 +137,9 @@ test.describe("Admin prompt settings", () => {
 		await setPromptOverrideViaApi(page, "");
 	});
 
-	test("saving the built-in prompt stores the canonical prompt reference", async ({
-		page,
-	}) => {
+	test("saving the built-in prompt stores the canonical prompt reference", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const initialConfig = await fetchAdminConfig(page);
 		const builtInPrompt = await page.locator("#SYSTEM_PROMPT").inputValue();
 		const expectedReference =
@@ -524,9 +524,9 @@ test.describe("Admin user management", () => {
 		await login(page);
 	});
 
-	test("creates, promotes, demotes, and deletes a user from the Users pane", async ({
-		page,
-	}) => {
+	test("creates, promotes, demotes, and deletes a user from the Users pane", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const uniqueEmail = `admin-users-${Date.now()}@local.test`;
 
 		await openAdministrationUsersPane(page);

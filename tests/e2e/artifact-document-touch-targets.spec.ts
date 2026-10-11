@@ -6,7 +6,11 @@ import {
 	seedDocument,
 	tapArea,
 } from "./artifact-document-polish-helpers";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 test.describe("Document phone touch targets (review 233-238)", () => {
 	test.beforeEach(async ({ page }) => {
@@ -17,7 +21,10 @@ test.describe("Document phone touch targets (review 233-238)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Toolbar targets");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Toolbar targets",
+		);
 		await seedDocument(conversationId, { markdown: "Some text." });
 		await openDocument(page, conversationId);
 
@@ -38,7 +45,7 @@ test.describe("Document phone touch targets (review 233-238)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Chip targets");
+		const conversationId = await createEmptyConversation(page, "Chip targets");
 		await seedDocument(conversationId, { markdown: PROSE_MARKDOWN });
 		const shell = await openDocument(page, conversationId);
 		const host = shell.locator(".document-editor-host");
@@ -110,7 +117,7 @@ test.describe("Document phone touch targets (review 233-238)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Tab targets");
+		const conversationId = await createEmptyConversation(page, "Tab targets");
 		await seedDocument(conversationId, {
 			markdown: "# Plan\n\nBook the hotel.\n\n# Budget\n\nEstimate: 500.",
 			tabs: [
@@ -170,7 +177,10 @@ test.describe("Document phone touch targets (review 233-238)", () => {
 			page,
 		}) => {
 			await page.setViewportSize({ width, height: 844 });
-			const conversationId = await createConversation(page, "Overflowing tabs");
+			const conversationId = await createEmptyConversation(
+				page,
+				"Overflowing tabs",
+			);
 			const titles = [
 				"Trip overview",
 				"Detailed itinerary",
@@ -216,7 +226,10 @@ test.describe("Document phone touch targets (review 233-238)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Single tab target");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Single tab target",
+		);
 		await seedDocument(conversationId, { markdown: "Some text." });
 		const shell = await openDocument(page, conversationId);
 		const add = await box(shell.getByRole("button", { name: "Add a tab" }));

@@ -12,7 +12,16 @@ import {
 	AI_SMOKE_MODEL_ID,
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
-import { login, sendMessage, waitForHydration } from "./helpers";
+import {
+	snapshotUserModelPreference,
+	updateUserModelPreference,
+} from "./artifact-live-edit.helpers";
+import {
+	deleteProvidersWithPrefix,
+	login,
+	sendMessage,
+	waitForHydration,
+} from "./helpers";
 
 /**
  * A turn's evidence is written AFTER its terminal stream frame: the browser
@@ -45,10 +54,20 @@ test.describe("live evidence metadata", () => {
 		await provider.stop();
 	});
 
+	let previousModel: string | null = null;
+
 	test.beforeEach(async ({ page }) => {
 		await provider.reset();
 		await page.setViewportSize({ width: 1440, height: 1000 });
 		await login(page);
+		previousModel = await snapshotUserModelPreference(page);
+	});
+
+	// The provider a turn adds and the user's choice of it are put back: the next spec file
+	// on this worker meets the server's own default model.
+	test.afterEach(async ({ page }) => {
+		await updateUserModelPreference(page, previousModel);
+		await deleteProvidersWithPrefix(page, "evidence_live_");
 	});
 
 	test("shows the Project files row and the Sources panel without a reload", async ({

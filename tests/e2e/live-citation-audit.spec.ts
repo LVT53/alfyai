@@ -5,7 +5,17 @@ import { expect, type Page, test } from "@playwright/test";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { messages } from "../../src/lib/server/db/schema";
-import { login, sendMessage, waitForHydration } from "./helpers";
+import {
+	snapshotUserModelPreference,
+	updateUserModelPreference,
+} from "./artifact-live-edit.helpers";
+import {
+	clearAdminConfig,
+	deleteProvidersWithPrefix,
+	login,
+	sendMessage,
+	waitForHydration,
+} from "./helpers";
 
 /**
  * The citation auto-repair summary (`citationAudit`) is persisted when the
@@ -275,10 +285,21 @@ test.describe("live citation audit", () => {
 		await mock.stop();
 	});
 
+	let previousModel: string | null = null;
+
 	test.beforeEach(async ({ page }) => {
 		mock.reset();
 		await page.setViewportSize({ width: 1440, height: 1000 });
 		await login(page);
+		previousModel = await snapshotUserModelPreference(page);
+	});
+
+	// What a turn sets up (the Parallel key and address, a provider and the user's choice of
+	// it) is put back: the next spec file on this worker meets the server's own defaults.
+	test.afterEach(async ({ page }) => {
+		await updateUserModelPreference(page, previousModel);
+		await deleteProvidersWithPrefix(page, "citation_live_");
+		await clearAdminConfig(page, ["PARALLEL_API_KEY", "PARALLEL_BASE_URL"]);
 	});
 
 	test("shows the Citation audit row without a reload", async ({ page }) => {

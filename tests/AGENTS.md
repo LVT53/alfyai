@@ -6,7 +6,7 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 
 | Location | Type | Runner |
 |----------|------|--------|
-| `tests/e2e/*.spec.ts` | Playwright E2E | `npm run test:e2e` |
+| `tests/e2e/*.spec.ts` | Playwright E2E (production build, a server and a database per worker; the `@smoke` subset: `npm run test:e2e:smoke`) | `npm run test:e2e`, `scripts/gates.sh` |
 | `tests/integration/*.test.ts` | Vitest integration | `npm test` |
 | `src/**/*.test.ts` | Vitest unit | `npm test` |
 | `tests/mocks/` | Shared mocks | imported by tests |
@@ -36,7 +36,7 @@ Unit tests co-located with source (`*.test.ts`). E2E tests in `e2e/` using Playw
 
 **Test mode**: Playwright sets `PLAYWRIGHT_TEST=1`. Title endpoint returns `null` in this mode to avoid external service deps.
 
-**Global setup**: `tests/e2e/global-setup.ts` seeds test admin and prepares DB before E2E runs.
+**Global setup**: `tests/e2e/global-setup.ts` makes one freshly migrated, freshly seeded SQLite file and one server (the production build) per worker slot, then checks that the build hydrates. A worker keeps its database from one spec file to the next, so a spec that changes shared state (an admin override, a language, a provider) puts it back in its own cleanup. A spec that only needs a conversation uses `createEmptyConversation`. The whole story: AGENTS.md, "Mandatory Verification".
 
 **Snapshots**: Visual regression tests store snapshots in `tests/e2e/*.spec.ts-snapshots/`.
 
