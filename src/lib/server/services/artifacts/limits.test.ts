@@ -23,6 +23,12 @@ describe("artifact limits", () => {
 			ARTIFACT_USER_VERSION_COALESCE_MS: 10 * 60 * 1000,
 			// Ruling 76 (Q4): a burst of the reader's saves ends after half an hour.
 			ARTIFACT_USER_BURST_MAX_MS: 30 * 60 * 1000,
+			// History (ruling 76): one turn of Alfy's, a page and what a page may compare.
+			ARTIFACT_ALFY_TURN_GAP_MS: 2 * 60 * 1000,
+			ARTIFACT_ALFY_TURN_MAX_ROWS: 12,
+			ARTIFACT_HISTORY_LOOKAHEAD_ROWS: 12,
+			ARTIFACT_HISTORY_PAGE_MAX: 100,
+			ARTIFACT_HISTORY_DIFF_MAX_BYTES: 256 * 1024,
 		});
 	});
 });

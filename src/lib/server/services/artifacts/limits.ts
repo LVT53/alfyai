@@ -77,3 +77,35 @@ export const ARTIFACT_USER_VERSION_COALESCE_MS = 10 * 60 * 1000;
  * ten-minute rule alone.
  */
 export const ARTIFACT_USER_BURST_MAX_MS = 30 * 60 * 1000;
+
+/**
+ * History (ruling 76, versioning.md §3.3 F4): consecutive edits of Alfy's less
+ * than this far apart are one turn of its — the chat's one request that called
+ * `edit_artifact` several times — drawn as one moment with a step each.
+ */
+export const ARTIFACT_ALFY_TURN_GAP_MS = 2 * 60 * 1000;
+
+/**
+ * A turn is closed after this many rows, counted from the newest down, so no
+ * moment is deeper than a page's lookahead and a page boundary can never change
+ * what a moment is.
+ */
+export const ARTIFACT_ALFY_TURN_MAX_ROWS = 12;
+
+/**
+ * A page of History starts its moments from this many of the newest rows
+ * (`ARTIFACT_VERSIONS_DEFAULT_LIMIT`, the repo's list page) and reads as many
+ * more as the deepest moment can reach, plus the parent of the last row, so
+ * every moment on the page is whole and can be compared with its parent.
+ */
+export const ARTIFACT_HISTORY_LOOKAHEAD_ROWS = ARTIFACT_ALFY_TURN_MAX_ROWS;
+
+/** The most moments a History request may ask for at once. */
+export const ARTIFACT_HISTORY_PAGE_MAX = 100;
+
+/**
+ * A body over this is not compared with its parent: the moment reads "Large
+ * change" (versioning.md §3.2) and Restore still works. Bounds the parsing one
+ * page of History can cost.
+ */
+export const ARTIFACT_HISTORY_DIFF_MAX_BYTES = 256 * 1024;

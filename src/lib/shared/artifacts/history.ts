@@ -257,10 +257,27 @@ export interface ArtifactHistoryPage {
 
 export type ArtifactHistoryResponse =
 	| ArtifactHistoryPage
-	| { ok: false; reason: "not_found" };
+	| { ok: false; reason: "not_found" | "invalid_request" };
 
 /** The longest name a reader may give a version, in characters. */
 export const VERSION_LABEL_MAX_CHARS = 60;
+
+/**
+ * A name as it is stored: one line, whitespace folded, at most
+ * `VERSION_LABEL_MAX_CHARS` characters. Blank or `null` removes the name. The
+ * server judges every name with this, and a form can check as the reader types.
+ */
+export function normalizeVersionLabel(
+	value: unknown,
+): { ok: true; label: string | null } | { ok: false } {
+	if (value === null) return { ok: true, label: null };
+	if (typeof value !== "string") return { ok: false };
+	const clean = value.replace(/\s+/g, " ").trim();
+	if (clean === "") return { ok: true, label: null };
+	return Array.from(clean).length > VERSION_LABEL_MAX_CHARS
+		? { ok: false }
+		: { ok: true, label: clean };
+}
 
 /** `PATCH /api/artifacts/[id]/versions/[versionId]`: `label: null` (or blank) removes the name. */
 export interface NameVersionRequest {
@@ -288,5 +305,10 @@ export type RestoreVersionResponse =
 	| { ok: true; version: number; versionId: string }
 	| {
 			ok: false;
-			reason: "not_found" | "no_body" | "version_conflict" | "invalid_undo";
+			reason:
+				| "not_found"
+				| "no_body"
+				| "version_conflict"
+				| "invalid_undo"
+				| "invalid_request";
 	  };
