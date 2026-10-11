@@ -65,12 +65,13 @@ const PUBLIC_PATHS = [
 ];
 
 /**
- * The App's served route ONLY — `/api/artifacts/<id>/app`, never its `/kv`,
- * `/download` or `/regenerate` children, and never the family's
- * `/api/artifacts/[id]` detail route. This is the ONE place the product ever
- * loads inside a sandboxed, opaque-origin iframe (AppFrame.svelte; `grep` over
- * `src` confirms it), so an unauthenticated request with `Sec-Fetch-Dest:
- * iframe` for exactly this path shape can only be that frame.
+ * The App's served routes ONLY — `/api/artifacts/<id>/app` and, for a saved
+ * version History shows (ruling 76), `/api/artifacts/<id>/versions/<versionId>/app`
+ * — never their `/kv`, `/download` or `/regenerate` children, and never the
+ * family's `/api/artifacts/[id]` detail route. These are the ONLY places the
+ * product ever loads inside a sandboxed, opaque-origin iframe (AppFrame.svelte;
+ * `grep` over `src` confirms it), so an unauthenticated request with
+ * `Sec-Fetch-Dest: iframe` for exactly this path shape can only be that frame.
  *
  * This path is never added to PUBLIC_PATHS above and auth is never skipped
  * for it — the branch below still requires `!event.locals.user` to fire, it
@@ -88,7 +89,8 @@ const PUBLIC_PATHS = [
  * route's opaque-origin sandboxed frame, exactly the phishing-shaped outcome
  * this whole branch exists to prevent.
  */
-const APP_SERVED_ROUTE_PATTERN = /^\/api\/artifacts\/[^/]+\/app\/?$/;
+const APP_SERVED_ROUTE_PATTERN =
+	/^\/api\/artifacts\/[^/]+(?:\/versions\/[^/]+)?\/app\/?$/;
 
 /**
  * Every endpoint in this app lives under `/api/` — there is no `+server.ts`

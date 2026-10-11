@@ -821,3 +821,34 @@ RV-F M-8, the owner: "Írj egy e-mailt angolul a kollégámnak…" keeps the rep
 conversation's language; only the requested content is written in the other one. Only a request for the *reply* in a
 language ("válaszolj angolul", "answer in English") flips the turn (CHP's rule, narrowed). Built by LANG-2.
 
+
+## 76. The versioning design is approved and built as specified (owner, 2026-10-11)
+
+*Owner, 2026-10-11, after reviewing the mockup: "I like the redesign. I approve of it. You may fully continue working."*
+Build `docs/design/artifacts-versioning/` (`versioning.md` + `index.html`) as specified. Its eight questions (§13) were
+not answered one by one; the orchestrator takes each recommendation, as ruling 61 did with the redesign's delegated
+questions. The owner may overrule any of them at the next check.
+- **Q1** History is a mode of the panel (a read-only preview beside a day-grouped list); the Versions popover/sheet goes.
+- **Q2** No version number on the header, a list row or the chat card; "Version N" only in History's fine print.
+- **Q3** One migration, `1777140000113_artifact_version_moments` (journal entry 127): nullable `started_at` and `label`
+  on `artifact_versions`, no backfill (§4.4).
+- **Q4** A typing burst closes after 30 minutes of continuous saves.
+- **Q5** An Undo folds onto the change it undid only when it follows it at once (fold rules F1–F4, §3.3); no row is
+  ever hidden or deleted.
+- **Q6** Restoring an item made in another chat is allowed, with a line saying it changes there too.
+- **Q7** An old App version runs in the preview through one new read-only route
+  (`GET /api/artifacts/[id]/versions/[versionId]/app`, ruling 58's sandbox headers, read-only storage). It gets an
+  Opus security review before it reaches `dev`; the fallback is Code only.
+- **Q8** Alfy's edit summaries are asked for as a subjectless past-tense line ("Moved the museum to Thursday"). The
+  tool text is in the cached prefix, so the catalogue budget and its snapshots move in the same commit, measured
+  (ruling 23).
+- **Amendments adopted, with the texts in `versioning.md` §9:** A1 (AGENTS.md's "one version number on every surface"
+  becomes "one latest moment on every surface", same single source); A2 (ruling 47: a reader's save coalesces only into
+  their own latest version with the same summary, no name, last saved under 10 minutes ago, and a burst started under
+  30 minutes ago); A3 (ruling 16, wording: ⌘/Ctrl+Z, Undo on the pill/bar, Restore in History); A4 (rulings 61/63:
+  History shows each Alfy change's review status from the same marker and sends the reader to the review; no Keep or
+  Undo of its own); A5 (every summary the server writes is in the one vocabulary, and an Undo or Redo names the version
+  it acts on). Rulings 16, 47, 61 and 63 stand as amended here; AGENTS.md is updated by the build that lands each change.
+- **Build:** the split of `versioning.md` §12 (server; History shell + Document; Canvas + App previews), Sonnet, then
+  one Opus review of the batch (the new routes' ownership and incognito scope, the old-App route's sandbox, the restore
+  guard) before `dev`.

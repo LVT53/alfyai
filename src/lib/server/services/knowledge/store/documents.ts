@@ -12,7 +12,9 @@ import type {
 	KnowledgeDocumentItem,
 } from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import type { MomentAuthor, MomentKind } from "$lib/shared/artifacts/history";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import { classifyVersionSummary } from "$lib/shared/artifacts/version-summaries";
 import {
 	FILE_FAMILY_ORDER,
 	type FileFamily,
@@ -341,6 +343,7 @@ function parseArtifactFamilyKind(
 export function mapArtifactFamilyRow(
 	row: LogicalDocumentArtifactRow,
 	versionNumber: number | null,
+	latest: ArtifactLatestMoment | null = null,
 ): KnowledgeDocumentItem {
 	// Never throws; "document" is the honest default for a row this slice
 	// cannot classify — it still lists and opens, just with a guessed chip
@@ -363,32 +366,49 @@ export function mapArtifactFamilyRow(
 		normalizedAvailable: false,
 		kind,
 		artifactVersionNumber: versionNumber,
+		...(latest ? { lastAuthor: latest.actor, lastKind: latest.kind } : {}),
 		createdAt: row.createdAt.getTime(),
 		updatedAt: row.updatedAt.getTime(),
 	};
 }
 
+/** Who made an artifact's newest version and what it was (ruling 76, amendment A1), read off that row's author and summary alone. */
+export interface ArtifactLatestMoment {
+	actor: MomentAuthor;
+	kind: MomentKind;
+}
+
 /**
  * Batches the artifact family's own version counter —
  * `ArtifactCardSummary.versionNumber`'s equivalent, sourced from the newest
- * `artifact_versions` row per artifact id. Not a second reader of the
- * `artifacts/` service's own tables in spirit: this is the one place the
- * Knowledge listing needs a version NUMBER (not a body, not a diff), and it
- * is batched per page the same way `attachExtractionJobs`
- * (`knowledge.ts`) batches the extraction ledger — one query per page, not
- * one per row.
+ * `artifact_versions` row per artifact id — and, from that same row, who made it
+ * and what it was (`ArtifactCardSummary.lastAuthor`/`lastKind`'s equivalent), so the
+ * library can say "Changed by Alfy" instead of a number. Not a second reader of the
+ * `artifacts/` service's own tables in spirit: this is the one place the Knowledge
+ * listing needs the newest version (not a body, not a diff), and it is batched per
+ * page the same way `attachExtractionJobs` (`knowledge.ts`) batches the extraction
+ * ledger — one query per page, not one per row.
+ *
+ * One query, not two: SQLite gives every bare column of an aggregate query that uses
+ * `max()` the values of the row that holds the maximum (documented behaviour, and the
+ * only database this app runs on), so `author` and `summary` are the NEWEST row's.
  *
  * Exported for `workspace-search.ts`'s artifact-family candidate loader
- * (Task 2), which batches the same version lookup for its own candidate set.
+ * (Task 2) through `getArtifactVersionNumbers`, which batches the same lookup for
+ * its own candidate set.
  */
-export async function getArtifactVersionNumbers(
+export async function getArtifactLatestVersions(
 	artifactIds: string[],
-): Promise<Map<string, number>> {
+): Promise<
+	Map<string, { versionNumber: number; latest: ArtifactLatestMoment | null }>
+> {
 	if (artifactIds.length === 0) return new Map();
 	const rows = await db
 		.select({
 			artifactId: artifactVersions.artifactId,
 			maxVersion: sql<number>`max(${artifactVersions.versionNumber})`,
+			author: artifactVersions.author,
+			summary: artifactVersions.summary,
 		})
 		.from(artifactVersions)
 		.where(inArray(artifactVersions.artifactId, artifactIds))
@@ -397,10 +417,33 @@ export async function getArtifactVersionNumbers(
 	return new Map(
 		rows
 			.filter(
-				(row): row is { artifactId: string; maxVersion: number } =>
+				(row): row is typeof row & { maxVersion: number } =>
 					typeof row.maxVersion === "number",
 			)
-			.map((row) => [row.artifactId, row.maxVersion]),
+			.map((row) => {
+				const classified = classifyVersionSummary({
+					author: row.author === "alfy" ? "alfy" : "user",
+					summary: row.summary ?? "",
+					versionNumber: row.maxVersion,
+				});
+				return [
+					row.artifactId,
+					{
+						versionNumber: row.maxVersion,
+						latest: { actor: classified.actor, kind: classified.kind },
+					},
+				] as const;
+			}),
+	);
+}
+
+/** Just the numbers of `getArtifactLatestVersions`: what a caller that does not print a moment needs. */
+export async function getArtifactVersionNumbers(
+	artifactIds: string[],
+): Promise<Map<string, number>> {
+	const latest = await getArtifactLatestVersions(artifactIds);
+	return new Map(
+		[...latest].map(([artifactId, entry]) => [artifactId, entry.versionNumber]),
 	);
 }
 
@@ -577,8 +620,13 @@ async function selectSingleArtifactFamilyRow(params: {
 		return null;
 	}
 
-	const versionNumbers = await getArtifactVersionNumbers([row.id]);
-	return mapArtifactFamilyRow(row, versionNumbers.get(row.id) ?? null);
+	const latest = await getArtifactLatestVersions([row.id]);
+	const newest = latest.get(row.id);
+	return mapArtifactFamilyRow(
+		row,
+		newest?.versionNumber ?? null,
+		newest?.latest ?? null,
+	);
 }
 
 async function buildLogicalDocumentRecordsFromRows(params: {
@@ -1024,12 +1072,17 @@ async function loadArtifactFamilyDocumentEntries(params: {
 	const scopedRows = rows.filter((row) =>
 		isArtifactCanonicallyOwned({ userId, ownershipScope, artifact: row }),
 	);
-	const versionNumbers = await getArtifactVersionNumbers(
+	const latest = await getArtifactLatestVersions(
 		scopedRows.map((row) => row.id),
 	);
 
 	return scopedRows.map((row) => {
-		const item = mapArtifactFamilyRow(row, versionNumbers.get(row.id) ?? null);
+		const newest = latest.get(row.id);
+		const item = mapArtifactFamilyRow(
+			row,
+			newest?.versionNumber ?? null,
+			newest?.latest ?? null,
+		);
 		return { item, score: scoreArtifactFamilyRowForSearch(item, query) };
 	});
 }

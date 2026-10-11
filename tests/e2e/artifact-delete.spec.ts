@@ -17,7 +17,7 @@ import {
 } from "../../src/lib/server/services/artifacts";
 import { createConversationFork } from "../../src/lib/server/services/conversation-forks";
 import {
-	createConversation,
+	createEmptyConversation,
 	login,
 	waitForHydration,
 	workspacePanel,
@@ -73,7 +73,10 @@ test.describe("Delete and Regenerate — a Document made by create_artifact", ()
 		page,
 	}) => {
 		await login(page);
-		const conversationId = await createConversation(page, "Plan a weekend");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Plan a weekend",
+		);
 		const uid = await testUserId();
 		const made = await createDocumentArtifact({
 			userId: uid,
@@ -264,7 +267,10 @@ test.describe("A Sources row of an item that was deleted", () => {
 		page,
 	}) => {
 		await login(page);
-		const conversationId = await createConversation(page, "Plan a weekend");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Plan a weekend",
+		);
 		const uid = await testUserId();
 		const { made } = await seedMadeDocumentTurn(conversationId, uid);
 		await openChatAndReload(page, conversationId);
@@ -302,7 +308,10 @@ test.describe("A Sources row of an item that was deleted", () => {
 		page,
 	}) => {
 		await login(page);
-		const conversationId = await createConversation(page, "Plan a weekend");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Plan a weekend",
+		);
 		const uid = await testUserId();
 		// A title of its own: the library lists every Document the other specs
 		// made in this database, "Weekend plan" among them.
@@ -344,7 +353,10 @@ test.describe("A Sources row of an item that was deleted", () => {
 		page,
 	}) => {
 		await login(page);
-		const conversationId = await createConversation(page, "Plan a weekend");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Plan a weekend",
+		);
 		const uid = await testUserId();
 		const { made } = await seedMadeDocumentTurn(conversationId, uid);
 		const deleted = await deleteArtifact({
@@ -381,7 +393,7 @@ test.describe("A fork's copied Sources", () => {
 		page,
 	}) => {
 		await login(page);
-		const parentId = await createConversation(page, "Plan a weekend");
+		const parentId = await createEmptyConversation(page, "Plan a weekend");
 		const uid = await testUserId();
 		const { messageId } = await seedMadeDocumentTurn(parentId, uid);
 
@@ -420,7 +432,7 @@ test.describe("A fork's copied Sources", () => {
 		page,
 	}) => {
 		await login(page);
-		const parentId = await createConversation(page, "Incognito plan");
+		const parentId = await createEmptyConversation(page, "Incognito plan");
 		await db
 			.update(conversations)
 			.set({ memoryIncognito: true })
@@ -458,7 +470,7 @@ test.describe("A fork's copied Sources", () => {
 		page,
 	}) => {
 		await login(page);
-		const parentId = await createConversation(page, "Plan a weekend");
+		const parentId = await createEmptyConversation(page, "Plan a weekend");
 		const uid = await testUserId();
 		const { messageId } = await seedMadeDocumentTurn(parentId, uid);
 		const fork = await createConversationFork({
@@ -496,7 +508,7 @@ test.describe("Delete from the panel list", () => {
 		page,
 	}) => {
 		await login(page);
-		const conversationId = await createConversation(page, "Two documents");
+		const conversationId = await createEmptyConversation(page, "Two documents");
 		const uid = await testUserId();
 		const seed = async (title: string) =>
 			createDocumentArtifact({
@@ -642,7 +654,7 @@ test.describe("A produced file that was deleted", () => {
 		page,
 	}) => {
 		await login(page);
-		const conversationId = await createConversation(page, "A file");
+		const conversationId = await createEmptyConversation(page, "A file");
 		const { jobId, artifactId, chatFileId } =
 			await seedProducedFile(conversationId);
 		await openChatAndReload(page, conversationId);
@@ -716,7 +728,7 @@ test.describe("A fork of an incognito chat", () => {
 		page,
 	}) => {
 		await login(page);
-		const parentId = await createConversation(page, "Incognito plan");
+		const parentId = await createEmptyConversation(page, "Incognito plan");
 		await db
 			.update(conversations)
 			.set({ memoryIncognito: true })

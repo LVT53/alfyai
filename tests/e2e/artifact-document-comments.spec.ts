@@ -10,7 +10,7 @@ import {
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
 import {
-	createConversation,
+	createEmptyConversation,
 	expectTopmost,
 	login,
 	waitForStableBoundingBox,
@@ -82,7 +82,7 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 	test("posts a comment, lists it, resolves it, and ignores a client-supplied author", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Comments on a document",
 		);
@@ -131,7 +131,10 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 	test("404s a comment route for an artifact id that does not exist", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Missing artifact");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Missing artifact",
+		);
 		const response = await page.request.post(
 			`/api/artifacts/does-not-exist/comments?conversationId=${conversationId}`,
 			{
@@ -157,7 +160,10 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 	test("the @Alfy hook refuses an orphaned anchor without a model, and the refusal lands as a reply", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Alfy on a document");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Alfy on a document",
+		);
 		const markdown = "Book the flight to Vienna.";
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
@@ -202,7 +208,10 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 	test("shows a seeded comment in the margin when the document opens", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Margin rendering");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Margin rendering",
+		);
 		const markdown = "Book the flight to Vienna.";
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
@@ -241,7 +250,10 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 	test("places two comments in document order without overlapping, and puts an orphaned one in its own group", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Margin placement");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Margin placement",
+		);
 		const markdown =
 			"Book the hotel by Friday.\n\nConfirm the flight to Vienna.";
 		const userId = await testUserId();
@@ -365,7 +377,10 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 	test("phone: the header's Comments button opens a bottom sheet, and a tapped highlight opens the same sheet at that thread", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Phone comments");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Phone comments",
+		);
 		const markdown = "Book the flight to Vienna.";
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
@@ -437,7 +452,7 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 	test("narrow desktop panel: the comments are a drawer inside the panel, below its header, toggled by the header's Comments button", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Narrow panel");
+		const conversationId = await createEmptyConversation(page, "Narrow panel");
 		const markdown = "Book the flight to Vienna.";
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
@@ -512,7 +527,7 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 	test("phone sheet: every control that is tapped is at least 44px tall", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Phone touch targets",
 		);
@@ -627,14 +642,18 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 	});
 });
 
-// Wave 2.5 Step 8: Versions and Download become popovers anchored to their
-// own header buttons on desktop, sheets on phones.
-test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
+// Wave 2.5 Step 8: Download becomes a popover anchored to its own header
+// button on desktop, a sheet on phones. The Versions popover that shared this
+// block is gone (ruling 76: History is a mode of the panel), so the layering
+// rules it proved here (the topmost layer takes Escape, the Comments drawer
+// underneath stays, nothing runs off the screen) are proved on what is left:
+// the Download popover, and History itself.
+test.describe("Download popover and History over the Comments drawer (Wave 2.5 Step 8, ruling 76)", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
 	});
 
-	/** Bumps the document's body through the real save route (never a raw DB write) so the popover's own version list is genuine, server-ordered data. */
+	/** Bumps the document's body through the real save route (never a raw DB write) so History's own list is genuine, server-ordered data. */
 	async function saveNewVersion(
 		page: Page,
 		artifactId: string,
@@ -652,10 +671,13 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 		expect(response.status(), await response.text()).toBe(200);
 	}
 
-	test("at a narrow desktop panel width, the Versions popover opens anchored near the version button atop an already-open Comments drawer, and Escape closes only the popover", async ({
+	test("at a narrow desktop panel width, the Download popover opens anchored near the Download button atop an already-open Comments drawer, and Escape closes only the popover", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Versions popover");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Download over drawer",
+		);
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
 			"Book the flight to Vienna.",
@@ -665,7 +687,66 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 			artifactId: artifact.id,
 			anchor: anchorFor(block.id, block.markdown, "flight"),
 			author: "user",
-			body: "Still open while Versions is on top",
+			body: "Still open while Download is on top",
+		});
+
+		await page.setViewportSize({ width: 1100, height: 800 });
+		await openChatAndReload(page, conversationId);
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.click({ timeout: 30_000 });
+
+		const shell = desktopShell(page);
+		await shell.getByTestId("artifact-comments-button").click();
+		const drawer = page.getByTestId("comments-drawer");
+		await expect(drawer).toBeVisible({ timeout: 30_000 });
+
+		const downloadButton = shell.getByTestId("artifact-download-button");
+		await downloadButton.click();
+		const popover = page.getByTestId("document-download-popover");
+		await expect(popover).toBeVisible();
+
+		// Anchored near its own trigger, not the corner of the panel: within a
+		// generous distance of the Download button's own row, not off in some
+		// unrelated corner.
+		const buttonBox = await downloadButton.boundingBox();
+		const popoverBox = await popover.boundingBox();
+		expect(buttonBox).not.toBeNull();
+		expect(popoverBox).not.toBeNull();
+		expect(Math.abs((popoverBox?.y ?? 0) - (buttonBox?.y ?? 0))).toBeLessThan(
+			200,
+		);
+
+		// Escape closes only the TOPMOST layer (Download) — the Comments
+		// drawer underneath stays open.
+		await page.keyboard.press("Escape");
+		await expect(popover).toBeHidden();
+		await expect(drawer).toBeVisible();
+		await expect(downloadButton).toBeFocused();
+	});
+
+	// The same rule one layer up: History is a layer over the body, and the
+	// Comments drawer is part of the body. Escape peels History first and the
+	// drawer is still there, open, when it is gone.
+	test("with the Comments drawer open, History covers it, and Escape closes only History", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"History over drawer",
+		);
+		const { artifact, block } = await seedDocumentWithBlock(
+			conversationId,
+			"Book the flight to Vienna.",
+		);
+		await createComment({
+			userId: await testUserId(),
+			artifactId: artifact.id,
+			anchor: anchorFor(block.id, block.markdown, "flight"),
+			author: "user",
+			body: "Still open under History",
 		});
 		await saveNewVersion(
 			page,
@@ -688,77 +769,27 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 		const drawer = page.getByTestId("comments-drawer");
 		await expect(drawer).toBeVisible({ timeout: 30_000 });
 
-		const versionButton = shell.getByTestId("artifact-version-pill");
-		await versionButton.click();
-		const popover = page.getByRole("dialog", { name: "Versions" });
-		await expect(popover).toBeVisible();
-		await expect(popover.getByText("v2")).toBeVisible();
+		const historyButton = shell.getByTestId("artifact-history-button");
+		await historyButton.click();
+		const history = page.getByRole("region", { name: /^History of / });
+		await expect(history).toBeVisible();
+		await expectTopmost(history, {
+			message: "History must be the topmost layer, over the open drawer",
+		});
 
-		// Anchored near its own trigger, not the corner of the panel: within a
-		// generous distance of the version button's own row, not off in some
-		// unrelated corner.
-		const buttonBox = await versionButton.boundingBox();
-		const popoverBox = await popover.boundingBox();
-		expect(buttonBox).not.toBeNull();
-		expect(popoverBox).not.toBeNull();
-		expect(Math.abs((popoverBox?.y ?? 0) - (buttonBox?.y ?? 0))).toBeLessThan(
-			200,
-		);
-
-		// Escape closes only the TOPMOST layer (Versions) — the Comments
-		// drawer underneath stays open.
 		await page.keyboard.press("Escape");
-		await expect(popover).toBeHidden();
+		await expect(history).toBeHidden();
 		await expect(drawer).toBeVisible();
-		await expect(versionButton).toBeFocused();
-	});
-
-	test("restores a version from the Versions popover with an inline confirm, closes, and offers Undo", async ({
-		page,
-	}) => {
-		const conversationId = await createConversation(page, "Versions restore");
-		const { artifact } = await seedDocumentWithBlock(
-			conversationId,
-			"Book the flight to Vienna.",
-		);
-		await saveNewVersion(
-			page,
-			artifact.id,
-			conversationId,
-			1,
-			"<!--b:p1-->\nBook the flight to Vienna, confirmed.",
-		);
-
-		await openChatAndReload(page, conversationId);
-		await page.getByTestId("artifact-count-button").click();
-		await page
-			.getByTestId("artifact-panel-list")
-			.getByTestId("artifact-row")
-			.click({ timeout: 30_000 });
-
-		await desktopShell(page).getByTestId("artifact-version-pill").click();
-		const popover = page.getByRole("dialog", { name: "Versions" });
-		await expect(popover).toBeVisible();
-
-		await popover.getByRole("button", { name: "Restore" }).click();
-		await expect(
-			popover.getByText(/Restore v1\? Your current text stays as a version\./),
-		).toBeVisible();
-		// Never a modal — the confirm is the SAME popover's own content.
-		await expect(page.getByTestId("confirm-delete")).toHaveCount(0);
-
-		await popover.getByRole("button", { name: "Restore" }).click();
-		await expect(popover).toBeHidden();
-
-		const toast = page.getByTestId("toast-entry").filter({ hasText: "v1" });
-		await expect(toast).toBeVisible();
-		await expect(toast.getByRole("button", { name: "Undo" })).toBeVisible();
+		await expect(historyButton).toBeFocused();
 	});
 
 	test("the Download popover opens from the header's Download button and offers PDF, Word and Markdown", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Download popover");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Download popover",
+		);
 		await seedDocumentWithBlock(conversationId, "Book the flight to Vienna.");
 
 		await openChatAndReload(page, conversationId);
@@ -787,18 +818,18 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 	});
 
 	// Review 2.5 Important finding (rd/review-2-5.md:168-175): in the
-	// EXPANDED panel presentation the version button sits near the panel's
-	// own left edge; right-aligning the popover to the trigger's right edge
-	// (extending 340px further LEFT from there) ran the popover off the
-	// left edge of the viewport entirely (x -138 in the review's own
-	// evidence) — and in DOCKED mode the same right-anchoring bled the
-	// popover out of the panel to the left, over the chat column.
-	test("in the expanded panel, the Versions popover opens on-screen, anchored to the trigger's left edge, and topmost", async ({
+	// EXPANDED panel presentation a header popover anchored to the wrong edge
+	// of its trigger ran off the left edge of the viewport entirely (x -138 in
+	// the review's own evidence) — and in DOCKED mode the same anchoring bled
+	// the popover out of the panel over the chat column. The Versions popover
+	// that test used is gone; the Download popover is the one left, and History
+	// (a layer of the panel itself) has to be topmost in the same presentation.
+	test("in the expanded panel, the Download popover opens on-screen, inside the panel, and topmost, and History is topmost too", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
-			"Versions popover expanded",
+			"Download popover expanded",
 		);
 		const { artifact } = await seedDocumentWithBlock(
 			conversationId,
@@ -825,19 +856,13 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 			.getByRole("button", { name: /Expand document workspace/ })
 			.click();
 
-		const expandedVersionButton = page
-			.locator(".workspace-shell-expanded")
-			.getByTestId("artifact-version-pill");
-		await expect(expandedVersionButton).toBeVisible();
-		await expandedVersionButton.click();
+		const expanded = page.locator(".workspace-shell-expanded");
+		const downloadButton = expanded.getByTestId("artifact-download-button");
+		await expect(downloadButton).toBeVisible();
+		await downloadButton.click();
 
-		const popover = page.getByRole("dialog", { name: "Versions" });
+		const popover = page.getByTestId("document-download-popover");
 		await expect(popover).toBeVisible();
-		// The version list loads async — a generous timeout absorbs that
-		// fetch rather than racing it (the off-screen bug this test exists
-		// for happens regardless of load state, but the LEFT-edge/topmost
-		// checks below want the settled, final popover).
-		await expect(popover.getByText("v2")).toBeVisible({ timeout: 15_000 });
 		await waitForStableBoundingBox(popover);
 
 		const popoverBox = await popover.boundingBox();
@@ -846,18 +871,30 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 		// Fully on-screen — the bug put it at a negative x.
 		expect(box.x).toBeGreaterThanOrEqual(0);
 		expect(box.x + box.width).toBeLessThanOrEqual(1440 + 1);
-		// Anchored to the LEFT edge of its trigger, not the right — its own
-		// left edge starts at or after the button's own left edge, never
-		// hundreds of pixels before it.
-		const buttonBox = await expandedVersionButton.boundingBox();
-		expect(buttonBox, "the trigger must have a bounding box").not.toBeNull();
-		expect(box.x).toBeGreaterThanOrEqual((buttonBox as { x: number }).x - 20);
+		// Inside the expanded panel, not over the chat column beside it.
+		const panelBox = await expanded.boundingBox();
+		expect(panelBox, "the panel must have a bounding box").not.toBeNull();
+		const panel = panelBox as { x: number; width: number };
+		expect(box.x).toBeGreaterThanOrEqual(panel.x - 1);
+		expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width + 1);
 
 		// Topmost — not painted under the expanded panel's own tab strip or
 		// any other chrome (the bug: `elementFromPoint` hit the tab strip).
 		await expectTopmost(popover, {
 			message:
 				"the popover must be the topmost element, not painted under the expanded panel",
+		});
+
+		await page.keyboard.press("Escape");
+		await expect(popover).toBeHidden();
+
+		await expanded.getByTestId("artifact-history-button").click();
+		const history = page.getByRole("region", { name: /^History of / });
+		await expect(history).toBeVisible();
+		await waitForStableBoundingBox(history);
+		await expectTopmost(history, {
+			message:
+				"History must be the topmost element, not painted under the expanded panel's chrome",
 		});
 	});
 });
@@ -916,7 +953,7 @@ const LONG_DOCUMENT_TARGETS = [3, 8, 13, 18, 23, 28, 33, 40].map((index) => ({
 
 async function openLongDocument(page: Page, title: string) {
 	await page.setViewportSize({ width: 1440, height: 900 });
-	const conversationId = await createConversation(page, title);
+	const conversationId = await createEmptyConversation(page, title);
 	const seeded = await seedLongDocumentWithComments(
 		conversationId,
 		LONG_DOCUMENT_TARGETS,
@@ -1187,7 +1224,10 @@ test.describe("The header's Comments button toggles the column (owner walk-throu
 	test("pressed while the column shows; pressing it hides the column and gives the text the width; remembered on this device", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Toggle the column");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Toggle the column",
+		);
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
 			"Book the flight to Vienna.",
@@ -1259,7 +1299,10 @@ test.describe("The header's Comments button toggles the column (owner walk-throu
 	test("the Open/All choice survives hiding and showing the column", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Filter survives");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Filter survives",
+		);
 		const { userId, artifact, block } = await seedDocumentWithBlock(
 			conversationId,
 			"Book the flight to Vienna. Reserve the hotel by the river.",
@@ -1336,7 +1379,7 @@ for (const [width, height] of [
 		test("the text column keeps its reading width beside the chat, and expanded", async ({
 			page,
 		}) => {
-			const conversationId = await createConversation(
+			const conversationId = await createEmptyConversation(
 				page,
 				`Laptop fit ${width}`,
 			);

@@ -57,9 +57,9 @@ async function openAndExpectTour(
 test.describe("the first-open tours", () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
-	test("a Document shows its tour on the first open, above the page, and not on the second", async ({
-		page,
-	}) => {
+	test("a Document shows its tour on the first open, above the page, and not on the second", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const user = await createTourUser();
 		const requests = watchTourRequests(page);
 		const chatId = await startChatAs(page, user);

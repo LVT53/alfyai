@@ -100,7 +100,12 @@ Node 22.x is required. `npm run build` runs the Vite build and then patches adap
 - **End-to-end:** Playwright (`npm run test:e2e`) covers critical browser flows such as login, chat
   streaming, conversations, and admin settings. Playwright runs set `PLAYWRIGHT_TEST=1`, and the
   conversation-title endpoint returns `null` in that mode so browser tests do not depend on an external
-  title-generation service.
+  title-generation service. The suite runs against the production build (`npm run build` first), with one
+  server and one SQLite file per worker (`E2E_WORKERS`, default 6; `E2E_SERVER=dev` uses `vite dev`
+  instead). `npm run test:e2e:smoke` runs the ~25 `@smoke` tests across the main flows in about half a
+  minute, and `scripts/gates.sh release <out-dir>` runs every gate (static checks, unit tests, build,
+  the whole Playwright suite minus `tests/e2e/quarantine.json`, Fallow) and prints one screen, in about
+  8.5 minutes on a 14-core Mac (it was 51 on `vite dev` with one worker).
 - **Atlas report quality:** `scripts/atlas-eval.ts` measures and compares Atlas pipelines against a
   live deployment. See [docs/atlas.md](docs/atlas.md#report-quality-evaluation-scriptsatlas-evalts).
 

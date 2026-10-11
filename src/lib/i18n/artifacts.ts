@@ -27,13 +27,6 @@ const artifactsDict = {
 		// how a screen reader user gets the same information.
 		"artifacts.header.buttonA11yPending":
 			"Open what this chat made ({count}) — a change is waiting",
-		// Wave 2.5 review (F2): the panel header's meta line (redesign §5.2/§8
-		// "kind · version · edited") was missing the mockup's own authorship —
-		// index.html's `editedWhen` ("You and Alfy · edited {when}"). `when` is
-		// already-localised relative time (formatRelativeTime), so this string
-		// only wraps it, matching ArtifactPanelHeader.svelte's own `meta` prop
-		// doc comment example.
-		"artifacts.header.editedBy": "You and Alfy · edited {when}",
 		// Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open
 		// item" — the chat page's own composer, while a document/app/etc. is
 		// open in the panel. `src/routes/(app)/chat/[conversationId]/+page.svelte`.
@@ -102,8 +95,6 @@ const artifactsDict = {
 		"artifacts.card.openInPanel": "Open in panel",
 		"artifacts.card.review": "Review",
 		"artifacts.card.madeBy": "made by Alfy {when}",
-		"artifacts.card.version": "v{n}",
-		"artifacts.card.versionA11y": "Version {n}",
 		// A checklist card's tickable body (slice 0 ships the seam; slice 1 is
 		// the first caller) shows the first five items and this for the rest.
 		"artifacts.card.moreItems": "+{count} more",
@@ -131,7 +122,7 @@ const artifactsDict = {
 		"artifacts.delete.body.document":
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.app":
-			"“{title}” and its saved data will be deleted. This can't be undone.",
+			"“{title}”, its versions and its saved data will be deleted. This can't be undone.",
 		"artifacts.delete.body.canvas":
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.slides":
@@ -143,7 +134,7 @@ const artifactsDict = {
 		"artifacts.delete.bodyRegenerable.document":
 			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.app":
-			"“{title}” and its saved data will be deleted. You can regenerate it from the chat.",
+			"“{title}”, its versions and its saved data will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.canvas":
 			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.slides":
@@ -206,17 +197,22 @@ const artifactsDict = {
 		"artifacts.app.action.download": "Download as .html",
 		"artifacts.app.regenerate.prompt": "What should change?",
 		"artifacts.app.regenerate.cancel": "Cancel",
-		"artifacts.app.regenerate.makeV2": "Make v2",
+		// No version numbers in any of these (ruling 76, Q2): the version it builds on
+		// and the one it builds are told apart by what happened, and the one before
+		// stays in History.
+		"artifacts.app.regenerate.rebuild": "Rebuild",
 		"artifacts.app.regenerate.effect":
-			"Alfy writes a new version and checks its facts. v1 stays in History.",
+			"Alfy rebuilds it from your words and checks its facts. The previous version stays in History.",
 		"artifacts.app.regenerate.building":
-			"Alfy is building v2 · v1 stays until v2 is ready. Your saved data is kept.",
+			"Alfy is rebuilding it · the current version stays until the new one is ready. Your saved data is kept.",
 		"artifacts.app.regenerate.failed":
-			"Alfy couldn't make v2. v1 is unchanged.",
-		"artifacts.app.toast.v2Ready": "Now showing v2",
+			"Alfy couldn't rebuild it. The current version is unchanged.",
+		"artifacts.app.toast.rebuilt": "Alfy rebuilt it",
 		"artifacts.app.toast.undo": "Undo",
 		"artifacts.app.sandboxBar":
 			"Runs sandboxed · no internet · keeps your data",
+		"artifacts.app.sandboxBarPreview":
+			"Runs sandboxed · no internet · read-only",
 		"artifacts.app.generating": "Alfy is writing the app…",
 		"artifacts.app.generating.hint": "This takes a few seconds.",
 		"artifacts.app.emptyState":
@@ -282,37 +278,13 @@ const artifactsDict = {
 		// disabled button already explains proactively.
 		"artifacts.app.download.failed": "Could not prepare this app for download.",
 		"artifacts.app.open.cta": "Make an app",
-		// The Document's version history sheet (Slice 1, T6).
-		"artifacts.document.versions.title": "Versions",
-		"artifacts.document.versions.current": "Current",
-		"artifacts.document.versions.restore": "Restore",
-		// Wave 2.5 Step 8: the inline confirm (redesign §3.2 — never a modal),
-		// named by version number so it reads as a real question about a real
-		// row, not the old generic "this version".
-		"artifacts.document.versions.restoreConfirm":
-			"Restore v{v}? Your current text stays as a version.",
-		"artifacts.document.versions.restoreToast": "Restored v{from} as v{to}",
-		"artifacts.document.versions.undo": "Undo",
+		// The old Versions sheet is gone (ruling 76: History replaces it); these three
+		// keys outlived it. The two author names are the ones a comment and a margin
+		// card print, and the conflict line is the Document's when a save was refused.
 		"artifacts.document.versions.byUser": "You",
 		"artifacts.document.versions.byAlfy": "Alfy",
 		"artifacts.document.versions.conflict":
 			"This document changed elsewhere. Reload to see the current text.",
-		"artifacts.document.versions.loadError":
-			"Could not load the version history.",
-		"artifacts.document.versions.restoreError":
-			"Could not restore this version.",
-		"artifacts.document.versions.empty": "No earlier versions yet.",
-		// A version's own summary line (rd/review-2-5.md:256-260): the save
-		// route's literal "Edited" and the restore handler's "restored …"
-		// wrapper are the only two server-written tokens localized here — an
-		// Alfy-authored summary is free-form content and is shown as-is.
-		"artifacts.document.versions.summaryEdited": "Edited",
-		"artifacts.document.versions.summaryRestored": "restored {summary}",
-		"artifacts.document.versions.summaryRestoredFrom": "Restored v{n}",
-		"artifacts.document.versions.summaryUndidAlfyChange": "Undid Alfy's change",
-		"artifacts.document.versions.summaryFirstDraft":
-			"Alfy wrote the first draft",
-		"artifacts.document.versions.summarySavedAsCopy": "Saved as a new document",
 		// The lazy editor's shell and toolbar (Slice 1, T7).
 		"artifacts.document.editor.placeholder": "Write anything, or ask Alfy to.",
 		"artifacts.document.emptyState":
@@ -723,10 +695,10 @@ const artifactsDict = {
 		"artifacts.canvas.review.refused":
 			"Alfy skipped {count} {count, plural, one {change} other {changes}}.",
 		"artifacts.canvas.review.undoRefused":
-			"Alfy's change can't be undone here because the board has changed since. Open Versions to go back to an earlier one.",
+			"Alfy's change can't be undone here because the board has changed since. Open History to go back to an earlier one.",
 		"artifacts.canvas.review.undoFailed":
-			"Could not undo Alfy's change. Try again, or open Versions.",
-		"artifacts.canvas.review.openVersions": "Open Versions",
+			"Could not undo Alfy's change. Try again, or open History.",
+		"artifacts.canvas.review.openHistory": "Open History",
 		// Asking Alfy about blocks, or the board (S3-A): the toolbar's button, the pill a
 		// selection raises, and what a request about several blocks says it is about.
 		"artifacts.canvas.ask": "Ask Alfy",
@@ -761,7 +733,6 @@ const artifactsDict = {
 		"artifacts.canvas.chat.empty": "Nothing from this chat to insert yet.",
 		"artifacts.canvas.chat.failed": "Couldn't look through this chat.",
 		"artifacts.canvas.chat.retry": "Try again",
-		"artifacts.canvas.chat.version": "v{version}",
 		"artifacts.canvas.chat.chartType.bar": "Bar chart",
 		"artifacts.canvas.chat.chartType.line": "Line chart",
 		"artifacts.canvas.chat.chartType.pie": "Pie chart",
@@ -786,6 +757,8 @@ const artifactsDict = {
 		"artifacts.canvas.file.open": "Open {name}",
 		"artifacts.canvas.app.loading": "Opening the App…",
 		"artifacts.canvas.app.gone": "This App is no longer available.",
+		"artifacts.canvas.app.stillInHistory":
+			"The App runs on the live board, not in History.",
 		"artifacts.canvas.app.failed": "Couldn't open this App.",
 		"artifacts.canvas.block.loadFailed": "This block could not load.",
 		// Photos and live web (S3-R2): the two blocks with nothing to reuse from the
@@ -913,13 +886,184 @@ const artifactsDict = {
 		// changed, under its own heading beside what it found. Each row is named
 		// by its kind through artifacts.type.*, never by this string.
 		"artifacts.evidence.madeInThisChat": "Made in this chat",
+		// Ruling 76 (the versioning build): History is a mode of the panel and the
+		// header says what happened last, not a number (versioning.md §5.1, §8).
+		// The block grows with the History mode itself (the old Versions sheet and its
+		// keys are gone). Every phrase is short on purpose: it sits beside the kind
+		// in the header and, on a 390 px phone, shares its line with it.
+		"artifacts.history.title": "History",
+		"artifacts.history.buttonA11y": "History. Last change: {phrase}",
+		"artifacts.history.phrase.youEdited": "Edited by you",
+		"artifacts.history.phrase.alfyChanged": "Changed by Alfy",
+		"artifacts.history.phrase.alfyWrote": "Written by Alfy",
+		"artifacts.history.phrase.alfyBuilt": "Built by Alfy",
+		"artifacts.history.phrase.youRestored": "Restored by you",
+		"artifacts.history.phrase.alfyRebuilt": "Rebuilt by Alfy",
+		"artifacts.history.phrase.youUndid": "Alfy's change undone",
+		"artifacts.history.phrase.youBroughtBack": "Brought back by you",
+		"artifacts.history.phrase.edited": "Edited",
+		// The in-chat card's facts line, in place of the version number it used
+		// to end with ("Document · 3 tabs · edited 2 min ago").
+		"artifacts.card.edited": "edited {when}",
+		"artifacts.history.regionA11y": "History of {title}",
+		"artifacts.history.done": "Done",
+		"artifacts.history.listA11y": "Versions",
+		"artifacts.history.filterAll": "All",
+		"artifacts.history.filterNamed": "Named",
+		"artifacts.history.filterA11y": "Show",
+		"artifacts.history.today": "Today",
+		"artifacts.history.yesterday": "Yesterday",
+		"artifacts.history.now": "Now",
+		"artifacts.history.nowLine": "This is how it looks now",
+		"artifacts.history.sameAsNow": "Same as now",
+		"artifacts.history.sameAs": "Same as {when}",
+		"artifacts.history.restoredFromHere": "Restored from here · {when}",
+		"artifacts.history.undoneLater": "Undone later · {when}",
+		"artifacts.history.status.waiting": "Waiting for you",
+		"artifacts.history.status.kept": "Kept",
+		"artifacts.history.status.undone": "Undone",
+		"artifacts.history.status.partly": "Partly kept",
+		"artifacts.history.review": "Review",
+		"artifacts.history.fromChat": "From the chat",
+		"artifacts.history.older": "Show older",
+		"artifacts.history.loadError": "Couldn't load the history.",
+		"artifacts.history.oneVersion":
+			"Changes you and Alfy make will appear here.",
+		"artifacts.history.help":
+			"{keys} undoes your last steps. Undo on Alfy's change undoes just that change. Restore brings back a whole version.",
+		"artifacts.history.helpDismiss": "Got it",
+		"artifacts.history.deleted.document": "This document was deleted.",
+		"artifacts.history.deleted.app": "This app was deleted.",
+		"artifacts.history.deleted.canvas": "This canvas was deleted.",
+		"artifacts.history.deleted.slides": "These slides were deleted.",
+		"artifacts.history.deleted.file": "This file was deleted.",
+		"artifacts.history.back": "History",
+		"artifacts.history.previewA11y": "{label}",
+		"artifacts.history.moment.firstDraft": "Alfy wrote the first draft",
+		"artifacts.history.moment.firstDraftBoard": "Alfy made the board",
+		"artifacts.history.moment.appMade": "Alfy built the app",
+		"artifacts.history.moment.keptFromChat":
+			"You kept Alfy's reply as a document",
+		"artifacts.history.moment.savedAsCopy": "You saved it as a new document",
+		"artifacts.history.moment.madeAgain": "Alfy made it again",
+		"artifacts.history.moment.youEdited": "You edited",
+		"artifacts.history.moment.youChangedBoard": "You changed the board",
+		"artifacts.history.moment.tick": "You ticked “{text}”",
+		"artifacts.history.moment.untick": "You unticked “{text}”",
+		"artifacts.history.moment.alfyEdit": "Alfy: {text}",
+		"artifacts.history.moment.alfyEditFallback": "Alfy changed it",
+		"artifacts.history.moment.alfyReplyEdit":
+			"Alfy changed it, answering your comment",
+		"artifacts.history.moment.appRebuilt": "Alfy rebuilt the app: “{text}”",
+		"artifacts.history.moment.undidFolded": "You undid it",
+		"artifacts.history.moment.undid": "You undid Alfy's change",
+		"artifacts.history.moment.undidNamed": "You undid Alfy's change “{text}”",
+		"artifacts.history.moment.redid": "You brought it back",
+		"artifacts.history.moment.restored": "You restored {when}",
+		"artifacts.history.moment.restoredNamed": "You restored “{name}”",
+		"artifacts.history.moment.restoredEarlier":
+			"You restored an earlier version",
+		"artifacts.history.moment.undidRestore": "You undid the restore",
+		"artifacts.history.moment.alfyTurn": "Alfy made {count} changes",
+		"artifacts.history.detail.changed": "Changed “{label}”",
+		"artifacts.history.detail.changedMore": "Changed “{label}” and {n} more",
+		"artifacts.history.detail.changedPlain":
+			"Changed {count} {count, plural, one {paragraph} other {paragraphs}}",
+		"artifacts.history.detail.added": "New: “{label}”",
+		"artifacts.history.detail.addedMore": "New: “{label}” and {n} more",
+		"artifacts.history.detail.addedPlain":
+			"New: {count} {count, plural, one {paragraph} other {paragraphs}}",
+		"artifacts.history.detail.removed":
+			"Removed: {count} {count, plural, one {paragraph} other {paragraphs}}",
+		"artifacts.history.detail.inTab": "in {tab}",
+		"artifacts.history.detail.canvasAdded": "{count} added",
+		"artifacts.history.detail.canvasChanged": "{count} changed",
+		"artifacts.history.detail.canvasMoved": "{count} moved",
+		"artifacts.history.detail.canvasRemoved": "{count} removed",
+		"artifacts.history.detail.lines":
+			"{count} {count, plural, one {line} other {lines}} changed",
+		"artifacts.history.detail.large": "Large change",
+		"artifacts.history.compare.step": "This version's changes",
+		"artifacts.history.compare.now": "Compared with now",
+		"artifacts.history.compare.a11y": "What to show",
+		"artifacts.history.change.prev": "Previous change",
+		"artifacts.history.change.next": "Next change",
+		"artifacts.history.change.count": "{i} / {n}",
+		"artifacts.history.change.countA11y": "Change {i} of {n}",
+		"artifacts.history.added": "Added: ",
+		"artifacts.history.removedSr": "Removed: ",
+		"artifacts.history.unchanged":
+			"{count} unchanged {count, plural, one {paragraph} other {paragraphs}}",
+		"artifacts.history.noChanges": "Nothing changed in this version",
+		"artifacts.history.tooLarge":
+			"Too large to compare; you can still restore it",
+		"artifacts.history.versionFine": "Version {n}",
+		"artifacts.history.live.selected": "{when}, {headline}.",
+		"artifacts.history.live.changes":
+			"{count} {count, plural, one {change} other {changes}}.",
+		"artifacts.history.live.newMoment": "New: {headline}",
+		"artifacts.history.momentPrev": "Previous version",
+		"artifacts.history.momentNext": "Next version",
+		"artifacts.history.previewError": "Couldn't load this version.",
+		"artifacts.history.restore": "Restore",
+		"artifacts.history.restoreQ":
+			"Bring back {when}? What you have now stays in History.",
+		"artifacts.history.restoreQNamed":
+			"Bring back “{name}”? What you have now stays in History.",
+		"artifacts.history.restoreTabs": "Tabs keep their current names.",
+		"artifacts.history.restoreElsewhere":
+			"It changes in “{chat}” too, where it was made.",
+		"artifacts.history.restoreElsewhereGeneric":
+			"It changes in the chat where it was made too.",
+		"artifacts.history.restoreWaiting":
+			"Alfy's change waiting for you goes with it.",
+		"artifacts.history.restoreAppData": "Saved data stays as it is now.",
+		"artifacts.history.restored": "Restored {when}",
+		"artifacts.history.restoredA11y":
+			"Restored {when}. The version before it is in History.",
+		"artifacts.history.restoreMoved":
+			"It changed while you were looking. Here's the latest.",
+		"artifacts.history.restoreOffline": "You're offline",
+		"artifacts.history.restoreNotRunnable":
+			"It can't run any more, so it can't be restored.",
+		"artifacts.history.restoreFailed":
+			"Couldn't restore this version. Try again.",
+		"artifacts.history.undo": "Undo",
+		"artifacts.history.name": "Name",
+		"artifacts.history.rename": "Rename",
+		"artifacts.history.removeName": "Remove name",
+		"artifacts.history.nameField": "Name this version",
+		"artifacts.history.namePlaceholder": "e.g. Before the client call",
+		"artifacts.history.named": "Named “{name}”",
+		"artifacts.history.nameFailed": "Couldn't save the name. Try again.",
+		"artifacts.history.nextEditsNew": "Your next edits start a new version.",
+		// The board's preview in History (ruling 76, versioning.md §5.4): the tags on
+		// the blocks, and the list of changes a screen reader and the stepper walk.
+		"artifacts.history.canvas.tagNew": "New",
+		"artifacts.history.canvas.tagMoved": "Moved",
+		"artifacts.history.canvas.tagRemoved": "Removed",
+		"artifacts.history.canvas.changesLabel": "Changes on the board",
+		"artifacts.history.canvas.change.added": "{label}, added",
+		"artifacts.history.canvas.change.changed": "{label}, changed",
+		"artifacts.history.canvas.change.moved": "{label}, moved",
+		"artifacts.history.canvas.change.linked": "{label}, connection changed",
+		"artifacts.history.canvas.change.removed": "{label}, removed",
+		"artifacts.history.canvas.emptyBoard": "This version has no blocks.",
+		// An App's preview in History (ruling 76, versioning.md §5.4, Q7).
+		"artifacts.history.appRuns":
+			"Runs with today's saved data; changes aren't saved.",
+		"artifacts.history.app.codeOnly":
+			"This version can't run any more, so only its code is shown.",
+		"artifacts.history.app.codeLabel": "Source of this version",
+		"artifacts.history.app.noSource": "This version has no source.",
+		"artifacts.history.app.unchangedLines":
+			"{count} unchanged {count, plural, one {line} other {lines}}",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
 			"Nyisd meg, amit ez a beszélgetés készített ({count})",
 		"artifacts.header.buttonA11yPending":
 			"Nyisd meg, amit ez a beszélgetés készített ({count}) — egy módosítás vár rád",
-		"artifacts.header.editedBy": "Te és Alfy · szerkesztve {when}",
 		// A kettőspont a "-ról/-ről" rag nélkül old meg egy tetszőleges,
 		// felhasználó/AI adta címet — a magyar toldalék a cím végződésétől
 		// függne, ami egy dinamikus értéknél nem garantálható.
@@ -957,8 +1101,6 @@ const artifactsDict = {
 		"artifacts.card.openInPanel": "Megnyitva a panelen",
 		"artifacts.card.review": "Átnézés",
 		"artifacts.card.madeBy": "Alfy készítette: {when}",
-		"artifacts.card.version": "v{n}",
-		"artifacts.card.versionA11y": "{n}. verzió",
 		"artifacts.card.moreItems": "+{count} további",
 		"artifacts.card.creatingSubtitle": "Alfy éppen ír…",
 		"artifacts.card.failedTitle": "Alfynak ezt nem sikerült elkészítenie.",
@@ -975,7 +1117,7 @@ const artifactsDict = {
 		"artifacts.delete.body.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.app":
-			"„{title}” és a mentett adatai törlődnek. Ez nem vonható vissza.",
+			"„{title}”, az összes verziója és a mentett adatai törlődnek. Ez nem vonható vissza.",
 		"artifacts.delete.body.canvas":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.slides":
@@ -984,7 +1126,7 @@ const artifactsDict = {
 		"artifacts.delete.bodyRegenerable.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.app":
-			"„{title}” és a mentett adatai törlődnek. A beszélgetésből újra létrehozhatod.",
+			"„{title}”, az összes verziója és a mentett adatai törlődnek. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.canvas":
 			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.slides":
@@ -1037,17 +1179,19 @@ const artifactsDict = {
 		"artifacts.app.action.download": "Letöltés .html-ként",
 		"artifacts.app.regenerate.prompt": "Min változtasson?",
 		"artifacts.app.regenerate.cancel": "Mégse",
-		"artifacts.app.regenerate.makeV2": "v2 elkészítése",
+		"artifacts.app.regenerate.rebuild": "Újraépítés",
 		"artifacts.app.regenerate.effect":
-			"Alfy megírja az új változatot, és ellenőrzi az adatait. A v1 megmarad az Előzményekben.",
+			"Alfy újraépíti a kérésed szerint és ellenőrzi a tényeit. Az előző változat megmarad az előzményekben.",
 		"artifacts.app.regenerate.building":
-			"Alfy készíti a v2-t · A v1 megmarad, amíg a v2 el nem készül. A mentett adataid megmaradnak.",
+			"Alfy újraépíti · a mostani változat megmarad, amíg az új el nem készül. A mentett adataid megmaradnak.",
 		"artifacts.app.regenerate.failed":
-			"Alfynak nem sikerült elkészítenie a v2-t. A v1 változatlan.",
-		"artifacts.app.toast.v2Ready": "Mostantól a v2 látszik",
+			"Alfynak nem sikerült újraépítenie. A mostani változat változatlan.",
+		"artifacts.app.toast.rebuilt": "Alfy újraépítette",
 		"artifacts.app.toast.undo": "Visszavonás",
 		"artifacts.app.sandboxBar":
 			"Homokozóban fut · nincs internet · megőrzi az adataidat",
+		"artifacts.app.sandboxBarPreview":
+			"Homokozóban fut · nincs internet · csak olvasható",
 		"artifacts.app.generating": "Alfy írja az alkalmazást…",
 		"artifacts.app.generating.hint": "Ez néhány másodpercet vesz igénybe.",
 		"artifacts.app.emptyState":
@@ -1106,32 +1250,10 @@ const artifactsDict = {
 		"artifacts.app.download.failed":
 			"Nem sikerült előkészíteni ezt az alkalmazást letöltésre.",
 		"artifacts.app.open.cta": "Készíts alkalmazást",
-		"artifacts.document.versions.title": "Változatok",
-		"artifacts.document.versions.current": "Jelenlegi",
-		"artifacts.document.versions.restore": "Visszaállítás",
-		"artifacts.document.versions.restoreConfirm":
-			"Visszaállítod a v{v} változatot? A jelenlegi szöveged megmarad változatként.",
-		"artifacts.document.versions.restoreToast":
-			"Visszaállítva: v{from} mint v{to}",
-		"artifacts.document.versions.undo": "Visszavonás",
 		"artifacts.document.versions.byUser": "Te",
 		"artifacts.document.versions.byAlfy": "Alfy",
 		"artifacts.document.versions.conflict":
 			"Ez a dokumentum máshol megváltozott. Töltsd újra a jelenlegi szövegért.",
-		"artifacts.document.versions.loadError":
-			"Nem sikerült betölteni az előzményeket.",
-		"artifacts.document.versions.restoreError":
-			"Nem sikerült visszaállítani ezt a változatot.",
-		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
-		"artifacts.document.versions.summaryEdited": "Szerkesztve",
-		"artifacts.document.versions.summaryRestored": "visszaállítva: {summary}",
-		"artifacts.document.versions.summaryRestoredFrom": "Visszaállítva: v{n}",
-		"artifacts.document.versions.summaryUndidAlfyChange":
-			"Alfy módosításának visszavonása",
-		"artifacts.document.versions.summaryFirstDraft":
-			"Alfy megírta az első vázlatot",
-		"artifacts.document.versions.summarySavedAsCopy":
-			"Mentve új dokumentumként",
 		"artifacts.document.editor.placeholder": "Írj bármit, vagy kérd meg Alfyt.",
 		"artifacts.document.emptyState":
 			"Üres dokumentum. Kezdj el írni, vagy kérd meg Alfyt, hogy megírja.",
@@ -1456,10 +1578,10 @@ const artifactsDict = {
 			"{summary} {left} módosítást kihagyott. Nézd át a tábla alatt.",
 		"artifacts.canvas.review.refused": "Alfy {count} módosítást kihagyott.",
 		"artifacts.canvas.review.undoRefused":
-			"Alfy módosítása itt nem vonható vissza, mert azóta megváltozott a tábla. A Változatok megnyitásával visszatérhetsz egy korábbihoz.",
+			"Alfy módosítása itt nem vonható vissza, mert azóta megváltozott a tábla. Az Előzmények megnyitásával visszatérhetsz egy korábbihoz.",
 		"artifacts.canvas.review.undoFailed":
-			"Nem sikerült visszavonni Alfy módosítását. Próbáld újra, vagy nyisd meg a Változatokat.",
-		"artifacts.canvas.review.openVersions": "Változatok megnyitása",
+			"Nem sikerült visszavonni Alfy módosítását. Próbáld újra, vagy nyisd meg az Előzményeket.",
+		"artifacts.canvas.review.openHistory": "Előzmények megnyitása",
 		// Alfy megkérdezése blokkokról vagy a tábláról (S3-A).
 		"artifacts.canvas.ask": "Alfy megkérdezése",
 		"artifacts.canvas.ask.busy":
@@ -1494,7 +1616,6 @@ const artifactsDict = {
 			"Még nincs mit beszúrni ebből a beszélgetésből.",
 		"artifacts.canvas.chat.failed": "Nem sikerült átnézni a beszélgetést.",
 		"artifacts.canvas.chat.retry": "Újra",
-		"artifacts.canvas.chat.version": "v{version}",
 		"artifacts.canvas.chat.chartType.bar": "Oszlopdiagram",
 		"artifacts.canvas.chat.chartType.line": "Vonaldiagram",
 		"artifacts.canvas.chat.chartType.pie": "Kördiagram",
@@ -1518,6 +1639,8 @@ const artifactsDict = {
 		"artifacts.canvas.file.open": "{name} megnyitása",
 		"artifacts.canvas.app.loading": "Az alkalmazás megnyitása…",
 		"artifacts.canvas.app.gone": "Ez az alkalmazás már nem érhető el.",
+		"artifacts.canvas.app.stillInHistory":
+			"Az alkalmazás az élő táblán fut, az Előzményekben nem.",
 		"artifacts.canvas.app.failed": "Nem sikerült megnyitni az alkalmazást.",
 		"artifacts.canvas.block.loadFailed":
 			"Ezt a blokkot nem sikerült betölteni.",
@@ -1635,6 +1758,177 @@ const artifactsDict = {
 		// módosított, a talált források mellett, saját fejléc alatt. Minden sor a
 		// saját fajtájának nevét viseli (artifacts.type.*), nem ezt a szöveget.
 		"artifacts.evidence.madeInThisChat": "Ebben a beszélgetésben készült",
+		// 76. döntés (a verziókezelés építése): az Előzmények a panel egy módja, a
+		// fejléc pedig azt mondja el, mi történt utoljára, nem egy számot
+		// (versioning.md §5.1, §8). A blokk az Előzmények móddal együtt bővül; a
+		// régi Változatok-lap és a kulcsai megszűntek. Minden kifejezés rövid: a
+		// fejlécben a fajta mellett áll, egy 390 px-es telefonon pedig egy sorban
+		// vele.
+		"artifacts.history.title": "Előzmények",
+		"artifacts.history.buttonA11y": "Előzmények. Utolsó változás: {phrase}",
+		"artifacts.history.phrase.youEdited": "Szerkesztetted",
+		"artifacts.history.phrase.alfyChanged": "Alfy módosította",
+		"artifacts.history.phrase.alfyWrote": "Alfy írta",
+		"artifacts.history.phrase.alfyBuilt": "Alfy készítette",
+		"artifacts.history.phrase.youRestored": "Visszaállítottad",
+		"artifacts.history.phrase.alfyRebuilt": "Alfy újraépítette",
+		"artifacts.history.phrase.youUndid": "Visszavontad Alfy módosítását",
+		"artifacts.history.phrase.youBroughtBack": "Visszahoztad",
+		"artifacts.history.phrase.edited": "Szerkesztve",
+		// A csevegőkártya tényeinek sora, a korábban a végén álló verziószám
+		// helyett ("Dokumentum · 3 lap · szerkesztve 2 perce").
+		"artifacts.card.edited": "szerkesztve {when}",
+		"artifacts.history.regionA11y": "{title} – előzmények",
+		"artifacts.history.done": "Kész",
+		"artifacts.history.listA11y": "Változatok",
+		"artifacts.history.filterAll": "Mind",
+		"artifacts.history.filterNamed": "Elnevezettek",
+		"artifacts.history.filterA11y": "Mutatás",
+		"artifacts.history.today": "Ma",
+		"artifacts.history.yesterday": "Tegnap",
+		"artifacts.history.now": "Most",
+		"artifacts.history.nowLine": "Így néz ki most",
+		"artifacts.history.sameAsNow": "Ugyanaz, mint most",
+		"artifacts.history.sameAs": "Ugyanaz, mint {when}",
+		"artifacts.history.restoredFromHere": "Ide állítottad vissza · {when}",
+		"artifacts.history.undoneLater": "Később visszavonva · {when}",
+		"artifacts.history.status.waiting": "Rád vár",
+		"artifacts.history.status.kept": "Megtartva",
+		"artifacts.history.status.undone": "Visszavonva",
+		"artifacts.history.status.partly": "Részben megtartva",
+		"artifacts.history.review": "Átnézés",
+		"artifacts.history.fromChat": "A beszélgetésből",
+		"artifacts.history.older": "Korábbiak",
+		"artifacts.history.loadError": "Nem sikerült betölteni az előzményeket.",
+		"artifacts.history.oneVersion":
+			"Itt jelenik meg minden későbbi módosítás, akár te végzed, akár Alfy.",
+		"artifacts.history.help":
+			"{keys}: visszavonja a saját legutóbbi lépéseidet. Alfy módosításánál a Visszavonom csak azt az egy módosítást vonja vissza. A Visszaállítás egy teljes korábbi változatot hoz vissza.",
+		"artifacts.history.helpDismiss": "Értem",
+		"artifacts.history.deleted.document": "Ezt a dokumentumot törölték.",
+		"artifacts.history.deleted.app": "Ezt az alkalmazást törölték.",
+		"artifacts.history.deleted.canvas": "Ezt a táblát törölték.",
+		"artifacts.history.deleted.slides": "Ezt a diasort törölték.",
+		"artifacts.history.deleted.file": "Ezt a fájlt törölték.",
+		"artifacts.history.back": "Előzmények",
+		"artifacts.history.previewA11y": "{label}",
+		"artifacts.history.moment.firstDraft": "Alfy megírta az első vázlatot",
+		"artifacts.history.moment.firstDraftBoard": "Alfy elkészítette a táblát",
+		"artifacts.history.moment.appMade": "Alfy elkészítette az alkalmazást",
+		"artifacts.history.moment.keptFromChat":
+			"Megtartottad Alfy válaszát dokumentumként",
+		"artifacts.history.moment.savedAsCopy": "Új dokumentumként mentetted",
+		"artifacts.history.moment.madeAgain": "Alfy újra elkészítette",
+		"artifacts.history.moment.youEdited": "Szerkesztetted",
+		"artifacts.history.moment.youChangedBoard": "Módosítottad a táblát",
+		"artifacts.history.moment.tick": "Kipipáltad: „{text}”",
+		"artifacts.history.moment.untick": "Visszavontad a pipát: „{text}”",
+		"artifacts.history.moment.alfyEdit": "Alfy: {text}",
+		"artifacts.history.moment.alfyEditFallback": "Alfy módosította",
+		"artifacts.history.moment.alfyReplyEdit":
+			"Alfy módosította, válaszul a megjegyzésedre",
+		"artifacts.history.moment.appRebuilt": "Alfy újraépítette: „{text}”",
+		"artifacts.history.moment.undidFolded": "Visszavontad",
+		"artifacts.history.moment.undid": "Visszavontad Alfy módosítását",
+		"artifacts.history.moment.undidNamed":
+			"Visszavontad Alfy módosítását: „{text}”",
+		"artifacts.history.moment.redid": "Visszahoztad",
+		"artifacts.history.moment.restored": "Visszaállítottad: {when}",
+		"artifacts.history.moment.restoredNamed": "Visszaállítottad: „{name}”",
+		"artifacts.history.moment.restoredEarlier":
+			"Visszaállítottál egy korábbi változatot",
+		"artifacts.history.moment.undidRestore": "Visszavontad a visszaállítást",
+		"artifacts.history.moment.alfyTurn": "Alfy {count} módosítást végzett",
+		"artifacts.history.detail.changed": "Módosult: „{label}”",
+		"artifacts.history.detail.changedMore": "Módosult: „{label}” és még {n}",
+		"artifacts.history.detail.changedPlain": "Módosult: {count} bekezdés",
+		"artifacts.history.detail.added": "Új: „{label}”",
+		"artifacts.history.detail.addedMore": "Új: „{label}” és még {n}",
+		"artifacts.history.detail.addedPlain": "Új: {count} bekezdés",
+		"artifacts.history.detail.removed": "Törölve: {count} bekezdés",
+		"artifacts.history.detail.inTab": "lap: {tab}",
+		"artifacts.history.detail.canvasAdded": "{count} hozzáadva",
+		"artifacts.history.detail.canvasChanged": "{count} módosítva",
+		"artifacts.history.detail.canvasMoved": "{count} áthelyezve",
+		"artifacts.history.detail.canvasRemoved": "{count} törölve",
+		"artifacts.history.detail.lines": "{count} sor módosult",
+		"artifacts.history.detail.large": "Nagy változás",
+		"artifacts.history.compare.step": "Ebben a változatban",
+		"artifacts.history.compare.now": "A mostanihoz képest",
+		"artifacts.history.compare.a11y": "Mit mutasson",
+		"artifacts.history.change.prev": "Előző változás",
+		"artifacts.history.change.next": "Következő változás",
+		"artifacts.history.change.count": "{i} / {n}",
+		"artifacts.history.change.countA11y": "{i}. változás, összesen {n}",
+		"artifacts.history.added": "Hozzáadva: ",
+		"artifacts.history.removedSr": "Törölve: ",
+		"artifacts.history.unchanged": "{count} változatlan bekezdés",
+		"artifacts.history.noChanges": "Ebben a változatban nem változott semmi",
+		"artifacts.history.tooLarge":
+			"Túl nagy az összehasonlításhoz, de még visszaállíthatod",
+		"artifacts.history.versionFine": "{n}. változat",
+		"artifacts.history.live.selected": "{when}, {headline}.",
+		"artifacts.history.live.changes": "{count} változás.",
+		"artifacts.history.live.newMoment": "Új: {headline}",
+		"artifacts.history.momentPrev": "Előző változat",
+		"artifacts.history.momentNext": "Következő változat",
+		"artifacts.history.previewError":
+			"Nem sikerült betölteni ezt a változatot.",
+		"artifacts.history.restore": "Visszaállítás",
+		"artifacts.history.restoreQ":
+			"Visszaállítod ezt a változatot ({when})? A mostani megmarad az előzményekben.",
+		"artifacts.history.restoreQNamed":
+			"Visszaállítod ezt: „{name}”? A mostani megmarad az előzményekben.",
+		"artifacts.history.restoreTabs": "A lapok neve a mostani marad.",
+		"artifacts.history.restoreElsewhere":
+			"A „{chat}” beszélgetésben is megváltozik, ahol készült.",
+		"artifacts.history.restoreElsewhereGeneric":
+			"Abban a beszélgetésben is megváltozik, ahol készült.",
+		"artifacts.history.restoreWaiting":
+			"Alfy rád váró módosítása is eltűnik vele.",
+		"artifacts.history.restoreAppData":
+			"A mentett adatok maradnak a mostaniak.",
+		"artifacts.history.restored": "Visszaállítva: {when}",
+		"artifacts.history.restoredA11y":
+			"Visszaállítva: {when}. Az előző változat megmaradt az előzményekben.",
+		"artifacts.history.restoreMoved": "Közben megváltozott. Itt a legfrissebb.",
+		"artifacts.history.restoreOffline": "Nem vagy online",
+		"artifacts.history.restoreNotRunnable":
+			"Már nem futtatható, ezért nem állítható vissza.",
+		"artifacts.history.restoreFailed":
+			"Nem sikerült visszaállítani ezt a változatot. Próbáld újra.",
+		"artifacts.history.undo": "Visszavonás",
+		"artifacts.history.name": "Elnevezés",
+		"artifacts.history.rename": "Átnevezés",
+		"artifacts.history.removeName": "Név törlése",
+		"artifacts.history.nameField": "Változat elnevezése",
+		"artifacts.history.namePlaceholder": "pl. Az ügyfélhívás előtt",
+		"artifacts.history.named": "Elnevezve: „{name}”",
+		"artifacts.history.nameFailed":
+			"Nem sikerült elmenteni a nevet. Próbáld újra.",
+		"artifacts.history.nextEditsNew":
+			"A következő szerkesztéseid új változatba kerülnek.",
+		// A tábla előnézete az Előzményekben: a blokkokon a jelölések, és a módosítások
+		// listája, amit a képernyőolvasó és a léptető bejár.
+		"artifacts.history.canvas.tagNew": "Új",
+		"artifacts.history.canvas.tagMoved": "Áthelyezve",
+		"artifacts.history.canvas.tagRemoved": "Törölve",
+		"artifacts.history.canvas.changesLabel": "A tábla módosításai",
+		"artifacts.history.canvas.change.added": "{label}, hozzáadva",
+		"artifacts.history.canvas.change.changed": "{label}, módosítva",
+		"artifacts.history.canvas.change.moved": "{label}, áthelyezve",
+		"artifacts.history.canvas.change.linked":
+			"{label}, a kapcsolatai módosultak",
+		"artifacts.history.canvas.change.removed": "{label}, törölve",
+		"artifacts.history.canvas.emptyBoard": "Ebben a változatban nincs blokk.",
+		// Egy alkalmazás előnézete az Előzményekben.
+		"artifacts.history.appRuns":
+			"A mostani mentett adatokkal fut; a változtatások nem mentődnek.",
+		"artifacts.history.app.codeOnly":
+			"Ez a változat már nem futtatható, ezért csak a kódja látható.",
+		"artifacts.history.app.codeLabel": "A változat forráskódja",
+		"artifacts.history.app.noSource": "Ebben a változatban nincs forráskód.",
+		"artifacts.history.app.unchangedLines": "{count} változatlan sor",
 	},
 } as const;
 

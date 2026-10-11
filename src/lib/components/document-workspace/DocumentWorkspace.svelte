@@ -14,7 +14,9 @@ import {
 	MOTION_DURATION,
 	MOTION_EASING,
 	reducedMotionAnimate,
+	reducedMotionAware,
 } from "$lib/utils/motion";
+import { fade } from "svelte/transition";
 import {
 	getArtifactTour,
 	keepArtifactToursFor,
@@ -35,6 +37,8 @@ import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
 import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
+import { kindHasHistory } from "$lib/components/artifacts/history/history-previews";
+import { latestMomentPhrase } from "$lib/components/artifacts/history/moment-phrase";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	isShippedArtifactTourType,
@@ -106,6 +110,8 @@ let {
 	onPendingReviewCountChange = undefined,
 	onDeleteArtifact = undefined,
 	onFlushReady = undefined,
+	artifactVersionMessages = undefined,
+	onShowChatMessage = undefined,
 	currentUser = null,
 	overDialog = false,
 }: {
@@ -170,6 +176,17 @@ let {
 	 * finds the reader's last step already saved.
 	 */
 	onFlushReady?: ((flush: (() => Promise<void>) | null) => void) | undefined;
+	/**
+	 * Which loaded chat message made which version of which item (artifact id →
+	 * version id → message id), for History's "From the chat" (ruling 76). Only a
+	 * version a message of THIS chat made has a link; absent for a host with no chat
+	 * (the Knowledge page).
+	 */
+	artifactVersionMessages?:
+		| ReadonlyMap<string, ReadonlyMap<string, string>>
+		| undefined;
+	/** Scrolls the chat to a message and flashes it ("From the chat"); the page closes this panel first where it covers the chat (a phone). */
+	onShowChatMessage?: ((messageId: string) => void) | undefined;
 	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
 	currentUser?: {
 		id: string;
@@ -312,6 +329,137 @@ let panelLandmarkLabel = $derived(
 			})
 		: $t("documentWorkspace.documentWorkspace"),
 );
+// Ruling 76, amendment A1: the header says the item's latest moment ("Changed by
+// Alfy · 12 min ago"), read through the same one source as the list rows and the
+// chat card (`artifact-versions.ts`), never a number. The clock moves the words
+// on while the panel stays open: "just now" must not stay true for an hour.
+let momentClock = $state(Date.now());
+$effect(() => {
+	if (!browser || !activeDocument?.kind) return;
+	const timer = setInterval(() => {
+		momentClock = Date.now();
+	}, 30_000);
+	return () => clearInterval(timer);
+});
+let activeMomentPhrase = $derived.by(() => {
+	momentClock;
+	const item = activeDocument;
+	if (!item?.kind || item.kind === "file") return null;
+	const at = item.updatedAt && item.updatedAt > 0 ? item.updatedAt : null;
+	const author = item.lastAuthor ?? null;
+	const kind = item.lastKind ?? null;
+	if (at === null && author === null && kind === null) return null;
+	return latestMomentPhrase(activeArtifactKind, { author, kind, at }, $t);
+});
+// ---- History, a MODE of the panel (ruling 76, versioning.md §5.2) -------------
+//
+// Pressing the header's history button turns the open item's body into a
+// read-only preview of one of its versions with a rail of moments beside it.
+// The body stays mounted underneath (inert and out of sight, so the scroll and
+// the selection the editor had are there when History is left); the mode is a
+// slot over it. Entering History first has the body save what the reader typed
+// that the autosave has not written yet (`ArtifactPanelBodyActions.flush`), so
+// History starts from what is stored; leaving after a restore has the body load
+// the stored item again (`reload`), so the next save is not refused as stale.
+// The mode lives in one lazy chunk (`history/history-parts.ts`), loaded the
+// first time it opens.
+type HistoryPartsModule =
+	typeof import("$lib/components/artifacts/history/history-parts");
+let HistoryModeComponent = $state<HistoryPartsModule["HistoryMode"] | null>(
+	null,
+);
+let historyOpen = $state(false);
+let historyOpening = false;
+/** A restore (or an Undo of one) changed what is stored while History was open. */
+let historyChangedBody = false;
+const historySlotFade = reducedMotionAware(fade);
+/** How long the panel waits for the body's save before showing History anyway (it never waits for a connection to come back). */
+const HISTORY_FLUSH_BUDGET_MS = 4000;
+
+async function ensureHistoryMode(): Promise<void> {
+	if (HistoryModeComponent) return;
+	const module = await import(
+		"$lib/components/artifacts/history/history-parts"
+	);
+	HistoryModeComponent = module.HistoryMode;
+}
+
+async function openHistory(): Promise<void> {
+	if (historyOpening || historyOpen) return;
+	if (!activeDocument || !kindHasHistory(activeArtifactKind)) return;
+	historyOpening = true;
+	try {
+		const loading = ensureHistoryMode();
+		const flush = bodyPanelActions?.flush;
+		if (flush) {
+			await Promise.race([
+				flush().catch(() => undefined),
+				new Promise<void>((resolve) =>
+					setTimeout(resolve, HISTORY_FLUSH_BUDGET_MS),
+				),
+			]);
+		}
+		await loading;
+		historyOpen = true;
+	} finally {
+		historyOpening = false;
+	}
+}
+
+function focusHistoryButton(): void {
+	const shell = shouldRenderMobilePreview
+		? mobileShellElement
+		: desktopShellElement;
+	shell
+		?.querySelector<HTMLElement>('[data-testid="artifact-history-button"]')
+		?.focus();
+}
+
+function closeHistory(options: { restoreFocus?: boolean } = {}): void {
+	if (!historyOpen) return;
+	historyOpen = false;
+	if (historyChangedBody) {
+		historyChangedBody = false;
+		bodyPanelActions?.reload?.();
+	}
+	if (options.restoreFocus !== false) void tick().then(focusHistoryButton);
+}
+
+function toggleHistory(): void {
+	if (historyOpen) closeHistory();
+	else void openHistory();
+}
+
+/** A restore (or the Undo of one) wrote a version: the open body loads what is stored when History is left. */
+function handleHistoryRestored(): void {
+	historyChangedBody = true;
+}
+
+/**
+ * "From the chat" on an Alfy moment: scroll the chat to the message that made it
+ * and flash it. Where this panel covers the chat (the phone/mobile shell) History
+ * and the panel step aside first.
+ */
+function handleHistoryFromChat(messageId: string): void {
+	if (!shouldRenderDesktopPreview) closeHistory({ restoreFocus: false });
+	onShowChatMessage?.(messageId);
+}
+
+/** A waiting moment's "Review": leave History and step the review to that change. */
+function handleHistoryReview(): void {
+	closeHistory({ restoreFocus: false });
+	void tick().then(() => bodyPanelActions?.reviewPending?.());
+}
+
+// Another item (or none) is a different panel: History belongs to the one it opened for.
+$effect(() => {
+	activeBodyKey;
+	untrack(() => {
+		historyOpen = false;
+		historyChangedBody = false;
+	});
+});
+
 let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 	ARTIFACT_BODIES[activeArtifactKind],
 );
@@ -1113,7 +1261,6 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 			...documentArtifactCardViewFromPreview({
 				artifactId: item.id,
 				title: getDocumentTitle(item),
-				versionNumber: item.versionNumber ?? 0,
 				madeBy,
 				subtitle: $t("artifacts.document.cardSubtitle", {
 					count: item.documentPreview.tabCount,
@@ -1129,7 +1276,6 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 		id: item.id,
 		kind: item.kind ?? "file",
 		title: getDocumentTitle(item),
-		versionNumber: item.versionNumber ?? null,
 		openTargetId: item.id,
 		madeBy,
 		...rowExtras,
@@ -1393,6 +1539,10 @@ function handleWindowKeydown(event: KeyboardEvent) {
  * (expanded-only) close behaviour.
  */
 function closeFromEscape() {
+	if (historyOpen) {
+		closeHistory();
+		return;
+	}
 	if (list?.open) {
 		onListOpenChange?.(false);
 		return;
@@ -1952,13 +2102,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		{/if}
 	{/snippet}
 
-	{#snippet artifactTypeAndVersion()}
-		{#if activeDocument.kind}
-			<span class="artifact-type-pill">{$t(`artifacts.type.${activeArtifactKind}` as I18nKey)}</span>
-			<span class="artifact-version-pill" data-testid="artifact-version-pill">{$t('artifacts.card.version', { n: activeDocument.versionNumber ?? 1 })}</span>
-		{/if}
-	{/snippet}
-
 	<!--
 		Wave 2.5 Step 3/8: `ArtifactPanelHeader`'s actions for an artifact-kind
 		item (Document/App/File) — Comments (Document only, matching the mockup's
@@ -1967,8 +2110,53 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		legacy, non-artifact item: the breadcrumb replaces "back to the list",
 		and the version button above replaces History outright.
 	-->
+	<!--
+		History, a mode of the panel (ruling 76): a slot laid over the open body in
+		the area the body occupies. The surface that is showing (the phone/mobile
+		shell or the desktop pane) draws it; on a phone its mode is a sheet of its
+		own (`DialogShell`), so the slot holds nothing visible there.
+	-->
+	{#snippet historySlot()}
+		{#if historyOpen && HistoryModeComponent && activeDocument}
+			{@const HistoryView = HistoryModeComponent}
+			{@const historyArtifactId = activeDocument.artifactId ?? activeDocument.id}
+			{@const chatVersions = artifactVersionMessages?.get(historyArtifactId)}
+			<div class="workspace-history-slot" transition:historySlotFade={{ duration: MOTION_DURATION.standard }}>
+				<HistoryView
+					artifactId={historyArtifactId}
+					kind={activeArtifactKind}
+					title={getDocumentTitle(activeDocument)}
+					{conversationId}
+					{currentUser}
+					onDone={() => closeHistory()}
+					onReview={handleHistoryReview}
+					onRestored={handleHistoryRestored}
+					chatVersionIds={chatVersions && onShowChatMessage ? new Set(chatVersions.keys()) : null}
+					onFromChat={chatVersions && onShowChatMessage
+						? (entry) => {
+								const messageId = chatVersions.get(entry.versionId);
+								if (messageId) handleHistoryFromChat(messageId);
+							}
+						: undefined}
+				/>
+			</div>
+		{/if}
+	{/snippet}
+
 	{#snippet artifactHeaderActionsSnippet()}
-		{#if bodyPanelActions?.toggleComments}
+		{#if historyOpen}
+			<button
+				type="button"
+				class="btn-secondary btn-sm workspace-history-done"
+				data-testid="artifact-history-done"
+				onclick={() => closeHistory()}
+			>
+				{$t('artifacts.history.done')}
+			</button>
+		{/if}
+		{#if historyOpen}
+			<!-- Comments and Download step aside while History is open (versioning.md §5.1). -->
+		{:else if bodyPanelActions?.toggleComments}
 			<!-- One toggle for whichever comments surface applies (the column
 			     beside the text, the drawer on a narrow panel, the sheet on a
 			     phone): pressed while it is showing, never a second way in
@@ -1993,7 +2181,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				{/if}
 			</button>
 		{/if}
-		{#if bodyPanelActions?.openDownload}
+		{#if historyOpen}
+			<!-- no Download while History is open -->
+		{:else if bodyPanelActions?.openDownload}
 			{@const downloadLabel = $t(
 				activeArtifactKind === 'app'
 					? 'artifacts.app.action.download'
@@ -2068,13 +2258,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				<ArtifactPanelHeader
 					kind={activeArtifactKind}
 					title={getDocumentTitle(activeDocument)}
-					versionNumber={activeDocument.versionNumber && activeDocument.versionNumber > 0 ? activeDocument.versionNumber : null}
-					onVersions={bodyPanelActions?.openVersions}
-					meta={activeDocument.updatedAt != null
-					? $t('artifacts.header.editedBy', {
-							when: formatRelativeTime(activeDocument.updatedAt, { t: $t }),
-						})
-					: null}
+					phrase={activeMomentPhrase}
+					onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : undefined}
+					{historyOpen}
 					itemCount={list?.items.length ?? null}
 					onBack={list ? handleBackToList : undefined}
 					actions={artifactHeaderActionsSnippet}
@@ -2084,7 +2270,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					<div class="workspace-heading">
 						<div class="workspace-eyebrow">
 							{$t('documentWorkspace.workingDocument')}
-							{@render artifactTypeAndVersion()}
 						</div>
 						<div class="workspace-title-row">
 							{#if canJumpToSource(activeDocument)}
@@ -2222,7 +2407,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				</div>
 			{/if}
 
-			<div class="workspace-body" data-testid="page-scroll-container-mobile">
+			<div class="workspace-stage">
+			<div class="workspace-body" class:workspace-body-covered={historyOpen} inert={historyOpen} data-testid="page-scroll-container-mobile">
 				{#if shouldRenderMobilePreview}
 					{@render tourCard()}
 				{/if}
@@ -2244,6 +2430,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
+								onOpenHistory={() => void openHistory()}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 								onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
 								tourSummary={bodyTourSummary}
@@ -2338,6 +2525,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					{/if}
 				{/if}
 			</div>
+			{#if shouldRenderMobilePreview}
+				{@render historySlot()}
+			{/if}
+			</div>
 		</section>
 	</div>
 
@@ -2384,13 +2575,9 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			<ArtifactPanelHeader
 				kind={activeArtifactKind}
 				title={getDocumentTitle(activeDocument)}
-				versionNumber={activeDocument.versionNumber && activeDocument.versionNumber > 0 ? activeDocument.versionNumber : null}
-				onVersions={bodyPanelActions?.openVersions}
-				meta={activeDocument.updatedAt != null
-					? $t('artifacts.header.editedBy', {
-							when: formatRelativeTime(activeDocument.updatedAt, { t: $t }),
-						})
-					: null}
+				phrase={activeMomentPhrase}
+				onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : undefined}
+				{historyOpen}
 				itemCount={list?.items.length ?? null}
 				onBack={list ? handleBackToList : undefined}
 				actions={artifactHeaderActionsSnippet}
@@ -2400,7 +2587,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				<div class="workspace-heading">
 					<div class="workspace-eyebrow">
 						{$t('documentWorkspace.workingDocument')}
-						{@render artifactTypeAndVersion()}
 					</div>
 					<div class="workspace-title-row">
 						{#if canJumpToSource(activeDocument)}
@@ -2546,7 +2732,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				</div>
 			{/if}
 
-	<div class="workspace-body" data-testid="page-scroll-container">
+	<div class="workspace-stage">
+	<div class="workspace-body" class:workspace-body-covered={historyOpen} inert={historyOpen} data-testid="page-scroll-container">
 		{#if shouldRenderDesktopPreview}
 			{@render tourCard()}
 		{/if}
@@ -2568,6 +2755,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
+						onOpenHistory={() => void openHistory()}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
 						tourSummary={bodyTourSummary}
@@ -2658,6 +2846,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					{/await}
 				{/if}
 			{/if}
+	</div>
+	{#if shouldRenderDesktopPreview}
+		{@render historySlot()}
+	{/if}
 	</div>
 		</div>
 	</div>
@@ -3041,6 +3233,32 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
+	}
+
+	/* History is a slot laid over the open body (ruling 76). The stage is the
+	   area the body occupies; the body stays in it, laid out, so its scroll and its
+	   selection are there when History is left. */
+	.workspace-stage {
+		position: relative;
+		flex: 1 1 auto;
+		min-height: 0;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.workspace-body-covered {
+		visibility: hidden;
+	}
+
+	.workspace-history-slot {
+		position: absolute;
+		inset: 0;
+		z-index: 3;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		background: var(--surface-page);
 	}
 
 	/* The desktop shell's animatable content (redesign §7.2 #1–#4): a plain
@@ -3539,25 +3757,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	.workspace-download-option:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 36%, transparent);
-	}
-
-	/* Slice 0 Task S5: the type + version pills beside the eyebrow, and the
-	   "what this chat made" list. Only an item that declares an artifact
-	   kind gets the pills, so the three existing callers (which never do)
-	   see no visual change. */
-	.artifact-type-pill,
-	.artifact-version-pill {
-		display: inline-flex;
-		align-items: center;
-		margin-left: var(--space-xs, 0.375rem);
-		padding: 0.05rem 0.42rem;
-		border-radius: 999px;
-		background: var(--surface-elevated);
-		color: var(--text-muted);
-		font-size: var(--text-2xs, 0.66rem);
-		font-weight: 600;
-		letter-spacing: 0.02em;
-		text-transform: none;
 	}
 
 	.workspace-history-toggle-button:disabled {

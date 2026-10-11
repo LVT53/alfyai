@@ -25,7 +25,7 @@ import {
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
 import {
-	createConversation,
+	createEmptyConversation,
 	login,
 	sendMessage,
 	workspacePanel,
@@ -162,10 +162,11 @@ async function expectDocumentHeader(
 		panel.getByTestId("artifact-download-button"),
 		`${label}: the Download button`,
 	).toBeVisible({ timeout: 15_000 });
-	// Until the body registers its Versions action the same pill is plain text.
+	// History is the panel's own mode (ruling 76), so its button is a button from
+	// the first frame, whatever the body has registered.
 	await expect(
-		panel.locator('button[data-testid="artifact-version-pill"]'),
-		`${label}: the Versions button`,
+		panel.getByTestId("artifact-history-button"),
+		`${label}: the history button`,
 	).toBeVisible({ timeout: 15_000 });
 }
 
@@ -190,13 +191,13 @@ async function useHeaderControls(page: Page, label: string): Promise<void> {
 	await page.keyboard.press("Escape");
 	await expect(page.getByTestId("document-download-popover")).toHaveCount(0);
 
-	await panel.locator('button[data-testid="artifact-version-pill"]').click();
-	await expect(
-		page.getByTestId("document-versions-popover"),
-		`${label}: Versions opens its popover`,
-	).toBeVisible();
+	await panel.getByTestId("artifact-history-button").click();
+	const history = page.getByRole("region", { name: /^History of / });
+	await expect(history, `${label}: History opens in the panel`).toBeVisible();
 	await page.keyboard.press("Escape");
-	await expect(page.getByTestId("document-versions-popover")).toHaveCount(0);
+	await expect(history).toHaveCount(0);
+	// Leaving History hands the focus back to the button that opened it.
+	await expect(panel.getByTestId("artifact-history-button")).toBeFocused();
 }
 
 test.describe("The panel header follows the item the panel shows (D1)", () => {
@@ -211,7 +212,7 @@ test.describe("The panel header follows the item the panel shows (D1)", () => {
 		await setUiLanguage("en");
 		await login(page);
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Panel swap");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument(conversationId, {
 			markdown: "First.\n\nSecond.",
 			title: "Alpha",
@@ -267,7 +268,7 @@ test.describe("The panel header follows the item the panel shows (D1)", () => {
 		await setUiLanguage("en");
 		await login(page);
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Panel swap phone");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument(conversationId, {
 			markdown: "First.\n\nSecond.",
 			title: "Alpha",
@@ -292,10 +293,7 @@ test.describe("The panel header follows the item the panel shows (D1)", () => {
 			for (const [name, control] of [
 				["the Comments toggle", shell.getByTestId("artifact-comments-button")],
 				["the Download button", shell.getByTestId("artifact-download-button")],
-				[
-					"the Versions button",
-					shell.locator('button[data-testid="artifact-version-pill"]'),
-				],
+				["the history button", shell.getByTestId("artifact-history-button")],
 			] as const) {
 				await expect(control, `${label}: ${name}`).toBeVisible({
 					timeout: 15_000,
@@ -320,7 +318,7 @@ test.describe("The panel header follows the item the panel shows (D1)", () => {
 		await setUiLanguage("en");
 		await login(page);
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Card swap");
+		const conversationId = await createEmptyConversation(page);
 		const alpha = await seedDocument(conversationId, {
 			markdown: "# Alpha\n\nBody of Alpha.",
 			title: "Alpha",
@@ -386,10 +384,7 @@ test.describe("A live Alfy edit is applied once, however often the Document is o
 	});
 
 	/** Opens the chat with the Document already showing in the panel, so the body is mounted while Alfy's edit lands, then lets Alfy edit it (one applied block, one refused). */
-	async function editWhileOpen(
-		page: Page,
-		conversationTitle: string,
-	): Promise<{
+	async function editWhileOpen(page: Page): Promise<{
 		conversationId: string;
 		artifactId: string;
 		providerId: string;
@@ -398,7 +393,7 @@ test.describe("A live Alfy edit is applied once, however often the Document is o
 		await login(page);
 		await page.setViewportSize({ width: 1440, height: 900 });
 		const previousModelPreference = await snapshotUserModelPreference(page);
-		const conversationId = await createConversation(page, conversationTitle);
+		const conversationId = await createEmptyConversation(page);
 		const artifactId = await seedDocument(conversationId, {
 			markdown: "Book the hotel.\n\nBook the flight.",
 			title: "Trip plan",
@@ -451,7 +446,7 @@ test.describe("A live Alfy edit is applied once, however often the Document is o
 		let providerId: string | null = null;
 		let previousModelPreference: string | null = null;
 		try {
-			const walk = await editWhileOpen(page, "Replay walk");
+			const walk = await editWhileOpen(page);
 			providerId = walk.providerId;
 			previousModelPreference = walk.previousModelPreference;
 			const review = page.getByRole("region", { name: "Changes from Alfy" });
@@ -517,7 +512,7 @@ test.describe("A live Alfy edit is applied once, however often the Document is o
 		let providerId: string | null = null;
 		let previousModelPreference: string | null = null;
 		try {
-			const walk = await editWhileOpen(page, "Replay keep walk");
+			const walk = await editWhileOpen(page);
 			providerId = walk.providerId;
 			previousModelPreference = walk.previousModelPreference;
 			const review = page.getByRole("region", { name: "Changes from Alfy" });

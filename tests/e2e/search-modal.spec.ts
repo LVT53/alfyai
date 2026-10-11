@@ -202,9 +202,9 @@ test.describe("Search Modal Visual Tests", () => {
 	// Search. This spec's own coverage was structural only before this slice
 	// (no document was ever seeded) — direct db writes, matching the repo's
 	// existing E2E seeding convention.
-	test("finds a seeded artifact-family row by name, labelled with its kind, and opens it", async ({
-		page,
-	}) => {
+	test("finds a seeded artifact-family row by name, labelled with its kind, and opens it", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		// A bare conversation row, seeded directly like several other E2E specs
 		// already do (see conversation-title-refresh.spec.ts) — no messages, no
 		// live chat round trip, just an id for the artifact's ownership scope.

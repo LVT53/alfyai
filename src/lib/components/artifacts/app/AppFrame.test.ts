@@ -952,3 +952,221 @@ describe("AppFrame — the tripwire", () => {
 		expect(container.querySelector("iframe")).not.toBeNull();
 	});
 });
+
+// Ruling 76 (Q7): History runs an OLD version of an App in the same sandbox, from a
+// route of its own, against today's saved data, and changes nothing. The route's
+// bootstrap makes the frame's own `set` reject, but that is code the old version can
+// replace: a hostile version can post a raw `alfy.storage` set to its parent whatever
+// its bridge says. So the parent is the one that refuses, in preview mode, every set.
+describe("AppFrame — previewing a stored version (History)", () => {
+	function previewFrame(extra: Record<string, unknown> = {}) {
+		return render(AppFrame, {
+			artifactId: "app-1",
+			version: 0,
+			previewVersionId: "ver-1",
+			...extra,
+		});
+	}
+
+	it("points src at the version route, and widens its scope for an incognito conversation", () => {
+		const { container } = previewFrame({ conversationId: "conv-incognito" });
+		expect(getIframe(container).getAttribute("src")).toBe(
+			"/api/artifacts/app-1/versions/ver-1/app?conversationId=conv-incognito",
+		);
+	});
+
+	it("is the live App's frame: the same sandbox, exactly", () => {
+		const { container } = previewFrame();
+		const iframe = getIframe(container);
+		expect(iframe.getAttribute("src")).toBe(
+			"/api/artifacts/app-1/versions/ver-1/app",
+		);
+		expect(iframe.getAttribute("sandbox")).toBe(APP_IFRAME_SANDBOX);
+		expect(iframe.getAttribute("sandbox")).not.toMatch(/allow-same-origin/);
+	});
+
+	// RV-V I-5: the live bar promises "keeps your data", and in a preview every write
+	// is refused (and History's own line says changes aren't saved), so the promise is
+	// false there. The preview's bar has its own words; the sandbox claims stay.
+	it("has a sandbox bar of its own that says read-only, and never promises to keep the reader's data", () => {
+		const { getByText, queryByText } = previewFrame();
+		expect(
+			getByText("Runs sandboxed · no internet · read-only"),
+		).toBeInTheDocument();
+		expect(queryByText(/keeps your data/)).toBeNull();
+	});
+
+	it("says the same in Hungarian", async () => {
+		uiLanguage.set("hu");
+		try {
+			const { getByText, queryByText } = previewFrame();
+			expect(
+				getByText("Homokozóban fut · nincs internet · csak olvasható"),
+			).toBeInTheDocument();
+			expect(queryByText(/megőrzi/)).toBeNull();
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
+	it("leaves the live App's bar as it was", () => {
+		const { getByText, queryByText } = render(AppFrame, {
+			artifactId: "app-1",
+			version: 1,
+		});
+		expect(
+			getByText("Runs sandboxed · no internet · keeps your data"),
+		).toBeInTheDocument();
+		expect(queryByText(/read-only/)).toBeNull();
+	});
+
+	it("encodes an id that is not a path segment's safe text", () => {
+		const { container } = previewFrame({ previewVersionId: "a/b?c" });
+		expect(getIframe(container).getAttribute("src")).toBe(
+			"/api/artifacts/app-1/versions/a%2Fb%3Fc/app",
+		);
+	});
+
+	it("refuses an alfy.storage set from the frame: no write, and no reply to say so", async () => {
+		writeAppValue.mockResolvedValue({ ok: true });
+		const { container } = previewFrame();
+		const source = getIframe(container).contentWindow as Window;
+		const postSpy = vi.spyOn(source, "postMessage");
+
+		post(
+			{
+				v: 1,
+				kind: "alfy.storage",
+				id: 1,
+				method: "set",
+				args: ["k", { stolen: "today's data" }],
+			},
+			source,
+		);
+		// A frame that is allowed to set gets its answer within a tick or two.
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		expect(writeAppValue).not.toHaveBeenCalled();
+		expect(postSpy).not.toHaveBeenCalled();
+	});
+
+	it("refuses a set of every shape a frame can send, including a bare key", async () => {
+		writeAppValue.mockResolvedValue({ ok: true });
+		const { container } = previewFrame({ conversationId: "conv-incognito" });
+		const source = getIframe(container).contentWindow as Window;
+		const postSpy = vi.spyOn(source, "postMessage");
+
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "set", args: ["k"] },
+			source,
+		);
+		post(
+			{ v: 1, kind: "alfy.storage", id: 2, method: "set", args: ["k", null] },
+			source,
+		);
+		post(
+			{
+				v: 1,
+				kind: "alfy.storage",
+				id: 3,
+				method: "set",
+				args: ["k", "x".repeat(10_000)],
+			},
+			source,
+		);
+		// Forged fields change nothing: the artifact is the prop's, and a set is a set.
+		post(
+			{
+				v: 1,
+				kind: "alfy.storage",
+				id: 4,
+				method: "set",
+				args: ["k", 1],
+				artifactId: "someone-elses-id",
+				preview: false,
+			},
+			source,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		expect(writeAppValue).not.toHaveBeenCalled();
+		expect(postSpy).not.toHaveBeenCalled();
+	});
+
+	it("keeps serving a get: the preview runs against today's saved data", async () => {
+		readAppValue.mockResolvedValue({ ok: true, value: { today: 1 } });
+		const { container } = previewFrame({ conversationId: "conv-incognito" });
+		const source = getIframe(container).contentWindow as Window;
+		const postSpy = vi.spyOn(source, "postMessage");
+
+		post(
+			{ v: 1, kind: "alfy.storage", id: 5, method: "get", args: ["k"] },
+			source,
+		);
+		await vi.waitFor(() => expect(postSpy).toHaveBeenCalled());
+
+		// The artifact is the prop's (never the version's own, which has no store).
+		expect(readAppValue).toHaveBeenCalledWith("app-1", "k", "conv-incognito");
+		expect(postSpy).toHaveBeenCalledWith(
+			{
+				v: 1,
+				kind: "alfy.storage.result",
+				id: 5,
+				ok: true,
+				value: { today: 1 },
+			},
+			"*",
+		);
+	});
+
+	it("does not let a set through by arriving while a get is in flight", async () => {
+		let release: (value: unknown) => void = () => {};
+		readAppValue.mockReturnValue(
+			new Promise((resolve) => {
+				release = resolve;
+			}),
+		);
+		writeAppValue.mockResolvedValue({ ok: true });
+		const { container } = previewFrame();
+		const source = getIframe(container).contentWindow as Window;
+
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: ["k"] },
+			source,
+		);
+		post(
+			{ v: 1, kind: "alfy.storage", id: 2, method: "set", args: ["k", 2] },
+			source,
+		);
+		release({ ok: true, value: 1 });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		expect(readAppValue).toHaveBeenCalledTimes(1);
+		expect(writeAppValue).not.toHaveBeenCalled();
+	});
+
+	it("a live frame (no version named) still serves a set: only the preview is read-only", async () => {
+		writeAppValue.mockResolvedValue({ ok: true });
+		const { container } = render(AppFrame, { artifactId: "app-1", version: 1 });
+
+		post(
+			{ v: 1, kind: "alfy.storage", id: 1, method: "set", args: ["k", 1] },
+			getIframe(container).contentWindow as Window,
+		);
+		await vi.waitFor(() => expect(writeAppValue).toHaveBeenCalled());
+
+		expect(writeAppValue).toHaveBeenCalledWith("app-1", "k", 1, null);
+	});
+
+	it("keeps the tripwire: a frame that navigates itself is torn down in a preview too", async () => {
+		const restore = pinWindowProxyPerElement();
+		restoreContentWindow = restore;
+		const { container, findByRole } = previewFrame();
+		const iframe = getIframe(container);
+		iframe.dispatchEvent(new Event("load"));
+		iframe.dispatchEvent(new Event("load"));
+		await tick();
+		expect(await findByRole("alert")).toBeInTheDocument();
+		expect(container.querySelector("iframe")).toBeNull();
+	});
+});

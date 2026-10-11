@@ -1,6 +1,11 @@
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
-import { APP_BOOTSTRAP_SCRIPT, injectAppBootstrap } from "./bootstrap";
+import {
+	APP_BOOTSTRAP_SCRIPT,
+	APP_READONLY_BOOTSTRAP_SCRIPT,
+	injectAppBootstrap,
+	injectReadOnlyAppBootstrap,
+} from "./bootstrap";
 
 interface StorageMessage {
 	v: 1;
@@ -16,7 +21,7 @@ interface StorageMessage {
  * — no jsdom, no real postMessage event loop, so a reply or a timer fires
  * exactly when the test tells it to.
  */
-function createSandbox() {
+function createSandbox(script = APP_BOOTSTRAP_SCRIPT) {
 	const messages: StorageMessage[] = [];
 	const listeners: Array<(event: { data: unknown; source?: unknown }) => void> =
 		[];
@@ -43,7 +48,7 @@ function createSandbox() {
 			return pendingTimers.length;
 		},
 	});
-	vm.runInContext(APP_BOOTSTRAP_SCRIPT, context);
+	vm.runInContext(script, context);
 
 	return {
 		window: sandboxWindow as unknown as {
@@ -324,5 +329,95 @@ describe("injectAppBootstrap", () => {
 		const started = performance.now();
 		injectAppBootstrap(html);
 		expect(performance.now() - started).toBeLessThan(250);
+	});
+});
+
+// Ruling 76 (Q7): a saved version shown in History runs against today's saved
+// data and leaves it alone.
+describe("APP_READONLY_BOOTSTRAP_SCRIPT — a saved version's bridge", () => {
+	it("is the writing bridge but for `set`, so the two cannot drift", () => {
+		const writing = APP_BOOTSTRAP_SCRIPT.split("\n");
+		const readOnly = APP_READONLY_BOOTSTRAP_SCRIPT.split("\n");
+		expect(readOnly).toHaveLength(writing.length);
+		const differing = writing.filter((line, index) => line !== readOnly[index]);
+		expect(differing).toHaveLength(1);
+		expect(differing[0]).toContain("set:");
+	});
+
+	it("still reads today's value from the parent, exactly as the writing bridge does", async () => {
+		const { window, messages, deliverReply } = createSandbox(
+			APP_READONLY_BOOTSTRAP_SCRIPT,
+		);
+		const pending = window.alfy.storage.get("tips");
+		expect(messages).toEqual([
+			{ v: 1, kind: "alfy.storage", id: 1, method: "get", args: ["tips"] },
+		]);
+		deliverReply({
+			v: 1,
+			kind: "alfy.storage.result",
+			id: 1,
+			ok: true,
+			value: 12,
+		});
+		await expect(pending).resolves.toBe(12);
+	});
+
+	it("rejects `set` at once and sends nothing to the parent", async () => {
+		const { window, messages } = createSandbox(APP_READONLY_BOOTSTRAP_SCRIPT);
+		await expect(window.alfy.storage.set("tips", 12)).rejects.toThrow(
+			/read.?only/i,
+		);
+		expect(messages).toEqual([]);
+	});
+
+	// RV-V M-6: an App that shows the error it caught shows THIS to a reader, whatever
+	// their language, and the served document cannot know it. A code is not an English
+	// sentence a Hungarian reader meets.
+	it("refuses with a code, not a sentence in English", async () => {
+		const { window } = createSandbox(APP_READONLY_BOOTSTRAP_SCRIPT);
+		const refusal = await window.alfy.storage
+			.set("tips", 12)
+			.catch((error: Error) => error);
+		// (An Error of the sandbox's own realm: its name and message are what an App reads.)
+		expect((refusal as Error).name).toBe("Error");
+		expect((refusal as Error).message).toBe("ALFY_STORAGE_READ_ONLY");
+		expect(APP_READONLY_BOOTSTRAP_SCRIPT).not.toMatch(/saved version/);
+	});
+
+	it("cannot be replaced or removed by the App", () => {
+		const { window } = createSandbox(APP_READONLY_BOOTSTRAP_SCRIPT);
+		const original = window.alfy.storage.set;
+		try {
+			window.alfy = {
+				storage: { get: () => Promise.resolve(), set: () => Promise.resolve() },
+			};
+		} catch {
+			// strict mode throws; sloppy mode no-ops: either is correct
+		}
+		expect(window.alfy.storage.set).toBe(original);
+		let deleted: boolean | undefined;
+		try {
+			deleted = delete (window as unknown as { alfy?: unknown }).alfy;
+		} catch {
+			deleted = false;
+		}
+		expect(deleted).not.toBe(true);
+	});
+
+	it("is spliced in where the writing bridge goes, and never both", () => {
+		const html =
+			"<!doctype html><html><head><title>t</title></head><body>x</body></html>";
+		const readOnly = injectReadOnlyAppBootstrap(html);
+		expect(readOnly).toBe(
+			`<!doctype html><html><head><script>${APP_READONLY_BOOTSTRAP_SCRIPT}</script><title>t</title></head><body>x</body></html>`,
+		);
+		expect(readOnly).not.toContain(APP_BOOTSTRAP_SCRIPT);
+		expect(injectAppBootstrap(html)).not.toContain(
+			APP_READONLY_BOOTSTRAP_SCRIPT,
+		);
+		// A document with no head, no body and no doctype gets it first.
+		expect(injectReadOnlyAppBootstrap("<p>x</p>").startsWith("<script>")).toBe(
+			true,
+		);
 	});
 });

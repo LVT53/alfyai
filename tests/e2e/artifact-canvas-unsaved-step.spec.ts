@@ -30,7 +30,8 @@ import {
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
-import { createConversation, login, sendMessage } from "./helpers";
+import { moduleUrlPattern } from "./build-assets";
+import { createEmptyConversation, login, sendMessage } from "./helpers";
 
 // A step the reader has not saved yet, and Alfy's change to the same board (Feature
 // 2 · Canvas, RV-3 I2). Alfy's version is written by the server while the reader's
@@ -106,7 +107,7 @@ type Scene = {
 async function open(page: Page): Promise<Scene> {
 	await login(page);
 	const previousPreference = await snapshotUserModelPreference(page);
-	const conversationId = await createConversation(page, "A board");
+	const conversationId = await createEmptyConversation(page);
 	const userId = await testUserId();
 	const created = await createArtifact({
 		userId,
@@ -138,7 +139,7 @@ async function open(page: Page): Promise<Scene> {
 /** A board made through the service, and the chat open on it: no model, for the tests that write Alfy's version themselves. */
 async function openBoardOnly(page: Page): Promise<Scene> {
 	await login(page);
-	const conversationId = await createConversation(page, "A board");
+	const conversationId = await createEmptyConversation(page);
 	const userId = await testUserId();
 	const created = await createArtifact({
 		userId,
@@ -355,11 +356,16 @@ test.describe("the code that puts the two together", () => {
 	}) => {
 		const scene = await openBoardOnly(page);
 		let requested = 0;
-		await page.route("**/canvas/rebase-board*", async (route) => {
-			requested += 1;
-			await new Promise((resolve) => setTimeout(resolve, 3_000));
-			await route.continue();
-		});
+		// The module is a chunk of its own in the production build (the manifest says
+		// which) and a source path under `vite dev`.
+		await page.route(
+			moduleUrlPattern("src/lib/components/artifacts/canvas/rebase-board.ts"),
+			async (route) => {
+				requested += 1;
+				await new Promise((resolve) => setTimeout(resolve, 3_000));
+				await route.continue();
+			},
+		);
 		await typeIntoNote(page, LUNCH, " (two seats)");
 		await leaveNote(page);
 		await writeAlfyVersion(scene.artifactId, (stored) => ({

@@ -77,7 +77,13 @@ export interface ArtifactCardView {
 	 * mockup's own complaints (§5.1 problem 4). `null`/omitted renders no time.
 	 */
 	updatedAtLabel?: string | null;
-	versionNumber?: number | null;
+	/**
+	 * `chrome="full"` only: the card's last fact, already localised ("edited 2 min
+	 * ago"). The in-chat card used to end with the version number; it says when
+	 * it last changed instead (ruling 76, Q2: a number is not something a reader
+	 * remembers, "edited 2 min ago" is). `null`/omitted renders nothing.
+	 */
+	editedLabel?: string | null;
 	/** Null while a job is still running, so Open is not offered. */
 	openTargetId?: string | null;
 	/**
@@ -263,9 +269,7 @@ let rowAccessibleName = $derived.by(() => {
 		view.title,
 		...(sayKind ? [kindLabel] : []),
 		...detailParts,
-		view.versionNumber
-			? $t("artifacts.card.version", { n: view.versionNumber })
-			: null,
+		view.editedLabel,
 		view.updatedAtLabel,
 		reviewState,
 	]
@@ -323,10 +327,6 @@ function handleOpen(): void {
 			<span class="artifact-row-title">{view.title}</span>
 			<span class="artifact-row-sub">
 				<span>{subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey)}</span>
-				{#if view.versionNumber}
-					<span class="artifact-row-sep" aria-hidden="true">·</span>
-					<span>{$t('artifacts.card.version', { n: view.versionNumber })}</span>
-				{/if}
 			</span>
 		</span>
 		<span class="artifact-row-end">
@@ -487,9 +487,9 @@ function handleOpen(): void {
 							{:else}
 								{subtitleLine ?? $t(`artifacts.type.${view.kind}` as I18nKey)}
 							{/if}
-							{#if view.versionNumber}
+							{#if view.editedLabel}
 								<span class="artifact-card-sep" aria-hidden="true">·</span>
-								{$t('artifacts.card.version', { n: view.versionNumber })}
+								{view.editedLabel}
 							{/if}
 						</span>
 						{#if view.pendingReviewCount}
@@ -1138,10 +1138,6 @@ function handleOpen(): void {
 		margin-top: 0.125rem;
 		color: var(--text-muted);
 		font-size: 0.78rem;
-	}
-
-	.artifact-row-sep {
-		opacity: 0.55;
 	}
 
 	.artifact-row-end {

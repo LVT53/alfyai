@@ -129,6 +129,17 @@ const ARTIFACT_KIND_LABELS: Record<CreatableArtifactKind, string> = {
 // itself (the per-kind dispatch seam, decisions.md rulings 43/44) lives in
 // kind-registry.ts, starting empty; each type slice appends ONE entry here —
 // and only here.
+/**
+ * The first version's summary. An id comes from Regenerate alone (every tool
+ * call leaves it out), so a first version made under one is a deleted item made
+ * again, and says so.
+ */
+function firstVersionSummary(params: { artifactId?: string }): string {
+	return params.artifactId
+		? VERSION_SUMMARY.alfyRemade
+		: VERSION_SUMMARY.alfyFirstDraft;
+}
+
 CREATE_ARTIFACT_HANDLERS.document = async (params) => {
 	if (params.abortSignal.aborted) {
 		return { ok: false, reason: "The request was cancelled." };
@@ -140,7 +151,7 @@ CREATE_ARTIFACT_HANDLERS.document = async (params) => {
 			title: params.title,
 			markdown: params.body,
 			author: "alfy",
-			summary: VERSION_SUMMARY.alfyFirstDraft,
+			summary: firstVersionSummary(params),
 			artifactId: params.artifactId,
 		});
 		return {
@@ -247,7 +258,7 @@ CREATE_ARTIFACT_HANDLERS.canvas = async (params) => {
 		title: params.title,
 		body: prepared.json,
 		author: "alfy",
-		versionSummary: VERSION_SUMMARY.alfyFirstDraft,
+		versionSummary: firstVersionSummary(params),
 	});
 	if (!created.ok) {
 		return {
@@ -323,6 +334,11 @@ export async function runCreateArtifactTool(
 			artifactId: result.value.artifactId,
 			artifactKind: params.artifactType,
 			artifactTitle: result.value.title,
+			// The version this call wrote (ruling 76): History's "From the chat" finds
+			// the message behind an Alfy moment through it.
+			...(result.value.versionId === undefined
+				? {}
+				: { versionId: result.value.versionId }),
 		},
 	};
 }

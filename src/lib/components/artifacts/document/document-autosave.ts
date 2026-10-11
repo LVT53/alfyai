@@ -30,12 +30,25 @@ export interface DocumentAutosaveResult {
 
 /**
  * What a save says about itself besides "the user typed". `summaryKind` names
- * one of the fixed version summaries (Undo of Alfy's change today); it stays
+ * one of the fixed version summaries (Undo or Redo of Alfy's change); it stays
  * with the queued save for the whole debounce window — typing right after an
  * Undo is still part of that save — and applies to that one save only.
  */
 export interface DocumentAutosaveSaveOptions {
 	summaryKind?: SaveSummaryKind;
+	/**
+	 * An Undo or Redo of Alfy's change names the Alfy version it acts on (ruling
+	 * 76, A5): without it the server can only write an ordinary edit, and History
+	 * cannot fold the Undo onto the change it undid.
+	 */
+	summaryVersion?: number;
+	/**
+	 * Set by the autosave when several Undos or Redos are queued into one save
+	 * ("Undo all"): the first of the Alfy versions they act on, `summaryVersion`
+	 * being the newest. The save names the range, so History marks every one of
+	 * them (RV-V I-3).
+	 */
+	summaryFromVersion?: number;
 }
 
 export interface DocumentAutosaveHandle {
@@ -63,6 +76,8 @@ export function createDocumentAutosave(options: {
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let pending: string | null = null;
 	let pendingSummaryKind: SaveSummaryKind | undefined;
+	let pendingSummaryVersion: number | undefined;
+	let pendingSummaryFromVersion: number | undefined;
 	let stopped = false;
 	let inFlight: Promise<DocumentAutosaveResult> | null = null;
 
@@ -112,11 +127,26 @@ export function createDocumentAutosave(options: {
 	} | null {
 		const markdown = pending;
 		const summaryKind = pendingSummaryKind;
+		const summaryVersion = pendingSummaryVersion;
+		const summaryFromVersion = pendingSummaryFromVersion;
 		pending = null;
 		pendingSummaryKind = undefined;
+		pendingSummaryVersion = undefined;
+		pendingSummaryFromVersion = undefined;
 		if (markdown === null) return null;
 		return summaryKind
-			? { markdown, saveOptions: { summaryKind } }
+			? {
+					markdown,
+					saveOptions: {
+						summaryKind,
+						...(summaryVersion !== undefined ? { summaryVersion } : {}),
+						...(summaryVersion !== undefined &&
+						summaryFromVersion !== undefined &&
+						summaryFromVersion < summaryVersion
+							? { summaryFromVersion }
+							: {}),
+					},
+				}
 			: { markdown };
 	}
 
@@ -127,7 +157,24 @@ export function createDocumentAutosave(options: {
 			// Sticky until this queue is saved: a later plain schedule inside the
 			// same window must not turn an Undo's save back into an ordinary one.
 			if (scheduleOptions?.summaryKind) {
-				pendingSummaryKind = scheduleOptions.summaryKind;
+				const named = scheduleOptions.summaryVersion;
+				if (
+					scheduleOptions.summaryKind === pendingSummaryKind &&
+					named !== undefined &&
+					pendingSummaryVersion !== undefined
+				) {
+					// Several Undos (or Redos) in one window ("Undo all"): one save, naming
+					// the range of Alfy versions they act on, in whatever order they came.
+					pendingSummaryFromVersion = Math.min(
+						pendingSummaryFromVersion ?? pendingSummaryVersion,
+						named,
+					);
+					pendingSummaryVersion = Math.max(pendingSummaryVersion, named);
+				} else {
+					pendingSummaryKind = scheduleOptions.summaryKind;
+					pendingSummaryVersion = named;
+					pendingSummaryFromVersion = undefined;
+				}
 			}
 			clearTimer();
 			timer = setTimeout(() => {
@@ -147,6 +194,8 @@ export function createDocumentAutosave(options: {
 			clearTimer();
 			pending = null;
 			pendingSummaryKind = undefined;
+			pendingSummaryVersion = undefined;
+			pendingSummaryFromVersion = undefined;
 		},
 		resume() {
 			stopped = false;

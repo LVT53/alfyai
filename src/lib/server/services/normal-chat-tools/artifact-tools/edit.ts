@@ -29,6 +29,7 @@ import {
 	boardOpsArraySchema,
 	type PlacedNote,
 } from "$lib/shared/artifacts/board-ops";
+import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { truncateText } from "../shared";
 import {
 	canvasEditFailureMessage,
@@ -107,7 +108,9 @@ export function buildEditArtifactModelInputSchema(
 			.min(1)
 			.max(200)
 			.optional()
-			.describe("One short line shown next to Keep/Undo."),
+			.describe(
+				"What you changed, in one short past-tense line with no subject (\u201cMoved the museum to Thursday\u201d; in Hungarian \u201cÁttette a múzeumot csütörtökre\u201d or \u201cEsős napi terv hozzáadva\u201d, never \u201cÁttettem …\u201d); shown next to Keep/Undo and in History.",
+			),
 	});
 }
 
@@ -330,7 +333,7 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 
 		const patch: PatchSet = {
 			patchId: `alfy-${params.turnId}`,
-			label: params.summary ?? "Alfy's edit",
+			label: params.summary ?? VERSION_SUMMARY.alfyEdit,
 			ops,
 		};
 
@@ -392,7 +395,7 @@ export const EDIT_ARTIFACT_HANDLERS: Partial<
 		if (!params.ops) {
 			return { ok: false, error: canvasOpsRequiredMessage(false) };
 		}
-		const summary = (params.summary ?? "").trim() || "Alfy's edit";
+		const summary = (params.summary ?? "").trim() || VERSION_SUMMARY.alfyEdit;
 		const diff = { id: randomUUID(), summary, ops: params.ops };
 
 		// The model addresses ids, never versions: a diff is made against the
@@ -736,14 +739,14 @@ export async function runEditArtifactTool(params: {
 			// localises the `code` itself, the same way the model-facing
 			// `refused` array above only ever carried a code).
 			appliedCount: result.value.applied,
-			// A board's edit says which version it made and which it landed on, so a
-			// later edit in the turn can tell its own change from the reader's.
+			// The version this edit wrote (ruling 76): History's "From the chat" finds
+			// the message behind an Alfy moment through it. A board's edit also says
+			// which version it landed on, so a later edit in the turn can tell its own
+			// change from the reader's.
+			versionId: result.value.versionId,
 			...(result.value.baseVersionId === undefined
 				? {}
-				: {
-						versionId: result.value.versionId,
-						parentVersionId: result.value.baseVersionId,
-					}),
+				: { parentVersionId: result.value.baseVersionId }),
 			...(refusedCount > 0
 				? {
 						refusedBlocksJson: JSON.stringify(

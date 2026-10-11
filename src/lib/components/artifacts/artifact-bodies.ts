@@ -48,13 +48,12 @@ export interface ArtifactBodyProps {
 	/** The body hands its serialised form back for versions/refusal. Slice 1 first. */
 	onBodyChange?: (body: string) => void;
 	/**
-	 * Wave 2.5 Step 3: `ArtifactPanelHeader.svelte`'s version button and
-	 * Download action open sheets that live INSIDE the body (Document's own
-	 * `VersionsSheet`/`DownloadSheet`, opened today through the toolbar's
-	 * "history"/"download" actions, now removed from the toolbar — redesign
-	 * §5.2: "there is one History entry … and it sits where the version is").
-	 * A body that owns such a sheet calls this once its trigger functions are
-	 * ready, when it mounts. The panel mounts ONE body per open item (it keys
+	 * Wave 2.5 Step 3: `ArtifactPanelHeader.svelte`'s Download and Comments
+	 * actions open surfaces that live INSIDE the body (the Document's own
+	 * `DownloadSheet`, the Canvas's picture, the comments column), and History
+	 * (ruling 76) needs two things of a body: to save what it holds first and to
+	 * load what is stored after a restore. A body that owns any of these calls
+	 * this once its trigger functions are ready, when it mounts. The panel mounts ONE body per open item (it keys
 	 * the mount on the item, so a version change never rebuilds it, and a swap
 	 * to another item always builds a body of its own) and files what a body
 	 * reports under that item: a registration counts only while its item is the
@@ -94,6 +93,13 @@ export interface ArtifactBodyProps {
 	 */
 	onPendingReviewCountChange?: (count: number) => void;
 	/**
+	 * Opens History on this item (ruling 76): where a body that tells the reader to
+	 * go back to an earlier version points ("Alfy's change can't be undone here
+	 * because the board has changed since. Open History."). The panel supplies it;
+	 * absent where there is no panel History to open.
+	 */
+	onOpenHistory?: () => void;
+	/**
 	 * Shows this kind's first-open tour again (ruling 32: the replay lives in
 	 * the panel, so a body offers it as a quiet link in its empty state and
 	 * nowhere else). The panel supplies it only where a tour can show: absent
@@ -126,8 +132,16 @@ export interface ArtifactBodyProps {
 
 /** See `ArtifactBodyProps.registerPanelActions`. Every field is optional: a body opts in to only the actions it actually owns a sheet for. */
 export interface ArtifactPanelBodyActions {
-	openVersions?: () => void;
 	openDownload?: () => void;
+	/**
+	 * Loads the stored item again, so the body and its version number are the
+	 * server's: after a restore changed what is stored out from under it. History
+	 * (ruling 76) is the panel's own mode (`history/`), which opens itself and
+	 * calls this when it is left after a restore.
+	 */
+	reload?: () => void;
+	/** Steps the body's review to the first change still waiting (History's "Review" link). */
+	reviewPending?: () => void;
 	/**
 	 * Shows or hides the body's comments — whichever surface applies at the
 	 * moment (the inline column, the narrow-panel drawer, the phone sheet).

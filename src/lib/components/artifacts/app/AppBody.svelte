@@ -68,7 +68,7 @@ interface Props {
 	body: string | null;
 	/** The conversation the PANEL is showing (ruling 51) — passed to fetchArtifact and every artifact route this body calls, so an incognito conversation's own App resolves. Distinct from the artifact's OWN conversationId (below), which is a fact about the artifact, not about where it is being viewed from. */
 	conversationId?: string | null;
-	/** Wave 2.5 Step 13: hands the panel header a direct download trigger — App has no Versions sheet, so only `openDownload` is ever registered. See `ArtifactBodyProps`'s own doc comment. */
+	/** Wave 2.5 Step 13: hands the panel header a direct download trigger, and History (ruling 76) what it needs of a body: `reload`, to load the stored App after a restore. See `ArtifactBodyProps`'s own doc comment. */
 	registerPanelActions?: (actions: ArtifactPanelBodyActions) => void;
 	/** The App tour's summary (`ArtifactBodyProps.tourSummary`): what an App with nothing in it says. */
 	tourSummary?: LocalizedText | null;
@@ -255,6 +255,9 @@ async function handleDownload(): Promise<void> {
 $effect(() => {
 	registerPanelActions?.({
 		openDownload: artifactConversationId ? handleDownload : undefined,
+		// After a restore in History the stored App is another one: load it, so the
+		// frame runs it and the next rebuild is checked against its version.
+		reload: () => void load(artifactId),
 	});
 });
 
@@ -309,10 +312,10 @@ async function submitRegenerate(): Promise<void> {
 	const expectVersion = versionNumber;
 	const scopedConversationId = conversationId;
 	// Wave 2.5 Step 13: the CURRENT version's own id, captured before the
-	// call below writes a new one — this is what the v2 toast's Undo restores
+	// call below writes a new one — this is what the rebuilt toast's Undo restores
 	// through `restoreArtifactVersion` (a real, already-existing mechanism:
-	// versions.ts's `restoreVersion`, the same one the Document History sheet
-	// uses), never a fabricated affordance with nothing behind it.
+	// versions.ts's `restoreVersion`, the same one History's Restore uses), never
+	// a fabricated affordance with nothing behind it.
 	const restoreVersionId = untrack(() => detail)?.versions[0]?.id ?? null;
 	regeneratePopoverOpen = false;
 	regenerateError = null;
@@ -329,12 +332,13 @@ async function submitRegenerate(): Promise<void> {
 			await load(id);
 			showToast({
 				type: "success",
-				message: $t("artifacts.app.toast.v2Ready"),
+				message: $t("artifacts.app.toast.rebuilt"),
 				duration: 5200,
 				...(restoreVersionId
 					? {
 							actionLabel: $t("artifacts.app.toast.undo"),
-							onAction: () => handleUndoRegenerate(id, restoreVersionId),
+							onAction: () =>
+								handleUndoRegenerate(id, restoreVersionId, result.version),
 						}
 					: {}),
 			});
@@ -350,13 +354,22 @@ async function submitRegenerate(): Promise<void> {
 	}
 }
 
-/** The v2 toast's Undo — a real restore, not a fabricated one (see `submitRegenerate`'s own note). */
+/**
+ * The rebuilt toast's Undo — a real restore, not a fabricated one (see
+ * `submitRegenerate`'s own note). It names the rebuild it takes back (`undoOf`, and
+ * `expectVersion`: nothing may have been written since), so History shows the two
+ * as one quiet moment instead of an App rebuilt and then a restore of what it was.
+ */
 async function handleUndoRegenerate(
 	id: string,
 	versionId: string,
+	rebuiltVersion: number,
 ): Promise<void> {
 	try {
-		await restoreArtifactVersion(id, versionId, conversationId);
+		await restoreArtifactVersion(id, versionId, conversationId, undefined, {
+			expectVersion: rebuiltVersion,
+			undoOf: rebuiltVersion,
+		});
 		if (id !== artifactId) return;
 		await load(id);
 	} catch {
@@ -456,7 +469,7 @@ const regeneratePopoverFocusTrap = focusTrap({
 			onclick={submitRegenerate}
 		>
 			<Sparkles size={13} strokeWidth={1.75} aria-hidden="true" />
-			{$t('artifacts.app.regenerate.makeV2')}
+			{$t('artifacts.app.regenerate.rebuild')}
 		</button>
 	</div>
 	<div class="app-regen-effect">
@@ -673,8 +686,8 @@ const regeneratePopoverFocusTrap = focusTrap({
 				{regenerateBusy ? $t('artifacts.app.regenerate.building') : ''}
 			</div>
 
-			<!-- Redesign §6.2/§6.4: non-blocking — v1 stays visible, dimmed, under
-			     this veil while v2 is built; the frame itself is `inert` above so
+			<!-- Redesign §6.2/§6.4: non-blocking — the current version stays visible,
+			     dimmed, under this veil while the new one is built; the frame itself is `inert` above so
 			     keyboard users cannot type into an app about to be replaced. Never
 			     traps focus (no focusTrap here on purpose). -->
 			{#if regenerateBusy}

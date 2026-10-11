@@ -161,6 +161,93 @@ describe("createDocumentAutosave", () => {
 			});
 		});
 
+		// Ruling 76 (A5): an Undo or Redo names the Alfy version it acts on, or
+		// History cannot fold it onto that change.
+		it("carries the Alfy version the Undo or Redo is about, with the kind, for the whole window", async () => {
+			const save = vi.fn().mockResolvedValue({ ok: true, version: 5 });
+			const autosave = createDocumentAutosave({ save, delayMs: 800 });
+
+			autosave.schedule("undone", {
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 3,
+			});
+			vi.advanceTimersByTime(300);
+			autosave.schedule("undone, then typed");
+			vi.advanceTimersByTime(800);
+
+			await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+			expect(save).toHaveBeenCalledWith("undone, then typed", {
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 3,
+			});
+			autosave.schedule("typed later");
+			vi.advanceTimersByTime(800);
+			await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+			expect(save).toHaveBeenLastCalledWith("typed later");
+		});
+
+		// RV-V I-3: "Undo all" undoes every pending change, each scheduling its own
+		// Undo into the one save. The save names the range of Alfy versions, not only
+		// the version of the change that happened to be scheduled last.
+		it("names the range of Alfy versions when several Undos are queued into one save, in whatever order", async () => {
+			const save = vi.fn().mockResolvedValue({ ok: true, version: 5 });
+			const autosave = createDocumentAutosave({ save, delayMs: 800 });
+
+			autosave.schedule("one", {
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 3,
+			});
+			autosave.schedule("two", {
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 2,
+			});
+			autosave.schedule("three", {
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 3,
+			});
+			vi.advanceTimersByTime(800);
+
+			await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+			expect(save).toHaveBeenCalledWith("three", {
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 3,
+				summaryFromVersion: 2,
+			});
+
+			// The next save starts clean.
+			autosave.schedule("again", {
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 4,
+			});
+			vi.advanceTimersByTime(800);
+			await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+			expect(save).toHaveBeenLastCalledWith("again", {
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 4,
+			});
+		});
+
+		it("a Redo scheduled in the Undo's window replaces its kind and its version", async () => {
+			const save = vi.fn().mockResolvedValue({ ok: true, version: 5 });
+			const autosave = createDocumentAutosave({ save, delayMs: 800 });
+
+			autosave.schedule("undone", {
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 3,
+			});
+			autosave.schedule("redone", {
+				summaryKind: "redid_alfy_change",
+				summaryVersion: 3,
+			});
+			vi.advanceTimersByTime(800);
+
+			await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+			expect(save).toHaveBeenCalledWith("redone", {
+				summaryKind: "redid_alfy_change",
+				summaryVersion: 3,
+			});
+		});
+
 		it("stop() forgets a kind that never got to save", async () => {
 			const save = vi.fn().mockResolvedValue({ ok: true, version: 4 });
 			const autosave = createDocumentAutosave({ save, delayMs: 800 });

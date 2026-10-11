@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
+import { optionalPositiveIntegerParam } from "$lib/server/api/query-params";
 import { getArtifact, listVersions } from "$lib/server/services/artifacts";
 import type { RequestHandler } from "./$types";
 
@@ -12,6 +13,17 @@ export const GET: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
 	const artifactId = event.params.id;
 	const conversationId = event.url.searchParams.get("conversationId");
+	// `before` is the lowest version number the caller has seen: ruling 47 always
+	// said history is paged, and the list stopped at fifty with no way on.
+	const before = optionalPositiveIntegerParam(
+		event.url.searchParams.get("before"),
+	);
+	const limit = optionalPositiveIntegerParam(
+		event.url.searchParams.get("limit"),
+	);
+	if (before === null || limit === null) {
+		return json({ ok: false, reason: "invalid_request" }, { status: 400 });
+	}
 
 	const artifact = await getArtifact({
 		userId: user.id,
@@ -26,6 +38,8 @@ export const GET: RequestHandler = async (event) => {
 		userId: user.id,
 		artifactId,
 		conversationId,
+		...(before !== undefined ? { before } : {}),
+		...(limit !== undefined ? { limit } : {}),
 	});
 	return json({ ok: true, versions });
 };

@@ -30,7 +30,7 @@ import {
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
-import { createConversation, login, sendMessage } from "./helpers";
+import { createEmptyConversation, login, sendMessage } from "./helpers";
 
 // Alfy's change to a board, seen and decided (Feature 2 · Artifacts, Slice 3, T6
 // and ruling 63). A REAL `edit_artifact` call on a board, driven through the real
@@ -143,7 +143,7 @@ async function open(
 ): Promise<Scene> {
 	await login(page);
 	const previousPreference = await snapshotUserModelPreference(page);
-	const conversationId = await createConversation(page, "Board review");
+	const conversationId = await createEmptyConversation(page);
 	const userId = await testUserId();
 	const created = await createArtifact({
 		userId,
@@ -656,9 +656,9 @@ test.describe("a change waits for the reader, once, however often the panel is b
 });
 
 test.describe("Keep and Undo, for the whole change", () => {
-	test("Keep moves the marker: nothing waits, in this session and after a reload", async ({
-		page,
-	}) => {
+	test("Keep moves the marker: nothing waits, in this session and after a reload", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const scene = await open(page);
 		try {
 			await askAlfy(page, scene.artifactId, PLANNED_SUNDAY);
@@ -708,14 +708,15 @@ test.describe("Keep and Undo, for the whole change", () => {
 				.poll(async () => (await nodeBox(page, MUSEUM)).x, { timeout: 5000 })
 				.toBeCloseTo(museumBefore.x, 0);
 
-			// A version of the reader's, named for what it is; the marker is past Alfy's.
+			// A version of the reader's, named for what it is (and for the change of Alfy's
+			// it took back, so History folds the two); the marker is past Alfy's.
 			await expect
 				.poll(async () => (await versions(scene.artifactId)).length)
 				.toBe(3);
 			const rows = await versions(scene.artifactId);
 			expect(rows[2]).toMatchObject({
 				author: "user",
-				summary: "Undid Alfy's change",
+				summary: "Undid Alfy's change: v2",
 			});
 			const stored = await storedBoard(scene.artifactId);
 			expect(stored.nodes.find((node) => node.id === MUSEUM)?.position).toEqual(
@@ -738,6 +739,11 @@ test.describe("Keep and Undo, for the whole change", () => {
 			await expect
 				.poll(async () => (await versions(scene.artifactId)).length)
 				.toBe(4);
+			// A Redo says what it brought back, not a plain "Edited" (ruling 76, A5).
+			expect((await versions(scene.artifactId))[3]).toMatchObject({
+				author: "user",
+				summary: "Redid Alfy's change: v2",
+			});
 			const redone = await storedBoard(scene.artifactId);
 			expect(redone.nodes.find((node) => node.id === MUSEUM)?.position).toEqual(
 				{
@@ -807,7 +813,7 @@ test.describe("Keep and Undo, for the whole change", () => {
 		}
 	});
 
-	test("Undo is refused once the reader has changed the board: it writes nothing and points to the versions", async ({
+	test("Undo is refused once the reader has changed the board: it writes nothing and points to History", async ({
 		page,
 	}) => {
 		const scene = await open(page);
@@ -840,8 +846,9 @@ test.describe("Keep and Undo, for the whole change", () => {
 			expect(await storedBoard(scene.artifactId)).toEqual(boardBefore);
 			await expect(bar(page)).toBeVisible();
 
-			await notice.getByRole("button", { name: "Open Versions" }).click();
-			await expect(page.getByTestId("versions-list")).toBeVisible();
+			// The notice points to History, where the earlier versions are.
+			await notice.getByRole("button", { name: "Open History" }).click();
+			await expect(page.getByTestId("history-preview")).toBeVisible();
 		} finally {
 			await scene.cleanup();
 		}

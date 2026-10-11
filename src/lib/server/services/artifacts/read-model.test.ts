@@ -192,6 +192,91 @@ describe("listArtifactsForConversation", () => {
 		expect(row).toMatchObject({ versionNumber: 2, commentCount: 2 });
 	});
 
+	// Ruling 76 (amendment A1): the card and the list row say what the latest
+	// moment was, who made it and what kind, from the newest row alone.
+	it("carries who made the newest version and what kind of moment it was", async () => {
+		const made = await createArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			kind: "document",
+			title: "Saturday plan",
+			body: "v1",
+			author: "alfy",
+			versionSummary: "Alfy wrote the first draft",
+		});
+		if (!made.ok) throw new Error(made.reason);
+		const plan = made.artifact;
+		const lastOf = async () =>
+			(
+				await listArtifactsForConversation({
+					userId: OWNER,
+					conversationId: CONVERSATION,
+				})
+			)[0];
+
+		// The first draft Alfy wrote.
+		expect(await lastOf()).toMatchObject({
+			versionNumber: 1,
+			lastAuthor: "alfy",
+			lastKind: "first_draft",
+		});
+
+		await updateArtifactBody({
+			userId: OWNER,
+			artifactId: plan.id,
+			body: "v2",
+			author: "user",
+			summary: "Edited",
+		});
+		expect(await lastOf()).toMatchObject({
+			versionNumber: 2,
+			lastAuthor: "user",
+			lastKind: "user_edit",
+		});
+
+		await updateArtifactBody({
+			userId: OWNER,
+			artifactId: plan.id,
+			body: "v3",
+			author: "alfy",
+			summary: "Alfy's comment reply",
+		});
+		expect(await lastOf()).toMatchObject({
+			versionNumber: 3,
+			lastAuthor: "alfy",
+			lastKind: "alfy_reply_edit",
+		});
+
+		await updateArtifactBody({
+			userId: OWNER,
+			artifactId: plan.id,
+			body: "v2",
+			author: "user",
+			summary: "Restored v2",
+		});
+		expect(await lastOf()).toMatchObject({
+			versionNumber: 4,
+			lastAuthor: "user",
+			lastKind: "restore",
+		});
+	});
+
+	it("says nothing about the latest moment of an item with no versions", async () => {
+		seedProducedFile(memory, {
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			artifactId: "produced-1",
+			filename: "plan.pdf",
+		});
+		const [row] = await listArtifactsForConversation({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+		});
+		expect(row.versionNumber).toBe(0);
+		expect(row).not.toHaveProperty("lastAuthor");
+		expect(row).not.toHaveProperty("lastKind");
+	});
+
 	it("lists nothing from another conversation or another user", async () => {
 		await create(OTHER_CONVERSATION, "Elsewhere");
 		await create(STRANGER_CONVERSATION, "Not yours", "document", STRANGER);

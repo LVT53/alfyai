@@ -74,23 +74,32 @@ brief names the other one and what it owns. The orchestrator merges, reviews and
 
 ## Gates (once, at the end — not while iterating)
 
+**Since Phase 5 (the fast gates):** one command runs every gate, once, at the end:
+`scripts/gates.sh agent <out-dir> --port <your base port> --workers 4 <the e2e spec files you changed or added>`.
+It runs the static gates side by side (below, 1–4, 6, 7), then your specs in full plus the `@smoke` tests of every other
+file, on the production build with a server and a database per worker, and prints one screen with each step's exit
+code, numbers and duration (about 4 minutes). Read `<out-dir>/summary.txt` and put its lines in your report. While
+iterating: `npm run check`, `npm test`, `npm run build`, `E2E_PORT=<port> E2E_WORKERS=2 npx playwright test <spec>`
+against a fresh build, or `E2E_SERVER=dev` for UI work without rebuilds. **Never run check or test while a build runs**
+(`svelte-kit sync` rewrites `.svelte-kit/` and the build then does not hydrate). A spec that clears the pending first
+message uses `createEmptyConversation`; `tests/integration/e2e-conventions.test.ts` says where a spec breaks a rule.
+The whole suite runs only at the orchestrator's integration gate (`scripts/gates.sh release`).
+
+What the runner checks, so you can read its summary:
 1. `npm run check` — 0 errors and no warning beyond the 17 pre-existing ones (`ToolActivityRow` 10, `ThinkingBlock` 6,
    `RouteItinerary` 1).
 2. `npx biome check src scripts tests` (not `npm run lint`, which breaks on nested worktrees).
-3. `npm test` (full vitest, once; ~14,200 tests).
-4. `npm run build` — no new warning (baseline: 32 `Unused CSS selector` + 2 `must have an ARIA role` lines). Then, **as its
-   own step on that build**, `npm run check:artifact-chunks` — the size budgets (the editor's closure, Chart.js and
-   MapLibre out of it, the chat route within 2 KiB of its baseline) — which must exit 0. The budgets are a development
-   gate and no longer part of `npm run build`: the chat-route baseline is a fixed byte count, and the dev server's
-   build environment measures ~660 B heavier on every route, so a deploy of gated code must not stand on it. Report
-   its exit and numbers on their own line, never inside the build's.
-5. Playwright, once, on your port: **every** artifact suite plus chat, conversation and knowledge —
-   `tests/e2e/artifact*.spec.ts tests/e2e/artifacts-*.spec.ts tests/e2e/knowledge.spec.ts tests/e2e/chat.spec.ts
-   tests/e2e/conversation.spec.ts`. A failure in a suite you did not touch: rerun it alone first. A test that fails only
-   in combined runs usually measures mid-animation: wait for motion to settle (`waitForStableBoundingBox`,
-   `waitForMotionToSettle`, `expectTopmost` in `tests/e2e/helpers.ts`).
-6. `npx fallow --no-cache --format json --quiet --score --output-file /tmp/fallow-<your label>.json` — baseline 124
-   issues, 4 circular; your change adds **zero** findings (an unused new export counts).
+3. `npm test` (full vitest; ~17,700 tests, including the e2e conventions test).
+4. `npm run build` — no new warning (baseline: 32 `Unused CSS selector` + 2 `must have an ARIA role` lines). Then, as its
+   own step on that build, `npm run check:artifact-chunks` — the editor's first-paint closure under its ceiling with
+   Chart.js, MapLibre and Mermaid out of it, and the chat route's first paint free of every heavy library (Chart.js,
+   MapLibre, Mermaid, the flow library, Tiptap/ProseMirror, the Canvas editor entry): a rule, no byte baseline; its
+   size is printed as information. Exit 0.
+5. Playwright: your specs in full and the `@smoke` set (on the build). A failure in a spec you did not touch: rerun it
+   alone first. A test that fails only in combined runs usually measures mid-animation: wait for motion to settle
+   (`waitForStableBoundingBox`, `waitForMotionToSettle`, `expectTopmost` in `tests/e2e/helpers.ts`).
+6. Fallow against `~/.cache/alfyai-artifacts/fallow-baseline-00ef6d2a.json` — 124 issues, 4 circular; your change adds
+   **zero** findings (an unused new export counts).
 7. `npm run check:migrations` passes unchanged.
 
 ## Context economy (the owner's weekly token budget is the binding constraint)

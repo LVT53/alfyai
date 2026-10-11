@@ -25,7 +25,7 @@ import {
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
 import {
-	createConversation,
+	createEmptyConversation,
 	expectTopmost,
 	login,
 	waitForMotionToSettle,
@@ -95,7 +95,7 @@ function board(): CanvasBody {
 }
 
 async function open(page: Page, body: CanvasBody = board()) {
-	const conversationId = await createConversation(page, "Comments");
+	const conversationId = await createEmptyConversation(page, "Comments");
 	const artifactId = await seedCanvas(conversationId, body);
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);

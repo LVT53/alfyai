@@ -24,7 +24,7 @@ import {
 	SHIPPED_ARTIFACT_TOUR_TYPES,
 	type ShippedArtifactTourType,
 } from "../../src/lib/shared/artifacts/tours";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // What the first-open tours' specs share. The e2e admin (the one user every
 // other spec signs in as) was marked as having seen every tour by
@@ -92,7 +92,7 @@ export async function markToursSeen(user: TourUser) {
 /** Signs in as the user and starts a chat through the real composer. */
 export async function startChatAs(page: Page, user: TourUser): Promise<string> {
 	await login(page, user.email, user.password);
-	return createConversation(page, "A chat for the tour");
+	return createEmptyConversation(page, "A chat for the tour");
 }
 
 /** Signs in as the user and starts an incognito chat the way a person does: arm it, then send. */

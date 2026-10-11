@@ -46,11 +46,19 @@
 //   7. `--forbid PACKAGE` names a package that must NOT be in any chunk the editor
 //      loads when it opens (Chart.js, MapLibre and Mermaid load on demand, in the
 //      chat's own chunks or a block's, and must stay out of the editor's first paint).
-//   8. `--chat-route ID --chat-baseline BYTES` holds the chat page's own first
-//      load: the gzip size of the route's root layout, layouts and page with
-//      everything they statically import (never a lazy chunk, so never an open
-//      editor) may not grow more than `--chat-tolerance` (default 2 KiB) past the
-//      baseline. Re-baseline on purpose when the chat itself gets heavier.
+//   8. `--chat-route ID` holds the chat page's own FIRST PAINT: what its root layout,
+//      layouts and page load with everything they import statically (never a lazy
+//      chunk, so never an open editor). `--chat-forbid PACKAGE` (repeated) names a
+//      heavy library that must not be in any of those chunks — Chart.js, MapLibre,
+//      Mermaid, the flow library, Tiptap/ProseMirror — and the Canvas editor's own
+//      entry (`--name`) must not be among them either. A heavy library is allowed in
+//      the chat route's lazy chunks: that is how the chat already loads Chart.js and
+//      Mermaid, with `import()`. The route's size is printed for information and is
+//      not a budget: it used to be held within 2 KiB of a fixed byte count, which
+//      moved nine times in one wave and read ~660 B heavier on the server's build,
+//      so it measured the build machine and the chat's own growth, not the mistake it
+//      was there to catch (a heavy library pulled into the shell). The closure rule
+//      says what that mistake is and does not move when the chat gets a feature.
 // A package found in no chunk is reported as absent, never as guarded: it is
 // either not imported yet or tree-shaken, and a green line for it would be a lie.
 import { readFileSync } from "node:fs";
@@ -86,10 +94,22 @@ export const PACKAGE_FINGERPRINTS = {
 		"externalResourcesRequired",
 	],
 	// The libraries the chat loads on demand and the editor must not load when it opens.
-	"chart.js": ["chartjs-", "_adapters"],
+	// Chart.js's expando key on the canvas and its static `_adapters`, both in its core
+	// whatever the chat imports of it (`chart.js/auto` or a few controllers). Measured on a
+	// build that imported `chart.js/auto` from a chat component: the string "chartjs-" is
+	// not in Chart.js at all (another dependency in the lazy chunk has it), so a mark set
+	// with it vouched for a chat route that carried the whole library.
+	"chart.js": ["$chartjs", "_adapters"],
 	"maplibre-gl": ["maplibregl-canvas", "maplibregl-map"],
 	// Mermaid's core keeps its own error for a source it cannot place.
 	mermaid: ["No diagram type detected", "UnknownDiagramError"],
+	// The Document's editor: the CSS class names ProseMirror's view puts on the page, the
+	// errors its model throws for a document it cannot place, and Tiptap's own error prefix.
+	// Each of the three is enough to find the editor, so a bundler that split it into several
+	// chunks would still show up in the chunk that carries any one of them.
+	"prosemirror-view": ["ProseMirror-hideselection", "ProseMirror-selectednode"],
+	"prosemirror-model": ["Invalid content for node", "Unknown node type"],
+	"@tiptap/core": ["[tiptap error]"],
 };
 
 /** What is confined to the editor when the CLI is not told which packages. */
@@ -333,43 +353,90 @@ export function parseRouteNodes(appJsText, routeId) {
 }
 
 /**
- * The chat page's own first load: the gzip size of the route's nodes with every
- * chunk they import statically, each counted once. A chunk loaded on demand is
- * not part of it, so an artifact panel that was never opened never is.
+ * The chat page's own first paint: the route's nodes with every chunk they import
+ * statically, each counted once. A chunk loaded on demand is not part of it, so an
+ * artifact panel that was never opened, and the libraries the chat draws a chart or
+ * a diagram with, never are.
+ *
+ * What is held is a rule, not a size: no heavy library (`forbid`) is in any of those
+ * chunks, and the editor's own entry (`editorName`) is not one of them. The size is
+ * returned for the report and compared with nothing.
  */
 export function checkChatRoute({
 	manifest,
 	readChunk,
 	nodes,
-	baseline,
-	tolerance = 2048,
+	forbid = [],
+	editorName,
+	fingerprints = PACKAGE_FINGERPRINTS,
 }) {
 	const keys = nodes.map(
 		(index) => `.svelte-kit/generated/client-optimized/nodes/${index}.js`,
 	);
 	const missing = nodes.filter((_, position) => !manifest[keys[position]]);
 	if (missing.length > 0) {
+		const message = `the chat route's node ${missing.join(", ")} is not in the build, so its first paint cannot be vouched for`;
 		return {
 			ok: false,
 			chunks: 0,
 			gzipBytes: 0,
-			baseline,
-			message: `the chat route's node ${missing.join(", ")} is not in the build, so its weight cannot be held`,
+			violations: [{ kind: "missing-node", message }],
+			packages: [],
+			message,
 		};
 	}
 	const closure = staticClosure(manifest, keys);
+	const texts = new Map();
+	const textOf = (key) => {
+		if (!texts.has(key)) texts.set(key, readChunk(manifest[key]));
+		return texts.get(key);
+	};
+
+	const violations = [];
+	const packages = [];
+	for (const pkg of forbid) {
+		const marks = fingerprints[pkg];
+		if (!marks) throw new Error(`no fingerprint is known for "${pkg}"`);
+		const containing = Object.keys(manifest).filter((key) =>
+			hasAll(textOf(key), marks),
+		);
+		const withRoute = containing.filter((key) => closure.has(key));
+		packages.push({
+			pkg,
+			chunks: containing.map((key) => manifest[key].file),
+			loadedWithRoute: withRoute.map((key) => manifest[key].file),
+		});
+		for (const key of withRoute) {
+			const file = manifest[key].file;
+			violations.push({
+				kind: "forbidden",
+				pkg,
+				file,
+				message: `${pkg} is in ${file}, which the chat route loads statically with its first paint (it must load on demand, through import())`,
+			});
+		}
+	}
+	if (editorName) {
+		for (const key of findTargetKeys(manifest, editorName)) {
+			if (!closure.has(key)) continue;
+			const file = manifest[key].file;
+			violations.push({
+				kind: "editor",
+				file,
+				message: `the ${editorName} entry ${file} is loaded statically by the chat route (the editor opens on demand, through import())`,
+			});
+		}
+	}
+
 	let gzipBytes = 0;
-	for (const key of closure) gzipBytes += gzipSize(readChunk(manifest[key]));
-	const growth = gzipBytes - baseline;
-	const ok = growth <= tolerance;
+	for (const key of closure) gzipBytes += gzipSize(textOf(key));
 	return {
-		ok,
+		ok: violations.length === 0,
 		chunks: closure.size,
 		gzipBytes,
-		baseline,
-		message: ok
-			? `${closure.size} chunk(s), ${gzipBytes} bytes gzip (${growth >= 0 ? "+" : ""}${growth} against the baseline of ${baseline}, ${tolerance} allowed)`
-			: `the chat route's first load grew to ${gzipBytes} bytes gzip, ${growth} over its baseline of ${baseline} (${tolerance} allowed): it must not get heavier because of an artifact editor`,
+		violations,
+		packages,
+		message: `${closure.size} chunk(s), ${gzipBytes} bytes gzip (information only, no budget)`,
 	};
 }
 
@@ -405,6 +472,22 @@ export function formatReport(name, result) {
 	return lines.join("\n");
 }
 
+/** The report the CLI prints for the chat route's first paint. */
+export function formatChatReport(routeId, chat) {
+	const lines = [`[artifact-chunks] chat route ${routeId}: ${chat.message}`];
+	for (const { pkg, chunks } of chat.packages) {
+		lines.push(
+			chunks.length === 0
+				? `[artifact-chunks]   ${pkg}: not in this build (not imported yet, or tree-shaken) — nothing to guard`
+				: `[artifact-chunks]   ${pkg}: ${chunks.join(", ")}`,
+		);
+	}
+	for (const violation of chat.violations) {
+		lines.push(`[artifact-chunks] FAIL (chat-route) ${violation.message}`);
+	}
+	return lines.join("\n");
+}
+
 /** The chunk's JS and its CSS, as one text: a library's stylesheet is part of what loads with it. */
 export function chunkReader(clientDir) {
 	return (chunk) => {
@@ -432,8 +515,7 @@ function parseArgs(argv) {
 		maxTargetGzip: undefined,
 		forbid: [],
 		chatRoute: undefined,
-		chatBaseline: undefined,
-		chatTolerance: undefined,
+		chatForbid: [],
 	};
 	for (let i = 0; i < argv.length; i += 1) {
 		const flag = argv[i];
@@ -447,9 +529,11 @@ function parseArgs(argv) {
 		else if (flag === "--forbid") args.forbid.push(value);
 		else if (flag === "--routes") args.routes = value;
 		else if (flag === "--chat-route") args.chatRoute = value;
-		else if (flag === "--chat-baseline") args.chatBaseline = Number(value);
-		else if (flag === "--chat-tolerance") args.chatTolerance = Number(value);
-		else continue;
+		else if (flag === "--chat-forbid") args.chatForbid.push(value);
+		else
+			throw new Error(
+				`unknown option ${flag} (a typo here would switch a guard off without a word)`,
+			);
 		i += 1;
 	}
 	if (args.confine.length === 0) args.confine = DEFAULT_CONFINE;
@@ -457,7 +541,13 @@ function parseArgs(argv) {
 }
 
 function main() {
-	const args = parseArgs(process.argv.slice(2));
+	let args;
+	try {
+		args = parseArgs(process.argv.slice(2));
+	} catch (error) {
+		console.error(`[artifact-chunks] ${error.message}`);
+		process.exit(2);
+	}
 	const manifestPath = resolve(args.manifest);
 	let manifest;
 	try {
@@ -491,21 +581,19 @@ function main() {
 		} catch {
 			// Reported below: no route table, no weight held.
 		}
-		if (!nodes || args.chatBaseline === undefined) {
+		if (!nodes) {
 			ok = false;
-			report += `\n[artifact-chunks] FAIL (chat-route) the route "${args.chatRoute}" or its baseline is not known (${args.routes})`;
+			report += `\n[artifact-chunks] FAIL (chat-route) the route "${args.chatRoute}" is not in the route table (${args.routes}), so its first paint cannot be vouched for`;
 		} else {
 			const chat = checkChatRoute({
 				manifest,
 				readChunk: chunkReader(dirname(dirname(manifestPath))),
 				nodes,
-				baseline: args.chatBaseline,
-				...(args.chatTolerance === undefined
-					? {}
-					: { tolerance: args.chatTolerance }),
+				forbid: args.chatForbid,
+				editorName: args.name,
 			});
 			ok = ok && chat.ok;
-			report += `\n[artifact-chunks] ${chat.ok ? "chat route" : "FAIL (chat-route)"} ${args.chatRoute}: ${chat.message}`;
+			report += `\n${formatChatReport(args.chatRoute, chat)}`;
 		}
 	}
 	if (ok) console.log(report);

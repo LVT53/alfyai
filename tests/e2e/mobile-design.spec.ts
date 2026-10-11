@@ -3,6 +3,7 @@ import {
 	buildAiSdkUiStreamBody,
 	login,
 	openConversationComposer,
+	waitForStableBoundingBox,
 } from "./helpers";
 
 test.use({
@@ -41,6 +42,7 @@ test.describe("Mobile Design Polish", () => {
 			.locator(".header-menu")
 			.getByRole("button", { name: "New chat" });
 		await expect(headerNewChat).toBeVisible();
+		await waitForStableBoundingBox(headerNewChat);
 		const headerNewChatBox = await headerNewChat.boundingBox();
 		expect(headerNewChatBox?.height).toBeGreaterThanOrEqual(44);
 		await page.mouse.click(1, 1);
@@ -53,11 +55,13 @@ test.describe("Mobile Design Polish", () => {
 
 		const sidebarNewChat = page.getByTestId("new-conversation");
 		await expect(sidebarNewChat).toBeVisible();
+		await waitForStableBoundingBox(sidebarNewChat);
 		const sidebarNewChatBox = await sidebarNewChat.boundingBox();
 		expect(sidebarNewChatBox?.width).toBeGreaterThanOrEqual(44);
 		expect(sidebarNewChatBox?.height).toBeGreaterThanOrEqual(44);
 
 		const closeBtn = page.locator('button[aria-label="Close sidebar"]');
+		await waitForStableBoundingBox(closeBtn);
 		const closeBox = await closeBtn.boundingBox();
 		expect(closeBox?.width).toBeGreaterThanOrEqual(44);
 		expect(closeBox?.height).toBeGreaterThanOrEqual(44);
@@ -104,11 +108,15 @@ test.describe("Mobile Design Polish", () => {
 		// covers the composer until it is dismissed.
 		const grabber = page.getByTestId("composer-tools-menu-grabber");
 		await expect(grabber).toBeVisible();
+		// The sheet slides in: measure the grabber once it has stopped (mid-slide it read
+		// 43.99997 px tall in one run of the gate).
+		await waitForStableBoundingBox(grabber);
 		const grabberBox = await grabber.boundingBox();
 		expect(grabberBox?.height).toBeGreaterThanOrEqual(44);
 
 		const attachBtn = page.getByRole("menuitem", { name: "Attach file" });
 		await expect(attachBtn).toBeVisible();
+		await waitForStableBoundingBox(attachBtn);
 		const attachBox = await attachBtn.boundingBox();
 		expect(attachBox?.width).toBeGreaterThanOrEqual(44);
 		expect(attachBox?.height).toBeGreaterThanOrEqual(44);

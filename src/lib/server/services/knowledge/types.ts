@@ -6,6 +6,7 @@
 // file carries no behavior change, only a new home.
 
 import type { DocumentCardPreview } from "$lib/server/services/artifacts/types";
+import type { MomentAuthor, MomentKind } from "$lib/shared/artifacts/history";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { AttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
@@ -147,6 +148,13 @@ export interface KnowledgeDocumentItem {
 	 * interchangeably.
 	 */
 	artifactVersionNumber?: number | null;
+	/**
+	 * Who made the artifact's newest version and what it was (ruling 76, A1: the
+	 * library prints this in place of the number). Populated only when `kind` is
+	 * set and the newest version is known; `updatedAt` below is when.
+	 */
+	lastAuthor?: MomentAuthor;
+	lastKind?: MomentKind;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -305,6 +313,16 @@ export interface DocumentWorkspaceItem {
 	 * reads it), so this is not a behaviour change for them.
 	 */
 	updatedAt?: number;
+	/**
+	 * Who made the item's newest version and what it was (ruling 76, amendment
+	 * A1): `ArtifactCardSummary.lastAuthor`/`lastKind`, kept current by the one
+	 * latest-moment store (`client/artifact-versions.ts`), so the header's
+	 * history button says "Changed by Alfy" or "Restored by you" instead of a
+	 * version number. `null`/absent when the server has not said yet; the header
+	 * then names the author alone, or says "Edited".
+	 */
+	lastAuthor?: MomentAuthor | null;
+	lastKind?: MomentKind | null;
 	/**
 	 * `ArtifactCardSummary.documentPreview`, carried through so the panel
 	 * list's card can show the Document's subtitle/tickable checklist without

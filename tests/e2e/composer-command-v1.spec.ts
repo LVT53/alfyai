@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import {
 	buildAiSdkUiStreamBody,
+	clearAdminConfig,
 	login,
 	openConversationComposer,
 } from "./helpers";
@@ -208,6 +209,12 @@ async function mockVariantComposerRoutes(
 		});
 	});
 }
+
+// The flag is an admin override, a row in this worker's database; the next spec file on the
+// worker meets the default, not whatever the last test here left.
+test.afterEach(async ({ page }) => {
+	await clearAdminConfig(page, ["COMPOSER_COMMAND_REGISTRY_ENABLED"]);
+});
 
 test.describe("Composer Command V1", () => {
 	test("feature flag off hides the command tray and blocks skill discovery", async ({

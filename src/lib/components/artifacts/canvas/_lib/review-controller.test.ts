@@ -100,7 +100,7 @@ function make(options: { board?: CanvasBody; mounted?: boolean } = {}) {
 			.mockReturnValue({ version: 3, bodyHash: "h3" }),
 		saved: vi.fn(),
 		adopt: vi.fn<ReviewHost["adopt"]>(() => null),
-		openVersions: vi.fn(),
+		openHistory: vi.fn(),
 		reportCount: vi.fn(),
 	};
 	return { controller: new CanvasReviewController(host), host, surface };
@@ -351,6 +351,61 @@ describe("Undo", () => {
 		return { ...made, parent };
 	}
 
+	// RV-V I-3: Undo restores the version before Alfy's WHOLE run, so the version it
+	// writes names the run it took back (its first version to its newest), or History
+	// calls every Alfy version but the newest Kept.
+	it("names the whole run of Alfy's versions it took back, and the Redo brings the same run back", async () => {
+		const parent = sampleBoard();
+		api.fetchArtifactVersionBody.mockResolvedValue(boardJson(parent));
+		const { controller, host } = make({ board: landed(parent, MOVE, RETITLE) });
+		// v1 is the reader's; Alfy made v2 and v3 since.
+		controller.restore(
+			reviewState({
+				latestAlfyVersion: 3,
+				undo: { available: true, toVersion: 1, toVersionId: "v1" },
+			}),
+		);
+		api.fetchCanvasReviewState.mockResolvedValue(
+			reviewState({
+				latestAlfyVersion: 3,
+				undo: { available: true, toVersion: 1, toVersionId: "v1" },
+			}),
+		);
+		const alfyBody = boardJson(host.board()?.current() as CanvasBody);
+
+		await controller.undo();
+		expect(api.saveArtifactBody).toHaveBeenLastCalledWith(
+			"board-1",
+			boardJson(parent),
+			2,
+			"conv-1",
+			undefined,
+			{
+				baseHash: "h2",
+				coalesce: false,
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 3,
+				summaryFromVersion: 2,
+			},
+		);
+
+		await controller.redo();
+		expect(api.saveArtifactBody).toHaveBeenLastCalledWith(
+			"board-1",
+			alfyBody,
+			3,
+			"conv-1",
+			undefined,
+			{
+				baseHash: "h3",
+				coalesce: false,
+				summaryKind: "redid_alfy_change",
+				summaryVersion: 3,
+				summaryFromVersion: 2,
+			},
+		);
+	});
+
 	it("saves the parent's board back as the reader's own version, then draws it", async () => {
 		const { controller, host, surface, parent } = armed();
 		await controller.undo();
@@ -368,7 +423,13 @@ describe("Undo", () => {
 			2,
 			"conv-1",
 			undefined,
-			{ baseHash: "h2", coalesce: false, summaryKind: "undid_alfy_change" },
+			{
+				baseHash: "h2",
+				coalesce: false,
+				summaryKind: "undid_alfy_change",
+				// The Alfy version the Undo takes back, so History can fold the two (A5).
+				summaryVersion: 2,
+			},
 		);
 		// The editor takes the saved board, and the version and hash that came with it.
 		expect(host.saved).toHaveBeenCalledWith({
@@ -400,7 +461,7 @@ describe("Undo", () => {
 		expect(api.saveArtifactBody).not.toHaveBeenCalled();
 		expect(controller.status).toBe("pending");
 		controller.openHistory();
-		expect(host.openVersions).toHaveBeenCalled();
+		expect(host.openHistory).toHaveBeenCalled();
 		controller.dismissUndoRefused();
 		expect(controller.undoRefused).toBeNull();
 	});
@@ -442,7 +503,13 @@ describe("Undo", () => {
 			3,
 			"conv-1",
 			undefined,
-			{ baseHash: "h3", coalesce: false, summaryKind: undefined },
+			{
+				baseHash: "h3",
+				coalesce: false,
+				// A Redo names the change it brings back, or it would be a plain "Edited".
+				summaryKind: "redid_alfy_change",
+				summaryVersion: 2,
+			},
 		);
 		// The server has nothing waiting (the reader's version takes the blocks
 		// over): the pill says Kept and the count is 0, and no Undo is offered that

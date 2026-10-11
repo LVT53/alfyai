@@ -10,9 +10,10 @@ import { login, waitForHydration } from "./helpers";
  * A press inside the expanded panel's own popover keeps the panel (final re-check
  * RC-F, IMP-2).
  *
- * The Download and Versions popovers are painted outside the panel's markup, in
- * `<body>`, so to the panel's outside-press handler a press on one of them is a
- * press outside the panel. FX-B2 made the handler answer only while the panel is
+ * The Download popover (like the Delete one) is painted outside the panel's markup,
+ * in `<body>`, so to the panel's outside-press handler a press on it is a press
+ * outside the panel. (History, since ruling 76, is a mode of the panel itself and
+ * needs no such care: the last test only holds that a press inside it keeps it.) FX-B2 made the handler answer only while the panel is
  * the topmost layer when it sits over a dialog; on the Knowledge page the panel is
  * on no dialog, so a press anywhere in the Download popover closed the panel: a real
  * click on a download option closed the panel before the download began.
@@ -160,14 +161,21 @@ test.describe("the expanded panel's own popovers", () => {
 		await expectOnePressOneLayer(page, popover, "docked");
 	});
 
-	test("in the chat's expanded panel, a press inside the Versions popover keeps the popover and the panel", async ({
+	// Ruling 76: History is a mode of the panel, not a popover painted outside it,
+	// so a press inside it is a press inside the panel: nothing closes.
+	test("in the chat's expanded panel, a press inside History keeps History and the panel", async ({
 		page,
 	}) => {
 		await openExpandedInChat(page);
 
-		await page.locator('[data-testid="artifact-version-pill"]:visible').click();
-		const popover = page.getByTestId("document-versions-popover");
-		await expect(popover).toBeVisible();
-		await expectPressInsideKeeps(page, popover);
+		await page
+			.locator('[data-testid="artifact-history-button"]:visible')
+			.click();
+		const history = page.getByRole("region", { name: `History of ${TITLE}` });
+		await expect(history).toBeVisible();
+		await history.getByRole("option").first().click();
+		await history.getByTestId("history-preview").click();
+		await expect(history).toBeVisible();
+		await expect(panelTitle(page)).toHaveCount(1);
 	});
 });

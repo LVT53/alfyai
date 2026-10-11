@@ -3,7 +3,7 @@ import {
 	seedDocument,
 	setUiLanguage,
 } from "./artifact-document-polish-helpers";
-import { createConversation, login, workspacePanel } from "./helpers";
+import { createEmptyConversation, login, workspacePanel } from "./helpers";
 
 // Review 276-279 (G3): the panel is named for what it shows and a list row says
 // what it is. Role and name queries, in both UI languages, because the accessible
@@ -26,13 +26,13 @@ test.describe("The panel's names (review 276-279)", () => {
 		await setUiLanguage("en");
 	});
 
-	test("English: the list is named for its heading, each row says title, kind, facts, version and time, and an open item names the panel", async ({
+	test("English: the list is named for its heading, each row says title, kind, facts and time (never a version number), and an open item names the panel", async ({
 		page,
 	}) => {
 		await setUiLanguage("en");
 		await login(page);
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Panel names");
+		const conversationId = await createEmptyConversation(page, "Panel names");
 		await seedDocument(conversationId, {
 			markdown: "# A\n\nB.",
 			title: "Budget",
@@ -53,11 +53,11 @@ test.describe("The panel's names (review 276-279)", () => {
 		).toBeVisible();
 		const list = page.getByTestId("artifact-panel-list");
 		await expect(
-			list.getByRole("button", { name: /^Budget, Document, 2 tabs, v1, / }),
+			list.getByRole("button", { name: /^Budget, Document, 2 tabs, [^,]+$/ }),
 		).toBeVisible();
 		await expect(
 			list.getByRole("button", {
-				name: /^Trip notes, Document, 1 tab, v2, .*, 1 change to review$/,
+				name: /^Trip notes, Document, 1 tab, [^,]+, 1 change to review$/,
 			}),
 		).toBeVisible();
 
@@ -77,7 +77,10 @@ test.describe("The panel's names (review 276-279)", () => {
 		await setUiLanguage("hu");
 		await login(page);
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Panel names HU");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Panel names HU",
+		);
 		await seedDocument(conversationId, {
 			markdown: "Szöveg.\n\nMásik.",
 			title: "Bécsi utazás",
@@ -92,7 +95,7 @@ test.describe("The panel's names (review 276-279)", () => {
 		).toBeVisible();
 		const list = page.getByTestId("artifact-panel-list");
 		const row = list.getByRole("button", {
-			name: /^Bécsi utazás, Dokumentum, 1 fül, v2, .*, 1 módosítás vár rád$/,
+			name: /^Bécsi utazás, Dokumentum, 1 fül, [^,]+, 1 módosítás vár rád$/,
 		});
 		await expect(row).toBeVisible();
 

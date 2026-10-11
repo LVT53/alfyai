@@ -53,7 +53,7 @@ function mount(
 	kind: "file" | "app" | "map",
 	data: Record<string, unknown>,
 	chat: CanvasChatContext = chatContext(),
-	options: { selected?: boolean; readonly?: boolean } = {},
+	options: { selected?: boolean; readonly?: boolean; preview?: boolean } = {},
 ) {
 	return render(WithChat, {
 		props: {
@@ -64,7 +64,11 @@ function mount(
 				selected: options.selected ?? false,
 				data,
 			},
-			context: { ...board(), readonly: options.readonly ?? false },
+			context: {
+				...board(),
+				readonly: options.readonly ?? false,
+				...(options.preview ? { preview: true } : {}),
+			},
 			chat,
 		},
 	});
@@ -356,6 +360,63 @@ const appData = (data: Record<string, unknown> = {}) => ({
 
 const frame = (container: HTMLElement) =>
 	container.querySelector("iframe") as HTMLIFrameElement | null;
+
+// RV-V M-5: a board in History's preview changes nothing. An App block there used to
+// run the live App with the writing bridge and today's data, so the reader could use
+// it and change what it saved. In a preview it is inert: its still image when it has
+// one, else a card that says where it runs. No frame, no bridge, no read of its data.
+describe("an App block in a board's History preview", () => {
+	it("draws its still image, and no frame, and asks for nothing", async () => {
+		const { container } = mount(
+			"app",
+			appData({
+				poster: { fileId: "file-9", width: 640, height: 400, capturedAt: 1 },
+			}),
+			chatContext(),
+			{ readonly: true, preview: true },
+		);
+
+		const still = await screen.findByTestId("canvas-app-still");
+		expect(still.querySelector("img")?.getAttribute("src")).toBe(
+			"/api/chat/files/file-9/preview",
+		);
+		expect(frame(container)).toBeNull();
+		expect(fetchArtifact).not.toHaveBeenCalled();
+		expect(subscribeArtifactChanges).not.toHaveBeenCalled();
+		expect(readAppValue).not.toHaveBeenCalled();
+		expect(writeAppValue).not.toHaveBeenCalled();
+	});
+
+	it("says where the App runs when it has no still image, in both languages", async () => {
+		const { container } = mount("app", appData(), chatContext(), {
+			readonly: true,
+			preview: true,
+		});
+		expect(
+			await screen.findByText(
+				"The App runs on the live board, not in History.",
+			),
+		).toBeInTheDocument();
+		expect(frame(container)).toBeNull();
+		expect(fetchArtifact).not.toHaveBeenCalled();
+	});
+
+	it("says it in Hungarian", async () => {
+		uiLanguage.set("hu");
+		mount("app", appData(), chatContext(), { readonly: true, preview: true });
+		expect(
+			await screen.findByText(
+				"Az alkalmazás az élő táblán fut, az Előzményekben nem.",
+			),
+		).toBeInTheDocument();
+	});
+
+	it("leaves the live board's App as it was: running", async () => {
+		const { container } = mount("app", appData());
+		await waitFor(() => expect(frame(container)).not.toBeNull());
+		expect(screen.queryByTestId("canvas-app-still")).toBeNull();
+	});
+});
 
 describe("an App block", () => {
 	it("asks for the App by its own id in the panel's conversation, and draws no frame until it is answered", async () => {

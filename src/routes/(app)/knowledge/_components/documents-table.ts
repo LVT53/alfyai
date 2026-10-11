@@ -8,6 +8,10 @@
 // family at all — an unversioned upload is neither current nor historical, and
 // saying "Current" about it would be inventing a fact.
 
+import {
+	type LatestMoment,
+	readLatestMoment,
+} from "$lib/client/artifact-versions";
 import type { I18nKey } from "$lib/i18n";
 import type {
 	KnowledgeDocumentKindFilter,
@@ -206,25 +210,26 @@ export function documentTypeFilterFor(
 	return document.kind && document.kind !== "file" ? document.kind : "uploaded";
 }
 
-export type ArtifactFamilyVersionBadge =
-	| { kind: "artifact-version"; versionNumber: number }
-	| { kind: "none" };
-
 /**
- * The Version cell for a `kind`-bearing row. Never reads `versionNumber`/
- * `documentFamilyId`/`isOriginal` — those belong to the unrelated
- * extraction-quality re-parse family (Review Focus #7).
+ * The latest moment of a `kind`-bearing row: when its newest version was made,
+ * by whom and what it was (ruling 76, amendment A1: no surface prints a version
+ * number but History's fine print, so the Version cell says "Changed by Alfy · 2
+ * min ago" for these rows). `null` for a row with no kind, or whose first version
+ * is not written yet. Never reads `versionNumber`/`documentFamilyId`/`isOriginal`
+ * — those belong to the unrelated extraction-quality re-parse family (Review
+ * Focus #7); the artifact's own number is read only to know that a version exists
+ * and which of two reports of it is newer.
  */
-export function deriveArtifactVersionBadge(
+export function deriveArtifactMoment(
 	document: KnowledgeDocumentItem,
-): ArtifactFamilyVersionBadge {
-	if (!document.kind || document.artifactVersionNumber == null) {
-		return { kind: "none" };
-	}
-	return {
-		kind: "artifact-version",
+): LatestMoment | null {
+	if (!document.kind) return null;
+	return readLatestMoment({
 		versionNumber: document.artifactVersionNumber,
-	};
+		updatedAt: document.updatedAt,
+		lastAuthor: document.lastAuthor ?? null,
+		lastKind: document.lastKind ?? null,
+	});
 }
 
 /**

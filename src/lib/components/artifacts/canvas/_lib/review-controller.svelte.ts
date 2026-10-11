@@ -101,7 +101,8 @@ export interface ReviewHost {
 	 * nothing to draw (the reader's own save seen early, or a conflict it has said so about).
 	 */
 	adopt: (detail: ArtifactDetailResponse) => CanvasBody | null;
-	openVersions: () => void;
+	/** Opens History on the board: where the notice for an Undo that cannot be done points. */
+	openHistory: () => void;
 	/** The number the chat's card, the list row and the count button show. */
 	reportCount: (count: number) => void;
 }
@@ -168,8 +169,12 @@ export class CanvasReviewController {
 	#keptTimer: ReturnType<typeof setTimeout> | null = null;
 	#undoneTimer: ReturnType<typeof setTimeout> | null = null;
 	#arrangeTimer: ReturnType<typeof setTimeout> | null = null;
-	/** Alfy's board as it was when Undo was pressed: what Redo writes back. */
-	#undone: { alfyBody: string } | null = null;
+	/** Alfy's board as it was when Undo was pressed, and the run of Alfy's versions it took back: what Redo writes back, under the same names. */
+	#undone: {
+		alfyBody: string;
+		alfyVersion: number;
+		firstAlfyVersion: number;
+	} | null = null;
 	/** The replies that made the change that waits now; once it is decided their chips keep its outcome. */
 	#activeReplies: string[] = [];
 	/** The version and hash right after Undo wrote: what Redo is checked against, so a step of the reader's in between refuses it. */
@@ -473,7 +478,16 @@ export class CanvasReviewController {
 				this.#refuseUndo("failed");
 				return;
 			}
-			const written = await this.#write(parentBody, "undid_alfy_change");
+			// The Undo restores the version before Alfy's WHOLE run, so it names the run
+			// (its first version to its newest), not only the newest.
+			const firstAlfyVersion = state.undo.toVersion + 1;
+			const written = await this.#write(
+				parentBody,
+				"undid_alfy_change",
+				undefined,
+				state.latestAlfyVersion,
+				firstAlfyVersion,
+			);
 			if (!written.ok) {
 				this.#refuseUndo(
 					written.reason === "conflict" ? "user_edited" : "failed",
@@ -490,7 +504,14 @@ export class CanvasReviewController {
 			} catch {
 				// The board is already back; the marker catches up on the next Keep or reload.
 			}
-			this.#undone = alfyBody === null ? null : { alfyBody };
+			this.#undone =
+				alfyBody === null
+					? null
+					: {
+							alfyBody,
+							alfyVersion: state.latestAlfyVersion,
+							firstAlfyVersion,
+						};
 			this.status = "undone";
 			this.#chips("undone");
 			this.pulseIds = [];
@@ -514,17 +535,21 @@ export class CanvasReviewController {
 	 * change is not waiting as far as the server (and so the chat's card and the
 	 * count button) is concerned. The pill says the same, instead of offering an Undo
 	 * the server would refuse because the last versions are the reader's (RV-3 I3);
-	 * Versions is the way back from here.
+	 * History is the way back from here.
 	 */
 	async redo(): Promise<void> {
 		if (this.status !== "undone" || !this.#undone || this.busy) return;
 		this.busy = true;
 		try {
 			this.#clearTimer("undone");
+			// A Redo names the Alfy change it brings back (History folds the two), else it
+			// would be stored as an ordinary "Edited".
 			const written = await this.#write(
 				this.#undone.alfyBody,
-				undefined,
+				"redid_alfy_change",
 				this.#afterUndo ?? undefined,
+				this.#undone.alfyVersion,
+				this.#undone.firstAlfyVersion,
 			);
 			if (!written.ok) {
 				this.#refuseUndo("failed");
@@ -574,7 +599,7 @@ export class CanvasReviewController {
 	}
 
 	openHistory(): void {
-		this.#host.openVersions();
+		this.#host.openHistory();
 	}
 
 	// ---- The stepper ---------------------------------------------------------
@@ -612,6 +637,8 @@ export class CanvasReviewController {
 		body: string,
 		summaryKind?: SaveSummaryKind,
 		expect?: WriteGuard,
+		summaryVersion?: number,
+		summaryFromVersion?: number,
 	): Promise<WriteResult> {
 		let parsed: CanvasBody;
 		try {
@@ -632,6 +659,13 @@ export class CanvasReviewController {
 				baseHash: guard.bodyHash ?? undefined,
 				coalesce: false,
 				summaryKind,
+				...(summaryVersion !== undefined ? { summaryVersion } : {}),
+				// Only a run names its first version (one version is the newest alone).
+				...(summaryVersion !== undefined &&
+				summaryFromVersion !== undefined &&
+				summaryFromVersion < summaryVersion
+					? { summaryFromVersion }
+					: {}),
 			},
 		).catch(() => null);
 		if (!result) return { ok: false, reason: "failed" };

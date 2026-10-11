@@ -19,11 +19,15 @@ import {
 } from "../../src/lib/server/services/artifacts";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // FX-D: the in-chat card at a docked panel's narrow chat column. With the panel
 // docked the chat column is ~340 px at a 1100 px window and the card used to
-// break its meta line into four ("Dokumentum / · 1 fül / · / v1") while "Megnyitva
+// break its meta line into four ("Dokumentum / · 1 fül / · / szerkesztve") while "Megnyitva
 // a panelen ›" was drawn over it. The card now adapts to ITS OWN width (a
 // container query on the card, not the viewport): when it is narrow the action
 // takes a row of its own under the text, the meta line stays one line (it
@@ -185,7 +189,10 @@ async function seedChat(page: Page): Promise<string> {
 	// An item of an incognito chat of the same reader: it exists, and the chat
 	// below cannot reach it (incognito hides a chat's work from the reader's
 	// OTHER chats), so its card says where it was made.
-	const otherConversationId = await createConversation(page, "Plan a trip");
+	const otherConversationId = await createEmptyConversation(
+		page,
+		"Plan a trip",
+	);
 	await db
 		.update(conversations)
 		.set({ memoryIncognito: true })
@@ -202,7 +209,7 @@ async function seedChat(page: Page): Promise<string> {
 	await page
 		.getByTestId("message-input")
 		.waitFor({ state: "visible", timeout: 60_000 });
-	const conversationId = await createConversation(page, "Plan a weekend");
+	const conversationId = await createEmptyConversation(page, "Plan a weekend");
 
 	const reviewed = await createDocumentArtifact({
 		userId,
@@ -833,7 +840,7 @@ test.describe("the in-chat artifact card at a docked panel's narrow chat column"
 			await expect(
 				card(page, TITLES.pending).getByTestId("artifact-card-head"),
 			).toHaveAccessibleName(
-				/Packing list.*Dokumentum · 1 fül.*v2.*1 módosítás vár rád.*Átnézés/,
+				/Packing list.*Dokumentum · 1 fül.*szerkesztve.*1 módosítás vár rád.*Átnézés/,
 			);
 
 			// What a hover paints on the head and on the action's words (shots only).

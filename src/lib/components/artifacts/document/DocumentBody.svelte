@@ -131,7 +131,6 @@ import MobileToolbar from "./MobileToolbar.svelte";
 import SelectionBubble from "./SelectionBubble.svelte";
 import Tabs from "./Tabs.svelte";
 import type { DocumentToolbarActionId } from "./toolbar-actions";
-import VersionsSheet from "./VersionsSheet.svelte";
 
 let {
 	artifactId,
@@ -393,6 +392,14 @@ const reviewBarFly = reducedMotionAware(fly);
 interface PendingAlfyChange {
 	entry: AlfyChangeEntry;
 	status: "pending" | "kept" | "undone";
+	/**
+	 * The Alfy version that made this change: a live edit's is the version the
+	 * reload after the edit found, a reload-restored one's is the server's own
+	 * (`DocumentReviewPendingBlock.alfyVersionNumber`). The Undo and the Redo name
+	 * it in the version they save (ruling 76, A5), so History can fold the Undo
+	 * onto the change it undid.
+	 */
+	alfyVersionNumber?: number;
 	/**
 	 * Ruling 61: true when this pending change was restored from a reload for
 	 * a block Alfy ADDED (no parent counterpart) — Undo deletes it rather than
@@ -978,9 +985,21 @@ async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
 		}
 
 		const entries = applyAlfyChangesFn(editor, reconstructed, reconstructed.patch);
+		// The Undo names the version the CALL wrote (its row is in the reload's list):
+		// a second edit call or the reader's own save can have moved the newest past it.
+		// Not in the list (an older server, a long list): the newest the reload found.
+		const ownVersionNumber =
+			(activity.versionId
+				? detail.versions.find((version) => version.id === activity.versionId)
+						?.versionNumber
+				: undefined) ?? detail.artifact.versionNumber;
 		const nextPending = new Map(pendingChanges);
 		for (const entry of entries) {
-			nextPending.set(entry.changeId, { entry, status: "pending" });
+			nextPending.set(entry.changeId, {
+				entry,
+				status: "pending",
+				alfyVersionNumber: ownVersionNumber,
+			});
 		}
 		pendingChanges = nextPending;
 
@@ -1141,7 +1160,10 @@ function handleUndoChange(changeId: string): void {
 	if (canonical !== null) {
 		// Spec §4.2 item 6: "a version is recorded (\"Undid Alfy's change\")" —
 		// its own summary, not another anonymous "Edited".
-		autosave?.schedule(canonical, { summaryKind: "undid_alfy_change" });
+		autosave?.schedule(canonical, {
+			summaryKind: "undid_alfy_change",
+			summaryVersion: pending.alfyVersionNumber,
+		});
 		updateBlocksFromMarkdown(canonical);
 	}
 	void acknowledgeReview([pending.entry.blockId]);
@@ -1183,7 +1205,12 @@ function handleRedoChange(changeId: string): void {
 	});
 	const canonical = currentCanonicalMarkdown();
 	if (canonical !== null) {
-		autosave?.schedule(canonical);
+		// Ruling 76 (A5): bringing Alfy's change back is a version that says so, as
+		// the Undo's says it was undone.
+		autosave?.schedule(canonical, {
+			summaryKind: "redid_alfy_change",
+			summaryVersion: pending.alfyVersionNumber,
+		});
 		updateBlocksFromMarkdown(canonical);
 	}
 	if (focusWasOnPill) void focusPillUndo(changeId);
@@ -1485,6 +1512,7 @@ async function restorePendingReview(
 			},
 			status: "pending",
 			isNewBlock: block.isNewBlock,
+			alfyVersionNumber: block.alfyVersionNumber,
 		});
 	}
 	pendingChanges = nextPending;
@@ -1545,12 +1573,6 @@ const marginRefusal = $derived(
 // ---- T12: the download sheet -----------------------------------------------
 let downloadSheetOpen = $state(false);
 // ---- end T12 -------------------------------------------------------------
-
-// ---- RV-1B, T6: the versions sheet — VersionsSheet.svelte existed and was
-// unit-tested but had no toolbar action opening it anywhere in the app; see
-// the "history" action in toolbar-actions.ts and its handler below. ---------
-let versionsSheetOpen = $state(false);
-// ---- end T6 ----------------------------------------------------------------
 
 /** The editor's current text, canonicalised through the SERVER's own pipeline (T7.2) — never a second canonicaliser. */
 function currentCanonicalMarkdown(): string | null {
@@ -1689,22 +1711,43 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
 }
 
 /**
- * Wave 2.5 Step 3: the shared trigger for the header's version button
- * (`ArtifactPanelHeader`, via `registerPanelActions` below) — the ONE History
- * entry the redesign wants, replacing the toolbar's own "history" action.
- * Each popover now anchors to its OWN header button (Step 8), so only one
- * still closes the other here to avoid two floating panels open together,
- * not because they would visually overlap at the same spot.
+ * The header's Download action (`registerPanelActions`), replacing the toolbar's
+ * own "download" action. History is no popover of this body's any more (ruling
+ * 76): it is a mode of the panel, and the panel flushes this body's pending save
+ * (`flushNow`) before it shows it.
  */
-function openVersionsSheet(): void {
-	downloadSheetOpen = false;
-	versionsSheetOpen = true;
+function openDownloadSheet(): void {
+	downloadSheetOpen = true;
 }
 
-/** The header's Download action (`registerPanelActions`), replacing the toolbar's own "download" action. */
-function openDownloadSheet(): void {
-	versionsSheetOpen = false;
-	downloadSheetOpen = true;
+/**
+ * Saves what the reader typed that the autosave has not written yet, and answers
+ * once the save has been answered (it never rejects, and it does not wait for a
+ * connection to come back). The panel awaits it before History shows, so History
+ * starts from what is stored and a step the reader typed a moment ago is a
+ * moment in it (versioning.md §5.2, P10).
+ */
+async function flushNow(): Promise<void> {
+	try {
+		await autosave?.flush();
+	} catch {
+		// A save that failed is the autosave's own to report; the panel goes on.
+	}
+}
+
+/**
+ * Loads the stored Document again: after a restore changed what is stored out
+ * from under the open editor, so the editor and its version number are the
+ * server's again and the next save is not refused as stale.
+ */
+function reloadFromServer(): void {
+	retryLoad();
+}
+
+/** Steps the review to the first change still waiting, for History's "Review" link. */
+function showFirstPendingChange(): void {
+	const entry = pendingList[reviewIndex] ?? pendingList[0];
+	if (entry) void seeChange(entry[0]);
 }
 
 /** A tapped highlight's own fallback (`handleEditorAnchorActivate` below): the drawer or sheet, opened where the inline column is not an option. */
@@ -1737,9 +1780,11 @@ function toggleComments(): void {
 // to another item builds a new body, which registers here for itself.
 $effect(() => {
 	registerPanelActions?.({
-		openVersions: openVersionsSheet,
 		openDownload: openDownloadSheet,
 		toggleComments,
+		flush: flushNow,
+		reload: reloadFromServer,
+		reviewPending: showFirstPendingChange,
 	});
 });
 
@@ -1815,10 +1860,6 @@ function handleToolbarAction(id: DocumentToolbarActionId): void {
 	// branches stay as a harmless fallback until that step lands.
 	if (id === "download") {
 		openDownloadSheet();
-		return;
-	}
-	if (id === "history") {
-		openVersionsSheet();
 		return;
 	}
 	if (!editor) return;
@@ -1970,9 +2011,18 @@ function bindAutosave(id: string, conversationId: string | null): void {
 				undefined,
 				{
 					baseHash: knownBodyHash ?? undefined,
-					// An Undo of Alfy's change records its own version summary.
+					// An Undo or Redo of Alfy's change records its own version summary,
+					// naming the Alfy version it acts on.
 					...(saveOptions?.summaryKind
-						? { summaryKind: saveOptions.summaryKind }
+						? {
+								summaryKind: saveOptions.summaryKind,
+								...(saveOptions.summaryVersion !== undefined
+									? { summaryVersion: saveOptions.summaryVersion }
+									: {}),
+								...(saveOptions.summaryFromVersion !== undefined
+									? { summaryFromVersion: saveOptions.summaryFromVersion }
+									: {}),
+							}
 						: {}),
 				},
 			),
@@ -2514,25 +2564,6 @@ function saveNoticeText(notice: SaveNotice): string {
 								{title}
 								conversationId={panelConversationId}
 								onClose={() => (downloadSheetOpen = false)}
-							/>
-						{/if}
-						<!-- RV-1B, T6, Wave 2.5 Step 8: the versions popover, opened from
-						     the panel header's version button. A restore changes the
-						     stored body out from under the open editor, so it reloads
-						     through the same retryLoad() the "load failed, try again" path
-						     already uses, rather than a second reload path. -->
-						{#if versionsSheetOpen}
-							<VersionsSheet
-								artifactId={boundArtifactId}
-								conversationId={panelConversationId}
-								onClose={() => (versionsSheetOpen = false)}
-								onRestored={() => {
-									versionsSheetOpen = false;
-									retryLoad();
-								}}
-								currentUserId={currentUser?.id ?? null}
-								currentUserName={currentUser?.displayName ?? null}
-								currentUserProfilePicture={currentUser?.profilePicture ?? null}
 							/>
 						{/if}
 					{/if}

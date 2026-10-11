@@ -12,7 +12,7 @@ import type { ArtifactBodyProps } from "$lib/components/artifacts/artifact-bodie
 let { artifactId, registerPanelActions }: ArtifactBodyProps = $props();
 
 onMount(() => {
-	registerPanelActions?.({ openVersions: () => {} });
+	registerPanelActions?.({ flush: async () => {}, reload: () => {} });
 });
 </script>
 

@@ -728,16 +728,18 @@ describe("ToolActivityRow", () => {
 						conversationId: "conv-1",
 						versionNumber: 7,
 						commentCount: 0,
-						updatedAt: 0,
+						updatedAt: Date.now() - 2 * 60 * 1000,
 						canvasPreview: { blockCount: 11 },
 					},
 				},
 			};
 			const { getByTestId } = render(ToolActivityRow, { item: withPreview });
 
+			// The card says when the board last changed, never its version number.
 			expect(getByTestId("artifact-card-head")).toHaveTextContent(
-				"Canvas · 11 blocks · v7",
+				"Canvas · 11 blocks · edited 2 min ago",
 			);
+			expect(getByTestId("artifact-card-head")).not.toHaveTextContent(/\bv7\b/);
 		});
 
 		it("says just Canvas on a board's card until its count has arrived (a board made mid-turn)", () => {

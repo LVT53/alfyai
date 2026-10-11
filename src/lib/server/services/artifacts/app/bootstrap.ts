@@ -13,7 +13,8 @@
 // ruling 58; still no `allow-same-origin`), so it HAS no origin to name as
 // the target, and the parent is where every trust decision is made
 // (AppFrame.svelte's message listener).
-export const APP_BOOTSTRAP_SCRIPT = `(function () {
+function buildBootstrapScript(setSource: string): string {
+	return `(function () {
   var seq = 0, waiting = {};
   function call(method, args) {
     return new Promise(function (resolve, reject) {
@@ -51,7 +52,7 @@ export const APP_BOOTSTRAP_SCRIPT = `(function () {
     value: {
       storage: {
         get: function (k) { return call("get", [String(k)]); },
-        set: function (k, v) { return call("set", [String(k), v]); }
+        set: ${setSource}
       }
     },
     writable: false,
@@ -59,8 +60,32 @@ export const APP_BOOTSTRAP_SCRIPT = `(function () {
     enumerable: true
   });
 })();`;
+}
+
+/** The writing bridge: what the App's own served document gets. */
+export const APP_BOOTSTRAP_SCRIPT = buildBootstrapScript(
+	`function (k, v) { return call("set", [String(k), v]); }`,
+);
+
+/**
+ * The same bridge for a SAVED VERSION shown in History (ruling 76, Q7): `get`
+ * still asks the parent for today's value, `set` rejects at once and sends
+ * nothing, so an App written to save as it goes runs, shows its data, and
+ * leaves it alone. This is the cooperative half: a document can always post a
+ * raw message to its parent whatever the bridge says, so the parent that
+ * answers (AppFrame, in its read-only preview mode) refuses `set` itself too.
+ *
+ * The refusal is a CODE, not a sentence: an App that shows the error it caught
+ * shows it to a reader in whatever language they read, and this document cannot
+ * know it (no parameter varies the response), so an English sentence would reach a
+ * Hungarian reader as one.
+ */
+export const APP_READONLY_BOOTSTRAP_SCRIPT = buildBootstrapScript(
+	`function () { return Promise.reject(new Error("ALFY_STORAGE_READ_ONLY")); }`,
+);
 
 const APP_BOOTSTRAP_TAG = `<script>${APP_BOOTSTRAP_SCRIPT}</script>`;
+const APP_READONLY_BOOTSTRAP_TAG = `<script>${APP_READONLY_BOOTSTRAP_SCRIPT}</script>`;
 
 // The tag name must END where these match: `<header>` is not `<head>`, and
 // `<head>`/`<body>` start tags are optional in HTML, so a valid document can
@@ -110,11 +135,20 @@ function leadingDoctypeEnd(html: string): number | null {
  * document: this function never parses or executes the artifact's HTML, and
  * it never reads anything OUT of `html` to build the bootstrap itself.
  */
-export function injectAppBootstrap(html: string): string {
+function spliceBootstrap(html: string, tag: string): string {
 	const insertAt =
 		startTagEnd(html, HEAD_TAG_OPENING) ??
 		startTagEnd(html, BODY_TAG_OPENING) ??
 		leadingDoctypeEnd(html) ??
 		0;
-	return html.slice(0, insertAt) + APP_BOOTSTRAP_TAG + html.slice(insertAt);
+	return html.slice(0, insertAt) + tag + html.slice(insertAt);
+}
+
+export function injectAppBootstrap(html: string): string {
+	return spliceBootstrap(html, APP_BOOTSTRAP_TAG);
+}
+
+/** `injectAppBootstrap` with the read-only bridge: a saved version shown in History. */
+export function injectReadOnlyAppBootstrap(html: string): string {
+	return spliceBootstrap(html, APP_READONLY_BOOTSTRAP_TAG);
 }

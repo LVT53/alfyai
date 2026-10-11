@@ -6,6 +6,10 @@ import {
 	conversations,
 	users,
 } from "../../src/lib/server/db/schema";
+import {
+	createDocumentArtifact,
+	updateArtifactBody,
+} from "../../src/lib/server/services/artifacts";
 import { login, TEST_EMAIL, waitForHydration } from "./helpers";
 
 test.describe("Knowledge page", () => {
@@ -18,7 +22,7 @@ test.describe("Knowledge page", () => {
 		await waitForHydration(page);
 	});
 
-	test("documents section is visible", async ({ page }) => {
+	test("documents section is visible", { tag: "@smoke" }, async ({ page }) => {
 		await page.getByRole("tab", { name: "Documents" }).click();
 		await expect(
 			page.getByRole("heading", { name: "Documents" }),
@@ -283,9 +287,9 @@ test.describe("Knowledge page", () => {
 	// real end-to-end pipeline coverage, not a fixture that only proves the
 	// seed worked — direct db writes, matching the repo's existing E2E
 	// seeding convention (see conversation-title-refresh.spec.ts).
-	test("shows a seeded artifact-family row with its chip, type pill and no download action", async ({
-		page,
-	}) => {
+	test("shows a seeded artifact-family row with its chip, type pill and no download action", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		// A bare conversation row, seeded directly like several other E2E specs
 		// already do (see conversation-title-refresh.spec.ts) — no messages, no
 		// live chat round trip, just an id for the artifact's ownership scope.
@@ -342,6 +346,67 @@ test.describe("Knowledge page", () => {
 			await expect(row.getByRole("button", { name: /delete/i })).toBeVisible();
 		} finally {
 			await db.delete(artifacts).where(eq(artifacts.id, artifactId));
+			await db
+				.delete(conversations)
+				.where(eq(conversations.id, conversationId));
+		}
+	});
+
+	// RV-V M-3: History is the only way to an item's versions, and its button exists
+	// when the panel can say what changed last. An item opened from the library carried
+	// no latest moment, so it had no History button at all.
+	test("a Document opened from the library has its History button, and History opens", async ({
+		page,
+	}) => {
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const conversationId = `e2e-history-conv-${Date.now()}`;
+		const now = new Date();
+		await db.insert(conversations).values({
+			id: conversationId,
+			userId: user.id,
+			title: "Seeded for the library History case",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const title = `Library history walk ${Date.now()}`;
+		const created = await createDocumentArtifact({
+			userId: user.id,
+			conversationId,
+			title,
+			markdown: "Book the hotel.",
+			author: "user",
+			summary: "Seeded for E2E",
+		});
+		await updateArtifactBody({
+			userId: user.id,
+			artifactId: created.id,
+			conversationId,
+			body: "Book the hotel. Late checkout.",
+			author: "alfy",
+			summary: "Added a late checkout",
+		});
+
+		try {
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			await page.getByRole("tab", { name: "Documents" }).click();
+			await page.locator("tbody tr", { hasText: title }).click();
+
+			const historyButton = page
+				.locator('[data-testid="artifact-history-button"]:visible')
+				.first();
+			await expect(historyButton).toBeVisible({ timeout: 15_000 });
+			await expect(historyButton).toContainText("Changed by Alfy");
+			await historyButton.click();
+			const region = page.getByRole("region", {
+				name: `History of ${title}`,
+			});
+			await expect(region.getByRole("option")).toHaveCount(2);
+		} finally {
+			await db.delete(artifacts).where(eq(artifacts.id, created.id));
 			await db
 				.delete(conversations)
 				.where(eq(conversations.id, conversationId));

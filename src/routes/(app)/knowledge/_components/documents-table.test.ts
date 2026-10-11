@@ -16,7 +16,7 @@ import {
 	compareDocuments,
 	DOCUMENT_COLUMN_ORDER,
 	DOCUMENT_TYPE_FILTER_ORDER,
-	deriveArtifactVersionBadge,
+	deriveArtifactMoment,
 	deriveDocumentStatus,
 	deriveDocumentVersion,
 	documentTypeFilterFor,
@@ -671,23 +671,50 @@ describe("getDocumentKind — kind-bearing rows", () => {
 	});
 });
 
-describe("deriveArtifactVersionBadge", () => {
-	it("renders the artifact family's own version number", () => {
+describe("deriveArtifactMoment", () => {
+	it("is the newest version's time, author and kind, never a number to print (ruling 76, A1)", () => {
 		expect(
-			deriveArtifactVersionBadge(
+			deriveArtifactMoment(
 				doc({
 					id: "1",
 					name: "Vienna trip board",
 					kind: "canvas",
 					artifactVersionNumber: 7,
+					updatedAt: 1_700_000_000_000,
+					lastAuthor: "alfy",
+					lastKind: "alfy_edit",
 				}),
 			),
-		).toEqual({ kind: "artifact-version", versionNumber: 7 });
+		).toEqual({
+			version: 7,
+			at: 1_700_000_000_000,
+			author: "alfy",
+			kind: "alfy_edit",
+		});
 	});
 
-	it("renders 'none' for a kind-bearing row with no version written yet", () => {
+	it("knows nothing of who or what when the server did not say, and still says when", () => {
 		expect(
-			deriveArtifactVersionBadge(
+			deriveArtifactMoment(
+				doc({
+					id: "1",
+					name: "Vienna trip board",
+					kind: "canvas",
+					artifactVersionNumber: 2,
+					updatedAt: 1_700_000_000_000,
+				}),
+			),
+		).toEqual({
+			version: 2,
+			at: 1_700_000_000_000,
+			author: null,
+			kind: null,
+		});
+	});
+
+	it("is null for a kind-bearing row with no version written yet", () => {
+		expect(
+			deriveArtifactMoment(
 				doc({
 					id: "2",
 					name: "Saturday plan",
@@ -695,13 +722,13 @@ describe("deriveArtifactVersionBadge", () => {
 					artifactVersionNumber: null,
 				}),
 			),
-		).toEqual({ kind: "none" });
+		).toBeNull();
 	});
 
-	it("renders 'none' for a row with no kind at all", () => {
+	it("is null for a row with no kind at all", () => {
 		expect(
-			deriveArtifactVersionBadge(doc({ id: "3", name: "invoice.pdf" })),
-		).toEqual({ kind: "none" });
+			deriveArtifactMoment(doc({ id: "3", name: "invoice.pdf" })),
+		).toBeNull();
 	});
 
 	it("reads artifactVersionNumber only — never versionNumber/documentFamilyId, even when both are set", () => {
@@ -716,9 +743,6 @@ describe("deriveArtifactVersionBadge", () => {
 			versionNumber: 99,
 			documentFamilyId: "family-x",
 		});
-		expect(deriveArtifactVersionBadge(row)).toEqual({
-			kind: "artifact-version",
-			versionNumber: 7,
-		});
+		expect(deriveArtifactMoment(row)?.version).toBe(7);
 	});
 });

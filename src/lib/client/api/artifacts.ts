@@ -29,6 +29,14 @@ import type { Anchor } from "$lib/shared/artifacts/anchor";
 import type { CanvasBlockData } from "$lib/shared/artifacts/canvas";
 import type { CanvasReviewState } from "$lib/shared/artifacts/canvas-review";
 import type { CanvasChatBlocks } from "$lib/shared/artifacts/chat-blocks";
+import type {
+	ArtifactHistoryResponse,
+	MomentAuthor,
+	MomentKind,
+	NameVersionResponse,
+	RestoreVersionRequest,
+	RestoreVersionResponse,
+} from "$lib/shared/artifacts/history";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	type CanvasWebFailure,
@@ -36,6 +44,7 @@ import {
 } from "$lib/shared/artifacts/live-web";
 import type { OpRefusal, OpsDiff } from "$lib/shared/artifacts/ops";
 import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
+import { latestRowOfMoment } from "../artifact-versions";
 import { _unwrapList } from "./_utils";
 import {
 	ApiError,
@@ -73,7 +82,8 @@ export interface ArtifactDetailResponse {
  * panel header):
  *
  * - `version`: the newest version the server reported, and — when the response
- *   knows it — when the artifact was last changed (`updatedAt`, epoch ms).
+ *   knows it — when the artifact was last changed (`updatedAt`, epoch ms), who
+ *   made that version and what it was (`author`, `kind`).
  * - `deleted`: the item is gone (this browser deleted it, or the server said
  *   it no longer exists).
  * - `files`: something was made in this chat outside a turn (a board's picture
@@ -85,6 +95,9 @@ export type ArtifactChange =
 			artifactId: string;
 			version: number;
 			updatedAt: number | null;
+			/** Who made that version and what it was, when the response knows (ruling 76, A1). Absent when it does not: never a guess. */
+			author?: MomentAuthor;
+			kind?: MomentKind;
 	  }
 	| { type: "deleted"; artifactId: string }
 	| { type: "files"; conversationId: string };
@@ -132,9 +145,32 @@ function announceArtifactVersion(
 	artifactId: string,
 	version: unknown,
 	updatedAt: number | null,
+	moment?: { author?: MomentAuthor | null; kind?: MomentKind | null },
 ): void {
 	if (typeof version !== "number") return;
-	announceArtifactChange({ type: "version", artifactId, version, updatedAt });
+	announceArtifactChange({
+		type: "version",
+		artifactId,
+		version,
+		updatedAt,
+		...(moment?.author ? { author: moment.author } : {}),
+		...(moment?.kind ? { kind: moment.kind } : {}),
+	});
+}
+
+/** What a body save with this summary kind is, as a moment: the reader's, one of their edits, an Undo or a Redo of Alfy's change. */
+function momentOfSave(summaryKind?: SaveSummaryKind): {
+	author: "user";
+	kind: MomentKind;
+} {
+	switch (summaryKind) {
+		case "undid_alfy_change":
+			return { author: "user", kind: "undo_alfy_change" };
+		case "redid_alfy_change":
+			return { author: "user", kind: "redo_alfy_change" };
+		default:
+			return { author: "user", kind: "user_edit" };
+	}
 }
 
 /**
@@ -165,12 +201,26 @@ export async function fetchArtifact(
 		"Failed to open this item",
 		fetchImpl,
 	);
+	// Who made the newest version, and what it was: the server's own answer
+	// (`lastAuthor`/`lastKind`, ruling 76) or, from an older server, the newest
+	// row of the version list when it is the artifact's own newest version.
+	const told = response.artifact;
+	const newestRow = response.versions[0];
 	announceArtifactVersion(
 		artifactId,
 		response.artifact.versionNumber,
 		typeof response.artifact.updatedAt === "number"
 			? response.artifact.updatedAt
 			: null,
+		{
+			author:
+				told.lastAuthor ??
+				(newestRow &&
+				newestRow.versionNumber === response.artifact.versionNumber
+					? newestRow.author
+					: null),
+			kind: told.lastKind ?? null,
+		},
 	);
 	return {
 		artifact: response.artifact,
@@ -517,7 +567,10 @@ export async function regenerateApp(
 	const result = (await response.json()) as RegenerateAppResult;
 	// A success reports the new version; a conflict reveals the current one.
 	if (result.ok) {
-		announceArtifactVersion(artifactId, result.version, Date.now());
+		announceArtifactVersion(artifactId, result.version, Date.now(), {
+			author: "alfy",
+			kind: "app_rebuilt",
+		});
 	} else if (result.reason === "version_conflict") {
 		announceArtifactVersion(artifactId, result.version, null);
 	}
@@ -610,6 +663,10 @@ export async function saveArtifactBody(
 		coalesce?: boolean;
 		/** What the save says about itself besides "the user typed" — see `parseSaveSummaryKind`. */
 		summaryKind?: SaveSummaryKind;
+		/** An Undo or Redo of Alfy's change: the Alfy version it acts on (ruling 76, A5); the newest of them when it acted on a run. */
+		summaryVersion?: number;
+		/** An Undo or Redo that acted on a run of Alfy's versions: the first of them, so History marks each one (RV-V I-3). */
+		summaryFromVersion?: number;
 	},
 ): Promise<SaveArtifactBodyResult> {
 	const response = await fetchImpl(
@@ -625,6 +682,12 @@ export async function saveArtifactBody(
 				...(guard?.summaryKind !== undefined
 					? { summaryKind: guard.summaryKind }
 					: {}),
+				...(guard?.summaryVersion !== undefined
+					? { summaryVersion: guard.summaryVersion }
+					: {}),
+				...(guard?.summaryFromVersion !== undefined
+					? { summaryFromVersion: guard.summaryFromVersion }
+					: {}),
 			}),
 		},
 	);
@@ -634,8 +697,14 @@ export async function saveArtifactBody(
 	if (!payload) {
 		return { ok: false, reason: "not_found" };
 	}
-	if (payload.ok)
-		announceArtifactVersion(artifactId, payload.version, Date.now());
+	if (payload.ok) {
+		announceArtifactVersion(
+			artifactId,
+			payload.version,
+			Date.now(),
+			momentOfSave(guard?.summaryKind),
+		);
+	}
 	return payload;
 }
 
@@ -695,6 +764,7 @@ export async function applyArtifactOps(
 			artifactId,
 			result.version,
 			result.changed ? Date.now() : null,
+			result.changed ? { author: "user", kind: "user_edit" } : undefined,
 		);
 	} else if (result.reason === "version_conflict") {
 		announceArtifactVersion(artifactId, result.version, null);
@@ -767,7 +837,7 @@ export async function toggleDocumentTask(
 
 	// The tick is a second writer beside any open editor: it says which body it
 	// changed, and takes a version of its own (RV-1A) — see saveArtifactBody.
-	return saveArtifactBody(
+	const saved = await saveArtifactBody(
 		artifactId,
 		result.markdown,
 		detail.artifact.versionNumber,
@@ -775,6 +845,15 @@ export async function toggleDocumentTask(
 		fetchImpl,
 		{ baseHash: detail.artifact.bodyHash ?? undefined, coalesce: false },
 	);
+	// The save announced an ordinary edit of the reader's; it was a tick, which
+	// the History says in its own words ("You ticked …").
+	if (saved.ok) {
+		announceArtifactVersion(artifactId, saved.version, Date.now(), {
+			author: "user",
+			kind: "tick",
+		});
+	}
+	return saved;
 }
 
 /**
@@ -812,8 +891,12 @@ export async function saveDocumentTabs(
 	if (!payload) {
 		return { ok: false, reason: "not_found" };
 	}
-	if (payload.ok)
-		announceArtifactVersion(artifactId, payload.version, Date.now());
+	if (payload.ok) {
+		announceArtifactVersion(artifactId, payload.version, Date.now(), {
+			author: "user",
+			kind: "user_edit",
+		});
+	}
 	return payload;
 }
 
@@ -846,6 +929,7 @@ export async function createDocumentCopy(
 		typeof payload.artifact.updatedAt === "number"
 			? payload.artifact.updatedAt
 			: null,
+		{ author: "user", kind: "saved_as_copy" },
 	);
 	return payload.artifact;
 }
@@ -872,7 +956,12 @@ export async function fetchArtifactVersions(
 		fetchImpl,
 	);
 	// Newest first: the top row IS the current version.
-	announceArtifactVersion(artifactId, payload.versions[0]?.versionNumber, null);
+	announceArtifactVersion(
+		artifactId,
+		payload.versions[0]?.versionNumber,
+		null,
+		{ author: payload.versions[0]?.author },
+	);
 	return payload.versions;
 }
 
@@ -892,21 +981,149 @@ export async function fetchArtifactVersionBody(
 	return payload.body;
 }
 
-/** Restores an older version as a NEW version (never coalesced — ruling 47) and returns its version number. */
+/**
+ * The server refused a restore and said why. `version_conflict` is the one the
+ * History page answers inline ("It changed while you were looking"); the rest
+ * are a version with no body, a body that is not there any more and an Undo
+ * that does not undo what it says.
+ */
+export class VersionRestoreRefusedError extends Error {
+	readonly reason: Extract<RestoreVersionResponse, { ok: false }>["reason"];
+	constructor(
+		reason: Extract<RestoreVersionResponse, { ok: false }>["reason"],
+	) {
+		super(`This version could not be restored (${reason})`);
+		this.name = "VersionRestoreRefusedError";
+		this.reason = reason;
+	}
+}
+
+/**
+ * Restores an older version as a NEW version (never coalesced — ruling 47) and
+ * returns its version number. `guard` is what the History page showed: a
+ * restore over a version that arrived since is refused `version_conflict`
+ * (`expectVersion`), and the restore toast's Undo names the restore it reverses
+ * (`undoOf`) so the two fold into one quiet moment. Throws
+ * `VersionRestoreRefusedError` for a documented refusal and a plain `Error` for
+ * any other failure.
+ */
 export async function restoreArtifactVersion(
 	artifactId: string,
 	versionId: string,
 	conversationId?: string | null,
 	fetchImpl: FetchLike = fetch,
+	guard?: RestoreVersionRequest,
 ): Promise<number> {
-	const payload = await requestJson<{ ok: true; version: number }>(
+	const hasGuard =
+		guard !== undefined &&
+		(guard.expectVersion !== undefined || guard.undoOf !== undefined);
+	const response = await requestResponse(
 		`/api/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(versionId)}/restore${withConversationQuery(conversationId)}`,
-		{ method: "POST" },
-		"Failed to restore this version",
+		hasGuard
+			? {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						...(guard.expectVersion !== undefined
+							? { expectVersion: guard.expectVersion }
+							: {}),
+						...(guard.undoOf !== undefined ? { undoOf: guard.undoOf } : {}),
+					}),
+				}
+			: { method: "POST" },
 		fetchImpl,
 	);
-	announceArtifactVersion(artifactId, payload.version, Date.now());
-	return payload.version;
+	const payload = (await response
+		.json()
+		.catch(() => null)) as RestoreVersionResponse | null;
+	if (payload?.ok === true && typeof payload.version === "number") {
+		announceArtifactVersion(artifactId, payload.version, Date.now(), {
+			author: "user",
+			// What the server wrote (an App rebuild's Undo is the Undo of Alfy's change,
+			// not of a restore); an older server says nothing and the guess stands.
+			kind:
+				payload.kind ??
+				(guard?.undoOf !== undefined ? "undo_restore" : "restore"),
+		});
+		return payload.version;
+	}
+	if (payload && payload.ok === false && typeof payload.reason === "string") {
+		throw new VersionRestoreRefusedError(payload.reason);
+	}
+	throw new Error("Failed to restore this version");
+}
+
+/**
+ * One page of the artifact's history as moments (ruling 76, versioning.md
+ * §3–§4), newest first. `before` is the previous page's `nextBefore`. A missing
+ * or foreign item answers as a value (`not_found`, byte-identical for both);
+ * any other failure throws. The first page's newest row is announced like any
+ * other version the server reports, so the header and the list say what History
+ * says.
+ */
+export async function fetchArtifactHistory(
+	artifactId: string,
+	options: {
+		before?: number;
+		limit?: number;
+		conversationId?: string | null;
+		fetchImpl?: FetchLike;
+	} = {},
+): Promise<ArtifactHistoryResponse> {
+	const query: string[] = [];
+	if (options.before !== undefined) query.push(`before=${options.before}`);
+	if (options.limit !== undefined) query.push(`limit=${options.limit}`);
+	if (options.conversationId) {
+		query.push(`conversationId=${encodeURIComponent(options.conversationId)}`);
+	}
+	const response = await requestResponse(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/history${query.length > 0 ? `?${query.join("&")}` : ""}`,
+		undefined,
+		options.fetchImpl ?? fetch,
+	);
+	if (response.status === 404) return { ok: false, reason: "not_found" };
+	if (!response.ok) throw new Error("Failed to load the history");
+	const payload = (await response
+		.json()
+		.catch(() => null)) as ArtifactHistoryResponse | null;
+	if (!payload) throw new Error("Failed to load the history");
+	if (payload.ok && options.before === undefined) {
+		const top = payload.moments[0];
+		if (top?.containsNewest) {
+			const latest = latestRowOfMoment(top);
+			announceArtifactVersion(artifactId, latest.version, latest.at, {
+				author: latest.author,
+				kind: latest.kind,
+			});
+		}
+	}
+	return payload;
+}
+
+/**
+ * Names a version, or removes its name with `label: null`. Never changes a
+ * body, so it makes no version. Refusals come back as values.
+ */
+export async function nameArtifactVersion(
+	artifactId: string,
+	versionId: string,
+	label: string | null,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<NameVersionResponse> {
+	const response = await requestResponse(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(versionId)}${withConversationQuery(conversationId)}`,
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ label }),
+		},
+		fetchImpl,
+	);
+	const payload = (await response
+		.json()
+		.catch(() => null)) as NameVersionResponse | null;
+	return payload ?? { ok: false, reason: "not_found" };
 }
 
 /** Creates a root comment (`anchor` set, `parentId` omitted) or a reply (`anchor: null`, `parentId` set). T10.1. */

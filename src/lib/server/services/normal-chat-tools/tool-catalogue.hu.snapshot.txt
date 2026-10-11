@@ -1041,7 +1041,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             }
           },
           "summary": {
-            "description": "One short line shown next to Keep/Undo.",
+            "description": "What you changed, in one short past-tense line with no subject (“Moved the museum to Thursday”; in Hungarian “Áttette a múzeumot csütörtökre” or “Esős napi terv hozzáadva”, never “Áttettem …”); shown next to Keep/Undo and in History.",
             "type": "string",
             "maxLength": 200
           }

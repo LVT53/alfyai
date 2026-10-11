@@ -1,5 +1,10 @@
 import { expect, type Page, test } from "@playwright/test";
-import { login, openConversationComposer, waitForHydration } from "./helpers";
+import {
+	clearAdminConfig,
+	login,
+	openConversationComposer,
+	waitForHydration,
+} from "./helpers";
 
 // `/instruction <text>` is a hand-off, not a turn: the argument is a line to
 // add to the text the user already has, and the only surface that may write it
@@ -105,6 +110,12 @@ async function runInstructionCommand(page: Page, text: string) {
 
 const personalBox = (page: Page) =>
 	page.getByRole("textbox", { name: "Instructions for Personal" });
+
+// The flag is an admin override, a row in this worker's database; the next spec file on the
+// worker meets the default, not whatever the last test here left.
+test.afterEach(async ({ page }) => {
+	await clearAdminConfig(page, ["COMPOSER_COMMAND_REGISTRY_ENABLED"]);
+});
 
 test.describe("instructions from the composer", () => {
 	test("appends the argument to the saved text, saves the whole thing, and sends nothing", async ({

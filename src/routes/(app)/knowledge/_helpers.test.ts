@@ -35,6 +35,8 @@ function makeKnowledgeDocument(
 		sourceChatFileId: overrides.sourceChatFileId ?? null,
 		kind: overrides.kind,
 		artifactVersionNumber: overrides.artifactVersionNumber,
+		lastAuthor: overrides.lastAuthor,
+		lastKind: overrides.lastKind,
 		createdAt: overrides.createdAt ?? 1,
 		updatedAt: overrides.updatedAt ?? 2,
 	};
@@ -137,6 +139,37 @@ describe("workspace document helpers", () => {
 			mimeType: null,
 			artifactId: "art-canvas-1",
 			conversationId: "conv-1",
+			// What the panel's header needs to say what changed last (RV-V M-3).
+			updatedAt: 2,
+			lastAuthor: null,
+			lastKind: null,
+		});
+	});
+
+	// RV-V M-3: History is now the only way to a version, and the header's history
+	// button exists only when the panel can say what the latest moment was. An item
+	// opened from the library carried none of it, so it had no History button.
+	it("carries the latest moment of an artifact-family row, so the panel opens with its History button", () => {
+		const document = makeKnowledgeDocument({
+			id: "art-doc-1",
+			type: "artifact",
+			displayArtifactId: "art-doc-1",
+			promptArtifactId: null,
+			familyArtifactIds: ["art-doc-1"],
+			name: "Trip plan",
+			mimeType: null,
+			conversationId: "conv-1",
+			kind: "document",
+			lastAuthor: "alfy",
+			lastKind: "alfy_edit",
+			updatedAt: 1_700_000_000_000,
+		});
+
+		expect(toWorkspaceDocument(document)).toMatchObject({
+			kind: "document",
+			updatedAt: 1_700_000_000_000,
+			lastAuthor: "alfy",
+			lastKind: "alfy_edit",
 		});
 	});
 
