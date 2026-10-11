@@ -1911,7 +1911,8 @@ const artifactsDict = {
 		"artifacts.history.canvas.change.added": "{label}, hozzáadva",
 		"artifacts.history.canvas.change.changed": "{label}, módosítva",
 		"artifacts.history.canvas.change.moved": "{label}, áthelyezve",
-		"artifacts.history.canvas.change.linked": "{label}, a kapcsolatai módosultak",
+		"artifacts.history.canvas.change.linked":
+			"{label}, a kapcsolatai módosultak",
 		"artifacts.history.canvas.change.removed": "{label}, törölve",
 		"artifacts.history.canvas.emptyBoard": "Ebben a változatban nincs blokk.",
 		// Egy alkalmazás előnézete az Előzményekben.

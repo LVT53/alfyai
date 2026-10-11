@@ -21,8 +21,8 @@ export type BoardParts = {
 };
 
 let boardParts: BoardParts | null = null;
-export function provideBoardParts(parts: BoardParts): void {
-	boardParts = parts;
+export function provideBoardParts(next: BoardParts): void {
+	boardParts = next;
 }
 </script>
 
@@ -81,6 +81,10 @@ let {
 	changeCursor,
 	onState,
 }: HistoryPreviewProps = $props();
+
+// Handed over before this component is made (`provideBoardParts`), and never again:
+// read once, so there is nothing to react to.
+const parts = boardParts;
 
 /** A body over this many characters is not compared (the server does not diff it either): "Too large to compare". */
 const LARGE_BODY_CHARS = 256 * 1024;
@@ -202,11 +206,11 @@ $effect(() => {
 		if (!camera) return;
 		if (
 			fittedCamera !== null &&
-			!boardParts?.sameCamera(api.getCamera(), fittedCamera)
+			!parts?.sameCamera(api.getCamera(), fittedCamera)
 		) {
 			return;
 		}
-		if (fittedCamera !== null && boardParts?.sameCamera(camera, fittedCamera)) {
+		if (fittedCamera !== null && parts?.sameCamera(camera, fittedCamera)) {
 			return;
 		}
 		fittedCamera = camera;
@@ -258,8 +262,8 @@ const tagLabels = $derived({
 </script>
 
 {#snippet previewLayers(api: BoardLayerApi)}
-	{#if boardParts}
-		{@const Portal = boardParts.ViewportPortal}
+	{#if parts}
+		{@const Portal = parts.ViewportPortal}
 		<!-- What the version changed, in board space: rings, tags, trails, ghosts. -->
 		<Portal target="front">
 			<HistoryDiffLayer
@@ -300,9 +304,9 @@ const tagLabels = $derived({
 		</div>
 	{:else}
 		{#key boardKey}
-			{#if boardParts}
-				{@const Provider = boardParts.SvelteFlowProvider}
-				{@const Board = boardParts.CanvasBoard}
+			{#if parts}
+				{@const Provider = parts.SvelteFlowProvider}
+				{@const Board = parts.CanvasBoard}
 				<Provider>
 					<Board
 						bind:this={boardApi}
