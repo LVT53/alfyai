@@ -1,6 +1,10 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
-import { getArtifact, getVersionBody } from "$lib/server/services/artifacts";
+import {
+	getArtifact,
+	getVersionBody,
+	nameVersion,
+} from "$lib/server/services/artifacts";
 import type { RequestHandler } from "./$types";
 
 // GET /api/artifacts/[id]/versions/[versionId] — one version's stored body,
@@ -33,4 +37,32 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	return json({ ok: true, body });
+};
+
+// PATCH /api/artifacts/[id]/versions/[versionId] — the reader's name for a
+// version, `{ label: string | null }` (ruling 76, Q3). Naming is a fact about
+// one row, never a body: it mints no version and changes nothing else. Blank or
+// null removes the name; more than 60 characters, or anything that is not
+// text, is a 400. Scoped like every artifact route, so a version that is not
+// the caller's to name is the same 404 as a missing one.
+export const PATCH: RequestHandler = async (event) => {
+	const user = requireApiUser(event);
+	const payload = await event.request.json().catch(() => null);
+	if (!payload || typeof payload !== "object" || !("label" in payload)) {
+		return json({ ok: false, reason: "invalid_label" }, { status: 400 });
+	}
+
+	const result = await nameVersion({
+		userId: user.id,
+		artifactId: event.params.id,
+		versionId: event.params.versionId,
+		conversationId: event.url.searchParams.get("conversationId"),
+		label: (payload as { label: unknown }).label,
+	});
+	if (!result.ok) {
+		return json(result, {
+			status: result.reason === "not_found" ? 404 : 400,
+		});
+	}
+	return json(result);
 };
