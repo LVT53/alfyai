@@ -458,7 +458,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 	// the card's own `preview` — versionNumber included — by matching the
 	// tool call's artifactId against that same array, so the fix is the one
 	// missing field copy; no new plumbing needed.
-	test("the in-chat card's version follows a live edit_artifact call without a reload", async ({
+	test("the in-chat card follows a live edit_artifact call without a reload", async ({
 		page,
 	}) => {
 		await login(page);
@@ -528,11 +528,16 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 
 			// No reload here — this is exactly the gap the review found: the
 			// turn is over, the card is already on screen, and the server-side
-			// version is already 2.
+			// edit has landed: the card's own review count is what proves its
+			// summary was refreshed (ruling 76: it prints no version number, only
+			// when it last changed).
 			const card = page.getByTestId("artifact-card");
 			await expect(card).toBeVisible();
-			await expect(card.getByText("v2")).toBeVisible({ timeout: 10_000 });
-			await expect(card.getByText("v1")).not.toBeVisible();
+			await expect(card).toContainText("1 change to review", {
+				timeout: 10_000,
+			});
+			await expect(card).toContainText("edited");
+			await expect(card).not.toContainText(/\bv\d/);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (temporaryProvider) {
@@ -640,7 +645,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 
 // M-7 of the final review: with the panel docked beside the chat the card's text
 // column is squeezed by its "Megnyitva a panelen" label, and the meta line
-// wrapped between a number and its unit — "Dokumentum · 1 / fül / · v1". The line
+// wrapped between a number and its unit — "Dokumentum · 1 / fül / · …". The line
 // is now one line (FX-D: it ends in an ellipsis before it wraps, and the label
 // has a row of its own when the card is narrow), so "· 1 fül" is never broken
 // apart. The card is the one the app draws for a Document the turn made (seeded
@@ -708,13 +713,15 @@ test.describe("the in-chat artifact card's meta line", () => {
 						name: /Weekend plan, Dokumentum$/,
 					}),
 				).toBeVisible({ timeout: 30_000 });
-				// The kind, the facts and the version are ONE line element that the
-				// card keeps on one line (it would end in an ellipsis before it
-				// wrapped), so "· 1 fül" is never broken apart.
+				// The kind, the facts and when it last changed are ONE line element
+				// that the card keeps on one line (it would end in an ellipsis before
+				// it wrapped), so "· 1 fül" is never broken apart.
 				const facts = page
 					.getByTestId("artifact-card-head")
 					.locator(".artifact-card-facts");
-				await expect(facts).toHaveText(/Dokumentum · 1 fül\s+·\s+v1/);
+				await expect(facts).toHaveText(
+					/Dokumentum · 1 fül\s+·\s+szerkesztve épp most/,
+				);
 
 				// Where the browser put the line: every piece of it on one line.
 				const lines = await facts.evaluate((element) => {

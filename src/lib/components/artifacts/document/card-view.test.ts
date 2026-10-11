@@ -58,7 +58,6 @@ describe("card-view: documentArtifactCardView", () => {
 		const view = documentArtifactCardView({
 			artifactId: "doc-1",
 			title: "Notes",
-			versionNumber: 1,
 			body: "Just a paragraph.",
 			onToggleTask: vi.fn(),
 		});
@@ -69,7 +68,6 @@ describe("card-view: documentArtifactCardView", () => {
 		const view = documentArtifactCardView({
 			artifactId: "doc-1",
 			title: "Trip",
-			versionNumber: 2,
 			body: bodyWithTasks(),
 			onToggleTask: vi.fn(),
 		});
@@ -91,7 +89,6 @@ describe("card-view: documentArtifactCardView", () => {
 		const view = documentArtifactCardView({
 			artifactId: "doc-1",
 			title: "Trip",
-			versionNumber: 2,
 			body: bodyWithTasks(),
 			onToggleTask,
 		});
@@ -109,7 +106,6 @@ describe("card-view: documentArtifactCardView", () => {
 		const view = documentArtifactCardView({
 			artifactId: "doc-1",
 			title: "Trip",
-			versionNumber: 1,
 			subtitle: "Document · 3 tabs",
 			madeBy: "made by Alfy just now",
 			body: null,
@@ -127,7 +123,6 @@ describe("card-view: documentArtifactCardViewFromPreview (the chat card's bounde
 		const view = documentArtifactCardViewFromPreview({
 			artifactId: "doc-1",
 			title: "Packing list",
-			versionNumber: 2,
 			subtitle: "Document · 1 tab",
 			preview: {
 				tabCount: 1,
@@ -145,7 +140,6 @@ describe("card-view: documentArtifactCardViewFromPreview (the chat card's bounde
 			kind: "document",
 			title: "Packing list",
 			subtitle: "Document · 1 tab",
-			versionNumber: 2,
 			openTargetId: "doc-1",
 		});
 		expect(view.tickable?.items).toEqual([
@@ -158,7 +152,6 @@ describe("card-view: documentArtifactCardViewFromPreview (the chat card's bounde
 		const view = documentArtifactCardViewFromPreview({
 			artifactId: "doc-1",
 			title: "Packing list",
-			versionNumber: 1,
 			preview: {
 				tabCount: 1,
 				tasks: [
@@ -181,7 +174,6 @@ describe("card-view: documentArtifactCardViewFromPreview (the chat card's bounde
 		const view = documentArtifactCardViewFromPreview({
 			artifactId: "doc-1",
 			title: "Notes",
-			versionNumber: 1,
 			preview: { tabCount: 1, tasks: [], totalTaskCount: 0 },
 			onToggleTask: vi.fn(),
 		});
@@ -193,7 +185,6 @@ describe("card-view: documentArtifactCardViewFromPreview (the chat card's bounde
 		const view = documentArtifactCardViewFromPreview({
 			artifactId: "doc-1",
 			title: "Packing list",
-			versionNumber: 1,
 			preview: {
 				tabCount: 1,
 				tasks: [{ blockId: "b1", text: "Passport", checked: false }],

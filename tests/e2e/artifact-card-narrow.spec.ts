@@ -23,7 +23,7 @@ import { createConversation, login, waitForStableBoundingBox } from "./helpers";
 
 // FX-D: the in-chat card at a docked panel's narrow chat column. With the panel
 // docked the chat column is ~340 px at a 1100 px window and the card used to
-// break its meta line into four ("Dokumentum / · 1 fül / · / v1") while "Megnyitva
+// break its meta line into four ("Dokumentum / · 1 fül / · / szerkesztve") while "Megnyitva
 // a panelen ›" was drawn over it. The card now adapts to ITS OWN width (a
 // container query on the card, not the viewport): when it is narrow the action
 // takes a row of its own under the text, the meta line stays one line (it
@@ -833,7 +833,7 @@ test.describe("the in-chat artifact card at a docked panel's narrow chat column"
 			await expect(
 				card(page, TITLES.pending).getByTestId("artifact-card-head"),
 			).toHaveAccessibleName(
-				/Packing list.*Dokumentum · 1 fül.*v2.*1 módosítás vár rád.*Átnézés/,
+				/Packing list.*Dokumentum · 1 fül.*szerkesztve.*1 módosítás vár rád.*Átnézés/,
 			);
 
 			// What a hover paints on the head and on the action's words (shots only).

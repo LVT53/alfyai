@@ -1417,19 +1417,23 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 			const shell = workspacePanel(page);
 			await expect(shell).toBeVisible({ timeout: 30_000 });
 
-			// The header has a version button AND a time — opened straight from
-			// the card, `handleOpenArtifact` (ToolActivityRow.svelte) must fill
-			// versionNumber/updatedAt from the card's own `body.preview`, or the
-			// header falls back to showing only the kind label (this finding's
-			// own evidence: "the meta line shows only 'Dokumentum'"). The
-			// version button is the only way into Versions from here. v2 — the
-			// seeded document started at v1 and this turn's one applied edit
-			// (the "Book the hotel." block) created v2 — because the header
-			// now follows the live version instead of the page's pre-turn
-			// `conversationArtifacts` snapshot (fixed in 9d6b1868).
-			await expect(shell.getByTestId("artifact-version-pill")).toContainText(
-				"v2",
+			// The header has a history button that says what happened last AND
+			// when — opened straight from the card, `handleOpenArtifact`
+			// (ToolActivityRow.svelte) must fill updatedAt and the latest moment
+			// from the card's own `body.preview`, or the header falls back to
+			// showing only the kind label (this finding's own evidence: "the meta
+			// line shows only 'Dokumentum'"). The button is the way into History
+			// from here. It says Alfy's edit — the seeded document's one applied
+			// edit (the "Book the hotel." block) is the newest version — because
+			// the header follows the live moment instead of the page's pre-turn
+			// `conversationArtifacts` snapshot (fixed in 9d6b1868). Ruling 76:
+			// never a version number.
+			await expect(shell.getByTestId("artifact-history-button")).toContainText(
+				"Changed by Alfy",
 			);
+			await expect(
+				shell.getByTestId("artifact-history-button"),
+			).not.toContainText(/\bv\d/);
 
 			// Exactly ONE applied change, never two, when opened this way.
 			const reviewRegion = page.getByRole("region", {

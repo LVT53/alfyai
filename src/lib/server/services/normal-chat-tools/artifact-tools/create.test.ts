@@ -221,11 +221,14 @@ describe("runCreateArtifactTool — a registered handler", () => {
 			title: "Vienna plan",
 			versionId: "version-1",
 		});
+		// Ruling 76: the call's record names the version it wrote, so History's
+		// "From the chat" can find the message behind an Alfy moment.
 		expect(result.metadata).toEqual({
 			ok: true,
 			artifactId: "artifact-1",
 			artifactKind: "document",
 			artifactTitle: "Vienna plan",
+			versionId: "version-1",
 		});
 	});
 

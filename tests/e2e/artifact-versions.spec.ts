@@ -20,21 +20,22 @@ import {
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
-import {
-	createConversation,
-	login,
-	sendMessage,
-	waitForMotionToSettle,
-} from "./helpers";
+import { createConversation, login, sendMessage } from "./helpers";
 
 // Wave 2.5 polish G1-B (owner: "the version numbers are all over the place —
 // in the overview I see v5, inside it's only v3, and in the versions tab I
-// see a v4 but no v5"). Four surfaces show one artifact's version: the panel
-// list row, the in-chat card, the panel header's version button and the
-// Versions popover's own current row. This walks the whole life of one
-// Document — created, edited by the user, edited live by Alfy, that edit
-// undone, an older version restored, the restore undone — and asks every
-// surface at every step, against the server's own newest version row.
+// see a v4 but no v5"), rebuilt for ruling 76: there is no number to compare
+// any more, but there is still ONE answer to "what happened last", and four
+// surfaces must give it (the panel header's history button, the panel list row,
+// the in-chat card and History's top moment). This walks the whole life of one
+// Document — created, edited by the reader, edited live by Alfy, that change
+// reviewed from History and undone, an older version restored, the restore
+// undone from its toast — with real pointer and keyboard input and a real
+// `edit_artifact` call, and asks every surface at every step, against the
+// server's own newest version row. It is also the Document's History story
+// (versioning.md §11 T1): the folded Undo, no "v4" anywhere, the restore from
+// the preview confirmed with Enter, the source marked "Restored from here",
+// the toast's Undo folding the pair, and the same rail after a reload.
 
 async function testUserId(): Promise<string> {
 	const [user] = await db
@@ -50,10 +51,6 @@ async function serverVersions(artifactId: string) {
 	return listVersions({ userId: await testUserId(), artifactId });
 }
 
-async function serverVersion(artifactId: string): Promise<number> {
-	return (await serverVersions(artifactId))[0]?.versionNumber ?? 0;
-}
-
 async function openChatAndReload(page: Page, conversationId: string) {
 	await page.evaluate((id) => {
 		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
@@ -62,20 +59,15 @@ async function openChatAndReload(page: Page, conversationId: string) {
 	await page.reload({ waitUntil: "networkidle" });
 }
 
-function versionOf(text: string | null | undefined): string | null {
-	return text?.match(/\bv(\d+)\b/)?.[0] ?? null;
+/** The showing shell's history button (both shells are real DOM nodes; only the visible one counts). */
+function historyButton(page: Page): Locator {
+	return page
+		.locator('[data-testid="artifact-history-button"]:visible')
+		.first();
 }
 
-/**
- * The desktop shell's own version button (both shells are real DOM nodes;
- * only the visible one counts). Until the Document's body has loaded and
- * registered its Versions action the same pill is plain text, not a button —
- * on a cold dev server that is several seconds — so only the button counts.
- */
-function headerPill(page: Page): Locator {
-	return page
-		.locator('button[data-testid="artifact-version-pill"]:visible')
-		.first();
+function doneButton(page: Page): Locator {
+	return page.locator('[data-testid="artifact-history-done"]:visible').first();
 }
 
 async function openDocumentFromPanel(page: Page): Promise<void> {
@@ -88,7 +80,7 @@ async function openDocumentFromPanel(page: Page): Promise<void> {
 		.getByTestId("artifact-row")
 		.first()
 		.click({ timeout: 30_000 });
-	await expect(headerPill(page)).toBeVisible({ timeout: 30_000 });
+	await expect(historyButton(page)).toBeVisible({ timeout: 30_000 });
 }
 
 async function backToList(page: Page): Promise<void> {
@@ -96,82 +88,81 @@ async function backToList(page: Page): Promise<void> {
 	await expect(page.getByTestId("artifact-panel-list")).toBeVisible();
 }
 
-/** What the four surfaces say right now, read the way a person reads them. */
+const WHEN = "(?:just now|\\d+ min ago)";
+
+/** What the surfaces say right now, read the way a person reads them. */
 async function readSurfaces(page: Page, withCard: boolean) {
-	const header = versionOf(await headerPill(page).textContent());
-
-	// The Versions popover's own current row.
-	await headerPill(page).click();
-	const popover = page.getByTestId("document-versions-popover");
-	await expect(popover).toBeVisible();
-	// A generous budget: on a cold dev server the first request to the
-	// versions route also pays for compiling it (as the first open of the
-	// editor does in the other artifact specs).
-	await expect(popover.getByRole("listitem").first()).toBeVisible({
-		timeout: 30_000,
-	});
-	const topRow = popover.getByRole("listitem").first();
-	const versions = versionOf(await topRow.textContent());
-	await page.keyboard.press("Escape");
-	await expect(popover).toHaveCount(0);
-
-	// The chat card (only once Alfy has made a tool call in this chat).
+	const header = (await historyButton(page).textContent())
+		?.replace(/\s+/g, " ")
+		.trim();
 	const card = withCard
-		? versionOf(
-				await page.getByTestId("artifact-card-head").last().textContent(),
-			)
+		? (await page.getByTestId("artifact-card-head").last().textContent())
+				?.replace(/\s+/g, " ")
+				.trim()
 		: undefined;
 
-	// The panel list row.
 	await backToList(page);
-	const list = versionOf(
+	const row = (
 		await page
 			.getByTestId("artifact-panel-list")
 			.getByTestId("artifact-row")
 			.first()
-			.textContent(),
-	);
+			.textContent()
+	)
+		?.replace(/\s+/g, " ")
+		.trim();
 	await page
 		.getByTestId("artifact-panel-list")
 		.getByTestId("artifact-row")
 		.first()
 		.click();
-	await expect(headerPill(page)).toBeVisible();
-
-	return { header, versions, list, ...(withCard ? { card } : {}) };
+	await expect(historyButton(page)).toBeVisible();
+	return { header, card, row };
 }
 
-async function expectAllSurfaces(
+/**
+ * Every surface agrees with the server's newest row: the header says the right
+ * words and the time, the list row and the chat card say the same time, and no
+ * surface prints a version number.
+ */
+async function expectSurfaces(
 	page: Page,
 	artifactId: string,
-	expected: number,
+	expected: { version: number; header: RegExp },
 	label: string,
 	withCard: boolean,
 ) {
 	await expect
-		.poll(() => serverVersion(artifactId), {
+		.poll(async () => (await serverVersions(artifactId))[0]?.versionNumber, {
 			message: `${label}: the server's newest version`,
 			timeout: 15_000,
 		})
-		.toBe(expected);
-	// Let the passive surfaces settle before the interactive read below.
-	await expect
-		.poll(async () => versionOf(await headerPill(page).textContent()), {
-			timeout: 6_000,
-		})
-		.toBe(`v${expected}`)
-		.catch(() => undefined);
+		.toBe(expected.version);
+	await expect(historyButton(page), `${label}: the header`).toContainText(
+		expected.header,
+		{ timeout: 15_000 },
+	);
 	const seen = await readSurfaces(page, withCard);
-	const want = `v${expected}`;
-	expect(seen, `${label} (server says v${expected})`).toEqual({
-		header: want,
-		versions: want,
-		list: want,
-		...(withCard ? { card: want } : {}),
-	});
+	expect(seen.header, `${label}: the header's words`).toMatch(expected.header);
+	expect(seen.header, `${label}: the header's time`).toMatch(new RegExp(WHEN));
+	expect(seen.row, `${label}: the list row's time`).toMatch(new RegExp(WHEN));
+	expect(seen.row, `${label}: the list row prints no number`).not.toMatch(
+		/\bv\d+\b/,
+	);
+	if (withCard) {
+		expect(seen.card, `${label}: the chat card's last fact`).toMatch(
+			new RegExp(`edited ${WHEN}`),
+		);
+		expect(seen.card, `${label}: the chat card prints no number`).not.toMatch(
+			/\bv\d+\b/,
+		);
+	}
+	expect(seen.header, `${label}: the header prints no number`).not.toMatch(
+		/\bv\d+\b/,
+	);
 }
 
-test.describe("one version number on every surface", () => {
+test.describe("one latest moment on every surface", () => {
 	const fakeProvider = createOpenAICompatibleProviderHarness();
 
 	test.beforeAll(async () => {
@@ -184,20 +175,21 @@ test.describe("one version number on every surface", () => {
 		await fakeProvider.reset();
 	});
 
-	test("create → user edit → Alfy edit → Undo → restore → undo the restore: the list row, the chat card, the header and the Versions popover agree at every step, and after a reload", async ({
+	test("create → user edit → Alfy edit → review → Undo → restore → undo the restore: the header, the list row, the chat card and History agree at every step, and after a reload", async ({
 		page,
 	}) => {
-		test.setTimeout(240_000);
+		test.setTimeout(300_000);
+		await page.setViewportSize({ width: 1440, height: 900 });
 		await login(page);
 		const previousModelPreference = await snapshotUserModelPreference(page);
 		let providerId: string | null = null;
 		try {
-			const conversationId = await createConversation(page, "Version walk");
+			const conversationId = await createConversation(page, "Moment walk");
 			const userId = await testUserId();
 			const artifact = await createDocumentArtifact({
 				userId,
 				conversationId,
-				title: "Version walk",
+				title: "Moment walk",
 				markdown: "Book the hotel.\n\nBook the flight.",
 				author: "user",
 				summary: "Seeded for E2E",
@@ -215,15 +207,26 @@ test.describe("one version number on every surface", () => {
 			await openDocumentFromPanel(page);
 
 			// v1 — created.
-			await expectAllSurfaces(page, artifactId, 1, "created", false);
+			await expectSurfaces(
+				page,
+				artifactId,
+				{ version: 1, header: /Edited by you/ },
+				"created",
+				false,
+			);
 
-			// v2 — the user edits (autosave; a fresh version because v1 was a
-			// seed, not an "Edited" burst).
+			// v2 — the reader types (autosave; a fresh version because v1 was a seed).
 			const editor = page.locator(".document-editor-host .document-content");
 			await editor.getByText("Book the flight.").click();
 			await page.keyboard.press("End");
 			await page.keyboard.type(" Window seat.");
-			await expectAllSurfaces(page, artifactId, 2, "user edit", false);
+			await expectSurfaces(
+				page,
+				artifactId,
+				{ version: 2, header: /Edited by you/ },
+				"user edit",
+				false,
+			);
 
 			// v3 — Alfy edits live (a real edit_artifact call). Alfy's own read
 			// happens first, so her edit is not refused as "your words win".
@@ -260,44 +263,150 @@ test.describe("one version number on every surface", () => {
 			await expect(
 				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
 			).toBeVisible({ timeout: 30_000 });
-			await expectAllSurfaces(page, artifactId, 3, "Alfy edit", true);
+			await expectSurfaces(
+				page,
+				artifactId,
+				{ version: 3, header: /Changed by Alfy/ },
+				"Alfy edit",
+				true,
+			);
 
-			// v4 — the user undoes Alfy's change: its own version, "Undid Alfy's
-			// change", not another anonymous "Edited".
+			// History says the change waits for the reader, and "Review" leads back to
+			// the one place that decides it (the pill and the review bar, never History).
+			await historyButton(page).click();
+			const region = page.getByRole("region", {
+				name: "History of Moment walk",
+			});
+			await expect(region).toBeVisible();
+			const top = region.getByRole("option").first();
+			await expect(top).toContainText("Waiting for you");
+			await expect(top).toContainText("Now");
+			await expect(
+				region.getByRole("button", { name: /Review/ }).first(),
+			).toBeVisible();
+			// "From the chat": the message whose call made the version, flashed.
+			await region
+				.getByRole("button", { name: /From the chat/ })
+				.first()
+				.click();
+			await expect(page.locator(".history-flash")).toHaveCount(1);
+			await region
+				.getByRole("button", { name: /Review/ })
+				.first()
+				.click();
+			await expect(region).toHaveCount(0);
+			await expect(page.getByTestId("alfy-change-bar")).toBeVisible();
+
+			// v4 — the reader undoes Alfy's change with a click on the pill: its own
+			// version, naming the Alfy version it undid.
 			await page
 				.getByTestId("alfy-change-bar")
 				.getByRole("button", { name: "Undo Alfy's change" })
 				.click();
-			await expectAllSurfaces(page, artifactId, 4, "Undo", true);
+			await expectSurfaces(
+				page,
+				artifactId,
+				{ version: 4, header: /Alfy's change undone/ },
+				"Undo",
+				true,
+			);
+			expect((await serverVersions(artifactId))[0]?.summary).toMatch(
+				/^Undid Alfy's change: v3$/,
+			);
+
+			// History tells the two as one story, "↳ You undid it", and prints no "v4".
+			await historyButton(page).click();
+			await expect(region).toBeVisible();
+			const options = region.getByRole("option");
+			await expect(options).toHaveCount(4);
+			await expect(options.nth(0)).toHaveAccessibleName(
+				/Today \d\d:\d\d, Alfy.*Undone\./,
+			);
+			await expect(options.nth(0)).toContainText("Undone");
+			await expect(options.nth(1)).toContainText("You undid it");
+			await expect(region).not.toContainText(/\bv4\b/);
+			// ↓ moves the selection, and the preview follows.
+			await expect(options.nth(0)).toBeFocused();
+			await page.keyboard.press("ArrowDown");
+			await page.keyboard.press("ArrowDown");
+			await expect(options.nth(2)).toHaveAttribute("aria-selected", "true");
+			await expect(region.getByTestId("history-title")).toContainText(
+				"You edited",
+			);
+			await expect(region.getByTestId("history-preview")).toContainText(
+				"Window seat.",
+			);
+
+			// v5 — restore the first version from the preview: a click asks, Enter confirms.
+			await options.nth(3).click();
+			await region.getByTestId("history-restore").click();
+			const question = region.getByTestId("history-restore-question");
+			await expect(question).toBeVisible();
+			await expect(question).toContainText("Bring back");
+			await expect(region.getByTestId("history-restore-confirm")).toBeFocused();
+			await page.keyboard.press("Enter");
+			await expect(page.getByTestId("history-toast")).toContainText("Restored");
+			// The new top moment, selected, and the source says where it was restored.
+			await expect(options.first()).toHaveAttribute("aria-selected", "true");
+			await expect(options.first()).toContainText("You restored");
+			await expect(
+				region
+					.getByTestId("history-option")
+					.filter({ hasText: "Restored from here" }),
+			).toHaveCount(1);
+			await expect(
+				region.getByRole("option", { name: /Restored from here/ }),
+			).toHaveCount(1);
+			await expect
+				.poll(async () => (await serverVersions(artifactId))[0]?.versionNumber)
+				.toBe(5);
+
+			// v6 — the toast's Undo reverses the restore, and the two fold into one quiet moment.
+			await page.getByTestId("history-toast-undo").click();
+			await expect
+				.poll(async () => (await serverVersions(artifactId))[0]?.versionNumber)
+				.toBe(6);
+			// It names the restore it reverses (version 5), which is what lets the two fold.
 			expect((await serverVersions(artifactId))[0]?.summary).toBe(
-				"Undid Alfy's change",
+				"Undid restoring v5",
+			);
+			await expect(region.getByRole("option").first()).toContainText(
+				"You restored",
+			);
+			await expect(region.getByRole("option").nth(1)).toContainText(
+				"You undid the restore",
+			);
+			await doneButton(page).click();
+			await expect(region).toHaveCount(0);
+			await expectSurfaces(
+				page,
+				artifactId,
+				{ version: 6, header: /Edited by you/ },
+				"undo the restore",
+				true,
 			);
 
-			// v5 — restore v1 from the Versions popover (inline confirm).
-			await headerPill(page).click();
-			const popover = page.getByTestId("document-versions-popover");
-			const v1Row = popover.getByRole("listitem").filter({ hasText: /\bv1\b/ });
-			await v1Row.hover();
-			await v1Row.getByRole("button", { name: "Restore" }).click();
-			await v1Row.getByRole("button", { name: "Restore" }).click();
-			await expect(page.getByTestId("toast-entry")).toContainText(
-				"Restored v1 as v5",
-			);
-			await expectAllSurfaces(page, artifactId, 5, "restore", true);
-
-			// v6 — the toast's Undo puts back what was current before the restore.
-			await page
-				.getByTestId("toast-entry")
-				.getByRole("button", { name: "Undo" })
-				.click();
-			await expectAllSurfaces(page, artifactId, 6, "undo the restore", true);
-
-			// A reload rebuilds every surface from stored state: the open item
-			// comes back from the saved workspace snapshot, which was taken at
-			// v1 — it must not win over the artifact's real version.
+			// A reload rebuilds every surface from stored state, and History shows the same rail.
 			await page.reload({ waitUntil: "networkidle" });
-			await expect(headerPill(page)).toBeVisible({ timeout: 30_000 });
-			await expectAllSurfaces(page, artifactId, 6, "after a reload", true);
+			await expect(historyButton(page)).toBeVisible({ timeout: 30_000 });
+			await expectSurfaces(
+				page,
+				artifactId,
+				{ version: 6, header: /Edited by you/ },
+				"after a reload",
+				true,
+			);
+			await historyButton(page).click();
+			const again = page.getByRole("region", {
+				name: "History of Moment walk",
+			});
+			await expect(again.getByRole("option")).toHaveCount(6);
+			await expect(again.getByRole("option").first()).toContainText(
+				"You restored",
+			);
+			await expect(again.getByRole("option").nth(1)).toContainText(
+				"You undid the restore",
+			);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (providerId) await deleteTemporaryProvider(page, providerId);
@@ -305,9 +414,9 @@ test.describe("one version number on every surface", () => {
 	});
 });
 
-// ---- the Versions popover itself (polish G1-B, owner: "clunky, not very nice") --
+// ---- the restore toast's exit (polish G1-B, redesign §7.2 #33) ---------------
 
-/** A Document with `extra` more versions on top of v1, alternating authors, so the list has something to show. */
+/** A Document with `extra` more versions on top of v1, alternating authors, so the history has something to show. */
 async function seedDocumentWithVersions(
 	conversationId: string,
 	extra: number,
@@ -316,7 +425,7 @@ async function seedDocumentWithVersions(
 	const artifact = await createDocumentArtifact({
 		userId,
 		conversationId,
-		title: "Popover walk",
+		title: "Toast walk",
 		markdown: "Book the hotel.\n\nBook the flight.",
 		author: "alfy",
 		summary: "Alfy wrote the first draft",
@@ -334,288 +443,56 @@ async function seedDocumentWithVersions(
 	return artifact.id;
 }
 
-async function openVersionsPopover(page: Page): Promise<Locator> {
-	await headerPill(page).click();
-	const popover = page.getByTestId("document-versions-popover");
-	await expect(popover).toBeVisible();
-	await expect(popover.getByTestId("version-row").first()).toBeVisible({
-		timeout: 30_000,
-	});
-	return popover;
+/** Restores the oldest version from History's preview, so the toast shows. */
+async function restoreOldestFromHistory(page: Page, title: string) {
+	await historyButton(page).click();
+	const region = page.getByRole("region", { name: `History of ${title}` });
+	await expect(region).toBeVisible();
+	await region.getByRole("option").last().click();
+	await region.getByTestId("history-restore").click();
+	await region.getByTestId("history-restore-confirm").click();
+	await expect(page.getByTestId("history-toast")).toBeVisible();
 }
 
-async function boxOf(locator: Locator) {
-	const box = await locator.boundingBox();
-	expect(box, "the element must have a box").not.toBeNull();
-	return box as { x: number; y: number; width: number; height: number };
-}
-
-for (const viewport of [
-	{ width: 1440, height: 900 },
-	{ width: 1280, height: 800 },
-]) {
-	test.describe(`the Versions popover at ${viewport.width}x${viewport.height}`, () => {
-		test.beforeEach(async ({ page }) => {
-			await page.setViewportSize(viewport);
-			await login(page);
-		});
-
-		test("opens under its own button, inside the panel, never over the chat column", async ({
-			page,
-		}) => {
-			const conversationId = await createConversation(page, "Popover place");
-			await seedDocumentWithVersions(conversationId, 5);
-			await openChatAndReload(page, conversationId);
-			await openDocumentFromPanel(page);
-
-			const popover = await openVersionsPopover(page);
-			const pill = await boxOf(headerPill(page));
-			const panel = await boxOf(
-				page.locator(".workspace-shell-desktop").first(),
-			);
-			const box = await boxOf(popover);
-
-			// Under the button, left edges aligned (unless the panel edge forces a shift).
-			expect(box.y).toBeGreaterThanOrEqual(pill.y + pill.height);
-			expect(box.y - (pill.y + pill.height)).toBeLessThanOrEqual(16);
-			expect(Math.abs(box.x - pill.x)).toBeLessThanOrEqual(2);
-			// Inside the panel on both sides: the chat column is left of panel.x.
-			expect(box.x).toBeGreaterThanOrEqual(panel.x);
-			expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width);
-			// The mockup's width band.
-			expect(box.width).toBeGreaterThanOrEqual(320);
-			expect(box.width).toBeLessThanOrEqual(360);
-			// And inside the window vertically.
-			expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
-			await expect(headerPill(page)).toHaveAttribute("aria-expanded", "true");
-		});
-
-		test("stays under its button in the expanded panel too", async ({
-			page,
-		}) => {
-			const conversationId = await createConversation(page, "Popover wide");
-			await seedDocumentWithVersions(conversationId, 5);
-			await openChatAndReload(page, conversationId);
-			await openDocumentFromPanel(page);
-			await page.locator(".workspace-expand-button:visible").first().click();
-
-			const popover = await openVersionsPopover(page);
-			const pill = await boxOf(headerPill(page));
-			const box = await boxOf(popover);
-			expect(box.x).toBeGreaterThanOrEqual(0);
-			expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
-			expect(box.y).toBeGreaterThanOrEqual(pill.y + pill.height);
-			expect(Math.abs(box.x - pill.x)).toBeLessThanOrEqual(2);
-		});
-	});
-}
-
-test.describe("the Versions popover's rows", () => {
-	test.beforeEach(async ({ page }) => {
-		await page.setViewportSize({ width: 1440, height: 900 });
-		await login(page);
-	});
-
-	test("are evenly spaced, and showing Restore neither moves nor resizes a row", async ({
-		page,
-	}) => {
-		const conversationId = await createConversation(page, "Popover rows");
-		await seedDocumentWithVersions(conversationId, 5);
-		await openChatAndReload(page, conversationId);
-		await openDocumentFromPanel(page);
-		const popover = await openVersionsPopover(page);
-
-		const rows = popover.getByTestId("version-row");
-		const count = await rows.count();
-		expect(count).toBe(6);
-		const before = [];
-		for (let i = 0; i < count; i++) before.push(await boxOf(rows.nth(i)));
-
-		// Every row after the newest is the same height, and the pitch between
-		// rows never varies: no row reserves room for a button it is not showing.
-		const restHeights = before.slice(1).map((b) => Math.round(b.height));
-		expect(new Set(restHeights).size).toBe(1);
-		const pitches = before
-			.slice(1)
-			.map((b, i) => Math.round(b.y - (before[i].y + before[i].height)));
-		expect(new Set(pitches).size).toBe(1);
-
-		// Hover a row: its Restore appears, and nothing moves.
-		const hovered = rows.nth(2);
-		const action = hovered.locator(".versions-action");
-		await expect(action).toHaveCSS("opacity", "0");
-		await hovered.hover();
-		await expect(action).toHaveCSS("opacity", "1");
-		const after = [];
-		for (let i = 0; i < count; i++) after.push(await boxOf(rows.nth(i)));
-		expect(after).toEqual(before);
-		// The summary keeps its full width at rest and while Restore shows.
-		const summaryWidth = (await boxOf(hovered.locator(".versions-summary")))
-			.width;
-		await page.mouse.move(0, 0);
-		await expect(action).toHaveCSS("opacity", "0");
-		expect((await boxOf(hovered.locator(".versions-summary"))).width).toBe(
-			summaryWidth,
-		);
-	});
-
-	test("scrolls inside itself when the history is long, staying inside the window", async ({
-		page,
-	}) => {
-		const conversationId = await createConversation(page, "Popover long");
-		await seedDocumentWithVersions(conversationId, 18);
-		await openChatAndReload(page, conversationId);
-		await openDocumentFromPanel(page);
-		const popover = await openVersionsPopover(page);
-
-		const box = await boxOf(popover);
-		expect(box.y + box.height).toBeLessThanOrEqual(900);
-		expect(box.height).toBeLessThanOrEqual(480);
-		const body = popover.locator(".anchored-popover-body");
-		const scrolls = await body.evaluate(
-			(el) => el.scrollHeight > el.clientHeight,
-		);
-		expect(scrolls, "a long history scrolls inside the popover").toBe(true);
-		// The heading stays put while the list scrolls.
-		const heading = popover.getByRole("heading", { name: "Versions" });
-		const headingBefore = await boxOf(heading);
-		await body.evaluate((el) => {
-			el.scrollTop = el.scrollHeight;
-		});
-		expect(await boxOf(heading)).toEqual(headingBefore);
-	});
-
-	test("work with the keyboard alone: Tab reaches Restore and shows it, Enter asks, Escape closes and returns focus to the version button", async ({
-		page,
-	}) => {
-		const conversationId = await createConversation(page, "Popover keys");
-		await seedDocumentWithVersions(conversationId, 3);
-		await openChatAndReload(page, conversationId);
-		await openDocumentFromPanel(page);
-		const popover = await openVersionsPopover(page);
-
-		const rows = popover.getByTestId("version-row");
-		// Focus starts on the close button; the next Tab stop is the first
-		// Restore (the newest row has none).
-		await page.keyboard.press("Tab");
-		const firstRestore = rows.nth(1).getByRole("button", { name: "Restore" });
-		await expect(firstRestore).toBeFocused();
-		await expect(rows.nth(1).locator(".versions-action")).toHaveCSS(
-			"opacity",
-			"1",
-		);
-		// Its focus ring is visible.
-		const ring = await firstRestore.evaluate(
-			(el) => getComputedStyle(el).boxShadow,
-		);
-		expect(ring).not.toBe("none");
-
-		await page.keyboard.press("Enter");
-		await expect(rows.nth(1)).toContainText(/Restore v3\?/);
-		// The question's confirming button took focus.
-		await expect(
-			rows.nth(1).getByRole("button", { name: "Restore" }),
-		).toBeFocused();
-		// Cancel puts focus back on the row's own Restore.
-		await rows.nth(1).getByRole("button", { name: "Cancel" }).click();
-		await expect(
-			rows.nth(1).getByRole("button", { name: "Restore" }),
-		).toBeFocused();
-
-		await page.keyboard.press("Escape");
-		await expect(popover).toHaveCount(0);
-		await expect(headerPill(page)).toBeFocused();
-		await expect(headerPill(page)).not.toHaveAttribute("aria-expanded", "true");
-	});
-});
-
-test.describe("the Versions sheet on a phone", () => {
-	test("shows the same rows in a sheet, over the mobile shell", async ({
-		page,
-	}) => {
-		await page.setViewportSize({ width: 390, height: 844 });
-		await login(page);
-		const conversationId = await createConversation(page, "Popover phone");
-		await seedDocumentWithVersions(conversationId, 4);
-		await openChatAndReload(page, conversationId);
-		await page.getByTestId("artifact-count-button-compact").click();
-		await page
-			.getByTestId("artifact-panel-list-mobile")
-			.getByTestId("artifact-row")
-			.first()
-			.click({ timeout: 30_000 });
-		await headerPill(page).click();
-
-		const dialog = page.getByRole("dialog", { name: "Versions" });
-		await expect(dialog).toBeVisible();
-		const rows = dialog.getByTestId("version-row");
-		await expect(rows).toHaveCount(5);
-		// Really on top: the sheet's own row is what a tap at its centre reaches.
-		await waitForMotionToSettle(page);
-		await expect
-			.poll(
-				async () => {
-					const box = await boxOf(rows.first());
-					return page.evaluate(
-						({ x, y }) =>
-							document
-								.elementFromPoint(x, y)
-								?.closest('[data-testid="version-row"]') !== null,
-						{ x: box.x + box.width / 2, y: box.y + box.height / 2 },
-					);
-				},
-				{ message: "a tap at the sheet's first row reaches that row" },
-			)
-			.toBe(true);
-		const width = (await boxOf(dialog)).width;
-		expect(width).toBeLessThanOrEqual(390);
-	});
-});
-
-// ---- the toast's exit (polish G1-B, redesign §7.2 #33) ---------------------
-
-async function restoreOldestVersion(page: Page) {
-	const popover = await openVersionsPopover(page);
-	const oldest = popover.getByTestId("version-row").last();
-	await oldest.hover();
-	await oldest.getByRole("button", { name: "Restore" }).click();
-	await oldest.getByRole("button", { name: "Restore" }).click();
-	await expect(page.getByTestId("toast-entry")).toBeVisible();
-}
-
-/** Dismisses the toast and watches it leave, frame by frame, the way a person sees it. */
-async function dismissToastAndWatch(page: Page) {
+/** Watches the toast leave, frame by frame, the way a person sees it: from the first frame it begins to fade until it is gone. */
+async function watchToastLeave(page: Page) {
 	return page.evaluate(
 		() =>
 			new Promise<{
 				gone: boolean;
 				minOpacity: number;
 				maxSink: number;
-				ms: number;
+				exitMs: number;
 			}>((resolve) => {
 				const el = document.querySelector(
-					'[data-testid="toast-entry"]',
+					'[data-testid="history-toast"]',
 				) as HTMLElement;
-				const close = el.querySelector(
-					'button[aria-label="Close"]',
-				) as HTMLButtonElement;
-				const start = performance.now();
 				let minOpacity = 1;
 				let maxSink = 0;
-				close.click();
+				let exitStart: number | null = null;
+				const started = performance.now();
 				const frame = () => {
-					const ms = performance.now() - start;
+					const now = performance.now();
 					if (!el.isConnected) {
-						return resolve({ gone: true, minOpacity, maxSink, ms });
+						return resolve({
+							gone: true,
+							minOpacity,
+							maxSink,
+							exitMs: exitStart === null ? 0 : now - exitStart,
+						});
 					}
 					const style = getComputedStyle(el);
-					minOpacity = Math.min(minOpacity, Number.parseFloat(style.opacity));
+					const opacity = Number.parseFloat(style.opacity);
+					minOpacity = Math.min(minOpacity, opacity);
 					const matrix = new DOMMatrixReadOnly(
 						style.transform === "none" ? undefined : style.transform,
 					);
+					// The toast is centred with a translateX(-50%): only the sink (y) is its motion.
 					maxSink = Math.max(maxSink, matrix.m42);
-					if (ms > 2000)
-						return resolve({ gone: false, minOpacity, maxSink, ms });
+					if (opacity < 0.95 && exitStart === null) exitStart = now;
+					if (now - started > 9000) {
+						return resolve({ gone: false, minOpacity, maxSink, exitMs: 0 });
+					}
 					requestAnimationFrame(frame);
 				};
 				requestAnimationFrame(frame);
@@ -623,48 +500,47 @@ async function dismissToastAndWatch(page: Page) {
 	);
 }
 
-test.describe("the toast's exit", () => {
+test.describe("the restore toast's exit", () => {
 	test.beforeEach(async ({ page }) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
 		await login(page);
 	});
 
-	test("slides out — fading and sinking — and leaves the DOM", async ({
-		page,
-	}) => {
+	test("fades and sinks away, then leaves the DOM", async ({ page }) => {
+		test.setTimeout(120_000);
 		const conversationId = await createConversation(page, "Toast exit");
 		await seedDocumentWithVersions(conversationId, 2);
 		await openChatAndReload(page, conversationId);
 		await openDocumentFromPanel(page);
-		await restoreOldestVersion(page);
+		await restoreOldestFromHistory(page, "Toast walk");
 
 		// Let its entrance finish first, so what is measured is the exit alone.
-		await page.waitForTimeout(500);
-		const seen = await dismissToastAndWatch(page);
+		await page.waitForTimeout(600);
+		const seen = await watchToastLeave(page);
 
 		expect(seen.gone, "the toast leaves the DOM").toBe(true);
 		expect(seen.minOpacity, "it faded on its way out").toBeLessThan(0.9);
 		expect(seen.maxSink, "it sank on its way out").toBeGreaterThan(2);
-		// The standard duration (150ms), not an instant cut and not a slow fade.
-		expect(seen.ms).toBeGreaterThan(60);
-		expect(seen.ms).toBeLessThan(700);
+		// The standard duration, not an instant cut and not a slow fade.
+		expect(seen.exitMs).toBeGreaterThan(40);
+		expect(seen.exitMs).toBeLessThan(700);
 	});
 
 	test("leaves at once when the person asked for reduced motion", async ({
 		page,
 	}) => {
+		test.setTimeout(120_000);
 		await page.emulateMedia({ reducedMotion: "reduce" });
 		const conversationId = await createConversation(page, "Toast exit reduced");
 		await seedDocumentWithVersions(conversationId, 2);
 		await openChatAndReload(page, conversationId);
 		await openDocumentFromPanel(page);
-		await restoreOldestVersion(page);
+		await restoreOldestFromHistory(page, "Toast walk");
 
-		const seen = await dismissToastAndWatch(page);
+		const seen = await watchToastLeave(page);
 
 		expect(seen.gone).toBe(true);
 		expect(seen.minOpacity, "no fade was ever visible").toBe(1);
 		expect(seen.maxSink, "no movement was ever visible").toBe(0);
-		expect(seen.ms).toBeLessThan(100);
 	});
 });

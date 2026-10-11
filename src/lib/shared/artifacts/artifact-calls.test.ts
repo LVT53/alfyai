@@ -3,6 +3,7 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	artifactCallOf,
 	artifactCallsFromSegments,
+	artifactVersionMessagesFromMessages,
 	markRegenerable,
 } from "./artifact-calls";
 
@@ -78,5 +79,56 @@ describe("artifactCallOf", () => {
 			{ type: "tool_call", ...created, status: "failed" },
 		]);
 		expect(segmentCalls).toEqual([artifactCallOf(created)]);
+	});
+});
+
+// Ruling 76: "From the chat" on an Alfy moment scrolls to the message whose tool
+// call made that version. The call's own record names the version it made.
+describe("artifactVersionMessagesFromMessages", () => {
+	const call = (
+		name: "create_artifact" | "edit_artifact",
+		artifactId: string,
+		versionId: string | undefined,
+		status: "done" | "failed" = "done",
+	): ToolCallEntry => ({
+		callId: `call-${artifactId}-${versionId}`,
+		name,
+		input: {},
+		status,
+		metadata: {
+			ok: true,
+			artifactId,
+			artifactKind: "document",
+			...(versionId === undefined ? {} : { versionId }),
+		},
+	});
+	const message = (id: string, calls: ToolCallEntry[]) => ({
+		id,
+		thinkingSegments: calls.map((entry) => ({
+			type: "tool_call" as const,
+			...entry,
+		})),
+	});
+
+	it("maps each artifact's versions to the message that made them", () => {
+		const map = artifactVersionMessagesFromMessages([
+			message("m1", [call("create_artifact", "doc-1", "v1")]),
+			message("m2", [
+				call("edit_artifact", "doc-1", "v2"),
+				call("edit_artifact", "doc-2", "w2"),
+			]),
+		] as never);
+		expect(map.get("doc-1")?.get("v1")).toBe("m1");
+		expect(map.get("doc-1")?.get("v2")).toBe("m2");
+		expect(map.get("doc-2")?.get("w2")).toBe("m2");
+	});
+
+	it("leaves out a call that names no version (an older record), a refused one and a message with no calls", () => {
+		const map = artifactVersionMessagesFromMessages([
+			message("m1", [call("edit_artifact", "doc-1", undefined)]),
+			message("m2", [call("edit_artifact", "doc-1", "v3", "failed")]),
+			message("m3", []),
+		] as never);
+		expect(map.size).toBe(0);
 	});
 });

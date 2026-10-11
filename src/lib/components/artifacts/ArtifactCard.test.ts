@@ -295,13 +295,13 @@ describe("ArtifactCard", () => {
 	// Step 1.1: "chrome='body' renders no title of its own" — a rule that
 	// predates this card and still governs it); the body content the header
 	// does NOT own — subtitle, tickable items, Open — still renders.
-	it("chrome=body renders no title/icon/kind-label/version header, but still renders the body (subtitle, Open)", () => {
+	it("chrome=body renders no title/icon/kind-label/edited header, but still renders the body (subtitle, Open)", () => {
 		render(ArtifactCard, {
 			view: view({
 				kind: "document",
 				title: "Weekend checklist",
 				subtitle: "Document · 2 tabs",
-				versionNumber: 3,
+				editedLabel: "edited 2 min ago",
 				openTargetId: "artifact-1",
 			}),
 			chrome: "body",
@@ -310,18 +310,18 @@ describe("ArtifactCard", () => {
 		expect(screen.getByTestId("artifact-card")).toBeInTheDocument();
 		expect(screen.queryByText("Weekend checklist")).not.toBeInTheDocument();
 		expect(screen.queryByText("Document")).not.toBeInTheDocument();
-		expect(screen.queryByText("v3")).not.toBeInTheDocument();
+		expect(screen.queryByText(/edited 2 min ago/)).not.toBeInTheDocument();
 		expect(screen.getByText("Document · 2 tabs")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
 	});
 
-	it("chrome=full still renders the icon, title, subtitle and version in the head (the standalone in-chat card)", () => {
+	it("chrome=full renders the icon, title, subtitle and when it last changed in the head, never a version number (ruling 76)", () => {
 		render(ArtifactCard, {
 			view: view({
 				kind: "document",
 				title: "Weekend checklist",
 				subtitle: "Document · 2 tabs",
-				versionNumber: 3,
+				editedLabel: "edited 2 min ago",
 				openTargetId: "artifact-1",
 			}),
 			chrome: "full",
@@ -329,29 +329,29 @@ describe("ArtifactCard", () => {
 
 		const head = screen.getByRole("button", { name: /Weekend checklist/ });
 		expect(head).toHaveTextContent("Weekend checklist");
-		expect(head).toHaveTextContent("Document · 2 tabs");
-		expect(head).toHaveTextContent("v3");
+		expect(head).toHaveTextContent("Document · 2 tabs · edited 2 min ago");
+		expect(head).not.toHaveTextContent(/\bv\d/);
 		expect(head).toHaveTextContent("Open");
 	});
 
 	// M-7 of the final review and the card's narrow-column fix (FX-D): the head's
-	// second line is ONE line element (kind, facts, version) that the stylesheet
+	// second line is ONE line element (kind, facts, when it last changed) that the stylesheet
 	// keeps on one line (it ends in an ellipsis before it wraps), so a number
 	// never parts from its unit however narrow the column is. The review pills are
 	// its siblings, never inside it, so they can drop to a row of their own.
-	it("chrome=full draws kind, facts and version as one line, with the review pill beside it and not inside it", () => {
+	it("chrome=full draws kind, facts and when it last changed as one line, with the review pill beside it and not inside it", () => {
 		const cases: Array<[string, string]> = [
-			["Dokumentum · 1 fül", "Dokumentum · 1 fül · v2"],
-			["Document · 3 tabs", "Document · 3 tabs · v2"],
-			["Canvas · 11 blocks", "Canvas · 11 blocks · v2"],
-			["Tábla · 12 blokk", "Tábla · 12 blokk · v2"],
-			["App", "App · v2"],
+			["Dokumentum · 1 fül", "Dokumentum · 1 fül · edited 2 min ago"],
+			["Document · 3 tabs", "Document · 3 tabs · edited 2 min ago"],
+			["Canvas · 11 blocks", "Canvas · 11 blocks · edited 2 min ago"],
+			["Tábla · 12 blokk", "Tábla · 12 blokk · edited 2 min ago"],
+			["App", "App · edited 2 min ago"],
 		];
 		for (const [subtitle, line] of cases) {
 			const { container, unmount } = render(ArtifactCard, {
 				view: view({
 					subtitle,
-					versionNumber: 2,
+					editedLabel: "edited 2 min ago",
 					pendingReviewCount: 1,
 					openTargetId: "artifact-1",
 				}),
@@ -366,7 +366,7 @@ describe("ArtifactCard", () => {
 				container.querySelector(".artifact-card-sub > .pill"),
 			).toBeInTheDocument();
 			expect(facts?.querySelector(".pill")).toBeNull();
-			// The version beside it is its own fact, led by its own separator.
+			// The time beside it is its own fact, led by its own separator.
 			expect(container.querySelector(".artifact-card-sep")).toHaveTextContent(
 				"·",
 			);
@@ -415,12 +415,11 @@ describe("ArtifactCard", () => {
 
 	// chrome="row": the panel list's one-line-per-item row (redesign §5.2).
 	describe("chrome=row", () => {
-		it("renders the whole row as one button: icon, title, kind/facts/version, and time", () => {
+		it("renders the whole row as one button: icon, title, kind/facts, and time (no version number: ruling 76)", () => {
 			render(ArtifactCard, {
 				view: view({
 					title: "Vienna trip plan",
 					subtitle: "Document · 3 tabs",
-					versionNumber: 6,
 					updatedAtLabel: "2 min ago",
 					openTargetId: "artifact-1",
 				}),
@@ -431,7 +430,7 @@ describe("ArtifactCard", () => {
 			expect(row).toHaveAttribute("data-testid", "artifact-row");
 			expect(row).toHaveTextContent("Vienna trip plan");
 			expect(row).toHaveTextContent("Document · 3 tabs");
-			expect(row).toHaveTextContent("v6");
+			expect(row).not.toHaveTextContent(/\bv\d/);
 			expect(row).toHaveTextContent("2 min ago");
 			// Never a second, separate "Open" affordance — the row itself is it.
 			expect(
@@ -444,12 +443,11 @@ describe("ArtifactCard", () => {
 		// between them and, when a caller's subtitle carries no kind, no kind at
 		// all. It reads as what the row is: title, kind, facts, version, time.
 		describe("the row's accessible name", () => {
-			it("says title, kind and facts, version, then time, comma-separated", () => {
+			it("says title, kind and facts, then time, comma-separated", () => {
 				render(ArtifactCard, {
 					view: view({
 						title: "Vienna trip plan",
 						subtitle: "Document · 3 tabs",
-						versionNumber: 6,
 						updatedAtLabel: "2 min ago",
 						openTargetId: "artifact-1",
 					}),
@@ -457,7 +455,7 @@ describe("ArtifactCard", () => {
 				});
 				expect(
 					screen.getByRole("button", {
-						name: "Vienna trip plan, Document, 3 tabs, v6, 2 min ago",
+						name: "Vienna trip plan, Document, 3 tabs, 2 min ago",
 					}),
 				).toHaveAttribute("data-testid", "artifact-row");
 			});
@@ -468,14 +466,13 @@ describe("ArtifactCard", () => {
 						kind: "app",
 						title: "Budget tracker",
 						subtitle: "Split by traveller",
-						versionNumber: 2,
 						updatedAtLabel: "just now",
 					}),
 					chrome: "row",
 				});
 				expect(
 					screen.getByRole("button", {
-						name: "Budget tracker, App, Split by traveller, v2, just now",
+						name: "Budget tracker, App, Split by traveller, just now",
 					}),
 				).toBeInTheDocument();
 			});
@@ -494,7 +491,6 @@ describe("ArtifactCard", () => {
 				const { unmount } = render(ArtifactCard, {
 					view: view({
 						title: "Vienna trip plan",
-						versionNumber: 3,
 						updatedAtLabel: "5 min ago",
 						pendingReviewCount: 2,
 					}),
@@ -502,14 +498,13 @@ describe("ArtifactCard", () => {
 				});
 				expect(
 					screen.getByRole("button", {
-						name: "Vienna trip plan, Document, v3, 5 min ago, 2 changes to review",
+						name: "Vienna trip plan, Document, 5 min ago, 2 changes to review",
 					}),
 				).toBeInTheDocument();
 				unmount();
 				render(ArtifactCard, {
 					view: view({
 						title: "Vienna trip plan",
-						versionNumber: 3,
 						updatedAtLabel: "5 min ago",
 						pendingReviewCount: 0,
 					}),
@@ -517,7 +512,7 @@ describe("ArtifactCard", () => {
 				});
 				expect(
 					screen.getByRole("button", {
-						name: "Vienna trip plan, Document, v3, 5 min ago, Reviewed",
+						name: "Vienna trip plan, Document, 5 min ago, Reviewed",
 					}),
 				).toBeInTheDocument();
 			});
@@ -528,14 +523,13 @@ describe("ArtifactCard", () => {
 					view: view({
 						title: "Bécsi utazás",
 						subtitle: "Dokumentum · 3 fül",
-						versionNumber: 6,
 						updatedAtLabel: "2 perce",
 					}),
 					chrome: "row",
 				});
 				expect(
 					screen.getByRole("button", {
-						name: "Bécsi utazás, Dokumentum, 3 fül, v6, 2 perce",
+						name: "Bécsi utazás, Dokumentum, 3 fül, 2 perce",
 					}),
 				).toBeInTheDocument();
 			});
@@ -543,12 +537,12 @@ describe("ArtifactCard", () => {
 
 		it("falls back to the bare kind label when the caller gives no subtitle (App, File, …)", () => {
 			render(ArtifactCard, {
-				view: view({ kind: "app", subtitle: null, versionNumber: 2 }),
+				view: view({ kind: "app", subtitle: null }),
 				chrome: "row",
 			});
 			const row = screen.getByRole("button");
 			expect(row).toHaveTextContent("App");
-			expect(row).toHaveTextContent("v2");
+			expect(row).not.toHaveTextContent(/\bv\d/);
 		});
 
 		it("clicking the row calls onOpen with the item's openTargetId", async () => {
@@ -792,14 +786,14 @@ describe("ArtifactCard — a Canvas", () => {
 				kind: "canvas",
 				title: "Vienna trip board",
 				blockCount: 11,
-				versionNumber: 7,
+				editedLabel: "edited just now",
 				openTargetId: "artifact-1",
 			}),
 			onOpen: vi.fn(),
 		});
 		const head = screen.getByTestId("artifact-card-head");
-		expect(head).toHaveTextContent("Canvas · 11 blocks");
-		expect(head).toHaveTextContent("v7");
+		expect(head).toHaveTextContent("Canvas · 11 blocks · edited just now");
+		expect(head).not.toHaveTextContent(/\bv\d/);
 	});
 
 	it("says one block in the singular, and in Hungarian says it in Hungarian", () => {

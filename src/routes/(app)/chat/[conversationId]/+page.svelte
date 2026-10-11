@@ -54,17 +54,13 @@ import {
 import {
 	dropDeletedArtifacts,
 	forgetObservedArtifact,
+	type LatestMoment,
 	markArtifactDeleted,
-	NO_OBSERVED_ARTIFACT_TIMES,
-	NO_OBSERVED_ARTIFACT_VERSIONS,
-	type ObservedArtifactTimes,
-	type ObservedArtifactVersions,
-	observeArtifactUpdatedAt,
-	observeArtifactVersion,
-	withCurrentItemUpdatedAt,
-	withCurrentItemVersion,
-	withCurrentSummaryUpdatedAt,
-	withCurrentSummaryVersion,
+	NO_OBSERVED_ARTIFACT_MOMENTS,
+	type ObservedArtifactMoments,
+	observeArtifactMoment,
+	withCurrentItemMoment,
+	withCurrentSummaryMoment,
 } from "$lib/client/artifact-versions";
 import { ApiError } from "$lib/client/api/http";
 import {
@@ -75,6 +71,7 @@ import {
 import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
 import type { OpenInstructionDialog } from "$lib/client/instruction-command";
 import {
+	artifactVersionMessagesFromMessages,
 	markRegenerable,
 	regenerableArtifactIdsFromMessages,
 } from "$lib/shared/artifacts/artifact-calls";
@@ -585,22 +582,19 @@ let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 // alongside generatedFiles/fileProductionJobs everywhere they are, never a
 // second fetch path.
 let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
-// Wave 2.5 polish G1-B (one version number everywhere): the highest version
-// the server has told this browser about, per artifact — fed by every save,
-// fetch, restore and version-list read (`subscribeArtifactChanges`), so the
-// list row, the chat card and the panel header's button all read the number
-// the Versions list shows instead of a copy taken when the list was loaded
-// or the item was opened.
-let observedArtifactVersions = $state.raw<ObservedArtifactVersions>(
-	NO_OBSERVED_ARTIFACT_VERSIONS,
+// Ruling 76, amendment A1 (one latest moment everywhere): the newest version
+// the server has told this browser about, per artifact, with its time, author
+// and kind — fed by every save, fetch, restore and History read
+// (`subscribeArtifactChanges`), so the list row, the chat card and the panel
+// header's history button all say what History says instead of a copy taken
+// when the list was loaded or the item was opened. The number only orders and
+// guards.
+let observedArtifactMoments = $state.raw<ObservedArtifactMoments>(
+	NO_OBSERVED_ARTIFACT_MOMENTS,
 );
-// Polish G2-A: the same for WHEN an artifact last changed (the header's
-// "edited 2 min ago" and the list row's time), and for what was deleted — the
-// ids the server says this chat's cards point at that no longer exist, plus
-// the ones this browser deletes (or finds gone) while the page is open.
-let observedArtifactTimes = $state.raw<ObservedArtifactTimes>(
-	NO_OBSERVED_ARTIFACT_TIMES,
-);
+// Polish G2-A: what was deleted — the ids the server says this chat's cards
+// point at that no longer exist, plus the ones this browser deletes (or finds
+// gone) while the page is open.
 let deletedArtifactIds = $state.raw<readonly string[]>(
 	initialDeletedArtifactIds,
 );
@@ -635,13 +629,27 @@ let regenerableIdsKey = $derived(
 let regenerableFromMessages = $derived(
 	new Set(regenerableIdsKey ? regenerableIdsKey.split("|") : []),
 );
+// "From the chat" (ruling 76): which loaded message made which version of which
+// item. Keyed by its text so a token streaming in, which changes `$messages` but
+// not this, hands the panel nothing new (as `regenerableIdsKey` above).
+let versionMessagesKey = $derived(
+	JSON.stringify(
+		[...artifactVersionMessagesFromMessages($messages)].map(
+			([artifactId, versions]) => [artifactId, [...versions]],
+		),
+	),
+);
+let artifactVersionMessages = $derived(
+	new Map(
+		(
+			JSON.parse(versionMessagesKey) as Array<[string, Array<[string, string]>]>
+		).map(([artifactId, versions]) => [artifactId, new Map(versions)]),
+	),
+);
 let liveArtifacts = $derived(
 	markRegenerable(
 		dropDeletedArtifacts(artifacts, deletedArtifactIds).map((row) =>
-			withCurrentSummaryUpdatedAt(
-				withCurrentSummaryVersion(row, observedArtifactVersions),
-				observedArtifactTimes,
-			),
+			withCurrentSummaryMoment(row, observedArtifactMoments),
 		),
 		regenerableFromMessages,
 	),
@@ -1174,6 +1182,8 @@ function artifactToWorkspaceItem(
 		versionNumber: summary.versionNumber,
 		kind: summary.kind,
 		updatedAt: summary.updatedAt,
+		lastAuthor: summary.lastAuthor ?? null,
+		lastKind: summary.lastKind ?? null,
 		documentPreview: summary.documentPreview,
 		pendingReviewCount: summary.pendingReviewCount,
 	};
@@ -1250,21 +1260,25 @@ let artifactWorkspaceItems = $derived(
 );
 
 // The panel keeps each open item as the snapshot taken when it was opened —
-// saved across reloads with the number it had then. The header's version
-// button reads that item, so it takes the current number from the same live
-// list the rows and cards read.
-let currentArtifactVersionById = $derived(
-	new Map(liveArtifacts.map((row) => [row.id, row.versionNumber])),
-);
-let currentArtifactUpdatedAtById = $derived(
-	new Map(liveArtifacts.map((row) => [row.id, row.updatedAt])),
+// saved across reloads with the moment it had then. The header's history button
+// reads that item, so it takes the current moment from the same live list the
+// rows and cards read.
+let currentArtifactMomentById = $derived(
+	new Map<string, LatestMoment>(
+		liveArtifacts.map((row) => [
+			row.id,
+			{
+				version: row.versionNumber,
+				at: row.updatedAt,
+				author: row.lastAuthor ?? null,
+				kind: row.lastKind ?? null,
+			},
+		]),
+	),
 );
 let liveWorkspaceDocuments = $derived(
 	workspaceDocuments.map((document) =>
-		withCurrentItemUpdatedAt(
-			withCurrentItemVersion(document, currentArtifactVersionById),
-			currentArtifactUpdatedAtById,
-		),
+		withCurrentItemMoment(document, currentArtifactMomentById),
 	),
 );
 
@@ -1479,12 +1493,8 @@ function closeWorkspaceDocument(documentId: string) {
  * made later under the same id (Regenerate) starts from its own numbers.
  */
 function handleArtifactDeleted(artifactId: string) {
-	observedArtifactVersions = forgetObservedArtifact(
-		observedArtifactVersions,
-		artifactId,
-	);
-	observedArtifactTimes = forgetObservedArtifact(
-		observedArtifactTimes,
+	observedArtifactMoments = forgetObservedArtifact(
+		observedArtifactMoments,
 		artifactId,
 	);
 	deletedArtifactIds = markArtifactDeleted(deletedArtifactIds, artifactId);
@@ -1758,6 +1768,20 @@ async function focusMessage(messageId: string) {
 	// hold the latest message in view again.
 	await whenStillOnScreen(target, 10);
 	if (isCurrentJump()) linkedMessageConversationId = null;
+}
+
+/**
+ * History's "From the chat": the message that made a version, scrolled to and
+ * flashed. Where the open panel covers the chat (below the desktop breakpoint) it
+ * closes first, so the message is what the reader sees.
+ */
+async function handleShowChatMessage(messageId: string) {
+	if (window.matchMedia("(max-width: 767.98px)").matches) closeWorkspace();
+	await focusMessage(messageId);
+	const target = document.getElementById(`message-${messageId}`);
+	if (!target) return;
+	target.classList.add("history-flash");
+	setTimeout(() => target.classList.remove("history-flash"), 900);
 }
 
 async function handleJumpToWorkspaceSource(document: DocumentWorkspaceItem) {
@@ -2217,7 +2241,7 @@ onMount(() => {
 		.catch(() => {});
 });
 
-// One version number everywhere (see `observedArtifactVersions`): a save, an
+// One latest moment everywhere (see `observedArtifactMoments`): a save, an
 // Alfy edit, an Undo or a restore anywhere in the panel reaches every surface.
 onMount(() =>
 	subscribeArtifactChanges((change) => {
@@ -2231,15 +2255,15 @@ onMount(() =>
 			}
 			return;
 		}
-		observedArtifactVersions = observeArtifactVersion(
-			observedArtifactVersions,
+		observedArtifactMoments = observeArtifactMoment(
+			observedArtifactMoments,
 			change.artifactId,
-			change.version,
-		);
-		observedArtifactTimes = observeArtifactUpdatedAt(
-			observedArtifactTimes,
-			change.artifactId,
-			change.updatedAt,
+			{
+				version: change.version,
+				at: change.updatedAt,
+				author: change.author,
+				kind: change.kind,
+			},
 		);
 	}),
 );
@@ -3877,6 +3901,8 @@ function handleDrop(event: DragEvent) {
 			onPendingReviewCountChange={handlePendingReviewCountChange}
 			onDeleteArtifact={handleDeleteArtifact}
 			onFlushReady={handleFlushReady}
+			{artifactVersionMessages}
+			onShowChatMessage={handleShowChatMessage}
 			currentUser={data.user}
 		/>
 	</div>
@@ -3903,6 +3929,30 @@ function handleDrop(event: DragEvent) {
 	.chat-main {
 		flex: 1 1 0%;
 		min-width: 0;
+	}
+
+	/* History's "From the chat" flashes the message that made a version: a 3 px
+	   accent ring that fades over 900 ms (the redesign's #17), and the ring alone,
+	   still, for a reader who asked for reduced motion. */
+	:global(.history-flash) {
+		border-radius: var(--radius-md);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent);
+		animation: history-flash-fade 900ms var(--ease-out) forwards;
+	}
+
+	@keyframes history-flash-fade {
+		from {
+			background: color-mix(in srgb, var(--accent) 16%, transparent);
+		}
+		to {
+			background: transparent;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:global(.history-flash) {
+			animation: none;
+		}
 	}
 
 	.chat-messages {

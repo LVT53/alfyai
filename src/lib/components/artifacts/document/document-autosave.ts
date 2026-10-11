@@ -30,12 +30,18 @@ export interface DocumentAutosaveResult {
 
 /**
  * What a save says about itself besides "the user typed". `summaryKind` names
- * one of the fixed version summaries (Undo of Alfy's change today); it stays
+ * one of the fixed version summaries (Undo or Redo of Alfy's change); it stays
  * with the queued save for the whole debounce window — typing right after an
  * Undo is still part of that save — and applies to that one save only.
  */
 export interface DocumentAutosaveSaveOptions {
 	summaryKind?: SaveSummaryKind;
+	/**
+	 * An Undo or Redo of Alfy's change names the Alfy version it acts on (ruling
+	 * 76, A5): without it the server can only write an ordinary edit, and History
+	 * cannot fold the Undo onto the change it undid.
+	 */
+	summaryVersion?: number;
 }
 
 export interface DocumentAutosaveHandle {
@@ -63,6 +69,7 @@ export function createDocumentAutosave(options: {
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let pending: string | null = null;
 	let pendingSummaryKind: SaveSummaryKind | undefined;
+	let pendingSummaryVersion: number | undefined;
 	let stopped = false;
 	let inFlight: Promise<DocumentAutosaveResult> | null = null;
 
@@ -112,11 +119,19 @@ export function createDocumentAutosave(options: {
 	} | null {
 		const markdown = pending;
 		const summaryKind = pendingSummaryKind;
+		const summaryVersion = pendingSummaryVersion;
 		pending = null;
 		pendingSummaryKind = undefined;
+		pendingSummaryVersion = undefined;
 		if (markdown === null) return null;
 		return summaryKind
-			? { markdown, saveOptions: { summaryKind } }
+			? {
+					markdown,
+					saveOptions: {
+						summaryKind,
+						...(summaryVersion !== undefined ? { summaryVersion } : {}),
+					},
+				}
 			: { markdown };
 	}
 
@@ -128,6 +143,7 @@ export function createDocumentAutosave(options: {
 			// same window must not turn an Undo's save back into an ordinary one.
 			if (scheduleOptions?.summaryKind) {
 				pendingSummaryKind = scheduleOptions.summaryKind;
+				pendingSummaryVersion = scheduleOptions.summaryVersion;
 			}
 			clearTimer();
 			timer = setTimeout(() => {
@@ -147,6 +163,7 @@ export function createDocumentAutosave(options: {
 			clearTimer();
 			pending = null;
 			pendingSummaryKind = undefined;
+			pendingSummaryVersion = undefined;
 		},
 		resume() {
 			stopped = false;

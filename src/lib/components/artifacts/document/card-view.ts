@@ -70,9 +70,10 @@ export function documentCardTabCount(
 export interface DocumentCardViewParams {
 	artifactId: string;
 	title: string;
-	versionNumber: number;
 	/** Already-localised, e.g. `$t('artifacts.card.madeBy', {...})`. */
 	madeBy?: string | null;
+	/** Already-localised, e.g. `$t('artifacts.card.edited', {...})`: the chat card's last fact. */
+	editedLabel?: string | null;
 	/** Already-localised, e.g. `$t('artifacts.document.cardSubtitle', {count: documentCardTabCount(metadata)})`. */
 	subtitle?: string | null;
 	body: string | null;
@@ -135,7 +136,7 @@ export function documentArtifactCardView(
 		title: params.title,
 		subtitle: params.subtitle ?? null,
 		madeBy: params.madeBy ?? null,
-		versionNumber: params.versionNumber,
+		editedLabel: params.editedLabel ?? null,
 		openTargetId: params.artifactId,
 		tickable: buildTickable(items, items.length, params.onToggleTask),
 	};
@@ -144,9 +145,10 @@ export function documentArtifactCardView(
 export interface DocumentCardViewFromPreviewParams {
 	artifactId: string;
 	title: string;
-	versionNumber: number;
 	/** Already-localised, e.g. `$t('artifacts.card.madeBy', {...})`. */
 	madeBy?: string | null;
+	/** Already-localised, e.g. `$t('artifacts.card.edited', {...})`: the chat card's last fact. */
+	editedLabel?: string | null;
 	/** Already-localised, e.g. `$t('artifacts.document.cardSubtitle', {count: preview.tabCount})`. */
 	subtitle?: string | null;
 	/** `ArtifactCardSummary.documentPreview` — bounded, server-computed, never the whole body (T9 steps 4/7). */
@@ -175,7 +177,7 @@ export function documentArtifactCardViewFromPreview(
 		title: params.title,
 		subtitle: params.subtitle ?? null,
 		madeBy: params.madeBy ?? null,
-		versionNumber: params.versionNumber,
+		editedLabel: params.editedLabel ?? null,
 		openTargetId: params.artifactId,
 		tickable: buildTickable(
 			items,

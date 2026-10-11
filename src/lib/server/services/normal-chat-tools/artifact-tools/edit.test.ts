@@ -313,6 +313,9 @@ describe("runEditArtifactTool — a registered handler", () => {
 			artifactId: "artifact-1",
 			artifactKind: "document",
 			artifactTitle: "Vienna plan",
+			// Ruling 76: the call's record names the version it wrote, so History's
+			// "From the chat" can find the message behind an Alfy moment.
+			versionId: "version-2",
 			appliedCount: 2,
 			refusedBlocksJson: JSON.stringify([
 				{ blockId: "block-3", reason: "unsupported_kind" },

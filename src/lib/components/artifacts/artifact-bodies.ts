@@ -126,8 +126,20 @@ export interface ArtifactBodyProps {
 
 /** See `ArtifactBodyProps.registerPanelActions`. Every field is optional: a body opts in to only the actions it actually owns a sheet for. */
 export interface ArtifactPanelBodyActions {
+	/**
+	 * Opens the kind's own versions sheet. Only a kind with no History mode yet
+	 * registers it (the Canvas, until its preview lands); a Document's history is
+	 * the panel's own mode (`history/`, ruling 76), which the panel opens itself.
+	 */
 	openVersions?: () => void;
 	openDownload?: () => void;
+	/**
+	 * Loads the stored item again, so the body and its version number are the
+	 * server's: after a restore changed what is stored out from under it.
+	 */
+	reload?: () => void;
+	/** Steps the body's review to the first change still waiting (History's "Review" link). */
+	reviewPending?: () => void;
 	/**
 	 * Shows or hides the body's comments — whichever surface applies at the
 	 * moment (the inline column, the narrow-panel drawer, the phone sheet).

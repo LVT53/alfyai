@@ -18,6 +18,7 @@
 import { Check, ChevronDown, LoaderCircle, X } from "@lucide/svelte";
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
+import { formatRelativeTime } from "$lib/utils/time";
 import ArtifactCard, {
 	type ArtifactCardView,
 } from "$lib/components/artifacts/ArtifactCard.svelte";
@@ -207,12 +208,20 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 	const factCheckLine = appVerification?.checked
 		? $t(APP_VERIFY_LINE_KEYS[appVerification.verdict])
 		: null;
+	// The card's last fact is when the item last changed, read from the same
+	// live summary every other surface reads (ruling 76, A1) — never a number.
+	const editedLabel =
+		body.preview && body.preview.updatedAt > 0
+			? $t("artifacts.card.edited", {
+					when: formatRelativeTime(body.preview.updatedAt, { t: $t }),
+				})
+			: null;
 	if (documentPreview) {
 		return {
 			...documentArtifactCardViewFromPreview({
 				artifactId: body.artifactId,
 				title: body.artifactTitle,
-				versionNumber: body.preview?.versionNumber ?? 0,
+				editedLabel,
 				subtitle: $t("artifacts.document.cardSubtitle", {
 					count: documentPreview.tabCount,
 				}),
@@ -241,12 +250,8 @@ function artifactCardView(body: ArtifactActivityBody): ArtifactCardView {
 		current,
 		factCheckLine,
 		blockCount,
-		// A board's card names its version like a Document's does: the number
-		// the chat page already follows (`body.preview` is read through it).
-		versionNumber:
-			body.artifactKind === "canvas"
-				? (body.preview?.versionNumber ?? null)
-				: null,
+		// A board's card says when it last changed like a Document's does.
+		editedLabel: body.artifactKind === "canvas" ? editedLabel : null,
 	};
 }
 
@@ -309,6 +314,8 @@ function handleOpenArtifact(body: ArtifactActivityBody): void {
 		// yet) falls back to the previous behaviour unchanged.
 		versionNumber: body.preview?.versionNumber,
 		updatedAt: body.preview?.updatedAt,
+		lastAuthor: body.preview?.lastAuthor,
+		lastKind: body.preview?.lastKind,
 	});
 }
 

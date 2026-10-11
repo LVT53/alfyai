@@ -739,14 +739,14 @@ export async function runEditArtifactTool(params: {
 			// localises the `code` itself, the same way the model-facing
 			// `refused` array above only ever carried a code).
 			appliedCount: result.value.applied,
-			// A board's edit says which version it made and which it landed on, so a
-			// later edit in the turn can tell its own change from the reader's.
+			// The version this edit wrote (ruling 76): History's "From the chat" finds
+			// the message behind an Alfy moment through it. A board's edit also says
+			// which version it landed on, so a later edit in the turn can tell its own
+			// change from the reader's.
+			versionId: result.value.versionId,
 			...(result.value.baseVersionId === undefined
 				? {}
-				: {
-						versionId: result.value.versionId,
-						parentVersionId: result.value.baseVersionId,
-					}),
+				: { parentVersionId: result.value.baseVersionId }),
 			...(refusedCount > 0
 				? {
 						refusedBlocksJson: JSON.stringify(
