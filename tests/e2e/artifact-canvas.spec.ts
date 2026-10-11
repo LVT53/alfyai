@@ -1428,7 +1428,10 @@ test.describe("the Canvas kind, in the panel", () => {
 
 		const head = page.getByTestId("artifact-card-head");
 		await expect(head).toContainText("Canvas · 6 blocks");
-		await expect(head).toContainText("v1");
+		// When it last changed, in words; the version number is History's
+		// fine print and never on a card (ruling 76).
+		await expect(head).toContainText(/edited /);
+		await expect(head).not.toContainText(/\bv\d/);
 		// No board is drawn in the chat: the card is the head, nothing more.
 		await expect(page.locator(".svelte-flow")).toHaveCount(0);
 		await head.click();
