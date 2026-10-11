@@ -142,6 +142,38 @@ export async function createEmptyConversation(
 	}, title);
 }
 
+/**
+ * Puts admin overrides back to the env default (an empty value is the API's "back to
+ * the default": it deletes the row and updates the server's cache). A worker keeps its
+ * database, and its server, from one spec file to the next, so a spec that sets an
+ * override clears it when it is done; the next file on the worker meets the default.
+ */
+export async function clearAdminConfig(page: Page, keys: string[]) {
+	const response = await page.request.put("/api/admin/config", {
+		data: Object.fromEntries(keys.map((key) => [key, ""])),
+	});
+	expect(response.ok(), `admin config reset -> ${response.status()}`).toBe(
+		true,
+	);
+}
+
+/** Removes the providers a spec added, found by the prefix of their name; the seeded one stays. */
+export async function deleteProvidersWithPrefix(page: Page, prefix: string) {
+	const listed = await page.request.get("/api/admin/providers");
+	expect(listed.ok(), `provider list -> ${listed.status()}`).toBe(true);
+	const { providers } = (await listed.json()) as {
+		providers: Array<{ id: string; name: string }>;
+	};
+	for (const provider of providers.filter((entry) =>
+		entry.name.startsWith(prefix),
+	)) {
+		const removed = await page.request.delete(
+			`/api/admin/providers/${provider.id}`,
+		);
+		expect(removed.ok(), `provider delete -> ${removed.status()}`).toBe(true);
+	}
+}
+
 export async function waitForAssistantResponse(page: Page, timeout = 30000) {
 	await expect(
 		page.getByTestId("assistant-message").filter({ hasText: /\S/ }).first(),
