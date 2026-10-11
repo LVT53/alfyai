@@ -1039,7 +1039,11 @@ export async function restoreArtifactVersion(
 	if (payload?.ok === true && typeof payload.version === "number") {
 		announceArtifactVersion(artifactId, payload.version, Date.now(), {
 			author: "user",
-			kind: guard?.undoOf !== undefined ? "undo_restore" : "restore",
+			// What the server wrote (an App rebuild's Undo is the Undo of Alfy's change,
+			// not of a restore); an older server says nothing and the guess stands.
+			kind:
+				payload.kind ??
+				(guard?.undoOf !== undefined ? "undo_restore" : "restore"),
 		});
 		return payload.version;
 	}

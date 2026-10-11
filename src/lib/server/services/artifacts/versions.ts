@@ -14,7 +14,10 @@
 import { and, desc, eq, lt } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactVersions } from "$lib/server/db/schema";
-import { normalizeVersionLabel } from "$lib/shared/artifacts/history";
+import {
+	normalizeVersionLabel,
+	type RestoreMomentKind,
+} from "$lib/shared/artifacts/history";
 import {
 	parseRestoredVersion,
 	restoredSummary,
@@ -133,7 +136,13 @@ export async function restoreVersion(
 		undoOf?: number;
 	},
 ): Promise<
-	| { ok: true; versionId: string; versionNumber: number }
+	| {
+			ok: true;
+			versionId: string;
+			versionNumber: number;
+			/** What the row written is, so a client that announces it need not guess: a restore, the Undo of one, or the Undo of Alfy's change (an App rebuild's). */
+			kind: RestoreMomentKind;
+	  }
 	| {
 			ok: false;
 			reason:
@@ -154,6 +163,7 @@ export async function restoreVersion(
 	}
 
 	let summary = restoredSummary(version.versionNumber);
+	let kind: RestoreMomentKind = "restore";
 	let expectVersion = params.expectVersion;
 	if (params.undoOf !== undefined) {
 		if (
@@ -186,8 +196,10 @@ export async function restoreVersion(
 		}
 		if (newest.author === "alfy") {
 			summary = undidAlfyChangeSummary(params.undoOf);
+			kind = "undo_alfy_change";
 		} else if (parseRestoredVersion(newest.summary) !== null) {
 			summary = undidRestoreSummary(params.undoOf);
+			kind = "undo_restore";
 		} else {
 			return { ok: false, reason: "invalid_undo" };
 		}
@@ -218,6 +230,7 @@ export async function restoreVersion(
 		ok: true,
 		versionId: result.versionId,
 		versionNumber: result.versionNumber,
+		kind,
 	};
 }
 

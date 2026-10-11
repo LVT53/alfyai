@@ -217,6 +217,7 @@ describe("restoreVersion", () => {
 			ok: true,
 			versionId: expect.any(String),
 			versionNumber: 3,
+			kind: "restore",
 		});
 		expect(contentOf(artifact.id)).toBe("v1 body");
 		const versions = await listVersions({
@@ -360,6 +361,46 @@ describe("restoreVersion", () => {
 				limit: 1,
 			});
 			expect(newest.summary).toBe("Undid Alfy's change: v2");
+		});
+
+		// RV-V M-8: the server says what kind of row it wrote, so a client that announces
+		// the new version (the header's "Edited by you" until a refetch) never has to
+		// guess whether an Undo took back a restore or Alfy's change.
+		it("says which kind of row it wrote: a restore, the Undo of one, or the Undo of Alfy's change", async () => {
+			const { artifact, ids } = await setup();
+			const restored = await restoreVersion({
+				userId: OWNER,
+				artifactId: artifact.id,
+				versionId: ids.get(1) as string,
+			});
+			expect(restored).toMatchObject({ ok: true, kind: "restore" });
+			const undoneRestore = await restoreVersion({
+				userId: OWNER,
+				artifactId: artifact.id,
+				versionId: ids.get(2) as string,
+				undoOf: 3,
+			});
+			expect(undoneRestore).toMatchObject({ ok: true, kind: "undo_restore" });
+
+			const rebuilt = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: rebuilt.id,
+				body: "alfy body",
+				author: "alfy",
+				summary: "Alfy regenerated the app: x",
+			});
+			const first = (
+				await listVersions({ userId: OWNER, artifactId: rebuilt.id })
+			).find((version) => version.versionNumber === 1);
+			await expect(
+				restoreVersion({
+					userId: OWNER,
+					artifactId: rebuilt.id,
+					versionId: first?.id as string,
+					undoOf: 2,
+				}),
+			).resolves.toMatchObject({ ok: true, kind: "undo_alfy_change" });
 		});
 
 		it("refuses an undo that is not the newest row's, not its parent being restored, or not of a restore or Alfy's change", async () => {

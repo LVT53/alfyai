@@ -72,6 +72,24 @@ describe("POST /api/artifacts/[id]/versions/[versionId]/restore", () => {
 		});
 	});
 
+	it("says what kind of row the restore wrote, for the client to announce", async () => {
+		mockRestoreVersion.mockResolvedValue({
+			ok: true,
+			versionId: "version-new",
+			versionNumber: 5,
+			kind: "undo_alfy_change",
+		});
+
+		const response = await POST(makeEvent());
+
+		await expect(response.json()).resolves.toEqual({
+			ok: true,
+			version: 5,
+			versionId: "version-new",
+			kind: "undo_alfy_change",
+		});
+	});
+
 	it("answers 404 not_found for a missing version or artifact", async () => {
 		mockRestoreVersion.mockResolvedValue({ ok: false, reason: "not_found" });
 

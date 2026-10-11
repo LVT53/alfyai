@@ -78,5 +78,6 @@ export const POST: RequestHandler = async (event) => {
 		ok: true,
 		version: result.versionNumber,
 		versionId: result.versionId,
+		kind: result.kind,
 	} satisfies RestoreVersionResponse);
 };

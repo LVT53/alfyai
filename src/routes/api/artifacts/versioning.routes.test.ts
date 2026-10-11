@@ -364,6 +364,8 @@ describe("POST /api/artifacts/[id]/versions/[versionId]/restore — the guard", 
 			ok: true,
 			version: 3,
 			versionId: expect.any(String),
+			// What the server wrote, for the client to announce (RV-V M-8).
+			kind: "restore",
 		});
 	});
 
