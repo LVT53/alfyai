@@ -120,6 +120,12 @@ function makeDocument(
 		...(Object.hasOwn(overrides, "artifactVersionNumber") && {
 			artifactVersionNumber: overrides.artifactVersionNumber,
 		}),
+		...(Object.hasOwn(overrides, "lastAuthor") && {
+			lastAuthor: overrides.lastAuthor,
+		}),
+		...(Object.hasOwn(overrides, "lastKind") && {
+			lastKind: overrides.lastKind,
+		}),
 	};
 }
 
@@ -1434,7 +1440,7 @@ describe("DocumentsList", () => {
 	// Slice 7 (Feature 2, ADR-0066): a Document/App/Canvas/Slides row
 	// (`type: "artifact"`, `KnowledgeDocumentItem.kind`) joins the same table.
 	describe("artifact-family rows (kind-bearing)", () => {
-		it("shows the kind pill and its own version counter, never the extraction-family one", () => {
+		it("shows the kind pill, and says what changed last in the Version cell instead of a number (ruling 76, A1)", () => {
 			render(DocumentsList, {
 				props: {
 					documents: [
@@ -1444,6 +1450,9 @@ describe("DocumentsList", () => {
 							name: "Vienna trip board",
 							kind: "canvas",
 							artifactVersionNumber: 7,
+							updatedAt: Date.now() - 2 * 60 * 1000,
+							lastAuthor: "alfy",
+							lastKind: "alfy_edit",
 						}),
 					],
 				},
@@ -1456,7 +1465,48 @@ describe("DocumentsList", () => {
 			const versionCell = document.querySelector(
 				".documents-table tbody .col-version",
 			);
-			expect(versionCell?.textContent?.trim()).toBe("v7");
+			// What happened and when, as the header's history button says it.
+			expect(versionCell?.textContent).toContain("Changed by Alfy");
+			expect(versionCell?.textContent).toContain("2 min ago");
+			// Never the artifact's number, and never the extraction family's.
+			expect(versionCell?.textContent).not.toMatch(/\bv\d/);
+			expect(versionCell?.querySelector(".version-badge")).toBeNull();
+		});
+
+		it("names the author alone when the server did not say what the last change was, and the reader's own edit as theirs", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeArtifactDocument({
+							id: "art-doc-9",
+							displayArtifactId: "art-doc-9",
+							name: "Saturday plan",
+							kind: "document",
+							artifactVersionNumber: 4,
+							updatedAt: Date.now() - 5 * 60 * 1000,
+							lastAuthor: "user",
+							lastKind: "user_edit",
+						}),
+						makeArtifactDocument({
+							id: "art-doc-10",
+							displayArtifactId: "art-doc-10",
+							name: "Sunday plan",
+							kind: "document",
+							artifactVersionNumber: 2,
+							updatedAt: Date.now() - 5 * 60 * 1000,
+						}),
+					],
+				},
+			});
+
+			const cells = [
+				...document.querySelectorAll(".documents-table tbody .col-version"),
+			].map((cell) => cell.textContent ?? "");
+			expect(cells[0]).toContain("Edited by you");
+			// With neither author nor kind: plain "Edited", still with its time.
+			expect(cells[1]).toContain("Edited");
+			expect(cells[1]).not.toContain("by you");
+			expect(cells[1]).toContain("5 min ago");
 		});
 
 		it("renders an em dash for Version when the artifact has no version written yet", () => {
@@ -1480,7 +1530,7 @@ describe("DocumentsList", () => {
 			expect(versionCell?.textContent?.trim()).toBe("\u2014");
 		});
 
-		it("shows the same kind pill and version on the mobile meta line", () => {
+		it("shows the same kind pill and the last change on the mobile meta line", () => {
 			render(DocumentsList, {
 				props: {
 					documents: [
@@ -1490,6 +1540,9 @@ describe("DocumentsList", () => {
 							name: "Trip cost splitter",
 							kind: "app",
 							artifactVersionNumber: 3,
+							updatedAt: Date.now() - 3 * 60 * 60 * 1000,
+							lastAuthor: "alfy",
+							lastKind: "app_rebuilt",
 						}),
 					],
 				},
@@ -1499,9 +1552,10 @@ describe("DocumentsList", () => {
 			expect(meta?.querySelector(".type-badge")?.textContent?.trim()).toBe(
 				"App",
 			);
-			expect(meta?.querySelector(".version-badge")?.textContent?.trim()).toBe(
-				"v3",
+			expect(meta?.querySelector(".moment-chip")?.textContent?.trim()).toBe(
+				"Rebuilt by Alfy · 3 h ago",
 			);
+			expect(meta?.querySelector(".version-badge")).toBeNull();
 		});
 
 		it("offers only Delete in the Actions column \u2014 no What AI sees, no Download", () => {

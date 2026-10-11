@@ -2266,7 +2266,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					kind={activeArtifactKind}
 					title={getDocumentTitle(activeDocument)}
 					phrase={activeMomentPhrase}
-					onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : bodyPanelActions?.openVersions}
+					onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : undefined}
 					{historyOpen}
 					itemCount={list?.items.length ?? null}
 					onBack={list ? handleBackToList : undefined}
@@ -2438,6 +2438,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 								onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
+								onOpenHistory={() => void openHistory()}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 								onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
 								tourSummary={bodyTourSummary}
@@ -2583,7 +2584,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				kind={activeArtifactKind}
 				title={getDocumentTitle(activeDocument)}
 				phrase={activeMomentPhrase}
-				onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : bodyPanelActions?.openVersions}
+				onHistory={kindHasHistory(activeArtifactKind) ? toggleHistory : undefined}
 				{historyOpen}
 				itemCount={list?.items.length ?? null}
 				onBack={list ? handleBackToList : undefined}
@@ -2763,6 +2764,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						onCommentCountChange={(count) => reportFromBody({ commentCount: count })}
 						onCommentsShownChange={(shown) => reportFromBody({ commentsShown: shown })}
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
+						onOpenHistory={() => void openHistory()}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
 						onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
 						tourSummary={bodyTourSummary}

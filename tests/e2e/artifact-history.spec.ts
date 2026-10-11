@@ -3,14 +3,32 @@ import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
 import {
+	applyArtifactOps,
+	createArtifact,
 	createDocumentArtifact,
+	getKv,
+	listVersions,
+	setKv,
 	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
+import type {
+	CanvasBody,
+	CanvasNode,
+} from "../../src/lib/shared/artifacts/canvas";
+import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
 import {
+	madeAppSummary,
+	regeneratedAppSummary,
 	undidAlfyChangeSummary,
 	VERSION_SUMMARY,
 } from "../../src/lib/shared/artifacts/version-summaries";
-import { createEmptyConversation, login, workspacePanel } from "./helpers";
+import { openCanvasPanel, openChatAndReload } from "./artifact-canvas-helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForHydration,
+	workspacePanel,
+} from "./helpers";
 
 // Ruling 76 (the versioning build): History is a MODE of the panel — a
 // read-only preview beside a day-grouped rail of moments — and the header says
@@ -844,5 +862,772 @@ test.describe("History mode on a phone", () => {
 		).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(sheet).toHaveCount(0);
+	});
+});
+
+// ---- The board and the App in History (VB-3) -------------------------------------
+
+function boardNote(
+	id: string,
+	x: number,
+	y: number,
+	text: string,
+	parentId?: string,
+): CanvasNode {
+	return {
+		id,
+		type: "sticky",
+		position: { x, y },
+		width: 180,
+		...(parentId ? { parentId } : {}),
+		data: { kind: "sticky", text, tone: "yellow" },
+	};
+}
+
+/** A weekend board: Saturday's frame with a lunch in it, the museum and a dinner beside it. */
+function weekendBoard(): CanvasBody {
+	return {
+		version: 1,
+		nodes: [
+			{
+				id: "frame-saturday",
+				type: "frame",
+				position: { x: 20, y: 20 },
+				width: 320,
+				height: 240,
+				data: { kind: "frame", label: "Saturday", width: 320, height: 240 },
+			},
+			boardNote("note-lunch", 24, 64, "Lunch at the market", "frame-saturday"),
+			boardNote("note-museum", 420, 40, "Museum, 14:00"),
+			boardNote("note-dinner", 420, 200, "Dinner, 19:30"),
+		],
+		edges: [],
+		viewport: { x: 0, y: 0, zoom: 1 },
+		annotations: [],
+	};
+}
+
+/** What Alfy plans for Sunday: a new frame with a note in it, and the museum moved. */
+const PLAN_SUNDAY = [
+	{
+		op: "add_frame",
+		id: "frame-sunday",
+		label: "Sunday",
+		position: { x: 20, y: 320 },
+		size: { width: 320, height: 200 },
+	},
+	{
+		op: "add_node",
+		node: {
+			id: "note-brunch",
+			type: "sticky",
+			parentId: "frame-sunday",
+			position: { x: 20, y: 60 },
+			data: { kind: "sticky", text: "Brunch, 10:30", tone: "mint" },
+		},
+	},
+	{ op: "move", id: "note-museum", to: { x: 470, y: 100 } },
+];
+
+test.describe("History mode: a board", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+	});
+
+	test("an Alfy change undone on the review bar folds in History, its preview rings what it touched, and Restore brings it back (T7)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(page, "History board");
+		const userId = await adminId();
+		const created = await createArtifact({
+			userId,
+			conversationId,
+			kind: "canvas",
+			title: "History board",
+			body: boardJson(weekendBoard()),
+			author: "alfy",
+			versionSummary: VERSION_SUMMARY.alfyFirstDraft,
+		});
+		if (!created.ok) throw new Error(created.reason);
+		const artifactId = created.artifact.id;
+		const [newest] = await listVersions({
+			userId,
+			artifactId,
+			conversationId,
+			limit: 1,
+		});
+		const applied = await applyArtifactOps({
+			userId,
+			artifactId,
+			conversationId,
+			payload: {
+				baseVersionId: newest.id,
+				diff: { id: "d", summary: "Planned Sunday", ops: PLAN_SUNDAY },
+			},
+		});
+		if (!applied.ok) throw new Error(applied.reason);
+
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+		// Alfy's change waits on the review bar; the reader takes it back with a click.
+		const bar = page.getByTestId("canvas-review-bar");
+		await expect(bar).toBeVisible();
+		await bar.getByRole("button", { name: /^Undo/ }).click();
+		await expect(
+			page.locator('.svelte-flow__node[data-id="note-brunch"]'),
+		).toHaveCount(0);
+
+		// The header opens History: Alfy's change and the Undo that took it back are ONE moment.
+		await historyButton(page).click();
+		const region = historyRegion(page, "History board");
+		await expect(region).toBeVisible();
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(3);
+		await expect(options.nth(0)).toContainText("Planned Sunday");
+		await expect(options.nth(0)).toContainText("Undone");
+		await expect(options.nth(1)).toContainText("You undid it");
+		await expect(options.nth(2)).toContainText("Alfy made the board");
+		// Nothing prints a version number but the fine print.
+		await expect(historyButton(page)).not.toContainText(/\bv\d/);
+
+		// Its preview is the board as Alfy left it, with what it touched ringed and tagged.
+		const preview = region.getByTestId("history-preview");
+		await expect(preview).toBeVisible();
+		await expect(
+			preview.locator('.svelte-flow__node[data-id="note-brunch"]'),
+		).toBeVisible();
+		await expect(preview.getByTestId("canvas-history-ring")).toHaveCount(3);
+		// In the board's own order: the museum was there before the new frame and its note.
+		await expect(preview.getByTestId("canvas-history-tag")).toHaveText([
+			"Moved",
+			"New",
+			"New",
+		]);
+		await expect(preview.getByTestId("canvas-history-trail")).toHaveCount(1);
+		// Alfy's own colour: the layer says whose change it is.
+		await expect(
+			preview.locator('[data-testid="canvas-history-layer"][data-tone="alfy"]'),
+		).toHaveCount(1);
+		await expect(region.getByTestId("history-change-count")).toHaveText(
+			"1 / 3",
+		);
+		// Read-only: no toolbar to change it with, and a drag on a block moves nothing.
+		await expect(preview.getByTestId("canvas-tool-select")).toHaveCount(0);
+
+		// The changes are a list of buttons a keyboard reaches: each says what happened to which block.
+		const changes = preview.getByTestId("history-board-changes");
+		await expect(changes.getByRole("button")).toHaveText([
+			"Museum, 14:00, moved",
+			"Sunday, added",
+			"Brunch, 10:30, added",
+		]);
+
+		// The version before it: nothing to compare with, so the board shows with no marks.
+		await options.last().click();
+		await expect(preview.getByTestId("canvas-history-ring")).toHaveCount(0);
+		await expect(
+			preview.locator('.svelte-flow__node[data-id="note-lunch"]'),
+		).toBeVisible();
+		await expect(
+			preview.locator('.svelte-flow__node[data-id="note-brunch"]'),
+		).toHaveCount(0);
+
+		// Compared with now, Alfy's version has what Restore would bring back.
+		await options.first().click();
+		await region.getByTestId("history-compare-now").click();
+		await expect(preview.getByTestId("canvas-history-ring")).toHaveCount(3);
+		await expect(
+			preview.locator('[data-testid="canvas-history-layer"][data-tone="user"]'),
+		).toHaveCount(1);
+		await region.getByTestId("history-compare-step").click();
+
+		// Restore: the question names the version by its time, never "text".
+		await region.getByTestId("history-restore").click();
+		const question = region.getByTestId("history-restore-question");
+		await expect(question).toContainText("What you have now stays in History.");
+		await expect(question).not.toContainText(/text/i);
+		await region.getByTestId("history-restore-confirm").click();
+		await expect(page.getByTestId("history-toast")).toContainText("Restored");
+		await expect(options.first()).toContainText("You restored");
+
+		// Done: the board is Alfy's again, and the next step is saved, not refused as stale.
+		await doneButton(page).click();
+		await expect(region).toHaveCount(0);
+		await expect(
+			page.locator('.svelte-flow__node[data-id="note-brunch"]'),
+		).toBeVisible();
+		await expect(page.getByTestId("canvas-save-status")).not.toContainText(
+			"conflict",
+		);
+	});
+});
+
+// ---- An App in History (VB-3, T6) ------------------------------------------------
+
+/**
+ * The App's first version, written to be hostile: it reads today's saved data the
+ * way an App does, and when it finds it is running as a PREVIEW (the version route's
+ * address, which a live App's is not) it skips its own bridge and posts a raw
+ * `alfy.storage` set to its parent, as an old version of an App can. The preview
+ * must show it running and must change nothing. (Run live, as the App it was, it
+ * does nothing of the kind: it was the App for a while, and what it wrote then is
+ * its own.)
+ */
+const FIRST_APP_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Trip budget</title></head>
+<body>
+<h1 data-testid="app-heading">Trip budget, first version</h1>
+<p id="today" data-testid="app-today">reading…</p>
+<script>
+(async function () {
+  try {
+    var value = await window.alfy.storage.get('mood');
+    document.getElementById('today').textContent = 'today: ' + String(value);
+  } catch (error) {
+    document.getElementById('today').textContent = 'blocked';
+  }
+  if (location.pathname.indexOf('/versions/') !== -1) {
+    parent.postMessage({ v: 1, kind: 'alfy.storage', method: 'set', id: 9001, args: ['mood', 'overwritten'] }, '*');
+    document.getElementById('today').setAttribute('data-posted', 'yes');
+  }
+})();
+</script>
+</body>
+</html>`;
+
+const SECOND_APP_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Trip budget</title></head>
+<body>
+<h1 data-testid="app-heading">Trip budget, second version</h1>
+<p id="today" data-testid="app-today">now with a total</p>
+<p data-testid="app-total">Total: 364</p>
+</body>
+</html>`;
+
+/** A version the current rules forbid (it sends its own document away): it can no longer run, and Code still shows it. */
+const RUNAWAY_APP_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Trip budget</title></head>
+<body>
+<h1>Trip budget, runaway</h1>
+<script>
+setTimeout(function () { window.location.href = "/login"; }, 800);
+</script>
+</body>
+</html>`;
+
+/** An App with the given versions in order (the first is its v1) and one saved value, `mood`, which is today's. */
+async function seedApp(
+	conversationId: string,
+	title: string,
+	versions: Array<{ html: string; summary: string }>,
+): Promise<string> {
+	const userId = await adminId();
+	const [first, ...rest] = versions;
+	const created = await createArtifact({
+		userId,
+		conversationId,
+		kind: "app",
+		title,
+		body: first.html,
+		author: "alfy",
+		versionSummary: first.summary,
+	});
+	if (!created.ok) throw new Error(created.reason);
+	for (const version of rest) {
+		await updateArtifactBody({
+			userId,
+			artifactId: created.artifact.id,
+			conversationId,
+			body: version.html,
+			author: "alfy",
+			summary: version.summary,
+		});
+	}
+	await setKv({
+		userId,
+		artifactId: created.artifact.id,
+		conversationId,
+		key: "mood",
+		valueJson: JSON.stringify("calm"),
+	});
+	return created.artifact.id;
+}
+
+test.describe("History mode: an App", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+	});
+
+	test("a rebuilt App's first version runs in History with its storage read-only, its Code shows the difference, and Restore brings it back (T6)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(page, "History app");
+		const artifactId = await seedApp(conversationId, "Trip budget", [
+			{
+				html: FIRST_APP_HTML,
+				summary: madeAppSummary("a trip budget with a total"),
+			},
+		]);
+		const userId = await adminId();
+
+		// What a rebuild does on the server, run when the panel asks for one: the panel's
+		// own button and popover are the real thing, the model call is not.
+		await page.route("**/api/artifacts/*/app/regenerate", async (route) => {
+			await updateArtifactBody({
+				userId,
+				artifactId,
+				conversationId,
+				body: SECOND_APP_HTML,
+				author: "alfy",
+				summary: regeneratedAppSummary("add a total"),
+			});
+			await route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					ok: true,
+					version: 2,
+					title: "Trip budget",
+					verification: { checked: false, verdict: "clean", reason: null },
+				}),
+			});
+		});
+		// Nothing a preview does may write the App's saved data: every call the page
+		// makes to the storage route that is not a read is watched.
+		const writes: string[] = [];
+		page.on("request", (request) => {
+			if (
+				/\/api\/artifacts\/[^/]+\/app\/kv/.test(request.url()) &&
+				request.method() !== "GET"
+			) {
+				writes.push(`${request.method()} ${request.url()}`);
+			}
+		});
+
+		await openChat(page, conversationId);
+		await openDocumentInPanel(page);
+
+		// The rebuild's own words carry no version numbers, and say where the old one stays.
+		await page.getByRole("button", { name: /Change this app/ }).click();
+		await expect(
+			page.getByText("The previous version stays in History."),
+		).toBeVisible();
+		await page.getByLabel("What should change?").fill("add a total");
+		await page.getByRole("button", { name: "Rebuild" }).click();
+		const toast = page.getByText("Alfy rebuilt it");
+		await expect(toast).toBeVisible();
+		await expect(historyButton(page)).toContainText("Rebuilt by Alfy");
+		await expect(historyButton(page)).not.toContainText(/\bv\d/);
+
+		// History: two moments; the first version is the one that stored the hostile code.
+		await historyButton(page).click();
+		const region = historyRegion(page, "Trip budget");
+		await expect(region).toBeVisible();
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(2);
+		await expect(options.first()).toContainText("add a total");
+		await options.last().click();
+
+		// Preview: that version RUNNING, in the same sandbox, against today's saved data.
+		const preview = region.getByTestId("history-app-preview");
+		await expect(preview.getByTestId("history-app-runs")).toHaveText(
+			"Runs with today's saved data; changes aren't saved.",
+		);
+		const frame = preview.locator("iframe");
+		await expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-forms");
+		await expect(frame).toHaveAttribute(
+			"src",
+			new RegExp(
+				`/api/artifacts/${artifactId}/versions/[^/]+/app(\\?conversationId=[^&]+)?$`,
+			),
+		);
+		const inFrame = preview.frameLocator("iframe");
+		await expect(inFrame.getByTestId("app-heading")).toHaveText(
+			"Trip budget, first version",
+		);
+		await expect(inFrame.getByTestId("app-today")).toHaveText("today: calm");
+		// The hostile version posted a raw write to its parent as soon as it had read (the
+		// attribute says it did): the parent refused it, so today's saved data is what it
+		// was and no call was made.
+		await expect(inFrame.getByTestId("app-today")).toHaveAttribute(
+			"data-posted",
+			"yes",
+		);
+		await page.waitForTimeout(600);
+		expect(writes).toEqual([]);
+		expect(
+			await getKv({ userId, artifactId, conversationId, key: "mood" }),
+		).toBe(JSON.stringify("calm"));
+
+		// Code: the lines this version has that now does not, and the lines it lost.
+		await region.getByTestId("history-app-tab-code").click();
+		const code = region.getByTestId("history-app-code");
+		await expect(
+			code.locator(".line-add", { hasText: "first version" }),
+		).toBeVisible();
+		await expect(
+			code.locator(".line-del", { hasText: "second version" }),
+		).toBeVisible();
+		await expect(region.getByTestId("history-change-count")).toContainText(
+			"1 /",
+		);
+		// The next version selected comes up on the tab the reader was reading.
+		await options.first().click();
+		await expect(region.getByTestId("history-app-code")).toBeVisible();
+		await options.last().click();
+		await expect(region.getByTestId("history-app-code")).toBeVisible();
+		await region.getByTestId("history-app-tab-preview").click();
+
+		// Restore: the question says what stays as it is, then the old version runs again.
+		await region.getByTestId("history-restore").click();
+		const question = region.getByTestId("history-restore-question");
+		await expect(question).toContainText("What you have now stays in History.");
+		await expect(question).toContainText("Saved data stays as it is now.");
+		await region.getByTestId("history-restore-confirm").click();
+		await expect(page.getByTestId("history-toast")).toContainText("Restored");
+		await expect(options.first()).toContainText("You restored");
+		await doneButton(page).click();
+		await expect(region).toHaveCount(0);
+		await expect(
+			page.frameLocator("iframe.app-frame").getByTestId("app-heading"),
+		).toHaveText("Trip budget, first version");
+		expect(writes).toEqual([]);
+		expect(
+			await getKv({ userId, artifactId, conversationId, key: "mood" }),
+		).toBe(JSON.stringify("calm"));
+	});
+
+	test("a version the rules now forbid is Code only: the reader is told, and the code is there (T6)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"History runaway",
+		);
+		await seedApp(conversationId, "Trip budget", [
+			{
+				html: SECOND_APP_HTML,
+				summary: madeAppSummary("a trip budget"),
+			},
+			{
+				html: RUNAWAY_APP_HTML,
+				summary: regeneratedAppSummary("make it dramatic"),
+			},
+			{
+				html: FIRST_APP_HTML.replace("first version", "third"),
+				summary: regeneratedAppSummary("calm it down"),
+			},
+		]);
+		await openChat(page, conversationId);
+		await openDocumentInPanel(page);
+		await historyButton(page).click();
+		const region = historyRegion(page, "Trip budget");
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(3);
+
+		// The middle version cannot run now: Preview is out, Code is the view, and it says why.
+		await options.nth(1).click();
+		await expect(region.getByTestId("history-app-code-only")).toHaveText(
+			"This version can't run any more, so only its code is shown.",
+		);
+		await expect(region.getByTestId("history-app-tab-preview")).toBeDisabled();
+		const code = region.getByTestId("history-app-code");
+		await expect(code).toContainText("window.location.href");
+		await expect(region.locator("iframe")).toHaveCount(0);
+
+		// Another version runs, and comes up on Preview again.
+		await options.nth(2).click();
+		await expect(region.getByTestId("history-app-code-only")).toHaveCount(0);
+		await expect(region.getByTestId("history-app-tab-preview")).toBeEnabled();
+		await expect(
+			region
+				.getByTestId("history-app-preview")
+				.frameLocator("iframe")
+				.getByTestId("app-heading"),
+		).toHaveText("Trip budget, second version");
+	});
+
+	test("the toast's Undo takes the rebuild back as one moment with it, and History says so (T6)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"History undo app",
+		);
+		const artifactId = await seedApp(conversationId, "Trip budget", [
+			{ html: FIRST_APP_HTML, summary: madeAppSummary("a trip budget") },
+		]);
+		const userId = await adminId();
+		await page.route("**/api/artifacts/*/app/regenerate", async (route) => {
+			await updateArtifactBody({
+				userId,
+				artifactId,
+				conversationId,
+				body: SECOND_APP_HTML,
+				author: "alfy",
+				summary: regeneratedAppSummary("add a total"),
+			});
+			await route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					ok: true,
+					version: 2,
+					title: "Trip budget",
+					verification: { checked: false, verdict: "clean", reason: null },
+				}),
+			});
+		});
+		await openChat(page, conversationId);
+		await openDocumentInPanel(page);
+		await page.getByRole("button", { name: /Change this app/ }).click();
+		await page.getByLabel("What should change?").fill("add a total");
+		await page.getByRole("button", { name: "Rebuild" }).click();
+		await expect(page.getByText("Alfy rebuilt it")).toBeVisible();
+		await page.getByRole("button", { name: "Undo" }).click();
+		await expect(
+			page.frameLocator("iframe.app-frame").getByTestId("app-heading"),
+		).toHaveText("Trip budget, first version");
+
+		await historyButton(page).click();
+		const region = historyRegion(page, "Trip budget");
+		const options = region.getByRole("option");
+		// The rebuild and the Undo that took it back are one moment (with the Undo as its step),
+		// and the version they were made from is the other.
+		await expect(options).toHaveCount(3);
+		await expect(options.nth(0)).toContainText("add a total");
+		await expect(options.nth(1)).toContainText("You undid it");
+		await expect(options.nth(2)).toContainText("Alfy built the app");
+	});
+});
+
+// ---- The library's last version number (VB-3) -------------------------------------
+
+test.describe("The library says what changed last", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+	});
+
+	test("an artifact row's Version cell says who changed it and when, never a number (ruling 76, Q2)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"Library moments",
+		);
+		await seedDocument(conversationId, "Library plan reader", [
+			{
+				author: "alfy",
+				summary: "Alfy wrote the first draft",
+				markdown: "Friday\n\nArrive.",
+			},
+			{
+				author: "user",
+				summary: "Edited",
+				markdown: "Friday\n\nArrive early.",
+			},
+		]);
+		await seedDocument(conversationId, "Library plan alfy", [
+			{
+				author: "alfy",
+				summary: "Alfy wrote the first draft",
+				markdown: "Friday\n\nArrive.",
+			},
+			{
+				author: "alfy",
+				summary: "Moved the museum to Thursday",
+				markdown: "Friday\n\nArrive.\n\nThursday\n\nThe museum.",
+			},
+		]);
+
+		await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await page.getByRole("tab", { name: "Documents" }).click();
+
+		const readerRow = page.locator("tbody tr", {
+			hasText: "Library plan reader",
+		});
+		await expect(readerRow.locator(".col-version")).toContainText(
+			"Edited by you",
+		);
+		await expect(readerRow.locator(".col-version")).toContainText(
+			/just now|min ago/,
+		);
+		const alfyRow = page.locator("tbody tr", { hasText: "Library plan alfy" });
+		await expect(alfyRow.locator(".col-version")).toContainText(
+			"Changed by Alfy",
+		);
+		// No number anywhere in either row's Version cell.
+		for (const row of [readerRow, alfyRow]) {
+			await expect(row.locator(".col-version")).not.toContainText(/\bv\d/);
+		}
+	});
+});
+
+test.describe("History mode on a phone: an App and a board", () => {
+	test.use({ hasTouch: true });
+
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await login(page);
+	});
+
+	async function openSheet(page: Page, conversationId: string) {
+		await openChat(page, conversationId);
+		await page.getByTestId("artifact-count-button-compact").tap();
+		await page
+			.getByTestId("artifact-panel-list-mobile")
+			.getByTestId("artifact-row")
+			.first()
+			.tap({ timeout: 30_000 });
+		await expect(historyButton(page)).toBeVisible({ timeout: 30_000 });
+		await historyButton(page).tap();
+		const sheet = page.getByRole("dialog", { name: "History" });
+		await expect(sheet).toBeVisible();
+		return sheet;
+	}
+
+	test("an App's preview runs in the sheet, and its tabs and folds are 44 px targets (T6)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"History app phone",
+		);
+		// A source whose top is the same in both versions (so there is a fold) and whose
+		// bottom is all different (so the difference is taller than the sheet).
+		const longApp = (heading: string, word: string) =>
+			`<!doctype html>\n<html lang="en">\n<head><meta charset="utf-8"><title>Trip budget</title></head>\n<body>\n<h1 data-testid="app-heading">${heading}</h1>\n${Array.from(
+				{ length: 24 },
+				(_, index) => `<p>Line ${index + 1} of the budget</p>`,
+			).join("\n")}\n${Array.from(
+				{ length: 30 },
+				(_, index) => `<p>${word} number ${index + 1}</p>`,
+			).join("\n")}\n</body>\n</html>`;
+		await seedApp(conversationId, "Trip budget", [
+			{
+				html: longApp("Trip budget, long first", "Old"),
+				summary: madeAppSummary("a trip budget"),
+			},
+			{
+				html: longApp("Trip budget, long second", "New"),
+				summary: regeneratedAppSummary("rename it"),
+			},
+		]);
+		const sheet = await openSheet(page, conversationId);
+		await sheet.getByRole("option").last().tap();
+
+		// The first version runs in the frame, with the note, inside the sheet.
+		const preview = sheet.getByTestId("history-app-preview");
+		await expect(preview.getByTestId("history-app-runs")).toBeVisible();
+		const frame = preview.locator("iframe");
+		await expect(frame).toBeVisible();
+		expect((await frame.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(
+			150,
+		);
+		await expect(
+			preview.frameLocator("iframe").getByTestId("app-heading"),
+		).toHaveText("Trip budget, long first");
+
+		// The tabs are targets a finger can hit.
+		for (const tab of [
+			sheet.getByTestId("history-app-tab-preview"),
+			sheet.getByTestId("history-app-tab-code"),
+		]) {
+			expect((await tab.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+		}
+		await sheet.getByTestId("history-app-tab-code").tap();
+		const code = sheet.getByTestId("history-app-code");
+		await expect(code).toBeVisible();
+		await expect(code.locator(".line-add, .line-del").first()).toBeVisible();
+		// The difference is taller than the panel, and the panel scrolls to its last line.
+		expect(
+			await code.evaluate((el) => el.scrollHeight - el.clientHeight),
+		).toBeGreaterThan(100);
+		await code.evaluate((el) => {
+			el.scrollTop = el.scrollHeight;
+		});
+		await expect(code.locator(".line").last()).toBeInViewport();
+		await expect(
+			code.locator(".line-add", { hasText: "Old number 30" }),
+		).toBeInViewport();
+		const folds = await sheet.getByTestId("history-fold").all();
+		expect(folds.length).toBeGreaterThan(0);
+		for (const fold of folds) {
+			expect((await fold.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(
+				44,
+			);
+		}
+		// Nothing is wider than the sheet.
+		const widths = await page.evaluate(() => ({
+			page: document.documentElement.scrollWidth,
+			view: window.innerWidth,
+		}));
+		expect(widths.page).toBeLessThanOrEqual(widths.view);
+	});
+
+	test("a board's preview fits the sheet, ringed and tagged, and a tap on it changes nothing (T7)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"History board phone",
+		);
+		const userId = await adminId();
+		const created = await createArtifact({
+			userId,
+			conversationId,
+			kind: "canvas",
+			title: "History board phone",
+			body: boardJson(weekendBoard()),
+			author: "alfy",
+			versionSummary: VERSION_SUMMARY.alfyFirstDraft,
+		});
+		if (!created.ok) throw new Error(created.reason);
+		const [newest] = await listVersions({
+			userId,
+			artifactId: created.artifact.id,
+			conversationId,
+			limit: 1,
+		});
+		const applied = await applyArtifactOps({
+			userId,
+			artifactId: created.artifact.id,
+			conversationId,
+			payload: {
+				baseVersionId: newest.id,
+				diff: { id: "d", summary: "Planned Sunday", ops: PLAN_SUNDAY },
+			},
+		});
+		if (!applied.ok) throw new Error(applied.reason);
+
+		const sheet = await openSheet(page, conversationId);
+		await sheet.getByRole("option").first().tap();
+		const preview = sheet.getByTestId("history-preview");
+		await expect(preview.getByTestId("canvas-history-ring")).toHaveCount(3);
+		// Everything marked is inside the sheet's own width.
+		const box = await preview.boundingBox();
+		for (const ring of await preview.getByTestId("canvas-history-ring").all()) {
+			const ringBox = await ring.boundingBox();
+			expect(ringBox).not.toBeNull();
+			expect((ringBox?.x ?? 0) + (ringBox?.width ?? 0)).toBeLessThanOrEqual(
+				(box?.x ?? 0) + (box?.width ?? 0) + 1,
+			);
+		}
+		// A tap on a block selects nothing and the board is not changed: no toolbar, no step.
+		await preview.locator('.svelte-flow__node[data-id="note-lunch"]').tap();
+		await expect(preview.locator(".svelte-flow__node.selected")).toHaveCount(0);
+		await expect(preview.getByTestId("canvas-tool-select")).toHaveCount(0);
+		const widths = await page.evaluate(() => ({
+			page: document.documentElement.scrollWidth,
+			view: window.innerWidth,
+		}));
+		expect(widths.page).toBeLessThanOrEqual(widths.view);
 	});
 });

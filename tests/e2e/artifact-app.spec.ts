@@ -432,14 +432,14 @@ test.describe("the App kind, in the panel", () => {
 		});
 
 		// Wave 2.5 Step 13: "Ask Alfy for a new version" is now "Change this
-		// app…" (the trigger, opening a popover) and "Make v2" (the popover's
+		// app…" (the trigger, opening a popover) and "Rebuild" (the popover's
 		// own submit) — two distinct labels now, so no more .last() needed to
 		// disambiguate them.
 		await page.getByRole("button", { name: /Change this app/ }).click();
 		await page
 			.getByLabel("What should change?")
 			.fill("Add a character counter");
-		await page.getByRole("button", { name: /Make v2/ }).click();
+		await page.getByRole("button", { name: /Rebuild/ }).click();
 
 		await expect
 			.poll(() => capturedBody)

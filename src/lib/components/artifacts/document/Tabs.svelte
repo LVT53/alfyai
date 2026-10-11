@@ -66,7 +66,7 @@ let tabButtons = new Map<string, HTMLButtonElement>();
 // tab strip scrolls sideways instead of wrapping) clipped the menu's own
 // box the moment it dropped below the strip's bottom edge. Portalled to
 // `document.body` and positioned from the trigger's own rect instead (the
-// same shape `VersionsSheet.svelte`/`DownloadSheet.svelte` already use),
+// same shape `DownloadSheet.svelte` already uses),
 // this can never be clipped by an ancestor's overflow again.
 let menuTriggerEl = $state<HTMLButtonElement | undefined>();
 let menuEl = $state<HTMLDivElement | undefined>();

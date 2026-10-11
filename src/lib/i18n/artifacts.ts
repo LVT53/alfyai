@@ -124,7 +124,7 @@ const artifactsDict = {
 		"artifacts.delete.body.document":
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.app":
-			"“{title}” and its saved data will be deleted. This can't be undone.",
+			"“{title}”, its versions and its saved data will be deleted. This can't be undone.",
 		"artifacts.delete.body.canvas":
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.slides":
@@ -136,7 +136,7 @@ const artifactsDict = {
 		"artifacts.delete.bodyRegenerable.document":
 			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.app":
-			"“{title}” and its saved data will be deleted. You can regenerate it from the chat.",
+			"“{title}”, its versions and its saved data will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.canvas":
 			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.slides":
@@ -199,14 +199,17 @@ const artifactsDict = {
 		"artifacts.app.action.download": "Download as .html",
 		"artifacts.app.regenerate.prompt": "What should change?",
 		"artifacts.app.regenerate.cancel": "Cancel",
-		"artifacts.app.regenerate.makeV2": "Make v2",
+		// No version numbers in any of these (ruling 76, Q2): the version it builds on
+		// and the one it builds are told apart by what happened, and the one before
+		// stays in History.
+		"artifacts.app.regenerate.rebuild": "Rebuild",
 		"artifacts.app.regenerate.effect":
-			"Alfy writes a new version and checks its facts. v1 stays in History.",
+			"Alfy rebuilds it from your words and checks its facts. The previous version stays in History.",
 		"artifacts.app.regenerate.building":
-			"Alfy is building v2 · v1 stays until v2 is ready. Your saved data is kept.",
+			"Alfy is rebuilding it · the current version stays until the new one is ready. Your saved data is kept.",
 		"artifacts.app.regenerate.failed":
-			"Alfy couldn't make v2. v1 is unchanged.",
-		"artifacts.app.toast.v2Ready": "Now showing v2",
+			"Alfy couldn't rebuild it. The current version is unchanged.",
+		"artifacts.app.toast.rebuilt": "Alfy rebuilt it",
 		"artifacts.app.toast.undo": "Undo",
 		"artifacts.app.sandboxBar":
 			"Runs sandboxed · no internet · keeps your data",
@@ -275,37 +278,13 @@ const artifactsDict = {
 		// disabled button already explains proactively.
 		"artifacts.app.download.failed": "Could not prepare this app for download.",
 		"artifacts.app.open.cta": "Make an app",
-		// The Document's version history sheet (Slice 1, T6).
-		"artifacts.document.versions.title": "Versions",
-		"artifacts.document.versions.current": "Current",
-		"artifacts.document.versions.restore": "Restore",
-		// Wave 2.5 Step 8: the inline confirm (redesign §3.2 — never a modal),
-		// named by version number so it reads as a real question about a real
-		// row, not the old generic "this version".
-		"artifacts.document.versions.restoreConfirm":
-			"Restore v{v}? Your current text stays as a version.",
-		"artifacts.document.versions.restoreToast": "Restored v{from} as v{to}",
-		"artifacts.document.versions.undo": "Undo",
+		// The old Versions sheet is gone (ruling 76: History replaces it); these three
+		// keys outlived it. The two author names are the ones a comment and a margin
+		// card print, and the conflict line is the Document's when a save was refused.
 		"artifacts.document.versions.byUser": "You",
 		"artifacts.document.versions.byAlfy": "Alfy",
 		"artifacts.document.versions.conflict":
 			"This document changed elsewhere. Reload to see the current text.",
-		"artifacts.document.versions.loadError":
-			"Could not load the version history.",
-		"artifacts.document.versions.restoreError":
-			"Could not restore this version.",
-		"artifacts.document.versions.empty": "No earlier versions yet.",
-		// A version's own summary line (rd/review-2-5.md:256-260): the save
-		// route's literal "Edited" and the restore handler's "restored …"
-		// wrapper are the only two server-written tokens localized here — an
-		// Alfy-authored summary is free-form content and is shown as-is.
-		"artifacts.document.versions.summaryEdited": "Edited",
-		"artifacts.document.versions.summaryRestored": "restored {summary}",
-		"artifacts.document.versions.summaryRestoredFrom": "Restored v{n}",
-		"artifacts.document.versions.summaryUndidAlfyChange": "Undid Alfy's change",
-		"artifacts.document.versions.summaryFirstDraft":
-			"Alfy wrote the first draft",
-		"artifacts.document.versions.summarySavedAsCopy": "Saved as a new document",
 		// The lazy editor's shell and toolbar (Slice 1, T7).
 		"artifacts.document.editor.placeholder": "Write anything, or ask Alfy to.",
 		"artifacts.document.emptyState":
@@ -716,10 +695,10 @@ const artifactsDict = {
 		"artifacts.canvas.review.refused":
 			"Alfy skipped {count} {count, plural, one {change} other {changes}}.",
 		"artifacts.canvas.review.undoRefused":
-			"Alfy's change can't be undone here because the board has changed since. Open Versions to go back to an earlier one.",
+			"Alfy's change can't be undone here because the board has changed since. Open History to go back to an earlier one.",
 		"artifacts.canvas.review.undoFailed":
-			"Could not undo Alfy's change. Try again, or open Versions.",
-		"artifacts.canvas.review.openVersions": "Open Versions",
+			"Could not undo Alfy's change. Try again, or open History.",
+		"artifacts.canvas.review.openHistory": "Open History",
 		// Asking Alfy about blocks, or the board (S3-A): the toolbar's button, the pill a
 		// selection raises, and what a request about several blocks says it is about.
 		"artifacts.canvas.ask": "Ask Alfy",
@@ -908,9 +887,8 @@ const artifactsDict = {
 		"artifacts.evidence.madeInThisChat": "Made in this chat",
 		// Ruling 76 (the versioning build): History is a mode of the panel and the
 		// header says what happened last, not a number (versioning.md §5.1, §8).
-		// The block grows with the History mode itself; the old
-		// artifacts.document.versions.* keys stay until the last sheet that reads
-		// them is gone. Every phrase is short on purpose: it sits beside the kind
+		// The block grows with the History mode itself (the old Versions sheet and its
+		// keys are gone). Every phrase is short on purpose: it sits beside the kind
 		// in the header and, on a 390 px phone, shares its line with it.
 		"artifacts.history.title": "History",
 		"artifacts.history.buttonA11y": "History. Last change: {phrase}",
@@ -1056,6 +1034,27 @@ const artifactsDict = {
 		"artifacts.history.named": "Named “{name}”",
 		"artifacts.history.nameFailed": "Couldn't save the name. Try again.",
 		"artifacts.history.nextEditsNew": "Your next edits start a new version.",
+		// The board's preview in History (ruling 76, versioning.md §5.4): the tags on
+		// the blocks, and the list of changes a screen reader and the stepper walk.
+		"artifacts.history.canvas.tagNew": "New",
+		"artifacts.history.canvas.tagMoved": "Moved",
+		"artifacts.history.canvas.tagRemoved": "Removed",
+		"artifacts.history.canvas.changesLabel": "Changes on the board",
+		"artifacts.history.canvas.change.added": "{label}, added",
+		"artifacts.history.canvas.change.changed": "{label}, changed",
+		"artifacts.history.canvas.change.moved": "{label}, moved",
+		"artifacts.history.canvas.change.linked": "{label}, connection changed",
+		"artifacts.history.canvas.change.removed": "{label}, removed",
+		"artifacts.history.canvas.emptyBoard": "This version has no blocks.",
+		// An App's preview in History (ruling 76, versioning.md §5.4, Q7).
+		"artifacts.history.appRuns":
+			"Runs with today's saved data; changes aren't saved.",
+		"artifacts.history.app.codeOnly":
+			"This version can't run any more, so only its code is shown.",
+		"artifacts.history.app.codeLabel": "Source of this version",
+		"artifacts.history.app.noSource": "This version has no source.",
+		"artifacts.history.app.unchangedLines":
+			"{count} unchanged {count, plural, one {line} other {lines}}",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1117,7 +1116,7 @@ const artifactsDict = {
 		"artifacts.delete.body.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.app":
-			"„{title}” és a mentett adatai törlődnek. Ez nem vonható vissza.",
+			"„{title}”, az összes verziója és a mentett adatai törlődnek. Ez nem vonható vissza.",
 		"artifacts.delete.body.canvas":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.slides":
@@ -1126,7 +1125,7 @@ const artifactsDict = {
 		"artifacts.delete.bodyRegenerable.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.app":
-			"„{title}” és a mentett adatai törlődnek. A beszélgetésből újra létrehozhatod.",
+			"„{title}”, az összes verziója és a mentett adatai törlődnek. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.canvas":
 			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.slides":
@@ -1179,14 +1178,14 @@ const artifactsDict = {
 		"artifacts.app.action.download": "Letöltés .html-ként",
 		"artifacts.app.regenerate.prompt": "Min változtasson?",
 		"artifacts.app.regenerate.cancel": "Mégse",
-		"artifacts.app.regenerate.makeV2": "v2 elkészítése",
+		"artifacts.app.regenerate.rebuild": "Újraépítés",
 		"artifacts.app.regenerate.effect":
-			"Alfy megírja az új változatot, és ellenőrzi az adatait. A v1 megmarad az Előzményekben.",
+			"Alfy újraépíti a kérésed szerint és ellenőrzi a tényeit. Az előző változat megmarad az előzményekben.",
 		"artifacts.app.regenerate.building":
-			"Alfy készíti a v2-t · A v1 megmarad, amíg a v2 el nem készül. A mentett adataid megmaradnak.",
+			"Alfy újraépíti · a mostani változat megmarad, amíg az új el nem készül. A mentett adataid megmaradnak.",
 		"artifacts.app.regenerate.failed":
-			"Alfynak nem sikerült elkészítenie a v2-t. A v1 változatlan.",
-		"artifacts.app.toast.v2Ready": "Mostantól a v2 látszik",
+			"Alfynak nem sikerült újraépítenie. A mostani változat változatlan.",
+		"artifacts.app.toast.rebuilt": "Alfy újraépítette",
 		"artifacts.app.toast.undo": "Visszavonás",
 		"artifacts.app.sandboxBar":
 			"Homokozóban fut · nincs internet · megőrzi az adataidat",
@@ -1248,32 +1247,10 @@ const artifactsDict = {
 		"artifacts.app.download.failed":
 			"Nem sikerült előkészíteni ezt az alkalmazást letöltésre.",
 		"artifacts.app.open.cta": "Készíts alkalmazást",
-		"artifacts.document.versions.title": "Változatok",
-		"artifacts.document.versions.current": "Jelenlegi",
-		"artifacts.document.versions.restore": "Visszaállítás",
-		"artifacts.document.versions.restoreConfirm":
-			"Visszaállítod a v{v} változatot? A jelenlegi szöveged megmarad változatként.",
-		"artifacts.document.versions.restoreToast":
-			"Visszaállítva: v{from} mint v{to}",
-		"artifacts.document.versions.undo": "Visszavonás",
 		"artifacts.document.versions.byUser": "Te",
 		"artifacts.document.versions.byAlfy": "Alfy",
 		"artifacts.document.versions.conflict":
 			"Ez a dokumentum máshol megváltozott. Töltsd újra a jelenlegi szövegért.",
-		"artifacts.document.versions.loadError":
-			"Nem sikerült betölteni az előzményeket.",
-		"artifacts.document.versions.restoreError":
-			"Nem sikerült visszaállítani ezt a változatot.",
-		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
-		"artifacts.document.versions.summaryEdited": "Szerkesztve",
-		"artifacts.document.versions.summaryRestored": "visszaállítva: {summary}",
-		"artifacts.document.versions.summaryRestoredFrom": "Visszaállítva: v{n}",
-		"artifacts.document.versions.summaryUndidAlfyChange":
-			"Alfy módosításának visszavonása",
-		"artifacts.document.versions.summaryFirstDraft":
-			"Alfy megírta az első vázlatot",
-		"artifacts.document.versions.summarySavedAsCopy":
-			"Mentve új dokumentumként",
 		"artifacts.document.editor.placeholder": "Írj bármit, vagy kérd meg Alfyt.",
 		"artifacts.document.emptyState":
 			"Üres dokumentum. Kezdj el írni, vagy kérd meg Alfyt, hogy megírja.",
@@ -1598,10 +1575,10 @@ const artifactsDict = {
 			"{summary} {left} módosítást kihagyott. Nézd át a tábla alatt.",
 		"artifacts.canvas.review.refused": "Alfy {count} módosítást kihagyott.",
 		"artifacts.canvas.review.undoRefused":
-			"Alfy módosítása itt nem vonható vissza, mert azóta megváltozott a tábla. A Változatok megnyitásával visszatérhetsz egy korábbihoz.",
+			"Alfy módosítása itt nem vonható vissza, mert azóta megváltozott a tábla. Az Előzmények megnyitásával visszatérhetsz egy korábbihoz.",
 		"artifacts.canvas.review.undoFailed":
-			"Nem sikerült visszavonni Alfy módosítását. Próbáld újra, vagy nyisd meg a Változatokat.",
-		"artifacts.canvas.review.openVersions": "Változatok megnyitása",
+			"Nem sikerült visszavonni Alfy módosítását. Próbáld újra, vagy nyisd meg az Előzményeket.",
+		"artifacts.canvas.review.openHistory": "Előzmények megnyitása",
 		// Alfy megkérdezése blokkokról vagy a tábláról (S3-A).
 		"artifacts.canvas.ask": "Alfy megkérdezése",
 		"artifacts.canvas.ask.busy":
@@ -1780,9 +1757,9 @@ const artifactsDict = {
 		// 76. döntés (a verziókezelés építése): az Előzmények a panel egy módja, a
 		// fejléc pedig azt mondja el, mi történt utoljára, nem egy számot
 		// (versioning.md §5.1, §8). A blokk az Előzmények móddal együtt bővül; a
-		// régi artifacts.document.versions.* kulcsok addig maradnak, amíg az
-		// utolsó olvasójuk is el nem tűnik. Minden kifejezés rövid: a fejlécben a
-		// fajta mellett áll, egy 390 px-es telefonon pedig egy sorban vele.
+		// régi Változatok-lap és a kulcsai megszűntek. Minden kifejezés rövid: a
+		// fejlécben a fajta mellett áll, egy 390 px-es telefonon pedig egy sorban
+		// vele.
 		"artifacts.history.title": "Előzmények",
 		"artifacts.history.buttonA11y": "Előzmények. Utolsó változás: {phrase}",
 		"artifacts.history.phrase.youEdited": "Szerkesztetted",
@@ -1925,6 +1902,27 @@ const artifactsDict = {
 			"Nem sikerült elmenteni a nevet. Próbáld újra.",
 		"artifacts.history.nextEditsNew":
 			"A következő szerkesztéseid új változatba kerülnek.",
+		// A tábla előnézete az Előzményekben: a blokkokon a jelölések, és a módosítások
+		// listája, amit a képernyőolvasó és a léptető bejár.
+		"artifacts.history.canvas.tagNew": "Új",
+		"artifacts.history.canvas.tagMoved": "Áthelyezve",
+		"artifacts.history.canvas.tagRemoved": "Törölve",
+		"artifacts.history.canvas.changesLabel": "A tábla módosításai",
+		"artifacts.history.canvas.change.added": "{label}, hozzáadva",
+		"artifacts.history.canvas.change.changed": "{label}, módosítva",
+		"artifacts.history.canvas.change.moved": "{label}, áthelyezve",
+		"artifacts.history.canvas.change.linked":
+			"{label}, a kapcsolatai módosultak",
+		"artifacts.history.canvas.change.removed": "{label}, törölve",
+		"artifacts.history.canvas.emptyBoard": "Ebben a változatban nincs blokk.",
+		// Egy alkalmazás előnézete az Előzményekben.
+		"artifacts.history.appRuns":
+			"A mostani mentett adatokkal fut; a változtatások nem mentődnek.",
+		"artifacts.history.app.codeOnly":
+			"Ez a változat már nem futtatható, ezért csak a kódja látható.",
+		"artifacts.history.app.codeLabel": "A változat forráskódja",
+		"artifacts.history.app.noSource": "Ebben a változatban nincs forráskód.",
+		"artifacts.history.app.unchangedLines": "{count} változatlan sor",
 	},
 } as const;
 

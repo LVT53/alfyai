@@ -28,6 +28,14 @@ interface Props {
 	conversationId?: string | null;
 	/** Fires with an already-localised sentence on a storage refusal. The PARENT renders nothing extra for it (Contracts' UI-states table) — it exists for the caller's own diagnostics, not a second error banner. */
 	onStorageError?: (message: string) => void;
+	/**
+	 * History's preview (ruling 76, Q7): the id of a STORED version of this App to run
+	 * instead of today's. The frame is then served by the version route, and it is
+	 * READ-ONLY: it sees today's saved data (`get`), and every `set` it posts is
+	 * refused here, in the parent, whatever its own bridge says (see `handleMessage`).
+	 * `null` is the live App.
+	 */
+	previewVersionId?: string | null;
 }
 
 let {
@@ -36,17 +44,26 @@ let {
 	title = "",
 	conversationId = null,
 	onStorageError = undefined,
+	previewVersionId = null,
 }: Props = $props();
 
 // A ref read by the message handler: Svelte 5 runes want bind:this state
 // declared with $state (AGENTS.md).
 let iframe = $state<HTMLIFrameElement | null>(null);
 
+// A preview is served by the version route (the same sandbox headers as the live
+// App's route, and a bridge whose own `set` rejects); the live App by the App route,
+// with its version as the cache-buster.
 let src = $derived(
-	`/api/artifacts/${encodeURIComponent(artifactId)}/app?v=${version}` +
-		(conversationId
-			? `&conversationId=${encodeURIComponent(conversationId)}`
-			: ""),
+	previewVersionId !== null
+		? `/api/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(previewVersionId)}/app` +
+				(conversationId
+					? `?conversationId=${encodeURIComponent(conversationId)}`
+					: "")
+		: `/api/artifacts/${encodeURIComponent(artifactId)}/app?v=${version}` +
+				(conversationId
+					? `&conversationId=${encodeURIComponent(conversationId)}`
+					: ""),
 );
 
 const STORAGE_ERROR_I18N_KEYS: Partial<Record<AppKvRefusalReason, I18nKey>> = {
@@ -205,8 +222,13 @@ async function serveStorageCall(call: {
 	key: string;
 	value: unknown;
 	conversationId: string | null;
+	/** The frame was a History preview when this call arrived: it may read, never write. */
+	readOnly: boolean;
 }): Promise<void> {
 	if (call.method === "set") {
+		// A second lock on the same door `handleMessage` shuts: a call that is read-only
+		// never reaches a write, whatever put it in the backlog.
+		if (call.readOnly) return;
 		await sequenceSetByKey(call.key, () => performSet(call));
 		return;
 	}
@@ -288,6 +310,9 @@ async function performSet(call: {
  *                                            58): REFUSED, never coerced with
  *                                            String(...) into a plausible one.
  *
+ * In a History preview (`previewVersionId`) a `set` is refused too, whatever
+ * the frame's own bridge says: the preview changes nothing.
+ *
  * The artifact id is NEVER read from `event.data` — it is the component's
  * OWN `artifactId` prop, always. There is no code path in this function that
  * could make a message name a different artifact, a conversation, a file, or
@@ -320,6 +345,16 @@ function handleMessage(event: MessageEvent): void {
 	}
 	if (data.method !== "get" && data.method !== "set") {
 		countRejection("wrong_method");
+		return;
+	}
+	// A History preview (ruling 76, Q7) is read-only. The version route's bootstrap
+	// makes the frame's OWN `set` reject, but a stored version is code the frame runs:
+	// an old, hostile one can replace that bridge and post a raw `alfy.storage` set to
+	// this window, which would write today's saved data. So the refusal is here, in
+	// the parent, before anything is queued, and like every other refused message it
+	// gets no reply: the attacker is told nothing.
+	if (previewVersionId !== null && data.method === "set") {
+		countRejection("preview_set");
 		return;
 	}
 	if (typeof data.id !== "number" || !Number.isFinite(data.id)) {
@@ -361,6 +396,7 @@ function handleMessage(event: MessageEvent): void {
 		key: data.args[0], // validated above: already a string, never coerced.
 		value: data.args[1],
 		conversationId,
+		readOnly: previewVersionId !== null,
 	} as const;
 	queuedBytes += estimatedBytes;
 	callsWaiting.push({

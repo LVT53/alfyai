@@ -708,14 +708,15 @@ test.describe("Keep and Undo, for the whole change", () => {
 				.poll(async () => (await nodeBox(page, MUSEUM)).x, { timeout: 5000 })
 				.toBeCloseTo(museumBefore.x, 0);
 
-			// A version of the reader's, named for what it is; the marker is past Alfy's.
+			// A version of the reader's, named for what it is (and for the change of Alfy's
+			// it took back, so History folds the two); the marker is past Alfy's.
 			await expect
 				.poll(async () => (await versions(scene.artifactId)).length)
 				.toBe(3);
 			const rows = await versions(scene.artifactId);
 			expect(rows[2]).toMatchObject({
 				author: "user",
-				summary: "Undid Alfy's change",
+				summary: "Undid Alfy's change: v2",
 			});
 			const stored = await storedBoard(scene.artifactId);
 			expect(stored.nodes.find((node) => node.id === MUSEUM)?.position).toEqual(
@@ -738,6 +739,11 @@ test.describe("Keep and Undo, for the whole change", () => {
 			await expect
 				.poll(async () => (await versions(scene.artifactId)).length)
 				.toBe(4);
+			// A Redo says what it brought back, not a plain "Edited" (ruling 76, A5).
+			expect((await versions(scene.artifactId))[3]).toMatchObject({
+				author: "user",
+				summary: "Redid Alfy's change: v2",
+			});
 			const redone = await storedBoard(scene.artifactId);
 			expect(redone.nodes.find((node) => node.id === MUSEUM)?.position).toEqual(
 				{
@@ -807,7 +813,7 @@ test.describe("Keep and Undo, for the whole change", () => {
 		}
 	});
 
-	test("Undo is refused once the reader has changed the board: it writes nothing and points to the versions", async ({
+	test("Undo is refused once the reader has changed the board: it writes nothing and points to History", async ({
 		page,
 	}) => {
 		const scene = await open(page);
@@ -840,8 +846,9 @@ test.describe("Keep and Undo, for the whole change", () => {
 			expect(await storedBoard(scene.artifactId)).toEqual(boardBefore);
 			await expect(bar(page)).toBeVisible();
 
-			await notice.getByRole("button", { name: "Open Versions" }).click();
-			await expect(page.getByTestId("versions-list")).toBeVisible();
+			// The notice points to History, where the earlier versions are.
+			await notice.getByRole("button", { name: "Open History" }).click();
+			await expect(page.getByTestId("history-preview")).toBeVisible();
 		} finally {
 			await scene.cleanup();
 		}
