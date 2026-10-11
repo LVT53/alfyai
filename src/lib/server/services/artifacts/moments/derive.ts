@@ -138,6 +138,15 @@ function isAlfyEditKind(kind: MomentKind): boolean {
 	return kind === "alfy_edit" || kind === "alfy_reply_edit";
 }
 
+/**
+ * What an Undo can take back: an Alfy edit, or an App rebuilt by Alfy (whose
+ * toast Undo is a restore that names the rebuild it reverses). An App has no
+ * review, so the rebuild gets no status, only the Undo that took it back.
+ */
+function isUndoableKind(kind: MomentKind): boolean {
+	return isAlfyEditKind(kind) || kind === "app_rebuilt";
+}
+
 export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 	const { rows } = input;
 	if (rows.length === 0) return { moments: [], older: false, nextBefore: null };
@@ -182,7 +191,7 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 
 	/** Does this Undo take back that Alfy change? Exact for a numbered Undo, by the text for an older one. */
 	const undoTargets = (undo: RowInfo, change: RowInfo): boolean => {
-		if (!isAlfyEditKind(change.cls.kind) || change.row.author !== "alfy")
+		if (!isUndoableKind(change.cls.kind) || change.row.author !== "alfy")
 			return false;
 		if (undo.cls.version !== null)
 			return undo.cls.version === change.row.versionNumber;
@@ -422,6 +431,12 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 				return { status: "partly_kept", undoneBy };
 			}
 			return { status: "kept", undoneBy: null };
+		}
+		if (head.cls.kind === "app_rebuilt" && head.row.author === "alfy") {
+			// An App has no review: no status, but the Undo that took the rebuild back is a fact.
+			const undo =
+				group.fold === "undone" ? members[members.length - 2] : undefined;
+			return { status: null, undoneBy: undo ? refOf(undo.row) : null };
 		}
 		if (!isAlfyEditKind(head.cls.kind) || head.row.author !== "alfy") {
 			return { status: null, undoneBy: null };

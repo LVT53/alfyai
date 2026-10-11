@@ -190,6 +190,27 @@ describe("deriveMoments — single rows", () => {
 		expect(moments.every((m) => m.status === null)).toBe(true);
 	});
 
+	it("folds an App rebuild with the Undo that took it back, which has no review status", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy made the app: a tip calculator", "<p>v1</p>"),
+				row(2, "alfy", "Alfy regenerated the app: make it blue", "<p>v2</p>"),
+				row(3, "user", "Undid Alfy's change: v2", "<p>v1</p>"),
+			],
+			{},
+			"app",
+		);
+		expect(moments).toHaveLength(2);
+		expect(moments[0]).toMatchObject({
+			kind: "app_rebuilt",
+			text: "make it blue",
+			fold: "undone",
+			status: null,
+			undoneBy: { versionNumber: 3 },
+		});
+		expect(moments[0].steps.map((s) => s.kind)).toEqual(["undo_alfy_change"]);
+	});
+
 	it("never lets a model's free text pass for a row of the reader's", () => {
 		const { moments } = derive([
 			row(1, "alfy", "Alfy wrote the first draft", D1),
