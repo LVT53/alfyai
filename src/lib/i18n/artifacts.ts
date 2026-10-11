@@ -213,6 +213,8 @@ const artifactsDict = {
 		"artifacts.app.toast.undo": "Undo",
 		"artifacts.app.sandboxBar":
 			"Runs sandboxed · no internet · keeps your data",
+		"artifacts.app.sandboxBarPreview":
+			"Runs sandboxed · no internet · read-only",
 		"artifacts.app.generating": "Alfy is writing the app…",
 		"artifacts.app.generating.hint": "This takes a few seconds.",
 		"artifacts.app.emptyState":
@@ -1191,6 +1193,8 @@ const artifactsDict = {
 		"artifacts.app.toast.undo": "Visszavonás",
 		"artifacts.app.sandboxBar":
 			"Homokozóban fut · nincs internet · megőrzi az adataidat",
+		"artifacts.app.sandboxBarPreview":
+			"Homokozóban fut · nincs internet · csak olvasható",
 		"artifacts.app.generating": "Alfy írja az alkalmazást…",
 		"artifacts.app.generating.hint": "Ez néhány másodpercet vesz igénybe.",
 		"artifacts.app.emptyState":
