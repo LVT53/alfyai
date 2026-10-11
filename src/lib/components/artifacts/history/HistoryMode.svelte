@@ -131,6 +131,14 @@ let online = $state(typeof navigator === "undefined" ? true : navigator.onLine);
 let restoreOpen = $state(false);
 let restoring = $state(false);
 let restoreProblem = $state<string | null>(null);
+/**
+ * The newest version the open question was asked over, and so what Restore
+ * guards with (`expectVersion`). It is taken when the question opens, never when
+ * the reader confirms: a version that arrives while they decide (a chat turn of
+ * Alfy's in this very tab, which `refresh()` hears of and reads) would otherwise
+ * be inside the guard, and the restore would bury a change nobody had looked at.
+ */
+let restoreGuard = 0;
 let toast = $state<{
 	message: string;
 	/** The version the Undo brings back (the row the restore sat on), and the restore's own number. */
@@ -463,6 +471,13 @@ async function refresh(): Promise<void> {
 		const knownTop = moments[0]?.versionId ?? null;
 		moments = mergeFirstPage(result.moments, moments);
 		newestVersion = result.newestVersion;
+		// A version arrived while the question stood open (not the restore's own,
+		// which `confirmRestore` is still waiting for): the reader is told, over the
+		// latest the rail now shows, and their next press is on that state.
+		if (restoreOpen && !restoring && result.newestVersion > restoreGuard) {
+			restoreProblem = $t("artifacts.history.restoreMoved");
+			restoreGuard = result.newestVersion;
+		}
 		if (older || result.older) {
 			// The older end is unchanged by a new top; keep the paging cursor of what is loaded.
 			older = older || result.older;
@@ -627,6 +642,7 @@ function handleDismissHelp() {
 function askRestore() {
 	if (!canRestore) return;
 	restoreProblem = null;
+	restoreGuard = newestVersion;
 	restoreOpen = true;
 }
 
@@ -662,14 +678,14 @@ async function confirmRestore() {
 	// The toast's Undo brings back the row the restore sat on top of.
 	const rowBelow = nowRow.versionId;
 	try {
-		// `expectVersion` is what this page showed: a restore over a version that
-		// arrived since is refused, like a stale save.
+		// `expectVersion` is what the question was asked over: a restore over a
+		// version that arrived since is refused, like a stale save.
 		const version = await restoreArtifactVersion(
 			artifactId,
 			entry.versionId,
 			conversationId,
 			undefined,
-			{ expectVersion: newestVersion },
+			{ expectVersion: restoreGuard },
 		);
 		onRestored?.(version);
 		const when = whenLabel(entry.at, ctx);
@@ -689,6 +705,7 @@ async function confirmRestore() {
 			// latest, and let the reader ask again.
 			restoreProblem = $t("artifacts.history.restoreMoved");
 			await refresh();
+			restoreGuard = newestVersion;
 		} else {
 			restoreProblem = $t("artifacts.history.restoreFailed");
 		}
