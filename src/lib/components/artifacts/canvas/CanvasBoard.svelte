@@ -1066,7 +1066,10 @@ let layerApi = $derived<BoardLayerApi>({
 });
 
 let compact = $derived(boardWidth > 0 && boardWidth < COMPACT_BELOW);
-let stackedZoom = $derived(boardWidth > 0 && boardWidth < STACK_ZOOM_BELOW);
+// (A preview has no toolbar to stand above: its zoom control sits in the corner.)
+let stackedZoom = $derived(
+	!preview && boardWidth > 0 && boardWidth < STACK_ZOOM_BELOW,
+);
 
 // The zoom control steps aside from a selected block it would cover (RC-3 N3): it
 // stands over the pane's lower right corner, where a selected block's corner

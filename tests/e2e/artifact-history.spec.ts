@@ -827,6 +827,34 @@ test.describe("History mode on a phone", () => {
 		await expect(preview).not.toContainText("The museum.");
 		const back = sheet.getByRole("button", { name: "History" });
 		await expect(back).toBeVisible();
+		// The sheet's own title is the list's. Pushed, the preview names History once,
+		// by its way back (RV-V M-9): not twice, as a heading and as a link.
+		await expect
+			.poll(() =>
+				sheet.evaluate((root) => {
+					const seen = (element: Element) => {
+						const box = element.getBoundingClientRect();
+						const style = getComputedStyle(element);
+						return (
+							box.width > 1 &&
+							box.height > 1 &&
+							style.visibility !== "hidden" &&
+							style.display !== "none"
+						);
+					};
+					// Elements whose OWN text is the word: what a reader sees printed.
+					return Array.from(root.querySelectorAll("*")).filter(
+						(element) =>
+							seen(element) &&
+							Array.from(element.childNodes).some(
+								(node) =>
+									node.nodeType === Node.TEXT_NODE &&
+									node.textContent?.trim() === "History",
+							),
+					).length;
+				}),
+			)
+			.toBe(1);
 		// The bottom bar steps between moments; its targets are 44 px.
 		const older = sheet.getByRole("button", { name: "Previous version" });
 		const newer = sheet.getByRole("button", { name: "Next version" });
@@ -1706,6 +1734,40 @@ test.describe("History mode on a phone: an App and a board", () => {
 			expect((ringBox?.x ?? 0) + (ringBox?.width ?? 0)).toBeLessThanOrEqual(
 				(box?.x ?? 0) + (box?.width ?? 0) + 1,
 			);
+		}
+		// What lies over the picture covers none of it (RV-V M-9): the zoom control stands
+		// clear of every block, and a tag hangs over its block's top edge, not on its text.
+		const overlaps = (
+			a: { x: number; y: number; width: number; height: number },
+			b: { x: number; y: number; width: number; height: number },
+		) =>
+			a.x < b.x + b.width - 0.5 &&
+			a.x + a.width > b.x + 0.5 &&
+			a.y < b.y + b.height - 0.5 &&
+			a.y + a.height > b.y + 0.5;
+		const zoomBox = await preview.getByTestId("canvas-zoom").boundingBox();
+		expect(zoomBox).not.toBeNull();
+		for (const node of await preview.locator(".svelte-flow__node").all()) {
+			const nodeBox = await node.boundingBox();
+			if (!nodeBox || !zoomBox) continue;
+			expect(
+				overlaps(zoomBox, nodeBox),
+				`the zoom control covers ${await node.getAttribute("data-id")}`,
+			).toBe(false);
+		}
+		for (const tag of await preview.getByTestId("canvas-history-tag").all()) {
+			const id = await tag.getAttribute("data-node-id");
+			const tagBox = await tag.boundingBox();
+			const nodeBox = await preview
+				.locator(`.svelte-flow__node[data-id="${id}"]`)
+				.boundingBox();
+			expect(tagBox).not.toBeNull();
+			expect(nodeBox).not.toBeNull();
+			// Hung from the corner: the tag ends where the block begins.
+			expect(
+				(tagBox?.y ?? 0) + (tagBox?.height ?? 0),
+				`the tag of ${id} is on the block's text`,
+			).toBeLessThanOrEqual((nodeBox?.y ?? 0) + 1);
 		}
 		// A tap on a block selects nothing and the board is not changed: no toolbar, no step.
 		await preview.locator('.svelte-flow__node[data-id="note-lunch"]').tap();

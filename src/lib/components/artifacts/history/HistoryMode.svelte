@@ -1049,9 +1049,14 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		onClose={handleSheetClose}
 	>
 		<div class="sheet" data-testid="artifact-history" data-layout="phone">
-			<div class="sheet-head" aria-hidden="true">
-				<span class="sheet-title">{$t('artifacts.history.title')}</span>
-			</div>
+			<!-- The sheet's title names the list. Pushed, the preview names History by its way
+			     back, so the title steps aside: History is said once, not as a heading and
+			     again as a link (RV-V M-9). -->
+			{#if view === 'list'}
+				<div class="sheet-head" aria-hidden="true">
+					<span class="sheet-title">{$t('artifacts.history.title')}</span>
+				</div>
+			{/if}
 			{@render content()}
 			{@render toastView()}
 		</div>
