@@ -23,8 +23,9 @@ time or a description, never a bare number.
 
 ## 1. The problems, with the evidence
 
-Each problem names the code that causes it. Screenshot references are to `current/` (see the appendix for which
-seeded history each shows).
+Each problem names the code that causes it and, where the capture pass (VC) saw it, the screenshot in `current/`. VC
+drove real pointer and keyboard input on a local build and seeded Alfy's writes through the same service functions
+the tools call; its inventory found 24 moments that write (or do not write) a version.
 
 **P1. Every write mints a number, so the number says nothing.** `artifact_versions.version_number` grows on every
 Alfy edit (`edit_artifact`, `document-ops.ts` l. 387), every `@Alfy` reply that edits (`comments.ts` l. 652,
@@ -32,50 +33,70 @@ Alfy edit (`edit_artifact`, `document-ops.ts` l. 387), every `@Alfy` reply that 
 (`versions.ts` `restoreVersion`), every Undo of Alfy's change (a user save with `summaryKind: "undid_alfy_change"`,
 `DocumentBody.svelte` l. 1144, `review-controller.svelte.ts` l. 476), every Redo of that Undo (an ordinary
 "Edited" save, l. 524), every tick in a chat card (`coalesce: false`, body route l. 79–89) and every board merge.
-The header prints it (`ArtifactPanelHeader.svelte` l. 96–110: `v7 ▾`), the list row and the chat card print it
-(`artifacts.card.version`). The seeded Document reached v7 in eight ordinary steps; "v7" told the reader nothing
-about what v7 was.
+The header prints it (`ArtifactPanelHeader.svelte` l. 96–116: `v11 ▾`), the list row and the chat card print it
+(`artifacts.card.version`). VC's Document reached v11 in thirteen ordinary moments, the board v7, the App v4
+([doc-history-11-versions](current/doc-history-11-versions-1440-hu.png)); "v11" tells the reader nothing about what
+v11 is. The review bar counts blocks ("Alfy 3 részt módosított") while the list counts writes (one row).
 
-**P2. A newer version can be an older one.** A restore writes the old body as a new version (`Restored v2`); the
-restore toast's Undo is a second restore (`VersionsSheet.svelte` l. 128–145, "Restored v6"); an App regenerate's
-Undo is a restore too (`AppBody.svelte` l. 352–362). So v8 equals v6 and v7 equals v2, and nothing on screen says
-so, although every row carries `body_hash` that would.
+**P2. A newer version can be an older one.** A restore writes the old body as a new version: the toast says
+"Visszaállítva: v3 mint v9" ([doc-restore-toast](current/doc-restore-toast-1440-hu.png)); its Undo is a second
+restore, a row "Visszaállítva: v8", a number the reader never picked (`VersionsSheet.svelte` l. 128–145); an App
+regenerate's Undo is a restore too (`AppBody.svelte` l. 352–362). So v9 equals v3 and v10 equals v8, and nothing on
+screen says so, although every row carries the `body_hash` that would.
 
 **P3. The reader's typing is one row whose time moves and whose start is lost.** Ruling 47 coalesces a burst into
-the newest user version; `updateArtifactBody` (`record.ts` l. 573–596) overwrites `created_at` with every save, so
-the window slides (a burst lasts as long as the gaps stay under ten minutes, however long it runs) and its first
-save time is gone. Two bursts are two rows that read the same: `Te · v2 · Szerkesztve`, `Te · v5 · Szerkesztve`.
-Nothing says what either changed.
+the newest user version; `updateArtifactBody` (`record.ts` l. 574–596) overwrites `created_at` with every save, so
+the window slides (VC's probe: saves nine minutes apart were still one row eighteen minutes after the first; a
+burst can last all afternoon) and its first save time is gone. Two bursts are two rows that read the same,
+`Te · v6 · Szerkesztve` and `Te · v3 · Szerkesztve`; nothing says what either changed. Merging is by summary text, so
+two Undos within ten minutes merge into one row worded in the singular, while an Undo and the typing after it are
+two rows.
 
 **P4. The summaries are a thin vocabulary, and a third of them are English in a Hungarian UI.** The localized set
 (`version-summaries.ts`, `version-summary.ts`) is: Edited, Undid Alfy's change, Restored vN, Alfy wrote the first
 draft, Saved as a new document. Written by the server but **not** in that set, so shown in English to a Hungarian
-reader: "Alfy's comment reply" (`comments.ts` l. 652, `canvas-comments.ts` l. 75), "Alfy's edit"
-(`edit.ts` l. 333/395), "Kept from a chat reply" (`keep-message.ts` l. 76), "Alfy regenerated the app: …"
-(`app/regenerate.ts` l. 116). Alfy's own summaries are free text in the turn's language, often first person
-("A múzeumot csütörtökre tettem át").
+reader: "Alfy's comment reply" (`comments.ts` l. 652, `canvas-comments.ts` l. 75; the v7 row in
+[doc-history-11-versions](current/doc-history-11-versions-1440-hu.png)), "Alfy's edit" (`edit.ts` l. 333/395),
+"Kept from a chat reply" (`keep-message.ts` l. 76, written as **Alfy's** version though the reader pressed "Open as
+document"), "Alfy made the app: …" (`app/create.ts` l. 95), "Alfy regenerated the app: …" (`app/regenerate.ts`
+l. 116). A board's first version says "Alfy wrote the first draft". Alfy's own summaries are free text in the turn's
+language, often first person ("A múzeumot csütörtökre tettem át"), and stay Hungarian in an English UI
+([doc-history-11-versions EN](current/doc-history-11-versions-1440-en.png)).
 
 **P5. The header's meta line is a fixed string.** "You and Alfy · edited {when}" / "Te és Alfy · szerkesztve
 {when}" (`artifacts.header.editedBy`) is shown whoever edited, including a Document only Alfy has touched.
 
-**P6. Two undos look like two new things.** Undo of Alfy's change is a new top row, "Te · Alfy módosításának
-visszavonása", above the change it undid; its Redo is a further "Te · Szerkesztve" row holding Alfy's words, signed
-by the reader. The restore toast's Undo is another "Visszaállítva" row. The reader sees four rows for two decisions
-they reversed.
+**P6. Undos look like new things, and Keep leaves no trace.** Undo of Alfy's change is a new top row, "Te ·
+Alfy módosításának visszavonása", directly over the change it undid, with no link between them, while the change's own
+words ("A múzeumot csütörtökre tettem át") are no longer true of the text
+([doc-history-after-undo](current/doc-history-after-undo-1440-hu.png),
+[canvas-after-undo](current/canvas-after-undo-1440-hu.png)). The board pill's Redo writes Alfy's whole board back as
+the reader's "Szerkesztve" (`review-controller.svelte.ts` l. 524); the Document's Redo is a plain autosave. Keep and
+Keep all write nothing (only `metadata_json.review` moves), so the history cannot tell "kept" from "never looked at".
+The reader sees four rows for two decisions they reversed, and none for the two they made.
 
 **P7. Restore is blind.** The Versions popover (`VersionsSheet.svelte`) lists rows with a Restore button and an
-inline "Restore v4? Your current text stays as a version." There is no way to look at v4 first, so the only way
+inline "Restore v3? Your current text stays as a version." ([doc-restore-confirm](current/doc-restore-confirm-1440-hu.png);
+on a board it still says *szöveged*, "your text"). There is no way to look at v3 first, so the only way
 to find "the one before Alfy's section" is to restore, look, and restore again, which mints two more numbers.
 The version-body route that a preview needs exists (`GET /api/artifacts/[id]/versions/[versionId]`) and is used
 only by the board's Undo.
 
-**P8. An App has no history at all.** `AppBody.svelte` registers only `openDownload` (l. 71), so the header shows
-`v2` as static text. After the 5.2 s regenerate toast is gone there is no way back to v1 from the UI, though the row
-is there.
+**P8. An App has no history at all, and its copy says it has.** `AppBody.svelte` registers only `openDownload`
+(l. 71), so the header's `v4` is static text ([app-no-history](current/app-no-history-1440-hu.png)). The regenerate
+popover promises "A v1 megmarad az Előzményekben" ("v1 stays in History",
+[app-regenerate-promises-history](current/app-regenerate-promises-history-1440-hu.png)); its button, its building
+line and its toast hard-code "v2" ("v2 elkészítése", "Mostantól a v2 látszik"), so the second regenerate shows the
+toast "v2" beside the header's "v3" ([app-toast-v2-header-v3](current/app-toast-v2-header-v3-1440-hu.png)). After
+the 5.2 s toast there is no way back to v1, though the row is there.
 
-**P9. A pending Alfy change is invisible in the history, and a long history is cut at 50.** A row waiting for Keep
-or Undo looks like any other. `listVersions` returns the newest 50 (`ARTIFACT_VERSIONS_DEFAULT_LIMIT`) with no
-paging, although ruling 47 says "History lists newest first, paged".
+**P9. A pending Alfy change is invisible in the history, old times blur, and a long history is cut at 50.** A row
+waiting for Keep or Undo looks like any other, even with the review bar under the popover
+([doc-pending-review](current/doc-pending-review-1440-hu.png),
+[canvas-pending-review](current/canvas-pending-review-1440-hu.png)). Times are relative: two rows 24 and 25 hours
+old both read "Tegnap", and past two days a row shows a bare date with no time of day. `listVersions` returns the
+newest 50 (`ARTIFACT_VERSIONS_DEFAULT_LIMIT`) with no paging, although ruling 47 says "History lists newest first,
+paged".
 
 **P10. Restore takes no guard.** `restoreVersion` calls `updateArtifactBody` with neither `expectVersion` nor
 `baseHash`. A restore made while the open editor still holds an unsaved step leaves that step to be refused as a
@@ -127,8 +148,9 @@ serves both authors in both languages.
 
 | Moment | Row it reads | Headline EN | Headline HU |
 |---|---|---|---|
-| Alfy's first draft | v1, alfy, "Alfy wrote the first draft" | Alfy wrote the first draft · *App:* Alfy built the app · *Canvas:* Alfy made the board | Alfy megírta az első vázlatot · Alfy elkészítette az alkalmazást · Alfy elkészítette a táblát |
-| Kept from a chat reply | v1, alfy, "Kept from a chat reply" | You kept Alfy's reply as a document | Megtartottad Alfy válaszát dokumentumként |
+| Alfy's first draft | v1, alfy, "Alfy wrote the first draft" (a board writes it too) | Alfy wrote the first draft · *Canvas:* Alfy made the board | Alfy megírta az első vázlatot · Alfy elkészítette a táblát |
+| App made | v1, alfy, "Alfy made the app: {brief}" | Alfy built the app | Alfy elkészítette az alkalmazást |
+| Kept from a chat reply | v1, alfy (the reader pressed the button), "Kept from a chat reply" | You kept Alfy's reply as a document (the reader's avatar) | Megtartottad Alfy válaszát dokumentumként |
 | Saved as a copy | v1, user, "Saved as a new document" | You saved it as a new document | Új dokumentumként mentetted |
 | Made again | v1 after a delete, alfy, new "Alfy made it again" | Alfy made it again | Alfy újra elkészítette |
 | Your edits | user, "Edited" | You edited · *Canvas:* You changed the board | Szerkesztetted · Módosítottad a táblát |
@@ -154,7 +176,8 @@ Alfy's changes a status pill: **Waiting for you** / *Rád vár* (accent), **Kept
 **Undone** / *Visszavonva* (neutral), **Partly kept** / *Részben megtartva* (neutral, Document only).
 
 Times: under an hour, relative ("just now", "12 min ago" / *épp most*, *12 perce*); otherwise the clock time inside
-its day group ("10:09"); a burst with a known start shows a span ("10:03–10:09"). Day groups: Today / *Ma*,
+its day group ("10:09"), so two entries of yesterday never read the same; a burst with a known start shows a span
+("10:03–10:09"). Day groups: Today / *Ma*,
 Yesterday / *Tegnap*, then the weekday and date in the reader's locale ("Tuesday 7 October" / *október 7., kedd*).
 
 ### 3.3 Folding: when two rows are one story
@@ -217,7 +240,7 @@ Beside it: the review marker `metadata_json.review = { throughVersion, keptBlock
 | Which change an Undo undid | Canvas: the row before it (Undo writes that Alfy version's parent, refused once the reader edited); Document: the Alfy row that last changed the blocks the Undo put back; exact with the new summary "Undid Alfy's change: v{n}" (§4.5) | rows |
 | Redo | the new summary "Redid Alfy's change: v{n}"; for old rows a `body_hash` match with the undone Alfy row (Canvas) | rows |
 | Review status | the existing computations: `computePendingReviewBlocks` (`document-ops.ts` l. 695) and `computeCanvasReview` (`shared/artifacts/canvas-review.ts` l. 95) against the review marker; Undone from F1/the Undo's summary; otherwise Kept | server |
-| The chat message behind an Alfy moment | the message's `create_artifact`/`edit_artifact` tool call result carries `versionId` (`edit.ts` l. 456) | browser, from the chat it already holds |
+| The chat message behind an Alfy moment | the message's `create_artifact`/`edit_artifact` tool call result carries `versionId` (`edit.ts` l. 460) | browser, from the chat it already holds |
 | The comment behind an `@Alfy` edit | Alfy's reply comment written in the same request (its `created_at` within a few seconds of the row) | server, best effort; omitted when no single match |
 | Folding (§3.3) | adjacency + the facts above | server |
 
@@ -267,6 +290,7 @@ coalesce into a named version; no span, no half-hour cap. Every surface in §5 w
 
 - `version-summaries.ts` becomes the home of **every** summary the server writes: add `alfyEdit` ("Alfy's edit"),
   `alfyCommentReply` ("Alfy's comment reply"), `keptFromChat` ("Kept from a chat reply"),
+  `madeApp(brief)` / `parseMadeApp` ("Alfy made the app: …", `app/create.ts`),
   `regeneratedApp(prompt)` / `parseRegeneratedApp`, `alfyRemade` ("Alfy made it again", written by `recreate.ts`),
   `undidAlfyChange(n)` ("Undid Alfy's change: v{n}") with the old plain string still read, `redidAlfyChange(n)`,
   `undidRestore(n)` ("Undid restoring v{n}"). The literals in `comments.ts`, `canvas-comments.ts`, `edit.ts`,
@@ -274,6 +298,10 @@ coalesce into a named version; no span, no half-hour cap. Every surface in §5 w
   localizes all of them. This alone fixes P4's English.
 - The body route's `summaryKind` gains `redid_alfy_change`, and both Undo kinds take the version they act on
   (`summaryVersion: n`, a positive integer the route checks against the artifact's own numbers).
+- The App's regenerate copy stops naming numbers: "v2 elkészítése" / "Make v2" becomes "Újraépítés" / "Rebuild",
+  "Mostantól a v2 látszik" / "Now showing v2" becomes "Alfy újraépítette · Visszavonás" / "Alfy rebuilt it · Undo",
+  and "A v1 megmarad az Előzményekben" becomes true and number-free: "Az előző változat megmarad az előzményekben" /
+  "The previous version stays in History". The App's delete question names its versions like the other kinds'.
 - The restore route takes `{ expectVersion, undoOf? }`: it refuses `version_conflict` when the artifact moved past
   what the History showed (P10), and `undoOf` (the restore it reverses) writes `undidRestore(n)`.
 - `GET /api/artifacts/[id]/history?before=<versionNumber>` returns `{ ok: true, moments, older: boolean }` (the
@@ -443,8 +471,10 @@ Módosult: „Szombat” és még 2 bekezdés · 2. változat (fine print)
   A mostani megmarad az előzményekben.* `[Cancel] [↺ Restore]` (`Mégse` / `Visszaállítás`). Extra lines when they
   apply: "Tabs keep their current names." / *A lapok neve a mostani marad.*; for an item made in another chat
   (§5.10) "It changes in “Trip planning” too, where it was made." / *A „Tervezés” beszélgetésben is megváltozik,
-  ahol készült.*; while a change of Alfy's waits: "Alfy's change waiting for you goes with it." / *Alfy rád váró
-  módosítása is eltűnik vele.*
+  ahol készült.*; when the version being restored predates a change of Alfy's that still waits (the restore puts
+  those blocks back, so ruling 61 acknowledges them): "Alfy's change waiting for you goes with it." / *Alfy rád váró
+  módosítása is eltűnik vele.* The question never says "text" on a board or an App: it names the version by its
+  time.
 - After Restore, History stays open: a new top moment "You restored Monday 10:09" rises in and is selected, its
   preview shows the restored text with "This version's changes" (what the restore changed), the source moment gets
   "Restored from here · today 10:20", and a toast says "Restored Monday 10:09" / *Visszaállítva: hétfő 10:09* with
@@ -483,7 +513,8 @@ Módosult: „Szombat” és még 2 bekezdés · 2. változat (fine print)
   csak Alfy módosítása. Visszaállítás: egy teljes korábbi változat.* (Ctrl on Windows and Linux, from
   `keyboard-shortcuts.ts`.)
 - A version restored over a waiting change takes that change with it (the question says so, §5.5); the marker moves
-  past it as Undo would (ruling 61's "a user's own edit to such a block acknowledges it").
+  past it as Undo would (ruling 61's "a user's own edit to such a block acknowledges it"), and the change's moment
+  shows no status pill: neither Kept nor Undone is true of it.
 
 ### 5.8 The phone sheet
 
@@ -792,7 +823,29 @@ Reply in one message, e.g. "Q1 yes, Q3 no, rest as recommended".
 
 ## Appendix: the screenshots and the mockup
 
-`current/` holds the capture pass's screenshots of today (seeded histories on a local build of `feat/artifacts`,
-HU and EN, 1440×900 and 390×844), renamed for this folder; the mockup's Today column shows them at each step, and a
-faithful drawing (labelled "drawing of today") where no screenshot exists. The mockup itself was captured at its key
-states with Playwright against `file://…/index.html` for the orchestrator.
+`current/` holds the capture pass's screenshots of today (VC, 2026-10-11): a local build of `feat/artifacts`, HU
+unless the name says EN, light unless it says dark. The 947-pixel ones are the panel only, which is the panel's real
+width at 1440.
+
+| File | Shows |
+|---|---|
+| `doc-history-11-versions-1440-hu.png` (`-en`, `-dark-hu`) | the Versions popover over an 11-version Document: v10 "Visszaállítva: v8", v9 "Visszaállítva: v3", v7 "Alfy's comment reply" in English, a pending review bar under it |
+| `doc-pending-review-1440-hu.png` | the header `Dokumentum · v11 ▾ · Te és Alfy · szerkesztve 1 perce`, two pending pills, the review bar |
+| `doc-history-after-undo-1440-hu.png` | "Alfy módosításának visszavonása" (v5) directly over Alfy's v4, nothing linking them |
+| `doc-restore-confirm-1440-hu.png` | the inline restore question inside the v3 row, no preview |
+| `doc-restore-toast-1440-hu.png` | after Restore: the popover gone, the toast "Visszaállítva: v3 mint v9 · Visszavonás" |
+| `doc-history-phone-390-hu.png` | the same history as a bottom sheet at 390 px |
+| `canvas-pending-review-1440-hu.png` | a board with Alfy's pending change: the pill and the review bar; the history adds only a number |
+| `canvas-after-undo-1440-hu.png` | the board after the pill's Undo: "Visszavonva · Újra" |
+| `canvas-history-1440-hu.png` | the board's Versions popover (the Document's sheet) |
+| `app-regenerate-promises-history-1440-hu.png` | the App's regenerate popover: "v2 elkészítése" at header v2, "A v1 megmarad az Előzményekben" |
+| `app-toast-v2-header-v3-1440-hu.png` | the toast "Mostantól a v2 látszik" beside the header's static "v3" |
+| `app-no-history-1440-hu.png` | the App after four versions: "v4" as plain text, nothing else |
+
+Not captured, so designed from the code: a live Alfy edit landing while the panel is open (§5.2 "Live"), the `@Alfy`
+flow itself (§3.2, the mockup's step 8), a restore while a change waits (§5.5, §5.7).
+
+The mockup's Today column shows, at each step, a drawing of today's popover and header made from the same version
+rows by today's rules (labelled "Drawing from today's code"), and the real screenshot where VC captured the same
+surface in the same state (a toggle switches between them); its New column derives the moments from those same rows
+by §3.3's rules. The mockup was captured at its key states with Playwright against `file://…/index.html`.
