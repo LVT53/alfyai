@@ -34,6 +34,7 @@ const SIDEBAR_PROJECTS_EXPANDED_KEY = "sidebarProjectsExpanded";
 const SIDEBAR_CHATS_EXPANDED_KEY = "sidebarChatsExpanded";
 const SIDEBAR_PINNED_EXPANDED_KEY = "sidebarPinnedExpanded";
 const DOCUMENT_COMMENTS_RAIL_HIDDEN_KEY = "documentCommentsRailHidden";
+const ARTIFACT_HISTORY_HELP_DISMISSED_KEY = "artifactHistoryHelpDismissed";
 
 const isValidBool = (v: string): v is "true" | "false" =>
 	v === "true" || v === "false";
@@ -267,6 +268,17 @@ export const documentCommentsRailHidden = writable<boolean>(
 );
 documentCommentsRailHidden.subscribe((value) =>
 	persist(DOCUMENT_COMMENTS_RAIL_HIDDEN_KEY, value ? "true" : "false"),
+);
+
+/** The History rail's one-line help (ruling 76, versioning.md §5.7) stays until the reader dismisses it. */
+const initialArtifactHistoryHelpDismissedValue = browser
+	? read(ARTIFACT_HISTORY_HELP_DISMISSED_KEY, "false", isValidBool)
+	: "false";
+export const artifactHistoryHelpDismissed = writable<boolean>(
+	initialArtifactHistoryHelpDismissedValue === "true",
+);
+artifactHistoryHelpDismissed.subscribe((value) =>
+	persist(ARTIFACT_HISTORY_HELP_DISMISSED_KEY, value ? "true" : "false"),
 );
 
 export async function setSidebarProjectsExpandedAndSync(

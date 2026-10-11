@@ -4,7 +4,6 @@ import {
 	render,
 	screen,
 	waitFor,
-	within,
 } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { get } from "svelte/store";
@@ -1648,92 +1647,85 @@ describe("DocumentBody", () => {
 	// moved BOTH triggers off the toolbar into the panel header's own version
 	// button/Download action (`registerPanelActions`), which is how this test
 	// now opens the sheet.
-	describe("version history (T6)", () => {
-		it("opens the versions sheet from the panel header's version button, and reloads the editor after a restore", async () => {
-			mockFetchArtifactVersions.mockResolvedValue([
-				{
-					id: "v2",
-					versionNumber: 2,
-					author: "user",
-					summary: "Current",
-					createdAt: Date.now(),
-				},
-				{
-					id: "v1",
-					versionNumber: 1,
-					author: "alfy",
-					summary: "First draft",
-					createdAt: Date.now() - 60_000,
-				},
-			]);
-			let panelActions: { openVersions?: () => void } = {};
+	// Ruling 76: History is a mode of the PANEL, not a sheet of this body's. The body
+	// keeps no Versions dialog; what it gives the panel is the two things History
+	// needs from it: to save what the reader has typed before History shows, and to
+	// load the stored Document again after a restore changed it.
+	describe("the panel's History (ruling 76)", () => {
+		async function mountWithActions() {
+			const registerPanelActions = vi.fn();
 			render(DocumentBody, {
 				artifactId: "artifact-1",
 				kind: "document",
 				title: "Trip plan",
 				body: null,
 				conversationId: "conv-1",
-				registerPanelActions: (actions) => {
-					panelActions = actions;
-				},
+				registerPanelActions,
 			});
 			await waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
 			);
-			expect(screen.queryByRole("dialog")).toBeNull();
+			await waitFor(() => expect(registerPanelActions).toHaveBeenCalled());
+			return registerPanelActions.mock.calls.at(-1)?.[0] as {
+				flush: () => Promise<void>;
+				reload: () => void;
+				openVersions?: () => void;
+			};
+		}
 
-			panelActions.openVersions?.();
+		it("owns no versions sheet any more: nothing registers openVersions and no Versions dialog mounts", async () => {
+			const actions = await mountWithActions();
+			expect(actions.openVersions).toBeUndefined();
+			expect(screen.queryByRole("dialog", { name: "Versions" })).toBeNull();
+			expect(mockFetchArtifactVersions).not.toHaveBeenCalled();
+		});
 
-			const dialog = await screen.findByRole("dialog", { name: "Versions" });
-			await waitFor(() =>
-				expect(mockFetchArtifactVersions).toHaveBeenCalledWith(
-					"artifact-1",
-					"conv-1",
-				),
+		it("flush saves what was typed without waiting for the autosave's delay, and answers once the save has", async () => {
+			const actions = await mountWithActions();
+			simulateTyping("<!--b:p1-->\nTyped just now.");
+			expect(mockSaveArtifactBody).not.toHaveBeenCalled();
+
+			await actions.flush();
+
+			expect(mockSaveArtifactBody).toHaveBeenCalledTimes(1);
+			expect(mockSaveArtifactBody.mock.calls[0]?.[1]).toContain(
+				"Typed just now.",
 			);
-			expect(within(dialog).getByText("First draft")).toBeInTheDocument();
+		});
 
-			// Restoring reloads the editor's own content — the same "the document
-			// changed under us, reflect it" path a live Alfy edit uses — rather
-			// than leaving stale text on screen after the restore.
-			mockRestoreArtifactVersion.mockResolvedValue(3);
+		it("flush with nothing to save answers at once and writes nothing", async () => {
+			const actions = await mountWithActions();
+			await actions.flush();
+			expect(mockSaveArtifactBody).not.toHaveBeenCalled();
+		});
+
+		it("flush never rejects, even when the save fails", async () => {
+			const actions = await mountWithActions();
+			mockSaveArtifactBody.mockRejectedValue(new Error("offline"));
+			simulateTyping("<!--b:p1-->\nTyped offline.");
+			await expect(actions.flush()).resolves.toBeUndefined();
+		});
+
+		it("reload loads the stored Document again, so the editor and its version are the server's after a restore", async () => {
+			const actions = await mountWithActions();
 			mockFetchArtifact.mockResolvedValue(
 				ARTIFACT_DETAIL({
 					body: "<!--b:p1-->\nFirst draft.",
 					versionNumber: 3,
 				}),
 			);
-			await fireEvent.click(
-				within(dialog).getByRole("button", { name: "Restore" }),
-			);
-			// Wave 2.5 Step 8: the confirm is inline (never a modal) — the SAME
-			// row's trigger button is replaced by its own "Restore v1? …" confirm,
-			// which re-queries as the (now only) "Restore" button in the dialog.
-			await fireEvent.click(
-				within(dialog).getByRole("button", { name: "Restore" }),
-			);
-
-			await waitFor(() =>
-				expect(mockRestoreArtifactVersion).toHaveBeenCalledWith(
-					"artifact-1",
-					"v1",
-					"conv-1",
-				),
-			);
+			actions.reload();
 			await waitFor(() =>
 				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(2),
 			);
 		});
 	});
 
-	// Wave 2.5 Step 3: the panel header's version button and Download action
-	// (redesign §5.2 — "there is one History entry … and it sits where the
-	// version is") open the SAME two sheets the toolbar already knows how to
-	// open, through the functions this body hands `DocumentWorkspace.svelte`
-	// via `registerPanelActions`.
+	// Wave 2.5 Step 3: the panel header's Download action (and, since ruling 76,
+	// the panel's own History) reach this body through the functions it hands
+	// `DocumentWorkspace.svelte` via `registerPanelActions`.
 	describe("registerPanelActions (Wave 2.5 Step 3)", () => {
-		it("hands the header working openVersions/openDownload triggers", async () => {
-			mockFetchArtifactVersions.mockResolvedValue([]);
+		it("hands the header working openDownload, toggleComments, flush and reload triggers, and no Versions sheet", async () => {
 			const registerPanelActions = vi.fn();
 			render(DocumentBody, {
 				artifactId: "artifact-1",
@@ -1750,23 +1742,15 @@ describe("DocumentBody", () => {
 
 			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
 			expect(screen.queryByRole("dialog")).toBeNull();
-
-			actions.openVersions();
-			expect(
-				await screen.findByRole("dialog", { name: "Versions" }),
-			).toBeInTheDocument();
-			await waitFor(() =>
-				expect(mockFetchArtifactVersions).toHaveBeenCalledWith(
-					"artifact-1",
-					"conv-1",
-				),
-			);
+			expect(actions.openVersions).toBeUndefined();
+			expect(typeof actions.flush).toBe("function");
+			expect(typeof actions.reload).toBe("function");
+			expect(typeof actions.reviewPending).toBe("function");
 
 			actions.openDownload();
 			expect(
 				await screen.findByRole("button", { name: "PDF" }),
 			).toBeInTheDocument();
-			expect(screen.queryByRole("dialog", { name: "Versions" })).toBeNull();
 		});
 	});
 
@@ -2888,6 +2872,12 @@ describe("DocumentBody", () => {
 						}),
 					]),
 				);
+				// Ruling 76 (A5): bringing Alfy's change back is a version that says
+				// so, as the Undo's says it was undone.
+				const lastSave = mockSaveArtifactBody.mock.calls.at(-1);
+				expect(lastSave?.[5]).toMatchObject({
+					summaryKind: "redid_alfy_change",
+				});
 			} finally {
 				vi.useRealTimers();
 			}

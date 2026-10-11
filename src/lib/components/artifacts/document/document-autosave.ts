@@ -18,7 +18,7 @@
  *     never be retried on every keystroke.
  */
 
-import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
+import type { ClientSaveSummaryKind } from "$lib/client/api/artifacts";
 
 export interface DocumentAutosaveResult {
 	ok: boolean;
@@ -30,12 +30,12 @@ export interface DocumentAutosaveResult {
 
 /**
  * What a save says about itself besides "the user typed". `summaryKind` names
- * one of the fixed version summaries (Undo of Alfy's change today); it stays
+ * one of the fixed version summaries (Undo or Redo of Alfy's change); it stays
  * with the queued save for the whole debounce window — typing right after an
  * Undo is still part of that save — and applies to that one save only.
  */
 export interface DocumentAutosaveSaveOptions {
-	summaryKind?: SaveSummaryKind;
+	summaryKind?: ClientSaveSummaryKind;
 }
 
 export interface DocumentAutosaveHandle {
@@ -62,7 +62,7 @@ export function createDocumentAutosave(options: {
 	const delayMs = options.delayMs ?? 800;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let pending: string | null = null;
-	let pendingSummaryKind: SaveSummaryKind | undefined;
+	let pendingSummaryKind: ClientSaveSummaryKind | undefined;
 	let stopped = false;
 	let inFlight: Promise<DocumentAutosaveResult> | null = null;
 

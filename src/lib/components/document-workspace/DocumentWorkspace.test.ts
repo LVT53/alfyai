@@ -1804,15 +1804,13 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			within(shell).getByRole("heading", { name: "Vienna trip plan" }),
 		).toBeInTheDocument();
 		// The kind label appears once, plainly, with the latest moment alongside
-		// it — never a version number, and never the old duplicated "ACTIVE
-		// DOCUMENT" eyebrow or a source pill. The fixture body never calls
-		// registerPanelActions, so the moment renders as plain text here (no
-		// onHistory handler yet) — DocumentBody.test.ts covers the real,
-		// button-shaped case.
+		// it in the history button — never a version number, and never the old
+		// duplicated "ACTIVE DOCUMENT" eyebrow or a source pill. A Document's
+		// History is the panel's own mode, so its button is there from the start.
 		expect(within(shell).getByText("Document")).toBeInTheDocument();
 		expect(
-			within(shell).getByText("Changed by Alfy · 12 min ago"),
-		).toBeInTheDocument();
+			within(shell).getByTestId("artifact-history-button"),
+		).toHaveTextContent("Changed by Alfy · 12 min ago");
 		expect(within(shell).queryByText(/^v\d/)).not.toBeInTheDocument();
 		expect(
 			within(shell).queryByText("Active document"),
@@ -2086,8 +2084,8 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			name: WORKSPACE_LANDMARK,
 		})[0];
 		expect(
-			within(shell).getByText("Restored by you · 5 min ago"),
-		).toBeInTheDocument();
+			within(shell).getByTestId("artifact-history-button"),
+		).toHaveTextContent("Restored by you · 5 min ago");
 		expect(within(shell).queryByText(/You and Alfy/)).not.toBeInTheDocument();
 	});
 
