@@ -62,6 +62,7 @@ import {
 	findRailEntry,
 	flattenRailGroups,
 	mergeFirstPage,
+	newestEntryKey,
 	newestRow,
 	type RailEntry,
 	type RailFilter,
@@ -673,11 +674,18 @@ function showToast(
 	}, TOAST_MS);
 }
 
-/** After a write History made: read the top of the history again and land on its newest moment. */
+/**
+ * After a write History made: read the top of the history again and land on the
+ * entry that holds the newest row. A fold shows its OLDEST row as the moment (the
+ * restore a toast's Undo reversed), so that is the step under it, never the moment:
+ * the reader sees what is there now, and a name goes on the version that is current.
+ * The new version is not named, so the Named filter would not list it: back to All.
+ */
 async function landOnTop() {
 	await refresh();
-	const top = moments[0];
-	if (top) selectedKey = `m:${top.versionId}`;
+	filter = "all";
+	const key = newestEntryKey(buildRailGroups(moments, "all"));
+	if (key) selectedKey = key;
 	compare = "step";
 }
 

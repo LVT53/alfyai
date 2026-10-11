@@ -1,12 +1,13 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
-import { users } from "../../src/lib/server/db/schema";
+import { artifactVersions, users } from "../../src/lib/server/db/schema";
 import {
 	applyDocumentPatch,
 	createDocumentArtifact,
 	listVersions,
 	readDocumentForAlfy,
+	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
 import { createEmptyConversation, login } from "./helpers";
 
@@ -27,6 +28,17 @@ async function adminId(): Promise<string> {
 
 async function serverVersions(artifactId: string) {
 	return listVersions({ userId: await adminId(), artifactId });
+}
+
+/** The reader's name for the newest version, as stored. */
+async function newestLabel(artifactId: string): Promise<string | null> {
+	const [row] = await db
+		.select({ label: artifactVersions.label })
+		.from(artifactVersions)
+		.where(and(eq(artifactVersions.artifactId, artifactId)))
+		.orderBy(desc(artifactVersions.versionNumber))
+		.limit(1);
+	return row?.label ?? null;
 }
 
 async function openChatAndReload(page: Page, conversationId: string) {
@@ -134,5 +146,86 @@ test.describe("What History says after a press", () => {
 		await expect(options.nth(2)).toContainText("Undone");
 		await expect(options.nth(2)).not.toContainText("Kept");
 		await expect(options.nth(2)).toHaveAccessibleName(/Alfy.*Undone\./);
+	});
+
+	test("after the restore toast's Undo, History lands on the current version: one Now, and a name goes on it (I-4)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(page, "Toast walk");
+		const userId = await adminId();
+		const artifact = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Toast walk",
+			markdown: "Friday\n\nArrive and walk.",
+			author: "alfy",
+			summary: "Alfy wrote the first draft",
+		});
+		await updateArtifactBody({
+			userId,
+			artifactId: artifact.id,
+			conversationId,
+			body: "Friday\n\nArrive and walk.\n\nSaturday\n\nBelvedere.",
+			author: "alfy",
+			summary: "Added Saturday",
+		});
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+		await historyButton(page).click();
+		const region = page.getByRole("region", { name: "History of Toast walk" });
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(2);
+
+		// Restore the first draft, then take the restore back with the toast's Undo.
+		await options.last().click();
+		await region.getByTestId("history-restore").click();
+		await region.getByTestId("history-restore-confirm").click();
+		const toast = page.getByTestId("history-toast");
+		await expect(toast).toContainText("Restored");
+		await toast.getByRole("button", { name: "Undo" }).click();
+		await expect
+			.poll(async () => (await serverVersions(artifact.id))[0]?.summary, {
+				timeout: 15_000,
+			})
+			.toBe("Undid restoring v3");
+
+		// The restore and the Undo that took it back are one quiet moment (the Undo is
+		// its step); the entry that holds the newest row is the step, and that is where
+		// History lands, with the text that is there now.
+		await expect(options).toHaveCount(4);
+		await expect(options.nth(0)).toContainText("You restored");
+		await expect(options.nth(1)).toContainText("You undid the restore");
+		await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
+		await expect(options.nth(0)).toHaveAttribute("aria-selected", "false");
+		await expect(region.getByText("Belvedere.").first()).toBeVisible();
+		await expect(
+			region.getByText("This is how it looks now", { exact: false }),
+		).toBeVisible();
+		// One Now, on the entry whose own row is the newest.
+		await expect(region.locator(".marker-now")).toHaveCount(1);
+		await expect(options.nth(1).locator(".marker-now")).toHaveCount(1);
+
+		// A name lands on what is selected: the current version, not the undone restore.
+		const versions = await serverVersions(artifact.id);
+		expect(versions[0]?.versionNumber).toBe(4);
+		await region.getByRole("button", { name: "Name", exact: true }).click();
+		await page.keyboard.type("Before the client call");
+		await page.keyboard.press("Enter");
+		await expect
+			.poll(() => newestLabel(artifact.id))
+			.toBe("Before the client call");
+		const labelled = await db
+			.select({
+				versionNumber: artifactVersions.versionNumber,
+				label: artifactVersions.label,
+			})
+			.from(artifactVersions)
+			.where(eq(artifactVersions.artifactId, artifact.id));
+		expect(
+			labelled
+				.filter((version) => version.label !== null)
+				.map((version) => version.versionNumber),
+			"only the current version is named",
+		).toEqual([4]);
 	});
 });

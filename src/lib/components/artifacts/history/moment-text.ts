@@ -14,7 +14,7 @@
 
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { lowerFirst, type Translate } from "./moment-phrase";
-import type { RailEntry } from "./rail-model";
+import { entryIsNow, type RailEntry } from "./rail-model";
 
 // ---- the rail's words (versioning.md §3.2, §5.3, §8) ------------------------
 
@@ -339,7 +339,7 @@ export function entryA11yName(
 	if (entry.type === "moment" && entry.moment.status) {
 		parts.push(`${statusLabel(entry.moment.status, ctx.t)}.`);
 	}
-	if (entry.moment.containsNewest && entry.type === "moment") {
+	if (entryIsNow(entry)) {
 		parts.push(`${ctx.t("artifacts.history.now")}.`);
 	} else if (entry.sameAsNow) {
 		parts.push(`${ctx.t("artifacts.history.sameAsNow")}.`);

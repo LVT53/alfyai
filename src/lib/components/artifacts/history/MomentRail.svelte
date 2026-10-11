@@ -27,6 +27,7 @@ import {
 	whenLabel,
 } from "./moment-text";
 import {
+	entryIsNow,
 	findRailEntry,
 	nextRailKey,
 	type RailEntry,
@@ -262,9 +263,7 @@ function fromChat(entry: RailEntry): boolean {
 								{#if entry.type === 'moment' && entry.moment.status}
 									<span class="pill pill-{entry.moment.status}">{statusLabel(entry.moment.status, ctx.t)}</span>
 								{/if}
-								{#if entry.type === 'moment' && entry.moment.containsNewest}
-									<span class="marker marker-now">{$t('artifacts.history.now')}</span>
-								{:else if entry.type === 'step' && entry.isNewest}
+								{#if entryIsNow(entry)}
 									<span class="marker marker-now">{$t('artifacts.history.now')}</span>
 								{/if}
 								{#if entry.sameAsNow}
