@@ -5,6 +5,10 @@ import {
 	getVersionBody,
 	nameVersion,
 } from "$lib/server/services/artifacts";
+import type {
+	NameVersionRequest,
+	NameVersionResponse,
+} from "$lib/shared/artifacts/history";
 import type { RequestHandler } from "./$types";
 
 // GET /api/artifacts/[id]/versions/[versionId] — one version's stored body,
@@ -47,9 +51,16 @@ export const GET: RequestHandler = async (event) => {
 // the caller's to name is the same 404 as a missing one.
 export const PATCH: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
-	const payload = await event.request.json().catch(() => null);
+	const payload = (await event.request.json().catch(() => null)) as
+		| {
+				[K in keyof NameVersionRequest]?: unknown;
+		  }
+		| null;
 	if (!payload || typeof payload !== "object" || !("label" in payload)) {
-		return json({ ok: false, reason: "invalid_label" }, { status: 400 });
+		return json(
+			{ ok: false, reason: "invalid_label" } satisfies NameVersionResponse,
+			{ status: 400 },
+		);
 	}
 
 	const result = await nameVersion({
@@ -57,12 +68,12 @@ export const PATCH: RequestHandler = async (event) => {
 		artifactId: event.params.id,
 		versionId: event.params.versionId,
 		conversationId: event.url.searchParams.get("conversationId"),
-		label: (payload as { label: unknown }).label,
+		label: payload.label,
 	});
 	if (!result.ok) {
-		return json(result, {
+		return json(result satisfies NameVersionResponse, {
 			status: result.reason === "not_found" ? 404 : 400,
 		});
 	}
-	return json(result);
+	return json(result satisfies NameVersionResponse);
 };

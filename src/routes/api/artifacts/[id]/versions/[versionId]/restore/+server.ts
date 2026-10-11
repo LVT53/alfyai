@@ -1,6 +1,10 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import { restoreVersion } from "$lib/server/services/artifacts";
+import type {
+	RestoreVersionRequest,
+	RestoreVersionResponse,
+} from "$lib/shared/artifacts/history";
 import type { RequestHandler } from "./$types";
 
 /** A field that is absent (`undefined`), a whole number of at least one, or neither (`null`). */
@@ -28,14 +32,18 @@ export const POST: RequestHandler = async (event) => {
 	const versionId = event.params.versionId;
 	const conversationId = event.url.searchParams.get("conversationId");
 
-	const payload = (await event.request.json().catch(() => null)) as {
-		expectVersion?: unknown;
-		undoOf?: unknown;
-	} | null;
+	const payload = (await event.request.json().catch(() => null)) as
+		| {
+				[K in keyof RestoreVersionRequest]?: unknown;
+		  }
+		| null;
 	const expectVersion = optionalPositiveInteger(payload?.expectVersion);
 	const undoOf = optionalPositiveInteger(payload?.undoOf);
 	if (expectVersion === null || undoOf === null) {
-		return json({ ok: false, reason: "invalid_request" }, { status: 400 });
+		return json(
+			{ ok: false, reason: "invalid_request" } satisfies RestoreVersionResponse,
+			{ status: 400 },
+		);
 	}
 
 	const result = await restoreVersion({
@@ -48,7 +56,7 @@ export const POST: RequestHandler = async (event) => {
 	});
 	if (!result.ok) {
 		return json(
-			{ ok: false, reason: result.reason },
+			{ ok: false, reason: result.reason } satisfies RestoreVersionResponse,
 			{
 				status:
 					result.reason === "not_found"
@@ -64,5 +72,5 @@ export const POST: RequestHandler = async (event) => {
 		ok: true,
 		version: result.versionNumber,
 		versionId: result.versionId,
-	});
+	} satisfies RestoreVersionResponse);
 };
