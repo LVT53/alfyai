@@ -169,8 +169,12 @@ export class CanvasReviewController {
 	#keptTimer: ReturnType<typeof setTimeout> | null = null;
 	#undoneTimer: ReturnType<typeof setTimeout> | null = null;
 	#arrangeTimer: ReturnType<typeof setTimeout> | null = null;
-	/** Alfy's board as it was when Undo was pressed: what Redo writes back. */
-	#undone: { alfyBody: string; alfyVersion: number } | null = null;
+	/** Alfy's board as it was when Undo was pressed, and the run of Alfy's versions it took back: what Redo writes back, under the same names. */
+	#undone: {
+		alfyBody: string;
+		alfyVersion: number;
+		firstAlfyVersion: number;
+	} | null = null;
 	/** The replies that made the change that waits now; once it is decided their chips keep its outcome. */
 	#activeReplies: string[] = [];
 	/** The version and hash right after Undo wrote: what Redo is checked against, so a step of the reader's in between refuses it. */
@@ -474,11 +478,15 @@ export class CanvasReviewController {
 				this.#refuseUndo("failed");
 				return;
 			}
+			// The Undo restores the version before Alfy's WHOLE run, so it names the run
+			// (its first version to its newest), not only the newest.
+			const firstAlfyVersion = state.undo.toVersion + 1;
 			const written = await this.#write(
 				parentBody,
 				"undid_alfy_change",
 				undefined,
 				state.latestAlfyVersion,
+				firstAlfyVersion,
 			);
 			if (!written.ok) {
 				this.#refuseUndo(
@@ -499,7 +507,11 @@ export class CanvasReviewController {
 			this.#undone =
 				alfyBody === null
 					? null
-					: { alfyBody, alfyVersion: state.latestAlfyVersion };
+					: {
+							alfyBody,
+							alfyVersion: state.latestAlfyVersion,
+							firstAlfyVersion,
+						};
 			this.status = "undone";
 			this.#chips("undone");
 			this.pulseIds = [];
@@ -537,6 +549,7 @@ export class CanvasReviewController {
 				"redid_alfy_change",
 				this.#afterUndo ?? undefined,
 				this.#undone.alfyVersion,
+				this.#undone.firstAlfyVersion,
 			);
 			if (!written.ok) {
 				this.#refuseUndo("failed");
@@ -625,6 +638,7 @@ export class CanvasReviewController {
 		summaryKind?: SaveSummaryKind,
 		expect?: WriteGuard,
 		summaryVersion?: number,
+		summaryFromVersion?: number,
 	): Promise<WriteResult> {
 		let parsed: CanvasBody;
 		try {
@@ -646,6 +660,12 @@ export class CanvasReviewController {
 				coalesce: false,
 				summaryKind,
 				...(summaryVersion !== undefined ? { summaryVersion } : {}),
+				// Only a run names its first version (one version is the newest alone).
+				...(summaryVersion !== undefined &&
+				summaryFromVersion !== undefined &&
+				summaryFromVersion < summaryVersion
+					? { summaryFromVersion }
+					: {}),
 			},
 		).catch(() => null);
 		if (!result) return { ok: false, reason: "failed" };

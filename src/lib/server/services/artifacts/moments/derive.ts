@@ -189,12 +189,22 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 		return touched;
 	};
 
+	/**
+	 * Does a numbered Undo or Redo act on that version? It names the Alfy version it
+	 * acted on, or the run it took back (`fromVersion` to `version`, RV-V I-3: one
+	 * press can take back several of Alfy's versions in a row).
+	 */
+	const covers = (cls: ClassifiedSummary, versionNumber: number): boolean =>
+		cls.version !== null &&
+		versionNumber <= cls.version &&
+		versionNumber >= (cls.fromVersion ?? cls.version);
+
 	/** Does this Undo take back that Alfy change? Exact for a numbered Undo, by the text for an older one. */
 	const undoTargets = (undo: RowInfo, change: RowInfo): boolean => {
 		if (!isUndoableKind(change.cls.kind) || change.row.author !== "alfy")
 			return false;
 		if (undo.cls.version !== null)
-			return undo.cls.version === change.row.versionNumber;
+			return covers(undo.cls, change.row.versionNumber);
 		const parent = infos[change.index + 1]?.row;
 		if (input.kind === "canvas") {
 			// A board's Undo writes the parent of Alfy's version back.
@@ -370,7 +380,7 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 		let undo: HistoryRowMeta | null = foldedUndo;
 		let redoneAfter = false;
 		for (const { meta, cls } of laterMarkers) {
-			if (meta.versionNumber <= v || cls.version !== v) continue;
+			if (meta.versionNumber <= v || !covers(cls, v)) continue;
 			if (
 				cls.kind === "undo_alfy_change" &&
 				(undo === null || meta.versionNumber > undo.versionNumber)
@@ -381,7 +391,7 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 		for (const { meta, cls } of laterMarkers) {
 			if (
 				cls.kind === "redo_alfy_change" &&
-				cls.version === v &&
+				covers(cls, v) &&
 				undo !== null &&
 				meta.versionNumber > undo.versionNumber
 			) {
@@ -536,10 +546,12 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 
 		// What an unfolded Undo or Redo acts on, with Alfy's own words.
 		let target: ArtifactMoment["target"] = null;
+		// (A press that acted on a run names no single change's words.)
 		if (
 			(rep.cls.kind === "undo_alfy_change" ||
 				rep.cls.kind === "redo_alfy_change") &&
 			rep.cls.version !== null &&
+			rep.cls.fromVersion === undefined &&
 			!folded
 		) {
 			const acted = metaByNumber.get(rep.cls.version);

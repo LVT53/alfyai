@@ -71,6 +71,7 @@ export const PATCH: RequestHandler = async (event) => {
 		coalesce?: unknown;
 		summaryKind?: unknown;
 		summaryVersion?: unknown;
+		summaryFromVersion?: unknown;
 	} | null;
 	if (!payload || typeof payload.body !== "string") {
 		return json({ ok: false, reason: "invalid_patch" }, { status: 400 });
@@ -108,10 +109,20 @@ export const PATCH: RequestHandler = async (event) => {
 	// or Redo names the Alfy version it acts on (ruling 76, A5); a number that
 	// is not one of this artifact's own versions names nothing.
 	const summaryVersion = parseSummaryVersion(payload.summaryVersion);
-	const summary = saveSummaryFor(
-		parseSaveSummaryKind(payload.summaryKind),
+	const namedVersion =
 		summaryVersion !== null && summaryVersion <= artifact.versionNumber
 			? summaryVersion
+			: null;
+	// One press can take back (or bring back) a run of Alfy's versions: it names the
+	// first of them too (RV-V I-3), and only a first version below the newest is one.
+	const summaryFromVersion = parseSummaryVersion(payload.summaryFromVersion);
+	const summary = saveSummaryFor(
+		parseSaveSummaryKind(payload.summaryKind),
+		namedVersion,
+		namedVersion !== null &&
+			summaryFromVersion !== null &&
+			summaryFromVersion < namedVersion
+			? summaryFromVersion
 			: null,
 	);
 

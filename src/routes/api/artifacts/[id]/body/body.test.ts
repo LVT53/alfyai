@@ -330,6 +330,63 @@ describe("PATCH /api/artifacts/[id]/body", () => {
 			);
 		});
 
+		it("stores an Undo of several of Alfy's versions under the range it names, and a range that is not one under the newest alone", async () => {
+			mockGetArtifact.mockResolvedValue({
+				...documentFixture,
+				versionNumber: 4,
+			});
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 5 });
+
+			await PATCH(
+				makeEvent({
+					body: {
+						body: "Undone.",
+						expectVersion: 4,
+						summaryKind: "undid_alfy_change",
+						summaryVersion: 4,
+						summaryFromVersion: 2,
+					},
+				}),
+			);
+			expect(mockSaveDocumentBody).toHaveBeenLastCalledWith(
+				expect.objectContaining({ summary: "Undid Alfy's changes: v2 to v4" }),
+			);
+
+			// A first version that is not below the newest, or not a version at all.
+			for (const from of [4, 5, 0, -1, 1.5, "2", null]) {
+				await PATCH(
+					makeEvent({
+						body: {
+							body: "Undone.",
+							expectVersion: 4,
+							summaryKind: "undid_alfy_change",
+							summaryVersion: 4,
+							summaryFromVersion: from,
+						},
+					}),
+				);
+				expect(mockSaveDocumentBody).toHaveBeenLastCalledWith(
+					expect.objectContaining({ summary: "Undid Alfy's change: v4" }),
+				);
+			}
+
+			// And a Redo of the same run.
+			await PATCH(
+				makeEvent({
+					body: {
+						body: "Redone.",
+						expectVersion: 4,
+						summaryKind: "redid_alfy_change",
+						summaryVersion: 3,
+						summaryFromVersion: 2,
+					},
+				}),
+			);
+			expect(mockSaveDocumentBody).toHaveBeenLastCalledWith(
+				expect.objectContaining({ summary: "Redid Alfy's changes: v2 to v3" }),
+			);
+		});
+
 		it("stores an Undo of Alfy's change under its own summary", async () => {
 			mockGetArtifact.mockResolvedValue(documentFixture);
 			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });

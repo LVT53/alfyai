@@ -2011,6 +2011,9 @@ function bindAutosave(id: string, conversationId: string | null): void {
 								...(saveOptions.summaryVersion !== undefined
 									? { summaryVersion: saveOptions.summaryVersion }
 									: {}),
+								...(saveOptions.summaryFromVersion !== undefined
+									? { summaryFromVersion: saveOptions.summaryFromVersion }
+									: {}),
 							}
 						: {}),
 				},

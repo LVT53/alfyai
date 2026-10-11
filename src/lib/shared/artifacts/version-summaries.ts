@@ -85,40 +85,86 @@ export function parseRestoredVersion(summary: string): number | null {
 }
 
 /**
- * The reader took back Alfy's change in version `alfyVersion`. Without a
- * version it is the plain form older rows (and older clients) carry.
+ * The reader took back Alfy's change in version `alfyVersion`; or, when one press
+ * took back several of Alfy's versions in a row (a board's Undo restores the
+ * version before Alfy's whole run, the Document's "Undo all" undoes every pending
+ * change in one save), the range `firstVersion` to `alfyVersion`: History marks
+ * every Alfy version in it Undone, not only the newest. A range that is not one
+ * (it starts at or after its end) names `alfyVersion` alone. Without a version it
+ * is the plain form older rows (and older clients) carry.
  */
-export function undidAlfyChangeSummary(alfyVersion?: number): string {
-	return alfyVersion === undefined
-		? VERSION_SUMMARY.undidAlfyChange
-		: `${VERSION_SUMMARY.undidAlfyChange}: v${alfyVersion}`;
+export function undidAlfyChangeSummary(
+	alfyVersion?: number,
+	firstVersion?: number,
+): string {
+	if (alfyVersion === undefined) return VERSION_SUMMARY.undidAlfyChange;
+	if (firstVersion !== undefined && firstVersion < alfyVersion) {
+		return `Undid Alfy's changes: v${firstVersion} to v${alfyVersion}`;
+	}
+	return `${VERSION_SUMMARY.undidAlfyChange}: v${alfyVersion}`;
 }
 
 const UNDID_ALFY_PATTERN = /^Undid Alfy's change(?:: v(\d{1,9}))?$/;
+const UNDID_ALFY_RANGE_PATTERN =
+	/^Undid Alfy's changes: v(\d{1,9}) to v(\d{1,9})$/;
 
 /**
- * An Undo summary read back: the Alfy version it undid, `null` for the plain
- * older form, or `null` overall for any other summary.
+ * A range read back: its newest version, and its first when it is a range of more
+ * than one (a "range" that starts at or after its end is its end alone).
+ */
+function rangeOf(
+	first: string,
+	last: string,
+): {
+	version: number;
+	fromVersion?: number;
+} {
+	const from = Number(first);
+	const version = Number(last);
+	return from < version ? { version, fromVersion: from } : { version };
+}
+
+/**
+ * An Undo summary read back: the Alfy version it undid (the newest of them, with
+ * `fromVersion` the first when it took back a run), `null` for the plain older
+ * form, or `null` overall for any other summary.
  */
 export function parseUndidAlfyChange(
 	summary: string,
-): { version: number | null } | null {
+): { version: number | null; fromVersion?: number } | null {
+	const range = UNDID_ALFY_RANGE_PATTERN.exec(summary);
+	if (range) return rangeOf(range[1], range[2]);
 	const match = UNDID_ALFY_PATTERN.exec(summary);
 	if (!match) return null;
 	return { version: match[1] === undefined ? null : Number(match[1]) };
 }
 
-/** The reader brought back Alfy's change in version `alfyVersion` after undoing it. */
-export function redidAlfyChangeSummary(alfyVersion: number): string {
+/**
+ * The reader brought back Alfy's change in version `alfyVersion` after undoing it
+ * (the range `firstVersion` to `alfyVersion` when the Undo had taken back a run).
+ */
+export function redidAlfyChangeSummary(
+	alfyVersion: number,
+	firstVersion?: number,
+): string {
+	if (firstVersion !== undefined && firstVersion < alfyVersion) {
+		return `Redid Alfy's changes: v${firstVersion} to v${alfyVersion}`;
+	}
 	return `Redid Alfy's change: v${alfyVersion}`;
 }
 
 const REDID_ALFY_PATTERN = /^Redid Alfy's change: v(\d{1,9})$/;
+const REDID_ALFY_RANGE_PATTERN =
+	/^Redid Alfy's changes: v(\d{1,9}) to v(\d{1,9})$/;
 
-/** The Alfy version a Redo summary names, or `null` for any other summary. */
-export function parseRedidAlfyChange(summary: string): number | null {
+/** The Alfy versions a Redo summary names (the newest, and the first of a run), or `null` for any other summary. */
+export function parseRedidAlfyChange(
+	summary: string,
+): { version: number; fromVersion?: number } | null {
+	const range = REDID_ALFY_RANGE_PATTERN.exec(summary);
+	if (range) return rangeOf(range[1], range[2]);
 	const match = REDID_ALFY_PATTERN.exec(summary);
-	return match ? Number(match[1]) : null;
+	return match ? { version: Number(match[1]) } : null;
 }
 
 /** The reader undid the restore that made version `restoreVersion`. */
@@ -164,19 +210,22 @@ export function parseSummaryVersion(value: unknown): number | null {
 /**
  * The summary a body save is stored with: its named kind's, else the ordinary
  * "Edited". A Redo names the change it brings back or it is only an edit; an
- * Undo that names none (an older client) is the plain older form.
+ * Undo that names none (an older client) is the plain older form. `firstVersion`
+ * is the first of the Alfy versions a press took back (or brought back) when it
+ * was a run: the save names the range.
  */
 export function saveSummaryFor(
 	kind: SaveSummaryKind | null | undefined,
 	alfyVersion?: number | null,
+	firstVersion?: number | null,
 ): string {
 	if (kind === "undid_alfy_change") {
 		return alfyVersion
-			? undidAlfyChangeSummary(alfyVersion)
+			? undidAlfyChangeSummary(alfyVersion, firstVersion ?? undefined)
 			: undidAlfyChangeSummary();
 	}
 	if (kind === "redid_alfy_change" && alfyVersion) {
-		return redidAlfyChangeSummary(alfyVersion);
+		return redidAlfyChangeSummary(alfyVersion, firstVersion ?? undefined);
 	}
 	return VERSION_SUMMARY.edited;
 }
@@ -190,11 +239,14 @@ export interface ClassifiedSummary {
 	/** Alfy's own words, an App's brief or prompt; `null` when the kind has none or the row holds the fallback. */
 	text: string | null;
 	/**
-	 * Undo/redo: the Alfy version it acts on (`null` for the plain older Undo).
+	 * Undo/redo: the Alfy version it acts on (`null` for the plain older Undo; the
+	 * newest of them when it took back a run, see `fromVersion`).
 	 * Restore: the version brought back (`null` for the older wrapper form).
 	 * Undone restore: the restore's own version number.
 	 */
 	version: number | null;
+	/** Undo/redo of a run of several of Alfy's versions: the first of them (RV-V I-3). Absent for one version. */
+	fromVersion?: number;
 }
 
 /**
@@ -227,11 +279,27 @@ export function classifyVersionSummary(row: {
 			return { ...base, kind: "undo_restore", version: undoneRestore };
 		}
 		const undid = parseUndidAlfyChange(summary);
-		if (undid)
-			return { ...base, kind: "undo_alfy_change", version: undid.version };
+		if (undid) {
+			return {
+				...base,
+				kind: "undo_alfy_change",
+				version: undid.version,
+				...(undid.fromVersion !== undefined
+					? { fromVersion: undid.fromVersion }
+					: {}),
+			};
+		}
 		const redid = parseRedidAlfyChange(summary);
-		if (redid !== null)
-			return { ...base, kind: "redo_alfy_change", version: redid };
+		if (redid) {
+			return {
+				...base,
+				kind: "redo_alfy_change",
+				version: redid.version,
+				...(redid.fromVersion !== undefined
+					? { fromVersion: redid.fromVersion }
+					: {}),
+			};
+		}
 		return { ...base, kind: "user_edit" };
 	}
 

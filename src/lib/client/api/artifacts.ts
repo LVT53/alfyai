@@ -663,8 +663,10 @@ export async function saveArtifactBody(
 		coalesce?: boolean;
 		/** What the save says about itself besides "the user typed" — see `parseSaveSummaryKind`. */
 		summaryKind?: SaveSummaryKind;
-		/** An Undo or Redo of Alfy's change: the Alfy version it acts on (ruling 76, A5). */
+		/** An Undo or Redo of Alfy's change: the Alfy version it acts on (ruling 76, A5); the newest of them when it acted on a run. */
 		summaryVersion?: number;
+		/** An Undo or Redo that acted on a run of Alfy's versions: the first of them, so History marks each one (RV-V I-3). */
+		summaryFromVersion?: number;
 	},
 ): Promise<SaveArtifactBodyResult> {
 	const response = await fetchImpl(
@@ -682,6 +684,9 @@ export async function saveArtifactBody(
 					: {}),
 				...(guard?.summaryVersion !== undefined
 					? { summaryVersion: guard.summaryVersion }
+					: {}),
+				...(guard?.summaryFromVersion !== undefined
+					? { summaryFromVersion: guard.summaryFromVersion }
 					: {}),
 			}),
 		},

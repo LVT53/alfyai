@@ -42,6 +42,13 @@ export interface DocumentAutosaveSaveOptions {
 	 * cannot fold the Undo onto the change it undid.
 	 */
 	summaryVersion?: number;
+	/**
+	 * Set by the autosave when several Undos or Redos are queued into one save
+	 * ("Undo all"): the first of the Alfy versions they act on, `summaryVersion`
+	 * being the newest. The save names the range, so History marks every one of
+	 * them (RV-V I-3).
+	 */
+	summaryFromVersion?: number;
 }
 
 export interface DocumentAutosaveHandle {
@@ -70,6 +77,7 @@ export function createDocumentAutosave(options: {
 	let pending: string | null = null;
 	let pendingSummaryKind: SaveSummaryKind | undefined;
 	let pendingSummaryVersion: number | undefined;
+	let pendingSummaryFromVersion: number | undefined;
 	let stopped = false;
 	let inFlight: Promise<DocumentAutosaveResult> | null = null;
 
@@ -120,9 +128,11 @@ export function createDocumentAutosave(options: {
 		const markdown = pending;
 		const summaryKind = pendingSummaryKind;
 		const summaryVersion = pendingSummaryVersion;
+		const summaryFromVersion = pendingSummaryFromVersion;
 		pending = null;
 		pendingSummaryKind = undefined;
 		pendingSummaryVersion = undefined;
+		pendingSummaryFromVersion = undefined;
 		if (markdown === null) return null;
 		return summaryKind
 			? {
@@ -130,6 +140,11 @@ export function createDocumentAutosave(options: {
 					saveOptions: {
 						summaryKind,
 						...(summaryVersion !== undefined ? { summaryVersion } : {}),
+						...(summaryVersion !== undefined &&
+						summaryFromVersion !== undefined &&
+						summaryFromVersion < summaryVersion
+							? { summaryFromVersion }
+							: {}),
 					},
 				}
 			: { markdown };
@@ -142,8 +157,24 @@ export function createDocumentAutosave(options: {
 			// Sticky until this queue is saved: a later plain schedule inside the
 			// same window must not turn an Undo's save back into an ordinary one.
 			if (scheduleOptions?.summaryKind) {
-				pendingSummaryKind = scheduleOptions.summaryKind;
-				pendingSummaryVersion = scheduleOptions.summaryVersion;
+				const named = scheduleOptions.summaryVersion;
+				if (
+					scheduleOptions.summaryKind === pendingSummaryKind &&
+					named !== undefined &&
+					pendingSummaryVersion !== undefined
+				) {
+					// Several Undos (or Redos) in one window ("Undo all"): one save, naming
+					// the range of Alfy versions they act on, in whatever order they came.
+					pendingSummaryFromVersion = Math.min(
+						pendingSummaryFromVersion ?? pendingSummaryVersion,
+						named,
+					);
+					pendingSummaryVersion = Math.max(pendingSummaryVersion, named);
+				} else {
+					pendingSummaryKind = scheduleOptions.summaryKind;
+					pendingSummaryVersion = named;
+					pendingSummaryFromVersion = undefined;
+				}
 			}
 			clearTimer();
 			timer = setTimeout(() => {
@@ -164,6 +195,7 @@ export function createDocumentAutosave(options: {
 			pending = null;
 			pendingSummaryKind = undefined;
 			pendingSummaryVersion = undefined;
+			pendingSummaryFromVersion = undefined;
 		},
 		resume() {
 			stopped = false;

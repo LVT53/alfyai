@@ -351,6 +351,61 @@ describe("Undo", () => {
 		return { ...made, parent };
 	}
 
+	// RV-V I-3: Undo restores the version before Alfy's WHOLE run, so the version it
+	// writes names the run it took back (its first version to its newest), or History
+	// calls every Alfy version but the newest Kept.
+	it("names the whole run of Alfy's versions it took back, and the Redo brings the same run back", async () => {
+		const parent = sampleBoard();
+		api.fetchArtifactVersionBody.mockResolvedValue(boardJson(parent));
+		const { controller, host } = make({ board: landed(parent, MOVE, RETITLE) });
+		// v1 is the reader's; Alfy made v2 and v3 since.
+		controller.restore(
+			reviewState({
+				latestAlfyVersion: 3,
+				undo: { available: true, toVersion: 1, toVersionId: "v1" },
+			}),
+		);
+		api.fetchCanvasReviewState.mockResolvedValue(
+			reviewState({
+				latestAlfyVersion: 3,
+				undo: { available: true, toVersion: 1, toVersionId: "v1" },
+			}),
+		);
+		const alfyBody = boardJson(host.board()?.current() as CanvasBody);
+
+		await controller.undo();
+		expect(api.saveArtifactBody).toHaveBeenLastCalledWith(
+			"board-1",
+			boardJson(parent),
+			2,
+			"conv-1",
+			undefined,
+			{
+				baseHash: "h2",
+				coalesce: false,
+				summaryKind: "undid_alfy_change",
+				summaryVersion: 3,
+				summaryFromVersion: 2,
+			},
+		);
+
+		await controller.redo();
+		expect(api.saveArtifactBody).toHaveBeenLastCalledWith(
+			"board-1",
+			alfyBody,
+			3,
+			"conv-1",
+			undefined,
+			{
+				baseHash: "h3",
+				coalesce: false,
+				summaryKind: "redid_alfy_change",
+				summaryVersion: 3,
+				summaryFromVersion: 2,
+			},
+		);
+	});
+
 	it("saves the parent's board back as the reader's own version, then draws it", async () => {
 		const { controller, host, surface, parent } = armed();
 		await controller.undo();
