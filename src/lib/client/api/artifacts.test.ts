@@ -631,6 +631,21 @@ describe("artifacts client API", () => {
 				restoreArtifactVersion("artifact-1", "version-1", null, fetchMock),
 			).rejects.toThrow();
 		});
+
+		// RV-V I-2: an App version the contract audit forbids is refused by the server
+		// (ruling 58); the page words it, so the refusal reaches it by its reason.
+		it("throws the documented refusal for an App version that can no longer run, by its reason", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: false, reason: "not_runnable" }, 422),
+			);
+
+			await expect(
+				restoreArtifactVersion("artifact-1", "version-1", null, fetchMock),
+			).rejects.toMatchObject({
+				name: "VersionRestoreRefusedError",
+				reason: "not_runnable",
+			});
+		});
 	});
 
 	describe("saveArtifactBody (Slice 1, T7)", () => {
