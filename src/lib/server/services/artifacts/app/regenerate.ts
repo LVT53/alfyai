@@ -6,6 +6,7 @@
 // the html afterward (this file updates an existing artifact's body;
 // `create.ts` writes a brand-new one).
 import type { ModelId } from "$lib/model-types";
+import { regeneratedAppSummary } from "$lib/shared/artifacts/version-summaries";
 import { getArtifact, updateArtifactBody } from "../record";
 import type { ArtifactScopeOptions } from "../types";
 import type { AppGenerationFailureReason } from "./generate";
@@ -113,7 +114,7 @@ export async function regenerateApp(
 		includeIncognito: input.includeIncognito,
 		body: html,
 		author: "alfy",
-		summary: `Alfy regenerated the app: ${input.prompt}`,
+		summary: regeneratedAppSummary(input.prompt),
 		metadataPatch: { glitchRuleIds, verification },
 	});
 	if (!written.ok) {

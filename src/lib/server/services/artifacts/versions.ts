@@ -1,4 +1,5 @@
-// An artifact's history: every saved state, newest first, and restore.
+// An artifact's history: every saved state, newest first, restore, and the
+// reader's name for a version.
 //
 // Versions are written by `record.ts` inside the same transaction as the body
 // they record (create and update are the only writers), so a stored body and
@@ -7,12 +8,25 @@
 // itself a new version, so nothing is ever lost. Every function resolves the
 // artifact through `readScopedArtifactRow` first: a version is exactly as
 // private as the artifact it belongs to.
-import { and, desc, eq } from "drizzle-orm";
+//
+// What a reader sees of all this — moments, folds, statuses — is derived from
+// these rows in `history.ts`; nothing here is stored for it except a name.
+import { and, desc, eq, lt } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactVersions } from "$lib/server/db/schema";
-import { restoredSummary } from "$lib/shared/artifacts/version-summaries";
+import { normalizeVersionLabel } from "$lib/shared/artifacts/history";
+import {
+	parseRestoredVersion,
+	restoredSummary,
+	undidAlfyChangeSummary,
+	undidRestoreSummary,
+} from "$lib/shared/artifacts/version-summaries";
 import { ARTIFACT_VERSIONS_DEFAULT_LIMIT } from "./limits";
-import { readScopedArtifactRow, updateArtifactBody } from "./record";
+import {
+	isEditableArtifactRow,
+	readScopedArtifactRow,
+	updateArtifactBody,
+} from "./record";
 import type {
 	ArtifactAuthor,
 	ArtifactScopeOptions,
@@ -25,10 +39,18 @@ type VersionTarget = {
 } & ArtifactScopeOptions;
 
 export async function listVersions(
-	params: VersionTarget & { limit?: number },
+	params: VersionTarget & {
+		limit?: number;
+		/** Only versions numbered below this: the next page after the last one seen (ruling 47: "paged"). */
+		before?: number;
+	},
 ): Promise<ArtifactVersionSummary[]> {
 	const artifact = await readScopedArtifactRow(params);
 	if (!artifact) return [];
+	const owned = and(
+		eq(artifactVersions.artifactId, artifact.id),
+		eq(artifactVersions.userId, params.userId),
+	);
 	const rows = await db
 		.select({
 			id: artifactVersions.id,
@@ -39,10 +61,9 @@ export async function listVersions(
 		})
 		.from(artifactVersions)
 		.where(
-			and(
-				eq(artifactVersions.artifactId, artifact.id),
-				eq(artifactVersions.userId, params.userId),
-			),
+			params.before === undefined
+				? owned
+				: and(owned, lt(artifactVersions.versionNumber, params.before)),
 		)
 		.orderBy(desc(artifactVersions.versionNumber))
 		.limit(params.limit ?? ARTIFACT_VERSIONS_DEFAULT_LIMIT);
@@ -86,17 +107,76 @@ export async function getVersionBody(
  * Writes an earlier version's body back as a NEW version (author `user`,
  * summary `Restored v<n>` naming the version it came from), numbered after the
  * newest — so the version being replaced stays in the history too.
+ *
+ * `expectVersion` is the newest version the reader saw (History's
+ * `newestVersion`): a restore over a newer one is refused `version_conflict`
+ * exactly like a stale save, so it can never silently bury a step the open
+ * editor has not saved yet, or a change that landed while History was open.
+ *
+ * `undoOf` is the restore toast's Undo (and an App rebuild's): it names the
+ * newest row, which must be the child of the version being brought back, and
+ * the summary says what was undone (`Undid restoring v3`, or `Undid Alfy's
+ * change: v3` for an Alfy row). Any other row is not a thing Undo reverses.
  */
 export async function restoreVersion(
-	params: VersionTarget & { versionId: string },
+	params: VersionTarget & {
+		versionId: string;
+		expectVersion?: number;
+		undoOf?: number;
+	},
 ): Promise<
 	| { ok: true; versionId: string; versionNumber: number }
-	| { ok: false; reason: "not_found" | "no_body" }
+	| {
+			ok: false;
+			reason: "not_found" | "no_body" | "version_conflict" | "invalid_undo";
+	  }
 > {
 	const version = await findVersion(params);
 	if (!version) return { ok: false, reason: "not_found" };
 	// An empty body restores nothing but a blank page over the current one.
 	if (version.body.length === 0) return { ok: false, reason: "no_body" };
+
+	let summary = restoredSummary(version.versionNumber);
+	let expectVersion = params.expectVersion;
+	if (params.undoOf !== undefined) {
+		if (
+			params.expectVersion !== undefined &&
+			params.expectVersion !== params.undoOf
+		) {
+			return { ok: false, reason: "invalid_undo" };
+		}
+		const [newest] = await db
+			.select({
+				versionNumber: artifactVersions.versionNumber,
+				author: artifactVersions.author,
+				summary: artifactVersions.summary,
+			})
+			.from(artifactVersions)
+			.where(
+				and(
+					eq(artifactVersions.artifactId, params.artifactId),
+					eq(artifactVersions.userId, params.userId),
+				),
+			)
+			.orderBy(desc(artifactVersions.versionNumber))
+			.limit(1);
+		if (
+			!newest ||
+			newest.versionNumber !== params.undoOf ||
+			version.versionNumber !== params.undoOf - 1
+		) {
+			return { ok: false, reason: "invalid_undo" };
+		}
+		if (newest.author === "alfy") {
+			summary = undidAlfyChangeSummary(params.undoOf);
+		} else if (parseRestoredVersion(newest.summary) !== null) {
+			summary = undidRestoreSummary(params.undoOf);
+		} else {
+			return { ok: false, reason: "invalid_undo" };
+		}
+		// The write itself refuses if something landed since.
+		expectVersion = params.undoOf;
+	}
 
 	const result = await updateArtifactBody({
 		userId: params.userId,
@@ -105,14 +185,55 @@ export async function restoreVersion(
 		includeIncognito: params.includeIncognito,
 		body: version.body,
 		author: "user",
-		summary: restoredSummary(version.versionNumber),
+		summary,
+		expectVersion,
 	});
-	// The old body was under every cap when it was written, and there is no
-	// base hash to go stale, so the one refusal left is the row disappearing.
-	if (!result.ok) return { ok: false, reason: "not_found" };
+	if (!result.ok) {
+		// The old body was under every cap when it was written, and there is no
+		// base hash to go stale: what is left is a newer version, or the row gone.
+		return {
+			ok: false,
+			reason:
+				result.reason === "version_conflict" ? "version_conflict" : "not_found",
+		};
+	}
 	return {
 		ok: true,
 		versionId: result.versionId,
 		versionNumber: result.versionNumber,
 	};
+}
+
+/**
+ * The reader's name for a version (`artifact_versions.label`). A name is a fact
+ * about a row, not a body: naming mints no version, leaves the artifact as it
+ * was, and stops later typing from being coalesced into the named version
+ * (`updateArtifactBody`), so the words under a name stay put. `null` or blank
+ * removes it; a name is one line of at most `VERSION_LABEL_MAX_CHARS`.
+ */
+export async function nameVersion(
+	params: VersionTarget & { versionId: string; label: unknown },
+): Promise<
+	| { ok: true; label: string | null }
+	| { ok: false; reason: "not_found" | "invalid_label" }
+> {
+	const artifact = await readScopedArtifactRow(params);
+	if (!artifact || !isEditableArtifactRow(artifact)) {
+		return { ok: false, reason: "not_found" };
+	}
+	const normalized = normalizeVersionLabel(params.label);
+	if (!normalized.ok) return { ok: false, reason: "invalid_label" };
+	const updated = db
+		.update(artifactVersions)
+		.set({ label: normalized.label })
+		.where(
+			and(
+				eq(artifactVersions.id, params.versionId),
+				eq(artifactVersions.artifactId, artifact.id),
+				eq(artifactVersions.userId, params.userId),
+			),
+		)
+		.run();
+	if (updated.changes === 0) return { ok: false, reason: "not_found" };
+	return { ok: true, label: normalized.label };
 }

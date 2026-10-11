@@ -65,6 +65,9 @@ export {
 	sanitizeDocumentFilename,
 } from "./export";
 export { hashArtifactBody } from "./hash";
+// Ruling 76: an artifact's history as moments a reader can follow, derived from
+// its version rows (the pure derivation is `moments/derive.ts`).
+export { listHistory } from "./history";
 export { keepMessageAsDocument } from "./keep-message";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
 // Knowledge -> Documents' Delete: the library's own delete, then what a deleted
@@ -131,4 +134,9 @@ export type {
 	CreatableArtifactKind,
 	CreateArtifactInput,
 } from "./types";
-export { getVersionBody, listVersions, restoreVersion } from "./versions";
+export {
+	getVersionBody,
+	listVersions,
+	nameVersion,
+	restoreVersion,
+} from "./versions";

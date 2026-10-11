@@ -38,6 +38,7 @@ import {
 	normalizeCanvasBody,
 } from "$lib/shared/artifacts/canvas-body";
 import { canvasAnchorResolver } from "$lib/shared/artifacts/comments";
+import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { sendJsonControlMessage } from "../normal-chat-control-model";
 import {
 	BLOCK_SHAPES_HINT,
@@ -72,7 +73,6 @@ const BOARD_PROMPT_MAX_CHARS = 40_000;
 /** The skipped ops a reply names: a reader learns what kind of thing went wrong, not a hundred lines of it. */
 const MAX_SKIPPED_NAMED = 5;
 const TARGET_NAME_MAX_CHARS = 40;
-const VERSION_SUMMARY = "Alfy's comment reply";
 
 /**
  * The answer the model is asked for. `ops` is the edit tool's own array — the
@@ -349,7 +349,11 @@ export async function runCanvasAlfyReply(
 				readBody,
 				payload: {
 					baseVersionId: newest.id,
-					diff: { id: randomUUID(), summary: VERSION_SUMMARY, ops },
+					diff: {
+						id: randomUUID(),
+						summary: VERSION_SUMMARY.alfyCommentReply,
+						ops,
+					},
 				},
 			});
 			if (outcome.ok || outcome.reason !== "version_conflict") return outcome;
