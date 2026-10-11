@@ -883,7 +883,9 @@ describe("AppBody — regenerate", () => {
 		await fireEvent.click(screen.getByRole("button", { name: /Rebuild/ }));
 
 		await waitFor(() => expect(regenerateApp).toHaveBeenCalled());
-		await screen.findByText("Alfy couldn't rebuild it. The current version is unchanged.");
+		await screen.findByText(
+			"Alfy couldn't rebuild it. The current version is unchanged.",
+		);
 		expect(
 			screen.queryByLabelText(en.regeneratePrompt),
 		).not.toBeInTheDocument();

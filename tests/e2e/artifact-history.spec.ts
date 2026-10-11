@@ -1448,3 +1448,162 @@ test.describe("The library says what changed last", () => {
 		}
 	});
 });
+
+test.describe("History mode on a phone: an App and a board", () => {
+	test.use({ hasTouch: true });
+
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await login(page);
+	});
+
+	async function openSheet(page: Page, conversationId: string) {
+		await openChat(page, conversationId);
+		await page.getByTestId("artifact-count-button-compact").tap();
+		await page
+			.getByTestId("artifact-panel-list-mobile")
+			.getByTestId("artifact-row")
+			.first()
+			.tap({ timeout: 30_000 });
+		await expect(historyButton(page)).toBeVisible({ timeout: 30_000 });
+		await historyButton(page).tap();
+		const sheet = page.getByRole("dialog", { name: "History" });
+		await expect(sheet).toBeVisible();
+		return sheet;
+	}
+
+	test("an App's preview runs in the sheet, and its tabs and folds are 44 px targets (T6)", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "History app phone");
+		// A source whose top is the same in both versions (so there is a fold) and whose
+		// bottom is all different (so the difference is taller than the sheet).
+		const longApp = (heading: string, word: string) =>
+			`<!doctype html>\n<html lang="en">\n<head><meta charset="utf-8"><title>Trip budget</title></head>\n<body>\n<h1 data-testid="app-heading">${heading}</h1>\n${Array.from(
+				{ length: 24 },
+				(_, index) => `<p>Line ${index + 1} of the budget</p>`,
+			).join("\n")}\n${Array.from(
+				{ length: 30 },
+				(_, index) => `<p>${word} number ${index + 1}</p>`,
+			).join("\n")}\n</body>\n</html>`;
+		await seedApp(conversationId, "Trip budget", [
+			{
+				html: longApp("Trip budget, long first", "Old"),
+				summary: madeAppSummary("a trip budget"),
+			},
+			{
+				html: longApp("Trip budget, long second", "New"),
+				summary: regeneratedAppSummary("rename it"),
+			},
+		]);
+		const sheet = await openSheet(page, conversationId);
+		await sheet.getByRole("option").last().tap();
+
+		// The first version runs in the frame, with the note, inside the sheet.
+		const preview = sheet.getByTestId("history-app-preview");
+		await expect(preview.getByTestId("history-app-runs")).toBeVisible();
+		const frame = preview.locator("iframe");
+		await expect(frame).toBeVisible();
+		expect((await frame.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(
+			150,
+		);
+		await expect(
+			preview.frameLocator("iframe").getByTestId("app-heading"),
+		).toHaveText("Trip budget, long first");
+
+		// The tabs are targets a finger can hit.
+		for (const tab of [
+			sheet.getByTestId("history-app-tab-preview"),
+			sheet.getByTestId("history-app-tab-code"),
+		]) {
+			expect((await tab.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+		}
+		await sheet.getByTestId("history-app-tab-code").tap();
+		const code = sheet.getByTestId("history-app-code");
+		await expect(code).toBeVisible();
+		await expect(code.locator(".line-add, .line-del").first()).toBeVisible();
+		// The difference is taller than the panel, and the panel scrolls to its last line.
+		expect(
+			await code.evaluate((el) => el.scrollHeight - el.clientHeight),
+		).toBeGreaterThan(100);
+		await code.evaluate((el) => {
+			el.scrollTop = el.scrollHeight;
+		});
+		await expect(code.locator(".line").last()).toBeInViewport();
+		await expect(
+			code.locator(".line-add", { hasText: "Old number 30" }),
+		).toBeInViewport();
+		const folds = await sheet.getByTestId("history-fold").all();
+		expect(folds.length).toBeGreaterThan(0);
+		for (const fold of folds) {
+			expect((await fold.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(
+				44,
+			);
+		}
+		// Nothing is wider than the sheet.
+		const widths = await page.evaluate(() => ({
+			page: document.documentElement.scrollWidth,
+			view: window.innerWidth,
+		}));
+		expect(widths.page).toBeLessThanOrEqual(widths.view);
+	});
+
+	test("a board's preview fits the sheet, ringed and tagged, and a tap on it changes nothing (T7)", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"History board phone",
+		);
+		const userId = await adminId();
+		const created = await createArtifact({
+			userId,
+			conversationId,
+			kind: "canvas",
+			title: "History board phone",
+			body: boardJson(weekendBoard()),
+			author: "alfy",
+			versionSummary: VERSION_SUMMARY.alfyFirstDraft,
+		});
+		if (!created.ok) throw new Error(created.reason);
+		const [newest] = await listVersions({
+			userId,
+			artifactId: created.artifact.id,
+			conversationId,
+			limit: 1,
+		});
+		const applied = await applyArtifactOps({
+			userId,
+			artifactId: created.artifact.id,
+			conversationId,
+			payload: {
+				baseVersionId: newest.id,
+				diff: { id: "d", summary: "Planned Sunday", ops: PLAN_SUNDAY },
+			},
+		});
+		if (!applied.ok) throw new Error(applied.reason);
+
+		const sheet = await openSheet(page, conversationId);
+		await sheet.getByRole("option").first().tap();
+		const preview = sheet.getByTestId("history-preview");
+		await expect(preview.getByTestId("canvas-history-ring")).toHaveCount(3);
+		// Everything marked is inside the sheet's own width.
+		const box = await preview.boundingBox();
+		for (const ring of await preview.getByTestId("canvas-history-ring").all()) {
+			const ringBox = await ring.boundingBox();
+			expect(ringBox).not.toBeNull();
+			expect((ringBox?.x ?? 0) + (ringBox?.width ?? 0)).toBeLessThanOrEqual(
+				(box?.x ?? 0) + (box?.width ?? 0) + 1,
+			);
+		}
+		// A tap on a block selects nothing and the board is not changed: no toolbar, no step.
+		await preview.locator('.svelte-flow__node[data-id="note-lunch"]').tap();
+		await expect(preview.locator(".svelte-flow__node.selected")).toHaveCount(0);
+		await expect(preview.getByTestId("canvas-tool-select")).toHaveCount(0);
+		const widths = await page.evaluate(() => ({
+			page: document.documentElement.scrollWidth,
+			view: window.innerWidth,
+		}));
+		expect(widths.page).toBeLessThanOrEqual(widths.view);
+	});
+});

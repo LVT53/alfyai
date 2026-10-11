@@ -47,6 +47,9 @@ export interface HistoryBoardView {
 	ghosts: { id: string; rect: Rect; label: string | null; blockKind: string }[];
 }
 
+/** How far a frame's ring stands off its edge, in board units (the layer draws it, the camera takes it in). */
+export const FRAME_RING_PADDING = 14;
+
 /** Longest label a change carries: a few words, not a paragraph. */
 const LABEL_CHARS = 40;
 
@@ -156,8 +159,8 @@ export function buildHistoryView(
 export const PREVIEW_MIN_ZOOM = 0.2;
 export const PREVIEW_MAX_ZOOM = 1;
 
-/** Room kept clear round what the camera is fitted to, in pixels: the top has the "New" tags and the change note, the bottom the zoom control. */
-const FIT_PADDING = { top: 56, right: 40, bottom: 56, left: 40 } as const;
+/** Room kept clear round what the camera is fitted to, in pixels: the top has the "New" tags and the change note, the bottom the zoom control (about 50 px tall and 12 from the edge). */
+const FIT_PADDING = { top: 56, right: 40, bottom: 72, left: 40 } as const;
 
 export type Camera = { x: number; y: number; zoom: number };
 
@@ -227,7 +230,20 @@ export function focusRects(
 	const marked = new Set(view.ringIds);
 	const rects: Rect[] = [];
 	for (const node of nodes) {
-		if (marked.has(node.id)) rects.push(nodeRect(node, nodes, node.measured));
+		if (!marked.has(node.id)) continue;
+		const rect = nodeRect(node, nodes, node.measured);
+		// A frame's ring stands off its edge (clear of the name chip across it): the
+		// camera takes the ring in, not just the frame.
+		rects.push(
+			node.data.kind === "frame"
+				? {
+						x: rect.x - FRAME_RING_PADDING,
+						y: rect.y - FRAME_RING_PADDING,
+						width: rect.width + FRAME_RING_PADDING * 2,
+						height: rect.height + FRAME_RING_PADDING * 2,
+					}
+				: rect,
+		);
 	}
 	for (const ghost of view.ghosts) rects.push(ghost.rect);
 	for (const entry of view.moved) rects.push(entry.from);

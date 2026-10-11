@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import {
 	buildHistoryView,
+	FRAME_RING_PADDING,
 	fitCamera,
+	focusRects,
 	PREVIEW_MAX_ZOOM,
 	PREVIEW_MIN_ZOOM,
 } from "./history-view";
@@ -289,5 +291,54 @@ describe("where the camera goes", () => {
 			{ width: 0, height: 0 },
 		);
 		expect(Number.isFinite(camera.x + camera.y + camera.zoom)).toBe(true);
+	});
+});
+
+describe("what the camera takes in", () => {
+	it("takes in a ringed frame with its ring, so the ring is not cut by the pane's edge or the zoom control", () => {
+		const base = body([SAT, LUNCH]);
+		const target = body([
+			SAT,
+			note("note-lunch", 24, 64, "Lunch at 13:00", "frame-sat"),
+			frame("frame-sun", 20, 300, "Sunday"),
+		]);
+		const view = buildHistoryView(base, target);
+		const rects = focusRects(view, target.nodes);
+		const sunday = rects.find(
+			(rect) => rect.width === 320 + FRAME_RING_PADDING * 2,
+		);
+		expect(sunday).toEqual({
+			x: 20 - FRAME_RING_PADDING,
+			y: 300 - FRAME_RING_PADDING,
+			width: 320 + FRAME_RING_PADDING * 2,
+			height: 240 + FRAME_RING_PADDING * 2,
+		});
+	});
+
+	it("takes in what is gone and where a moved block stood, so none of the change is off the screen", () => {
+		const base = body([
+			SAT,
+			LUNCH,
+			MUSEUM,
+			note("note-dinner", 420, 300, "Dinner"),
+		]);
+		const target = body([
+			SAT,
+			LUNCH,
+			note("note-museum", 600, 40, "Museum, 14:00"),
+		]);
+		const view = buildHistoryView(base, target);
+		const rects = focusRects(view, target.nodes);
+		// The museum now (600), where it stood (420), and the dinner that is gone (300 down).
+		expect(Math.min(...rects.map((rect) => rect.x))).toBe(420);
+		expect(
+			Math.max(...rects.map((rect) => rect.y + rect.height)),
+		).toBeGreaterThan(300);
+	});
+
+	it("is the whole board when nothing is marked", () => {
+		const same = body([SAT, LUNCH, MUSEUM]);
+		const view = buildHistoryView(same, same);
+		expect(focusRects(view, same.nodes)).toHaveLength(3);
 	});
 });

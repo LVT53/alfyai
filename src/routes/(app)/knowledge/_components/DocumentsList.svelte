@@ -2664,7 +2664,7 @@ async function handleBulkDelete(): Promise<boolean> {
 	   and columns fixed in rem would leave the name a sliver at the narrow
 	   end. Percentages shrink together and always leave the name the rest. */
 	.col-version {
-		width: 11%;
+		width: 14%;
 	}
 
 	.col-type {
@@ -2718,7 +2718,8 @@ async function handleBulkDelete(): Promise<boolean> {
 	   Scoped through `.documents-table .col-status` for the same reason the
 	   glyph columns override padding: to beat `.documents-table th`/`td`'s
 	   own rule on specificity. Vertical padding is untouched. */
-	.documents-table .col-status {
+	.documents-table .col-status,
+	.documents-table .col-version {
 		padding-left: 0.5rem;
 		padding-right: 0.5rem;
 	}

@@ -53,6 +53,8 @@ let {
 /** A source over this many characters is not compared (the server does not diff it either): "Too large to compare". */
 const LARGE_BODY_CHARS = 256 * 1024;
 const FLASH_MS = 900;
+/** How far above its first change the source opens: a little of what leads up to it. */
+const CONTEXT_PX = 48;
 
 let tab = $state<"preview" | "code">(lastTab);
 let status = $state<"loading" | "ready" | "error" | "large">("loading");
@@ -189,6 +191,26 @@ function handleTabKeydown(event: KeyboardEvent) {
 			?.focus();
 	});
 }
+
+// The source opens at its first change, not at the top of a file whose first
+// lines are the same in every version: once for each comparison it is drawn for.
+let landedOn: CodeRow[] | null = null;
+$effect(() => {
+	if (tab !== "code" || status !== "ready" || changes === 0) return;
+	if (landedOn === rows) return;
+	landedOn = rows;
+	void tick().then(() => {
+		const first = scroller?.querySelector<HTMLElement>('[data-change="0"]');
+		if (!first || !scroller) return;
+		scroller.scrollTop = Math.max(
+			0,
+			first.getBoundingClientRect().top -
+				scroller.getBoundingClientRect().top +
+				scroller.scrollTop -
+				CONTEXT_PX,
+		);
+	});
+});
 
 // The stepper: scroll to the change and flash it (a heavier ring and a deeper tint
 // for 900 ms; the ring alone, still, under reduced motion).
@@ -488,7 +510,11 @@ const note = $derived(
 		min-height: 14rem;
 	}
 
+	/* The source scrolls inside this panel, so it is a block, not a flex column: a flex
+	   item that clips its own overflow may shrink below its content, and the lines past
+	   the panel's height would be cut off with nothing to scroll. */
 	.panel-code {
+		display: block;
 		overflow: auto;
 		padding: 0.25rem 1rem 1.5rem;
 		outline: none;
@@ -608,6 +634,18 @@ const note = $derived(
 	@keyframes history-app-pulse {
 		50% {
 			opacity: 0.55;
+		}
+	}
+
+	/* A finger needs 44 px: the tabs and a fold are targets on a phone. */
+	@media (max-width: 639px), (pointer: coarse) {
+		.seg-tab {
+			min-height: 2.75rem;
+			padding-inline: 1rem;
+		}
+
+		.fold {
+			min-height: 2.75rem;
 		}
 	}
 </style>

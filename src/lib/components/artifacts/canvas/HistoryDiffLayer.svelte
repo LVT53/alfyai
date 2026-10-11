@@ -21,10 +21,8 @@
 import { onDestroy, untrack } from "svelte";
 import type { CanvasNode, Pt } from "$lib/shared/artifacts/canvas";
 import { nodeRect, type Rect } from "./_lib/board";
-import type { HistoryBoardView } from "./_lib/history-view";
+import { FRAME_RING_PADDING, type HistoryBoardView } from "./_lib/history-view";
 
-/** How far a frame's ring stands off its edge, clear of the name chip across it (as the landing's). */
-const FRAME_RING_PADDING = 14;
 const FLASH_MS = 900;
 
 let {
