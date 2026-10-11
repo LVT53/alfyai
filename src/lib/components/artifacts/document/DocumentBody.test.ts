@@ -2782,6 +2782,104 @@ describe("DocumentBody", () => {
 			}
 		});
 
+		// RV-V M-7: the pill's Undo names the version the CALL wrote. The reload that
+		// lands its marks finds the newest version, which a second edit call or the
+		// reader's own save can have moved on from it.
+		it("Undo names the version the call itself wrote, not the newest the reload found", async () => {
+			vi.useFakeTimers();
+			try {
+				mockApplyAlfyChanges.mockReturnValue([
+					{
+						changeId: "change-7",
+						blockId: "p1",
+						blockLabel: "First.",
+						previousMarkdown: "First.",
+					},
+				]);
+				mockFetchArtifact.mockResolvedValue({
+					...ARTIFACT_DETAIL({ body: TWO_BLOCK_BODY, versionNumber: 5 }),
+					versions: [
+						{
+							id: "ver-5",
+							versionNumber: 5,
+							author: "user",
+							summary: "Edited",
+							createdAt: 5,
+						},
+						{
+							id: "ver-4",
+							versionNumber: 4,
+							author: "alfy",
+							summary: "Added packing list",
+							createdAt: 4,
+						},
+					],
+				});
+				const { rerender } = render(DocumentBody, {
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: null,
+				});
+				await vi.waitFor(() =>
+					expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+				);
+
+				await rerender({
+					artifactId: "artifact-1",
+					kind: "document",
+					title: "Trip plan",
+					body: null,
+					alfyActivity: {
+						...runningActivity(),
+						status: "applied",
+						versionId: "ver-4",
+						patches: [
+							{ op: "replaceBlock", blockId: "p1", baseHash: "h1", text: "x" },
+						],
+						appliedCount: 1,
+					},
+				});
+				await vi.waitFor(() =>
+					expect(mockSetChangePills).toHaveBeenCalledWith(
+						expect.anything(),
+						expect.arrayContaining([
+							expect.objectContaining({
+								changeId: "change-7",
+								status: "pending",
+							}),
+						]),
+					),
+				);
+
+				mockReadMarkdown.mockReturnValue(TWO_BLOCK_BODY);
+				mockBlockContentEnd.mockReturnValueOnce(5);
+				const { onUndo } = latestEditor().options.changePillCallbacks as {
+					onUndo: (changeId: string) => void;
+				};
+				onUndo("change-7");
+				vi.advanceTimersByTime(800);
+				await vi.waitFor(() =>
+					expect(mockSaveArtifactBody).toHaveBeenCalledTimes(1),
+				);
+				expect(mockSaveArtifactBody).toHaveBeenCalledWith(
+					"artifact-1",
+					expect.any(String),
+					5,
+					null,
+					undefined,
+					expect.objectContaining({
+						summaryKind: "undid_alfy_change",
+						// The call's own, not the newest the reload found (5).
+						summaryVersion: 4,
+					}),
+				);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
 		it("Redo cancels Undo's settle timer, restores the applied text, and re-marks the block as pending", async () => {
 			vi.useFakeTimers();
 			try {

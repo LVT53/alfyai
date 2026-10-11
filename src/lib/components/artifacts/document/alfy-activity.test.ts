@@ -92,6 +92,57 @@ describe("buildDocumentAlfyActivity", () => {
 		expect(activity?.patches).toHaveLength(1);
 	});
 
+	// RV-V M-7: the call's own version, so a pill's Undo names it and not whatever
+	// version is newest when the panel reloads (a second edit call, the reader's save).
+	it("carries the version row the call itself wrote, when its metadata says so", () => {
+		const settled = (
+			metadata: RawAlfyToolCallSegment["metadata"],
+			status: "done" | "failed" = "done",
+		) =>
+			buildDocumentAlfyActivity({
+				name: "edit_artifact",
+				callId: "call-1",
+				status,
+				input: {
+					artifactId: "art-1",
+					patches: [
+						{ op: "replaceBlock", blockId: "b1", baseHash: "h1", text: "x" },
+					],
+				},
+				metadata,
+			});
+
+		expect(
+			settled({
+				ok: true,
+				artifactId: "art-1",
+				appliedCount: 1,
+				versionId: "ver-4",
+			}),
+		).toMatchObject({ status: "applied", versionId: "ver-4" });
+		expect(
+			settled({
+				ok: true,
+				artifactId: "art-1",
+				appliedCount: 1,
+				versionId: "ver-4",
+				refusedBlocksJson: JSON.stringify([
+					{ blockId: "b2", reason: "block_changed", opIndex: 1 },
+				]),
+			}),
+		).toMatchObject({ status: "refused", versionId: "ver-4" });
+		// Nothing said, or not a string: no id.
+		for (const versionId of [undefined, null, 4, ""]) {
+			const activity = settled({
+				ok: true,
+				artifactId: "art-1",
+				appliedCount: 1,
+				...(versionId === undefined ? {} : { versionId }),
+			});
+			expect(activity?.versionId).toBeUndefined();
+		}
+	});
+
 	it("is 'refused' when the output names refused blocks, and reads them from metadata JSON", () => {
 		const segment: RawAlfyToolCallSegment = {
 			name: "edit_artifact",

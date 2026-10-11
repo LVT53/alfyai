@@ -985,12 +985,20 @@ async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
 		}
 
 		const entries = applyAlfyChangesFn(editor, reconstructed, reconstructed.patch);
+		// The Undo names the version the CALL wrote (its row is in the reload's list):
+		// a second edit call or the reader's own save can have moved the newest past it.
+		// Not in the list (an older server, a long list): the newest the reload found.
+		const ownVersionNumber =
+			(activity.versionId
+				? detail.versions.find((version) => version.id === activity.versionId)
+						?.versionNumber
+				: undefined) ?? detail.artifact.versionNumber;
 		const nextPending = new Map(pendingChanges);
 		for (const entry of entries) {
 			nextPending.set(entry.changeId, {
 				entry,
 				status: "pending",
-				alfyVersionNumber: detail.artifact.versionNumber,
+				alfyVersionNumber: ownVersionNumber,
 			});
 		}
 		pendingChanges = nextPending;
