@@ -95,8 +95,6 @@ const artifactsDict = {
 		"artifacts.card.openInPanel": "Open in panel",
 		"artifacts.card.review": "Review",
 		"artifacts.card.madeBy": "made by Alfy {when}",
-		"artifacts.card.version": "v{n}",
-		"artifacts.card.versionA11y": "Version {n}",
 		// A checklist card's tickable body (slice 0 ships the seam; slice 1 is
 		// the first caller) shows the first five items and this for the rest.
 		"artifacts.card.moreItems": "+{count} more",
@@ -735,7 +733,6 @@ const artifactsDict = {
 		"artifacts.canvas.chat.empty": "Nothing from this chat to insert yet.",
 		"artifacts.canvas.chat.failed": "Couldn't look through this chat.",
 		"artifacts.canvas.chat.retry": "Try again",
-		"artifacts.canvas.chat.version": "v{version}",
 		"artifacts.canvas.chat.chartType.bar": "Bar chart",
 		"artifacts.canvas.chat.chartType.line": "Line chart",
 		"artifacts.canvas.chat.chartType.pie": "Pie chart",
@@ -1102,8 +1099,6 @@ const artifactsDict = {
 		"artifacts.card.openInPanel": "Megnyitva a panelen",
 		"artifacts.card.review": "Átnézés",
 		"artifacts.card.madeBy": "Alfy készítette: {when}",
-		"artifacts.card.version": "v{n}",
-		"artifacts.card.versionA11y": "{n}. verzió",
 		"artifacts.card.moreItems": "+{count} további",
 		"artifacts.card.creatingSubtitle": "Alfy éppen ír…",
 		"artifacts.card.failedTitle": "Alfynak ezt nem sikerült elkészítenie.",
@@ -1619,7 +1614,6 @@ const artifactsDict = {
 			"Még nincs mit beszúrni ebből a beszélgetésből.",
 		"artifacts.canvas.chat.failed": "Nem sikerült átnézni a beszélgetést.",
 		"artifacts.canvas.chat.retry": "Újra",
-		"artifacts.canvas.chat.version": "v{version}",
 		"artifacts.canvas.chat.chartType.bar": "Oszlopdiagram",
 		"artifacts.canvas.chat.chartType.line": "Vonaldiagram",
 		"artifacts.canvas.chat.chartType.pie": "Kördiagram",

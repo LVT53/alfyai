@@ -146,14 +146,10 @@ export function chatBlockGroups(
 				key: file.key,
 				kind: "file",
 				name: file.data.name,
+				// No version number: it is History's fine print and nowhere else (ruling 76, Q2).
 				meta: [
 					file.data.label,
 					file.data.bytes > 0 ? formatByteSize(file.data.bytes) : "",
-					file.version !== null && file.version > 1
-						? translate("artifacts.canvas.chat.version", {
-								version: file.version,
-							})
-						: "",
 				]
 					.filter((part) => part.length > 0)
 					.join(SEPARATOR),
@@ -172,12 +168,7 @@ export function chatBlockGroups(
 				key: app.key,
 				kind: "app",
 				name: app.data.title,
-				meta:
-					app.versionNumber > 0
-						? translate("artifacts.canvas.chat.version", {
-								version: app.versionNumber,
-							})
-						: "",
+				meta: "",
 				data: app.data,
 			})),
 		});

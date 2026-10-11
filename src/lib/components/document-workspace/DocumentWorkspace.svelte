@@ -2102,13 +2102,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		{/if}
 	{/snippet}
 
-	{#snippet artifactTypeAndVersion()}
-		{#if activeDocument.kind}
-			<span class="artifact-type-pill">{$t(`artifacts.type.${activeArtifactKind}` as I18nKey)}</span>
-			<span class="artifact-version-pill" data-testid="artifact-version-pill">{$t('artifacts.card.version', { n: activeDocument.versionNumber ?? 1 })}</span>
-		{/if}
-	{/snippet}
-
 	<!--
 		Wave 2.5 Step 3/8: `ArtifactPanelHeader`'s actions for an artifact-kind
 		item (Document/App/File) — Comments (Document only, matching the mockup's
@@ -2277,7 +2270,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					<div class="workspace-heading">
 						<div class="workspace-eyebrow">
 							{$t('documentWorkspace.workingDocument')}
-							{@render artifactTypeAndVersion()}
 						</div>
 						<div class="workspace-title-row">
 							{#if canJumpToSource(activeDocument)}
@@ -2595,7 +2587,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				<div class="workspace-heading">
 					<div class="workspace-eyebrow">
 						{$t('documentWorkspace.workingDocument')}
-						{@render artifactTypeAndVersion()}
 					</div>
 					<div class="workspace-title-row">
 						{#if canJumpToSource(activeDocument)}
@@ -3766,25 +3757,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	.workspace-download-option:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 36%, transparent);
-	}
-
-	/* Slice 0 Task S5: the type + version pills beside the eyebrow, and the
-	   "what this chat made" list. Only an item that declares an artifact
-	   kind gets the pills, so the three existing callers (which never do)
-	   see no visual change. */
-	.artifact-type-pill,
-	.artifact-version-pill {
-		display: inline-flex;
-		align-items: center;
-		margin-left: var(--space-xs, 0.375rem);
-		padding: 0.05rem 0.42rem;
-		border-radius: 999px;
-		background: var(--surface-elevated);
-		color: var(--text-muted);
-		font-size: var(--text-2xs, 0.66rem);
-		font-weight: 600;
-		letter-spacing: 0.02em;
-		text-transform: none;
 	}
 
 	.workspace-history-toggle-button:disabled {
