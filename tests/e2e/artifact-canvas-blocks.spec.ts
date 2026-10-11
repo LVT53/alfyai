@@ -14,6 +14,7 @@ import {
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
 import {
+	liveBlock,
 	nodeCount,
 	openChatAndReload,
 	savedStatus,
@@ -299,9 +300,7 @@ async function fitBoard(page: Page) {
  * the two is the only failure.
  */
 async function expectMapSettled(page: Page) {
-	const surface = page
-		.getByTestId("canvas-map")
-		.getByTestId("map-route-canvas");
+	const surface = liveBlock(page, "canvas-map").getByTestId("map-route-canvas");
 	await expect
 		.poll(
 			async () => {
@@ -314,7 +313,7 @@ async function expectMapSettled(page: Page) {
 		)
 		.not.toBe("pending");
 	await expect(
-		page.getByTestId("canvas-map").getByTestId("map-route-fallback"),
+		liveBlock(page, "canvas-map").getByTestId("map-route-fallback"),
 	).toBeAttached();
 }
 
@@ -382,7 +381,7 @@ test.describe("blocks from this chat", () => {
 		await pickFromChat(page, /Cork → Kinsale/);
 		await expect(nodeOf(page, "map")).toHaveCount(1);
 		await expect(
-			page.getByTestId("canvas-map").getByTestId("map-route-card"),
+			liveBlock(page, "canvas-map").getByTestId("map-route-card"),
 		).toBeVisible();
 		await expectMapSettled(page);
 
@@ -438,7 +437,7 @@ test.describe("blocks from this chat", () => {
 				.getByRole("heading", { name: "Tip calculator" }),
 		).toBeVisible();
 		await expect(
-			page.getByTestId("canvas-map").getByTestId("map-route-card"),
+			liveBlock(page, "canvas-map").getByTestId("map-route-card"),
 		).toBeVisible();
 		await expect(
 			page.getByTestId("canvas-chart").locator("canvas"),
@@ -741,7 +740,7 @@ test.describe("blocks from this chat", () => {
 				.getByRole("heading", { name: "Tip calculator" }),
 		).toBeVisible();
 		await expect(
-			page.getByTestId("canvas-map").getByTestId("map-route-card"),
+			liveBlock(page, "canvas-map").getByTestId("map-route-card"),
 		).toBeVisible();
 		// The App's frame is the panel's: exactly this sandbox, on the block too.
 		await expect(page.locator("iframe.app-frame")).toHaveAttribute(
@@ -750,9 +749,9 @@ test.describe("blocks from this chat", () => {
 		);
 		// The board's gestures are kept off the App and the map.
 		for (const testId of ["canvas-app", "canvas-map"]) {
-			await expect(page.getByTestId(testId)).toHaveClass(/nodrag/);
-			await expect(page.getByTestId(testId)).toHaveClass(/nowheel/);
-			await expect(page.getByTestId(testId)).toHaveClass(/nopan/);
+			await expect(liveBlock(page, testId)).toHaveClass(/nodrag/);
+			await expect(liveBlock(page, testId)).toHaveClass(/nowheel/);
+			await expect(liveBlock(page, testId)).toHaveClass(/nopan/);
 		}
 		// Every block is a real node: it can be picked and it has anchors.
 		expect(await nodeCount(page)).toBe(3);

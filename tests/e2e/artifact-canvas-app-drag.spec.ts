@@ -13,6 +13,7 @@ import type {
 	CanvasNode,
 } from "../../src/lib/shared/artifacts/canvas";
 import {
+	liveBlock,
 	nodeBox,
 	openChatAndReload,
 	savedStatus,
@@ -248,8 +249,7 @@ async function dragBlockBy(
 	await page.mouse.up();
 }
 
-const notice = (page: Page) =>
-	page.getByTestId("canvas-app").getByRole("alert");
+const notice = (page: Page) => liveBlock(page, "canvas-app").getByRole("alert");
 
 test.describe("an App block and the frames of a board", () => {
 	test.beforeEach(async ({ page }) => {

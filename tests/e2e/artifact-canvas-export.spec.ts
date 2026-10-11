@@ -21,6 +21,7 @@ import {
 } from "../../src/lib/shared/artifacts/canvas-body";
 import {
 	cameraOf,
+	liveBlock,
 	openChatAndReload,
 	seedCanvas,
 	storedBoard,
@@ -483,7 +484,7 @@ test.describe("a picture of the board", () => {
 		]);
 		await openBoard(page, conversationId);
 		await expect(
-			page.getByTestId("canvas-map").getByTestId("map-route-card"),
+			liveBlock(page, "canvas-map").getByTestId("map-route-card"),
 		).toBeVisible();
 		await page.waitForTimeout(2_500);
 		await openDownload(page);
@@ -498,7 +499,7 @@ test.describe("a picture of the board", () => {
 		expect(inBlock.colours).toBeGreaterThan(4);
 		// The block on the board is untouched: still the live map's card.
 		await expect(
-			page.getByTestId("canvas-map").getByTestId("map-route-card"),
+			liveBlock(page, "canvas-map").getByTestId("map-route-card"),
 		).toBeVisible();
 	});
 

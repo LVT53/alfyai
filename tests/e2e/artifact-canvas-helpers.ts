@@ -80,6 +80,17 @@ export async function storedBoard(artifactId: string): Promise<CanvasBody> {
 	return JSON.parse(row.contentText ?? "{}") as CanvasBody;
 }
 
+/**
+ * A block as the board draws it. While a block that cannot be photographed (an App, the map)
+ * gets its poster, the editor keeps a hidden copy of it in <body> (aria-hidden, inert, far off
+ * screen, with the same test ids): for a moment on a quiet machine, for seconds on a busy one.
+ * A page-wide `getByTestId("canvas-map")` finds two then, and a strict assertion fails on the
+ * count, not on anything the reader sees. The live block is inside the flow's own wrapper.
+ */
+export function liveBlock(page: Page, testId: string): Locator {
+	return page.getByTestId("svelte-flow__wrapper").getByTestId(testId);
+}
+
 export async function openChatAndReload(page: Page, conversationId: string) {
 	await page.evaluate((id) => {
 		window.sessionStorage.removeItem(`pending-chat-message:${id}`);

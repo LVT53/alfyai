@@ -8,6 +8,7 @@ import { conversations, messages } from "../../src/lib/server/db/schema";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
 import {
+	liveBlock,
 	openChatAndReload,
 	savedStatus,
 	seedCanvas,
@@ -505,12 +506,11 @@ test.describe("photos and live web on the board", () => {
 		await pickFromChat(page, /beach/);
 
 		await expect(nodeOf(page, "photo")).toHaveCount(1);
-		const thumbs = page.getByTestId("canvas-photo-thumb");
+		const thumbs = liveBlock(page, "canvas-photo-thumb");
 		await expect(thumbs).toHaveCount(6);
 		// Six of the eight are drawn, and the last says how many more there are.
-		await expect(page.getByTestId("canvas-photo")).toContainText("+2");
-		const sources = await page
-			.getByTestId("canvas-photo")
+		await expect(liveBlock(page, "canvas-photo")).toContainText("+2");
+		const sources = await liveBlock(page, "canvas-photo")
 			.locator("img")
 			.evaluateAll((images) =>
 				images.map((image) => (image as HTMLImageElement).getAttribute("src")),
@@ -521,8 +521,7 @@ test.describe("photos and live web on the board", () => {
 		// They really loaded: a stand-in for the library answered with pictures.
 		await expect
 			.poll(async () =>
-				page
-					.getByTestId("canvas-photo")
+				liveBlock(page, "canvas-photo")
 					.locator("img")
 					.evaluateAll((images) =>
 						images.every(
@@ -550,7 +549,7 @@ test.describe("photos and live web on the board", () => {
 		await page.reload({ waitUntil: "networkidle" });
 		await openBoard(page);
 		await expect(nodeOf(page, "photo")).toHaveCount(1);
-		await expect(page.getByTestId("canvas-photo-thumb")).toHaveCount(6);
+		await expect(liveBlock(page, "canvas-photo-thumb")).toHaveCount(6);
 	});
 
 	test("opens a thumbnail in the chat's lightbox over the page, pages through every photo, leaves the board alone, and gives focus back to the thumbnail", async ({
@@ -561,7 +560,7 @@ test.describe("photos and live web on the board", () => {
 		await openChatAndReload(page, seeded.conversationId);
 		await openBoard(page);
 		await pickFromChat(page, /beach/);
-		await expect(page.getByTestId("canvas-photo-thumb")).toHaveCount(6);
+		await expect(liveBlock(page, "canvas-photo-thumb")).toHaveCount(6);
 		const boxOf = () =>
 			page
 				.locator(
@@ -570,7 +569,7 @@ test.describe("photos and live web on the board", () => {
 				.boundingBox();
 		const before = await boxOf();
 
-		const opener = page.getByTestId("canvas-photo-thumb").nth(1);
+		const opener = liveBlock(page, "canvas-photo-thumb").nth(1);
 		await opener.click();
 
 		const dialog = page.getByRole("dialog", { name: "Image viewer" });
@@ -619,11 +618,11 @@ test.describe("photos and live web on the board", () => {
 		expect(await boxOf()).toEqual(before);
 
 		// Opened again and closed by its own button: focus comes back the same way.
-		await page.getByTestId("canvas-photo-thumb").nth(4).click();
+		await liveBlock(page, "canvas-photo-thumb").nth(4).click();
 		await expect(dialog).toBeVisible();
 		await dialog.getByRole("button", { name: "Close" }).click();
 		await expect(dialog).toHaveCount(0);
-		await expect(page.getByTestId("canvas-photo-thumb").nth(4)).toBeFocused();
+		await expect(liveBlock(page, "canvas-photo-thumb").nth(4)).toBeFocused();
 	});
 
 	test("shows a quiet empty tile for a photo that will not load, keeps the others, and leaves it out of the viewer", async ({
@@ -635,13 +634,13 @@ test.describe("photos and live web on the board", () => {
 		await openBoard(page);
 		await pickFromChat(page, /beach/);
 
-		const missing = page.getByTestId("canvas-photo-missing");
+		const missing = liveBlock(page, "canvas-photo-missing");
 		await expect(missing).toHaveCount(1);
 		await expect(missing).toHaveAccessibleName("Photo not available");
-		await expect(page.getByTestId("canvas-photo-thumb")).toHaveCount(5);
+		await expect(liveBlock(page, "canvas-photo-thumb")).toHaveCount(5);
 
 		// The block and the board carry on: the fourth photo is the third one the viewer can show.
-		await page.getByTestId("canvas-photo-thumb").nth(2).click();
+		await liveBlock(page, "canvas-photo-thumb").nth(2).click();
 		await expect(page.getByTestId("image-lightbox-counter")).toHaveText(
 			"3 / 7",
 		);
@@ -686,7 +685,7 @@ test.describe("photos and live web on the board", () => {
 		await openBoard(page);
 
 		await expect(nodeOf(page, "photo")).toHaveCount(1);
-		await expect(page.getByTestId("canvas-photo-thumb")).toHaveCount(1);
+		await expect(liveBlock(page, "canvas-photo-thumb")).toHaveCount(1);
 		await expect(page.getByTestId("canvas-dropped-notice")).toContainText(
 			`${hostile.length} block(s)`,
 		);
@@ -704,7 +703,7 @@ test.describe("photos and live web on the board", () => {
 		);
 		// The address the board does keep is the proxy's own.
 		await expect(
-			page.getByTestId("canvas-photo").locator("img"),
+			liveBlock(page, "canvas-photo").locator("img"),
 		).toHaveAttribute("src", `${PROXY}asset-ok?connectionId=c1`);
 	});
 
@@ -1281,7 +1280,7 @@ test.describe("screenshots of photos and live web", () => {
 		await pickFromChat(page, new RegExp(OLD_QUERY), "hu");
 		await savedStatus(page).catch(() => undefined);
 		await fitBoard(page);
-		await expect(page.getByTestId("canvas-photo-thumb")).toHaveCount(6);
+		await expect(liveBlock(page, "canvas-photo-thumb")).toHaveCount(6);
 		await page.waitForTimeout(800);
 		return seeded;
 	}
@@ -1305,7 +1304,7 @@ test.describe("screenshots of photos and live web", () => {
 			body: { ok: false, reason: "refresh_failed" },
 		}));
 		await build(page, "light", [1440, 900]);
-		await page.getByTestId("canvas-photo-thumb").nth(2).click();
+		await liveBlock(page, "canvas-photo-thumb").nth(2).click();
 		await expect(page.getByRole("dialog")).toBeVisible();
 		await page.waitForTimeout(500);
 		await page.screenshot({
