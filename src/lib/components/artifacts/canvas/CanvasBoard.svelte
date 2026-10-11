@@ -341,6 +341,9 @@ provideBoardContext({
 	get readonly() {
 		return readonly;
 	},
+	get preview() {
+		return preview;
+	},
 	get grouped() {
 		return grouped;
 	},

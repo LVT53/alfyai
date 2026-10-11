@@ -757,6 +757,8 @@ const artifactsDict = {
 		"artifacts.canvas.file.open": "Open {name}",
 		"artifacts.canvas.app.loading": "Opening the App…",
 		"artifacts.canvas.app.gone": "This App is no longer available.",
+		"artifacts.canvas.app.stillInHistory":
+			"The App runs on the live board, not in History.",
 		"artifacts.canvas.app.failed": "Couldn't open this App.",
 		"artifacts.canvas.block.loadFailed": "This block could not load.",
 		// Photos and live web (S3-R2): the two blocks with nothing to reuse from the
@@ -1637,6 +1639,8 @@ const artifactsDict = {
 		"artifacts.canvas.file.open": "{name} megnyitása",
 		"artifacts.canvas.app.loading": "Az alkalmazás megnyitása…",
 		"artifacts.canvas.app.gone": "Ez az alkalmazás már nem érhető el.",
+		"artifacts.canvas.app.stillInHistory":
+			"Az alkalmazás az élő táblán fut, az Előzményekben nem.",
 		"artifacts.canvas.app.failed": "Nem sikerült megnyitni az alkalmazást.",
 		"artifacts.canvas.block.loadFailed":
 			"Ezt a blokkot nem sikerült betölteni.",

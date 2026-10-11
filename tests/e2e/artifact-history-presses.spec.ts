@@ -4,11 +4,22 @@ import { db } from "../../src/lib/server/db";
 import { artifactVersions, users } from "../../src/lib/server/db/schema";
 import {
 	applyDocumentPatch,
+	createArtifact,
 	createDocumentArtifact,
+	getKv,
 	listVersions,
 	readDocumentForAlfy,
 	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
+import type {
+	CanvasBody,
+	CanvasNode,
+} from "../../src/lib/shared/artifacts/canvas";
+import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
+import {
+	madeAppSummary,
+	VERSION_SUMMARY,
+} from "../../src/lib/shared/artifacts/version-summaries";
 import { createEmptyConversation, login } from "./helpers";
 
 // FX-V (the review of the versioning batch, RV-V I-3 and I-4): what History says
@@ -228,4 +239,134 @@ test.describe("What History says after a press", () => {
 			"only the current version is named",
 		).toEqual([4]);
 	});
+
+	// RV-V M-5: a board's picture of a stored version changes nothing. Its App blocks
+	// used to RUN there, with the writing bridge and today's saved data, so the reader
+	// could press a button in the preview and change what the App saved.
+	test("a board's History preview does not run its App blocks: a still image or a card, no frame, and nothing written (M-5)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"Board with an App",
+		);
+		const userId = await adminId();
+		const made = await createArtifact({
+			userId,
+			conversationId,
+			kind: "app",
+			title: "Counter",
+			body: COUNTER_APP_HTML,
+			author: "alfy",
+			versionSummary: madeAppSummary("a counter"),
+		});
+		if (!made.ok) throw new Error(made.reason);
+		const appId = made.artifact.id;
+
+		const note = (id: string, x: number, text: string): CanvasNode => ({
+			id,
+			type: "sticky",
+			position: { x, y: 40 },
+			width: 180,
+			data: { kind: "sticky", text, tone: "yellow" },
+		});
+		const board = (...notes: CanvasNode[]): CanvasBody => ({
+			version: 1,
+			nodes: [
+				{
+					id: "app-1",
+					type: "app",
+					position: { x: 40, y: 40 },
+					width: 400,
+					height: 300,
+					data: { kind: "app", artifactId: appId, title: "Counter" },
+				},
+				...notes,
+			],
+			edges: [],
+			viewport: { x: 16, y: 16, zoom: 1 },
+			annotations: [],
+		});
+		const created = await createArtifact({
+			userId,
+			conversationId,
+			kind: "canvas",
+			title: "Board with an App",
+			body: boardJson(board(note("n1", 480, "Museum, 14:00"))),
+			author: "alfy",
+			versionSummary: VERSION_SUMMARY.alfyFirstDraft,
+		});
+		if (!created.ok) throw new Error(created.reason);
+		await updateArtifactBody({
+			userId,
+			artifactId: created.artifact.id,
+			conversationId,
+			body: boardJson(
+				board(note("n1", 480, "Museum, 14:00"), note("n2", 480, "Dinner")),
+			),
+			author: "alfy",
+			summary: "Added dinner",
+		});
+
+		// Nothing a preview does may write the App's saved data.
+		const writes: string[] = [];
+		page.on("request", (request) => {
+			if (
+				/\/api\/artifacts\/[^/]+\/app\/kv/.test(request.url()) &&
+				request.method() !== "GET"
+			) {
+				writes.push(`${request.method()} ${request.url()}`);
+			}
+		});
+
+		await openChatAndReload(page, conversationId);
+		// The chat made two items: the board is the one to open.
+		await page.getByTestId("artifact-count-button").click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByTestId("artifact-row")
+			.filter({ hasText: "Board with an App" })
+			.click({ timeout: 30_000 });
+		await expect(historyButton(page)).toBeVisible({ timeout: 30_000 });
+		await historyButton(page).click();
+		const region = page.getByRole("region", {
+			name: "History of Board with an App",
+		});
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(2);
+		await options.last().click();
+
+		const preview = region.getByTestId("history-preview");
+		const still = preview.getByTestId("canvas-app-still");
+		await expect(still).toBeVisible({ timeout: 15_000 });
+		await expect(still).toContainText(
+			"The App runs on the live board, not in History.",
+		);
+		await expect(preview.locator("iframe")).toHaveCount(0);
+		// A press on the block does what a press on a picture does.
+		await still.click({ force: true });
+		await page.waitForTimeout(600);
+		expect(writes).toEqual([]);
+		expect(
+			await getKv({ userId, artifactId: appId, conversationId, key: "n" }),
+		).toBeNull();
+	});
 });
+
+/** A counter that saves its count in its own storage when its button is pressed. */
+const COUNTER_APP_HTML = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Counter</title></head>
+<body style="margin:0">
+<button id="inc" type="button" style="width:100%;height:100%;font-size:2rem">Count</button>
+<script>
+(function () {
+  var n = 0;
+  document.getElementById('inc').addEventListener('click', function () {
+    n += 1;
+    if (window.alfy && window.alfy.storage) window.alfy.storage.set('n', n);
+  });
+})();
+</script>
+</body>
+</html>`;
