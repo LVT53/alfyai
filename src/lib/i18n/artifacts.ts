@@ -1023,6 +1023,8 @@ const artifactsDict = {
 		"artifacts.history.restoreMoved":
 			"It changed while you were looking. Here's the latest.",
 		"artifacts.history.restoreOffline": "You're offline",
+		"artifacts.history.restoreNotRunnable":
+			"It can't run any more, so it can't be restored.",
 		"artifacts.history.restoreFailed":
 			"Couldn't restore this version. Try again.",
 		"artifacts.history.undo": "Undo",
@@ -1889,6 +1891,8 @@ const artifactsDict = {
 			"Visszaállítva: {when}. Az előző változat megmaradt az előzményekben.",
 		"artifacts.history.restoreMoved": "Közben megváltozott. Itt a legfrissebb.",
 		"artifacts.history.restoreOffline": "Nem vagy online",
+		"artifacts.history.restoreNotRunnable":
+			"Már nem futtatható, ezért nem állítható vissza.",
 		"artifacts.history.restoreFailed":
 			"Nem sikerült visszaállítani ezt a változatot. Próbáld újra.",
 		"artifacts.history.undo": "Visszavonás",

@@ -26,6 +26,10 @@ function optionalPositiveInteger(value: unknown): number | null | undefined {
 // `version_conflict` like a stale save; `undoOf` is the version number of the
 // newest row when this restore reverses it (the restore toast's Undo), which
 // makes the summary say what was undone (ruling 76, A5).
+//
+// An App version the current contract audit calls a violation (ruling 58) is a
+// 422 `not_runnable`, like the saved-version route's: the restore would make it
+// the live App.
 export const POST: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
 	const artifactId = event.params.id;
@@ -63,7 +67,9 @@ export const POST: RequestHandler = async (event) => {
 						? 404
 						: result.reason === "version_conflict"
 							? 409
-							: 400,
+							: result.reason === "not_runnable"
+								? 422
+								: 400,
 			},
 		);
 	}

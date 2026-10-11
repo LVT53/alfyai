@@ -121,6 +121,11 @@ let selectedKey = $state<string | null>(null);
 let compare = $state<HistoryCompare>("step");
 /** The narrow layouts show the list, or the preview pushed over it. */
 let view = $state<"list" | "preview">("list");
+/** What the shown preview last told the shell (the stepper's total; an App version that can only be read). */
+let previewState = $state<HistoryPreviewState>({
+	status: "loading",
+	changeCount: 0,
+});
 
 // What a restore and a name need to say (versioning.md §5.5, §5.6): how many tabs
 // the Document has now, and the chat that made it when it is not this one.
@@ -253,13 +258,23 @@ const selectedDetail = $derived(
 	selected ? entryDetail(selected, ctx, kind) : null,
 );
 
+/** An App version the rules now forbid is shown as Code only; bringing it back would make it the live App (ruling 58). */
+const codeOnly = $derived(kind === "app" && previewState.codeOnly === true);
 const canRestore = $derived(
-	selected !== null && !selected.isNewest && !selected.sameAsNow && online,
+	selected !== null &&
+		!selected.isNewest &&
+		!selected.sameAsNow &&
+		online &&
+		!codeOnly,
 );
 const restoreDisabledReason = $derived(
-	selected !== null && !selected.isNewest && !selected.sameAsNow && !online
-		? $t("artifacts.history.restoreOffline")
-		: null,
+	selected === null || selected.isNewest || selected.sameAsNow
+		? null
+		: !online
+			? $t("artifacts.history.restoreOffline")
+			: codeOnly
+				? $t("artifacts.history.restoreNotRunnable")
+				: null,
 );
 /** A change of Alfy's that still waits for the reader and is newer than the version being brought back goes with the restore. */
 const restoreTakesWaiting = $derived(
@@ -325,10 +340,6 @@ $effect(() => {
 	};
 });
 
-let previewState = $state<HistoryPreviewState>({
-	status: "loading",
-	changeCount: 0,
-});
 let changeCursor = $state({ index: -1, nonce: 0 });
 let live = $state("");
 
@@ -706,6 +717,12 @@ async function confirmRestore() {
 			restoreProblem = $t("artifacts.history.restoreMoved");
 			await refresh();
 			restoreGuard = newestVersion;
+		} else if (
+			error instanceof VersionRestoreRefusedError &&
+			error.reason === "not_runnable"
+		) {
+			// The server's own audit (ruling 58): asked before the preview had said so.
+			restoreProblem = $t("artifacts.history.restoreNotRunnable");
 		} else {
 			restoreProblem = $t("artifacts.history.restoreFailed");
 		}

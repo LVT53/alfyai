@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
 import { getArtifact, getVersionBody } from "$lib/server/services/artifacts";
-import { auditAppHtml } from "$lib/server/services/artifacts/app/audit";
+import { appViolations } from "$lib/server/services/artifacts/app/audit";
 import { injectReadOnlyAppBootstrap } from "$lib/server/services/artifacts/app/bootstrap";
 import { APP_SANDBOX_HEADERS } from "$lib/server/services/artifacts/app/sandbox-response";
 import type { RequestHandler } from "./$types";
@@ -46,11 +46,7 @@ export const GET: RequestHandler = async (event) => {
 		return json({ ok: false, reason: "not_found" }, { status: 404 });
 	}
 
-	if (
-		auditAppHtml(body).some(
-			(check) => check.severity === "violation" && !check.passed,
-		)
-	) {
+	if (appViolations(body).length > 0) {
 		return json({ ok: false, reason: "not_runnable" }, { status: 422 });
 	}
 

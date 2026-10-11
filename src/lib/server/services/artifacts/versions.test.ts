@@ -437,6 +437,133 @@ describe("restoreVersion", () => {
 	});
 });
 
+// Ruling 58 (RV-V I-2): a restore puts an old body back as the LIVE one, and the
+// live frame runs it with the writing bridge and today's saved data. A version the
+// current audit calls a violation (it sends its own document away, or opens a
+// WebRTC channel) is one the product does not run: History's preview serves it as
+// Code only, and a restore must not hand it the live frame one click later.
+describe("restoreVersion of an App", () => {
+	const CLEAN_APP =
+		"<!doctype html><html><head><title>Trip</title></head><body><p id='t'>total</p><script>alfy.storage.get('t');</script></body></html>";
+	const NAVIGATING_APP =
+		'<!doctype html><html><body><script>setTimeout(function () { window.location.href = "/login"; }, 800);</script></body></html>';
+	const WEBRTC_APP =
+		"<!doctype html><html><body><script>const peer = new RTCPeerConnection();</script></body></html>";
+
+	async function createApp(bodies: string[], conversationId = CONVERSATION) {
+		const [first, ...rest] = bodies;
+		const created = await createArtifact({
+			userId: OWNER,
+			conversationId,
+			kind: "app",
+			title: "Trip budget",
+			body: first,
+			author: "alfy",
+			versionSummary: "Alfy built the app: a trip budget",
+		});
+		if (!created.ok) throw new Error(created.reason);
+		for (const body of rest) {
+			const result = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: created.artifact.id,
+				body,
+				author: "alfy",
+				summary: "Alfy regenerated the app: again",
+			});
+			if (!result.ok) throw new Error(result.reason);
+		}
+		const versions = await listVersions({
+			userId: OWNER,
+			artifactId: created.artifact.id,
+		});
+		return {
+			artifactId: created.artifact.id,
+			idOf: (n: number) =>
+				versions.find((version) => version.versionNumber === n)?.id as string,
+		};
+	}
+
+	it("refuses a version the current audit calls a violation, and writes nothing", async () => {
+		for (const violating of [NAVIGATING_APP, WEBRTC_APP]) {
+			const { artifactId, idOf } = await createApp([
+				CLEAN_APP,
+				violating,
+				CLEAN_APP.replace("total", "third"),
+			]);
+
+			await expect(
+				restoreVersion({
+					userId: OWNER,
+					artifactId,
+					versionId: idOf(2),
+					expectVersion: 3,
+				}),
+			).resolves.toEqual({ ok: false, reason: "not_runnable" });
+
+			expect(contentOf(artifactId)).toContain("third");
+			expect(
+				(await listVersions({ userId: OWNER, artifactId })).map(
+					(version) => version.versionNumber,
+				),
+			).toEqual([3, 2, 1]);
+		}
+	});
+
+	it("restores a version that runs, as before", async () => {
+		const { artifactId, idOf } = await createApp([
+			CLEAN_APP,
+			CLEAN_APP.replace("total", "second"),
+		]);
+
+		await expect(
+			restoreVersion({ userId: OWNER, artifactId, versionId: idOf(1) }),
+		).resolves.toMatchObject({ ok: true, versionNumber: 3 });
+		expect(contentOf(artifactId)).toBe(CLEAN_APP);
+	});
+
+	it("holds an App's rebuild Undo to the same line: the version it would bring back must run", async () => {
+		// v1 predates the rules (it navigates); v2 is Alfy's rebuild; the toast's Undo
+		// would put v1 back as the live App.
+		const { artifactId, idOf } = await createApp([NAVIGATING_APP, CLEAN_APP]);
+
+		await expect(
+			restoreVersion({
+				userId: OWNER,
+				artifactId,
+				versionId: idOf(1),
+				undoOf: 2,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_runnable" });
+		expect(contentOf(artifactId)).toBe(CLEAN_APP);
+	});
+
+	it("is an App's rule alone: a Document whose text says the same restores", async () => {
+		const result = await createArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			kind: "document",
+			title: "Notes on the sandbox",
+			body: "Apps must never run window.location.href = x or new RTCPeerConnection().",
+			author: "alfy",
+			versionSummary: "Alfy wrote the first draft",
+		});
+		if (!result.ok) throw new Error(result.reason);
+		await edit(result.artifact.id, "Shorter.", "Edited");
+		const [, first] = await listVersions({
+			userId: OWNER,
+			artifactId: result.artifact.id,
+		});
+
+		await expect(
+			restoreVersion({
+				userId: OWNER,
+				artifactId: result.artifact.id,
+				versionId: first.id,
+			}),
+		).resolves.toMatchObject({ ok: true, versionNumber: 3 });
+	});
+});
+
 // Ruling 76 (Q3): a reader's name for a version. It is a column of the row, not
 // a body: naming mints no version and leaves the artifact as it was.
 describe("nameVersion", () => {

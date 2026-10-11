@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { auditAppHtml } from "./audit";
+import { appViolations, auditAppHtml } from "./audit";
 import { APP_CONTRACT_RULES, APP_GLITCH_RULE_IDS } from "./contract";
 
 const PASSING_FIXTURE = readFileSync(
@@ -374,6 +374,52 @@ describe("auditAppHtml", () => {
 		const checks = auditAppHtml("<script>fetch('x')</script>");
 		for (const check of checks) {
 			expect(typeof check.passed).toBe("boolean");
+		}
+	});
+});
+
+// Ruling 58, as every writer of an App's body asks it (the generator's repair, a
+// restore, a reader's own save) and the two routes that serve a saved version:
+// is this document one the product runs?
+describe("appViolations", () => {
+	it("is empty for a document that only has glitches (a dialog, an eval, a network call)", () => {
+		expect(
+			appViolations(
+				"<script>confirm('Sure?'); eval('1'); fetch('/x');</script>",
+			),
+		).toEqual([]);
+		expect(appViolations(PASSING_FIXTURE)).toEqual([]);
+		expect(appViolations("")).toEqual([]);
+	});
+
+	it("names each violation a document commits, with the rule and what was found", () => {
+		const violations = appViolations(
+			'<script>window.location.href = "https://x.example/" + document.title; new RTCPeerConnection();</script>',
+		);
+		expect(violations.map((check) => check.rule).sort()).toEqual([
+			"no-navigate",
+			"no-webrtc",
+		]);
+		for (const check of violations) {
+			expect(check.severity).toBe("violation");
+			expect(check.passed).toBe(false);
+			expect(check.detail).toBeTruthy();
+		}
+	});
+
+	it("reads every way the audit knows of sending the document away", () => {
+		for (const html of [
+			"<script>location = '/x'</script>",
+			"<script>window['location'] = '/x'</script>",
+			"<script>top.location.replace('/x')</script>",
+			"<script>window.open('/x')</script>",
+			'<a href="//elsewhere.example/">go</a>',
+			'<meta http-equiv="refresh" content="0;url=/x">',
+		]) {
+			expect(
+				appViolations(html).map((check) => check.rule),
+				html,
+			).toEqual(["no-navigate"]);
 		}
 	});
 });

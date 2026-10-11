@@ -7,6 +7,7 @@ import {
 	saveDocumentBody,
 	updateArtifactBody,
 } from "$lib/server/services/artifacts";
+import { appViolations } from "$lib/server/services/artifacts/app/audit";
 import type { DocumentTab } from "$lib/server/services/artifacts/serialize/document";
 import {
 	parseSaveSummaryKind,
@@ -113,6 +114,16 @@ export const PATCH: RequestHandler = async (event) => {
 			? summaryVersion
 			: null,
 	);
+
+	// Ruling 58: an App's body is the document the live frame RUNS, with the
+	// writing bridge and today's data. The panel offers no way to edit one, but
+	// this route takes any signed-in client's body, so an App's is held to the
+	// audit the generator and a restore are held to: what sends its own document
+	// away or opens a WebRTC channel is not saved. After the scoped read, so an id
+	// out of scope still answers the plain 404.
+	if (artifact.kind === "app" && appViolations(payload.body).length > 0) {
+		return json({ ok: false, reason: "not_runnable" }, { status: 422 });
+	}
 
 	const suppliedTabs = parseSuppliedTabs(payload.tabs);
 	const result =

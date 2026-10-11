@@ -308,6 +308,7 @@ export type RestoreVersionResponse =
 			reason:
 				| "not_found"
 				| "no_body"
+				| "not_runnable"
 				| "version_conflict"
 				| "invalid_undo"
 				| "invalid_request";

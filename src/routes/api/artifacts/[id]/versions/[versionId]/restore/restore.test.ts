@@ -95,6 +95,18 @@ describe("POST /api/artifacts/[id]/versions/[versionId]/restore", () => {
 			reason: "no_body",
 		});
 	});
+	it("answers 422 not_runnable for an App version the contract audit forbids (ruling 58), like the saved-version route", async () => {
+		mockRestoreVersion.mockResolvedValue({ ok: false, reason: "not_runnable" });
+
+		const response = await POST(makeEvent());
+
+		expect(response.status).toBe(422);
+		await expect(response.json()).resolves.toEqual({
+			ok: false,
+			reason: "not_runnable",
+		});
+	});
+
 	it("forwards the history page's expectVersion and the toast's undoOf", async () => {
 		mockRestoreVersion.mockResolvedValue({
 			ok: true,

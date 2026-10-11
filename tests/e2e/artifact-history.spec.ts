@@ -1356,17 +1356,79 @@ test.describe("History mode: an App", () => {
 		const code = region.getByTestId("history-app-code");
 		await expect(code).toContainText("window.location.href");
 		await expect(region.locator("iframe")).toHaveCount(0);
+		// A restore would make it the live App, which runs with today's saved data
+		// (ruling 58): Restore is not offered, and the reader is told why (RV-V I-2).
+		await expect(region.getByTestId("history-restore")).toHaveCount(0);
+		await expect(region.getByTestId("history-restore-note")).toHaveText(
+			"It can't run any more, so it can't be restored.",
+		);
 
 		// Another version runs, and comes up on Preview again.
 		await options.nth(2).click();
 		await expect(region.getByTestId("history-app-code-only")).toHaveCount(0);
 		await expect(region.getByTestId("history-app-tab-preview")).toBeEnabled();
+		await expect(region.getByTestId("history-restore")).toBeVisible();
+		await expect(region.getByTestId("history-restore-note")).toHaveCount(0);
 		await expect(
 			region
 				.getByTestId("history-app-preview")
 				.frameLocator("iframe")
 				.getByTestId("app-heading"),
 		).toHaveText("Trip budget, second version");
+	});
+
+	test("the server refuses to restore a version the rules now forbid, and the live App keeps the version it had (ruling 58, RV-V I-2)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"History runaway restore",
+		);
+		const artifactId = await seedApp(conversationId, "Trip budget", [
+			{
+				html: SECOND_APP_HTML,
+				summary: madeAppSummary("a trip budget"),
+			},
+			{
+				html: RUNAWAY_APP_HTML,
+				summary: regeneratedAppSummary("make it dramatic"),
+			},
+			{
+				html: FIRST_APP_HTML.replace("first version", "third"),
+				summary: regeneratedAppSummary("calm it down"),
+			},
+		]);
+		const versions = await listVersions({
+			userId: await adminId(),
+			artifactId,
+		});
+		const runaway = versions.find((version) => version.versionNumber === 2);
+		const first = versions.find((version) => version.versionNumber === 1);
+		if (!runaway || !first) throw new Error("the seeded versions are missing");
+
+		// Not through the panel (it offers no Restore here): a request of its own.
+		const refused = await page.request.post(
+			`/api/artifacts/${artifactId}/versions/${runaway.id}/restore`,
+			{ data: { expectVersion: 3 } },
+		);
+		expect(refused.status()).toBe(422);
+		expect(await refused.json()).toEqual({ ok: false, reason: "not_runnable" });
+		// Nothing was written, and the live App is still the third version.
+		expect(
+			(await listVersions({ userId: await adminId(), artifactId })).map(
+				(version) => version.versionNumber,
+			),
+		).toEqual([3, 2, 1]);
+		const live = await page.request.get(`/api/artifacts/${artifactId}/app`);
+		expect(await live.text()).toContain("third");
+		expect(await live.text()).not.toContain("window.location");
+
+		// A version that runs restores through the same route.
+		const allowed = await page.request.post(
+			`/api/artifacts/${artifactId}/versions/${first.id}/restore`,
+			{ data: { expectVersion: 3 } },
+		);
+		expect(allowed.status()).toBe(200);
 	});
 
 	test("the toast's Undo takes the rebuild back as one moment with it, and History says so (T6)", async ({
