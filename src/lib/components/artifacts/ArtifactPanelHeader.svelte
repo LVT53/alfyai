@@ -22,7 +22,7 @@ import type { Snippet } from "svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { ARTIFACT_KIND_ICONS } from "./kind-icons";
-import type { MomentPhrase } from "./history/moment-text";
+import type { MomentPhrase } from "./history/moment-phrase";
 
 let {
 	kind,

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "$lib/i18n";
 import { uiLanguage } from "$lib/stores/settings";
 import { at, makeMoment, makeStep } from "./__fixtures__/moments";
+import { latestMomentPhrase, momentPhraseKey } from "./moment-phrase";
 import {
 	clockTime,
 	dayLabel,
@@ -10,8 +11,6 @@ import {
 	entryDetail,
 	entryHeadline,
 	entryTimeLabel,
-	latestMomentPhrase,
-	momentPhraseKey,
 	statusLabel,
 	type TextContext,
 	whenLabel,

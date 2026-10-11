@@ -38,7 +38,7 @@ import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
 import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
 import { kindHasHistory } from "$lib/components/artifacts/history/history-previews";
-import { latestMomentPhrase } from "$lib/components/artifacts/history/moment-text";
+import { latestMomentPhrase } from "$lib/components/artifacts/history/moment-phrase";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	isShippedArtifactTourType,
