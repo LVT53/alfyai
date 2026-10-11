@@ -251,6 +251,19 @@ describe("the Playwright report", () => {
 		).toBe(false);
 	});
 
+	it("says how many workers the run used, when the report knows", () => {
+		const result = readPlaywrightReport(
+			report({
+				config: { projects: [{ metadata: { actualWorkers: 6 } }] },
+				stats: { expected: 965, skipped: 60, unexpected: 0, flaky: 0 },
+				suites: [],
+			}),
+		);
+		expect(result.text).toBe(
+			"965 passed, 60 skipped, 0 failed, 0 flaky on 6 workers",
+		);
+	});
+
 	it("names each failed test with its file and line", () => {
 		const result = readPlaywrightReport(
 			report({

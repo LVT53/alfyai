@@ -379,8 +379,11 @@ export function readPlaywrightReport(path) {
 		for (const child of suite.suites ?? []) walk(child, file);
 	};
 	for (const suite of report.suites ?? []) walk(suite, undefined);
+	// How many workers the run really used (the config's number, or fewer when there were
+	// fewer files than workers), so a summary says what it measured.
+	const workers = report.config?.projects?.[0]?.metadata?.actualWorkers;
 	const lines = [
-		`${expected} passed, ${skipped} skipped, ${unexpected} failed, ${flaky} flaky`,
+		`${expected} passed, ${skipped} skipped, ${unexpected} failed, ${flaky} flaky${workers ? ` on ${workers} workers` : ""}`,
 	];
 	for (const title of failed.slice(0, 12)) lines.push(`      FAILED ${title}`);
 	return { ok: unexpected === 0 && flaky === 0, text: lines.join("\n") };
