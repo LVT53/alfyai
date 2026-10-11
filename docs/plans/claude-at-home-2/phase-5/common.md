@@ -16,12 +16,15 @@ the changes below. Where they disagree, this file wins.
   17 warnings; 17,408 unit tests (1,035 files); build 32 `Unused CSS selector` + 2 `must have an ARIA role`;
   `check:artifact-chunks` OK (editor closure 70.9 kB gzip under the 72,704 B ceiling; chat route +1,851 of 2,048 B);
   Fallow 124 issues / 4 circular, 0 new against `~/.cache/alfyai-artifacts/fallow-baseline-00ef6d2a.json`; Playwright
-  release set (66 spec files) 686 passed + 23 skipped in 48.3 min at `workers: 1` against `vite dev`. Known pre-existing
+  release set (66 spec files) 686 passed + 23 skipped in 48.3 min at `workers: 1` against `vite dev` (after the fast
+  gates: the whole suite, 976 passed + 60 skipped, in ~8.5 minutes for every gate together). Known pre-existing
   build/check warnings are the only ones allowed.
-- **Your Playwright scope is tiered** (the owner's speed rule): run **your own specs plus the suites your brief names**,
-  once, at the end. The full release set runs only at the integration gate on `dev`. Once the fast-gates job (FG) is
-  merged, its `scripts/gates.sh agent …` mode and its `@smoke` set replace this paragraph; the orchestrator updates this
-  file then.
+- **Your gates are one command, once, at the end** (the fast gates, merged 2026-10-11):
+  `scripts/gates.sh agent <out-dir> --port <P> --workers 4 <the e2e specs you changed or added>` — the static gates,
+  your specs in full and the `@smoke` set, on the production build, about 4 minutes; `wave-3/common.md`'s Gates section
+  says what it checks and how to iterate. The whole suite (966+ tests) runs only at the integration gate on `dev`. The
+  chat route has no byte baseline any more: it is held by a rule (no heavy library in its first paint). The editor's
+  first-paint ceiling stands, with about 80 B of headroom left after the versioning build: measure before you add to it.
 - **Ports:** your brief gives a base port `P`. Ports `P` to `P+9` are yours (a parallel Playwright run uses one per
   worker). Real-model tunnels use the local port your brief names.
 - **Commit trailer:** `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` for Sonnet agents,
