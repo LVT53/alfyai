@@ -10,8 +10,8 @@ the changes below. Where they disagree, this file wins.
   anything is built), the fast gates, a friction audit (report only), then the build from the approved design and the
   owner's picks. **Slides stays shelved**: nothing you write may advertise, list, seed or render Slides; never touch
   `feat/artifacts-slides`.
-- **Migrations:** none unless your brief says so. The next free number is after `1777140000112_artifact_tour_states`
-  (journal entry 126). If you believe you need a column or table, stop and report.
+- **Migrations:** none unless your brief says so. The next free number is after `1777140000113_artifact_version_moments`
+  (VB-1, ruling 76). If you believe you need a column or table, stop and report.
 - **Baseline gates** (`dev` = `7cb27654`, the M3 release gates of 2026-10-07 on this Mac): `npm run check` 0 errors /
   17 warnings; 17,408 unit tests (1,035 files); build 32 `Unused CSS selector` + 2 `must have an ARIA role`;
   `check:artifact-chunks` OK (editor closure 70.9 kB gzip under the 72,704 B ceiling; chat route +1,851 of 2,048 B);
