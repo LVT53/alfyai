@@ -14,16 +14,24 @@
 import { and, desc, eq, lt } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactVersions } from "$lib/server/db/schema";
-import { normalizeVersionLabel } from "$lib/shared/artifacts/history";
+import {
+	normalizeVersionLabel,
+	type RestoreMomentKind,
+} from "$lib/shared/artifacts/history";
 import {
 	parseRestoredVersion,
 	restoredSummary,
 	undidAlfyChangeSummary,
 	undidRestoreSummary,
 } from "$lib/shared/artifacts/version-summaries";
-import { ARTIFACT_VERSIONS_DEFAULT_LIMIT } from "./limits";
+import { appViolations } from "./app/audit";
+import {
+	ARTIFACT_HISTORY_PAGE_MAX,
+	ARTIFACT_VERSIONS_DEFAULT_LIMIT,
+} from "./limits";
 import {
 	isEditableArtifactRow,
+	kindForArtifactRow,
 	readScopedArtifactRow,
 	updateArtifactBody,
 } from "./record";
@@ -66,7 +74,13 @@ export async function listVersions(
 				: and(owned, lt(artifactVersions.versionNumber, params.before)),
 		)
 		.orderBy(desc(artifactVersions.versionNumber))
-		.limit(params.limit ?? ARTIFACT_VERSIONS_DEFAULT_LIMIT);
+		// However many it is asked for (the route takes nine digits), never more than a page of History.
+		.limit(
+			Math.min(
+				params.limit ?? ARTIFACT_VERSIONS_DEFAULT_LIMIT,
+				ARTIFACT_HISTORY_PAGE_MAX,
+			),
+		);
 	return rows.map((row) => ({
 		id: row.id,
 		versionNumber: row.versionNumber,
@@ -94,7 +108,7 @@ async function findVersion(params: VersionTarget & { versionId: string }) {
 			),
 		)
 		.limit(1);
-	return row ?? null;
+	return row ? { ...row, kind: kindForArtifactRow(artifact) } : null;
 }
 
 export async function getVersionBody(
@@ -117,6 +131,12 @@ export async function getVersionBody(
  * newest row, which must be the child of the version being brought back, and
  * the summary says what was undone (`Undid restoring v3`, or `Undid Alfy's
  * change: v3` for an Alfy row). Any other row is not a thing Undo reverses.
+ *
+ * An App's restore is also an audit (ruling 58): what is written back is the
+ * LIVE App, which runs with the writing bridge and today's saved data, so a
+ * version the current audit calls a violation (it sends its own document away,
+ * or opens a WebRTC channel; `appViolations`) is refused `not_runnable`, the
+ * very answer the saved-version route gives it. History offers it as Code only.
  */
 export async function restoreVersion(
 	params: VersionTarget & {
@@ -125,18 +145,34 @@ export async function restoreVersion(
 		undoOf?: number;
 	},
 ): Promise<
-	| { ok: true; versionId: string; versionNumber: number }
+	| {
+			ok: true;
+			versionId: string;
+			versionNumber: number;
+			/** What the row written is, so a client that announces it need not guess: a restore, the Undo of one, or the Undo of Alfy's change (an App rebuild's). */
+			kind: RestoreMomentKind;
+	  }
 	| {
 			ok: false;
-			reason: "not_found" | "no_body" | "version_conflict" | "invalid_undo";
+			reason:
+				| "not_found"
+				| "no_body"
+				| "not_runnable"
+				| "version_conflict"
+				| "invalid_undo";
 	  }
 > {
 	const version = await findVersion(params);
 	if (!version) return { ok: false, reason: "not_found" };
 	// An empty body restores nothing but a blank page over the current one.
 	if (version.body.length === 0) return { ok: false, reason: "no_body" };
+	// A Document or a board is text and data: only an App's body is run.
+	if (version.kind === "app" && appViolations(version.body).length > 0) {
+		return { ok: false, reason: "not_runnable" };
+	}
 
 	let summary = restoredSummary(version.versionNumber);
+	let kind: RestoreMomentKind = "restore";
 	let expectVersion = params.expectVersion;
 	if (params.undoOf !== undefined) {
 		if (
@@ -169,8 +205,10 @@ export async function restoreVersion(
 		}
 		if (newest.author === "alfy") {
 			summary = undidAlfyChangeSummary(params.undoOf);
+			kind = "undo_alfy_change";
 		} else if (parseRestoredVersion(newest.summary) !== null) {
 			summary = undidRestoreSummary(params.undoOf);
+			kind = "undo_restore";
 		} else {
 			return { ok: false, reason: "invalid_undo" };
 		}
@@ -201,6 +239,7 @@ export async function restoreVersion(
 		ok: true,
 		versionId: result.versionId,
 		versionNumber: result.versionNumber,
+		kind,
 	};
 }
 

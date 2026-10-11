@@ -301,13 +301,23 @@ export interface RestoreVersionRequest {
 	undoOf?: number;
 }
 
+/** What a restore writes: the restore, its Undo, or (an App rebuild's Undo) the Undo of Alfy's change. */
+export type RestoreMomentKind = "restore" | "undo_restore" | "undo_alfy_change";
+
 export type RestoreVersionResponse =
-	| { ok: true; version: number; versionId: string }
+	| {
+			ok: true;
+			version: number;
+			versionId: string;
+			/** What the server wrote (absent from an older server): the header says it at once instead of "Edited by you" until a refetch. */
+			kind?: RestoreMomentKind;
+	  }
 	| {
 			ok: false;
 			reason:
 				| "not_found"
 				| "no_body"
+				| "not_runnable"
 				| "version_conflict"
 				| "invalid_undo"
 				| "invalid_request";

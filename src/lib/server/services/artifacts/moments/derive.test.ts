@@ -843,6 +843,330 @@ describe("deriveMoments — review statuses (rulings 61, 63; amendment A4)", () 
 	});
 });
 
+// RV-V I-3: one press can take back several of Alfy's versions (a board's Undo
+// restores the version before Alfy's whole run; the Document's "Undo all" undoes
+// every pending change at once), and a turn that calls edit_artifact twice, or an
+// @Alfy reply right after a chat edit, makes a run of more than one. The Undo names
+// the range it took back, and History marks every Alfy version in it Undone.
+describe("deriveMoments — an Undo of several of Alfy's versions (RV-V I-3)", () => {
+	const reviewed = { review: { hasMarker: true, waiting: new Set<number>() } };
+	const board = (...texts: string[]) =>
+		JSON.stringify({
+			version: 1,
+			nodes: texts.map((text, index) => ({
+				id: `n${index}`,
+				type: "sticky",
+				position: { x: index * 300, y: 0 },
+				data: { kind: "sticky", text, tone: "yellow" },
+			})),
+			edges: [],
+			viewport: { x: 0, y: 0, zoom: 1 },
+			annotations: [],
+		});
+	const statusOf = (
+		moments: ReturnType<typeof derive>["moments"],
+		versionNumber: number,
+	) => moments.find((m) => m.versionNumber === versionNumber)?.status;
+
+	it("the probe: v1 draft, v2 and v3 Alfy's, v4 takes back v2 to v3 with the body of v1 → v2 and v3 are both Undone (a board)", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Added two", board("one", "two")),
+				row(3, "alfy", "Added three", board("one", "two", "three")),
+				row(4, "user", "Undid Alfy's changes: v2 to v3", board("one")),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(statusOf(moments, 3)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("undone");
+		expect(moments.find((m) => m.versionNumber === 2)?.undoneBy).toMatchObject({
+			versionNumber: 4,
+		});
+		// v4 is v3's moment with the Undo as its step; v1 is what the board is again.
+		expect(moments.find((m) => m.versionNumber === 3)).toMatchObject({
+			fold: "undone",
+			containsNewest: true,
+		});
+		expect(moments.find((m) => m.versionNumber === 1)?.sameAsNow).toBe(true);
+	});
+
+	it("the same for a Document: Undo all takes back each of the changes, block by block", () => {
+		const v1 = doc(["p1", "One"], ["p2", "Two"]);
+		const v2 = doc(["p1", "One, edited"], ["p2", "Two"]);
+		const v3 = doc(["p1", "One, edited"], ["p2", "Two, edited"]);
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", v1),
+				row(2, "alfy", "Reworded the first line", v2),
+				row(3, "alfy", "Reworded the second line", v3),
+				row(4, "user", "Undid Alfy's changes: v2 to v3", v1),
+			],
+			reviewed,
+		);
+
+		expect(statusOf(moments, 3)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("undone");
+	});
+
+	it("a Document's range reads each change by what the Undo put back of it", () => {
+		const v1 = doc(["p1", "One"], ["p2", "Two"]);
+		const v2 = doc(["p1", "One, edited"], ["p2", "Two"]);
+		const v3 = doc(["p1", "One, edited"], ["p2", "Two, edited"]);
+		// The reader had kept v2's change; "Undo all" put back only the second line.
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", v1),
+				row(2, "alfy", "Reworded the first line", v2),
+				row(3, "alfy", "Reworded the second line", v3),
+				row(
+					4,
+					"user",
+					"Undid Alfy's changes: v2 to v3",
+					doc(["p1", "One, edited"], ["p2", "Two"]),
+				),
+			],
+			reviewed,
+		);
+
+		expect(statusOf(moments, 3)).toBe("undone");
+		// Not undone: the Undo left its block as it was.
+		expect(statusOf(moments, 2)).toBe("kept");
+	});
+
+	// The same defect, as the review found it: a row that names only the newest version
+	// of the run (what an older client, or the code before this fix, wrote) over a body
+	// that is the one BELOW the whole run. The text says what was taken back.
+	it("the review's probe as it was written: an Undo naming v3 over the body of v1 took v2 back too (a board)", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Added two", board("one", "two")),
+				row(3, "alfy", "Added three", board("one", "two", "three")),
+				row(4, "user", "Undid Alfy's change: v3", board("one")),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(statusOf(moments, 3)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("undone");
+		expect(moments.find((m) => m.versionNumber === 1)?.sameAsNow).toBe(true);
+	});
+
+	it("reads a Document the same way: an Undo naming v3 over the body of v1 took each change back", () => {
+		const v1 = doc(["p1", "One"], ["p2", "Two"]);
+		const v2 = doc(["p1", "One, edited"], ["p2", "Two"]);
+		const v3 = doc(["p1", "One, edited"], ["p2", "Two, edited"]);
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", v1),
+				row(2, "alfy", "Reworded the first line", v2),
+				row(3, "alfy", "Reworded the second line", v3),
+				row(4, "user", "Undid Alfy's change: v3", v1),
+			],
+			reviewed,
+		);
+
+		expect(statusOf(moments, 3)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("undone");
+	});
+
+	it("does not stretch an Undo over a version the reader wrote in between, or one whose text it did not restore", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Added two", board("one", "two")),
+				row(3, "user", "Edited", board("one", "two", "mine")),
+				row(4, "alfy", "Added four", board("one", "two", "mine", "four")),
+				// The text of v3: the reader's own version is where the Undo stops.
+				row(5, "user", "Undid Alfy's change: v4", board("one", "two", "mine")),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(statusOf(moments, 4)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("kept");
+	});
+
+	it("an older row that names ONE version still reads as before: only that version is Undone", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Added two", board("one", "two")),
+				row(3, "alfy", "Added three", board("one", "two", "three")),
+				row(4, "user", "Undid Alfy's change: v3", board("one", "two")),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(statusOf(moments, 3)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("kept");
+	});
+
+	it("a range takes back only the versions it names", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Added two", board("one", "two")),
+				row(3, "alfy", "Added three", board("one", "two", "three")),
+				row(4, "alfy", "Added four", board("one", "two", "three", "four")),
+				row(5, "user", "Undid Alfy's changes: v3 to v4", board("one", "two")),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(statusOf(moments, 4)).toBe("undone");
+		expect(statusOf(moments, 3)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("kept");
+	});
+
+	it("the Redo of the range brings every version in it back: the story is one moment and v2 reads Kept", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Added two", board("one", "two")),
+				row(3, "alfy", "Added three", board("one", "two", "three")),
+				row(4, "user", "Undid Alfy's changes: v2 to v3", board("one")),
+				row(
+					5,
+					"user",
+					"Redid Alfy's changes: v2 to v3",
+					board("one", "two", "three"),
+				),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(moments.find((m) => m.versionNumber === 3)).toMatchObject({
+			fold: "redone",
+			status: "kept",
+		});
+		expect(statusOf(moments, 2)).toBe("kept");
+	});
+
+	it("an Undo that names a range and does not follow it still marks every version in it", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Added two", board("one", "two")),
+				row(3, "alfy", "Added three", board("one", "two", "three")),
+				row(4, "user", "Edited", board("one", "two", "three", "mine")),
+				row(5, "user", "Undid Alfy's changes: v2 to v3", board("one", "mine")),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(statusOf(moments, 3)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("undone");
+	});
+});
+
+// RV-V M-4: an Undo ends what a later restore reverses. A change the reader undid
+// and then brought back with a restore read "Undone" beside "Same as now".
+describe("deriveMoments — a restore that brings an undone change back (RV-V M-4)", () => {
+	const reviewed = { review: { hasMarker: true, waiting: new Set<number>() } };
+	const statusOf = (
+		moments: ReturnType<typeof derive>["moments"],
+		versionNumber: number,
+	) => moments.find((m) => m.versionNumber === versionNumber)?.status;
+	const D3 = doc(
+		["p1", "Saturday"],
+		["p2", "Museum in the morning."],
+		["p3", "Rainy-day plan"],
+		["p4", "Dinner at eight."],
+	);
+
+	it("ends 'Undone' for a change a later restore brought back, and says nothing instead of contradicting 'Same as now'", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", D1),
+				row(2, "alfy", "Added a rainy-day plan", D2),
+				row(3, "user", "Undid Alfy's change: v2", D1),
+				row(4, "user", "Restored v2", D2),
+			],
+			reviewed,
+		);
+
+		const change = moments.find((m) => m.versionNumber === 2);
+		expect(change?.sameAsNow).toBe(true);
+		expect(change?.status).toBeNull();
+		expect(change?.undoneBy).toBeNull();
+	});
+
+	it("does the same for a restore to a version between the change and its Undo, which has the change in it", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", D1),
+				row(2, "alfy", "Added a rainy-day plan", D2),
+				row(3, "alfy", "Added dinner", D3),
+				row(4, "user", "Undid Alfy's change: v2", D1),
+				row(5, "user", "Restored v3", D3),
+			],
+			reviewed,
+		);
+
+		expect(statusOf(moments, 2)).toBeNull();
+	});
+
+	it("leaves 'Undone' alone when the restore goes elsewhere: to a version before the change, to the Undo, or after it", () => {
+		for (const [summary, body] of [
+			["Restored v1", D1],
+			["Restored v3", D1],
+			["Restored v4", D1],
+		] as const) {
+			const { moments } = derive(
+				[
+					row(1, "alfy", "Alfy wrote the first draft", D1),
+					row(2, "alfy", "Added a rainy-day plan", D2),
+					row(3, "user", "Undid Alfy's change: v2", D1),
+					row(4, "user", "Edited", doc(["p1", "Saturday!"], ["p2", "Museum."])),
+					row(5, "user", summary, body),
+				],
+				reviewed,
+			);
+			expect(statusOf(moments, 2), summary).toBe("undone");
+		}
+	});
+
+	it("ends it for a board's change too", () => {
+		const board = (text: string) =>
+			JSON.stringify({
+				version: 1,
+				nodes: [
+					{
+						id: "a",
+						type: "sticky",
+						position: { x: 0, y: 0 },
+						data: { kind: "sticky", text, tone: "yellow" },
+					},
+				],
+				edges: [],
+				viewport: { x: 0, y: 0, zoom: 1 },
+				annotations: [],
+			});
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Reworded", board("two")),
+				row(3, "user", "Undid Alfy's change: v2", board("one")),
+				row(4, "user", "Restored v2", board("two")),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(statusOf(moments, 2)).toBeNull();
+	});
+});
+
 describe("deriveMoments — facts that need a body", () => {
 	it("says 'large change' for a pair it did not compare, and never throws on a body it does not have", () => {
 		const { moments } = derive([

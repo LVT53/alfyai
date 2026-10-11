@@ -9,6 +9,7 @@
 import type { ModelId } from "$lib/model-types";
 import { createComment } from "../comments";
 import type { ArtifactScopeOptions } from "../types";
+import { appViolations } from "./audit";
 import type { AppContractRuleId } from "./contract";
 import type { AppGenerationFailureReason } from "./generate";
 import { generateApp } from "./generate";
@@ -84,10 +85,19 @@ export async function generateAndVerifyApp(
 		abortSignal: params.abortSignal,
 	});
 
-	const finalHtml =
-		verification.verdict === "repaired" && verification.repairedHtml
-			? verification.repairedHtml
-			: generation.html;
+	// Ruling 58: `generateApp` audited the document it generated (a violation is
+	// retried once, then refused), but a repair is a SECOND document the model wrote
+	// after that audit, and it is the one that becomes the App's body. It is audited
+	// the same way. A repair that sends the document away or opens a WebRTC channel
+	// is refused like any other refused repair (`verifyApp`'s own shape for one: the
+	// findings stay for Alfy's note, the verdict is "uncertain", and the original,
+	// audited document ships).
+	const repair =
+		verification.verdict === "repaired" ? verification.repairedHtml : null;
+	const repairRuns = repair !== null && appViolations(repair).length === 0;
+	const finalHtml = repairRuns ? repair : generation.html;
+	const verdict =
+		repair !== null && !repairRuns ? "uncertain" : verification.verdict;
 	const glitchRuleIds = generation.checks
 		.filter((check) => check.severity === "glitch" && !check.passed)
 		.map((check) => check.rule);
@@ -100,7 +110,7 @@ export async function generateAndVerifyApp(
 			glitchRuleIds,
 			verification: {
 				checked: verification.checked,
-				verdict: verification.verdict,
+				verdict,
 				reason: verification.reason,
 			},
 			findings: verification.findings,

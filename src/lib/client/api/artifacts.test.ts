@@ -631,6 +631,21 @@ describe("artifacts client API", () => {
 				restoreArtifactVersion("artifact-1", "version-1", null, fetchMock),
 			).rejects.toThrow();
 		});
+
+		// RV-V I-2: an App version the contract audit forbids is refused by the server
+		// (ruling 58); the page words it, so the refusal reaches it by its reason.
+		it("throws the documented refusal for an App version that can no longer run, by its reason", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: false, reason: "not_runnable" }, 422),
+			);
+
+			await expect(
+				restoreArtifactVersion("artifact-1", "version-1", null, fetchMock),
+			).rejects.toMatchObject({
+				name: "VersionRestoreRefusedError",
+				reason: "not_runnable",
+			});
+		});
 	});
 
 	describe("saveArtifactBody (Slice 1, T7)", () => {
@@ -1166,6 +1181,37 @@ describe("version announcements", () => {
 				updatedAt: stamp,
 				author: "user",
 				kind: "restore",
+			},
+		]);
+	});
+
+	// RV-V M-8: an App rebuild's toast Undo is a restore the server writes as the Undo
+	// of Alfy's change, and the header must say that at once, not "Edited by you".
+	it("announces a restore as the kind the server says it wrote", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-09-29T10:00:00.000Z"));
+		const { changes, unsubscribe } = listen();
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				ok: true,
+				version: 3,
+				versionId: "row-3",
+				kind: "undo_alfy_change",
+			}),
+		);
+		await restoreArtifactVersion("artifact-1", "version-1", null, fetchMock, {
+			expectVersion: 2,
+			undoOf: 2,
+		});
+		unsubscribe();
+		expect(changes).toEqual([
+			{
+				type: "version",
+				artifactId: "artifact-1",
+				version: 3,
+				updatedAt: new Date("2026-09-29T10:00:00.000Z").getTime(),
+				author: "user",
+				kind: "undo_alfy_change",
 			},
 		]);
 	});

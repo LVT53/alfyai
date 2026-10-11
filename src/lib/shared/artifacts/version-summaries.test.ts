@@ -111,9 +111,52 @@ describe("the new vocabulary", () => {
 			version: null,
 		});
 		expect(redidAlfyChangeSummary(7)).toBe("Redid Alfy's change: v7");
-		expect(parseRedidAlfyChange("Redid Alfy's change: v7")).toBe(7);
+		expect(parseRedidAlfyChange("Redid Alfy's change: v7")).toEqual({
+			version: 7,
+		});
 		expect(undidRestoreSummary(9)).toBe("Undid restoring v9");
 		expect(parseUndidRestore("Undid restoring v9")).toBe(9);
+	});
+
+	// RV-V I-3: one press can take back several of Alfy's versions (a board's Undo
+	// restores the version before Alfy's whole run; the Document's "Undo all" undoes
+	// every pending change in one save), so the summary names the range it took back,
+	// not only the newest, or History calls the rest Kept.
+	it("names a RANGE of Alfy versions an Undo or a Redo acts on, and reads it back", () => {
+		expect(undidAlfyChangeSummary(3, 2)).toBe("Undid Alfy's changes: v2 to v3");
+		expect(parseUndidAlfyChange("Undid Alfy's changes: v2 to v3")).toEqual({
+			version: 3,
+			fromVersion: 2,
+		});
+		expect(redidAlfyChangeSummary(3, 2)).toBe("Redid Alfy's changes: v2 to v3");
+		expect(parseRedidAlfyChange("Redid Alfy's changes: v2 to v3")).toEqual({
+			version: 3,
+			fromVersion: 2,
+		});
+		// A single version stays in the form every older row has.
+		expect(undidAlfyChangeSummary(3, 3)).toBe("Undid Alfy's change: v3");
+		expect(parseUndidAlfyChange("Undid Alfy's change: v3")).toEqual({
+			version: 3,
+		});
+		// A range that is not one (it starts at or after its end) names the newest alone.
+		expect(undidAlfyChangeSummary(3, 5)).toBe("Undid Alfy's change: v3");
+		expect(redidAlfyChangeSummary(3, 3)).toBe("Redid Alfy's change: v3");
+		expect(parseUndidAlfyChange("Undid Alfy's changes: v3 to v3")).toEqual({
+			version: 3,
+		});
+		expect(parseUndidAlfyChange("Undid Alfy's changes: v5 to v3")).toEqual({
+			version: 3,
+		});
+		for (const other of [
+			"Undid Alfy's changes: v2 to v",
+			"Undid Alfy's changes: v2-v3",
+			"Undid Alfy's changes: v2 to v3 twice",
+			"Undid Alfy's change: v2 to v3",
+			"undid Alfy's changes: v2 to v3",
+		]) {
+			expect(parseUndidAlfyChange(other)).toBeNull();
+		}
+		expect(parseRedidAlfyChange("Redid Alfy's changes: v2")).toBeNull();
 	});
 
 	it("reads only those exact shapes, never a look-alike", () => {
@@ -151,6 +194,20 @@ describe("the new vocabulary", () => {
 		// A Redo with no change to name is just an edit.
 		expect(saveSummaryFor("redid_alfy_change")).toBe("Edited");
 		expect(parseSaveSummaryKind("redid_alfy_change")).toBe("redid_alfy_change");
+	});
+
+	it("stores an Undo or Redo of several versions under the range it names", () => {
+		expect(saveSummaryFor("undid_alfy_change", 3, 2)).toBe(
+			"Undid Alfy's changes: v2 to v3",
+		);
+		expect(saveSummaryFor("redid_alfy_change", 3, 2)).toBe(
+			"Redid Alfy's changes: v2 to v3",
+		);
+		// With no newest version there is no range to name.
+		expect(saveSummaryFor("undid_alfy_change", null, 2)).toBe(
+			"Undid Alfy's change",
+		);
+		expect(saveSummaryFor("redid_alfy_change", null, 2)).toBe("Edited");
 	});
 });
 
@@ -194,6 +251,21 @@ describe("classifying a row's summary into a moment kind", () => {
 			kind: "redo_alfy_change",
 			version: 7,
 		});
+		// A range: `version` stays the newest (what every reader already uses),
+		// `fromVersion` is the first version the press took back or brought back.
+		expect(classify("user", "Undid Alfy's changes: v5 to v7")).toMatchObject({
+			kind: "undo_alfy_change",
+			version: 7,
+			fromVersion: 5,
+		});
+		expect(classify("user", "Redid Alfy's changes: v5 to v7")).toMatchObject({
+			kind: "redo_alfy_change",
+			version: 7,
+			fromVersion: 5,
+		});
+		expect(classify("user", "Undid Alfy's change: v7").fromVersion).toBe(
+			undefined,
+		);
 	});
 
 	it("reads Alfy's rows, with its own words as text", () => {

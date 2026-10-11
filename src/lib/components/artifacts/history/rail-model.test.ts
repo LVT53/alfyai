@@ -3,9 +3,11 @@ import { at, makeMoment, makeStep } from "./__fixtures__/moments";
 import {
 	buildRailGroups,
 	dayKeyOf,
+	entryIsNow,
 	findRailEntry,
 	flattenRailGroups,
 	mergeFirstPage,
+	newestEntryKey,
 	nextRailKey,
 	reconcileSelection,
 	visibleSteps,
@@ -222,5 +224,94 @@ describe("mergeFirstPage", () => {
 	it("is the loaded list when there is no fresh page", () => {
 		const loaded = [makeMoment({ versionNumber: 2 })];
 		expect(mergeFirstPage([], loaded)).toEqual(loaded);
+	});
+});
+
+// RV-V I-4: "Now" belongs to the ONE entry whose own row is the newest, and a write
+// History made lands the selection on it. A fold shows its OLDEST row as the moment
+// (the Alfy change an Undo took back, the restore its Undo reversed), so the moment
+// is not where the current version is: its newest step is.
+describe("the entry that holds the newest row", () => {
+	/** A restore (v3) and the Undo that took it back (v4): one quiet moment, the Undo its step. */
+	function foldedRestore() {
+		return [
+			makeMoment({
+				versionNumber: 3,
+				kind: "restore",
+				author: "user",
+				fold: "restore_undone",
+				quiet: true,
+				containsNewest: true,
+				steps: [
+					makeStep({
+						versionNumber: 4,
+						kind: "undo_restore",
+						isNewest: true,
+					}),
+				],
+			}),
+			makeMoment({ versionNumber: 2, kind: "alfy_edit", author: "alfy" }),
+			makeMoment({ versionNumber: 1, kind: "first_draft", author: "alfy" }),
+		];
+	}
+
+	it("is the step of a fold, not the moment that shows its oldest row", () => {
+		const groups = buildRailGroups(foldedRestore());
+		expect(newestEntryKey(groups)).toBe("s:v4");
+	});
+
+	it("is the moment itself when its own row is the newest", () => {
+		const groups = buildRailGroups(twoDays());
+		expect(newestEntryKey(groups)).toBe("m:v6");
+	});
+
+	it("is the newest entry in the groups it is given, else the first one, else nothing", () => {
+		// Under the Named filter the newest row may not be listed: the first entry stands.
+		const named = buildRailGroups(twoDays(), "named");
+		expect(newestEntryKey(named)).toBe("m:v3");
+		expect(newestEntryKey([])).toBeNull();
+	});
+
+	it("marks Now on one entry only: a fold's moment never repeats it, and a turn's newest step does not repeat its moment's", () => {
+		const entriesOf = (moments: ReturnType<typeof foldedRestore>) =>
+			flattenRailGroups(buildRailGroups(moments));
+		const nows = (moments: ReturnType<typeof foldedRestore>) =>
+			entriesOf(moments)
+				.filter(entryIsNow)
+				.map((entry) => entry.key);
+
+		// The fold: the moment contains the newest row, the step IS it.
+		expect(nows(foldedRestore())).toEqual(["s:v4"]);
+
+		// A turn of Alfy's: the moment is its LAST edit's state and every edit is a step,
+		// the newest of them restating the moment.
+		const turn = [
+			makeMoment({
+				versionNumber: 3,
+				kind: "alfy_turn",
+				author: "alfy",
+				fold: "alfy_turn",
+				isNewest: true,
+				containsNewest: true,
+				steps: [
+					makeStep({
+						versionNumber: 3,
+						kind: "alfy_edit",
+						author: "alfy",
+						isNewest: true,
+					}),
+					makeStep({ versionNumber: 2, kind: "alfy_edit", author: "alfy" }),
+				],
+			}),
+		];
+		expect(nows(turn)).toEqual(["m:v3"]);
+
+		// A plain newest moment, and none when the newest row is not on this list.
+		expect(nows(twoDays())).toEqual(["m:v6"]);
+		expect(
+			flattenRailGroups(buildRailGroups(twoDays().slice(1)))
+				.filter(entryIsNow)
+				.map((entry) => entry.key),
+		).toEqual([]);
 	});
 });

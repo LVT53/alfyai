@@ -20,7 +20,18 @@ vi.mock("$lib/server/db", () => ({
 	},
 }));
 
+// The review's computation is spied on (and still runs): RV-V M-10 asks how often
+// a page of History parses the versions since the marker.
+vi.mock("./document-ops", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./document-ops")>();
+	return {
+		...actual,
+		computePendingReviewBlocks: vi.fn(actual.computePendingReviewBlocks),
+	};
+});
+
 const { createArtifact, updateArtifactBody } = await import("./index");
+const { computePendingReviewBlocks } = await import("./document-ops");
 const { listHistory } = await import("./history");
 
 const OWNER = "user-owner";
@@ -356,6 +367,92 @@ describe("listHistory", () => {
 			.where(eq(schema.artifacts.id, artifact.id))
 			.run();
 		const kept = await listHistory({ userId: OWNER, artifactId: artifact.id });
+		if (!kept.ok) throw new Error("not ok");
+		expect(kept.moments[0].status).toBe("kept");
+	});
+
+	// RV-V M-10: what still waits is read from every version since the review's marker,
+	// bodies included. A page of History asked for it every time: each "Show older",
+	// each reopen. It is the same answer until the artifact changes.
+	it("parses the versions since the marker once for an artifact that has not changed, and again when it has", async () => {
+		const artifact = await makeDocument(doc(["p1", "Saturday"]));
+		await write(
+			artifact.id,
+			doc(["p1", "Saturday"], ["p2", "Rainy-day plan"]),
+			"alfy",
+			"Added a rainy-day plan",
+			{ metadataPatch: { review: { throughVersion: 1, keptBlockIds: [] } } },
+		);
+		for (let n = 3; n <= 6; n += 1) {
+			await write(
+				artifact.id,
+				doc(["p1", "Saturday"], ["p2", `Rainy-day plan, take ${n}`]),
+				"alfy",
+				`Reworded ${n}`,
+			);
+		}
+		const spy = vi.mocked(computePendingReviewBlocks);
+		spy.mockClear();
+
+		// The first page, the next page, a reopen: one parse.
+		const first = await listHistory({
+			userId: OWNER,
+			artifactId: artifact.id,
+			limit: 2,
+		});
+		if (!first.ok) throw new Error("not ok");
+		expect(first.nextBefore).not.toBeNull();
+		await listHistory({
+			userId: OWNER,
+			artifactId: artifact.id,
+			limit: 2,
+			before: first.nextBefore ?? undefined,
+		});
+		const again = await listHistory({
+			userId: OWNER,
+			artifactId: artifact.id,
+			limit: 2,
+		});
+		expect(spy).toHaveBeenCalledTimes(1);
+		// And the answer is the same one each time.
+		if (!again.ok) throw new Error("not ok");
+		expect(again.moments.map((m) => m.status)).toEqual(
+			first.moments.map((m) => m.status),
+		);
+
+		// A new version is new facts: parsed again, and the status follows.
+		await write(
+			artifact.id,
+			doc(["p1", "Saturday"], ["p2", "Rainy-day plan, again"]),
+			"alfy",
+			"Reworded again",
+		);
+		const changed = await listHistory({
+			userId: OWNER,
+			artifactId: artifact.id,
+			limit: 2,
+		});
+		expect(spy).toHaveBeenCalledTimes(2);
+		if (!changed.ok) throw new Error("not ok");
+		expect(changed.moments[0].status).toBe("waiting");
+
+		// The marker moving (Keep) is new facts too: nothing waits now.
+		memory.db
+			.update(schema.artifacts)
+			.set({
+				metadataJson: JSON.stringify({
+					artifactType: "document",
+					title: "Saturday plan",
+					review: { throughVersion: 7, keptBlockIds: [] },
+				}),
+			})
+			.where(eq(schema.artifacts.id, artifact.id))
+			.run();
+		const kept = await listHistory({
+			userId: OWNER,
+			artifactId: artifact.id,
+			limit: 2,
+		});
 		if (!kept.ok) throw new Error("not ok");
 		expect(kept.moments[0].status).toBe("kept");
 	});

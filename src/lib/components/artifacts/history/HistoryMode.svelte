@@ -62,6 +62,7 @@ import {
 	findRailEntry,
 	flattenRailGroups,
 	mergeFirstPage,
+	newestEntryKey,
 	newestRow,
 	type RailEntry,
 	type RailFilter,
@@ -121,6 +122,11 @@ let selectedKey = $state<string | null>(null);
 let compare = $state<HistoryCompare>("step");
 /** The narrow layouts show the list, or the preview pushed over it. */
 let view = $state<"list" | "preview">("list");
+/** What the shown preview last told the shell (the stepper's total; an App version that can only be read). */
+let previewState = $state<HistoryPreviewState>({
+	status: "loading",
+	changeCount: 0,
+});
 
 // What a restore and a name need to say (versioning.md §5.5, §5.6): how many tabs
 // the Document has now, and the chat that made it when it is not this one.
@@ -131,6 +137,14 @@ let online = $state(typeof navigator === "undefined" ? true : navigator.onLine);
 let restoreOpen = $state(false);
 let restoring = $state(false);
 let restoreProblem = $state<string | null>(null);
+/**
+ * The newest version the open question was asked over, and so what Restore
+ * guards with (`expectVersion`). It is taken when the question opens, never when
+ * the reader confirms: a version that arrives while they decide (a chat turn of
+ * Alfy's in this very tab, which `refresh()` hears of and reads) would otherwise
+ * be inside the guard, and the restore would bury a change nobody had looked at.
+ */
+let restoreGuard = 0;
 let toast = $state<{
 	message: string;
 	/** The version the Undo brings back (the row the restore sat on), and the restore's own number. */
@@ -245,13 +259,23 @@ const selectedDetail = $derived(
 	selected ? entryDetail(selected, ctx, kind) : null,
 );
 
+/** An App version the rules now forbid is shown as Code only; bringing it back would make it the live App (ruling 58). */
+const codeOnly = $derived(kind === "app" && previewState.codeOnly === true);
 const canRestore = $derived(
-	selected !== null && !selected.isNewest && !selected.sameAsNow && online,
+	selected !== null &&
+		!selected.isNewest &&
+		!selected.sameAsNow &&
+		online &&
+		!codeOnly,
 );
 const restoreDisabledReason = $derived(
-	selected !== null && !selected.isNewest && !selected.sameAsNow && !online
-		? $t("artifacts.history.restoreOffline")
-		: null,
+	selected === null || selected.isNewest || selected.sameAsNow
+		? null
+		: !online
+			? $t("artifacts.history.restoreOffline")
+			: codeOnly
+				? $t("artifacts.history.restoreNotRunnable")
+				: null,
 );
 /** A change of Alfy's that still waits for the reader and is newer than the version being brought back goes with the restore. */
 const restoreTakesWaiting = $derived(
@@ -317,10 +341,6 @@ $effect(() => {
 	};
 });
 
-let previewState = $state<HistoryPreviewState>({
-	status: "loading",
-	changeCount: 0,
-});
 let changeCursor = $state({ index: -1, nonce: 0 });
 let live = $state("");
 
@@ -461,8 +481,17 @@ async function refresh(): Promise<void> {
 			return;
 		}
 		const knownTop = moments[0]?.versionId ?? null;
+		// The rail's clock catches up with a version that just landed.
+		clock = Date.now();
 		moments = mergeFirstPage(result.moments, moments);
 		newestVersion = result.newestVersion;
+		// A version arrived while the question stood open (not the restore's own,
+		// which `confirmRestore` is still waiting for): the reader is told, over the
+		// latest the rail now shows, and their next press is on that state.
+		if (restoreOpen && !restoring && result.newestVersion > restoreGuard) {
+			restoreProblem = $t("artifacts.history.restoreMoved");
+			restoreGuard = result.newestVersion;
+		}
 		if (older || result.older) {
 			// The older end is unchanged by a new top; keep the paging cursor of what is loaded.
 			older = older || result.older;
@@ -627,6 +656,7 @@ function handleDismissHelp() {
 function askRestore() {
 	if (!canRestore) return;
 	restoreProblem = null;
+	restoreGuard = newestVersion;
 	restoreOpen = true;
 }
 
@@ -646,11 +676,18 @@ function showToast(
 	}, TOAST_MS);
 }
 
-/** After a write History made: read the top of the history again and land on its newest moment. */
+/**
+ * After a write History made: read the top of the history again and land on the
+ * entry that holds the newest row. A fold shows its OLDEST row as the moment (the
+ * restore a toast's Undo reversed), so that is the step under it, never the moment:
+ * the reader sees what is there now, and a name goes on the version that is current.
+ * The new version is not named, so the Named filter would not list it: back to All.
+ */
 async function landOnTop() {
 	await refresh();
-	const top = moments[0];
-	if (top) selectedKey = `m:${top.versionId}`;
+	filter = "all";
+	const key = newestEntryKey(buildRailGroups(moments, "all"));
+	if (key) selectedKey = key;
 	compare = "step";
 }
 
@@ -662,14 +699,14 @@ async function confirmRestore() {
 	// The toast's Undo brings back the row the restore sat on top of.
 	const rowBelow = nowRow.versionId;
 	try {
-		// `expectVersion` is what this page showed: a restore over a version that
-		// arrived since is refused, like a stale save.
+		// `expectVersion` is what the question was asked over: a restore over a
+		// version that arrived since is refused, like a stale save.
 		const version = await restoreArtifactVersion(
 			artifactId,
 			entry.versionId,
 			conversationId,
 			undefined,
-			{ expectVersion: newestVersion },
+			{ expectVersion: restoreGuard },
 		);
 		onRestored?.(version);
 		const when = whenLabel(entry.at, ctx);
@@ -689,6 +726,13 @@ async function confirmRestore() {
 			// latest, and let the reader ask again.
 			restoreProblem = $t("artifacts.history.restoreMoved");
 			await refresh();
+			restoreGuard = newestVersion;
+		} else if (
+			error instanceof VersionRestoreRefusedError &&
+			error.reason === "not_runnable"
+		) {
+			// The server's own audit (ruling 58): asked before the preview had said so.
+			restoreProblem = $t("artifacts.history.restoreNotRunnable");
 		} else {
 			restoreProblem = $t("artifacts.history.restoreFailed");
 		}
@@ -1005,9 +1049,14 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		onClose={handleSheetClose}
 	>
 		<div class="sheet" data-testid="artifact-history" data-layout="phone">
-			<div class="sheet-head" aria-hidden="true">
-				<span class="sheet-title">{$t('artifacts.history.title')}</span>
-			</div>
+			<!-- The sheet's title names the list. Pushed, the preview names History by its way
+			     back, so the title steps aside: History is said once, not as a heading and
+			     again as a link (RV-V M-9). -->
+			{#if view === 'list'}
+				<div class="sheet-head" aria-hidden="true">
+					<span class="sheet-title">{$t('artifacts.history.title')}</span>
+				</div>
+			{/if}
 			{@render content()}
 			{@render toastView()}
 		</div>

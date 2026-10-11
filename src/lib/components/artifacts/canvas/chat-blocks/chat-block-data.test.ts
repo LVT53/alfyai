@@ -310,7 +310,9 @@ describe("the section's groups", () => {
 		});
 	});
 
-	it("says which version of a produced file it is, once it is not the first", () => {
+	// Ruling 76 (Q2): a version number is printed in History's fine print and nowhere
+	// else, so the Insert menu's rows do not say which version a file or an App is.
+	it("never prints a version number: a file, once it is not the first version, reads as it did at version one", () => {
 		const [files] = chatBlockGroups(
 			{
 				...LISTING,
@@ -318,7 +320,7 @@ describe("the section's groups", () => {
 			},
 			translate(),
 		);
-		expect(files.rows[0].meta).toBe("PDF · 2.0 KB · v3");
+		expect(files.rows[0].meta).toBe("PDF · 2.0 KB");
 	});
 
 	it("gives a file with no type and no size only its name", () => {
@@ -326,12 +328,12 @@ describe("the section's groups", () => {
 		expect(files.rows[1]).toMatchObject({ name: "notes", meta: "" });
 	});
 
-	it("reads an App by its title and its version", () => {
+	it("reads an App by its title alone, whichever version it is at", () => {
 		const groups = chatBlockGroups(LISTING, translate());
 		const apps = groups.find((g) => g.kind === "app");
 		expect(apps?.rows[0]).toMatchObject({
 			name: "Tip calculator",
-			meta: "v3",
+			meta: "",
 			data: LISTING.apps[0].data,
 		});
 	});

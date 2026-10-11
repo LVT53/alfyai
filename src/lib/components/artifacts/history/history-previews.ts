@@ -24,6 +24,12 @@ export interface HistoryPreviewState {
 	status: "loading" | "ready" | "error" | "large";
 	/** How many separate changes the preview marked (the stepper's total); 0 when nothing is marked. */
 	changeCount: number;
+	/**
+	 * The version cannot run any more (an App version the current contract audit
+	 * forbids, ruling 58): it is shown as Code only, and the shell offers no Restore
+	 * on it, because a restore would make it the live App.
+	 */
+	codeOnly?: boolean;
 }
 
 export interface HistoryPreviewProps {

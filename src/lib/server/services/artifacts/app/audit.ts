@@ -269,3 +269,31 @@ export function auditAppHtml(html: string): ContractCheck[] {
 		};
 	});
 }
+
+/**
+ * The violations of ruling 58 this document commits (self-navigation, WebRTC):
+ * the failing checks among the rules whose severity is `violation`. It is THE
+ * answer to "does the product run this body?", asked by everything that can put
+ * an App's body in front of a frame:
+ *
+ *   - the generator, which retries once with the violation named and then
+ *     refuses (`generate.ts`), and again on what the verification pass repaired
+ *     (`generate-and-verify.ts`);
+ *   - a restore (`versions.ts`) and a reader's own save of an App's body (the
+ *     body route), which refuse `not_runnable` rather than put such a body back
+ *     in service;
+ *   - the saved-version route History's preview frame loads, which serves it as
+ *     Code only (`not_runnable`, 422).
+ *
+ * The live App route does not ask: it serves what those writers stored, so a new
+ * writer of an App's body (`createArtifact` / `updateArtifactBody` with an App)
+ * must ask before it writes.
+ *
+ * Empty means runnable. A glitch (a dialog, an eval, a network call) is not a
+ * violation: the card says so and the app still runs. Pure.
+ */
+export function appViolations(html: string): ContractCheck[] {
+	return auditAppHtml(html).filter(
+		(check) => check.severity === "violation" && !check.passed,
+	);
+}

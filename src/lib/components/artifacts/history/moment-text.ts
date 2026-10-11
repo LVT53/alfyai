@@ -14,7 +14,7 @@
 
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { lowerFirst, type Translate } from "./moment-phrase";
-import type { RailEntry } from "./rail-model";
+import { entryIsNow, type RailEntry } from "./rail-model";
 
 // ---- the rail's words (versioning.md §3.2, §5.3, §8) ------------------------
 
@@ -59,13 +59,23 @@ function daysAgo(at: number, now: number): number {
 }
 
 /**
+ * How far ahead of the rail's clock a time may be and still be "just now". The
+ * clock ticks every 30 seconds, so a version saved since the last tick is up to
+ * that far ahead of it; the second tick of slack covers a browser clock a little
+ * behind the server's.
+ */
+const CLOCK_SLACK_MS = 60_000;
+
+/**
  * The time column of a rail row: relative under an hour ("just now", "12 min
  * ago"), otherwise the clock inside its day group ("10:09"), so two entries of
  * yesterday never read the same.
  */
 export function entryTimeLabel(at: number, ctx: TextContext): string {
 	const diff = ctx.now - at;
-	if (diff >= 0 && diff < 30_000) return ctx.t("time.relative.justNow");
+	if (diff > -CLOCK_SLACK_MS && diff < 30_000) {
+		return ctx.t("time.relative.justNow");
+	}
 	if (diff >= 0 && diff < 3_600_000) {
 		return ctx.t("time.relative.minutes", {
 			count: Math.max(1, Math.round(diff / 60_000)),
@@ -339,7 +349,7 @@ export function entryA11yName(
 	if (entry.type === "moment" && entry.moment.status) {
 		parts.push(`${statusLabel(entry.moment.status, ctx.t)}.`);
 	}
-	if (entry.moment.containsNewest && entry.type === "moment") {
+	if (entryIsNow(entry)) {
 		parts.push(`${ctx.t("artifacts.history.now")}.`);
 	} else if (entry.sameAsNow) {
 		parts.push(`${ctx.t("artifacts.history.sameAsNow")}.`);

@@ -288,7 +288,7 @@ onDestroy(() => {
 		box-shadow: 0 0 0 calc(4px * var(--inv)) var(--accent-fill);
 	}
 
-	/* At the block's top-right corner, the size of a button whatever the zoom: scaled by 1 / zoom from the corner it hangs from, then 10 above it and 8 out past it. */
+	/* At the block's top-right corner, the size of a button whatever the zoom: scaled by 1 / zoom from the corner it hangs from, then wholly above the block's top edge (a hair clear of it, so it never lies on the block's text) and 8 out past the corner. */
 	.tag {
 		position: absolute;
 		padding: 0 7px;
@@ -298,7 +298,7 @@ onDestroy(() => {
 		line-height: 18px;
 		white-space: nowrap;
 		transform-origin: 0 0;
-		transform: scale(var(--inv)) translate(calc(-100% + 8px), -10px);
+		transform: scale(var(--inv)) translate(calc(-100% + 8px), calc(-100% - 2px));
 	}
 
 	/* A ghost's own tag hangs from the ghost's corner. */

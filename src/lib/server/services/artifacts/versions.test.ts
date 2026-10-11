@@ -124,6 +124,22 @@ describe("listVersions", () => {
 		expect(two.map((version) => version.versionNumber)).toEqual([52, 51]);
 	});
 
+	// RV-V M-10: the versions route took any limit (nine digits). A page is never more
+	// than History's own page maximum.
+	it("never lists more than a page's maximum, however many it is asked for", async () => {
+		const artifact = await createDocument();
+		for (let n = 2; n <= 130; n += 1) {
+			await edit(artifact.id, `body ${n}`, `Edit ${n}`);
+		}
+		const all = await listVersions({
+			userId: OWNER,
+			artifactId: artifact.id,
+			limit: 999_999_999,
+		});
+		expect(all).toHaveLength(100);
+		expect(all[0].versionNumber).toBe(130);
+	});
+
 	it("pages with before: the next versions below the last one seen", async () => {
 		const artifact = await createDocument();
 		for (let index = 2; index <= 8; index += 1) {
@@ -217,6 +233,7 @@ describe("restoreVersion", () => {
 			ok: true,
 			versionId: expect.any(String),
 			versionNumber: 3,
+			kind: "restore",
 		});
 		expect(contentOf(artifact.id)).toBe("v1 body");
 		const versions = await listVersions({
@@ -362,6 +379,46 @@ describe("restoreVersion", () => {
 			expect(newest.summary).toBe("Undid Alfy's change: v2");
 		});
 
+		// RV-V M-8: the server says what kind of row it wrote, so a client that announces
+		// the new version (the header's "Edited by you" until a refetch) never has to
+		// guess whether an Undo took back a restore or Alfy's change.
+		it("says which kind of row it wrote: a restore, the Undo of one, or the Undo of Alfy's change", async () => {
+			const { artifact, ids } = await setup();
+			const restored = await restoreVersion({
+				userId: OWNER,
+				artifactId: artifact.id,
+				versionId: ids.get(1) as string,
+			});
+			expect(restored).toMatchObject({ ok: true, kind: "restore" });
+			const undoneRestore = await restoreVersion({
+				userId: OWNER,
+				artifactId: artifact.id,
+				versionId: ids.get(2) as string,
+				undoOf: 3,
+			});
+			expect(undoneRestore).toMatchObject({ ok: true, kind: "undo_restore" });
+
+			const rebuilt = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: rebuilt.id,
+				body: "alfy body",
+				author: "alfy",
+				summary: "Alfy regenerated the app: x",
+			});
+			const first = (
+				await listVersions({ userId: OWNER, artifactId: rebuilt.id })
+			).find((version) => version.versionNumber === 1);
+			await expect(
+				restoreVersion({
+					userId: OWNER,
+					artifactId: rebuilt.id,
+					versionId: first?.id as string,
+					undoOf: 2,
+				}),
+			).resolves.toMatchObject({ ok: true, kind: "undo_alfy_change" });
+		});
+
 		it("refuses an undo that is not the newest row's, not its parent being restored, or not of a restore or Alfy's change", async () => {
 			const { artifact, ids } = await setup();
 			const before = (
@@ -434,6 +491,133 @@ describe("restoreVersion", () => {
 				versionId: version.id,
 			}),
 		).resolves.toEqual({ ok: false, reason: "not_found" });
+	});
+});
+
+// Ruling 58 (RV-V I-2): a restore puts an old body back as the LIVE one, and the
+// live frame runs it with the writing bridge and today's saved data. A version the
+// current audit calls a violation (it sends its own document away, or opens a
+// WebRTC channel) is one the product does not run: History's preview serves it as
+// Code only, and a restore must not hand it the live frame one click later.
+describe("restoreVersion of an App", () => {
+	const CLEAN_APP =
+		"<!doctype html><html><head><title>Trip</title></head><body><p id='t'>total</p><script>alfy.storage.get('t');</script></body></html>";
+	const NAVIGATING_APP =
+		'<!doctype html><html><body><script>setTimeout(function () { window.location.href = "/login"; }, 800);</script></body></html>';
+	const WEBRTC_APP =
+		"<!doctype html><html><body><script>const peer = new RTCPeerConnection();</script></body></html>";
+
+	async function createApp(bodies: string[], conversationId = CONVERSATION) {
+		const [first, ...rest] = bodies;
+		const created = await createArtifact({
+			userId: OWNER,
+			conversationId,
+			kind: "app",
+			title: "Trip budget",
+			body: first,
+			author: "alfy",
+			versionSummary: "Alfy built the app: a trip budget",
+		});
+		if (!created.ok) throw new Error(created.reason);
+		for (const body of rest) {
+			const result = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: created.artifact.id,
+				body,
+				author: "alfy",
+				summary: "Alfy regenerated the app: again",
+			});
+			if (!result.ok) throw new Error(result.reason);
+		}
+		const versions = await listVersions({
+			userId: OWNER,
+			artifactId: created.artifact.id,
+		});
+		return {
+			artifactId: created.artifact.id,
+			idOf: (n: number) =>
+				versions.find((version) => version.versionNumber === n)?.id as string,
+		};
+	}
+
+	it("refuses a version the current audit calls a violation, and writes nothing", async () => {
+		for (const violating of [NAVIGATING_APP, WEBRTC_APP]) {
+			const { artifactId, idOf } = await createApp([
+				CLEAN_APP,
+				violating,
+				CLEAN_APP.replace("total", "third"),
+			]);
+
+			await expect(
+				restoreVersion({
+					userId: OWNER,
+					artifactId,
+					versionId: idOf(2),
+					expectVersion: 3,
+				}),
+			).resolves.toEqual({ ok: false, reason: "not_runnable" });
+
+			expect(contentOf(artifactId)).toContain("third");
+			expect(
+				(await listVersions({ userId: OWNER, artifactId })).map(
+					(version) => version.versionNumber,
+				),
+			).toEqual([3, 2, 1]);
+		}
+	});
+
+	it("restores a version that runs, as before", async () => {
+		const { artifactId, idOf } = await createApp([
+			CLEAN_APP,
+			CLEAN_APP.replace("total", "second"),
+		]);
+
+		await expect(
+			restoreVersion({ userId: OWNER, artifactId, versionId: idOf(1) }),
+		).resolves.toMatchObject({ ok: true, versionNumber: 3 });
+		expect(contentOf(artifactId)).toBe(CLEAN_APP);
+	});
+
+	it("holds an App's rebuild Undo to the same line: the version it would bring back must run", async () => {
+		// v1 predates the rules (it navigates); v2 is Alfy's rebuild; the toast's Undo
+		// would put v1 back as the live App.
+		const { artifactId, idOf } = await createApp([NAVIGATING_APP, CLEAN_APP]);
+
+		await expect(
+			restoreVersion({
+				userId: OWNER,
+				artifactId,
+				versionId: idOf(1),
+				undoOf: 2,
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_runnable" });
+		expect(contentOf(artifactId)).toBe(CLEAN_APP);
+	});
+
+	it("is an App's rule alone: a Document whose text says the same restores", async () => {
+		const result = await createArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			kind: "document",
+			title: "Notes on the sandbox",
+			body: "Apps must never run window.location.href = x or new RTCPeerConnection().",
+			author: "alfy",
+			versionSummary: "Alfy wrote the first draft",
+		});
+		if (!result.ok) throw new Error(result.reason);
+		await edit(result.artifact.id, "Shorter.", "Edited");
+		const [, first] = await listVersions({
+			userId: OWNER,
+			artifactId: result.artifact.id,
+		});
+
+		await expect(
+			restoreVersion({
+				userId: OWNER,
+				artifactId: result.artifact.id,
+				versionId: first.id,
+			}),
+		).resolves.toMatchObject({ ok: true, versionNumber: 3 });
 	});
 });
 

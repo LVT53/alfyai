@@ -173,7 +173,8 @@ describe("From this chat", () => {
 		expect(rows[0]).toHaveTextContent("Vienna trip.pdf");
 		expect(rows[0]).toHaveTextContent("PDF · 2.0 KB");
 		expect(rows[1]).toHaveTextContent("Tip calculator");
-		expect(rows[1]).toHaveTextContent("v2");
+		// No version number outside History (ruling 76, Q2).
+		expect(rows[1]).not.toHaveTextContent(/\bv\d/);
 		expect(rows[2]).toHaveTextContent("Cork → Kinsale");
 		expect(rows[2]).toHaveTextContent("27.0 km · 34 min");
 		expect(rows[3]).toHaveTextContent("Sales");

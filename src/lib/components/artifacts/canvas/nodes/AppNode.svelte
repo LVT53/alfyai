@@ -26,6 +26,12 @@ export function appShell(data: AppData): LazyShell {
  * `nopan`): the block is moved by its header and its edge. The App loads when its
  * block mounts, never with the editor; the shell around it is `LazyNode`'s and this
  * module never imports it.
+ *
+ * In History's picture of one stored version (`board.preview`) it does not run at
+ * all: a preview changes nothing, and a running App has the writing bridge and today's
+ * saved data (RV-V M-5). The block draws its still image (the poster it carries, a
+ * picture of the App as it last looked) or, with none, a card that says where it runs.
+ * No frame, no read of its data, no news of its changes.
  */
 import { untrack } from "svelte";
 import {
@@ -35,6 +41,7 @@ import {
 import { ApiError } from "$lib/client/api/http";
 import AppFrame from "$lib/components/artifacts/app/AppFrame.svelte";
 import { t } from "$lib/i18n";
+import { useBoardContext } from "../_lib/board-context";
 import { useChatContext } from "../_lib/chat-context";
 import BlockEditForm from "./BlockEditForm.svelte";
 
@@ -54,6 +61,9 @@ let {
 } = $props();
 
 const chat = useChatContext();
+const board = useBoardContext();
+/** The block is drawn once for a board: a picture of a stored version stays one. */
+const still = board.preview === true;
 
 let phase = $state<Phase>("loading");
 let version = $state(0);
@@ -92,6 +102,7 @@ async function load(
 let appId = $derived(data.artifactId);
 
 $effect(() => {
+	if (still) return;
 	const artifactId = appId;
 	const conversationId = chat.conversationId;
 	// A retry is a new attempt of the same read.
@@ -102,6 +113,7 @@ $effect(() => {
 // The App's own news: a newer version reloads the frame (a stale App must not
 // keep running), a deletion ends it.
 $effect(() => {
+	if (still) return;
 	const artifactId = appId;
 	return subscribeArtifactChanges((change) => {
 		// News of a chat's files (a picture was kept) is not about this App.
@@ -120,7 +132,20 @@ $effect(() => {
 	<BlockEditForm {id} kind="app" {data} {onclose} overlay />
 {/if}
 <div class="app nodrag nowheel nopan" data-testid="canvas-app">
-		{#if phase === "ready"}
+		{#if still}
+			<div class="app__still" data-testid="canvas-app-still">
+				{#if data.poster}
+					<img
+						class="app__poster"
+						src={`/api/chat/files/${encodeURIComponent(data.poster.fileId)}/preview`}
+						alt=""
+						draggable="false"
+					/>
+				{:else}
+					<p class="app__state">{$t("artifacts.canvas.app.stillInHistory")}</p>
+				{/if}
+			</div>
+		{:else if phase === "ready"}
 			<AppFrame
 				artifactId={appId}
 				{version}
@@ -156,6 +181,21 @@ $effect(() => {
 	.app :global(.app-frame-stage) {
 		flex: 1 1 auto;
 		min-height: 0;
+	}
+
+	.app__still {
+		display: flex;
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.app__poster {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		user-select: none;
+		pointer-events: none;
 	}
 
 	.app__state {

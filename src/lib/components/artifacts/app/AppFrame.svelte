@@ -499,7 +499,8 @@ function reloadAfterTripwire(): void {
 	<div class="app-frame-stage">
 		<div class="app-frame-sandbox-bar">
 			<Lock size={12} strokeWidth={2} aria-hidden="true" />
-			<span>{$t('artifacts.app.sandboxBar')}</span>
+			<!-- A preview refuses every write, so "keeps your data" would be false there. -->
+			<span>{$t(previewVersionId !== null ? 'artifacts.app.sandboxBarPreview' : 'artifacts.app.sandboxBar')}</span>
 		</div>
 		{#key src}
 			<!-- svelte-ignore a11y_no_noninteractive_tabindex -- Owner decision 15: reachable by

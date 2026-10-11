@@ -239,6 +239,32 @@ export function reconcileSelection(
 	return groups[0]?.entries[0]?.key ?? null;
 }
 
+/**
+ * Whether the entry is where the current version is: its own row is the newest.
+ * A fold draws its OLDEST row as the moment (the Alfy change an Undo took back, the
+ * restore its Undo reversed) and the newer rows under it as steps, so the moment
+ * that CONTAINS the newest row is not it: the step is. A turn of Alfy's draws the
+ * last edit as the moment and again as its newest step, which does not repeat the
+ * marker. There is at most one such entry in a list ("Now" is said once).
+ */
+export function entryIsNow(entry: RailEntry): boolean {
+	return (
+		entry.isNewest &&
+		(entry.type === "moment" || entry.versionId !== entry.moment.versionId)
+	);
+}
+
+/**
+ * The key of the entry that holds the newest row, which is where a write History
+ * made lands the selection (the new version is what the reader looks at next). The
+ * newest row can be absent from what is listed (the Named filter): then the first
+ * entry stands, as when the list changes under a selection.
+ */
+export function newestEntryKey(groups: readonly RailGroup[]): string | null {
+	const entries = flattenRailGroups(groups);
+	return (entries.find(entryIsNow) ?? entries[0])?.key ?? null;
+}
+
 /** The oldest version number a moment holds in its rows. */
 function oldestRow(moment: ArtifactMoment): number {
 	let oldest = moment.versionNumber;

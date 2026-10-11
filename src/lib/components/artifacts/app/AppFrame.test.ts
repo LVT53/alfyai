@@ -975,17 +975,49 @@ describe("AppFrame — previewing a stored version (History)", () => {
 		);
 	});
 
-	it("is the live App's frame: the same sandbox, exactly, and the sandbox promise bar", () => {
-		const { container, getByText } = previewFrame();
+	it("is the live App's frame: the same sandbox, exactly", () => {
+		const { container } = previewFrame();
 		const iframe = getIframe(container);
 		expect(iframe.getAttribute("src")).toBe(
 			"/api/artifacts/app-1/versions/ver-1/app",
 		);
 		expect(iframe.getAttribute("sandbox")).toBe(APP_IFRAME_SANDBOX);
 		expect(iframe.getAttribute("sandbox")).not.toMatch(/allow-same-origin/);
+	});
+
+	// RV-V I-5: the live bar promises "keeps your data", and in a preview every write
+	// is refused (and History's own line says changes aren't saved), so the promise is
+	// false there. The preview's bar has its own words; the sandbox claims stay.
+	it("has a sandbox bar of its own that says read-only, and never promises to keep the reader's data", () => {
+		const { getByText, queryByText } = previewFrame();
+		expect(
+			getByText("Runs sandboxed · no internet · read-only"),
+		).toBeInTheDocument();
+		expect(queryByText(/keeps your data/)).toBeNull();
+	});
+
+	it("says the same in Hungarian", async () => {
+		uiLanguage.set("hu");
+		try {
+			const { getByText, queryByText } = previewFrame();
+			expect(
+				getByText("Homokozóban fut · nincs internet · csak olvasható"),
+			).toBeInTheDocument();
+			expect(queryByText(/megőrzi/)).toBeNull();
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
+	it("leaves the live App's bar as it was", () => {
+		const { getByText, queryByText } = render(AppFrame, {
+			artifactId: "app-1",
+			version: 1,
+		});
 		expect(
 			getByText("Runs sandboxed · no internet · keeps your data"),
 		).toBeInTheDocument();
+		expect(queryByText(/read-only/)).toBeNull();
 	});
 
 	it("encodes an id that is not a path segment's safe text", () => {

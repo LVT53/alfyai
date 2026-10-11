@@ -61,6 +61,24 @@ import {
 import type { ArtifactAuthor, ArtifactScopeOptions } from "./types";
 
 /**
+ * The Alfy versions that still wait for the reader, kept for the next page or the
+ * next open (RV-V M-10). Computing them parses every version since the review's
+ * marker, bodies included, and the answer cannot change while the newest version
+ * (its row and its hash: a typing burst saves into one) and the marker are what
+ * they were, since an older version's body is never rewritten. A set of version
+ * numbers only, never a body.
+ */
+const REVIEW_CACHE_MAX_ENTRIES = 500;
+const reviewCache = new Map<string, ReadonlySet<number>>();
+function trimReviewCache(): void {
+	while (reviewCache.size > REVIEW_CACHE_MAX_ENTRIES) {
+		const oldest = reviewCache.keys().next();
+		if (oldest.done) return;
+		reviewCache.delete(oldest.value);
+	}
+}
+
+/**
  * What a row's comparison with its parent came to, kept for the next page or
  * the next open: only the newest row of an artifact can change, and its hash
  * changes with it, so `(version id, body hash)` is exact. Small facts only
@@ -268,6 +286,8 @@ export async function listHistory(
 		userId: params.userId,
 		metadata,
 		newestVersion: newestRow.versionNumber,
+		newestId: newestRow.id,
+		newestHash: newestRow.bodyHash,
 	});
 
 	// ---- Alfy's replies to comments ------------------------------------------
@@ -346,6 +366,9 @@ function readReview(params: {
 	userId: string;
 	metadata: ReturnType<typeof parseArtifactMetadata>;
 	newestVersion: number;
+	/** The newest row and its hash: the cache's key (a version row is made once, and its body only changes by a typing burst saving into it). */
+	newestId: string;
+	newestHash: string;
 }): HistoryReview {
 	const marker = readDocumentReviewMetadata(params.metadata);
 	const none: HistoryReview = {
@@ -355,6 +378,31 @@ function readReview(params: {
 	if (!marker || marker.throughVersion >= params.newestVersion) return none;
 	if (params.kind !== "document" && params.kind !== "canvas") return none;
 
+	const cacheKey = [
+		params.artifactId,
+		params.userId,
+		params.newestId,
+		params.newestHash,
+		marker.throughVersion,
+		[...marker.keptBlockIds].sort().join(","),
+	].join("|");
+	const known = reviewCache.get(cacheKey);
+	if (known) return { hasMarker: true, waiting: new Set(known) };
+	const review = computeReview(params, marker);
+	reviewCache.set(cacheKey, new Set(review.waiting));
+	trimReviewCache();
+	return review;
+}
+
+/** Parses every version since the marker, as the review's own computation does. */
+function computeReview(
+	params: {
+		kind: ReturnType<typeof kindForArtifactRow>;
+		artifactId: string;
+		userId: string;
+	},
+	marker: NonNullable<ReturnType<typeof readDocumentReviewMetadata>>,
+): HistoryReview {
 	const versions = db
 		.select({
 			id: artifactVersions.id,

@@ -95,8 +95,6 @@ const artifactsDict = {
 		"artifacts.card.openInPanel": "Open in panel",
 		"artifacts.card.review": "Review",
 		"artifacts.card.madeBy": "made by Alfy {when}",
-		"artifacts.card.version": "v{n}",
-		"artifacts.card.versionA11y": "Version {n}",
 		// A checklist card's tickable body (slice 0 ships the seam; slice 1 is
 		// the first caller) shows the first five items and this for the rest.
 		"artifacts.card.moreItems": "+{count} more",
@@ -213,6 +211,8 @@ const artifactsDict = {
 		"artifacts.app.toast.undo": "Undo",
 		"artifacts.app.sandboxBar":
 			"Runs sandboxed · no internet · keeps your data",
+		"artifacts.app.sandboxBarPreview":
+			"Runs sandboxed · no internet · read-only",
 		"artifacts.app.generating": "Alfy is writing the app…",
 		"artifacts.app.generating.hint": "This takes a few seconds.",
 		"artifacts.app.emptyState":
@@ -733,7 +733,6 @@ const artifactsDict = {
 		"artifacts.canvas.chat.empty": "Nothing from this chat to insert yet.",
 		"artifacts.canvas.chat.failed": "Couldn't look through this chat.",
 		"artifacts.canvas.chat.retry": "Try again",
-		"artifacts.canvas.chat.version": "v{version}",
 		"artifacts.canvas.chat.chartType.bar": "Bar chart",
 		"artifacts.canvas.chat.chartType.line": "Line chart",
 		"artifacts.canvas.chat.chartType.pie": "Pie chart",
@@ -758,6 +757,8 @@ const artifactsDict = {
 		"artifacts.canvas.file.open": "Open {name}",
 		"artifacts.canvas.app.loading": "Opening the App…",
 		"artifacts.canvas.app.gone": "This App is no longer available.",
+		"artifacts.canvas.app.stillInHistory":
+			"The App runs on the live board, not in History.",
 		"artifacts.canvas.app.failed": "Couldn't open this App.",
 		"artifacts.canvas.block.loadFailed": "This block could not load.",
 		// Photos and live web (S3-R2): the two blocks with nothing to reuse from the
@@ -1023,6 +1024,8 @@ const artifactsDict = {
 		"artifacts.history.restoreMoved":
 			"It changed while you were looking. Here's the latest.",
 		"artifacts.history.restoreOffline": "You're offline",
+		"artifacts.history.restoreNotRunnable":
+			"It can't run any more, so it can't be restored.",
 		"artifacts.history.restoreFailed":
 			"Couldn't restore this version. Try again.",
 		"artifacts.history.undo": "Undo",
@@ -1098,8 +1101,6 @@ const artifactsDict = {
 		"artifacts.card.openInPanel": "Megnyitva a panelen",
 		"artifacts.card.review": "Átnézés",
 		"artifacts.card.madeBy": "Alfy készítette: {when}",
-		"artifacts.card.version": "v{n}",
-		"artifacts.card.versionA11y": "{n}. verzió",
 		"artifacts.card.moreItems": "+{count} további",
 		"artifacts.card.creatingSubtitle": "Alfy éppen ír…",
 		"artifacts.card.failedTitle": "Alfynak ezt nem sikerült elkészítenie.",
@@ -1189,6 +1190,8 @@ const artifactsDict = {
 		"artifacts.app.toast.undo": "Visszavonás",
 		"artifacts.app.sandboxBar":
 			"Homokozóban fut · nincs internet · megőrzi az adataidat",
+		"artifacts.app.sandboxBarPreview":
+			"Homokozóban fut · nincs internet · csak olvasható",
 		"artifacts.app.generating": "Alfy írja az alkalmazást…",
 		"artifacts.app.generating.hint": "Ez néhány másodpercet vesz igénybe.",
 		"artifacts.app.emptyState":
@@ -1613,7 +1616,6 @@ const artifactsDict = {
 			"Még nincs mit beszúrni ebből a beszélgetésből.",
 		"artifacts.canvas.chat.failed": "Nem sikerült átnézni a beszélgetést.",
 		"artifacts.canvas.chat.retry": "Újra",
-		"artifacts.canvas.chat.version": "v{version}",
 		"artifacts.canvas.chat.chartType.bar": "Oszlopdiagram",
 		"artifacts.canvas.chat.chartType.line": "Vonaldiagram",
 		"artifacts.canvas.chat.chartType.pie": "Kördiagram",
@@ -1637,6 +1639,8 @@ const artifactsDict = {
 		"artifacts.canvas.file.open": "{name} megnyitása",
 		"artifacts.canvas.app.loading": "Az alkalmazás megnyitása…",
 		"artifacts.canvas.app.gone": "Ez az alkalmazás már nem érhető el.",
+		"artifacts.canvas.app.stillInHistory":
+			"Az alkalmazás az élő táblán fut, az Előzményekben nem.",
 		"artifacts.canvas.app.failed": "Nem sikerült megnyitni az alkalmazást.",
 		"artifacts.canvas.block.loadFailed":
 			"Ezt a blokkot nem sikerült betölteni.",
@@ -1797,9 +1801,9 @@ const artifactsDict = {
 		"artifacts.history.older": "Korábbiak",
 		"artifacts.history.loadError": "Nem sikerült betölteni az előzményeket.",
 		"artifacts.history.oneVersion":
-			"Ide kerülnek a te és Alfy későbbi változtatásai.",
+			"Itt jelenik meg minden későbbi módosítás, akár te végzed, akár Alfy.",
 		"artifacts.history.help":
-			"{keys}: a saját legutóbbi lépéseid. Visszavonom: csak Alfy módosítása. Visszaállítás: egy teljes korábbi változat.",
+			"{keys}: visszavonja a saját legutóbbi lépéseidet. Alfy módosításánál a Visszavonom csak azt az egy módosítást vonja vissza. A Visszaállítás egy teljes korábbi változatot hoz vissza.",
 		"artifacts.history.helpDismiss": "Értem",
 		"artifacts.history.deleted.document": "Ezt a dokumentumot törölték.",
 		"artifacts.history.deleted.app": "Ezt az alkalmazást törölték.",
@@ -1861,7 +1865,7 @@ const artifactsDict = {
 		"artifacts.history.unchanged": "{count} változatlan bekezdés",
 		"artifacts.history.noChanges": "Ebben a változatban nem változott semmi",
 		"artifacts.history.tooLarge":
-			"Túl nagy az összehasonlításhoz; visszaállítani még tudod",
+			"Túl nagy az összehasonlításhoz, de még visszaállíthatod",
 		"artifacts.history.versionFine": "{n}. változat",
 		"artifacts.history.live.selected": "{when}, {headline}.",
 		"artifacts.history.live.changes": "{count} változás.",
@@ -1889,6 +1893,8 @@ const artifactsDict = {
 			"Visszaállítva: {when}. Az előző változat megmaradt az előzményekben.",
 		"artifacts.history.restoreMoved": "Közben megváltozott. Itt a legfrissebb.",
 		"artifacts.history.restoreOffline": "Nem vagy online",
+		"artifacts.history.restoreNotRunnable":
+			"Már nem futtatható, ezért nem állítható vissza.",
 		"artifacts.history.restoreFailed":
 			"Nem sikerült visszaállítani ezt a változatot. Próbáld újra.",
 		"artifacts.history.undo": "Visszavonás",

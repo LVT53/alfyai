@@ -93,6 +93,13 @@ export interface DocumentAlfyActivity {
 	ops?: readonly AlfyRawBoardOp[];
 	refusedBlocks: DocumentRefusedBlock[];
 	appliedCount: number;
+	/**
+	 * The version row this call itself wrote (`metadata.versionId`), once it has
+	 * settled with something written. The panel's reload finds the NEWEST version,
+	 * which a second edit call or the reader's own save can have moved past this
+	 * call's, so a pill's Undo names this one (RV-V M-7).
+	 */
+	versionId?: string;
 }
 
 /** The shape `message.thinkingSegments`' `tool_call` entries already have — see `messages-types.ts`'s `ThinkingSegment`. */
@@ -264,6 +271,9 @@ export function buildDocumentAlfyActivity(
 		patches,
 		refusedBlocks,
 		appliedCount,
+		...(typeof metadata.versionId === "string" && metadata.versionId !== ""
+			? { versionId: metadata.versionId }
+			: {}),
 	};
 }
 

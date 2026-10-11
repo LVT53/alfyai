@@ -109,7 +109,7 @@ export function buildEditArtifactModelInputSchema(
 			.max(200)
 			.optional()
 			.describe(
-				"What you changed, in one short past-tense line with no subject (\u201cMoved the museum to Thursday\u201d); shown next to Keep/Undo and in History.",
+				"What you changed, in one short past-tense line with no subject (\u201cMoved the museum to Thursday\u201d; in Hungarian \u201cÁttette a múzeumot csütörtökre\u201d or \u201cEsős napi terv hozzáadva\u201d, never \u201cÁttettem …\u201d); shown next to Keep/Undo and in History.",
 			),
 	});
 }

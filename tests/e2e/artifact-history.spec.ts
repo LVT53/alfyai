@@ -827,6 +827,34 @@ test.describe("History mode on a phone", () => {
 		await expect(preview).not.toContainText("The museum.");
 		const back = sheet.getByRole("button", { name: "History" });
 		await expect(back).toBeVisible();
+		// The sheet's own title is the list's. Pushed, the preview names History once,
+		// by its way back (RV-V M-9): not twice, as a heading and as a link.
+		await expect
+			.poll(() =>
+				sheet.evaluate((root) => {
+					const seen = (element: Element) => {
+						const box = element.getBoundingClientRect();
+						const style = getComputedStyle(element);
+						return (
+							box.width > 1 &&
+							box.height > 1 &&
+							style.visibility !== "hidden" &&
+							style.display !== "none"
+						);
+					};
+					// Elements whose OWN text is the word: what a reader sees printed.
+					return Array.from(root.querySelectorAll("*")).filter(
+						(element) =>
+							seen(element) &&
+							Array.from(element.childNodes).some(
+								(node) =>
+									node.nodeType === Node.TEXT_NODE &&
+									node.textContent?.trim() === "History",
+							),
+					).length;
+				}),
+			)
+			.toBe(1);
 		// The bottom bar steps between moments; its targets are 44 px.
 		const older = sheet.getByRole("button", { name: "Previous version" });
 		const newer = sheet.getByRole("button", { name: "Next version" });
@@ -1255,6 +1283,10 @@ test.describe("History mode: an App", () => {
 		await expect(preview.getByTestId("history-app-runs")).toHaveText(
 			"Runs with today's saved data; changes aren't saved.",
 		);
+		// The sandbox bar says what is true of a preview: it keeps nothing (RV-V I-5).
+		await expect(preview.locator(".app-frame-sandbox-bar")).toHaveText(
+			"Runs sandboxed · no internet · read-only",
+		);
 		const frame = preview.locator("iframe");
 		await expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-forms");
 		await expect(frame).toHaveAttribute(
@@ -1313,6 +1345,10 @@ test.describe("History mode: an App", () => {
 		await expect(
 			page.frameLocator("iframe.app-frame").getByTestId("app-heading"),
 		).toHaveText("Trip budget, first version");
+		// The live App's bar is as it was: it does keep the reader's data.
+		await expect(page.locator(".app-frame-sandbox-bar")).toHaveText(
+			"Runs sandboxed · no internet · keeps your data",
+		);
 		expect(writes).toEqual([]);
 		expect(
 			await getKv({ userId, artifactId, conversationId, key: "mood" }),
@@ -1356,17 +1392,79 @@ test.describe("History mode: an App", () => {
 		const code = region.getByTestId("history-app-code");
 		await expect(code).toContainText("window.location.href");
 		await expect(region.locator("iframe")).toHaveCount(0);
+		// A restore would make it the live App, which runs with today's saved data
+		// (ruling 58): Restore is not offered, and the reader is told why (RV-V I-2).
+		await expect(region.getByTestId("history-restore")).toHaveCount(0);
+		await expect(region.getByTestId("history-restore-note")).toHaveText(
+			"It can't run any more, so it can't be restored.",
+		);
 
 		// Another version runs, and comes up on Preview again.
 		await options.nth(2).click();
 		await expect(region.getByTestId("history-app-code-only")).toHaveCount(0);
 		await expect(region.getByTestId("history-app-tab-preview")).toBeEnabled();
+		await expect(region.getByTestId("history-restore")).toBeVisible();
+		await expect(region.getByTestId("history-restore-note")).toHaveCount(0);
 		await expect(
 			region
 				.getByTestId("history-app-preview")
 				.frameLocator("iframe")
 				.getByTestId("app-heading"),
 		).toHaveText("Trip budget, second version");
+	});
+
+	test("the server refuses to restore a version the rules now forbid, and the live App keeps the version it had (ruling 58, RV-V I-2)", async ({
+		page,
+	}) => {
+		const conversationId = await createEmptyConversation(
+			page,
+			"History runaway restore",
+		);
+		const artifactId = await seedApp(conversationId, "Trip budget", [
+			{
+				html: SECOND_APP_HTML,
+				summary: madeAppSummary("a trip budget"),
+			},
+			{
+				html: RUNAWAY_APP_HTML,
+				summary: regeneratedAppSummary("make it dramatic"),
+			},
+			{
+				html: FIRST_APP_HTML.replace("first version", "third"),
+				summary: regeneratedAppSummary("calm it down"),
+			},
+		]);
+		const versions = await listVersions({
+			userId: await adminId(),
+			artifactId,
+		});
+		const runaway = versions.find((version) => version.versionNumber === 2);
+		const first = versions.find((version) => version.versionNumber === 1);
+		if (!runaway || !first) throw new Error("the seeded versions are missing");
+
+		// Not through the panel (it offers no Restore here): a request of its own.
+		const refused = await page.request.post(
+			`/api/artifacts/${artifactId}/versions/${runaway.id}/restore`,
+			{ data: { expectVersion: 3 } },
+		);
+		expect(refused.status()).toBe(422);
+		expect(await refused.json()).toEqual({ ok: false, reason: "not_runnable" });
+		// Nothing was written, and the live App is still the third version.
+		expect(
+			(await listVersions({ userId: await adminId(), artifactId })).map(
+				(version) => version.versionNumber,
+			),
+		).toEqual([3, 2, 1]);
+		const live = await page.request.get(`/api/artifacts/${artifactId}/app`);
+		expect(await live.text()).toContain("third");
+		expect(await live.text()).not.toContain("window.location");
+
+		// A version that runs restores through the same route.
+		const allowed = await page.request.post(
+			`/api/artifacts/${artifactId}/versions/${first.id}/restore`,
+			{ data: { expectVersion: 3 } },
+		);
+		expect(allowed.status()).toBe(200);
 	});
 
 	test("the toast's Undo takes the rebuild back as one moment with it, and History says so (T6)", async ({
@@ -1636,6 +1734,40 @@ test.describe("History mode on a phone: an App and a board", () => {
 			expect((ringBox?.x ?? 0) + (ringBox?.width ?? 0)).toBeLessThanOrEqual(
 				(box?.x ?? 0) + (box?.width ?? 0) + 1,
 			);
+		}
+		// What lies over the picture covers none of it (RV-V M-9): the zoom control stands
+		// clear of every block, and a tag hangs over its block's top edge, not on its text.
+		const overlaps = (
+			a: { x: number; y: number; width: number; height: number },
+			b: { x: number; y: number; width: number; height: number },
+		) =>
+			a.x < b.x + b.width - 0.5 &&
+			a.x + a.width > b.x + 0.5 &&
+			a.y < b.y + b.height - 0.5 &&
+			a.y + a.height > b.y + 0.5;
+		const zoomBox = await preview.getByTestId("canvas-zoom").boundingBox();
+		expect(zoomBox).not.toBeNull();
+		for (const node of await preview.locator(".svelte-flow__node").all()) {
+			const nodeBox = await node.boundingBox();
+			if (!nodeBox || !zoomBox) continue;
+			expect(
+				overlaps(zoomBox, nodeBox),
+				`the zoom control covers ${await node.getAttribute("data-id")}`,
+			).toBe(false);
+		}
+		for (const tag of await preview.getByTestId("canvas-history-tag").all()) {
+			const id = await tag.getAttribute("data-node-id");
+			const tagBox = await tag.boundingBox();
+			const nodeBox = await preview
+				.locator(`.svelte-flow__node[data-id="${id}"]`)
+				.boundingBox();
+			expect(tagBox).not.toBeNull();
+			expect(nodeBox).not.toBeNull();
+			// Hung from the corner: the tag ends where the block begins.
+			expect(
+				(tagBox?.y ?? 0) + (tagBox?.height ?? 0),
+				`the tag of ${id} is on the block's text`,
+			).toBeLessThanOrEqual((nodeBox?.y ?? 0) + 1);
 		}
 		// A tap on a block selects nothing and the board is not changed: no toolbar, no step.
 		await preview.locator('.svelte-flow__node[data-id="note-lunch"]').tap();

@@ -20,6 +20,8 @@ export type BlockPicture =
 export interface CanvasBoardContext {
 	/** True while the board must not change: the item is gone, or a conflict is waiting on the reader's choice. */
 	readonly readonly: boolean;
+	/** True when the board is History's picture of one stored version: a block that RUNS something (an App) draws its still image instead, so the picture changes nothing. */
+	readonly preview?: boolean;
 	/** Asks the node with this id to open its text for editing as soon as it mounts (a block was just inserted). */
 	requestEdit(id: string): void;
 	/** True exactly once, for the node the last insert asked to edit; the request is spent by the answer. */

@@ -74,9 +74,14 @@ export const APP_BOOTSTRAP_SCRIPT = buildBootstrapScript(
  * leaves it alone. This is the cooperative half: a document can always post a
  * raw message to its parent whatever the bridge says, so the parent that
  * answers (AppFrame, in its read-only preview mode) refuses `set` itself too.
+ *
+ * The refusal is a CODE, not a sentence: an App that shows the error it caught
+ * shows it to a reader in whatever language they read, and this document cannot
+ * know it (no parameter varies the response), so an English sentence would reach a
+ * Hungarian reader as one.
  */
 export const APP_READONLY_BOOTSTRAP_SCRIPT = buildBootstrapScript(
-	`function () { return Promise.reject(new Error("alfy.storage is read-only in a saved version")); }`,
+	`function () { return Promise.reject(new Error("ALFY_STORAGE_READ_ONLY")); }`,
 );
 
 const APP_BOOTSTRAP_TAG = `<script>${APP_BOOTSTRAP_SCRIPT}</script>`;

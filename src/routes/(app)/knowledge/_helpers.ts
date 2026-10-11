@@ -28,6 +28,11 @@ export function toWorkspaceDocument(
 			mimeType: null,
 			artifactId: document.displayArtifactId,
 			conversationId: document.conversationId,
+			// What changed last and when: the panel's header says it, and its History
+			// button exists only when it can (ruling 76). The library row already has it.
+			updatedAt: document.updatedAt,
+			lastAuthor: document.lastAuthor ?? null,
+			lastKind: document.lastKind ?? null,
 		};
 	}
 
