@@ -21,7 +21,11 @@ import {
 	testUserId,
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // An App block dragged into (or out of) a frame (Feature 2 · Canvas, RV-3 I1).
 // The library draws the blocks in the order of the board's list, and a block that
@@ -188,7 +192,10 @@ async function openBoard(
 	page: Page,
 	nodesFor: (apps: { counter: string; runaway: string }) => CanvasNode[],
 ) {
-	const conversationId = await createConversation(page, "An App on a board");
+	const conversationId = await createEmptyConversation(
+		page,
+		"An App on a board",
+	);
 	const counter = await seedApp(conversationId, "Counter", COUNTER_APP_HTML);
 	const runaway = await seedApp(conversationId, "Runaway", RUNAWAY_APP_HTML);
 	const body: CanvasBody = {

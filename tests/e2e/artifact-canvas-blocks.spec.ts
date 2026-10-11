@@ -23,7 +23,11 @@ import {
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
 import { moduleUrlPattern } from "./build-assets";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // The blocks made from the chat (Feature 2 · Canvas, S3-R1): the Insert menu's
 // "From this chat" lists what the board's own chat made, and a pick puts a File,
@@ -104,7 +108,7 @@ async function seedChat(
 	page: Page,
 	title = "Board from the chat",
 ): Promise<Seeded> {
-	const conversationId = await createConversation(page, title);
+	const conversationId = await createEmptyConversation(page, title);
 	const userId = await testUserId();
 	const now = new Date();
 
@@ -640,7 +644,10 @@ test.describe("blocks from this chat", () => {
 	test("says quietly that there is nothing to insert in a chat that has made nothing", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Nothing made here");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Nothing made here",
+		);
 		await seedCanvas(conversationId, emptyCanvasBody(), "Empty board");
 		await openChatAndReload(page, conversationId);
 		await openBoard(page);
@@ -681,7 +688,7 @@ test.describe("blocks from this chat", () => {
 	test("draws a stored board's file, App, map and chart in place, with their own gestures", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Stored blocks");
+		const conversationId = await createEmptyConversation(page, "Stored blocks");
 		const tipApp = await seedApp(conversationId, "Tip calculator");
 		const body: CanvasBody = {
 			...emptyCanvasBody(),

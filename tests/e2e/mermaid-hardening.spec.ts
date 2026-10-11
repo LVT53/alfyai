@@ -18,7 +18,7 @@ import {
 	seedCanvas,
 	storedBoard,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // A diagram a model writes is the model's own words, and anything that reaches the
 // reader through the chat can have come from a page the model read. FX-E: what the
@@ -260,7 +260,10 @@ let sequence = 700;
 
 /** A chat with one reply per case, each a ```mermaid fence, oldest first. */
 async function seedReplies(page: Page, cases: Case[]): Promise<string> {
-	const conversationId = await createConversation(page, "Diagram hardening");
+	const conversationId = await createEmptyConversation(
+		page,
+		"Diagram hardening",
+	);
 	for (const entry of cases) {
 		sequence += 1;
 		await db.insert(messages).values({
@@ -443,7 +446,7 @@ test.describe("a board's diagram block draws through the same gate, whoever wrot
 		page,
 	}) => {
 		const calls = await watchStandInHost(page);
-		const conversationId = await createConversation(page, "Board diagram");
+		const conversationId = await createEmptyConversation(page, "Board diagram");
 		await seedCanvas(
 			conversationId,
 			{ ...emptyCanvasBody(), nodes: [diagramNode("d1", BOARD_HOSTILE)] },
@@ -473,7 +476,10 @@ test.describe("a board's diagram block draws through the same gate, whoever wrot
 		page,
 	}) => {
 		const calls = await watchStandInHost(page);
-		const conversationId = await createConversation(page, "Board diagram edit");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Board diagram edit",
+		);
 		const boardId = await seedCanvas(
 			conversationId,
 			{

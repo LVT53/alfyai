@@ -27,7 +27,11 @@ import {
 	testUserId,
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // A picture of the board (Feature 2 · Artifacts, Slice 3, T7): the header's
 // Download offers the board as a PNG, an App and a map are in it as their still
@@ -198,7 +202,7 @@ async function seedChat(
 	nodes: (conversationId: string) => Promise<CanvasNode[]>,
 	title = "Weekend board",
 ) {
-	const conversationId = await createConversation(page, "Pictures");
+	const conversationId = await createEmptyConversation(page, "Pictures");
 	await db.insert(messages).values({
 		id: randomUUID(),
 		conversationId,

@@ -12,7 +12,7 @@ import {
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { emptyCanvasBody } from "../../src/lib/shared/artifacts/canvas-body";
 import { seedCanvas, testUserId } from "./artifact-canvas-helpers";
-import { createConversation } from "./helpers";
+import { createEmptyConversation } from "./helpers";
 
 // What the specs about changing a block after it was inserted need: a chat that
 // has made one of everything "From this chat" lists (a produced file, an App, a
@@ -71,7 +71,7 @@ export async function seedChat(
 	page: Page,
 	options: { title?: string; body?: (chatFileId: string) => CanvasBody } = {},
 ): Promise<Seeded> {
-	const conversationId = await createConversation(
+	const conversationId = await createEmptyConversation(
 		page,
 		options.title ?? "Board from the chat",
 	);

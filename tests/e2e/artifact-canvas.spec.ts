@@ -31,7 +31,7 @@ import {
 	seedCanvas,
 	storedBoard,
 } from "./artifact-canvas-helpers";
-import { createConversation, expectTopmost, login } from "./helpers";
+import { createEmptyConversation, expectTopmost, login } from "./helpers";
 
 // The Canvas kind, in the panel (Feature 2 · Artifacts, Slice 3, the board
 // agent's part): a seeded board opens, draws its blocks, takes the note-shaped
@@ -146,7 +146,10 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("opens a seeded board in the panel and paints its blocks", {
 		tag: "@smoke",
 	}, async ({ page }) => {
-		const conversationId = await createConversation(page, "Put it on a board");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Put it on a board",
+		);
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -182,7 +185,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("opens a board whose checklist repeats an item id, with every item on it", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"A board Alfy numbered twice",
 		);
@@ -224,7 +227,10 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("draws what Alfy adds inside its frame, as wide and as tall as Alfy is told", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "What Alfy made");
+		const conversationId = await createEmptyConversation(
+			page,
+			"What Alfy made",
+		);
 		const TEXTS = [
 			"Museum, 10:00",
 			"Ebéd a Nagycsarnokban, utána séta a Duna-parton",
@@ -305,7 +311,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("draws a board stored with no widths at the width Alfy reads it at", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"A board from before",
 		);
@@ -397,7 +403,7 @@ test.describe("the Canvas kind, in the panel", () => {
 		test(`draws a chart and a checklist Alfy adds at the size Alfy is told, ${camera.name}`, async ({
 			page,
 		}) => {
-			const conversationId = await createConversation(
+			const conversationId = await createEmptyConversation(
 				page,
 				"A chart and a list",
 			);
@@ -548,7 +554,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("draws the edges a board was saved with, label and all", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Saved edges");
+		const conversationId = await createEmptyConversation(page, "Saved edges");
 		await seedCanvas(conversationId, {
 			...seededBoard(),
 			edges: [
@@ -577,7 +583,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("says what an empty board is for, and points at Insert", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "A fresh board");
+		const conversationId = await createEmptyConversation(page, "A fresh board");
 		await seedCanvas(conversationId, emptyCanvasBody(), "Fresh board");
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -591,7 +597,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("inserts each note-shaped kind from the Insert menu, and saves them", {
 		tag: "@smoke",
 	}, async ({ page }) => {
-		const conversationId = await createConversation(page, "Board to fill");
+		const conversationId = await createEmptyConversation(page, "Board to fill");
 		const artifactId = await seedCanvas(
 			conversationId,
 			emptyCanvasBody(),
@@ -651,7 +657,10 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("puts an inserted note on free ground, clear of what is in the middle of the view", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Crowded middle");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Crowded middle",
+		);
 		await seedCanvas(
 			conversationId,
 			{
@@ -707,7 +716,10 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("puts an inserted frame on free ground, clear of the frame and the blocks in the middle of the view", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Crowded frames");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Crowded frames",
+		);
 		await seedCanvas(
 			conversationId,
 			{
@@ -769,7 +781,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("closes the Insert menu on Escape, which hands focus back to Insert, and on a click outside, which leaves focus where the reader clicked", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Menu manners");
+		const conversationId = await createEmptyConversation(page, "Menu manners");
 		await seedCanvas(conversationId, emptyCanvasBody(), "Menu manners");
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -803,7 +815,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("moves between the menu's rows with the arrow keys, one tab stop", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Menu keys");
+		const conversationId = await createEmptyConversation(page, "Menu keys");
 		await seedCanvas(conversationId, emptyCanvasBody(), "Menu keys");
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -834,7 +846,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("a tick on the board is a saved edit: it survives a reload", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Tick me");
+		const conversationId = await createEmptyConversation(page, "Tick me");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -871,7 +883,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("undoes and redoes the reader's own steps, from the toolbar and from the keyboard", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Undo me");
+		const conversationId = await createEmptyConversation(page, "Undo me");
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -905,7 +917,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("edits a note in place, on a double-click, and keeps what is typed", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Edit a note");
+		const conversationId = await createEmptyConversation(page, "Edit a note");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -929,7 +941,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("moves a block by dragging it, and saves where it was dropped", {
 		tag: "@smoke",
 	}, async ({ page }) => {
-		const conversationId = await createConversation(page, "Move me");
+		const conversationId = await createEmptyConversation(page, "Move me");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -958,7 +970,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("deletes a selected block from its toolbar, and Undo brings it back", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Delete me");
+		const conversationId = await createEmptyConversation(page, "Delete me");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -988,7 +1000,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("deletes a selected block with the Delete key, but not while a field has the keyboard", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Keys delete");
+		const conversationId = await createEmptyConversation(page, "Keys delete");
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1009,7 +1021,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("connects two blocks with one drag from an anchor: exactly one edge, with an id of the board's own", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Connect them");
+		const conversationId = await createEmptyConversation(page, "Connect them");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1047,7 +1059,10 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("moves a frame by its name chip, and what is inside it goes along", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Move the frame");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Move the frame",
+		);
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1078,7 +1093,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("resizes a frame from a corner, and its size is the same on the node and in its data", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Resize me");
+		const conversationId = await createEmptyConversation(page, "Resize me");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1113,7 +1128,10 @@ test.describe("the Canvas kind, in the panel", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Clear of chrome");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Clear of chrome",
+		);
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1174,7 +1192,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("the zoom buttons zoom the board, in and out, and the level says so", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Zoom me");
+		const conversationId = await createEmptyConversation(page, "Zoom me");
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1194,7 +1212,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	});
 
 	test("a bare pan is not a save", async ({ page }) => {
-		const conversationId = await createConversation(page, "Look around");
+		const conversationId = await createEmptyConversation(page, "Look around");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1230,7 +1248,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("says so when another writer got there first, and keeps the reader's board on screen until they reload", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Two writers");
+		const conversationId = await createEmptyConversation(page, "Two writers");
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1265,7 +1283,10 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("tells the reader when blocks could not be read, once, and lets them dismiss it", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Partly unreadable");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Partly unreadable",
+		);
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		// A body a version behind: a block of a kind nobody knows.
 		const stored = JSON.parse(boardJson(seededBoard())) as CanvasBody;
@@ -1294,7 +1315,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("keeps working through a dropped connection: says so, and saves again when it is back", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Offline");
+		const conversationId = await createEmptyConversation(page, "Offline");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1328,7 +1349,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("offers a retry when a save is refused, and says so when the board is too big or gone", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Refused saves");
+		const conversationId = await createEmptyConversation(page, "Refused saves");
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1392,7 +1413,10 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("the chat's card says what the board holds and opens it", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Card and board");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Card and board",
+		);
 		const artifactId = await seedCanvas(
 			conversationId,
 			seededBoard(),
@@ -1439,7 +1463,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	});
 
 	test("offers a retry when the board cannot be opened", async ({ page }) => {
-		const conversationId = await createConversation(page, "Cannot open");
+		const conversationId = await createEmptyConversation(page, "Cannot open");
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		let failing = true;
@@ -1467,7 +1491,10 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("names every control and every block, and the keyboard reaches the toolbar before the blocks", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Names and order");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Names and order",
+		);
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1552,7 +1579,7 @@ test.describe("the Canvas kind, in the panel", () => {
 	test("opens a block for editing from the keyboard: Enter on the focused note", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Keyboard edit");
+		const conversationId = await createEmptyConversation(page, "Keyboard edit");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1580,7 +1607,7 @@ test.describe("the Canvas kind, in the panel", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "On the phone");
+		const conversationId = await createEmptyConversation(page, "On the phone");
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1660,7 +1687,7 @@ test.describe("a selected block's handles, by pointer", () => {
 	});
 
 	test("keep their own small hit area with a mouse", async ({ page }) => {
-		const conversationId = await createConversation(page, "Mouse handles");
+		const conversationId = await createEmptyConversation(page, "Mouse handles");
 		await seedCanvas(conversationId, oneNoteBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1688,7 +1715,10 @@ test.describe("on a touch screen", () => {
 	test("a selected block's anchors and resize corners can be hit from 10 px away", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Finger handles");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Finger handles",
+		);
 		await seedCanvas(conversationId, oneNoteBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);
@@ -1715,7 +1745,10 @@ test.describe("on a touch screen", () => {
 	test("and so can a big block's when the board is zoomed far out: the hit area is 24 px on the screen, not on the board", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Far out handles");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Far out handles",
+		);
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
 		await openCanvasPanel(page);

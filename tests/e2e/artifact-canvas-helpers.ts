@@ -15,7 +15,7 @@ import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
 import type { CanvasBody } from "../../src/lib/shared/artifacts/canvas";
 import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
 import {
-	createConversation,
+	createEmptyConversation,
 	login,
 	waitForMotionToSettle,
 	waitForStableBoundingBox,
@@ -310,7 +310,7 @@ export async function openBoard(
 	body: CanvasBody = sixNotes(),
 ) {
 	await login(page);
-	const conversationId = await createConversation(page, title);
+	const conversationId = await createEmptyConversation(page, title);
 	await seedCanvas(conversationId, body);
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);

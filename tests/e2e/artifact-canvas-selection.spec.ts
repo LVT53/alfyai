@@ -21,7 +21,7 @@ import {
 	openChatAndReload,
 	testUserId,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // Asking Alfy about blocks, and commenting on them (Feature 2 · Artifacts, Slice 3,
 // step 3): the pill a selection raises, the toolbar's Ask Alfy, the composer they
@@ -76,7 +76,7 @@ function board(): CanvasBody {
 
 async function open(page: Page) {
 	await login(page);
-	const conversationId = await createConversation(page, "Selection");
+	const conversationId = await createEmptyConversation(page, "Selection");
 	const userId = await testUserId();
 	const created = await createArtifact({
 		userId,

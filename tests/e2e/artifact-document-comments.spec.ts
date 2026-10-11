@@ -10,7 +10,7 @@ import {
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
 import {
-	createConversation,
+	createEmptyConversation,
 	expectTopmost,
 	login,
 	waitForStableBoundingBox,
@@ -82,7 +82,7 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 	test("posts a comment, lists it, resolves it, and ignores a client-supplied author", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Comments on a document",
 		);
@@ -131,7 +131,10 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 	test("404s a comment route for an artifact id that does not exist", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Missing artifact");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Missing artifact",
+		);
 		const response = await page.request.post(
 			`/api/artifacts/does-not-exist/comments?conversationId=${conversationId}`,
 			{
@@ -157,7 +160,10 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 	test("the @Alfy hook refuses an orphaned anchor without a model, and the refusal lands as a reply", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Alfy on a document");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Alfy on a document",
+		);
 		const markdown = "Book the flight to Vienna.";
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
@@ -202,7 +208,10 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 	test("shows a seeded comment in the margin when the document opens", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Margin rendering");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Margin rendering",
+		);
 		const markdown = "Book the flight to Vienna.";
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
@@ -241,7 +250,10 @@ test.describe("Document comments and @Alfy — the real routes and service", () 
 	test("places two comments in document order without overlapping, and puts an orphaned one in its own group", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Margin placement");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Margin placement",
+		);
 		const markdown =
 			"Book the hotel by Friday.\n\nConfirm the flight to Vienna.";
 		const userId = await testUserId();
@@ -365,7 +377,10 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 	test("phone: the header's Comments button opens a bottom sheet, and a tapped highlight opens the same sheet at that thread", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Phone comments");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Phone comments",
+		);
 		const markdown = "Book the flight to Vienna.";
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
@@ -437,7 +452,7 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 	test("narrow desktop panel: the comments are a drawer inside the panel, below its header, toggled by the header's Comments button", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Narrow panel");
+		const conversationId = await createEmptyConversation(page, "Narrow panel");
 		const markdown = "Book the flight to Vienna.";
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
@@ -512,7 +527,7 @@ test.describe("Comments away from the rail (Wave 2.5 Step 8)", () => {
 	test("phone sheet: every control that is tapped is at least 44px tall", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Phone touch targets",
 		);
@@ -655,7 +670,10 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 	test("at a narrow desktop panel width, the Versions popover opens anchored near the version button atop an already-open Comments drawer, and Escape closes only the popover", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Versions popover");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Versions popover",
+		);
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
 			"Book the flight to Vienna.",
@@ -716,7 +734,10 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 	test("restores a version from the Versions popover with an inline confirm, closes, and offers Undo", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Versions restore");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Versions restore",
+		);
 		const { artifact } = await seedDocumentWithBlock(
 			conversationId,
 			"Book the flight to Vienna.",
@@ -758,7 +779,10 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 	test("the Download popover opens from the header's Download button and offers PDF, Word and Markdown", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Download popover");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Download popover",
+		);
 		await seedDocumentWithBlock(conversationId, "Book the flight to Vienna.");
 
 		await openChatAndReload(page, conversationId);
@@ -796,7 +820,7 @@ test.describe("Versions and Download popovers (Wave 2.5 Step 8)", () => {
 	test("in the expanded panel, the Versions popover opens on-screen, anchored to the trigger's left edge, and topmost", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Versions popover expanded",
 		);
@@ -916,7 +940,7 @@ const LONG_DOCUMENT_TARGETS = [3, 8, 13, 18, 23, 28, 33, 40].map((index) => ({
 
 async function openLongDocument(page: Page, title: string) {
 	await page.setViewportSize({ width: 1440, height: 900 });
-	const conversationId = await createConversation(page, title);
+	const conversationId = await createEmptyConversation(page, title);
 	const seeded = await seedLongDocumentWithComments(
 		conversationId,
 		LONG_DOCUMENT_TARGETS,
@@ -1187,7 +1211,10 @@ test.describe("The header's Comments button toggles the column (owner walk-throu
 	test("pressed while the column shows; pressing it hides the column and gives the text the width; remembered on this device", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Toggle the column");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Toggle the column",
+		);
 		const { artifact, block } = await seedDocumentWithBlock(
 			conversationId,
 			"Book the flight to Vienna.",
@@ -1259,7 +1286,10 @@ test.describe("The header's Comments button toggles the column (owner walk-throu
 	test("the Open/All choice survives hiding and showing the column", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Filter survives");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Filter survives",
+		);
 		const { userId, artifact, block } = await seedDocumentWithBlock(
 			conversationId,
 			"Book the flight to Vienna. Reserve the hotel by the river.",
@@ -1336,7 +1366,7 @@ for (const [width, height] of [
 		test("the text column keeps its reading width beside the chat, and expanded", async ({
 			page,
 		}) => {
-			const conversationId = await createConversation(
+			const conversationId = await createEmptyConversation(
 				page,
 				`Laptop fit ${width}`,
 			);

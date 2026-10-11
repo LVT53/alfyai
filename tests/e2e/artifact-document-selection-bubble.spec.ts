@@ -9,7 +9,7 @@ import {
 import { parseDocument } from "../../src/lib/shared/artifact-document/blocks";
 import type { Anchor } from "../../src/lib/shared/artifacts/anchor";
 import {
-	createConversation,
+	createEmptyConversation,
 	expectTopmost,
 	login,
 	waitForStableBoundingBox,
@@ -295,7 +295,7 @@ test.describe("the Document selection bubble follows the live selection", () => 
 				width: viewport.width,
 				height: viewport.height,
 			});
-			const conversationId = await createConversation(
+			const conversationId = await createEmptyConversation(
 				page,
 				"Selection bubble regression",
 			);
@@ -375,7 +375,7 @@ test.describe("Phone selection composer sheet is topmost (Wave 2.5 review fix)",
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Phone composer sheet",
 		);
@@ -407,7 +407,7 @@ test.describe("Phone selection composer sheet is topmost (Wave 2.5 review fix)",
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Phone comment composer sheet",
 		);
@@ -450,7 +450,7 @@ test.describe("Keyboard access into the selection pill (Wave 2.5 review fix)", (
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Selection pill keyboard access",
 		);

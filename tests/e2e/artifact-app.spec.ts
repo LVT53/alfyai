@@ -8,7 +8,7 @@ import {
 	artifactVersions,
 	users,
 } from "../../src/lib/server/db/schema";
-import { createConversation, expectTopmost, login } from "./helpers";
+import { createEmptyConversation, expectTopmost, login } from "./helpers";
 
 // The App kind, end to end (Feature 2 · Artifacts, Slice 2).
 //
@@ -235,7 +235,7 @@ test.describe("the App kind, in the panel", () => {
 	test("opens and runs the app in a sandboxed frame, with the exact allow-scripts attribute", {
 		tag: "@smoke",
 	}, async ({ page }) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a notes app",
 		);
@@ -268,7 +268,10 @@ test.describe("the App kind, in the panel", () => {
 	test("a form's submit handler runs under allow-forms, and the CSP still refuses the submission itself", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Make me a form app");
+		const conversationId = await createEmptyConversation(
+			page,
+			"Make me a form app",
+		);
 		await seedApp(conversationId, FORM_APP_HTML, "Form App");
 		await openChatAndReload(page, conversationId);
 		await openAppPanel(page);
@@ -296,7 +299,7 @@ test.describe("the App kind, in the panel", () => {
 	test("an app that navigates itself trips the tripwire: the frame is torn down and a reload notice appears", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a runaway app",
 		);
@@ -326,7 +329,7 @@ test.describe("the App kind, in the panel", () => {
 	test("saved state survives a reload — the real postMessage bridge round-tripping through the real kv route", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a notes app",
 		);
@@ -351,7 +354,7 @@ test.describe("the App kind, in the panel", () => {
 	test("Code shows the stored html, read-only, and back to Preview keeps the frame usable", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a notes app",
 		);
@@ -372,7 +375,7 @@ test.describe("the App kind, in the panel", () => {
 	test("a network-reaching fixture shows its glitch line and still runs", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a weather widget",
 		);
@@ -405,7 +408,7 @@ test.describe("the App kind, in the panel", () => {
 	test("regenerate posts { prompt, expectVersion } and reflects the new version (model call mocked)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a notes app",
 		);
@@ -452,7 +455,7 @@ test.describe("the App kind, in the panel", () => {
 	test("download requests the export with the artifact's own conversation id (sandbox run mocked)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a notes app",
 		);
@@ -491,7 +494,7 @@ test.describe("the App kind, in the panel", () => {
 	test("switching apps through the list never lets the outgoing app write into the incoming app's storage", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me two small apps",
 		);
@@ -567,7 +570,7 @@ test.describe("the App kind, in the panel", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a notes app",
 		);
@@ -596,7 +599,7 @@ test.describe("the App kind, in the panel", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a notes app",
 		);
@@ -633,7 +636,7 @@ test.describe("the App kind, in the panel", () => {
 	test("expanded panel: the regenerate popover paints above the panel, and Escape closes only the popover first", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(
+		const conversationId = await createEmptyConversation(
 			page,
 			"Make me a notes app",
 		);

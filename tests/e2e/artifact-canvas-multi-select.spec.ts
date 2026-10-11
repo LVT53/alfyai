@@ -13,7 +13,7 @@ import {
 	seedCanvas,
 	storedBoard,
 } from "./artifact-canvas-helpers";
-import { createConversation, login } from "./helpers";
+import { createEmptyConversation, login } from "./helpers";
 
 // Several blocks at once (the owner's walk: "multi-select elements on the canvas and
 // move them/resize them together"). Real pointer, keyboard and finger input on a
@@ -87,7 +87,7 @@ function frameBoard(): CanvasBody {
 
 async function open(page: Page, board: CanvasBody): Promise<string> {
 	await login(page);
-	const conversationId = await createConversation(page, "Multi select");
+	const conversationId = await createEmptyConversation(page, "Multi select");
 	const artifactId = await seedCanvas(conversationId, board);
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);

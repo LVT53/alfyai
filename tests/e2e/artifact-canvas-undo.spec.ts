@@ -13,7 +13,7 @@ import {
 	seedCanvas,
 	storedBoard,
 } from "./artifact-canvas-helpers";
-import { createConversation, expectTopmost, login } from "./helpers";
+import { createEmptyConversation, expectTopmost, login } from "./helpers";
 
 // The reader's own undo and redo on a Canvas (ruling 16), driven the way a person
 // drives it: real pointer and keyboard input on a seeded board, the autosave
@@ -90,7 +90,7 @@ async function pretendToBeAMac(page: Page) {
 async function openBoard(page: Page, options: { mac?: boolean } = {}) {
 	if (options.mac) await pretendToBeAMac(page);
 	await login(page);
-	const conversationId = await createConversation(page, "Undo a board");
+	const conversationId = await createEmptyConversation(page, "Undo a board");
 	const artifactId = await seedCanvas(conversationId, seededBoard());
 	await openChatAndReload(page, conversationId);
 	await openCanvasPanel(page);

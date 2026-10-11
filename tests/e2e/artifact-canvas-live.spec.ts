@@ -15,7 +15,11 @@ import {
 	versionRows,
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
-import { createConversation, login, waitForStableBoundingBox } from "./helpers";
+import {
+	createEmptyConversation,
+	login,
+	waitForStableBoundingBox,
+} from "./helpers";
 
 // Photos and live web on the board (Feature 2 · Canvas, S3-R2). The chat's photo
 // searches and web searches are listed in the Insert menu and become blocks; a photo
@@ -135,7 +139,7 @@ async function seedChat(
 	const tag = options.tag ?? "";
 	// A second chat in one test starts from the landing page, as a reader's would.
 	await page.goto("/");
-	const conversationId = await createConversation(
+	const conversationId = await createEmptyConversation(
 		page,
 		options.title ?? "Photos and the web on a board",
 	);
