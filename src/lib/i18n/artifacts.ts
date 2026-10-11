@@ -278,37 +278,13 @@ const artifactsDict = {
 		// disabled button already explains proactively.
 		"artifacts.app.download.failed": "Could not prepare this app for download.",
 		"artifacts.app.open.cta": "Make an app",
-		// The Document's version history sheet (Slice 1, T6).
-		"artifacts.document.versions.title": "Versions",
-		"artifacts.document.versions.current": "Current",
-		"artifacts.document.versions.restore": "Restore",
-		// Wave 2.5 Step 8: the inline confirm (redesign §3.2 — never a modal),
-		// named by version number so it reads as a real question about a real
-		// row, not the old generic "this version".
-		"artifacts.document.versions.restoreConfirm":
-			"Restore v{v}? Your current text stays as a version.",
-		"artifacts.document.versions.restoreToast": "Restored v{from} as v{to}",
-		"artifacts.document.versions.undo": "Undo",
+		// The old Versions sheet is gone (ruling 76: History replaces it); these three
+		// keys outlived it. The two author names are the ones a comment and a margin
+		// card print, and the conflict line is the Document's when a save was refused.
 		"artifacts.document.versions.byUser": "You",
 		"artifacts.document.versions.byAlfy": "Alfy",
 		"artifacts.document.versions.conflict":
 			"This document changed elsewhere. Reload to see the current text.",
-		"artifacts.document.versions.loadError":
-			"Could not load the version history.",
-		"artifacts.document.versions.restoreError":
-			"Could not restore this version.",
-		"artifacts.document.versions.empty": "No earlier versions yet.",
-		// A version's own summary line (rd/review-2-5.md:256-260): the save
-		// route's literal "Edited" and the restore handler's "restored …"
-		// wrapper are the only two server-written tokens localized here — an
-		// Alfy-authored summary is free-form content and is shown as-is.
-		"artifacts.document.versions.summaryEdited": "Edited",
-		"artifacts.document.versions.summaryRestored": "restored {summary}",
-		"artifacts.document.versions.summaryRestoredFrom": "Restored v{n}",
-		"artifacts.document.versions.summaryUndidAlfyChange": "Undid Alfy's change",
-		"artifacts.document.versions.summaryFirstDraft":
-			"Alfy wrote the first draft",
-		"artifacts.document.versions.summarySavedAsCopy": "Saved as a new document",
 		// The lazy editor's shell and toolbar (Slice 1, T7).
 		"artifacts.document.editor.placeholder": "Write anything, or ask Alfy to.",
 		"artifacts.document.emptyState":
@@ -911,9 +887,8 @@ const artifactsDict = {
 		"artifacts.evidence.madeInThisChat": "Made in this chat",
 		// Ruling 76 (the versioning build): History is a mode of the panel and the
 		// header says what happened last, not a number (versioning.md §5.1, §8).
-		// The block grows with the History mode itself; the old
-		// artifacts.document.versions.* keys stay until the last sheet that reads
-		// them is gone. Every phrase is short on purpose: it sits beside the kind
+		// The block grows with the History mode itself (the old Versions sheet and its
+		// keys are gone). Every phrase is short on purpose: it sits beside the kind
 		// in the header and, on a 390 px phone, shares its line with it.
 		"artifacts.history.title": "History",
 		"artifacts.history.buttonA11y": "History. Last change: {phrase}",
@@ -1272,32 +1247,10 @@ const artifactsDict = {
 		"artifacts.app.download.failed":
 			"Nem sikerült előkészíteni ezt az alkalmazást letöltésre.",
 		"artifacts.app.open.cta": "Készíts alkalmazást",
-		"artifacts.document.versions.title": "Változatok",
-		"artifacts.document.versions.current": "Jelenlegi",
-		"artifacts.document.versions.restore": "Visszaállítás",
-		"artifacts.document.versions.restoreConfirm":
-			"Visszaállítod a v{v} változatot? A jelenlegi szöveged megmarad változatként.",
-		"artifacts.document.versions.restoreToast":
-			"Visszaállítva: v{from} mint v{to}",
-		"artifacts.document.versions.undo": "Visszavonás",
 		"artifacts.document.versions.byUser": "Te",
 		"artifacts.document.versions.byAlfy": "Alfy",
 		"artifacts.document.versions.conflict":
 			"Ez a dokumentum máshol megváltozott. Töltsd újra a jelenlegi szövegért.",
-		"artifacts.document.versions.loadError":
-			"Nem sikerült betölteni az előzményeket.",
-		"artifacts.document.versions.restoreError":
-			"Nem sikerült visszaállítani ezt a változatot.",
-		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
-		"artifacts.document.versions.summaryEdited": "Szerkesztve",
-		"artifacts.document.versions.summaryRestored": "visszaállítva: {summary}",
-		"artifacts.document.versions.summaryRestoredFrom": "Visszaállítva: v{n}",
-		"artifacts.document.versions.summaryUndidAlfyChange":
-			"Alfy módosításának visszavonása",
-		"artifacts.document.versions.summaryFirstDraft":
-			"Alfy megírta az első vázlatot",
-		"artifacts.document.versions.summarySavedAsCopy":
-			"Mentve új dokumentumként",
 		"artifacts.document.editor.placeholder": "Írj bármit, vagy kérd meg Alfyt.",
 		"artifacts.document.emptyState":
 			"Üres dokumentum. Kezdj el írni, vagy kérd meg Alfyt, hogy megírja.",
@@ -1804,9 +1757,9 @@ const artifactsDict = {
 		// 76. döntés (a verziókezelés építése): az Előzmények a panel egy módja, a
 		// fejléc pedig azt mondja el, mi történt utoljára, nem egy számot
 		// (versioning.md §5.1, §8). A blokk az Előzmények móddal együtt bővül; a
-		// régi artifacts.document.versions.* kulcsok addig maradnak, amíg az
-		// utolsó olvasójuk is el nem tűnik. Minden kifejezés rövid: a fejlécben a
-		// fajta mellett áll, egy 390 px-es telefonon pedig egy sorban vele.
+		// régi Változatok-lap és a kulcsai megszűntek. Minden kifejezés rövid: a
+		// fejlécben a fajta mellett áll, egy 390 px-es telefonon pedig egy sorban
+		// vele.
 		"artifacts.history.title": "Előzmények",
 		"artifacts.history.buttonA11y": "Előzmények. Utolsó változás: {phrase}",
 		"artifacts.history.phrase.youEdited": "Szerkesztetted",

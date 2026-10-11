@@ -7,9 +7,8 @@
  * both languages and the server never writes English a Hungarian reader would
  * see.
  *
- * It replaces `document/version-summary.ts` for History (that file stays until
- * the last sheet that reads it is gone). Only the lazy History part imports it;
- * the short phrase the panel header, the rows and the card print is
+ * It replaced the old Versions sheet's own localizer. Only the lazy History part
+ * imports it; the short phrase the panel header, the rows and the card print is
  * `moment-phrase.ts`.
  */
 
