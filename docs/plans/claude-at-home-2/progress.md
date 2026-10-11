@@ -1031,5 +1031,5 @@ the owner's review, with the fast gates measured before and after.
 |---|---|---|---|
 | FG-2 | finish FG: review and commit its WIP, the gate runner, quarantine list, `@smoke`, the after-measurement, the report | `infra/fast-gates` / `art-fg` (5450–5469) | running |
 | VB-1 | versioning server: the shared `ArtifactMoment` type first, the vocabulary (A5), migration `1777140000113` (Q3), coalescing (A2, Q4), `listHistory`/`deriveMoments`, restore guard, naming, paging, routes, the old-App version route (Q7), the summary tool text (Q8) | `feat/versioning-server` / `art-vb1` (5400–5409) | running |
-| VB-2 | History mode + the latest moment on every surface (A1, Q2) + the Document preview, restore, naming; T1–T5, T8, T9 | `feat/versioning-history` / `art-vb2` (5420–5429) | queued for VB-1's first commit |
+| VB-2 | History mode + the latest moment on every surface (A1, Q2) + the Document preview, restore, naming; T1–T5, T8, T9 | `feat/versioning-history` / `art-vb2` (5420–5429), from VB-1's `edcc2d84` (the shared type) | running |
 | VB-3 | Canvas + App previews in History, the App's regenerate copy, delete the old sheet; T6, T7 | — | queued after VB-2 |
