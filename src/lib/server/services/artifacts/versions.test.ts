@@ -124,6 +124,22 @@ describe("listVersions", () => {
 		expect(two.map((version) => version.versionNumber)).toEqual([52, 51]);
 	});
 
+	// RV-V M-10: the versions route took any limit (nine digits). A page is never more
+	// than History's own page maximum.
+	it("never lists more than a page's maximum, however many it is asked for", async () => {
+		const artifact = await createDocument();
+		for (let n = 2; n <= 130; n += 1) {
+			await edit(artifact.id, `body ${n}`, `Edit ${n}`);
+		}
+		const all = await listVersions({
+			userId: OWNER,
+			artifactId: artifact.id,
+			limit: 999_999_999,
+		});
+		expect(all).toHaveLength(100);
+		expect(all[0].versionNumber).toBe(130);
+	});
+
 	it("pages with before: the next versions below the last one seen", async () => {
 		const artifact = await createDocument();
 		for (let index = 2; index <= 8; index += 1) {

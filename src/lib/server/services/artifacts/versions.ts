@@ -25,7 +25,10 @@ import {
 	undidRestoreSummary,
 } from "$lib/shared/artifacts/version-summaries";
 import { appViolations } from "./app/audit";
-import { ARTIFACT_VERSIONS_DEFAULT_LIMIT } from "./limits";
+import {
+	ARTIFACT_HISTORY_PAGE_MAX,
+	ARTIFACT_VERSIONS_DEFAULT_LIMIT,
+} from "./limits";
 import {
 	isEditableArtifactRow,
 	kindForArtifactRow,
@@ -71,7 +74,13 @@ export async function listVersions(
 				: and(owned, lt(artifactVersions.versionNumber, params.before)),
 		)
 		.orderBy(desc(artifactVersions.versionNumber))
-		.limit(params.limit ?? ARTIFACT_VERSIONS_DEFAULT_LIMIT);
+		// However many it is asked for (the route takes nine digits), never more than a page of History.
+		.limit(
+			Math.min(
+				params.limit ?? ARTIFACT_VERSIONS_DEFAULT_LIMIT,
+				ARTIFACT_HISTORY_PAGE_MAX,
+			),
+		);
 	return rows.map((row) => ({
 		id: row.id,
 		versionNumber: row.versionNumber,
