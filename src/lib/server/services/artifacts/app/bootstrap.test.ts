@@ -365,9 +365,23 @@ describe("APP_READONLY_BOOTSTRAP_SCRIPT — a saved version's bridge", () => {
 	it("rejects `set` at once and sends nothing to the parent", async () => {
 		const { window, messages } = createSandbox(APP_READONLY_BOOTSTRAP_SCRIPT);
 		await expect(window.alfy.storage.set("tips", 12)).rejects.toThrow(
-			/read-only/,
+			/read.?only/i,
 		);
 		expect(messages).toEqual([]);
+	});
+
+	// RV-V M-6: an App that shows the error it caught shows THIS to a reader, whatever
+	// their language, and the served document cannot know it. A code is not an English
+	// sentence a Hungarian reader meets.
+	it("refuses with a code, not a sentence in English", async () => {
+		const { window } = createSandbox(APP_READONLY_BOOTSTRAP_SCRIPT);
+		const refusal = await window.alfy.storage
+			.set("tips", 12)
+			.catch((error: Error) => error);
+		// (An Error of the sandbox's own realm: its name and message are what an App reads.)
+		expect((refusal as Error).name).toBe("Error");
+		expect((refusal as Error).message).toBe("ALFY_STORAGE_READ_ONLY");
+		expect(APP_READONLY_BOOTSTRAP_SCRIPT).not.toMatch(/saved version/);
 	});
 
 	it("cannot be replaced or removed by the App", () => {
