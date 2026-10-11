@@ -25,6 +25,7 @@ import {
 } from "$lib/server/services/knowledge/store/core";
 import { deleteSemanticEmbeddingsForSubjects } from "$lib/server/services/semantic-embeddings";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import { classifyVersionSummary } from "$lib/shared/artifacts/version-summaries";
 import { deleteBoardPosters } from "./canvas-posters";
 import { hashArtifactBody } from "./hash";
 import {
@@ -242,11 +243,20 @@ function insertVersionRow(
 function newestVersion(
 	tx: ArtifactTransaction | typeof db,
 	artifactId: string,
-): { versionNumber: number; bodyHash: string } | undefined {
+):
+	| {
+			versionNumber: number;
+			bodyHash: string;
+			author: string;
+			summary: string;
+	  }
+	| undefined {
 	return tx
 		.select({
 			versionNumber: artifactVersions.versionNumber,
 			bodyHash: artifactVersions.bodyHash,
+			author: artifactVersions.author,
+			summary: artifactVersions.summary,
 		})
 		.from(artifactVersions)
 		.where(eq(artifactVersions.artifactId, artifactId))
@@ -402,6 +412,15 @@ export async function getArtifact(
 		.where(eq(artifactComments.artifactId, row.id));
 	const kind = kindForArtifactRow(row);
 	const title = titleForArtifactRow(row);
+	// Who made the newest version and what kind of moment it was (ruling 76, A1),
+	// read off its author and summary alone, as the card summary does.
+	const latest = newest
+		? classifyVersionSummary({
+				author: newest.author === "alfy" ? "alfy" : "user",
+				summary: newest.summary,
+				versionNumber: newest.versionNumber,
+			})
+		: null;
 
 	return {
 		id: row.id,
@@ -409,6 +428,7 @@ export async function getArtifact(
 		title,
 		conversationId: row.conversationId ?? null,
 		versionNumber: newest?.versionNumber ?? 0,
+		...(latest ? { lastAuthor: latest.actor, lastKind: latest.kind } : {}),
 		commentCount: comments?.total ?? 0,
 		updatedAt: row.updatedAt.getTime(),
 		body: row.contentText ?? null,

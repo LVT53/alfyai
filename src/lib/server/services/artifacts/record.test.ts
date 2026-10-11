@@ -1726,3 +1726,49 @@ describe("kindForArtifactRow", () => {
 		}
 	});
 });
+
+// Ruling 76 (A1): the panel opens an item through `getArtifact`, so it too says
+// who made the newest version and what kind of moment it was.
+describe("getArtifact — the latest moment", () => {
+	it("carries who made the newest version and what kind of moment it was", async () => {
+		const artifact = await createDocument();
+		const latest = async () =>
+			getArtifact({ userId: OWNER, artifactId: artifact.id });
+
+		expect(await latest()).toMatchObject({
+			versionNumber: 1,
+			lastAuthor: "alfy",
+			lastKind: "first_draft",
+		});
+		await updateArtifactBody({
+			userId: OWNER,
+			artifactId: artifact.id,
+			body: "v2",
+			author: "user",
+			summary: "Undid Alfy's change: v1",
+		});
+		expect(await latest()).toMatchObject({
+			versionNumber: 2,
+			lastAuthor: "user",
+			lastKind: "undo_alfy_change",
+		});
+	});
+
+	it("says nothing about the latest moment of an item with no versions", async () => {
+		const empty = await createArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			kind: "document",
+			title: "Empty",
+			body: null,
+		});
+		if (!empty.ok) throw new Error(empty.reason);
+		const detail = await getArtifact({
+			userId: OWNER,
+			artifactId: empty.artifact.id,
+		});
+		expect(detail?.versionNumber).toBe(0);
+		expect(detail).not.toHaveProperty("lastAuthor");
+		expect(detail).not.toHaveProperty("lastKind");
+	});
+});

@@ -275,7 +275,7 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 	}
 
 	const groups: Group[] = [];
-	for (let i = 0; i < infos.length && i < input.limit; ) {
+	for (let i = 0; i < infos.length && i < Math.max(1, input.limit); ) {
 		const group = growGroup(i);
 		groups.push(group);
 		i = group.to + 1;
