@@ -148,6 +148,13 @@ export interface KnowledgeDocumentItem {
 	 * interchangeably.
 	 */
 	artifactVersionNumber?: number | null;
+	/**
+	 * Who made the artifact's newest version and what it was (ruling 76, A1: the
+	 * library prints this in place of the number). Populated only when `kind` is
+	 * set and the newest version is known; `updatedAt` below is when.
+	 */
+	lastAuthor?: MomentAuthor;
+	lastKind?: MomentKind;
 	createdAt: number;
 	updatedAt: number;
 }

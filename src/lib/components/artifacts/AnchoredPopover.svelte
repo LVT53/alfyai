@@ -3,7 +3,7 @@
  * The shell the panel header's popovers share (Wave 2.5 polish G1-B): a
  * popover anchored under the header button that opened it on desktop, a
  * `DialogShell` bottom sheet on phones — the anchored-popover-desktop /
- * sheet-phone shape `VersionsSheet.svelte` and `DownloadSheet.svelte` each
+ * sheet-phone shape the old Versions sheet and `DownloadSheet.svelte` each
  * carried a copy of (and `AppBody.svelte`'s regenerate popover a third).
  *
  * Desktop: `position: fixed`, portalled to `<body>`, placed by

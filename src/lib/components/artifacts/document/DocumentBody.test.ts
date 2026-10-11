@@ -1669,13 +1669,11 @@ describe("DocumentBody", () => {
 			return registerPanelActions.mock.calls.at(-1)?.[0] as {
 				flush: () => Promise<void>;
 				reload: () => void;
-				openVersions?: () => void;
 			};
 		}
 
-		it("owns no versions sheet any more: nothing registers openVersions and no Versions dialog mounts", async () => {
-			const actions = await mountWithActions();
-			expect(actions.openVersions).toBeUndefined();
+		it("owns no versions sheet any more: no Versions dialog mounts", async () => {
+			await mountWithActions();
 			expect(screen.queryByRole("dialog", { name: "Versions" })).toBeNull();
 			expect(mockFetchArtifactVersions).not.toHaveBeenCalled();
 		});
@@ -1742,7 +1740,6 @@ describe("DocumentBody", () => {
 
 			const actions = registerPanelActions.mock.calls.at(-1)?.[0];
 			expect(screen.queryByRole("dialog")).toBeNull();
-			expect(actions.openVersions).toBeUndefined();
 			expect(typeof actions.flush).toBe("function");
 			expect(typeof actions.reload).toBe("function");
 			expect(typeof actions.reviewPending).toBe("function");

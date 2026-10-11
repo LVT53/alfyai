@@ -199,7 +199,7 @@ describe("ArtifactDeletePopover", () => {
 
 		it.each([
 			["document", "and its versions and comments will be deleted"],
-			["app", "and its saved data will be deleted"],
+			["app", "its versions and its saved data will be deleted"],
 			["canvas", "and its versions and comments will be deleted"],
 			["slides", "and its versions and comments will be deleted"],
 			["file", "will be deleted"],

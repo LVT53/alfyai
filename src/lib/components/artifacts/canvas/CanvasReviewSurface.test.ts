@@ -58,7 +58,7 @@ function make() {
 		guard: vi.fn(() => ({ version: 2, bodyHash: "h2" })),
 		saved: vi.fn(),
 		adopt: vi.fn(() => null),
-		openVersions: vi.fn(),
+		openHistory: vi.fn(),
 		reportCount: vi.fn(),
 	};
 	return { controller: new CanvasReviewController(host), host };
@@ -223,10 +223,8 @@ describe("above the board", () => {
 		expect(screen.getByTestId("refusal-notice")).toHaveTextContent(
 			"can't be undone here because the board has changed since",
 		);
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Open Versions" }),
-		);
-		expect(host.openVersions).toHaveBeenCalledTimes(1);
+		await fireEvent.click(screen.getByRole("button", { name: "Open History" }));
+		expect(host.openHistory).toHaveBeenCalledTimes(1);
 	});
 
 	it("tells a screen reader what happened, politely", async () => {

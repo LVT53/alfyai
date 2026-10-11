@@ -100,7 +100,7 @@ function make(options: { board?: CanvasBody; mounted?: boolean } = {}) {
 			.mockReturnValue({ version: 3, bodyHash: "h3" }),
 		saved: vi.fn(),
 		adopt: vi.fn<ReviewHost["adopt"]>(() => null),
-		openVersions: vi.fn(),
+		openHistory: vi.fn(),
 		reportCount: vi.fn(),
 	};
 	return { controller: new CanvasReviewController(host), host, surface };
@@ -368,7 +368,13 @@ describe("Undo", () => {
 			2,
 			"conv-1",
 			undefined,
-			{ baseHash: "h2", coalesce: false, summaryKind: "undid_alfy_change" },
+			{
+				baseHash: "h2",
+				coalesce: false,
+				summaryKind: "undid_alfy_change",
+				// The Alfy version the Undo takes back, so History can fold the two (A5).
+				summaryVersion: 2,
+			},
 		);
 		// The editor takes the saved board, and the version and hash that came with it.
 		expect(host.saved).toHaveBeenCalledWith({
@@ -400,7 +406,7 @@ describe("Undo", () => {
 		expect(api.saveArtifactBody).not.toHaveBeenCalled();
 		expect(controller.status).toBe("pending");
 		controller.openHistory();
-		expect(host.openVersions).toHaveBeenCalled();
+		expect(host.openHistory).toHaveBeenCalled();
 		controller.dismissUndoRefused();
 		expect(controller.undoRefused).toBeNull();
 	});
@@ -442,7 +448,13 @@ describe("Undo", () => {
 			3,
 			"conv-1",
 			undefined,
-			{ baseHash: "h3", coalesce: false, summaryKind: undefined },
+			{
+				baseHash: "h3",
+				coalesce: false,
+				// A Redo names the change it brings back, or it would be a plain "Edited".
+				summaryKind: "redid_alfy_change",
+				summaryVersion: 2,
+			},
 		);
 		// The server has nothing waiting (the reader's version takes the blocks
 		// over): the pill says Kept and the count is 0, and no Undo is offered that

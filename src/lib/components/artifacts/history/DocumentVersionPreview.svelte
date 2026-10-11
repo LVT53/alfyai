@@ -15,10 +15,7 @@
  */
 import { tick } from "svelte";
 import { get } from "svelte/store";
-import {
-	fetchArtifact,
-	fetchArtifactVersionBody,
-} from "$lib/client/api/artifacts";
+import { fetchArtifact } from "$lib/client/api/artifacts";
 import { documentTabsFromCardMetadata } from "$lib/components/artifacts/document/card-view";
 import { t } from "$lib/i18n";
 import { stripEmptyTabAnchorPlaceholder } from "$lib/shared/artifact-document/blocks";
@@ -28,6 +25,7 @@ import { prefersReducedMotion } from "$lib/utils/motion";
 import { alignDocuments, type DiffBlock, foldUnchanged } from "./document-diff";
 import type { HistoryPreviewProps } from "./history-previews";
 import { markAdded, markWords } from "./mark-html";
+import { versionBody } from "./version-bodies";
 
 let {
 	artifactId,
@@ -70,20 +68,18 @@ let scroller = $state<HTMLElement | null>(null);
 let flashing = $state<number | null>(null);
 let token = 0;
 
-// Immutable: a stored version's body never changes under its id, except the
-// newest, whose burst of typing saves into one row; its key carries its hash.
-const bodies = new Map<string, Promise<string>>();
+// A stored version's body never changes under its id, except the newest, whose
+// burst of typing saves into one row: `versionBody` keeps what was fetched.
 const tabsByDocument = new Map<string, Promise<Tab[]>>();
 
 function bodyOf(id: string): Promise<string> {
-	const key = `${artifactId}:${id}${id === nowVersionId ? `:${nowHash}` : ""}`;
-	let pending = bodies.get(key);
-	if (!pending) {
-		pending = fetchArtifactVersionBody(artifactId, id, conversationId);
-		bodies.set(key, pending);
-		pending.catch(() => bodies.delete(key));
-	}
-	return pending;
+	return versionBody({
+		artifactId,
+		versionId: id,
+		conversationId,
+		nowVersionId,
+		nowHash,
+	});
 }
 
 /** The Document's tabs as they are now (an older version keeps the strip it has: tabs live on the item, not in a body). */

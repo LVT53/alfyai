@@ -1,3 +1,32 @@
+<script module lang="ts">
+import { SvelteFlowProvider, ViewportPortal } from "@xyflow/svelte";
+import { sameCamera } from "./_lib/board-model";
+import CanvasBoard from "./CanvasBoard.svelte";
+
+/**
+ * History's board preview (ruling 76), loaded THROUGH this module and handed what
+ * it draws a board with. It shows a board of its own, so it needs the editor's
+ * `CanvasBoard` and the flow library; if it imported them itself, the bundler would
+ * split both (two hundred kilobytes) out of this chunk into one that the editor and
+ * the preview share, and the editor's first paint would pay for the split. So the
+ * editor is the one place that imports them and gives them to the preview when
+ * History's registry asks for it. It opens with a Canvas panel, where this module
+ * is loaded already.
+ */
+export async function loadHistoryPreview() {
+	const { default: preview, provideBoardParts } = await import(
+		"./history-parts"
+	);
+	provideBoardParts({
+		CanvasBoard,
+		SvelteFlowProvider,
+		ViewportPortal,
+		sameCamera,
+	});
+	return { default: preview };
+}
+</script>
+
 <script lang="ts">
 /**
  * The Canvas's panel body (Feature 2 · Artifacts, Slice 3): what the artifact
@@ -8,14 +37,13 @@
  * Persistence is the Document's, deliberately: one debounced autosave loop
  * (`createDocumentAutosave`, which saves any string), one write route
  * (`saveArtifactBody`, with the version and body hash it last saw, so a second
- * writer is refused with a 409 rather than overwritten), one Versions sheet. The
- * board hands over whole steps only; a bare pan never reaches it, so looking
- * around a board never mints a version.
+ * writer is refused with a 409 rather than overwritten), and History (the panel's
+ * own mode, ruling 76). The board hands over whole steps only; a bare pan never
+ * reaches it, so looking around a board never mints a version.
  *
  * Every version the server reports is announced by the client API module, and the
  * header reads it from there. Nothing here prints a version or an "edited" time.
  */
-import { SvelteFlowProvider, ViewportPortal } from "@xyflow/svelte";
 import { onDestroy, untrack } from "svelte";
 import {
 	type ArtifactDetailResponse,
@@ -77,7 +105,6 @@ import type {
 } from "./_lib/review-controller.svelte";
 import { judgeServerBoard } from "./_lib/server-board";
 import type AlfyChangeLayer from "./AlfyChangeLayer.svelte";
-import CanvasBoard from "./CanvasBoard.svelte";
 import type CanvasBanners from "./CanvasBanners.svelte";
 import type CanvasComments from "./CanvasComments.svelte";
 import type CanvasDownload from "./CanvasDownload.svelte";
@@ -121,8 +148,10 @@ interface Props {
 	body?: string | null;
 	/** The conversation the PANEL is showing (ruling 51): passed to every artifact route this body calls, so an incognito conversation's own board resolves. */
 	conversationId?: string | null;
-	/** Hands the panel header its Versions trigger. Download joins it with the PNG export. */
+	/** Hands the panel header its Download trigger (the PNG export), Comments, and what History needs of the board: saving its last step first (`flush`) and loading what is stored after a restore (`reload`). */
 	registerPanelActions?: (actions: ArtifactPanelBodyActions) => void;
+	/** Opens History on this board (`ArtifactBodyProps.onOpenHistory`): where the notice for an Undo that cannot be done points. */
+	onOpenHistory?: () => void;
 	onDirtyChange?: (dirty: boolean) => void;
 	onBodyChange?: (body: string) => void;
 	/** The open threads, for the header's Comments button: reported from load and after every change. */
@@ -156,6 +185,7 @@ let {
 	title = "",
 	conversationId = null,
 	registerPanelActions,
+	onOpenHistory,
 	onDirtyChange,
 	onBodyChange,
 	onCommentCountChange,
@@ -211,25 +241,6 @@ let droppedCount = $state(0);
 let noticeDismissed = $state(false);
 /** The blocks where a newer version of the board and the reader's own step had both changed the same thing, and the reader's stood (`rebaseBoard`): the board says so until the reader dismisses it (0). */
 let keptCount = $state(0);
-let versionsOpen = $state(false);
-// The Versions sheet is the Document's own, and loads the first time it is opened.
-let VersionsSheet = $state.raw<
-	| typeof import("$lib/components/artifacts/document/VersionsSheet.svelte").default
-	| null
->(null);
-$effect(() => {
-	if (!versionsOpen || VersionsSheet) return;
-	let current = true;
-	void import("$lib/components/artifacts/document/VersionsSheet.svelte").then(
-		(module) => {
-			if (current) VersionsSheet = module.default;
-		},
-	);
-	return () => {
-		current = false;
-	};
-});
-
 let versionNumber: number | null = null;
 let knownBodyHash: string | null = null;
 let latestJson = "";
@@ -731,7 +742,7 @@ const reviewHost: ReviewHost = {
 		onDirtyChange?.(false);
 	},
 	adopt: adoptBoard,
-	openVersions: () => (versionsOpen = true),
+	openHistory: () => onOpenHistory?.(),
 	reportCount: (count) => onPendingReviewCountChange?.(count),
 };
 
@@ -868,19 +879,21 @@ $effect(() => {
 	untrack(() => void load(id));
 });
 
-// The header's Versions and Comments buttons: the Versions sheet lives in this
-// body, and Comments is one toggle for whichever surface applies. `flush` is for
-// the chat page, which saves the reader's last step before a turn starts (a turn
-// can make Alfy change this board).
+// The header's Download and Comments buttons, and what History needs of the board.
+// Comments is one toggle for whichever surface applies. `flush` saves the reader's
+// last step: the chat page awaits it before a turn starts (a turn can make Alfy
+// change this board) and History before it opens, so it starts from what is stored;
+// `reload` loads what is stored when History is left after a restore, so the next
+// save is not refused as stale.
 $effect(() => {
 	registerPanelActions?.({
-		openVersions: () => (versionsOpen = true),
 		openDownload: toggleDownload,
 		toggleComments: () =>
 			void ensureComments().then(() => {
 				if (commentViews && comments) commentViews.toggleComments(comments);
 			}),
 		flush: saveBoardNow,
+		reload: () => void load(artifactId),
 	});
 });
 
@@ -1077,21 +1090,6 @@ $effect(() => {
 			controller={pictures}
 			{title}
 			onClose={() => (downloadOpen = false)}
-		/>
-	{/if}
-
-	{#if versionsOpen && VersionsSheet}
-		<VersionsSheet
-			{artifactId}
-			{conversationId}
-			onClose={() => (versionsOpen = false)}
-			onRestored={() => {
-				versionsOpen = false;
-				void load(artifactId);
-			}}
-			currentUserId={currentUser?.id ?? null}
-			currentUserName={currentUser?.displayName ?? null}
-			currentUserProfilePicture={currentUser?.profilePicture ?? null}
 		/>
 	{/if}
 </div>

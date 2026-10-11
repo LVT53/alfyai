@@ -50,7 +50,7 @@ let { controller }: { controller: CanvasReviewController } = $props();
 					? 'artifacts.canvas.review.undoRefused'
 					: 'artifacts.canvas.review.undoFailed',
 			)}
-			actionLabel={$t('artifacts.canvas.review.openVersions')}
+			actionLabel={$t('artifacts.canvas.review.openHistory')}
 			onAction={() => controller.openHistory()}
 			dismissLabel={$t('artifacts.document.refused.dismiss')}
 			onDismiss={() => controller.dismissUndoRefused()}
