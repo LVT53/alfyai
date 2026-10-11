@@ -990,4 +990,7 @@ UI (ruling 72 confirmed). The model server's downtime this afternoon was the own
   13/13 in substance (the script's detector reads bare "144"/"169" as unknown). **Stopped for the owner's walk.** Next (owner,
   2026-10-07): the gate-speed job (memory `alfyai-dev-process-speed`), then the release checklist; production only on the
   owner's word.
+- **Owner's walk of M3 (2026-10-11):** "To me it seems fine. Although I still think it's a little clanky … Versioning is
+  still crazy and unfollowable." Next, by the owner's call: the versioning made followable (a design pass first), the
+  gate-speed job, a pass on what feels clanky; then the release checklist. Production untouched.
 
