@@ -993,4 +993,7 @@ UI (ruling 72 confirmed). The model server's downtime this afternoon was the own
 - **Owner's walk of M3 (2026-10-11):** "To me it seems fine. Although I still think it's a little clanky … Versioning is
   still crazy and unfollowable." Next, by the owner's call: the versioning made followable (a design pass first), the
   gate-speed job, a pass on what feels clanky; then the release checklist. Production untouched.
+- **Phase 5 handed to a fresh orchestrator session (owner, 2026-10-11):** the versioning design pass and the fast gates in
+  parallel, then the friction audit, then the build from both; Slides stays on ice. Hand-off:
+  `docs/plans/claude-at-home-2/phase-5-handoff.md`.
 
