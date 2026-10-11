@@ -13,6 +13,10 @@
 // there is no such HTML to discard — `generateAndVerifyApp` is the only
 // thing that ever produces it.
 import type { ModelId } from "$lib/model-types";
+import {
+	madeAppSummary,
+	VERSION_SUMMARY,
+} from "$lib/shared/artifacts/version-summaries";
 import { createArtifact } from "../record";
 import type { AppGenerationFailureReason } from "./generate";
 import {
@@ -100,7 +104,11 @@ export async function createAppFromBrief(
 		title,
 		body: html,
 		author: "alfy",
-		versionSummary: `Alfy made the app: ${input.prompt}`,
+		// Regenerate makes a deleted App again under its old id: its first
+		// version says so rather than quoting a brief nobody asked for twice.
+		versionSummary: input.artifactId
+			? VERSION_SUMMARY.alfyRemade
+			: madeAppSummary(input.prompt),
 		metadata: { glitchRuleIds, verification },
 	});
 	if (!created.ok) {

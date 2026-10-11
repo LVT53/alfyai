@@ -2,6 +2,7 @@
 // the model's own arguments, which the chat kept on the message that made it,
 // under the id its cards already carry. Real migrated SQLite; only the App's
 // model-backed generator is faked (the Document path is real end to end).
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInMemoryDatabase,
@@ -131,6 +132,22 @@ describe("recreateArtifactFromStoredCall", () => {
 			versionNumber: 1,
 		});
 		expect(artifact?.body).toContain("Book the train");
+	});
+
+	it("says in the history that the item was made again, not that Alfy wrote a first draft", async () => {
+		seedCreateCall({ artifactId: "doc-1", input: DOCUMENT_INPUT });
+		await regenerate();
+		const firstVersion = memory.db
+			.select({
+				summary: schema.artifactVersions.summary,
+				author: schema.artifactVersions.author,
+			})
+			.from(schema.artifactVersions)
+			.where(eq(schema.artifactVersions.artifactId, "doc-1"))
+			.all();
+		expect(firstVersion).toEqual([
+			{ summary: "Alfy made it again", author: "alfy" },
+		]);
 	});
 
 	it("does nothing when the item exists again already, and says so", async () => {

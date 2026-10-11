@@ -279,6 +279,87 @@ describe("PATCH /api/artifacts/[id]/body", () => {
 			);
 		});
 
+		// Ruling 76 (amendment A5): an Undo or Redo names the Alfy version it acts
+		// on, so History can tell which change the reader took back.
+		it("names the Alfy version an Undo undoes", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture);
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
+
+			await PATCH(
+				makeEvent({
+					body: {
+						body: "Undone text.",
+						expectVersion: 2,
+						summaryKind: "undid_alfy_change",
+						summaryVersion: 2,
+					},
+				}),
+			);
+
+			expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+				expect.objectContaining({ summary: "Undid Alfy's change: v2" }),
+			);
+		});
+
+		it("stores a Redo under the version it brings back", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture);
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
+
+			await PATCH(
+				makeEvent({
+					body: {
+						body: "Alfy's text again.",
+						expectVersion: 2,
+						summaryKind: "redid_alfy_change",
+						summaryVersion: 2,
+					},
+				}),
+			);
+
+			expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+				expect.objectContaining({
+					summary: "Redid Alfy's change: v2",
+					author: "user",
+				}),
+			);
+		});
+
+		it("ignores a version that is not one of this artifact's own numbers", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture); // at version 2
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
+
+			for (const summaryVersion of [3, 9, 0, -1, 1.5, "2", null]) {
+				mockSaveDocumentBody.mockClear();
+				await PATCH(
+					makeEvent({
+						body: {
+							body: "Undone text.",
+							summaryKind: "undid_alfy_change",
+							summaryVersion,
+						},
+					}),
+				);
+				// An Undo that names nothing valid is the plain older form...
+				expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+					expect.objectContaining({ summary: "Undid Alfy's change" }),
+				);
+				mockSaveDocumentBody.mockClear();
+				await PATCH(
+					makeEvent({
+						body: {
+							body: "Alfy's text again.",
+							summaryKind: "redid_alfy_change",
+							summaryVersion,
+						},
+					}),
+				);
+				// ...and a Redo with no change to name is just an edit.
+				expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+					expect.objectContaining({ summary: "Edited" }),
+				);
+			}
+		});
+
 		it("never stores free text: an unknown kind is an ordinary Edited save", async () => {
 			mockGetArtifact.mockResolvedValue(documentFixture);
 			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
