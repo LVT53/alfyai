@@ -6,15 +6,40 @@ import {
 	createDocumentArtifact,
 	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
-import { adminId, installHistoryFake } from "./artifact-history-fake";
+import {
+	undidAlfyChangeSummary,
+	VERSION_SUMMARY,
+} from "../../src/lib/shared/artifacts/version-summaries";
 import { createConversation, login, workspacePanel } from "./helpers";
 
 // Ruling 76 (the versioning build): History is a MODE of the panel — a
 // read-only preview beside a day-grouped rail of moments — and the header says
 // the latest moment instead of a number. Every flow here is real input (the
-// pointer, the keyboard, a touch) against the real app; only the history route's
-// answer is a stand-in until the server half is merged (artifact-history-fake.ts).
+// pointer, the keyboard, a touch) against the real app and the real history,
+// naming and restore routes; the rows are seeded through the artifact service
+// in the vocabulary the server writes.
 
+async function adminId(): Promise<string> {
+	const [user] = await db
+		.select({ id: users.id })
+		.from(users)
+		.where(eq(users.email, "admin@local"))
+		.limit(1);
+	expect(user, "the e2e admin must exist").toBeTruthy();
+	return user.id;
+}
+
+/** Counts the history route's requests (the page's `before` cursor) as the page makes them. */
+function watchHistoryRequests(page: Page): Array<number | null> {
+	const befores: Array<number | null> = [];
+	page.on("request", (request) => {
+		const url = new URL(request.url());
+		if (!/\/api\/artifacts\/[^/]+\/history$/.test(url.pathname)) return;
+		const before = url.searchParams.get("before");
+		befores.push(before === null ? null : Number(before));
+	});
+	return befores;
+}
 type Seed = {
 	author: "user" | "alfy";
 	summary: string;
@@ -117,12 +142,7 @@ test.describe("History mode", () => {
 		page,
 	}) => {
 		const conversationId = await createConversation(page, "History open");
-		const artifactId = await seedDocument(
-			conversationId,
-			"History open",
-			THREE_VERSIONS,
-		);
-		await installHistoryFake(page, artifactId);
+		await seedDocument(conversationId, "History open", THREE_VERSIONS);
 		await openChat(page, conversationId);
 		await openDocumentInPanel(page);
 
@@ -167,7 +187,7 @@ test.describe("History mode", () => {
 			{ length: 60 },
 			(_, index) => `Paragraph number ${index + 1} of the long plan.`,
 		).join("\n\n");
-		const artifactId = await seedDocument(conversationId, "History scroll", [
+		await seedDocument(conversationId, "History scroll", [
 			{
 				author: "alfy",
 				summary: "Alfy wrote the first draft",
@@ -179,7 +199,6 @@ test.describe("History mode", () => {
 				markdown: `${paragraphs}\n\nOne more.`,
 			},
 		]);
-		await installHistoryFake(page, artifactId);
 		await openChat(page, conversationId);
 		await openDocumentInPanel(page);
 
@@ -204,14 +223,13 @@ test.describe("History mode", () => {
 		page,
 	}) => {
 		const conversationId = await createConversation(page, "History flush");
-		const artifactId = await seedDocument(conversationId, "History flush", [
+		await seedDocument(conversationId, "History flush", [
 			{
 				author: "alfy",
 				summary: "Alfy wrote the first draft",
 				markdown: "Book the hotel.\n\nBook the flight.",
 			},
 		]);
-		await installHistoryFake(page, artifactId);
 		await openChat(page, conversationId);
 		await openDocumentInPanel(page);
 
@@ -236,15 +254,14 @@ test.describe("History mode", () => {
 		page,
 	}) => {
 		const conversationId = await createConversation(page, "History a11y");
-		const artifactId = await seedDocument(conversationId, "History a11y", [
+		await seedDocument(conversationId, "History a11y", [
 			...THREE_VERSIONS,
 			{
 				author: "user",
-				summary: "Undid Alfy's change",
+				summary: undidAlfyChangeSummary(3),
 				markdown: THREE_VERSIONS[1].markdown,
 			},
 		]);
-		await installHistoryFake(page, artifactId);
 		await openChat(page, conversationId);
 		await openDocumentInPanel(page);
 		await historyButton(page).click();
@@ -325,7 +342,7 @@ test.describe("History mode", () => {
 				summary: i % 2 === 0 ? `Edited ${i}` : `Alfy rewrote revision ${i}`,
 			});
 		}
-		const fake = await installHistoryFake(page, artifact.id);
+		const historyRequests = watchHistoryRequests(page);
 		await openChat(page, conversationId);
 		await openDocumentInPanel(page);
 		await historyButton(page).click();
@@ -346,11 +363,7 @@ test.describe("History mode", () => {
 		await expect(options.nth(100)).toBeFocused();
 		// The days stay continuous across pages: all of it is Today.
 		await expect(region.getByRole("group", { name: "Today" })).toHaveCount(1);
-		expect(fake.requests.map((request) => request.before)).toEqual([
-			null,
-			71,
-			21,
-		]);
+		expect(historyRequests).toEqual([null, 71, 21]);
 	});
 
 	test("says every moment in Hungarian: no English summary survives in the rail (T8)", async ({
@@ -362,29 +375,33 @@ test.describe("History mode", () => {
 			.where(eq(users.email, "admin@local"));
 		try {
 			const conversationId = await createConversation(page, "Előzmények");
-			const artifactId = await seedDocument(conversationId, "Előzmények", [
+			await seedDocument(conversationId, "Előzmények", [
 				{
-					author: "user",
-					summary: "Kept from a chat reply",
+					author: "alfy",
+					summary: VERSION_SUMMARY.keptFromChat,
 					markdown: "Péntek\n\nÉrkezés.",
 				},
 				{
-					author: "alfy",
-					summary: "Alfy's comment reply",
-					markdown: "Péntek\n\nÉrkezés és séta.",
+					author: "user",
+					summary: VERSION_SUMMARY.edited,
+					markdown: "Péntek\n\nÉrkezés, séta.",
 				},
 				{
 					author: "alfy",
-					summary: "Alfy's edit",
-					markdown: "Péntek\n\nÉrkezés, séta és vacsora.",
+					summary: VERSION_SUMMARY.alfyCommentReply,
+					markdown: "Péntek\n\nÉrkezés, séta és kávé.",
 				},
 				{
 					author: "user",
-					summary: "Edited",
-					markdown: "Péntek\n\nÉrkezés, séta és vacsora a Naschmarkton.",
+					summary: VERSION_SUMMARY.edited,
+					markdown: "Péntek\n\nÉrkezés, séta és kávé, vacsora.",
+				},
+				{
+					author: "alfy",
+					summary: VERSION_SUMMARY.alfyEdit,
+					markdown: "Péntek\n\nÉrkezés, séta és kávé, vacsora a Naschmarkton.",
 				},
 			]);
-			await installHistoryFake(page, artifactId);
 			await openChat(page, conversationId);
 			await openDocumentInPanel(page);
 			await historyButton(page).click();
@@ -395,13 +412,16 @@ test.describe("History mode", () => {
 			await expect(region).toBeVisible();
 			const list = region.getByRole("listbox", { name: "Változatok" });
 			const options = list.getByRole("option");
-			await expect(options).toHaveCount(4);
-			await expect(options.nth(0)).toContainText("Szerkesztetted");
-			await expect(options.nth(1)).toContainText("Alfy módosította");
+			await expect(options).toHaveCount(5);
+			// Newest first: Alfy's own fallback ("Alfy's edit": no words of its own), the
+			// reader's edit, Alfy's reply to a comment, the reader's edit, the kept reply.
+			await expect(options.nth(0)).toContainText("Alfy módosította");
+			await expect(options.nth(1)).toContainText("Szerkesztetted");
 			await expect(options.nth(2)).toContainText(
 				"Alfy módosította, válaszul a megjegyzésedre",
 			);
-			await expect(options.nth(3)).toContainText(
+			await expect(options.nth(3)).toContainText("Szerkesztetted");
+			await expect(options.nth(4)).toContainText(
 				"Megtartottad Alfy válaszát dokumentumként",
 			);
 			const text = (await list.innerText()).replace(/\s+/g, " ");
@@ -437,12 +457,7 @@ test.describe("History mode on a phone", () => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		await login(page);
 		const conversationId = await createConversation(page, "History phone");
-		const artifactId = await seedDocument(
-			conversationId,
-			"History phone",
-			THREE_VERSIONS,
-		);
-		await installHistoryFake(page, artifactId);
+		await seedDocument(conversationId, "History phone", THREE_VERSIONS);
 		await openChat(page, conversationId);
 
 		// Open the Document in the panel the way a phone does.

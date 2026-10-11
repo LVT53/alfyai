@@ -18,7 +18,6 @@
 import { Check, ChevronDown, LoaderCircle, X } from "@lucide/svelte";
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
-import type { LatestMomentFields } from "$lib/client/artifact-versions";
 import { formatRelativeTime } from "$lib/utils/time";
 import ArtifactCard, {
 	type ArtifactCardView,
@@ -315,8 +314,8 @@ function handleOpenArtifact(body: ArtifactActivityBody): void {
 		// yet) falls back to the previous behaviour unchanged.
 		versionNumber: body.preview?.versionNumber,
 		updatedAt: body.preview?.updatedAt,
-		lastAuthor: (body.preview as LatestMomentFields | undefined)?.lastAuthor,
-		lastKind: (body.preview as LatestMomentFields | undefined)?.lastKind,
+		lastAuthor: body.preview?.lastAuthor,
+		lastKind: body.preview?.lastKind,
 	});
 }
 

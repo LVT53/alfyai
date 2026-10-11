@@ -393,6 +393,14 @@ interface PendingAlfyChange {
 	entry: AlfyChangeEntry;
 	status: "pending" | "kept" | "undone";
 	/**
+	 * The Alfy version that made this change: a live edit's is the version the
+	 * reload after the edit found, a reload-restored one's is the server's own
+	 * (`DocumentReviewPendingBlock.alfyVersionNumber`). The Undo and the Redo name
+	 * it in the version they save (ruling 76, A5), so History can fold the Undo
+	 * onto the change it undid.
+	 */
+	alfyVersionNumber?: number;
+	/**
 	 * Ruling 61: true when this pending change was restored from a reload for
 	 * a block Alfy ADDED (no parent counterpart) — Undo deletes it rather than
 	 * restoring empty content (`marks.ts`'s own `isNewBlock` doc comment).
@@ -979,7 +987,11 @@ async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
 		const entries = applyAlfyChangesFn(editor, reconstructed, reconstructed.patch);
 		const nextPending = new Map(pendingChanges);
 		for (const entry of entries) {
-			nextPending.set(entry.changeId, { entry, status: "pending" });
+			nextPending.set(entry.changeId, {
+				entry,
+				status: "pending",
+				alfyVersionNumber: detail.artifact.versionNumber,
+			});
 		}
 		pendingChanges = nextPending;
 
@@ -1140,7 +1152,10 @@ function handleUndoChange(changeId: string): void {
 	if (canonical !== null) {
 		// Spec §4.2 item 6: "a version is recorded (\"Undid Alfy's change\")" —
 		// its own summary, not another anonymous "Edited".
-		autosave?.schedule(canonical, { summaryKind: "undid_alfy_change" });
+		autosave?.schedule(canonical, {
+			summaryKind: "undid_alfy_change",
+			summaryVersion: pending.alfyVersionNumber,
+		});
 		updateBlocksFromMarkdown(canonical);
 	}
 	void acknowledgeReview([pending.entry.blockId]);
@@ -1184,7 +1199,10 @@ function handleRedoChange(changeId: string): void {
 	if (canonical !== null) {
 		// Ruling 76 (A5): bringing Alfy's change back is a version that says so, as
 		// the Undo's says it was undone.
-		autosave?.schedule(canonical, { summaryKind: "redid_alfy_change" });
+		autosave?.schedule(canonical, {
+			summaryKind: "redid_alfy_change",
+			summaryVersion: pending.alfyVersionNumber,
+		});
 		updateBlocksFromMarkdown(canonical);
 	}
 	if (focusWasOnPill) void focusPillUndo(changeId);
@@ -1486,6 +1504,7 @@ async function restorePendingReview(
 			},
 			status: "pending",
 			isNewBlock: block.isNewBlock,
+			alfyVersionNumber: block.alfyVersionNumber,
 		});
 	}
 	pendingChanges = nextPending;
@@ -1984,9 +2003,15 @@ function bindAutosave(id: string, conversationId: string | null): void {
 				undefined,
 				{
 					baseHash: knownBodyHash ?? undefined,
-					// An Undo of Alfy's change records its own version summary.
+					// An Undo or Redo of Alfy's change records its own version summary,
+					// naming the Alfy version it acts on.
 					...(saveOptions?.summaryKind
-						? { summaryKind: saveOptions.summaryKind }
+						? {
+								summaryKind: saveOptions.summaryKind,
+								...(saveOptions.summaryVersion !== undefined
+									? { summaryVersion: saveOptions.summaryVersion }
+									: {}),
+							}
 						: {}),
 				},
 			),

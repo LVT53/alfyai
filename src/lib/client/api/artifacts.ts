@@ -44,10 +44,7 @@ import {
 } from "$lib/shared/artifacts/live-web";
 import type { OpRefusal, OpsDiff } from "$lib/shared/artifacts/ops";
 import type { SaveSummaryKind } from "$lib/shared/artifacts/version-summaries";
-import {
-	type LatestMomentFields,
-	latestRowOfMoment,
-} from "../artifact-versions";
+import { latestRowOfMoment } from "../artifact-versions";
 import { _unwrapList } from "./_utils";
 import {
 	ApiError,
@@ -162,7 +159,7 @@ function announceArtifactVersion(
 }
 
 /** What a body save with this summary kind is, as a moment: the reader's, one of their edits, an Undo or a Redo of Alfy's change. */
-function momentOfSave(summaryKind?: ClientSaveSummaryKind): {
+function momentOfSave(summaryKind?: SaveSummaryKind): {
 	author: "user";
 	kind: MomentKind;
 } {
@@ -175,13 +172,6 @@ function momentOfSave(summaryKind?: ClientSaveSummaryKind): {
 			return { author: "user", kind: "user_edit" };
 	}
 }
-
-/**
- * What a body save may say about itself. `redid_alfy_change` is the Redo of an
- * Undo of Alfy's change (ruling 76, A5): a server that does not know the kind
- * yet stores the ordinary "Edited", which is harmless.
- */
-export type ClientSaveSummaryKind = SaveSummaryKind | "redid_alfy_change";
 
 /**
  * `conversationId` widens the read past the default ownership scope
@@ -214,7 +204,7 @@ export async function fetchArtifact(
 	// Who made the newest version, and what it was: the server's own answer
 	// (`lastAuthor`/`lastKind`, ruling 76) or, from an older server, the newest
 	// row of the version list when it is the artifact's own newest version.
-	const told = response.artifact as ArtifactDetail & LatestMomentFields;
+	const told = response.artifact;
 	const newestRow = response.versions[0];
 	announceArtifactVersion(
 		artifactId,
@@ -672,7 +662,9 @@ export async function saveArtifactBody(
 		baseHash?: string;
 		coalesce?: boolean;
 		/** What the save says about itself besides "the user typed" — see `parseSaveSummaryKind`. */
-		summaryKind?: ClientSaveSummaryKind;
+		summaryKind?: SaveSummaryKind;
+		/** An Undo or Redo of Alfy's change: the Alfy version it acts on (ruling 76, A5). */
+		summaryVersion?: number;
 	},
 ): Promise<SaveArtifactBodyResult> {
 	const response = await fetchImpl(
@@ -687,6 +679,9 @@ export async function saveArtifactBody(
 				...(guard?.coalesce !== undefined ? { coalesce: guard.coalesce } : {}),
 				...(guard?.summaryKind !== undefined
 					? { summaryKind: guard.summaryKind }
+					: {}),
+				...(guard?.summaryVersion !== undefined
+					? { summaryVersion: guard.summaryVersion }
 					: {}),
 			}),
 		},

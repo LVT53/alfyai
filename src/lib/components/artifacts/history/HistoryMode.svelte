@@ -40,7 +40,7 @@ import {
 	type HistoryPreviewState,
 } from "./history-previews";
 import MomentPreviewToolbar from "./MomentPreviewToolbar.svelte";
-import type MomentRail from "./MomentRail.svelte";
+import MomentRail from "./MomentRail.svelte";
 import {
 	entryDetail,
 	entryHeadline,
@@ -107,7 +107,12 @@ let compare = $state<HistoryCompare>("step");
 /** The narrow layouts show the list, or the preview pushed over it. */
 let view = $state<"list" | "preview">("list");
 
-let rail = $state<ReturnType<typeof MomentRail> | null>(null);
+/** What the rail lets its host do: put the keyboard on an option, and list the options drawn. */
+interface RailHandle {
+	focusOption: (key: string | null) => Promise<void>;
+	optionElements: () => HTMLElement[];
+}
+let rail = $state<RailHandle | null>(null);
 let rootWidth = $state(0);
 let isPhone = $state(isPhoneViewport());
 

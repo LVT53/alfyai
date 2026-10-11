@@ -2756,14 +2756,20 @@ describe("DocumentBody", () => {
 					expect(mockSaveArtifactBody).toHaveBeenCalledTimes(1),
 				);
 				// Wave 2.5 polish G1-B (spec §4.2 item 6): the save records its own
-				// version summary, not another anonymous "Edited".
+				// version summary, not another anonymous "Edited" — and, ruling 76
+				// (A5), names the Alfy version it undid (the reload after the edit
+				// found it at version 1 here), so History can fold the two.
 				expect(mockSaveArtifactBody).toHaveBeenCalledWith(
 					"artifact-1",
 					expect.any(String),
 					1,
 					null,
 					undefined,
-					{ baseHash: "h1", summaryKind: "undid_alfy_change" },
+					{
+						baseHash: "h1",
+						summaryKind: "undid_alfy_change",
+						summaryVersion: 1,
+					},
 				);
 
 				// Settles after its own 5s window.
@@ -2873,10 +2879,12 @@ describe("DocumentBody", () => {
 					]),
 				);
 				// Ruling 76 (A5): bringing Alfy's change back is a version that says
-				// so, as the Undo's says it was undone.
+				// so, naming the Alfy version it brings back, as the Undo's names the
+				// one it undid (the reload after the edit found it at version 1 here).
 				const lastSave = mockSaveArtifactBody.mock.calls.at(-1);
 				expect(lastSave?.[5]).toMatchObject({
 					summaryKind: "redid_alfy_change",
+					summaryVersion: 1,
 				});
 			} finally {
 				vi.useRealTimers();

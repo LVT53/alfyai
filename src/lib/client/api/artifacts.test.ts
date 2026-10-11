@@ -1754,17 +1754,22 @@ describe("latest-moment announcements", () => {
 		]);
 	});
 
-	it("sends the Redo's summary kind to the body route", async () => {
+	it("sends the Redo's summary kind to the body route, with the Alfy version it brings back (without it the server writes only an Edit)", async () => {
 		const fetchMock = vi.fn(
 			async (_input: RequestInfo | URL, _init?: RequestInit) =>
 				jsonResponse({ ok: true, version: 6 }),
 		);
 		await saveArtifactBody("artifact-1", "Text.", 5, null, fetchMock, {
 			summaryKind: "redid_alfy_change",
+			summaryVersion: 4,
 		});
 		expect(
 			JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
-		).toMatchObject({ summaryKind: "redid_alfy_change" });
+		).toMatchObject({ summaryKind: "redid_alfy_change", summaryVersion: 4 });
+		await saveArtifactBody("artifact-1", "Text.", 6, null, fetchMock);
+		expect(
+			JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
+		).not.toHaveProperty("summaryVersion");
 	});
 
 	it("a restore is the reader's restore, and a restore that reverses one is the undo of it", async () => {
