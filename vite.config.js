@@ -16,6 +16,8 @@ const sentryPlugins = await sentrySvelteKit({
 });
 
 export default defineConfig({
+	// One optimizer cache per dev server when an e2e run starts several (tests/e2e/e2e-servers.ts); unset, the default.
+	cacheDir: process.env.VITE_CACHE_DIR || undefined,
 	plugins: [...sentryPlugins, sveltekit()],
 	build: {
 		// Lazy-loaded Shiki grammars compress well but can exceed Vite's default 500 kB warning threshold.

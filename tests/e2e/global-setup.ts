@@ -1,180 +1,84 @@
-import { execSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
-import Database from "better-sqlite3";
-import { ARTIFACT_TOUR_CONTENT_VERSION } from "../../src/lib/server/artifact-tour-defaults";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import type { FullConfig } from "@playwright/test";
 import {
-	ARTIFACT_TOUR_SLIDE_COUNT,
-	SHIPPED_ARTIFACT_TOUR_TYPES,
-} from "../../src/lib/shared/artifacts/tours";
-
-const E2E_SESSION_SECRET =
-	process.env.SESSION_SECRET ||
-	"e2e-test-session-secret-long-enough-1234567890";
-const DEFAULT_E2E_DB_PATH = join(
-	process.cwd(),
-	"data",
-	"playwright-e2e-chat.db",
-);
-
-// Tables that must never be wiped: drizzle's migration bookkeeping. Everything
-// else is user/runtime data that a fresh e2e run should start without.
-const PRESERVED_TABLES = new Set(["__drizzle_migrations"]);
-
-function removeDatabaseFiles(dbPath: string) {
-	for (const path of [dbPath, `${dbPath}-shm`, `${dbPath}-wal`]) {
-		rmSync(path, { force: true });
-	}
-}
+	e2eDatabasePath,
+	e2ePort,
+	e2eReusesServers,
+	e2eServerMode,
+} from "./e2e-env";
+import {
+	assertBuildIsFresh,
+	isPortInUse,
+	killServersOnExit,
+	prepareFreshDatabase,
+	resetDatabaseInPlace,
+	type SlotServer,
+	startSlotServer,
+	stopSlotServers,
+} from "./e2e-servers";
 
 /**
- * Wipe all user/runtime data IN PLACE, without deleting the database file.
+ * One server and one database per worker slot, made before the first test.
  *
- * Why in-place rather than rm + recreate: Playwright starts `config.webServer`
- * BEFORE `globalSetup`. If we delete the DB file here, the already-running
- * server keeps the now-unlinked inode open (SQLite/Linux semantics), so every
- * subsequent login reads an empty old file while our seed lands in the new one
- * — producing 401s across the whole suite. Deleting rows instead keeps the
- * server's open file handle valid, so seeded data is visible to the server.
+ * Slot N is the Playwright worker with `TEST_PARALLEL_INDEX` N: it talks to the
+ * server on `E2E_PORT + N`, and the specs it runs open `data/…-wN.db` through
+ * `$lib/server/db` (the config points `DATABASE_PATH` at the slot's file in each
+ * worker). Every slot starts from a new file with the migrations applied and the
+ * e2e admin seeded, so no spec meets another worker's rows, and the order in
+ * which files reach workers does not matter.
  *
- * We disable foreign keys for the duration of the wipe so table order does not
- * matter, DELETE from every table except drizzle's migration ledger, then
- * re-enable foreign keys.
+ * With `PLAYWRIGHT_REUSE_EXISTING_SERVER=true` a server that is already
+ * listening on a slot's port is used as it is (an agent iterating on a dev
+ * server it started itself): its database is reset in place, since the server
+ * holds the file open. Without it, a busy port is an error, not a surprise.
  */
-function wipeUserData(dbPath: string) {
-	const db = new Database(dbPath);
+export default async function globalSetup(config: FullConfig) {
+	const mode = e2eServerMode();
+	const reuse = e2eReusesServers();
+	const slots = Array.from({ length: config.workers }, (_, slot) => slot);
+
+	if (mode === "build") assertBuildIsFresh();
+	mkdirSync(join(process.cwd(), "data"), { recursive: true });
+
+	const started: SlotServer[] = [];
+	killServersOnExit(started);
 	try {
-		db.pragma("foreign_keys = OFF");
-		const tables = db
-			.prepare(
-				"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-			)
-			.all() as { name: string }[];
-		db.transaction(() => {
-			for (const { name } of tables) {
-				if (PRESERVED_TABLES.has(name)) continue;
-				db.prepare(`DELETE FROM "${name}"`).run();
-			}
-		})();
-		db.pragma("foreign_keys = ON");
-	} finally {
-		db.close();
-	}
-}
-
-/**
- * The shared e2e admin (the user nearly every spec signs in as) has already
- * been through every first-open tour. Without this, each artifact spec would
- * meet a card above its Document, App or Canvas the first time it opened one,
- * and the card would move what those specs measure and take the focus they
- * type into. The rows are what finishing a tour writes (`completed`, the last
- * slide, the code copy's key), put in the table directly: the app has no route
- * that resets or pre-answers a tour and gets none for tests.
- *
- * Tours are tested with users of their own (`artifact-tours.spec.ts`), who
- * have seen nothing.
- */
-function markSharedAdminToursSeen(dbPath: string) {
-	const db = new Database(dbPath);
-	try {
-		const admin = db
-			.prepare("SELECT id FROM users WHERE email = ?")
-			.get("admin@local") as { id: string } | undefined;
-		if (!admin) return;
-		const insert = db.prepare(
-			`INSERT OR IGNORE INTO artifact_tour_states
-				(id, user_id, artifact_type, content_key, status, slide_count, last_slide, completed_at)
-			VALUES (?, ?, ?, ?, 'completed', ?, ?, unixepoch())`,
+		await Promise.all(
+			slots.map(async (slot) => {
+				const port = e2ePort(slot);
+				const dbPath = e2eDatabasePath(slot);
+				if (await isPortInUse(port)) {
+					if (!reuse) {
+						throw new Error(
+							[
+								`[e2e] Port ${port} (worker slot ${slot}) is already in use.`,
+								`      Find what holds it with \`lsof -iTCP:${port} -sTCP:LISTEN\`, pick another E2E_PORT,`,
+								"      or set PLAYWRIGHT_REUSE_EXISTING_SERVER=true to run against that server.",
+							].join("\n"),
+						);
+					}
+					await resetDatabaseInPlace(dbPath);
+					console.log(
+						`[globalSetup] slot ${slot}: using the server already on port ${port}`,
+					);
+					return;
+				}
+				await prepareFreshDatabase(dbPath);
+				started.push(await startSlotServer(slot, mode));
+			}),
 		);
-		for (const kind of SHIPPED_ARTIFACT_TOUR_TYPES) {
-			insert.run(
-				randomUUID(),
-				admin.id,
-				kind,
-				`default:${ARTIFACT_TOUR_CONTENT_VERSION}`,
-				ARTIFACT_TOUR_SLIDE_COUNT,
-				ARTIFACT_TOUR_SLIDE_COUNT - 1,
-			);
-		}
-	} finally {
-		db.close();
-	}
-}
-
-export default async function globalSetup() {
-	const dbDir = join(process.cwd(), "data");
-	if (!existsSync(dbDir)) {
-		mkdirSync(dbDir, { recursive: true });
+	} catch (error) {
+		await stopSlotServers(started);
+		throw error;
 	}
 
-	const dbPath = process.env.E2E_DATABASE_PATH || DEFAULT_E2E_DB_PATH;
-	const isDefaultPath = resolve(dbPath) === resolve(DEFAULT_E2E_DB_PATH);
-
-	// Hard file-deletion reset is ONLY safe when the path is non-default: the
-	// default path is the one the already-running webServer has open, and
-	// unlinking it there strands the server on a deleted inode (see wipeUserData
-	// docstring). For the default path we always do an in-place SQL wipe.
-	if (!isDefaultPath && process.env.E2E_RESET_DATABASE === "true") {
-		removeDatabaseFiles(dbPath);
-	}
-
-	// Run migrations FIRST: idempotent, and creates the file if it is missing.
-	try {
-		execSync("npm run db:prepare", {
-			stdio: "pipe",
-			env: {
-				...process.env,
-				DATABASE_PATH: dbPath,
-				E2E_DATABASE_PATH: dbPath,
-				SESSION_SECRET: E2E_SESSION_SECRET,
-			},
-		});
-	} catch (err) {
-		console.warn(
-			"[globalSetup] db:prepare failed:",
-			(err as Error).message?.slice(0, 200),
-		);
-	}
-
-	// In-place wipe of all user/runtime data. Keeps the server's open inode
-	// valid so seeded rows are visible to it.
-	try {
-		wipeUserData(dbPath);
-	} catch (err) {
-		console.warn(
-			"[globalSetup] Database wipe failed:",
-			(err as Error).message?.slice(0, 200),
-		);
-	}
-
-	try {
-		execSync(
-			`npx tsx scripts/seed-admin.ts --email=admin@local --password=admin123 --name="Admin User" --admin`,
-			{
-				stdio: "pipe",
-				env: {
-					...process.env,
-					DATABASE_PATH: dbPath,
-					E2E_DATABASE_PATH: dbPath,
-					SESSION_SECRET: E2E_SESSION_SECRET,
-				},
-			},
-		);
-		console.log("[globalSetup] Test admin seeded: admin@local");
-	} catch (err) {
-		console.warn(
-			"[globalSetup] Seed admin failed:",
-			(err as Error).message?.slice(0, 200),
-		);
-	}
-
-	try {
-		markSharedAdminToursSeen(dbPath);
-	} catch (err) {
-		console.warn(
-			"[globalSetup] Marking the admin's tours seen failed:",
-			(err as Error).message?.slice(0, 200),
-		);
-	}
+	console.log(
+		`[globalSetup] ${started.length} ${mode} server(s) up on ports ${slots
+			.map((slot) => e2ePort(slot))
+			.join(", ")}; logs in data/e2e-servers/`,
+	);
+	return async () => {
+		await stopSlotServers(started);
+	};
 }
