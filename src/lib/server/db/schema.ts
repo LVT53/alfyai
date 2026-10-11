@@ -468,6 +468,14 @@ export const artifactVersions = sqliteTable(
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),
+		/**
+		 * A typing burst's FIRST save. `createdAt` moves with every coalesced save
+		 * (ruling 47), so this is the only record of when a burst began; NULL on
+		 * rows written before the column existed.
+		 */
+		startedAt: integer("started_at", { mode: "timestamp" }),
+		/** The reader's name for this version (<= 60 chars), or NULL. A named version is never coalesced into. */
+		label: text("label"),
 	},
 	(table) => [
 		uniqueIndex("artifact_versions_number_unique_idx").on(

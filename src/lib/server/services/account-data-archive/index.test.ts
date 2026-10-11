@@ -910,6 +910,8 @@ describe("createAccountDataArchive", () => {
 				body: "- [x] Book the venue\n- [ ] Brief support",
 				bodyHash: "h3",
 				createdAt: at,
+				// A name the reader gave this version is theirs, so it is exported.
+				label: "Before the client call",
 			},
 			{
 				id: "version-other",
@@ -1006,6 +1008,7 @@ describe("createAccountDataArchive", () => {
 		expect(document).toContain("Book the venue");
 		expect(document).toContain("v2");
 		expect(document).toContain("Ticked the venue");
+		expect(document).toContain("Before the client call");
 		expect(document).toContain("v1");
 		expect(document).toContain("Alfy wrote the first draft");
 		expect(document).toContain("Is the venue confirmed?");

@@ -67,3 +67,13 @@ export const ARTIFACT_KV_TOTAL_MAX_BYTES = 512 * 1024;
  * ruling's own number — one editing burst, not a rolling debounce.
  */
 export const ARTIFACT_USER_VERSION_COALESCE_MS = 10 * 60 * 1000;
+
+/**
+ * Ruling 76 (amendment A2, owner question Q4): a burst of the reader's saves
+ * ends after half an hour of continuous saving, however close the saves are,
+ * so a long afternoon of typing leaves a restore point at least every half
+ * hour. Measured from the burst's FIRST save (`artifact_versions.started_at`);
+ * a row from before that column existed has none and is bound by the
+ * ten-minute rule alone.
+ */
+export const ARTIFACT_USER_BURST_MAX_MS = 30 * 60 * 1000;

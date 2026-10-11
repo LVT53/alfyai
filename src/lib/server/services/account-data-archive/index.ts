@@ -477,7 +477,7 @@ function renderArtifactHistory(history: ArtifactHistory | undefined): string {
 			`<section><h2>Versions</h2>${history.versions
 				.map(
 					(version) =>
-						`<details><summary>v${escapeHtml(version.versionNumber)} · ${escapeHtml(authorLabel(version.author))} · ${escapeHtml(version.summary)} · ${escapeHtml(formatDateTime(version.createdAt))}</summary><pre>${escapeHtml(version.body)}</pre></details>`,
+						`<details><summary>v${escapeHtml(version.versionNumber)} · ${escapeHtml(authorLabel(version.author))} · ${escapeHtml(version.summary)}${version.label ? ` · Name: ${escapeHtml(version.label)}` : ""} · ${escapeHtml(formatDateTime(version.createdAt))}</summary><pre>${escapeHtml(version.body)}</pre></details>`,
 				)
 				.join("")}</section>`,
 		);

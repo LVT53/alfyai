@@ -883,6 +883,13 @@
       "when": 1777140000112,
       "tag": "1777140000112_artifact_tour_states",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1777140000113,
+      "tag": "1777140000113_artifact_version_moments",
+      "breakpoints": true
     }
   ]
 }

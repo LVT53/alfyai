@@ -21,6 +21,8 @@ describe("artifact limits", () => {
 			// allow ~50 MiB per App; this bounds the sum.
 			ARTIFACT_KV_TOTAL_MAX_BYTES: 512 * 1024,
 			ARTIFACT_USER_VERSION_COALESCE_MS: 10 * 60 * 1000,
+			// Ruling 76 (Q4): a burst of the reader's saves ends after half an hour.
+			ARTIFACT_USER_BURST_MAX_MS: 30 * 60 * 1000,
 		});
 	});
 });

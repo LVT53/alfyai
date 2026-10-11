@@ -778,6 +778,116 @@ describe("updateArtifactBody", () => {
 			expect(versionRows(artifact.id)).toHaveLength(3);
 		});
 
+		// Ruling 76 (versioning.md §4.4, amendment A2): a burst keeps the time of
+		// its first save, a version the reader named is never coalesced into, and
+		// a burst ends after half an hour of continuous saves.
+		describe("a burst's start, a name, and the half-hour cap", () => {
+			const MINUTE = 60_000;
+			const typing = (artifactId: string, body: string) =>
+				updateArtifactBody({
+					userId: OWNER,
+					artifactId,
+					body,
+					author: "user",
+					summary: "Edited",
+					coalesceUserEdits: true,
+				});
+			const inOrder = (artifactId: string) =>
+				versionRows(artifactId).sort(
+					(a, b) => a.versionNumber - b.versionNumber,
+				);
+			function setAt(minutes: number) {
+				vi.setSystemTime(new Date(NOW.getTime() + minutes * MINUTE));
+			}
+
+			it("records when each version was first saved, and a coalesced save moves only the last-save time", async () => {
+				vi.useFakeTimers();
+				setAt(0);
+				const artifact = await createDocument();
+				await typing(artifact.id, "v2");
+				setAt(4);
+				await typing(artifact.id, "v2 more");
+
+				const rows = inOrder(artifact.id);
+				expect(rows).toHaveLength(2);
+				expect(rows[0].startedAt?.getTime()).toBe(NOW.getTime());
+				expect(rows[1].startedAt?.getTime()).toBe(NOW.getTime());
+				expect(rows[1].createdAt.getTime()).toBe(NOW.getTime() + 4 * MINUTE);
+			});
+
+			it("starts a new version once a burst has run for half an hour, though each save came within ten minutes of the last", async () => {
+				vi.useFakeTimers();
+				setAt(0);
+				const artifact = await createDocument();
+				// Saves nine minutes apart: the burst began at minute 0.
+				for (const minutes of [0, 9, 18, 27]) {
+					setAt(minutes);
+					await typing(artifact.id, `text at ${minutes}`);
+				}
+				expect(inOrder(artifact.id)).toHaveLength(2);
+
+				setAt(36);
+				const next = await typing(artifact.id, "text at 36");
+				expect(next.ok && next.versionNumber).toBe(3);
+				const rows = inOrder(artifact.id);
+				expect(rows).toHaveLength(3);
+				// The cap closed the first burst where it stood...
+				expect(rows[1].body).toBe("text at 27");
+				// ...and the new one starts its own clock.
+				expect(rows[2].startedAt?.getTime()).toBe(NOW.getTime() + 36 * MINUTE);
+				setAt(40);
+				await typing(artifact.id, "text at 40");
+				expect(inOrder(artifact.id)).toHaveLength(3);
+			});
+
+			it("never coalesces into a version the reader named: their words stay under their name", async () => {
+				vi.useFakeTimers();
+				setAt(0);
+				const artifact = await createDocument();
+				const first = await typing(artifact.id, "before the client call");
+				if (!first.ok) throw new Error("save refused");
+				memory.db
+					.update(schema.artifactVersions)
+					.set({ label: "Before the client call" })
+					.where(eq(schema.artifactVersions.id, first.versionId))
+					.run();
+
+				setAt(2);
+				const after = await typing(artifact.id, "after the client call");
+				expect(after.ok && after.versionNumber).toBe(3);
+				const rows = inOrder(artifact.id);
+				expect(rows).toHaveLength(3);
+				expect(rows[1].body).toBe("before the client call");
+				expect(rows[1].label).toBe("Before the client call");
+				expect(rows[2].label).toBeNull();
+				// The new version coalesces as usual from then on.
+				setAt(3);
+				await typing(artifact.id, "after the client call, edited");
+				expect(inOrder(artifact.id)).toHaveLength(3);
+			});
+
+			it("reads a row written before the column existed by the ten-minute rule alone", async () => {
+				vi.useFakeTimers();
+				setAt(0);
+				const artifact = await createDocument();
+				const first = await typing(artifact.id, "older row");
+				if (!first.ok) throw new Error("save refused");
+				memory.db
+					.update(schema.artifactVersions)
+					.set({ startedAt: null })
+					.where(eq(schema.artifactVersions.id, first.versionId))
+					.run();
+
+				setAt(9);
+				await typing(artifact.id, "older row, continued");
+				const rows = inOrder(artifact.id);
+				expect(rows).toHaveLength(2);
+				expect(rows[1].body).toBe("older row, continued");
+				// Unknown stays unknown: a coalesced save does not invent a start.
+				expect(rows[1].startedAt).toBeNull();
+			});
+		});
+
 		// Wave 2.5 polish G1-B: an Undo of Alfy's change is a user save with a
 		// summary of its own, so it is a version of its own — and typing after
 		// it is another one, never folded into it.

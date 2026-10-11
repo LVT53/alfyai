@@ -30,6 +30,7 @@ import { hashArtifactBody } from "./hash";
 import {
 	ARTIFACT_BODY_MAX_BYTES,
 	ARTIFACT_TITLE_MAX_CHARS,
+	ARTIFACT_USER_BURST_MAX_MS,
 	ARTIFACT_USER_VERSION_COALESCE_MS,
 	ARTIFACT_VERSION_SUMMARY_MAX_CHARS,
 } from "./limits";
@@ -231,6 +232,8 @@ function insertVersionRow(
 			body: version.body,
 			bodyHash: version.bodyHash,
 			createdAt: version.createdAt,
+			// A burst's first save: a coalesced update moves `createdAt` and never this.
+			startedAt: version.createdAt,
 		})
 		.run();
 	return id;
@@ -537,11 +540,13 @@ export async function updateArtifactBody(
 
 		const now = new Date();
 
-		// Ruling 47: a user-authored save updates the latest version IN PLACE
-		// (same version number) when that latest version is also the user's and
-		// was created less than ARTIFACT_USER_VERSION_COALESCE_MS ago. Every
-		// Alfy change, restore and creation still always appends — this is the
-		// coalescing path's only entry, and it never applies to them.
+		// Ruling 47 as amended by ruling 76 (A2): a user-authored save updates the
+		// latest version IN PLACE (same version number) when that latest version is
+		// also the user's, was last saved less than ARTIFACT_USER_VERSION_COALESCE_MS
+		// ago, has no name the reader gave it, and its burst began less than
+		// ARTIFACT_USER_BURST_MAX_MS ago. Every Alfy change, restore and creation
+		// still always appends — this is the coalescing path's only entry, and it
+		// never applies to them.
 		//
 		// "Also the user's" is not enough on its own: a restore is authored
 		// `user`, and so is a document the user created ("Save as new"), and the
@@ -561,6 +566,8 @@ export async function updateArtifactBody(
 						author: artifactVersions.author,
 						summary: artifactVersions.summary,
 						createdAt: artifactVersions.createdAt,
+						startedAt: artifactVersions.startedAt,
+						label: artifactVersions.label,
 					})
 					.from(artifactVersions)
 					.where(
@@ -576,8 +583,15 @@ export async function updateArtifactBody(
 			params.author === "user" &&
 			latestVersionRow?.author === "user" &&
 			latestVersionRow.summary === summary &&
+			// A name is the reader's claim about those exact words: typing on
+			// starts a version of its own, and the named one stays as it was.
+			latestVersionRow.label === null &&
 			now.getTime() - latestVersionRow.createdAt.getTime() <
-				ARTIFACT_USER_VERSION_COALESCE_MS;
+				ARTIFACT_USER_VERSION_COALESCE_MS &&
+			// A row from before `started_at` existed has no burst start to measure.
+			(latestVersionRow.startedAt === null ||
+				now.getTime() - latestVersionRow.startedAt.getTime() <
+					ARTIFACT_USER_BURST_MAX_MS);
 
 		let versionId: string;
 		let versionNumber: number;
