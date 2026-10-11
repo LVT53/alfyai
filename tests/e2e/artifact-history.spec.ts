@@ -23,7 +23,12 @@ import {
 	VERSION_SUMMARY,
 } from "../../src/lib/shared/artifacts/version-summaries";
 import { openCanvasPanel, openChatAndReload } from "./artifact-canvas-helpers";
-import { createConversation, login, workspacePanel } from "./helpers";
+import {
+	createConversation,
+	login,
+	waitForHydration,
+	workspacePanel,
+} from "./helpers";
 
 // Ruling 76 (the versioning build): History is a MODE of the panel — a
 // read-only preview beside a day-grouped rail of moments — and the header says
@@ -1256,7 +1261,9 @@ test.describe("History mode: an App", () => {
 		await expect(
 			code.locator(".line-del", { hasText: "second version" }),
 		).toBeVisible();
-		await expect(region.getByTestId("history-change-count")).toContainText("1 /");
+		await expect(region.getByTestId("history-change-count")).toContainText(
+			"1 /",
+		);
 		// The next version selected comes up on the tab the reader was reading.
 		await options.first().click();
 		await expect(region.getByTestId("history-app-code")).toBeVisible();
@@ -1275,9 +1282,7 @@ test.describe("History mode: an App", () => {
 		await doneButton(page).click();
 		await expect(region).toHaveCount(0);
 		await expect(
-			page
-				.frameLocator("iframe.app-frame")
-				.getByTestId("app-heading"),
+			page.frameLocator("iframe.app-frame").getByTestId("app-heading"),
 		).toHaveText("Trip budget, first version");
 		expect(writes).toEqual([]);
 		expect(
@@ -1380,5 +1385,66 @@ test.describe("History mode: an App", () => {
 		await expect(options.nth(0)).toContainText("add a total");
 		await expect(options.nth(1)).toContainText("You undid it");
 		await expect(options.nth(2)).toContainText("Alfy built the app");
+	});
+});
+
+// ---- The library's last version number (VB-3) -------------------------------------
+
+test.describe("The library says what changed last", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+	});
+
+	test("an artifact row's Version cell says who changed it and when, never a number (ruling 76, Q2)", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "Library moments");
+		await seedDocument(conversationId, "Library plan reader", [
+			{
+				author: "alfy",
+				summary: "Alfy wrote the first draft",
+				markdown: "Friday\n\nArrive.",
+			},
+			{
+				author: "user",
+				summary: "Edited",
+				markdown: "Friday\n\nArrive early.",
+			},
+		]);
+		await seedDocument(conversationId, "Library plan alfy", [
+			{
+				author: "alfy",
+				summary: "Alfy wrote the first draft",
+				markdown: "Friday\n\nArrive.",
+			},
+			{
+				author: "alfy",
+				summary: "Moved the museum to Thursday",
+				markdown: "Friday\n\nArrive.\n\nThursday\n\nThe museum.",
+			},
+		]);
+
+		await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await page.getByRole("tab", { name: "Documents" }).click();
+
+		const readerRow = page.locator("tbody tr", {
+			hasText: "Library plan reader",
+		});
+		await expect(readerRow.locator(".col-version")).toContainText(
+			"Edited by you",
+		);
+		await expect(readerRow.locator(".col-version")).toContainText(
+			/just now|min ago/,
+		);
+		const alfyRow = page.locator("tbody tr", { hasText: "Library plan alfy" });
+		await expect(alfyRow.locator(".col-version")).toContainText(
+			"Changed by Alfy",
+		);
+		// No number anywhere in either row's Version cell.
+		for (const row of [readerRow, alfyRow]) {
+			await expect(row.locator(".col-version")).not.toContainText(/\bv\d/);
+		}
 	});
 });

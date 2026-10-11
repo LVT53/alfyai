@@ -966,12 +966,18 @@ describe("artifact-family rows", () => {
 					})),
 				};
 			}
-			// getArtifactVersionNumbers.
+			// getArtifactLatestVersions: the newest row of each artifact (its number, and
+			// the author and summary that say who made it and what it was).
 			return {
 				from: vi.fn(() => ({
 					where: vi.fn(() => ({
 						groupBy: vi.fn(async () => [
-							{ artifactId: "art-canvas-1", maxVersion: 3 },
+							{
+								artifactId: "art-canvas-1",
+								maxVersion: 3,
+								author: "alfy",
+								summary: "Moved the museum to Thursday",
+							},
 						]),
 					})),
 				})),
@@ -994,6 +1000,69 @@ describe("artifact-family rows", () => {
 			kind: "canvas",
 			artifactVersionNumber: 3,
 			normalizedAvailable: false,
+			// Who made the newest version and what it was (ruling 76, A1): what the
+			// library prints in place of a number.
+			lastAuthor: "alfy",
+			lastKind: "alfy_edit",
+		});
+	});
+
+	it("says the newest version was the reader's when the row's author is theirs, and says nothing when the row is not there", async () => {
+		const artifactRow = makeArtifactRow({
+			id: "art-doc-1",
+			userId: "user-1",
+			type: "artifact",
+			retrievalClass: "durable",
+			name: "Saturday plan",
+			conversationId: "conv-1",
+			metadataJson: JSON.stringify({ artifactType: "document" }),
+			createdAt: new Date("2026-04-05T10:00:00Z"),
+			updatedAt: new Date("2026-04-06T10:00:00Z"),
+		});
+		let selectCall = 0;
+		mockSelect.mockImplementation(() => {
+			selectCall += 1;
+			if (selectCall === 1) {
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(async () => [
+							{ id: "conv-1", memoryIncognito: false },
+						]),
+					})),
+				};
+			}
+			if (selectCall === 2) {
+				return {
+					from: vi.fn(() => ({
+						where: vi.fn(() => ({
+							limit: vi.fn(async () => [artifactRow]),
+						})),
+					})),
+				};
+			}
+			return {
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						groupBy: vi.fn(async () => [
+							{
+								artifactId: "art-doc-1",
+								maxVersion: 5,
+								author: "user",
+								summary: "Edited",
+							},
+						]),
+					})),
+				})),
+			};
+		});
+
+		const { getLogicalDocumentForArtifact } = await import("./documents");
+		const document = await getLogicalDocumentForArtifact("user-1", "art-doc-1");
+
+		expect(document).toMatchObject({
+			artifactVersionNumber: 5,
+			lastAuthor: "user",
+			lastKind: "user_edit",
 		});
 	});
 

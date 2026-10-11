@@ -1,5 +1,13 @@
 <script lang="ts">
-import { tick } from "svelte";
+import { onMount, tick } from "svelte";
+import { subscribeArtifactChanges } from "$lib/client/api/artifacts";
+import {
+	currentArtifactMoment,
+	NO_OBSERVED_ARTIFACT_MOMENTS,
+	type ObservedArtifactMoments,
+	observeArtifactMoment,
+} from "$lib/client/artifact-versions";
+import { latestMomentPhrase } from "$lib/components/artifacts/history/moment-phrase";
 import { createExtractionAnnouncer } from "$lib/client/extraction-announcements";
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
 import type { KnowledgeDocumentItem } from "./documents-table";
@@ -61,7 +69,7 @@ import {
 	canOpenDocument,
 	canRetryExtraction,
 	compareDocuments,
-	deriveArtifactVersionBadge,
+	deriveArtifactMoment,
 	DOCUMENT_TYPE_FILTER_ORDER,
 	deriveDocumentStatus,
 	deriveDocumentVersion,
@@ -73,6 +81,28 @@ import {
 	isExtractionInProgress,
 	nextSortDirection,
 } from "./documents-table";
+
+// The newest version of an artifact-family row says what happened last (ruling 76,
+// A1), and a save or an Alfy edit made in the panel opened from this table reaches
+// the row at once: the client API announces every version it hears of.
+let observedMoments = $state.raw<ObservedArtifactMoments>(
+	NO_OBSERVED_ARTIFACT_MOMENTS,
+);
+onMount(() =>
+	subscribeArtifactChanges((change) => {
+		if (change.type !== "version") return;
+		observedMoments = observeArtifactMoment(
+			observedMoments,
+			change.artifactId,
+			{
+				version: change.version,
+				at: change.updatedAt,
+				author: change.author,
+				kind: change.kind,
+			},
+		);
+	}),
+);
 
 // Version is a column but not a sort key: the server-side library sort
 // (see +page.server.ts) offers name/size/type/date only, and a client-side
@@ -1657,7 +1687,12 @@ async function handleBulkDelete(): Promise<boolean> {
 								? ARTIFACT_KIND_ICONS[document.kind]
 								: undefined}
 							{@const versionBadge = deriveDocumentVersion(document)}
-							{@const artifactVersionBadge = deriveArtifactVersionBadge(document)}
+							{@const artifactMoment = document.kind
+								? currentArtifactMoment(observedMoments, document.displayArtifactId, deriveArtifactMoment(document))
+								: null}
+							{@const momentPhrase = artifactMoment && document.kind
+								? latestMomentPhrase(document.kind, artifactMoment, $t)
+								: null}
 							{@const statusBadge = deriveDocumentStatus(document)}
 							{@const aiVersionAvailable = hasNormalisedVersion(document)}
 							{@const extracting = isExtractionInProgress(document)}
@@ -1720,8 +1755,8 @@ async function handleBulkDelete(): Promise<boolean> {
 										</div>
 										<div class="mobile-document-meta">
 											{#if document.kind}
-												{#if artifactVersionBadge.kind === 'artifact-version'}
-													<span class="version-badge">v{artifactVersionBadge.versionNumber}</span>
+												{#if momentPhrase}
+													<span class="moment-chip" title={momentPhrase.text}>{momentPhrase.text}</span>
 												{/if}
 											{:else}
 												{#if versionBadge.kind === 'original'}
@@ -1747,8 +1782,14 @@ async function handleBulkDelete(): Promise<boolean> {
 								</td>
 								<td class="col-version" data-mobile-label={$t('knowledge.version')}>
 									{#if document.kind}
-										{#if artifactVersionBadge.kind === 'artifact-version'}
-											<span class="version-badge">v{artifactVersionBadge.versionNumber}</span>
+										{#if momentPhrase}
+											<!-- What happened last and when, never a number (ruling 76, A1). -->
+											<span class="moment" title={momentPhrase.text}>
+												<span class="moment-headline">{momentPhrase.headline}</span>
+												{#if momentPhrase.when}
+													<span class="moment-when">{momentPhrase.when}</span>
+												{/if}
+											</span>
 										{:else}
 											<span class="cell-blank" aria-hidden="true">—</span>
 										{/if}
@@ -2623,7 +2664,7 @@ async function handleBulkDelete(): Promise<boolean> {
 	   and columns fixed in rem would leave the name a sliver at the narrow
 	   end. Percentages shrink together and always leave the name the rest. */
 	.col-version {
-		width: 8%;
+		width: 11%;
 	}
 
 	.col-type {
@@ -2755,6 +2796,30 @@ async function handleBulkDelete(): Promise<boolean> {
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+	}
+
+	/* What happened to an artifact last, where a file family's "v3" would stand: the
+	   headline and, under it, when. It wraps (the cell is narrow, the phrase is a
+	   sentence), and the full phrase is its tooltip. */
+	.moment {
+		display: flex;
+		flex-direction: column;
+		gap: 0.0625rem;
+		min-width: 0;
+		white-space: normal;
+		line-height: 1.25;
+		font-size: 0.75rem;
+	}
+
+	.moment-headline {
+		color: var(--text-primary);
+		font-weight: 500;
+		overflow-wrap: anywhere;
+	}
+
+	.moment-when {
+		color: var(--text-muted);
+		font-size: 0.6875rem;
 	}
 
 	.original-badge {
