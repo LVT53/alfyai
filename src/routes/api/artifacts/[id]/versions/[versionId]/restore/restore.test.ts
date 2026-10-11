@@ -14,6 +14,7 @@ function makeEvent(
 	versionId = "version-1",
 	userId: string | null = "owner-user",
 	conversationId: string | null = null,
+	body?: unknown,
 ) {
 	const query = conversationId
 		? `?conversationId=${encodeURIComponent(conversationId)}`
@@ -24,6 +25,13 @@ function makeEvent(
 			`http://localhost/api/artifacts/${id}/versions/${versionId}/restore${query}`,
 		),
 		locals: { user: userId ? { id: userId, role: "user" } : undefined },
+		// Older callers send no body at all.
+		request: {
+			json: async () => {
+				if (body === undefined) throw new SyntaxError("no body");
+				return body;
+			},
+		},
 	} as never;
 }
 
@@ -51,7 +59,11 @@ describe("POST /api/artifacts/[id]/versions/[versionId]/restore", () => {
 		);
 
 		expect(response.status).toBe(200);
-		await expect(response.json()).resolves.toEqual({ ok: true, version: 4 });
+		await expect(response.json()).resolves.toEqual({
+			ok: true,
+			version: 4,
+			versionId: "version-new",
+		});
 		expect(mockRestoreVersion).toHaveBeenCalledWith({
 			userId: "owner-user",
 			artifactId: "artifact-1",
@@ -82,5 +94,81 @@ describe("POST /api/artifacts/[id]/versions/[versionId]/restore", () => {
 			ok: false,
 			reason: "no_body",
 		});
+	});
+	it("forwards the history page's expectVersion and the toast's undoOf", async () => {
+		mockRestoreVersion.mockResolvedValue({
+			ok: true,
+			versionId: "version-new",
+			versionNumber: 5,
+		});
+
+		await POST(
+			makeEvent("artifact-1", "version-1", "owner-user", null, {
+				expectVersion: 4,
+				undoOf: 4,
+			}),
+		);
+
+		expect(mockRestoreVersion).toHaveBeenCalledWith({
+			userId: "owner-user",
+			artifactId: "artifact-1",
+			versionId: "version-1",
+			conversationId: null,
+			expectVersion: 4,
+			undoOf: 4,
+		});
+	});
+
+	it("answers 409 version_conflict when the artifact moved past what the reader saw", async () => {
+		mockRestoreVersion.mockResolvedValue({
+			ok: false,
+			reason: "version_conflict",
+		});
+
+		const response = await POST(
+			makeEvent("artifact-1", "version-1", "owner-user", null, {
+				expectVersion: 2,
+			}),
+		);
+
+		expect(response.status).toBe(409);
+		await expect(response.json()).resolves.toEqual({
+			ok: false,
+			reason: "version_conflict",
+		});
+	});
+
+	it("answers 400 invalid_undo for an undo that is not of the newest row", async () => {
+		mockRestoreVersion.mockResolvedValue({ ok: false, reason: "invalid_undo" });
+
+		const response = await POST(
+			makeEvent("artifact-1", "version-1", "owner-user", null, { undoOf: 1 }),
+		);
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			ok: false,
+			reason: "invalid_undo",
+		});
+	});
+
+	it("answers 400 invalid_request, calling nothing, for a field that is not a whole number of at least one", async () => {
+		for (const body of [
+			{ expectVersion: "2" },
+			{ expectVersion: 0 },
+			{ undoOf: 1.5 },
+			{ undoOf: -3 },
+			{ expectVersion: null },
+		]) {
+			const response = await POST(
+				makeEvent("artifact-1", "version-1", "owner-user", null, body),
+			);
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toEqual({
+				ok: false,
+				reason: "invalid_request",
+			});
+		}
+		expect(mockRestoreVersion).not.toHaveBeenCalled();
 	});
 });

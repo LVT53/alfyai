@@ -25,11 +25,13 @@ import {
 } from "$lib/server/services/knowledge/store/core";
 import { deleteSemanticEmbeddingsForSubjects } from "$lib/server/services/semantic-embeddings";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import { classifyVersionSummary } from "$lib/shared/artifacts/version-summaries";
 import { deleteBoardPosters } from "./canvas-posters";
 import { hashArtifactBody } from "./hash";
 import {
 	ARTIFACT_BODY_MAX_BYTES,
 	ARTIFACT_TITLE_MAX_CHARS,
+	ARTIFACT_USER_BURST_MAX_MS,
 	ARTIFACT_USER_VERSION_COALESCE_MS,
 	ARTIFACT_VERSION_SUMMARY_MAX_CHARS,
 } from "./limits";
@@ -231,6 +233,8 @@ function insertVersionRow(
 			body: version.body,
 			bodyHash: version.bodyHash,
 			createdAt: version.createdAt,
+			// A burst's first save: a coalesced update moves `createdAt` and never this.
+			startedAt: version.createdAt,
 		})
 		.run();
 	return id;
@@ -239,11 +243,20 @@ function insertVersionRow(
 function newestVersion(
 	tx: ArtifactTransaction | typeof db,
 	artifactId: string,
-): { versionNumber: number; bodyHash: string } | undefined {
+):
+	| {
+			versionNumber: number;
+			bodyHash: string;
+			author: string;
+			summary: string;
+	  }
+	| undefined {
 	return tx
 		.select({
 			versionNumber: artifactVersions.versionNumber,
 			bodyHash: artifactVersions.bodyHash,
+			author: artifactVersions.author,
+			summary: artifactVersions.summary,
 		})
 		.from(artifactVersions)
 		.where(eq(artifactVersions.artifactId, artifactId))
@@ -399,6 +412,15 @@ export async function getArtifact(
 		.where(eq(artifactComments.artifactId, row.id));
 	const kind = kindForArtifactRow(row);
 	const title = titleForArtifactRow(row);
+	// Who made the newest version and what kind of moment it was (ruling 76, A1),
+	// read off its author and summary alone, as the card summary does.
+	const latest = newest
+		? classifyVersionSummary({
+				author: newest.author === "alfy" ? "alfy" : "user",
+				summary: newest.summary,
+				versionNumber: newest.versionNumber,
+			})
+		: null;
 
 	return {
 		id: row.id,
@@ -406,6 +428,7 @@ export async function getArtifact(
 		title,
 		conversationId: row.conversationId ?? null,
 		versionNumber: newest?.versionNumber ?? 0,
+		...(latest ? { lastAuthor: latest.actor, lastKind: latest.kind } : {}),
 		commentCount: comments?.total ?? 0,
 		updatedAt: row.updatedAt.getTime(),
 		body: row.contentText ?? null,
@@ -537,11 +560,13 @@ export async function updateArtifactBody(
 
 		const now = new Date();
 
-		// Ruling 47: a user-authored save updates the latest version IN PLACE
-		// (same version number) when that latest version is also the user's and
-		// was created less than ARTIFACT_USER_VERSION_COALESCE_MS ago. Every
-		// Alfy change, restore and creation still always appends — this is the
-		// coalescing path's only entry, and it never applies to them.
+		// Ruling 47 as amended by ruling 76 (A2): a user-authored save updates the
+		// latest version IN PLACE (same version number) when that latest version is
+		// also the user's, was last saved less than ARTIFACT_USER_VERSION_COALESCE_MS
+		// ago, has no name the reader gave it, and its burst began less than
+		// ARTIFACT_USER_BURST_MAX_MS ago. Every Alfy change, restore and creation
+		// still always appends — this is the coalescing path's only entry, and it
+		// never applies to them.
 		//
 		// "Also the user's" is not enough on its own: a restore is authored
 		// `user`, and so is a document the user created ("Save as new"), and the
@@ -561,6 +586,8 @@ export async function updateArtifactBody(
 						author: artifactVersions.author,
 						summary: artifactVersions.summary,
 						createdAt: artifactVersions.createdAt,
+						startedAt: artifactVersions.startedAt,
+						label: artifactVersions.label,
 					})
 					.from(artifactVersions)
 					.where(
@@ -576,8 +603,15 @@ export async function updateArtifactBody(
 			params.author === "user" &&
 			latestVersionRow?.author === "user" &&
 			latestVersionRow.summary === summary &&
+			// A name is the reader's claim about those exact words: typing on
+			// starts a version of its own, and the named one stays as it was.
+			latestVersionRow.label === null &&
 			now.getTime() - latestVersionRow.createdAt.getTime() <
-				ARTIFACT_USER_VERSION_COALESCE_MS;
+				ARTIFACT_USER_VERSION_COALESCE_MS &&
+			// A row from before `started_at` existed has no burst start to measure.
+			(latestVersionRow.startedAt === null ||
+				now.getTime() - latestVersionRow.startedAt.getTime() <
+					ARTIFACT_USER_BURST_MAX_MS);
 
 		let versionId: string;
 		let versionNumber: number;

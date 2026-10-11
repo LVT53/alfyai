@@ -22,6 +22,7 @@ import type { DocumentBlock } from "$lib/shared/artifact-document/blocks";
 import type { PatchOp, PatchSet } from "$lib/shared/artifact-document/patch";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
 import { canvasAnchorResolver } from "$lib/shared/artifacts/comments";
+import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { sendJsonControlMessage } from "../normal-chat-control-model";
 import { runCanvasAlfyReply } from "./canvas-comments";
 import {
@@ -649,7 +650,7 @@ export async function runAlfyCommentReply(
 	}));
 	const patch: PatchSet = {
 		patchId: `alfy-comment-${rootId}`,
-		label: "Alfy's comment reply",
+		label: VERSION_SUMMARY.alfyCommentReply,
 		ops,
 	};
 

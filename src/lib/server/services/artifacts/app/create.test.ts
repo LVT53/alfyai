@@ -74,6 +74,31 @@ describe("createAppFromBrief — the happy path", () => {
 		);
 	});
 
+	it("says what its first version is, from the shared vocabulary: built from the brief, or made again under an old id", async () => {
+		generateAndVerifyApp.mockResolvedValue(verifiedOutcome());
+		createArtifact.mockResolvedValue({
+			ok: true,
+			artifact: { id: "artifact-1", title: "Trip cost splitter" },
+		});
+
+		await createAppFromBrief(baseInput());
+		expect(createArtifact).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				versionSummary:
+					"Alfy made the app: Split costs between three friends on a trip.",
+			}),
+		);
+
+		// Regenerate (polish G2-A) is the one caller that hands in an id.
+		await createAppFromBrief(baseInput({ artifactId: "artifact-1" }));
+		expect(createArtifact).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				id: "artifact-1",
+				versionSummary: "Alfy made it again",
+			}),
+		);
+	});
+
 	it("passes the model's own title into generation, so it wins over any derived <title>/<h1>", async () => {
 		generateAndVerifyApp.mockResolvedValue(verifiedOutcome());
 		createArtifact.mockResolvedValue({

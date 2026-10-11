@@ -2,7 +2,7 @@
 // panel's "what this chat made" list and, by its length, the header count.
 // Both come from here and from nowhere else, through the conversation detail
 // payload the chat page already refreshes after a file-producing turn.
-import { and, count, desc, eq, inArray, max } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { selectInBatches } from "$lib/server/db/id-batches";
 import {
@@ -20,6 +20,7 @@ import {
 	readTaskBlock,
 } from "$lib/shared/artifact-document/blocks";
 import { normalizeCanvasBody } from "$lib/shared/artifacts/canvas-body";
+import { classifyVersionSummary } from "$lib/shared/artifacts/version-summaries";
 import { computeCanvasPendingReviewCounts } from "./canvas-review";
 import {
 	computeDocumentPendingReviewCounts,
@@ -208,14 +209,22 @@ export async function listArtifactsForConversation(params: {
 		documentReviewCountById,
 		canvasReviewCountById,
 	] = await Promise.all([
+		// The newest row of each artifact: its number, and the author and summary
+		// that say what the latest moment was (amendment A1).
 		db
 			.select({
 				artifactId: artifactVersions.artifactId,
-				newest: max(artifactVersions.versionNumber),
+				versionNumber: artifactVersions.versionNumber,
+				author: artifactVersions.author,
+				summary: artifactVersions.summary,
 			})
 			.from(artifactVersions)
-			.where(inArray(artifactVersions.artifactId, ids))
-			.groupBy(artifactVersions.artifactId),
+			.where(
+				and(
+					inArray(artifactVersions.artifactId, ids),
+					sql`${artifactVersions.versionNumber} = (SELECT max(newest.version_number) FROM artifact_versions newest WHERE newest.artifact_id = ${artifactVersions.artifactId})`,
+				),
+			),
 		db
 			.select({
 				artifactId: artifactComments.artifactId,
@@ -231,8 +240,8 @@ export async function listArtifactsForConversation(params: {
 		...documentReviewCountById,
 		...canvasReviewCountById,
 	]);
-	const newestVersionById = new Map(
-		versionRows.map((row) => [row.artifactId, row.newest ?? 0]),
+	const newestRowById = new Map(
+		versionRows.map((row) => [row.artifactId, row]),
 	);
 	const commentCountById = new Map(
 		commentRows.map((row) => [row.artifactId, row.total]),
@@ -240,12 +249,21 @@ export async function listArtifactsForConversation(params: {
 
 	return listed.map((row) => {
 		const kind = kindForArtifactRow(row);
+		const newestRow = newestRowById.get(row.id);
+		const latest = newestRow
+			? classifyVersionSummary({
+					author: newestRow.author === "alfy" ? "alfy" : "user",
+					summary: newestRow.summary,
+					versionNumber: newestRow.versionNumber,
+				})
+			: null;
 		return {
 			id: row.id,
 			kind,
 			title: titleForArtifactRow(row),
 			conversationId: row.conversationId ?? null,
-			versionNumber: newestVersionById.get(row.id) ?? 0,
+			versionNumber: newestRow?.versionNumber ?? 0,
+			...(latest ? { lastAuthor: latest.actor, lastKind: latest.kind } : {}),
 			commentCount: commentCountById.get(row.id) ?? 0,
 			updatedAt: row.updatedAt.getTime(),
 			...(kind === "document"

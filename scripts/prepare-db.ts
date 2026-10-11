@@ -100,6 +100,8 @@ const requiredExistingTables = [
 ];
 
 const requiredExistingColumns: Array<[string, string]> = [
+	["artifact_versions", "started_at"],
+	["artifact_versions", "label"],
 	["conversations", "project_id"],
 	["conversations", "status"],
 	["conversations", "sealed_at"],

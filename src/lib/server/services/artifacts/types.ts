@@ -7,6 +7,7 @@
 // server callers still have one import site.
 
 import type { Anchor } from "$lib/shared/artifacts/anchor";
+import type { MomentAuthor, MomentKind } from "$lib/shared/artifacts/history";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 
 export type { Anchor } from "$lib/shared/artifacts/anchor";
@@ -110,6 +111,15 @@ export interface ArtifactCardSummary {
 	conversationId: string | null;
 	/** The newest version's number; 0 for a row with no version yet. */
 	versionNumber: number;
+	/**
+	 * Who made the newest version and what kind of moment it was (ruling 76,
+	 * amendment A1): the header, the list row and the chat card say "Edited by
+	 * you" or "Changed by Alfy" from these. Read off the newest row's author and
+	 * summary alone, so a lone ticked task reads `user_edit` here; History, which
+	 * diffs, says `tick`. Absent for a row with no version yet.
+	 */
+	lastAuthor?: MomentAuthor;
+	lastKind?: MomentKind;
 	commentCount: number;
 	updatedAt: number;
 	documentPreview?: DocumentCardPreview;

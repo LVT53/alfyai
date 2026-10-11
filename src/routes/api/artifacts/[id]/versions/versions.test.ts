@@ -15,10 +15,11 @@ function makeEvent(
 	id = "artifact-1",
 	userId: string | null = "owner-user",
 	conversationId: string | null = null,
+	search = "",
 ) {
-	const query = conversationId
-		? `?conversationId=${encodeURIComponent(conversationId)}`
-		: "";
+	const params = new URLSearchParams(search);
+	if (conversationId) params.set("conversationId", conversationId);
+	const query = params.size > 0 ? `?${params.toString()}` : "";
 	return {
 		params: { id },
 		url: new URL(`http://localhost/api/artifacts/${id}/versions${query}`),
@@ -93,5 +94,35 @@ describe("GET /api/artifacts/[id]/versions", () => {
 			artifactId: "artifact-1",
 			conversationId: "conv-1",
 		});
+	});
+
+	it("pages with before and limit (ruling 47: history is paged)", async () => {
+		mockGetArtifact.mockResolvedValue(artifactFixture);
+		mockListVersions.mockResolvedValue([]);
+
+		await GET(makeEvent("artifact-1", "owner-user", null, "before=7&limit=3"));
+
+		expect(mockListVersions).toHaveBeenCalledWith({
+			userId: "owner-user",
+			artifactId: "artifact-1",
+			conversationId: null,
+			before: 7,
+			limit: 3,
+		});
+	});
+
+	it("answers 400 for a malformed before or limit, looking nothing up", async () => {
+		for (const search of ["before=x", "before=0", "limit=-1", "limit=1.5"]) {
+			const response = await GET(
+				makeEvent("artifact-1", "owner-user", null, search),
+			);
+			expect(response.status, search).toBe(400);
+			await expect(response.json()).resolves.toEqual({
+				ok: false,
+				reason: "invalid_request",
+			});
+		}
+		expect(mockGetArtifact).not.toHaveBeenCalled();
+		expect(mockListVersions).not.toHaveBeenCalled();
 	});
 });

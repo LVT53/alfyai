@@ -11,6 +11,7 @@ import {
 	updateMessageDocumentLink,
 } from "$lib/server/services/messages";
 import { inlinePlainText } from "$lib/shared/artifact-document/blocks";
+import { VERSION_SUMMARY } from "$lib/shared/artifacts/version-summaries";
 import { createDocumentArtifact } from "./document-ops";
 import { getArtifact } from "./record";
 
@@ -73,7 +74,7 @@ async function keepOnce(params: {
 		title: deriveTitle(message.content, params.conversationTitle),
 		markdown: message.content,
 		author: "alfy",
-		summary: "Kept from a chat reply",
+		summary: VERSION_SUMMARY.keptFromChat,
 	});
 	await updateMessageDocumentLink(params.messageId, created.id);
 	return {

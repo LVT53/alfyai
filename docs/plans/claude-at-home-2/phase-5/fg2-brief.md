@@ -10,26 +10,23 @@ first.
 
 ## Where FG stopped
 
-- **Committed:** `cae39413` (step 1: the chat route held by a closure rule instead of a byte baseline), `462096c2`
-  (step 2: a server and a database file per worker slot, on the production build), `913a8b89` (the fake-provider and
-  lazy-chunk specs agree with a production build).
-- **Uncommitted in the worktree, unreviewed** (left exactly as FG left it mid-edit): `scripts/gates.sh`,
-  `scripts/gates.mjs`, `scripts/gates.test.ts`, `tests/e2e/quarantine.json`, `tests/e2e/quarantine.ts`,
-  `tests/integration/e2e-quarantine.test.ts`, and edits to `playwright.config.ts`, `tests/e2e/e2e-env.ts`,
-  `tests/e2e/e2e-servers.ts`, `tests/integration/e2e-slots.test.ts`, `tests/e2e/artifact-canvas-helpers.ts`,
-  `artifact-chat-card.spec.ts`, `artifact-document.spec.ts`, `artifact-panel-swap.spec.ts`, `artifact-versions.spec.ts`.
-  Its last words: "Now apply the `@smoke` tags via a script keyed by file and exact title."
+- **Committed, in order:** `cae39413` (step 1: the chat route held by a closure rule instead of a byte baseline),
+  `462096c2` (step 2: a server and a database file per worker slot, on the production build), `913a8b89` (the
+  fake-provider and lazy-chunk specs agree with a production build), `3477a490` (the gate runner, the quarantine list
+  and the `@smoke` tier; fixes from parallel runs), `eaf65d1a` (the live-edit specs get an empty conversation). The
+  worktree is clean. Its last words, a minute before the halt: "Now apply the `@smoke` tags via a script keyed by file
+  and exact title", so the smoke set may be incomplete.
 - No measurement of the "after" exists yet, and no report.
 
 ## What to do
 
-1. **Review the work in the worktree before building on it** (`git log -p cae39413^..913a8b89 --stat`, `git diff`): does
-   step 1's closure rule really forbid what the brief names and pass on today's build; does step 2 give each worker its
-   own server, database and on-disk state; are the spec edits real fixes (no weakened assertion, no blanket wait)?
-   Fix what is wrong, then commit the uncommitted work in coherent steps once each works.
-2. **Finish step 3** as FG's brief says: the gate runner's `release` and `agent` modes with durations, the quarantine
-   list with reasons, the `@smoke` set (15–25 tests, under three minutes on the build) and `npm run test:e2e:smoke`,
-   AGENTS.md's "Mandatory Verification" lines.
+1. **Review FG's five commits before building on them** (`git log --stat cae39413^..eaf65d1a`, then the diffs by
+   file): does step 1's closure rule really forbid what the brief names and pass on today's build; does step 2 give
+   each worker its own server, database and on-disk state; are the spec edits real fixes (no weakened assertion, no
+   blanket wait); does the runner do what FG's brief asks? Fix what is wrong, in commits of your own.
+2. **Finish step 3** as FG's brief says, checking each part FG started: the gate runner's `release` and `agent`
+   modes with durations, the quarantine list with reasons, the `@smoke` set (15–25 tests across the main flows, under
+   three minutes on the build) and `npm run test:e2e:smoke`, AGENTS.md's "Mandatory Verification" lines.
 3. **Measure the "after"**: `scripts/gates.sh release` twice, plus one whole-suite run; stability three times at the
    chosen worker count. Other agents share this Mac (a versioning server agent on ports 5400–5409, later a History UI
    agent on 5420–5429): note the load (`uptime`) with each timing.
