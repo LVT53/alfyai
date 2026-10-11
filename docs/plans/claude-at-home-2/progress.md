@@ -997,3 +997,17 @@ UI (ruling 72 confirmed). The model server's downtime this afternoon was the own
   parallel, then the friction audit, then the build from both; Slides stays on ice. Hand-off:
   `docs/plans/claude-at-home-2/phase-5-handoff.md`.
 
+
+## Phase 5 — followable versions, fast gates, the friction audit, the build (orchestrator session of 2026-10-11)
+
+Start: `dev` = `origin/dev` = ai.dev = `7cb27654`; `feat/artifacts` = `3751bfc8` (= `dev` + docs). Weekly budget (all
+models) **62 %** (resets 2026-10-12 09:00 UTC); 5-hour window 9 % (resets 14:59 UTC). Rules for agents:
+`phase-5/common.md` (on top of `wave-3/common.md` and `wave-4/common.md`); briefs `phase-5/*-brief.md`; reports land in
+this session's scratchpad `p5/` and are copied to `phase-5/` at merge. First milestone (owner): the versioning mockup for
+the owner's review, with the fast gates measured before and after.
+
+| Agent | Scope | Branch / worktree (port) | State |
+|---|---|---|---|
+| VD | **Opus** versioning design pass: a spec + click-through mockup of a history a person can follow (Document, App, Canvas); server vs presentation; owner questions with recommendations | `design/artifacts-versioning` / `art-vd` (5440) | running |
+| VC | capture today's versioning for VD: every path that writes a version, realistic histories, ≤14 screenshots, a confusion log (report only) | detached / `art-vc` (5410) | running |
+| FG | fast gates: the chat route's closure check replaces its byte baseline; e2e on the production build with a server and DB per worker; `scripts/gates.sh` (release/agent), `@smoke`, a quarantine list; before/after | `infra/fast-gates` / `art-fg` (5450–5469) | running |
