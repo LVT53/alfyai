@@ -30,7 +30,7 @@ import {
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
-import { createConversation, login, sendMessage } from "./helpers";
+import { createEmptyConversation, login, sendMessage } from "./helpers";
 
 // Alfy's change to a board, seen and decided (Feature 2 · Artifacts, Slice 3, T6
 // and ruling 63). A REAL `edit_artifact` call on a board, driven through the real
@@ -143,7 +143,7 @@ async function open(
 ): Promise<Scene> {
 	await login(page);
 	const previousPreference = await snapshotUserModelPreference(page);
-	const conversationId = await createConversation(page, "Board review");
+	const conversationId = await createEmptyConversation(page);
 	const userId = await testUserId();
 	const created = await createArtifact({
 		userId,

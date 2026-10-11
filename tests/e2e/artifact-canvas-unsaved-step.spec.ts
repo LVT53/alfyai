@@ -31,7 +31,7 @@ import {
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
 import { moduleUrlPattern } from "./build-assets";
-import { createConversation, login, sendMessage } from "./helpers";
+import { createEmptyConversation, login, sendMessage } from "./helpers";
 
 // A step the reader has not saved yet, and Alfy's change to the same board (Feature
 // 2 · Canvas, RV-3 I2). Alfy's version is written by the server while the reader's
@@ -107,7 +107,7 @@ type Scene = {
 async function open(page: Page): Promise<Scene> {
 	await login(page);
 	const previousPreference = await snapshotUserModelPreference(page);
-	const conversationId = await createConversation(page, "A board");
+	const conversationId = await createEmptyConversation(page);
 	const userId = await testUserId();
 	const created = await createArtifact({
 		userId,
@@ -139,7 +139,7 @@ async function open(page: Page): Promise<Scene> {
 /** A board made through the service, and the chat open on it: no model, for the tests that write Alfy's version themselves. */
 async function openBoardOnly(page: Page): Promise<Scene> {
 	await login(page);
-	const conversationId = await createConversation(page, "A board");
+	const conversationId = await createEmptyConversation(page);
 	const userId = await testUserId();
 	const created = await createArtifact({
 		userId,

@@ -115,33 +115,31 @@ export async function sendMessage(page: Page, text: string) {
 }
 
 /**
- * Lets a conversation made through the UI finish its first turn before the page
- * is reloaded. The first message goes out before a spec has set up its model, so
- * it is a turn to the unreachable default model: the chat page takes it from
- * sessionStorage when it mounts and the turn fails a few hundred ms later. A
- * reload that lands in the middle of it reattaches to a turn that then never
- * ends (the stop button stays, `networkidle` is never reached, the test times
- * out), and a production build, where pages mount fast, lands there now and
- * then. If the page never takes the message (a slow page), the helpers' own
- * clearing of it does what it always did.
+ * A conversation with no messages: what the landing page prepares as a draft
+ * before the first send (`POST /api/conversations`), without the send. A spec
+ * that only needs a conversation to put things in uses this, not
+ * `createConversation`: that one's first message goes to whatever model the
+ * server has (on the e2e servers an unreachable one) and the chat page sends it
+ * when it mounts, a few hundred ms after the URL changes. That turn then races
+ * everything the spec does next: it fails (so the chat remembers the model it
+ * was sent with for this conversation, over the profile default the spec has
+ * just changed), it shows the context ring, and a reload that lands in the
+ * middle of it reattaches to a turn that never ends. A slow dev server hid all
+ * of it; a production build, where the page mounts fast, does not.
  */
-export async function settleFirstTurn(page: Page, conversationId: string) {
-	const taken = await page
-		.waitForFunction(
-			(id) =>
-				window.sessionStorage.getItem(`pending-chat-message:${id}`) === null,
-			conversationId,
-			{ timeout: 3_000 },
-		)
-		.then(() => true)
-		.catch(() => false);
-	if (!taken) return;
-	await expect(page.getByTestId("stop-button")).toHaveCount(0, {
-		timeout: 20_000,
-	});
-	await expect(page.getByTestId("send-button")).toBeAttached({
-		timeout: 20_000,
-	});
+export async function createEmptyConversation(
+	page: Page,
+	title?: string,
+): Promise<string> {
+	return page.evaluate(async (name) => {
+		const result = await fetch("/api/conversations", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(name === undefined ? {} : { title: name }),
+		});
+		if (!result.ok) throw new Error(`create conversation ${result.status}`);
+		return ((await result.json()) as { id: string }).id;
+	}, title);
 }
 
 export async function waitForAssistantResponse(page: Page, timeout = 30000) {

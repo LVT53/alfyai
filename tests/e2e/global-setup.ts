@@ -17,6 +17,7 @@ import {
 	startSlotServer,
 	stopSlotServers,
 } from "./e2e-servers";
+import { acquireRunLock } from "./run-lock";
 
 /**
  * One server and one database per worker slot, made before the first test.
@@ -40,6 +41,9 @@ export default async function globalSetup(config: FullConfig) {
 
 	if (mode === "build") assertBuildIsFresh();
 	mkdirSync(join(process.cwd(), "data"), { recursive: true });
+	// Runs share the databases and build/: one at a time per worktree.
+	const releaseLock = acquireRunLock(slots.map((slot) => e2ePort(slot)));
+	process.once("exit", releaseLock);
 
 	const started: SlotServer[] = [];
 	killServersOnExit(started);
@@ -70,6 +74,7 @@ export default async function globalSetup(config: FullConfig) {
 		);
 	} catch (error) {
 		await stopSlotServers(started);
+		releaseLock();
 		throw error;
 	}
 
@@ -80,5 +85,6 @@ export default async function globalSetup(config: FullConfig) {
 	);
 	return async () => {
 		await stopSlotServers(started);
+		releaseLock();
 	};
 }

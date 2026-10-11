@@ -777,9 +777,22 @@ Run targeted Playwright coverage when changing:
 - login/search/shell regressions
   - `npx playwright test tests/e2e/login.test.ts tests/e2e/search-modal.spec.ts`
 
+Playwright runs in tiers (the owner's speed rule), against the **production build**, with one server and one SQLite file per worker slot: slot N is Playwright's `TEST_PARALLEL_INDEX` N, served on `E2E_PORT + N` with `data/playwright-e2e-chat-wN.db` and its own seeded admin, so spec files run side by side without meeting each other's rows. `tests/e2e/e2e-env.ts` is the one place that says what a slot is, `tests/e2e/global-setup.ts` makes the databases and starts the servers, `playwright.config.ts` points each worker at its slot. Build first (`npm run build`, about 15 s alone); a build older than `src/` is refused before any server starts, because a spec run against an old build makes a fix look like it failed.
+
+- **Iterating on UI code** (a rebuild per change would be slower): `E2E_SERVER=dev E2E_PORT=<port> npx playwright test <spec>`: `vite dev`, one worker by default, one optimizer cache per server.
+- **One or two specs on the build:** `E2E_PORT=<port> E2E_WORKERS=2 npx playwright test <spec> [<spec>]`. Beside one or two other agents use `E2E_WORKERS=4` at most; a run takes `E2E_WORKERS` ports from `E2E_PORT`.
+- **The smoke tier** (about 25 tests tagged `@smoke` across sign in, chat and streaming, each artifact kind in the panel, a Document edit and its version, a Canvas block, a tour, knowledge, settings and projects; about 30 s): `E2E_PORT=<port> npm run test:e2e:smoke`.
+- **An agent's final run, once:** `scripts/gates.sh agent <out-dir> --port <port> <your specs...>` runs every static gate (check, biome, migrations, vitest, build, the chunk check, Fallow against the baseline), then your specs in full plus the `@smoke` tests of every other file, and prints one screen with each step's exit code, numbers and duration.
+- **The release gate:** `scripts/gates.sh release <out-dir>` runs the same static gates, then the whole Playwright suite minus `tests/e2e/quarantine.json`. A new spec joins the gate by existing; a spec or test leaves it only through the quarantine list, by name, with its reason (a unit test refuses an entry without one).
+- A flaky test is a bug in the test or the app: find the cause (shared state, a measurement taken mid-animation: `waitForStableBoundingBox`, `waitForMotionToSettle`, `expectTopmost` in `tests/e2e/helpers.ts`). Never a blanket retry, a longer global timeout or a weaker assertion. State a spec leaves behind (an admin override, a setting) belongs in that spec's cleanup: workers keep their database from one file to the next.
+- A spec that makes a conversation only to put things in it uses `createEmptyConversation` (no first message, so no first turn to a model the server cannot reach racing everything after it), not `createConversation`.
+- Only one e2e run per worktree at a time (they share the databases and `build/`); a second one is refused with the holder's process id.
+
 Playwright note:
-- E2E runs set `PLAYWRIGHT_TEST=1`.
+- E2E runs set `PLAYWRIGHT_TEST=1` and `HOME_SUMMARY_CACHE_TTL_MS=0` on every server.
 - In that mode, [`src/routes/api/conversations/[id]/title/+server.ts`](./src/routes/api/conversations/[id]/title/+server.ts) short-circuits and returns `title: null` so browser tests do not depend on a live title-generator service.
+- Each server's log is `data/e2e-servers/slot-N.log`, every line with the seconds since that server started: a failing spec's server-side story is there. `PLAYWRIGHT_REUSE_EXISTING_SERVER=true` uses a server already listening on a slot's port (its database is reset in place); without it a busy port is an error.
+- A spec that matches a request for a lazily loaded module by its source path (`vite dev` serves `/src/lib/...`) must ask `moduleUrlPattern` in `tests/e2e/build-assets.ts`: the build serves hashed chunks, which its manifest names.
 
 Run these too when relevant:
 

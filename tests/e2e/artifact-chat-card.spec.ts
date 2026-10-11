@@ -18,10 +18,9 @@ import {
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
-	createConversation,
+	createEmptyConversation,
 	login,
 	sendMessage,
-	settleFirstTurn,
 	workspacePanel,
 } from "./helpers";
 
@@ -193,17 +192,8 @@ async function deleteTemporaryProvider(
  * client-side consume-on-mount logic.
  */
 async function openChatAndReload(page: Page, conversationId: string) {
-	await settleFirstTurn(page, conversationId);
 	await page.evaluate((id) => {
 		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
-		// The first message (sent to get a conversation id, before the fake
-		// provider was configured) went out on the default model, and the chat
-		// remembers the model a conversation's turn was sent with, which then wins
-		// over the profile default this spec has just changed. Whether that first
-		// send has run by now is a race the page wins or loses by how fast it
-		// loads (a production build wins it, `vite dev` mostly lost it), so
-		// forget the memory: the conversation takes the profile default.
-		window.sessionStorage.removeItem(`conversation-model:${id}`);
 	}, conversationId);
 	await page.goto(`/chat/${conversationId}`);
 	await page.reload({ waitUntil: "networkidle" });
@@ -229,7 +219,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 	}, async ({ page }) => {
 		// Found flaky by the orchestrator (~1 run in 3), failing at two
 		// different points across runs: once at toBeEnabled() on
-		// message-input (inside login()/createConversation(), both near the
+		// message-input (inside login()/createEmptyConversation(), both near the
 		// very start), once waiting for the Document workspace text (near the
 		// very end). Two disparate failure points on the SAME test point at
 		// one shared cause rather than a logic race at either spot: this test
@@ -260,7 +250,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 		} | null = null;
 
 		try {
-			const conversationId = await createConversation(page, "Plan a weekend");
+			const conversationId = await createEmptyConversation(page);
 
 			temporaryProvider = await createTemporaryFakeProviderModel(
 				page,
@@ -356,7 +346,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 		} | null = null;
 
 		try {
-			const conversationId = await createConversation(page, "Plan a weekend");
+			const conversationId = await createEmptyConversation(page);
 			temporaryProvider = await createTemporaryFakeProviderModel(
 				page,
 				fakeProvider.baseURL,
@@ -416,7 +406,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 		} | null = null;
 
 		try {
-			const conversationId = await createConversation(page, "Plan a weekend");
+			const conversationId = await createEmptyConversation(page);
 			temporaryProvider = await createTemporaryFakeProviderModel(
 				page,
 				fakeProvider.baseURL,
@@ -479,7 +469,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 		} | null = null;
 
 		try {
-			const conversationId = await createConversation(page, "Plan a trip");
+			const conversationId = await createEmptyConversation(page);
 
 			// A real Document artifact, seeded directly (through the real
 			// service, never a raw insert) so it starts at v1 with genuine
@@ -571,7 +561,7 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 		} | null = null;
 
 		try {
-			const conversationId = await createConversation(page, "Plan a weekend");
+			const conversationId = await createEmptyConversation(page);
 			temporaryProvider = await createTemporaryFakeProviderModel(
 				page,
 				fakeProvider.baseURL,
@@ -670,7 +660,7 @@ test.describe("the in-chat artifact card's meta line", () => {
 			try {
 				await page.setViewportSize({ width, height: 900 });
 				await login(page);
-				const conversationId = await createConversation(page, "Plan a weekend");
+				const conversationId = await createEmptyConversation(page);
 				const uid = await testUserId();
 				const made = await createDocumentArtifact({
 					userId: uid,

@@ -17,10 +17,9 @@ import {
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
-	createConversation,
+	createEmptyConversation,
 	login,
 	sendMessage,
-	settleFirstTurn,
 	waitForStableBoundingBox,
 	workspacePanel,
 } from "./helpers";
@@ -129,21 +128,12 @@ async function readStoredMetadata(artifactId: string): Promise<string> {
 }
 
 async function openChatAndReload(page: Page, conversationId: string) {
-	await settleFirstTurn(page, conversationId);
 	// Mirrors artifacts-panel.spec.ts's own helper: the model backend is
 	// unreachable in this environment, so the first send never completes and
 	// leaves the "pending message" flag set; clearing it directly is more
 	// reliable than racing the client-side consume-on-mount logic.
 	await page.evaluate((id) => {
 		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
-		// The first message (sent to get a conversation id, before the fake
-		// provider was configured) went out on the default model, and the chat
-		// remembers the model a conversation's turn was sent with, which then wins
-		// over the profile default this spec has just changed. Whether that first
-		// send has run by now is a race the page wins or loses by how fast it
-		// loads (a production build wins it, `vite dev` mostly lost it), so
-		// forget the memory: the conversation takes the profile default.
-		window.sessionStorage.removeItem(`conversation-model:${id}`);
 	}, conversationId);
 	await page.goto(`/chat/${conversationId}`);
 	await page.reload({ waitUntil: "networkidle" });
@@ -229,7 +219,7 @@ test.describe("the Document panel", () => {
 	test("opens a document from the panel and shows its content in the editor", {
 		tag: "@smoke",
 	}, async ({ page }) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Vienna trip plan",
@@ -256,7 +246,7 @@ test.describe("the Document panel", () => {
 	test("editing text autosaves through the body route, and the change survives a reload", {
 		tag: "@smoke",
 	}, async ({ page }) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		const artifactId = await seedDocument({
 			conversationId,
 			title: "Notes",
@@ -284,7 +274,7 @@ test.describe("the Document panel", () => {
 	});
 
 	test("hides the tab strip for a single-tab document", async ({ page }) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Notes",
@@ -301,7 +291,7 @@ test.describe("the Document panel", () => {
 	test("shows every tab from a multi-section document, first one active, and adding one persists", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		const artifactId = await seedDocument({
 			conversationId,
 			title: "Trip",
@@ -346,7 +336,7 @@ test.describe("the Document panel", () => {
 	test("the ⋯ menu on the active tab is not clipped by the strip's own overflow, and keyboard access works", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Trip",
@@ -416,7 +406,7 @@ test.describe("the Document panel", () => {
 	test("adding a tab shows only its own (empty) section, not the whole document — and that survives a reload", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		const title = "Trip";
 		const userId = await testUserId();
 		const record = await createDocumentArtifact({
@@ -513,7 +503,7 @@ test.describe("the Document panel", () => {
 	test("a status chip renders as a listbox with the localized label, and choosing another option writes the canonical token", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		const artifactId = await seedDocument({
 			conversationId,
 			title: "Trip",
@@ -546,7 +536,7 @@ test.describe("the Document panel", () => {
 		const pageErrors: string[] = [];
 		page.on("pageerror", (error) => pageErrors.push(error.message));
 
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		const artifactId = await seedDocument({
 			conversationId,
 			title: "Trip",
@@ -652,7 +642,7 @@ test.describe("the Document mobile toolbar", () => {
 		// vertical padding: 1px border + 44px button = 45px, inside the same
 		// budget (`artifact-document-touch-targets.spec.ts` asserts the 44px).
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Notes",
@@ -678,7 +668,7 @@ test.describe("the Document mobile toolbar", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Notes",
@@ -701,7 +691,7 @@ test.describe("the Document mobile toolbar", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Notes",
@@ -733,7 +723,7 @@ test.describe("the Document mobile toolbar", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 420 });
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Notes",
@@ -768,7 +758,7 @@ test.describe("the Document mobile toolbar", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		// One cell carries a long, space-free token (an id-like string) that
 		// cannot line-wrap the way ordinary prose does — with wrapping,
 		// `table-layout: auto`'s default column sizing can shrink every
@@ -837,7 +827,7 @@ test.describe("the Document card's preview (T9 steps 4/7, redesign §5.2)", () =
 	test("the row shows the tab-count subtitle, never the checklist itself", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Packing list",
@@ -861,7 +851,7 @@ test.describe("the Document card's preview (T9 steps 4/7, redesign §5.2)", () =
 	test("ticking a task in the OPEN document writes it through the same patch path, and the row still shows no checklist", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		const artifactId = await seedDocument({
 			conversationId,
 			title: "Packing list",
@@ -936,7 +926,7 @@ test.describe("inline task items (Wave 2.5 Step 0)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Packing list",
@@ -954,7 +944,7 @@ test.describe("inline task items (Wave 2.5 Step 0)", () => {
 		page,
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Packing list",
@@ -978,7 +968,7 @@ test.describe("the composer placeholder names the open item (Wave 2.5 Step 12)",
 	test("names the document once it is open, and reverts once the panel closes", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Packing list",
@@ -1002,7 +992,7 @@ test.describe("the composer placeholder names the open item (Wave 2.5 Step 12)",
 	test("names nothing while the panel shows the list, only once an item is open", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Plan a trip");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocument({
 			conversationId,
 			title: "Packing list",
@@ -1061,7 +1051,7 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 		} | null = null;
 
 		try {
-			const conversationId = await createConversation(page, "Plan a trip");
+			const conversationId = await createEmptyConversation(page);
 			const artifactId = await seedDocument({
 				conversationId,
 				title: "Trip plan",
@@ -1220,7 +1210,7 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 		} | null = null;
 
 		try {
-			const conversationId = await createConversation(page, "Plan a trip");
+			const conversationId = await createEmptyConversation(page);
 			const artifactId = await seedDocument({
 				conversationId,
 				title: "Trip plan",
@@ -1358,7 +1348,7 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 		} | null = null;
 
 		try {
-			const conversationId = await createConversation(page, "Plan a trip");
+			const conversationId = await createEmptyConversation(page);
 			const artifactId = await seedDocument({
 				conversationId,
 				title: "Trip plan",
@@ -1503,7 +1493,7 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 		} | null = null;
 
 		try {
-			const conversationId = await createConversation(page, "Plan a trip");
+			const conversationId = await createEmptyConversation(page);
 			const artifactId = await seedDocument({
 				conversationId,
 				title: "Trip plan",

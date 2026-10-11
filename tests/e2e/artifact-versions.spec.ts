@@ -21,10 +21,9 @@ import {
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
 import {
-	createConversation,
+	createEmptyConversation,
 	login,
 	sendMessage,
-	settleFirstTurn,
 	waitForMotionToSettle,
 } from "./helpers";
 
@@ -56,17 +55,8 @@ async function serverVersion(artifactId: string): Promise<number> {
 }
 
 async function openChatAndReload(page: Page, conversationId: string) {
-	await settleFirstTurn(page, conversationId);
 	await page.evaluate((id) => {
 		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
-		// The first message (sent to get a conversation id, before the fake
-		// provider was configured) went out on the default model, and the chat
-		// remembers the model a conversation's turn was sent with, which then wins
-		// over the profile default this spec has just changed. Whether that first
-		// send has run by now is a race the page wins or loses by how fast it
-		// loads (a production build wins it, `vite dev` mostly lost it), so
-		// forget the memory: the conversation takes the profile default.
-		window.sessionStorage.removeItem(`conversation-model:${id}`);
 	}, conversationId);
 	await page.goto(`/chat/${conversationId}`);
 	await page.reload({ waitUntil: "networkidle" });
@@ -202,7 +192,7 @@ test.describe("one version number on every surface", () => {
 		const previousModelPreference = await snapshotUserModelPreference(page);
 		let providerId: string | null = null;
 		try {
-			const conversationId = await createConversation(page, "Version walk");
+			const conversationId = await createEmptyConversation(page);
 			const userId = await testUserId();
 			const artifact = await createDocumentArtifact({
 				userId,
@@ -373,7 +363,7 @@ for (const viewport of [
 		test("opens under its own button, inside the panel, never over the chat column", async ({
 			page,
 		}) => {
-			const conversationId = await createConversation(page, "Popover place");
+			const conversationId = await createEmptyConversation(page);
 			await seedDocumentWithVersions(conversationId, 5);
 			await openChatAndReload(page, conversationId);
 			await openDocumentFromPanel(page);
@@ -403,7 +393,7 @@ for (const viewport of [
 		test("stays under its button in the expanded panel too", async ({
 			page,
 		}) => {
-			const conversationId = await createConversation(page, "Popover wide");
+			const conversationId = await createEmptyConversation(page);
 			await seedDocumentWithVersions(conversationId, 5);
 			await openChatAndReload(page, conversationId);
 			await openDocumentFromPanel(page);
@@ -429,7 +419,7 @@ test.describe("the Versions popover's rows", () => {
 	test("are evenly spaced, and showing Restore neither moves nor resizes a row", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Popover rows");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocumentWithVersions(conversationId, 5);
 		await openChatAndReload(page, conversationId);
 		await openDocumentFromPanel(page);
@@ -472,7 +462,7 @@ test.describe("the Versions popover's rows", () => {
 	test("scrolls inside itself when the history is long, staying inside the window", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Popover long");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocumentWithVersions(conversationId, 18);
 		await openChatAndReload(page, conversationId);
 		await openDocumentFromPanel(page);
@@ -498,7 +488,7 @@ test.describe("the Versions popover's rows", () => {
 	test("work with the keyboard alone: Tab reaches Restore and shows it, Enter asks, Escape closes and returns focus to the version button", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Popover keys");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocumentWithVersions(conversationId, 3);
 		await openChatAndReload(page, conversationId);
 		await openDocumentFromPanel(page);
@@ -545,7 +535,7 @@ test.describe("the Versions sheet on a phone", () => {
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		await login(page);
-		const conversationId = await createConversation(page, "Popover phone");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocumentWithVersions(conversationId, 4);
 		await openChatAndReload(page, conversationId);
 		await page.getByTestId("artifact-count-button-compact").click();
@@ -642,7 +632,7 @@ test.describe("the toast's exit", () => {
 	test("slides out — fading and sinking — and leaves the DOM", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "Toast exit");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocumentWithVersions(conversationId, 2);
 		await openChatAndReload(page, conversationId);
 		await openDocumentFromPanel(page);
@@ -664,7 +654,7 @@ test.describe("the toast's exit", () => {
 		page,
 	}) => {
 		await page.emulateMedia({ reducedMotion: "reduce" });
-		const conversationId = await createConversation(page, "Toast exit reduced");
+		const conversationId = await createEmptyConversation(page);
 		await seedDocumentWithVersions(conversationId, 2);
 		await openChatAndReload(page, conversationId);
 		await openDocumentFromPanel(page);
