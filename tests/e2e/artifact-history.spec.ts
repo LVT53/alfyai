@@ -10,7 +10,7 @@ import {
 	undidAlfyChangeSummary,
 	VERSION_SUMMARY,
 } from "../../src/lib/shared/artifacts/version-summaries";
-import { createConversation, login, workspacePanel } from "./helpers";
+import { createEmptyConversation, login, workspacePanel } from "./helpers";
 
 // Ruling 76 (the versioning build): History is a MODE of the panel — a
 // read-only preview beside a day-grouped rail of moments — and the header says
@@ -141,7 +141,7 @@ test.describe("History mode", () => {
 	test("opens from the header's history button, selects the newest moment, and Done returns to the Document", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History open");
+		const conversationId = await createEmptyConversation(page, "History open");
 		await seedDocument(conversationId, "History open", THREE_VERSIONS);
 		await openChat(page, conversationId);
 		await openDocumentInPanel(page);
@@ -182,7 +182,10 @@ test.describe("History mode", () => {
 	});
 
 	test("returns to editing with the scroll where it was", async ({ page }) => {
-		const conversationId = await createConversation(page, "History scroll");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History scroll",
+		);
 		const paragraphs = Array.from(
 			{ length: 60 },
 			(_, index) => `Paragraph number ${index + 1} of the long plan.`,
@@ -222,7 +225,7 @@ test.describe("History mode", () => {
 	test("saves what was just typed before it shows the history, so the step is in it (P10)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History flush");
+		const conversationId = await createEmptyConversation(page, "History flush");
 		await seedDocument(conversationId, "History flush", [
 			{
 				author: "alfy",
@@ -253,7 +256,7 @@ test.describe("History mode", () => {
 	test("the rail is a listbox of sentences that arrow keys walk, and Escape leaves History with the focus back on its button (T9)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History a11y");
+		const conversationId = await createEmptyConversation(page, "History a11y");
 		await seedDocument(conversationId, "History a11y", [
 			...THREE_VERSIONS,
 			{
@@ -322,7 +325,10 @@ test.describe("History mode", () => {
 		page,
 	}) => {
 		test.setTimeout(240_000);
-		const conversationId = await createConversation(page, "History paging");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History paging",
+		);
 		const userId = await adminId();
 		const artifact = await createDocumentArtifact({
 			userId,
@@ -374,7 +380,7 @@ test.describe("History mode", () => {
 			.set({ uiLanguage: "hu" })
 			.where(eq(users.email, "admin@local"));
 		try {
-			const conversationId = await createConversation(page, "Előzmények");
+			const conversationId = await createEmptyConversation(page, "Előzmények");
 			await seedDocument(conversationId, "Előzmények", [
 				{
 					author: "alfy",
@@ -461,7 +467,7 @@ test.describe("History mode: what changed, restore and names", () => {
 	test("marks what each version changed, steps through the changes, folds what did not, and compares with now", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History marks");
+		const conversationId = await createEmptyConversation(page, "History marks");
 		const v1 = withIds(
 			["h1", "# Friday"],
 			["p1", "Arrive in the afternoon."],
@@ -569,7 +575,10 @@ test.describe("History mode: what changed, restore and names", () => {
 	test("naming a version closes the typing burst: the next edit is a moment of its own, and the name stays on the first (T2)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History naming");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History naming",
+		);
 		await seedDocument(conversationId, "History naming", [
 			{
 				author: "alfy",
@@ -643,7 +652,10 @@ test.describe("History mode: what changed, restore and names", () => {
 	test("restores what was typed a moment ago as the moment before the restore, with no conflict (T5)", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History restore");
+		const conversationId = await createEmptyConversation(
+			page,
+			"History restore",
+		);
 		await seedDocument(conversationId, "History restore", [
 			{
 				author: "alfy",
@@ -701,7 +713,7 @@ test.describe("History mode: what changed, restore and names", () => {
 	test("answers a restore that something else outran inline, and lets the reader ask again", async ({
 		page,
 	}) => {
-		const conversationId = await createConversation(page, "History moved");
+		const conversationId = await createEmptyConversation(page, "History moved");
 		const artifactId = await seedDocument(conversationId, "History moved", [
 			{
 				author: "alfy",
@@ -753,7 +765,7 @@ test.describe("History mode on a phone", () => {
 	}) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		await login(page);
-		const conversationId = await createConversation(page, "History phone");
+		const conversationId = await createEmptyConversation(page, "History phone");
 		await seedDocument(conversationId, "History phone", THREE_VERSIONS);
 		await openChat(page, conversationId);
 
