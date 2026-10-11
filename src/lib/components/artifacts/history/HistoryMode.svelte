@@ -282,6 +282,9 @@ const restoreLines = $derived.by(() => {
 	if (kind === "document" && tabCount > 1) {
 		lines.push($t("artifacts.history.restoreTabs"));
 	}
+	// An App's saved data is not part of a version: a restore brings the code back and
+	// leaves what the App has saved as it is now (versioning.md §6).
+	if (kind === "app") lines.push($t("artifacts.history.restoreAppData"));
 	if (madeInTitle !== null) {
 		lines.push(
 			madeInTitle

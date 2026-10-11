@@ -1115,8 +1115,11 @@ let selectionOnDrag = $derived(!preview && tool === "select" && !coarsePointer);
 let nodesDraggable = $derived(!readonly && !held && tool === "select");
 // A board with blocks and no camera of its own is fitted on open, clear of the
 // toolbar along the bottom and the overview in the corner.
+// A preview never is (its host fits the camera to what the version changed); read once, as `initial` is.
 const fitOnOpen =
-	!preview && initial.nodes.length > 0 && !hasStoredCamera(initial);
+	!untrack(() => preview) &&
+	initial.nodes.length > 0 &&
+	!hasStoredCamera(initial);
 let fitViewOptions = $derived({
 	padding: {
 		top: "40px",

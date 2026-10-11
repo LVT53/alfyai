@@ -12,13 +12,18 @@
  * way the board shown is the selected version's own, and what it has that the other
  * does not is "new", what only the other has is a ghost where it stood.
  */
-import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
+
 import { diffBoards } from "$lib/shared/artifacts/board-diff";
+import type { CanvasBody, CanvasNode } from "$lib/shared/artifacts/canvas";
 import { nodeRect, type Rect } from "./board";
 import { excerpt } from "./excerpt";
 
 export type BoardChangeKind =
-	"added" | "changed" | "moved" | "linked" | "removed";
+	| "added"
+	| "changed"
+	| "moved"
+	| "linked"
+	| "removed";
 
 export interface BoardChange {
 	id: string;
@@ -169,7 +174,10 @@ export function fitCamera(
 	if (!(pane.width > 0) || !(pane.height > 0)) {
 		return { x: -box.x, y: -box.y, zoom: PREVIEW_MAX_ZOOM };
 	}
-	const roomWidth = Math.max(1, pane.width - FIT_PADDING.left - FIT_PADDING.right);
+	const roomWidth = Math.max(
+		1,
+		pane.width - FIT_PADDING.left - FIT_PADDING.right,
+	);
 	const roomHeight = Math.max(
 		1,
 		pane.height - FIT_PADDING.top - FIT_PADDING.bottom,
@@ -178,7 +186,10 @@ export function fitCamera(
 		PREVIEW_MAX_ZOOM,
 		Math.max(
 			PREVIEW_MIN_ZOOM,
-			Math.min(roomWidth / Math.max(1, box.width), roomHeight / Math.max(1, box.height)),
+			Math.min(
+				roomWidth / Math.max(1, box.width),
+				roomHeight / Math.max(1, box.height),
+			),
 		),
 	);
 	return {

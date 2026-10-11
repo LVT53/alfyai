@@ -223,9 +223,7 @@ describe("above the board", () => {
 		expect(screen.getByTestId("refusal-notice")).toHaveTextContent(
 			"can't be undone here because the board has changed since",
 		);
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Open History" }),
-		);
+		await fireEvent.click(screen.getByRole("button", { name: "Open History" }));
 		expect(host.openHistory).toHaveBeenCalledTimes(1);
 	});
 

@@ -11,7 +11,10 @@ import {
 // blocks are ringed, which are new, where a moved one was, what is gone, and the
 // list a screen reader and the stepper walk. Pure, so it is read without a browser.
 
-function body(nodes: CanvasNode[], edges: CanvasBody["edges"] = []): CanvasBody {
+function body(
+	nodes: CanvasNode[],
+	edges: CanvasBody["edges"] = [],
+): CanvasBody {
 	return {
 		version: 1,
 		nodes,
@@ -138,10 +141,7 @@ describe("what a version changed", () => {
 
 	it("names a block that moved AND changed by what it says, and still draws its trail", () => {
 		const base = body([SAT, MUSEUM]);
-		const target = body([
-			SAT,
-			note("note-museum", 500, 100, "Museum, 15:00"),
-		]);
+		const target = body([SAT, note("note-museum", 500, 100, "Museum, 15:00")]);
 		const view = buildHistoryView(base, target);
 		expect(view.changes.map((change) => change.kind)).toEqual(["changed"]);
 		expect(view.moved.map((entry) => entry.id)).toEqual(["note-museum"]);
@@ -149,20 +149,29 @@ describe("what a version changed", () => {
 
 	it("leaves out the trail of a block that ends up where it was on the board", () => {
 		// The frame went 100 left and the note 100 right inside it: same place.
-		const base = body([frame("frame-sat", 120, 20, "Saturday"), note("n", 0, 64, "x", "frame-sat")]);
-		const target = body([frame("frame-sat", 20, 20, "Saturday"), note("n", 100, 64, "x", "frame-sat")]);
+		const base = body([
+			frame("frame-sat", 120, 20, "Saturday"),
+			note("n", 0, 64, "x", "frame-sat"),
+		]);
+		const target = body([
+			frame("frame-sat", 20, 20, "Saturday"),
+			note("n", 100, 64, "x", "frame-sat"),
+		]);
 		const view = buildHistoryView(base, target);
 		expect(view.moved.map((entry) => entry.id)).not.toContain("n");
 	});
 
 	it("counts a block that went into a frame as moved", () => {
 		const base = body([SAT, note("note-lunch", 50, 90, "Lunch")]);
-		const target = body([SAT, note("note-lunch", 30, 70, "Lunch", "frame-sat")]);
+		const target = body([
+			SAT,
+			note("note-lunch", 30, 70, "Lunch", "frame-sat"),
+		]);
 		const view = buildHistoryView(base, target);
 		expect(view.ringIds).toContain("note-lunch");
-		expect(view.changes.find((change) => change.id === "note-lunch")?.kind).toBe(
-			"moved",
-		);
+		expect(
+			view.changes.find((change) => change.id === "note-lunch")?.kind,
+		).toBe("moved");
 	});
 
 	it("rings both ends of an arrow that was added, as a connection that changed", () => {
@@ -215,7 +224,8 @@ describe("what a version removed", () => {
 
 describe("naming a block", () => {
 	it("reads a note's text, a frame's label and a checklist's label, in a few words", () => {
-		const long = "A very long afternoon at the museum with a stop for coffee and cake";
+		const long =
+			"A very long afternoon at the museum with a stop for coffee and cake";
 		const base = body([]);
 		const target = body([
 			note("a", 0, 0, long),

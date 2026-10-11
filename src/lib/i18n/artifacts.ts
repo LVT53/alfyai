@@ -124,7 +124,7 @@ const artifactsDict = {
 		"artifacts.delete.body.document":
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.app":
-			"“{title}” and its saved data will be deleted. This can't be undone.",
+			"“{title}”, its versions and its saved data will be deleted. This can't be undone.",
 		"artifacts.delete.body.canvas":
 			"“{title}” and its versions and comments will be deleted. This can't be undone.",
 		"artifacts.delete.body.slides":
@@ -136,7 +136,7 @@ const artifactsDict = {
 		"artifacts.delete.bodyRegenerable.document":
 			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.app":
-			"“{title}” and its saved data will be deleted. You can regenerate it from the chat.",
+			"“{title}”, its versions and its saved data will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.canvas":
 			"“{title}” and its versions and comments will be deleted. You can regenerate it from the chat.",
 		"artifacts.delete.bodyRegenerable.slides":
@@ -199,14 +199,17 @@ const artifactsDict = {
 		"artifacts.app.action.download": "Download as .html",
 		"artifacts.app.regenerate.prompt": "What should change?",
 		"artifacts.app.regenerate.cancel": "Cancel",
-		"artifacts.app.regenerate.makeV2": "Make v2",
+		// No version numbers in any of these (ruling 76, Q2): the version it builds on
+		// and the one it builds are told apart by what happened, and the one before
+		// stays in History.
+		"artifacts.app.regenerate.rebuild": "Rebuild",
 		"artifacts.app.regenerate.effect":
-			"Alfy writes a new version and checks its facts. v1 stays in History.",
+			"Alfy rebuilds it from your words and checks its facts. The previous version stays in History.",
 		"artifacts.app.regenerate.building":
-			"Alfy is building v2 · v1 stays until v2 is ready. Your saved data is kept.",
+			"Alfy is rebuilding it · the current version stays until the new one is ready. Your saved data is kept.",
 		"artifacts.app.regenerate.failed":
-			"Alfy couldn't make v2. v1 is unchanged.",
-		"artifacts.app.toast.v2Ready": "Now showing v2",
+			"Alfy couldn't rebuild it. The current version is unchanged.",
+		"artifacts.app.toast.rebuilt": "Alfy rebuilt it",
 		"artifacts.app.toast.undo": "Undo",
 		"artifacts.app.sandboxBar":
 			"Runs sandboxed · no internet · keeps your data",
@@ -1068,6 +1071,15 @@ const artifactsDict = {
 		"artifacts.history.canvas.change.linked": "{label}, connection changed",
 		"artifacts.history.canvas.change.removed": "{label}, removed",
 		"artifacts.history.canvas.emptyBoard": "This version has no blocks.",
+		// An App's preview in History (ruling 76, versioning.md §5.4, Q7).
+		"artifacts.history.appRuns":
+			"Runs with today's saved data; changes aren't saved.",
+		"artifacts.history.app.codeOnly":
+			"This version can't run any more, so only its code is shown.",
+		"artifacts.history.app.codeLabel": "Source of this version",
+		"artifacts.history.app.noSource": "This version has no source.",
+		"artifacts.history.app.unchangedLines":
+			"{count} unchanged {count, plural, one {line} other {lines}}",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1129,7 +1141,7 @@ const artifactsDict = {
 		"artifacts.delete.body.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.app":
-			"„{title}” és a mentett adatai törlődnek. Ez nem vonható vissza.",
+			"„{title}”, az összes verziója és a mentett adatai törlődnek. Ez nem vonható vissza.",
 		"artifacts.delete.body.canvas":
 			"„{title}” és az összes verziója és megjegyzése törlődik. Ez nem vonható vissza.",
 		"artifacts.delete.body.slides":
@@ -1138,7 +1150,7 @@ const artifactsDict = {
 		"artifacts.delete.bodyRegenerable.document":
 			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.app":
-			"„{title}” és a mentett adatai törlődnek. A beszélgetésből újra létrehozhatod.",
+			"„{title}”, az összes verziója és a mentett adatai törlődnek. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.canvas":
 			"„{title}” és az összes verziója és megjegyzése törlődik. A beszélgetésből újra létrehozhatod.",
 		"artifacts.delete.bodyRegenerable.slides":
@@ -1191,14 +1203,14 @@ const artifactsDict = {
 		"artifacts.app.action.download": "Letöltés .html-ként",
 		"artifacts.app.regenerate.prompt": "Min változtasson?",
 		"artifacts.app.regenerate.cancel": "Mégse",
-		"artifacts.app.regenerate.makeV2": "v2 elkészítése",
+		"artifacts.app.regenerate.rebuild": "Újraépítés",
 		"artifacts.app.regenerate.effect":
-			"Alfy megírja az új változatot, és ellenőrzi az adatait. A v1 megmarad az Előzményekben.",
+			"Alfy újraépíti a kérésed szerint és ellenőrzi a tényeit. Az előző változat megmarad az előzményekben.",
 		"artifacts.app.regenerate.building":
-			"Alfy készíti a v2-t · A v1 megmarad, amíg a v2 el nem készül. A mentett adataid megmaradnak.",
+			"Alfy újraépíti · a mostani változat megmarad, amíg az új el nem készül. A mentett adataid megmaradnak.",
 		"artifacts.app.regenerate.failed":
-			"Alfynak nem sikerült elkészítenie a v2-t. A v1 változatlan.",
-		"artifacts.app.toast.v2Ready": "Mostantól a v2 látszik",
+			"Alfynak nem sikerült újraépítenie. A mostani változat változatlan.",
+		"artifacts.app.toast.rebuilt": "Alfy újraépítette",
 		"artifacts.app.toast.undo": "Visszavonás",
 		"artifacts.app.sandboxBar":
 			"Homokozóban fut · nincs internet · megőrzi az adataidat",
@@ -1949,6 +1961,14 @@ const artifactsDict = {
 		"artifacts.history.canvas.change.linked": "{label}, a kapcsolatai módosultak",
 		"artifacts.history.canvas.change.removed": "{label}, törölve",
 		"artifacts.history.canvas.emptyBoard": "Ebben a változatban nincs blokk.",
+		// Egy alkalmazás előnézete az Előzményekben.
+		"artifacts.history.appRuns":
+			"A mostani mentett adatokkal fut; a változtatások nem mentődnek.",
+		"artifacts.history.app.codeOnly":
+			"Ez a változat már nem futtatható, ezért csak a kódja látható.",
+		"artifacts.history.app.codeLabel": "A változat forráskódja",
+		"artifacts.history.app.noSource": "Ebben a változatban nincs forráskód.",
+		"artifacts.history.app.unchangedLines": "{count} változatlan sor",
 	},
 } as const;
 

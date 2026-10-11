@@ -1,3 +1,31 @@
+<script module lang="ts">
+import type {
+	SvelteFlowProvider as SvelteFlowProviderComponent,
+	ViewportPortal as ViewportPortalComponent,
+} from "@xyflow/svelte";
+import type { sameCamera as sameCameraFunction } from "./_lib/board-model";
+import type CanvasBoardComponent from "./CanvasBoard.svelte";
+
+/**
+ * What the preview draws its board with: the editor's own `CanvasBoard` and the
+ * flow library's two parts it needs, handed over by `CanvasEditor.svelte` when
+ * History's registry asks for this entry (`loadHistoryPreview`). They are not
+ * imported here on purpose: see `history-parts.ts`.
+ */
+export type BoardParts = {
+	CanvasBoard: typeof CanvasBoardComponent;
+	SvelteFlowProvider: typeof SvelteFlowProviderComponent;
+	ViewportPortal: typeof ViewportPortalComponent;
+	/** The board's own "is the camera still where it was put" (`board-model.ts`). */
+	sameCamera: typeof sameCameraFunction;
+};
+
+let boardParts: BoardParts | null = null;
+export function provideBoardParts(parts: BoardParts): void {
+	boardParts = parts;
+}
+</script>
+
 <script lang="ts">
 /**
  * A board's version, read-only, with its changes marked (ruling 76,
@@ -18,7 +46,6 @@
  * What is compared is `diffBoards`, the comparison the review landing and the
  * server's count of waiting changes are made from.
  */
-import { SvelteFlowProvider, ViewportPortal } from "@xyflow/svelte";
 import { untrack } from "svelte";
 import type { HistoryPreviewProps } from "$lib/components/artifacts/history/history-previews";
 import { versionBody } from "$lib/components/artifacts/history/version-bodies";
@@ -30,7 +57,6 @@ import {
 } from "$lib/shared/artifacts/canvas-body";
 import { metaFor } from "./_lib/block-meta";
 import type { BoardLayerApi } from "./_lib/board-layers";
-import { sameCamera } from "./_lib/board-model";
 import {
 	type BoardChange,
 	type Camera,
@@ -40,7 +66,6 @@ import {
 	type HistoryBoardView,
 	unionOf,
 } from "./_lib/history-view";
-import CanvasBoard from "./CanvasBoard.svelte";
 import HistoryDiffLayer from "./HistoryDiffLayer.svelte";
 
 let {
@@ -175,10 +200,15 @@ $effect(() => {
 	untrack(() => {
 		const camera = cameraFor(current, body, width, height);
 		if (!camera) return;
-		if (fittedCamera !== null && !sameCamera(api.getCamera(), fittedCamera)) {
+		if (
+			fittedCamera !== null &&
+			!boardParts?.sameCamera(api.getCamera(), fittedCamera)
+		) {
 			return;
 		}
-		if (fittedCamera !== null && sameCamera(camera, fittedCamera)) return;
+		if (fittedCamera !== null && boardParts?.sameCamera(camera, fittedCamera)) {
+			return;
+		}
 		fittedCamera = camera;
 		void api.setCamera(camera);
 	});
@@ -228,18 +258,21 @@ const tagLabels = $derived({
 </script>
 
 {#snippet previewLayers(api: BoardLayerApi)}
-	<!-- What the version changed, in board space: rings, tags, trails, ghosts. -->
-	<ViewportPortal target="front">
-		<HistoryDiffLayer
-			nodes={api.nodes}
-			viewport={api.viewport}
-			{view}
-			{tone}
-			{flash}
-			oncenter={api.centerOn}
-			labels={tagLabels}
-		/>
-	</ViewportPortal>
+	{#if boardParts}
+		{@const Portal = boardParts.ViewportPortal}
+		<!-- What the version changed, in board space: rings, tags, trails, ghosts. -->
+		<Portal target="front">
+			<HistoryDiffLayer
+				nodes={api.nodes}
+				viewport={api.viewport}
+				{view}
+				{tone}
+				{flash}
+				oncenter={api.centerOn}
+				labels={tagLabels}
+			/>
+		</Portal>
+	{/if}
 {/snippet}
 
 <div
@@ -267,17 +300,21 @@ const tagLabels = $derived({
 		</div>
 	{:else}
 		{#key boardKey}
-			<SvelteFlowProvider>
-				<CanvasBoard
-					bind:this={boardApi}
-					body={boardBody}
-					readonly
-					preview
-					onchange={() => {}}
-					layers={previewLayers}
-					emptyLine={$t('artifacts.history.canvas.emptyBoard')}
-				/>
-			</SvelteFlowProvider>
+			{#if boardParts}
+				{@const Provider = boardParts.SvelteFlowProvider}
+				{@const Board = boardParts.CanvasBoard}
+				<Provider>
+					<Board
+						bind:this={boardApi}
+						body={boardBody}
+						readonly
+						preview
+						onchange={() => {}}
+						layers={previewLayers}
+						emptyLine={$t('artifacts.history.canvas.emptyBoard')}
+					/>
+				</Provider>
+			{/if}
 		{/key}
 		{#if note}
 			<p class="note" data-testid="history-preview-note">{note}</p>

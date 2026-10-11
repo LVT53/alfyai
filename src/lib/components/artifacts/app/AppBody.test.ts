@@ -24,7 +24,7 @@ const en = {
 		"This app is not in a chat, so it cannot be saved as a file.",
 	regeneratePrompt: "What should change?",
 	regenerateBuilding:
-		"Alfy is building v2 · v1 stays until v2 is ready. Your saved data is kept.",
+		"Alfy is rebuilding it · the current version stays until the new one is ready. Your saved data is kept.",
 };
 const hu = {
 	verifyUncertain: "Alfy egy részletben nem volt biztos — lásd a megjegyzést.",
@@ -755,10 +755,10 @@ describe("AppBody — download (registered with the panel header)", () => {
 });
 
 // Wave 2.5 Step 13: "Ask Alfy for a new version" is now "Change this app…",
-// and it opens a popover (not a modal) whose own submit reads "Make v2" —
+// and it opens a popover (not a modal) whose own submit reads "Rebuild" —
 // see redesign §6.2/§6.3.
 describe("AppBody — regenerate", () => {
-	it("opens a popover, sends { prompt, expectVersion } and reloads the detail on success, with a v2 toast offering Undo", async () => {
+	it("opens a popover, sends { prompt, expectVersion } and reloads the detail on success, with a toast that says it was rebuilt, offering Undo", async () => {
 		// A real App always has at least its own current version to restore —
 		// this is what the toast's Undo needs (see AppBody.svelte's own note on
 		// `restoreVersionId`).
@@ -797,7 +797,7 @@ describe("AppBody — regenerate", () => {
 			target: { value: "add a currency switch" },
 		});
 
-		const submit = screen.getByRole("button", { name: /Make v2/ });
+		const submit = screen.getByRole("button", { name: /Rebuild/ });
 		await fireEvent.click(submit);
 
 		await waitFor(() =>
@@ -814,7 +814,7 @@ describe("AppBody — regenerate", () => {
 		const entries = get(toasts);
 		expect(entries.at(-1)).toMatchObject({
 			type: "success",
-			message: "Now showing v2",
+			message: "Alfy rebuilt it",
 			actionLabel: "Undo",
 		});
 	});
@@ -847,7 +847,7 @@ describe("AppBody — regenerate", () => {
 		await fireEvent.input(await screen.findByLabelText(en.regeneratePrompt), {
 			target: { value: "add a currency switch" },
 		});
-		await fireEvent.click(screen.getByRole("button", { name: /Make v2/ }));
+		await fireEvent.click(screen.getByRole("button", { name: /Rebuild/ }));
 
 		await waitFor(() =>
 			expect(regenerateApp).toHaveBeenCalledWith(
@@ -880,10 +880,10 @@ describe("AppBody — regenerate", () => {
 		);
 		const textarea = await screen.findByLabelText(en.regeneratePrompt);
 		await fireEvent.input(textarea, { target: { value: "make it prettier" } });
-		await fireEvent.click(screen.getByRole("button", { name: /Make v2/ }));
+		await fireEvent.click(screen.getByRole("button", { name: /Rebuild/ }));
 
 		await waitFor(() => expect(regenerateApp).toHaveBeenCalled());
-		await screen.findByText("Alfy couldn't make v2. v1 is unchanged.");
+		await screen.findByText("Alfy couldn't rebuild it. The current version is unchanged.");
 		expect(
 			screen.queryByLabelText(en.regeneratePrompt),
 		).not.toBeInTheDocument();
@@ -895,9 +895,9 @@ describe("AppBody — regenerate", () => {
 		);
 	});
 
-	// Redesign §6.2/§6.4: "while v2 is built, v1 stays visible... under a
+	// Redesign §6.2/§6.4: "while the new version is built, the current one stays visible... under a
 	// small veil" and "the frame is inert while dimmed".
-	it("shows the busy veil and makes the frame inert while v2 is building, then clears both once it lands", async () => {
+	it("shows the busy veil and makes the frame inert while the new version is building, then clears both once it lands", async () => {
 		let resolveRegenerate: (value: unknown) => void = () => {};
 		regenerateApp.mockReturnValue(
 			new Promise((resolve) => {
@@ -917,7 +917,7 @@ describe("AppBody — regenerate", () => {
 		await fireEvent.input(await screen.findByLabelText(en.regeneratePrompt), {
 			target: { value: "add tax" },
 		});
-		await fireEvent.click(screen.getByRole("button", { name: /Make v2/ }));
+		await fireEvent.click(screen.getByRole("button", { name: /Rebuild/ }));
 
 		await screen.findByTestId("app-busy-veil");
 		const frameWrap = document.getElementById("app-panel-preview-app-1") as
@@ -978,7 +978,7 @@ describe("AppBody — regenerate", () => {
 		await fireEvent.input(await screen.findByLabelText(en.regeneratePrompt), {
 			target: { value: "add tax" },
 		});
-		await fireEvent.click(screen.getByRole("button", { name: /Make v2/ }));
+		await fireEvent.click(screen.getByRole("button", { name: /Rebuild/ }));
 
 		await waitFor(() =>
 			expect(announcer).toHaveTextContent(en.regenerateBuilding),
@@ -998,10 +998,10 @@ describe("AppBody — regenerate", () => {
 		await waitFor(() => expect(announcer).toHaveTextContent(""));
 	});
 
-	// The v2 toast's Undo is a REAL restore (versions.ts's own restoreVersion,
+	// The rebuilt toast's Undo is a REAL restore (versions.ts's own restoreVersion,
 	// through restoreArtifactVersion), never a fabricated affordance — see
 	// AppBody.svelte's own note on `restoreVersionId`.
-	it("the v2 toast's Undo restores the version that was current before the regenerate, then reloads", async () => {
+	it("the rebuilt toast's Undo restores the version that was current before the rebuild, naming the rebuild it takes back, then reloads", async () => {
 		fetchArtifact.mockResolvedValue({
 			...baseDetail(),
 			versions: [
@@ -1034,7 +1034,7 @@ describe("AppBody — regenerate", () => {
 		await fireEvent.input(await screen.findByLabelText(en.regeneratePrompt), {
 			target: { value: "add tax" },
 		});
-		await fireEvent.click(screen.getByRole("button", { name: /Make v2/ }));
+		await fireEvent.click(screen.getByRole("button", { name: /Rebuild/ }));
 		await waitFor(() => expect(fetchArtifact).toHaveBeenCalledTimes(2));
 
 		const toastEntry = get(toasts).at(-1);
@@ -1045,6 +1045,10 @@ describe("AppBody — regenerate", () => {
 				"app-1",
 				"v1-id",
 				"panel-conv",
+				undefined,
+				// The rebuild's own number (the regenerate answered 3): History folds the
+				// two into one moment, and a write that landed since refuses the Undo.
+				{ expectVersion: 3, undoOf: 3 },
 			),
 		);
 		await waitFor(() => expect(fetchArtifact).toHaveBeenCalledTimes(3));

@@ -1,3 +1,32 @@
+<script module lang="ts">
+import { SvelteFlowProvider, ViewportPortal } from "@xyflow/svelte";
+import { sameCamera } from "./_lib/board-model";
+import CanvasBoard from "./CanvasBoard.svelte";
+
+/**
+ * History's board preview (ruling 76), loaded THROUGH this module and handed what
+ * it draws a board with. It shows a board of its own, so it needs the editor's
+ * `CanvasBoard` and the flow library; if it imported them itself, the bundler would
+ * split both (two hundred kilobytes) out of this chunk into one that the editor and
+ * the preview share, and the editor's first paint would pay for the split. So the
+ * editor is the one place that imports them and gives them to the preview when
+ * History's registry asks for it. It opens with a Canvas panel, where this module
+ * is loaded already.
+ */
+export async function loadHistoryPreview() {
+	const { default: preview, provideBoardParts } = await import(
+		"./history-parts"
+	);
+	provideBoardParts({
+		CanvasBoard,
+		SvelteFlowProvider,
+		ViewportPortal,
+		sameCamera,
+	});
+	return { default: preview };
+}
+</script>
+
 <script lang="ts">
 /**
  * The Canvas's panel body (Feature 2 · Artifacts, Slice 3): what the artifact
@@ -8,14 +37,13 @@
  * Persistence is the Document's, deliberately: one debounced autosave loop
  * (`createDocumentAutosave`, which saves any string), one write route
  * (`saveArtifactBody`, with the version and body hash it last saw, so a second
- * writer is refused with a 409 rather than overwritten), one Versions sheet. The
- * board hands over whole steps only; a bare pan never reaches it, so looking
- * around a board never mints a version.
+ * writer is refused with a 409 rather than overwritten), and History (the panel's
+ * own mode, ruling 76). The board hands over whole steps only; a bare pan never
+ * reaches it, so looking around a board never mints a version.
  *
  * Every version the server reports is announced by the client API module, and the
  * header reads it from there. Nothing here prints a version or an "edited" time.
  */
-import { SvelteFlowProvider, ViewportPortal } from "@xyflow/svelte";
 import { onDestroy, untrack } from "svelte";
 import {
 	type ArtifactDetailResponse,
@@ -77,7 +105,6 @@ import type {
 } from "./_lib/review-controller.svelte";
 import { judgeServerBoard } from "./_lib/server-board";
 import type AlfyChangeLayer from "./AlfyChangeLayer.svelte";
-import CanvasBoard from "./CanvasBoard.svelte";
 import type CanvasBanners from "./CanvasBanners.svelte";
 import type CanvasComments from "./CanvasComments.svelte";
 import type CanvasDownload from "./CanvasDownload.svelte";
