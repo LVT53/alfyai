@@ -554,6 +554,29 @@ describe("statusLabel and the option's accessible name", () => {
 		);
 	});
 
+	it("says where a version was restored from and what it equals, so a screen reader hears what the row shows", () => {
+		const c = ctx();
+		const source = momentEntry(
+			makeMoment({
+				versionNumber: 1,
+				kind: "first_draft",
+				author: "alfy",
+				at: at(2026, 10, 10, 10, 0),
+				restoredHere: [
+					{ versionId: "v5", versionNumber: 5, at: at(2026, 10, 11, 10, 20) },
+				],
+				sameAs: {
+					versionId: "v3",
+					versionNumber: 3,
+					at: at(2026, 10, 10, 18, 5),
+				},
+			}),
+		);
+		expect(entryA11yName(source, c)).toBe(
+			"Yesterday 10:00, Alfy wrote the first draft. Same as yesterday 18:05. Restored from here · today 10:20.",
+		);
+	});
+
 	it("includes the reader's name for the version and where it stands now", () => {
 		const c = ctx();
 		const named = momentEntry(

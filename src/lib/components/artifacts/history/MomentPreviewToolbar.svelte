@@ -245,7 +245,7 @@ const counter = $derived(
 
 	<div class="row row-detail">
 		<p class="detail">
-			{#if detail}<span>{detail}</span><span class="sep" aria-hidden="true"> · </span>{/if}<span class="fine" data-testid="history-fine">{fine}</span>
+			{#if detail}<span>{detail}</span><span class="sep" aria-hidden="true">&nbsp;·&nbsp;</span>{/if}<span class="fine" data-testid="history-fine">{fine}</span>
 		</p>
 	</div>
 
@@ -468,6 +468,13 @@ const counter = $derived(
 		justify-content: flex-end;
 		gap: 0.5rem;
 		padding-top: 0.25rem;
+	}
+
+	.question-actions :global(button) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.3rem;
 	}
 
 	.detail {

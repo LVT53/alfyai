@@ -110,6 +110,8 @@ let {
 	onPendingReviewCountChange = undefined,
 	onDeleteArtifact = undefined,
 	onFlushReady = undefined,
+	artifactVersionMessages = undefined,
+	onShowChatMessage = undefined,
 	currentUser = null,
 	overDialog = false,
 }: {
@@ -174,6 +176,17 @@ let {
 	 * finds the reader's last step already saved.
 	 */
 	onFlushReady?: ((flush: (() => Promise<void>) | null) => void) | undefined;
+	/**
+	 * Which loaded chat message made which version of which item (artifact id →
+	 * version id → message id), for History's "From the chat" (ruling 76). Only a
+	 * version a message of THIS chat made has a link; absent for a host with no chat
+	 * (the Knowledge page).
+	 */
+	artifactVersionMessages?:
+		| ReadonlyMap<string, ReadonlyMap<string, string>>
+		| undefined;
+	/** Scrolls the chat to a message and flashes it ("From the chat"); the page closes this panel first where it covers the chat (a phone). */
+	onShowChatMessage?: ((messageId: string) => void) | undefined;
 	/** rd/review-2-5.md:272-275: forwarded straight through to whichever body is open — see `ArtifactBodyProps.currentUser`'s own doc comment. */
 	currentUser?: {
 		id: string;
@@ -415,6 +428,21 @@ function closeHistory(options: { restoreFocus?: boolean } = {}): void {
 function toggleHistory(): void {
 	if (historyOpen) closeHistory();
 	else void openHistory();
+}
+
+/** A restore (or the Undo of one) wrote a version: the open body loads what is stored when History is left. */
+function handleHistoryRestored(): void {
+	historyChangedBody = true;
+}
+
+/**
+ * "From the chat" on an Alfy moment: scroll the chat to the message that made it
+ * and flash it. Where this panel covers the chat (the phone/mobile shell) History
+ * and the panel step aside first.
+ */
+function handleHistoryFromChat(messageId: string): void {
+	if (!shouldRenderDesktopPreview) closeHistory({ restoreFocus: false });
+	onShowChatMessage?.(messageId);
 }
 
 /** A waiting moment's "Review": leave History and step the review to that change. */
@@ -2098,15 +2126,25 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	{#snippet historySlot()}
 		{#if historyOpen && HistoryModeComponent && activeDocument}
 			{@const HistoryView = HistoryModeComponent}
+			{@const historyArtifactId = activeDocument.artifactId ?? activeDocument.id}
+			{@const chatVersions = artifactVersionMessages?.get(historyArtifactId)}
 			<div class="workspace-history-slot" transition:historySlotFade={{ duration: MOTION_DURATION.standard }}>
 				<HistoryView
-					artifactId={activeDocument.artifactId ?? activeDocument.id}
+					artifactId={historyArtifactId}
 					kind={activeArtifactKind}
 					title={getDocumentTitle(activeDocument)}
 					{conversationId}
 					{currentUser}
 					onDone={() => closeHistory()}
 					onReview={handleHistoryReview}
+					onRestored={handleHistoryRestored}
+					chatVersionIds={chatVersions && onShowChatMessage ? new Set(chatVersions.keys()) : null}
+					onFromChat={chatVersions && onShowChatMessage
+						? (entry) => {
+								const messageId = chatVersions.get(entry.versionId);
+								if (messageId) handleHistoryFromChat(messageId);
+							}
+						: undefined}
 				/>
 			</div>
 		{/if}

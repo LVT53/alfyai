@@ -72,6 +72,35 @@ export function artifactCallIdsFromMessages(
 }
 
 /**
+ * Which message made which version of which artifact, read off the messages the
+ * caller already holds: the successful create/edit calls whose record names the
+ * version they wrote (`metadata.versionId`). It is what lets History's "From the
+ * chat" scroll to the message behind an Alfy moment, and say nothing for a
+ * version no loaded message made (another chat's, an older record). Artifact id
+ * to version id to message id.
+ */
+export function artifactVersionMessagesFromMessages(
+	messageList: ReadonlyArray<Pick<ChatMessage, "id" | "thinkingSegments">>,
+): Map<string, Map<string, string>> {
+	const map = new Map<string, Map<string, string>>();
+	for (const message of messageList) {
+		for (const segment of message.thinkingSegments ?? []) {
+			if (segment.type !== "tool_call") continue;
+			const call = artifactCallOf(segment);
+			const versionId = segment.metadata?.versionId;
+			if (!call || typeof versionId !== "string" || versionId === "") continue;
+			let versions = map.get(call.artifactId);
+			if (!versions) {
+				versions = new Map();
+				map.set(call.artifactId, versions);
+			}
+			versions.set(versionId, message.id);
+		}
+	}
+	return map;
+}
+
+/**
  * The ids of the artifacts these messages can make again — read off the
  * messages the caller already holds, so it costs no query: the ones a
  * successful `create_artifact` call made (Regenerate makes them again from the

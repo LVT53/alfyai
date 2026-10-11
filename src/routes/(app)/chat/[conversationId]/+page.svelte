@@ -71,6 +71,7 @@ import {
 import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
 import type { OpenInstructionDialog } from "$lib/client/instruction-command";
 import {
+	artifactVersionMessagesFromMessages,
 	markRegenerable,
 	regenerableArtifactIdsFromMessages,
 } from "$lib/shared/artifacts/artifact-calls";
@@ -627,6 +628,23 @@ let regenerableIdsKey = $derived(
 );
 let regenerableFromMessages = $derived(
 	new Set(regenerableIdsKey ? regenerableIdsKey.split("|") : []),
+);
+// "From the chat" (ruling 76): which loaded message made which version of which
+// item. Keyed by its text so a token streaming in, which changes `$messages` but
+// not this, hands the panel nothing new (as `regenerableIdsKey` above).
+let versionMessagesKey = $derived(
+	JSON.stringify(
+		[...artifactVersionMessagesFromMessages($messages)].map(
+			([artifactId, versions]) => [artifactId, [...versions]],
+		),
+	),
+);
+let artifactVersionMessages = $derived(
+	new Map(
+		(
+			JSON.parse(versionMessagesKey) as Array<[string, Array<[string, string]>]>
+		).map(([artifactId, versions]) => [artifactId, new Map(versions)]),
+	),
 );
 let liveArtifacts = $derived(
 	markRegenerable(
@@ -1750,6 +1768,20 @@ async function focusMessage(messageId: string) {
 	// hold the latest message in view again.
 	await whenStillOnScreen(target, 10);
 	if (isCurrentJump()) linkedMessageConversationId = null;
+}
+
+/**
+ * History's "From the chat": the message that made a version, scrolled to and
+ * flashed. Where the open panel covers the chat (below the desktop breakpoint) it
+ * closes first, so the message is what the reader sees.
+ */
+async function handleShowChatMessage(messageId: string) {
+	if (window.matchMedia("(max-width: 767.98px)").matches) closeWorkspace();
+	await focusMessage(messageId);
+	const target = document.getElementById(`message-${messageId}`);
+	if (!target) return;
+	target.classList.add("history-flash");
+	setTimeout(() => target.classList.remove("history-flash"), 900);
 }
 
 async function handleJumpToWorkspaceSource(document: DocumentWorkspaceItem) {
@@ -3869,6 +3901,8 @@ function handleDrop(event: DragEvent) {
 			onPendingReviewCountChange={handlePendingReviewCountChange}
 			onDeleteArtifact={handleDeleteArtifact}
 			onFlushReady={handleFlushReady}
+			{artifactVersionMessages}
+			onShowChatMessage={handleShowChatMessage}
 			currentUser={data.user}
 		/>
 	</div>
@@ -3895,6 +3929,30 @@ function handleDrop(event: DragEvent) {
 	.chat-main {
 		flex: 1 1 0%;
 		min-width: 0;
+	}
+
+	/* History's "From the chat" flashes the message that made a version: a 3 px
+	   accent ring that fades over 900 ms (the redesign's #17), and the ring alone,
+	   still, for a reader who asked for reduced motion. */
+	:global(.history-flash) {
+		border-radius: var(--radius-md);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent);
+		animation: history-flash-fade 900ms var(--ease-out) forwards;
+	}
+
+	@keyframes history-flash-fade {
+		from {
+			background: color-mix(in srgb, var(--accent) 16%, transparent);
+		}
+		to {
+			background: transparent;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:global(.history-flash) {
+			animation: none;
+		}
 	}
 
 	.chat-messages {

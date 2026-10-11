@@ -334,6 +334,11 @@ export async function runCreateArtifactTool(
 			artifactId: result.value.artifactId,
 			artifactKind: params.artifactType,
 			artifactTitle: result.value.title,
+			// The version this call wrote (ruling 76): History's "From the chat" finds
+			// the message behind an Alfy moment through it.
+			...(result.value.versionId === undefined
+				? {}
+				: { versionId: result.value.versionId }),
 		},
 	};
 }

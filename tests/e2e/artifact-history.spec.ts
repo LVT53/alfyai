@@ -448,6 +448,303 @@ test.describe("History mode", () => {
 	});
 });
 
+/** A Document body the way the server stores it: a marker line (the block's stable id) before every block. */
+const withIds = (...blocks: Array<[string, string]>): string =>
+	blocks.map(([id, text]) => `<!--b:${id}-->\n${text}`).join("\n\n");
+
+test.describe("History mode: what changed, restore and names", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+	});
+
+	test("marks what each version changed, steps through the changes, folds what did not, and compares with now", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "History marks");
+		const v1 = withIds(
+			["h1", "# Friday"],
+			["p1", "Arrive in the afternoon."],
+			["h2", "# Saturday"],
+			["p2", "Morning at the Belvedere."],
+			["h3", "# Sunday"],
+			["p3", "Schönbrunn, then home."],
+			["h4", "# Packing"],
+			["p4", "Passport and a rain jacket."],
+		);
+		const v2 = withIds(
+			["h1", "# Friday"],
+			["p1", "Arrive in the afternoon."],
+			["h2", "# Saturday"],
+			["p2", "Morning at the Albertina, then a cafe."],
+			["h3", "# Sunday"],
+			["p3", "Schönbrunn, then home."],
+			["h4", "# Packing"],
+			["p4", "Passport and a rain jacket."],
+			["p5", "Museum tickets online."],
+		);
+		await seedDocument(conversationId, "History marks", [
+			{ author: "alfy", summary: "Alfy wrote the first draft", markdown: v1 },
+			{
+				author: "alfy",
+				summary: "Moved the museum to Saturday",
+				markdown: v2,
+			},
+			{
+				author: "user",
+				summary: "Edited",
+				markdown: v2.replace(
+					"Museum tickets online.",
+					"Museum tickets booked.",
+				),
+			},
+		]);
+		await openChat(page, conversationId);
+		await openDocumentInPanel(page);
+		await historyButton(page).click();
+
+		const region = historyRegion(page, "History marks");
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(3);
+
+		// The reader's own change, a word replaced: the new word marked, the old struck,
+		// and what did not change folded into one line that opens when asked.
+		const preview = region.getByTestId("history-preview");
+		await expect(preview.locator("mark")).toHaveText(["booked"]);
+		await expect(preview.locator("del")).toHaveText(["online"]);
+		const fold = preview.getByTestId("history-fold").first();
+		await expect(fold).toContainText("unchanged");
+		await expect(preview).not.toContainText("Schönbrunn, then home.");
+		await fold.click();
+		await expect(preview).toContainText("Schönbrunn, then home.");
+
+		// Alfy's change: its words marked, a screen reader told "Added:" before each, in its accent.
+		await options.nth(1).click();
+		await expect(region.getByTestId("history-change-count")).toHaveText(
+			"1 / 2",
+		);
+		await expect(preview.locator("mark").first()).toHaveAttribute(
+			"data-sr",
+			"Added: ",
+		);
+		await expect(
+			preview.locator("mark", { hasText: "Albertina" }),
+		).toBeVisible();
+		await expect(
+			preview.locator("del", { hasText: "Belvedere" }),
+		).toBeVisible();
+		await expect(preview.locator('.page[data-marks="alfy"]')).toHaveCount(1);
+
+		// The stepper walks the changes and flashes each.
+		await region.getByTestId("history-next-change").click();
+		await expect(preview.locator(".block.flash")).toHaveCount(1);
+		await region.getByTestId("history-next-change").click();
+		await expect(region.getByTestId("history-change-count")).toHaveText(
+			"2 / 2",
+		);
+		await page.keyboard.press("Alt+ArrowUp");
+		await expect(region.getByTestId("history-change-count")).toHaveText(
+			"1 / 2",
+		);
+
+		// The first version has no step of its own: its preview compares with now.
+		await options.nth(2).click();
+		await expect(region.getByTestId("history-compare-step")).toBeDisabled();
+		await expect(region.getByTestId("history-compare-now")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		// What Restore would change: the words now has that this version does not are struck.
+		await expect(
+			preview.locator("del", { hasText: "Albertina" }),
+		).toBeVisible();
+		// The newest moment shows only its own changes and says it is now.
+		await options.nth(0).click();
+		await expect(region.getByTestId("history-compare-now")).toHaveCount(0);
+		await expect(region).toContainText("This is how it looks now");
+		// The number appears in the fine print and nowhere else.
+		await expect(region.getByTestId("history-fine")).toHaveText("Version 3");
+	});
+
+	test("naming a version closes the typing burst: the next edit is a moment of its own, and the name stays on the first (T2)", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "History naming");
+		await seedDocument(conversationId, "History naming", [
+			{
+				author: "alfy",
+				summary: "Alfy wrote the first draft",
+				markdown: "Book the hotel.\n\nBook the flight.",
+			},
+		]);
+		await openChat(page, conversationId);
+		await openDocumentInPanel(page);
+
+		const editor = page.locator(".document-editor-host .document-content");
+		await editor.getByText("Book the flight.").click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" Window seat.");
+		await historyButton(page).click();
+		const region = historyRegion(page, "History naming");
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(2);
+		await expect(options.first()).toBeFocused();
+
+		// Tab from the rail reaches the preview toolbar (past the rail's own "Got it" while
+		// its hint shows); Name opens a field, Enter saves.
+		await page.keyboard.press("Tab");
+		await expect(
+			region.getByTestId("history-help").getByRole("button"),
+		).toBeFocused();
+		await page.keyboard.press("Tab");
+		await expect(region.getByTestId("history-name")).toBeFocused();
+		await page.keyboard.press("Enter");
+		const field = region.getByRole("textbox", { name: "Name this version" });
+		await expect(field).toBeFocused();
+		await expect(field).toHaveAttribute(
+			"placeholder",
+			"e.g. Before the client call",
+		);
+		await page.keyboard.type("Before the client call");
+		await page.keyboard.press("Enter");
+
+		// The name shows in bold above the headline, with the filter that finds it, and the
+		// reader is told the next edits start a new version (the named one is never typed into).
+		await expect(options.first()).toContainText("Before the client call");
+		await expect(region.getByTestId("history-filter-named")).toBeVisible();
+		await expect(region).toContainText("Your next edits start a new version.");
+		await expect(page.getByTestId("artifact-history-live")).toContainText(
+			"Named “Before the client call”",
+		);
+
+		// Back to the Document, type again: a new version, so two "You edited" moments.
+		await doneButton(page).click();
+		await expect(region).toHaveCount(0);
+		await editor.getByText("Window seat.").click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" Aisle.");
+		await historyButton(page).click();
+		await expect(options).toHaveCount(3);
+		await expect(options.nth(0)).toContainText("You edited");
+		await expect(options.nth(0)).not.toContainText("Before the client call");
+		await expect(options.nth(1)).toContainText("You edited");
+		await expect(options.nth(1)).toContainText("Before the client call");
+		await expect(region.getByTestId("history-preview")).toContainText("Aisle.");
+
+		// The Named filter lists only the named one; the name goes again from the toolbar.
+		await region.getByTestId("history-filter-named").click();
+		await expect(options).toHaveCount(1);
+		await options.first().click();
+		await region.getByTestId("history-remove-name").click();
+		await expect(region.getByTestId("history-filter-named")).toHaveCount(0);
+		await expect(options).toHaveCount(3);
+	});
+
+	test("restores what was typed a moment ago as the moment before the restore, with no conflict (T5)", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "History restore");
+		await seedDocument(conversationId, "History restore", [
+			{
+				author: "alfy",
+				summary: "Alfy wrote the first draft",
+				markdown: "Book the hotel.\n\nBook the flight.",
+			},
+			{
+				// Alfy's, so the reader's typing is a version of its own (the reader's
+				// own version less than ten minutes old takes their typing into itself).
+				author: "alfy",
+				summary: "Added a window seat",
+				markdown: "Book the hotel.\n\nBook the flight. Window seat.",
+			},
+		]);
+		await openChat(page, conversationId);
+		await openDocumentInPanel(page);
+
+		const editor = page.locator(".document-editor-host .document-content");
+		await editor.getByText("Window seat.").click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" Aisle.");
+		// Straight to History and a restore: the autosave's delay has not passed.
+		await historyButton(page).click();
+		const region = historyRegion(page, "History restore");
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(3);
+		await options.last().click();
+		await region.getByTestId("history-restore").click();
+		await expect(region.getByTestId("history-restore-question")).toContainText(
+			"What you have now stays in History.",
+		);
+		// Escape closes the question first, and the focus goes back to the button that opened it.
+		await page.keyboard.press("Escape");
+		await expect(region.getByTestId("history-restore-question")).toHaveCount(0);
+		await expect(region.getByTestId("history-restore")).toBeFocused();
+		await region.getByTestId("history-restore").click();
+		await region.getByTestId("history-restore-confirm").click();
+
+		// The typed step is the moment right before the restore, and nothing was refused.
+		await expect(options.nth(0)).toContainText("You restored");
+		await expect(options.nth(1)).toContainText("You edited");
+		await expect(page.getByTestId("history-toast")).toContainText("Restored");
+		await doneButton(page).click();
+		await expect(page.locator(".document-save-banner")).toHaveCount(0);
+		// The Document shows what was restored, and the next edit is not refused as stale.
+		await expect(editor).toContainText("Book the flight.");
+		await expect(editor).not.toContainText("Window seat.");
+		await editor.getByText("Book the flight.").click();
+		await page.keyboard.press("End");
+		await page.keyboard.type(" Exit row.");
+		await expect(editor).toContainText("Exit row.");
+		await expect(page.locator(".document-save-banner")).toHaveCount(0);
+	});
+
+	test("answers a restore that something else outran inline, and lets the reader ask again", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "History moved");
+		const artifactId = await seedDocument(conversationId, "History moved", [
+			{
+				author: "alfy",
+				summary: "Alfy wrote the first draft",
+				markdown: "Book the hotel.",
+			},
+			{
+				author: "user",
+				summary: "Edited",
+				markdown: "Book the hotel. Late checkout.",
+			},
+		]);
+		await openChat(page, conversationId);
+		await openDocumentInPanel(page);
+		await historyButton(page).click();
+		const region = historyRegion(page, "History moved");
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(2);
+		await options.last().click();
+		await region.getByTestId("history-restore").click();
+
+		// Another writer (another tab) lands a version while the question is open.
+		await updateArtifactBody({
+			userId: await adminId(),
+			artifactId,
+			conversationId,
+			body: "Book the hotel. Late checkout. Breakfast.",
+			author: "alfy",
+			summary: "Added breakfast",
+		});
+		await region.getByTestId("history-restore-confirm").click();
+		await expect(region.getByTestId("history-restore-question")).toContainText(
+			"It changed while you were looking. Here's the latest.",
+		);
+		// The rail shows the latest, and asking again restores over it.
+		await expect(options).toHaveCount(3);
+		await expect(options.first()).toContainText("Added breakfast");
+		await region.getByTestId("history-restore-confirm").click();
+		await expect(page.getByTestId("history-toast")).toContainText("Restored");
+		await expect(options.first()).toContainText("You restored");
+	});
+});
+
 test.describe("History mode on a phone", () => {
 	test.use({ hasTouch: true });
 
@@ -505,12 +802,34 @@ test.describe("History mode on a phone", () => {
 		await older.tap();
 		await expect(preview).not.toContainText("then a cafe");
 
-		// Back to the list, then the sheet closes.
-		await back.tap();
+		// Restore: the question replaces the bottom bar, its buttons are 44 px.
+		await sheet.getByTestId("history-restore").tap();
+		const question = sheet.getByTestId("history-restore-question");
+		await expect(question).toBeVisible();
+		await expect(sheet.getByTestId("history-restore")).toHaveCount(0);
+		for (const control of [
+			sheet.getByTestId("history-restore-cancel"),
+			sheet.getByTestId("history-restore-confirm"),
+		]) {
+			const box = await control.boundingBox();
+			expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+		}
+		await sheet.getByTestId("history-restore-cancel").tap();
+		await expect(question).toHaveCount(0);
+		await expect(sheet.getByTestId("history-restore")).toBeVisible();
+
+		// The back gesture leaves the preview first, then the sheet.
+		await page.keyboard.press("Escape");
 		await expect(
 			sheet.getByRole("listbox", { name: "Versions" }),
 		).toBeVisible();
 		await expect(preview).toHaveCount(0);
+		await sheet.getByRole("option").nth(1).tap();
+		await expect(preview).toBeVisible();
+		await back.tap();
+		await expect(
+			sheet.getByRole("listbox", { name: "Versions" }),
+		).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(sheet).toHaveCount(0);
 	});

@@ -13,19 +13,29 @@
  * sheet (`DialogShell`). Loading, paging, selection and the live announcements
  * live here; the rail, the toolbar and the preview only draw.
  */
-import { ChevronLeft, ChevronRight } from "@lucide/svelte";
+import { ChevronLeft, ChevronRight, RotateCcw } from "@lucide/svelte";
 import { type Component, onMount, tick, untrack } from "svelte";
+import type { Attachment } from "svelte/attachments";
 import { cubicOut } from "svelte/easing";
 import { fade, fly } from "svelte/transition";
 import {
+	fetchArtifact,
 	fetchArtifactHistory,
+	nameArtifactVersion,
+	restoreArtifactVersion,
 	subscribeArtifactChanges,
+	VersionRestoreRefusedError,
 } from "$lib/client/api/artifacts";
+import { documentTabsFromCardMetadata } from "$lib/components/artifacts/document/card-view";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { type I18nKey, t } from "$lib/i18n";
-import type { ArtifactMoment } from "$lib/shared/artifacts/history";
+import {
+	type ArtifactMoment,
+	normalizeVersionLabel,
+} from "$lib/shared/artifacts/history";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import { historyShortcutLabel } from "$lib/components/artifacts/document/keyboard-shortcuts";
+import { conversations } from "$lib/stores/conversations";
 import { uiLanguage } from "$lib/stores/settings";
 import { artifactHistoryHelpDismissed } from "$lib/stores/ui";
 import { MOTION_DURATION, reducedMotionAware } from "$lib/utils/motion";
@@ -52,6 +62,7 @@ import {
 	findRailEntry,
 	flattenRailGroups,
 	mergeFirstPage,
+	newestRow,
 	type RailEntry,
 	type RailFilter,
 	reconcileSelection,
@@ -65,6 +76,7 @@ let {
 	currentUser = null,
 	onDone,
 	onReview = undefined,
+	onRestored = undefined,
 	chatVersionIds = null,
 	onFromChat = undefined,
 }: {
@@ -82,6 +94,8 @@ let {
 	onDone: () => void;
 	/** Leaves History and steps the review to the change a waiting moment names. */
 	onReview?: ((entry: RailEntry) => void) | undefined;
+	/** A restore (or the Undo of one) wrote this version: what is stored changed under the open body, which loads it again when History is left. */
+	onRestored?: ((version: number) => void) | undefined;
 	/** The versions whose chat message this chat holds ("From the chat"). */
 	chatVersionIds?: ReadonlySet<string> | null;
 	onFromChat?: ((entry: RailEntry) => void) | undefined;
@@ -92,6 +106,7 @@ const PAGE_SIZE = 50;
 
 const sheetFade = reducedMotionAware(fade);
 const railFly = reducedMotionAware(fly);
+const toastFly = reducedMotionAware(fly);
 
 // ---- what is loaded ---------------------------------------------------------
 
@@ -106,6 +121,30 @@ let selectedKey = $state<string | null>(null);
 let compare = $state<HistoryCompare>("step");
 /** The narrow layouts show the list, or the preview pushed over it. */
 let view = $state<"list" | "preview">("list");
+
+// What a restore and a name need to say (versioning.md §5.5, §5.6): how many tabs
+// the Document has now, and the chat that made it when it is not this one.
+let tabCount = $state(0);
+let madeInConversationId = $state<string | null>(null);
+let online = $state(typeof navigator === "undefined" ? true : navigator.onLine);
+
+let restoreOpen = $state(false);
+let restoring = $state(false);
+let restoreProblem = $state<string | null>(null);
+let toast = $state<{
+	message: string;
+	/** The version the Undo brings back (the row the restore sat on), and the restore's own number. */
+	undo: { versionId: string; restoreVersion: number } | null;
+} | null>(null);
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+const TOAST_MS = 5200;
+
+let naming = $state(false);
+let nameDraft = $state("");
+let namingBusy = $state(false);
+let nameProblem = $state<string | null>(null);
+/** Naming the newest version closes its burst: said until the reader moves on. */
+let nextEditsNote = $state(false);
 
 /** What the rail lets its host do: put the keyboard on an option, and list the options drawn. */
 interface RailHandle {
@@ -151,6 +190,20 @@ const groups = $derived(buildRailGroups(moments, filter));
 const allEntries = $derived(flattenRailGroups(buildRailGroups(moments, "all")));
 const selected = $derived(findRailEntry(groups, selectedKey));
 const hasNamed = $derived(labels.size > 0);
+// The Named filter is only offered while a version is named: removing the last name
+// puts the rail back on everything, not on an empty list.
+$effect(() => {
+	if (filter === "named" && !hasNamed) {
+		filter = "all";
+		selectedKey = reconcileSelection(
+			buildRailGroups(
+				untrack(() => moments),
+				"all",
+			),
+			untrack(() => selectedKey),
+		);
+	}
+});
 const layout = $derived<"phone" | "wide" | "narrow">(
 	isPhone
 		? "phone"
@@ -192,6 +245,54 @@ const selectedDetail = $derived(
 	selected ? entryDetail(selected, ctx, kind) : null,
 );
 
+const canRestore = $derived(
+	selected !== null && !selected.isNewest && !selected.sameAsNow && online,
+);
+const restoreDisabledReason = $derived(
+	selected !== null && !selected.isNewest && !selected.sameAsNow && !online
+		? $t("artifacts.history.restoreOffline")
+		: null,
+);
+/** A change of Alfy's that still waits for the reader and is newer than the version being brought back goes with the restore. */
+const restoreTakesWaiting = $derived(
+	selected !== null &&
+		moments.some(
+			(moment) =>
+				moment.status === "waiting" &&
+				newestRow(moment) > selected.versionNumber,
+		),
+);
+const madeInTitle = $derived.by(() => {
+	if (!madeInConversationId || madeInConversationId === conversationId) {
+		return null;
+	}
+	return (
+		$conversations.find(
+			(conversation) => conversation.id === madeInConversationId,
+		)?.title ?? ""
+	);
+});
+const restoreLines = $derived.by(() => {
+	if (!selected) return null;
+	const lines = [
+		selected.label
+			? $t("artifacts.history.restoreQNamed", { name: selected.label })
+			: $t("artifacts.history.restoreQ", { when: whenLabel(selected.at, ctx) }),
+	];
+	if (kind === "document" && tabCount > 1) {
+		lines.push($t("artifacts.history.restoreTabs"));
+	}
+	if (madeInTitle !== null) {
+		lines.push(
+			madeInTitle
+				? $t("artifacts.history.restoreElsewhere", { chat: madeInTitle })
+				: $t("artifacts.history.restoreElsewhereGeneric"),
+		);
+	}
+	if (restoreTakesWaiting) lines.push($t("artifacts.history.restoreWaiting"));
+	return lines;
+});
+
 const help = $derived(
 	$artifactHistoryHelpDismissed || moments.length < 2
 		? null
@@ -220,9 +321,14 @@ let previewState = $state<HistoryPreviewState>({
 let changeCursor = $state({ index: -1, nonce: 0 });
 let live = $state("");
 
+let announcedFor = "";
 function handlePreviewState(next: HistoryPreviewState) {
 	previewState = next;
-	if (next.status === "ready" && selected) {
+	// A selection is announced once, when its preview has loaded; what the reader
+	// then does to it (naming it, asking to restore it) says its own words.
+	const announcement = `${selectedKey}|${compareEffective}|${next.changeCount}`;
+	if (next.status === "ready" && selected && announcement !== announcedFor) {
+		announcedFor = announcement;
 		const changes =
 			next.changeCount > 0
 				? ` ${$t("artifacts.history.live.changes", { count: next.changeCount })}`
@@ -255,8 +361,20 @@ function stepChange(direction: 1 | -1) {
 
 // ---- loading -------------------------------------------------------------------
 
+/** What the restore question needs of the item itself; never fatal: without it the question just says less. */
+async function learnItem(): Promise<void> {
+	try {
+		const detail = await fetchArtifact(artifactId, conversationId);
+		tabCount = documentTabsFromCardMetadata(detail.artifact.metadata).length;
+		madeInConversationId = detail.artifact.conversationId ?? null;
+	} catch {
+		// See above.
+	}
+}
+
 async function load(): Promise<void> {
 	status = "loading";
+	void learnItem();
 	try {
 		const result = await fetchArtifactHistory(artifactId, {
 			limit: PAGE_SIZE,
@@ -370,6 +488,14 @@ onMount(() => {
 	const stopWatchingViewport = watchPhoneViewport((phone) => {
 		isPhone = phone;
 	});
+	const goOnline = () => {
+		online = true;
+	};
+	const goOffline = () => {
+		online = false;
+	};
+	window.addEventListener("online", goOnline);
+	window.addEventListener("offline", goOffline);
 	const stopListening = subscribeArtifactChanges((change) => {
 		if (change.type === "deleted" && change.artifactId === artifactId) {
 			status = "deleted";
@@ -388,7 +514,10 @@ onMount(() => {
 	return () => {
 		stopWatchingViewport();
 		stopListening();
+		window.removeEventListener("online", goOnline);
+		window.removeEventListener("offline", goOffline);
 		if (refreshTimer) clearTimeout(refreshTimer);
+		if (toastTimer) clearTimeout(toastTimer);
 	};
 });
 
@@ -402,6 +531,19 @@ function activate(key: string) {
 	selectedKey = key;
 	if (layout !== "wide") view = "preview";
 }
+
+// What the reader was doing about one version (asking to restore it, naming it)
+// belongs to that version: another selection starts clean.
+$effect(() => {
+	selectedKey;
+	untrack(() => {
+		restoreOpen = false;
+		restoreProblem = null;
+		naming = false;
+		nameProblem = null;
+		nextEditsNote = false;
+	});
+});
 
 function chooseFilter(next: RailFilter) {
 	filter = next;
@@ -441,6 +583,12 @@ function handleRootKeydown(event: KeyboardEvent) {
 	if (event.key === "Escape" && !isPhone) {
 		event.preventDefault();
 		event.stopPropagation();
+		// One press closes the layer that is on top: the restore question, then the
+		// pushed preview, then History itself.
+		if (restoreOpen) {
+			cancelRestore();
+			return;
+		}
 		if (layout === "narrow" && view === "preview") {
 			backToList();
 			return;
@@ -451,6 +599,10 @@ function handleRootKeydown(event: KeyboardEvent) {
 
 /** The phone sheet's own dismissals (Escape, the grabber, a tap on the page) peel one layer: the preview first, then the sheet. */
 function handleSheetClose() {
+	if (restoreOpen) {
+		cancelRestore();
+		return;
+	}
 	if (view === "preview") {
 		backToList();
 		return;
@@ -458,8 +610,183 @@ function handleSheetClose() {
 	onDone();
 }
 
+/** Puts the keyboard on the confirming button when the phone's restore question opens. */
+const focusOnMount: Attachment<HTMLElement> = (element) => {
+	element.focus();
+};
+
 function handleDismissHelp() {
 	artifactHistoryHelpDismissed.set(true);
+}
+
+// ---- restore (versioning.md §5.5) -----------------------------------------------
+
+function askRestore() {
+	if (!canRestore) return;
+	restoreProblem = null;
+	restoreOpen = true;
+}
+
+function cancelRestore() {
+	restoreOpen = false;
+	restoreProblem = null;
+}
+
+function showToast(
+	message: string,
+	undo: { versionId: string; restoreVersion: number } | null,
+) {
+	toast = { message, undo };
+	if (toastTimer) clearTimeout(toastTimer);
+	toastTimer = setTimeout(() => {
+		toast = null;
+	}, TOAST_MS);
+}
+
+/** After a write History made: read the top of the history again and land on its newest moment. */
+async function landOnTop() {
+	await refresh();
+	const top = moments[0];
+	if (top) selectedKey = `m:${top.versionId}`;
+	compare = "step";
+}
+
+async function confirmRestore() {
+	const entry = selected;
+	if (!entry || restoring || !canRestore) return;
+	restoring = true;
+	restoreProblem = null;
+	// The toast's Undo brings back the row the restore sat on top of.
+	const rowBelow = nowRow.versionId;
+	try {
+		// `expectVersion` is what this page showed: a restore over a version that
+		// arrived since is refused, like a stale save.
+		const version = await restoreArtifactVersion(
+			artifactId,
+			entry.versionId,
+			conversationId,
+			undefined,
+			{ expectVersion: newestVersion },
+		);
+		onRestored?.(version);
+		const when = whenLabel(entry.at, ctx);
+		restoreOpen = false;
+		await landOnTop();
+		live = $t("artifacts.history.restoredA11y", { when });
+		showToast(
+			$t("artifacts.history.restored", { when }),
+			rowBelow ? { versionId: rowBelow, restoreVersion: version } : null,
+		);
+	} catch (error) {
+		if (
+			error instanceof VersionRestoreRefusedError &&
+			error.reason === "version_conflict"
+		) {
+			// Something wrote a version since History loaded: say so, show the
+			// latest, and let the reader ask again.
+			restoreProblem = $t("artifacts.history.restoreMoved");
+			await refresh();
+		} else {
+			restoreProblem = $t("artifacts.history.restoreFailed");
+		}
+	} finally {
+		restoring = false;
+	}
+}
+
+/** The toast's own Undo: it reverses the restore it just made, so the two read as one quiet moment. */
+async function undoRestore() {
+	const current = toast;
+	if (!current?.undo) return;
+	toast = null;
+	if (toastTimer) clearTimeout(toastTimer);
+	try {
+		const version = await restoreArtifactVersion(
+			artifactId,
+			current.undo.versionId,
+			conversationId,
+			undefined,
+			{
+				expectVersion: current.undo.restoreVersion,
+				undoOf: current.undo.restoreVersion,
+			},
+		);
+		onRestored?.(version);
+		await landOnTop();
+	} catch (error) {
+		showToast(
+			error instanceof VersionRestoreRefusedError &&
+				error.reason === "version_conflict"
+				? $t("artifacts.history.restoreMoved")
+				: $t("artifacts.history.restoreFailed"),
+			null,
+		);
+		await refresh();
+	}
+}
+
+// ---- naming (versioning.md §5.6) ------------------------------------------------
+
+function startName() {
+	if (!selected) return;
+	nameProblem = null;
+	nameDraft = selected.label ?? "";
+	naming = true;
+}
+
+function cancelName() {
+	naming = false;
+	nameProblem = null;
+}
+
+function withLabel(
+	moment: ArtifactMoment,
+	versionId: string,
+	label: string | null,
+): ArtifactMoment {
+	const steps = moment.steps.map((step) =>
+		step.versionId === versionId ? { ...step, label } : step,
+	);
+	return moment.versionId === versionId
+		? { ...moment, label, steps }
+		: { ...moment, steps };
+}
+
+async function applyName(raw: string | null) {
+	const entry = selected;
+	if (!entry || namingBusy) return;
+	const normalized = normalizeVersionLabel(raw);
+	if (!normalized.ok) {
+		nameProblem = $t("artifacts.history.nameFailed");
+		return;
+	}
+	namingBusy = true;
+	nameProblem = null;
+	try {
+		const result = await nameArtifactVersion(
+			artifactId,
+			entry.versionId,
+			normalized.label,
+			conversationId,
+		);
+		if (!result.ok) {
+			nameProblem = $t("artifacts.history.nameFailed");
+			return;
+		}
+		moments = moments.map((moment) =>
+			withLabel(moment, entry.versionId, result.label),
+		);
+		naming = false;
+		live = result.label
+			? $t("artifacts.history.named", { name: result.label })
+			: "";
+		// Naming the newest version closes its burst: the reader's next edits start a new one.
+		nextEditsNote = result.label !== null && entry.isNewest;
+	} catch {
+		nameProblem = $t("artifacts.history.nameFailed");
+	} finally {
+		namingBusy = false;
+	}
 }
 
 const regionLabel = $derived($t("artifacts.history.regionA11y", { title }));
@@ -486,10 +813,27 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 			nowLine={selected.isNewest}
 			sameAsNow={selected.sameAsNow}
 			label={selected.label}
+			{nextEditsNote}
+			canRestore={canRestore && !isPhone}
+			{restoreDisabledReason}
+			restoreQuestion={restoreOpen && !isPhone ? restoreLines : null}
+			{restoring}
+			{restoreProblem}
+			{naming}
+			bind:nameDraft
+			{namingBusy}
+			{nameProblem}
 			narrow={layout !== 'wide'}
 			onCompare={(next) => (compare = next)}
 			onPrevChange={() => stepChange(-1)}
 			onNextChange={() => stepChange(1)}
+			onAskRestore={askRestore}
+			onCancelRestore={cancelRestore}
+			onConfirmRestore={confirmRestore}
+			onStartName={startName}
+			onSaveName={() => applyName(nameDraft)}
+			onCancelName={cancelName}
+			onRemoveName={() => applyName(null)}
 		/>
 	{/if}
 {/snippet}
@@ -605,17 +949,33 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 	{/if}
 {/snippet}
 
+{#snippet toastView()}
+	{#if toast}
+		<div class="toast" role="status" data-testid="history-toast" transition:toastFly={{ y: 8, duration: MOTION_DURATION.standard, easing: cubicOut }}>
+			<span class="toast-message">{toast.message}</span>
+			{#if toast.undo}
+				<button type="button" class="toast-undo" data-testid="history-toast-undo" onclick={undoRestore}>
+					{$t('artifacts.history.undo')}
+				</button>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet content()}
 	{#if status !== 'ready'}
 		{@render states()}
 	{:else if layout === 'wide'}
+		<!-- The rail comes first in the document (tab order: rail, then the preview's
+		     toolbar, then its text; a screen reader meets the list before what it shows)
+		     and sits on the right by `order`, where the comment column lives. -->
 		<div class="split">
+			<div class="rail-pane" in:railFly={{ x: 24, duration: MOTION_DURATION.emphasis, easing: cubicOut }}>
+				{@render railPane()}
+			</div>
 			<div class="preview-pane">
 				{@render toolbar()}
 				{@render previewBody()}
-			</div>
-			<div class="rail-pane" in:railFly={{ x: 24, duration: MOTION_DURATION.emphasis, easing: cubicOut }}>
-				{@render railPane()}
 			</div>
 		</div>
 	{:else if view === 'list'}
@@ -646,9 +1006,28 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 				<span class="sheet-title">{$t('artifacts.history.title')}</span>
 			</div>
 			{@render content()}
+			{@render toastView()}
 		</div>
 		{#snippet footer()}
-			{#if view === 'preview' && selected}
+			{#if view === 'preview' && selected && restoreOpen && restoreLines}
+				<div class="bar-question" role="group" aria-label={$t('artifacts.history.restore')} data-testid="history-restore-question">
+					{#each restoreLines as line, index (index)}
+						<p class="bar-question-line" class:bar-question-main={index === 0}>{line}</p>
+					{/each}
+					{#if restoreProblem}
+						<p class="bar-question-problem" role="alert">{restoreProblem}</p>
+					{/if}
+					<div class="bar-question-actions">
+						<button type="button" class="btn-ghost" data-testid="history-restore-cancel" disabled={restoring} onclick={cancelRestore}>
+							{$t('common.cancel')}
+						</button>
+						<button type="button" class="btn-primary" data-testid="history-restore-confirm" disabled={restoring} onclick={confirmRestore} {@attach focusOnMount}>
+							<RotateCcw size={14} strokeWidth={2} aria-hidden="true" />
+							{$t('artifacts.history.restore')}
+						</button>
+					</div>
+				</div>
+			{:else if view === 'preview' && selected}
 				<div class="bottom-bar">
 					<button
 						type="button"
@@ -668,6 +1047,19 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 					>
 						<ChevronRight size={18} strokeWidth={2.2} aria-hidden="true" />
 					</button>
+					<span class="grow"></span>
+					{#if canRestore}
+						<button type="button" class="bar-restore" data-testid="history-restore" onclick={askRestore}>
+							<RotateCcw size={16} strokeWidth={2} aria-hidden="true" />
+							{$t('artifacts.history.restore')}
+						</button>
+					{:else if restoreDisabledReason}
+						<span class="same-note">{restoreDisabledReason}</span>
+					{:else if selected.isNewest}
+						<span class="same-note">{$t('artifacts.history.nowLine')}</span>
+					{:else if selected.sameAsNow}
+						<span class="same-note">{$t('artifacts.history.sameAsNow')}</span>
+					{/if}
 				</div>
 			{/if}
 		{/snippet}
@@ -686,6 +1078,7 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		onkeydown={handleRootKeydown}
 	>
 		{@render content()}
+		{@render toastView()}
 	</section>
 {/if}
 
@@ -719,6 +1112,7 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 	}
 
 	.preview-pane {
+		order: 1;
 		display: flex;
 		flex: 1 1 0;
 		flex-direction: column;
@@ -726,10 +1120,17 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 		min-height: 0;
 	}
 
+	/* A flex item's automatic minimum is its content's: a rail row whose detail
+	   line does not wrap would stretch the pane past 300 px and squeeze the preview.
+	   The pane is exactly 300 px and clips what does not fit (the rows ellipsise). */
 	.rail-pane {
+		order: 2;
 		display: flex;
 		flex: 0 0 300px;
 		flex-direction: column;
+		width: 300px;
+		min-width: 0;
+		overflow: hidden;
 		min-height: 0;
 		border-left: 1px solid var(--border-default);
 		background: var(--surface-page);
@@ -862,6 +1263,122 @@ const oneVersion = $derived(status === "ready" && allEntries.length === 1);
 	.bar-step {
 		width: 2.75rem;
 		height: 2.75rem;
+	}
+
+	.bar-restore {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		min-height: 2.75rem;
+		padding: 0 1rem;
+		border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+		border-radius: var(--radius-md);
+		background: var(--accent-tint);
+		color: var(--accent-text);
+		font-family: var(--font-sans);
+		font-size: 0.875rem;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.same-note {
+		color: var(--text-muted);
+		font-size: 0.78rem;
+		font-weight: 600;
+	}
+
+	.bar-question {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+		border-radius: var(--radius-md);
+		background: var(--accent-tint);
+	}
+
+	.bar-question-line {
+		margin: 0;
+		color: var(--text-muted);
+		font-size: 0.8125rem;
+		line-height: 1.4;
+	}
+
+	.bar-question-main {
+		color: var(--text-primary);
+		font-weight: 600;
+	}
+
+	.bar-question-problem {
+		margin: 0;
+		color: var(--danger);
+		font-size: 0.8125rem;
+		font-weight: 600;
+	}
+
+	.bar-question-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.bar-question-actions :global(button) {
+		display: inline-flex;
+		flex: 1 1 0;
+		align-items: center;
+		justify-content: center;
+		gap: 0.3rem;
+		min-height: 2.75rem;
+	}
+
+	/* The restore toast stands at the foot of the panel, never over the header's
+	   actions (versioning.md §5.5; the redesign's #33). */
+	.toast {
+		position: absolute;
+		left: 50%;
+		bottom: 1rem;
+		z-index: 5;
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		max-width: calc(100% - 2rem);
+		transform: translateX(-50%);
+		padding: 0.5rem 0.75rem 0.5rem 1rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-lg);
+		background: var(--surface-elevated);
+		box-shadow: 0 6px 24px color-mix(in srgb, var(--text-primary) 16%, transparent);
+		color: var(--text-primary);
+		font-size: 0.8125rem;
+		font-weight: 600;
+	}
+
+	.toast-message {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+
+	.toast-undo {
+		flex-shrink: 0;
+		min-height: 2rem;
+		padding: 0 0.75rem;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--accent-text);
+		font-family: var(--font-sans);
+		font-size: 0.8125rem;
+		font-weight: 800;
+		cursor: pointer;
+	}
+
+	.toast-undo:hover {
+		background: var(--accent-tint);
+	}
+
+	.toast-undo:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.state,

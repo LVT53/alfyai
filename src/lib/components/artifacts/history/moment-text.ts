@@ -445,6 +445,17 @@ export function entryA11yName(
 		parts.push(`${ctx.t("artifacts.history.now")}.`);
 	} else if (entry.sameAsNow) {
 		parts.push(`${ctx.t("artifacts.history.sameAsNow")}.`);
+	} else if (entry.sameAs) {
+		parts.push(
+			`${ctx.t("artifacts.history.sameAs", { when: whenLabel(entry.sameAs.at, ctx) })}.`,
+		);
+	}
+	const restoredHere =
+		entry.type === "moment" ? entry.moment.restoredHere[0] : null;
+	if (restoredHere) {
+		parts.push(
+			`${ctx.t("artifacts.history.restoredFromHere", { when: whenLabel(restoredHere.at, ctx) })}.`,
+		);
 	}
 	return parts.join(" ");
 }

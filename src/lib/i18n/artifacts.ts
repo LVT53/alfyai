@@ -1034,6 +1034,8 @@ const artifactsDict = {
 		"artifacts.history.restoreTabs": "Tabs keep their current names.",
 		"artifacts.history.restoreElsewhere":
 			"It changes in “{chat}” too, where it was made.",
+		"artifacts.history.restoreElsewhereGeneric":
+			"It changes in the chat where it was made too.",
 		"artifacts.history.restoreWaiting":
 			"Alfy's change waiting for you goes with it.",
 		"artifacts.history.restoreAppData": "Saved data stays as it is now.",
@@ -1042,7 +1044,6 @@ const artifactsDict = {
 			"Restored {when}. The version before it is in History.",
 		"artifacts.history.restoreMoved":
 			"It changed while you were looking. Here's the latest.",
-		"artifacts.history.restoreConflict": "Reload first: it changed elsewhere.",
 		"artifacts.history.restoreOffline": "You're offline",
 		"artifacts.history.restoreFailed":
 			"Couldn't restore this version. Try again.",
@@ -1900,6 +1901,8 @@ const artifactsDict = {
 		"artifacts.history.restoreTabs": "A lapok neve a mostani marad.",
 		"artifacts.history.restoreElsewhere":
 			"A „{chat}” beszélgetésben is megváltozik, ahol készült.",
+		"artifacts.history.restoreElsewhereGeneric":
+			"Abban a beszélgetésben is megváltozik, ahol készült.",
 		"artifacts.history.restoreWaiting":
 			"Alfy rád váró módosítása is eltűnik vele.",
 		"artifacts.history.restoreAppData":
@@ -1908,8 +1911,6 @@ const artifactsDict = {
 		"artifacts.history.restoredA11y":
 			"Visszaállítva: {when}. Az előző változat megmaradt az előzményekben.",
 		"artifacts.history.restoreMoved": "Közben megváltozott. Itt a legfrissebb.",
-		"artifacts.history.restoreConflict":
-			"Előbb töltsd újra: máshol megváltozott.",
 		"artifacts.history.restoreOffline": "Nem vagy online",
 		"artifacts.history.restoreFailed":
 			"Nem sikerült visszaállítani ezt a változatot. Próbáld újra.",
