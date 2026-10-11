@@ -716,10 +716,10 @@ const artifactsDict = {
 		"artifacts.canvas.review.refused":
 			"Alfy skipped {count} {count, plural, one {change} other {changes}}.",
 		"artifacts.canvas.review.undoRefused":
-			"Alfy's change can't be undone here because the board has changed since. Open Versions to go back to an earlier one.",
+			"Alfy's change can't be undone here because the board has changed since. Open History to go back to an earlier one.",
 		"artifacts.canvas.review.undoFailed":
-			"Could not undo Alfy's change. Try again, or open Versions.",
-		"artifacts.canvas.review.openVersions": "Open Versions",
+			"Could not undo Alfy's change. Try again, or open History.",
+		"artifacts.canvas.review.openHistory": "Open History",
 		// Asking Alfy about blocks, or the board (S3-A): the toolbar's button, the pill a
 		// selection raises, and what a request about several blocks says it is about.
 		"artifacts.canvas.ask": "Ask Alfy",
@@ -1056,6 +1056,18 @@ const artifactsDict = {
 		"artifacts.history.named": "Named “{name}”",
 		"artifacts.history.nameFailed": "Couldn't save the name. Try again.",
 		"artifacts.history.nextEditsNew": "Your next edits start a new version.",
+		// The board's preview in History (ruling 76, versioning.md §5.4): the tags on
+		// the blocks, and the list of changes a screen reader and the stepper walk.
+		"artifacts.history.canvas.tagNew": "New",
+		"artifacts.history.canvas.tagMoved": "Moved",
+		"artifacts.history.canvas.tagRemoved": "Removed",
+		"artifacts.history.canvas.changesLabel": "Changes on the board",
+		"artifacts.history.canvas.change.added": "{label}, added",
+		"artifacts.history.canvas.change.changed": "{label}, changed",
+		"artifacts.history.canvas.change.moved": "{label}, moved",
+		"artifacts.history.canvas.change.linked": "{label}, connection changed",
+		"artifacts.history.canvas.change.removed": "{label}, removed",
+		"artifacts.history.canvas.emptyBoard": "This version has no blocks.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -1598,10 +1610,10 @@ const artifactsDict = {
 			"{summary} {left} módosítást kihagyott. Nézd át a tábla alatt.",
 		"artifacts.canvas.review.refused": "Alfy {count} módosítást kihagyott.",
 		"artifacts.canvas.review.undoRefused":
-			"Alfy módosítása itt nem vonható vissza, mert azóta megváltozott a tábla. A Változatok megnyitásával visszatérhetsz egy korábbihoz.",
+			"Alfy módosítása itt nem vonható vissza, mert azóta megváltozott a tábla. Az Előzmények megnyitásával visszatérhetsz egy korábbihoz.",
 		"artifacts.canvas.review.undoFailed":
-			"Nem sikerült visszavonni Alfy módosítását. Próbáld újra, vagy nyisd meg a Változatokat.",
-		"artifacts.canvas.review.openVersions": "Változatok megnyitása",
+			"Nem sikerült visszavonni Alfy módosítását. Próbáld újra, vagy nyisd meg az Előzményeket.",
+		"artifacts.canvas.review.openHistory": "Előzmények megnyitása",
 		// Alfy megkérdezése blokkokról vagy a tábláról (S3-A).
 		"artifacts.canvas.ask": "Alfy megkérdezése",
 		"artifacts.canvas.ask.busy":
@@ -1925,6 +1937,18 @@ const artifactsDict = {
 			"Nem sikerült elmenteni a nevet. Próbáld újra.",
 		"artifacts.history.nextEditsNew":
 			"A következő szerkesztéseid új változatba kerülnek.",
+		// A tábla előnézete az Előzményekben: a blokkokon a jelölések, és a módosítások
+		// listája, amit a képernyőolvasó és a léptető bejár.
+		"artifacts.history.canvas.tagNew": "Új",
+		"artifacts.history.canvas.tagMoved": "Áthelyezve",
+		"artifacts.history.canvas.tagRemoved": "Törölve",
+		"artifacts.history.canvas.changesLabel": "A tábla módosításai",
+		"artifacts.history.canvas.change.added": "{label}, hozzáadva",
+		"artifacts.history.canvas.change.changed": "{label}, módosítva",
+		"artifacts.history.canvas.change.moved": "{label}, áthelyezve",
+		"artifacts.history.canvas.change.linked": "{label}, a kapcsolatai módosultak",
+		"artifacts.history.canvas.change.removed": "{label}, törölve",
+		"artifacts.history.canvas.emptyBoard": "Ebben a változatban nincs blokk.",
 	},
 } as const;
 

@@ -123,6 +123,7 @@ import ZoomChip from "./ZoomChip.svelte";
 let {
 	body,
 	readonly = false,
+	preview = false,
 	onchange,
 	oncamera,
 	layers,
@@ -137,6 +138,8 @@ let {
 	body: CanvasBody;
 	/** The board cannot change now (a conflict is waiting on the reader's choice, or the item is gone). It still draws and pans. */
 	readonly?: boolean;
+	/** A picture of one stored version (History): no toolbar and no overview, nothing to pick or tab through, and the camera is the host's to fit (it is never fitted on open). Always given with `readonly`. */
+	preview?: boolean;
 	/** One step of the reader's, complete: the whole board, camera included. Never a bare pan. */
 	onchange: (body: CanvasBody) => void;
 	/** The camera settled somewhere. In memory only: it is saved with the next real change. */
@@ -1095,7 +1098,9 @@ $effect(() => {
 			);
 		});
 });
-let showMinimap = $derived(boardWidth >= MINIMAP_ABOVE && nodes.length > 0);
+let showMinimap = $derived(
+	!preview && boardWidth >= MINIMAP_ABOVE && nodes.length > 0,
+);
 let empty = $derived(nodes.length === 0 && annotations.length === 0);
 // A tool that draws (or the eraser) owns the pointer: the drawing pad takes the
 // press, so a drag must not also move the camera or the blocks under it.
@@ -1104,13 +1109,14 @@ let drawing = $derived(isDrawingTool(tool) || tool === "eraser");
 // (except while drawing: then it draws, and a second finger cancels the stroke);
 // with a pointer, a plain drag on the pane selects (middle and right buttons pan).
 let panOnDrag = $derived(
-	tool === "pan" ? true : coarsePointer ? !drawing : [1, 2],
+	preview || tool === "pan" ? true : coarsePointer ? !drawing : [1, 2],
 );
-let selectionOnDrag = $derived(tool === "select" && !coarsePointer);
+let selectionOnDrag = $derived(!preview && tool === "select" && !coarsePointer);
 let nodesDraggable = $derived(!readonly && !held && tool === "select");
 // A board with blocks and no camera of its own is fitted on open, clear of the
 // toolbar along the bottom and the overview in the corner.
-const fitOnOpen = initial.nodes.length > 0 && !hasStoredCamera(initial);
+const fitOnOpen =
+	!preview && initial.nodes.length > 0 && !hasStoredCamera(initial);
 let fitViewOptions = $derived({
 	padding: {
 		top: "40px",
@@ -1218,25 +1224,27 @@ function minimapColor(node: {
 >
 	<!-- First in the DOM, so the keyboard reaches the tools before the blocks
 	     (header, toolbar, then the board); it is painted above by its z-index. -->
-	<CanvasToolbar
-		{tool}
-		{compact}
-		{canUndo}
-		{canRedo}
-		disabled={readonly}
-		emphasizeInsert={empty}
-		{askBusy}
-		{ink}
-		Tray={drawingViews?.DrawTray ?? null}
-		onwarm={(what) =>
-			void (what === "draw" ? ensureDrawing() : loadPlacement())}
-		oninkchange={(next) => (ink = next)}
-		ontoolchange={setTool}
-		onundo={undo}
-		onredo={redo}
-		oninsert={insertBlock}
-		onask={handleAsk}
-	/>
+	{#if !preview}
+		<CanvasToolbar
+			{tool}
+			{compact}
+			{canUndo}
+			{canRedo}
+			disabled={readonly}
+			emphasizeInsert={empty}
+			{askBusy}
+			{ink}
+			Tray={drawingViews?.DrawTray ?? null}
+			onwarm={(what) =>
+				void (what === "draw" ? ensureDrawing() : loadPlacement())}
+			oninkchange={(next) => (ink = next)}
+			ontoolchange={setTool}
+			onundo={undo}
+			onredo={redo}
+			oninsert={insertBlock}
+			onask={handleAsk}
+		/>
+	{/if}
 
 	<SvelteFlow
 		bind:nodes
@@ -1260,6 +1268,9 @@ function minimapColor(node: {
 		nodeDragThreshold={WOBBLE_PX}
 		paneClickDistance={WOBBLE_PX}
 		nodesConnectable={!readonly && !held}
+		elementsSelectable={!preview}
+		nodesFocusable={!preview}
+		edgesFocusable={!preview}
 		connectionMode={ConnectionMode.Loose}
 		deleteKey={readonly || held ? null : ["Backspace", "Delete"]}
 		elevateNodesOnSelect={false}

@@ -3,13 +3,25 @@ import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { users } from "../../src/lib/server/db/schema";
 import {
+	applyArtifactOps,
+	createArtifact,
 	createDocumentArtifact,
+	listVersions,
 	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
+import type {
+	CanvasBody,
+	CanvasNode,
+} from "../../src/lib/shared/artifacts/canvas";
+import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
 import {
 	undidAlfyChangeSummary,
 	VERSION_SUMMARY,
 } from "../../src/lib/shared/artifacts/version-summaries";
+import {
+	openCanvasPanel,
+	openChatAndReload,
+} from "./artifact-canvas-helpers";
 import { createConversation, login, workspacePanel } from "./helpers";
 
 // Ruling 76 (the versioning build): History is a MODE of the panel — a
@@ -832,5 +844,183 @@ test.describe("History mode on a phone", () => {
 		).toBeVisible();
 		await page.keyboard.press("Escape");
 		await expect(sheet).toHaveCount(0);
+	});
+});
+
+// ---- The board and the App in History (VB-3) -------------------------------------
+
+function boardNote(
+	id: string,
+	x: number,
+	y: number,
+	text: string,
+	parentId?: string,
+): CanvasNode {
+	return {
+		id,
+		type: "sticky",
+		position: { x, y },
+		width: 180,
+		...(parentId ? { parentId } : {}),
+		data: { kind: "sticky", text, tone: "yellow" },
+	};
+}
+
+/** A weekend board: Saturday's frame with a lunch in it, the museum and a dinner beside it. */
+function weekendBoard(): CanvasBody {
+	return {
+		version: 1,
+		nodes: [
+			{
+				id: "frame-saturday",
+				type: "frame",
+				position: { x: 20, y: 20 },
+				width: 320,
+				height: 240,
+				data: { kind: "frame", label: "Saturday", width: 320, height: 240 },
+			},
+			boardNote("note-lunch", 24, 64, "Lunch at the market", "frame-saturday"),
+			boardNote("note-museum", 420, 40, "Museum, 14:00"),
+			boardNote("note-dinner", 420, 200, "Dinner, 19:30"),
+		],
+		edges: [],
+		viewport: { x: 0, y: 0, zoom: 1 },
+		annotations: [],
+	};
+}
+
+/** What Alfy plans for Sunday: a new frame with a note in it, and the museum moved. */
+const PLAN_SUNDAY = [
+	{
+		op: "add_frame",
+		id: "frame-sunday",
+		label: "Sunday",
+		position: { x: 20, y: 320 },
+		size: { width: 320, height: 200 },
+	},
+	{
+		op: "add_node",
+		node: {
+			id: "note-brunch",
+			type: "sticky",
+			parentId: "frame-sunday",
+			position: { x: 20, y: 60 },
+			data: { kind: "sticky", text: "Brunch, 10:30", tone: "mint" },
+		},
+	},
+	{ op: "move", id: "note-museum", to: { x: 470, y: 100 } },
+];
+
+test.describe("History mode: a board", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await login(page);
+	});
+
+	test("an Alfy change undone on the review bar folds in History, its preview rings what it touched, and Restore brings it back (T7)", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(page, "History board");
+		const userId = await adminId();
+		const created = await createArtifact({
+			userId,
+			conversationId,
+			kind: "canvas",
+			title: "History board",
+			body: boardJson(weekendBoard()),
+			author: "alfy",
+			versionSummary: VERSION_SUMMARY.alfyFirstDraft,
+		});
+		if (!created.ok) throw new Error(created.reason);
+		const artifactId = created.artifact.id;
+		const [newest] = await listVersions({
+			userId,
+			artifactId,
+			conversationId,
+			limit: 1,
+		});
+		const applied = await applyArtifactOps({
+			userId,
+			artifactId,
+			conversationId,
+			payload: {
+				baseVersionId: newest.id,
+				diff: { id: "d", summary: "Planned Sunday", ops: PLAN_SUNDAY },
+			},
+		});
+		if (!applied.ok) throw new Error(applied.reason);
+
+		await openChatAndReload(page, conversationId);
+		await openCanvasPanel(page);
+		// Alfy's change waits on the review bar; the reader takes it back with a click.
+		const bar = page.getByTestId("canvas-review-bar");
+		await expect(bar).toBeVisible();
+		await bar.getByRole("button", { name: /^Undo/ }).click();
+		await expect(page.locator('.svelte-flow__node[data-id="note-brunch"]')).toHaveCount(0);
+
+		// The header opens History: Alfy's change and the Undo that took it back are ONE moment.
+		await historyButton(page).click();
+		const region = historyRegion(page, "History board");
+		await expect(region).toBeVisible();
+		const options = region.getByRole("option");
+		await expect(options).toHaveCount(2);
+		await expect(options.first()).toContainText("Planned Sunday");
+		await expect(options.first()).toContainText("Undone");
+		await expect(options.last()).toContainText("Built by Alfy");
+		// Nothing prints a version number but the fine print.
+		await expect(historyButton(page)).not.toContainText(/\bv\d/);
+
+		// Its preview is the board as Alfy left it, with what it touched ringed and tagged.
+		const preview = region.getByTestId("history-preview");
+		await expect(preview).toBeVisible();
+		await expect(preview.locator('.svelte-flow__node[data-id="note-brunch"]')).toBeVisible();
+		await expect(preview.getByTestId("canvas-history-ring")).toHaveCount(3);
+		await expect(preview.getByTestId("canvas-history-tag")).toHaveText([
+			"New",
+			"New",
+			"Moved",
+		]);
+		await expect(preview.getByTestId("canvas-history-trail")).toHaveCount(1);
+		// Alfy's own colour: the layer says whose change it is.
+		await expect(preview.locator('[data-testid="canvas-history-layer"][data-tone="alfy"]')).toHaveCount(1);
+		await expect(region.getByTestId("history-change-count")).toHaveText("1 / 3");
+		// Read-only: no toolbar to change it with, and a drag on a block moves nothing.
+		await expect(preview.getByTestId("canvas-tool-select")).toHaveCount(0);
+
+		// The changes are a list of buttons a keyboard reaches: each says what happened to which block.
+		const changes = preview.getByTestId("history-board-changes");
+		await expect(changes.getByRole("button")).toHaveText([
+			"Sunday, added",
+			"Brunch, 10:30, added",
+			"Museum, 14:00, moved",
+		]);
+
+		// The version before it: nothing to compare with, so the board shows with no marks.
+		await options.last().click();
+		await expect(preview.getByTestId("canvas-history-ring")).toHaveCount(0);
+		await expect(preview.locator('.svelte-flow__node[data-id="note-lunch"]')).toBeVisible();
+		await expect(preview.locator('.svelte-flow__node[data-id="note-brunch"]')).toHaveCount(0);
+
+		// Compared with now, Alfy's version has what Restore would bring back.
+		await options.first().click();
+		await region.getByTestId("history-compare-now").click();
+		await expect(preview.getByTestId("canvas-history-ring")).toHaveCount(3);
+		await expect(preview.locator('[data-testid="canvas-history-layer"][data-tone="user"]')).toHaveCount(1);
+		await region.getByTestId("history-compare-step").click();
+
+		// Restore: the question names the version by its time, never "text".
+		await region.getByTestId("history-restore").click();
+		const question = region.getByTestId("history-restore-question");
+		await expect(question).toContainText("What you have now stays in History.");
+		await expect(question).not.toContainText(/text/i);
+		await region.getByTestId("history-restore-confirm").click();
+		await expect(page.getByTestId("history-toast")).toContainText("Restored");
+		await expect(options.first()).toContainText("You restored");
+
+		// Done: the board is Alfy's again, and the next step is saved, not refused as stale.
+		await doneButton(page).click();
+		await expect(region).toHaveCount(0);
+		await expect(page.locator('.svelte-flow__node[data-id="note-brunch"]')).toBeVisible();
+		await expect(page.getByTestId("canvas-save-status")).not.toContainText("conflict");
 	});
 });

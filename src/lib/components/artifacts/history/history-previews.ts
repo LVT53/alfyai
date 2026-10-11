@@ -4,8 +4,8 @@
  * every kind; what differs is how one stored version is shown read-only, with
  * its changes marked: a Document's words, a board, an App. A kind adds ONE entry
  * here and a component that takes `HistoryPreviewProps`: the Document's is
- * `DocumentVersionPreview.svelte`; the Canvas and App previews are the next
- * build's entries.
+ * `DocumentVersionPreview.svelte`; the Canvas's is the lazy entry
+ * `canvas/history-parts.ts`; the App's is `AppVersionPreview.svelte`.
  *
  * Loaders, never static imports: a preview carries what only History needs (a
  * Markdown renderer, a board, a sandbox frame), and must never enter the chat
@@ -54,6 +54,7 @@ export const HISTORY_PREVIEWS: Partial<
 	Record<ArtifactKind, HistoryPreviewLoader>
 > = {
 	document: () => import("./DocumentVersionPreview.svelte"),
+	canvas: () => import("../canvas/history-parts"),
 };
 
 /**
