@@ -178,7 +178,7 @@ function documentDetail(
 	// current tab strip: tabs live on the artifact row, latest only), named only
 	// when it is not the first tab.
 	let tab: string | null = null;
-	const tabOfBlock = mapBlocksToTabs(after.blocks, tabs);
+	const tabOfBlock = mapBlocksToTabs(after.blocks, [...tabs]);
 	const touched = after.blocks.find((block) =>
 		changedBlockIds.includes(block.id),
 	);
