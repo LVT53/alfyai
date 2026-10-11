@@ -30,6 +30,7 @@ import {
 	snapshotUserModelPreference,
 	updateUserModelPreference,
 } from "./artifact-live-edit.helpers";
+import { moduleUrlPattern } from "./build-assets";
 import { createConversation, login, sendMessage } from "./helpers";
 
 // A step the reader has not saved yet, and Alfy's change to the same board (Feature
@@ -355,11 +356,16 @@ test.describe("the code that puts the two together", () => {
 	}) => {
 		const scene = await openBoardOnly(page);
 		let requested = 0;
-		await page.route("**/canvas/rebase-board*", async (route) => {
-			requested += 1;
-			await new Promise((resolve) => setTimeout(resolve, 3_000));
-			await route.continue();
-		});
+		// The module is a chunk of its own in the production build (the manifest says
+		// which) and a source path under `vite dev`.
+		await page.route(
+			moduleUrlPattern("src/lib/components/artifacts/canvas/rebase-board.ts"),
+			async (route) => {
+				requested += 1;
+				await new Promise((resolve) => setTimeout(resolve, 3_000));
+				await route.continue();
+			},
+		);
 		await typeIntoNote(page, LUNCH, " (two seats)");
 		await leaveNote(page);
 		await writeAlfyVersion(scene.artifactId, (stored) => ({

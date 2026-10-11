@@ -194,6 +194,14 @@ async function deleteTemporaryProvider(
 async function openChatAndReload(page: Page, conversationId: string) {
 	await page.evaluate((id) => {
 		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
+		// The first message (sent to get a conversation id, before the fake
+		// provider was configured) went out on the default model, and the chat
+		// remembers the model a conversation's turn was sent with, which then wins
+		// over the profile default this spec has just changed. Whether that first
+		// send has run by now is a race the page wins or loses by how fast it
+		// loads (a production build wins it, `vite dev` mostly lost it), so
+		// forget the memory: the conversation takes the profile default.
+		window.sessionStorage.removeItem(`conversation-model:${id}`);
 	}, conversationId);
 	await page.goto(`/chat/${conversationId}`);
 	await page.reload({ waitUntil: "networkidle" });

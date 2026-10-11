@@ -22,6 +22,7 @@ import {
 	testUserId,
 } from "./artifact-canvas-helpers";
 import { setUiLanguage } from "./artifact-document-polish-helpers";
+import { moduleUrlPattern } from "./build-assets";
 import { createConversation, login, waitForStableBoundingBox } from "./helpers";
 
 // The blocks made from the chat (Feature 2 · Canvas, S3-R1): the Insert menu's
@@ -562,8 +563,13 @@ test.describe("blocks from this chat", () => {
 		await openBoard(page);
 		// Nothing has asked for it yet: the editor opens without it.
 		const requests: string[] = [];
+		// `vite dev` serves the module at its source path; the production build serves
+		// its chunk (the manifest says which), so the pattern is asked of the build.
+		const placementModule = moduleUrlPattern(
+			"src/lib/components/artifacts/canvas/_lib/placement.ts",
+		);
 		page.on("request", (request) => {
-			if (/\/_lib\/placement/.test(request.url())) requests.push(request.url());
+			if (placementModule.test(request.url())) requests.push(request.url());
 		});
 		expect(requests).toHaveLength(0);
 		await insertButton(page).hover();
