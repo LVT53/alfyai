@@ -780,6 +780,69 @@ describe("hooks.server.ts", () => {
 			});
 		});
 
+		// Ruling 76 (Q7): an old App version runs in the same kind of frame, so
+		// it is the same phishing shape without the same answer: a 303 to /login
+		// would put the real login form inside a sandboxed frame.
+		describe("an old version's served route (History's preview frame)", () => {
+			it.each([
+				"/api/artifacts/app-1/versions/version-1/app",
+				"/api/artifacts/app-1/versions/version-1/app/",
+			])("answers the localized notice for %s, never reaching the route", async (path) => {
+				const { handle } = await import("./hooks.server");
+				const { APP_SANDBOX_CSP } = await import(
+					"$lib/server/services/artifacts/app/sandbox-response"
+				);
+				const resolve = vi.fn();
+				const event = makeHookEvent(path, undefined, {
+					"sec-fetch-dest": "iframe",
+				});
+
+				const response = await handle({ event, resolve });
+
+				expect(resolve).not.toHaveBeenCalled();
+				expect(response.status).toBe(401);
+				expect(response.headers.get("content-security-policy")).toBe(
+					APP_SANDBOX_CSP,
+				);
+				expect(await response.text()).toContain("Your session ended");
+			});
+
+			it("still redirects the same route when it is not loaded as a frame", async () => {
+				const { handle } = await import("./hooks.server");
+				const event = makeHookEvent(
+					"/api/artifacts/app-1/versions/version-1/app",
+					undefined,
+					NAVIGATION_HEADERS,
+				);
+
+				await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject(
+					{
+						status: 303,
+					},
+				);
+			});
+
+			it.each([
+				"/api/artifacts/app-1/versions/version-1",
+				"/api/artifacts/app-1/versions/version-1/restore",
+				"/api/artifacts/app-1/versions/app",
+				"/api/artifacts/app-1/versions/version-1/app/kv",
+				"/api/artifacts/app-1/versions/version-1/extra/app",
+				"/api/artifacts/app-1/history",
+			])("does not intercept %s, even framed", async (path) => {
+				const { handle } = await import("./hooks.server");
+				const event = makeHookEvent(path, undefined, {
+					"sec-fetch-dest": "iframe",
+				});
+
+				await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject(
+					{
+						status: 303,
+					},
+				);
+			});
+		});
+
 		it("does not apply to an authenticated request for the same route", async () => {
 			const { handle } = await import("./hooks.server");
 			mockValidateSession.mockResolvedValue({
