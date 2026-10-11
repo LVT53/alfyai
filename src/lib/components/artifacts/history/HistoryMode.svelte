@@ -481,6 +481,8 @@ async function refresh(): Promise<void> {
 			return;
 		}
 		const knownTop = moments[0]?.versionId ?? null;
+		// The rail's clock catches up with a version that just landed.
+		clock = Date.now();
 		moments = mergeFirstPage(result.moments, moments);
 		newestVersion = result.newestVersion;
 		// A version arrived while the question stood open (not the restore's own,

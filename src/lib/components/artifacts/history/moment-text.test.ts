@@ -498,6 +498,21 @@ describe("times and day groups", () => {
 		expect(entryTimeLabel(NOW - 12 * 60_000, ctx("hu"))).toBe("12 perce");
 	});
 
+	// RV-V M-1: the rail's clock ticks every 30 seconds, so a moment that landed since
+	// the last tick is a little AHEAD of it. It read as a clock time ("22:13") next to
+	// older rows saying "just now": one way of telling time in the rail.
+	it("reads a moment that landed after the clock last ticked as just now", () => {
+		const c = ctx();
+		expect(entryTimeLabel(NOW + 1_000, c)).toBe("just now");
+		expect(entryTimeLabel(NOW + 29_000, c)).toBe("just now");
+		expect(entryTimeLabel(NOW + 59_000, c)).toBe("just now");
+		expect(entryTimeLabel(NOW + 59_000, ctx("hu"))).toBe("épp most");
+		// Further ahead than any tick (a clock that is wrong) is not "just now".
+		expect(entryTimeLabel(NOW + 10 * 60_000, c)).toBe(
+			clockTime(NOW + 10 * 60_000, "en"),
+		);
+	});
+
 	it("names the day groups Today, Yesterday, then the weekday and date in the reader's locale", () => {
 		expect(dayLabel(at(2026, 10, 11, 8, 0), ctx())).toBe("Today");
 		expect(dayLabel(at(2026, 10, 10, 8, 0), ctx())).toBe("Yesterday");
