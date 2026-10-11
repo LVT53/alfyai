@@ -1013,6 +1013,104 @@ describe("deriveMoments — an Undo of several of Alfy's versions (RV-V I-3)", (
 	});
 });
 
+// RV-V M-4: an Undo ends what a later restore reverses. A change the reader undid
+// and then brought back with a restore read "Undone" beside "Same as now".
+describe("deriveMoments — a restore that brings an undone change back (RV-V M-4)", () => {
+	const reviewed = { review: { hasMarker: true, waiting: new Set<number>() } };
+	const statusOf = (
+		moments: ReturnType<typeof derive>["moments"],
+		versionNumber: number,
+	) => moments.find((m) => m.versionNumber === versionNumber)?.status;
+	const D3 = doc(
+		["p1", "Saturday"],
+		["p2", "Museum in the morning."],
+		["p3", "Rainy-day plan"],
+		["p4", "Dinner at eight."],
+	);
+
+	it("ends 'Undone' for a change a later restore brought back, and says nothing instead of contradicting 'Same as now'", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", D1),
+				row(2, "alfy", "Added a rainy-day plan", D2),
+				row(3, "user", "Undid Alfy's change: v2", D1),
+				row(4, "user", "Restored v2", D2),
+			],
+			reviewed,
+		);
+
+		const change = moments.find((m) => m.versionNumber === 2);
+		expect(change?.sameAsNow).toBe(true);
+		expect(change?.status).toBeNull();
+		expect(change?.undoneBy).toBeNull();
+	});
+
+	it("does the same for a restore to a version between the change and its Undo, which has the change in it", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", D1),
+				row(2, "alfy", "Added a rainy-day plan", D2),
+				row(3, "alfy", "Added dinner", D3),
+				row(4, "user", "Undid Alfy's change: v2", D1),
+				row(5, "user", "Restored v3", D3),
+			],
+			reviewed,
+		);
+
+		expect(statusOf(moments, 2)).toBeNull();
+	});
+
+	it("leaves 'Undone' alone when the restore goes elsewhere: to a version before the change, to the Undo, or after it", () => {
+		for (const [summary, body] of [
+			["Restored v1", D1],
+			["Restored v3", D1],
+			["Restored v4", D1],
+		] as const) {
+			const { moments } = derive(
+				[
+					row(1, "alfy", "Alfy wrote the first draft", D1),
+					row(2, "alfy", "Added a rainy-day plan", D2),
+					row(3, "user", "Undid Alfy's change: v2", D1),
+					row(4, "user", "Edited", doc(["p1", "Saturday!"], ["p2", "Museum."])),
+					row(5, "user", summary, body),
+				],
+				reviewed,
+			);
+			expect(statusOf(moments, 2), summary).toBe("undone");
+		}
+	});
+
+	it("ends it for a board's change too", () => {
+		const board = (text: string) =>
+			JSON.stringify({
+				version: 1,
+				nodes: [
+					{
+						id: "a",
+						type: "sticky",
+						position: { x: 0, y: 0 },
+						data: { kind: "sticky", text, tone: "yellow" },
+					},
+				],
+				edges: [],
+				viewport: { x: 0, y: 0, zoom: 1 },
+				annotations: [],
+			});
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Reworded", board("two")),
+				row(3, "user", "Undid Alfy's change: v2", board("one")),
+				row(4, "user", "Restored v2", board("two")),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(statusOf(moments, 2)).toBeNull();
+	});
+});
+
 describe("deriveMoments — facts that need a body", () => {
 	it("says 'large change' for a pair it did not compare, and never throws on a body it does not have", () => {
 		const { moments } = derive([

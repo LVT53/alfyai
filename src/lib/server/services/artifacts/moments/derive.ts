@@ -398,6 +398,24 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 				redoneAfter = true;
 			}
 		}
+		// A restore after the Undo to a version that has the change in it (the change
+		// itself, or one between it and the Undo) brought the change back: it is not
+		// "Undone" any more (RV-V M-4), and "Kept" would not be the reader's decision
+		// either, so it says nothing.
+		const undoNumber = undo?.versionNumber ?? 0;
+		const restoredBack =
+			undo !== null &&
+			laterMarkers.some(
+				({ meta, cls }) =>
+					cls.kind === "restore" &&
+					meta.versionNumber > undoNumber &&
+					cls.version !== null &&
+					cls.version >= v &&
+					cls.version < undoNumber,
+			);
+		if (undo !== null && !redoneAfter && restoredBack) {
+			return { status: null, undoneBy: null };
+		}
 		if (undo !== null && !redoneAfter) {
 			const undoRow = infos.find((info) => info.row.id === undo.id)?.row;
 			const covered =
