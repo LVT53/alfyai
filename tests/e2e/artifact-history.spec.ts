@@ -325,7 +325,16 @@ test.describe("History mode", () => {
 		await expect(preview).not.toContainText("The museum.");
 		await page.keyboard.press("End");
 		await expect(options.nth(3)).toHaveAttribute("aria-selected", "true");
-		await expect(preview).not.toContainText("then a cafe");
+		// The preview is made anew for every moment and is an empty skeleton until its
+		// bodies are read, so an absence ("no cafe") is true there at once and is not
+		// what shows the preview followed. The first draft has no parent: it is shown
+		// against now (the cafe, struck), and what only it has is its own last line.
+		await expect(preview).toHaveAttribute("aria-busy", "false");
+		await expect(preview).toHaveAttribute(
+			"aria-label",
+			/Alfy wrote the first draft/,
+		);
+		await expect(preview).toContainText("Belvedere in the morning.");
 		await page.keyboard.press("Home");
 		await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
 
@@ -830,7 +839,15 @@ test.describe("History mode on a phone", () => {
 		await expect(preview).toContainText("The museum.");
 		await older.tap();
 		await older.tap();
-		await expect(preview).not.toContainText("then a cafe");
+		// As in the keyboard test above: the first draft's preview is an empty skeleton until
+		// it has loaded, then holds the struck cafe it is shown against, so wait for the load
+		// and look for the draft's own last line instead of for an absence.
+		await expect(preview).toHaveAttribute("aria-busy", "false");
+		await expect(preview).toHaveAttribute(
+			"aria-label",
+			/Alfy wrote the first draft/,
+		);
+		await expect(preview).toContainText("Belvedere in the morning.");
 
 		// Restore: the question replaces the bottom bar, its buttons are 44 px.
 		await sheet.getByTestId("history-restore").tap();
