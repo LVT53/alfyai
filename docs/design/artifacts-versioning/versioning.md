@@ -355,7 +355,7 @@ editing with the scroll and selection the editor had. Entering History first flu
 ‹ EZ A BESZÉLGETÉS 3                                                        [Kész] │ [⤢] [✕]
 Bécsi út terve
 ✎ Dokumentum · [🕘 Alfy módosította · 12 perce ▴]
-┌─ preview ─────────────────────────────────────────────┬─ rail (288 px) ───────────────┐
+┌─ preview ─────────────────────────────────────────────┬─ rail (300 px) ───────────────┐
 │ Hétfő 10:09 · Szerkesztetted        [🔖 Elnevezés] [↺ Visszaállítás] │ [Mind] [Elnevezettek]          │
 │ Módosult: „Szombat” és még 2 bekezdés                             │ MA                             │
 │ [Ebben a változatban | A mostanihoz képest]          ‹ 1 / 3 ›     │ ✦ Alfy módosította, válaszul…  │
