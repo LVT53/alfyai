@@ -163,7 +163,7 @@ export function latestRowOfMoment(moment: ArtifactMoment): LatestMoment {
 }
 
 /** The fields a conversation-detail row or an open panel item carries for its latest moment (the number and time it always had; author and kind since ruling 76). */
-export interface LatestMomentFields {
+interface LatestMomentFields {
 	lastAuthor?: MomentAuthor | null;
 	lastKind?: MomentKind | null;
 }
