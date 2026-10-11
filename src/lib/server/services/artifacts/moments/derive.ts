@@ -243,6 +243,41 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 		}
 	}
 
+	// An Undo that names ONE version but whose text is the text BELOW an unbroken run of
+	// Alfy's versions took the whole run back: a board's Undo restores the version before
+	// Alfy's whole run and an older client named only the newest (RV-V I-3). The text is
+	// what was taken back, so such a row is read as naming the run, whoever wrote it. It
+	// walks down from the named version through Alfy's rows only, and stops at the first
+	// row whose text is the Undo's (the usual Undo of one change stops at once, unchanged).
+	for (const undo of infos) {
+		if (
+			undo.cls.kind !== "undo_alfy_change" ||
+			undo.cls.version === null ||
+			undo.cls.fromVersion !== undefined
+		) {
+			continue;
+		}
+		const named = undo.cls.version;
+		const top = infos.findIndex(
+			(info) => info.index > undo.index && info.row.versionNumber === named,
+		);
+		if (top === -1) continue;
+		for (let at = top; at + 1 < infos.length; at += 1) {
+			const change = infos[at];
+			if (change.row.author !== "alfy" || !isUndoableKind(change.cls.kind)) {
+				break;
+			}
+			if (infos[at + 1].row.bodyHash !== undo.row.bodyHash) continue;
+			if (change.row.versionNumber < named) {
+				infos[undo.index] = {
+					...undo,
+					cls: { ...undo.cls, fromVersion: change.row.versionNumber },
+				};
+			}
+			break;
+		}
+	}
+
 	function growGroup(from: number): Group {
 		const head = infos[from];
 		const second = infos[from + 1];
@@ -311,9 +346,14 @@ export function deriveMoments(input: DeriveMomentsInput): DerivedMoments {
 			number,
 			{ meta: HistoryRowMeta; cls: ClassifiedSummary }
 		>();
+		// A row on the page is read as the page reads it (an Undo that named one version
+		// and took a run back names the run); one off the page by its own words.
+		const read = new Map(
+			infos.map((info) => [info.row.versionNumber, info.cls]),
+		);
 		for (const meta of [...input.newer, ...infos.map((info) => info.row)]) {
 			if (seen.has(meta.versionNumber)) continue;
-			const cls = classifyVersionSummary(meta);
+			const cls = read.get(meta.versionNumber) ?? classifyVersionSummary(meta);
 			if (
 				cls.kind === "undo_alfy_change" ||
 				cls.kind === "redo_alfy_change" ||

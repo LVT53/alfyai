@@ -936,6 +936,62 @@ describe("deriveMoments — an Undo of several of Alfy's versions (RV-V I-3)", (
 		expect(statusOf(moments, 2)).toBe("kept");
 	});
 
+	// The same defect, as the review found it: a row that names only the newest version
+	// of the run (what an older client, or the code before this fix, wrote) over a body
+	// that is the one BELOW the whole run. The text says what was taken back.
+	it("the review's probe as it was written: an Undo naming v3 over the body of v1 took v2 back too (a board)", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Added two", board("one", "two")),
+				row(3, "alfy", "Added three", board("one", "two", "three")),
+				row(4, "user", "Undid Alfy's change: v3", board("one")),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(statusOf(moments, 3)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("undone");
+		expect(moments.find((m) => m.versionNumber === 1)?.sameAsNow).toBe(true);
+	});
+
+	it("reads a Document the same way: an Undo naming v3 over the body of v1 took each change back", () => {
+		const v1 = doc(["p1", "One"], ["p2", "Two"]);
+		const v2 = doc(["p1", "One, edited"], ["p2", "Two"]);
+		const v3 = doc(["p1", "One, edited"], ["p2", "Two, edited"]);
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", v1),
+				row(2, "alfy", "Reworded the first line", v2),
+				row(3, "alfy", "Reworded the second line", v3),
+				row(4, "user", "Undid Alfy's change: v3", v1),
+			],
+			reviewed,
+		);
+
+		expect(statusOf(moments, 3)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("undone");
+	});
+
+	it("does not stretch an Undo over a version the reader wrote in between, or one whose text it did not restore", () => {
+		const { moments } = derive(
+			[
+				row(1, "alfy", "Alfy wrote the first draft", board("one")),
+				row(2, "alfy", "Added two", board("one", "two")),
+				row(3, "user", "Edited", board("one", "two", "mine")),
+				row(4, "alfy", "Added four", board("one", "two", "mine", "four")),
+				// The text of v3: the reader's own version is where the Undo stops.
+				row(5, "user", "Undid Alfy's change: v4", board("one", "two", "mine")),
+			],
+			reviewed,
+			"canvas",
+		);
+
+		expect(statusOf(moments, 4)).toBe("undone");
+		expect(statusOf(moments, 2)).toBe("kept");
+	});
+
 	it("an older row that names ONE version still reads as before: only that version is Undone", () => {
 		const { moments } = derive(
 			[
