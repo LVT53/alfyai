@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	compareFallow,
+	defineSteps,
 	parseBuildLog,
 	parseCheckLog,
 	parseChunksLog,
@@ -273,4 +274,47 @@ describe("the Playwright report", () => {
 	it("fails when no report was written", () => {
 		expect(readPlaywrightReport("/nonexistent/report.json").ok).toBe(false);
 	});
+});
+
+// The build goes first. `npm run check` and vitest sync `.svelte-kit/` (the SvelteKit
+// plugin does it at start-up); started beside `vite build` they leave an app that
+// builds, passes its chunk check, and does not hydrate, and the e2e run that follows
+// fails every test on a 15-second timeout. Measured on this branch: check and build
+// started together broke the build; check started after it did not.
+describe("the schedule", () => {
+	const options = (schedule: string) => ({
+		mode: "release",
+		outDir: "/tmp/gates-test",
+		workers: undefined,
+		port: undefined,
+		skip: new Set(),
+		fallowBaseline: "/tmp/none.json",
+		schedule,
+		specs: [],
+	});
+
+	for (const schedule of ["phased", "overlap"]) {
+		describe(`(${schedule})`, () => {
+			const steps = defineSteps(options(schedule));
+
+			it.each([
+				"check",
+				"vitest",
+			])("%s waits for the build: it syncs .svelte-kit/, which the build reads", (name) => {
+				expect(steps[name].after).toContain("build");
+			});
+
+			it("lets the end-to-end run wait for the build it serves", () => {
+				expect(steps.playwright.after).toContain("build");
+			});
+
+			it.each([
+				"biome",
+				"migrations",
+				"fallow",
+			])("starts %s with the build: it never touches .svelte-kit/", (name) => {
+				expect(steps[name].after ?? []).toEqual([]);
+			});
+		});
+	}
 });

@@ -17,6 +17,15 @@
 //                          machine with nothing else on it; "overlap": vitest, Fallow and the e2e run share
 //                          the machine (vitest on a few threads), a minute or two faster and noisier
 //
+// THE BUILD GOES FIRST. `npm run check` (`svelte-kit sync`) and vitest (its SvelteKit plugin
+// syncs when it starts) both rewrite `.svelte-kit/`, which `vite build` reads. Run side by
+// side, the build still exits 0 and its chunk check still passes, but the app it made does
+// not hydrate (a page error, every input stays disabled) and the e2e run that follows spends
+// forty minutes failing on 15-second timeouts. Measured: check + build started together
+// broke the build, check started after it did not. So the build runs alone with respect to
+// those two; biome, the migration check and Fallow, which never touch `.svelte-kit/`, run
+// beside it. The build is about 16 s on its own.
+//
 // What the numbers mean and what the baselines are: docs/plans/claude-at-home-2/phase-5/common.md.
 import { spawn, spawnSync } from "node:child_process";
 import {
@@ -149,7 +158,7 @@ function filesWithSmokeTests() {
  * One step: how to run it and how to read its log. `parse(log)` returns
  * `{ ok, text }`; a step passes when it exits 0 and `ok` holds.
  */
-function defineSteps(args) {
+export function defineSteps(args) {
 	const jsonReport = join(args.outDir, "playwright.json");
 	const e2eArgs = [];
 	const e2eEnv = {
@@ -168,7 +177,12 @@ function defineSteps(args) {
 	// their timing-sensitive specs were written on; on its own it takes them all.
 	const vitestThreads = Math.max(2, Math.floor(cpus().length / 4));
 	return {
-		check: { cmd: ["npm", "run", "check"], parse: parseCheckLog },
+		// `check` and `vitest` sync `.svelte-kit/`: never while the build is reading it.
+		check: {
+			cmd: ["npm", "run", "check"],
+			after: ["build"],
+			parse: parseCheckLog,
+		},
 		biome: {
 			cmd: ["npx", "biome", "check", "src", "scripts", "tests"],
 			parse: (log) => ({ ok: true, text: lastLine(log) }),
@@ -182,6 +196,7 @@ function defineSteps(args) {
 				args.schedule === "overlap"
 					? ["npx", "vitest", "run", `--maxWorkers=${vitestThreads}`]
 					: ["npm", "test"],
+			after: ["build"],
 			parse: parseVitestLog,
 		},
 		build: { cmd: ["npm", "run", "build"], parse: parseBuildLog },
@@ -382,23 +397,31 @@ function childEnv() {
 }
 
 const active = new Set();
-function killAll() {
+function signalGroups(signal) {
 	for (const child of active) {
 		try {
-			process.kill(-child.pid, "SIGTERM");
+			process.kill(-child.pid, signal);
 		} catch {
 			// already gone
 		}
 	}
 }
-process.on("SIGINT", () => {
-	killAll();
-	process.exit(130);
-});
-process.on("SIGTERM", () => {
-	killAll();
-	process.exit(143);
-});
+/**
+ * Stop what the gates started, politely first: Playwright tears its servers down on
+ * SIGINT (and only on SIGINT), so SIGINT goes to every group, and what is still alive
+ * after the grace period is killed.
+ */
+async function shutDown(code) {
+	signalGroups("SIGINT");
+	const deadline = Date.now() + 8000;
+	while (active.size > 0 && Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
+	signalGroups("SIGKILL");
+	process.exit(code);
+}
+process.on("SIGINT", () => shutDown(130));
+process.on("SIGTERM", () => shutDown(143));
 
 function runCommand(step, name, outDir) {
 	const logPath = join(outDir, `${name}.log`);
@@ -474,10 +497,12 @@ async function main() {
 		return promise;
 	};
 
-	// The schedule. The light steps (check, biome, migrations, Fallow, the build and
-	// its chunk check) always start together. Phased: the e2e run starts when vitest,
-	// which wants every core, is done, so the browsers do not share the machine with
-	// it. Overlap: nothing waits for vitest, which shares the machine on a few threads.
+	// The schedule. The build starts at once, with biome, the migration check and Fallow beside
+	// it (none of them touches `.svelte-kit/`); check, vitest and the chunk check start when
+	// the build is done (see the header: a sync during the build breaks the app it makes).
+	// Phased: the e2e run starts when vitest, which wants every core, is done, so the
+	// browsers do not share the machine with it. Overlap: nothing waits for vitest, which
+	// shares the machine on a few threads.
 	const lanes = [
 		runStep("check"),
 		runStep("biome"),
@@ -541,7 +566,7 @@ if (
 	import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
 	main().catch((error) => {
-		killAll();
+		signalGroups("SIGKILL");
 		console.error(error);
 		process.exit(1);
 	});

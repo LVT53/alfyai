@@ -1,7 +1,9 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { FullConfig } from "@playwright/test";
+import { assertBuildHydrates } from "./build-probe";
 import {
+	e2eBaseUrl,
 	e2eDatabasePath,
 	e2ePort,
 	e2eReusesServers,
@@ -46,7 +48,7 @@ export default async function globalSetup(config: FullConfig) {
 	process.once("exit", releaseLock);
 
 	const started: SlotServer[] = [];
-	killServersOnExit(started);
+	killServersOnExit(started, releaseLock);
 	try {
 		await Promise.all(
 			slots.map(async (slot) => {
@@ -72,6 +74,11 @@ export default async function globalSetup(config: FullConfig) {
 				started.push(await startSlotServer(slot, mode));
 			}),
 		);
+		// Before a thousand tests spend 15 seconds each finding out that the app they
+		// were given does not start (a build can exit 0 and still be broken).
+		if (mode === "build" && started.length > 0) {
+			await assertBuildHydrates(e2eBaseUrl(started[0].slot));
+		}
 	} catch (error) {
 		await stopSlotServers(started);
 		releaseLock();

@@ -420,9 +420,27 @@ export async function stopSlotServers(servers: SlotServer[]): Promise<void> {
 	);
 }
 
-/** Last resort for a runner that dies without its teardown: the servers must not outlive it. */
-export function killServersOnExit(servers: SlotServer[]): void {
+/**
+ * Last resort for a runner that dies without its teardown: the servers must not
+ * outlive it. Playwright tears down on SIGINT and on a normal exit; a SIGTERM or a
+ * closed terminal (SIGHUP) would leave them listening on their ports and the next
+ * run would refuse to start, so those two are handled here.
+ */
+export function killServersOnExit(
+	servers: SlotServer[],
+	onSignal: () => void = () => {},
+): void {
 	process.once("exit", () => {
 		for (const server of servers) killGroup(server.pid, "SIGKILL");
 	});
+	for (const [signal, code] of [
+		["SIGTERM", 143],
+		["SIGHUP", 129],
+	] as const) {
+		process.once(signal, () => {
+			for (const server of servers) killGroup(server.pid, "SIGKILL");
+			onSignal();
+			process.exit(code);
+		});
+	}
 }
