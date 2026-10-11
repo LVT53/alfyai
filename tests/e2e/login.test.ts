@@ -46,9 +46,9 @@ test.describe("Login Page", () => {
 		expect([true, "true", "on"]).toContain(submittedBody?.rememberMe);
 	});
 
-	test("submitting valid credentials redirects to main app", async ({
-		page,
-	}) => {
+	test("submitting valid credentials redirects to main app", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		// Fill in valid credentials
 		await page.fill('input[name="email"]', "admin@local");
 		await page.fill('input[type="password"]', "admin123");

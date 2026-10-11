@@ -85,7 +85,7 @@ test.describe("Conversation CRUD operations", () => {
 		});
 	});
 
-	test("renames a conversation", async ({ page }) => {
+	test("renames a conversation", { tag: "@smoke" }, async ({ page }) => {
 		await createConversation(page);
 		await ensureSidebarExpanded(page);
 		await expect(page.getByTestId("conversation-item").first()).toBeVisible({

@@ -114,6 +114,36 @@ export async function sendMessage(page: Page, text: string) {
 	await sendButton.click();
 }
 
+/**
+ * Lets a conversation made through the UI finish its first turn before the page
+ * is reloaded. The first message goes out before a spec has set up its model, so
+ * it is a turn to the unreachable default model: the chat page takes it from
+ * sessionStorage when it mounts and the turn fails a few hundred ms later. A
+ * reload that lands in the middle of it reattaches to a turn that then never
+ * ends (the stop button stays, `networkidle` is never reached, the test times
+ * out), and a production build, where pages mount fast, lands there now and
+ * then. If the page never takes the message (a slow page), the helpers' own
+ * clearing of it does what it always did.
+ */
+export async function settleFirstTurn(page: Page, conversationId: string) {
+	const taken = await page
+		.waitForFunction(
+			(id) =>
+				window.sessionStorage.getItem(`pending-chat-message:${id}`) === null,
+			conversationId,
+			{ timeout: 3_000 },
+		)
+		.then(() => true)
+		.catch(() => false);
+	if (!taken) return;
+	await expect(page.getByTestId("stop-button")).toHaveCount(0, {
+		timeout: 20_000,
+	});
+	await expect(page.getByTestId("send-button")).toBeAttached({
+		timeout: 20_000,
+	});
+}
+
 export async function waitForAssistantResponse(page: Page, timeout = 30000) {
 	await expect(
 		page.getByTestId("assistant-message").filter({ hasText: /\S/ }).first(),

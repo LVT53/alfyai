@@ -656,9 +656,9 @@ test.describe("a change waits for the reader, once, however often the panel is b
 });
 
 test.describe("Keep and Undo, for the whole change", () => {
-	test("Keep moves the marker: nothing waits, in this session and after a reload", async ({
-		page,
-	}) => {
+	test("Keep moves the marker: nothing waits, in this session and after a reload", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const scene = await open(page);
 		try {
 			await askAlfy(page, scene.artifactId, PLANNED_SUNDAY);

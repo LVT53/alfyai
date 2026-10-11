@@ -24,6 +24,7 @@ import {
 	createConversation,
 	login,
 	sendMessage,
+	settleFirstTurn,
 	waitForMotionToSettle,
 } from "./helpers";
 
@@ -55,6 +56,7 @@ async function serverVersion(artifactId: string): Promise<number> {
 }
 
 async function openChatAndReload(page: Page, conversationId: string) {
+	await settleFirstTurn(page, conversationId);
 	await page.evaluate((id) => {
 		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
 		// The first message (sent to get a conversation id, before the fake
@@ -192,9 +194,9 @@ test.describe("one version number on every surface", () => {
 		await fakeProvider.reset();
 	});
 
-	test("create → user edit → Alfy edit → Undo → restore → undo the restore: the list row, the chat card, the header and the Versions popover agree at every step, and after a reload", async ({
-		page,
-	}) => {
+	test("create → user edit → Alfy edit → Undo → restore → undo the restore: the list row, the chat card, the header and the Versions popover agree at every step, and after a reload", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		test.setTimeout(240_000);
 		await login(page);
 		const previousModelPreference = await snapshotUserModelPreference(page);

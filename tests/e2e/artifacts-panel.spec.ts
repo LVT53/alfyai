@@ -118,9 +118,9 @@ test.describe("the chat header's artifact count button and panel", () => {
 		);
 	});
 
-	test("shows the count and opens the panel on the list with the File row visible", async ({
-		page,
-	}) => {
+	test("shows the count and opens the panel on the list with the File row visible", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const conversationId = await createConversation(
 			page,
 			"Make me a trip summary",

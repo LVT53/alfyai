@@ -15,6 +15,7 @@
     "test:ci": "vitest run --reporter=dot",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:smoke": "E2E_APPLY_QUARANTINE=1 playwright test --grep @smoke",
     "test:unit": "vitest run",
     "seed": "tsx scripts/seed-user.ts",
     "db:prepare": "tsx scripts/prepare-db.ts",

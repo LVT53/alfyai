@@ -21,6 +21,7 @@ import {
 	createConversation,
 	login,
 	sendMessage,
+	settleFirstTurn,
 	workspacePanel,
 } from "./helpers";
 
@@ -192,6 +193,7 @@ async function deleteTemporaryProvider(
  * client-side consume-on-mount logic.
  */
 async function openChatAndReload(page: Page, conversationId: string) {
+	await settleFirstTurn(page, conversationId);
 	await page.evaluate((id) => {
 		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
 		// The first message (sent to get a conversation id, before the fake
@@ -222,9 +224,9 @@ test.describe("the in-chat artifact card — a real create_artifact call", () =>
 		await fakeProvider.reset();
 	});
 
-	test("shows the card during the turn, Open reaches the panel on it, and it survives a reload", async ({
-		page,
-	}) => {
+	test("shows the card during the turn, Open reaches the panel on it, and it survives a reload", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		// Found flaky by the orchestrator (~1 run in 3), failing at two
 		// different points across runs: once at toBeEnabled() on
 		// message-input (inside login()/createConversation(), both near the

@@ -143,9 +143,9 @@ test.describe("the Canvas kind, in the panel", () => {
 		await login(page);
 	});
 
-	test("opens a seeded board in the panel and paints its blocks", async ({
-		page,
-	}) => {
+	test("opens a seeded board in the panel and paints its blocks", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const conversationId = await createConversation(page, "Put it on a board");
 		await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);
@@ -588,9 +588,9 @@ test.describe("the Canvas kind, in the panel", () => {
 		await expect(page.getByTestId("canvas-node")).toHaveCount(0);
 	});
 
-	test("inserts each note-shaped kind from the Insert menu, and saves them", async ({
-		page,
-	}) => {
+	test("inserts each note-shaped kind from the Insert menu, and saves them", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const conversationId = await createConversation(page, "Board to fill");
 		const artifactId = await seedCanvas(
 			conversationId,
@@ -926,9 +926,9 @@ test.describe("the Canvas kind, in the panel", () => {
 		).toMatchObject({ text: "Lunch at the market, then the museum" });
 	});
 
-	test("moves a block by dragging it, and saves where it was dropped", async ({
-		page,
-	}) => {
+	test("moves a block by dragging it, and saves where it was dropped", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const conversationId = await createConversation(page, "Move me");
 		const artifactId = await seedCanvas(conversationId, seededBoard());
 		await openChatAndReload(page, conversationId);

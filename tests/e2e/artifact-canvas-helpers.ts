@@ -17,6 +17,7 @@ import { boardJson } from "../../src/lib/shared/artifacts/canvas-body";
 import {
 	createConversation,
 	login,
+	settleFirstTurn,
 	waitForMotionToSettle,
 	waitForStableBoundingBox,
 } from "./helpers";
@@ -81,6 +82,7 @@ export async function storedBoard(artifactId: string): Promise<CanvasBody> {
 }
 
 export async function openChatAndReload(page: Page, conversationId: string) {
+	await settleFirstTurn(page, conversationId);
 	await page.evaluate((id) => {
 		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
 		// The first message (sent to get a conversation id, before the fake

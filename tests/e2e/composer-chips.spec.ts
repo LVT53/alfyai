@@ -254,6 +254,19 @@ async function attach(
 	).toBeVisible({ timeout: 20000 });
 }
 
+// `bootstrap()` writes four admin overrides, and an override is a row in the
+// server's database that outlives the test: the next spec that runs on this worker
+// (settings-admin asserts that saving one key writes only that key) would meet
+// them. An empty value is the API's "back to the env default": it deletes the row.
+test.afterEach(async ({ page }) => {
+	await setAdminConfig(page, {
+		COMPOSER_COMMAND_REGISTRY_ENABLED: "",
+		ATLAS_WORKER_ENABLED: "",
+		PARALLEL_API_KEY: "",
+		MAX_MESSAGE_LENGTH: "",
+	});
+});
+
 test.describe("composer chips — one pill, one row", () => {
 	test.beforeEach(async ({ page }) => {
 		await page.setViewportSize(DESKTOP);

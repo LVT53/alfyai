@@ -10,10 +10,9 @@
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
-	closeSync,
+	createWriteStream,
 	existsSync,
 	mkdirSync,
-	openSync,
 	readdirSync,
 	rmSync,
 	statSync,
@@ -52,10 +51,13 @@ const ROOT = () => process.cwd();
 
 /** Where the production build's handler is: written last, so its mtime is "when the build finished". */
 const BUILD_HANDLER = join("build", "handler.js");
-/** What the build is made of. A change to any of these after the build means the build is old. */
+/**
+ * What the build is made of. A change to any of these after the build means the
+ * build is old. (Not package.json: a script edit there changes nothing in the
+ * build, and a dependency change is an install, which a clock cannot see.)
+ */
 const BUILD_INPUT_DIRS = ["src", "static"];
 const BUILD_INPUT_FILES = [
-	"package.json",
 	"svelte.config.js",
 	"vite.config.js",
 	"tsconfig.json",
@@ -338,16 +340,34 @@ export async function startSlotServer(
 	const logDir = join(ROOT(), "data", "e2e-servers");
 	mkdirSync(logDir, { recursive: true });
 	const logPath = join(logDir, `slot-${slot}.log`);
-	const log = openSync(logPath, "w");
+	const log = createWriteStream(logPath);
 	const { args, env } = serverCommand(slot, mode);
 	const child = spawn(process.execPath, args, {
 		cwd: ROOT(),
 		env,
 		// Its own process group, so stopping it stops what it started (vite's workers) too.
 		detached: true,
-		stdio: ["ignore", log, log],
+		stdio: ["ignore", "pipe", "pipe"],
 	});
-	closeSync(log);
+	// Each line of the server's output with the seconds since it started: a failing
+	// spec's server-side story (how long a turn took, what came after what) is only
+	// readable with a clock.
+	const startedAt = Date.now();
+	for (const stream of [child.stdout, child.stderr]) {
+		let pending = "";
+		stream?.setEncoding("utf8");
+		stream?.on("data", (chunk: string) => {
+			const lines = (pending + chunk).split("\n");
+			pending = lines.pop() ?? "";
+			for (const line of lines) {
+				const seconds = ((Date.now() - startedAt) / 1000).toFixed(3);
+				log.write(`[+${seconds}s] ${line}\n`);
+			}
+		});
+		stream?.on("end", () => {
+			if (pending !== "") log.write(`[+end] ${pending}\n`);
+		});
+	}
 	if (child.pid === undefined) {
 		throw new Error(`[e2e] Could not start the server for slot ${slot}`);
 	}

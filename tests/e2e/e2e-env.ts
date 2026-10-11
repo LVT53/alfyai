@@ -104,3 +104,16 @@ export function e2eSessionSecret(env: Env = process.env): string {
 export function e2eReusesServers(env: Env = process.env): boolean {
 	return env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "true";
 }
+
+/**
+ * The files an agent run names in full (`E2E_FULL_SPECS`, comma-separated paths,
+ * which `scripts/gates.sh agent` sets), as globs under testDir. Empty for any
+ * other run.
+ */
+export function e2eFullSpecs(env: Env = process.env): string[] {
+	return (env.E2E_FULL_SPECS ?? "")
+		.split(",")
+		.map((spec) => spec.trim().replace(/:\d+(:\d+)?$/, ""))
+		.filter((spec) => spec !== "")
+		.map((spec) => `**/${spec.split("/").pop()}`);
+}

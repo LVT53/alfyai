@@ -20,6 +20,7 @@ import {
 	createConversation,
 	login,
 	sendMessage,
+	settleFirstTurn,
 	waitForStableBoundingBox,
 	workspacePanel,
 } from "./helpers";
@@ -128,6 +129,7 @@ async function readStoredMetadata(artifactId: string): Promise<string> {
 }
 
 async function openChatAndReload(page: Page, conversationId: string) {
+	await settleFirstTurn(page, conversationId);
 	// Mirrors artifacts-panel.spec.ts's own helper: the model backend is
 	// unreachable in this environment, so the first send never completes and
 	// leaves the "pending message" flag set; clearing it directly is more
@@ -224,9 +226,9 @@ test.describe("the Document panel", () => {
 		await login(page);
 	});
 
-	test("opens a document from the panel and shows its content in the editor", async ({
-		page,
-	}) => {
+	test("opens a document from the panel and shows its content in the editor", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const conversationId = await createConversation(page, "Plan a trip");
 		await seedDocument({
 			conversationId,
@@ -251,9 +253,9 @@ test.describe("the Document panel", () => {
 		await expect(page.getByText("Book the hotel by Friday.")).toBeVisible();
 	});
 
-	test("editing text autosaves through the body route, and the change survives a reload", async ({
-		page,
-	}) => {
+	test("editing text autosaves through the body route, and the change survives a reload", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const conversationId = await createConversation(page, "Plan a trip");
 		const artifactId = await seedDocument({
 			conversationId,

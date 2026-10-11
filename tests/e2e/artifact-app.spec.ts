@@ -232,9 +232,9 @@ test.describe("the App kind, in the panel", () => {
 		await login(page);
 	});
 
-	test("opens and runs the app in a sandboxed frame, with the exact allow-scripts attribute", async ({
-		page,
-	}) => {
+	test("opens and runs the app in a sandboxed frame, with the exact allow-scripts attribute", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		const conversationId = await createConversation(
 			page,
 			"Make me a notes app",

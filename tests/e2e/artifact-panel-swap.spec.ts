@@ -28,6 +28,7 @@ import {
 	createConversation,
 	login,
 	sendMessage,
+	settleFirstTurn,
 	workspacePanel,
 } from "./helpers";
 
@@ -115,6 +116,7 @@ async function seedCreateCalls(
 }
 
 async function openChat(page: Page, conversationId: string): Promise<void> {
+	await settleFirstTurn(page, conversationId);
 	await page.evaluate((id) => {
 		window.sessionStorage.removeItem(`pending-chat-message:${id}`);
 		// The first message (sent to get a conversation id, before the fake

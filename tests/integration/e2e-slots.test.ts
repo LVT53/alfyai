@@ -3,6 +3,7 @@ import {
 	DEFAULT_BUILD_WORKERS,
 	e2eBaseUrl,
 	e2eDatabasePath,
+	e2eFullSpecs,
 	e2ePort,
 	e2eReusesServers,
 	e2eServerMode,
@@ -94,5 +95,27 @@ describe("the e2e server mode and worker count", () => {
 		expect(e2eReusesServers({ PLAYWRIGHT_REUSE_EXISTING_SERVER: "1" })).toBe(
 			false,
 		);
+	});
+});
+
+describe("the files an agent run names in full", () => {
+	it("are the basenames of the paths in E2E_FULL_SPECS, as globs under testDir", () => {
+		expect(
+			e2eFullSpecs({
+				E2E_FULL_SPECS:
+					"tests/e2e/artifact-document.spec.ts, tests/e2e/chat.spec.ts",
+			}),
+		).toEqual(["**/artifact-document.spec.ts", "**/chat.spec.ts"]);
+	});
+
+	it("drop a line suffix, so a spec given as file:line is still the whole file", () => {
+		expect(
+			e2eFullSpecs({ E2E_FULL_SPECS: "tests/e2e/chat.spec.ts:34:2" }),
+		).toEqual(["**/chat.spec.ts"]);
+	});
+
+	it("are nothing in any other run", () => {
+		expect(e2eFullSpecs({})).toEqual([]);
+		expect(e2eFullSpecs({ E2E_FULL_SPECS: " , " })).toEqual([]);
 	});
 });

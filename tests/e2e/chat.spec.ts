@@ -63,9 +63,9 @@ test.describe("Chat send/receive messages", () => {
 		);
 	});
 
-	test("receives an assistant response after sending a message", async ({
-		page,
-	}) => {
+	test("receives an assistant response after sending a message", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		await openConversationComposer(page);
 		await page.getByTestId("message-input").fill("Hello AI!");
 		await page.getByTestId("send-button").click();

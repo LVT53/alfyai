@@ -18,7 +18,7 @@ test.describe("Knowledge page", () => {
 		await waitForHydration(page);
 	});
 
-	test("documents section is visible", async ({ page }) => {
+	test("documents section is visible", { tag: "@smoke" }, async ({ page }) => {
 		await page.getByRole("tab", { name: "Documents" }).click();
 		await expect(
 			page.getByRole("heading", { name: "Documents" }),
@@ -283,9 +283,9 @@ test.describe("Knowledge page", () => {
 	// real end-to-end pipeline coverage, not a fixture that only proves the
 	// seed worked — direct db writes, matching the repo's existing E2E
 	// seeding convention (see conversation-title-refresh.spec.ts).
-	test("shows a seeded artifact-family row with its chip, type pill and no download action", async ({
-		page,
-	}) => {
+	test("shows a seeded artifact-family row with its chip, type pill and no download action", {
+		tag: "@smoke",
+	}, async ({ page }) => {
 		// A bare conversation row, seeded directly like several other E2E specs
 		// already do (see conversation-title-refresh.spec.ts) — no messages, no
 		// live chat round trip, just an id for the artifact's ownership scope.
