@@ -14,6 +14,9 @@ import {
   quarantinedTitlePattern,
 } from './tests/e2e/quarantine';
 dotenv.config();
+// The specs seed rows through the app's own services, in this process, into the file their
+// server also writes: transactions take their write lock at BEGIN (the servers load the same).
+import './tests/e2e/sqlite-immediate.cjs';
 
 // One server and one database per worker. This file is evaluated again in every
 // worker process, after Playwright has set `TEST_PARALLEL_INDEX` (the worker's

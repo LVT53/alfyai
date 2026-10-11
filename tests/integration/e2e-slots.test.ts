@@ -10,6 +10,7 @@ import {
 	e2eSlot,
 	e2eWorkerCount,
 } from "../e2e/e2e-env";
+import { serverCommand } from "../e2e/e2e-servers";
 
 describe("the e2e run's slots", () => {
 	it("gives each slot its own port, counting up from E2E_PORT", () => {
@@ -117,5 +118,24 @@ describe("the files an agent run names in full", () => {
 	it("are nothing in any other run", () => {
 		expect(e2eFullSpecs({})).toEqual([]);
 		expect(e2eFullSpecs({ E2E_FULL_SPECS: " , " })).toEqual([]);
+	});
+});
+
+describe("the e2e servers' command line", () => {
+	it.each([
+		"build",
+		"dev",
+	] as const)("loads the SQLite preload before the app (%s)", (mode) => {
+		const { args } = serverCommand(0, mode);
+		const preload = args.findIndex((arg) =>
+			arg.endsWith("tests/e2e/sqlite-immediate.cjs"),
+		);
+		expect(preload).toBeGreaterThan(0);
+		expect(args[preload - 1]).toBe("-r");
+		// An absolute path: `node -r tests/e2e/x.cjs` is looked up as a package name.
+		expect(args[preload].startsWith("/")).toBe(true);
+		// ...and before whatever starts the app (the built handler, or vite).
+		const entry = args.findIndex((arg) => /index\.js$|vite\.js$/.test(arg));
+		expect(entry).toBeGreaterThan(preload);
 	});
 });

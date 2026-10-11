@@ -252,7 +252,16 @@ export async function resetDatabaseInPlace(dbPath: string): Promise<void> {
 
 // ---------------------------------------------------------------- servers
 
-function serverCommand(
+/**
+ * Loaded before the app in every e2e server: its transactions take their write lock when
+ * they begin, because the spec's own process writes the same file (see
+ * immediate-transactions.cjs). The Playwright config loads the same file in each worker.
+ */
+const SQLITE_PRELOAD = () =>
+	// Absolute: `node -r tests/e2e/x.cjs` would be looked up as a package name.
+	join(ROOT(), "tests", "e2e", "sqlite-immediate.cjs");
+
+export function serverCommand(
 	slot: number,
 	mode: E2eServerMode,
 ): { args: string[]; env: NodeJS.ProcessEnv } {
@@ -282,7 +291,13 @@ function serverCommand(
 			ORIGIN: e2eBaseUrl(slot),
 		});
 		return {
-			args: ["-r", "dotenv/config", join("build", "index.js")],
+			args: [
+				"-r",
+				"dotenv/config",
+				"-r",
+				SQLITE_PRELOAD(),
+				join("build", "index.js"),
+			],
 			env,
 		};
 	}
@@ -292,6 +307,8 @@ function serverCommand(
 		args: [
 			"-r",
 			"dotenv/config",
+			"-r",
+			SQLITE_PRELOAD(),
 			join("node_modules", "vite", "bin", "vite.js"),
 			"dev",
 			"--host",
