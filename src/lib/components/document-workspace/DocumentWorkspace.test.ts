@@ -1786,6 +1786,9 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 					kind: "document",
 					title: "Vienna trip plan",
 					versionNumber: 6,
+					updatedAt: Date.now() - 12 * 60 * 1000,
+					lastAuthor: "alfy",
+					lastKind: "alfy_edit",
 					mimeType: null,
 				}),
 			],
@@ -1800,13 +1803,17 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		expect(
 			within(shell).getByRole("heading", { name: "Vienna trip plan" }),
 		).toBeInTheDocument();
-		// The kind label appears once, plainly, with its version alongside it
-		// — never the old duplicated "ACTIVE DOCUMENT" eyebrow or a source
-		// pill. The fixture body never calls registerPanelActions, so the
-		// version renders as plain text here (no onVersions handler yet) —
-		// DocumentBody.test.ts covers the real, button-shaped case.
+		// The kind label appears once, plainly, with the latest moment alongside
+		// it — never a version number, and never the old duplicated "ACTIVE
+		// DOCUMENT" eyebrow or a source pill. The fixture body never calls
+		// registerPanelActions, so the moment renders as plain text here (no
+		// onHistory handler yet) — DocumentBody.test.ts covers the real,
+		// button-shaped case.
 		expect(within(shell).getByText("Document")).toBeInTheDocument();
-		expect(within(shell).getByText("v6")).toBeInTheDocument();
+		expect(
+			within(shell).getByText("Changed by Alfy · 12 min ago"),
+		).toBeInTheDocument();
+		expect(within(shell).queryByText(/^v\d/)).not.toBeInTheDocument();
 		expect(
 			within(shell).queryByText("Active document"),
 		).not.toBeInTheDocument();
@@ -1820,25 +1827,32 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		).not.toBeInTheDocument();
 	});
 
-	// Wave 2.5 polish G1-B (one version number everywhere): the open item now
-	// arrives as a NEW object whenever its version number moves. The body
+	// Wave 2.5 polish G1-B (one latest moment everywhere, ruling 76): the open
+	// item now arrives as a NEW object whenever its moment moves. The body
 	// registers its panel actions once, when it mounts, so the workspace must
 	// reset them only when a DIFFERENT item is open — never because the same
-	// item's number changed, which would turn the version button back into
+	// item's moment changed, which would turn the history button back into
 	// plain text for good.
-	it("keeps the version button a button when the open item's own version number changes", async () => {
+	it("keeps the history button a button when the open item's own latest moment changes", async () => {
 		ARTIFACT_BODIES.document = () =>
 			import("./__fixtures__/FakeVersionedArtifactBody.svelte");
-		const doc = (versionNumber: number) =>
+		const doc = (
+			versionNumber: number,
+			lastAuthor: "user" | "alfy",
+			lastKind: "user_edit" | "alfy_edit",
+		) =>
 			makeWorkspaceDocument({
 				id: "doc-1",
 				kind: "document",
 				title: "Vienna trip plan",
 				versionNumber,
+				updatedAt: Date.now() - 2 * 60 * 1000,
+				lastAuthor,
+				lastKind,
 				mimeType: null,
 			});
 		const { rerender } = renderWorkspace({
-			documents: [doc(1)],
+			documents: [doc(1, "user", "user_edit")],
 			activeDocumentId: "doc-1",
 		});
 		await screen.findByTestId("fake-versioned-artifact-body");
@@ -1847,20 +1861,29 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		})[0];
 		await waitFor(() => {
 			expect(
-				within(shell).getByRole("button", { name: "Version 1" }),
+				within(shell).getByRole("button", {
+					name: "History. Last change: edited by you 2 min ago",
+				}),
 			).toBeInTheDocument();
 		});
 
-		await rerender({ documents: [doc(4)], activeDocumentId: "doc-1" });
+		await rerender({
+			documents: [doc(4, "alfy", "alfy_edit")],
+			activeDocumentId: "doc-1",
+		});
 
 		await waitFor(() => {
 			expect(
 				within(shell).getByTestId("artifact-version-pill"),
-			).toHaveTextContent("v4");
+			).toHaveTextContent("Changed by Alfy · 2 min ago");
 		});
 		expect(
-			within(shell).getByRole("button", { name: "Version 4" }),
+			within(shell).getByRole("button", {
+				name: "History. Last change: changed by Alfy 2 min ago",
+			}),
 		).toBeInTheDocument();
+		// The number is never printed.
+		expect(within(shell).queryByText(/\bv4\b/)).not.toBeInTheDocument();
 	});
 
 	// RV-3 I2: the page awaits the open body's `flush` before a chat turn starts, so
@@ -1948,6 +1971,9 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 				kind: "document",
 				title: "Alpha",
 				versionNumber: 1,
+				updatedAt: Date.now() - 60_000,
+				lastAuthor: "user",
+				lastKind: "user_edit",
 				mimeType: null,
 			}),
 			makeWorkspaceDocument({
@@ -1955,6 +1981,9 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 				kind: "document",
 				title: "Beta",
 				versionNumber: 2,
+				updatedAt: Date.now() - 60_000,
+				lastAuthor: "user",
+				lastKind: "user_edit",
 				mimeType: null,
 			}),
 			makeWorkspaceDocument({
@@ -1971,22 +2000,24 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		});
 		const shell = () =>
 			screen.getAllByRole("complementary", { name: WORKSPACE_LANDMARK })[0];
-		const expectVersionsButton = async (title: string, version: string) => {
+		const expectVersionsButton = async (title: string) => {
 			await waitFor(() => {
 				expect(
 					within(shell()).getByRole("heading", { name: title }),
 				).toBeInTheDocument();
 				expect(
-					within(shell()).getByRole("button", { name: `Version ${version}` }),
+					within(shell()).getByRole("button", {
+						name: /^History\. Last change: edited by you/,
+					}),
 				).toBeInTheDocument();
 			});
 		};
 
 		await screen.findByTestId("fake-versioned-artifact-body");
-		await expectVersionsButton("Alpha", "1");
+		await expectVersionsButton("Alpha");
 
 		await rerender({ documents, activeDocumentId: "doc-2" });
-		await expectVersionsButton("Beta", "2");
+		await expectVersionsButton("Beta");
 
 		// A file has no body to register anything: its header must not keep the
 		// Document's button (a closure over a body that is gone).
@@ -1997,11 +2028,11 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			).toBeInTheDocument();
 		});
 		expect(
-			within(shell()).queryByRole("button", { name: /^Version \d+$/ }),
+			within(shell()).queryByRole("button", { name: /^History\./ }),
 		).not.toBeInTheDocument();
 
 		await rerender({ documents, activeDocumentId: "doc-1" });
-		await expectVersionsButton("Alpha", "1");
+		await expectVersionsButton("Alpha");
 	});
 
 	it("moves focus to the panel title when a document opens (redesign §5.4, Wave 2.5 review F2)", async () => {
@@ -2031,10 +2062,9 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 		expect(document.activeElement).toHaveTextContent("Vienna trip plan");
 	});
 
-	// Wave 2.5 review (F2, 294-296): "header meta" — "Document · v3 · just
-	// now" was missing the mockup's own authorship ("You and Alfy · edited
-	// {when}", index.html's editedWhen string).
-	it("shows the mockup's 'You and Alfy · edited …' authorship in the header meta", async () => {
+	// Ruling 76 (P5): the header used to carry one fixed line, "You and Alfy ·
+	// edited {when}", whoever had made the last change. It now says who and what.
+	it("says who made the last change and when in the header, not a fixed 'You and Alfy' line", async () => {
 		withDocumentLoader();
 		const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
 		renderWorkspace({
@@ -2044,6 +2074,8 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 					kind: "document",
 					title: "Vienna trip plan",
 					updatedAt: fiveMinutesAgo,
+					lastAuthor: "user",
+					lastKind: "restore",
 				}),
 			],
 			activeDocumentId: "doc-1",
@@ -2054,8 +2086,9 @@ describe("DocumentWorkspace panel header (Wave 2.5 Step 3)", () => {
 			name: WORKSPACE_LANDMARK,
 		})[0];
 		expect(
-			within(shell).getByText("You and Alfy · edited 5 min ago"),
+			within(shell).getByText("Restored by you · 5 min ago"),
 		).toBeInTheDocument();
+		expect(within(shell).queryByText(/You and Alfy/)).not.toBeInTheDocument();
 	});
 
 	it("keeps the legacy header, unchanged, for an item with no kind", async () => {

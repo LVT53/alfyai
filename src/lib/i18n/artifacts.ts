@@ -27,13 +27,6 @@ const artifactsDict = {
 		// how a screen reader user gets the same information.
 		"artifacts.header.buttonA11yPending":
 			"Open what this chat made ({count}) — a change is waiting",
-		// Wave 2.5 review (F2): the panel header's meta line (redesign §5.2/§8
-		// "kind · version · edited") was missing the mockup's own authorship —
-		// index.html's `editedWhen` ("You and Alfy · edited {when}"). `when` is
-		// already-localised relative time (formatRelativeTime), so this string
-		// only wraps it, matching ArtifactPanelHeader.svelte's own `meta` prop
-		// doc comment example.
-		"artifacts.header.editedBy": "You and Alfy · edited {when}",
 		// Redesign §9.2, Wave 2.5 Step 12: "composer placeholder names the open
 		// item" — the chat page's own composer, while a document/app/etc. is
 		// open in the panel. `src/routes/(app)/chat/[conversationId]/+page.svelte`.
@@ -913,13 +906,32 @@ const artifactsDict = {
 		// changed, under its own heading beside what it found. Each row is named
 		// by its kind through artifacts.type.*, never by this string.
 		"artifacts.evidence.madeInThisChat": "Made in this chat",
+		// Ruling 76 (the versioning build): History is a mode of the panel and the
+		// header says what happened last, not a number (versioning.md §5.1, §8).
+		// The block grows with the History mode itself; the old
+		// artifacts.document.versions.* keys stay until the last sheet that reads
+		// them is gone. Every phrase is short on purpose: it sits beside the kind
+		// in the header and, on a 390 px phone, shares its line with it.
+		"artifacts.history.title": "History",
+		"artifacts.history.buttonA11y": "History. Last change: {phrase}",
+		"artifacts.history.phrase.youEdited": "Edited by you",
+		"artifacts.history.phrase.alfyChanged": "Changed by Alfy",
+		"artifacts.history.phrase.alfyWrote": "Written by Alfy",
+		"artifacts.history.phrase.alfyBuilt": "Built by Alfy",
+		"artifacts.history.phrase.youRestored": "Restored by you",
+		"artifacts.history.phrase.alfyRebuilt": "Rebuilt by Alfy",
+		"artifacts.history.phrase.youUndid": "Alfy's change undone",
+		"artifacts.history.phrase.youBroughtBack": "Brought back by you",
+		"artifacts.history.phrase.edited": "Edited",
+		// The in-chat card's facts line, in place of the version number it used
+		// to end with ("Document · 3 tabs · edited 2 min ago").
+		"artifacts.card.edited": "edited {when}",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
 			"Nyisd meg, amit ez a beszélgetés készített ({count})",
 		"artifacts.header.buttonA11yPending":
 			"Nyisd meg, amit ez a beszélgetés készített ({count}) — egy módosítás vár rád",
-		"artifacts.header.editedBy": "Te és Alfy · szerkesztve {when}",
 		// A kettőspont a "-ról/-ről" rag nélkül old meg egy tetszőleges,
 		// felhasználó/AI adta címet — a magyar toldalék a cím végződésétől
 		// függne, ami egy dinamikus értéknél nem garantálható.
@@ -1635,6 +1647,26 @@ const artifactsDict = {
 		// módosított, a talált források mellett, saját fejléc alatt. Minden sor a
 		// saját fajtájának nevét viseli (artifacts.type.*), nem ezt a szöveget.
 		"artifacts.evidence.madeInThisChat": "Ebben a beszélgetésben készült",
+		// 76. döntés (a verziókezelés építése): az Előzmények a panel egy módja, a
+		// fejléc pedig azt mondja el, mi történt utoljára, nem egy számot
+		// (versioning.md §5.1, §8). A blokk az Előzmények móddal együtt bővül; a
+		// régi artifacts.document.versions.* kulcsok addig maradnak, amíg az
+		// utolsó olvasójuk is el nem tűnik. Minden kifejezés rövid: a fejlécben a
+		// fajta mellett áll, egy 390 px-es telefonon pedig egy sorban vele.
+		"artifacts.history.title": "Előzmények",
+		"artifacts.history.buttonA11y": "Előzmények. Utolsó változás: {phrase}",
+		"artifacts.history.phrase.youEdited": "Szerkesztetted",
+		"artifacts.history.phrase.alfyChanged": "Alfy módosította",
+		"artifacts.history.phrase.alfyWrote": "Alfy írta",
+		"artifacts.history.phrase.alfyBuilt": "Alfy készítette",
+		"artifacts.history.phrase.youRestored": "Visszaállítottad",
+		"artifacts.history.phrase.alfyRebuilt": "Alfy újraépítette",
+		"artifacts.history.phrase.youUndid": "Visszavontad Alfy módosítását",
+		"artifacts.history.phrase.youBroughtBack": "Visszahoztad",
+		"artifacts.history.phrase.edited": "Szerkesztve",
+		// A csevegőkártya tényeinek sora, a korábban a végén álló verziószám
+		// helyett ("Dokumentum · 3 lap · szerkesztve 2 perce").
+		"artifacts.card.edited": "szerkesztve {when}",
 	},
 } as const;
 

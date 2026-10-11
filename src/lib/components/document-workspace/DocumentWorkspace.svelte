@@ -35,6 +35,7 @@ import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
 import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
 import ArtifactDeletePopover from "$lib/components/artifacts/ArtifactDeletePopover.svelte";
 import ArtifactPanelHeader from "$lib/components/artifacts/ArtifactPanelHeader.svelte";
+import { latestMomentPhrase } from "$lib/components/artifacts/history/moment-text";
 import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import {
 	isShippedArtifactTourType,
@@ -312,6 +313,28 @@ let panelLandmarkLabel = $derived(
 			})
 		: $t("documentWorkspace.documentWorkspace"),
 );
+// Ruling 76, amendment A1: the header says the item's latest moment ("Changed by
+// Alfy · 12 min ago"), read through the same one source as the list rows and the
+// chat card (`artifact-versions.ts`), never a number. The clock moves the words
+// on while the panel stays open: "just now" must not stay true for an hour.
+let momentClock = $state(Date.now());
+$effect(() => {
+	if (!browser || !activeDocument?.kind) return;
+	const timer = setInterval(() => {
+		momentClock = Date.now();
+	}, 30_000);
+	return () => clearInterval(timer);
+});
+let activeMomentPhrase = $derived.by(() => {
+	momentClock;
+	const item = activeDocument;
+	if (!item?.kind || item.kind === "file") return null;
+	const at = item.updatedAt && item.updatedAt > 0 ? item.updatedAt : null;
+	const author = item.lastAuthor ?? null;
+	const kind = item.lastKind ?? null;
+	if (at === null && author === null && kind === null) return null;
+	return latestMomentPhrase(activeArtifactKind, { author, kind, at }, $t);
+});
 let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
 	ARTIFACT_BODIES[activeArtifactKind],
 );
@@ -1113,7 +1136,6 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 			...documentArtifactCardViewFromPreview({
 				artifactId: item.id,
 				title: getDocumentTitle(item),
-				versionNumber: item.versionNumber ?? 0,
 				madeBy,
 				subtitle: $t("artifacts.document.cardSubtitle", {
 					count: item.documentPreview.tabCount,
@@ -1129,7 +1151,6 @@ function artifactCardViewFor(item: DocumentWorkspaceItem): ArtifactCardView {
 		id: item.id,
 		kind: item.kind ?? "file",
 		title: getDocumentTitle(item),
-		versionNumber: item.versionNumber ?? null,
 		openTargetId: item.id,
 		madeBy,
 		...rowExtras,
@@ -2068,13 +2089,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 				<ArtifactPanelHeader
 					kind={activeArtifactKind}
 					title={getDocumentTitle(activeDocument)}
-					versionNumber={activeDocument.versionNumber && activeDocument.versionNumber > 0 ? activeDocument.versionNumber : null}
-					onVersions={bodyPanelActions?.openVersions}
-					meta={activeDocument.updatedAt != null
-					? $t('artifacts.header.editedBy', {
-							when: formatRelativeTime(activeDocument.updatedAt, { t: $t }),
-						})
-					: null}
+					phrase={activeMomentPhrase}
+					onHistory={bodyPanelActions?.openVersions}
 					itemCount={list?.items.length ?? null}
 					onBack={list ? handleBackToList : undefined}
 					actions={artifactHeaderActionsSnippet}
@@ -2384,13 +2400,8 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			<ArtifactPanelHeader
 				kind={activeArtifactKind}
 				title={getDocumentTitle(activeDocument)}
-				versionNumber={activeDocument.versionNumber && activeDocument.versionNumber > 0 ? activeDocument.versionNumber : null}
-				onVersions={bodyPanelActions?.openVersions}
-				meta={activeDocument.updatedAt != null
-					? $t('artifacts.header.editedBy', {
-							when: formatRelativeTime(activeDocument.updatedAt, { t: $t }),
-						})
-					: null}
+				phrase={activeMomentPhrase}
+				onHistory={bodyPanelActions?.openVersions}
 				itemCount={list?.items.length ?? null}
 				onBack={list ? handleBackToList : undefined}
 				actions={artifactHeaderActionsSnippet}

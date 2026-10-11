@@ -1041,12 +1041,12 @@ describe("chat page runtime integration", () => {
 	// artifactToWorkspaceItem, which — for the common case where a real
 	// availableWorkspaceDocuments item already matches the artifact id —
 	// returns that matched item as-is. If it does not also carry the
-	// summary's `kind` through, the panel's type/version pills
-	// (artifactTypeAndVersion in DocumentWorkspace.svelte, `{#if
-	// activeDocument.kind}`) silently never render for the single most
+	// summary's `kind` through, the panel's header (the kind label, `{#if
+	// activeDocument.kind}`) silently never renders for the single most
 	// common artifact-backed open: a File that already has a
-	// chat_generated_files row.
-	it("shows the type and version pill when a File is opened through the header's list, not just a bare preview", async () => {
+	// chat_generated_files row. A File has no versions, so it says nothing of
+	// a latest moment either (ruling 76).
+	it("shows the kind label and no history when a File is opened through the header's list, not just a bare preview", async () => {
 		const { recordDocumentWorkspaceOpen } = await import(
 			"$lib/client/api/knowledge"
 		);
@@ -1099,11 +1099,11 @@ describe("chat page runtime integration", () => {
 			name: WORKSPACE_LANDMARK,
 		});
 		await waitFor(() => {
-			expect(
-				within(shell).getByTestId("artifact-version-pill"),
-			).toHaveTextContent("v1");
+			expect(within(shell).getByText("File")).toBeInTheDocument();
 		});
-		expect(within(shell).getByText("File")).toBeInTheDocument();
+		expect(
+			within(shell).queryByTestId("artifact-version-pill"),
+		).not.toBeInTheDocument();
 	});
 
 	// Wave 2.5 Step 4/redesign §7: the count button now toggles instead of
@@ -1333,11 +1333,12 @@ describe("chat page runtime integration", () => {
 		}
 	});
 
-	// Wave 2.5 polish G1-B (owner: "the version numbers are all over the place"):
-	// the list row and the header's version button used to keep the number they
-	// were loaded or opened with. Every version the server reports through the
-	// artifacts client (a save, a restore, the Versions list) now reaches both.
-	it("keeps the panel header's version button and the list row on the number the server last reported", async () => {
+	// Wave 2.5 polish G1-B (owner: "the version numbers are all over the place"),
+	// ruling 76 (the numbers are gone; what is left is when and who): the list
+	// row and the header's history button used to keep what they were loaded or
+	// opened with. Every version the server reports through the artifacts client
+	// (a save, a restore, History) now reaches both, with its time and author.
+	it("keeps the panel header's history button and the list row on the latest moment the server last reported", async () => {
 		const { recordDocumentWorkspaceOpen } = await import(
 			"$lib/client/api/knowledge"
 		);
@@ -1361,7 +1362,9 @@ describe("chat page runtime integration", () => {
 							conversationId: "conv-1",
 							versionNumber: 1,
 							commentCount: 0,
-							updatedAt: Date.now(),
+							updatedAt: Date.now() - 10 * 60 * 1000,
+							lastAuthor: "alfy",
+							lastKind: "first_draft",
 						},
 					],
 				}),
@@ -1369,7 +1372,9 @@ describe("chat page runtime integration", () => {
 
 			await fireEvent.click(await screen.findByTestId("artifact-count-button"));
 			const list = await screen.findByTestId("artifact-panel-list");
-			expect(within(list).getByTestId("artifact-row")).toHaveTextContent("v1");
+			expect(within(list).getByTestId("artifact-row")).toHaveTextContent(
+				"10 min ago",
+			);
 			await fireEvent.click(within(list).getByTestId("artifact-row"));
 
 			const shell = await screen.findByRole("complementary", {
@@ -1378,7 +1383,7 @@ describe("chat page runtime integration", () => {
 			await waitFor(() => {
 				expect(
 					within(shell).getByTestId("artifact-version-pill"),
-				).toHaveTextContent("v1");
+				).toHaveTextContent("Written by Alfy · 10 min ago");
 			});
 
 			// A save, somewhere in the panel, is answered with version 4.
@@ -1398,7 +1403,7 @@ describe("chat page runtime integration", () => {
 			await waitFor(() => {
 				expect(
 					within(shell).getByTestId("artifact-version-pill"),
-				).toHaveTextContent("v4");
+				).toHaveTextContent("Edited by you · just now");
 			});
 			// A late, older answer never pulls it back.
 			await saveArtifactBody(
@@ -1415,16 +1420,19 @@ describe("chat page runtime integration", () => {
 			);
 			expect(
 				within(shell).getByTestId("artifact-version-pill"),
-			).toHaveTextContent("v4");
+			).toHaveTextContent("Edited by you · just now");
 
-			// Back to the list: its row says the same.
+			// Back to the list: its row says the same time, and never a number.
 			await fireEvent.click(
 				within(shell).getByRole("button", { name: /This chat/ }),
 			);
 			const listAgain = await screen.findByTestId("artifact-panel-list");
 			expect(within(listAgain).getByTestId("artifact-row")).toHaveTextContent(
-				"v4",
+				"just now",
 			);
+			expect(
+				within(listAgain).getByTestId("artifact-row"),
+			).not.toHaveTextContent(/\bv\d/);
 		} finally {
 			delete ARTIFACT_BODIES.document;
 		}
@@ -1437,7 +1445,7 @@ describe("chat page runtime integration", () => {
 	// chat card built on it) kept the version from before the edit until a
 	// reload. The stream metadata carries no artifact list, so the answer's
 	// list is applied whichever side of the boundary it lands on.
-	it("shows the version an edit made during the turn even when the turn's final metadata lands before the refresh answers", async () => {
+	it("shows the change an edit made during the turn even when the turn's final metadata lands before the refresh answers", async () => {
 		let answerDetail: (
 			detail: Awaited<ReturnType<typeof fetchConversationDetail>>,
 		) => void = () => {};
@@ -1454,7 +1462,7 @@ describe("chat page runtime integration", () => {
 			conversationId: "conv-1",
 			versionNumber: 1,
 			commentCount: 0,
-			updatedAt: Date.now(),
+			updatedAt: Date.now() - 10 * 60 * 1000,
 		};
 		renderPage(pageData({ artifacts: [summary] }));
 
@@ -1494,7 +1502,9 @@ describe("chat page runtime integration", () => {
 		await fireEvent.click(await screen.findByTestId("artifact-count-button"));
 		const list = await screen.findByTestId("artifact-panel-list");
 		await waitFor(() => {
-			expect(within(list).getByTestId("artifact-row")).toHaveTextContent("v2");
+			expect(within(list).getByTestId("artifact-row")).toHaveTextContent(
+				"just now",
+			);
 		});
 	});
 
@@ -1615,8 +1625,10 @@ describe("chat page runtime integration", () => {
 			const shell = await screen.findByRole("complementary", {
 				name: WORKSPACE_LANDMARK,
 			});
+			// An older server says nothing of who: the header says only that it
+			// was edited, and when.
 			await waitFor(() => {
-				expect(shell).toHaveTextContent("edited 3 h ago");
+				expect(shell).toHaveTextContent("Edited · 3 h ago");
 			});
 
 			// A save, somewhere in the panel, is acknowledged.
@@ -1633,7 +1645,7 @@ describe("chat page runtime integration", () => {
 				),
 			);
 			await waitFor(() => {
-				expect(shell).toHaveTextContent("edited just now");
+				expect(shell).toHaveTextContent("Edited by you · just now");
 			});
 
 			await fireEvent.click(

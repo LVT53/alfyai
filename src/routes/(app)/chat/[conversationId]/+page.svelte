@@ -54,17 +54,14 @@ import {
 import {
 	dropDeletedArtifacts,
 	forgetObservedArtifact,
+	type LatestMoment,
+	type LatestMomentFields,
 	markArtifactDeleted,
-	NO_OBSERVED_ARTIFACT_TIMES,
-	NO_OBSERVED_ARTIFACT_VERSIONS,
-	type ObservedArtifactTimes,
-	type ObservedArtifactVersions,
-	observeArtifactUpdatedAt,
-	observeArtifactVersion,
-	withCurrentItemUpdatedAt,
-	withCurrentItemVersion,
-	withCurrentSummaryUpdatedAt,
-	withCurrentSummaryVersion,
+	NO_OBSERVED_ARTIFACT_MOMENTS,
+	type ObservedArtifactMoments,
+	observeArtifactMoment,
+	withCurrentItemMoment,
+	withCurrentSummaryMoment,
 } from "$lib/client/artifact-versions";
 import { ApiError } from "$lib/client/api/http";
 import {
@@ -585,22 +582,19 @@ let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 // alongside generatedFiles/fileProductionJobs everywhere they are, never a
 // second fetch path.
 let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
-// Wave 2.5 polish G1-B (one version number everywhere): the highest version
-// the server has told this browser about, per artifact — fed by every save,
-// fetch, restore and version-list read (`subscribeArtifactChanges`), so the
-// list row, the chat card and the panel header's button all read the number
-// the Versions list shows instead of a copy taken when the list was loaded
-// or the item was opened.
-let observedArtifactVersions = $state.raw<ObservedArtifactVersions>(
-	NO_OBSERVED_ARTIFACT_VERSIONS,
+// Ruling 76, amendment A1 (one latest moment everywhere): the newest version
+// the server has told this browser about, per artifact, with its time, author
+// and kind — fed by every save, fetch, restore and History read
+// (`subscribeArtifactChanges`), so the list row, the chat card and the panel
+// header's history button all say what History says instead of a copy taken
+// when the list was loaded or the item was opened. The number only orders and
+// guards.
+let observedArtifactMoments = $state.raw<ObservedArtifactMoments>(
+	NO_OBSERVED_ARTIFACT_MOMENTS,
 );
-// Polish G2-A: the same for WHEN an artifact last changed (the header's
-// "edited 2 min ago" and the list row's time), and for what was deleted — the
-// ids the server says this chat's cards point at that no longer exist, plus
-// the ones this browser deletes (or finds gone) while the page is open.
-let observedArtifactTimes = $state.raw<ObservedArtifactTimes>(
-	NO_OBSERVED_ARTIFACT_TIMES,
-);
+// Polish G2-A: what was deleted — the ids the server says this chat's cards
+// point at that no longer exist, plus the ones this browser deletes (or finds
+// gone) while the page is open.
 let deletedArtifactIds = $state.raw<readonly string[]>(
 	initialDeletedArtifactIds,
 );
@@ -638,10 +632,7 @@ let regenerableFromMessages = $derived(
 let liveArtifacts = $derived(
 	markRegenerable(
 		dropDeletedArtifacts(artifacts, deletedArtifactIds).map((row) =>
-			withCurrentSummaryUpdatedAt(
-				withCurrentSummaryVersion(row, observedArtifactVersions),
-				observedArtifactTimes,
-			),
+			withCurrentSummaryMoment(row, observedArtifactMoments),
 		),
 		regenerableFromMessages,
 	),
@@ -1174,6 +1165,8 @@ function artifactToWorkspaceItem(
 		versionNumber: summary.versionNumber,
 		kind: summary.kind,
 		updatedAt: summary.updatedAt,
+		lastAuthor: (summary as LatestMomentFields).lastAuthor ?? null,
+		lastKind: (summary as LatestMomentFields).lastKind ?? null,
 		documentPreview: summary.documentPreview,
 		pendingReviewCount: summary.pendingReviewCount,
 	};
@@ -1250,21 +1243,25 @@ let artifactWorkspaceItems = $derived(
 );
 
 // The panel keeps each open item as the snapshot taken when it was opened —
-// saved across reloads with the number it had then. The header's version
-// button reads that item, so it takes the current number from the same live
-// list the rows and cards read.
-let currentArtifactVersionById = $derived(
-	new Map(liveArtifacts.map((row) => [row.id, row.versionNumber])),
-);
-let currentArtifactUpdatedAtById = $derived(
-	new Map(liveArtifacts.map((row) => [row.id, row.updatedAt])),
+// saved across reloads with the moment it had then. The header's history button
+// reads that item, so it takes the current moment from the same live list the
+// rows and cards read.
+let currentArtifactMomentById = $derived(
+	new Map<string, LatestMoment>(
+		liveArtifacts.map((row) => [
+			row.id,
+			{
+				version: row.versionNumber,
+				at: row.updatedAt,
+				author: (row as LatestMomentFields).lastAuthor ?? null,
+				kind: (row as LatestMomentFields).lastKind ?? null,
+			},
+		]),
+	),
 );
 let liveWorkspaceDocuments = $derived(
 	workspaceDocuments.map((document) =>
-		withCurrentItemUpdatedAt(
-			withCurrentItemVersion(document, currentArtifactVersionById),
-			currentArtifactUpdatedAtById,
-		),
+		withCurrentItemMoment(document, currentArtifactMomentById),
 	),
 );
 
@@ -1479,12 +1476,8 @@ function closeWorkspaceDocument(documentId: string) {
  * made later under the same id (Regenerate) starts from its own numbers.
  */
 function handleArtifactDeleted(artifactId: string) {
-	observedArtifactVersions = forgetObservedArtifact(
-		observedArtifactVersions,
-		artifactId,
-	);
-	observedArtifactTimes = forgetObservedArtifact(
-		observedArtifactTimes,
+	observedArtifactMoments = forgetObservedArtifact(
+		observedArtifactMoments,
 		artifactId,
 	);
 	deletedArtifactIds = markArtifactDeleted(deletedArtifactIds, artifactId);
@@ -2217,7 +2210,7 @@ onMount(() => {
 		.catch(() => {});
 });
 
-// One version number everywhere (see `observedArtifactVersions`): a save, an
+// One latest moment everywhere (see `observedArtifactMoments`): a save, an
 // Alfy edit, an Undo or a restore anywhere in the panel reaches every surface.
 onMount(() =>
 	subscribeArtifactChanges((change) => {
@@ -2231,15 +2224,15 @@ onMount(() =>
 			}
 			return;
 		}
-		observedArtifactVersions = observeArtifactVersion(
-			observedArtifactVersions,
+		observedArtifactMoments = observeArtifactMoment(
+			observedArtifactMoments,
 			change.artifactId,
-			change.version,
-		);
-		observedArtifactTimes = observeArtifactUpdatedAt(
-			observedArtifactTimes,
-			change.artifactId,
-			change.updatedAt,
+			{
+				version: change.version,
+				at: change.updatedAt,
+				author: change.author,
+				kind: change.kind,
+			},
 		);
 	}),
 );

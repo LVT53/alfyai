@@ -13,11 +13,13 @@ import {
 	downloadAppAsHtml,
 	exportArtifactDocument,
 	fetchArtifact,
+	fetchArtifactHistory,
 	fetchArtifactVersionBody,
 	fetchArtifactVersions,
 	fetchCanvasChatBlocks,
 	fetchCanvasReviewState,
 	fetchConversationArtifacts,
+	nameArtifactVersion,
 	readAppValue,
 	refreshCanvasBlock,
 	regenerateApp,
@@ -29,6 +31,7 @@ import {
 	searchCanvasWeb,
 	subscribeArtifactChanges,
 	toggleDocumentTask,
+	VersionRestoreRefusedError,
 	writeAppValue,
 } from "./artifacts";
 
@@ -1153,12 +1156,16 @@ describe("version announcements", () => {
 				artifactId: "artifact-1",
 				version: 4,
 				updatedAt: stamp,
+				author: "user",
+				kind: "user_edit",
 			},
 			{
 				type: "version",
 				artifactId: "artifact-1",
 				version: 4,
 				updatedAt: stamp,
+				author: "user",
+				kind: "restore",
 			},
 		]);
 	});
@@ -1187,6 +1194,7 @@ describe("version announcements", () => {
 				artifactId: "artifact-1",
 				version: 5,
 				updatedAt: null,
+				author: "user",
 			},
 		]);
 	});
@@ -1703,6 +1711,511 @@ describe("a board's review, over the network (ruling 63)", () => {
 					jsonResponse({ ok: false, reason: "not_found" }, 404),
 				),
 			),
+		).rejects.toThrow();
+	});
+});
+
+// Ruling 76 (the versioning build), amendment A1: every announcement carries
+// the latest moment — when, who, what — so the header's history button, the
+// list row and the card all say the same thing from the one source.
+describe("latest-moment announcements", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	function listenMoments() {
+		const changes: ArtifactChange[] = [];
+		const unsubscribe = subscribeArtifactChanges((change) => {
+			if (change.type === "version") changes.push(change);
+		});
+		return { changes, unsubscribe };
+	}
+
+	function authorAndKind(change: ArtifactChange | undefined) {
+		if (!change || change.type !== "version") return null;
+		return [change.author ?? null, change.kind ?? null];
+	}
+
+	it("a save is the reader's edit; an Undo and a Redo of Alfy's change are named by the kind the save carries", async () => {
+		const { changes, unsubscribe } = listenMoments();
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true, version: 4 }));
+		await saveArtifactBody("artifact-1", "Text.", 3, null, fetchMock);
+		await saveArtifactBody("artifact-1", "Text.", 4, null, fetchMock, {
+			summaryKind: "undid_alfy_change",
+		});
+		await saveArtifactBody("artifact-1", "Text.", 5, null, fetchMock, {
+			summaryKind: "redid_alfy_change",
+		});
+		unsubscribe();
+		expect(changes.map(authorAndKind)).toEqual([
+			["user", "user_edit"],
+			["user", "undo_alfy_change"],
+			["user", "redo_alfy_change"],
+		]);
+	});
+
+	it("sends the Redo's summary kind to the body route", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse({ ok: true, version: 6 }),
+		);
+		await saveArtifactBody("artifact-1", "Text.", 5, null, fetchMock, {
+			summaryKind: "redid_alfy_change",
+		});
+		expect(
+			JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+		).toMatchObject({ summaryKind: "redid_alfy_change" });
+	});
+
+	it("a restore is the reader's restore, and a restore that reverses one is the undo of it", async () => {
+		const { changes, unsubscribe } = listenMoments();
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: true, version: 9, versionId: "v9" }),
+		);
+		await restoreArtifactVersion("artifact-1", "version-1", null, fetchMock);
+		await restoreArtifactVersion("artifact-1", "version-8", null, fetchMock, {
+			expectVersion: 9,
+			undoOf: 9,
+		});
+		unsubscribe();
+		expect(changes.map(authorAndKind)).toEqual([
+			["user", "restore"],
+			["user", "undo_restore"],
+		]);
+	});
+
+	it("an App rebuilt from the panel is Alfy's rebuild; a conflict claims nothing about who", async () => {
+		const { changes, unsubscribe } = listenMoments();
+		await regenerateApp(
+			"artifact-1",
+			"Make it blue",
+			3,
+			null,
+			vi.fn(async () =>
+				jsonResponse({ ok: true, version: 4, title: "App", verification: {} }),
+			),
+		);
+		await regenerateApp(
+			"artifact-1",
+			"Make it red",
+			3,
+			null,
+			vi.fn(async () =>
+				jsonResponse(
+					{ ok: false, reason: "version_conflict", version: 5 },
+					409,
+				),
+			),
+		);
+		unsubscribe();
+		expect(changes.map(authorAndKind)).toEqual([
+			["alfy", "app_rebuilt"],
+			[null, null],
+		]);
+	});
+
+	it("tab saves and diffs that changed something are the reader's edits; a diff that changed nothing claims nothing", async () => {
+		const { changes, unsubscribe } = listenMoments();
+		await saveDocumentTabs(
+			"artifact-1",
+			[],
+			"Text.",
+			5,
+			null,
+			vi.fn(async () => jsonResponse({ ok: true, version: 6 })),
+		);
+		const landed = {
+			ok: true,
+			versionId: "v7",
+			version: 7,
+			applied: 1,
+			refused: [],
+			changed: true,
+		};
+		await applyArtifactOps(
+			"artifact-1",
+			"v6",
+			{ ops: [] } as never,
+			null,
+			vi.fn(async () => jsonResponse(landed)),
+		);
+		await applyArtifactOps(
+			"artifact-1",
+			"v7",
+			{ ops: [] } as never,
+			null,
+			vi.fn(async () =>
+				jsonResponse({ ...landed, changed: false, applied: 0 }),
+			),
+		);
+		unsubscribe();
+		expect(changes.map(authorAndKind)).toEqual([
+			["user", "user_edit"],
+			["user", "user_edit"],
+			[null, null],
+		]);
+	});
+
+	it("a tick is announced as a tick: the same version, told more exactly", async () => {
+		const { changes, unsubscribe } = listenMoments();
+		const body = "<!--b:t1-->\n- [ ] Renew passport";
+		const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+			String(input).endsWith("/body")
+				? jsonResponse({ ok: true, version: 4 })
+				: jsonResponse({
+						ok: true,
+						artifact: {
+							id: "artifact-1",
+							versionNumber: 3,
+							bodyHash: "h",
+							body,
+						},
+						versions: [],
+						comments: [],
+					}),
+		);
+		const result = await toggleDocumentTask(
+			"artifact-1",
+			"t1",
+			true,
+			null,
+			fetchMock,
+		);
+		unsubscribe();
+		expect(result.ok).toBe(true);
+		const last = changes.at(-1);
+		expect(last && last.type === "version" ? last.version : null).toBe(4);
+		expect(authorAndKind(last)).toEqual(["user", "tick"]);
+	});
+
+	it("a fetched artifact names its newest row's author, and its kind when the server says it", async () => {
+		const { changes, unsubscribe } = listenMoments();
+		await fetchArtifact(
+			"artifact-1",
+			null,
+			vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					artifact: {
+						id: "artifact-1",
+						versionNumber: 7,
+						updatedAt: 1234,
+						lastAuthor: "alfy",
+						lastKind: "alfy_edit",
+					},
+					versions: [
+						{
+							id: "v7",
+							versionNumber: 7,
+							author: "alfy",
+							summary: "x",
+							createdAt: 1,
+						},
+					],
+					comments: [],
+				}),
+			),
+		);
+		// Older server: the version list still names the author.
+		await fetchArtifact(
+			"artifact-2",
+			null,
+			vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					artifact: { id: "artifact-2", versionNumber: 3, updatedAt: 99 },
+					versions: [
+						{
+							id: "v3",
+							versionNumber: 3,
+							author: "user",
+							summary: "Edited",
+							createdAt: 1,
+						},
+						{
+							id: "v2",
+							versionNumber: 2,
+							author: "alfy",
+							summary: "y",
+							createdAt: 1,
+						},
+					],
+					comments: [],
+				}),
+			),
+		);
+		// A version list that does not start at the artifact's own number says nothing about who.
+		await fetchArtifact(
+			"artifact-3",
+			null,
+			vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					artifact: { id: "artifact-3", versionNumber: 9, updatedAt: 99 },
+					versions: [
+						{
+							id: "v8",
+							versionNumber: 8,
+							author: "alfy",
+							summary: "y",
+							createdAt: 1,
+						},
+					],
+					comments: [],
+				}),
+			),
+		);
+		unsubscribe();
+		expect(changes.map(authorAndKind)).toEqual([
+			["alfy", "alfy_edit"],
+			["user", null],
+			[null, null],
+		]);
+	});
+});
+
+describe("fetchArtifactHistory", () => {
+	const alfyWrote = {
+		versionId: "v1",
+		versionNumber: 1,
+		parentVersionId: null,
+		parentVersionNumber: null,
+		kind: "first_draft",
+		author: "alfy",
+		fold: null,
+		quiet: false,
+		at: 1000,
+		startedAt: null,
+		label: null,
+		text: null,
+		tick: null,
+		target: null,
+		restoredFrom: null,
+		commentId: null,
+		detail: { type: "none" },
+		status: null,
+		undoneBy: null,
+		isNewest: false,
+		containsNewest: false,
+		sameAsNow: false,
+		sameAs: null,
+		restoredHere: [],
+		bodyHash: "h1",
+		steps: [],
+	};
+
+	it("reads one page, newest first, and says where the next one starts", async () => {
+		const page = {
+			ok: true,
+			artifactKind: "document",
+			moments: [{ ...alfyWrote, isNewest: true, containsNewest: true }],
+			older: true,
+			nextBefore: 1,
+			newestVersion: 1,
+		};
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse(page),
+		);
+		const result = await fetchArtifactHistory("artifact-1", {
+			before: 5,
+			limit: 50,
+			conversationId: "conv 1",
+			fetchImpl: fetchMock,
+		});
+		expect(result).toEqual(page);
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"/api/artifacts/artifact-1/history?before=5&limit=50&conversationId=conv%201",
+		);
+		const plain = vi.fn(async () => jsonResponse(page));
+		await fetchArtifactHistory("artifact-1", { fetchImpl: plain });
+		expect(plain).toHaveBeenCalledWith("/api/artifacts/artifact-1/history");
+	});
+
+	it("announces the newest row of the first page: its time, its author and what it was", async () => {
+		const changes: ArtifactChange[] = [];
+		const unsubscribe = subscribeArtifactChanges((change) => {
+			if (change.type === "version") changes.push(change);
+		});
+		const folded = {
+			...alfyWrote,
+			versionId: "v3",
+			versionNumber: 3,
+			kind: "alfy_edit",
+			fold: "undone",
+			status: "undone",
+			at: 3000,
+			containsNewest: true,
+			steps: [
+				{
+					versionId: "v4",
+					versionNumber: 4,
+					kind: "undo_alfy_change",
+					author: "user",
+					at: 4000,
+					text: null,
+					label: null,
+					isNewest: true,
+					sameAsNow: false,
+					sameAs: null,
+					parentVersionId: "v3",
+					parentVersionNumber: 3,
+				},
+			],
+		};
+		await fetchArtifactHistory("artifact-1", {
+			fetchImpl: vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					artifactKind: "document",
+					moments: [folded],
+					older: false,
+					nextBefore: null,
+					newestVersion: 4,
+				}),
+			),
+		});
+		unsubscribe();
+		// The newest ROW is the Undo (version 4, the reader's, at 4000), not the Alfy change it was folded onto.
+		expect(changes).toEqual([
+			{
+				type: "version",
+				artifactId: "artifact-1",
+				version: 4,
+				updatedAt: 4000,
+				author: "user",
+				kind: "undo_alfy_change",
+			},
+		]);
+	});
+
+	it("announces nothing for an older page, which does not contain the newest row", async () => {
+		const changes: ArtifactChange[] = [];
+		const unsubscribe = subscribeArtifactChanges((change) => {
+			if (change.type === "version") changes.push(change);
+		});
+		await fetchArtifactHistory("artifact-1", {
+			before: 3,
+			fetchImpl: vi.fn(async () =>
+				jsonResponse({
+					ok: true,
+					artifactKind: "document",
+					moments: [alfyWrote],
+					older: false,
+					nextBefore: null,
+					newestVersion: 5,
+				}),
+			),
+		});
+		unsubscribe();
+		expect(changes).toEqual([]);
+	});
+
+	it("answers a missing or foreign item as a value, and throws on any other failure", async () => {
+		await expect(
+			fetchArtifactHistory("artifact-1", {
+				fetchImpl: vi.fn(async () =>
+					jsonResponse({ ok: false, reason: "not_found" }, 404),
+				),
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+		await expect(
+			fetchArtifactHistory("artifact-1", {
+				fetchImpl: vi.fn(async () => new Response("boom", { status: 500 })),
+			}),
+		).rejects.toThrow();
+	});
+});
+
+describe("nameArtifactVersion", () => {
+	it("patches the version's label and returns the server's answer", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse({ ok: true, label: "Before the client call" }),
+		);
+		await expect(
+			nameArtifactVersion(
+				"artifact-1",
+				"version-2",
+				"Before the client call",
+				"conv-1",
+				fetchMock,
+			),
+		).resolves.toEqual({ ok: true, label: "Before the client call" });
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe(
+			"/api/artifacts/artifact-1/versions/version-2?conversationId=conv-1",
+		);
+		expect(init?.method).toBe("PATCH");
+		expect(JSON.parse(String(init?.body))).toEqual({
+			label: "Before the client call",
+		});
+	});
+
+	it("removes a name with null, and hands a refusal back as a value", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse({ ok: false, reason: "invalid_label" }, 400),
+		);
+		await expect(
+			nameArtifactVersion("artifact-1", "version-2", null, null, fetchMock),
+		).resolves.toEqual({ ok: false, reason: "invalid_label" });
+		expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+			label: null,
+		});
+	});
+});
+
+describe("restoreArtifactVersion's guard", () => {
+	it("sends what the History page showed, so a restore over a newer version is refused", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse({ ok: true, version: 8, versionId: "v8" }),
+		);
+		await expect(
+			restoreArtifactVersion("artifact-1", "version-2", "conv-1", fetchMock, {
+				expectVersion: 7,
+				undoOf: 7,
+			}),
+		).resolves.toBe(8);
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe(
+			"/api/artifacts/artifact-1/versions/version-2/restore?conversationId=conv-1",
+		);
+		expect(JSON.parse(String(init?.body))).toEqual({
+			expectVersion: 7,
+			undoOf: 7,
+		});
+	});
+
+	it("sends no body at all when there is no guard, exactly as before", async () => {
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) =>
+				jsonResponse({ ok: true, version: 8 }),
+		);
+		await restoreArtifactVersion("artifact-1", "version-2", null, fetchMock);
+		expect(fetchMock.mock.calls[0]?.[1]?.body).toBeUndefined();
+	});
+
+	it("throws a refusal that carries its reason (version_conflict is the one the History page answers inline)", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "version_conflict" }, 409),
+		);
+		const attempt = restoreArtifactVersion(
+			"artifact-1",
+			"version-2",
+			null,
+			fetchMock,
+			{ expectVersion: 5 },
+		);
+		await expect(attempt).rejects.toBeInstanceOf(VersionRestoreRefusedError);
+		await expect(attempt).rejects.toMatchObject({ reason: "version_conflict" });
+	});
+
+	it("still throws a plain error for a failure that is not a documented refusal", async () => {
+		const fetchMock = vi.fn(async () => new Response("boom", { status: 500 }));
+		await expect(
+			restoreArtifactVersion("artifact-1", "version-2", null, fetchMock),
 		).rejects.toThrow();
 	});
 });

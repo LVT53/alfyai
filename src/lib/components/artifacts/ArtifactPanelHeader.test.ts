@@ -12,11 +12,17 @@ function actionsWith(html: string) {
 }
 
 describe("ArtifactPanelHeader", () => {
-	it("renders the kind label, title and meta line", () => {
+	const phrase = {
+		headline: "Changed by Alfy",
+		when: "12 min ago",
+		text: "Changed by Alfy · 12 min ago",
+		a11y: "History. Last change: changed by Alfy 12 min ago",
+	};
+
+	it("renders the kind label and title", () => {
 		render(ArtifactPanelHeader, {
 			kind: "document",
 			title: "Vienna trip plan",
-			meta: "edited 2 min ago",
 			onBack: vi.fn(),
 		});
 
@@ -24,45 +30,88 @@ describe("ArtifactPanelHeader", () => {
 			screen.getByRole("heading", { name: "Vienna trip plan" }),
 		).toBeInTheDocument();
 		expect(screen.getByText("Document")).toBeInTheDocument();
-		expect(screen.getByText("edited 2 min ago")).toBeInTheDocument();
 	});
 
-	it("renders no version segment when versionNumber is absent", () => {
+	it("renders no moment segment when nothing is known about the latest moment", () => {
 		render(ArtifactPanelHeader, {
 			kind: "app",
 			title: "Trip budget app",
 			onBack: vi.fn(),
 		});
+		expect(screen.queryByText(/ago/)).not.toBeInTheDocument();
+		expect(screen.queryByTestId("artifact-history-button")).toBeNull();
+	});
+
+	it("says the latest moment in a history button, never a version number, and opens History when pressed", async () => {
+		const onHistory = vi.fn();
+		render(ArtifactPanelHeader, {
+			kind: "document",
+			title: "Vienna trip plan",
+			phrase,
+			onHistory,
+			onBack: vi.fn(),
+		});
+
+		const button = screen.getByRole("button", {
+			name: "History. Last change: changed by Alfy 12 min ago",
+		});
+		expect(button).toHaveTextContent("Changed by Alfy · 12 min ago");
+		expect(button).toHaveAttribute("data-testid", "artifact-history-button");
+		expect(button).toHaveAttribute("aria-haspopup", "true");
+		expect(button).toHaveAttribute("aria-pressed", "false");
+		// The old test id stays on the button's own wrapper for one release.
+		expect(screen.getByTestId("artifact-version-pill")).toContainElement(
+			button,
+		);
 		expect(screen.queryByText(/^v\d/)).not.toBeInTheDocument();
+		await fireEvent.click(button);
+		expect(onHistory).toHaveBeenCalledOnce();
 	});
 
-	it("renders the version as a button and calls onVersions when clicked", async () => {
-		const onVersions = vi.fn();
+	it("shows the button pressed while History is open", () => {
 		render(ArtifactPanelHeader, {
 			kind: "document",
 			title: "Vienna trip plan",
-			versionNumber: 6,
-			onVersions,
+			phrase,
+			onHistory: vi.fn(),
+			historyOpen: true,
 			onBack: vi.fn(),
 		});
-
-		const versionButton = screen.getByRole("button", { name: "Version 6" });
-		expect(versionButton).toHaveTextContent("v6");
-		await fireEvent.click(versionButton);
-		expect(onVersions).toHaveBeenCalledOnce();
-	});
-
-	it("renders the version as plain text, not a button, when no onVersions handler is given", () => {
-		render(ArtifactPanelHeader, {
-			kind: "document",
-			title: "Vienna trip plan",
-			versionNumber: 6,
-			onBack: vi.fn(),
-		});
-		expect(screen.getByText("v6")).toBeInTheDocument();
 		expect(
-			screen.queryByRole("button", { name: /Version/ }),
+			screen.getByRole("button", { name: /^History\. Last change/ }),
+		).toHaveAttribute("aria-pressed", "true");
+	});
+
+	it("reads the moment as plain text, not a button, where the kind has no History yet", () => {
+		render(ArtifactPanelHeader, {
+			kind: "app",
+			title: "Trip budget app",
+			phrase,
+			onBack: vi.fn(),
+		});
+		expect(
+			screen.getByText("Changed by Alfy · 12 min ago"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /History/ }),
 		).not.toBeInTheDocument();
+	});
+
+	it("keeps the time when the headline is too long: the headline is the part that truncates", () => {
+		render(ArtifactPanelHeader, {
+			kind: "document",
+			title: "Vienna trip plan",
+			phrase,
+			onHistory: vi.fn(),
+			onBack: vi.fn(),
+		});
+		const button = screen.getByTestId("artifact-history-button");
+		expect(
+			button.querySelector(".artifact-panel-header-history-headline"),
+		).toHaveTextContent("Changed by Alfy");
+		expect(
+			button.querySelector(".artifact-panel-header-history-when"),
+		).toHaveTextContent("12 min ago");
 	});
 
 	it("the breadcrumb calls onBack and its accessible name carries the item count", async () => {
