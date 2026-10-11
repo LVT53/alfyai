@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	compareFallow,
 	defineSteps,
+	parseArgs,
 	parseBuildLog,
 	parseCheckLog,
 	parseChunksLog,
@@ -330,4 +331,24 @@ describe("the schedule", () => {
 			});
 		});
 	}
+});
+
+// Release hides vitest behind the e2e run (8.5 minutes in three green runs against 10.7 phased);
+// an agent's run is a few spec files that finish in a minute, so vitest on three threads would be
+// its longest step (7 minutes against 2.5): there the static gates go first.
+describe("the default schedule", () => {
+	it("is overlap for the release gate and phased for an agent's run", () => {
+		expect(parseArgs(["release", "/tmp/gates-test"]).schedule).toBe("overlap");
+		expect(parseArgs(["agent", "/tmp/gates-test"]).schedule).toBe("phased");
+	});
+
+	it("is whatever --schedule says", () => {
+		expect(
+			parseArgs(["release", "/tmp/gates-test", "--schedule", "phased"])
+				.schedule,
+		).toBe("phased");
+		expect(
+			parseArgs(["agent", "/tmp/gates-test", "--schedule", "overlap"]).schedule,
+		).toBe("overlap");
+	});
 });

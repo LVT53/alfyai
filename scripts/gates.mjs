@@ -13,9 +13,12 @@
 //   --port P               first port of the e2e servers (default: E2E_PORT, else 5175); slot N uses P+N
 //   --skip a,b             leave steps out: check, biome, migrations, vitest, build, chunks, fallow, playwright
 //   --fallow-baseline F    Fallow baseline to compare against
-//   --schedule S           "phased" (default): the static gates first, side by side, then the e2e run on a
-//                          machine with nothing else on it; "overlap": vitest, Fallow and the e2e run share
-//                          the machine (vitest on a few threads), a minute or two faster and noisier
+//   --schedule S           "phased": the static gates first, side by side, then the e2e run on a machine
+//                          with nothing else of ours on it; "overlap": the e2e run starts when the build is
+//                          done and vitest runs beside it on a few threads. Default: overlap for release
+//                          (8.5 minutes in three green runs against 10.7 phased: vitest hides behind the
+//                          e2e run), phased for agent (a few spec files finish in a minute, and vitest on
+//                          three threads would be the longest step: 7 minutes against 2.5)
 //
 // THE BUILD GOES FIRST. `npm run check` (`svelte-kit sync`) and vitest (its SvelteKit plugin
 // syncs when it starts) both rewrite `.svelte-kit/`, which `vite build` reads. Run side by
@@ -100,7 +103,7 @@ function usage(message) {
 	process.exit(2);
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
 	const [mode, outDir, ...rest] = argv;
 	if (!["release", "agent"].includes(mode) || !outDir) usage();
 	const args = {
@@ -110,7 +113,7 @@ function parseArgs(argv) {
 		port: process.env.E2E_PORT,
 		skip: new Set(),
 		fallowBaseline: BASELINE.fallowFile,
-		schedule: "phased",
+		schedule: undefined,
 		specs: [],
 	};
 	for (let i = 0; i < rest.length; i += 1) {
@@ -134,6 +137,7 @@ function parseArgs(argv) {
 			usage(`--skip: no step called "${name}" (${STEP_ORDER.join(", ")})`);
 		}
 	}
+	args.schedule ??= mode === "release" ? "overlap" : "phased";
 	if (!["phased", "overlap"].includes(args.schedule)) {
 		usage('--schedule must be "phased" or "overlap"');
 	}
