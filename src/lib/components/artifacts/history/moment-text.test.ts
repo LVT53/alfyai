@@ -483,6 +483,39 @@ describe("entryDetail: what changed, as a noun phrase that serves both authors",
 	});
 });
 
+// RV-V M-12: three lines of the Hungarian read like a translation. The one that
+// lists what to expect had a possessive that did not agree with its two owners, the
+// one for a too-large version split a thought in two with a semicolon and a verb in
+// the wrong place, and the help was a legend of nouns where the English has sentences.
+describe("History's Hungarian lines that read as sentences", () => {
+	const hu = (key: string, params?: Record<string, string>) => {
+		uiLanguage.set("hu");
+		return get(t)(key as never, params as never);
+	};
+
+	it("says what an empty history will hold without an owner it cannot agree with", () => {
+		expect(hu("artifacts.history.oneVersion")).toBe(
+			"Itt jelenik meg minden későbbi módosítás, akár te végzed, akár Alfy.",
+		);
+	});
+
+	it("says a version too large to compare can still be restored", () => {
+		expect(hu("artifacts.history.tooLarge")).toBe(
+			"Túl nagy az összehasonlításhoz, de még visszaállíthatod",
+		);
+	});
+
+	it("explains Undo and Restore in sentences, naming the buttons as they are labelled", () => {
+		const help = hu("artifacts.history.help", { keys: "Ctrl+Z" });
+		expect(help).toBe(
+			"Ctrl+Z: visszavonja a saját legutóbbi lépéseidet. Alfy módosításánál a Visszavonom csak azt az egy módosítást vonja vissza. A Visszaállítás egy teljes korábbi változatot hoz vissza.",
+		);
+		// Its names are the pill's and the toolbar's own words.
+		expect(hu("artifacts.document.change.undo")).toBe("Visszavonom");
+		expect(hu("artifacts.history.restore")).toBe("Visszaállítás");
+	});
+});
+
 describe("times and day groups", () => {
 	it("writes the clock the way a person reads it, in both languages", () => {
 		expect(clockTime(at(2026, 10, 11, 9, 5), "en")).toBe("09:05");

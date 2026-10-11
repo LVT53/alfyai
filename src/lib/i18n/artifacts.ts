@@ -1801,9 +1801,9 @@ const artifactsDict = {
 		"artifacts.history.older": "Korábbiak",
 		"artifacts.history.loadError": "Nem sikerült betölteni az előzményeket.",
 		"artifacts.history.oneVersion":
-			"Ide kerülnek a te és Alfy későbbi változtatásai.",
+			"Itt jelenik meg minden későbbi módosítás, akár te végzed, akár Alfy.",
 		"artifacts.history.help":
-			"{keys}: a saját legutóbbi lépéseid. Visszavonom: csak Alfy módosítása. Visszaállítás: egy teljes korábbi változat.",
+			"{keys}: visszavonja a saját legutóbbi lépéseidet. Alfy módosításánál a Visszavonom csak azt az egy módosítást vonja vissza. A Visszaállítás egy teljes korábbi változatot hoz vissza.",
 		"artifacts.history.helpDismiss": "Értem",
 		"artifacts.history.deleted.document": "Ezt a dokumentumot törölték.",
 		"artifacts.history.deleted.app": "Ezt az alkalmazást törölték.",
@@ -1865,7 +1865,7 @@ const artifactsDict = {
 		"artifacts.history.unchanged": "{count} változatlan bekezdés",
 		"artifacts.history.noChanges": "Ebben a változatban nem változott semmi",
 		"artifacts.history.tooLarge":
-			"Túl nagy az összehasonlításhoz; visszaállítani még tudod",
+			"Túl nagy az összehasonlításhoz, de még visszaállíthatod",
 		"artifacts.history.versionFine": "{n}. változat",
 		"artifacts.history.live.selected": "{when}, {headline}.",
 		"artifacts.history.live.changes": "{count} változás.",
