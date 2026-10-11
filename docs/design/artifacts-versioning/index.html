@@ -537,6 +537,9 @@ del.rem { color: var(--text-muted); text-decoration: line-through; text-decorati
 .toast.is-in { opacity: 1; transform: none; transition: opacity var(--duration-emphasis) var(--ease-emphasis), transform var(--duration-emphasis) var(--ease-emphasis); }
 .toast button { border: 0; background: transparent; color: var(--accent-text); font-weight: 700; padding: 2px 6px; border-radius: 6px; text-decoration: underline; text-underline-offset: 2px; margin-left: 14px; }
 .toast .x { display: inline-grid; place-items: center; color: var(--icon-muted); }
+/* in the new design a panel's toast stands at the panel's foot (redesign §7 #33), never over its header actions */
+.panel > .toast { top: auto; bottom: 18px; right: auto; left: 50%; transform: translate(-50%, 8px); }
+.panel > .toast.is-in { transform: translate(-50%, 0); }
 
 /* ------------------------------------------------------------------ guide */
 .guide .kicker { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
@@ -608,7 +611,7 @@ const T = {
 		mFirstDoc: "Alfy megírta az első vázlatot", mFirstApp: "Alfy elkészítette az alkalmazást", mFirstBoard: "Alfy elkészítette a táblát",
 		mYouEdited: "Szerkesztetted", mYouBoard: "Módosítottad a táblát", mReply: "Alfy módosította, válaszul a megjegyzésedre",
 		mRegen: "Alfy újraépítette: „{p}”", mUndidStep: "Visszavontad", mUndid: "Visszavontad Alfy módosítását: „{s}”",
-		mRedo: "Visszahoztad", mRestored: "Visszaállítottad: {when}", mUndidRestore: "…, majd visszavontad",
+		mRedo: "Visszahoztad", mRestored: "Visszaállítottad: {when}", mUndidRestore: "Visszavontad a visszaállítást",
 		dChanged: "Módosult: „{l}”", dChangedMore: "Módosult: „{l}” és még {n} rész", dNew: "Új: „{l}”", dNewMore: "Új: „{l}” és még {n}",
 		dRemoved: "Törölve: {n} bekezdés", dBoard: "{parts}", dMoved: "{n} blokk áthelyezve", dAdded: "{n} hozzáadva", dRemovedB: "{n} törölve", dChangedB: "{n} módosult",
 		dLines: "{n} sor módosult", dNothing: "Nem változott semmi",
@@ -616,7 +619,7 @@ const T = {
 		prevMo: "Előző változat", nextMo: "Következő változat",
 		added: "Hozzáadva:", removed: "Törölve:", unchanged: "{n} változatlan bekezdés",
 		restore: "Visszaállítás", cancel: "Mégse",
-		restoreQ: "Visszaállítod a(z) {when} változatot?", restoreQ2: "A mostani megmarad az előzményekben.",
+		restoreQ: "Visszaállítod ezt a változatot ({when})?", restoreQ2: "A mostani megmarad az előzményekben.",
 		restoreWaiting: "Alfy rád váró módosítása is eltűnik vele.", restoreAppData: "A mentett adatok maradnak a mostaniak.",
 		restored: "Visszaállítva: {when}", undo: "Visszavonás",
 		name: "Elnevezés", rename: "Átnevezés", nameField: "Változat elnevezése", namePh: "pl. Elküldve Annának", save: "Mentés",
@@ -654,7 +657,7 @@ const T = {
 		mFirstDoc: "Alfy wrote the first draft", mFirstApp: "Alfy built the app", mFirstBoard: "Alfy made the board",
 		mYouEdited: "You edited", mYouBoard: "You changed the board", mReply: "Alfy changed it, answering your comment",
 		mRegen: "Alfy rebuilt the app: “{p}”", mUndidStep: "You undid it", mUndid: "You undid Alfy's change “{s}”",
-		mRedo: "You brought it back", mRestored: "You restored {when}", mUndidRestore: "… then undid it",
+		mRedo: "You brought it back", mRestored: "You restored {when}", mUndidRestore: "You undid the restore",
 		dChanged: "Changed “{l}”", dChangedMore: "Changed “{l}” and {n} more", dNew: "New: “{l}”", dNewMore: "New: “{l}” and {n} more",
 		dRemoved: "Removed: {n} paragraph(s)", dBoard: "{parts}", dMoved: "{n} moved", dAdded: "{n} added", dRemovedB: "{n} removed", dChangedB: "{n} changed",
 		dLines: "{n} lines changed", dNothing: "Nothing changed",
@@ -1188,25 +1191,26 @@ function previewBar(d, o, compact) {
 	const naming = S.naming ? `<div class="name-field"><label class="sr-only" for="nmf">${esc(t("nameField"))}</label><input id="nmf" maxlength="60" placeholder="${esc(t("namePh"))}" value="${esc(o.name ?? "")}" data-autofocus><button class="btn-ghost btn-sm" data-act="cancelName">${esc(t("cancel"))}</button><button class="btn-primary btn-sm" data-act="saveName">${esc(t("save"))}</button></div>${o.isNow ? `<div class="pv-detail">${esc(t("nextNew"))}</div>` : ""}` : "";
 	const changes = changeList(o);
 	const stepper = changes.length ? `<span class="stepper"><button class="btn-icon" data-act="prevCh" aria-label="${esc(t("prevCh"))}">${ic("chevron-up", 14)}</button><span>${Math.min(S.ci + 1, changes.length)} / ${changes.length}</span><button class="btn-icon" data-act="nextCh" aria-label="${esc(t("nextCh"))}">${ic("chevron-down", 14)}</button></span>` : "";
-	const seg = o.isNow ? "" : `<div class="seg sm" role="group"><button data-act="cmp" data-c="step" aria-pressed="${S.compare === "step"}">${esc(t("cmpStep"))}</button><button data-act="cmp" data-c="now" aria-pressed="${S.compare === "now"}">${esc(t("cmpNow"))}</button></div>`;
+	const seg = o.isNow ? "" : `<div class="seg sm" role="group"><button data-act="cmp" data-c="step" aria-pressed="${!nowMode(o)}" ${o.parent ? "" : "disabled"}>${esc(t("cmpStep"))}</button><button data-act="cmp" data-c="now" aria-pressed="${nowMode(o)}">${esc(t("cmpNow"))}</button></div>`;
 	const appSeg = S.kind === "app" ? `<div class="seg sm" role="group"><button data-act="appTab" data-tab="preview" aria-pressed="${S.appTab === "preview"}">${ic("eye", 13)} ${esc(t("appPreview"))}</button><button data-act="appTab" data-tab="code" aria-pressed="${S.appTab === "code"}">${ic("code-xml", 13)} ${esc(t("appCode"))}</button></div>` : "";
 	const dt = detail(o);
 	return `<div class="pv-bar"><div class="pv-row"><div class="pv-title grow">${title}</div>${actions}</div>${naming}<div class="pv-detail">${esc(dt)}${dt ? " · " : ""}<span class="fine">${esc(t("fine", { n: r.v }))}</span></div>${S.kind === "app" ? `<div class="pv-row">${appSeg}<span class="grow"></span>${S.appTab === "code" ? seg : ""}</div>` : `<div class="pv-row">${seg}<span class="grow"></span>${S.kind === "document" && !isPhone() ? stepper : ""}</div>`}</div>`;
 }
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-function compareBase(o, d) { return S.compare === "now" && !o.isNow ? d.newest : o.parent; }
+const nowMode = (o) => !o.isNow && (S.compare === "now" || !o.parent); /* a first version has no step of its own: it compares with now */
+function compareBase(o, d) { return nowMode(o) ? d.newest : o.parent; }
 function changeList(o) {
 	if (S.kind !== "document") return [];
 	const d = derive(), base = compareBase(o, d); if (!base) return [];
 	const target = o.row.body, from = base.body;
-	if (S.compare === "now" && !o.isNow) { const dd = docDelta(target, from); return [...dd.changed, ...dd.added, ...dd.removed].map((b) => b.id); }
+	if (nowMode(o)) { const dd = docDelta(target, from); return [...dd.changed, ...dd.added, ...dd.removed].map((b) => b.id); }
 	const dd = docDelta(from, target); return [...dd.changed, ...dd.added, ...dd.removed].map((b) => b.id);
 }
 function previewBody(d, o) {
-	const base = compareBase(o, d), target = o.row.body, nowMode = S.compare === "now" && !o.isNow;
+	const base = compareBase(o, d), target = o.row.body, inNow = nowMode(o);
 	if (S.kind === "document") {
 		if (!base) return docHtml(target);
-		const insCls = nowMode ? "add-you" : o.row.author === "alfy" ? "add" : "add-you";
+		const insCls = inNow ? "add-you" : o.row.author === "alfy" ? "add" : "add-you";
 		const from = base.body;
 		/* Show the TARGET version: words it has that the base lacks are ins; words the base has that it lacks are del. */
 		const fi = new Map(from.map((b) => [b.id, b]));
@@ -1235,8 +1239,8 @@ function previewBody(d, o) {
 	if (S.kind === "canvas") {
 		const opt = { rings: {}, tags: {}, ghosts: [], trails: [] };
 		if (base) {
-			const dd = nowMode ? boardDelta(base.body, target) : boardDelta(base.body, target);
-			const you = nowMode || o.row.author !== "alfy";
+			const dd = boardDelta(base.body, target);
+			const you = inNow || o.row.author !== "alfy";
 			for (const n of dd.added) { opt.rings[n.id] = you ? "cv-ring-you" : "cv-ring-alfy"; opt.tags[n.id] = { cls: `new ${you ? "you" : ""}`, label: S.lang === "hu" ? "Új" : "New" }; }
 			for (const n of dd.changed) opt.rings[n.id] = you ? "cv-ring-you" : "cv-ring-alfy";
 			for (const n of dd.moved) { const was = base.body.find((x) => x.id === n.id); opt.trails.push([was, n]); opt.tags[n.id] = { cls: "moved", label: S.lang === "hu" ? "Áthelyezve" : "Moved" }; opt.rings[n.id] = you ? "cv-ring-you" : "cv-ring-alfy"; }
@@ -1245,9 +1249,9 @@ function previewBody(d, o) {
 		return `<div class="board" data-board style="min-height:440px;border-radius:10px;box-shadow:0 0 0 1px var(--border-default)">${boardHtml(target, opt)}</div>`;
 	}
 	if (S.appTab === "code") {
-		const from = (nowMode ? d.newest : o.parent)?.body;
+		const from = (inNow ? d.newest : o.parent)?.body;
 		if (!from) return `<pre class="code">${target.code.map((l) => `<div>${esc(l)}</div>`).join("")}</pre>`;
-		const diff = nowMode ? lcsDiff(from.code, target.code) : lcsDiff(from.code, target.code);
+		const diff = lcsDiff(from.code, target.code);
 		return `<pre class="code" aria-label="${esc(t("appCode"))}">${diff.map((p) => `<div class="${p.op === "+" ? "a" : p.op === "-" ? "r" : ""}">${p.op === "+" ? "+ " : p.op === "-" ? "− " : "  "}${esc(p.t)}</div>`).join("")}</pre>`;
 	}
 	return `<div class="app-frame" style="margin:0">${o.isNow ? "" : `<div class="app-note">${ic("info", 13)} ${esc(t("appRuns"))}</div>`}<div class="sandbox">${ic("lock", 12)} ${esc(t("sandbox"))}</div>${miniApp(target)}</div>`;
@@ -1360,13 +1364,13 @@ function renderGuide() {
 	<div class="cmp"><div><b>${hu ? "Ma" : "Today"}</b>${esc(L(st.today))}</div><div class="new"><b>${hu ? "Új" : "New"}</b>${esc(L(st.neu))}</div></div>
 	<div class="step-nav"><button class="btn-secondary btn-sm" data-act="prevStep" ${k === 0 ? "disabled" : ""}>${ic("chevron-left", 14)} ${hu ? "Előző" : "Previous"}</button><button class="btn-primary btn-sm" data-act="nextStep" ${k === sc.steps.length - 1 ? "disabled" : ""}>${hu ? "Következő" : "Next"} ${ic("chevron-right", 14)}</button></div>
 	<div><div class="kicker" style="margin-bottom:6px">${hu ? "Próbáld ki az új változatban" : "Try in the new design"}</div><ul class="notes">${tries.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
-	<div class="guide-foot"><span>${hu ? "A leírás: versioning.md (§3 a modell, §5 a felületek, §13 a kérdések)." : "The spec: versioning.md (§3 the model, §5 the surfaces, §13 the questions)."}</span><span>${hu ? "Billentyűk: ↑/↓, Home/End az előzményekben; Alt+↑/↓ a változások között; Esc kilép." : "Keys: ↑/↓, Home/End in History; Alt+↑/↓ between changes; Esc leaves."}</span></div>`;
+	<div class="guide-foot"><span>${hu ? "A leírás: versioning.md (§3 a modell, §5 a felületek, §13 a kérdések)." : "The spec: versioning.md (§3 the model, §5 the surfaces, §13 the questions)."}</span><span>${hu ? "Billentyűk: ↑/↓, Home/End az előzményekben; Alt+↑/↓ a változások között; Esc kilép." : "Keys: ↑/↓, Home/End in History; Alt+↑/↓ between changes; Esc leaves."}</span><span>${hu ? "A gépelések időtartama (10:03–10:09) a javasolt migrációt feltételezi (13. kérdés, Q3); nélküle csak a vége látszik." : "Typing spans (10:03–10:09) assume the proposed migration (§13, Q3); without it only the end shows."}</span></div>`;
 }
 
 /* ------------------------------------------------------------------ interactions */
 function toast(msg, action, fn) {
-	const layer = $("#toastLayer"); if (!layer) return;
-	layer.innerHTML = "";
+	const layer = $("#newFrame .panel") ?? $("#toastLayer"); if (!layer) return;
+	for (const old of $$(".toast", layer)) old.remove();
 	const el = document.createElement("div"); el.className = "toast"; el.setAttribute("role", "status");
 	el.innerHTML = `${ic("circle-check", 16)}<span>${esc(msg)}</span>${action ? `<button>${esc(action)}</button>` : ""}<span class="x">${ic("x", 14)}</span>`;
 	layer.appendChild(el); requestAnimationFrame(() => el.classList.add("is-in"));
@@ -1375,7 +1379,7 @@ function toast(msg, action, fn) {
 }
 function addRow(row) { const v = S.live.rows.length + 1; S.live.extraMin += 1; const r = { v, at: nowOf(), ...row }; S.live.rows.push(r); return r; }
 function allOpts() { const d = derive(); return d.moments.flatMap((m) => [m.main, ...m.steps]).filter((o) => S.filter !== "named" || o.name); }
-function moveSel(delta) { const list = allOpts(), cur = selectedOpt(derive()), i = list.indexOf(cur); const j = Math.max(0, Math.min(list.length - 1, delta === "home" ? 0 : delta === "end" ? list.length - 1 : i + delta)); S.sel = list[j].row.v; S.ci = 0; S.compare = "step"; S.asking = false; S.naming = false; S.fx.pvFade = true; S.fx.resetPv = true; }
+function moveSel(delta) { const list = allOpts(), cur = selectedOpt(derive()), i = list.findIndex((o) => o.row.v === cur.row.v); const j = Math.max(0, Math.min(list.length - 1, delta === "home" ? 0 : delta === "end" ? list.length - 1 : i + delta)); S.sel = list[j].row.v; S.ci = 0; S.compare = "step"; S.asking = false; S.naming = false; S.fx.pvFade = true; S.fx.resetPv = true; }
 const act = {
 	toggleHist() { S.hist = !S.hist; S.sel = null; S.push = false; S.asking = false; S.naming = false; S.fx.enterHist = true; S.fx.focus = S.hist ? "list" : "histBtn"; },
 	closeHist() { S.hist = false; S.push = false; S.asking = false; S.naming = false; S.fx.focus = "histBtn"; },

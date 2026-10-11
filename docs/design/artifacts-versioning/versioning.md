@@ -161,7 +161,7 @@ serves both authors in both languages.
 | Undo of Alfy's change | user, "Undid Alfy's change" | You undid it *(folded)* · You undid Alfy's change “{its summary}” *(not folded)* | Visszavontad · Visszavontad Alfy módosítását: „…” |
 | Redo of that Undo | user, new "Redid Alfy's change" | You brought it back | Visszahoztad |
 | Restore | user, "Restored v{n}" | You restored {day} {time} | Visszaállítottad: {nap} {idő} |
-| Undo of a restore | user, new "Undid restoring v{n}" | … then undid it *(folded)* | …, majd visszavontad |
+| Undo of a restore | user, new "Undid restoring v{n}" | You undid the restore *(a step of the restore, F3)* | Visszavontad a visszaállítást |
 
 Detail lines (author-neutral): "Changed “Saturday” and 2 more paragraphs" / „Módosult: „Szombat” és még 2
 bekezdés"; "New: “Museum tickets”" / „Új: „Múzeumjegyek”"; "Removed: 1 paragraph" / „Törölve: 1 bekezdés";
@@ -189,7 +189,7 @@ inside it. Each step stays selectable (it is a real state) and previewable.
 |---|---|---|---|
 | F1 Undo folds onto its change | Alfy row A, then immediately the Undo U that undid A | A's moment, status Undone, with the step "↳ You undid it · 10:13" | "Alfy adds a section → you undo it" reads as one decision; the top row is not a new thing |
 | F2 Redo completes it | A, U, then the Redo R | A's moment, status Kept, steps "↳ You undid it, then brought it back" | the reader changed their mind within five seconds; two rows of noise become one line |
-| F3 A restore and its undo | restore S, then immediately the undo of S | one quiet line "You restored Mon 10:09, then undid it", no Restore (its states equal its neighbours) | the toast's Undo is a correction, not an event |
+| F3 A restore and its undo | restore S, then immediately the undo of S | S's moment drawn quiet, with the step "↳ You undid the restore"; the step is "Same as" the version before S | the toast's Undo is a correction, not an event |
 | F4 One turn of Alfy's | consecutive Alfy rows less than 2 min apart, nothing else between | one moment "Alfy made 3 changes", the three summaries as steps; status aggregated (Waiting if any waits) | a turn that calls `edit_artifact` three times is one request in the chat |
 | — Undo that does not follow its change | A, then the reader's edit E, then U | chronological: U as its own line "You undid Alfy's change “Rainy-day plan” · See the change", and A's status "Undone later · 10:20" | moving U onto A would put a row out of time order and make E's row the top while it is not "now" |
 
@@ -327,7 +327,8 @@ Bécsi út terve
 - The kind stays plain text. The **history button** carries the latest moment's short headline and its time:
   "Edited by you · 2 min ago" / *Szerkesztetted · 2 perce*; "Changed by Alfy · just now" / *Alfy módosította · épp
   most*; "Written by Alfy · 3 h ago" / *Alfy írta · 3 órája*; "Built by Alfy" / *Alfy készítette* (App, Canvas);
-  "Restored by you" / *Visszaállítottad*. The fixed "You and Alfy" line goes (P5).
+  "Restored by you" / *Visszaállítottad*; "Rebuilt by Alfy" / *Alfy újraépítette* (App); "Alfy's change undone" /
+  *Visszavontad Alfy módosítását*. The fixed "You and Alfy" line goes (P5).
 - In History mode the button is pressed and a **Done** / *Kész* button (`btn-secondary btn-sm`) joins the actions;
   Comments and Download hide while History is open.
 - File: no history button (no versions). App: the same button (P8).
@@ -394,6 +395,9 @@ Bécsi út terve
 - **Motion:** entering History: the body cross-fades to the preview (standard · ease-out) and the rail slides in
   24 px from the right (emphasis · ease-emphasis, #1/#3's vocabulary); leaving is the mirror (standard · ease-in).
   Selecting a moment cross-fades the preview (standard). Reduced motion: instant.
+- **Hungarian:** *Előzmények* and *Kész* are short; the 300 px rail holds a two-line Hungarian headline
+  (*Alfy módosította, válaszul a megjegyzésedre*) beside a 44 px time column; the narrow layout's push header fits
+  *‹ Előzmények* and the ‹ › stepper at 360 px.
 
 ### 5.3 Moment rows
 
@@ -420,6 +424,8 @@ Bécsi út terve
   option holds no interactive content.
 - **Hungarian:** the headline wraps to two lines before the detail truncates; the time column is 44 px wide;
   *Részben megtartva* is the longest pill (about 112 px).
+- **Motion:** hover and selection are colour only (standard · ease-out); a new moment rises in (#20); a status swap is
+  #13; reduced motion: instant.
 
 ### 5.4 The preview
 
@@ -461,14 +467,19 @@ Módosult: „Szombat” és még 2 bekezdés · 2. változat (fine print)
   screen readers ("Rainy day frame, added") that centre the camera.
 - **Motion:** highlights arrive at the arrive tint and settle to the resting tint (#11); the stepper flash is #17;
   reduced motion: resting tint, static ring for 900 ms.
+- **Hungarian:** the comparison switch is the widest control (*Ebben a változatban | A mostanihoz képest*, about
+  290 px at 12 px) and wraps under the title below 520 px; the change count is a number pair (*1 / 3*), never a
+  phrase; a first version has no step of its own, so its preview compares with now and the first half of the switch
+  is disabled.
 
 ### 5.5 Restore, and undoing a restore
 
 - Restore is offered only in the preview, never on a row. The newest moment has none ("This is how it looks now" /
   *Így néz ki most*); a version equal to now shows "Same as now" / *Ugyanaz, mint most* instead of the button.
 - Pressing Restore turns the toolbar's actions into the question, inline (no modal, as today):
-  "Bring back Monday 10:09? What you have now stays in History." / *Visszaállítod a hétfő 10:09-es változatot?
-  A mostani megmarad az előzményekben.* `[Cancel] [↺ Restore]` (`Mégse` / `Visszaállítás`). Extra lines when they
+  "Bring back Monday 10:09? What you have now stays in History." / *Visszaállítod ezt a változatot (hétfő 10:09)?
+  A mostani megmarad az előzményekben.* (The Hungarian puts the time in brackets: a time takes a suffix that depends
+  on how its last number is said, *10:09-es* but *10:20-as*, and a bracket avoids getting it wrong.) `[Cancel] [↺ Restore]` (`Mégse` / `Visszaállítás`). Extra lines when they
   apply: "Tabs keep their current names." / *A lapok neve a mostani marad.*; for an item made in another chat
   (§5.10) "It changes in “Trip planning” too, where it was made." / *A „Tervezés” beszélgetésben is megváltozik,
   ahol készült.*; when the version being restored predates a change of Alfy's that still waits (the restore puts
@@ -478,7 +489,8 @@ Módosult: „Szombat” és még 2 bekezdés · 2. változat (fine print)
 - After Restore, History stays open: a new top moment "You restored Monday 10:09" rises in and is selected, its
   preview shows the restored text with "This version's changes" (what the restore changed), the source moment gets
   "Restored from here · today 10:20", and a toast says "Restored Monday 10:09" / *Visszaállítva: hétfő 10:09* with
-  **Undo** / *Visszavonás* for 5.2 s. Undo writes "Undid restoring v{n}" and the two fold into one quiet line (F3).
+  **Undo** / *Visszavonás* for 5.2 s. The toast stands at the foot of the panel (the redesign's #33), never over the
+  header's actions: today's top-right toast covers Done, Expand and Close ([doc-restore-toast](current/doc-restore-toast-1440-hu.png)). Undo writes "Undid restoring v{n}" and the two fold into one quiet moment (F3).
 - The restore is guarded (`expectVersion`, §4.5): if something wrote a version since History loaded, the question
   becomes "It changed while you were looking. Here's the latest." / *Közben megváltozott. Itt a legfrissebb.*, the
   rail refreshes, and the reader asks again.
@@ -487,6 +499,8 @@ Módosult: „Szombat” és még 2 bekezdés · 2. változat (fine print)
   változat megmaradt az előzményekben.*
 - **Motion:** the question grows in place (#19); the new top row rises (#20); the restored preview cross-fades
   (#14); the toast is #33; reduced motion: instant.
+- **Hungarian:** the question runs about 30 % longer and wraps inside its tinted box; the buttons keep their width
+  (*Mégse*, *Visszaállítás*).
 
 ### 5.6 Naming a version
 
@@ -500,6 +514,8 @@ Módosult: „Szombat” és még 2 bekezdés · 2. változat (fine print)
   restore moment says "You restored “Before the client call”".
 - **Accessibility:** the field is labelled "Name this version" / *Változat elnevezése*; saving announces "Named
   “Before the client call”" / *Elnevezve: „Az ügyfélhívás előtt”*.
+- **Hungarian and motion:** *Elnevezés* / *Átnevezés* are one word each; the field grows in place (#19); reduced
+  motion: instant.
 
 ### 5.7 The review bar, the pill and History
 
@@ -620,7 +636,10 @@ the build removes their last reader).
 | review | Review | Átnézés |
 | fromChat | From the chat | A beszélgetésből |
 | phrase.youEdited / alfyChanged / alfyWrote / alfyBuilt / youRestored | Edited by you / Changed by Alfy / Written by Alfy / Built by Alfy / Restored by you | Szerkesztetted / Alfy módosította / Alfy írta / Alfy készítette / Visszaállítottad |
+| phrase.alfyRebuilt / youUndid / youBroughtBack | Rebuilt by Alfy / Alfy's change undone / Brought back by you | Alfy újraépítette / Visszavontad Alfy módosítását / Visszahoztad |
+| app.rebuild / app.rebuildNote / app.rebuiltToast | Rebuild / Alfy rebuilds it from your words and checks its facts. The previous version stays in History. / Alfy rebuilt it | Újraépítés / Alfy újraépíti a kérésed szerint és ellenőrzi a tényeit. Az előző változat megmarad az előzményekben. / Alfy újraépítette |
 | moment.* | the headlines in §3.2 | §3.2 |
+| moment.undidRestore | You undid the restore | Visszavontad a visszaállítást |
 | detail.changed | Changed “{label}” | Módosult: „{label}” |
 | detail.changedMore | Changed “{label}” and {n} more | Módosult: „{label}” és még {n} |
 | detail.added / removed | New: “{label}” / Removed: {n} paragraph(s) | Új: „{label}” / Törölve: {n} bekezdés |
@@ -636,7 +655,7 @@ the build removes their last reader).
 | noChanges | Nothing changed in this version | Ebben a változatban nem változott semmi |
 | tooLarge | Too large to compare; you can still restore it | Túl nagy az összehasonlításhoz; visszaállítani még tudod |
 | restore | Restore | Visszaállítás |
-| restoreQ | Bring back {when}? What you have now stays in History. | Visszaállítod a(z) {when} változatot? A mostani megmarad az előzményekben. |
+| restoreQ | Bring back {when}? What you have now stays in History. | Visszaállítod ezt a változatot ({when})? A mostani megmarad az előzményekben. |
 | restoreTabs | Tabs keep their current names. | A lapok neve a mostani marad. |
 | restoreElsewhere | It changes in “{chat}” too, where it was made. | A(z) „{chat}” beszélgetésben is megváltozik, ahol készült. |
 | restoreWaiting | Alfy's change waiting for you goes with it. | Alfy rád váró módosítása is eltűnik vele. |
