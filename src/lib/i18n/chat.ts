@@ -815,6 +815,11 @@ const chatDict = {
 		"messageBubble.extendedReasoningDepth": "Extended reasoning depth",
 		"messageBubble.followUpAriaLabel": "Send: {question}",
 		"messageBubble.forkFromHere": "Fork from here",
+		// The chip that stands where a reply's picture was not loaded (a web address no
+		// tool returned): its title and its accessible name. {name} is the picture's
+		// own words, or its host when it had none.
+		"messageBubble.imageNotLoaded":
+			"Image not loaded: {name}. Open the link to see it.",
 		"messageBubble.info": "Info",
 		"messageBubble.maxReasoningDepth": "Max reasoning depth",
 		"messageBubble.messageInfo": "Message info",
@@ -1932,6 +1937,8 @@ const chatDict = {
 			"Kiterjesztett gondolkodási mélység",
 		"messageBubble.followUpAriaLabel": "Küldés: {question}",
 		"messageBubble.forkFromHere": "Elágazás innen",
+		"messageBubble.imageNotLoaded":
+			"A kép nem töltődött be: {name}. A megtekintéséhez nyisd meg a hivatkozást.",
 		"messageBubble.info": "Infó",
 		"messageBubble.maxReasoningDepth": "Max gondolkodási mélység",
 		"messageBubble.messageInfo": "Üzenetinformáció",

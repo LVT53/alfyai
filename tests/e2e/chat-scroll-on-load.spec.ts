@@ -40,7 +40,11 @@ const VIEWPORTS = [
 	{ name: "phone 390x844", ...PHONE },
 ] as const;
 
-const LATE_IMAGE_PATH = "/e2e-scroll-late-image.svg";
+// A reply shows a picture only from an address the app itself serves or a tool
+// returned (docs/plans/exfil-channels): the app's own thumbnail of a connected photo
+// is the one the spec can name without a tool call. The route is answered below.
+const LATE_IMAGE_PATH =
+	"/api/connections/immich/thumbnail/e2e-scroll-late-image";
 const LATE_IMAGE_SVG =
 	'<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900"><rect width="1200" height="900" fill="#b8945f"/></svg>';
 

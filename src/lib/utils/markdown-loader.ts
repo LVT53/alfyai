@@ -1,3 +1,5 @@
+import { get } from "svelte/store";
+import { t } from "$lib/i18n";
 import type {
 	RenderMarkdownOptions,
 	SourceReferenceCandidate,
@@ -44,13 +46,23 @@ export async function renderHighlightedText(
 	return fn(content, language, isDark);
 }
 
+/**
+ * Renders model markdown to sanitized HTML. The sentence on the chip that stands where
+ * a picture was not loaded is asked of the dictionary here, in the language the reader
+ * has now, so every surface that renders a reply (the chat, a preview, a document's
+ * history) says it in their language without each passing it.
+ */
 export async function renderMarkdown(
 	content: string,
 	isDark: boolean,
 	options?: RenderMarkdownOptions,
 ): Promise<string> {
 	const { renderMarkdown: fn } = await getMarkdownModule();
-	return fn(content, isDark, options);
+	return fn(content, isDark, {
+		imageNotLoadedLabel: (name) =>
+			get(t)("messageBubble.imageNotLoaded", { name }),
+		...options,
+	});
 }
 
 export async function collectSourceReferenceCandidates(

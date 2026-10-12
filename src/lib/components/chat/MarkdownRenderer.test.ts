@@ -1,6 +1,18 @@
 import { render, waitFor } from "@testing-library/svelte";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { imageThumbnailRouteUrl } from "$lib/shared/url-provenance";
+import { uiLanguage } from "$lib/stores/settings";
 import MarkdownRenderer from "./MarkdownRenderer.svelte";
+
+// image_search's own result: a picture's address and Brave's resized copy of it. A
+// reply may show a picture from the web only when a tool of its own message returned it.
+const PHOTO = "https://example.com/photo.png";
+const PHOTO_THUMB =
+	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9waG90by5wbmc";
+const PHOTO_RESULTS = {
+	toolImages: [{ url: PHOTO, thumbnail: PHOTO_THUMB }],
+	toolSourceHosts: new Set<string>(),
+};
 
 // End-to-end tests that drive the REAL block pipeline: parseMarkdownBlocks +
 // renderMarkdown + Checklist dispatch are all unmocked here (unlike the
@@ -236,7 +248,10 @@ describe("MarkdownRenderer — streaming word animation (C3)", () => {
 describe("MarkdownRenderer — image loading skeleton (C4)", () => {
 	it("renders a skeleton frame before load and reveals the image on load", async () => {
 		const { container } = render(MarkdownRenderer, {
-			props: { content: "![a photo](https://example.com/photo.png)" },
+			props: {
+				content: `![a photo](${PHOTO})`,
+				toolResults: PHOTO_RESULTS,
+			},
 		});
 
 		let img: HTMLImageElement | null = null;
@@ -250,7 +265,11 @@ describe("MarkdownRenderer — image loading skeleton (C4)", () => {
 				);
 				img = container.querySelector<HTMLImageElement>(".markdown-image");
 				expect(img).toBeTruthy();
-				expect(img?.getAttribute("src")).toBe("https://example.com/photo.png");
+				// Shown from the app's own thumbnail route, never from the address the
+				// reply wrote.
+				expect(img?.getAttribute("src")).toBe(
+					imageThumbnailRouteUrl(PHOTO_THUMB),
+				);
 			},
 			{ timeout: 15000 },
 		);
@@ -270,7 +289,10 @@ describe("MarkdownRenderer — image loading skeleton (C4)", () => {
 
 	it("marks a broken image and collapses its skeleton frame on error", async () => {
 		const { container } = render(MarkdownRenderer, {
-			props: { content: "![broken](https://example.com/gone.png)" },
+			props: {
+				content: `![broken](${PHOTO})`,
+				toolResults: PHOTO_RESULTS,
+			},
 		});
 
 		let img: HTMLImageElement | null = null;
@@ -329,5 +351,158 @@ describe("MarkdownRenderer — accordion (details) rendering", () => {
 		el.open = true;
 		expect(el.open).toBe(true);
 		expect(el.textContent).toContain("body copy");
+	}, 20000);
+});
+
+describe("MarkdownRenderer: what a reply may make the browser fetch on its own", () => {
+	afterEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("shows a picture from the web as a link chip, with no image at all, when no tool returned it", async () => {
+		const { container } = render(MarkdownRenderer, {
+			props: {
+				content:
+					"Here it is: ![a photo](https://stranger.example/p.png?d=SECRET)",
+				compactExternalLinks: true,
+			},
+		});
+
+		await waitFor(
+			() => {
+				const chip = container.querySelector<HTMLAnchorElement>(
+					"a.source-link-chip--image",
+				);
+				expect(chip).toBeTruthy();
+				expect(chip?.href).toBe("https://stranger.example/p.png?d=SECRET");
+				expect(
+					chip?.querySelector(".source-link-chip__label")?.textContent,
+				).toBe("a photo");
+				expect(chip?.getAttribute("title")).toBe(
+					"Image not loaded: a photo. Open the link to see it.",
+				);
+			},
+			{ timeout: 15000 },
+		);
+		expect(container.querySelector("img")).toBeNull();
+	}, 20000);
+
+	it("says the chip's sentence in the reader's language, and again when the language changes", async () => {
+		uiLanguage.set("hu");
+		const { container } = render(MarkdownRenderer, {
+			props: { content: "![a photo](https://stranger.example/p.png)" },
+		});
+		const title = () =>
+			container
+				.querySelector("a.source-link-chip--image")
+				?.getAttribute("title");
+
+		await waitFor(
+			() =>
+				expect(title()).toBe(
+					"A kép nem töltődött be: a photo. A megtekintéséhez nyisd meg a hivatkozást.",
+				),
+			{ timeout: 15000 },
+		);
+
+		uiLanguage.set("en");
+		await waitFor(
+			() =>
+				expect(title()).toBe(
+					"Image not loaded: a photo. Open the link to see it.",
+				),
+			{ timeout: 15000 },
+		);
+	}, 20000);
+
+	it("gives a source chip the globe at once unless a tool returned its host", async () => {
+		const { container } = render(MarkdownRenderer, {
+			props: {
+				content:
+					"See [Known](https://known.example/a) and [Stranger](https://stranger.example/b).",
+				compactExternalLinks: true,
+				toolResults: {
+					toolImages: [],
+					toolSourceHosts: new Set(["known.example"]),
+				},
+			},
+		});
+
+		await waitFor(
+			() => {
+				const chips = container.querySelectorAll("a.source-link-chip");
+				expect(chips).toHaveLength(2);
+				expect(
+					chips[0].querySelector("img.source-link-chip__favicon"),
+				).toBeTruthy();
+				expect(chips[1].querySelector("img")).toBeNull();
+				expect(
+					chips[1]
+						.querySelector(".source-link-chip__favicon-fallback")
+						?.hasAttribute("hidden"),
+				).toBe(false);
+			},
+			{ timeout: 15000 },
+		);
+	}, 20000);
+
+	it("draws every block again, not only the last, when a tool result arrives while the reply streams", async () => {
+		// The first block holds the picture; the last is what is still being written.
+		const content = `![a photo](${PHOTO})\n\n\`\`\`js\nconst a = 1;\n\`\`\`\n\nThe tail`;
+		const { container, rerender } = render(MarkdownRenderer, {
+			props: { content, isStreaming: true },
+		});
+
+		await waitFor(
+			() => {
+				expect(
+					container.querySelector("a.source-link-chip--image"),
+				).toBeTruthy();
+				expect(container.querySelector(".code-block")).toBeTruthy();
+				expect(container.textContent).toContain("The tail");
+			},
+			{ timeout: 15000 },
+		);
+		expect(container.querySelector("img")).toBeNull();
+
+		await rerender({ content, isStreaming: true, toolResults: PHOTO_RESULTS });
+
+		await waitFor(
+			() => {
+				expect(
+					container.querySelector("img.markdown-image")?.getAttribute("src"),
+				).toBe(imageThumbnailRouteUrl(PHOTO_THUMB));
+				expect(container.querySelector("a.source-link-chip--image")).toBeNull();
+			},
+			{ timeout: 15000 },
+		);
+	}, 30000);
+
+	it("still opens the lightbox on a picture shown through the thumbnail route", async () => {
+		const { container } = render(MarkdownRenderer, {
+			props: { content: `![a photo](${PHOTO})`, toolResults: PHOTO_RESULTS },
+		});
+
+		let image: HTMLImageElement | null = null;
+		await waitFor(
+			() => {
+				image = container.querySelector<HTMLImageElement>("img.markdown-image");
+				expect(image).toBeTruthy();
+			},
+			{ timeout: 15000 },
+		);
+		(image as unknown as HTMLImageElement).click();
+
+		await waitFor(
+			() => {
+				const shown = document.querySelector<HTMLImageElement>(
+					'[data-testid="image-lightbox"] img',
+				);
+				expect(shown?.getAttribute("src")).toContain(
+					"/api/image-search/thumbnail?url=",
+				);
+			},
+			{ timeout: 5000 },
+		);
 	}, 20000);
 });

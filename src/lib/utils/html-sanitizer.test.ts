@@ -403,6 +403,245 @@ describe("sanitizeHtml SVG: no value is built to make the gate slow (FX-E)", () 
 	});
 });
 
+describe("sanitizeHtml: nothing the browser fetches on its own survives", () => {
+	// An address in `src`, `srcset`, `poster` or `background` is requested the moment the
+	// markup is parsed, with no click, and a model can write one with private data in its
+	// path, query or host (a prompt injection in a page it read). So by default none
+	// survives, whichever tag carries it; a caller that has a reason names the exact
+	// address and tag it allows.
+	const FETCHERS: Array<[string, string]> = [
+		["an image", '<img src="https://x.test/a.png" alt="a">'],
+		[
+			"an image with a srcset",
+			'<img srcset="https://x.test/a.png 1x, https://x.test/b.png 2x">',
+		],
+		[
+			"a picture",
+			'<picture><source srcset="https://x.test/p.png" media="(min-width:1px)"><img src="https://x.test/p2.png"></picture>',
+		],
+		[
+			"a video poster",
+			'<video poster="https://x.test/p.png" controls></video>',
+		],
+		["a video", '<video src="https://x.test/v.mp4" controls></video>'],
+		["audio", '<audio src="https://x.test/a.mp3" controls></audio>'],
+		[
+			"a source and a track",
+			'<video controls><source src="https://x.test/v.mp4" type="video/mp4"><track src="https://x.test/t.vtt" kind="captions"></video>',
+		],
+		[
+			"a table's background",
+			'<table background="https://x.test/t.png"><tr><td background="https://x.test/c.png">c</td><th background="https://x.test/h.png">h</th></tr></table>',
+		],
+		["an image button", '<input type="image" src="https://x.test/i.png">'],
+		[
+			"an <image> tag, which HTML reads as <img>",
+			'<image src="https://x.test/i.png">',
+		],
+		[
+			"an address in a template",
+			'<template><img src="https://x.test/t.png"></template>',
+		],
+	];
+
+	it.each(FETCHERS)("removes %s", (_name, html) => {
+		for (const options of [{}, { allowStyleAttributes: true }, { svg: true }]) {
+			const out = sanitizeHtml(html, options);
+			expect(out, JSON.stringify(options)).not.toContain("x.test");
+			expect(out).not.toMatch(/<(?:img|source|track)\b/i);
+			expect(out).not.toMatch(/\b(?:src|srcset|poster|background)=/i);
+		}
+	});
+
+	it("removes an image whose address is not allowed whole, with its alt text", () => {
+		expect(
+			sanitizeHtml(
+				'<p>before <img src="https://x.test/a.png" alt="the alt" title="t"> after</p>',
+			),
+		).toBe("<p>before  after</p>");
+	});
+
+	it("removes an address however it is written, relative or absolute", () => {
+		for (const src of [
+			"/api/favicon?domain=x.test",
+			"//x.test/a.png",
+			"a.png",
+			"./a.png",
+			"http://x.test/a.png",
+			" https://x.test/a.png",
+			"HTTPS://X.TEST/A.PNG",
+			"https:&#47;&#47;x.test/a.png",
+			"\u0001https://x.test/a.png",
+			"blob:https://x.test/0000",
+			"ftp://x.test/a.png",
+		]) {
+			const out = sanitizeHtml(`<img src="${src}">`);
+			expect(out, src).toBe("");
+		}
+	});
+
+	it("keeps a raster picture that holds its own bytes, and nothing else that is data", () => {
+		for (const src of [
+			"data:image/png;base64,iVBORw0KGgo=",
+			"data:image/jpeg;base64,/9j/4AAQ",
+			"data:image/jpg;base64,/9j/4AAQ",
+			"data:image/gif;base64,R0lGODlh",
+			"data:image/webp;base64,UklGRg==",
+			"data:image/avif;base64,AAAA",
+			"data:IMAGE/PNG;base64,iVBORw0KGgo=",
+		]) {
+			expect(sanitizeHtml(`<img src="${src}" alt="a">`), src).toContain(
+				`src="${src}"`,
+			);
+		}
+		for (const src of [
+			"data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+			"data:image/svg+xml,%3Csvg%3E%3C/svg%3E",
+			"data:text/html;base64,PGI+eDwvYj4=",
+			"data:application/octet-stream;base64,AAAA",
+			"data:image/png",
+			"data:,x",
+		]) {
+			expect(sanitizeHtml(`<img src="${src}">`), src).toBe("");
+		}
+		// It is the picture's own bytes on an <img>, nowhere else.
+		const out = sanitizeHtml(
+			'<video src="data:image/png;base64,AAAA" poster="data:image/png;base64,AAAA"></video><img srcset="data:image/png;base64,AAAA 1x"><table background="data:image/png;base64,AAAA"><tr><td>x</td></tr></table>',
+		);
+		expect(out).not.toMatch(/data:|<img|poster|src|background/i);
+	});
+
+	it("leaves links alone: a click is the reader's choice", () => {
+		expect(
+			sanitizeHtml(
+				'<p><a href="https://x.test/a" target="_blank">link</a></p>',
+			),
+		).toBe('<p><a href="https://x.test/a" target="_blank">link</a></p>');
+	});
+
+	it("still drops what DOMPurify always dropped: frames, objects, links, meta", () => {
+		const out = sanitizeHtml(
+			'<iframe src="https://x.test/f"></iframe><object data="https://x.test/o"></object><embed src="https://x.test/e"><link rel="stylesheet" href="https://x.test/s.css"><meta http-equiv="refresh" content="0;url=https://x.test/">ok',
+		);
+		expect(out).toBe("ok");
+	});
+
+	it("closes the HTML-namespace image that slips out of a diagram too", () => {
+		// `<img>` ends a foreign-content run, so it lands beside the SVG, in the page.
+		const out = sanitizeHtml(
+			'<svg xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4"/><img src="https://x.test/p.png"></svg><img srcset="https://x.test/q.png 1x" src="https://x.test/r.png">',
+			{ svg: true, allowStyleTags: true, allowStyleAttributes: true },
+		);
+		expect(out).toContain("<rect");
+		expect(out).not.toContain("x.test");
+		expect(out).not.toMatch(/<img/i);
+	});
+
+	describe("a caller that names the address it allows", () => {
+		const asked: Array<{ tag: string; attribute: string; address: string }> =
+			[];
+		const allowOnly =
+			(tag: string, attribute: string, address: string) =>
+			(request: { tag: string; attribute: string; address: string }) => {
+				asked.push(request);
+				return (
+					request.tag === tag &&
+					request.attribute === attribute &&
+					request.address === address
+				);
+			};
+
+		it("keeps exactly that address on exactly that tag and attribute", () => {
+			const allowResource = allowOnly("img", "src", "/api/thing?id=1");
+			const out = sanitizeHtml(
+				'<img src="/api/thing?id=1" alt="a"><img src="/api/thing?id=2"><img src="/api/thing?id=1&x=1"><video poster="/api/thing?id=1"></video><table background="/api/thing?id=1"><tr><td>x</td></tr></table>',
+				{ allowResource },
+			);
+			expect(out).toBe(
+				'<img src="/api/thing?id=1" alt="a"><video></video><table><tbody><tr><td>x</td></tr></tbody></table>',
+			);
+		});
+
+		it("is told the tag, the attribute and the address as the markup wrote them", () => {
+			asked.length = 0;
+			sanitizeHtml('<IMG SRC="/a.png"><video POSTER="/p.png"></video>', {
+				allowResource: allowOnly("img", "src", "/a.png"),
+			});
+			expect(asked).toEqual([
+				{ tag: "img", attribute: "src", address: "/a.png" },
+				{ tag: "video", attribute: "poster", address: "/p.png" },
+			]);
+		});
+
+		it("asks about every address of a srcset, the way a browser reads the list, and keeps it only when all are allowed", () => {
+			const askedOf = (html: string, allow: (address: string) => boolean) => {
+				const addresses: string[] = [];
+				const out = sanitizeHtml(html, {
+					allowResource: (request) => {
+						if (request.attribute === "srcset") addresses.push(request.address);
+						return allow(request.address);
+					},
+				});
+				return { out, addresses };
+			};
+			const ok = (address: string) => address.startsWith("/ok/");
+
+			const kept = askedOf(
+				'<img src="/ok/a.png" srcset="/ok/a.png 1x, /ok/b.png 2x">',
+				ok,
+			);
+			expect(kept.out).toContain('srcset="/ok/a.png 1x, /ok/b.png 2x"');
+			expect(kept.addresses).toEqual(["/ok/a.png", "/ok/b.png"]);
+
+			// A comma inside an address does not end it; a comma after one does.
+			expect(
+				askedOf(
+					'<img src="/ok/a.png" srcset="/ok/a.png,/ok/b.png 1x,/ok/c.png, /ok/d.png">',
+					ok,
+				).addresses,
+			).toEqual(["/ok/a.png,/ok/b.png", "/ok/c.png", "/ok/d.png"]);
+			// A descriptor with a bracket in it does not end at the comma inside the bracket.
+			expect(
+				askedOf(
+					'<img src="/ok/a.png" srcset="/ok/a.png 1x(2,3), /ok/b.png">',
+					ok,
+				).addresses,
+			).toEqual(["/ok/a.png", "/ok/b.png"]);
+
+			// One address that is not allowed takes the whole list.
+			expect(
+				askedOf(
+					'<img src="/ok/a.png" srcset="/ok/a.png 1x, https://x.test/b.png 2x">',
+					ok,
+				).out,
+			).toBe('<img src="/ok/a.png">');
+			// A list with no address in it asks about nothing and does not stay.
+			expect(askedOf('<img src="/ok/a.png" srcset=" , ,">', ok)).toEqual({
+				out: '<img src="/ok/a.png">',
+				addresses: [],
+			});
+		});
+
+		it("keeps a picture that has no allowed address out, even beside one that has", () => {
+			const out = sanitizeHtml(
+				'<picture><source srcset="/ok/p.png"><source srcset="https://x.test/p.png"><img src="/ok/i.png"></picture>',
+				{ allowResource: (request) => request.address.startsWith("/ok/") },
+			);
+			expect(out).toBe(
+				'<picture><source srcset="/ok/p.png"><img src="/ok/i.png"></picture>',
+			);
+		});
+
+		it("does not let a permissive caller pass a script address: DOMPurify still judges the value", () => {
+			const out = sanitizeHtml(
+				'<img src="javascript:alert(1)"><img src="vbscript:x"><img src="  JaVaScRiPt:alert(2)">',
+				{ allowResource: () => true },
+			);
+			expect(out).not.toMatch(/javascript|vbscript/i);
+		});
+	});
+});
+
 describe("sanitizeHtml inert markup (what a model writes stays in-flow content)", () => {
 	// A reply can have come from a page the model read, so its markup must not be able
 	// to ask a reader for a password (a form), to cover the page (a fixed overlay, in a

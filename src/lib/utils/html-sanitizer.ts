@@ -195,6 +195,120 @@ function inertAttribute(
 	return value;
 }
 
+/**
+ * What the browser requests the moment it parses these attributes, with no click:
+ * a picture, a poster, a table's background, a list of candidates. The model can
+ * write an address with private data in its path, query or host (a prompt
+ * injection in a page it read), and any of these would hand it to whoever owns the
+ * address. So none survives unless the caller names the exact address and tag it
+ * allows (`allowResource`); a raster picture that holds its own bytes needs no
+ * request and is the one thing kept without being asked. Links are not here: a
+ * click is the reader's choice.
+ */
+const FETCHING_ATTRIBUTES = new Set(["src", "srcset", "poster", "background"]);
+
+/** What a caller is asked about: one address in an attribute that makes the browser fetch it. */
+export type ResourceRequest = {
+	/** The element, lowercase. */
+	tag: string;
+	/** The attribute, lowercase. For `srcset` one request is made for each address in the list. */
+	attribute: "src" | "srcset" | "poster" | "background";
+	/** The address exactly as the markup wrote it. */
+	address: string;
+};
+
+function isFetchingAttribute(
+	name: string,
+): name is ResourceRequest["attribute"] {
+	return FETCHING_ATTRIBUTES.has(name);
+}
+
+const RASTER_DATA_URI = /^data:image\/(?:png|jpe?g|gif|webp|avif)[;,]/i;
+
+/**
+ * Whether this is a picture that holds its own bytes in a raster format. Not SVG: a
+ * picture that can draw, link and style is not what a reply needs to carry inline.
+ */
+export function isRasterImageDataUri(value: unknown): value is string {
+	return typeof value === "string" && RASTER_DATA_URI.test(value);
+}
+
+function isAsciiSpace(character: string): boolean {
+	return (
+		character === " " ||
+		character === "\t" ||
+		character === "\n" ||
+		character === "\f" ||
+		character === "\r"
+	);
+}
+
+/**
+ * The addresses of a `srcset`, the way a browser reads it (HTML's "parse a srcset
+ * attribute"): an address is a run of anything but white space, so a comma inside
+ * one stays in it; commas after it end it, and when none does, the descriptors that
+ * follow run to the next comma outside brackets. A reader that found fewer addresses
+ * than the browser requests would let one through.
+ */
+function srcsetAddresses(value: string): string[] {
+	const addresses: string[] = [];
+	let at = 0;
+	while (at < value.length) {
+		while (
+			at < value.length &&
+			(isAsciiSpace(value[at]) || value[at] === ",")
+		) {
+			at += 1;
+		}
+		if (at >= value.length) break;
+		const start = at;
+		while (at < value.length && !isAsciiSpace(value[at])) at += 1;
+		let address = value.slice(start, at);
+		if (address.endsWith(",")) {
+			address = address.replace(/,+$/, "");
+		} else {
+			let inBrackets = false;
+			while (at < value.length) {
+				const character = value[at];
+				at += 1;
+				if (character === "(") inBrackets = true;
+				else if (character === ")") inBrackets = false;
+				else if (character === "," && !inBrackets) break;
+			}
+		}
+		if (address) addresses.push(address);
+	}
+	return addresses;
+}
+
+/** Whether the attribute may stay: a raster picture's own bytes on an <img>, or every address in it allowed by the caller. */
+function resourceAllowed(
+	allow: SanitizeHtmlOptions["allowResource"],
+	tag: string,
+	attribute: ResourceRequest["attribute"],
+	value: string,
+): boolean {
+	if (tag === "img" && attribute === "src" && isRasterImageDataUri(value)) {
+		return true;
+	}
+	if (!allow) return false;
+	const addresses = attribute === "srcset" ? srcsetAddresses(value) : [value];
+	return (
+		addresses.length > 0 &&
+		addresses.every((address) => allow({ tag, attribute, address }))
+	);
+}
+
+/** An element that is nothing without the address the gate took from it. */
+function isEmptyFetcher(element: Element): boolean {
+	const tag = element.nodeName.toLowerCase();
+	if (tag === "img") return !element.hasAttribute("src");
+	if (tag === "source" || tag === "track") {
+		return !element.hasAttribute("src") && !element.hasAttribute("srcset");
+	}
+	return false;
+}
+
 type InertMarkup = {
 	/** Whether a class name is one the caller's own markup writes. Every other class is dropped. */
 	allowClass: (name: string) => boolean;
@@ -225,6 +339,12 @@ type SanitizeHtmlOptions = {
 	// does not write (the app's global utility classes, `fixed inset-0 z-50`, are
 	// then not there to borrow). `renderMarkdown` always asks for this.
 	inert?: InertMarkup;
+	// The addresses a caller allows the browser to fetch on its own, one request per
+	// address (see `FETCHING_ATTRIBUTES`). With none, nothing is: the image is removed
+	// whole, and so is a <source> or <track> left with no address. The caller answers
+	// for the exact address and the tag it is on; a script address is still refused by
+	// DOMPurify after it says yes.
+	allowResource?: (request: ResourceRequest) => boolean;
 };
 
 export function sanitizeHtml(
@@ -237,16 +357,17 @@ export function sanitizeHtml(
 	// DOMPurify hooks that scrub external references out of <style> element CSS
 	// and inline `style` attribute values; on the SVG path they also reach every
 	// other attribute (`fill`, `filter`, `cursor`, … take a url() as well) and drop
-	// an `href` that points outside the picture. Hooks are global on the instance, so
-	// they are added just for this call and removed in `finally` — sanitize is
-	// synchronous (single-threaded), so no other sanitize call can interleave.
-	// We prefer hooks over a raw-string regex because DOMPurify parses the HTML
-	// for us; our regex only ever runs on already-isolated CSS text.
+	// an `href` that points outside the picture. The same hooks are where nothing
+	// that makes the browser fetch survives unless the caller allows it
+	// (`FETCHING_ATTRIBUTES`), which holds for every caller. Hooks are global on the
+	// instance, so they are added just for this call and removed in `finally` —
+	// sanitize is synchronous (single-threaded), so no other sanitize call can
+	// interleave. We prefer hooks over a raw-string regex because DOMPurify parses the
+	// HTML for us; our regex only ever runs on already-isolated CSS text.
 	const scrubStyleCss = Boolean(
 		options.allowStyleTags || options.allowStyleAttributes || options.svg,
 	);
 	const inert = options.inert;
-	if (!scrubStyleCss && !inert) return runSanitizer(html, options);
 
 	const onElement = (node: Node, data: { tagName: string }) => {
 		if (data.tagName === "input" && inert && !isTaskCheckbox(node)) {
@@ -263,13 +384,21 @@ export function sanitizeHtml(
 		node: Element,
 		data: { attrName: string; attrValue: string; keepAttr: boolean },
 	) => {
-		if (inert) {
-			const kept = inertAttribute(
-				node.nodeName.toLowerCase(),
+		const tag = node.nodeName.toLowerCase();
+		if (
+			isFetchingAttribute(data.attrName) &&
+			!resourceAllowed(
+				options.allowResource,
+				tag,
 				data.attrName,
 				data.attrValue,
-				inert,
-			);
+			)
+		) {
+			data.keepAttr = false;
+			return;
+		}
+		if (inert) {
+			const kept = inertAttribute(tag, data.attrName, data.attrValue, inert);
 			if (kept === null) {
 				data.keepAttr = false;
 				return;
@@ -289,14 +418,22 @@ export function sanitizeHtml(
 			data.attrValue = scrubCssExternalReferences(data.attrValue);
 		}
 	};
+	// After an element's attributes are judged, one left with no address is removed
+	// whole: DOMPurify does not remove it, and an <img> with no src is a broken-image
+	// box the reader would see in place of the picture.
+	const afterAttributes = (node: Element) => {
+		if (isEmptyFetcher(node)) node.parentNode?.removeChild(node);
+	};
 	DOMPurify.addHook("uponSanitizeElement", onElement);
 	DOMPurify.addHook("uponSanitizeAttribute", onAttribute);
+	DOMPurify.addHook("afterSanitizeAttributes", afterAttributes);
 
 	try {
 		return runSanitizer(html, options);
 	} finally {
 		DOMPurify.removeHook("uponSanitizeElement", onElement);
 		DOMPurify.removeHook("uponSanitizeAttribute", onAttribute);
+		DOMPurify.removeHook("afterSanitizeAttributes", afterAttributes);
 	}
 }
 

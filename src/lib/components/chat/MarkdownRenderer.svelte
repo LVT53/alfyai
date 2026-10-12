@@ -14,7 +14,11 @@ import {
 	hasExtremeUnbreakableContent,
 	resolveTableOverflowMode,
 } from "$lib/services/table-layout";
-import type { SourceReferenceCandidate } from "$lib/services/markdown";
+import type {
+	RenderMarkdownOptions,
+	SourceReferenceCandidate,
+} from "$lib/services/markdown";
+import { t } from "$lib/i18n";
 import {
 	SOURCE_TOOLTIP_MARGIN,
 	SOURCE_TOOLTIP_OFFSET,
@@ -26,16 +30,27 @@ import {
 import { shouldAnimateWords, wrapNewWords } from "./stream-word-wrap";
 import { onMount, tick } from "svelte";
 
+// What a reply may show of the web without a click: the pictures and the sites its
+// own tool calls returned (docs/plans/exfil-channels). Without it no picture from the
+// web is loaded and every source chip shows the globe. The caller keeps the object's
+// identity for as long as its content holds, so a streamed token does not redraw.
+type ToolResults = Pick<
+	RenderMarkdownOptions,
+	"toolImages" | "toolSourceHosts"
+>;
+
 let {
 	content = "",
 	isDark = false,
 	isStreaming = false,
 	compactExternalLinks = false,
+	toolResults = undefined,
 }: {
 	content?: string;
 	isDark?: boolean;
 	isStreaming?: boolean;
 	compactExternalLinks?: boolean;
+	toolResults?: ToolResults;
 } = $props();
 
 // Display blocks are the render-ready output of the A3 block model: the typed
@@ -72,13 +87,27 @@ let sourceTooltipFrame = 0;
 let postRenderVersion = 0;
 let activeSourceLink: HTMLAnchorElement | null = null;
 
+// Everything one render depends on. The throttled render below reads the
+// latest request when its timer fires, so a change that lands inside the
+// window (a tool result, the theme) is not drawn from the arguments of the
+// call that started the timer.
+type RenderRequest = {
+	src: string;
+	darkMode: boolean;
+	streaming: boolean;
+	compactLinks: boolean;
+	toolResults: ToolResults | undefined;
+};
+
 // Throttle rendering during streaming so each visual update is large
 // enough that new blocks are perceivable with the fade-in animation.
 // The Token Display Buffer in the runtime already aligns store updates
 // to animation frames; this throttle controls render frequency to avoid
 // excessive markdown re-parses.
-let pendingContent: string | null = null;
+let pendingRender: RenderRequest | null = null;
 let renderTimer: ReturnType<typeof setTimeout> | null = null;
+// The tool results the blocks on screen were last drawn with.
+let renderedToolResults: ToolResults | undefined;
 const STREAM_THROTTLE_MS = 40;
 
 async function collectFullMessageSourceReferences(
@@ -94,20 +123,15 @@ async function collectFullMessageSourceReferences(
 	}
 }
 
-function scheduleRender(
-	src: string,
-	darkMode: boolean,
-	streaming: boolean,
-	compactLinks: boolean,
-) {
-	pendingContent = src;
+function scheduleRender(request: RenderRequest) {
+	pendingRender = request;
 	if (renderTimer !== null) return;
 	renderTimer = setTimeout(() => {
 		renderTimer = null;
-		const latest = pendingContent;
-		pendingContent = null;
+		const latest = pendingRender;
+		pendingRender = null;
 		if (latest === null) return;
-		void renderContent(latest, darkMode, streaming, compactLinks);
+		void renderContent(latest);
 	}, STREAM_THROTTLE_MS);
 }
 
@@ -118,6 +142,7 @@ async function buildDisplayBlocks(
 	source: string,
 	darkMode: boolean,
 	compactLinks: boolean,
+	toolResults: ToolResults | undefined,
 ): Promise<MarkdownBlock[]> {
 	const normalizedSource = source.startsWith("[Translation unavailable]")
 		? source.substring("[Translation unavailable]".length).trimStart()
@@ -166,6 +191,7 @@ async function buildDisplayBlocks(
 					html: await renderMarkdown(item.text, darkMode, {
 						compactExternalLinks: compactLinks,
 						sourceReferences,
+						...toolResults,
 					}),
 				})),
 			);
@@ -177,6 +203,7 @@ async function buildDisplayBlocks(
 		const html = await renderMarkdown(block.raw, darkMode, {
 			compactExternalLinks: compactLinks,
 			sourceReferences,
+			...toolResults,
 		});
 		if (html.trim()) {
 			nextBlocks.push({ kind: block.kind, html });
@@ -205,20 +232,30 @@ function sameDisplayBlock(a: MarkdownBlock, b: MarkdownBlock): boolean {
 	return "html" in a && "html" in b && a.html === b.html;
 }
 
-async function renderContent(
-	src: string,
-	darkMode: boolean,
-	streaming: boolean,
-	compactLinks: boolean,
-) {
+async function renderContent(request: RenderRequest) {
+	const { src, darkMode, streaming, compactLinks, toolResults } = request;
 	const currentRender = ++renderVersion;
 	if (src.includes("```")) {
 		await prepareCodeHighlighting(src);
 	}
-	const newBlocks = await buildDisplayBlocks(src, darkMode, compactLinks);
+	const newBlocks = await buildDisplayBlocks(
+		src,
+		darkMode,
+		compactLinks,
+		toolResults,
+	);
 	if (currentRender !== renderVersion) return;
 
-	if (streaming && blocks.length > 0 && newBlocks.length === blocks.length) {
+	// A block that came before the last one was drawn with the tool results of its
+	// time: when they have changed, every block is replaced, not only the last.
+	const sameToolResults = toolResults === renderedToolResults;
+	renderedToolResults = toolResults;
+	if (
+		streaming &&
+		sameToolResults &&
+		blocks.length > 0 &&
+		newBlocks.length === blocks.length
+	) {
 		// Same block count during streaming: update the last block in place to
 		// avoid tearing down and recreating the entire {#each} list, which
 		// causes screen flicker (and would reset a Checklist's local tick state).
@@ -252,13 +289,20 @@ async function renderContent(
 }
 
 $effect(() => {
-	const nextContent = content;
-	const darkMode = isDark;
-	const streaming = isStreaming;
-	const compactLinks = compactExternalLinks;
+	// The chips written here carry a sentence in the reader's language (the
+	// markdown loader asks the dictionary as it renders), so a change of language
+	// draws them again.
+	void $t;
+	const request: RenderRequest = {
+		src: content,
+		darkMode: isDark,
+		streaming: isStreaming,
+		compactLinks: compactExternalLinks,
+		toolResults,
+	};
 
-	if (streaming) {
-		scheduleRender(nextContent, darkMode, streaming, compactLinks);
+	if (request.streaming) {
+		scheduleRender(request);
 		return;
 	}
 
@@ -266,10 +310,10 @@ $effect(() => {
 	if (renderTimer !== null) {
 		clearTimeout(renderTimer);
 		renderTimer = null;
-		pendingContent = null;
+		pendingRender = null;
 	}
 
-	void renderContent(nextContent, darkMode, streaming, compactLinks);
+	void renderContent(request);
 });
 
 // The newly-streamed-word wrapping lives in ./stream-word-wrap (C3): a pure DOM
@@ -427,7 +471,11 @@ function handleContentImageLoad(event: Event) {
 function getSourceLink(target: EventTarget | null): HTMLAnchorElement | null {
 	if (!(target instanceof Element)) return null;
 
-	const link = target.closest("a.source-link-chip");
+	// A chip for a picture that was not loaded says so in its own title, and has
+	// the address in the browser's status line: no second tooltip over it.
+	const link = target.closest(
+		"a.source-link-chip:not(.source-link-chip--image)",
+	);
 	return link instanceof HTMLAnchorElement ? link : null;
 }
 
@@ -964,6 +1012,34 @@ $effect(() => {
     background: currentColor;
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3C/svg%3E") center / contain no-repeat;
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+
+  /* The chip that stands where a picture was not loaded (a web address no tool
+     returned): the same pill as a source chip, with room for the picture's words
+     and its host, an "image off" glyph in front and the external-link glyph
+     behind. Lucide's image-off, drawn as a mask like the other two glyphs. */
+  :global(.source-link-chip--image) {
+    max-width: min(34ch, 100%);
+  }
+
+  :global(.source-link-chip__image-icon) {
+    display: block;
+    width: 1em;
+    min-width: 1em;
+    height: 1em;
+    color: var(--text-muted);
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='2' x2='22' y1='2' y2='22'/%3E%3Cpath d='M10.41 10.41a2 2 0 1 1-2.83-2.83'/%3E%3Cline x1='13.5' x2='6' y1='13.5' y2='21'/%3E%3Cline x1='18' x2='21' y1='12' y2='15'/%3E%3Cpath d='M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59'/%3E%3Cpath d='M21 15V5a2 2 0 0 0-2-2H9'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='2' x2='22' y1='2' y2='22'/%3E%3Cpath d='M10.41 10.41a2 2 0 1 1-2.83-2.83'/%3E%3Cline x1='13.5' x2='6' y1='13.5' y2='21'/%3E%3Cline x1='18' x2='21' y1='12' y2='15'/%3E%3Cpath d='M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59'/%3E%3Cpath d='M21 15V5a2 2 0 0 0-2-2H9'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+
+  :global(.source-link-chip__host) {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-weight: 450;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .source-link-tooltip-floating {

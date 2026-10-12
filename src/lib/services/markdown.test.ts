@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import {
+	faviconRouteUrl,
+	imageThumbnailRouteUrl,
+} from "$lib/shared/url-provenance";
 
 vi.mock("shiki", () => ({
 	createHighlighter: vi.fn().mockResolvedValue({
@@ -18,6 +22,13 @@ vi.mock("dompurify", () => ({
 		sanitize: vi.fn().mockImplementation((html: string) => html),
 	}),
 }));
+
+// image_search's own results: the picture's address and Brave's resized copy of it.
+const CAT = "https://example.com/cat.jpg";
+const THUMB =
+	"https://imgs.search.brave.com/Zq3s9x/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQuanBn";
+const CAT_RESULT = { url: CAT, thumbnail: THUMB };
+const EXAMPLE_HOSTS = new Set(["example.com"]);
 
 describe("Markdown Rendering Service", () => {
 	it("renderMarkdown is exported as a function", async () => {
@@ -52,7 +63,7 @@ describe("Markdown Rendering Service", () => {
 		const html = await mod.renderMarkdown(
 			"See [Example Source](https://example.com/page) for details.",
 			false,
-			{ compactExternalLinks: true },
+			{ compactExternalLinks: true, toolSourceHosts: EXAMPLE_HOSTS },
 		);
 
 		expect(html).toContain('class="source-link-chip"');
@@ -75,10 +86,9 @@ describe("Markdown Rendering Service", () => {
 	describe("image loading skeleton (C4)", () => {
 		it("wraps an embedded image in a loading skeleton frame", async () => {
 			const mod = await import("./markdown");
-			const html = await mod.renderMarkdown(
-				"![a diagram](https://example.com/diagram.png)",
-				false,
-			);
+			const html = await mod.renderMarkdown(`![a diagram](${CAT})`, false, {
+				toolImages: [CAT_RESULT],
+			});
 
 			// The image is wrapped in a skeleton frame that starts in the loading
 			// state, so a slow image reserves space + shimmers instead of shifting.
@@ -86,7 +96,7 @@ describe("Markdown Rendering Service", () => {
 				'class="markdown-image-frame markdown-image-frame--loading"',
 			);
 			expect(html).toContain('class="markdown-image"');
-			expect(html).toContain('src="https://example.com/diagram.png"');
+			expect(html).toContain(`src="${imageThumbnailRouteUrl(THUMB)}"`);
 			expect(html).toContain('alt="a diagram"');
 			// Lazy/async decoding hints stay on the image.
 			expect(html).toContain('loading="lazy"');
@@ -96,29 +106,40 @@ describe("Markdown Rendering Service", () => {
 	describe("sourceFaviconUrl (C1 — favicon privacy)", () => {
 		it("routes through the same-origin /api/favicon proxy, never google.com", async () => {
 			const { sourceFaviconUrl } = await import("./markdown");
-			const url = sourceFaviconUrl("https://example.com/page");
+			const url = sourceFaviconUrl("https://example.com/page", EXAMPLE_HOSTS);
 			expect(url).toBe("/api/favicon?domain=example.com");
 			expect(url).not.toContain("google.com");
 		});
 
 		it("strips a leading www. from the host (mirrors getFaviconUrl)", async () => {
 			const { sourceFaviconUrl } = await import("./markdown");
-			expect(sourceFaviconUrl("https://www.nytimes.com/x")).toBe(
-				"/api/favicon?domain=nytimes.com",
-			);
+			expect(
+				sourceFaviconUrl("https://www.nytimes.com/x", new Set(["nytimes.com"])),
+			).toBe("/api/favicon?domain=nytimes.com");
 		});
 
 		it("encodes non-ASCII / punycode-eligible hosts safely", async () => {
 			const { sourceFaviconUrl } = await import("./markdown");
-			const url = sourceFaviconUrl("https://sub.example.co.uk/path?q=1");
+			const url = sourceFaviconUrl(
+				"https://sub.example.co.uk/path?q=1",
+				new Set(["sub.example.co.uk"]),
+			);
 			expect(url).toBe("/api/favicon?domain=sub.example.co.uk");
 		});
 
 		it("returns null on a non-web / unparseable href (contract preserved)", async () => {
 			const { sourceFaviconUrl } = await import("./markdown");
-			expect(sourceFaviconUrl("not a url")).toBeNull();
-			expect(sourceFaviconUrl("javascript:alert(1)")).toBeNull();
-			expect(sourceFaviconUrl("")).toBeNull();
+			expect(sourceFaviconUrl("not a url", EXAMPLE_HOSTS)).toBeNull();
+			expect(sourceFaviconUrl("javascript:alert(1)", EXAMPLE_HOSTS)).toBeNull();
+			expect(sourceFaviconUrl("", EXAMPLE_HOSTS)).toBeNull();
+		});
+
+		it("asks for no favicon of a host no tool returned", async () => {
+			const { sourceFaviconUrl } = await import("./markdown");
+			const href = "https://secret-0123abcd.attacker.test/page";
+			expect(sourceFaviconUrl(href, EXAMPLE_HOSTS)).toBeNull();
+			expect(sourceFaviconUrl(href, new Set())).toBeNull();
+			expect(sourceFaviconUrl(href, undefined)).toBeNull();
 		});
 	});
 
@@ -127,7 +148,7 @@ describe("Markdown Rendering Service", () => {
 		const html = await mod.renderMarkdown(
 			"See [Example Source](https://example.com/page) for details.",
 			false,
-			{ compactExternalLinks: true },
+			{ compactExternalLinks: true, toolSourceHosts: EXAMPLE_HOSTS },
 		);
 
 		expect(html).toContain('class="source-link-chip__favicon"');
@@ -391,6 +412,306 @@ describe("Markdown Rendering Service", () => {
 		expect(html).toContain("<th>Name</th>");
 		expect(html).toContain("<td>Alpha</td>");
 		expect(html).toMatch(/<\/table>\s*<\/div>/);
+	});
+});
+
+function parseHtml(html: string): HTMLElement {
+	const root = document.createElement("div");
+	root.innerHTML = html;
+	return root;
+}
+
+describe("renderMarkdown: a reply's pictures are never requested from an address the model chose", () => {
+	// The rule (docs/plans/exfil-channels): an address the browser requests without a
+	// click comes from the user's words or a tool's result, never the model's. A
+	// picture here is shown only when image_search returned it, and then from the app's
+	// own thumbnail route; any other address is a link the reader may open, and is
+	// never requested. Every case counts what the output would make a browser fetch.
+	const requested = (html: string) =>
+		Array.from(parseHtml(html).querySelectorAll("*")).flatMap((element) =>
+			["src", "srcset", "poster", "background"].flatMap((attribute) => {
+				const address = element.getAttribute(attribute);
+				return address === null ? [] : [`${element.localName} ${address}`];
+			}),
+		);
+
+	it("shows a picture an image_search call returned, from the app's thumbnail route and nowhere else", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			`![A cat](${CAT} "Cat title")`,
+			false,
+			{
+				toolImages: [CAT_RESULT],
+			},
+		);
+
+		const image = parseHtml(html).querySelector("img");
+		expect(image?.getAttribute("src")).toBe(imageThumbnailRouteUrl(THUMB));
+		expect(image?.getAttribute("alt")).toBe("A cat");
+		expect(image?.getAttribute("title")).toBe("Cat title");
+		expect(image?.classList.contains("markdown-image")).toBe(true);
+		expect(html).toContain(
+			'class="markdown-image-frame markdown-image-frame--loading"',
+		);
+		// Neither the picture's own address nor Brave's is written into the page.
+		expect(html).not.toContain("https://");
+		expect(requested(html)).toEqual([`img ${imageThumbnailRouteUrl(THUMB)}`]);
+	});
+
+	it("knows the picture by either address, and by the way a tool writes it, not the way the model does", async () => {
+		const mod = await import("./markdown");
+		for (const written of [
+			CAT,
+			THUMB,
+			"http://www.example.com/cat.jpg#top",
+			"HTTPS://EXAMPLE.COM/cat.jpg",
+		]) {
+			const html = await mod.renderMarkdown(`![A cat](${written})`, false, {
+				toolImages: [CAT_RESULT],
+			});
+			expect(requested(html), written).toEqual([
+				`img ${imageThumbnailRouteUrl(THUMB)}`,
+			]);
+		}
+	});
+
+	it("makes a link chip of any other address, never a request: a changed path, a query, a host, no results", async () => {
+		const mod = await import("./markdown");
+		for (const written of [
+			"https://example.com/cat.jpg?d=SECRET",
+			"https://example.com/cat.jpg/SECRET",
+			"https://secret.example.com/cat.jpg",
+			"https://example.org/cat.jpg",
+			"https://imgs.search.brave.com/other/cat.jpg",
+		]) {
+			const html = await mod.renderMarkdown(`![A cat](${written})`, false, {
+				toolImages: [CAT_RESULT],
+			});
+			expect(requested(html), written).toEqual([]);
+			const chip = parseHtml(html).querySelector("a.source-link-chip--image");
+			expect(chip?.getAttribute("href"), written).toBe(written);
+		}
+		const none = await mod.renderMarkdown(`![A cat](${CAT})`, false);
+		expect(requested(none)).toEqual([]);
+		expect(none).toContain("source-link-chip--image");
+	});
+
+	it("makes a chip of a result that has no thumbnail: there is nothing the app may fetch for it", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(`![A cat](${CAT})`, false, {
+			toolImages: [{ url: CAT, thumbnail: null }],
+		});
+		expect(requested(html)).toEqual([]);
+		expect(html).toContain("source-link-chip--image");
+	});
+
+	it("says what the chip is: the words or the host, the host, an external link, and that the picture was not loaded", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			"![A  cat on\ta sofa](https://cats.example.com/a/b.jpg?x=1&y=2)",
+			false,
+		);
+		const chip = parseHtml(html).querySelector<HTMLAnchorElement>(
+			"a.source-link-chip.source-link-chip--image",
+		);
+
+		expect(chip?.getAttribute("href")).toBe(
+			"https://cats.example.com/a/b.jpg?x=1&y=2",
+		);
+		expect(chip?.getAttribute("target")).toBe("_blank");
+		expect(chip?.getAttribute("rel")).toBe("noopener noreferrer external");
+		expect(chip?.querySelector(".source-link-chip__label")?.textContent).toBe(
+			"A cat on a sofa",
+		);
+		expect(chip?.querySelector(".source-link-chip__host")?.textContent).toBe(
+			"cats.example.com",
+		);
+		expect(
+			chip
+				?.querySelector(".source-link-chip__image-icon")
+				?.getAttribute("aria-hidden"),
+		).toBe("true");
+		expect(chip?.querySelector(".source-link-chip__icon")).not.toBeNull();
+		// The sentence a reader and a screen reader get, with the words in it.
+		const notice =
+			"Image not loaded: A cat on a sofa. Open the link to see it.";
+		expect(chip?.getAttribute("title")).toBe(notice);
+		expect(chip?.getAttribute("aria-label")).toBe(notice);
+		expect(chip?.querySelector("img")).toBeNull();
+	});
+
+	it("shows the host once when the picture has no words, and takes the sentence from the caller", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			"![](https://www.cats.example.com/b.jpg)",
+			false,
+			{
+				imageNotLoadedLabel: (name) => `A kép nem töltődött be: ${name}.`,
+			},
+		);
+		const chip = parseHtml(html).querySelector("a.source-link-chip--image");
+
+		expect(chip?.querySelector(".source-link-chip__label")?.textContent).toBe(
+			"cats.example.com",
+		);
+		expect(chip?.querySelector(".source-link-chip__host")).toBeNull();
+		expect(chip?.getAttribute("title")).toBe(
+			"A kép nem töltődött be: cats.example.com.",
+		);
+		expect(chip?.getAttribute("aria-label")).toBe(chip?.getAttribute("title"));
+	});
+
+	it("keeps the model's words out of markup: the words and the sentence are text", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			'![<img src=x onerror=alert(1)> "q"](https://cats.example.com/b.jpg)',
+			false,
+		);
+		const root = parseHtml(html);
+		expect(root.querySelector("img, [onerror]")).toBeNull();
+		expect(root.querySelectorAll("a")).toHaveLength(1);
+		expect(root.querySelector(".source-link-chip__label")?.textContent).toBe(
+			'<img src=x onerror=alert(1)> "q"',
+		);
+	});
+
+	it("gives only the words of an address that is not a web address, and no link", async () => {
+		const mod = await import("./markdown");
+		for (const written of [
+			"./cat.png",
+			"/api/favicon?domain=secret.example",
+			"//x.test/cat.png",
+			"cat.png",
+			"javascript:alert(1)",
+			"ftp://example.com/cat.png",
+			"https://user:pw@example.com/cat.png",
+			"data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+		]) {
+			const html = await mod.renderMarkdown(`![A cat](${written})`, false, {
+				toolImages: [CAT_RESULT],
+			});
+			expect(html, written).toBe("<p>A cat</p>\n");
+		}
+	});
+
+	it("keeps the app's own thumbnail of a connected photo and a picture that holds its own bytes", async () => {
+		const mod = await import("./markdown");
+		const photo = "/api/connections/immich/thumbnail/0a1b2c3d-4e5f";
+		const bytes = "data:image/png;base64,iVBORw0KGgo=";
+		const html = await mod.renderMarkdown(
+			`![Photo](${photo})\n\n![Pixel](${bytes})`,
+			false,
+		);
+		expect(requested(html)).toEqual([`img ${photo}`, `img ${bytes}`]);
+	});
+
+	it("is a link chip, and not a link inside a link, when a picture is the text of a link", async () => {
+		const mod = await import("./markdown");
+		for (const options of [{}, { compactExternalLinks: true }]) {
+			const html = await mod.renderMarkdown(
+				"[![A cat](https://cats.example.com/b.jpg)](https://example.com/page)",
+				false,
+				options,
+			);
+			const root = parseHtml(html);
+			expect(root.querySelectorAll("a"), JSON.stringify(options)).toHaveLength(
+				1,
+			);
+			expect(root.querySelector("a")?.getAttribute("href")).toBe(
+				"https://example.com/page",
+			);
+			expect(root.textContent).toContain("A cat");
+			expect(requested(html)).toEqual([]);
+		}
+	});
+
+	it("gives raw HTML nothing the renderer would not write itself", async () => {
+		const mod = await import("./markdown");
+		const route = imageThumbnailRouteUrl(THUMB);
+		const other = imageThumbnailRouteUrl(
+			"https://imgs.search.brave.com/Zq3s9x/other.jpg",
+		);
+		const html = await mod.renderMarkdown(
+			[
+				`<img src="${CAT}">`,
+				`<img src="${THUMB}">`,
+				`<img src="${other}">`,
+				`<img src="/api/favicon?domain=secret.attacker.test">`,
+				`<img src="${route}" srcset="${route} 1x, https://x.test/b.png 2x">`,
+				`<picture><source srcset="${CAT}"><img src="${CAT}"></picture>`,
+				`<video poster="${CAT}" src="${CAT}" controls></video>`,
+				`<table background="${CAT}"><tr><td background="${CAT}">x</td></tr></table>`,
+			].join("\n\n"),
+			false,
+			{ toolImages: [CAT_RESULT] },
+		);
+		// The one thumbnail address a tool returned is what the renderer writes itself;
+		// writing it as HTML gains nothing and loses nothing. All else is gone.
+		expect(requested(html)).toEqual([`img ${route}`]);
+		expect(html).not.toMatch(/example\.com|x\.test|attacker/i);
+	});
+});
+
+describe("renderMarkdown: a source chip asks for a favicon only of a host a tool returned", () => {
+	it("shows the globe at once, with no image, for a host no tool returned", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			"See [Docs](https://secret-0123abcd.attacker.test/docs?d=SECRET).",
+			false,
+			{ compactExternalLinks: true, toolSourceHosts: EXAMPLE_HOSTS },
+		);
+		const root = parseHtml(html);
+		const chip = root.querySelector("a.source-link-chip");
+
+		expect(chip).not.toBeNull();
+		expect(root.querySelector("img")).toBeNull();
+		expect(html).not.toContain("/api/favicon");
+		const globe = chip?.querySelector(".source-link-chip__favicon-fallback");
+		expect(globe).not.toBeNull();
+		expect(globe?.hasAttribute("hidden")).toBe(false);
+	});
+
+	it("asks the app's proxy for the favicon of a host a tool returned, www or not", async () => {
+		const mod = await import("./markdown");
+		for (const href of [
+			"https://example.com/page",
+			"https://www.example.com/page",
+			"http://EXAMPLE.com:8080/page",
+		]) {
+			const html = await mod.renderMarkdown(`See [Docs](${href}).`, false, {
+				compactExternalLinks: true,
+				toolSourceHosts: EXAMPLE_HOSTS,
+			});
+			const image = parseHtml(html).querySelector("img");
+			expect(image?.getAttribute("src"), href).toBe(
+				faviconRouteUrl("example.com"),
+			);
+		}
+	});
+
+	it("shows no favicon when no tool results are passed at all (a preview, a history page)", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			"See [Docs](https://example.com/page).",
+			false,
+			{ compactExternalLinks: true },
+		);
+		expect(parseHtml(html).querySelector("img")).toBeNull();
+		expect(html).toContain("source-link-chip__favicon-fallback");
+	});
+
+	it("keeps a favicon in raw HTML only where the renderer would write it", async () => {
+		const mod = await import("./markdown");
+		const html = await mod.renderMarkdown(
+			`<img src="${faviconRouteUrl("example.com")}">\n\n<img src="${faviconRouteUrl("secret.attacker.test")}">`,
+			false,
+			{ toolSourceHosts: EXAMPLE_HOSTS },
+		);
+		const sources = Array.from(
+			parseHtml(html).querySelectorAll("img"),
+			(image) => image.getAttribute("src"),
+		);
+		expect(sources).toEqual([faviconRouteUrl("example.com")]);
 	});
 });
 

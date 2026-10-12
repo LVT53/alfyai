@@ -1,4 +1,19 @@
-import { escapeHtml, sanitizeHtml } from "$lib/utils/html-sanitizer";
+import { isPhotoProxyPath } from "$lib/shared/artifacts/block-urls";
+import {
+	faviconRouteUrl,
+	imageThumbnailRouteUrl,
+	provenanceKey,
+	readFaviconRouteUrl,
+	readImageThumbnailRouteUrl,
+	sourceHostOf,
+	type ToolImage,
+} from "$lib/shared/url-provenance";
+import {
+	escapeHtml,
+	isRasterImageDataUri,
+	type ResourceRequest,
+	sanitizeHtml,
+} from "$lib/utils/html-sanitizer";
 import {
 	classifyMarkdownBlocks,
 	isChecklistLikeFenceBody,
@@ -20,6 +35,22 @@ type Highlighter = Awaited<
 type RenderMarkdownOptions = {
 	compactExternalLinks?: boolean;
 	sourceReferences?: SourceReferenceCandidate[];
+	/**
+	 * What the message's image_search calls returned: the only pictures a reply may
+	 * show, and then as Brave's thumbnail through the app's own route. Without them no
+	 * picture from the web is shown (a preview, a history page).
+	 */
+	toolImages?: readonly ToolImage[];
+	/**
+	 * The hosts of what the message's tool calls returned: the only sites whose favicon
+	 * a source chip asks the app's proxy for. Every other chip shows the globe at once.
+	 */
+	toolSourceHosts?: ReadonlySet<string>;
+	/**
+	 * What a chip says (as its title and its accessible name) where a picture was not
+	 * loaded, in the reader's language, given the picture's words or its host.
+	 */
+	imageNotLoadedLabel?: (name: string) => string;
 };
 
 type SourceReferenceCandidate = {
@@ -96,6 +127,9 @@ const RENDERED_CLASSES: ReadonlySet<string> = new Set([
 	"source-link-chip__favicon-fallback",
 	"source-link-chip__label",
 	"source-link-chip__icon",
+	"source-link-chip--image",
+	"source-link-chip__image-icon",
+	"source-link-chip__host",
 	"shiki",
 	"line",
 	...HIGHLIGHT_THEMES,
@@ -108,6 +142,54 @@ function isRenderedClass(name: string): boolean {
 
 /** What model markdown is sanitized with: in-flow content, and only our own classes. */
 const INERT_MARKUP = { allowClass: isRenderedClass };
+
+/**
+ * What a reply may make the browser fetch on its own (docs/plans/exfil-channels): an
+ * address comes from a tool's result, never from the model's words. The renderer
+ * writes each such address itself, from this policy, and the sanitizer is handed the
+ * same policy as its predicate, so raw HTML can ask for nothing the renderer would
+ * not have written.
+ */
+type ResourcePolicy = {
+	/** image_search's results, by the comparison form of their address and of their thumbnail's. */
+	images: ReadonlyMap<string, ToolImage>;
+	/** The thumbnails the app's route may be asked for. */
+	thumbnails: ReadonlySet<string>;
+	/** The hosts whose favicon a chip may ask for. */
+	sourceHosts: ReadonlySet<string>;
+};
+
+function createResourcePolicy(options: RenderMarkdownOptions): ResourcePolicy {
+	const images = new Map<string, ToolImage>();
+	const thumbnails = new Set<string>();
+	for (const image of options.toolImages ?? []) {
+		if (image.thumbnail) thumbnails.add(image.thumbnail);
+		for (const address of [image.url, image.thumbnail]) {
+			const key = provenanceKey(address);
+			// A picture a tool returned twice is shown by the result that has a thumbnail.
+			if (key && !images.get(key)?.thumbnail) images.set(key, image);
+		}
+	}
+	return {
+		images,
+		thumbnails,
+		sourceHosts: options.toolSourceHosts ?? new Set(),
+	};
+}
+
+/** The addresses the renderer writes into `<img src>` itself, and no other. */
+function allowedResource(
+	policy: ResourcePolicy,
+): (request: ResourceRequest) => boolean {
+	return ({ tag, attribute, address }) => {
+		if (tag !== "img" || attribute !== "src") return false;
+		if (isPhotoProxyPath(address)) return true;
+		const thumbnail = readImageThumbnailRouteUrl(address);
+		if (thumbnail) return policy.thumbnails.has(thumbnail);
+		const host = readFaviconRouteUrl(address);
+		return host !== null && policy.sourceHosts.has(host);
+	};
+}
 
 let markedModule: MarkedModule | null = null;
 let markedPromise: Promise<void> | null = null;
@@ -293,9 +375,11 @@ async function renderMarkdown(
 			? inlineSourceReferenceMapFromCandidates(options.sourceReferences)
 			: collectInlineSourceReferences(sourceDisplayContent, marked)
 		: new Map<string, InlineSourceReference>();
+	const policy = createResourcePolicy(options);
 	const renderer = createMarkdownRenderer(
 		isDark,
 		options,
+		policy,
 		inlineSourceReferences,
 	);
 	const parseOptions = {
@@ -307,7 +391,11 @@ async function renderMarkdown(
 
 	return sanitizeHtml(
 		`${frontmatter.html}${transformCalloutHtml(html as string)}`,
-		{ allowStyleAttributes: true, inert: INERT_MARKUP },
+		{
+			allowStyleAttributes: true,
+			inert: INERT_MARKUP,
+			allowResource: allowedResource(policy),
+		},
 	);
 }
 
@@ -367,13 +455,17 @@ async function renderInlineMarkdown(
 ): Promise<string> {
 	await initMarkdownParser();
 	const marked = getMarked();
-	const renderer = createMarkdownRenderer(isDark, {});
+	const policy = createResourcePolicy({});
+	const renderer = createMarkdownRenderer(isDark, {}, policy);
 	const html = marked.parseInline(content, {
 		renderer,
 		breaks: true,
 		gfm: true,
 	} as Parameters<typeof marked.parseInline>[1]);
-	return sanitizeHtml(html as string, { inert: INERT_MARKUP });
+	return sanitizeHtml(html as string, {
+		inert: INERT_MARKUP,
+		allowResource: allowedResource(policy),
+	});
 }
 
 function renderCodeBlock(
@@ -532,6 +624,10 @@ function transformCalloutHtml(html: string): string {
 			return `<aside class="markdown-callout markdown-callout-${escapeHtml(type)}"><div class="markdown-callout-title">${title}</div><div class="markdown-callout-body">${body}</div></aside>`;
 		},
 	);
+}
+
+function defaultImageNotLoadedLabel(name: string): string {
+	return `Image not loaded: ${name}. Open the link to see it.`;
 }
 
 function compactWhitespace(value: string): string {
@@ -693,35 +789,70 @@ function inlineSourceReferenceMapFromCandidates(
 // Privacy proxy (ADR-0043): route source-chip favicons through the app's own
 // same-origin `/api/favicon` endpoint instead of a third-party favicon service.
 // The previous `www.google.com/s2/favicons` URL leaked every cited domain to
-// Google on render; this mirrors `getFaviconUrl` in ThinkingBlock.svelte /
-// MessageEvidenceDetails.svelte (strip a leading `www.`, encode the host).
-// Preserves the null-on-parse-failure contract for non-web hrefs.
-function sourceFaviconUrl(href: string): string | null {
-	const parsedHref = parseExternalHref(href);
-	if (!parsedHref) return null;
-	const host = parsedHref.hostname.replace(/^www\./i, "");
-	return `/api/favicon?domain=${encodeURIComponent(host)}`;
+// Google on render. The proxy is itself a request nobody clicked, and its query
+// names a host: a host the model chose (a link with private data in a subdomain)
+// would hand that data to whoever runs the site, so only a host a tool returned
+// gets one (docs/plans/exfil-channels). Preserves the null-on-parse-failure
+// contract for non-web hrefs.
+function sourceFaviconUrl(
+	href: string,
+	toolSourceHosts: ReadonlySet<string> | undefined,
+): string | null {
+	const host = sourceHostOf(href);
+	return host !== null && toolSourceHosts?.has(host)
+		? faviconRouteUrl(host)
+		: null;
 }
 
-function renderSourceLinkChip(params: { href: string; sourceName: string }) {
+function renderSourceLinkChip(
+	params: { href: string; sourceName: string },
+	toolSourceHosts: ReadonlySet<string> | undefined,
+) {
 	const sourceName = escapeHtml(params.sourceName);
 	const href = escapeHtml(params.href);
-	const faviconUrl = sourceFaviconUrl(params.href);
+	const faviconUrl = sourceFaviconUrl(params.href, toolSourceHosts);
 	const ariaLabel = escapeHtml(
 		`Open source: ${params.sourceName} - ${params.href}`,
 	);
 
 	return [
 		`<a href="${href}" class="source-link-chip" target="_blank" rel="noopener noreferrer external" aria-label="${ariaLabel}">`,
+		// The globe is what a chip shows with no favicon to ask for, at once; with one it
+		// stays hidden until the image fails (MarkdownRenderer reveals it).
+		'<span class="source-link-chip__favicon-wrap" aria-hidden="true">',
 		faviconUrl
-			? [
-					'<span class="source-link-chip__favicon-wrap" aria-hidden="true">',
-					`<img class="source-link-chip__favicon" src="${escapeHtml(faviconUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" aria-hidden="true">`,
-					'<span class="source-link-chip__favicon-fallback" aria-hidden="true" hidden></span>',
-					"</span>",
-				].join("")
+			? `<img class="source-link-chip__favicon" src="${escapeHtml(faviconUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" aria-hidden="true">`
 			: "",
+		`<span class="source-link-chip__favicon-fallback" aria-hidden="true"${faviconUrl ? " hidden" : ""}></span>`,
+		"</span>",
 		`<span class="source-link-chip__label">${sourceName}</span>`,
+		'<span class="source-link-chip__icon" aria-hidden="true"></span>',
+		"</a>",
+	].join("");
+}
+
+/**
+ * The words that stand where a picture was not loaded: a link chip to the picture's
+ * address, which the reader may open (a click is theirs to make) and which is never
+ * fetched. Rendered like a source chip, with the picture's words (or its host), the
+ * host, and a title and accessible name that say it was not loaded.
+ */
+function renderBlockedImage(params: {
+	href: string;
+	alt: string;
+	imageNotLoadedLabel: (name: string) => string;
+}): string {
+	const host = sourceHostOf(params.href) ?? "";
+	const words = compactWhitespace(params.alt) || host;
+	const notice = escapeHtml(params.imageNotLoadedLabel(words));
+	return [
+		`<a href="${escapeHtml(params.href)}" class="source-link-chip source-link-chip--image" target="_blank" rel="noopener noreferrer external" title="${notice}" aria-label="${notice}">`,
+		'<span class="source-link-chip__image-icon" aria-hidden="true"></span>',
+		`<span class="source-link-chip__label">${escapeHtml(words)}</span>`,
+		// A space between the two keeps them two words where no stylesheet lays them out.
+		words === host
+			? ""
+			: ` <span class="source-link-chip__host">${escapeHtml(host)}</span>`,
 		'<span class="source-link-chip__icon" aria-hidden="true"></span>',
 		"</a>",
 	].join("");
@@ -753,6 +884,7 @@ function renderInlineSourceReferencesInText(params: {
 	escaped: boolean;
 	pattern: RegExp;
 	references: InlineSourceReferenceMap;
+	toolSourceHosts: ReadonlySet<string>;
 }): string {
 	let output = "";
 	let cursor = 0;
@@ -769,7 +901,7 @@ function renderInlineSourceReferencesInText(params: {
 			params.escaped,
 		);
 		output += reference
-			? renderSourceLinkChip(reference)
+			? renderSourceLinkChip(reference, params.toolSourceHosts)
 			: renderTextSegment(rawMatch, params.escaped);
 		cursor = start + rawMatch.length;
 	}
@@ -782,6 +914,7 @@ function renderInlineSourceReferencesInText(params: {
 function createMarkdownRenderer(
 	isDark: boolean,
 	options: RenderMarkdownOptions,
+	policy: ResourcePolicy,
 	inlineSourceReferences: InlineSourceReferenceMap = new Map(),
 ) {
 	const marked = getMarked();
@@ -821,16 +954,43 @@ function createMarkdownRenderer(
 	// instead of flashing layout-shift when it finally loads. The frame starts in
 	// the `--loading` state; MarkdownRenderer flips it to `--loaded` on the image's
 	// load event (and `--broken` via the existing error handler). Data-attributes
-	// are stripped by DOMPurify, so the loading state rides on CSS classes. Href
-	// scheme safety is handled downstream by sanitizeHtml (unsafe schemes stripped).
-	renderer.image = ({ href, title, text }) => {
-		const altText = escapeHtml(text ?? "");
+	// are stripped by DOMPurify, so the loading state rides on CSS classes.
+	// Which address becomes an <img> is the policy's (docs/plans/exfil-channels), not
+	// the model's: the app's own thumbnail of a connected photo, a picture that holds
+	// its own bytes, or a picture image_search returned (shown as its Brave thumbnail
+	// through the app's route). Any other web address is a link chip that is never
+	// fetched, and anything that is not a web address is only its words.
+	const imageFrame = (src: string, alt: string, title: string | undefined) => {
 		const titleAttribute = title ? ` title="${escapeHtml(title)}"` : "";
 		return [
 			'<span class="markdown-image-frame markdown-image-frame--loading">',
-			`<img class="markdown-image" src="${escapeHtml(href)}" alt="${altText}"${titleAttribute} loading="lazy" decoding="async">`,
+			`<img class="markdown-image" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${titleAttribute} loading="lazy" decoding="async">`,
 			"</span>",
 		].join("");
+	};
+	const imageNotLoadedLabel =
+		options.imageNotLoadedLabel ?? defaultImageNotLoadedLabel;
+	renderer.image = ({ href, title, text }) => {
+		const alt = text ?? "";
+		if (isPhotoProxyPath(href) || isRasterImageDataUri(href)) {
+			return imageFrame(href, alt, title ?? undefined);
+		}
+		const key = provenanceKey(href);
+		if (key === null) return escapeHtml(alt);
+		const result = policy.images.get(key);
+		if (result?.thumbnail) {
+			return imageFrame(
+				imageThumbnailRouteUrl(result.thumbnail),
+				alt,
+				title ?? undefined,
+			);
+		}
+		// Inside a link the link is the way to the address; a chip there would be a link
+		// inside a link.
+		if (linkTextDepth > 0) {
+			return escapeHtml(compactWhitespace(alt) || (sourceHostOf(href) ?? ""));
+		}
+		return renderBlockedImage({ href, alt, imageNotLoadedLabel });
 	};
 	renderer.link = ({ href, title, tokens }) => {
 		const text = renderLinkText(tokens);
@@ -845,7 +1005,7 @@ function createMarkdownRenderer(
 				parsedHref,
 				tokens,
 			});
-			return renderSourceLinkChip({ href, sourceName });
+			return renderSourceLinkChip({ href, sourceName }, policy.sourceHosts);
 		}
 
 		const titleAttribute = title ? ` title="${escapeHtml(title)}"` : "";
@@ -869,6 +1029,7 @@ function createMarkdownRenderer(
 			escaped: "escaped" in token && token.escaped === true,
 			pattern: inlineSourceReferencePattern,
 			references: inlineSourceReferences,
+			toolSourceHosts: policy.sourceHosts,
 		});
 	};
 
