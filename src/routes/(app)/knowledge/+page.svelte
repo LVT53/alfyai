@@ -1063,7 +1063,9 @@ $effect(() => {
 	     sticky header stops at its scroll container's padding edge, so 24px of
 	     padding here left the Documents header pinned 24px below the top. -->
 	<div class="main-content flex flex-1 flex-col overflow-y-auto">
-		<div class="mx-auto box-content flex w-full max-w-[1040px] flex-col gap-6 px-5 py-6 md:px-8">
+		<!-- `box-content` is for md and up, where the column is as wide as its 1040px max plus its
+		     padding; below it `w-full` plus a content box was 40px wider than the screen (FX-2). -->
+		<div class="mx-auto box-border flex w-full max-w-[1040px] flex-col gap-6 px-5 py-6 md:box-content md:px-8">
 			<div class="px-1">
 				<!-- One page title across the app: 1.75rem serif, not a per-page size. -->
 				<h1 class="page-title font-serif text-text-primary">

@@ -10,7 +10,12 @@ import {
 	seedDocument,
 	setUiLanguage,
 } from "./artifact-document-polish-helpers";
-import { createTourUser, markToursSeen } from "./artifact-tours-helpers";
+import {
+	createTourUser,
+	markToursSeen,
+	seedItem,
+	startChatAs,
+} from "./artifact-tours-helpers";
 import {
 	createEmptyConversation,
 	ensureSidebarExpanded,
@@ -706,6 +711,71 @@ for (const width of [360, 390] as const) {
 				clipped.needed,
 				"the placeholder fits its field",
 			).toBeLessThanOrEqual(clipped.room);
+		});
+	});
+}
+
+/**
+ * The Knowledge page on a phone ran past the edge (RC-A #8, FB-9's elsewhere note 1):
+ * at 360 the page switcher ended at 375, the sort and Upload buttons at 371, the
+ * delete button at 364. Nothing of the page may reach past the screen's right edge,
+ * and the page itself does not scroll sideways.
+ */
+for (const width of [360, 390] as const) {
+	test.describe(`the Knowledge page on a phone, ${width} px wide (Hungarian, touch)`, () => {
+		test.use({
+			viewport: { width, height: 800 },
+			hasTouch: true,
+			isMobile: true,
+		});
+
+		test("every control and every card stays inside the screen", async ({
+			page,
+		}) => {
+			const user = await createTourUser("hu");
+			await markToursSeen(user);
+			const chatId = await startChatAs(page, user);
+			await seedItem(user, chatId, "document", {
+				title: "Bécsi hétvége: útiterv és szállás a belvárosban",
+			});
+			await seedItem(user, chatId, "app", { title: "Borravaló-kalkulátor" });
+			await seedItem(user, chatId, "canvas", { title: "Hétvégi tábla" });
+			await page.goto("/knowledge", { waitUntil: "networkidle" });
+			await expect(page.getByText("Hétvégi tábla").first()).toBeVisible({
+				timeout: 30_000,
+			});
+			await waitForMotionToSettle(page);
+
+			const over = await page.evaluate(() => {
+				const limit = window.innerWidth;
+				const out: string[] = [];
+				const root = document.querySelector(".knowledge-page");
+				for (const el of root?.querySelectorAll(
+					"button, a, input, select, [role='tab'], [role='tablist']",
+				) ?? []) {
+					const r = el.getBoundingClientRect();
+					if (r.width === 0 || r.height === 0) continue;
+					if (r.right > limit + 0.5 || r.left < -0.5) {
+						const label =
+							(el as HTMLElement).getAttribute("aria-label") ||
+							(el as HTMLElement).innerText?.trim().slice(0, 30) ||
+							el.tagName;
+						out.push(
+							`${el.tagName.toLowerCase()} "${label}" ${r.left.toFixed(0)}..${r.right.toFixed(0)}`,
+						);
+					}
+				}
+				const scrolls = [
+					document.documentElement,
+					document.querySelector(".main-content"),
+				]
+					.filter((el): el is Element => el !== null)
+					.filter((el) => el.scrollWidth > el.clientWidth + 1)
+					.map((el) => `${el.className || el.tagName} scrolls sideways`);
+				return { out, scrolls };
+			});
+			expect(over.out, `nothing reaches past ${width} px`).toEqual([]);
+			expect(over.scrolls, "the page does not scroll sideways").toEqual([]);
 		});
 	});
 }
