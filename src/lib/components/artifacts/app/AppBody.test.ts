@@ -37,9 +37,29 @@ const fetchArtifact = vi.fn();
 const downloadAppAsHtml = vi.fn();
 const regenerateApp = vi.fn();
 const restoreArtifactVersion = vi.fn();
+// The header's Download opens the popover the Document's Download uses
+// (`DownloadSheet`, kind "app"). Following the job to a file and starting the
+// browser's download is `downloadProducedFile`'s own (`client/downloads.test.ts`);
+// here it answers what it would once the file was ready, or the refusal the start gave.
+vi.mock("$lib/client/downloads", () => ({
+	downloadProducedFile: async (
+		start: () => Promise<{ ok: boolean; reason?: string }>,
+	) => {
+		try {
+			const started = await start();
+			return started.ok
+				? { ok: true, filename: "app.html" }
+				: { ok: false, reason: started.reason };
+		} catch {
+			return { ok: false, reason: "failed" };
+		}
+	},
+}));
+
 vi.mock("$lib/client/api/artifacts", () => ({
 	fetchArtifact: (...args: unknown[]) => fetchArtifact(...args),
 	downloadAppAsHtml: (...args: unknown[]) => downloadAppAsHtml(...args),
+	exportArtifactDocument: vi.fn(),
 	regenerateApp: (...args: unknown[]) => regenerateApp(...args),
 	restoreArtifactVersion: (...args: unknown[]) =>
 		restoreArtifactVersion(...args),
@@ -610,6 +630,17 @@ describe("AppBody — download (registered with the panel header)", () => {
 		return { registerPanelActions, latest: () => calls.at(-1) };
 	}
 
+	/** What the header's button does, then the popover's one option: a real press, as a reader makes it. */
+	async function pressDownload(
+		latest: () => { openDownload?: () => void } | undefined,
+	) {
+		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
+		latest()?.openDownload?.();
+		await fireEvent.click(
+			await screen.findByRole("button", { name: "HTML file" }),
+		);
+	}
+
 	it("registers no download trigger, and shows the unavailable copy, for a project-linked App (no conversation)", async () => {
 		fetchArtifact.mockResolvedValue(baseDetail({ conversationId: null }));
 		const { registerPanelActions, latest } = captureActions();
@@ -624,6 +655,28 @@ describe("AppBody — download (registered with the panel header)", () => {
 		await screen.findByTestId("app-download-unavailable-hint");
 		await waitFor(() => expect(latest()?.openDownload).toBeUndefined());
 		expect(screen.getByText(en.downloadUnavailable)).toBeInTheDocument();
+	});
+
+	it("the header's button opens the popover and asks for nothing yet: the one option starts the download", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		const { registerPanelActions, latest } = captureActions();
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Tip calculator",
+			body: null,
+			registerPanelActions,
+		});
+
+		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
+		latest()?.openDownload?.();
+
+		expect(
+			await screen.findByRole("dialog", { name: /Tip calculator/ }),
+		).toBeInTheDocument();
+		expect(downloadAppAsHtml).not.toHaveBeenCalled();
 	});
 
 	it("requests a download with the artifact id and the PANEL's conversation id, not the artifact's own", async () => {
@@ -645,8 +698,7 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
 		await waitFor(() =>
 			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", "panel-conv"),
@@ -671,8 +723,7 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
 		await waitFor(() =>
 			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", null),
@@ -695,15 +746,12 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
-		await waitFor(() =>
-			expect(screen.queryByText("rate_limited")).not.toBeInTheDocument(),
-		);
 		expect(
-			screen.getByText("Could not prepare this app for download."),
+			await screen.findByText("Could not prepare this app for download."),
 		).toBeInTheDocument();
+		expect(screen.queryByText("rate_limited")).not.toBeInTheDocument();
 	});
 
 	it("reuses the download-unavailable copy for the server's conversation_required backstop", async () => {
@@ -723,11 +771,10 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
-		await waitFor(() =>
-			expect(screen.getByText(en.downloadUnavailable)).toBeInTheDocument(),
+		expect(await screen.findAllByText(en.downloadUnavailable)).not.toHaveLength(
+			0,
 		);
 	});
 
@@ -745,14 +792,11 @@ describe("AppBody — download (registered with the panel header)", () => {
 			registerPanelActions,
 		});
 
-		await waitFor(() => expect(latest()?.openDownload).toBeTypeOf("function"));
-		latest()?.openDownload?.();
+		await pressDownload(latest);
 
-		await waitFor(() =>
-			expect(
-				screen.getByText("Could not prepare this app for download."),
-			).toBeInTheDocument(),
-		);
+		expect(
+			await screen.findByText("Could not prepare this app for download."),
+		).toBeInTheDocument();
 		expect(screen.queryByText("failed")).not.toBeInTheDocument();
 	});
 });

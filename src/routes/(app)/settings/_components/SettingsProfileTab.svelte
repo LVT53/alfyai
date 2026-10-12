@@ -749,7 +749,7 @@ function handlePersonalitySelect(event: Event) {
 					</div>
 					<div class="settings-row-control">
 						<a
-							href="/knowledge"
+							href="/knowledge?tab=memory"
 							class="settings-row-link"
 							aria-label={$t('profileTab.openKnowledgeBase')}
 						>

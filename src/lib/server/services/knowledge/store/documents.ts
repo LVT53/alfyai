@@ -4,6 +4,7 @@ import {
 	artifactLinks,
 	artifacts,
 	artifactVersions,
+	chatGeneratedFiles,
 } from "$lib/server/db/schema";
 import type {
 	Artifact,
@@ -997,6 +998,56 @@ export async function listLogicalDocuments(
  * unconditionally. AlfyAI is self-hosted, single-account-scale; see the
  * slice's Risks note for the fallback if this is ever measured to matter.
  */
+/**
+ * The size of the file each generated row downloads (friction audit F23). A
+ * generated row's own `artifacts.size_bytes` is not that: a source-first
+ * document's row never had one (the library read "0 B" for a 364 KB PDF) and a
+ * file's memory row holds the size of the text the memory kept. What the row's
+ * Download serves is the chat file its `sourceChatFileId` names (the same chain
+ * `resolveWorkingDocumentFileServing` follows), so that file's size is the row's,
+ * read for the user's own files only, in chunks the database's variable limit
+ * allows.
+ */
+async function applyGeneratedFileSizes(
+	userId: string,
+	entries: Array<{ item: KnowledgeDocumentItem; score: number }>,
+): Promise<Array<{ item: KnowledgeDocumentItem; score: number }>> {
+	const fileIds = [
+		...new Set(
+			entries
+				.map((entry) => entry.item.sourceChatFileId)
+				.filter((id): id is string => Boolean(id)),
+		),
+	];
+	if (fileIds.length === 0) return entries;
+
+	const sizeByFileId = new Map<string, number>();
+	for (let start = 0; start < fileIds.length; start += 400) {
+		const rows = await db
+			.select({
+				id: chatGeneratedFiles.id,
+				sizeBytes: chatGeneratedFiles.sizeBytes,
+			})
+			.from(chatGeneratedFiles)
+			.where(
+				and(
+					eq(chatGeneratedFiles.userId, userId),
+					inArray(chatGeneratedFiles.id, fileIds.slice(start, start + 400)),
+				),
+			);
+		for (const row of rows) sizeByFileId.set(row.id, row.sizeBytes);
+	}
+
+	return entries.map((entry) => {
+		const size = entry.item.sourceChatFileId
+			? sizeByFileId.get(entry.item.sourceChatFileId)
+			: undefined;
+		return size === undefined
+			? entry
+			: { ...entry, item: { ...entry.item, sizeBytes: size } };
+	});
+}
+
 async function loadLegacyDocumentEntries(params: {
 	userId: string;
 	ownershipScope: ArtifactOwnershipScope;
@@ -1039,12 +1090,15 @@ async function loadLegacyDocumentEntries(params: {
 		includeGeneratedOutputs,
 	});
 
-	return logicalDocumentRecords
+	const entries = logicalDocumentRecords
 		.filter((record) => record.displayArtifact.type !== "normalized_document")
 		.map((record) => ({
 			item: mapLogicalDocumentItem(record),
 			score: scoreLogicalDocumentRecordForSearch(record, query),
 		}));
+	return includeGeneratedOutputs
+		? applyGeneratedFileSizes(userId, entries)
+		: entries;
 }
 
 /**

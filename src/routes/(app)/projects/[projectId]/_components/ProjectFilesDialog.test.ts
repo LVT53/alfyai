@@ -193,6 +193,22 @@ describe("ProjectFilesDialog document workspace", () => {
 	});
 });
 
+// Friction audit F27: the name in a row reads like a link and did nothing; only
+// the icon at the right opened the file. It is a button of the name now, and
+// does what the icon does.
+describe("ProjectFilesDialog row names", () => {
+	it("opens the file into the workspace when its name is pressed, as the icon does", async () => {
+		open([projectFile()]);
+
+		const name = screen.getByTestId("project-file-name");
+		expect(name.tagName).toBe("BUTTON");
+		await fireEvent.click(name);
+
+		const shell = await findPanel("Wien itinerary.pdf, File");
+		expect(within(shell).getByText("Wien itinerary.pdf")).toBeInTheDocument();
+	});
+});
+
 // The route reads the project's files in the browser after the page mounts and
 // hands the dialog `null` until that read lands. `null` is "not read yet", not
 // "no files": opening the modal inside that window used to say "No files yet."

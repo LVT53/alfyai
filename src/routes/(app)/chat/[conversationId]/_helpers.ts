@@ -510,13 +510,27 @@ export function dropPendingFileProductionJobs(
 	return currentJobs.filter((job) => !isPendingFileProductionJobId(job.id));
 }
 
+/**
+ * The optimistic mirror of what the server assigns when a turn finishes: the jobs
+ * this turn made, stamped with the reply that made them. `createdSince` is what
+ * keeps it to that. The server assigns only jobs made after the turn began, but
+ * this used to stamp EVERY job of the conversation that hung from no reply, so a
+ * job an earlier Download had left (or one whose intake failed) came back as a
+ * card of a reply that never made it, until the next reload (friction audit F1).
+ * Left out, every unassigned job of the conversation is stamped, as before.
+ */
 export function attachUnassignedFileProductionJobsToAssistant(
 	currentJobs: FileProductionJob[],
-	params: { conversationId: string; assistantMessageId: string },
+	params: {
+		conversationId: string;
+		assistantMessageId: string;
+		createdSince?: number;
+	},
 ): FileProductionJob[] {
 	return currentJobs.map((job) =>
 		job.conversationId === params.conversationId &&
-		job.assistantMessageId === null
+		job.assistantMessageId === null &&
+		(params.createdSince === undefined || job.createdAt >= params.createdSince)
 			? { ...job, assistantMessageId: params.assistantMessageId }
 			: job,
 	);

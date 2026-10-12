@@ -62,6 +62,22 @@ vi.mock("$lib/client/api/artifacts", () => ({
 	exportArtifactDocument: mockExportArtifactDocument,
 	fetchDocumentReviewState: mockFetchDocumentReviewState,
 	acknowledgeDocumentReviewBlocks: mockAcknowledgeDocumentReviewBlocks,
+	// The sheet imports the App's call as well (it serves both kinds).
+	downloadAppAsHtml: vi.fn(),
+}));
+
+// The download sheet follows the started job to a file and starts the browser's
+// download (`downloadProducedFile`, tested in `client/downloads.test.ts`); here
+// it answers what it would once the file was ready.
+vi.mock("$lib/client/downloads", () => ({
+	downloadProducedFile: async (
+		start: () => Promise<{ ok: boolean; reason?: string }>,
+	) => {
+		const started = await start();
+		return started.ok
+			? { ok: true, filename: "trip-plan.pdf" }
+			: { ok: false, reason: started.reason };
+	},
 }));
 
 // Wave 2.5 Step 8: jsdom's default `window.innerWidth` (1024) already means

@@ -1410,6 +1410,37 @@ describe("file production chat helpers", () => {
 		]);
 	});
 
+	// Friction audit F1: every job of the conversation that hung from no reply was
+	// stamped on the reply that finished, so a job an earlier Download had left came
+	// back as a card of a reply that never made it. The turn's own jobs are the ones
+	// made since it began.
+	it("stamps only the jobs made since the turn began, never one that hung from no reply before it", () => {
+		const turnBegan = 1_000_000;
+		const jobs = [
+			makeUnassignedJob("job-before-the-turn", {
+				createdAt: turnBegan - 60_000,
+			}),
+			makeUnassignedJob("job-this-turn", { createdAt: turnBegan + 2_000 }),
+		];
+
+		const attached = attachUnassignedFileProductionJobsToAssistant(jobs, {
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-server",
+			createdSince: turnBegan - 30_000,
+		});
+
+		expect(attached).toEqual([
+			expect.objectContaining({
+				id: "job-before-the-turn",
+				assistantMessageId: null,
+			}),
+			expect.objectContaining({
+				id: "job-this-turn",
+				assistantMessageId: "assistant-server",
+			}),
+		]);
+	});
+
 	it("keeps a newly proposed pending write attached when the streaming placeholder becomes the server assistant message (Issue 7.5)", () => {
 		const writes = [
 			makeUnassignedWrite("pw-new"),

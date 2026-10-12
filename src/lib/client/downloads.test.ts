@@ -18,6 +18,7 @@ import {
 } from "$lib/stores/session";
 import {
 	confirmSessionForDownload,
+	downloadProducedFile,
 	handleDownloadAnchorClick,
 	isBrowserHandledClick,
 	startAuthenticatedDownload,
@@ -49,19 +50,35 @@ describe("confirmSessionForDownload", () => {
 		// `/api/health` is in PUBLIC_PATHS and can never 401, so a probe of it
 		// would always say "fine".
 		const fetchImpl = vi.fn(async () =>
-			jsonResponse(400, { error: "conversationId is required" }),
+			jsonResponse(200, { hasOrphanedStream: false }),
 		);
 
 		expect(await confirmSessionForDownload(fetchImpl)).toBe(true);
 		expect(fetchImpl).toHaveBeenCalledWith(
-			"/api/chat/stream/status",
+			expect.stringMatching(/^\/api\/chat\/stream\/status\?/),
 			expect.objectContaining({ method: "GET" }),
 		);
 	});
 
-	it("treats the 400 a valid session gets as a healthy answer", async () => {
+	// F30: the probe used to name no conversation, which the handler refuses with
+	// a 400 on purpose, so DevTools showed a red failed request at the start of
+	// every download. It names one the handler answers 200 for.
+	it("asks in a form its handler answers 200, never one it refuses", async () => {
 		const fetchImpl = vi.fn(async () =>
-			jsonResponse(400, { error: "conversationId is required" }),
+			jsonResponse(200, { hasOrphanedStream: false }),
+		);
+
+		await confirmSessionForDownload(fetchImpl);
+
+		const [url] = fetchImpl.mock.calls[0] as unknown as [string];
+		expect(
+			new URL(url, "http://localhost").searchParams.get("conversationId"),
+		).toBeTruthy();
+	});
+
+	it("treats the answer a valid session gets as healthy", async () => {
+		const fetchImpl = vi.fn(async () =>
+			jsonResponse(200, { hasOrphanedStream: false }),
 		);
 		expect(await confirmSessionForDownload(fetchImpl)).toBe(true);
 		expect(isSessionExpired()).toBe(false);
@@ -101,9 +118,7 @@ describe("confirmSessionForDownload", () => {
 
 		expect(
 			await confirmSessionForDownload(
-				vi.fn(async () =>
-					jsonResponse(400, { error: "conversationId is required" }),
-				),
+				vi.fn(async () => jsonResponse(200, { hasOrphanedStream: false })),
 			),
 		).toBe(true);
 
@@ -250,5 +265,137 @@ describe("handleDownloadAnchorClick", () => {
 			vi.fn(async () => jsonResponse(400, {})),
 		);
 		expect(event.defaultPrevented).toBe(true);
+	});
+});
+
+// Friction audit F1: a Download of a file the server has to make first follows
+// the job to its end and starts the browser's download of the file it made.
+describe("downloadProducedFile", () => {
+	const job = (status: string, extra: Record<string, unknown> = {}) =>
+		({
+			id: "job-1",
+			conversationId: "conv-1",
+			title: "Trip plan",
+			status,
+			createdAt: 1,
+			updatedAt: 2,
+			files: [],
+			warnings: [],
+			dismissed: false,
+			sourceMode: "document_source",
+			...extra,
+		}) as never;
+
+	const made = job("succeeded", {
+		files: [
+			{
+				id: "file/1",
+				filename: "trip-plan.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 10,
+				downloadUrl: "/somewhere/else",
+				previewUrl: null,
+			},
+		],
+	});
+
+	it("starts the download of the file the job made, on the canonical route, under its name", async () => {
+		const download = vi.fn(async () => true);
+		const wait = vi.fn(async () => ({
+			state: "succeeded" as const,
+			job: made,
+		}));
+
+		const result = await downloadProducedFile(
+			async () => ({ ok: true, job: job("queued") }),
+			{ wait, download },
+		);
+
+		expect(result).toEqual({ ok: true, filename: "trip-plan.pdf" });
+		// Built from the file's id, never from a URL the job carried.
+		expect(download).toHaveBeenCalledWith(
+			"/api/chat/files/file%2F1/download",
+			"trip-plan.pdf",
+			undefined,
+		);
+	});
+
+	it("passes the server's own reason when it refused to start the job", async () => {
+		const wait = vi.fn();
+		const download = vi.fn();
+		await expect(
+			downloadProducedFile(
+				async () => ({ ok: false, reason: "source_too_large" }),
+				{ wait, download },
+			),
+		).resolves.toEqual({ ok: false, reason: "source_too_large" });
+		expect(wait).not.toHaveBeenCalled();
+		expect(download).not.toHaveBeenCalled();
+	});
+
+	it("says failed when starting the job threw", async () => {
+		await expect(
+			downloadProducedFile(async () => {
+				throw new TypeError("Failed to fetch");
+			}),
+		).resolves.toEqual({ ok: false, reason: "failed" });
+	});
+
+	it("downloads nothing for a job that failed or is gone", async () => {
+		const download = vi.fn();
+		for (const settled of [
+			{ state: "failed" as const, job: job("failed") },
+			{ state: "gone" as const },
+		]) {
+			await expect(
+				downloadProducedFile(async () => ({ ok: true, job: job("queued") }), {
+					wait: vi.fn(async () => settled),
+					download,
+				}),
+			).resolves.toEqual({ ok: false, reason: "job_failed" });
+		}
+		expect(download).not.toHaveBeenCalled();
+	});
+
+	it("stops the job when the wait ran out, so it does not finish later into a file nobody is waiting for", async () => {
+		const cancel = vi.fn(async () => ({}));
+		const download = vi.fn();
+
+		const result = await downloadProducedFile(
+			async () => ({ ok: true, job: job("queued") }),
+			{
+				wait: vi.fn(async () => ({
+					state: "timeout" as const,
+					job: job("running"),
+				})),
+				cancel,
+				download,
+			},
+		);
+
+		expect(result).toEqual({ ok: false, reason: "timeout" });
+		expect(cancel).toHaveBeenCalledWith("job-1");
+		expect(download).not.toHaveBeenCalled();
+	});
+
+	it("says so when the job finished with no file", async () => {
+		await expect(
+			downloadProducedFile(async () => ({ ok: true, job: job("queued") }), {
+				wait: vi.fn(async () => ({
+					state: "succeeded" as const,
+					job: job("succeeded"),
+				})),
+				download: vi.fn(),
+			}),
+		).resolves.toEqual({ ok: false, reason: "no_file" });
+	});
+
+	it("says so when the session ended before the download could start", async () => {
+		await expect(
+			downloadProducedFile(async () => ({ ok: true, job: job("queued") }), {
+				wait: vi.fn(async () => ({ state: "succeeded" as const, job: made })),
+				download: vi.fn(async () => false),
+			}),
+		).resolves.toEqual({ ok: false, reason: "session_ended" });
 	});
 });

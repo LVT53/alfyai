@@ -77,9 +77,11 @@ function resolveInitialTab(url: URL): "memory" | "documents" {
 	const hasDocumentQuery = DOCUMENT_TAB_PARAMS.some((param) =>
 		url.searchParams.has(param),
 	);
-	return requestedTab === "documents" || hasDocumentQuery
-		? "documents"
-		: "memory";
+	// Documents is the default tab (friction audit F23, ruling 77); the Memory
+	// Profile is `?tab=memory`.
+	return requestedTab === "memory" && !hasDocumentQuery
+		? "memory"
+		: "documents";
 }
 
 export const load: PageServerLoad = async (event) => {

@@ -2392,14 +2392,28 @@ async function hydrateConversationDetail(conversationId: string) {
 	void refreshPendingWrites();
 }
 
+/** The placeholder's time is the browser's and a job's is the server's: the room the two clocks may differ by. */
+const TURN_CLOCK_SLACK_MS = 30_000;
+
 function attachFileProductionJobsToAssistantMessage(
 	assistantMessageId: string,
 ) {
+	// Only what this turn made (see attachUnassignedFileProductionJobsToAssistant):
+	// the turn began when the streaming reply's placeholder was made.
+	let turnStartedAt: number | undefined;
+	for (const message of get(messages)) {
+		if (message.role === "assistant" && message.isStreaming) {
+			turnStartedAt = message.timestamp;
+		}
+	}
 	fileProductionJobs = attachUnassignedFileProductionJobsToAssistant(
 		fileProductionJobs,
 		{
 			conversationId: data.conversation.id,
 			assistantMessageId,
+			...(turnStartedAt !== undefined
+				? { createdSince: turnStartedAt - TURN_CLOCK_SLACK_MS }
+				: {}),
 		},
 	);
 	// Issue 7.5 — same zero-latency optimistic stamp as above, applied to

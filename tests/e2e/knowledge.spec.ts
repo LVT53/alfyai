@@ -1,16 +1,42 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
+	chatGeneratedFiles,
 	conversations,
+	fileProductionJobs,
 	users,
 } from "../../src/lib/server/db/schema";
 import {
 	createDocumentArtifact,
 	updateArtifactBody,
 } from "../../src/lib/server/services/artifacts";
+import { formatByteSize } from "../../src/lib/utils/format";
+import {
+	APP_HTML,
+	APP_TITLE,
+	bytesOf,
+	cleanUpConversation,
+	jobDto,
+	seedApp,
+	seedDocument,
+	seedSucceededAppJob,
+	TITLE,
+} from "./artifact-download-helpers";
 import { login, TEST_EMAIL, waitForHydration } from "./helpers";
+
+/**
+ * The page opens on Documents (friction audit F23, ruling 77); the Memory
+ * Profile is its first tab and one real click away.
+ */
+async function openMemoryProfile(page: Page) {
+	await page.getByRole("tab", { name: "Memory Profile" }).click();
+	await expect(page).toHaveURL(/tab=memory/);
+	await expect(
+		page.getByRole("heading", { name: "About You", exact: true }),
+	).toBeVisible();
+}
 
 test.describe("Knowledge page", () => {
 	test.beforeEach(async ({ page }) => {
@@ -20,6 +46,32 @@ test.describe("Knowledge page", () => {
 			page.getByRole("heading", { name: "Knowledge Base" }),
 		).toBeVisible();
 		await waitForHydration(page);
+	});
+
+	test("opens on Documents, and the Memory Profile is one click away and reopens on a reload", {
+		tag: "@smoke",
+	}, async ({ page }) => {
+		const documentsTab = page.getByRole("tab", { name: "Documents" });
+		const memoryTab = page.getByRole("tab", { name: "Memory Profile" });
+		await expect(documentsTab).toHaveAttribute("aria-selected", "true");
+		await expect(memoryTab).toHaveAttribute("aria-selected", "false");
+		await expect(page.getByRole("region", { name: "Documents" })).toBeVisible();
+		await expect(page).not.toHaveURL(/[?&]tab=/);
+
+		await memoryTab.click();
+		await expect(page).toHaveURL(/tab=memory/);
+		await expect(
+			page.getByRole("heading", { name: "About You", exact: true }),
+		).toBeVisible();
+
+		// The URL is the page's own state: the reload opens where the reader was.
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await expect(memoryTab).toHaveAttribute("aria-selected", "true");
+
+		await documentsTab.click();
+		await expect(documentsTab).toHaveAttribute("aria-selected", "true");
+		await expect(page).not.toHaveURL(/[?&]tab=/);
 	});
 
 	test("documents section is visible", { tag: "@smoke" }, async ({ page }) => {
@@ -42,6 +94,7 @@ test.describe("Knowledge page", () => {
 	});
 
 	test("memory profile section is visible", async ({ page }) => {
+		await openMemoryProfile(page);
 		await expect(
 			page.getByRole("tab", { name: "Memory Profile" }),
 		).toBeVisible();
@@ -123,6 +176,7 @@ test.describe("Knowledge page", () => {
 	});
 
 	test("each memory category states its own total", async ({ page }) => {
+		await openMemoryProfile(page);
 		const counts = page.getByTestId("memory-category-count");
 		await expect(counts.first()).toBeVisible();
 		// "N remembered · showing M" — never a bare list length.
@@ -130,6 +184,7 @@ test.describe("Knowledge page", () => {
 	});
 
 	test("the memory filter narrows every category at once", async ({ page }) => {
+		await openMemoryProfile(page);
 		const filter = page.getByRole("searchbox", { name: "Filter memories" });
 		await expect(filter).toBeVisible();
 
@@ -145,6 +200,7 @@ test.describe("Knowledge page", () => {
 	test("the filter chips carry a count and narrow to one category", async ({
 		page,
 	}) => {
+		await openMemoryProfile(page);
 		const chips = page.getByTestId("memory-filter-chip");
 		await expect(chips.first()).toBeVisible();
 		// All, plus one per category.
@@ -164,6 +220,7 @@ test.describe("Knowledge page", () => {
 	test("the rail explains how to read a row and how to reach the settings", async ({
 		page,
 	}) => {
+		await openMemoryProfile(page);
 		// "Reading a row" is a tooltip on the portrait title now, not a card at
 		// the bottom of the rail: nothing on the page until it is asked for.
 		await expect(page.getByText("Reading a row")).toHaveCount(0);
@@ -252,6 +309,7 @@ test.describe("Knowledge page", () => {
 	});
 
 	test("the memory filter keeps what you type", async ({ page }) => {
+		await openMemoryProfile(page);
 		const filter = page.getByRole("searchbox", { name: "Filter memories" });
 		await filter.fill("nextcloud");
 		await expect(filter).toHaveValue("nextcloud");
@@ -287,7 +345,7 @@ test.describe("Knowledge page", () => {
 	// real end-to-end pipeline coverage, not a fixture that only proves the
 	// seed worked — direct db writes, matching the repo's existing E2E
 	// seeding convention (see conversation-title-refresh.spec.ts).
-	test("shows a seeded artifact-family row with its chip, type pill and no download action", {
+	test("shows a seeded artifact-family row with its chip, type pill, Open and no download action", {
 		tag: "@smoke",
 	}, async ({ page }) => {
 		// A bare conversation row, seeded directly like several other E2E specs
@@ -339,7 +397,11 @@ test.describe("Knowledge page", () => {
 			await expect(page).toHaveURL(/type=canvas/);
 			await expect(row).toBeVisible();
 
-			// Actions column: Delete only, no Download.
+			// Actions column: Open and Delete, no Download (a board's picture is
+			// drawn by the open board, which Open reaches).
+			await expect(
+				row.getByRole("button", { name: `Open ${artifactName}` }),
+			).toBeVisible();
 			await expect(row.getByRole("button", { name: /download/i })).toHaveCount(
 				0,
 			);
@@ -349,6 +411,247 @@ test.describe("Knowledge page", () => {
 			await db
 				.delete(conversations)
 				.where(eq(conversations.id, conversationId));
+		}
+	});
+
+	// Friction audit F23: every size read "0 B", the 364 KB PDF included. A
+	// generated file's row says how big the file it downloads is; a Document, a
+	// Canvas and an App have no size of their own, and say so with a dash.
+	test("a generated file's row shows the size of its file, and a Document's row shows no size at all", async ({
+		page,
+	}) => {
+		const [user] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, TEST_EMAIL));
+		const conversationId = `e2e-sizes-conv-${Date.now()}`;
+		const now = new Date();
+		await db.insert(conversations).values({
+			id: conversationId,
+			userId: user.id,
+			title: "Seeded for the sizes case",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const title = `Sizes walk ${Date.now()}`;
+		const created = await createDocumentArtifact({
+			userId: user.id,
+			conversationId,
+			title,
+			markdown: "Book the hotel. Then the museum.",
+			author: "user",
+			summary: "Seeded for E2E",
+		});
+
+		try {
+			// A real PDF, made the way the panel makes it.
+			const exported = await page.request.post(
+				`/api/artifacts/${created.id}/export`,
+				{ data: { format: "pdf" } },
+			);
+			expect(exported.status()).toBe(202);
+			const { job } = (await exported.json()) as { job: { id: string } };
+			await expect
+				.poll(
+					async () => {
+						const read = await page.request.get(
+							`/api/chat/files/jobs/${job.id}`,
+						);
+						const body = (await read.json()) as {
+							job: { status: string; files: { sizeBytes: number }[] };
+						};
+						return body.job.status === "succeeded"
+							? body.job.files[0]?.sizeBytes
+							: null;
+					},
+					{ timeout: 30_000 },
+				)
+				.toBeGreaterThan(1_000);
+			const [file] = await db
+				.select({ sizeBytes: chatGeneratedFiles.sizeBytes })
+				.from(chatGeneratedFiles)
+				.where(eq(chatGeneratedFiles.conversationId, conversationId));
+			const expected = formatByteSize(file.sizeBytes, {
+				trimWholeUnits: true,
+			});
+			expect(expected).not.toBe("0 B");
+
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+
+			const generatedRow = page
+				.locator("tbody tr", { hasText: title })
+				.filter({ has: page.locator(".col-type .type-generated") });
+			await expect(generatedRow).toHaveCount(1);
+			await expect(generatedRow.locator(".col-size")).toHaveText(expected);
+
+			// The Document itself is live-edited: no size, and no "0 B" claiming one.
+			const documentRow = page
+				.locator("tbody tr", { hasText: title })
+				.filter({ has: page.locator(".col-type .type-artifact") });
+			await expect(documentRow).toHaveCount(1);
+			await expect(documentRow.locator(".col-size")).toHaveText("—");
+		} finally {
+			await db
+				.delete(fileProductionJobs)
+				.where(eq(fileProductionJobs.conversationId, conversationId));
+			await db
+				.delete(chatGeneratedFiles)
+				.where(eq(chatGeneratedFiles.conversationId, conversationId));
+			await db
+				.delete(artifacts)
+				.where(eq(artifacts.conversationId, conversationId));
+			await db
+				.delete(conversations)
+				.where(eq(conversations.id, conversationId));
+		}
+	});
+
+	// Friction audit F23: a Document, a Canvas and an App had a trash can and
+	// nothing else, while a generated file's row had its actions. The row opens the
+	// item by a button of its own, and the kinds that have a file to hand over
+	// download it the way the panel's Download does.
+	test("a Document's row opens it and downloads it in the format asked for", async ({
+		page,
+	}) => {
+		const { conversationId, title } = await seedDocument({
+			title: `${TITLE} ${Date.now()}`,
+		});
+		try {
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			const row = page
+				.locator("tbody tr", { hasText: title })
+				.filter({ has: page.locator(".col-type .type-artifact") });
+			await expect(row).toHaveCount(1);
+
+			await row.getByTestId("artifact-row-download").click();
+			// Painted in <body>, so the table cannot cut it off.
+			const menu = page.getByTestId("artifact-row-download-menu");
+			await expect(menu.getByRole("menuitem")).toHaveText([
+				"PDF",
+				"Word",
+				"Markdown",
+			]);
+			const downloaded = page.waitForEvent("download", { timeout: 20_000 });
+			await menu.getByRole("menuitem", { name: "Markdown" }).click();
+			const download = await downloaded;
+			expect(download.suggestedFilename().normalize("NFC")).toBe(
+				`${title}.md`.normalize("NFC"),
+			);
+			expect((await bytesOf(download)).toString("utf8")).toContain(
+				"Szombat: Naschmarkt",
+			);
+
+			// Its own Open, by name, opens the Document in the panel.
+			await row.getByRole("button", { name: `Open ${title}` }).click();
+			await expect(
+				page.locator('[data-testid="artifact-panel-title"]:visible'),
+			).toHaveText(title, { timeout: 15_000 });
+		} finally {
+			await cleanUpConversation(conversationId);
+		}
+	});
+
+	test("a Document that cannot be exported says why in the page's own banner, and nothing downloads", async ({
+		page,
+	}) => {
+		const { conversationId, title } = await seedDocument({
+			title: `${TITLE} ${Date.now()}`,
+		});
+		try {
+			// The server refuses it (a source past the export limit).
+			await page.route("**/api/artifacts/*/export*", async (route) => {
+				await route.fulfill({
+					status: 413,
+					json: { ok: false, reason: "source_too_large" },
+				});
+			});
+			let downloadStarted = false;
+			page.on("download", () => {
+				downloadStarted = true;
+			});
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			const row = page
+				.locator("tbody tr", { hasText: title })
+				.filter({ has: page.locator(".col-type .type-artifact") });
+			await row.getByTestId("artifact-row-download").click();
+			await page
+				.getByTestId("artifact-row-download-menu")
+				.getByRole("menuitem", { name: "PDF" })
+				.click();
+
+			await expect(
+				page.getByText("This document is too long to export."),
+			).toBeVisible();
+			expect(downloadStarted).toBe(false);
+		} finally {
+			await cleanUpConversation(conversationId);
+		}
+	});
+
+	test("an App's row downloads its .html file in one press, with the file the job made", async ({
+		page,
+	}) => {
+		const { conversationId, title } = await seedApp({
+			title: `${APP_TITLE} ${Date.now()}`,
+		});
+		const { job } = await seedSucceededAppJob(conversationId);
+		try {
+			await page.route("**/api/artifacts/*/app/download", async (route) => {
+				await route.fulfill({
+					status: 202,
+					json: { ok: true, job, reused: false },
+				});
+			});
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			const row = page
+				.locator("tbody tr", { hasText: title })
+				.filter({ has: page.locator(".col-type .type-artifact") });
+			await expect(row).toHaveCount(1);
+
+			const downloaded = page.waitForEvent("download", { timeout: 20_000 });
+			await row.getByTestId("artifact-row-download").click();
+			const download = await downloaded;
+
+			expect(download.suggestedFilename()).toBe("app.html");
+			expect((await bytesOf(download)).toString("utf8")).toBe(APP_HTML);
+		} finally {
+			await cleanUpConversation(conversationId);
+		}
+	});
+
+	test("an App whose sandbox run failed says so in the page's banner", async ({
+		page,
+	}) => {
+		const { conversationId, title } = await seedApp({
+			title: `${APP_TITLE} ${Date.now()}`,
+		});
+		try {
+			await page.route("**/api/artifacts/*/app/download", async (route) => {
+				await route.fulfill({
+					status: 202,
+					json: {
+						ok: true,
+						job: jobDto("job-failed", conversationId, "failed"),
+						reused: false,
+					},
+				});
+			});
+			await page.goto("/knowledge", { waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			await page
+				.locator("tbody tr", { hasText: title })
+				.getByTestId("artifact-row-download")
+				.click();
+
+			await expect(
+				page.getByText("Could not prepare this app for download."),
+			).toBeVisible();
+		} finally {
+			await cleanUpConversation(conversationId);
 		}
 	});
 

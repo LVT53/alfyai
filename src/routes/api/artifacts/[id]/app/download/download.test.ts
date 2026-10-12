@@ -5,6 +5,7 @@ vi.mock("$lib/server/services/artifacts", () => ({
 }));
 vi.mock("$lib/server/services/file-production", () => ({
 	submitFileProductionIntake: vi.fn(),
+	ARTIFACT_EXPORT_JOB_ORIGIN: "artifact_export",
 }));
 
 import { getArtifact } from "$lib/server/services/artifacts";
@@ -80,11 +81,12 @@ describe("POST /api/artifacts/[id]/app/download", () => {
 		await POST(makeEvent());
 
 		expect(mockSubmitIntake).toHaveBeenCalledTimes(1);
-		const [{ userId, body }] = mockSubmitIntake.mock.calls[0];
+		const [{ userId, body, origin }] = mockSubmitIntake.mock.calls[0];
 		expect(userId).toBe("owner-user");
+		// The reader's own export: no reply is ever handed it as a card (F1).
+		expect(origin).toBe("artifact_export");
 		expect(body).toMatchObject({
 			conversationId: "conv-1",
-			idempotencyKey: "app-html:app-1:3",
 			requestTitle: "Trip cost splitter — app source",
 			sourceMode: "program",
 			outputs: [{ type: "html" }],
@@ -96,6 +98,26 @@ describe("POST /api/artifacts/[id]/app/download", () => {
 			Buffer.from(APP_ARTIFACT.body, "utf8").toString("base64"),
 		);
 		expect(body.program.filename).toBe("app.html");
+	});
+
+	it("makes one job per press: a job an earlier press left failed is not handed back as the same failure", async () => {
+		mockGetArtifact.mockResolvedValue(APP_ARTIFACT);
+		mockSubmitIntake.mockResolvedValue({
+			ok: true,
+			status: 202,
+			job: { id: "job-1" },
+			reused: false,
+		});
+
+		await POST(makeEvent());
+		await POST(makeEvent());
+
+		const keys = mockSubmitIntake.mock.calls.map(
+			([call]) => call.body.idempotencyKey as string,
+		);
+		expect(keys[0]).toMatch(/^app-html:app-1:3:[0-9a-f-]{36}$/);
+		expect(keys[1]).toMatch(/^app-html:app-1:3:[0-9a-f-]{36}$/);
+		expect(keys[0]).not.toBe(keys[1]);
 	});
 
 	it("ignores any HTML the request body might contain — there is no field that could carry it into the intake", async () => {

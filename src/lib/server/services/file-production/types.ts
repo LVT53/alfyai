@@ -102,6 +102,17 @@ export interface FileProductionInlineTextRequest {
  */
 export const FILE_PRODUCTION_INLINE_TEXT_SOURCE_MODE = "inline_text" as const;
 
+/**
+ * The `file_production_jobs.origin` of a file the reader asked for from a panel's
+ * Download (a Document's PDF, Word or Markdown, an App's `.html`), never one a
+ * reply made. The panel follows the job itself and starts the download when it has
+ * finished, so the job belongs to no reply: no list of a conversation's jobs
+ * carries it (`read-model.ts`), which is what keeps the chat from stamping it on
+ * the next reply as a card the reply never made (friction audit F1). The column is
+ * plain text, so the value needs no migration.
+ */
+export const ARTIFACT_EXPORT_JOB_ORIGIN = "artifact_export" as const;
+
 export type FileProductionJobStatus =
 	| "queued"
 	| "running"

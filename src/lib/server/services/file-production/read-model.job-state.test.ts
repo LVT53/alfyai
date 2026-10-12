@@ -59,6 +59,9 @@ async function seedJob(input: {
 	dismissed?: boolean;
 	createdAt?: Date;
 	requestJson?: unknown;
+	origin?: string;
+	/** `null`: a job that hangs from no reply. */
+	assistantMessageId?: string | null;
 }) {
 	const { db } = await import("$lib/server/db");
 	await db.insert(schema.fileProductionJobs).values({
@@ -68,12 +71,15 @@ async function seedJob(input: {
 				: JSON.stringify(input.requestJson),
 		id: input.id,
 		conversationId: "conv-1",
-		assistantMessageId: "assistant-1",
+		assistantMessageId:
+			input.assistantMessageId === undefined
+				? "assistant-1"
+				: input.assistantMessageId,
 		userId: input.userId ?? "user-1",
 		title: input.title ?? `Job ${input.id}`,
 		status: input.status,
 		stage: null,
-		origin: "unified_produce",
+		origin: input.origin ?? "unified_produce",
 		errorCode: input.errorCode ?? null,
 		errorMessage: input.errorMessage ?? null,
 		retryable: input.retryable ?? false,
@@ -508,6 +514,87 @@ describe("file-production read model job state", () => {
 					"job-other-0",
 				]);
 			});
+		});
+	});
+
+	// Friction audit F1: a file the reader asked for from a panel's Download
+	// belongs to no reply. The chat page used to stamp every job of the conversation
+	// that hung from no reply onto the next reply, so each export came back as a
+	// card of a reply that never made it.
+	describe("a reader's own export (ARTIFACT_EXPORT_JOB_ORIGIN)", () => {
+		async function seedExport(
+			id: string,
+			status: "running" | "failed" | "succeeded",
+		) {
+			const { ARTIFACT_EXPORT_JOB_ORIGIN } = await import("./types");
+			await seedJob({
+				id,
+				status,
+				title: "Trip plan",
+				origin: ARTIFACT_EXPORT_JOB_ORIGIN,
+				assistantMessageId: null,
+				createdAt: new Date(NOW.getTime() + 1_000),
+			});
+		}
+
+		it("is in no conversation's job list, though a reply's job still is", async () => {
+			await seedJob({ id: "job-reply", status: "succeeded" });
+			await seedExport("job-export", "succeeded");
+			const { listConversationFileProductionJobs } = await import(
+				"./read-model"
+			);
+
+			const jobs = await listConversationFileProductionJobs("user-1", "conv-1");
+
+			expect(jobs.map((job) => job.id)).toEqual(["job-reply"]);
+		});
+
+		it("is not in the prompt's job states either, running or failed", async () => {
+			await seedJob({ id: "job-reply", status: "failed" });
+			await seedExport("job-export-running", "running");
+			await seedExport("job-export-failed", "failed");
+			const { listConversationFileProductionJobStates } = await import(
+				"./read-model"
+			);
+
+			const states = await listConversationFileProductionJobStates({
+				userId: "user-1",
+				conversationId: "conv-1",
+				now: new Date(NOW.getTime() + 60_000),
+			});
+
+			expect(states.map((state) => state.id)).toEqual(["job-reply"]);
+		});
+
+		it("is still read by its owner by its id alone, with its files, and by nobody else", async () => {
+			await seedExport("job-export", "succeeded");
+			await seedGeneratedFile({
+				id: "file-export",
+				jobId: "job-export",
+				filename: "trip-plan.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 2_048,
+			});
+			const { getFileProductionJobForUser } = await import("./read-model");
+
+			const mine = await getFileProductionJobForUser({
+				userId: "user-1",
+				jobId: "job-export",
+			});
+			expect(mine).toMatchObject({ id: "job-export", status: "succeeded" });
+			expect(mine?.files).toEqual([
+				expect.objectContaining({
+					id: "file-export",
+					filename: "trip-plan.pdf",
+				}),
+			]);
+
+			await expect(
+				getFileProductionJobForUser({ userId: "user-2", jobId: "job-export" }),
+			).resolves.toBeNull();
+			await expect(
+				getFileProductionJobForUser({ userId: "user-1", jobId: "no-such-job" }),
+			).resolves.toBeNull();
 		});
 	});
 });
