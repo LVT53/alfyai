@@ -23,6 +23,7 @@ export {
 	ledgerHasHost as hasSourceHost,
 	ledgerHasThumbnail as hasSourceThumbnail,
 } from "./ledger";
+export { logRefusedAddresses } from "./log";
 export {
 	allAddressesRefusedMessage,
 	imagesLeftOutWarning,

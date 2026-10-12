@@ -8,6 +8,7 @@ import {
 	compactToolInputSchema,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
+	type ToolCallRecorder,
 } from "./shared";
 
 describe("compactModelPayload", () => {
@@ -326,5 +327,118 @@ describe("executeToolWithEnvelope duration recording", () => {
 
 		const [entry] = recorder.getEntries();
 		expect(entry.metadata?.durationMs).toBe(999);
+	});
+});
+
+// A recorder may ask to see what the model was handed, not only what was
+// recorded: the address check of docs/plans/exfil-channels needs every address in
+// every result the model reads, and the envelope is the one place all of them
+// pass. The observation is of SUCCESS only (an error's text can echo the model's
+// own input), sees the payload as the model receives it, and happens before the
+// call is recorded, so whatever it writes is in place before any event about the
+// call reaches the browser.
+describe("executeToolWithEnvelope result observation", () => {
+	function baseEntry(status: ToolCallEntry["status"]): ToolCallEntry {
+		return { name: "test_tool", input: { q: "asked" }, status };
+	}
+
+	function observingRecorder(order: string[]) {
+		const seen: Array<{
+			toolName: string;
+			payload: unknown;
+			entry: ToolCallEntry;
+		}> = [];
+		const base = createToolCallRecorder();
+		const recorder: ToolCallRecorder = {
+			record(entry) {
+				order.push("record");
+				return base.record(entry);
+			},
+			getEntries: () => base.getEntries(),
+			observeResult(result) {
+				order.push("observe");
+				seen.push(result);
+			},
+		};
+		return { recorder, seen };
+	}
+
+	it("hands the recorder the compacted payload and the entry, before the entry is recorded", async () => {
+		const order: string[] = [];
+		const { recorder, seen } = observingRecorder(order);
+
+		const returned = await executeToolWithEnvelope({
+			toolName: "test_tool",
+			timeoutMs: 5_000,
+			options: { toolCallId: "1", abortSignal: undefined },
+			recorder,
+			run: async () => ({
+				modelPayload: {
+					success: true,
+					note: "",
+					links: ["https://a.example/"],
+				},
+				entry: baseEntry("done"),
+			}),
+			onError: () => ({
+				modelPayload: { success: false },
+				entry: baseEntry("failed"),
+			}),
+		});
+
+		expect(order).toEqual(["observe", "record"]);
+		expect(seen).toHaveLength(1);
+		expect(seen[0]?.toolName).toBe("test_tool");
+		// The payload as the model receives it: compacted, empty keys gone.
+		expect(seen[0]?.payload).toEqual({
+			success: true,
+			links: ["https://a.example/"],
+		});
+		expect(seen[0]?.payload).toEqual(returned);
+		expect(seen[0]?.entry.input).toEqual({ q: "asked" });
+	});
+
+	it("does not hand it the payload of a call that failed", async () => {
+		const order: string[] = [];
+		const { recorder, seen } = observingRecorder(order);
+
+		await executeToolWithEnvelope({
+			toolName: "test_tool",
+			timeoutMs: 5_000,
+			options: { toolCallId: "1", abortSignal: undefined },
+			recorder,
+			run: async () => {
+				throw new Error("could not open https://echoed.example/?d=secret");
+			},
+			onError: (error) => ({
+				modelPayload: { success: false, error: String(error) },
+				entry: baseEntry("failed"),
+			}),
+		});
+
+		expect(seen).toEqual([]);
+		expect(order).toEqual(["record"]);
+	});
+
+	it("is not required of a recorder", async () => {
+		const recorder = createToolCallRecorder();
+
+		await expect(
+			executeToolWithEnvelope({
+				toolName: "test_tool",
+				timeoutMs: 5_000,
+				options: { toolCallId: "1", abortSignal: undefined },
+				recorder,
+				run: async () => ({
+					modelPayload: { success: true },
+					entry: baseEntry("done"),
+				}),
+				onError: () => ({
+					modelPayload: { success: false },
+					entry: baseEntry("failed"),
+				}),
+			}),
+		).resolves.toEqual({ success: true });
+		expect(recorder.getEntries()).toHaveLength(1);
 	});
 });

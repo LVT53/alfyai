@@ -33,6 +33,13 @@ import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-
 import { resolveSkillInstructionsForUse } from "$lib/server/services/skills/prompt-context";
 import { getCachedToolHealthSnapshot } from "$lib/server/services/tool-health";
 import {
+	allAddressesRefusedMessage,
+	createTurnUrlProvenance,
+	imagesLeftOutWarning,
+	logRefusedAddresses,
+	someAddressesRefusedNote,
+} from "$lib/server/services/url-provenance";
+import {
 	buildGroundedWebModelPayload,
 	createGroundedWebCandidates,
 	createGroundedWebMetadata,
@@ -85,6 +92,8 @@ import {
 	sanitizeEmailToolInput,
 } from "./email";
 import {
+	type FetchUrlInput,
+	FetchUrlRefusedError,
 	fetchUrlInputSchema,
 	resolveFetchContentCharCap,
 	sanitizeFetchUrlInput,
@@ -215,6 +224,7 @@ import {
 	getCachedToolResult,
 	setCachedToolResult,
 } from "./tool-result-cache";
+import { dropUnsourcedImages, withUrlProvenance } from "./url-provenance";
 
 const useSkillInputSchema = z.object({
 	name: z
@@ -670,7 +680,21 @@ const ALREADY_MADE_THIS_TURN_NOTE =
 // ── Tool factory ───────────────────────────────────────────────
 
 export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
-	const recorder = ctx.recorder ?? createToolCallRecorder();
+	// Where an address a tool is asked to open came from, for this turn
+	// (docs/plans/exfil-channels): the user's words and tool results, never the
+	// model's. Cheap to make; the conversation's stored messages are read only when
+	// an address first needs them. The recorder every tool records through is
+	// wrapped so each call's sources reach the user's ledger, and each result the
+	// model reads reaches this check, before the model or the browser sees them.
+	const urlProvenance = createTurnUrlProvenance({
+		userId: ctx.userId,
+		conversationId: ctx.conversationId,
+		requestText: ctx.requestText,
+	});
+	const recorder = withUrlProvenance(ctx.recorder ?? createToolCallRecorder(), {
+		userId: ctx.userId,
+		provenance: urlProvenance,
+	});
 	const lang = ctx.language ?? "en";
 	const i18n = TOOL_I18N[lang];
 	// Recomputed every call (never cached at module load) so a newly
@@ -842,6 +866,32 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									options,
 									recorder,
 									run: async (abortSignal) => {
+										// Only an address the user typed or a tool returned is
+										// fetched (docs/plans/exfil-channels): the model chooses
+										// these addresses, and it reads pages a stranger may have
+										// written, so one it picked may carry private data in its
+										// path, query or host. A refused address never reaches
+										// Parallel and stays only in this call's recorded input;
+										// the model hears how many, never which, and the log
+										// carries counts only.
+										const { allowed, refusedCount } =
+											await urlProvenance.partition(safeInput.urls);
+										logRefusedAddresses({
+											tool: "fetch_url",
+											allowed: allowed.length,
+											refused: refusedCount,
+										});
+										if (allowed.length === 0) {
+											throw new FetchUrlRefusedError(
+												allAddressesRefusedMessage(lang, refusedCount),
+												refusedCount,
+											);
+										}
+										// What is fetched, cached and billed is what was allowed.
+										const fetchInput: FetchUrlInput = {
+											...safeInput,
+											urls: allowed,
+										};
 										// Per-conversation cache: fetching the same URL set again
 										// this conversation (including a fetch_url that repeats a
 										// server pasted-URL prefetch, see normal-chat-context.ts) is
@@ -853,7 +903,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										const cacheKey = buildToolResultCacheKey({
 											conversationId: ctx.conversationId,
 											toolName: "fetch_url",
-											input: safeInput,
+											input: fetchInput,
 										});
 										const cached =
 											getCachedToolResult<GroundedWebResult>(cacheKey);
@@ -868,7 +918,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										} else {
 											const { parallelApiKey, parallelBaseUrl } = getConfig();
 											result = await fetchUrlViaParallel(
-												safeInput,
+												fetchInput,
 												{
 													fetch,
 													config: { parallelApiKey, parallelBaseUrl },
@@ -907,6 +957,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												name: "fetch_url",
 											}),
 											...(cached ? { cached: true as const } : {}),
+											...(refusedCount > 0
+												? {
+														warnings: [
+															someAddressesRefusedNote(lang, refusedCount),
+														],
+													}
+												: {}),
 										};
 										const candidates = createGroundedWebCandidates(result);
 										return {
@@ -914,6 +971,8 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											entry: {
 												callId: options.toolCallId,
 												name: "fetch_url",
+												// What the model asked for, refused addresses
+												// included: the one place they are kept.
 												input: safeInput,
 												status: "done",
 												outputSummary: summarizeGroundedWebResult(result),
@@ -922,6 +981,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 												metadata: {
 													...createGroundedWebMetadata(result),
 													...(cached ? { cached: true as const } : {}),
+													...(refusedCount > 0
+														? { refusedUrlCount: refusedCount }
+														: {}),
 												},
 											},
 										};
@@ -949,6 +1011,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 													ok: false,
 													evidenceReady: false,
 													error: modelPayload.error,
+													...(error instanceof FetchUrlRefusedError
+														? { refusedUrlCount: error.refusedCount }
+														: {}),
 												},
 											},
 										};
@@ -1362,6 +1427,24 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								});
 							}
 						}
+					}
+					// A document renderer fetches (the PDF) or embeds (HTML, Markdown)
+					// an `https` picture, and the model chooses its address: a picture
+					// whose address came from neither the user nor a tool is left out
+					// (docs/plans/exfil-channels), and the model hears how many. This
+					// runs before the request is hashed, keyed and submitted, so the
+					// same-turn dedupe below sees the document that is actually made.
+					const screened = await dropUnsourcedImages(normalizedInput, (urls) =>
+						urlProvenance.partition(urls),
+					);
+					if (screened.leftOut > 0) {
+						normalizedInput = screened.input;
+						inputWarnings.push(imagesLeftOutWarning(lang, screened.leftOut));
+						logRefusedAddresses({
+							tool: "produce_file",
+							allowed: screened.kept,
+							refused: screened.leftOut,
+						});
 					}
 					const { patches: _patches, ...intakeNormalizedInput } =
 						normalizedInput;
