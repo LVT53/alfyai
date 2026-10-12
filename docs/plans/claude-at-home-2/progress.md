@@ -1067,3 +1067,9 @@ the owner's review, with the fast gates measured before and after.
 |---|---|---|---|
 | FB-1 | files and downloads: F1 (Letöltés reaches nobody), F23, F25, F27, F30 | `fix/friction-files` / `art-fb1` (5400–5409) | running |
 | FB-2 | Alfy's tools and words: F2 (a chat change edits the App in place), F10, F20, F22, LV's App brief; real-model check | `fix/friction-tools` / `art-fb2` (5420–5429, tunnel 30409) | running |
+| FB-3 | the panel's motion and layout: F3, F4, F15, F19, F26 (one motion language, the sidebar folds while docked) | `fix/friction-panel` / `art-fb3` (5400–5409) | queued, batch 2 (after the weekly reset) |
+| FB-4 | the board: F8, F11, F12, F18, F24, F28, F9 (Insert menu); the editor has ~80 B of room | `fix/friction-board` / `art-fb4` (5420–5429) | queued, batch 2 |
+| FB-6 | the Document and comments: F6, F13, F14, F18, F24, F28 ("+") | `fix/friction-document` / `art-fb6` (5440–5449) | queued, batch 2 |
+| FB-5 | rows, headers and the phone: F7 (Back), F9 (rows), F21, F26 (count button), F28, F29 | `fix/friction-rows` / `art-fb5` (5400–5409) | queued, batch 3 (after FB-3) |
+| FB-7 | the first message and the reply: F5, F16, F17 | `fix/friction-first-message` / `art-fb7` (5420–5429) | queued, batch 3 (after FB-1, FB-3) |
+| FB-8 | the leftovers: RC-V M-1/M-2, the reconnect hang, `map-route-card`'s CSP, "database is locked", an App restore's metadata | `fix/friction-leftovers` / `art-fb8` (5440–5449) | queued, batch 3 |
