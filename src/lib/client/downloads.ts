@@ -35,18 +35,23 @@ import { clearSessionExpiry } from "$lib/stores/session";
 /**
  * The session probe.
  *
- * `/api/chat/stream/status` with no `conversationId` is the cheapest
- * authenticated endpoint in the app: the hook's own session lookup runs (as it
- * does for every request), and then the handler returns 400 before touching
- * the database, the filesystem or any backend. `/api/health` cannot be used —
- * it is in `PUBLIC_PATHS` and never 401s.
+ * `/api/chat/stream/status` is the cheapest authenticated endpoint in the app:
+ * the hook's own session lookup runs (as it does for every request), and then
+ * the handler answers from memory (`{ hasOrphanedStream: false }` for a
+ * conversation it has no stream for) without touching the database, the
+ * filesystem or any backend. `/api/health` cannot be used — it is in
+ * `PUBLIC_PATHS` and never 401s. The probe names a conversation that cannot
+ * exist, so it is answered 200: it used to ask with none, which the handler
+ * refuses with a 400 on purpose, and DevTools showed a red failed request at the
+ * start of every download (friction audit F30).
  *
  * The contract is deliberately one-sided: ONLY a 401 stops the download.
- * A 400 is the healthy answer here, and anything else — a 500, a network
- * blip — means we do not know, in which case letting the download proceed and
- * fail visibly beats blocking a file the user asked for.
+ * Anything else — a 500, a network blip — means we do not know, in which case
+ * letting the download proceed and fail visibly beats blocking a file the user
+ * asked for.
  */
-const SESSION_PROBE_URL = "/api/chat/stream/status";
+const SESSION_PROBE_URL =
+	"/api/chat/stream/status?conversationId=session-probe";
 
 export type FetchLike = typeof fetch;
 
@@ -78,7 +83,7 @@ export async function confirmSessionForDownload(
 			await readErrorPayload(response, "Unauthorized").catch(() => undefined);
 			return false;
 		}
-		// 400 is this probe's healthy answer — see SESSION_PROBE_URL above.
+		// Anything the gate admitted (below 500) is proof the session is good.
 		if (response.status < 500) clearSessionExpiry();
 		return true;
 	} catch {

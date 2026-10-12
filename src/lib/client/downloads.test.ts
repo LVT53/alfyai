@@ -50,19 +50,35 @@ describe("confirmSessionForDownload", () => {
 		// `/api/health` is in PUBLIC_PATHS and can never 401, so a probe of it
 		// would always say "fine".
 		const fetchImpl = vi.fn(async () =>
-			jsonResponse(400, { error: "conversationId is required" }),
+			jsonResponse(200, { hasOrphanedStream: false }),
 		);
 
 		expect(await confirmSessionForDownload(fetchImpl)).toBe(true);
 		expect(fetchImpl).toHaveBeenCalledWith(
-			"/api/chat/stream/status",
+			expect.stringMatching(/^\/api\/chat\/stream\/status\?/),
 			expect.objectContaining({ method: "GET" }),
 		);
 	});
 
-	it("treats the 400 a valid session gets as a healthy answer", async () => {
+	// F30: the probe used to name no conversation, which the handler refuses with
+	// a 400 on purpose, so DevTools showed a red failed request at the start of
+	// every download. It names one the handler answers 200 for.
+	it("asks in a form its handler answers 200, never one it refuses", async () => {
 		const fetchImpl = vi.fn(async () =>
-			jsonResponse(400, { error: "conversationId is required" }),
+			jsonResponse(200, { hasOrphanedStream: false }),
+		);
+
+		await confirmSessionForDownload(fetchImpl);
+
+		const [url] = fetchImpl.mock.calls[0] as unknown as [string];
+		expect(
+			new URL(url, "http://localhost").searchParams.get("conversationId"),
+		).toBeTruthy();
+	});
+
+	it("treats the answer a valid session gets as healthy", async () => {
+		const fetchImpl = vi.fn(async () =>
+			jsonResponse(200, { hasOrphanedStream: false }),
 		);
 		expect(await confirmSessionForDownload(fetchImpl)).toBe(true);
 		expect(isSessionExpired()).toBe(false);
@@ -102,9 +118,7 @@ describe("confirmSessionForDownload", () => {
 
 		expect(
 			await confirmSessionForDownload(
-				vi.fn(async () =>
-					jsonResponse(400, { error: "conversationId is required" }),
-				),
+				vi.fn(async () => jsonResponse(200, { hasOrphanedStream: false })),
 			),
 		).toBe(true);
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, type Response, test } from "@playwright/test";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
@@ -16,7 +16,7 @@ import { storeGeneratedFile } from "../../src/lib/server/services/chat-files";
 import { buildAiSdkUiStreamBody, login, sendMessage } from "./helpers";
 
 /**
- * A download does what it says (friction audit F1; ruling 77).
+ * A download does what it says (friction audit F1, F30; ruling 77).
  *
  * Letöltés ▸ PDF / Word / Markdown used to start an export job that succeeded in
  * under a second and then reached nobody: no download, no card, no row, and the
@@ -345,6 +345,27 @@ test.describe("the Document's Download", () => {
 		expect((await downloaded).suggestedFilename().normalize("NFC")).toBe(
 			`${TITLE}.md`.normalize("NFC"),
 		);
+	});
+
+	test("a download's own requests all answer well: no probe that is meant to fail (F30)", async ({
+		page,
+	}) => {
+		const { conversationId } = await seedDocument();
+		await openDocument(page, conversationId);
+
+		const refused: string[] = [];
+		const watch = (response: Response) => {
+			if (response.status() >= 400) {
+				refused.push(`${response.status()} ${response.url()}`);
+			}
+		};
+		page.on("response", watch);
+		const downloaded = page.waitForEvent("download", { timeout: 20_000 });
+		await chooseFormat(page, "Markdown");
+		await downloaded;
+		page.off("response", watch);
+
+		expect(refused).toEqual([]);
 	});
 
 	test("the export belongs to no reply: no job of it hangs from one, and the next reply is handed no card for it (F1's ghosts)", async ({
