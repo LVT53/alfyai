@@ -39,17 +39,70 @@ Docker.
   needs no docker-group (root-equivalent) access.
 - The fixed `ORS_BASE_URL` instance stays registered as the legacy region
   (`ROUTING_LEGACY_REGION_ID`, a Geofabrik id such as `hungary`); the app never starts or stops that
-  container.
+  container. Once that region is promoted to a managed container (configuring GTFS feeds for it does
+  this) the fixed instance is redundant: point `ORS_BASE_URL` at the managed container's published port
+  (`routing_regions.base_url`) and retire the old one. Production did this on 2026-10-05
+  (`:8088` to `:8302`); `ORS_BASE_URL` still gates the `map_route` tool and feeds the tool-health probe.
 - Each on-demand region runs in its own `alfyai-ors-<region>` container, published on the
   `ROUTING_REGION_PORT_RANGE` (default `127.0.0.1:8300-8399`). A non-resident region is stopped after
-  `ROUTING_REGION_IDLE_MINUTES` without use and restarted on demand (the graph stays on disk, so a
-  restart takes a minute or two). Regions listed in `ROUTING_RESIDENT_REGION_IDS` are built on start
-  and never stopped.
+  `ROUTING_REGION_IDLE_MINUTES` without use and restarted on demand (the graph stays on disk; on the
+  production host a restart takes about 5 to 10 seconds, see
+  [Graph storage](#graph-storage-memory-mapped-regions), though a larger region takes longer).
+  Regions listed in `ROUTING_RESIDENT_REGION_IDS` are built on start and never stopped.
 - Extracts are stored in `ROUTING_REGIONS_DIR` and built with the `ROUTING_ORS_IMAGE` image, each
   container sized to `ROUTING_REGION_XMX`. `ROUTING_REGION_MAX_PBF_MB` caps a single extract; above
   the cap is a permanent failure, not a retry.
 - `ROUTING_GEOCODER_IMPORT_CONTAINER` names a running Nominatim container that each new region is
   `nominatim add-data`'d into (its `/regions` mount must be `ROUTING_REGIONS_DIR`).
+
+### Graph storage: memory-mapped regions
+
+By default ORS loads every profile's graph into the Java heap (`graphs_data_access: RAM_STORE`), so a
+resident region keeps its whole graph in anonymous memory that the kernel can only push to swap. With
+`graphs_data_access: MMAP` ORS maps the same graph files instead and the OS page cache holds the hot
+pages, which the kernel drops and reloads at will. The on-disk format is identical, so a region
+switches in either direction without a rebuild.
+
+The app does not set this: `createRegionContainer` passes only heap and profile settings through the
+container environment. The switch lives in the region's own config file,
+`<ROUTING_REGIONS_DIR>/<region>/config/ors-config.yml`, which is bind-mounted at `/home/ors/config`
+and so survives container recreation, including the timetable rebuild (`rebuildTransit`). Insert one
+line directly under the active `engine:` key:
+
+```yaml
+ors:
+  engine:
+    graphs_data_access: MMAP
+    profile_default:
+      # ...unchanged...
+```
+
+Then restart the container gracefully (`docker stop -t 120 alfyai-ors-<region> && docker start
+alfyai-ors-<region>`). The startup log shows `MMAP_STORE` instead of `RAM_STORE` on every graph line.
+Revert by removing the line and restarting. A region the app creates later starts on the default.
+
+Production since 2026-10-05 (ORS 9.10.0): `ireland-and-northern-ireland` and `netherlands` are
+memory-mapped, `hungary` is not. Measured on the production host with identical graphs and a cold page
+cache:
+
+| | Ireland in-heap | Ireland MMAP | Netherlands in-heap | Netherlands MMAP |
+|---|---:|---:|---:|---:|
+| Restart until `/v2/health` is `ready` | 4.8 s | 2.6 s | 9.4 s | 5.2 s |
+| Java heap in use after start | 3.6 GiB | 0.08 GiB | 7.6 GiB | 0.23 GiB |
+| JVM anonymous memory after start | 5.5 GiB | 0.9 GiB | 9.8 GiB | 1.3 GiB |
+| Timetable (public-transport) rebuild | 2.6 to 3.7 min | 3.2 min | 9.0 min | 9.5 min |
+
+Routes and public-transport answers were identical in both modes. The first requests after a cold start
+fault pages in from disk (the first Netherlands transit query took about 1 s instead of 0.1 s);
+steady-state latency is the same. On the live host the switch took swap use from 28 to 17 GiB and
+`MemAvailable` from 64 to 73 GiB.
+
+**Stop these containers gracefully.** The `public-transport` profile keeps a MapDB store open. A copy of
+that store taken while its container was running (the store still flagged open) failed to load with
+`Wrong index checksum, store was not closed properly` and took the whole region's initialisation down,
+so a hard kill is likely to do the same. `docker stop` lets ORS exit in under a second (use `-t 120` for
+manual restarts). If a region ever crash-loops on that error, stop it, delete `graphs/public-transport`,
+and start it again to rebuild the timetable graph.
 
 ### Extract mirrors
 
