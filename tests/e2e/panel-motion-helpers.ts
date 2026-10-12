@@ -30,6 +30,16 @@ export type MotionFrame = {
 	composerW: number;
 	/** The sidebar's width (0 when absent). */
 	sidebarW: number;
+	/** What `startRecording` was asked to follow: each selector's box and transform, null while it is not on screen. */
+	tracked: Record<string, TrackedBox | null>;
+};
+
+export type TrackedBox = {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	transform: string;
 };
 
 export type ShiftEntry = { t: number; value: number; hadRecentInput: boolean };
@@ -49,6 +59,7 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 		let running = false;
 		let t0 = 0;
 		let inputAt: number | null = null;
+		let tracks: Record<string, string> = {};
 		const box = (selector: string): DOMRect | null => {
 			const element = document.querySelector<HTMLElement>(selector);
 			if (!element) return null;
@@ -92,6 +103,21 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 			const panel = box("aside.workspace-shell-desktop");
 			const composer = box(".composer-shell");
 			const sidebar = box("aside.sidebar-panel");
+			const tracked: Record<string, TrackedBox | null> = {};
+			for (const [name, selector] of Object.entries(tracks)) {
+				const element = document.querySelector<HTMLElement>(selector);
+				const rect = element ? element.getBoundingClientRect() : null;
+				tracked[name] =
+					element && rect && rect.width > 0
+						? {
+								x: rect.x,
+								y: rect.y,
+								w: rect.width,
+								h: rect.height,
+								transform: getComputedStyle(element).transform,
+							}
+						: null;
+			}
 			frames.push({
 				t: performance.now() - t0,
 				stageW: stage?.width ?? 0,
@@ -105,11 +131,13 @@ export async function installMotionRecorder(page: Page): Promise<void> {
 					: 0,
 				composerW: composer?.width ?? 0,
 				sidebarW: sidebar?.width ?? 0,
+				tracked,
 			});
 			requestAnimationFrame(sample);
 		};
 		const api = {
-			start() {
+			start(follow?: Record<string, string>) {
+				tracks = follow ?? {};
 				frames = [];
 				shifts.length = 0;
 				inputAt = null;
@@ -141,11 +169,19 @@ export async function recordNextLoad(page: Page): Promise<void> {
 	await page.evaluate(() => sessionStorage.setItem("__panelMotionAuto", "1"));
 }
 
-export async function startRecording(page: Page): Promise<void> {
-	await page.evaluate(() =>
-		(
-			window as unknown as { __panelMotion: { start(): void } }
-		).__panelMotion.start(),
+/** Starts the sampler. `follow` names elements (by selector) whose box and transform every frame also records. */
+export async function startRecording(
+	page: Page,
+	follow?: Record<string, string>,
+): Promise<void> {
+	await page.evaluate(
+		(tracks) =>
+			(
+				window as unknown as {
+					__panelMotion: { start(follow?: Record<string, string>): void };
+				}
+			).__panelMotion.start(tracks),
+		follow,
 	);
 }
 

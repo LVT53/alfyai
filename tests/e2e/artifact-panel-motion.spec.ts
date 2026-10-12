@@ -6,6 +6,8 @@ import { conversations } from "../../src/lib/server/db/schema";
 import { createProject } from "../../src/lib/server/services/projects";
 import {
 	createTourUser,
+	finishTour,
+	ITEM_TITLES,
 	markToursSeen,
 	openItem,
 	panelList,
@@ -14,10 +16,12 @@ import {
 	seedItem,
 	startChatAs,
 	type TourUser,
+	tourCard,
 } from "./artifact-tours-helpers";
 import { ensureSidebarExpanded, login, waitForMotionToSettle } from "./helpers";
 import {
 	installMotionRecorder,
+	type MotionFrame,
 	noteNumbers,
 	profile,
 	recordNextLoad,
@@ -458,5 +462,183 @@ test.describe("the chat keeps its room beside a docked panel", () => {
 		// Still open, with the panel still beside it (the panel gives the width up).
 		await expect(sidebar).not.toHaveClass(/sidebar-collapsed/);
 		await expect(panelShell(page)).toHaveCount(1);
+	});
+});
+
+/**
+ * F15: the first time a reader opens a Document, an App or a Canvas the tour card
+ * arrived ~230 ms after the item had painted and was put in the flow above it, so
+ * the Document moved 120-190 px, the board re-fitted (100% -> 87%) and, when the
+ * card left, moved back. The card is laid over the item now: nothing under it moves.
+ */
+test.describe("the tour card arrives without moving what the reader just saw", () => {
+	const BODIES = {
+		document: ".workspace-stage .ProseMirror",
+		app: ".workspace-stage iframe",
+		canvas: ".workspace-stage .svelte-flow__viewport",
+	} as const;
+
+	async function freshReader(page: Page, kind: keyof typeof BODIES) {
+		await installMotionRecorder(page);
+		const user = await createTourUser("en");
+		const chatId = await startChatAs(page, user);
+		await seedItem(user, chatId, kind);
+		await reopenChat(page, chatId);
+		return { user, chatId };
+	}
+
+	/** Frames from the last one before the card is on screen: what the item showed, then everything after. */
+	function sinceCard(frames: MotionFrame[]) {
+		const cardAt = frames.findIndex((frame) => frame.tracked.card !== null);
+		expect(cardAt, "the card never showed").toBeGreaterThan(0);
+		return frames.slice(Math.max(cardAt - 1, 0));
+	}
+
+	for (const kind of ["document", "app", "canvas"] as const) {
+		test(`a ${kind} stays where it painted when its card arrives and when it leaves`, async ({
+			page,
+		}) => {
+			await freshReader(page, kind);
+			await page.getByTestId("artifact-count-button").click();
+			await expect(panelList(page)).toBeVisible();
+			await waitForMotionToSettle(page);
+			await startRecording(page, {
+				card: '[data-testid="artifact-tour"]',
+				body: BODIES[kind],
+			});
+			await panelList(page)
+				.getByTestId("artifact-row")
+				.filter({ hasText: ITEM_TITLES[kind] })
+				.click();
+			await expect(tourCard(page)).toBeVisible({ timeout: 20_000 });
+			await page.waitForTimeout(400);
+			await waitForMotionToSettle(page);
+			const arrival = await stopRecording(page);
+
+			await startRecording(page, { body: BODIES[kind] });
+			await finishTour(page);
+			await page.waitForTimeout(300);
+			await waitForMotionToSettle(page);
+			const leaving = await stopRecording(page);
+
+			const moves = (frames: MotionFrame[]) => {
+				const boxes = frames
+					.map((frame) => frame.tracked.body)
+					.filter((box) => box !== null);
+				const first = boxes[0];
+				// The board's own first fit (identity -> fitted) is not the card's doing: what
+				// counts is the number of different fits it shows, which is one.
+				const fits = new Set(
+					boxes
+						.map((box) => box.transform)
+						.filter(
+							(transform) =>
+								transform !== "none" &&
+								transform !== "matrix(1, 0, 0, 1, 0, 0)",
+						),
+				);
+				return {
+					top: Math.max(...boxes.map((box) => Math.abs(box.y - first.y))),
+					width: Math.max(...boxes.map((box) => Math.abs(box.w - first.w))),
+					fits: fits.size,
+				};
+			};
+			const arriving = moves(sinceCard(arrival.frames));
+			const leaves = moves(leaving.frames);
+			noteNumbers(`tour-${kind}`, {
+				arrivalTopMove: arriving.top,
+				arrivalWidthChange: arriving.width,
+				arrivalFits: arriving.fits,
+				leaveTopMove: leaves.top,
+				leaveFits: leaves.fits,
+				shiftAll: shiftSum(arrival),
+			});
+			if (kind === "canvas") {
+				// The viewport element's box is its transform: the board is fitted once and stays so.
+				expect(arriving.fits, "the board re-fitted for the card").toBe(1);
+				expect(leaves.fits, "the board re-fitted when the card left").toBe(1);
+				expect(leaves.top, "the board moved when the card left").toBeLessThan(
+					1.5,
+				);
+				return;
+			}
+			expect(arriving.top, "the item moved when the card arrived").toBeLessThan(
+				1.5,
+			);
+			expect(arriving.width, "the item was resized for the card").toBeLessThan(
+				1.5,
+			);
+			expect(leaves.top, "the item moved when the card left").toBeLessThan(1.5);
+		});
+	}
+
+	test("the empty state's replay link is away while the replay card is up, and back when it goes", async ({
+		page,
+	}) => {
+		const user = await createTourUser("en");
+		await markToursSeen(user);
+		const chatId = await startChatAs(page, user);
+		await seedItem(user, chatId, "document", { empty: true });
+		await reopenChat(page, chatId);
+		await openItem(page, ITEM_TITLES.document);
+		const link = page.getByTestId("document-empty-replay");
+		await expect(link).toBeVisible({ timeout: 20_000 });
+
+		await link.click();
+		await expect(tourCard(page)).toBeVisible({ timeout: 20_000 });
+		await expect(link).toHaveCount(0);
+
+		await tourCard(page).getByTestId("artifact-tour-skip").click();
+		await expect(tourCard(page)).toHaveCount(0);
+		await expect(link).toBeVisible();
+	});
+
+	test.describe("on a phone", () => {
+		test.use({
+			viewport: { width: 390, height: 844 },
+			hasTouch: true,
+			isMobile: true,
+		});
+
+		test("the text does not start below the middle of the screen while the card is up", async ({
+			page,
+		}) => {
+			await freshReader(page, "document");
+			await page.getByTestId("artifact-count-button-compact").tap();
+			await expect(panelList(page)).toBeVisible();
+			await waitForMotionToSettle(page);
+			await startRecording(page, {
+				card: '[data-testid="artifact-tour"]',
+				body: ".workspace-stage .ProseMirror",
+			});
+			await panelList(page)
+				.getByTestId("artifact-row")
+				.filter({ hasText: ITEM_TITLES.document })
+				.tap();
+			await expect(tourCard(page)).toBeVisible({ timeout: 20_000 });
+			await page.waitForTimeout(400);
+			await waitForMotionToSettle(page);
+			const run = await stopRecording(page);
+
+			const settled = run.frames.at(-1);
+			const body = settled?.tracked.body;
+			const card = settled?.tracked.card;
+			expect(body && card).toBeTruthy();
+			noteNumbers("tour-phone", {
+				bodyTop: body?.y,
+				cardBottom: card ? card.y + card.h : null,
+			});
+			// The text starts high on the screen (it does not wait below a card in the flow)...
+			expect(body?.y ?? 9999).toBeLessThanOrEqual(844 / 2);
+			// ...and what the card hides of it is the card's own height, not more than a half of the screen.
+			expect((card?.y ?? 0) + (card?.h ?? 9999)).toBeLessThanOrEqual(844 / 2);
+			// Nothing moved when the card came.
+			const arrived = sinceCard(run.frames);
+			const first = arrived[0]?.tracked.body;
+			for (const frame of arrived) {
+				if (!frame.tracked.body || !first) continue;
+				expect(Math.abs(frame.tracked.body.y - first.y)).toBeLessThan(1.5);
+			}
+		});
 	});
 });

@@ -935,6 +935,13 @@ function handleTourClose(): void {
 	tourView = null;
 }
 
+/** What a body is handed as `onReplayTour`: the way to see the tour again, except while a card is up (an empty state's link to it would offer what is on screen). */
+let bodyReplayTour = $derived(
+	tourItemKind && !(tourView && tourView.itemKey === activeBodyKey)
+		? replayOpenItemTour
+		: undefined,
+);
+
 /** Shows the open item's tour again, whether or not it was seen. Handed to bodies as `onReplayTour` (their empty states link to it). */
 function replayOpenItemTour(): void {
 	const kind = tourItemKind;
@@ -2208,24 +2215,29 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		{/if}
 	{/snippet}
 
-	<!-- The first-open tour: in the content area above the item, inside the panel's own flow. -->
+	<!-- The first-open tour: a card laid over the top of the item, not in the flow above it. It is
+	     decided a moment after the item has painted (the answer is a request, the card a lazy chunk),
+	     and a card in the flow moved what the reader had just seen by its own height, re-flowed the
+	     Document and re-fitted the board; a card over the item moves nothing (FB-3, F15). -->
 	{#snippet tourCard()}
 		{#if tourView && tourView.itemKey === activeBodyKey}
-			<!-- One card per presentation. A card is on its way out for a quarter of a second after it is
-			     left, and an {#if} that turns true again in that time brings the SAME card back, with its
-			     finished state and its slide. A presentation wanted while one is leaving (the copy changed
-			     under the reader, a replay at once) is a new card, at its first slide. -->
-			{#key tourView}
-				{@const Card = tourView.Card}
-				<Card
-					tour={tourView.tour}
-					replay={tourView.replay}
-					animate
-					onSeen={handleTourSeen}
-					onDismiss={handleTourDismiss}
-					onClose={handleTourClose}
-				/>
-			{/key}
+			<div class="workspace-tour-layer" class:workspace-body-covered={historyOpen} inert={historyOpen}>
+				<!-- One card per presentation. A card is on its way out for a quarter of a second after it is
+				     left, and an {#if} that turns true again in that time brings the SAME card back, with its
+				     finished state and its slide. A presentation wanted while one is leaving (the copy changed
+				     under the reader, a replay at once) is a new card, at its first slide. -->
+				{#key tourView}
+					{@const Card = tourView.Card}
+					<Card
+						tour={tourView.tour}
+						replay={tourView.replay}
+						animate
+						onSeen={handleTourSeen}
+						onDismiss={handleTourDismiss}
+						onClose={handleTourClose}
+					/>
+				{/key}
+			</div>
 		{/if}
 	{/snippet}
 
@@ -2547,10 +2559,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{/if}
 
 			<div class="workspace-stage">
+			{#if shouldRenderMobilePreview}
+				{@render tourCard()}
+			{/if}
 			<div class="workspace-body" class:workspace-body-covered={historyOpen} inert={historyOpen} data-testid="page-scroll-container-mobile">
-				{#if shouldRenderMobilePreview}
-					{@render tourCard()}
-				{/if}
 				{#if activeArtifactBodyLoader && shouldRenderMobilePreview}
 					{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
 					{#if ArtifactBody}
@@ -2571,7 +2583,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 								onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 								onOpenHistory={() => void openHistory()}
 								onPendingReviewCountChange={handleBodyPendingReviewCountChange}
-								onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
+								onReplayTour={bodyReplayTour}
 								tourSummary={bodyTourSummary}
 								{currentUser}
 							/>
@@ -2891,10 +2903,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{/if}
 
 	<div class="workspace-stage">
+	{#if shouldRenderDesktopPreview}
+		{@render tourCard()}
+	{/if}
 	<div class="workspace-body" class:workspace-body-covered={historyOpen} inert={historyOpen} data-testid="page-scroll-container">
-		{#if shouldRenderDesktopPreview}
-			{@render tourCard()}
-		{/if}
 		{#if activeArtifactBodyLoader && shouldRenderDesktopPreview}
 			{@const ArtifactBody = loadedArtifactBodies[activeArtifactKind]}
 			{#if ArtifactBody}
@@ -2915,7 +2927,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						onOpenItem={onOpenDocument ? handleBodyOpenItem : undefined}
 						onOpenHistory={() => void openHistory()}
 						onPendingReviewCountChange={handleBodyPendingReviewCountChange}
-						onReplayTour={tourItemKind ? replayOpenItemTour : undefined}
+						onReplayTour={bodyReplayTour}
 						tourSummary={bodyTourSummary}
 						{currentUser}
 					/>
@@ -3400,6 +3412,21 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 
 	.workspace-body-covered {
 		visibility: hidden;
+	}
+
+	/* The first-open tour card is laid over the top of the item: nothing under it
+	   is moved, resized or re-fitted by its coming or going (FB-3, F15). The layer
+	   is as tall as the card and no taller, so the rest of the item stays reachable. */
+	.workspace-tour-layer {
+		position: absolute;
+		top: 0;
+		right: 0;
+		left: 0;
+		z-index: 6;
+	}
+
+	.workspace-tour-layer :global(.artifact-tour) {
+		box-shadow: var(--shadow-md);
 	}
 
 	.workspace-history-slot {
