@@ -8,6 +8,7 @@ import {
 	compactToolInputSchema,
 	createToolCallRecorder,
 	executeToolWithEnvelope,
+	markCallLocallyDistilled,
 	type ToolCallRecorder,
 } from "./shared";
 
@@ -440,5 +441,93 @@ describe("executeToolWithEnvelope result observation", () => {
 			}),
 		).resolves.toEqual({ success: true });
 		expect(recorder.getEntries()).toHaveLength(1);
+	});
+});
+
+// A connector result a local model summarised for a cloud chat model is that
+// model's words, so the turn's address check must not take an address from it
+// (ADR-0068). The summary is asked for deep inside a tool, so the call it runs in
+// is marked there and the envelope writes the mark on the call's entry, in time
+// for the observer that reads it.
+describe("executeToolWithEnvelope and a local model's summary", () => {
+	const pause = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+	it("marks the call that had a local model summarise its result, and no call beside it", async () => {
+		const observed = new Map<string, unknown>();
+		const base = createToolCallRecorder();
+		const recorder: ToolCallRecorder = {
+			record: (entry) => base.record(entry),
+			getEntries: () => base.getEntries(),
+			observeResult({ entry }) {
+				observed.set(entry.callId ?? "", entry.metadata?.localDistilled);
+			},
+		};
+		const call = (callId: string, summarise: boolean) =>
+			executeToolWithEnvelope({
+				toolName: "test_tool",
+				timeoutMs: 5_000,
+				options: { toolCallId: callId, abortSignal: undefined },
+				recorder,
+				run: async () => {
+					await pause();
+					if (summarise) markCallLocallyDistilled();
+					await pause();
+					return {
+						modelPayload: { success: true },
+						entry: {
+							callId,
+							name: "test_tool",
+							input: {},
+							status: "done" as const,
+							metadata: { ok: true },
+						},
+					};
+				},
+				onError: () => ({
+					modelPayload: { success: false },
+					entry: { callId, name: "test_tool", input: {}, status: "failed" },
+				}),
+			});
+
+		await Promise.all([call("summarised", true), call("read-whole", false)]);
+
+		const metadata = new Map(
+			base.getEntries().map((entry) => [entry.callId, entry.metadata]),
+		);
+		expect(metadata.get("summarised")).toMatchObject({
+			ok: true,
+			localDistilled: true,
+		});
+		expect(metadata.get("read-whole")).not.toHaveProperty("localDistilled");
+		expect(observed).toEqual(
+			new Map([
+				["summarised", true],
+				["read-whole", undefined],
+			]),
+		);
+	});
+
+	it("marks nothing when it is asked outside a tool call", async () => {
+		markCallLocallyDistilled();
+		const recorder = createToolCallRecorder();
+
+		await executeToolWithEnvelope({
+			toolName: "test_tool",
+			timeoutMs: 5_000,
+			options: { toolCallId: "1", abortSignal: undefined },
+			recorder,
+			run: async () => ({
+				modelPayload: { success: true },
+				entry: { name: "test_tool", input: {}, status: "done" },
+			}),
+			onError: () => ({
+				modelPayload: { success: false },
+				entry: { name: "test_tool", input: {}, status: "failed" },
+			}),
+		});
+
+		expect(recorder.getEntries()[0]?.metadata).not.toHaveProperty(
+			"localDistilled",
+		);
 	});
 });
