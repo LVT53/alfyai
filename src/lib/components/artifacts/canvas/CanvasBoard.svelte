@@ -1438,9 +1438,11 @@ function minimapColor(node: {
 		font-family: var(--font-sans);
 	}
 
+	/* The library asks to be credited, so the credit stays (never `hideAttribution`), in
+	   its corner and as quiet as a credit can be (F28). */
 	.canvas-board :global(.svelte-flow__attribution) {
 		font-size: var(--text-2xs);
-		opacity: 0.7;
+		opacity: 0.45;
 	}
 
 	.canvas-board :global(.svelte-flow__attribution a) {

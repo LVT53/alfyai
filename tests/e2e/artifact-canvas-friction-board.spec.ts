@@ -17,8 +17,11 @@ import {
 } from "../fixtures/ai/openai-compatible-scenarios";
 import { createOpenAICompatibleProviderHarness } from "../mocks/ai-provider/openai-compatible-provider";
 import {
+	nodeBox,
+	openBoard,
 	openCanvasPanel,
 	openChatAndReload,
+	PHONE,
 	seedCanvas,
 	settledCamera,
 	testUserId,
@@ -785,5 +788,112 @@ test.describe("F24: opening the comments column does not cut the board", () => {
 				path: shot("f24-comments-column-refit-1440.png"),
 			});
 		}
+	});
+});
+
+// ---- F28 ------------------------------------------------------------------------
+
+/** What the library draws for a corner of the picked block: the small dot the reader sees. */
+const cornerOf = (page: Page, id: string) =>
+	page.locator(
+		`.svelte-flow__node[data-id="${id}"] .svelte-flow__resize-control.handle.bottom.right`,
+	);
+
+test.describe("F28: a resize handle keeps its small dot and has room to be hit", () => {
+	test.describe("with a mouse", () => {
+		test.use({ viewport: { width: 1440, height: 900 } });
+
+		test("a press 10 px from the corner dot, off the 8 px square, still takes the handle", async ({
+			page,
+		}) => {
+			await openBoard(page, "Handles");
+			await page.locator('.svelte-flow__node[data-id="note-1"]').click();
+			const corner = await cornerOf(page, "note-1").boundingBox();
+			if (!corner) throw new Error("no corner handle");
+			// The dot stays a dot.
+			expect(corner.width).toBeLessThanOrEqual(12);
+			if (SHOTS) {
+				await page.screenshot({
+					path: shot("f28-handles-attribution-1440.png"),
+				});
+			}
+			const before = await nodeBox(page, "note-1");
+			const from = {
+				x: corner.x + corner.width / 2 + 10,
+				y: corner.y + corner.height / 2 + 10,
+			};
+			await page.mouse.move(from.x, from.y);
+			await page.mouse.down();
+			await page.mouse.move(from.x + 30, from.y + 15, { steps: 4 });
+			await page.mouse.move(from.x + 60, from.y + 30, { steps: 4 });
+			await page.mouse.up();
+			const after = await nodeBox(page, "note-1");
+			expect(
+				after.width,
+				"the note is wider by what the handle was dragged",
+			).toBeGreaterThan(before.width + 40);
+		});
+	});
+
+	test.describe("with a finger", () => {
+		test.use({ hasTouch: true, viewport: PHONE });
+
+		test("a touch 18 px to the side of the corner dot, a fingertip's reach, takes the handle", async ({
+			page,
+		}) => {
+			await openBoard(page, "Handles on a phone");
+			const note = await nodeBox(page, "note-1");
+			await page.touchscreen.tap(
+				note.x + note.width / 2,
+				note.y + note.height / 2,
+			);
+			const corner = await cornerOf(page, "note-1").boundingBox();
+			if (!corner) throw new Error("no corner handle");
+			const before = await nodeBox(page, "note-1");
+			// Beside the dot, level with it: clear of the selection's pill, which hangs under the block.
+			const from = {
+				x: corner.x + corner.width / 2 + 18,
+				y: corner.y + corner.height / 2 - 6,
+			};
+			const client = await page.context().newCDPSession(page);
+			await client.send("Input.dispatchTouchEvent", {
+				type: "touchStart",
+				touchPoints: [{ ...from, id: 1 }],
+			});
+			for (let step = 1; step <= 6; step += 1) {
+				await client.send("Input.dispatchTouchEvent", {
+					type: "touchMove",
+					touchPoints: [{ x: from.x + step * 10, y: from.y + step * 5, id: 1 }],
+				});
+			}
+			await client.send("Input.dispatchTouchEvent", {
+				type: "touchEnd",
+				touchPoints: [],
+			});
+			await client.detach();
+			const after = await nodeBox(page, "note-1");
+			expect(
+				after.width,
+				"the note is wider, not the board moved",
+			).toBeGreaterThan(before.width + 30);
+		});
+	});
+
+	test.describe("the library's attribution", () => {
+		test.use({ viewport: { width: 1440, height: 900 } });
+
+		test("stays, in its corner, and is quieter than the board's own text", async ({
+			page,
+		}) => {
+			await openBoard(page, "Attribution");
+			const link = page.locator(".svelte-flow__attribution a");
+			await expect(link).toBeVisible();
+			await expect(link).toHaveText(/Svelte Flow/);
+			const quiet = await page
+				.locator(".svelte-flow__attribution")
+				.evaluate((element) => Number(getComputedStyle(element).opacity));
+			expect(quiet).toBeLessThanOrEqual(0.5);
+			expect(quiet).toBeGreaterThan(0);
+		});
 	});
 });
