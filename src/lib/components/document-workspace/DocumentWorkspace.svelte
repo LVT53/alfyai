@@ -2093,7 +2093,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		>
 			<div class="workspace-header">
 				<div class="workspace-heading">
-					<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
 					<div class="workspace-title-row">
 						<div class="workspace-title" data-testid="artifact-panel-list-title" tabindex="-1">
 							<span>{list.title ?? $t('artifacts.panel.title')}</span>
@@ -2138,7 +2137,6 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		>
 			<div class="workspace-header">
 				<div class="workspace-heading">
-					<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
 					<div class="workspace-title-row">
 						<div class="workspace-title" data-testid="artifact-panel-list-title" tabindex="-1">
 							<span>{list.title ?? $t('artifacts.panel.title')}</span>

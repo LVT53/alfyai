@@ -26,9 +26,6 @@ import {
 
 const PHONE_WIDTHS = [390, 360, 430] as const;
 
-const SHOTS =
-	"/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/f7d2fd3b-f0d9-4b30-80c5-6cbea0e7a6a4/scratchpad/p5/fb9-shots";
-
 type Box = { x: number; y: number; width: number; height: number };
 
 async function boxOf(locator: Locator): Promise<Box> {
@@ -383,10 +380,62 @@ for (const [width, height, pendingOps] of [
 			if (pendingOps > 1) {
 				await expect(bar.getByText("1 / 2")).toBeVisible();
 			}
-			await page.screenshot({
-				path: `${SHOTS}/review-bar-${width}-${pendingOps}.png`,
-				clip: { x: 0, y: barBox.y - 6, width, height: barBox.height + 12 },
-			});
+		});
+	});
+}
+
+/**
+ * The panel's list used to say it twice: the eyebrow "Ez a beszélgetés" over
+ * the title "Amit ez a beszélgetés készített" (ruling 77's amendment: one of
+ * them goes). The title stays.
+ */
+async function openListInHungarian(page: Page) {
+	const conversationId = await createEmptyConversation(page, "Lista");
+	await seedDocument(conversationId, {
+		markdown: PROSE_MARKDOWN,
+		title: "Bécsi utazás",
+	});
+	await page.goto(`/chat/${conversationId}`, { waitUntil: "networkidle" });
+	const isPhone = (page.viewportSize()?.width ?? 1440) < 768;
+	await page
+		.getByTestId(
+			isPhone ? "artifact-count-button-compact" : "artifact-count-button",
+		)
+		.click();
+	const list = page.getByTestId(
+		isPhone ? "artifact-panel-list-mobile" : "artifact-panel-list",
+	);
+	await expect(list).toBeVisible();
+	return list;
+}
+
+for (const [label, size, touch] of [
+	["desktop", { width: 1440, height: 900 }, false],
+	["phone", { width: 390, height: 844 }, true],
+] as const) {
+	test.describe(`the panel's list has one heading (${label}, Hungarian)`, () => {
+		test.use({ viewport: size, hasTouch: touch });
+		test.beforeEach(async ({ page }) => {
+			await setUiLanguage("hu");
+			await login(page);
+		});
+		test.afterEach(async () => {
+			await setUiLanguage("en");
+		});
+
+		test("the title says what this chat made, and nothing repeats it above", async ({
+			page,
+		}) => {
+			const list = await openListInHungarian(page);
+			void list;
+			const title = page.locator(
+				'[data-testid="artifact-panel-list-title"]:visible',
+			);
+			await expect(title).toHaveText("Amit ez a beszélgetés készített");
+			await expect(page.locator(".workspace-eyebrow:visible")).toHaveCount(0);
+			await expect(
+				page.getByText("Ez a beszélgetés", { exact: true }),
+			).toHaveCount(0);
 		});
 	});
 }

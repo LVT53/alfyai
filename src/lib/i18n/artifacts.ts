@@ -36,7 +36,6 @@ const artifactsDict = {
 		// generic "ask about" every other kind uses.
 		"artifacts.chat.composerPlaceholderApp": "Ask Alfy to change {title}…",
 		// The panel's list state (surface 2).
-		"artifacts.panel.eyebrow": "This chat",
 		// The header's way back to the list: short, so it never wraps (FB-5, F28); the
 		// Hungarian says "Back" and the name says where it goes.
 		"artifacts.panel.crumb": "This chat",
@@ -1090,7 +1089,6 @@ const artifactsDict = {
 		// Same colon trick as above, for the same reason.
 		"artifacts.chat.composerPlaceholderApp":
 			"Kérd meg Alfyt, hogy módosítsa ezt: {title}",
-		"artifacts.panel.eyebrow": "Ez a beszélgetés",
 		"artifacts.panel.crumb": "Vissza",
 		"artifacts.panel.title": "Amit ez a beszélgetés készített",
 		"artifacts.panel.count": "{count} elem · legújabb elöl",
