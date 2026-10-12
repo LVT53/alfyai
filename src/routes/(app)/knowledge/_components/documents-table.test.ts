@@ -114,6 +114,23 @@ describe("deriveDocumentVersion", () => {
 		expect(version).toEqual({ kind: "version", versionNumber: 3 });
 	});
 
+	// Ruling 76 (Q2): no number outside History. The library lists one row per family
+	// (a generated report's family is one row, its newest version), so a "v1" here is a
+	// first version with nothing beside it: FB-8 took it off a generated file's row.
+	it("shows nothing for a first version that is not an original: a generated file's row is not 'v1'", () => {
+		expect(
+			deriveDocumentVersion(
+				doc({
+					id: "5",
+					name: "Vienna plan",
+					documentOrigin: "generated",
+					documentFamilyId: "family-generated",
+					versionNumber: 1,
+				}),
+			),
+		).toEqual({ kind: "none" });
+	});
+
 	it("shows nothing for a document with no family", () => {
 		expect(deriveDocumentVersion(doc({ id: "3", name: "audit.csv" }))).toEqual({
 			kind: "none",
