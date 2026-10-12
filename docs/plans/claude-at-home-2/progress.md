@@ -1100,3 +1100,10 @@ the owner's review, with the fast gates measured before and after.
   painted when its card arrives and leaves", :712 phone "text not below the middle" — FX-2's in-flow card vs FB-3's
   overlay), `artifact-canvas-blocks:476`, `artifact-canvas-charts:610`, `artifact-canvas-comments:153`,
   `chat-scroll-on-load:334` (phone). `dev` not pushed. → FX-4 (integration fixes) on `fix/round-integration`.
+- **FX-4 done, merged** (`5fa7e80f..d2feeb15`, 8 commits; `claude-sonnet-5-5`, 654k tokens, 261 calls, 98 min;
+  `phase-5/fx4-report.md`): the failing run had 13 (the summary prints 12; `search-modal:86` was the 13th). One product
+  regression: the phone tour card (now a compact form, 160 px instead of 214; text at y 398 instead of 453). The rest were
+  tests: the late-card fake-provider scenario hijacked four chat-card tests; the motion tests expected FB-3's overlay;
+  a pin test, a blocks test, `openCanvasPanel`, the phone drawer press, the search modal's centring. Its release gate:
+  **ALL GATES PASSED twice** (Playwright 1,146 + 60 skipped, 0 failed, 0 flaky; 10m36s, 9m02s). Open: at 360 px in HU,
+  the tour's slides 2–3 still start below the middle (the copy needs five lines there).
